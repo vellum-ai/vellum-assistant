@@ -17,21 +17,6 @@ import {
 } from "./channel-approval-types.js";
 
 // ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-/**
- * Legacy actions that map to canonical ones during client rollout.
- * All temporal/persistent approval variants collapse to approve_once.
- * Keep until all clients are updated and no in-flight buttons remain.
- */
-const LEGACY_ACTION_MAP: Record<string, string> = {
-  approve_10m: "approve_once",
-  approve_conversation: "approve_once",
-  approve_always: "approve_once",
-};
-
-// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
@@ -64,6 +49,16 @@ export type ProcessGuardianDecisionResult =
       ok: true;
       applied: false;
       reason: string;
+      /**
+       * Whether the decision was recorded before the decline. Present only
+       * for the two resolver failures: `true` under `resolver_failed` (the
+       * decision committed and its follow-through failed), `false` under
+       * `decision_not_persisted` (nothing was written; the guardian can
+       * retry). A client reads this rather than the reason so an older
+       * daemon, which reports both under `resolver_failed` and omits the
+       * field, is not misread as having committed.
+       */
+      committed?: boolean;
       resolverFailureReason?: string;
       requestId?: string;
     }
@@ -88,8 +83,8 @@ export async function processGuardianDecision(
 ): Promise<ProcessGuardianDecisionResult> {
   const { requestId, conversationId, channel, actorContext } = params;
 
-  // 1. Canonicalize legacy actions, then validate
-  const action = LEGACY_ACTION_MAP[params.action] ?? params.action;
+  // 1. Validate the action
+  const action = params.action;
   if (!isApprovalAction(action)) {
     return {
       ok: false,
@@ -138,10 +133,19 @@ export async function processGuardianDecision(
   // 4. Map the canonical result
   if (decisionResult.applied) {
     if (decisionResult.resolverFailed) {
+      // Two failures share the primitive's `resolverFailed` flag and a
+      // client has to tell them apart: a decision that committed and whose
+      // follow-through then failed is settled (another attempt can only
+      // come back already resolved), while one whose persist never landed
+      // is still pending and is the guardian's to retry. The primitive
+      // marks the difference by omitting `decidedAction` when nothing was
+      // committed (see `decisionPersistFailure`).
+      const committed = decisionResult.decidedAction !== undefined;
       return {
         ok: true,
         applied: false,
-        reason: "resolver_failed",
+        reason: committed ? "resolver_failed" : "decision_not_persisted",
+        committed,
         resolverFailureReason: decisionResult.resolverFailureReason,
         requestId: decisionResult.requestId,
       };

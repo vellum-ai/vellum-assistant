@@ -13,7 +13,7 @@ An assistant runs exactly one memory tier, derived by `memoryTier()` in
 | Tier  | Selected when                                | Injection source                                 |
 | ----- | -------------------------------------------- | ------------------------------------------------ |
 | `off` | `memory.enabled === false`                   | none                                             |
-| `v3`  | `memory.v3.live === true`                    | v3 lanes + card (`v3/injector.ts`)               |
+| `v3`  | `memory.v3.live === true`                    | v3 lanes + sections (`v3/injector.ts`)           |
 | `v2`  | `memory.v2.enabled === true` and v3 not live | v2 activation/router engine (`v2/`)              |
 | `v1`  | otherwise                                    | PKB `<knowledge_base>` block (`v1/pkb/`, legacy) |
 
@@ -87,8 +87,17 @@ graph LR
   nesting existed still parse, since an unindented body line that is not itself
   entry-shaped is read as a continuation.
 - **Consolidation** (`substrate/consolidation-job.ts`) is a background
-  agent conversation that files buffer entries into concept pages, rewrites
-  the aggregate views, and trims the buffer. Scheduling
+  agent conversation that files buffer entries into concept pages and
+  rewrites the aggregate views. The agent never writes the buffer: the job
+  snapshots `buffer.md`, hands the run its pass's entries verbatim in the
+  prompt, and after the run removes exactly those entries itself through
+  `buffer-file.ts` (the module that also owns the append path, so the two
+  writers of the buffer share one protocol). Removal happens only when the
+  run's persisted messages hold a page-writing tool call with a non-error
+  result, the same evidence bar the retrospective's cursor advance uses; a
+  run that wrote nothing, failed, or timed out leaves the buffer intact for
+  the next pass. Entries deferred past the per-run cap and entries appended
+  while the run was in flight are therefore never lost. Scheduling
   (`maybeEnqueueGraphMaintenanceJobs` in `jobs-worker.ts`):
   - interval-based (`memory.v2.consolidation_interval_hours`, default 8h),
     skipped below `MIN_BUFFER_LINES_FOR_CONSOLIDATION` (10) **unless** the
@@ -172,12 +181,20 @@ Ingested pages carry provenance frontmatter with distinct consumers:
 
 - **v3 (live)**: per-turn lane selection over concept pages (dense/sparse
   retrieval via `substrate/sim.ts` over the concept-page collection,
-  learned edges, entity/hot/fresh/core sets) rendered as the `<memory>`
-  card by `v3/injector.ts`. Frozen cards stay on historical user messages
-  so the provider prefix stays cacheable. Each turn's `<memory_spotlight>`
-  stays on the user message that was sent with it. A new spotlight is
-  added only on the new tail, so older messages are not rewritten. The
-  static `<info>` block
+  learned edges, entity/hot/fresh/core sets). The injection unit is the
+  SECTION: the selector pool lists a page once per matched section, and
+  `v3/injector.ts` renders each selected page's selected sections (its lead
+  when it was selected with none) into a `<memory>` block,
+  net-new sections only, deduped per `(page, section)` through
+  `memory_v3_injected_sections` and bounded by a recency prune valve with no
+  lane exemptions. Section bodies are backslash-escaped where a line would
+  read as a block header, so page text never forges a section boundary, and a
+  pruned section is dropped from any pointer that named it. Frozen section
+  blocks stay on historical user messages so
+  the provider prefix stays cacheable. Re-selected sections that are already
+  resident are listed, paths only, in a per-turn `<memory_pointer>` block
+  that stays on the user message it was sent with; a new pointer is added
+  only on the new tail, so older messages are not rewritten. The static `<info>` block
   (`substrate/static-context.ts`: essentials/threads/recent/buffer) also
   injects whenever the substrate is active.
 - **v2 (transitional)**: activation/router engine in `v2/`
@@ -192,8 +209,8 @@ Ingested pages carry provenance frontmatter with distinct consumers:
 
 The live voice front door does not await current-turn memory retrieval. Its
 prompt hook skips legacy graph retrieval, and both v3 injectors skip
-orchestration for `voiceFrontDoor`. Frozen cards from prior turns and the static
-substrate context remain available. When the answer depends on a saved personal
+orchestration for `voiceFrontDoor`. Frozen sections from prior turns and the
+static substrate context remain available. When the answer depends on a saved personal
 fact that is absent from that context, the front-door rule escalates instead of
 guessing.
 
@@ -252,6 +269,12 @@ weights, router, rerank) live only under `memory.v2.*`, and v3 lane tuning
 under `memory.v3.*`. The `memory.v2.enabled` flag gates only the v2 injection
 engine's turn-time selection; the substrate runs whenever
 `usesConceptPageMemory()` holds.
+
+`memory.v3.poolLog.captureInput` (off by default) makes the v3 selector
+persist its exact per-turn input beside the always-written pool audit
+(`memory_v3_pool_inputs`, `memory_v3_pool_texts`), for offline selector
+evaluation and training data; the memory plugin `AGENTS.md` documents the
+tables.
 
 `src/plugins/defaults/memory/AGENTS.md` carries the details that matter when
 you touch this: the three substrate keys whose names differ from their v2 twin,

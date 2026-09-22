@@ -1,4 +1,7 @@
-import type { McpServerConfig } from "../../config/schemas/mcp.js";
+import {
+  mcpSourceRiskLevel,
+  type ResolvedMcpServerConfig,
+} from "../../config/schemas/mcp.js";
 import type { McpToolAnnotations } from "../../mcp/client.js";
 import type { McpServerManager } from "../../mcp/manager.js";
 import { RiskLevel } from "../../permissions/types.js";
@@ -46,34 +49,31 @@ function stepRisk(risk: RiskLevel, direction: -1 | 1): RiskLevel {
 /**
  * Resolve the risk level a tool carries.
  *
- * The server's configured level is the anchor, and a tool's own MCP
- * annotations move it at most one step along {@link RISK_LADDER}.
+ * The server's origin is the anchor, and a tool's own MCP annotations
+ * move it at most one step along {@link RISK_LADDER}. Workspace servers
+ * start at medium. Plugin servers start at low.
  *
- * `destructiveHint` steps up. Raising is the safe direction, so it applies at
- * any server level.
+ * `destructiveHint` steps up. Raising is the safe direction, so it applies
+ * at any origin level.
  *
- * `readOnlyHint` steps down, and only from {@link RiskLevel.Medium}. Medium is
- * the schema default, so a server sitting at High got there because the user
- * put it there. A hint is self-reported by the server, and letting one lower a
- * deliberately pinned server would hand a lying server the auto-approval the
- * user withheld: under the Relaxed preset Medium carries no prompt at all. High
- * is therefore the floor for downward hints.
+ * `readOnlyHint` steps down, and only from {@link RiskLevel.Medium}. A
+ * workspace server can therefore step to low. A plugin server is already
+ * at low, so the hint is a no-op. High is the floor for downward hints:
+ * a tool already raised by `destructiveHint` stays raised.
  *
- * `destructiveHint` wins when a server sends both, since a tool that both reads
- * and destroys is a tool that destroys.
+ * `destructiveHint` wins when a server sends both, since a tool that both
+ * reads and destroys is a tool that destroys.
  *
  * The MCP spec defaults `destructiveHint` to true when it is absent. This
- * deliberately does not, because the server's configured level already answers
- * that question: choosing a level for a server is the user's statement about
- * what its unlabeled tools are worth. Honoring the spec default instead would
- * put every tool of every unannotated server back at High, which is the
- * behavior this replaces.
+ * deliberately does not, because the origin already answers that question
+ * for unlabeled tools. Honoring the spec default instead would put every
+ * tool of every unannotated server back at High.
  */
 function resolveRiskLevel(
   metadata: McpToolMetadata,
-  serverConfig: McpServerConfig,
+  serverConfig: ResolvedMcpServerConfig,
 ): RiskLevel {
-  const serverRisk = riskMap[serverConfig.defaultRiskLevel] ?? RiskLevel.High;
+  const serverRisk = riskMap[mcpSourceRiskLevel(serverConfig.source)];
   const annotations = metadata.annotations;
   if (annotations?.destructiveHint === true) {
     return stepRisk(serverRisk, 1);
@@ -91,7 +91,7 @@ function resolveRiskLevel(
 export function createMcpTool(
   metadata: McpToolMetadata,
   serverId: string,
-  serverConfig: McpServerConfig,
+  serverConfig: ResolvedMcpServerConfig,
   manager: McpServerManager,
 ): Tool {
   const namespacedName = mcpToolName(serverId, metadata.name);
@@ -151,7 +151,7 @@ export function createMcpTool(
 export function createMcpToolsFromServer(
   tools: McpToolMetadata[],
   serverId: string,
-  serverConfig: McpServerConfig,
+  serverConfig: ResolvedMcpServerConfig,
   manager: McpServerManager,
 ): Tool[] {
   return tools.map((tool) =>

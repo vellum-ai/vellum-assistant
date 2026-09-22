@@ -27,7 +27,7 @@ import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import type { ReactElement, ReactNode } from "react";
 
 import { PluginListRow } from "@/domains/intelligence/components/plugins/plugin-list-row.js";
-import type { PluginListItem } from "@/domains/intelligence/plugins/types.js";
+import type { PluginListItem } from "@/lib/plugins/types.js";
 import type { PluginDrift } from "@/domains/intelligence/use-plugin-drift.js";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store.js";
 import { MIN_VERSION } from "@/lib/backwards-compat/use-supports-plugin-icons.js";
@@ -383,6 +383,46 @@ describe("PluginListRow", () => {
         })}
         onSelect={mock(() => {})}
         onRemove={mock(() => {})}
+      />,
+    );
+
+    expect(container.querySelector("img")).toBeNull();
+  });
+
+  test("available row renders the catalog emoji icon", () => {
+    const { container } = renderRow(
+      <PluginListRow
+        assistantId={ASSISTANT_ID}
+        item={makeItem({ status: "available", external: true, icon: "🦴" })}
+        onSelect={() => {}}
+      />,
+    );
+
+    expect(container.querySelector("img")).toBeNull();
+    expect(container.textContent).toContain("🦴");
+  });
+
+  test("available row renders a platform-hosted iconUrl as an <img> without the version gate", () => {
+    // Version stays null: the catalog icon is a plain URL, not the daemon's
+    // bundled-icon endpoint, so the gate must not suppress it.
+    const url = "https://assets.example/coffee/icon.png?v=abc";
+    const { container } = renderRow(
+      <PluginListRow
+        assistantId={ASSISTANT_ID}
+        item={makeItem({ status: "available", external: true, iconUrl: url })}
+        onSelect={() => {}}
+      />,
+    );
+
+    expect(container.querySelector("img")?.getAttribute("src")).toBe(url);
+  });
+
+  test("installed row never renders a URL-shaped icon as an <img>", () => {
+    const { container } = renderRow(
+      <PluginListRow
+        assistantId={ASSISTANT_ID}
+        item={makeItem({ status: "installed", icon: "http://127.0.0.1" })}
+        onSelect={() => {}}
       />,
     );
 

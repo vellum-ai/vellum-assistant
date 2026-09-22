@@ -12,6 +12,22 @@ Evidence columns name the focused test (under `src/`) or the packaged smoke
 (`scripts/package-smoke.ts`, run by `.github/workflows/windows-package-smoke.yaml`)
 that exercises the Windows behavior.
 
+## Notification sender parity
+
+Under `push-avatar-sender`, Windows consumes the same optional exact sender
+payload as macOS through the shared Electron notification module. The native
+helper stages the verified avatar for the toast app-logo slot, promotes the
+assistant name to the title, and uses the conversation title as the subtitle.
+Actions, tap identifiers, and delivery acknowledgments keep their existing
+owners. If the sender is absent or malformed, the plain route receives no
+sender decoration. `local-notification-avatar` does not select the Windows
+helper route, and the macOS grant-time sender confirmation has no Windows
+counterpart.
+
+The packaged Windows result remains `NOT RUN`. Its required cases and rollout
+status are recorded in the canonical
+[notification avatar and local delivery QA ledger](../../../docs/notification-avatar-local-qa.md).
+
 ## Renderer bridge
 
 | Bridge key                                                            | Windows module                                                                                         | macOS counterpart                           | Evidence                                                                        |
@@ -25,7 +41,7 @@ that exercises the Windows behavior.
 | `helper.hotkey` (voice mode chord, registration state)                | `preload/features/dictation.ts`, `main/features/voice-mode-chord.ts`, `native/.../VoiceModeChordService.cs`    | `native/mac-helper` (voice key hold)        | `main/voice-mode-chord.test.ts`, `native/Vellum.WindowsHelper.Tests`                |
 | `permissions`, `text`                                                 | `preload/features/permissions.ts`, `main/features/permissions.ts`                                      | `main/permissions.ts`                       | `main/permissions-feature.test.ts`                                              |
 | `status`, `identity`, `icon`, `dock`, `power`, `connectivity`         | `preload/features/presence.ts`, `main/features/presence.ts`, `main/tray.ts`, `main/taskbar.ts`         | `main/dock.ts`, `main/tray.ts`              | `preload/presence-feature.test.ts`, `main/tray.test.ts`, `main/taskbar.test.ts` |
-| `share`, `notifications`                                              | `preload/features/notifications-share.ts`, `main/features/share.ts`, `main/features/notifications.ts`  | `main/share.ts`, `main/notifications.ts`    | `main/notifications-share-feature.test.ts`                                      |
+| `share`, `notifications`                                              | `preload/features/notifications-share.ts`, `main/features/share.ts`, `main/features/notifications.ts`, `native/.../NotificationService.cs` (a toast from a sender takes the assistant avatar as its app-logo image, the assistant's name as its title, and the conversation title as its subtitle) | `main/share.ts`, `main/notifications.ts`    | `main/notifications-share-feature.test.ts`, `native/Vellum.WindowsHelper.Tests` |
 | `downloads`                                                           | `preload/features/downloads.ts`, `main/features/downloads.ts`                                          | `@vellumai/electron-desktop` `downloads.ts` | `@vellumai/electron-desktop` `downloads.test.ts`                                |
 | `localMode`                                                           | `preload/features/local-mode.ts`, `main/features/local-mode.ts`, `main/local-mode-providers.ts`        | `main/local-mode.client.ts`                 | `main/local-mode-feature.test.ts`, `main/cli-provisioning.test.ts`              |
 | `fileOpen`, `paths`                                                   | `preload/features/paths.ts`, `main/features/file-open.ts`                                              | `main/file-open.ts`                         | `preload/paths.test.ts`, `main/file-open.test.ts`                               |

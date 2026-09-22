@@ -87,6 +87,7 @@ import {
   type QueuedMessage,
 } from "../daemon/conversation-queue-manager.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
+import { mockUnownedModeSessions } from "./helpers/mock-conversation.js";
 
 // ---------------------------------------------------------------------------
 // Fake context — captures preactivation calls, satisfies the bare minimum
@@ -117,6 +118,7 @@ function makeFakeContext(opts: {
     abortController: null,
     queue: opts.queue,
     surfaceActionRequestIds: new Set<string>(),
+    modeSessions: mockUnownedModeSessions(),
     usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
     get preactivatedSkillIds(): string[] | undefined {
       return preactivatedSkillIds;
@@ -409,7 +411,9 @@ describe("drainQueue preactivation re-add for host-proxy interfaces", () => {
       "U-contact",
     );
     expect(ctx.currentTurnTrustContext?.sourceChannel).toBe("slack");
-    // The slot itself is left alone; only the turn's view is corrected.
+    // The slot itself is left alone; only the turn's view is corrected. A
+    // drain stamping it would attribute the conversation to a sender whose
+    // turn can still lose the processing lock at persist time.
     expect(ctx.trustContext?.trustClass).toBe("guardian");
   });
 

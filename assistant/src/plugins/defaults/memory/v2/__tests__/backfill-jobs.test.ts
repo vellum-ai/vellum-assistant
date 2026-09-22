@@ -131,6 +131,7 @@ mock.module(
       reason: null,
     }),
     selectedBackendSupportsMultimodal: async () => false,
+    durableEmbeddingCacheExtras: () => [],
   }),
 );
 

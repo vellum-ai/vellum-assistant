@@ -73,6 +73,9 @@ export type SameActorOp =
   | "host_bash"
   | "host_file"
   | "host_cu"
+  // Rides the host_cu transport but is granted separately, so a rejection
+  // logged as host_cu would name a capability the caller may well hold.
+  | "host_cu_annotate"
   | "host_browser"
   | "host_app_control"
   | "host_transfer"
@@ -100,7 +103,7 @@ export interface SameActorLiveArgs {
 export interface SameActorPersistedArgs {
   sourceActorPrincipalId: string | undefined;
   targetActorPrincipalId: string | undefined;
-  targetClientId: string;
+  targetClientId?: string;
   op: SameActorOp;
   /**
    * Fill-if-missing fallback for dev-bypass deployments: when the PERSISTED
@@ -133,14 +136,13 @@ function isLive(
 function detectRejection(
   args: SameActorLiveArgs | SameActorPersistedArgs,
 ): RejectionReason | undefined {
-  const { sourceActorPrincipalId, targetClientId, op } = args;
+  const { sourceActorPrincipalId, op } = args;
+  const targetClientId = args.targetClientId;
   const targetActorPrincipalId = isLive(args)
-    ? args.hub.getActorPrincipalIdForClient(targetClientId)
+    ? args.hub.getActorPrincipalIdForClient(args.targetClientId)
     : (args.targetActorPrincipalId ??
-      (isHttpAuthDisabled()
-        ? args.hubForMissingTarget?.getActorPrincipalIdForClient(
-            targetClientId,
-          )
+      (isHttpAuthDisabled() && targetClientId
+        ? args.hubForMissingTarget?.getActorPrincipalIdForClient(targetClientId)
         : undefined));
 
   let reason: RejectionReason | undefined;
@@ -258,6 +260,64 @@ export function pickSameUserAutoResolve(args: {
     return { kind: "match", clientId: sameUser[0].clientId };
   }
   return { kind: "ambiguous" };
+}
+
+/**
+ * Pick the most recently active capable client owned by the turn actor.
+ * `listClientsByCapability` is ordered by recent activity, so the first
+ * same-user match provides deterministic routing without broadcasting a host
+ * request across multiple devices.
+ */
+export function pickMostRecentSameUserClient(args: {
+  hub: Pick<AssistantEventHub, "listClientsByCapability">;
+  capability: HostProxyCapability;
+  sourceActorPrincipalId: string | undefined;
+}): string | undefined {
+  const { hub, capability, sourceActorPrincipalId } = args;
+  if (sourceActorPrincipalId == null) {
+    return undefined;
+  }
+  return hub
+    .listClientsByCapability(capability)
+    .find((client) => client.actorPrincipalId === sourceActorPrincipalId)
+    ?.clientId;
+}
+
+/**
+ * Error result for an automatic host route with no capable client owned by the
+ * actor that initiated the turn.
+ */
+export function unavailableSameUserClientError(
+  capability: HostProxyCapability,
+): {
+  content: string;
+  isError: true;
+} {
+  return {
+    content: `No connected ${capability} client belongs to this user. Connect a capable client signed in as the same user, then retry.`,
+    isError: true,
+  };
+}
+
+/**
+ * Actor principal persisted on a host-proxy pending interaction.
+ *
+ * Targeted dispatch snapshots the target client's actor. Untargeted dispatch
+ * snapshots the turn's source actor so result routes can still reject a
+ * different principal even when no `targetClientId` was bound.
+ */
+export function snapshotHostProxyActorPrincipalId(args: {
+  hub: Pick<AssistantEventHub, "getActorPrincipalIdForClient">;
+  targetClientId?: string;
+  sourceActorPrincipalId?: string;
+}): string | undefined {
+  if (args.targetClientId != null) {
+    return (
+      args.hub.getActorPrincipalIdForClient(args.targetClientId) ??
+      args.sourceActorPrincipalId
+    );
+  }
+  return args.sourceActorPrincipalId;
 }
 
 /**

@@ -20,6 +20,7 @@ let mockState: StateRow = null;
 let stateUpserts: Array<{
   conversationId: string;
   lastProcessedMessageId: string;
+  lastProcessedCreatedAt?: number | null;
   lastRunAt: number;
   rememberedLog?: string[];
 }> = [];
@@ -116,6 +117,21 @@ let loadedConversations: Record<string, { processing: boolean }> = {};
 // the stale-flag override's age check. Absent ids read as null (stampless).
 let processingStartedAtById: Record<string, number | null> = {};
 
+// The source conversation's recorded wire surface (what its last live turn
+// sent to the provider, and whether that turn's prompt rendered the
+// delegation section). `null` = no live turn has recorded one yet.
+let mockSourceToolSurface: {
+  tools: Array<Record<string, unknown>>;
+  delegateIndependentTasks: boolean | null;
+} | null = null;
+let toolSurfaceReads: string[] = [];
+mock.module("../../../../persistence/conversation-tool-surface.js", () => ({
+  getConversationToolSurface: (conversationId: string) => {
+    toolSurfaceReads.push(conversationId);
+    return mockSourceToolSurface;
+  },
+}));
+
 const watchdogEvents: Array<{
   checkName: string;
   value?: number | null;
@@ -149,6 +165,7 @@ mock.module("../memory-retrospective-state.js", () => ({
   upsertRetrospectiveState: (args: {
     conversationId: string;
     lastProcessedMessageId: string;
+    lastProcessedCreatedAt?: number | null;
     lastRunAt: number;
     rememberedLog?: string[];
   }) => {
@@ -332,15 +349,16 @@ mock.module("../../../../persistence/jobs-store.js", () => ({
   },
 }));
 
-// The v3-tier gate. Drives both `buildForkInstruction`'s skill-authoring
-// section (proc-to-skills) and the wake's origin pin behavior. Default inactive
-// (remember-only), matching a stock install; tests flip it on to assert the
-// authoring section.
-let mockV3TierActive = false;
+// Retrospective skill improvement is distinct from the v3 tier. Keep v3 live
+// while flipping the authoring gate so these tests prove the job reads the
+// dedicated predicate rather than using the broader tier predicate.
+let mockV3TierActive = true;
+let mockSkillImprovementActive = false;
 mock.module("../../../../config/memory-v3-gate.js", () => ({
   isMemoryEnabled: (config?: { memory?: { enabled?: boolean } }) =>
     config?.memory?.enabled !== false,
   isV3TierActive: () => mockV3TierActive,
+  isSkillImprovementActive: () => mockSkillImprovementActive,
   isMemoryV3Live: () => mockV3TierActive,
   usesConceptPageMemory: (memory?: {
     enabled?: boolean;
@@ -504,7 +522,10 @@ describe("memoryRetrospectiveJob", () => {
     processingStartedAtById = {};
     mockResolvedUserSlug = "alice";
     resolveUserSlugCalls = [];
-    mockV3TierActive = false;
+    mockV3TierActive = true;
+    mockSkillImprovementActive = false;
+    mockSourceToolSurface = null;
+    toolSurfaceReads = [];
   });
 
   test("first-run happy path: no state row, no prior retrospective, both pointer fields set on success", async () => {
@@ -518,6 +539,11 @@ describe("memoryRetrospectiveJob", () => {
     }
     expect(stateUpserts).toHaveLength(1);
     expect(stateUpserts[0]!.lastProcessedMessageId).toBe("m3");
+    // The cutoff's `createdAt` rides along so the cursor keeps bounding reads
+    // after a regenerate deletes m3.
+    expect(stateUpserts[0]!.lastProcessedCreatedAt).toBe(
+      Date.parse("2026-05-11T10:10:00Z"),
+    );
     expect(lastRunAtBumps).toHaveLength(0);
     expect(wakeCalls).toHaveLength(1);
     // Forks off the source so future runs can find it via
@@ -1308,7 +1334,7 @@ describe("memoryRetrospectiveJob", () => {
   });
 
   test("wake allows memory saves + skill authoring and suppresses the internal wake surface", async () => {
-    mockV3TierActive = true;
+    mockSkillImprovementActive = true;
     await memoryRetrospectiveJob(makeJob(), stubConfig);
 
     expect(forkCalls).toHaveLength(1);
@@ -1331,8 +1357,9 @@ describe("memoryRetrospectiveJob", () => {
     expect(opts.hintRole).toBe("user");
   });
 
-  test("wake is remember-only when proc-to-skills is inactive", async () => {
-    mockV3TierActive = false;
+  test("wake is remember-only when skill improvement is disabled on a live v3 tier", async () => {
+    mockV3TierActive = true;
+    mockSkillImprovementActive = false;
     await memoryRetrospectiveJob(makeJob(), stubConfig);
 
     expect(wakeCalls).toHaveLength(1);
@@ -1830,6 +1857,63 @@ describe("memoryRetrospectiveJob", () => {
       clientOs: "web",
       requestOrigin: "memory_retrospective",
     });
+  });
+
+  test("replays the source's recorded wire tool surface verbatim on the fork wake", async () => {
+    mockSourceToolSurface = {
+      tools: [
+        { name: "bash", description: "Run", input_schema: {} },
+        { name: "remember", description: "Save", input_schema: {} },
+        { name: "bell_jingle", description: "Ring", input_schema: {} },
+        { type: "web_search_20250305", name: "web_search", max_uses: 5 },
+      ],
+      delegateIndependentTasks: true,
+    };
+
+    await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(toolSurfaceReads).toEqual(["src-conv-1"]);
+    expect(wakeCalls).toHaveLength(1);
+    // The exact recorded array rides to the wake; the fork sends it in place
+    // of the surface it would resolve for itself.
+    expect(wakeCalls[0]!.opts.wireToolDefinitions).toEqual(
+      mockSourceToolSurface.tools,
+    );
+    // The delegation-section state the source's prompt rendered rides with
+    // it, so the fork's system prompt matches too.
+    expect(wakeCalls[0]!.opts.delegateIndependentTasks).toBe(true);
+    // The execution-side pin still rides alongside it.
+    expect(wakeCalls[0]!.opts.toolGateMode).toBe("execution");
+    expect(wakeCalls[0]!.opts.toolContextPin).toBeDefined();
+  });
+
+  test("a surface recorded without the delegation state leaves the fork to derive the section", async () => {
+    // A row written before the state was recorded: the array still replays,
+    // and the prompt gate falls back to the wake's own answer.
+    mockSourceToolSurface = {
+      tools: [{ name: "remember", description: "Save", input_schema: {} }],
+      delegateIndependentTasks: null,
+    };
+
+    await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(wakeCalls).toHaveLength(1);
+    expect(wakeCalls[0]!.opts.wireToolDefinitions).toEqual(
+      mockSourceToolSurface.tools,
+    );
+    expect("delegateIndependentTasks" in wakeCalls[0]!.opts).toBe(false);
+  });
+
+  test("no recorded source surface → no wireToolDefinitions; the pin alone shapes the wire", async () => {
+    mockSourceToolSurface = null;
+
+    await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(toolSurfaceReads).toEqual(["src-conv-1"]);
+    expect(wakeCalls).toHaveLength(1);
+    expect("wireToolDefinitions" in wakeCalls[0]!.opts).toBe(false);
+    expect("delegateIndependentTasks" in wakeCalls[0]!.opts).toBe(false);
+    expect(wakeCalls[0]!.opts.toolContextPin).toBeDefined();
   });
 
   test("execution mode is unconditional → toolContextPin rides even without a resolved profile", async () => {
@@ -2538,7 +2622,7 @@ describe("memoryRetrospectiveJob", () => {
   });
 
   test("proc-to-skills active: instruction carries the pre-check + dedup + companion-file directives", async () => {
-    mockV3TierActive = true;
+    mockSkillImprovementActive = true;
 
     await memoryRetrospectiveJob(makeJob(), stubConfig);
 

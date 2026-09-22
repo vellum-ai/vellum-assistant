@@ -1,8 +1,17 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  QueryClient,
+  QueryClientProvider,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, renderHook, waitFor } from "@testing-library/react";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 
+import {
+  beginAssistantRequest,
+  recordAssistantResponse,
+  resetAssistantRequestActivity,
+} from "@/assistant/request-activity";
 import type { AssistantState } from "@/assistant/types";
 
 const sdkMock = mock(
@@ -426,4 +435,69 @@ describe("useAssistantIsServing", () => {
       { timeout: 5000 },
     );
   });
+});
+
+describe("daemon traffic supersedes stale operational status", () => {
+  beforeEach(() => {
+    setLifecycle({ kind: "active", isLocal: false });
+    resetAssistantRequestActivity("a-1");
+  });
+  afterEach(() => {
+    cleanup();
+    resetAssistantRequestActivity(null);
+  });
+
+  test.each([
+    ["sleeping", "", "active"],
+    ["waking", "", "active"],
+    ["unreachable", "", "active"],
+    ["upgrading_assistant_version", "", "upgrading_assistant_version"],
+    ["restarting", "", "restarting"],
+    ["migrating", "", "migrating"],
+    ["maintenance_mode", "", "maintenance_mode"],
+    ["crash_loop", "", "crash_loop"],
+    ["not_found", "", "not_found"],
+    ["waking", "failed", "waking"],
+  ] as const)(
+    "success projects %s (%s) to %s without changing server data",
+    async (state, detail_state, expected) => {
+      sdkMock.mockImplementation(async () => {
+        recordAssistantResponse(beginAssistantRequest("a-1"), false);
+        return {
+          data: { state, detail_state },
+          error: undefined,
+          response: Response.json({}),
+        };
+      });
+      const { result } = renderHook(
+        () => ({
+          status: useAssistantOperationalStatus("a-1"),
+          serving: useAssistantIsServing("a-1"),
+          client: useQueryClient(),
+        }),
+        { wrapper },
+      );
+      await waitFor(() =>
+        expect(result.current.status.data?.state).toBe(state),
+      );
+      act(() => recordAssistantResponse(beginAssistantRequest("a-1"), true));
+      await waitFor(() =>
+        expect(result.current.status.data?.state).toBe(expected),
+      );
+      if (expected === "active") {expect(result.current.serving).toBe(true);}
+      expect(sdkMock).toHaveBeenCalledTimes(1);
+      expect(
+        result.current.client.getQueryCache().getAll()[0]?.state.data,
+      ).toMatchObject({ state });
+      const delayed = beginAssistantRequest("a-1");
+      await act(async () => {
+        await result.current.status.refetch();
+      });
+      await waitFor(() =>
+        expect(result.current.status.data?.state).toBe(state),
+      );
+      act(() => recordAssistantResponse(delayed, true));
+      expect(result.current.status.data?.state).toBe(state);
+    },
+  );
 });

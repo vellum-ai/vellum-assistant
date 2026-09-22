@@ -1,5 +1,6 @@
 import * as appStore from "../../../../apps/app-store.js";
 import { executeAppDelete } from "../../../../tools/apps/executors.js";
+import { throwIfCancelled } from "../../../../tools/shared/abort.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -7,7 +8,8 @@ import type {
 
 export async function run(
   input: Record<string, unknown>,
-  _context: ToolContext,
+  context: ToolContext,
 ): Promise<ToolExecutionResult> {
+  throwIfCancelled(context);
   return executeAppDelete({ app_id: input.app_id as string }, appStore);
 }

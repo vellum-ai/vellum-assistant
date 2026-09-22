@@ -46,22 +46,24 @@ function Checkbox({
 
   const rootClasses = cn(
     "inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px]",
-    "border transition-colors outline-none cursor-pointer",
+    "border-2 transition-colors outline-none cursor-pointer",
     "keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)] keyboard-focus:ring-offset-0",
-    "bg-[var(--surface-lift)] border-[var(--border-base)]",
-    "data-[state=checked]:bg-[var(--system-positive-strong)] data-[state=checked]:border-transparent",
-    "data-[state=indeterminate]:bg-[var(--system-positive-strong)] data-[state=indeterminate]:border-transparent",
+    // Unchecked box uses the field fill and a tertiary-content border so
+    // the control stays visible on a lift-surface card in dark theme.
+    "bg-[var(--field-bg)] border-[var(--content-tertiary)]",
+    "data-[state=checked]:bg-[var(--primary-active)] data-[state=checked]:border-transparent",
+    "data-[state=indeterminate]:bg-[var(--primary-active)] data-[state=indeterminate]:border-transparent",
     "disabled:cursor-not-allowed disabled:bg-[var(--surface-overlay)]",
     "disabled:data-[state=checked]:bg-[var(--surface-overlay)]",
     "disabled:data-[state=indeterminate]:bg-[var(--surface-overlay)]",
-    "disabled:border-[var(--border-base)]",
+    "disabled:border-[var(--border-disabled)]",
   );
 
   const iconClasses = cn(
     "h-3 w-3",
     disabled
       ? "text-[color:var(--content-disabled)]"
-      : "text-[color:var(--aux-white)]",
+      : "text-[color:var(--content-inset)]",
   );
 
   const checkbox = (
@@ -100,7 +102,7 @@ function Checkbox({
     <div
       data-slot="checkbox"
       className={cn(
-        "flex gap-2.5",
+        "flex gap-2",
         helperText ? "items-start" : "items-center",
         className,
       )}
@@ -110,7 +112,7 @@ function Checkbox({
         {label ? (
           <Typography
             as="label"
-            variant="body-medium-default"
+            variant="body-medium-lighter"
             id={labelId}
             htmlFor={resolvedId}
             className={cn(
@@ -126,7 +128,7 @@ function Checkbox({
         {helperText ? (
           <span
             id={helperTextId}
-            className="text-body-small-default text-[color:var(--content-secondary)]"
+            className="text-body-small-default text-[color:var(--content-tertiary)]"
           >
             {helperText}
           </span>

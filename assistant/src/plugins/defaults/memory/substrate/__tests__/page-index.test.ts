@@ -25,7 +25,6 @@ const skillState: { entries: SkillEntry[] } = { entries: [] };
 const failingSlugs = new Set<string>();
 
 mock.module("../skill-store.js", () => ({
-  SKILL_SLUG_PREFIX: "skills/",
   listSkillEntries: () => skillState.entries,
 }));
 

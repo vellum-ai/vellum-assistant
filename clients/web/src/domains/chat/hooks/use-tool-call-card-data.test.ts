@@ -29,7 +29,7 @@ import { toolCallStatusWireFields } from "@/domains/chat/utils/message-test-help
 import type {
   ToolActivityMetadata,
   WebSearchResultItem,
-} from "@/assistant/web-activity-types";
+} from "@vellumai/assistant-api";
 
 function makeResult(
   i: number,
@@ -81,6 +81,7 @@ describe("computeToolCallCardData — step kinds", () => {
       title: "Working",
       info: "echo hello",
       activity: "",
+      actionDisplayKey: "terminal",
       riskLevel: undefined,
       iconName: "terminal",
       toolCallId: "tc-1",
@@ -92,6 +93,7 @@ describe("computeToolCallCardData — step kinds", () => {
     // carousels the live step ("Working | echo hello").
     expect(data.currentStepTitle).toBe("Working");
     expect(data.currentStepInfo).toBe("echo hello");
+    expect(data.currentStepActionDisplayKey).toBe("terminal");
   });
 
   test("carries activity + riskLevel on the `tool` step and prefers activity for currentStepInfo", () => {
@@ -117,6 +119,7 @@ describe("computeToolCallCardData — step kinds", () => {
     });
     // Collapsed-header subtext prefers the rich activity sentence.
     expect(data.currentStepInfo).toBe("Greeting the user from the shell");
+    expect(data.currentStepActionDisplayKey).toBeUndefined();
   });
 
   test("falls back to terse info for currentStepInfo when no activity is present", () => {
@@ -459,6 +462,74 @@ describe("computeToolCallCardDataFromItems — interleaved ordering", () => {
     const data = computeToolCallCardDataFromItems(items, {});
     expect(data.steps).toHaveLength(1);
     expect(data.steps[0]!.kind).toBe("tool");
+  });
+});
+
+describe("computeToolCallCardDataFromItems - explicit activity", () => {
+  const settledToolThenThinking = (): ToolCallCardItem[] => [
+    {
+      kind: "toolCall",
+      toolCall: makeToolCall({
+        id: "tc-complete",
+        name: "bash",
+        status: "completed",
+        input: { command: "date" },
+      }),
+    },
+    { kind: "thinking", text: "Preparing the next step" },
+  ];
+
+  test("keeps trailing thinking live only while its transcript group is active", () => {
+    expect(
+      computeToolCallCardDataFromItems(
+        settledToolThenThinking(),
+        {},
+        undefined,
+        { active: true },
+      ).state,
+    ).toBe("loading");
+    expect(
+      computeToolCallCardDataFromItems(settledToolThenThinking(), {}).state,
+    ).toBe("complete");
+  });
+
+  test("active loading takes precedence over a completed error", () => {
+    const items: ToolCallCardItem[] = [
+      {
+        kind: "toolCall",
+        toolCall: makeToolCall({
+          id: "tc-error",
+          name: "bash",
+          status: "error",
+          isError: true,
+        }),
+      },
+      { kind: "thinking", text: "Recovering" },
+    ];
+
+    expect(
+      computeToolCallCardDataFromItems(items, {}, undefined, { active: true })
+        .state,
+    ).toBe("loading");
+  });
+
+  test("denial remains stronger than explicit activity", () => {
+    const items: ToolCallCardItem[] = [
+      {
+        kind: "toolCall",
+        toolCall: makeToolCall({
+          id: "tc-denied",
+          name: "bash",
+          confirmationDecision: "denied",
+        }),
+      },
+      { kind: "thinking", text: "Waiting" },
+    ];
+
+    expect(
+      computeToolCallCardDataFromItems(items, {}, undefined, { active: true })
+        .state,
+    ).toBe("denied");
   });
 });
 

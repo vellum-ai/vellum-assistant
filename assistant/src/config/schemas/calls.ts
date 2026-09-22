@@ -26,32 +26,8 @@ const CallsDisclosureConfigSchema = z
     "Controls whether and how the assistant discloses its nature at the start of a phone call",
   );
 
-const CallsSafetyConfigSchema = z
-  .object({
-    denyCategories: z
-      .array(
-        z.string({
-          error: "calls.safety.denyCategories values must be strings",
-        }),
-      )
-      .default([])
-      .describe(
-        "Categories of calls that should be denied (e.g. for safety or compliance reasons)",
-      ),
-  })
-  .describe("Safety guardrails for phone calls");
-
 const CallsVoiceConfigSchema = z
   .object({
-    interruptSensitivity: z
-      .enum(["low", "medium", "high"], {
-        error:
-          "calls.voice.interruptSensitivity must be one of: low, medium, high",
-      })
-      .default("low")
-      .describe(
-        "How aggressively the STT provider detects the start of caller speech — low reduces false interrupts from background noise",
-      ),
     telephonyStreaming: z
       .boolean({
         error: "calls.voice.telephonyStreaming must be a boolean",
@@ -227,7 +203,6 @@ export const CallsConfigSchema = z
     disclosure: CallsDisclosureConfigSchema.default(
       CallsDisclosureConfigSchema.parse({}),
     ),
-    safety: CallsSafetyConfigSchema.default(CallsSafetyConfigSchema.parse({})),
     voice: CallsVoiceConfigSchema.default(CallsVoiceConfigSchema.parse({})),
     callerIdentity: CallerIdentityConfigSchema.default(
       CallerIdentityConfigSchema.parse({}),
@@ -236,6 +211,4 @@ export const CallsConfigSchema = z
       CallsVerificationConfigSchema.parse({}),
     ),
   })
-  .describe(
-    "Phone call configuration — controls telephony, voice, safety, and call behavior",
-  );
+  .describe("Phone call configuration: telephony, voice, and call behavior");

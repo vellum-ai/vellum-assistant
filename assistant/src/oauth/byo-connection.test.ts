@@ -308,6 +308,66 @@ describe("BYOOAuthConnection", () => {
       expect((init as RequestInit).method).toBe("GET");
     });
 
+    test("follows a cross-origin redirect without the credential and returns the target's bytes", async () => {
+      // Real fetch against two loopback origins: the credential goes to the
+      // host the caller named, the redirect target sees no Authorization,
+      // and the target's bytes come back as the response body. This is the
+      // path a Slack file download takes when files.slack.com answers with a
+      // 302 to its CDN.
+      globalThis.fetch = originalFetch;
+      await setupCredential("google");
+      const bytes = Buffer.from([
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+      ]);
+      const seen: { origin?: string | null; target?: string | null } = {};
+
+      const target = Bun.serve({
+        port: 0,
+        hostname: "127.0.0.1",
+        fetch: (req) => {
+          seen.target = req.headers.get("authorization");
+          return new Response(bytes, {
+            status: 200,
+            headers: { "content-type": "image/png" },
+          });
+        },
+      });
+      const origin = Bun.serve({
+        port: 0,
+        hostname: "127.0.0.1",
+        fetch: (req) => {
+          seen.origin = req.headers.get("authorization");
+          return new Response(null, {
+            status: 302,
+            headers: { Location: `http://127.0.0.1:${target.port}/signed` },
+          });
+        },
+      });
+
+      try {
+        const conn = new BYOOAuthConnection({
+          id: "conn-google",
+          provider: "google",
+          baseUrl: `http://127.0.0.1:${origin.port}`,
+          accountInfo: null,
+        });
+
+        const result = await conn.request({
+          method: "GET",
+          path: "/files-pri/T0123-F0456/download/shot.png",
+        });
+
+        expect(seen.origin).toBe("Bearer test-access-token");
+        expect(seen.target).toBeNull();
+        expect(result.status).toBe(200);
+        expect(Buffer.isBuffer(result.body)).toBe(true);
+        expect(Buffer.from(result.body as Buffer).equals(bytes)).toBe(true);
+      } finally {
+        origin.stop(true);
+        target.stop(true);
+      }
+    });
+
     test("appends query parameters", async () => {
       await setupCredential("google");
       const conn = createConnection();
@@ -322,6 +382,70 @@ describe("BYOOAuthConnection", () => {
       const parsed = new URL(url as string);
       expect(parsed.searchParams.get("maxResults")).toBe("10");
       expect(parsed.searchParams.get("labelIds")).toBe("INBOX");
+    });
+
+    test("appends rawQuery verbatim, keeping interleaved repeated keys", async () => {
+      await setupCredential("google");
+      const conn = createConnection();
+
+      await conn.request({
+        method: "GET",
+        path: "/messages",
+        rawQuery: "?a=1&b=2&a=3",
+      });
+
+      // Rebuilding through URLSearchParams would group the two `a` values.
+      expect(mockFetch.mock.calls[0][0]).toBe(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages?a=1&b=2&a=3",
+      );
+    });
+
+    test("leaves %20 and a valueless flag as the caller wrote them", async () => {
+      await setupCredential("google");
+      const conn = createConnection();
+
+      await conn.request({
+        method: "GET",
+        path: "/messages",
+        rawQuery: "q=a%20b&flag",
+      });
+
+      // URLSearchParams would emit `q=a+b&flag=`, which a signed query rejects.
+      expect(mockFetch.mock.calls[0][0]).toBe(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages?q=a%20b&flag",
+      );
+    });
+
+    test("falls back to the parsed query when rawQuery is empty", async () => {
+      await setupCredential("google");
+      const conn = createConnection();
+
+      await conn.request({
+        method: "GET",
+        path: "/messages",
+        rawQuery: "",
+        query: { maxResults: "10" },
+      });
+
+      expect(mockFetch.mock.calls[0][0]).toBe(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=10",
+      );
+    });
+
+    test("prefers rawQuery over the parsed query", async () => {
+      await setupCredential("google");
+      const conn = createConnection();
+
+      await conn.request({
+        method: "GET",
+        path: "/messages",
+        rawQuery: "?signed=1",
+        query: { maxResults: "10" },
+      });
+
+      expect(mockFetch.mock.calls[0][0]).toBe(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages?signed=1",
+      );
     });
 
     test("uses per-request baseUrl override", async () => {
@@ -505,6 +629,105 @@ describe("BYOOAuthConnection", () => {
       expect(Buffer.from(result.body as Uint8Array).equals(binary)).toBe(true);
     });
 
+    test("returns the provider's exact bytes when rawResponseBody is set", async () => {
+      await setupCredential("google");
+      const conn = createConnection();
+      const raw = Buffer.from(
+        '{\n  "id": "pm_1",\n  "amount":   9007199254740993,\n  "id": "pm_2"\n}\n',
+        "utf8",
+      );
+
+      globalThis.fetch = mock(() =>
+        Promise.resolve(
+          new Response(raw, {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+        ),
+      ) as unknown as typeof fetch;
+
+      const result = await conn.request({
+        method: "GET",
+        path: "/payment_methods",
+        rawResponseBody: true,
+      });
+
+      expect(Buffer.isBuffer(result.body)).toBe(true);
+      expect((result.body as Buffer).equals(raw)).toBe(true);
+    });
+
+    test("parses JSON when rawResponseBody is unset", async () => {
+      await setupCredential("google");
+      const conn = createConnection();
+      const raw = Buffer.from(
+        '{\n  "id": "pm_1",\n  "amount":   9007199254740993,\n  "id": "pm_2"\n}\n',
+        "utf8",
+      );
+
+      globalThis.fetch = mock(() =>
+        Promise.resolve(
+          new Response(raw, {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+        ),
+      ) as unknown as typeof fetch;
+
+      const result = await conn.request({
+        method: "GET",
+        path: "/payment_methods",
+      });
+
+      // The lossy path every existing caller still gets: the duplicate key
+      // collapses and the oversized integer rounds.
+      expect(result.body).toEqual({ id: "pm_2", amount: 9007199254740992 });
+    });
+
+    test("returns a 302 verbatim when manualRedirect is set", async () => {
+      await setupCredential("google");
+      const conn = createConnection();
+
+      const redirectFetch = mock((_url: string, _init: RequestInit) =>
+        Promise.resolve(
+          new Response("moved", {
+            status: 302,
+            headers: {
+              location: "https://files.example.com/blob/abc",
+              "content-type": "text/plain",
+            },
+          }),
+        ),
+      );
+      globalThis.fetch = redirectFetch as unknown as typeof fetch;
+
+      const result = await conn.request({
+        method: "POST",
+        path: "/files",
+        body: { name: "report" },
+        manualRedirect: true,
+      });
+
+      expect(redirectFetch.mock.calls[0][1].redirect).toBe("manual");
+      expect(result.status).toBe(302);
+      expect(result.headers["location"]).toBe(
+        "https://files.example.com/blob/abc",
+      );
+      expect(result.body).toBe("moved");
+      // One upstream call: the redirect was surfaced, not walked.
+      expect(redirectFetch).toHaveBeenCalledTimes(1);
+    });
+
+    test("follows redirects when manualRedirect is unset", async () => {
+      await setupCredential("google");
+      const conn = createConnection();
+
+      await conn.request({ method: "GET", path: "/messages" });
+
+      expect((mockFetch.mock.calls[0][1] as RequestInit).redirect).toBe(
+        "follow",
+      );
+    });
+
     test("returns response headers", async () => {
       await setupCredential("google");
       const conn = createConnection();
@@ -543,6 +766,51 @@ describe("BYOOAuthConnection", () => {
       const headers = (init as RequestInit).headers as Headers;
       expect(headers.get("X-Custom-Header")).toBe("custom-value");
       expect(headers.get("Authorization")).toBe("Bearer test-access-token");
+    });
+
+    test("sends the token in the provider's own header when one is configured", async () => {
+      // Shopify's Admin API reads X-Shopify-Access-Token and ignores
+      // Authorization, so a Bearer header reaches the shop unauthenticated.
+      await setupCredential("google");
+      const conn = new BYOOAuthConnection({
+        id: "conn-google",
+        provider: "google",
+        baseUrl: "https://example-store.myshopify.com",
+        accountInfo: null,
+        tokenHeader: { name: "X-Shopify-Access-Token", valuePrefix: "" },
+      });
+
+      await conn.request({
+        method: "GET",
+        path: "/admin/api/2026-07/shop.json",
+        // A caller-supplied Authorization must not ride along.
+        headers: { Authorization: "Bearer caller-supplied" },
+      });
+
+      const [url, init] = mockFetch.mock.calls[0];
+      expect(url).toBe(
+        "https://example-store.myshopify.com/admin/api/2026-07/shop.json",
+      );
+      const headers = (init as RequestInit).headers as Headers;
+      expect(headers.get("X-Shopify-Access-Token")).toBe("test-access-token");
+      expect(headers.has("Authorization")).toBe(false);
+    });
+
+    test("keeps the value prefix from the token header template", async () => {
+      await setupCredential("google");
+      const conn = new BYOOAuthConnection({
+        id: "conn-google",
+        provider: "google",
+        baseUrl: "https://discord.com/api",
+        accountInfo: null,
+        tokenHeader: { name: "Authorization", valuePrefix: "Bot " },
+      });
+
+      await conn.request({ method: "GET", path: "/users/@me" });
+
+      const [, init] = mockFetch.mock.calls[0];
+      const headers = (init as RequestInit).headers as Headers;
+      expect(headers.get("Authorization")).toBe("Bot test-access-token");
     });
 
     test("uses Telegram Bot API token URL format without Bearer auth", async () => {

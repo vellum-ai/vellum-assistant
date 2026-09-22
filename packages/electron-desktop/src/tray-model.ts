@@ -65,6 +65,12 @@ export interface TrayModelRuntime {
   icon: (icon: TrayMenuIcon) => NativeImage | undefined;
   onboardingActive: () => boolean;
   openComponentGallery: () => void;
+  /**
+   * Run the companion's introduction again from the first beat. Only offered
+   * where there is a surface to introduce, so absent on the platforms without
+   * one.
+   */
+  replayCompanionIntro?: () => void;
   removePairedLabel: string;
   setCompanionVisible: (visible: boolean) => void;
   setCompanionSize: (axis: CompanionSizeAxis, size: CompanionSize) => void;
@@ -341,6 +347,21 @@ const buildTrayMenu = (
               trayRuntime.dispatch({ kind: "replayHatchFailure" });
             },
           },
+          // The run is staged over the app's own window, so the window is
+          // brought up first: a replay against a closed window would stand the
+          // surface in the middle of the display instead.
+          ...(trayRuntime.companionSupported() &&
+          trayRuntime.replayCompanionIntro
+            ? [
+                {
+                  label: "Replay Companion Intro",
+                  click: async () => {
+                    await handlers.ensureMainWindow();
+                    trayRuntime.replayCompanionIntro?.();
+                  },
+                },
+              ]
+            : []),
           ...(!app.isPackaged
             ? [
                 {

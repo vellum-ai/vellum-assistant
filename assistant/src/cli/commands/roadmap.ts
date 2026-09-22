@@ -1,5 +1,5 @@
 /**
- * `assistant roadmap`: read and file public Vellum roadmap feedback as the
+ * `assistant roadmap`: read and file public feature proposals as the
  * assistant itself.
  *
  * Forwards to the daemon's roadmap routes and renders the result. The
@@ -14,7 +14,7 @@ import { stripAnsiAndControlChars as sanitize } from "../../util/ansi.js";
 import { applyCommandHelp, subcommand } from "../lib/cli-command-help.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
-import { shouldOutputJson, writeError, writeOutput } from "../output.js";
+import { shouldOutputJson, writeOutput } from "../output.js";
 import { roadmapHelp } from "./roadmap.help.js";
 
 // ---------------------------------------------------------------------------
@@ -227,9 +227,6 @@ async function runCreate(cmd: Command, opts: CreateOpts): Promise<void> {
 interface UpdateOpts {
   title?: string;
   description?: string;
-  status?: string;
-  tag?: string[];
-  clearTags?: boolean;
 }
 
 async function runUpdate(
@@ -237,24 +234,11 @@ async function runUpdate(
   slug: string,
   opts: UpdateOpts,
 ): Promise<void> {
-  if (opts.clearTags && opts.tag) {
-    writeError(
-      cmd,
-      "--clear-tags and --tag conflict. Drop --clear-tags to set tags, or drop --tag to remove them all.",
-    );
-    process.exitCode = 1;
-    return;
-  }
-
   const item = await call<MutatedRoadmapItem>("roadmap_update", {
     pathParams: { slug },
     body: {
       title: opts.title,
       description: opts.description,
-      status: opts.status,
-      // `--tag` always carries a value, so an empty set is only reachable
-      // through `--clear-tags`.
-      tags: opts.clearTags ? [] : opts.tag,
     },
   });
 
@@ -334,10 +318,9 @@ export function registerRoadmapCommand(program: Command): void {
       makeTagRepeatable(create);
       create.action((opts: CreateOpts, cmd: Command) => runCreate(cmd, opts));
 
-      const update = subcommand(roadmap, "update");
-      makeTagRepeatable(update);
-      update.action((slug: string, opts: UpdateOpts, cmd: Command) =>
-        runUpdate(cmd, slug, opts),
+      subcommand(roadmap, "update").action(
+        (slug: string, opts: UpdateOpts, cmd: Command) =>
+          runUpdate(cmd, slug, opts),
       );
 
       subcommand(roadmap, "delete").action(

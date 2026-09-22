@@ -11,6 +11,8 @@
  * - Gemini tool groups: `{ functionDeclarations: [{ name, description?, parameters }] }`
  */
 
+import { isRecord } from "@/utils/is-record";
+
 export interface ParsedToolDefinition {
   name: string;
   /** Provider tool type when it isn't a plain function (e.g. server tools). */
@@ -111,10 +113,6 @@ function collectExtras(
     }
   }
   return extras;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function asString(value: unknown): string | null {

@@ -26,7 +26,9 @@ import { DEFAULT_INJECTOR_ORDER } from "../injector-order.js";
  *
  * Memory-block prepending is preserved across the replacement:
  * `extractMemoryPrefixBlocks` is re-applied to the Slack transcript's tail
- * user message inside `applyRuntimeInjections` when the replacement fires.
+ * user message inside `applyRuntimeInjections` when the replacement fires
+ * (less any memory-v3 block the tail carried when the memory-v3 injector
+ * produced one for the turn, which renders its selections afresh).
  *
  * Active in both `full` and `minimal` mode — Slack transcript replacement
  * is not a high-token optional block, it's the canonical view of Slack

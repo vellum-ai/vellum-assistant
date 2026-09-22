@@ -52,10 +52,6 @@ mock.module("@/domains/chat/hooks/use-slack-conversation-display", () => ({
   useSlackConversationDisplay: () => slackDisplayRef.value,
 }));
 
-mock.module("@/domains/chat/hooks/use-open-app-from-chat", () => ({
-  useOpenAppFromChat: () => () => {},
-}));
-
 const supportsRef = { value: true };
 mock.module("@/lib/backwards-compat/use-supports-inchat-plugin-edit", () => ({
   useSupportsInchatPluginEdit: () => supportsRef.value,

@@ -1,7 +1,8 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import type { HeartbeatAlertEvent } from "../api/events/heartbeat-alert.js";
+import { channelForBotProvider } from "@vellumai/service-contracts/channels";
+
 import { getConfig } from "../config/loader.js";
 import type { HeartbeatConfig } from "../config/schemas/heartbeat.js";
 import { warmGuardianBindings } from "../contacts/guardian-delivery-reader.js";
@@ -21,6 +22,10 @@ import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { runBackgroundJob } from "../runtime/background-job-runner.js";
 import { hasReceivedUserMessage } from "../runtime/pre-first-message-gate.js";
 import { computeNextRunAt } from "../schedule/recurrence-engine.js";
+import {
+  hourInTimeZone,
+  resolveScheduleTimezone,
+} from "../schedule/schedule-timezone.js";
 import { readTextFileSync } from "../util/fs.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir, getWorkspacePromptPath } from "../util/platform.js";
@@ -50,6 +55,19 @@ const DEFAULT_CHECKLIST = `- Check in with yourself. Read NOW.md. Is it still ac
 
 const EARLY_HEARTBEAT_THRESHOLD = 3;
 const REENGAGEMENT_COOLDOWN_MS = 18 * 60 * 60 * 1000; // 18 hours
+
+/**
+ * A provider key named by the identity it carries. The keys alone do not say
+ * which is which (`slack` is the integration acting as the connected person,
+ * `slack_channel` is the assistant's own bot), and a heartbeat told to avoid
+ * "slack" would otherwise stop posting through a bot whose credential is fine.
+ */
+function describeUnhealthyProvider(providerKey: string): string {
+  const channel = channelForBotProvider(providerKey);
+  return channel
+    ? `${providerKey} (the ${channel} channel bot)`
+    : `${providerKey} (integration, acts as the connected person)`;
+}
 
 // Stripped-comment form of the guardian persona scaffold. Computed
 // once at module load because stripping comment lines is deterministic
@@ -117,8 +135,10 @@ function refreshBackgroundWakeIntentSoon(reason: string): void {
 }
 
 export interface HeartbeatDeps {
-  /** Override for current hour (0-23), for testing. */
+  /** Override for current hour (0-23), for testing. Used when no timezone is resolved. */
   getCurrentHour?: () => number;
+  /** Override for "now", for testing timezone-aware active hours. */
+  now?: () => Date;
 }
 
 export interface ManagedWakeHeartbeatRunOptions {
@@ -351,7 +371,7 @@ export class HeartbeatService {
       const nextRunAt = computeNextRunAt({
         syntax: "cron",
         expression: config.cronExpression!,
-        timezone: config.timezone,
+        timezone: resolveScheduleTimezone(config.timezone),
       });
       this._nextRunAt = nextRunAt;
       if (this.timer) {
@@ -543,22 +563,15 @@ export class HeartbeatService {
 
     // Active hours guard — only applied when both bounds are set.
     // The schema rejects configs where only one bound is provided.
+    // Hours are wall-clock in the heartbeat timezone (explicit, then the
+    // user's configured/detected zone). Host-local is the last resort so a
+    // managed container whose clock is UTC does not treat 8:00-22:00 as UTC.
     if (
       !force &&
       config.activeHoursStart != null &&
       config.activeHoursEnd != null
     ) {
-      let hour: number;
-      if (this.cronMode && config.timezone) {
-        const parts = new Intl.DateTimeFormat("en-US", {
-          timeZone: config.timezone,
-          hourCycle: "h23",
-          hour: "numeric",
-        }).formatToParts(new Date());
-        hour = Number(parts.find((p) => p.type === "hour")!.value);
-      } else {
-        hour = this.deps.getCurrentHour?.() ?? new Date().getHours();
-      }
+      const hour = currentHourForHeartbeat(config, this.deps);
       if (
         !isWithinActiveHours(
           hour,
@@ -569,6 +582,7 @@ export class HeartbeatService {
         log.debug(
           {
             hour,
+            timezone: resolveScheduleTimezone(config.timezone),
             activeHoursStart: config.activeHoursStart,
             activeHoursEnd: config.activeHoursEnd,
           },
@@ -722,17 +736,6 @@ export class HeartbeatService {
       }
     } catch (err) {
       log.error({ err }, "Credential health check failed");
-      try {
-        broadcastMessage({
-          type: "heartbeat_alert",
-          title: "Credential Health Check Failed",
-          body:
-            "Could not verify OAuth credential health. " +
-            (err instanceof Error ? err.message : String(err)),
-        } satisfies HeartbeatAlertEvent);
-      } catch {
-        // Last resort — alerter itself failed. Already logged above.
-      }
     }
     return [];
   }
@@ -897,32 +900,16 @@ export class HeartbeatService {
       "Heartbeat failed",
     );
 
-    // The runner has already emitted `activity.failed` for the failure;
-    // we still record the run-level error and broadcast the in-app
-    // heartbeat alert so the existing surfacing keeps working.
-    // Map the runner's error classification onto the run-store's status
-    // enum so the run history preserves the timeout / error distinction.
+    // The runner has already emitted `activity.failed` for the failure, so
+    // this only records the run-level error. Map the runner's error
+    // classification onto the run-store's status enum so the run history
+    // preserves the timeout / error distinction.
     const runStatus = result.errorKind === "timeout" ? "timeout" : "error";
-    const transitioned = completeHeartbeatRun(runId, {
+    completeHeartbeatRun(runId, {
       status: runStatus,
       conversationId: conversationId ?? result.conversationId,
       error: result.error?.message ?? "Unknown error",
     });
-
-    // Only fire the in-app alerter when our completion is the one that
-    // actually wrote — otherwise a parallel finalizer (e.g. a startup
-    // recovery sweep) already alerted for this run.
-    if (transitioned) {
-      try {
-        broadcastMessage({
-          type: "heartbeat_alert",
-          title: "Heartbeat Failed",
-          body: result.error?.message ?? "Unknown error",
-        } satisfies HeartbeatAlertEvent);
-      } catch (alertErr) {
-        log.error({ alertErr }, "Failed to broadcast heartbeat alert");
-      }
-    }
   }
 
   private readChecklist(): string {
@@ -945,10 +932,13 @@ ${checklist}
 </heartbeat-checklist>`;
 
     if (unhealthyProviders.length > 0) {
-      const providers = unhealthyProviders.join(", ");
+      const providers = unhealthyProviders
+        .map(describeUnhealthyProvider)
+        .join(", ");
       prompt += `\n\n<credential-status>
-The following providers have broken or expired credentials: ${providers}.
-Do NOT attempt to use tools for these providers — they will fail. Skip any checklist items that depend on them and note the outage in your summary.
+The following credentials are broken or expired: ${providers}.
+Do NOT attempt to use tools for these providers, they will fail. Skip any checklist items that depend on them and note the outage in your summary.
+A channel bot is the assistant's own identity on a channel and a separate credential from the integration of the same name; it is affected only when listed here as a channel bot.
 </credential-status>`;
     }
 
@@ -1011,6 +1001,18 @@ function isDiskPressureBackgroundLocked(logKey: string): boolean {
   return true;
 }
 
+function currentHourForHeartbeat(
+  config: HeartbeatConfig,
+  deps: HeartbeatDeps,
+): number {
+  const now = deps.now?.() ?? new Date();
+  const timezone = resolveScheduleTimezone(config.timezone);
+  if (timezone) {
+    return hourInTimeZone(timezone, now);
+  }
+  return deps.getCurrentHour?.() ?? now.getHours();
+}
+
 /**
  * Check if the given hour falls within the active window.
  * Handles overnight windows (e.g. start=22, end=6).
@@ -1025,4 +1027,51 @@ function isWithinActiveHours(
   }
   // Overnight window: e.g. 22-6 means 22,23,0,1,2,3,4,5
   return hour >= start || hour < end;
+}
+
+function stringOrNull(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function rawObject(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+/**
+ * Cron next-run is computed in the resolved timezone at schedule time. Interval
+ * active hours are evaluated live, so only cron needs a reschedule when the
+ * fallback zone changes and heartbeat.timezone is unset.
+ */
+export function shouldRescheduleHeartbeatForTimezoneChange(
+  previousRaw: Record<string, unknown>,
+  nextRaw: Record<string, unknown>,
+): boolean {
+  const nextHeartbeat = rawObject(nextRaw.heartbeat);
+  if (stringOrNull(nextHeartbeat?.timezone)) {
+    return false;
+  }
+  if (!stringOrNull(nextHeartbeat?.cronExpression)) {
+    return false;
+  }
+  const previousUi = rawObject(previousRaw.ui);
+  const nextUi = rawObject(nextRaw.ui);
+  return (
+    stringOrNull(previousUi?.userTimezone) !==
+      stringOrNull(nextUi?.userTimezone) ||
+    stringOrNull(previousUi?.detectedTimezone) !==
+      stringOrNull(nextUi?.detectedTimezone)
+  );
+}
+
+export function rescheduleHeartbeatIfTimezoneChanged(
+  previousRaw: Record<string, unknown>,
+  nextRaw: Record<string, unknown>,
+): void {
+  if (!shouldRescheduleHeartbeatForTimezoneChange(previousRaw, nextRaw)) {
+    return;
+  }
+  HeartbeatService.getInstance()?.reconfigure();
 }

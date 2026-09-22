@@ -2,6 +2,8 @@
 
 import { createHash } from "node:crypto";
 
+import { safeStringSlice } from "@vellumai/plugin-api";
+
 import type { AssistantConfig } from "../../../../config/types.js";
 import { getLogger } from "../logging.js";
 import { getWorkspaceDir } from "../paths.js";
@@ -57,7 +59,11 @@ function buildPassage(slug: string, body: string): string {
   const blank = trimmed.search(/\n\s*\n/);
   const para = blank === -1 ? trimmed : trimmed.slice(0, blank);
   const stripped = para.replace(/^#+\s.*\n/, "").trim();
-  const compact = stripped.replace(/\s+/g, " ").slice(0, PASSAGE_CHAR_CAP);
+  const compact = safeStringSlice(
+    stripped.replace(/\s+/g, " "),
+    0,
+    PASSAGE_CHAR_CAP,
+  );
   return `${slug}\n${compact}`;
 }
 

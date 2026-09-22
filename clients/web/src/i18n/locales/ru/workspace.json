@@ -13,6 +13,10 @@
     "createTriggerTitle": "Новый файл или папка",
     "nameLabel": "Имя",
     "nameError": "Имя одного файла или папки без слэшей.",
+    "nameTaken": "«{name}» уже есть в этой папке.",
+    "createFailed": "Не удалось создать. Проверьте имя и повторите попытку.",
+    "renameFailed": "Не удалось переименовать. Проверьте имя и повторите попытку.",
+    "deleteFailed": "Не удалось удалить. Повторите попытку.",
     "cancel": "Отмена",
     "sortByNameAria": "Сортировать по имени",
     "sortBySizeAria": "Сортировать по размеру",
@@ -23,6 +27,10 @@
     "searchPlaceholder": "Поиск файлов",
     "clearSearchAria": "Очистить поиск",
     "noFilesFound": "Файлы не найдены",
+    "searchScope": "Поиск в открытых папках",
+    "noSearchMatches": "В открытых папках ничего не найдено",
+    "searchIncomplete": "Некоторые папки не участвуют в поиске. Откройте папку, чтобы искать в ней.",
+    "noMatches": "Совпадений нет",
     "deleteFolderTitle": "Удалить папку",
     "deleteFileTitle": "Удалить файл",
     "deleteFileMessage": "Точно удалить <name>{name}</name>? Это нельзя отменить.",
@@ -43,6 +51,7 @@
     "browseFiles": "Обзор файлов",
     "fileNotFound": "Файл не найден",
     "saveFailed": "Не удалось сохранить",
+    "unknownSize": "Размер неизвестен",
     "downloadAria": "Скачать {name}"
   }
 }

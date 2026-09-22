@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { getAcpSessionManager } from "../../acp/index.js";
+import { isAbortLikeError, throwIfCancelled } from "../shared/abort.js";
 import {
   invalidToolInputResult,
   nullAsOmitted,
@@ -36,6 +37,7 @@ export async function executeAcpSteer(
   if (!instruction) {
     return { content: '"instruction" is required.', isError: true };
   }
+  throwIfCancelled(context);
 
   const manager = getAcpSessionManager();
   const sendToClient = getSendToClient(context);
@@ -45,7 +47,9 @@ export async function executeAcpSteer(
       // Without a connected client there is no one to receive a resumed
       // session's events, so skip the transparent resume fallback and
       // steer the in-memory session only.
-      await manager.steer(acpSessionId, instruction);
+      await manager.steer(acpSessionId, instruction, {
+        ...(context.signal ? { signal: context.signal } : {}),
+      });
       return steeredResult(acpSessionId, { resumed: false });
     }
     // Sessions no longer in memory (completed, or lost to a daemon
@@ -57,9 +61,15 @@ export async function executeAcpSteer(
       acpSessionId,
       instruction,
       sendToClient,
+      { ...(context.signal ? { signal: context.signal } : {}) },
     );
     return steeredResult(acpSessionId, { resumed });
   } catch (err) {
+    // A cancelled turn is not a steer failure: let it reach the executor's
+    // abort handling instead of being rendered as a tool error.
+    if (isAbortLikeError(err)) {
+      throw err;
+    }
     const msg = err instanceof Error ? err.message : String(err);
     return steerError(acpSessionId, msg);
   }

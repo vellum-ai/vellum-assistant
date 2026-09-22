@@ -116,3 +116,56 @@ describe("processGuardianDecision conversation scoping", () => {
     );
   });
 });
+
+describe("processGuardianDecision resolver failures", () => {
+  beforeEach(() => {
+    bridgeState.reset();
+    applyGuardianDecision.mockClear();
+  });
+
+  // The primitive reports both under `resolverFailed`; the route tells them
+  // apart for the client, which retires a committed decision and keeps a
+  // failed persist retryable.
+  test("a committed decision whose follow-through failed is resolver_failed", async () => {
+    const req = seedRequestWithProjections();
+    applyGuardianDecision.mockResolvedValueOnce({
+      applied: true as const,
+      requestId: req.id,
+      grantMinted: false,
+      decidedAction: "approve_once",
+      resolverFailed: true,
+      resolverFailureReason: "resolver_threw",
+    } as never);
+
+    const result = await decideFrom(req.id, "conv-thread");
+
+    expect(result).toMatchObject({
+      ok: true,
+      applied: false,
+      reason: "resolver_failed",
+      committed: true,
+      resolverFailureReason: "resolver_threw",
+    });
+  });
+
+  test("a decision whose persist never landed is decision_not_persisted", async () => {
+    const req = seedRequestWithProjections();
+    applyGuardianDecision.mockResolvedValueOnce({
+      applied: true as const,
+      requestId: req.id,
+      grantMinted: false,
+      resolverFailed: true,
+      resolverFailureReason: "gateway_unreachable",
+    } as never);
+
+    const result = await decideFrom(req.id, "conv-thread");
+
+    expect(result).toMatchObject({
+      ok: true,
+      applied: false,
+      reason: "decision_not_persisted",
+      committed: false,
+      resolverFailureReason: "gateway_unreachable",
+    });
+  });
+});

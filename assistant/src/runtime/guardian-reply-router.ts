@@ -1,13 +1,24 @@
 /**
- * Shared guardian reply router for inbound channel messages.
+ * Shared guardian reply router.
  *
- * Provides a single entry point (`routeGuardianReply`) for all inbound
- * guardian reply processing across Telegram and WhatsApp. Routes
+ * Provides a single entry point (`routeGuardianReply`) for every guardian
+ * reply typed in the app (`daemon/conversation-process.ts`,
+ * `routes/conversation-routes.ts`) and every reply or button press arriving
+ * on a channel (`routes/inbound-stages/guardian-reply-intercept.ts`). App
+ * card buttons decide through `processGuardianDecision()` instead. Routes
  * through a priority-ordered pipeline:
  *
- *   1. Deterministic callback/ref parsing (button presses with `apr:<requestId>:<action>`)
+ *   1. Deterministic callback/ref parsing (channel button presses with `apr:<requestId>:<action>`)
  *   2. Request code parsing (6-char alphanumeric prefix matching)
- *   3. NL classification via the conversational approval engine
+ *   2.5. Invite handoff: "open invite flow" with a pending access request
+ *        passes through to the normal assistant turn
+ *   2.55. Bare-text answer to the single pending question, in the
+ *        conversation it was asked in
+ *   2.6. Explicit approve/reject phrase: applied when exactly one request is
+ *        pending, answered with a disambiguation reply when several are
+ *   3. NL classification via the conversational approval engine, only when
+ *      the caller passes an `approvalConversationGenerator` (app sessions do
+ *      not, so for them 2.6 is the last plain-text stage)
  *
  * All decisions flow through `applyGuardianDecision`, which handles identity
  * validation, expiry checks, the atomic gateway CAS+outcome commit,
@@ -153,12 +164,6 @@ export interface GuardianReplyResult {
 // Callback data parser — format: "apr:<requestId>:<action>"
 // ---------------------------------------------------------------------------
 
-const LEGACY_CALLBACK_MAP: Record<string, string> = {
-  approve_10m: "approve_once",
-  approve_conversation: "approve_once",
-  approve_always: "approve_once",
-};
-
 interface ParsedCallback {
   requestId: string;
   action: ApprovalAction;
@@ -170,8 +175,7 @@ function parseCallbackAction(data: string): ParsedCallback | null {
     return null;
   }
   const requestId = parts[1];
-  const rawAction = parts.slice(2).join(":");
-  const action = LEGACY_CALLBACK_MAP[rawAction] ?? rawAction;
+  const action = parts.slice(2).join(":");
   if (!requestId || !isApprovalAction(action)) {
     return null;
   }
@@ -324,17 +328,8 @@ function notConsumed(): GuardianReplyResult {
 // ---------------------------------------------------------------------------
 
 /**
- * Route an inbound guardian reply through the guardian decision pipeline.
- *
- * This is the single entry point for all inbound guardian reply processing.
- * It handles messages from any channel (Telegram, WhatsApp) and
- * routes through priority-ordered matching:
- *
- *   1. Deterministic callback parsing (button presses)
- *   2. Request code parsing (6-char alphanumeric prefix)
- *   3. NL classification via the conversational approval engine
- *
- * All decisions flow through `applyGuardianDecision`.
+ * Route a guardian reply through the priority-ordered pipeline described in
+ * the file header. All decisions flow through `applyGuardianDecision`.
  */
 export async function routeGuardianReply(
   ctx: GuardianReplyContext,
@@ -395,7 +390,7 @@ export async function routeGuardianReply(
       const request = await getGuardianRequestOrNull(answerTap.requestId);
       if (
         request &&
-        resolveRequestInstructionMode(request) === "answer" &&
+        resolveGuardianInstructionModeForRequest(request) === "answer" &&
         parseQuestionAnswerActionId(answerTap.token) &&
         !request.callSessionId &&
         hasLiveQuestionInteraction(request.id)
@@ -588,7 +583,7 @@ export async function routeGuardianReply(
   if (messageText.length > 0 && pendingRequests.length === 1) {
     const soleRequest = pendingRequests[0];
     if (
-      resolveRequestInstructionMode(soleRequest) === "answer" &&
+      resolveGuardianInstructionModeForRequest(soleRequest) === "answer" &&
       !soleRequest.callSessionId &&
       soleRequest.sourceConversationId === conversationId &&
       hasLiveQuestionInteraction(soleRequest.id)
@@ -670,11 +665,11 @@ export async function routeGuardianReply(
     );
 
     if (engineResult.disposition === "keep_pending") {
-      // When the engine returns keep_pending with multiple pending requests,
-      // this likely means the NL classification understood a decision intent
-      // but runApprovalConversationTurn fail-closed because no targetRequestId
-      // was provided. In this case, produce a disambiguation reply instead of
-      // a generic "I couldn't process that" message.
+      // keep_pending covers model indecision and every fail-closed path in
+      // runApprovalConversationTurn (generator error, malformed output, a
+      // decision without the targetRequestId that multi-pending requires).
+      // With several requests pending, answer with a disambiguation reply
+      // instead of a generic "I couldn't process that" message.
       if (pendingRequestsForClassification.length > 1) {
         log.info(
           {
@@ -1012,12 +1007,6 @@ function inferActionFromText(
   return "approve_once";
 }
 
-function resolveRequestInstructionMode(
-  request?: Pick<GuardianRequestWire, "kind" | "toolName"> | null,
-): "approval" | "answer" {
-  return resolveGuardianInstructionModeForRequest(request);
-}
-
 // ---------------------------------------------------------------------------
 // Failure reason reply text
 // ---------------------------------------------------------------------------
@@ -1051,7 +1040,7 @@ function failureReplyText(
       return "Something went wrong with this request on our end, so I couldn't apply your decision.";
     case "invalid_action":
       return buildGuardianInvalidActionReply(
-        resolveRequestInstructionMode(request),
+        resolveGuardianInstructionModeForRequest(request),
         requestCode ?? undefined,
       );
     default:
@@ -1070,7 +1059,7 @@ function failureReplyText(
  */
 function composeCodeOnlyClarification(request: GuardianRequestWire): string {
   const code = request.requestCode ?? "unknown";
-  const mode = resolveRequestInstructionMode(request);
+  const mode = resolveGuardianInstructionModeForRequest(request);
   return buildGuardianCodeOnlyClarification(mode, {
     requestCode: code,
     questionText: request.questionText,
@@ -1094,7 +1083,7 @@ function composeDisambiguationReply(
   const lines: string[] = [];
   const requestsWithMode = pendingRequests.map((request) => ({
     request,
-    mode: resolveRequestInstructionMode(request),
+    mode: resolveGuardianInstructionModeForRequest(request),
   }));
 
   if (engineReplyText) {

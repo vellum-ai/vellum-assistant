@@ -1,7 +1,23 @@
 import { describe, expect, test } from "bun:test";
 
-import { hasAllScopes, hasScope, resolveScopeProfile } from "../scopes.js";
+import {
+  hasAllScopes,
+  hasScope,
+  isNarrowScopeProfile,
+  resolveScopeProfile,
+} from "../scopes.js";
 import type { AuthContext, Scope, ScopeProfile } from "../types.js";
+
+/** Every profile name; the Record keeps this list exhaustive. */
+const KNOWN_PROFILES = Object.keys({
+  actor_client_v1: true,
+  gateway_ingress_v1: true,
+  gateway_service_v1: true,
+  local_v1: true,
+  oauth_proxy_v1: true,
+  speech_relay_v1: true,
+  ui_page_v1: true,
+} satisfies Record<ScopeProfile, true>) as ScopeProfile[];
 
 /** Utility to create a minimal AuthContext with a given scope profile. */
 function makeCtx(profile: ScopeProfile): AuthContext {
@@ -88,6 +104,54 @@ describe("resolveScopeProfile", () => {
     const scopes = resolveScopeProfile("local_v1");
     expect(scopes.has("local.all")).toBe(true);
     expect(scopes.size).toBe(1);
+  });
+
+  test("oauth_proxy_v1 includes only oauth.proxy", () => {
+    const scopes = resolveScopeProfile("oauth_proxy_v1");
+    expect(scopes.has("oauth.proxy")).toBe(true);
+    expect(scopes.size).toBe(1);
+  });
+
+  test("no other profile grants oauth.proxy", () => {
+    for (const profile of KNOWN_PROFILES) {
+      if (profile === "oauth_proxy_v1") {
+        continue;
+      }
+      expect(resolveScopeProfile(profile).has("oauth.proxy")).toBe(false);
+    }
+  });
+});
+
+describe("isNarrowScopeProfile", () => {
+  test("classifies every profile", () => {
+    // The source table is exhaustive over ScopeProfile, so a new profile has
+    // to be classified there. This pins the answers it gives today: a `true`
+    // flipped onto a single-route grant would open every unscoped route to it.
+    const narrow: Record<ScopeProfile, boolean> = {
+      actor_client_v1: false,
+      gateway_ingress_v1: false,
+      gateway_service_v1: false,
+      local_v1: false,
+      oauth_proxy_v1: true,
+      speech_relay_v1: true,
+      ui_page_v1: false,
+    };
+    for (const [profile, expected] of Object.entries(narrow)) {
+      expect(isNarrowScopeProfile(profile as ScopeProfile)).toBe(expected);
+    }
+  });
+
+  test("unknown profiles and prototype keys are narrow", () => {
+    // Claims come from JSON, so an unrecognized profile reaches this despite
+    // the type, and a prototype key resolves to an object rather than `true`.
+    for (const profile of [
+      "bogus_v1",
+      "toString",
+      "constructor",
+      "__proto__",
+    ]) {
+      expect(isNarrowScopeProfile(profile as never)).toBe(true);
+    }
   });
 });
 

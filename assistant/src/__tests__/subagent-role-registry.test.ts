@@ -73,8 +73,8 @@ describe("SUBAGENT_ROLE_REGISTRY", () => {
   });
 
   test("advisor is read-only: nothing write-capable, no shell, no skill execution", () => {
-    // The consult is a judgment call the parent blocks on, so the advisor must
-    // never be able to act on the workspace or persist output of its own.
+    // The consult is a judgment call, not work: the advisor must never be able
+    // to act on the workspace or persist output of its own.
     const tools = SUBAGENT_ROLE_REGISTRY.advisor.allowedTools!;
     for (const forbidden of [
       "bash",
@@ -111,9 +111,12 @@ describe("SUBAGENT_ROLE_REGISTRY", () => {
   });
 
   test('every allowlisted background role includes "notify_parent"', () => {
-    // Mid-run reporting only means something for a role the parent does not
-    // wait on. The advisor blocks the parent turn and returns its guidance as
-    // the tool result, so it intentionally has no notify_parent.
+    // Mid-run reporting only means something for a run with milestones. A
+    // consult answers one question once, and its whole output is the guidance
+    // in its terminal notification, so the advisor intentionally has no
+    // notify_parent: a half-formed opinion pushed into the parent mid-consult
+    // is noise, and writing into the parent is a side effect the advisor's
+    // read-only gate exists to refuse.
     expect(SUBAGENT_ROLE_REGISTRY.researcher.allowedTools).toContain(
       "notify_parent",
     );

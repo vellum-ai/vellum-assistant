@@ -1,6 +1,7 @@
 import * as appStore from "../../../../apps/app-store.js";
 import type { AppCreateInput } from "../../../../tools/apps/executors.js";
 import { executeAppCreate } from "../../../../tools/apps/executors.js";
+import { throwIfCancelled } from "../../../../tools/shared/abort.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -10,6 +11,7 @@ export async function run(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
+  throwIfCancelled(context);
   const createInput: AppCreateInput = input as unknown as AppCreateInput;
   return executeAppCreate(
     createInput,

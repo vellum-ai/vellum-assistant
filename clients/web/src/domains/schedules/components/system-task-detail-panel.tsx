@@ -1,5 +1,5 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { Loader2, Play, Settings } from "lucide-react";
+import { Play, Settings } from "lucide-react";
 import { useNavigate } from "react-router";
 
 import { DetailShellHeader } from "@/components/detail-shell";
@@ -15,7 +15,7 @@ import {
   heartbeatSubtitle,
   isBookkeepingRun,
   isExecutedRun,
-  RETROSPECTIVE_SUBTITLE,
+  retrospectiveSubtitle,
 } from "@/domains/settings/utils/schedule-formatters";
 import { toScheduleRun } from "@/domains/settings/utils/system-task-run-transforms";
 import {
@@ -89,6 +89,8 @@ export function SystemTaskDetailPanel({
   const navigate = useNavigate();
   const { heartbeatConfig, consolidationConfig, retrospectiveConfig } =
     systemTasks;
+  const heartbeatTimezone =
+    heartbeatConfig?.effectiveTimezone || heartbeatConfig?.timezone || null;
 
   let name: string;
   let subtitle: string;
@@ -100,7 +102,9 @@ export function SystemTaskDetailPanel({
 
   if (kind === "heartbeat") {
     name = t("systemTaskDetail.nameHeartbeat");
-    subtitle = heartbeatConfig ? heartbeatSubtitle(heartbeatConfig) : "";
+    subtitle = heartbeatConfig
+      ? heartbeatSubtitle(heartbeatConfig, heartbeatTimezone)
+      : "";
     enabled = heartbeatConfig?.enabled ?? false;
     nextRunAt = heartbeatConfig?.nextRunAt ?? null;
     lastRunAt = heartbeatConfig?.lastRunAt ?? null;
@@ -118,7 +122,7 @@ export function SystemTaskDetailPanel({
     onRunNow = systemTasks.runConsolidationNow;
   } else {
     name = t("systemTaskDetail.nameRetrospective");
-    subtitle = RETROSPECTIVE_SUBTITLE;
+    subtitle = retrospectiveSubtitle();
     enabled = retrospectiveConfig?.enabled ?? false;
     // Event-driven: no global "next run".
     nextRunAt = retrospectiveConfig?.nextRunAt ?? null;
@@ -243,6 +247,12 @@ export function SystemTaskDetailPanel({
                   value={<span className="truncate">{subtitle}</span>}
                 />
               ) : null}
+              {kind === "heartbeat" && heartbeatTimezone ? (
+                <InfoRow
+                  label={t("scheduleDetail.timezone")}
+                  value={<span className="truncate">{heartbeatTimezone}</span>}
+                />
+              ) : null}
               {!isRetrospective ? (
                 <InfoRow
                   label={t("scheduleDetail.nextRun")}
@@ -314,13 +324,8 @@ export function SystemTaskDetailPanel({
           {onRunNow ? (
             <Button
               variant="primary"
-              leftIcon={
-                isRunning ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Play className="h-3.5 w-3.5" />
-                )
-              }
+              loading={isRunning}
+              leftIcon={<Play className="h-3.5 w-3.5" />}
               onClick={onRunNow}
               disabled={runNowDisabled}
             >

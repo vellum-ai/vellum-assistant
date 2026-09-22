@@ -10,6 +10,15 @@ import { UnprocessableEntityError } from "../errors.js";
 import type { RouteDefinition } from "../types.js";
 
 let storedApiKey: string | undefined = "assistant-key";
+let platformBaseUrl = "https://platform.vellum.ai";
+
+// Spread the real module: replacing it wholesale strips the other exports the
+// route graph pulls in.
+const actualEnv = await import("../../../config/env.js");
+mock.module("../../../config/env.js", () => ({
+  ...actualEnv,
+  getPlatformBaseUrl: () => platformBaseUrl,
+}));
 
 const actualSecureKeys = await import("../../../security/secure-keys.js");
 mock.module("../../../security/secure-keys.js", () => ({
@@ -83,6 +92,7 @@ const UPSTREAM_ITEM = {
 
 beforeEach(() => {
   storedApiKey = "assistant-key";
+  platformBaseUrl = "https://platform.vellum.ai";
   calls = [];
   process.env.VELLUM_MARKETING_URL = "https://marketing.test";
   process.env.VELLUM_WEB_URL = "https://web.test";
@@ -96,9 +106,8 @@ afterEach(() => {
 });
 
 describe("which deployment the roadmap calls reach", () => {
-  test("production needs no configuration", async () => {
+  test("a production assistant needs no configuration", async () => {
     delete process.env.VELLUM_MARKETING_URL;
-    process.env.VELLUM_ENVIRONMENT = "production";
     stubFetch({ items: [], total: 0 });
 
     await list({});
@@ -106,19 +115,101 @@ describe("which deployment the roadmap calls reach", () => {
     expect(calls[0].url).toBe("https://marketing.vellum.ai/v1/roadmap");
   });
 
-  test("an unconfigured non-production assistant refuses rather than writing to the public roadmap", async () => {
+  // The deployment is judged by the platform that issued the key, never by
+  // VELLUM_ENVIRONMENT: unset, that variable means dev to getPlatformBaseUrl
+  // and local to every launcher, so trusting it would let exactly the assistant
+  // with no label post to the real roadmap.
+  test.each([
+    ["https://staging-platform.vellum.ai", "staging"],
+    ["https://dev-platform.vellum.ai", "dev"],
+    ["http://localhost:8000", "local"],
+  ])(
+    "an unconfigured %s assistant refuses to touch the public roadmap",
+    async (baseUrl) => {
+      platformBaseUrl = baseUrl;
+      delete process.env.VELLUM_MARKETING_URL;
+      delete process.env.VELLUM_ENVIRONMENT;
+      stubFetch({ items: [], total: 0 });
+
+      await expect(list({})).rejects.toThrow("The Vellum roadmap has no");
+      expect(calls).toHaveLength(0);
+    },
+  );
+
+  test("VELLUM_ENVIRONMENT=production does not by itself unlock the real roadmap", async () => {
+    platformBaseUrl = "https://dev-platform.vellum.ai";
     delete process.env.VELLUM_MARKETING_URL;
-    process.env.VELLUM_ENVIRONMENT = "staging";
+    process.env.VELLUM_ENVIRONMENT = "production";
     stubFetch({ items: [], total: 0 });
 
-    await expect(list({})).rejects.toThrow(
-      "The Vellum roadmap has no staging deployment",
-    );
+    await expect(list({})).rejects.toThrow("The Vellum roadmap has no");
     expect(calls).toHaveLength(0);
   });
 
-  test("a named endpoint is honored in any environment", async () => {
-    process.env.VELLUM_ENVIRONMENT = "dev";
+  test("item links point at the deployment the item was read from", async () => {
+    // Labelled staging, but authenticating against production: the link has to
+    // follow the platform, or it points at a staging page for a real item.
+    process.env.VELLUM_ENVIRONMENT = "staging";
+    delete process.env.VELLUM_WEB_URL;
+    delete process.env.VELLUM_MARKETING_URL;
+    stubFetch({ items: [UPSTREAM_ITEM], total: 1 });
+
+    const result = (await list({})) as { items: { url: string }[] };
+
+    expect(result.items[0].url).toBe("https://www.vellum.ai/roadmap/dark-mode");
+  });
+
+  // A self-hosted platform is not in the seed table, so nothing is known about
+  // it: naming its roadmap API says nothing about where its items are rendered.
+  test("a self-hosted deployment must name its web origin too", async () => {
+    platformBaseUrl = "https://platform.self-hosted.example";
+    delete process.env.VELLUM_WEB_URL;
+    stubFetch({ items: [], total: 0 });
+
+    await expect(list({})).rejects.toThrow("Set VELLUM_WEB_URL");
+    expect(calls).toHaveLength(0);
+  });
+
+  test("a self-hosted deployment works once both endpoints are named", async () => {
+    platformBaseUrl = "https://platform.self-hosted.example";
+    stubFetch({ items: [UPSTREAM_ITEM], total: 1 });
+
+    const result = (await list({})) as { items: { url: string }[] };
+
+    expect(calls[0].url).toBe("https://marketing.test/v1/roadmap");
+    expect(result.items[0].url).toBe("https://web.test/roadmap/dark-mode");
+  });
+
+  test("a platform change mid-flight cannot fail a create that already published", async () => {
+    delete process.env.VELLUM_MARKETING_URL;
+    delete process.env.VELLUM_WEB_URL;
+    globalThis.fetch = (async (
+      _input: string | URL | Request,
+      _init?: RequestInit,
+    ): Promise<Response> => {
+      // The item is published. Only now is the assistant repointed at a
+      // platform with no roadmap deployment, as a concurrent
+      // `platform_base_url` write would do.
+      platformBaseUrl = "https://platform.self-hosted.example";
+      return new Response(
+        JSON.stringify({
+          slug: "dark-mode",
+          title: "Add dark mode",
+          status: "open",
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }) as typeof fetch;
+
+    const created = (await create({
+      body: { title: "Add dark mode" },
+    })) as { url: string };
+
+    expect(created.url).toBe("https://www.vellum.ai/roadmap/dark-mode");
+  });
+
+  test("a named endpoint is honored on any deployment", async () => {
+    platformBaseUrl = "https://dev-platform.vellum.ai";
     stubFetch({ items: [], total: 0 });
 
     await list({});
@@ -243,12 +334,35 @@ describe("roadmap writes", () => {
     });
   });
 
-  test("update can clear every tag", async () => {
+  test("update refuses the staff-only fields before calling out", async () => {
     stubFetch(UPSTREAM_ITEM);
 
-    await update({ pathParams: { slug: "dark-mode" }, body: { tags: [] } });
+    await expect(
+      update({
+        pathParams: { slug: "dark-mode" },
+        body: { title: "Dark mode", status: "planned" },
+      }),
+    ).rejects.toThrow(
+      "An assistant can change only an item's title and description; status is set by Vellum staff.",
+    );
+    await expect(
+      update({ pathParams: { slug: "dark-mode" }, body: { tags: [] } }),
+    ).rejects.toThrow("tags is set by Vellum staff");
+    expect(calls).toHaveLength(0);
+  });
 
-    expect(calls[0].body).toEqual({ tags: [] });
+  test("update names an unknown field as unknown, not as staff-only", async () => {
+    stubFetch(UPSTREAM_ITEM);
+
+    await expect(
+      update({
+        pathParams: { slug: "dark-mode" },
+        body: { titel: "Dark mode", status: "planned" },
+      }),
+    ).rejects.toThrow(
+      "An assistant can change only an item's title and description; status is set by Vellum staff; titel is not a roadmap update field.",
+    );
+    expect(calls).toHaveLength(0);
   });
 
   test("create rejects a blank title before calling out", async () => {
@@ -274,11 +388,11 @@ describe("roadmap writes", () => {
 
     await update({
       pathParams: { slug: "dark-mode" },
-      body: { status: "planned" },
+      body: { description: "Follow the OS setting" },
     });
 
     expect(calls[0].method).toBe("PATCH");
-    expect(calls[0].body).toEqual({ status: "planned" });
+    expect(calls[0].body).toEqual({ description: "Follow the OS setting" });
   });
 
   test("delete reports the removed slug", async () => {
@@ -312,7 +426,7 @@ describe("roadmap writes", () => {
     const writes = [
       () => create({ body: { title: "Add dark mode" } }),
       () =>
-        update({ pathParams: { slug: "dark-mode" }, body: { status: "open" } }),
+        update({ pathParams: { slug: "dark-mode" }, body: { title: "Dark" } }),
       () => remove({ pathParams: { slug: "dark-mode" } }),
       () => upvote({ pathParams: { slug: "dark-mode" } }),
       () => unvote({ pathParams: { slug: "dark-mode" } }),

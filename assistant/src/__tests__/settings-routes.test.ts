@@ -10,7 +10,7 @@
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 
 // Guardian identity resolves via the gateway delivery cache, not the local
 // contacts DB. Seed it per-test via seedGatewayGuardian; persona resolution
@@ -42,16 +42,65 @@ function seedGatewayGuardian(g: {
   gatewayGuardians.push({ status: "active", ...g });
 }
 
+import {
+  getBundledSkillsDir,
+  type SkillToolManifest,
+} from "../config/skills.js";
+import * as permissions from "../permissions/checker.js";
+import { RiskLevel } from "../permissions/types.js";
 import { getSqlite } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { BadRequestError, NotFoundError } from "../runtime/routes/errors.js";
 import { ROUTES } from "../runtime/routes/settings-routes.js";
 import type { RouteHandlerArgs } from "../runtime/routes/types.js";
+import { registerSkillTools, unregisterSkillTools } from "../tools/registry.js";
+import { createSkillToolsFromManifest } from "../tools/skills/skill-tool-factory.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
 await initializeDb();
 
 const testWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR!;
+
+test("permission simulation resolves the bundled computer-use target from input", async () => {
+  const classify = spyOn(permissions, "classifyRisk").mockResolvedValue({
+    level: RiskLevel.Low,
+    reason: "Test classification",
+    matchType: "registry",
+    scopeOptions: [],
+  });
+  const check = spyOn(permissions, "check").mockResolvedValue({
+    decision: "allow",
+    reason: "Test decision",
+  });
+  const skillDir = join(getBundledSkillsDir(), "computer-use");
+  const manifest = JSON.parse(
+    readFileSync(join(skillDir, "TOOLS.json"), "utf8"),
+  ) as SkillToolManifest;
+  const skillId = "simulation-computer-use";
+  registerSkillTools(
+    skillId,
+    createSkillToolsFromManifest(manifest.tools, skillDir, "", true),
+  );
+  try {
+    for (const target of ["assistant-desktop", "connected-computer"]) {
+      const result = await getHandler(
+        "tools/simulate-permission",
+        "POST",
+      )(makeArgs({}, { toolName: "computer_use_observe", input: { target } }));
+      expect(result).toMatchObject({
+        success: true,
+        executionTarget: target === "assistant-desktop" ? "sandbox" : "host",
+      });
+      expect(check.mock.calls.at(-1)?.[3]?.executionTarget).toBe(
+        target === "assistant-desktop" ? "sandbox" : "host",
+      );
+    }
+  } finally {
+    unregisterSkillTools(skillId);
+    classify.mockRestore();
+    check.mockRestore();
+  }
+});
 
 function resetContactTables(): void {
   const sqlite = getSqlite();

@@ -4,6 +4,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ComponentProps,
@@ -20,6 +21,7 @@ import { Tooltip } from "../tooltip";
 import { PaneResizeHandle } from "../pane-resize-handle";
 import { useResizablePane } from "../../hooks/use-resizable-pane";
 import { cn } from "../../utils/cn";
+import { mergeRefs } from "../../utils/merge-refs";
 import { reportUnmergeableSlotChild } from "../../utils/slot-child";
 import type { CustomPropertyStyle } from "../../utils/custom-property-style";
 
@@ -121,7 +123,7 @@ export const SIDE_MENU_MIN_WIDTH = 220;
 export const SIDE_MENU_MAX_WIDTH = 400;
 
 /**
- * The height of a top-level rail pill (an assistant identity row, New Chat, a
+ * The height of a top-level rail pill (an assistant identity row, a
  * pinned app, a section header, Preferences), and so also the diameter of the
  * circle each of those becomes when the rail collapses: a tile is one of those
  * pills with its label taken away, and holding the pill's height is what keeps
@@ -328,6 +330,7 @@ function SideMenuRoot({
   // where it sits is the kind of half-kept ARIA promise the pattern exists to
   // avoid. A rail sized purely by CSS gets no drag handle.
   const navRef = useRef<HTMLElement>(null);
+  const setNav = useMemo(() => mergeRefs(navRef, ref), [ref]);
   const { handleProps, isResizing, paneId } = useResizablePane({
     side: "start",
     defaultSize: width ?? minWidth,
@@ -350,11 +353,7 @@ function SideMenuRoot({
       value={{ collapsed: effectiveCollapsed, contentCollapsed, variant }}
     >
       <nav
-        ref={(node) => {
-          navRef.current = node;
-          if (typeof ref === "function") ref(node);
-          else if (ref) ref.current = node;
-        }}
+        ref={setNav}
         data-slot="side-menu"
         role="navigation"
         aria-label={ariaLabel}

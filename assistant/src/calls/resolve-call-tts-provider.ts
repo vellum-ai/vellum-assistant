@@ -8,6 +8,7 @@
  */
 
 import { loadConfig } from "../config/loader.js";
+import { resolveEffectiveSpeechProviders } from "../config/managed-speech-defaults.js";
 import {
   getCatalogProvider,
   getTtsProvider,
@@ -73,6 +74,13 @@ export interface ResolveCallTtsOptions {
 /**
  * Resolve the active TTS provider via the global provider abstraction.
  *
+ * The provider is the effective one after managed-speech defaulting
+ * ({@link resolveEffectiveSpeechProviders}): a configured BYOK provider
+ * whose credential does not resolve is stood in for by managed speech
+ * while the platform connection is usable, the same substitution live
+ * voice makes, so a fresh Vellum connection speaks on the phone with zero
+ * TTS configuration.
+ *
  * The native-vs-synthesized decision is driven by the catalog's
  * `callMode` field via {@link resolveCallStrategy}. Providers with
  * `callMode: "synthesized-play"` have their audio streamed through the
@@ -94,10 +102,11 @@ export async function resolveCallTtsProvider(
 ): Promise<ResolvedCallTts> {
   try {
     const config = loadConfig();
-    const resolved = resolveTtsConfig(config);
+    const effectiveProviderId = await effectiveTtsProviderId(config);
+    const resolved = resolveTtsConfig(config, effectiveProviderId);
 
     // Use the catalog's callMode to decide the call path.
-    const strategy = resolveCallStrategy(config);
+    const strategy = resolveCallStrategy(config, effectiveProviderId);
 
     let providerId = resolved.provider;
     let useSynthesizedPath = strategy.callMode === "synthesized-play";
@@ -172,6 +181,28 @@ export async function resolveCallTtsProvider(
     // (e.g. unit tests or early startup) -- fall back to the native
     // path where the provider object is not used.
     return { provider: null, useSynthesizedPath: false, audioFormat: "mp3" };
+  }
+}
+
+/**
+ * The TTS provider the call actually uses after managed-speech defaulting.
+ * A failure inside the managed lookup (platform client, credential store)
+ * keeps the configured provider: a managed-speech hiccup must not demote a
+ * working BYOK provider, and the outer resolver's own fallback is the
+ * silent native path.
+ */
+async function effectiveTtsProviderId(
+  config: ReturnType<typeof loadConfig>,
+): Promise<TtsProviderId | undefined> {
+  try {
+    const { tts } = await resolveEffectiveSpeechProviders(config);
+    return tts;
+  } catch (err) {
+    log.warn(
+      { err },
+      "Managed-speech defaulting failed for call TTS; keeping the configured provider",
+    );
+    return undefined;
   }
 }
 

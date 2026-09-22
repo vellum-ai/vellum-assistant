@@ -13,6 +13,7 @@ import type { ContentBlock, ImageContent, Message } from "@vellumai/plugin-api";
 import {
   getConfiguredProvider,
   getConversationDirPath,
+  safeStringSlice,
 } from "@vellumai/plugin-api";
 import { and, asc, desc, eq, gt } from "drizzle-orm";
 
@@ -1617,7 +1618,9 @@ async function findCandidateNodes(
       await import("../../../../../persistence/embeddings/embed.js");
     const searchText =
       transcript.length > 3000
-        ? transcript.slice(0, 1500) + "\n...\n" + transcript.slice(-1500)
+        ? safeStringSlice(transcript, 0, 1500) +
+          "\n...\n" +
+          safeStringSlice(transcript, transcript.length - 1500)
         : transcript;
 
     try {

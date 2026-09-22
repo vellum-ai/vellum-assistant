@@ -3,8 +3,9 @@ import {
   type ChoiceSurfaceData,
   ChoiceSurfaceDataSchema,
 } from "@vellumai/assistant-api";
-import { Check, Loader2 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { OptionCard, OptionCardGroup } from "@vellumai/design-library";
+import { Loader2 } from "lucide-react";
+import { useId, useMemo, useState } from "react";
 
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import type { Surface } from "@/domains/chat/types/types";
@@ -57,6 +58,7 @@ export function ChoiceSurface({
   assistantId,
 }: ChoiceSurfaceProps) {
   const { t } = useTranslation("chat");
+  const titleId = useId();
   // The wire keeps surface `data` opaque; narrow it with the canonical schema
   // (tolerant, so a real payload never fails to parse) rather than an
   // unchecked cast or a re-declared local interface.
@@ -144,7 +146,10 @@ export function ChoiceSurface({
     // raised surface, so an outer inset only nested one box inside another.
     <div>
       {surface.title && (
-        <div className="text-title-small text-[var(--content-strong)]">
+        <div
+          id={titleId}
+          className="text-title-small text-[var(--content-strong)]"
+        >
           {surface.title}
         </div>
       )}
@@ -156,67 +161,53 @@ export function ChoiceSurface({
         />
       )}
 
-      <div className="grid gap-2 [&:not(:first-child)]:mt-3">
+      <OptionCardGroup
+        selectionMode={selectionMode === "multiple" ? "multiple" : "single"}
+        // A committing choice submits on select, so arrow keys must only move
+        // focus: selecting on arrow would submit the second option before a
+        // keyboard user could reach the third.
+        selectOnFocus={!commitOnSelect}
+        disabled={submitting !== null}
+        aria-labelledby={surface.title ? titleId : undefined}
+        className="[&:not(:first-child)]:mt-3"
+      >
         {options.map((option) => {
           const selected = selectedIds.has(option.id);
-          const optionSubmitting = submitting === option.id;
           return (
-            <button
+            <OptionCard
               key={option.id}
-              type="button"
-              aria-pressed={selected}
-              disabled={submitting !== null}
-              onClick={() => toggleOption(option)}
-              className={[
-                // Borderless: the row reads as a row because it sits one step
-                // up the surface ladder from the chat background
-                // (`--background` == `--surface-base`), not because of an
-                // outline. Hover takes the ladder's next step.
-                "group flex w-full cursor-pointer items-center gap-3 rounded-lg p-3 text-left transition-colors disabled:cursor-default",
+              // Borderless: the row reads as a row because it sits one step
+              // up the surface ladder from the chat background
+              // (`--background` == `--surface-base`), not because of an
+              // outline. Hover takes the ladder's next step.
+              variant="filled"
+              selected={selected}
+              onSelect={() => toggleOption(option)}
+              className={
                 option.recommended
-                  ? "bg-[var(--primary-base)]/10"
-                  : "bg-[var(--surface-overlay)] hover:bg-[var(--surface-active)]",
-                selected ? "ring-1 ring-[var(--primary-base)]" : "",
-                submitting !== null ? "opacity-70" : "",
-              ].join(" ")}
-            >
-              <span
-                className={[
-                  "flex h-5 w-5 shrink-0 items-center justify-center rounded-full border",
-                  selected
-                    ? "border-[var(--primary-base)] bg-[var(--primary-base)] text-[var(--content-inset)]"
-                    : option.recommended
-                      ? "border-[var(--primary-base)] bg-[var(--surface-base)]"
-                      : "border-[var(--border-element)]",
-                ].join(" ")}
-              >
-                {optionSubmitting ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : selected ? (
-                  <Check className="h-3.5 w-3.5" />
-                ) : null}
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="flex flex-wrap items-center gap-2">
-                  <span className="text-body-medium-default text-[var(--content-strong)]">
-                    {option.title}
-                  </span>
+                  ? "bg-[var(--primary-base)]/10 enabled:hover:bg-[var(--primary-base)]/10"
+                  : undefined
+              }
+              title={
+                <>
+                  {option.title}
                   {option.recommended && (
                     <span className="rounded-full bg-[var(--primary-base)] px-2 py-0.5 text-label-small-default text-[var(--content-inset)]">
                       {t("choiceSurface.recommended")}
                     </span>
                   )}
-                </span>
-                {option.description && (
-                  <span className="mt-1 block text-body-small-default text-[var(--content-quiet)]">
-                    {option.description}
-                  </span>
-                )}
-              </span>
-            </button>
+                </>
+              }
+              description={option.description || undefined}
+              trailing={
+                submitting === option.id ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                ) : undefined
+              }
+            />
           );
         })}
-      </div>
+      </OptionCardGroup>
 
       {!commitOnSelect && (
         <div className="mt-3 flex justify-end">

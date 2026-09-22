@@ -10,12 +10,20 @@ import { z } from "zod";
 import type { TextInsertionResult } from "@vellumai/ipc-contract";
 
 import { runAppleScript } from "./appleScriptExecutor";
+import {
+  type FrontAppFocus,
+  postFrontAppShortcut,
+  readFrontAppFocus,
+  type ShortcutOutcome,
+} from "./hotkey-helper";
 import { handle } from "./ipc";
 import log from "./logger";
 
 const CLIPBOARD_RESTORE_DELAY_MS = 500;
 const PASTE_SHORTCUT_SCRIPT =
   'tell application "System Events" to keystroke "v" using command down';
+const UNDO_SHORTCUT_SCRIPT =
+  'tell application "System Events" to keystroke "z" using command down';
 
 const AUTOMATION_SETTINGS_URL =
   "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation";
@@ -41,6 +49,22 @@ export type TextInsertionDeps = {
   readClipboardText: () => string;
   writeClipboardText: (text: string) => void;
 
+  /**
+   * Whether the application in front has something focused that takes text,
+   * and whether the helper answered the question.
+   *
+   * Injected rather than imported at the call site so a case can drive every
+   * answer; see `readFrontAppFocus`, which answers yes to everything but a
+   * confident no.
+   */
+  readFrontAppFocus: () => Promise<FrontAppFocus>;
+
+  /**
+   * Send Command plus a key from the mac helper. Preferred over AppleScript,
+   * whose System Events target quits itself when idle and fails a keystroke
+   * that reaches it on the way out with -600.
+   */
+  postShortcut: (key: "v" | "z") => Promise<ShortcutOutcome>;
   runAppleScript: (script: string) => Promise<unknown>;
   warn: (...args: unknown[]) => void;
   setTimeout: (callback: () => void, ms: number) => unknown;
@@ -130,6 +154,9 @@ const defaultDeps: TextInsertionDeps = {
   readClipboardText: () => clipboard.readText(),
   writeClipboardText: (text) => clipboard.writeText(text),
 
+  readFrontAppFocus,
+
+  postShortcut: postFrontAppShortcut,
   runAppleScript,
   warn: (...args) => log.warn(...args),
   setTimeout,
@@ -154,6 +181,51 @@ const isAutomationDeniedError = (err: unknown): boolean => {
   );
 };
 
+/**
+ * Send Command plus `key` to the application in front: from the helper when
+ * `useHelper` allows it, and through System Events when the helper is not
+ * asked or is certain it sent nothing.
+ *
+ * A helper call whose reply was lost is not retried. The keystroke may have
+ * gone before the reply did, and a second paste duplicates the words while a
+ * second undo takes back an edit the user made.
+ *
+ * `stillOwned` is asked before the AppleScript fallback, for a paste that must
+ * not send whatever the user copied while the helper was being asked.
+ */
+const sendShortcut = async (
+  deps: Pick<TextInsertionDeps, "postShortcut" | "runAppleScript" | "warn">,
+  key: "v" | "z",
+  script: string,
+  label: string,
+  {
+    useHelper = true,
+    stillOwned = () => true,
+  }: { useHelper?: boolean; stillOwned?: () => boolean } = {},
+): Promise<TextInsertionResult> => {
+  if (useHelper) {
+    const outcome = await deps.postShortcut(key);
+    if (outcome === "posted") {
+      return { status: "inserted" };
+    }
+    if (outcome === "unknown") {
+      return { status: "blocked" };
+    }
+  }
+  if (!stillOwned()) {
+    return { status: "blocked" };
+  }
+  try {
+    await deps.runAppleScript(script);
+    return { status: "inserted" };
+  } catch (err) {
+    deps.warn(`[text-insertion] ${label} shortcut failed:`, err);
+    return isAutomationDeniedError(err)
+      ? { status: "automation-denied" }
+      : { status: "blocked" };
+  }
+};
+
 const scheduleClipboardRestore = (
   deps: TextInsertionDeps,
   previousClipboard: ClipboardSnapshot,
@@ -174,6 +246,17 @@ export const typeIntoFrontAppWithDeps = async (
     return { status: "vellum-focused" };
   }
 
+  // **Asked before the clipboard is touched.** A paste sent where nothing
+  // takes text lands on whatever the keystroke happens to mean there, and the
+  // application reports nothing back, so this is the only moment the words can
+  // still be saved. Withholding leaves the user's clipboard exactly as it was:
+  // they have not asked for it to be spent, and what happens to the words
+  // instead is the caller's to offer.
+  const focus = await deps.readFrontAppFocus();
+  if (!focus.takesText) {
+    return { status: "no-text-field" };
+  }
+
   // **The application is not hidden to hand focus over.** Nothing here has it:
   // the guard above returns when a Vellum window is focused, and the companion
   // is a non-activating panel, so whatever the user was working in is still
@@ -186,26 +269,42 @@ export const typeIntoFrontAppWithDeps = async (
   const previousClipboard = deps.readClipboardSnapshot();
   deps.writeClipboardText(text);
 
-  let result: TextInsertionResult;
-  try {
-    await deps.runAppleScript(PASTE_SHORTCUT_SCRIPT);
-    result = { status: "inserted" };
-  } catch (err) {
-    deps.warn("[text-insertion] paste shortcut failed:", err);
-
-    if (isAutomationDeniedError(err)) {
-      result = { status: "automation-denied" };
-    } else {
-      result = { status: "blocked" };
-    }
-  }
-
+  // The helper is asked only when it has just answered the focus read, which
+  // bounds the time the clipboard is held for a helper that will not reply.
+  const result = await sendShortcut(deps, "v", PASTE_SHORTCUT_SCRIPT, "paste", {
+    useHelper: focus.helperAnswered,
+    stillOwned: () => deps.readClipboardText() === text,
+  });
   scheduleClipboardRestore(deps, previousClipboard, text);
   return result;
 };
 
 export const typeIntoFrontApp = (text: string): Promise<TextInsertionResult> =>
   typeIntoFrontAppWithDeps(text, defaultDeps);
+
+/**
+ * Undo the last edit in the application in front, the way its Edit menu
+ * would. The same keystroke path a paste takes, and the same guard: a Vellum
+ * window in front means there is no other application to undo in.
+ *
+ * A paste is one undo step in every editor worth the name, which is what
+ * makes this the way to put one dictation in the place of another. What the
+ * application actually undoes is its own affair; nothing here can check.
+ */
+export const undoInFrontAppWithDeps = async (
+  deps: Pick<
+    TextInsertionDeps,
+    "getFocusedWindow" | "postShortcut" | "runAppleScript" | "warn"
+  >,
+): Promise<TextInsertionResult> => {
+  if (deps.getFocusedWindow() !== null) {
+    return { status: "vellum-focused" };
+  }
+  return sendShortcut(deps, "z", UNDO_SHORTCUT_SCRIPT, "undo");
+};
+
+export const undoInFrontApp = (): Promise<TextInsertionResult> =>
+  undoInFrontAppWithDeps(defaultDeps);
 
 export const openAutomationSettings = (): Promise<void> =>
   shell.openExternal(AUTOMATION_SETTINGS_URL);
@@ -217,4 +316,5 @@ export const installTextInsertionIpc = (): void => {
   handle("vellum:text:openAutomationSettings", z.tuple([]), () =>
     openAutomationSettings(),
   );
+  handle("vellum:text:undoInFrontApp", z.tuple([]), () => undoInFrontApp());
 };

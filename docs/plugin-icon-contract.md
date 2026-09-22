@@ -23,9 +23,14 @@ A plugin MAY ship a raster icon. The rules exist so third-party bytes served fro
 
 The authoritative constants — `MAX_ICON_BYTES = 32 * 1024`, `MAX_ICON_DIMENSION = 128`, the PNG magic signature, the IHDR checks, and the 16-hex `iconVersion` slice — all live in [`plugin-icon-file.ts`](../assistant/src/cli/lib/plugin-icon-file.ts). Treat that file as the spec; this doc explains it.
 
-## The two in-repo sources
+## Marketplace icon sources
 
-A plugin's icon comes from **either** a curated emoji **or** a vendored PNG — curate one source per plugin, not both. They are independent in-repo sources; the platform resolves them into a single catalog `icon` value (see [Platform combination](#platform-combination-and-precedence)). A plugin that ships a vendored PNG does not also need a marketplace `icon` emoji (the PNG always wins).
+A plugin's icon comes from **either** a curated emoji **or** a PNG. Curate one
+source per plugin, not both. GitHub plugin PNGs are vendored into the shared
+asset catalog. Bundled local plugin PNGs remain in their package. The platform
+resolves the curated GitHub sources into a single catalog `icon` value (see
+[Platform combination](#platform-combination-and-precedence)). A plugin that
+ships a PNG does not also need a marketplace `icon` emoji.
 
 ### 1. Emoji — `icon` field on the marketplace entry
 
@@ -39,7 +44,7 @@ Each entry in [`plugins/marketplace.json`](../plugins/marketplace.json) MAY carr
 }
 ```
 
-The marketplace entry schema (name, `source.{repo,ref,path}` with `ref` pinned to a **full commit SHA**, description, category, homepage, license, and the optional `icon`) is defined in [`plugin-marketplace.ts`](../assistant/src/cli/lib/plugin-marketplace.ts). The `icon` field is curated in-repo, not fetched from the third-party plugin. It is wired end to end: `marketplaceEntrySchema` carries it through `marketplaceMatch` into the catalog projection and the `assistant plugins search` response, and the platform's `/v1/plugins/` reads the same curated emoji independently to render the marketing site.
+The marketplace entry schema (name, a discriminated `source`, description, category, homepage, license, and the optional `icon`) is defined in [`plugin-marketplace.ts`](../assistant/src/cli/lib/plugin-marketplace.ts). GitHub sources pin `ref` to a **full commit SHA**; local sources name an exact package path and version embedded in the assistant distribution. The `icon` field is curated in-repo, not fetched from the third-party plugin. It is wired end to end: `marketplaceEntrySchema` carries it through `marketplaceMatch` into the catalog projection and the `assistant plugins search` response, and the platform's `/v1/plugins/` reads the same curated emoji independently to render the marketing site.
 
 ### 2. PNG — vendored asset + derived manifest
 
@@ -58,6 +63,34 @@ An author-bundled `icon.png` (validated per the rules above) is **vendored into 
 ```
 
 Both the vendored asset and the manifest are generated, not hand-edited (see [Adding or updating a plugin icon](#adding-or-updating-a-plugin-icon)).
+
+## Bundled local plugin icons
+
+A marketplace plugin whose source is `local` keeps the canonical `icon.png` in
+its package root at `<source.path>/icon.png`. The file follows the same PNG,
+dimension, byte-size, and fixed-name rules as every author-bundled icon. Icon
+attribution belongs in the package so it travels with the installed plugin.
+
+Adding or changing package content requires a package version bump. The
+`version` in `plugin.json` and the marketplace `source.version` must match.
+
+The web catalog loads static integration logos by filename, so bundled local MCP
+plugins also have a derived compatibility copy at
+`clients/web/public/images/integrations/<name>-mcp.png`. The marketplace
+`integration.logo` must name that file. Existing OAuth logo filenames remain
+independent even when an OAuth provider and an MCP plugin share a brand.
+
+Generate or verify these copies without network access:
+
+```bash
+node scripts/plugins/sync-local-plugin-icons.mjs
+node scripts/plugins/sync-local-plugin-icons.mjs --check
+```
+
+The package icon is the source of truth. The sync command validates it with the
+authoritative PNG contract and writes a byte-identical web copy. Check mode
+also rejects missing, changed, or stale `<name>-mcp.png` files and verifies the
+package path, version match, and marketplace logo filename.
 
 ## Platform combination and precedence
 
@@ -116,5 +149,5 @@ If you'd rather run the steps by hand, or need only one of them:
 
 **PNG:**
 
-1. Run the generator `scripts/plugins/generate-plugin-icons.mjs`. It fetches the plugin's `icon.png`, validates it against the rules above, vendors the valid bytes to `plugins/assets/<name>/icon.png`, and regenerates `plugins/plugin-icons.json`.
+1. For GitHub marketplace entries, run the generator `scripts/plugins/generate-plugin-icons.mjs`. It fetches the plugin's `icon.png`, validates it against the rules above, vendors the valid bytes to `plugins/assets/<name>/icon.png`, and regenerates `plugins/plugin-icons.json`. Local entries are handled by `sync-local-plugin-icons.mjs` and never fetched.
 2. Commit the vendored asset **and** the regenerated `plugins/plugin-icons.json` together. A plugin whose icon fails validation simply gets no manifest entry (and falls back to emoji or the generic glyph).

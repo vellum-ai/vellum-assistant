@@ -3,13 +3,10 @@
  * gate that decides whether a client may open one, and the pump that carries
  * frames between that client and the runtime.
  *
- * The gateway has more than one of these. `/v1/stt/stream` carries dictation
- * audio and `/v1/watch/stream` carries a watch session's narration, and as
- * proxies they are the same object: authenticate the downstream actor, dial a
- * fresh upstream socket with a short-lived service token, and pass frames
- * through in both directions until either end goes away. What differs is the
- * upstream path and which query parameters travel with it, which is why those
- * are the arguments here.
+ * Shared by `/v1/stt/stream`, `/v1/watch/stream` and `/v1/desktop/stream`:
+ * authenticate the downstream actor, dial upstream with a short-lived service
+ * token, and pass frames through verbatim both ways, each side's close code
+ * carried to the other. Only the upstream path and query parameters differ.
  *
  * **What the shared gate settles, and what it deliberately leaves open.** It
  * settles that the caller is *an* actor on this assistant: a valid edge JWT,
@@ -44,6 +41,11 @@ import type { GatewayConfig } from "../../config.js";
  * stalled runtime cannot grow this proxy's memory without bound.
  */
 const MAX_PENDING_MESSAGES = 100;
+
+/** Payload size of a frame, so an empty one is not mistaken for a dropped one. */
+function byteLength(frame: string | Uint8Array): number {
+  return typeof frame === "string" ? frame.length : frame.byteLength;
+}
 
 /** The state every audio-stream proxy socket carries, whatever it streams. */
 export interface RuntimeAudioStreamState {
@@ -161,9 +163,19 @@ export interface RuntimeAudioStreamHandlerOptions<
   /** What this stream is called in log messages, e.g. `"STT stream"`. */
   label: string;
   /** Query parameters carried upstream, built from the socket's own state. */
-  upstreamParams: (data: T) => Record<string, string>;
+  upstreamParams?: (data: T) => Record<string, string>;
   /** Extra fields worth logging alongside every message about this socket. */
   logContext?: (data: T) => Record<string, unknown>;
+  /**
+   * Whether a dropped downstream frame is fatal to the session.
+   *
+   * Only `/v1/desktop/stream` opts in. RFB is an ordered byte stream with no
+   * resync, so a missing frame corrupts the viewer's framebuffer for good and
+   * closing is the only honest outcome. The JSON routes carry self-contained
+   * lifecycle and transcript frames, where losing one costs a transcript
+   * fragment and nothing more, so they log and carry on.
+   */
+  closeOnDroppedFrame?: boolean;
 }
 
 /**
@@ -181,8 +193,9 @@ export function createRuntimeAudioStreamHandlers<
   upstreamPath,
   log,
   label,
-  upstreamParams,
+  upstreamParams = () => ({}),
   logContext = () => ({}),
+  closeOnDroppedFrame = false,
 }: RuntimeAudioStreamHandlerOptions<T>) {
   return {
     open(ws: import("bun").ServerWebSocket<T>) {
@@ -222,7 +235,23 @@ export function createRuntimeAudioStreamHandlers<
           typeof event.data === "string"
             ? event.data
             : new Uint8Array(event.data as ArrayBuffer);
-        ws.send(data);
+        // Bun's send returns the byte count it wrote, and 0 for a frame
+        // dropped past its backpressure limit. An empty payload also writes
+        // zero bytes, so the drop only counts when there was something to
+        // send.
+        const dropped = ws.send(data) === 0 && byteLength(data) > 0;
+        if (!dropped) {
+          return;
+        }
+        if (!closeOnDroppedFrame) {
+          // Debug, not warn: the usual cause is a runtime frame landing just
+          // after the browser socket closed, once per session and harmless.
+          log.debug(context, `${label} dropped a downstream frame`);
+          return;
+        }
+        log.warn(context, `${label} dropped a downstream frame, closing`);
+        ws.close(1011, "Viewer too slow");
+        upstream.close(1011, "Viewer too slow");
       });
 
       upstream.addEventListener("close", (event) => {

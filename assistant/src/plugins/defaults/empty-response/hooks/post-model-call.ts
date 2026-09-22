@@ -79,6 +79,15 @@ export const NUDGE_TEXT =
   INTERNAL_NUDGE_OUTPUT_SUPPRESSION +
   "</system_notice>";
 
+/**
+ * Canonical nudge text for a turn that ended without reaching the user through
+ * `send_user_message`. Shown to the LLM, not the user.
+ */
+export const SEND_USER_MESSAGE_NUDGE_TEXT =
+  "<system_notice>Nothing you wrote reached the user. Call send_user_message with a 1 to 3 sentence reply now." +
+  INTERNAL_NUDGE_OUTPUT_SUPPRESSION +
+  "</system_notice>";
+
 function hasVisibleText(content: ReadonlyArray<ContentBlock>): boolean {
   return content.some(
     (block) => block.type === "text" && block.text.trim().length > 0,
@@ -140,6 +149,51 @@ const postModelCall: HookFunction<PostModelCallContext> = async (ctx) => {
     !priorAssistantHadVisibleText
   ) {
     ctx.content = [{ type: "text", text: REFUSAL_FALLBACK_TEXT }];
+    return;
+  }
+
+  // Tool-gated reply surface: nothing the model wrote as plain text reaches
+  // the user, so the turn is only answered when a `send_user_message` call
+  // reported the OUTCOME. This response holds no tool call at all (the guard
+  // above), so it is the terminal one: if the last tool-bearing response was
+  // work rather than a report (a progress update sent alongside that work
+  // counts as work), the turn is ending in silence. Nudge once for a real
+  // reply, and after that let the turn end; the loop then surfaces this
+  // response's raw text as the fallback rather than delivering nothing.
+  //
+  // Owned entirely here, and that ownership is total: a suppressed main-agent
+  // run always returns from this branch, nudge or no nudge. The legacy
+  // empty-turn nudge below asks for plain text, which is exactly what the gate
+  // makes invisible, so a gated turn falling through to it gets a system
+  // notice contradicting its own instructions, answers it in raw text, and
+  // burns a model call writing a reply the user never sees.
+  if (ctx.callSite === "mainAgent" && ctx.assistantTextSuppressed === true) {
+    // The host decides this, so the nudge here and the raw-text fallback in
+    // the loop cannot disagree about whether the user was already answered.
+    // Absent reads as "not told", which keeps the fallback available: an extra
+    // nudge costs a call, a suppressed fallback costs the reply.
+    if (ctx.userToldOutcome === true) {
+      // The reply is already delivered, so an empty terminal response is the
+      // turn ending correctly. Nothing is owed and nothing is asked for.
+      return;
+    }
+    if (!isEmptyResponseNudged(ctx.conversationId)) {
+      markEmptyResponseNudged(ctx.conversationId);
+      ctx.messages.push({
+        role: "user",
+        content: [{ type: "text", text: SEND_USER_MESSAGE_NUDGE_TEXT }],
+      });
+      ctx.decision = "continue";
+      ctx.logger.warn(
+        { plugin: "empty-response", conversationId: ctx.conversationId },
+        "Turn ended without a send_user_message call, nudging for a reply",
+      );
+      return;
+    }
+    ctx.logger.warn(
+      { plugin: "empty-response", conversationId: ctx.conversationId },
+      "Turn ended without a send_user_message call after a nudge, surfacing the raw reply",
+    );
     return;
   }
 

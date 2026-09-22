@@ -27,6 +27,7 @@ export function PendingSecretRow() {
 
   return (
     <SecretPromptCard
+      key={pendingSecret.requestId}
       secret={pendingSecret}
       isSubmitting={isSubmitting}
       saved={saved}

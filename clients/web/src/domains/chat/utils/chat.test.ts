@@ -77,6 +77,7 @@ describe("chat utilities", () => {
     test("matches the subagent/acp global treatment", () => {
       expect(scoped("subagent_spawned")).toBe(false);
       expect(scoped("acp_session_completed")).toBe(false);
+      expect(scoped("acp_session_model_update")).toBe(false);
     });
 
     test("ordinary conversation events stay scoped", () => {

@@ -9,8 +9,9 @@
 //      (success or failure). Prevents tight retry loops across trigger
 //      types.
 //   2. Interval threshold: time since last attempt >= `timeThresholdMs`.
-//   3. Message count threshold: new messages since `lastProcessedMessageId`
-//      >= `messageThreshold`.
+//   3. Message count threshold: new messages since the persisted cursor
+//      (`lastProcessedMessageId` with its `createdAt`, so the count survives
+//      the cursor's row being deleted) >= `messageThreshold`.
 //
 // First-run case (no state row) skips the cooldown — `lastRunAt = 0` so the
 // gap is effectively `Infinity`. The interval threshold trips immediately;
@@ -24,6 +25,7 @@
 import type { AssistantConfig } from "../../../config/types.js";
 import { getLogger } from "./logging.js";
 import { countRetrospectiveMessagesAfter } from "./memory-retrospective-accounting.js";
+import { retrospectiveCursor } from "./memory-retrospective-cursor.js";
 import { enqueueMemoryRetrospectiveIfEnabled } from "./memory-retrospective-enqueue.js";
 import { getRetrospectiveState } from "./memory-retrospective-state.js";
 
@@ -83,7 +85,7 @@ export function maybeEnqueueRetrospective(
     const state = getRetrospectiveState(conversationId);
     const newMessageCount = countRetrospectiveMessagesAfter(
       conversationId,
-      state?.lastProcessedMessageId ?? null,
+      retrospectiveCursor(state),
     );
     if (newMessageCount === 0) {
       return;

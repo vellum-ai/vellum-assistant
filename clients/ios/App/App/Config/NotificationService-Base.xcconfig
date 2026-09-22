@@ -1,0 +1,50 @@
+// NotificationService-Base.xcconfig - shared build settings for the three
+// Notification Service Extension targets. Per-target xcconfigs #include this
+// file, then override the values that differ: above all the bundle ID, which
+// iOS requires to be prefixed by its containing app's. That prefix rule is why
+// there are three of these appexes rather than one shared bundle.
+//
+// This deliberately does NOT #include Base.xcconfig. That file points
+// CODE_SIGN_ENTITLEMENTS, INFOPLIST_FILE and ASSOCIATED_DOMAIN at the app's own
+// values, which are wrong or actively harmful on an appex. Keep
+// DEVELOPMENT_TEAM, SWIFT_VERSION, TARGETED_DEVICE_FAMILY and
+// IPHONEOS_DEPLOYMENT_TARGET in sync with Base.xcconfig, Extension-Base.xcconfig
+// and Share-Base.xcconfig.
+//
+// APP_GROUP_ID and BUNDLE_DISPLAY_NAME are restated verbatim from the matching
+// App*.xcconfig by each per-environment file. A container is shared only
+// between bundles naming the identical group. There is no BUNDLE_URL_SCHEME:
+// this appex builds no deep links, and tap routing stays with the containing
+// app.
+//
+// The entitlements file is the same App Group-only file the VoiceActivity and
+// Share extensions use. Push stays off: the system hands this extension an
+// already-delivered payload, so it registers for nothing itself. The
+// Communication Notifications entitlement that makes the rewrite legal belongs
+// to the containing app, not here.
+//
+// MARKETING_VERSION and CURRENT_PROJECT_VERSION are local-build placeholders,
+// for the same reason as in Base.xcconfig: release builds inject them as
+// xcodebuild CLI overrides at archive time. Empty values make the app
+// uninstallable outright, since iOS rejects an embedded appex whose
+// CFBundleVersion is missing.
+MARKETING_VERSION = 0.0.0
+CURRENT_PROJECT_VERSION = 1
+
+CODE_SIGN_ENTITLEMENTS = App/Extension.entitlements
+CODE_SIGN_STYLE = Automatic
+DEVELOPMENT_TEAM = 7FZDXZR8P5
+INFOPLIST_FILE = NotificationService/Info.plist
+IPHONEOS_DEPLOYMENT_TARGET = 17.0
+
+// Manual-signing provisioning profile, resolved per target. Each
+// per-environment xcconfig sets PROVISIONING_PROFILE_SPECIFIER_Manual to the
+// profile for its environment: the appex has its own bundle ID, so the app's
+// profile does not cover it. Keying off CODE_SIGN_STYLE leaves local Xcode
+// builds on automatic signing with no specifier at all.
+PROVISIONING_PROFILE_SPECIFIER = $(PROVISIONING_PROFILE_SPECIFIER_$(CODE_SIGN_STYLE))
+
+APPLICATION_EXTENSION_API_ONLY = YES
+SKIP_INSTALL = YES
+SWIFT_VERSION = 5.0
+TARGETED_DEVICE_FAMILY = 1,2

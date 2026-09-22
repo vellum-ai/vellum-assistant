@@ -10,12 +10,21 @@
 
 import { isElectron } from "@/runtime/is-electron";
 import type {
+  CompanionAnnotationPhase,
+  CompanionAnnotationStroke,
+  CompanionAnnotationTool,
   CompanionCapturePick,
   CompanionCaptureSources,
   CompanionContext,
   CompanionDictating,
   CompanionIntroAction,
+  CompanionPopoverAnswer,
+  CompanionPicker,
+  CompanionPopoverView,
   CompanionSurfaceState,
+  DictationOfferAnswer,
+  ScreenCaptureFrame,
+  WatchCaptureTarget,
 } from "@vellumai/ipc-contract";
 
 type CompanionBridge = NonNullable<NonNullable<Window["vellum"]>["companion"]>;
@@ -69,6 +78,17 @@ export function moveCompanionBy(dx: number, dy: number): void {
 }
 
 /**
+ * Tell main the hand has let go of the surface.
+ *
+ * After every press, moved or not: main knows whether a drag was in flight
+ * and what its release settles. Mid-call it is the drop that docks the bar
+ * to an edge of the display.
+ */
+export function releaseCompanionSurface(): void {
+  bridge()?.release?.();
+}
+
+/**
  * Ask for a live-voice session, which is what Talk does.
  *
  * The surface is a renderer of its own with no session in it, so the press is
@@ -116,6 +136,172 @@ export function listCompanionCaptureSources(): Promise<CompanionCaptureSources |
 }
 
 /**
+ * Show the running call what the user is looking at, or stop, which is what
+ * the share control does.
+ *
+ * `pick` is the row of the picker the press came from; a press with none is
+ * the stop. Like {@link toggleCompanionWatch} the press leaves this renderer
+ * at once: main resolves a tab to the window showing it and hands the target
+ * to the window holding the session, and what comes back is `screenShare` on
+ * the pushed state once that window has frames flowing.
+ */
+export function setCompanionScreenShare(pick?: CompanionCapturePick): void {
+  bridge()?.setScreenShare?.(pick);
+}
+
+/**
+ * Whether this shell can show a call the screen at all: the macOS app, whose
+ * bridge carries the share. Other shells, and a browser, answer no.
+ */
+export function canCompanionShareScreen(): boolean {
+  return typeof bridge()?.setScreenShare === "function";
+}
+
+/**
+ * Let the user draw on the surface they are sharing, or give the mouse back
+ * to the desktop.
+ *
+ * Unlike every other press here the answer does not come from the window
+ * holding the session: the mode is main's, since it is main that decides
+ * whether the frame around the shared surface is click-through. What comes
+ * back is `annotating` on the pushed state.
+ */
+export function setCompanionAnnotating(annotating: boolean): void {
+  bridge()?.setAnnotating?.(annotating);
+}
+
+/**
+ * The same mode, turned over.
+ *
+ * For the keyboard, which has one gesture for both directions and no view of
+ * the mode to work out which one it is asking for. Main holds it, so main is
+ * the side that can flip it; a caller comparing against the last pushed state
+ * would be a press behind whenever the two crossed.
+ */
+export function toggleCompanionAnnotating(): void {
+  bridge()?.toggleAnnotating?.();
+}
+
+/**
+ * Take down everything on the shared surface without ending the share: the
+ * assistant's marks, and the user's own ink.
+ *
+ * Main's, for the reason the mode is: it holds the assistant's marks, and the
+ * ink is on a window it opened that this renderer cannot reach. What comes
+ * back is the marks gone from the pushed state and `marksCleared` stepped on
+ * it.
+ */
+export function clearCompanionMarks(): void {
+  bridge()?.clearMarks?.();
+}
+
+/**
+ * Choose what a press on the shared surface draws: the pointer's own path, or
+ * a line, box or circle stretched between press and release.
+ *
+ * Main's for the reason the mode is: the pill chooses and the frame draws, and
+ * what comes back is `annotationTool` on the pushed state.
+ */
+export function setCompanionAnnotationTool(
+  tool: CompanionAnnotationTool,
+): void {
+  bridge()?.setAnnotationTool?.(tool);
+}
+
+/**
+ * A mark the user is drawing on the shared surface, from the frame's own
+ * window: the hand still on it, or off it with the strokes it left.
+ *
+ * The only call in this module made from the frame's window. Strokes are
+ * fractions of that window, which is the shared surface exactly, so the side
+ * that draws them onto a captured frame needs nothing else to place them
+ * beyond `ink`, the colour they were drawn in.
+ */
+export function annotateCompanionShare(
+  phase: CompanionAnnotationPhase,
+  strokes: readonly CompanionAnnotationStroke[],
+  ink: string,
+): void {
+  bridge()?.annotateShare?.(phase, strokes, ink);
+}
+
+/**
+ * Tell main the user is scrolling the app under the frame, or has moved the
+ * pointer since, from the frame's own window while drawing is on.
+ *
+ * The frame takes the wheel along with the presses and cannot forward it, so
+ * main answers a scroll by making the frame click-through until the pointer
+ * moves: the rest of the scroll reaches the app underneath, and the first
+ * forwarded move is the frame's cue to take the mouse back. Main holds the
+ * state; this only reports the two events it cannot see.
+ */
+export function setCompanionFrameScrolling(scrolling: boolean): void {
+  bridge()?.setFrameScrolling?.(scrolling);
+}
+
+/**
+ * Tell main the frame's page has drawn the border, so the frame can go on
+ * screen. Main holds a new frame off it until then: a frame shown before its
+ * page has drawn stays blank on a whole display.
+ */
+export function reportCompanionFrameDrawn(): void {
+  bridge()?.frameDrawn?.();
+}
+
+/**
+ * One frame of what the user is sharing, as the helper takes it.
+ *
+ * The one call in this module made from the app's own window on a cadence
+ * rather than on a press: the session lives there, and each frame becomes a
+ * `sight_frame` on it. Resolves to nothing off Electron, on a shell that
+ * predates the share, and whenever the helper could not take one, and the
+ * caller reads every one of those as a frame to skip.
+ */
+/**
+ * Tell the shell a frame of `target` reached the call.
+ *
+ * Sent on the acknowledgement rather than on the capture, because those are
+ * different moments: a frame is taken here, then uploaded and sent, and a
+ * reconnect or a failed upload can void it in between. Main gates the
+ * assistant's own marks on having shown the current surface, so counting a
+ * capture as a showing would open that gate for a picture the call never got.
+ *
+ * A no-op off the desktop shell, the bargain every call in this module makes.
+ */
+export function reportCompanionSharedFrame(target: WatchCaptureTarget): void {
+  bridge()?.sharedFrame?.(target);
+}
+
+export function captureCompanionScreen(
+  target: WatchCaptureTarget,
+): Promise<ScreenCaptureFrame | null> {
+  const companion = bridge();
+  if (!companion?.captureScreen) {
+    return Promise.resolve(null);
+  }
+  return companion.captureScreen(target).catch(() => null);
+}
+
+/**
+ * A preview of one row of the picker, as a JPEG data URL.
+ *
+ * Resolves to nothing off Electron, on a shell that has no previews to give,
+ * and whenever the helper would not take one, which the picker reads the same
+ * way every time: the tile falls back to the owning app's icon. Nothing here
+ * is awaited before the tiles are drawn, so the grid is pressable while the
+ * pictures are still landing.
+ */
+export function captureCompanionSourceThumbnail(
+  target: WatchCaptureTarget,
+): Promise<string | null> {
+  const companion = bridge();
+  if (!companion?.captureSourceThumbnail) {
+    return Promise.resolve(null);
+  }
+  return companion.captureSourceThumbnail(target).catch(() => null);
+}
+
+/**
  * Answer the question a finished watch session leaves on the surface: open its
  * summary now, or not.
  *
@@ -126,6 +312,113 @@ export function listCompanionCaptureSources(): Promise<CompanionCaptureSources |
  */
 export function answerCompanionWatchRetro(open: boolean): void {
   bridge()?.answerWatchRetro?.(open);
+}
+
+/**
+ * Answer the offer a dictation's words are standing on: use them in place of
+ * what another app pasted, get that app off the key, take them to the
+ * clipboard, or leave them. Every answer leaves this renderer, for the reason
+ * the retro's does: the window that made the offer is the one holding it.
+ *
+ * The offer is named rather than assumed, since this window can be a frame
+ * behind the one holding it. See {@link CompanionDictationOffer.id}.
+ */
+export function answerCompanionDictationOffer(
+  answer: DictationOfferAnswer,
+  offerId: string,
+): void {
+  bridge()?.answerDictationOffer?.(answer, offerId);
+}
+
+/**
+ * Answer the popover beside the surface. Every answer leaves this renderer,
+ * named for the popover it was drawn for, since the window that holds the
+ * approval or the surface is the one that can act on it and may already have
+ * moved on. See {@link CompanionPopover}.
+ */
+export function answerCompanionPopover(
+  answer: CompanionPopoverAnswer,
+  popoverId: string,
+): void {
+  bridge()?.answerPopover?.(answer, popoverId);
+}
+
+/**
+ * Report the size of the popover's card, for the popover it is drawing. Main
+ * sizes the popover's window by it and shows the window once the popover on
+ * screen has been measured, so it never opens at the last one's size.
+ */
+export function setCompanionPopoverSize(
+  popoverId: string,
+  width: number,
+  height: number,
+): void {
+  bridge()?.setPopoverSize?.(popoverId, width, height);
+}
+
+/**
+ * Show the popover whole, put it off, or back to its short form. Main holds
+ * the view, since the call's bar and the popover's window both draw it. See
+ * {@link CompanionPopoverView}.
+ */
+export function setCompanionPopoverView(
+  popoverId: string,
+  view: CompanionPopoverView,
+): void {
+  bridge()?.setPopoverView?.(popoverId, view);
+}
+
+/**
+ * Report how tall the popover drawn on a call's bar stands above the bar's
+ * centre line, in points. Main grows the surface's canvas to hold it, since
+ * a list or a form is taller than the room the canvas keeps for a card.
+ */
+export function setCompanionAttachedPopoverHeight(
+  popoverId: string,
+  height: number,
+): void {
+  bridge()?.setAttachedPopoverHeight?.(popoverId, height);
+}
+
+/**
+ * Open a picker from the call bar in the popover, or close it when it is the
+ * one open. The window holding the call fills it and takes the pick.
+ */
+export function toggleCompanionPicker(picker: CompanionPicker): void {
+  bridge()?.togglePicker?.(picker);
+}
+
+/**
+ * Whether the shell takes a chevron's press. One that predates the pickers
+ * has nowhere to send it, and a chevron drawn for it would press into nothing.
+ */
+export function companionHasPickers(): boolean {
+  return typeof bridge()?.togglePicker === "function";
+}
+
+/**
+ * Open a link from the popover in the user's browser.
+ *
+ * Through main rather than `window.open`: floating windows deny every
+ * navigation and every new window, so an anchor there does nothing.
+ */
+export function openCompanionLink(url: string): void {
+  bridge()?.openLink?.(url);
+}
+
+/**
+ * Whether the companion is on screen to show a prompt beside, which is when a
+ * caller that would bring the app forward for one can leave it where it is.
+ *
+ * False off Electron, on a shell that predates the popover, and whenever the
+ * question cannot be asked, so the caller falls back to raising the app.
+ */
+export function companionTakesPrompts(): Promise<boolean> {
+  const companion = bridge();
+  if (!companion?.takesPrompts) {
+    return Promise.resolve(false);
+  }
+  return companion.takesPrompts().catch(() => false);
 }
 
 /**
@@ -205,6 +498,20 @@ export function setCompanionDictation(
     return;
   }
   setCompanionContext({ ...lastContext, dictating, dictationText });
+}
+
+/**
+ * Stop showing the popover.
+ *
+ * For the publisher going away, the way {@link clearCompanionWorking} is: the
+ * approval or surface it shows is answered in that publisher's window, so a
+ * popover left standing is one whose presses land nowhere.
+ */
+export function clearCompanionPopover(): void {
+  if (lastContext === null || lastContext.popover === undefined) {
+    return;
+  }
+  setCompanionContext({ ...lastContext, popover: undefined });
 }
 
 export function clearCompanionWorking(): void {

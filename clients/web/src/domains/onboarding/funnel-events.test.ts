@@ -87,8 +87,8 @@ describe("onboarding funnel events", () => {
   });
 
   test("stamps arbitrary variant arms beyond the pre-chat union", () => {
-    // Other funnels (e.g. tips) ride the same emitter with their own arms;
-    // the ingest stores ab_variant as an open string.
+    // Experiment funnels ride the same emitter with their own arms; the ingest
+    // stores ab_variant as an open string.
     const event = buildOnboardingFunnelEvent(
       ONBOARDING_FUNNEL_STEPS.privacyTos,
       { variant: "on" },
@@ -129,6 +129,26 @@ describe("onboarding funnel events", () => {
       user_id: "user-123",
       funnel_version: ONBOARDING_FUNNEL_VERSION,
       ab_variant: "control",
+    });
+  });
+
+  test("stamps the face-step naming dimensions on screen and variant", () => {
+    emitResearchOnboardingStepCompleted(RESEARCH_ONBOARDING_FUNNEL_STEPS.face, {
+      userId: "user-123",
+      screen: "randomized",
+      variant: "random_initial",
+    });
+
+    expect(ingestMock).toHaveBeenCalledTimes(1);
+    expect(ingestPayload(0).events[0]).toMatchObject({
+      type: "onboarding",
+      step_name: "research_face",
+      step_index: 1,
+      screen: "randomized",
+      funnel_version: RESEARCH_ONBOARDING_FUNNEL_VERSION,
+      ab_variant: "random_initial",
+      outcome: "completed",
+      user_id: "user-123",
     });
   });
 

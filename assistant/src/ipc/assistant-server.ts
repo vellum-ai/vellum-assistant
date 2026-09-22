@@ -57,6 +57,9 @@ import type {
 } from "../runtime/routes/types.js";
 import { RouteResponse } from "../runtime/routes/types.js";
 import { getLogger } from "../util/logger.js";
+import { mapGatewayIpcConnectError } from "./gateway-ipc-errors.js";
+import { ACTIVATION_SYNC_IPC_METHODS } from "./routes/activation-sync-ipc-routes.js";
+import { CHANNEL_REPLY_IPC_METHODS } from "./routes/channel-reply-ipc-routes.js";
 import { CONTACTS_INFO_IPC_METHODS } from "./routes/contacts-info-ipc-routes.js";
 import { CONTACTS_MIRROR_IPC_METHODS } from "./routes/contacts-mirror-ipc-routes.js";
 import { CONVERSATION_SYNC_IPC_METHODS } from "./routes/conversation-sync-ipc-routes.js";
@@ -76,6 +79,7 @@ const log = getLogger("assistant-ipc-server");
 // ---------------------------------------------------------------------------
 
 export type IpcRequest = {
+  cancelOnDisconnect?: boolean;
   id: string;
   method: string;
   params?: Record<string, unknown>;
@@ -213,11 +217,13 @@ export class AssistantIpcServer {
     // never in ROUTES.
     for (const methodMap of [
       INVITE_IPC_METHODS,
+      CHANNEL_REPLY_IPC_METHODS,
       CONTACTS_INFO_IPC_METHODS,
       CONTACTS_MIRROR_IPC_METHODS,
       GUARDIAN_LABEL_IPC_METHODS,
       CONVERSATION_SYNC_IPC_METHODS,
       DOCUMENTS_SYNC_IPC_METHODS,
+      ACTIVATION_SYNC_IPC_METHODS,
       EVENTS_IPC_METHODS,
     ]) {
       for (const [operationId, handler] of Object.entries(methodMap)) {
@@ -401,6 +407,16 @@ export class AssistantIpcServer {
       this.abortControllers.set(req.id, abortController);
     }
 
+    const onDisconnect = () => abortController?.abort();
+    if (req.cancelOnDisconnect === true) {
+      socket.once("close", onDisconnect);
+    }
+    const removeDisconnectListener = () => {
+      if (req.cancelOnDisconnect === true) {
+        socket.off("close", onDisconnect);
+      }
+    };
+
     try {
       const handlerArgs = {
         ...injectLocalActorHeader(req.params),
@@ -431,14 +447,17 @@ export class AssistantIpcServer {
               reader,
               this.buildErrorResponse(req.id, err),
             );
-          });
+          })
+          .finally(removeDisconnectListener);
       } else {
+        removeDisconnectListener();
         if (!isIpcStreamingResponse(result)) {
           this.abortControllers.delete(req.id);
         }
         this.sendResult(socket, reader, req.id, result);
       }
     } catch (err) {
+      removeDisconnectListener();
       this.abortControllers.delete(req.id);
       log.warn({ err, method: req.method }, "IPC handler error");
       this.sendResponse(socket, reader, this.buildErrorResponse(req.id, err));
@@ -479,19 +498,20 @@ export class AssistantIpcServer {
   }
 
   private buildErrorResponse(id: string, err: unknown): IpcResponse {
-    if (err instanceof RouteError) {
+    const mapped = mapGatewayIpcConnectError(err);
+    if (mapped instanceof RouteError) {
       const response: IpcResponse = {
         id,
-        error: err.message,
-        statusCode: err.statusCode,
-        errorCode: err.code,
+        error: mapped.message,
+        statusCode: mapped.statusCode,
+        errorCode: mapped.code,
       };
-      if (err.details !== undefined) {
-        response.errorDetails = err.details;
+      if (mapped.details !== undefined) {
+        response.errorDetails = mapped.details;
       }
       return response;
     }
-    return { id, error: String(err) };
+    return { id, error: String(mapped) };
   }
 
   /**
@@ -681,17 +701,23 @@ export class AssistantIpcServer {
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve an IPC caller's identity headers, mirroring what the HTTP adapter
- * derives from the verified `AuthContext`: `x-vellum-principal-type` and a
- * synthetic `x-vellum-actor-principal-id` for the local guardian. Handlers read
- * the resolved identity from `headers` (the single source of truth across both
- * transports); they never trust the request body.
+ * Resolve an IPC caller's identity headers, the IPC counterpart to what the
+ * HTTP adapter derives from the verified `AuthContext`:
+ * `x-vellum-principal-type` and a synthetic `x-vellum-actor-principal-id` for
+ * the local guardian. Handlers read the resolved identity from `headers` (the
+ * single source of truth across both transports); they never trust the request
+ * body.
  *
  * Principal type comes from the gateway-forwarded `x-vellum-principal-type`,
  * else `svc_gateway` for a gateway-proxied request (marked by
  * `x-vellum-proxy-server: ipc`, which a direct CLI never sends), else `local`.
  * Routes that elevate trust gate on `local`, so a remote caller arriving with
  * no verified principal must resolve to `svc_gateway`, never `local`.
+ *
+ * `x-vellum-subject` and `rawUrl` are dropped: this transport verifies no
+ * subject, and the wire-exact URL is the HTTP adapter's to set. Both are
+ * spoofable by anything that reaches the socket, and a handler that reads
+ * either treats absence as the fail-closed case.
  */
 export function injectLocalActorHeader(
   params: Record<string, unknown> | undefined,
@@ -707,6 +733,7 @@ export function injectLocalActorHeader(
     "x-vellum-principal-type":
       forwardedPrincipal ?? (isGatewayProxied ? "svc_gateway" : "local"),
   };
+  delete headers["x-vellum-subject"];
 
   // Fill the local guardian's actor id for direct callers that lack one.
   // Defensive: the lookup queries the contacts table, which may not exist on a
@@ -726,7 +753,9 @@ export function injectLocalActorHeader(
     }
   }
 
-  return { ...args, headers };
+  const sanitized: RouteHandlerArgs = { ...args, headers };
+  delete sanitized.rawUrl;
+  return sanitized;
 }
 
 // ── Process-level singleton ───────────────────────────────────────────────

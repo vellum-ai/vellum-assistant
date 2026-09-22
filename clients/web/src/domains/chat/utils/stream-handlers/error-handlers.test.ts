@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
 import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers";
+import type { DisplayMessage } from "@/domains/chat/types/types";
 import {
   handleStreamError,
   handleConversationErrorEvent,
@@ -8,6 +9,20 @@ import {
 } from "@/domains/chat/utils/stream-handlers/error-handlers";
 
 describe("handleStreamError", () => {
+  it.todo("keeps a successful batch sibling active after tail persistence fails", () => {
+    const ctx = makeCtx();
+    handleStreamError(
+      {
+        type: "error",
+        conversationId: "conv-1",
+        message: "Failed to persist batched queued message",
+      },
+      ctx,
+    );
+    expect(ctx.endTurn).not.toHaveBeenCalled();
+    expect(ctx.cancelAndClearStream).not.toHaveBeenCalled();
+  });
+
   it("ends the turn with reason=error, sets error, cancels stream", () => {
     const ctx = makeCtx();
     handleStreamError({ type: "error", message: "Something went wrong." }, ctx);
@@ -17,6 +32,52 @@ describe("handleStreamError", () => {
     });
     expect(ctx.setError).toHaveBeenCalled();
     expect(ctx.cancelAndClearStream).toHaveBeenCalled();
+  });
+
+  it("recovers the send a full queue refused without ending the turn", () => {
+    // A full queue refusing a send the daemon had already accepted is a
+    // delivery failure for one message, not a turn ending: the conversation may
+    // still be running the turn this send tried to interrupt.
+    const ctx = makeCtx({
+      requestIdToMessageId: new Map([["req-1", "cmid-1"]]),
+    });
+
+    handleStreamError(
+      {
+        type: "error",
+        code: "QUEUE_FULL",
+        requestId: "req-1",
+        message: "The assistant couldn't take your message.",
+      },
+      ctx,
+    );
+
+    // Not a turn ending, so none of the terminal-error teardown runs.
+    expect(ctx.endTurn).not.toHaveBeenCalled();
+    expect(ctx.cancelAndClearStream).not.toHaveBeenCalled();
+    expect(ctx.setError).toHaveBeenCalled();
+
+    // The optimistic row is dropped so nothing dangles unsent.
+    expect(ctx.setOptimisticSends).toHaveBeenCalled();
+    const updater = ((ctx.setOptimisticSends as unknown) as ReturnType<
+      typeof Object
+    >).mock.calls[0][0] as (prev: DisplayMessage[]) => DisplayMessage[];
+    const remaining = updater([
+      { id: "cmid-1", role: "user", textSegments: ["hello"] } as DisplayMessage,
+      { id: "other", role: "user" } as DisplayMessage,
+    ]);
+    expect(remaining.map((m) => m.id)).toEqual(["other"]);
+  });
+
+  it("leaves a generic error on its terminal path", () => {
+    // Only the correlated delivery failure takes the recovery path; anything
+    // else still ends the turn.
+    const ctx = makeCtx();
+    handleStreamError(
+      { type: "error", code: "QUEUE_FULL", message: "no request id" },
+      ctx,
+    );
+    expect(ctx.endTurn).toHaveBeenCalled();
   });
 });
 

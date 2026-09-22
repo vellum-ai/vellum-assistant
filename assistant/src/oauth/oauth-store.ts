@@ -16,7 +16,7 @@ import {
   oauthConnectionAccessTokenPath,
   type SecureKeyBackend,
 } from "@vellumai/credential-storage";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, or, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { invalidateAssistantSuggestedPromptsCache } from "../home/suggested-prompts-cache.js";
@@ -59,7 +59,7 @@ export type OAuthConnectionRow = typeof oauthConnections.$inferSelect;
  * managedServiceConfigKey,
  * loopbackPort, injectionTemplates, appType, setupNotes,
  * identityUrl, identityMethod, identityHeaders, identityBody,
- * identityResponsePaths, identityFormat, identityOkField, featureFlag,
+ * identityResponsePaths, identityFormat, identityOkField, responseOkField, featureFlag,
  * scopeSeparator, defaultScopes, availableScopes)
  * and display metadata (displayLabel, description, dashboardUrl,
  * clientIdPlaceholder, logoUrl, requiresClientSecret) propagate to existing
@@ -111,6 +111,7 @@ export function seedProviders(
     identityResponsePaths?: string[];
     identityFormat?: string;
     identityOkField?: string;
+    responseOkField?: string;
     featureFlag?: string;
   }>,
 ): void {
@@ -175,6 +176,7 @@ export function seedProviders(
       : null;
     const identityFormat = p.identityFormat ?? null;
     const identityOkField = p.identityOkField ?? null;
+    const responseOkField = p.responseOkField ?? null;
     const featureFlag = p.featureFlag ?? null;
 
     db.insert(oauthProviders)
@@ -216,6 +218,7 @@ export function seedProviders(
         identityResponsePaths,
         identityFormat,
         identityOkField,
+        responseOkField,
         featureFlag,
         createdAt: now,
         updatedAt: now,
@@ -259,6 +262,7 @@ export function seedProviders(
           identityResponsePaths,
           identityFormat,
           identityOkField,
+          responseOkField,
           featureFlag,
           updatedAt: now,
         },
@@ -359,6 +363,7 @@ export function registerProvider(params: {
   identityResponsePaths?: string[];
   identityFormat?: string;
   identityOkField?: string;
+  responseOkField?: string;
   featureFlag?: string;
 }): OAuthProviderRow {
   const db = getDb();
@@ -425,6 +430,7 @@ export function registerProvider(params: {
       : null,
     identityFormat: params.identityFormat ?? null,
     identityOkField: params.identityOkField ?? null,
+    responseOkField: params.responseOkField ?? null,
     featureFlag: params.featureFlag ?? null,
     createdAt: now,
     updatedAt: now,
@@ -486,6 +492,7 @@ export function updateProvider(
     identityResponsePaths: string[];
     identityFormat: string;
     identityOkField: string;
+    responseOkField: string;
     featureFlag: string;
     managedServiceIsPaid: boolean;
   }>,
@@ -610,6 +617,9 @@ export function updateProvider(
   if (params.identityOkField !== undefined) {
     set.identityOkField = params.identityOkField;
   }
+  if (params.responseOkField !== undefined) {
+    set.responseOkField = params.responseOkField;
+  }
   if (params.featureFlag !== undefined) {
     set.featureFlag = params.featureFlag;
   }
@@ -667,8 +677,6 @@ export async function upsertApp(
       "Cannot provide both clientSecretValue and clientSecretCredentialPath",
     );
   }
-
-  const defaultCredPath = (appId: string) => oauthAppClientSecretPath(appId);
 
   // Verify the credential path points to an existing secret.
   if (clientSecretCredentialPath) {
@@ -729,7 +737,7 @@ export async function upsertApp(
 
   const now = Date.now();
   const id = uuid();
-  const credPath = clientSecretCredentialPath ?? defaultCredPath(id);
+  const credPath = clientSecretCredentialPath ?? oauthAppClientSecretPath(id);
 
   const row = {
     id,
@@ -903,7 +911,8 @@ export function getConnection(id: string): OAuthConnectionRow | undefined {
  * Get the most recent active connection for a provider.
  *
  * Optional filters narrow the result:
- * - `account` — match a specific account identifier (e.g. email).
+ * - `account`: match an account label (e.g. email), then a connection ID when
+ *   no label matches within the other filters.
  * - `clientId` — restrict to connections linked to a specific OAuth app.
  *
  * Returns `undefined` when no matching active connection exists.
@@ -934,10 +943,6 @@ export function getActiveConnections(
     eq(oauthConnections.status, "active"),
   ];
 
-  if (account) {
-    conditions.push(eq(oauthConnections.accountInfo, account));
-  }
-
   if (clientId) {
     const app = getAppByProviderAndClientId(provider, clientId);
     if (!app) {
@@ -946,12 +951,32 @@ export function getActiveConnections(
     conditions.push(eq(oauthConnections.oauthAppId, app.id));
   }
 
-  return db
+  const connections = db
     .select()
     .from(oauthConnections)
-    .where(and(...conditions))
+    .where(
+      and(
+        ...conditions,
+        account
+          ? or(
+              eq(oauthConnections.accountInfo, account),
+              eq(oauthConnections.id, account),
+            )
+          : undefined,
+      ),
+    )
     .orderBy(desc(oauthConnections.createdAt), sql`rowid DESC`)
     .all();
+
+  if (account) {
+    const labelMatches = connections.filter(
+      (connection) => connection.accountInfo === account,
+    );
+    if (labelMatches.length > 0) {
+      return labelMatches;
+    }
+  }
+  return connections;
 }
 
 /** @deprecated Use {@link getActiveConnection} instead. */

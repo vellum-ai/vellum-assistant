@@ -1,7 +1,8 @@
 {
   "aboutPage": {
     "build": "建置",
-    "tagline": "您 Mac 的 AI 助理",
+    "taglineMacOS": "您 Mac 的 AI 助理",
+    "taglineWindows": "您 Windows PC 的 AI 助理",
     "version": "版本"
   },
   "activeAssistantGate": {
@@ -137,46 +138,136 @@
   },
   "companionIntro": {
     "ariaLabel": "介紹您的助理",
-    "done": "知道了",
-    "meet": {
-      "body": "我會留在您的桌面上，即使 Vellum 沒有顯示。",
-      "title": "這就是我",
-      "titleNamed": "我是 {name}"
+    "back": "上一步",
+    "call": {
+      "click": "點擊",
+      "line": "正在聆聽",
+      "shortcut": "快速鍵"
     },
-    "menu": {
-      "body": "您可以在這裡隱藏我或變更我的大小。",
-      "title": "右鍵點擊我"
+    "close": "關閉",
+    "done": "知道了",
+    "draw": {
+      "body": "指出螢幕上的任何內容",
+      "title": "標註"
+    },
+    "idle": {
+      "body": "把游標移到我上面，我就出來。",
+      "title": "嘿，是我",
+      "titleNamed": "嘿，我是 {name}"
+    },
+    "key": {
+      "scolded": "不是這個，是鍵盤上的那個鍵"
+    },
+    "meet": {
+      "body": "我會留在您的桌面上，即使 Vellum 沒有顯示。"
+    },
+    "mute": {
+      "body": "點擊麥克風把自己靜音，點擊喇叭把我靜音",
+      "title": "靜音"
     },
     "next": "下一步",
-    "skip": "跳過",
+    "share": {
+      "body": "把分頁、視窗或整個螢幕分享給我",
+      "title": "分享您的螢幕"
+    },
     "talk": {
-      "body": "開始語音對話。",
-      "title": "交談"
+      "body": "點擊我就能開始對話。",
+      "gesture": "或者連按兩次這個鍵：",
+      "greeted": "成功了！就這麼簡單。",
+      "prompt": "我會請求使用您的麥克風",
+      "title": "和我說話"
+    },
+    "try": {
+      "body": "跟我打個招呼，我會說出聲來回答。",
+      "how": "點擊我，或連按兩次這個鍵",
+      "title": "試試看"
     }
   },
-  "companionSurface": {
+  "companionPopover": {
     "allow": "允許",
+    "confirm": "確認",
+    "credentialLabel": "憑證",
+    "defaultSuffix": "（預設）",
+    "deny": "拒絕",
+    "dismiss": "關閉",
+    "enter": "輸入",
+    "microphoneFallback": "麥克風 {index}",
+    "microphonePermissionHint": "允許存取麥克風後即可依名稱查看每個麥克風。",
+    "microphoneTitle": "麥克風",
+    "needsCredentials": "需要憑證",
+    "needsCredentialsFor": "需要 {service} 的憑證",
+    "needsOkCount": "{count, plural, other {有 # 項需要你的同意}}",
+    "notNow": "暫不",
+    "openApp": "開啟 Vellum",
+    "pendingBadge": "{count, plural, other {有 # 項需要你的同意}}",
+    "previewVoice": "試聽 {voice}",
+    "review": "檢視",
+    "savedMicrophone": "已儲存的麥克風",
+    "savedMicrophoneNotConnected": "已儲存的麥克風（未連接）",
+    "stopPreview": "停止試聽",
+    "surfaceFallback": "有內容要給你看",
+    "systemDefault": "系統預設",
+    "voiceTitle": "聲音"
+  },
+  "companionSurface": {
     "calling": "正在呼叫…",
     "callingNamed": "正在呼叫 {name}…",
+    "captureKind": "來源類型",
     "captureNothing": "沒有可顯示的內容",
     "capturePicker": "教學來源",
     "captureScreen": "螢幕 {n}",
     "captureScreens": "螢幕",
     "captureTabs": "Chrome 分頁",
     "captureWindows": "視窗",
-    "deny": "拒絕",
     "endSession": "結束會話",
     "muteAssistant": "將助理靜音",
+    "muteAssistantNamed": "將 {name} 靜音",
     "muteMicrophone": "將麥克風靜音",
     "notNow": "暫不",
+    "offerCopy": "複製",
+    "offerDiscard": "捨棄",
+    "offerHeard": "{app} 已貼上那段",
+    "offerNowhere": "沒有地方可以放",
+    "offerPasteFailed": "無法貼上這些內容",
+    "offerQuit": "結束 {app}",
+    "offerUse": "使用 Vellum 的版本",
+    "offerVersion": "Vellum 聽到的是",
     "openVellum": "開啟 Vellum",
+    "share": "共享",
+    "sharePicker": "共享來源",
     "showSummary": "顯示摘要",
     "stopTeaching": "停止教學",
     "summarizing": "正在摘要",
     "talk": "交談",
     "teach": "教學",
     "unmuteAssistant": "解除助理靜音",
-    "unmuteMicrophone": "解除麥克風靜音"
+    "unmuteAssistantNamed": "解除 {name} 靜音",
+    "unmuteMicrophone": "解除麥克風靜音",
+    "dictating": "正在聆聽",
+    "dictatingTranscribing": "正在思考",
+    "draw": "繪製",
+    "clearMarks": "清除標記",
+    "drawTools": "繪圖工具",
+    "drawFreehand": "自由繪製",
+    "drawLine": "直線",
+    "drawBox": "方框",
+    "drawCircle": "圓形",
+    "chooseMicrophone": "選擇麥克風",
+    "chooseVoice": "選擇聲音",
+    "workCount": "{count, plural, =0 {沒有進行中的工作} other {# 項工作進行中}}",
+    "workDone": "已完成",
+    "workStopped": "已停止",
+    "workMore": "還有 {count} 項",
+    "workWaiting": "{count, plural, other {# 項等待你的回覆}}",
+    "workWaitingStep": "等待你的回覆"
+  },
+  "companionWatchFramePage": {
+    "sharingScreen": "正在分享你的螢幕",
+    "sharingScreenNamed": "正在與 {name} 分享你的螢幕",
+    "sharingWindow": "正在分享一個視窗",
+    "sharingWindowNamed": "正在與 {name} 分享一個視窗",
+    "teaching": "正在教學",
+    "teachingNamed": "正在教 {name}"
   },
   "contentActionBar": {
     "copiedAria": "已複製",
@@ -184,6 +275,13 @@
     "copyFileContentsAria": "複製檔案內容",
     "downloadFileAria": "下載檔案",
     "editFileAria": "編輯檔案"
+  },
+  "conversationTitle": {
+    "untitled": "未命名"
+  },
+  "copyButton": {
+    "copied": "已複製",
+    "copyFailed": "無法複製到剪貼簿。"
   },
   "createAssistantDialog": {
     "cancel": "取消",
@@ -221,8 +319,8 @@
     "tooltip": "停止"
   },
   "detailPrimitives": {
-    "copied": "已複製",
     "copy": "複製",
+    "expandedValue": "展開的值",
     "showLess": "顯示較少",
     "showMore": "顯示更多"
   },
@@ -327,12 +425,15 @@
   "localNotification": {
     "goToConversation": "前往對話"
   },
-  "macosAppBanner": {
-    "ariaLabel": "下載 macOS 應用程式",
-    "ctaAriaLabel": "下載 macOS 應用程式",
+  "desktopAppBanner": {
+    "ariaLabelMacOS": "下載 macOS 應用程式",
+    "ariaLabelWindows": "下載 Windows 應用程式",
+    "ctaAriaLabelMacOS": "下載 macOS 應用程式",
+    "ctaAriaLabelWindows": "下載 Windows 應用程式",
     "ctaLabel": "下載",
     "subtitle": "電腦使用 · 終端機存取 · 原生自動化",
-    "title": "取得 macOS 應用程式"
+    "titleMacOS": "取得 macOS 應用程式",
+    "titleWindows": "取得 Windows 應用程式"
   },
   "nativeAppBanner": {
     "bannerAria": "下載 {appName} 應用程式",
@@ -389,7 +490,24 @@
   },
   "quickInputPage": {
     "logoAlt": "Vellum",
-    "placeholder": "詢問 Vellum 任何問題…"
+    "placeholder": "詢問 Vellum 任何問題…",
+    "send": "傳送訊息"
+  },
+  "referralContent": {
+    "copied": "已複製！",
+    "copyError": "無法複製推薦連結。",
+    "copySuccess": "已複製到剪貼簿！",
+    "creditsEarned": "已賺取點數",
+    "friendsReferred": "已推薦好友",
+    "gatedTooltip": "訂閱或購買點數以開始賺取！",
+    "loadError": "載入推薦資訊失敗。",
+    "loading": "載入中...",
+    "shareLink": "分享連結",
+    "subtitleDefault": "與好友分享 Vellum，每次註冊均可賺取點數。",
+    "subtitleWithAmounts": "與好友分享 Vellum - 他們註冊後，您和好友將各獲得 {creditAmount} 點數，總計最高可達 {earningCap}。"
+  },
+  "referralModal": {
+    "title": "賺取免費點數"
   },
   "removeFromDeviceDialog": {
     "confirm": "移除",
@@ -412,6 +530,9 @@
     "title": "停用助理"
   },
   "rootHydrateFallback": {
+    "loadingAria": "正在載入"
+  },
+  "routePendingIndicator": {
     "loadingAria": "正在載入"
   },
   "rootLayout": {
@@ -562,6 +683,7 @@
     "reloadApp": "重新載入應用程式"
   },
   "statusBanner": {
+    "reconnecting": "正在重新連線至你的助理…",
     "dismiss": "關閉",
     "goToDoctor": "前往診斷",
     "resumeAssistant": "恢復助理",
@@ -629,6 +751,7 @@
     "copied": "已複製！",
     "copyName": "複製名稱",
     "displayNameHint": "對於顯示名稱，<strong>{suggestedName}</strong> 可讓此機器人與您的助理相符。使用者名稱是獨立的，不一定要相符。",
+    "chatScopeNotice": "支援私人聊天與群組。在群組中，助理會在被提及或有人回覆它時回應。不支援廣播頻道。",
     "inBotFather": "在 BotFather 中：",
     "intro": "Telegram 機器人是透過傳送訊息給 <strong>@BotFather</strong> 來建立的。開啟它，按照提示操作，然後帶著它給您的權杖回來。",
     "next": "下一步",
@@ -643,6 +766,10 @@
     "copyError": "無法複製名稱。請改為在 BotFather 中輸入。",
     "stepConnect": "連接",
     "stepCreate": "建立機器人"
+  },
+  "tenantHost": {
+    "shopifyLabel": "商店網域",
+    "shopifyPlaceholder": "your-store.myshopify.com"
   },
   "terminalPanel": {
     "recoveryModeBanner": "復原模式已啟用：此工作階段已連接到偵錯終端機。"
@@ -688,22 +815,6 @@
     "light": "淺色",
     "system": "系統",
     "velvet": "絲絨"
-  },
-  "tipCard": {
-    "computerUseBodyLinux": "在這台電腦上，我可以處理檔案、終端機和瀏覽器。",
-    "computerUseBodyMacos": "在此 Mac 上，我可以為您控制應用程式和桌面。",
-    "computerUseBodyWindows": "在此電腦上，我可以為您控制應用程式和桌面。",
-    "computerUseTitleLinux": "讓我使用這台電腦",
-    "computerUseTitleMacos": "讓我使用您的 Mac",
-    "computerUseTitleWindows": "讓我使用您的電腦",
-    "dismiss": "關閉",
-    "nextTip": "下一個提示",
-    "pluginsBodyLinux": "從個人理財副駕駛到每日家庭簡報。",
-    "pluginsBodyMacos": "從個人理財副駕駛到常駐 MacBook 瀏海區域的模式。",
-    "pluginsBodyWindows": "從個人理財副駕駛到每日家庭簡報。",
-    "quickInputBody": "按下 {shortcut}，即可從任何應用程式向我傳送快速訊息。",
-    "quickInputBodyWithoutShortcut": "使用快速輸入，即可從任何應用程式向我傳送快速訊息。",
-    "previousTip": "上一個提示"
   },
   "ttsProviderForm": {
     "apiKey": "API 金鑰",
@@ -768,12 +879,11 @@
   },
   "useOauthConnect": {
     "accountConnected": "{name} 帳號已連線。",
-    "authPopupClosed": "{name} 連線失敗：授權彈出視窗已關閉。",
     "authorizationError": "{name} 錯誤：{code}",
     "authorizationFailed": "{name} 授權失敗",
     "popupBlocked": "彈出視窗已阻擋。請啟用彈出視窗，然後再試一次。",
-    "popupClosed": "{name} 連線失敗：彈出視窗已關閉。",
-    "startFailed": "無法啟動 {name} 授權。"
+    "startFailed": "無法啟動 {name} 授權。",
+    "startFailedWithReason": "無法啟動 {name} 授權：{reason}"
   },
   "useOpenUrlDirectives": {
     "blocked": "您的瀏覽器阻擋了助理嘗試開啟的頁面。",
@@ -836,7 +946,9 @@
     "verificationFailed": "驗證失敗",
     "verifiedTitle": "DNS 記錄已驗證。您的網域已準備好傳送和接收電子郵件。",
     "verifyingDomain": "正在驗證網域…",
-    "verifyingTitle": "DNS 記錄已佈建。正在等待電子郵件提供者驗證它們 - 這通常需要幾分鐘。"
+    "verifyingTitle": "DNS 記錄已佈建。正在等待電子郵件提供者驗證它們 - 這通常需要幾分鐘。",
+    "setupRequired": "需要設定網域",
+    "setupRequiredTitle": "此網域尚未在電子郵件提供者完成佈建。在完成設定前，它無法傳送或接收電子郵件。"
   },
   "managedServicesBanner": {
     "body": "受管服務按用量計費，並從您的 Vellum 帳戶餘額中扣除。<link>檢視定價</link>"
@@ -872,5 +984,19 @@
       "label": "完全存取",
       "description": "自動批准所有操作，包括高風險和無法識別的指令。助手將絕不請求權限確認。"
     }
+  },
+  "scheduleFormatters": {
+    "everyHours": "每 {count} 小時",
+    "everyMinutes": "每 {count} 分鐘",
+    "retrospectiveSubtitle": "在對話活動後觸發"
+  },
+  "assistantHandleModal": {
+    "title": "助理使用者名稱",
+    "description": "你的助理的公開名稱，它的電子郵件地址也以這個名稱為基礎。",
+    "helper": "小寫字母、數字、連字號和底線。"
+  },
+  "detailShell": {
+    "close": "關閉",
+    "closePanel": "關閉面板"
   }
 }

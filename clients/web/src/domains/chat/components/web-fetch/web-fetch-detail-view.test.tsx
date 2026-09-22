@@ -1,14 +1,14 @@
 /**
- * Tests for `WebFetchDetailView` and its `parseWebFetchResult` parser — the
+ * Tests for `WebFetchDetailView` and its `parseWebFetchResult` parser, the
  * nested detail shown when a subagent `web_fetch` pill is clicked. Covers
  * header parsing (url/status/notices), `<external_content>` stripping, the
- * source card + notices + content render, the "View raw" toggle, and the
- * error-result fallback.
+ * source card + notices + content render, and the error-result fallback. The
+ * unparsed result is the drawer's Raw output, covered with the drawer.
  */
 
 import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
 
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { cleanup, render } from "@testing-library/react";
 
 // Render the extracted markdown as plain text so assertions can read it back
 // without depending on the markdown renderer's element splitting.
@@ -126,8 +126,10 @@ function renderView(detail: ReturnType<typeof payload>) {
       detail={detail}
       result={detail.result}
       streamedOutput={undefined}
+      activityMetadata={undefined}
       isRunning={detail.status === "running"}
       isError={detail.status === "error"}
+      isDenied={detail.status === "denied"}
     />,
   );
 }
@@ -157,17 +159,12 @@ describe("WebFetchDetailView", () => {
     );
   });
 
-  test("'View raw' toggles to the unparsed result", () => {
-    const { getByText, queryByTestId, container } = renderView(payload({}));
-    // Parsed view first — the raw HTTP header is hidden.
-    expect(queryByTestId("markdown")).not.toBeNull();
-
-    fireEvent.click(getByText("View raw"));
-    // Raw view shows the header lines; the markdown view is gone.
-    expect(queryByTestId("markdown")).toBeNull();
-    expect(container.textContent).toContain(
-      "Requested URL: https://www.cnbc.com/2025/09/22/michelob.html",
-    );
+  test("shows the page readably under Output, with no raw control of its own", () => {
+    const { getByText, queryByText, container } = renderView(payload({}));
+    expect(getByText("Output")).toBeDefined();
+    // The raw HTTP header is the drawer's Raw output, not a swap here.
+    expect(container.textContent).not.toContain("Requested URL:");
+    expect(queryByText("View raw")).toBeNull();
   });
 
   test("an error result renders verbatim with no source card", () => {
@@ -175,6 +172,29 @@ describe("WebFetchDetailView", () => {
       payload({ status: "error", result: "fetch failed: 403" }),
     );
     expect(getByText("fetch failed: 403")).toBeDefined();
+    expect(queryByText("cnbc.com")).toBeNull();
+  });
+
+  test("a refused fetch says it was not approved, not that it failed", () => {
+    // The daemon answers a refusal with an error result addressed to the model.
+    const refusal =
+      'Permission denied. The "web_fetch" tool was not allowed. Do NOT retry this tool call immediately.';
+    const { getByText, queryByText } = render(
+      <WebFetchDetailView
+        detail={payload({ status: "denied", result: refusal })}
+        result={refusal}
+        streamedOutput={undefined}
+        activityMetadata={undefined}
+        isRunning={false}
+        isError
+        isDenied
+      />,
+    );
+
+    expect(
+      getByText("This tool call was not approved, so it did not run."),
+    ).toBeDefined();
+    expect(queryByText(/Do NOT retry/)).toBeNull();
     expect(queryByText("cnbc.com")).toBeNull();
   });
 
@@ -186,8 +206,10 @@ describe("WebFetchDetailView", () => {
         detail={payload({ status: "running", result: undefined })}
         result={payload({}).result}
         streamedOutput={undefined}
+        activityMetadata={undefined}
         isRunning={false}
         isError={false}
+        isDenied={false}
       />,
     );
 

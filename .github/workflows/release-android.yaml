@@ -24,6 +24,7 @@ jobs:
     outputs:
       artifact_name: ${{ steps.config.outputs.artifact_name }}
       package_id: ${{ steps.config.outputs.package_id }}
+      track: ${{ steps.config.outputs.track }}
       version_name: ${{ steps.config.outputs.version_name }}
     permissions:
       contents: read
@@ -38,14 +39,17 @@ jobs:
             production)
               echo "flavor=Production" >> "$GITHUB_OUTPUT"
               echo "package_id=ai.vellum.assistant" >> "$GITHUB_OUTPUT"
+              echo "track=production" >> "$GITHUB_OUTPUT"
               ;;
             staging)
               echo "flavor=Staging" >> "$GITHUB_OUTPUT"
               echo "package_id=ai.vellum.assistant.staging" >> "$GITHUB_OUTPUT"
+              echo "track=internal" >> "$GITHUB_OUTPUT"
               ;;
             dev)
               echo "flavor=Dev" >> "$GITHUB_OUTPUT"
               echo "package_id=ai.vellum.assistant.dev" >> "$GITHUB_OUTPUT"
+              echo "track=internal" >> "$GITHUB_OUTPUT"
               ;;
             *)
               echo "::error::Invalid Android environment: $ENVIRONMENT"
@@ -182,7 +186,7 @@ jobs:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
 
-      - name: Publish to Google Play internal track
+      - name: Publish to Google Play
         run: |
           set -euo pipefail
           shopt -s nullglob
@@ -195,4 +199,5 @@ jobs:
           bun clients/web/scripts/publish-android-play.ts \
             --bundle "${bundles[0]}" \
             --package-id "${{ needs.build-and-upload.outputs.package_id }}" \
-            --release-name "${{ needs.build-and-upload.outputs.version_name }}"
+            --release-name "${{ needs.build-and-upload.outputs.version_name }}" \
+            --track "${{ needs.build-and-upload.outputs.track }}"

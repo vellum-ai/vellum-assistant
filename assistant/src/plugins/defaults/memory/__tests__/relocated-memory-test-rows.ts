@@ -43,6 +43,25 @@ export function seedRelocatedMemoryRow(
         )
         .run(conversationId, now);
       return;
+    case "memory_v3_pools":
+      raw
+        .query(
+          `INSERT INTO memory_v3_pools
+             (conversation_id, turn, created_at, pool_size, selected_count, candidates_json)
+           VALUES (?, 1, ?, 0, 0, '[]')`,
+        )
+        .run(conversationId, now);
+      return;
+    case "memory_v3_pool_inputs":
+      raw
+        .query(
+          `INSERT INTO memory_v3_pool_inputs
+             (conversation_id, turn, created_at, recent_context, current_message,
+              candidate_text_hashes_json)
+           VALUES (?, 1, ?, '', '', '[]')`,
+        )
+        .run(conversationId, now);
+      return;
     case "activation_sessions":
       raw
         .query(
@@ -74,6 +93,15 @@ export function seedRelocatedMemoryRow(
           `INSERT INTO memory_v3_ever_injected
              (conversation_id, slug, injected_at, bytes, pruned_at)
            VALUES (?, 'domain/page', ?, 0, NULL)`,
+        )
+        .run(conversationId, now);
+      return;
+    case "memory_v3_injected_sections":
+      raw
+        .query(
+          `INSERT INTO memory_v3_injected_sections
+             (conversation_id, slug, section_key, injected_at, bytes, pruned_at)
+           VALUES (?, 'domain/page', '', ?, 0, NULL)`,
         )
         .run(conversationId, now);
       return;

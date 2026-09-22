@@ -98,6 +98,23 @@ export const Selected: Story = {
   },
 };
 
+/**
+ * `href` renders the content area as an anchor, so new-tab and "copy link
+ * address" work. The `onClick` here stands in for a router: a plain click is
+ * intercepted, a modified or middle click falls through to the browser.
+ */
+export const AsLink: Story = {
+  args: {
+    href: "#scheduled-jobs",
+    onClick: (event) => {
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) {
+        return;
+      }
+      event.preventDefault();
+    },
+  },
+};
+
 export const Disabled: Story = {
   args: {
     leading: <Toggle checked={false} onChange={() => {}} aria-label="Toggle schedule" />,

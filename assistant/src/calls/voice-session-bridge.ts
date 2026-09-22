@@ -22,13 +22,20 @@ import type {
   TurnChannelContext,
   TurnInterfaceContext,
 } from "../channels/types.js";
+import { selectWinningProfile } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
-import { ABORT_WATCHDOG_MS } from "../daemon/abort-watchdog.js";
+import {
+  ABORT_WATCHDOG_MS,
+  resolveTurnCommitWaitMs,
+} from "../daemon/abort-watchdog.js";
 import { CONVERSATION_BUSY_MESSAGE } from "../daemon/conversation-messaging.js";
+import type { ModeSessionSourceHandle } from "../daemon/conversation-mode-session.js";
 import { resolveChannelCapabilities } from "../daemon/conversation-runtime-assembly.js";
 import { getOrCreateConversation } from "../daemon/conversation-store.js";
+import { preactivateHostProxySkills } from "../daemon/host-proxy-preactivation.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import {
+  newestPersistedSightFrame,
   pendingStandaloneImagePersist,
   SIGHT_FRAME_TURN_HOLD_MS,
 } from "../live-voice/live-voice-photo.js";
@@ -36,32 +43,41 @@ import { resolveAttachmentsForPersist } from "../persistence/attachments-store.j
 import {
   deleteMessageById,
   getMessageById,
+  type OverrideProfileFields,
   recordConversationPersistedSeq,
+  resolveOverrideProfile,
   updateMessageContent,
 } from "../persistence/conversation-crud.js";
 import { VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND } from "../plugin-api/constants.js";
-import { doesSupportVision } from "../plugin-api/vision-support.js";
+import { dispatchProviderResolvable } from "../providers/connection-resolution.js";
 import { pinnedListeningLanguage } from "../providers/speech-to-text/provider-catalog.js";
-import type { ContentBlock, Message } from "../providers/types.js";
+import type { ContentBlock } from "../providers/types.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 import { sttCatalogKeyForRole } from "../stt/roles.js";
+import type { SubagentParentNotification } from "../subagent/parent-notification.js";
 import { getAllTools } from "../tools/registry.js";
 import { sensitiveToolReach } from "../tools/tool-approval-handler.js";
 import { createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import { truncate } from "../util/truncate.js";
 import {
+  SPOKEN_REPLY_LENGTH_RULE,
+  SPOKEN_REPLY_PLAIN_TEXT_RULE,
+} from "./spoken-reply-rules.js";
+import {
   CALL_OPENING_MARKER,
   CALL_VERIFICATION_COMPLETE_MARKER,
   ESCALATE_VERDICT_TOKEN,
   HOLD_VERDICT_TOKEN,
-  MINIMIZE_ROOM_MARKER,
   stripInternalSpeechMarkers,
+  terminalControlMarkerLength,
 } from "./voice-control-protocol.js";
+import { judgeEscalation } from "./voice-escalation-judge.js";
+import type { VoiceEscalationTarget } from "./voice-escalation-target.js";
 import {
   createFrontDoorStreamGate,
   escalatedContinuationRule,
@@ -75,37 +91,35 @@ import {
 const log = getLogger("voice-session-bridge");
 
 /**
- * Profile an image-bearing voice leg is pinned to.
+ * The conversation's effective `mainAgent` profile, or null when nothing
+ * selected one and the ordinary call-agent resolution applies. Images in the
+ * history need no special profile: a text-only model gets them captioned by
+ * the `image-fallback` plugin, exactly as a typed turn does.
  *
- * The latency-class profile is the one voice already leans on (it fronts every
- * turn through `voiceFrontDoor`); `callAgent`'s `balanced` profile carries no
- * guarantee that its model takes images, and a model that rejects an image
- * fails the whole leg rather than degrading it.
- *
- * Whether THIS profile takes images is an install-level question, not a
- * constant: a BYO provider resolves the key through its own column of the
- * intent matrix, and on Fireworks that lands on a text-only model while its
- * `balanced` column is vision-capable. Pinning there would break the exact
- * turns this pin exists to save, hence the capability check at the call site.
+ * A mix resolves to the arm this conversation's seed selects, not the mix's
+ * own name. Dispatch lands on that arm either way, but the image-fallback
+ * check judges the profile it is handed, and a mix reads as vision-capable
+ * when any arm is: a text-only chosen arm would get raw images.
  */
-const VOICE_IMAGE_PROFILE = "latency-optimized";
-
-/**
- * Does this conversation's history carry an image?
- *
- * Images persist inline and are re-sent on every later turn, so one photo
- * taken mid-call makes every remaining turn of that call an image turn -- the
- * check is over the whole history, not just this turn's own content.
- */
-function conversationCarriesImage(messages: readonly Message[]): boolean {
-  return messages.some((message) =>
-    message.content.some(
-      (block) =>
-        block.type === "image" ||
-        (block.type === "tool_result" &&
-          block.contentBlocks?.some((nested) => nested.type === "image")),
-    ),
-  );
+function conversationProfileForEscalation(
+  conversation: OverrideProfileFields & { conversationId: string },
+): string | null {
+  const overrideProfile = resolveOverrideProfile(conversation);
+  const mix: { arm?: { mixProfile: string; chosenProfile: string } } = {};
+  const selection = selectWinningProfile("mainAgent", getConfig().llm, {
+    ...(overrideProfile != null ? { overrideProfile } : {}),
+    selectionSeed: conversation.conversationId,
+    isResolvableProvider: dispatchProviderResolvable,
+    onMixSelected: (selected) => {
+      mix.arm = selected;
+    },
+  });
+  if (selection.source === "default" || selection.profileName == null) {
+    return null;
+  }
+  return mix.arm?.mixProfile === selection.profileName
+    ? mix.arm.chosenProfile
+    : selection.profileName;
 }
 
 /**
@@ -134,6 +148,39 @@ function frontDoorRuleWithDigest(
 }
 
 /**
+ * The triage-and-escalate rule a turn's leg adds to its control prompt: the
+ * front-door leg decides and may hand off, the escalated leg continues the
+ * answer after a holding phrase was already spoken. Null when routing is off.
+ * One rule for both prompt shapes, the auto-built phone prompt and a
+ * caller-supplied one, so the front-door model is anchored to the same
+ * caller words on every transport.
+ */
+function routingLegRuleFor(
+  opts: Pick<
+    VoiceTurnOptions,
+    | "routingLeg"
+    | "unifiedVerdict"
+    | "spokenEscalationBridge"
+    | "directEscalated"
+  >,
+  callerUtterance: string,
+): string | null {
+  switch (opts.routingLeg) {
+    case "front-door":
+      return frontDoorRuleWithDigest(
+        opts.unifiedVerdict === true,
+        callerUtterance,
+      );
+    case "escalated":
+      return opts.directEscalated === true
+        ? null
+        : escalatedContinuationRule(opts.spokenEscalationBridge);
+    default:
+      return null;
+  }
+}
+
+/**
  * Exact message thrown when `opts.signal` aborts while the turn is waiting
  * for the conversation to become available. The call controller's abort
  * handling relies on this turn failing with a recognizable error — keep the
@@ -150,7 +197,6 @@ export const TURN_ABORTED_WAITING_MESSAGE =
  */
 export { CONVERSATION_BUSY_MESSAGE };
 
-const PROCESSING_WAIT_MARGIN_MS = 1000;
 /**
  * How long startVoiceTurn waits for a prior turn to release the processing
  * lock before giving up. The prior turn can hold the lock for the abort
@@ -159,10 +205,10 @@ const PROCESSING_WAIT_MARGIN_MS = 1000;
  * CONVERSATION_BUSY_MESSAGE.
  */
 export function resolveProcessingWaitMs(
-  turnCommitMaxWaitMs: number,
+  turnCommitMaxWaitMs: number | undefined,
   abortUnwindMs: number,
 ): number {
-  return turnCommitMaxWaitMs + abortUnwindMs + PROCESSING_WAIT_MARGIN_MS;
+  return resolveTurnCommitWaitMs(turnCommitMaxWaitMs) + abortUnwindMs;
 }
 
 /**
@@ -275,6 +321,7 @@ export interface VoiceRunEventSink {
     toolName: string,
     input: Record<string, unknown>,
     toolUseId?: string,
+    allowedToolNames?: ReadonlySet<string>,
   ): void;
   onToolResult(event: VoiceToolResultEvent): void;
 }
@@ -289,15 +336,30 @@ export interface VoiceTurnCallbacks {
   /** Fired when the agent run starts a definitive tool use this turn. */
   tool_use_start?: (
     toolName: string,
-    detail?: { toolUseId?: string; input?: Record<string, unknown> },
+    detail?: {
+      toolUseId?: string;
+      input?: Record<string, unknown>;
+      allowedToolNames?: ReadonlySet<string>;
+    },
   ) => void;
   /** Fired when a tool invocation finishes. */
   tool_result?: (event: VoiceToolResultEvent) => void;
 }
 
+export type { VoiceEscalationTarget } from "./voice-escalation-target.js";
+
 export interface VoiceTurnOptions {
+  /** Internal task update delivered through the call, with its original attribution. */
+  subagentNotification?: SubagentParentNotification;
   /** The conversation ID for this voice call's session. */
   conversationId: string;
+  /** Camera source captured when this voice turn was accepted. */
+  modeSessionSource?: ModeSessionSourceHandle;
+  /** Camera ownership already claimed by the accepting live session. */
+  preacceptedModeSession?: {
+    requestId: string;
+    source: ModeSessionSourceHandle;
+  };
   /** Voice session ID for scoped grant matching. Defaults to callSessionId. */
   voiceSessionId?: string;
   /** The call session ID for scoped grant matching. */
@@ -319,12 +381,15 @@ export interface VoiceTurnOptions {
    *
    * Deliberately separate from {@link userMessageInterface}: that field feeds
    * `resolveChannelCapabilities` and decides what the turn may do, so it is not
-   * free to carry attribution. Absent for phone calls and for clients that send
-   * no identity on the start frame.
+   * free to carry attribution. A phone call passes its call session id and a
+   * `phone_*` entry naming the call's direction, with no client. Absent for
+   * clients that send no identity on the start frame.
    */
   voiceTelemetry?: {
     sessionId: string;
     client?: ClientOs;
+    /** The control the session was started from (the start frame's `entry`). */
+    entry?: string;
   };
   /** Per-turn control prompt. Undefined uses the phone prompt; null disables it. */
   voiceControlPrompt?: string | null;
@@ -348,6 +413,45 @@ export interface VoiceTurnOptions {
   assistantId?: string;
   /** Guardian trust context for the caller. */
   trustContext?: TrustContext;
+  /**
+   * The actor principal this turn runs as, for host-proxy same-user binding.
+   *
+   * Host proxies resolve a target client by matching the turn's actor against
+   * the actor each client registered its SSE subscription under
+   * (`pickSameUserAutoResolve`). A turn with no actor matches nothing, so
+   * every `computer_use_*` / `host_bash` / `host_file` call it makes is
+   * refused however healthy the connected client is.
+   *
+   * Set only by the local live-voice path, whose upgrade the gateway pins to
+   * the bound guardian. A phone call leaves it unset: the caller is whoever
+   * dialled in, and an inbound caller must never resolve to a client on the
+   * owner's machine.
+   */
+  actorPrincipalId?: string;
+  /**
+   * Whether this turn resolved its own actor and found none, so the
+   * conversation's resting identity must not stand in for it.
+   *
+   * A live-voice turn whose guardian read failed knows the resting principal
+   * and knows it cannot vouch for it: the gateway may have admitted a
+   * guardian the daemon has not caught up with. Without this the host-proxy
+   * chain walks on to `currentTurnAuthContext` and `authContext`, which an
+   * ordinary text turn leaves populated, and hands the turn the previous
+   * occupant's desktop.
+   *
+   * A phone call sets neither this nor an actor: it never resolved one, and
+   * the resting identity is the machine owner's, which is the answer that
+   * path has always used.
+   */
+  actorFallbackSuppressed?: boolean;
+  /**
+   * Whether the session was opened from the macOS desktop client. A leg that
+   * can run tools then starts with the desktop skills (computer use, app
+   * control, screen annotation) already active, as a typed turn from that
+   * client does. The turn interface cannot answer this: every live-voice
+   * session reports `macos` for its channel capabilities, iOS included.
+   */
+  macosDesktopSession?: boolean;
   /** Whether this is an inbound call (no outbound task). */
   isInbound: boolean;
   /** The outbound call task, if any. */
@@ -360,8 +464,10 @@ export interface VoiceTurnOptions {
   onComplete?: () => void;
   /** Called when the agent loop encounters an error. */
   onError?: (message: string) => void;
-  /** Event-name callbacks used by non-phone voice clients. */
+  /** Event-name callbacks: tool activity, persisted row ids, raw stream. */
   callbacks?: VoiceTurnCallbacks;
+  /** Called once the escalated leg's actual target profile is resolved. */
+  onEscalationTargetResolved?: (target: VoiceEscalationTarget) => void;
   /**
    * Called when this turn leaves a confirmation for the user to answer instead
    * of deciding it, so the client can put the prompt where they can see it.
@@ -388,17 +494,16 @@ export interface VoiceTurnOptions {
   signal?: AbortSignal;
   /**
    * Ad-hoc inference-profile override applied to every LLM call this turn
-   * issues (forwarded to `runAgentLoop` with `forceOverrideProfile`). Used by
-   * triage-and-escalate voice routing to run the front-door leg on the fast
-   * profile and the escalated leg on the quality profile. Undefined = the
-   * call-site default (today's behavior).
+   * issues (forwarded to `runAgentLoop` with `forceOverrideProfile`). Wins
+   * over the bridge's own pins (the image pin, and the conversation's
+   * profile for an escalated leg). Undefined = those pins, else the
+   * call-site default.
    */
   overrideProfile?: string;
   /**
-   * Which leg of a triaged turn this is, so the auto-built phone control prompt
-   * can add the front-door triage rule or the escalated continuation rule.
-   * Undefined = routing off; no routing rules are added. Ignored when a caller
-   * supplies its own `voiceControlPrompt`.
+   * Which leg of a triaged turn this is, so the control prompt (auto-built or
+   * caller-supplied) carries the front-door triage rule or the escalated
+   * continuation rule. Undefined = routing off; no routing rules are added.
    */
   routingLeg?: VoiceRoutingLeg;
   /**
@@ -409,6 +514,8 @@ export interface VoiceTurnOptions {
    * Only meaningful with `routingLeg: "escalated"`.
    */
   spokenEscalationBridge?: string;
+  /** Run the strong leg directly, without claiming a holding phrase was spoken. */
+  directEscalated?: boolean;
   /**
    * Marks this turn's `content` as an internal instruction rather than user
    * speech: it persists `hidden` so `/messages` filters it after a reload,
@@ -417,6 +524,8 @@ export interface VoiceTurnOptions {
    * fixed sentinel.
    */
   hiddenSyntheticPrompt?: boolean;
+  /** Original caller request resumed by a synthetic turn, used for routing. */
+  routingUtterance?: string;
   /**
    * Unified front-door: this leg was dispatched speculatively at a silence
    * boundary, so its decision rule includes the hold branch (leading token
@@ -450,6 +559,19 @@ export interface VoiceTurnHandle {
    * rollback — a missing discard degrades to abort-without-rollback.
    */
   discard?: () => Promise<void>;
+  /**
+   * Front-door legs only: the escalation judge's verdict on this turn,
+   * resolving true when the turn needs the escalated leg. Never rejects.
+   * Absent when the judge does not apply (other legs, synthetic prompts).
+   */
+  escalationJudgement?: Promise<boolean>;
+  /**
+   * Abort a front-door leg whose answer the escalation judge overruled. The
+   * caller never heard that answer, so the teardown transcript-hygiene pass
+   * deletes its row instead of leaving it in the history the escalated leg
+   * reads. The user row stays: the turn continues on the escalated leg.
+   */
+  overrule?: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -524,9 +646,8 @@ function buildVoiceCallControlPrompt(opts: {
   task?: string | null;
   isCallerGuardian?: boolean;
   skipDisclosure?: boolean;
-  routingLeg?: VoiceRoutingLeg;
-  spokenEscalationBridge?: string;
-  unifiedVerdict?: boolean;
+  /** The turn's routing-leg rule (see {@link routingLegRuleFor}), if any. */
+  routingLegRule?: string | null;
 }): string {
   const config = getConfig();
   const disclosureEnabled =
@@ -549,7 +670,7 @@ function buildVoiceCallControlPrompt(opts: {
   lines.push(
     "CALL PROTOCOL RULES:",
     disclosureRule,
-    "1. Be concise — keep responses to 1-3 sentences. Phone conversations should be brief and natural.",
+    `1. ${SPOKEN_REPLY_LENGTH_RULE}`,
     ...(opts.isCallerGuardian
       ? [
           "2. You are speaking directly with your guardian (your user). Do NOT use [ASK_GUARDIAN:]. If you need permission, information, or confirmation, ask them directly in the conversation. They can answer you right now.",
@@ -578,22 +699,18 @@ function buildVoiceCallControlPrompt(opts: {
     );
   }
 
-  lines.push(
-    '6. When caller text includes [SPEAKER id="..." label="..."], treat each speaker as a distinct person and personalize responses using that speaker\'s prior context in this call.',
-  );
-
   if (opts.isInbound) {
     if (opts.isCallerGuardian) {
       lines.push(
-        '7. If the latest user turn is "(call connected — deliver opening greeting)", this is your user calling you. Answer casually and briefly, like picking up a call from someone you know well. For example: "Hey!" or "What\'s up?" Do NOT introduce yourself, do NOT say you are calling on behalf of anyone, and do NOT ask how you can help in a formal way. Keep it short and natural.',
+        '6. If the latest user turn is "(call connected — deliver opening greeting)", this is your user calling you. Answer casually and briefly, like picking up a call from someone you know well. For example: "Hey!" or "What\'s up?" Do NOT introduce yourself, do NOT say you are calling on behalf of anyone, and do NOT ask how you can help in a formal way. Keep it short and natural.',
       );
     } else {
       lines.push(
-        '7. If the latest user turn is "(call connected — deliver opening greeting)", this is an inbound call you are answering (not a call you initiated). Greet the caller warmly and ask how you can help. Introduce yourself once at the start using your assistant name if you know it (for example: "Hey there, this is Ava, Sam\'s assistant. How can I help?"). If your assistant name is not known, skip the name and just identify yourself as the guardian\'s assistant. Never use a UUID-shaped internal assistant ID as your spoken name. Do NOT say "I\'m calling" or "I\'m calling on behalf of". Vary the wording; do not use a fixed template.',
+        '6. If the latest user turn is "(call connected — deliver opening greeting)", this is an inbound call you are answering (not a call you initiated). Greet the caller warmly and ask how you can help. Introduce yourself once at the start using your assistant name if you know it (for example: "Hey there, this is Ava, Sam\'s assistant. How can I help?"). If your assistant name is not known, skip the name and just identify yourself as the guardian\'s assistant. Never use a UUID-shaped internal assistant ID as your spoken name. Do NOT say "I\'m calling" or "I\'m calling on behalf of". Vary the wording; do not use a fixed template.',
       );
     }
     lines.push(
-      "8. If the latest user turn includes [CALL_OPENING_ACK], treat it as the caller acknowledging your greeting and continue the conversation naturally.",
+      "7. If the latest user turn includes [CALL_OPENING_ACK], treat it as the caller acknowledging your greeting and continue the conversation naturally.",
     );
   } else {
     const disclosureReminder =
@@ -601,27 +718,22 @@ function buildVoiceCallControlPrompt(opts: {
         ? " However, the disclosure text from rule 0 is separate from self-introduction and must always be included in your opening greeting, even if the Task does not mention introducing yourself."
         : "";
     lines.push(
-      '7. If the latest user turn is "(verification completed — transitioning into conversation)", the caller just completed a phone verification code challenge on this call. Greet them naturally and ask if there is anything you can help with. Keep it casual and brief.',
-      `If the latest user turn is "(call connected — deliver opening greeting)", deliver your opening greeting based solely on the Task context above. The Task already describes how to open the call — follow it directly without adding any extra introduction on top. If the Task says to introduce yourself, do so once. If the Task does not mention introducing yourself, skip the introduction.${disclosureReminder} Vary the wording naturally; do not use a fixed template.`,
-      "8. If the latest user turn includes [CALL_OPENING_ACK], treat it as the callee acknowledging your opener and continue the conversation naturally without re-introducing yourself or repeating the initial check-in question.",
+      '6. If the latest user turn is "(verification completed — transitioning into conversation)", the caller just completed a phone verification code challenge on this call. Greet them naturally and ask if there is anything you can help with. Keep it casual and brief.',
+      `If the latest user turn is "(call connected — deliver opening greeting)", deliver your opening greeting based solely on the Task context above. The Task already describes how to open the call, so follow it directly without adding any extra introduction on top. If the Task says to introduce yourself, do so once. If the Task does not mention introducing yourself, skip the introduction.${disclosureReminder} Vary the wording naturally; do not use a fixed template.`,
+      "7. If the latest user turn includes [CALL_OPENING_ACK], treat it as the callee acknowledging your opener and continue the conversation naturally without re-introducing yourself or repeating the initial check-in question.",
     );
   }
 
   lines.push(
-    "9. After the opening greeting turn, treat the Task field as background context only — do not re-execute its instructions on subsequent turns.",
-    '10. Do not make up information. If you are unsure, use [ASK_GUARDIAN: your question] to consult your guardian. For tool permission requests, use [ASK_GUARDIAN_APPROVAL: {"question":"...","toolName":"...","input":{...}}].',
-    `11. Your text is sent directly to a text-to-speech engine. Never use markdown formatting (asterisks, headers, backticks, links) or emojis in your spoken responses. Write plain conversational text only. Protocol markers like ${opts.isCallerGuardian ? "[END_CALL]" : "[ASK_GUARDIAN: ...] and [END_CALL]"} are not spoken text and should still be used normally.`,
-    `12. Speak the caller's language: reply in the language of the caller's most recent actual speech, and follow them if they switch languages mid-call. Synthetic user turns (parenthetical markers like the call-connected and verification-completed notices) are not caller speech and never set the language. Before the caller has spoken, such as on the opening greeting turn, ${preSpeechLanguageRuleFragment(config.services.stt.language, sttCatalogKeyForRole(config.services.stt, "telephony"))}.`,
-    `13. ${PHONE_NO_SETUP_FLOWS_RULE}`,
+    "8. After the opening greeting turn, treat the Task field as background context only. Do not re-execute its instructions on subsequent turns.",
+    '9. Do not make up information. If you are unsure, use [ASK_GUARDIAN: your question] to consult your guardian. For tool permission requests, use [ASK_GUARDIAN_APPROVAL: {"question":"...","toolName":"...","input":{...}}].',
+    `10. ${SPOKEN_REPLY_PLAIN_TEXT_RULE} Protocol markers like ${opts.isCallerGuardian ? "[END_CALL]" : "[ASK_GUARDIAN: ...] and [END_CALL]"} are not spoken text and should still be used normally.`,
+    `11. Speak the caller's language: reply in the language of the caller's most recent actual speech, and follow them if they switch languages mid-call. Synthetic user turns (parenthetical markers like the call-connected and verification-completed notices) are not caller speech and never set the language. Before the caller has spoken, such as on the opening greeting turn, ${preSpeechLanguageRuleFragment(config.services.stt.language, sttCatalogKeyForRole(config.services.stt, "telephony"))}.`,
+    `12. ${PHONE_NO_SETUP_FLOWS_RULE}`,
   );
 
-  // Triage-and-escalate routing rules. The front-door leg decides and may
-  // hand off; the escalated leg continues the answer after a holding phrase
-  // was already spoken.
-  if (opts.routingLeg === "front-door") {
-    lines.push(`14. ${frontDoorRuleWithDigest(opts.unifiedVerdict === true)}`);
-  } else if (opts.routingLeg === "escalated") {
-    lines.push(`14. ${escalatedContinuationRule(opts.spokenEscalationBridge)}`);
+  if (opts.routingLegRule) {
+    lines.push(`13. ${opts.routingLegRule}`);
   }
 
   lines.push("</voice_call_control>");
@@ -662,17 +774,22 @@ function stripMarkersFromBlocks(blocks: ContentBlock[]): ContentBlock[] {
 }
 
 /**
- * Remove the terminal MINIMIZE_ROOM_MARKER from the end of a row's text,
- * walking text blocks from the last one backward so a marker split across
- * block boundaries (e.g. `"Done [-"` + `"1]"`) is removed whole — the
- * per-block strip in {@link stripMarkersFromBlocks} only sees fragments and
- * would leave both halves in place. Callers must have established that the
- * row's joined text ends with the marker after trimming trailing whitespace.
+ * Remove a terminal control marker (the minimize marker or a session control,
+ * `markerLength` characters long) from the end of a row's text, walking text
+ * blocks from the last one backward so a marker split across block boundaries
+ * (e.g. `"Done [-"` + `"1]"`) is removed whole — the per-block strip in
+ * {@link stripMarkersFromBlocks} only sees fragments and would leave both
+ * halves in place. Callers must have established, with
+ * {@link terminalControlMarkerLength}, that the row's joined text ends with
+ * the marker after trimming trailing whitespace.
  */
-function stripTerminalMinimizeMarker(blocks: ContentBlock[]): ContentBlock[] {
+function stripTerminalControlMarker(
+  blocks: ContentBlock[],
+  markerLength: number,
+): ContentBlock[] {
   const result = blocks.map((block) => ({ ...block }));
   const joined = joinedTextOfBlocks(result);
-  const cutAt = joined.trimEnd().length - MINIMIZE_ROOM_MARKER.length;
+  const cutAt = joined.trimEnd().length - markerLength;
   let blockEnd = joined.length;
   for (let i = result.length - 1; i >= 0 && blockEnd > cutAt; i--) {
     const block = result[i]!;
@@ -770,6 +887,10 @@ export async function startVoiceTurn(
     conversationReadyAt: 0,
     admissionClearAt: 0,
     sightHoldMs: 0,
+    // The camera frame this turn reads as the current view, and how old it
+    // was when the turn's own message landed. Null when the conversation
+    // carries no frame.
+    newestSightFrame: null as { attachmentId: string; ageMs: number } | null,
     persistDoneAt: 0,
   };
   const eventSink: VoiceRunEventSink = {
@@ -798,9 +919,13 @@ export async function startVoiceTurn(
     onError: (message) => {
       opts.onError?.(message);
     },
-    onToolUse: (toolName, input, toolUseId) => {
+    onToolUse: (toolName, input, toolUseId, allowedToolNames) => {
       log.debug({ toolName, input }, "Voice turn tool_use event");
-      opts.callbacks?.tool_use_start?.(toolName, { toolUseId, input });
+      opts.callbacks?.tool_use_start?.(toolName, {
+        toolUseId,
+        input,
+        ...(allowedToolNames !== undefined ? { allowedToolNames } : {}),
+      });
     },
     onToolResult: (event) => {
       opts.callbacks?.tool_result?.(event);
@@ -865,6 +990,8 @@ export async function startVoiceTurn(
   // control markers (ASK_GUARDIAN, END_CALL, etc.) and recognize opener turns.
   const isCallerGuardian = opts.trustContext?.trustClass === "guardian";
 
+  const routingUtterance = opts.routingUtterance?.trim() || persistedContent;
+  const routingLegRule = routingLegRuleFor(opts, routingUtterance);
   let voiceCallControlPrompt: string | null;
   if (opts.voiceControlPrompt === undefined) {
     voiceCallControlPrompt = buildVoiceCallControlPrompt({
@@ -872,23 +999,14 @@ export async function startVoiceTurn(
       task: opts.task,
       isCallerGuardian,
       skipDisclosure: opts.skipDisclosure,
-      routingLeg: opts.routingLeg,
-      spokenEscalationBridge: opts.spokenEscalationBridge,
-      unifiedVerdict: opts.unifiedVerdict,
+      routingLegRule,
     });
   } else {
-    // A caller-supplied prompt (e.g. live-voice) bypasses
-    // buildVoiceCallControlPrompt, which is where the triage-and-escalate rule
-    // is normally injected from `routingLeg`. Append it here too — without it
-    // the front-door leg would run on the fast profile but never learn the
-    // verdict protocol, so it could not hold or hand off to the escalated leg.
+    // A caller-supplied prompt (live voice) replaces the phone prompt, so the
+    // routing-leg rule is appended to it here. Without it the front-door leg
+    // would run on the fast profile but never learn the verdict protocol, so
+    // it could not hold or hand off to the escalated leg.
     voiceCallControlPrompt = opts.voiceControlPrompt;
-    const routingLegRule =
-      opts.routingLeg === "front-door"
-        ? frontDoorRuleWithDigest(opts.unifiedVerdict === true, opts.content)
-        : opts.routingLeg === "escalated"
-          ? escalatedContinuationRule(opts.spokenEscalationBridge)
-          : null;
     if (voiceCallControlPrompt != null && routingLegRule) {
       voiceCallControlPrompt = `${voiceCallControlPrompt}\n\n${routingLegRule}`;
     }
@@ -900,7 +1018,7 @@ export async function startVoiceTurn(
 
   const config = getConfig();
   const maxWaitMs = resolveProcessingWaitMs(
-    config.workspaceGit?.turnCommitMaxWaitMs ?? 4000,
+    config.workspaceGit?.turnCommitMaxWaitMs,
     ABORT_WATCHDOG_MS,
   );
   const waitStartedAt = Date.now();
@@ -1055,6 +1173,7 @@ export async function startVoiceTurn(
     pendingVoiceApprovals.clear();
     conversation.setChannelCapabilities(null);
     conversation.setTrustContext(null);
+    releaseActorStamp(undefined);
     conversation.setCommandIntent(null);
     conversation.setAssistantId("self");
     conversation.setVoiceCallControlPrompt(null);
@@ -1066,7 +1185,7 @@ export async function startVoiceTurn(
     detachApprovalObserver = undefined;
   };
 
-  const requestId = uuidv7();
+  const requestId = opts.preacceptedModeSession?.requestId ?? uuidv7();
   const turnId = crypto.randomUUID();
   // Ids this turn's row actually links, read back by `discardFn` so a rollback
   // does not take the attachments down with the row.
@@ -1084,6 +1203,7 @@ export async function startVoiceTurn(
       ...(turnAttachments.length > 0 ? { attachments: turnAttachments } : {}),
       requestId,
       metadata: {
+        ...opts.subagentNotification?.metadata,
         // Durable "this turn came from an open voice session" marker; see
         // `isVoiceSessionUserMessage` for why the channel fields cannot carry it.
         voiceSessionTurn: true,
@@ -1116,11 +1236,19 @@ export async function startVoiceTurn(
               // path already fills from the same `detectClientOs()` value, so
               // a voice turn reports its platform in the column existing turn
               // analytics read rather than one only voice knows about.
+              //
+              // `voice_entry` is voice's own: which control started the
+              // session the turn belongs to, so per-turn analytics can split
+              // the companion from the app without a join back to the
+              // session row.
               client: {
                 voice: true,
                 voice_session_id: opts.voiceTelemetry.sessionId,
                 ...(opts.voiceTelemetry.client
                   ? { os: opts.voiceTelemetry.client }
+                  : {}),
+                ...(opts.voiceTelemetry.entry
+                  ? { voice_entry: opts.voiceTelemetry.entry }
                   : {}),
               },
             }
@@ -1147,10 +1275,56 @@ export async function startVoiceTurn(
   // The exact values this turn installs, computed once: `restoreTurnState`
   // recognizes by identity whether a field still holds THIS turn's value —
   // a field a concurrent winner overwrote is the winner's to keep.
+  /**
+   * The actor-stamp generation this turn's own install left behind, or null
+   * before it has installed one.
+   *
+   * `restoreTurnState` reverts the other per-turn values by identity, which
+   * separates a concurrent winner's from this turn's only because they are
+   * objects. The actor principal is a string and two turns for the same
+   * guardian write the identical one, so the field cannot say who wrote it.
+   * The conversation counts every write to it (see
+   * `currentTurnActorStampGeneration`), including the direct ones ordinary
+   * message turns make in `conversation-routes` and `conversation-process`,
+   * so a count that has not moved is the proof this turn's stamp is still
+   * the one standing.
+   */
+  let installedActorStampGeneration: number | null = null;
+  /**
+   * Leave `next` behind as the actor stamp, but only while this turn's own
+   * stamp is still the one standing.
+   *
+   * The release on the way out and the revert on a race loss both come
+   * through here, because they are the same question asked twice: is the
+   * stamp on the conversation still mine to take back? `runAgentLoopImpl`
+   * gives up the processing claim before the turn-boundary commit is
+   * awaited, so a retry can take the conversation and stamp its own actor
+   * while this turn is still unwinding. Clearing then would strip an actor
+   * the retry route installs no auth-context fallback for, and its
+   * host-proxy calls would be refused, which is the failure the stamp exists
+   * to prevent.
+   */
+  const releaseActorStamp = (
+    next: string | undefined,
+    nextSuppressed = false,
+  ): void => {
+    if (
+      installedActorStampGeneration === null ||
+      conversation.currentTurnActorStampGeneration !==
+        installedActorStampGeneration
+    ) {
+      return;
+    }
+    conversation.currentTurnSourceActorPrincipalId = next;
+    conversation.currentTurnActorFallbackSuppressed = nextSuppressed;
+    installedActorStampGeneration = null;
+  };
   const voiceTurnValues = {
     assistantId: opts.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
     callSessionId: voiceSessionId,
     trustContext: opts.trustContext ?? null,
+    actorPrincipalId: opts.actorPrincipalId ?? null,
+    actorFallbackSuppressed: opts.actorFallbackSuppressed === true,
     turnChannelContext,
     turnInterfaceContext,
     // Resolved from the channel, with no voice-specific override.
@@ -1175,6 +1349,12 @@ export async function startVoiceTurn(
     conversation.setAssistantId(voiceTurnValues.assistantId);
     conversation.callSessionId = voiceTurnValues.callSessionId;
     conversation.setTrustContext(voiceTurnValues.trustContext);
+    conversation.currentTurnSourceActorPrincipalId =
+      voiceTurnValues.actorPrincipalId ?? undefined;
+    conversation.currentTurnActorFallbackSuppressed =
+      voiceTurnValues.actorFallbackSuppressed;
+    installedActorStampGeneration =
+      conversation.currentTurnActorStampGeneration;
     conversation.setCommandIntent(null);
     conversation.setTurnChannelContext(voiceTurnValues.turnChannelContext);
     conversation.setTurnInterfaceContext?.(
@@ -1194,6 +1374,8 @@ export async function startVoiceTurn(
     assistantId: conversation.assistantId,
     callSessionId: conversation.callSessionId,
     trustContext: conversation.trustContext,
+    actorPrincipalId: conversation.currentTurnSourceActorPrincipalId,
+    actorFallbackSuppressed: conversation.currentTurnActorFallbackSuppressed,
     commandIntent: conversation.commandIntent,
     turnChannelContext: conversation.getTurnChannelContext?.() ?? null,
     turnInterfaceContext: conversation.getTurnInterfaceContext?.() ?? null,
@@ -1233,6 +1415,11 @@ export async function startVoiceTurn(
     ) {
       conversation.setTrustContext(snap.trustContext ?? null);
     }
+    // Through the same guard the release uses: see `releaseActorStamp`.
+    releaseActorStamp(
+      snap.actorPrincipalId ?? undefined,
+      snap.actorFallbackSuppressed,
+    );
     if ((conversation.commandIntent ?? null) === null) {
       conversation.setCommandIntent(snap.commandIntent ?? null);
     }
@@ -1282,6 +1469,13 @@ export async function startVoiceTurn(
     restoreTurnState(preInstallState);
     throw err;
   }
+  if (opts.modeSessionSource && !opts.preacceptedModeSession) {
+    conversation.modeSessions.claimTurn(
+      requestId,
+      opts.modeSessionSource,
+      Date.now(),
+    );
+  }
   try {
     messageId = await persistTurnUserMessage();
   } catch (err) {
@@ -1295,6 +1489,7 @@ export async function startVoiceTurn(
       // this turn still owns the state it installed. Release it to
       // defaults, matching the agent-loop finally of a turn that ran.
       cleanup();
+      conversation.modeSessions?.releaseTurn?.(requestId);
       throw err;
     }
     // A busy failure ALWAYS means a live winner holds the lock — even with
@@ -1320,10 +1515,31 @@ export async function startVoiceTurn(
       // The retry lost again (or failed outright) without this turn ever
       // running — leave the conversation exactly as the winner left it.
       restoreTurnState(preRetryState);
+      conversation.modeSessions?.releaseTurn?.(requestId);
       throw retryErr;
     }
   }
   dispatch.persistDoneAt = Date.now();
+  // Read now, under the flag this turn holds, rather than after the sight
+  // hold: a frame can still land between the hold and the persist, when its
+  // acquire beats this turn's and the turn retries behind it. What the loop
+  // below reads is what the rows hold at this moment, so this is the frame the
+  // answer is about. One indexed row; a log-only read that fails must not
+  // take the turn down with it.
+  try {
+    const newestFrame = newestPersistedSightFrame(opts.conversationId);
+    if (newestFrame) {
+      dispatch.newestSightFrame = {
+        attachmentId: newestFrame.attachmentId,
+        ageMs: dispatch.persistDoneAt - newestFrame.capturedAt,
+      };
+    }
+  } catch (err) {
+    log.warn(
+      { err, turnId, conversationId: opts.conversationId },
+      "Could not read the newest camera frame for the dispatch timing log",
+    );
+  }
   try {
     opts.callbacks?.persisted_user_message_id?.(messageId);
   } catch (err) {
@@ -1341,12 +1557,14 @@ export async function startVoiceTurn(
   // (JARVIS-1258). Synthetic opener/verification prompts persist a row but are
   // not user speech, so their echo is suppressed.
   if (!isSyntheticVoicePrompt) {
+    const modeSession = conversation.modeSessions?.getTurnOwner?.(requestId);
     broadcastMessage({
       type: "user_message_echo",
       text: persistedContent,
       conversationId: opts.conversationId,
       messageId,
       requestId,
+      ...(modeSession ? { modeSession } : {}),
     });
     // The echoed row is already durably persisted and the agent loop hasn't
     // started, so advance the snapshot↔stream anchor to the echo's seq — else
@@ -1575,6 +1793,8 @@ export async function startVoiceTurn(
   let reservedAssistantRowId: string | null = null;
   // Set by the handle's discard(): the whole leg must leave no trace.
   let discarded = false;
+  // Set by the handle's overrule(): the leg's answer was never spoken.
+  let overruled = false;
 
   // Verdict-first gate on the hub broadcast. A front-door leg's raw stream
   // carries its routing verdict, so hub subscribers (web, passive devices)
@@ -1595,12 +1815,46 @@ export async function startVoiceTurn(
    */
   const broadcastLegEvent = (msg: AssistantEvent): void => {
     if (frontDoorStreamGate === null || msg.type !== "assistant_text_delta") {
-      broadcastMessage(msg);
+      emitHubEvent(msg);
       return;
     }
     const released = frontDoorStreamGate.push(msg.text);
     if (released.length > 0) {
-      broadcastMessage({ ...msg, text: released });
+      // Answer text while the escalation judge is out: hold it, and every
+      // leg event after it, until the verdict says the caller hears it.
+      if (
+        frontDoorStreamGate.answering &&
+        !escalationJudgeSettled &&
+        hubHold === null
+      ) {
+        hubHold = [];
+      }
+      emitHubEvent({ ...msg, text: released });
+    }
+  };
+
+  // Hub events held while the escalation judge decides whether the
+  // front-door answer is spoken. Null when nothing is held.
+  let hubHold: AssistantEvent[] | null = null;
+  let escalationJudgeSettled = true;
+  const emitHubEvent = (msg: AssistantEvent): void => {
+    if (hubHold !== null) {
+      hubHold.push(msg);
+      return;
+    }
+    broadcastMessage(msg);
+  };
+  // Release held hub events once the judge settles. An overruled answer's
+  // text is dropped: the caller never heard it, and its row is deleted.
+  const releaseHubHold = (): void => {
+    escalationJudgeSettled = true;
+    const held = hubHold ?? [];
+    hubHold = null;
+    for (const msg of held) {
+      if (overruled && msg.type === "assistant_text_delta") {
+        continue;
+      }
+      broadcastMessage(msg);
     }
   };
 
@@ -1618,14 +1872,14 @@ export async function startVoiceTurn(
    *   never the verdict token or the text streamed past the cap (issue
    *   #37850). A row with no spoken bridge (canned-fallback case — that
    *   bridge is audio-only) is deleted.
-   * - Any leg whose row ENDS with the `[-1]` minimize marker (swallowed
-   *   before TTS on the live path) has its text blocks rewritten through
+   * - Any leg whose row ENDS with the `[-1]` minimize marker or a session
+   *   control marker (`[END_CALL]`, `[MUTE]`, `[MUTE:<seconds>]`), all
+   *   swallowed before TTS, has its text blocks rewritten through
    *   `stripInternalSpeechMarkers` so the marker never renders in the chat
-   *   transcript. This covers front-door answers too: that leg is never
-   *   taught the marker, but it can parrot one from visible conversation
-   *   history, and the parroted marker is never spoken and never minimizes
-   *   the room. Deliberately scoped to that marker: rows without it
-   *   persist byte-identical.
+   *   transcript. This covers front-door answers too: a front-door answer
+   *   may end with a session control, and it can parrot `[-1]` from visible
+   *   conversation history. Deliberately scoped to terminal markers: rows
+   *   without one persist byte-identical.
    *
    * After a rewrite, in-memory history is reloaded from the clean DB before
    * the escalated leg — blocked on this turn's teardown — snapshots it, so
@@ -1657,8 +1911,14 @@ export async function startVoiceTurn(
       if (discarded) {
         deleteMessageById(reservedAssistantRowId);
         action = "delete_discarded";
+      } else if (overruled) {
+        deleteMessageById(reservedAssistantRowId);
+        action = "delete_overruled";
       } else {
         const row = getMessageById(reservedAssistantRowId, opts.conversationId);
+        const terminalMarkerLength = row
+          ? terminalControlMarkerLength(joinedTextOfBlocks(row.content))
+          : 0;
         const cut =
           row && opts.routingLeg === "front-door"
             ? cutFrontDoorContentAtVerdict(row.content)
@@ -1677,19 +1937,18 @@ export async function startVoiceTurn(
             action = "delete_empty";
           }
         } else if (
-          // Terminal position only — mirrors the live latch in
-          // createControlMarkerHoldback: a reply whose CONTENT contains
-          // "[-1]" mid-text never minimized the room, so its transcript
-          // keeps that content untouched too. Front-door answer rows (no
-          // verdict token to cut) take this branch as well.
-          joinedTextOfBlocks(row.content)
-            .trimEnd()
-            .endsWith(MINIMIZE_ROOM_MARKER)
+          // Terminal position only — mirrors parseTerminalSessionControl: a
+          // reply whose CONTENT contains a marker mid-text never acted on it,
+          // so its transcript keeps that content untouched too. Front-door
+          // answer rows (no verdict token to cut) take this branch as well.
+          terminalMarkerLength > 0
         ) {
           // Terminal marker first (boundary-aware — it may span text blocks),
           // then the per-block strip for any interior complete markers.
           const cleaned = trimOuterTextEdges(
-            stripMarkersFromBlocks(stripTerminalMinimizeMarker(row.content)),
+            stripMarkersFromBlocks(
+              stripTerminalControlMarker(row.content, terminalMarkerLength),
+            ),
           );
           // A marker-only reply (the model said nothing beyond "[-1]") strips
           // to nothing at all; keeping the row would render a blank assistant
@@ -1703,7 +1962,7 @@ export async function startVoiceTurn(
               reservedAssistantRowId,
               JSON.stringify(cleaned),
             );
-            action = "strip_minimize_marker";
+            action = "strip_control_marker";
           }
         }
       }
@@ -1735,6 +1994,46 @@ export async function startVoiceTurn(
     }
   };
 
+  // The escalation judge runs beside the front-door leg's model call, so its
+  // verdict is usually in before the leg's first answer word. Snapshot the
+  // history now: the leg's own reply must not be part of what is judged.
+  // Hidden fresh-view follow-ups route with their image; this text-only judge
+  // cannot assess that context.
+  const escalationJudgement =
+    opts.routingLeg === "front-door" && !isHiddenSyntheticPrompt
+      ? judgeEscalation({
+          conversationId: opts.conversationId,
+          history: conversation.getMessages(),
+          utterance: opts.content,
+          ...(opts.signal ? { signal: opts.signal } : {}),
+        }).then((judgement) => {
+          if (judgement.outcome !== "unavailable") {
+            log.info(
+              {
+                turnId,
+                outcome: judgement.outcome,
+                noul: judgement.noul,
+                latencyMs: judgement.latencyMs,
+              },
+              "Voice escalation judge verdict",
+            );
+          }
+          return judgement.escalate;
+        })
+      : undefined;
+  if (escalationJudgement !== undefined) {
+    escalationJudgeSettled = false;
+    // A clear verdict releases at once; an escalate verdict waits a macrotask
+    // so the driver's overrule, reacting to the same promise, lands first.
+    void escalationJudgement.then((escalate) => {
+      if (escalate) {
+        setTimeout(releaseHubHold, 0);
+      } else {
+        releaseHubHold();
+      }
+    });
+  }
+
   // Fire-and-forget the agent loop
   void (async () => {
     const loopEnterAt = Date.now();
@@ -1750,6 +2049,7 @@ export async function startVoiceTurn(
         admissionWaitMs:
           dispatch.admissionClearAt - dispatch.conversationReadyAt,
         sightHoldMs: dispatch.sightHoldMs,
+        newestSightFrame: dispatch.newestSightFrame,
         persistMs:
           dispatch.persistDoneAt -
           dispatch.admissionClearAt -
@@ -1775,24 +2075,44 @@ export async function startVoiceTurn(
         conversation.toolsDisabledDepth++;
         frontDoorToolsSuppressed = true;
       }
-      // Resolved once here rather than inside the options literal below, so
-      // the history scan happens once per leg. A front-door leg is skipped:
-      // its own call site already resolves to the same profile. The
-      // capability check comes before the scan because it is the cheaper of
-      // the two and it decides whether the pin is worth anything at all.
-      const carriesImage =
-        opts.routingLeg !== "front-door" &&
-        doesSupportVision(VOICE_IMAGE_PROFILE) &&
-        conversationCarriesImage(conversation.getMessages());
-      if (carriesImage) {
+      // An escalated leg follows the conversation's effective main-agent
+      // target, including direct call-site tuning and the concrete arm of a
+      // mix. The semantic call site remains `callAgent` below so voice tool
+      // and delivery behavior do not change.
+      const conversationProfile =
+        opts.routingLeg === "escalated"
+          ? conversationProfileForEscalation(conversation)
+          : null;
+      if (conversationProfile != null) {
         log.info(
-          { turnId, routingLeg: opts.routingLeg ?? null },
-          "Voice leg carries an image; pinning the image-capable profile",
+          { turnId, profile: conversationProfile },
+          "Escalated voice leg pinned to the conversation's own profile",
         );
       }
-      const profilePin =
-        opts.overrideProfile ?? (carriesImage ? VOICE_IMAGE_PROFILE : null);
+      const profilePin = opts.overrideProfile ?? conversationProfile;
+      // Optional cache traffic must not consume the last admitted request.
+      // A configured cap reserves its whole budget for user-visible calls.
+      const shouldWarmEscalation =
+        opts.routingLeg === "escalated" &&
+        config.rateLimit.maxRequestsPerMinute === 0;
+      if (opts.macosDesktopSession === true && !frontDoorToolsSuppressed) {
+        const sourceInterface = turnInterfaceContext.userMessageInterface;
+        const sourceActorPrincipalId =
+          voiceTurnValues.actorPrincipalId ?? undefined;
+        conversation.ensureHostProxiesForTurn(
+          sourceInterface,
+          sourceActorPrincipalId,
+        );
+        preactivateHostProxySkills(
+          conversation,
+          sourceInterface,
+          sourceActorPrincipalId,
+        );
+      }
       await conversation.runAgentLoop(persistedContent, messageId, {
+        ...(opts.subagentNotification?.cronRunId
+          ? { cronRunId: opts.subagentNotification.cronRunId }
+          : {}),
         onEvent: (msg: AssistantEvent) => {
           if (msg.type === "assistant_turn_start") {
             reservedAssistantRowId = msg.messageId;
@@ -1834,7 +2154,12 @@ export async function startVoiceTurn(
           } else if (msg.type === "conversation_error") {
             eventSink.onError(msg.userMessage);
           } else if (msg.type === "tool_use_start") {
-            eventSink.onToolUse(msg.toolName, msg.input, msg.toolUseId);
+            eventSink.onToolUse(
+              msg.toolName,
+              msg.input,
+              msg.toolUseId,
+              conversation.allowedToolNames,
+            );
           } else if (msg.type === "tool_result") {
             eventSink.onToolResult({
               toolName: msg.toolName,
@@ -1855,6 +2180,9 @@ export async function startVoiceTurn(
         // ordinary call-agent resolution.
         callSite:
           opts.routingLeg === "front-door" ? "voiceFrontDoor" : "callAgent",
+        ...(opts.routingLeg === "escalated"
+          ? { inferenceCallSite: "mainAgent" as const }
+          : {}),
         // A caller is on the line, so the turn is interactive: approval prompts
         // must be raised rather than pre-denied, because the approval observer
         // above is what decides them (auto-resolve for a non-guardian caller,
@@ -1868,17 +2196,84 @@ export async function startVoiceTurn(
         ...(isEscalationContinuation
           ? { messageKind: VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND }
           : {}),
-        // Triage-and-escalate routing pins this turn to the fast front-door or
-        // strong escalation profile. `forceOverrideProfile` floats it above the
-        // callAgent call-site layers (callAgent is not `mainAgent`, so the
-        // override would otherwise sit below the call-site profile).
+        // Triage-and-escalate routing pins this turn to the fast front-door
+        // profile or to the conversation's own profile for the escalated
+        // leg. `forceOverrideProfile` preserves an explicit routing pin.
         //
-        // An explicit routing pin wins; failing that, a leg whose history
-        // carries an image is pinned to a profile whose model takes one. A
-        // front-door leg needs neither: its own call site already resolves
-        // there.
+        // An explicit routing pin wins; failing that, an escalated leg is
+        // pinned to the conversation's profile. A front-door leg needs
+        // neither: its own call site already resolves there.
         ...(profilePin != null
           ? { overrideProfile: profilePin, forceOverrideProfile: true }
+          : {}),
+        ...(opts.routingLeg === "escalated"
+          ? {
+              // Warming and diagnostics use the final post-hook request. The
+              // observer stays synchronous so neither delays provider dispatch.
+              onFirstModelCallPrepared: (prepared) => {
+                if (shouldWarmEscalation && !prepared.disableCache) {
+                  void conversation.warmPromptCache({
+                    callSite: prepared.callSite ?? "mainAgent",
+                    ...(prepared.overrideProfile !== undefined
+                      ? { overrideProfile: prepared.overrideProfile }
+                      : {}),
+                    forceOverrideProfile: prepared.forceOverrideProfile,
+                    signal: prepared.signal ?? opts.signal,
+                    systemPrompt: prepared.systemPrompt,
+                    tools: prepared.tools,
+                  });
+                }
+                let selectedMixArm:
+                  | { mixProfile: string; chosenProfile: string }
+                  | undefined;
+                const escalationSelection = selectWinningProfile(
+                  prepared.callSite ?? "mainAgent",
+                  config.llm,
+                  {
+                    ...(prepared.overrideProfile !== undefined
+                      ? { overrideProfile: prepared.overrideProfile }
+                      : {}),
+                    forceOverrideProfile: prepared.forceOverrideProfile,
+                    selectionSeed: conversation.conversationId,
+                    isResolvableProvider: dispatchProviderResolvable,
+                    onMixSelected: (selection) => {
+                      selectedMixArm = selection;
+                    },
+                  },
+                );
+                let source: VoiceEscalationTarget["source"] = "call_site";
+                if (escalationSelection.source === "override") {
+                  if (prepared.overrideProfile !== profilePin) {
+                    source = "pre_model_hook";
+                  } else if (opts.overrideProfile != null) {
+                    source = "turn_override";
+                  } else {
+                    source = "conversation";
+                  }
+                }
+                const target: VoiceEscalationTarget = {
+                  profile:
+                    (selectedMixArm?.mixProfile ===
+                    escalationSelection.profileName
+                      ? selectedMixArm.chosenProfile
+                      : escalationSelection.profileName) ?? "balanced",
+                  source,
+                };
+                try {
+                  opts.onEscalationTargetResolved?.(target);
+                } catch (err) {
+                  log.warn(
+                    {
+                      err,
+                      turnId,
+                      profile: target.profile,
+                      source: target.source,
+                    },
+                    "Voice escalation target callback failed",
+                  );
+                }
+              },
+            }
           : {}),
       });
       if (lastError) {
@@ -1896,6 +2291,17 @@ export async function startVoiceTurn(
         conversation.toolsDisabledDepth--;
       }
       cleanup();
+      // A judge verdict that lands after the model finished can still
+      // overrule the answer. Wait for it (bounded by the judge's own budget)
+      // so the overrule's row cleanup runs here, before the escalated leg,
+      // blocked on this teardown, reads history.
+      if (
+        escalationJudgement !== undefined &&
+        !discarded &&
+        (await escalationJudgement)
+      ) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      }
       await finalizeVoiceLegTranscript();
       settleTurnTeardown();
     }
@@ -1955,9 +2361,17 @@ export async function startVoiceTurn(
     }
   };
 
+  const overruleFn = () => {
+    overruled = true;
+    abortFn();
+  };
+
   return {
     turnId,
     abort: abortFn,
     discard: discardFn,
+    ...(escalationJudgement !== undefined
+      ? { escalationJudgement, overrule: overruleFn }
+      : {}),
   };
 }

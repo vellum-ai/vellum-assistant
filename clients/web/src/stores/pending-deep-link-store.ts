@@ -23,6 +23,7 @@
 
 import { create } from "zustand";
 
+import type { LiveVoiceEntry } from "@/domains/chat/voice/live-voice/protocol";
 import { createSelectors } from "@/utils/create-selectors";
 
 export interface PendingDeepLinkState {
@@ -52,6 +53,12 @@ export interface PendingDeepLinkState {
    * `pendingVoiceStartAt` and clears with it.
    */
   pendingVoiceStartAsk: string | null;
+  /**
+   * Which control parked the start-voice request, for the daemon's telemetry.
+   * Opaque here: the live-voice domain mints the values and reads them back.
+   * Travels with `pendingVoiceStartAt` and clears with it.
+   */
+  pendingVoiceStartEntry: LiveVoiceEntry | null;
   /**
    * A message that a *proven* App Intent asked to send into a specific
    * conversation (`deeplink.sendToThread` with `provenance: "intent"`), or
@@ -137,10 +144,13 @@ export interface PendingDeepLinkActions {
   consumePendingComposerMessage: () => string | null;
   /**
    * Park a start-voice request until a session starter is registered, with
-   * the first turn it should take, if it has one. A newer park replaces the
-   * older one's ask.
+   * the control that asked for it and the first turn it should take, if it
+   * has one. A newer park replaces the older one's entry and ask.
    */
-  setPendingVoiceStart: (ask?: string) => void;
+  setPendingVoiceStart: (request: {
+    entry: LiveVoiceEntry;
+    ask?: string;
+  }) => void;
   /**
    * Read and clear the parked start-voice request. Returns `null` when none
    * was parked, and when the parked one is older than `maxAgeMs` — a park that
@@ -149,7 +159,9 @@ export interface PendingDeepLinkActions {
    * cleared. Used by `drainPendingVoiceStart` in the live-voice domain,
    * which owns the age bound.
    */
-  consumePendingVoiceStart: (maxAgeMs: number) => { ask: string | null } | null;
+  consumePendingVoiceStart: (
+    maxAgeMs: number,
+  ) => { entry: LiveVoiceEntry | null; ask: string | null } | null;
   /**
    * Park a proven send-into-thread request. A newer request replaces an
    * older one: the most recent intent wins, same as the composer message.
@@ -217,6 +229,7 @@ const usePendingDeepLinkStoreBase = create<PendingDeepLinkStore>()(
     pendingComposerMessage: null,
     pendingVoiceStartAt: null,
     pendingVoiceStartAsk: null,
+    pendingVoiceStartEntry: null,
     pendingThreadSend: null,
     pendingCamera: null,
     pendingConversationListAt: null,
@@ -230,19 +243,27 @@ const usePendingDeepLinkStoreBase = create<PendingDeepLinkStore>()(
       }
       return message;
     },
-    setPendingVoiceStart: (ask) =>
+    setPendingVoiceStart: ({ entry, ask }) =>
       set({
         pendingVoiceStartAt: Date.now(),
         pendingVoiceStartAsk: ask ?? null,
+        pendingVoiceStartEntry: entry,
       }),
     consumePendingVoiceStart: (maxAgeMs) => {
-      const { pendingVoiceStartAt: parkedAt, pendingVoiceStartAsk: ask } =
-        get();
+      const {
+        pendingVoiceStartAt: parkedAt,
+        pendingVoiceStartAsk: ask,
+        pendingVoiceStartEntry: entry,
+      } = get();
       if (parkedAt === null) {
         return null;
       }
-      set({ pendingVoiceStartAt: null, pendingVoiceStartAsk: null });
-      return Date.now() - parkedAt <= maxAgeMs ? { ask } : null;
+      set({
+        pendingVoiceStartAt: null,
+        pendingVoiceStartAsk: null,
+        pendingVoiceStartEntry: null,
+      });
+      return Date.now() - parkedAt <= maxAgeMs ? { entry, ask } : null;
     },
     setPendingThreadSend: (threadId, message) =>
       set({ pendingThreadSend: { threadId, message, parkedAt: Date.now() } }),
@@ -291,6 +312,7 @@ export function __resetPendingDeepLinkForTesting(): void {
     pendingComposerMessage: null,
     pendingVoiceStartAt: null,
     pendingVoiceStartAsk: null,
+    pendingVoiceStartEntry: null,
     pendingThreadSend: null,
     pendingCamera: null,
     pendingConversationListAt: null,

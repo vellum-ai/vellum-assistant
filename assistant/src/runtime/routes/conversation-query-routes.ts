@@ -6,7 +6,7 @@
  * GET    /v1/model                      — current model info
  * PUT    /v1/model/image-gen            — set image-gen model
  * GET    /v1/config/embeddings          — current embedding config
- * PUT    /v1/config/embeddings          — set embedding provider/model
+ * PUT    /v1/config/embeddings          - set embedding provider/model/baseUrl
  * GET    /v1/config                     — full raw workspace config
  * PATCH  /v1/config                     — deep-merge partial config
  * PUT    /v1/config/llm/profiles/:name  — replace an inference profile
@@ -29,6 +29,13 @@ import {
   LatencyBreakdownSchema,
   LLMRequestLogEntrySchema,
 } from "../../api/responses/llm-request-log-entry.js";
+import { scrubNulledAcpAgentLeaves } from "../../config/acp-agent-write.js";
+import {
+  catalogEntryFor,
+  type InputModalities,
+  modalitiesOf,
+  resolveModalityOverride,
+} from "../../config/input-modalities.js";
 import {
   deepMergeOverwrite,
   fillContextDefaultsForMissingKeys,
@@ -85,6 +92,8 @@ import {
   CONFIG_RELOAD_DEBOUNCE_MS,
   log,
 } from "../../daemon/handlers/shared.js";
+import { rescheduleHeartbeatIfTimezoneChanged } from "../../heartbeat/heartbeat-service.js";
+import { overlayWorkspaceMcpForConfigRead } from "../../mcp/workspace-mcp-config.js";
 import {
   getAssistantMessageIdsInTurn,
   getConversation,
@@ -97,6 +106,7 @@ import {
 } from "../../persistence/conversation-types.js";
 import { getDb } from "../../persistence/db-connection.js";
 import { clearEmbeddingBackendCache } from "../../persistence/embeddings/embedding-backend.js";
+import { resolveOpenAICompatibleBaseUrl } from "../../persistence/embeddings/embedding-openai.js";
 import { getLlmRequestLogSource } from "../../persistence/llm-request-log-source.js";
 import { type LogRow } from "../../persistence/llm-request-log-store.js";
 import { getMemoryRecallLogByMessageIds } from "../../plugins/defaults/memory/memory-recall-log-store.js";
@@ -112,7 +122,6 @@ import {
   listConnections,
   VELLUM_MANAGED_CONNECTION_NAME,
 } from "../../providers/inference/connections.js";
-import { PROVIDER_CATALOG } from "../../providers/model-catalog.js";
 import { initializeProviders } from "../../providers/registry.js";
 import { MANAGED_ROUTABLE_PROVIDERS } from "../../providers/vellum-model-routing.js";
 import { credentialKey } from "../../security/credential-key.js";
@@ -457,9 +466,11 @@ async function handleSetEmbeddingConfig({ body }: RouteHandlerArgs) {
   if (!body || typeof body !== "object") {
     throw new BadRequestError("Request body is required");
   }
-  const { provider, model } = body as {
+  const { provider, model, baseUrl, dimensions } = body as {
     provider?: string;
     model?: string;
+    baseUrl?: string;
+    dimensions?: number | null;
   };
   if (!provider || typeof provider !== "string") {
     throw new BadRequestError("Missing required field: provider");
@@ -472,8 +483,32 @@ async function handleSetEmbeddingConfig({ body }: RouteHandlerArgs) {
   if (model !== undefined && typeof model !== "string") {
     throw new BadRequestError("Field 'model' must be a string");
   }
+  if (baseUrl !== undefined && typeof baseUrl !== "string") {
+    throw new BadRequestError("Field 'baseUrl' must be a string");
+  }
+  if (
+    typeof baseUrl === "string" &&
+    baseUrl !== "" &&
+    !resolveOpenAICompatibleBaseUrl(baseUrl)
+  ) {
+    throw new BadRequestError("Field 'baseUrl' must be an http(s) URL");
+  }
+  if (
+    dimensions !== undefined &&
+    dimensions !== null &&
+    (typeof dimensions !== "number" ||
+      !Number.isInteger(dimensions) ||
+      dimensions <= 0)
+  ) {
+    throw new BadRequestError(
+      "Field 'dimensions' must be a positive integer or null",
+    );
+  }
   try {
-    return await setEmbeddingConfig(provider, model, getModelSetContext());
+    return await setEmbeddingConfig(provider, model, getModelSetContext(), {
+      baseUrl,
+      dimensions,
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     throw new InternalError(`Failed to set embedding config: ${message}`);
@@ -652,6 +687,38 @@ function rejectMcpTransportHeaderWrite(patch: unknown): void {
   throw new BadRequestError(
     "MCP authentication headers must be managed through MCP server add/update APIs, not generic config writes.",
   );
+}
+
+const MCP_CONFIG_WRITE_MESSAGE =
+  "MCP servers are stored in mcp.json. Use assistant mcp add or assistant mcp remove.";
+
+function stripMcpFromConfigWrite(patch: Record<string, unknown>): void {
+  if (Object.hasOwn(patch, "mcp")) {
+    delete patch.mcp;
+  }
+}
+
+function rejectMcpConfigSetPath(path: string, value: unknown): void {
+  if (path !== "mcp" && !path.startsWith("mcp.")) {
+    return;
+  }
+  const relative =
+    path === "mcp" ? value : nestPath(path.slice("mcp.".length), value);
+  if (patchContainsMcpTransportHeaders({ mcp: relative })) {
+    throw new BadRequestError(
+      "MCP authentication headers must be managed through MCP server add/update APIs, not generic config writes.",
+    );
+  }
+  throw new BadRequestError(MCP_CONFIG_WRITE_MESSAGE);
+}
+
+function nestPath(path: string, value: unknown): unknown {
+  const segments = path.split(".");
+  let current: unknown = value;
+  for (let i = segments.length - 1; i >= 0; i--) {
+    current = { [segments[i]!]: current };
+  }
+  return current;
 }
 
 const WireProfileEntry = ProfileEntry.extend({
@@ -860,6 +927,7 @@ const ConfigPatchRequestSchema = z
 function handleGetConfig() {
   try {
     const config = applyContextDefaultsToRawConfig(loadRawConfig());
+    overlayWorkspaceMcpForConfigRead(config);
     sanitizeMcpTransportHeadersForSettingsRead(config);
     overlayEffectiveProfilesForWire(config);
     enrichProfilesForWire(config);
@@ -1064,9 +1132,10 @@ export function normalizeManagedProfileWrites(patch: unknown): void {
  * Annotate each profile in `config.llm.profiles` with wire-only flags
  * (`WIRE_ONLY_PROFILE_KEYS`) — never persisted to disk:
  *
- * - `supportsVision`: resolved from the model catalog. Unknown (provider,
- *   model) pairs default to `true` (fail-open) so image upload remains
- *   available for custom / unlisted models.
+ * - `supportsVision`: resolved from the model catalog, with a profile
+ *   `inputModalities.image` override winning when set. Unknown (provider,
+ *   model) pairs with no override default to `true` (fail-open) so image
+ *   upload remains available for custom / unlisted models.
  * - `invariant`: `true` for managed-source entries of the managed profile
  *   names (`INVARIANT_PROFILE_NAMES`); absent otherwise. Source-gated to
  *   match `assertInvariantProfilesPreserved` — a user-owned profile sharing
@@ -1101,9 +1170,13 @@ function enrichProfilesForWire(config: unknown): void {
       continue;
     }
 
-    const catalogProvider = PROVIDER_CATALOG.find((p) => p.id === provider);
-    const catalogModel = catalogProvider?.models.find((m) => m.id === model);
-    entry.supportsVision = catalogModel?.supportsVision ?? true;
+    const catalogModel = catalogEntryFor(provider, model);
+    const catalogVision = catalogModel?.supportsVision;
+    const imageOverride = modalitiesOf({
+      inputModalities: entry.inputModalities as InputModalities | null,
+    })?.image;
+    entry.supportsVision =
+      resolveModalityOverride(imageOverride, catalogVision) ?? true;
   }
 }
 
@@ -1471,6 +1544,7 @@ export async function commitConfigWrite(
 
   clearEmbeddingBackendCache();
   invalidateConfigCache();
+  rescheduleHeartbeatIfTimezoneChanged(preWrite, raw);
   // Reinitialize providers so the live registry reflects the new config.
   // Suppress disk writes inside loadConfig() — we just wrote the raw config
   // and the first-launch seed path would overwrite it with full defaults.
@@ -1555,6 +1629,7 @@ async function handlePatchConfig({ body }: RouteHandlerArgs) {
   normalizeManagedProfileWrites(body);
   rejectManagedProfileDeletion(body as Record<string, unknown>);
   rejectMcpTransportHeaderWrite(body);
+  stripMcpFromConfigWrite(body as Record<string, unknown>);
 
   const raw = loadRawConfig();
   const patch = body as Record<string, unknown>;
@@ -1564,11 +1639,13 @@ async function handlePatchConfig({ body }: RouteHandlerArgs) {
   }
   deepMergeOverwrite(raw, patch);
   scrubRemovedServiceModes(raw);
+  scrubNulledAcpAgentLeaves(raw);
   seedSttProviderForSparseBlock(raw);
 
   await commitConfigWrite(raw, "patch");
 
   const merged = applyContextDefaultsToRawConfig(loadRawConfig());
+  overlayWorkspaceMcpForConfigRead(merged);
   sanitizeMcpTransportHeadersForSettingsRead(merged);
   overlayEffectiveProfilesForWire(merged);
   enrichProfilesForWire(merged);
@@ -1631,6 +1708,7 @@ async function handleSetConfig({ body }: RouteHandlerArgs) {
   stripWireOnlyProfileKeys(patchShape);
   normalizeManagedProfileWrites(patchShape);
   rejectManagedProfileDeletion(patchShape);
+  rejectMcpConfigSetPath(path, value);
   rejectMcpTransportHeaderWrite(patchShape);
 
   const raw = loadRawConfig();
@@ -1669,6 +1747,7 @@ async function handleSetConfig({ body }: RouteHandlerArgs) {
       written.source = "managed";
     }
   }
+  scrubNulledAcpAgentLeaves(raw);
   // A SET can create `services.stt` with a leaf like `language` and no
   // `provider`, which SttServiceSchema requires whenever the block exists;
   // the same seeding that guards PATCH keeps this write's persisted block
@@ -2344,11 +2423,14 @@ export const ROUTES: RouteDefinition[] = [
       allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
     summary: "Set embedding config",
-    description: "Change the embedding provider and optionally model.",
+    description:
+      "Change the embedding provider, model, and optional custom endpoint.",
     tags: ["config"],
     requestBody: z.object({
       provider: z.string(),
       model: z.string().optional(),
+      baseUrl: z.string().optional(),
+      dimensions: z.number().int().positive().nullable().optional(),
     }),
     handler: handleSetEmbeddingConfig,
   },

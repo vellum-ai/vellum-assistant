@@ -1,5 +1,4 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { Loader2 } from "lucide-react";
 import { useCallback, useState } from "react";
 
 import { createMemory } from "@/domains/intelligence/memory-graph/create-memory";
@@ -125,9 +124,7 @@ export function CreateMemoryModal({
             variant="primary"
             onClick={handleCreate}
             disabled={isSaving || !content.trim()}
-            leftIcon={
-              isSaving ? <Loader2 className="animate-spin" /> : undefined
-            }
+            loading={isSaving}
           >
             {isSaving
               ? t("createMemoryModal.creating")

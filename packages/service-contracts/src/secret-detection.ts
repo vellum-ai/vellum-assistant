@@ -143,6 +143,13 @@ export const PREFIX_PATTERNS: SecretPrefixPattern[] = [
   // -- Stripe --
   { label: "Stripe Secret Key", regex: /sk_live_[A-Za-z0-9]{24,}/ },
   { label: "Stripe Restricted Key", regex: /rk_live_[A-Za-z0-9]{24,}/ },
+  // Link (Stripe's wallet) issues prefixed OAuth tokens rather than opaque
+  // ones, and its own docs tell users to export the access token as
+  // LINK_ACCESS_TOKEN to drive link-cli, so these do get pasted by hand. A
+  // leaked one can spend from the wallet. The `lwlpk_` client id is public
+  // (it ships in the CLI bundle) and is deliberately not matched here.
+  { label: "Link Access Token", regex: /liwltoken_[A-Za-z0-9]{16,}/ },
+  { label: "Link Refresh Token", regex: /liwlrefresh_[A-Za-z0-9]{16,}/ },
 
   // -- Slack --
   {
@@ -223,6 +230,9 @@ export const PREFIX_PATTERNS: SecretPrefixPattern[] = [
 
   // -- Firecrawl --
   { label: "Firecrawl API Key", regex: /fc-[A-Za-z0-9]{20,}/ },
+  // Resend documents only the `re_` prefix; the segment shape is the observed
+  // key format. Strict on purpose: bare `re_` prefixes ordinary identifiers.
+  { label: "Resend API Key", regex: /re_[A-Za-z0-9]{8}_[A-Za-z0-9]{24,}/ },
 ];
 
 /**
@@ -355,7 +365,7 @@ export function isPlaceholderValue(value: string): boolean {
   // Strip known prefixes to isolate the variable part
   const variablePart = value
     .replace(
-      /^(?:AKIA|gh[pousr]_|github_pat_|glpat-|sk_live_|rk_live_|xoxb-|xoxp-|xapp-|sk-ant-|sk-proj-|sk-or-v1-|AIza|GOCSPX-|SK|SG\.|npm_|pypi-|key-|lin_api_|ntn_|fw_|pplx-|-----BEGIN [A-Z ]*PRIVATE KEY-----)/,
+      /^(?:AKIA|gh[pousr]_|github_pat_|glpat-|sk_live_|rk_live_|xoxb-|xoxp-|xapp-|sk-ant-|sk-proj-|sk-or-v1-|AIza|GOCSPX-|SK|SG\.|npm_|pypi-|key-|lin_api_|ntn_|fw_|pplx-|re_|-----BEGIN [A-Z ]*PRIVATE KEY-----)/,
       "",
     )
     .replace(/[^A-Za-z0-9]/g, "");

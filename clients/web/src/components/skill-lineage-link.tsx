@@ -12,6 +12,7 @@ import { Link } from "react-router";
 import { useTranslation } from "@/i18n";
 import { cn } from "@/utils/misc";
 import { routes } from "@/utils/routes";
+import { textLinkVariants } from "@vellumai/design-library/components/text-link";
 
 interface SkillLineageLinkProps {
   /**
@@ -40,7 +41,8 @@ export function SkillLineageLink({
       to={routes.conversation(skill.sourceConversationId)}
       onClick={onNavigate}
       className={cn(
-        "inline-flex w-fit items-center gap-1 text-body-small-default text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-secondary)] hover:underline",
+        textLinkVariants({ tone: "quiet" }),
+        "inline-flex w-fit items-center gap-1 text-body-small-default text-[var(--content-tertiary)]",
         className,
       )}
     >

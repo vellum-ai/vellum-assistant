@@ -12,13 +12,12 @@
  * without reaching up into the daemon orchestrator.
  */
 import {
-  isMemorySpotlightText,
-  MEMORY_SPOTLIGHT_PREFIX,
-  MEMORY_SPOTLIGHT_SUFFIX,
+  LEGACY_MEMORY_SPOTLIGHT_PREFIX,
+  LEGACY_MEMORY_SPOTLIGHT_SUFFIX,
+  MEMORY_POINTER_PREFIX,
+  MEMORY_POINTER_SUFFIX,
 } from "../plugins/defaults/memory/memory-marker.js";
 import type { Message } from "../providers/types.js";
-
-export { isMemorySpotlightText };
 
 /**
  * A matcher for an injected text block. A plain string matches by prefix
@@ -118,26 +117,30 @@ export function stripTailUserTextBlocksByPrefix(
 }
 
 /**
- * Full-wrapper matcher for the memory-v3 per-turn `<memory_spotlight>` block.
- * Shared by the leftover cleanup ({@link stripSpotlightInjections}), the
- * tail-only assembly strip, and the compaction pipeline so every path
- * recognizes exactly the same wrapper.
+ * Full-wrapper matcher for the memory-v3 per-turn `<memory_pointer>` block.
+ * Shared by runtime assembly's tail-only strip (a mid-turn re-entry or a
+ * post-compaction re-injection hands back a tail that already carries this
+ * turn's pointer, which must not double-stack) and by the compaction pipeline
+ * below, so every path recognizes exactly the same wrapper. Historical user
+ * messages keep the pointer they were sent with: it is persisted and
+ * rehydrated like the frozen `<memory>` sections, so the cached prefix through
+ * those messages never changes.
  */
-export const MEMORY_SPOTLIGHT_MATCHER: InjectionMatcher = {
-  prefix: MEMORY_SPOTLIGHT_PREFIX,
-  suffix: MEMORY_SPOTLIGHT_SUFFIX,
+export const MEMORY_POINTER_MATCHER: InjectionMatcher = {
+  prefix: MEMORY_POINTER_PREFIX,
+  suffix: MEMORY_POINTER_SUFFIX,
 };
 
 /**
- * Remove leftover `<memory_spotlight>` blocks from every user message, and
- * only those blocks. Compaction and overflow recovery rewrite history, so
- * they strip every runtime injection including historical spotlights.
- * Frozen `<memory>` card blocks stay byte-identical. Assembly uses the
- * tail-scoped variant so live history keeps each prior turn's spotlight.
+ * Full-wrapper matcher for the retired `<memory_spotlight>` block that rows
+ * persisted by earlier builds still carry (rehydrated verbatim as inert
+ * history): re-entry tail-strips a leftover copy and compaction strips every
+ * copy, exactly as those builds did.
  */
-export function stripSpotlightInjections(messages: Message[]): Message[] {
-  return stripUserTextBlocksByPrefix(messages, [MEMORY_SPOTLIGHT_MATCHER]);
-}
+export const LEGACY_MEMORY_SPOTLIGHT_MATCHER: InjectionMatcher = {
+  prefix: LEGACY_MEMORY_SPOTLIGHT_PREFIX,
+  suffix: LEGACY_MEMORY_SPOTLIGHT_SUFFIX,
+};
 
 /** `<NOW.md>` scratchpad prefixes (current tag, pre-line-limit variant, legacy `<now_scratchpad>`) — shared with `stripNowScratchpad` so the two strip paths can't drift. */
 export const NOW_SCRATCHPAD_STRIP_PREFIXES: InjectionMatcher[] = [
@@ -178,11 +181,12 @@ export const RUNTIME_INJECTION_PREFIXES: InjectionMatcher[] = [
   // matches the full-wrapper requirement in `countMemoryPrefixBlocks`.
   { prefix: "<memory>\n", suffix: "\n</memory>" },
   { prefix: "<info>\n", suffix: "\n</info>" },
-  // Memory-v3 per-turn spotlight blocks. Compaction rewrites history, so
-  // it strips them along with the other runtime injections and re-injects
-  // a fresh copy on the new tail. Full-wrapper shape for the same reason
-  // as `<memory>`.
-  MEMORY_SPOTLIGHT_MATCHER,
+  // Memory-v3 per-turn pointer blocks. Compaction rewrites history, so it
+  // strips them along with the other runtime injections and re-injects a
+  // fresh copy on the new tail. Full-wrapper shape for the same reason as
+  // `<memory>`.
+  MEMORY_POINTER_MATCHER,
+  LEGACY_MEMORY_SPOTLIGHT_MATCHER,
   "<voice_call_control>",
   "<workspace_top_level>", // backward-compat: strip legacy workspace blocks
   // The `<workspace>` top-level block is stripped so each compaction re-injects

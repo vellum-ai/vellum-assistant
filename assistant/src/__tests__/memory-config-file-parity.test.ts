@@ -101,6 +101,24 @@ describe("memory config file parity", () => {
     expect(memory.embeddings.provider).toBe("openai");
   });
 
+  test("custom embedding endpoint knobs are visible and identical", () => {
+    writeConfig({
+      memory: {
+        embeddings: {
+          provider: "custom",
+          baseUrl: "http://127.0.0.1:4000/v1",
+          customModel: "text-embedding-3-small",
+          customDimensions: 1024,
+        },
+      },
+    });
+    const memory = expectParity();
+    expect(memory.embeddings.provider).toBe("custom");
+    expect(memory.embeddings.baseUrl).toBe("http://127.0.0.1:4000/v1");
+    expect(memory.embeddings.customModel).toBe("text-embedding-3-small");
+    expect(memory.embeddings.customDimensions).toBe(1024);
+  });
+
   test("cross-field invariant: segmentation overlap >= target falls back like the loader", () => {
     writeConfig({
       memory: {

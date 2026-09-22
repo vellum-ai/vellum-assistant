@@ -17,15 +17,22 @@ export {
 
 export * from "./gateway-ipc-contracts.js";
 
-export { ipcCall, IpcCallError, PersistentIpcClient } from "./ipc-client.js";
+export {
+  ipcCall,
+  IpcCallError,
+  IpcConnectError,
+  PersistentIpcClient,
+} from "./ipc-client.js";
 
-// Outbound delivery contract (daemon → gateway) — Zod schemas + derived types
+// Outbound delivery contract: Zod schemas + derived types
 export {
   ApprovalActionOptionSchema,
   ApprovalUIMetadataSchema,
   AttachmentMetadataSchema,
   ChannelDeliveryResultSchema,
   ChannelReplyPayloadSchema,
+  DELIVER_GATEWAY_REPLY_IPC_METHOD,
+  GatewayReplyRequestSchema,
   MessageAudienceSchema,
   PermissionRequestDetailsSchema,
   StreamOpSchema,
@@ -40,6 +47,7 @@ export type {
   AttachmentMetadata,
   ChannelDeliveryResult,
   ChannelReplyPayload,
+  GatewayReplyRequest,
   MessageAudience,
   PermissionRequestDetails,
   StreamOp,
@@ -88,7 +96,6 @@ export {
   inboundEventRefersToAnotherMessage,
   isInboundEventKind,
   resolveInboundEventKind,
-  parseDiscordEmojiMention,
   resolveInboundReactionPayload,
 } from "./inbound-event-kind.js";
 export type {
@@ -100,6 +107,7 @@ export type {
 export {
   ACCESS_DENIED_NOT_APPROVED_REPLY,
   PLUGIN_ADMISSION_DENIED_NOTICE_PATH,
+  PLUGIN_NOTICES_ROUTE_PREFIX,
   PluginAdmissionDeniedNoticeSchema,
 } from "./plugin-admission-denied-contract.js";
 

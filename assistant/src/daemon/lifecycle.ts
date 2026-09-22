@@ -5,7 +5,6 @@ import { reconcileCallsOnStartup } from "../calls/call-recovery.js";
 import { TwilioVoiceProvider } from "../calls/twilio-provider.js";
 import { expireInteractionBoundGuardianRequests } from "../channels/gateway-guardian-requests.js";
 import { initFeatureFlagOverrides } from "../config/assistant-feature-flags.js";
-import { getBalancedModelExperimentArm } from "../config/balanced-model-experiment.js";
 import { setIngressPublicBaseUrl, validateEnv } from "../config/env.js";
 import {
   hasPendingDefaultWorkspaceConfig,
@@ -70,17 +69,14 @@ import { repairAdaptiveThinkingOnManagedProfiles } from "../workspace/adaptive-t
 import { ensureByokDefaultProfiles } from "../workspace/byok-default-profile-ensure.js";
 import { ensureCompleteCustomProfiles } from "../workspace/custom-profile-ensure.js";
 import { ensureDefaultProvider } from "../workspace/default-provider-ensure.js";
-import { startWorkspaceHeartbeatService } from "../workspace/heartbeat-service.js";
 import { WORKSPACE_MIGRATIONS } from "../workspace/migrations/registry.js";
 import { runWorkspaceMigrations } from "../workspace/migrations/runner.js";
-import { startAppSourceWatcher } from "./app-source-watcher.js";
 import { startConfigWatcher } from "./config-watcher.js";
 import { startConversationEvictor } from "./conversation-evictor.js";
 import { writePid } from "./daemon-control.js";
 import {
   setDbMigrating,
   setDbMigrationFailed,
-  setDbReady,
   setStartupComplete,
 } from "./daemon-readiness.js";
 import { startDiskPressureGuardForLifecycle } from "./disk-pressure-guard-lifecycle.js";
@@ -94,6 +90,7 @@ import {
   reconcileInterruptedConversations,
   resumeInterruptedConversations,
 } from "./interrupted-turn-reconciler.js";
+import { recoverModeSessionsBeforeDbReady } from "./mode-session-startup-recovery.js";
 import { startOrphanReaper } from "./orphan-reaper.js";
 import { runProfilerSweep } from "./profiler-run-store.js";
 import {
@@ -231,21 +228,12 @@ export async function runDaemon(): Promise<void> {
   // a failed fetch leaves the cache unset and resolves `os-beta` to its
   // registry default `false`, which would remove the user's profile and reset
   // their selection.
-  // A balanced-model experiment arm arriving in this same load gets the same
-  // invalidation. HTTP binds before this resolves, so a client that fetched
-  // profiles in that window holds the shipped model; the arm moves nothing on
-  // disk, so the reconcile above would not report a change and the listener's
-  // own comparison sees the arm on both sides of its refresh.
-  const balancedArmBeforeInit = getBalancedModelExperimentArm();
   void initFeatureFlagOverrides()
     .then((loaded) => {
       if (!loaded) {
         return;
       }
-      const profilesChanged = reconcileFlagGatedProfiles();
-      const balancedArmChanged =
-        getBalancedModelExperimentArm() !== balancedArmBeforeInit;
-      if (profilesChanged || balancedArmChanged) {
+      if (reconcileFlagGatedProfiles()) {
         publishConfigChanged();
       }
     })
@@ -277,7 +265,8 @@ export async function runDaemon(): Promise<void> {
   // records the failed migration state so /readyz returns 503.
   let dbReady = false;
   try {
-    const { migrationsOk } = await initializeDb();
+    const initResult = await initializeDb();
+    const { migrationsOk } = initResult;
     dbReady = true;
     // A quiesce lease can survive a stop that happened mid-drain; clear it so
     // a fresh boot never starts with background work paused. Placed
@@ -301,13 +290,39 @@ export async function runDaemon(): Promise<void> {
         "stream seq floor from persisted anchors failed — continuing startup",
       );
     }
+    const migrationFailureDetails = {
+      failedMigrations: initResult.failedMigrations,
+      deferredMigrations: initResult.deferredMigrations,
+      validationError: initResult.validationError,
+    };
+    const modeSessionRecovery = migrationsOk
+      ? recoverModeSessionsBeforeDbReady()
+      : null;
+    if (modeSessionRecovery?.ok && modeSessionRecovery.interruptedCount > 0) {
+      log.info(
+        { interruptedModeSessions: modeSessionRecovery.interruptedCount },
+        "Recovered active mode sessions as interrupted",
+      );
+    }
+    if (modeSessionRecovery && !modeSessionRecovery.ok) {
+      log.error(
+        { err: modeSessionRecovery.error },
+        "Mode session recovery failed; tracking is unavailable for this boot",
+      );
+    }
     if (migrationsOk) {
-      setDbReady(true);
       log.info("Daemon startup: DB initialized");
     } else {
-      setDbMigrationFailed();
+      setDbMigrationFailed(undefined, migrationFailureDetails);
+    }
+    if (!migrationsOk) {
       log.error(
-        "Daemon startup: DB opened but one or more migrations failed or were deferred — /readyz will remain unready",
+        {
+          failedMigrations: initResult.failedMigrations,
+          deferredMigrations: initResult.deferredMigrations,
+          validationError: initResult.validationError,
+        },
+        "Daemon startup: DB migrations failed; /readyz will remain unready",
       );
     }
     // Migrations have settled (successfully or in the failed degraded mode),
@@ -675,11 +690,11 @@ export async function runDaemon(): Promise<void> {
   // blocked.
   startConsentRefresh();
 
-  // Bring up the daemon's CES connection (process + handshake + reconnect
-  // wiring). Blocks up to a 20s timeout so credential reads route through CES
-  // before provider init; non-fatal — falls back to the direct credential store
-  // on failure. The sidecar accepts exactly one bootstrap connection, so this
-  // happens at the process level.
+  // Open the assistant's CES RPC client (handshake + reconnect wiring).
+  // Blocks up to a 20s timeout so credential reads route through CES before
+  // provider init; non-fatal, falls back to the direct credential store on
+  // failure. CES serves a multi-connection bootstrap socket, so child
+  // processes can open the same `openCesRpcSession` path independently.
   await startCes(config);
 
   // Bring up the plugin layer: install the runtime bridge, register the
@@ -706,10 +721,6 @@ export async function runDaemon(): Promise<void> {
   // to changes: evict conversations so the next turn rebuilds against the new
   // config, and broadcast the relevant resource-changed events to clients.
   startConfigWatcher();
-
-  // Watch app source directories so edits recompile + refresh surfaces across
-  // all conversations.
-  startAppSourceWatcher();
 
   // Start the CLI IPC server. Throws on EADDRINUSE to abort startup when another
   // daemon already holds the socket, so this process never runs background jobs
@@ -833,8 +844,6 @@ export async function runDaemon(): Promise<void> {
   installAssistantCommand();
 
   void startEmbeddingRuntimeManager();
-
-  startWorkspaceHeartbeatService();
 
   startHeartbeatService();
 

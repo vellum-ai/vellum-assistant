@@ -19,9 +19,10 @@
  *   DELETE /v1/roadmap/:slug/upvote : remove the upvote
  */
 
-import { SEEDS } from "@vellumai/environments";
+import { type EnvironmentDefinition, SEEDS } from "@vellumai/environments";
 import { z } from "zod";
 
+import { getPlatformBaseUrl } from "../../config/env.js";
 import { credentialKey } from "../../security/credential-key.js";
 import { getSecureKeyAsync } from "../../security/secure-keys.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
@@ -58,44 +59,95 @@ function stripTrailingSlashes(url: string): string {
   return url.replace(/\/+$/, "");
 }
 
-/**
- * Marketing service that serves the roadmap API. Reached directly rather than
- * through the `www.vellum.ai/api/marketing` proxy the user-facing CLI uses:
- * that proxy carries the owner's session cookie, which is exactly the identity
- * this surface exists to avoid.
- *
- * Only production has a default, and deliberately so. The roadmap is a single
- * public site, so an unconfigured staging or dev assistant that fell back to
- * it would file real items under its own name and hand a non-production key to
- * a production host. Outside production the endpoint has to be named.
- */
-function marketingBaseUrl(): string {
-  const override = process.env.VELLUM_MARKETING_URL?.trim();
-  if (override) {
-    return stripTrailingSlashes(override);
+function hostnameOf(url: string): string | undefined {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return undefined;
   }
-  const env = process.env.VELLUM_ENVIRONMENT?.trim();
-  if (env && env !== "production") {
+}
+
+/**
+ * The deployment this assistant belongs to, judged by the platform it
+ * authenticates against.
+ *
+ * `VELLUM_ENVIRONMENT` cannot answer this. Unset, it means dev to
+ * `getPlatformBaseUrl` and local to every launcher, but it would have to mean
+ * production for a roadmap default to be safe, and it is blind to the config
+ * file and `VELLUM_PLATFORM_URL`, either of which can point a differently
+ * labelled assistant at production. The platform base URL is the one signal
+ * that already accounts for all three, and it names the deployment that issued
+ * the very key these calls are signed with.
+ *
+ * Undefined for a platform outside the seed table (a self-hosted one, say),
+ * which is not production and whose roadmap and web origins must be named.
+ */
+function resolveDeployment(): EnvironmentDefinition | undefined {
+  const host = hostnameOf(getPlatformBaseUrl());
+  if (!host) {
+    return undefined;
+  }
+  return Object.values(SEEDS).find(
+    (seed) => hostnameOf(seed.platformUrl) === host,
+  );
+}
+
+interface RoadmapEndpoints {
+  /**
+   * Marketing service that serves the roadmap API. Reached directly rather
+   * than through the `www.vellum.ai/api/marketing` proxy the user-facing CLI
+   * uses: that proxy carries the owner's session cookie, which is exactly the
+   * identity this surface exists to avoid.
+   */
+  api: string;
+  /** Site that renders roadmap items, for the human-facing item links. */
+  web: string;
+}
+
+/**
+ * Both endpoints this surface talks to, resolved together from one deployment
+ * so a link can never name a different deployment than the call that fetched
+ * it.
+ *
+ * Only production has defaults, and deliberately so. The roadmap is a single
+ * public site, so a non-production assistant that fell back to it would file
+ * real items under its own name and hand a key the production service never
+ * issued to a production host. Every other deployment, including a self-hosted
+ * platform the seed table does not know, has to name both.
+ *
+ * Each handler resolves this once and carries the result through both the
+ * request and the response mapping. Resolving again while rendering the reply
+ * would reintroduce the failure this ordering exists to prevent: a
+ * `platform_base_url` write landing mid-flight could make a create throw after
+ * the item was already published, or stamp a link from a deployment other than
+ * the one that answered.
+ */
+function resolveEndpoints(): RoadmapEndpoints {
+  const deployment = resolveDeployment();
+  const apiOverride = process.env.VELLUM_MARKETING_URL?.trim();
+  const webOverride = process.env.VELLUM_WEB_URL?.trim();
+
+  if (!apiOverride && deployment?.name !== "production") {
     throw new UnprocessableEntityError(
-      `The Vellum roadmap has no ${env} deployment. Set VELLUM_MARKETING_URL to the roadmap service for this environment, or run the assistant in production.`,
+      `The Vellum roadmap has no deployment for a ${getPlatformBaseUrl()} assistant. Set VELLUM_MARKETING_URL to the roadmap service for this environment.`,
     );
   }
-  return DEFAULT_MARKETING_URL;
-}
 
-/** Site that renders roadmap items, for the human-facing item links. */
-function webBaseUrl(): string {
-  const override = process.env.VELLUM_WEB_URL?.trim();
-  if (override) {
-    return stripTrailingSlashes(override);
+  const web = webOverride || deployment?.webUrl;
+  if (!web) {
+    throw new UnprocessableEntityError(
+      `No web origin is known for a ${getPlatformBaseUrl()} assistant, so roadmap item links cannot be built. Set VELLUM_WEB_URL to the site that renders this environment's roadmap.`,
+    );
   }
-  const env = process.env.VELLUM_ENVIRONMENT?.trim();
-  const seed = (env ? SEEDS[env] : undefined) ?? SEEDS.production;
-  return stripTrailingSlashes(seed.webUrl);
+
+  return {
+    api: stripTrailingSlashes(apiOverride || DEFAULT_MARKETING_URL),
+    web: stripTrailingSlashes(web),
+  };
 }
 
-function itemUrl(slug: string): string {
-  return `${webBaseUrl()}/roadmap/${slug}`;
+function itemUrl(web: string, slug: string): string {
+  return `${web}/roadmap/${slug}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -137,6 +189,7 @@ async function requireAssistantApiKey(): Promise<string> {
  * anonymous.
  */
 async function roadmapFetch(
+  endpoints: RoadmapEndpoints,
   path: string,
   opts: {
     method?: string;
@@ -151,7 +204,7 @@ async function roadmapFetch(
       (entry): entry is [string, string] => entry[1] !== undefined,
     ),
   ).toString();
-  const url = `${marketingBaseUrl()}/v1/roadmap${path}${query ? `?${query}` : ""}`;
+  const url = `${endpoints.api}/v1/roadmap${path}${query ? `?${query}` : ""}`;
 
   const headers: Record<string, string> = {};
   if (opts.key) {
@@ -326,28 +379,67 @@ const createRequestSchema = z.object({
   tags: z.array(z.string()).optional().describe("Tag slugs"),
 });
 
+/** Item fields the roadmap service reserves for staff on an update. */
+const STAFF_ONLY_UPDATE_FIELDS = new Set(["status", "tags"]);
+
+function listFields(fields: string[]): string {
+  return `${fields.join(", ")} ${fields.length === 1 ? "is" : "are"}`;
+}
+
+/**
+ * Why an update carrying fields other than title and description is refused.
+ * A staff-only field and an unknown one need different remedies, so each is
+ * named for what it is.
+ */
+function unsupportedUpdateFieldsMessage(keys: string[]): string {
+  const staffOnly = keys.filter((k) => STAFF_ONLY_UPDATE_FIELDS.has(k));
+  const unknown = keys.filter((k) => !STAFF_ONLY_UPDATE_FIELDS.has(k));
+  const reasons = [
+    ...(staffOnly.length > 0
+      ? [`${listFields(staffOnly)} set by Vellum staff`]
+      : []),
+    ...(unknown.length > 0
+      ? [`${listFields(unknown)} not a roadmap update field`]
+      : []),
+  ];
+  return `An assistant can change only an item's title and description; ${reasons.join("; ")}.`;
+}
+
+/**
+ * Only the fields the roadmap service lets this assistant change. An
+ * assistant is always the author tier there, never staff, and an author may
+ * edit only an open item's title and description; status and tags are staff
+ * triage and answer 403. Strict, so a caller that sends anything else learns
+ * why here instead of from the upstream refusal.
+ */
 const updateRequestSchema = z
-  .object({
-    title: z.string().optional(),
-    description: z.string().optional(),
-    status: z.string().optional(),
-    tags: z.array(z.string()).optional().describe("Tag slugs"),
-  })
+  .strictObject(
+    {
+      title: z.string().optional(),
+      description: z.string().optional(),
+    },
+    {
+      error: (issue) =>
+        issue.code === "unrecognized_keys"
+          ? unsupportedUpdateFieldsMessage(issue.keys)
+          : undefined,
+    },
+  )
   .refine(
     (patch) => Object.values(patch).some((v) => v !== undefined),
-    "At least one of title, description, status or tags is required.",
+    "At least one of title or description is required.",
   );
 
 type RoadmapItem = z.infer<typeof itemSchema>;
 type RoadmapItemDetail = z.infer<typeof itemDetailSchema>;
 type MutatedRoadmapItem = z.infer<typeof mutatedItemSchema>;
 
-function toItem(raw: UpstreamItem): RoadmapItem {
+function toItem(web: string, raw: UpstreamItem): RoadmapItem {
   return {
     slug: raw.slug,
     title: raw.title,
     status: raw.status,
-    url: itemUrl(raw.slug),
+    url: itemUrl(web, raw.slug),
     upvoteCount: raw.upvote_count,
     commentCount: raw.comment_count,
     tags: raw.tags ?? [],
@@ -355,18 +447,21 @@ function toItem(raw: UpstreamItem): RoadmapItem {
   };
 }
 
-function toMutatedItem(raw: UpstreamMutatedItem): MutatedRoadmapItem {
+function toMutatedItem(
+  web: string,
+  raw: UpstreamMutatedItem,
+): MutatedRoadmapItem {
   return {
     slug: raw.slug,
     title: raw.title,
     status: raw.status,
-    url: itemUrl(raw.slug),
+    url: itemUrl(web, raw.slug),
   };
 }
 
-function toItemDetail(raw: UpstreamItemDetail): RoadmapItemDetail {
+function toItemDetail(web: string, raw: UpstreamItemDetail): RoadmapItemDetail {
   return {
-    ...toItem(raw),
+    ...toItem(web, raw),
     description: raw.description ?? "",
     creatorUsername: raw.creator_username,
     creatorKind: raw.creator_kind ?? null,
@@ -419,7 +514,8 @@ async function handleList({
   items: RoadmapItem[];
   total: number;
 }> {
-  const response = await roadmapFetch("", {
+  const endpoints = resolveEndpoints();
+  const response = await roadmapFetch(endpoints, "", {
     key: await assistantApiKey(),
     signal: abortSignal,
     params: {
@@ -435,17 +531,23 @@ async function handleList({
     response,
     "list roadmap items",
   );
-  const items = (data.items ?? []).map(toItem);
+  const items = (data.items ?? []).map((raw) => toItem(endpoints.web, raw));
   return { items, total: data.total ?? items.length };
 }
 
 async function handleGet(args: RouteHandlerArgs): Promise<RoadmapItemDetail> {
   const slug = requireSlug(args);
-  const response = await roadmapFetch(`/${encodeURIComponent(slug)}`, {
-    key: await assistantApiKey(),
-    signal: args.abortSignal,
-  });
+  const endpoints = resolveEndpoints();
+  const response = await roadmapFetch(
+    endpoints,
+    `/${encodeURIComponent(slug)}`,
+    {
+      key: await assistantApiKey(),
+      signal: args.abortSignal,
+    },
+  );
   return toItemDetail(
+    endpoints.web,
     await roadmapJson<UpstreamItemDetail>(response, "get roadmap item"),
   );
 }
@@ -454,13 +556,15 @@ async function handleCreate(
   args: RouteHandlerArgs,
 ): Promise<MutatedRoadmapItem> {
   const item = parseBody(createRequestSchema, args.body);
-  const response = await roadmapFetch("", {
+  const endpoints = resolveEndpoints();
+  const response = await roadmapFetch(endpoints, "", {
     method: "POST",
     key: await requireAssistantApiKey(),
     body: { ...item, title: item.title.trim() },
     signal: args.abortSignal,
   });
   return toMutatedItem(
+    endpoints.web,
     await roadmapJson<UpstreamMutatedItem>(response, "create roadmap item"),
   );
 }
@@ -470,13 +574,19 @@ async function handleUpdate(
 ): Promise<MutatedRoadmapItem> {
   const slug = requireSlug(args);
   const patch = parseBody(updateRequestSchema, args.body);
-  const response = await roadmapFetch(`/${encodeURIComponent(slug)}`, {
-    method: "PATCH",
-    key: await requireAssistantApiKey(),
-    body: patch,
-    signal: args.abortSignal,
-  });
+  const endpoints = resolveEndpoints();
+  const response = await roadmapFetch(
+    endpoints,
+    `/${encodeURIComponent(slug)}`,
+    {
+      method: "PATCH",
+      key: await requireAssistantApiKey(),
+      body: patch,
+      signal: args.abortSignal,
+    },
+  );
   return toMutatedItem(
+    endpoints.web,
     await roadmapJson<UpstreamMutatedItem>(response, "update roadmap item"),
   );
 }
@@ -485,11 +595,15 @@ async function handleDelete(
   args: RouteHandlerArgs,
 ): Promise<{ slug: string; deleted: true }> {
   const slug = requireSlug(args);
-  const response = await roadmapFetch(`/${encodeURIComponent(slug)}`, {
-    method: "DELETE",
-    key: await requireAssistantApiKey(),
-    signal: args.abortSignal,
-  });
+  const response = await roadmapFetch(
+    resolveEndpoints(),
+    `/${encodeURIComponent(slug)}`,
+    {
+      method: "DELETE",
+      key: await requireAssistantApiKey(),
+      signal: args.abortSignal,
+    },
+  );
   if (!response.ok) {
     await throwRoadmapError(response, "delete roadmap item");
   }
@@ -502,11 +616,15 @@ async function vote(
   action: string,
 ): Promise<{ slug: string; upvoteCount: number }> {
   const slug = requireSlug(args);
-  const response = await roadmapFetch(`/${encodeURIComponent(slug)}/upvote`, {
-    method,
-    key: await requireAssistantApiKey(),
-    signal: args.abortSignal,
-  });
+  const response = await roadmapFetch(
+    resolveEndpoints(),
+    `/${encodeURIComponent(slug)}/upvote`,
+    {
+      method,
+      key: await requireAssistantApiKey(),
+      signal: args.abortSignal,
+    },
+  );
   const data = await roadmapJson<{ slug?: string; upvote_count?: number }>(
     response,
     action,
@@ -605,7 +723,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Update a roadmap item",
     description:
-      "Updates a roadmap item. At least one field is required; the roadmap service decides which items this assistant may edit.",
+      "Updates the title or description of a roadmap item this assistant filed, while the item is still open. Status and tags are set by Vellum staff.",
     tags: ["roadmap"],
     pathParams: SLUG_PARAM,
     requestBody: updateRequestSchema,

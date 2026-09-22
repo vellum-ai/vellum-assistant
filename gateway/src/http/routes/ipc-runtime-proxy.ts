@@ -13,7 +13,10 @@
  */
 
 import { admitActorToken } from "../../auth/actor-token-revocation.js";
-import { resolveScopeProfile } from "../../auth/scopes.js";
+import {
+  isNarrowScopeProfile,
+  resolveScopeProfile,
+} from "../../auth/scopes.js";
 import { parseSub } from "../../auth/subject.js";
 import { validateEdgeToken } from "../../auth/token-exchange.js";
 import type { TokenClaims } from "../../auth/types.js";
@@ -44,7 +47,11 @@ const VELLUM_HEADER_PREFIX = "x-vellum-";
  *
  * Once the header is present, the proxy commits to serving the request
  * over IPC: path mismatches return 404 and errors return proper status
- * codes rather than falling through.
+ * codes rather than falling through, except for the daemon's
+ * retry-over-HTTP signal, which also returns `null`.
+ *
+ * `req` is never consumed, so a caller holding it can still read its body
+ * on either `null` path.
  */
 export async function tryIpcProxy(
   req: Request,
@@ -104,6 +111,19 @@ export async function tryIpcProxy(
       { status: 404 },
     );
   }
+  // A passthrough forwards caller-authored paths, so undecodable ones arrive
+  // here routinely. Same answer the daemon's own router gives them.
+  if ("malformedPath" in match) {
+    return Response.json(
+      {
+        error: {
+          code: "BAD_REQUEST",
+          message: "Malformed percent-encoding in URL path parameter",
+        },
+      },
+      { status: 400 },
+    );
+  }
 
   // --- Policy enforcement --------------------------------------------------
   // The policy comes straight from the daemon's route schema (see
@@ -147,14 +167,15 @@ export async function tryIpcProxy(
     }
   });
 
-  // Override caller-supplied identity headers with values derived from the
+  // Drop the caller-supplied identity headers and re-derive them from the
   // verified JWT claims. The daemon's IPC adapter (`injectLocalActorHeader`)
-  // preserves any inbound `x-vellum-actor-principal-id`, so without this
-  // step a malicious client could spoof another user's principal id by
-  // setting the header explicitly. Mirrors the HTTP adapter's behavior in
-  // `assistant/src/runtime/routes/http-adapter.ts`.
+  // preserves any inbound `x-vellum-actor-principal-id`, so without this step
+  // a malicious client could spoof another user's principal id by setting the
+  // header explicitly. `x-vellum-subject` goes too, defense in depth behind
+  // that adapter's own unconditional delete.
   delete headers["x-vellum-actor-principal-id"];
   delete headers["x-vellum-principal-type"];
+  delete headers["x-vellum-subject"];
   if (claims) {
     const sub = parseSub(claims.sub);
     if (sub.ok) {
@@ -170,7 +191,9 @@ export async function tryIpcProxy(
     const contentType = req.headers.get("content-type") ?? "";
     if (contentType.includes("application/json") || contentType === "") {
       try {
-        const parsed = (await req.json()) as Record<string, unknown>;
+        // A clone: a route that answers with the retry-over-HTTP signal sends
+        // this same request on to the HTTP proxy, which needs an unread body.
+        const parsed = (await req.clone().json()) as Record<string, unknown>;
         if (parsed && typeof parsed === "object") {
           body = parsed;
         }
@@ -287,16 +310,43 @@ export async function tryIpcProxy(
 /**
  * Enforce the route's scope/principal policy against the caller's token.
  * Returns a 403 Response when denied, null when allowed.
+ *
+ * A route naming no scope (`policy` null, or empty `requiredScopes`) is
+ * unprotected (e.g. health, debug) for a broad profile, and closed to a narrow
+ * one (see {@link isNarrowScopeProfile}). The daemon's IPC server runs no
+ * policy check of its own, so this fast path is the only place that rule
+ * applies to IPC-served requests.
  */
 function enforceRoutePolicy(
   policy: RouteSchemaPolicy | null,
   claims: TokenClaims | undefined,
   path: string,
 ): Response | null {
-  if (!policy) return null;
-
   // When auth is disabled (dev mode), no claims → skip enforcement.
   if (!claims) return null;
+
+  // A single-route grant reaches only a route that names its scope, so an
+  // unprotected one refuses it rather than admitting any valid token.
+  if (
+    (policy?.requiredScopes.length ?? 0) === 0 &&
+    isNarrowScopeProfile(claims.scope_profile)
+  ) {
+    log.warn(
+      { path, scopeProfile: claims.scope_profile },
+      "IPC proxy policy denied: grant is scoped to a single route",
+    );
+    return Response.json(
+      {
+        error: {
+          code: "FORBIDDEN",
+          message: "This grant is not permitted for this endpoint",
+        },
+      },
+      { status: 403 },
+    );
+  }
+
+  if (!policy) return null;
 
   // Check principal type.
   if (policy.allowedPrincipalTypes.length > 0) {

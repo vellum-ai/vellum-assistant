@@ -25,20 +25,24 @@ import {
   isLiveVoiceSessionActive,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
+import type { LiveVoiceEntry } from "@/domains/chat/voice/live-voice/protocol";
 import {
   firstRunCardIntercepts,
   publishConfigNotice,
   voiceReadiness,
 } from "@/domains/chat/voice/live-voice/voice-entry-guards";
+import { voiceEntryGreetingSeed } from "@/domains/chat/voice/live-voice/voice-entry-greeting";
 import { mintVoiceDraftConversation } from "@/domains/chat/voice/voice-draft-conversation";
 import { formatVoiceError } from "@/domains/chat/utils/chat";
 import { supportsLiveVoice } from "@/lib/backwards-compat/use-supports-live-voice";
+import { companionIntroStaged } from "@/runtime/companion-intro-stage";
 import { endVoiceActivity } from "@/runtime/desktop-voice-activity";
 import { ensureMainWindowVisible } from "@/runtime/main-window";
 import { whenAssistantVersionKnownFor } from "@/lib/backwards-compat/utils";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { usePendingDeepLinkStore } from "@/stores/pending-deep-link-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import { keptAppId } from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
 import { toast } from "@vellumai/design-library/components/toast";
 import { VOICE_START_REQUEST_TTL_MS } from "@vellumai/ipc-contract";
@@ -97,14 +101,20 @@ export type VoiceStartNavigate = (
  */
 function bindFreshConversation(navigate: VoiceStartNavigate): string {
   const draftId = mintVoiceDraftConversation();
-  void navigate(routes.conversation(draftId), { replace: true });
+  void navigate(routes.conversation(draftId, keptAppId()), { replace: true });
   return draftId;
 }
 
 /**
- * What a start-voice request can carry besides the request itself.
+ * What a start-voice request carries besides the request itself.
  */
 export interface VoiceStartRequestOptions {
+  /**
+   * Which control asked for the session. Required, because it is the one
+   * thing the drain cannot work out for itself: by the time the request is
+   * served, the press that made it is long gone.
+   */
+  entry: LiveVoiceEntry;
   /**
    * A question to put to the session as its first turn, spoken back and then
    * done: the session ends once the reply has been heard. For a press that
@@ -126,9 +136,12 @@ export interface VoiceStartRequestOptions {
  */
 export function requestVoiceStart(
   navigate: VoiceStartNavigate,
-  options: VoiceStartRequestOptions = {},
+  options: VoiceStartRequestOptions,
 ): void {
-  usePendingDeepLinkStore.getState().setPendingVoiceStart(options.ask);
+  usePendingDeepLinkStore.getState().setPendingVoiceStart({
+    entry: options.entry,
+    ...(options.ask !== undefined ? { ask: options.ask } : {}),
+  });
   void drainPendingVoiceStart(navigate);
 }
 
@@ -155,7 +168,7 @@ export function requestVoiceStart(
  */
 export function startVoiceFromSurface(
   navigate: VoiceStartNavigate,
-  options: VoiceStartRequestOptions = {},
+  options: VoiceStartRequestOptions,
 ): void {
   if (isLiveVoiceSessionActive(useLiveVoiceStore.getState().state)) {
     return;
@@ -174,12 +187,15 @@ export function startVoiceFromSurface(
  * that draws it also draws a way to stop. Both the voice mode shortcut and
  * the voice key's double tap come through here, so the two cannot drift.
  */
-export function toggleVoiceFromSurface(navigate: VoiceStartNavigate): void {
+export function toggleVoiceFromSurface(
+  navigate: VoiceStartNavigate,
+  entry: LiveVoiceEntry,
+): void {
   if (isLiveVoiceSessionActive(useLiveVoiceStore.getState().state)) {
     endLiveVoiceSession();
     return;
   }
-  startVoiceFromSurface(navigate);
+  startVoiceFromSurface(navigate, { entry });
 }
 
 /**
@@ -230,13 +246,14 @@ export function announceAskRefused(): void {
 export function askVoiceFromSurface(
   navigate: VoiceStartNavigate,
   ask: string,
+  entry: LiveVoiceEntry,
 ): boolean {
   const store = useLiveVoiceStore.getState();
   if (isLiveVoiceSessionActive(store.state)) {
     return store.starter?.sendText(ask) === true;
   }
   void navigate(routes.assistant);
-  requestVoiceStart(navigate, { ask });
+  requestVoiceStart(navigate, { entry, ask });
   return true;
 }
 
@@ -267,6 +284,15 @@ export async function drainPendingVoiceStart(
   if (useLiveVoiceStore.getState().starter === null) {
     return;
   }
+  // Whether the companion's introduction is running, read HERE rather than at
+  // the guard below, because it stops being true across the awaits in between
+  // and stops for exactly the press this is about. The run's last beat offers
+  // a conversation, and taking that offer is what ends the run: main finishes
+  // it in the same breath as it sends the `startVoice` this drain is serving,
+  // so the push saying "no run" is already on its way while this is still
+  // deciding. Read synchronously, before the first await, it is still the
+  // answer the press was made against.
+  const duringCompanionIntro = companionIntroStaged();
   // Who a fresh start means, read before the wait below rather than after it,
   // because the wait is scoped to this assistant.
   const assistantId = useResolvedAssistantsStore.getState().activeAssistantId;
@@ -344,7 +370,7 @@ export async function drainPendingVoiceStart(
   // and opened a room the composer would have refused. Each hands the entry to
   // something the user can see (the card, the notice), so each is an answer
   // rather than a drop.
-  if (firstRunCardIntercepts()) {
+  if (firstRunCardIntercepts(duringCompanionIntro)) {
     // **The one entry here that raises the app.** The card is a decision, and
     // it is drawn in the app's window; a press from the companion leaves that
     // window behind whatever the user is actually working in, so the press
@@ -409,13 +435,26 @@ export async function drainPendingVoiceStart(
   // to borrow (Siri, the Action Button, a Live Activity tap). `start()` creates
   // its own player when none was reserved.
   const conversationId = bindFreshConversation(navigate);
+  // The control that parked the request, carried to the daemon's telemetry.
+  // Absent only from a park written by code that predates the field.
+  const entry = consumed.entry ? { entry: consumed.entry } : {};
   if (consumed.ask === null) {
-    readyStarter.start(assistantId, conversationId);
+    // The draft was minted a moment ago, so the conversation is empty by
+    // construction, and an empty conversation is where the assistant speaks
+    // first (see `voiceEntryGreetingSeed`): the same seed the composer's voice
+    // button sends on a blank thread, so a call opened from the companion or
+    // the voice key does not open silent while one opened in the app greets.
+    // `start()` spends the seed once per start and never on a reconnect.
+    readyStarter.start(assistantId, conversationId, {
+      ...entry,
+      seedText: voiceEntryGreetingSeed(true),
+    });
     return;
   }
   // The question is the user's own words, so it renders as theirs, and the
   // session is for the question alone: it ends once the reply has been heard.
   readyStarter.start(assistantId, conversationId, {
+    ...entry,
     seedText: consumed.ask,
     seedVisible: true,
     endAfterSeedReply: true,

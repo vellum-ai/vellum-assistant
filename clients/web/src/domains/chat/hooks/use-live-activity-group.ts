@@ -6,6 +6,8 @@ import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import {
   activityItemsToCardData,
   groupContentBlocks,
+  groupOptionsForMessage,
+  type ContentBlockGroup,
 } from "@/domains/chat/transcript/message-content";
 import {
   acpRunIdForCall,
@@ -14,8 +16,12 @@ import {
   workflowRunIdForCall,
   type WorkflowCardBackingState,
 } from "@/domains/chat/transcript/transcript-message-body-shared";
+import { useHideThinkingUi } from "@/domains/chat/hooks/use-hide-thinking-ui";
 import { useTranscriptMessageById } from "@/domains/chat/hooks/use-transcript-message-by-id";
+import { useTranscriptMessages } from "@/domains/chat/transcript/use-transcript-messages";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import type { DisplayMessage } from "@/domains/chat/types/types";
+import { messageMatchKeys } from "@/domains/chat/utils/message-identity";
 import type { ToolCallCardItem } from "@/domains/chat/utils/tool-call-card-utils";
 
 /**
@@ -30,6 +36,56 @@ export interface ProcessCardBacking {
   acpById: Record<string, unknown>;
   acpByToolUseId: Map<string, string>;
   backgroundTaskById: Record<string, unknown>;
+}
+
+/** Whether the selected activity group is the final rendered content group. */
+export function isLastActivityGroup(
+  groups: ContentBlockGroup[],
+  groupIndex: number,
+): boolean {
+  return (
+    groups[groupIndex]?.type === "activity" && groupIndex === groups.length - 1
+  );
+}
+
+/** Whether `message` is the transcript's final row by stable message identity. */
+export function isLatestTranscriptMessage(
+  message: DisplayMessage,
+  transcriptMessages: readonly DisplayMessage[],
+): boolean {
+  const latest = transcriptMessages.at(-1);
+  if (!latest) {
+    return false;
+  }
+  const latestKeys = new Set(messageMatchKeys(latest));
+  return messageMatchKeys(message).some((key) => latestKeys.has(key));
+}
+
+/** Locate the open activity block after pagination shifts numeric indexes. */
+export function resolveActivityGroupIndex(
+  groups: ContentBlockGroup[],
+  groupIndex: number,
+  anchorToolCallId?: string,
+): number | null {
+  if (!anchorToolCallId) {
+    return groups[groupIndex]?.type === "activity" ? groupIndex : null;
+  }
+  const groupContainsAnchor = (candidateIndex: number): boolean => {
+    const candidate = groups[candidateIndex];
+    if (!candidate || candidate.type !== "activity") {
+      return false;
+    }
+    return activityItemsToCardData(candidate.items).toolCalls.some(
+      (toolCall) => toolCall.id === anchorToolCallId,
+    );
+  };
+  if (groupContainsAnchor(groupIndex)) {
+    return groupIndex;
+  }
+  const relocatedIndex = groups.findIndex((_, index) =>
+    groupContainsAnchor(index),
+  );
+  return relocatedIndex === -1 ? null : relocatedIndex;
 }
 
 /**
@@ -89,8 +145,17 @@ export function filterCardBackedProcessCalls(
 export function useLiveActivityGroup(
   messageId: string | undefined,
   groupIndex: number | undefined,
-): { items: ToolCallCardItem[]; toolCalls: ChatMessageToolCall[] } | null {
+  anchorToolCallId?: string,
+): {
+  items: ToolCallCardItem[];
+  toolCalls: ChatMessageToolCall[];
+  isLastGroup: boolean;
+  isLatestMessage: boolean;
+  groupIndex: number;
+} | null {
   const message = useTranscriptMessageById(messageId);
+  const transcriptMessages = useTranscriptMessages();
+  const hideThinkingUi = useHideThinkingUi();
   // Card-backed process suppression reads the same store slices the
   // transcript subscribes to, so a card's backing flipping (an entry
   // appearing) drops the raw step from an open panel in the same render.
@@ -107,28 +172,45 @@ export function useLiveActivityGroup(
     if (!message || groupIndex == null) {
       return null;
     }
-    const groups = groupContentBlocks(message.contentBlocks ?? [], {
-      splitInlineThinking: message.role !== "user",
-    });
-    const group = groups[groupIndex];
+    const groups = groupContentBlocks(
+      message.contentBlocks ?? [],
+      groupOptionsForMessage(message, hideThinkingUi),
+    );
+    const resolvedGroupIndex = resolveActivityGroupIndex(
+      groups,
+      groupIndex,
+      anchorToolCallId,
+    );
+    if (resolvedGroupIndex == null) {
+      return null;
+    }
+    const group = groups[resolvedGroupIndex];
     if (!group || group.type !== "activity") {
       return null;
     }
     const { cardItems, toolCalls } = activityItemsToCardData(group.items);
-    return filterCardBackedProcessCalls(cardItems, toolCalls, {
-      workflow: {
-        byId: workflowById,
-        byToolUseId: workflowByToolUseId,
-        notFoundRunIds: workflowNotFoundRunIds,
-        hydrationFailedRunIds: workflowHydrationFailedRunIds,
-      },
-      acpById,
-      acpByToolUseId,
-      backgroundTaskById,
-    });
+    return {
+      ...filterCardBackedProcessCalls(cardItems, toolCalls, {
+        workflow: {
+          byId: workflowById,
+          byToolUseId: workflowByToolUseId,
+          notFoundRunIds: workflowNotFoundRunIds,
+          hydrationFailedRunIds: workflowHydrationFailedRunIds,
+        },
+        acpById,
+        acpByToolUseId,
+        backgroundTaskById,
+      }),
+      isLastGroup: isLastActivityGroup(groups, resolvedGroupIndex),
+      isLatestMessage: isLatestTranscriptMessage(message, transcriptMessages),
+      groupIndex: resolvedGroupIndex,
+    };
   }, [
     message,
+    transcriptMessages,
     groupIndex,
+    anchorToolCallId,
+    hideThinkingUi,
     workflowById,
     workflowByToolUseId,
     workflowNotFoundRunIds,

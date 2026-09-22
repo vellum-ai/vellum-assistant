@@ -278,7 +278,7 @@ async function startOutboundTelegram(
       success: false,
       error: "already_bound",
       message:
-        "A guardian is already bound for this channel. Set rebind: true to replace.",
+        "A guardian is already bound for this channel. To verify a different account, revoke the existing binding first. Set rebind: true only to verify the same account again.",
       channel,
     };
   }
@@ -820,7 +820,7 @@ async function startOutboundTextChannel(
       success: false,
       error: "already_bound",
       message:
-        "A guardian is already bound for this channel. Set rebind: true to replace.",
+        "A guardian is already bound for this channel. To verify a different account, revoke the existing binding first. Set rebind: true only to verify the same account again.",
       channel,
     };
   }

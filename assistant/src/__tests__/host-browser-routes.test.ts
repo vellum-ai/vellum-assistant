@@ -421,5 +421,39 @@ describe("handleHostBrowserResult — same-actor guard", () => {
       expect(result).toEqual({ accepted: true });
       expect(pendingInteractions.get(requestId)).toBeUndefined();
     });
+
+    test("rejects a different actor when the pending request recorded a source actor", () => {
+      const requestId = "browser-req-untargeted-actor-mismatch";
+      pendingInteractions.register(requestId, {
+        conversationId: "conv-1",
+        kind: "host_browser",
+        targetActorPrincipalId: "user-owner",
+      });
+
+      expect(() =>
+        handleHostBrowserResult({
+          body: { requestId, content: "ok", isError: false },
+          headers: { "x-vellum-actor-principal-id": "user-attacker" },
+        }),
+      ).toThrow(ForbiddenError);
+      expect(pendingInteractions.get(requestId)).toBeDefined();
+    });
+
+    test("accepts the recorded source actor on an untargeted pending request", async () => {
+      const requestId = "browser-req-untargeted-actor-match";
+      pendingInteractions.register(requestId, {
+        conversationId: "conv-1",
+        kind: "host_browser",
+        targetActorPrincipalId: "user-owner",
+      });
+
+      const result = await handleHostBrowserResult({
+        body: { requestId, content: "ok", isError: false },
+        headers: { "x-vellum-actor-principal-id": "user-owner" },
+      });
+
+      expect(result).toEqual({ accepted: true });
+      expect(pendingInteractions.get(requestId)).toBeUndefined();
+    });
   });
 });

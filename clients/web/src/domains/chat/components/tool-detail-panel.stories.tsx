@@ -13,11 +13,19 @@ import {
   fileReadMissingDetail,
   fileWriteDetail,
   largeOutputDetail,
+  wideTableOutputDetail,
+  manyShortLinesDetail,
+  tallNestedParameterDetail,
+  tallTableParameterDetail,
+  longTextParameterDetail,
   managedWorkspaceDetail,
   mcpDetail,
   mcpSqlDetail,
   minimalDetail,
   recallDetail,
+  recallNothingFoundDetail,
+  recallTextOnlyDetail,
+  recordListDetail,
   rememberDetail,
   riskVariant,
   skillExecuteDetail,
@@ -29,8 +37,11 @@ import {
   thinkingDetail,
   unknownToolDetail,
   webFetchDetail,
+  webSearchDeniedDetail,
   webSearchDetail,
   webSearchErrorDetail,
+  webSearchNoSourcesDetail,
+  webSearchRunningDetail,
 } from "@/domains/chat/components/tool-detail-story-fixtures";
 
 import { ToolDetailPanel } from "./tool-detail-panel";
@@ -42,22 +53,24 @@ import { ToolDetailPanel } from "./tool-detail-panel";
  *
  * ## What renders what
  *
- * `ToolDetailBody` looks the tool name up in `tool-activity-renderers.ts`. Two
- * names are registered. Every other tool, native or third-party, gets the
- * generic treatment: the title, the activity sentence, the input as raw JSON,
- * and the result as one unclamped `<pre>`.
+ * `ToolDetailBody` looks the tool name up in `tool-activity-renderers.ts`.
+ * Shell, file edits, the two skill tools and the two web tools have bodies of
+ * their own; everything else, native or third-party, falls back to its
+ * parameters as labelled fields, the raw JSON input behind a disclosure, and a
+ * clamped result.
  *
- * The two registered names are both skill tools, which are not among the tools
- * people hit most. The families that dominate day to day, files and shell, are
- * on the generic path, which is what makes the gaps below worth designing away.
+ * ## What the header owns
  *
- * ## Where the activity sentence shows
+ * Every panel that hosts a `ToolDetailBody` heads it with
+ * `ToolDetailHeaderTitle`: the activity sentence, and under it the tool with
+ * its risk pill. Nothing in the body repeats any of that. The activity does
+ * appear once more inside the raw JSON, because `activity` is a real input key
+ * the tools send alongside `command` / `path`, and that block is the raw input.
+ * The parameter fields leave it out, since the header already shows it.
  *
- * Every host of `ToolDetailBody` titles its header with
- * `toolDetailHeaderTitle`, so the body does not repeat the activity under the
- * tool name. It still appears inside the JSON input block, because `activity`
- * is a real input key the tools send alongside `command` / `path` and that
- * block is the raw input.
+ * The sentence wraps to two lines rather than truncating on one: most activity
+ * sentences are longer than a single line at the drawer's 400px default, and
+ * the native tooltip carries the tail of the rest.
  *
  * ## Coverage matrix
  *
@@ -67,13 +80,13 @@ import { ToolDetailPanel } from "./tool-detail-panel";
  *
  * | Family | Renderer today | Volume rank | Stories | Readability gap |
  * | --- | --- | --- | --- | --- |
- * | Files (`file_read` / `_write` / `_edit` / `_list`, host variants) | generic | 1 | FileRead, FileReadEmptyOutput, FileReadError, FileWrite, FileEdit, MinimalOutput | `file_write` shows the written body as a JSON string literal with escaped newlines; `file_edit` shows a diff as two such literals side by side, with no diff rendering at all. |
- * | Shell (`bash`, `host_bash`) | generic | 2 | Bash, BashStreaming, BashError, BashDenied, LargeOutput | A command and its stdout are shown as a JSON object and a `<pre>`, so the thing the user reads is quoted and escaped rather than rendered as a terminal. |
- * | Memory (`remember`, `recall`) | generic | 3 | Remember, Recall | `recall` returns a ranked list and renders as flat preformatted text; `remember` spends the full section chrome on a one-line acknowledgement. |
- * | Web (`web_search`, `web_fetch`) | purpose-built | 4 | WebSearchKind, WebSearchError, WebFetch | Registered like any other renderer, so a search reads the same from every panel. A failed search falls through to the generic body by design. |
+ * | Files (`file_read` / `_write` / `_edit` / `_list`, host variants) | changing tools purpose-built, reading tools generic | 1 | FileRead, FileReadEmptyOutput, FileReadError, FileWrite, FileEdit, MinimalOutput | `file_edit` and `file_write` share one body: an edit renders a unified diff, a write renders the file under its path, and both label the section by whether the call succeeded. `file_read` stays generic because its file comes back in the result, which the Output section already renders as text. |
+ * | Shell (`bash`, `host_bash`) | purpose-built | 2 | Bash, BashStreaming, BashError, BashDenied, LargeOutput | The command and its output as two labelled blocks, rather than a JSON object quoting one. |
+ * | Memory (`remember`, `recall`) | purpose-built | 3 | Remember, Recall, RecallTextOnly, RecallNothingFound | Read from each tool's structured result: `remember` lists the facts saved, `recall` the query, the answer and the evidence, each piece opening the file or conversation it came from. A recall recorded without a structured result shows its text as written. |
+ * | Web (`web_search`, `web_fetch`) | purpose-built | 4 | WebSearchKind, WebSearchRunning, WebSearchDenied, WebSearchNoSources, WebSearchError, WebFetch | Registered like any other renderer, so a search reads the same from every panel. A running or refused search says so; only a finished one with no results says it found none. A failed search falls through to the generic body by design. |
  * | Skills (`skill_load`, `skill_execute`) | purpose-built | 5 | SkillLoad, SkillLoadLongBody, SkillLoadError, SkillLoadRunning, SkillExecute | The only tools with native treatment, and `skill_execute` is close to unused, so most of this investment sits on the rarer of the pair. |
  * | MCP (`mcp__*`) | generic | 6 | McpTool, McpToolHighRisk | The wire name goes through `titleCaseToolName`, so `mcp__analytics__exec` is titled "Mcp Analytics Exec": server and tool are not separated and the transport prefix is shown as a word. |
- * | Managed workspace tools | generic | mixed | ManagedWorkspaceTool | Nested-object inputs are the worst case for the raw JSON block. |
+ * | Managed workspace tools | generic | mixed | ManagedWorkspaceTool | An object parameter nests its fields in a bordered group, each label above its value, with short lists and small objects on one line; only a value nested past four levels falls back to JSON. |
  * | Unenumerable third-party | generic | mixed | UnknownThirdPartyTool | The fallback that has to stay good, since we cannot write a renderer per vendor. |
  * | Reasoning (`kind: "thinking"`) | purpose-built | n/a | Thinking | Renders markdown properly. No gap. |
  *
@@ -87,9 +100,13 @@ import { ToolDetailPanel } from "./tool-detail-panel";
  * | Error | BashError, FileReadError, SkillLoadError | The panel styles an error result identically to a successful one; only the text says it failed. |
  * | Denied or timed out | BashDenied | Output says the call was not approved and did not run. Both a declined confirmation and one that timed out land here. |
  * | Empty output | FileReadEmptyOutput | Output reports that the tool returned nothing, rather than disappearing. |
+ * | Structured output | McpTool, UnknownThirdPartyTool, RecordListParameter, WideTableOutput | A result that is a JSON object or list lays out the way the input does, with the result exactly as received under Raw output. Anything else, and an error or a streamed tail, stays a code block. |
+ * | Taller than the fold | ManyShortLinesOutput, TallTableParameter, TallNestedParameter | Any value taller than the fold folds behind Show more, measured at the width it is drawn at: many short lines as readily as one long paragraph, and a table or nested group as one value. |
  * | Very large output | LargeOutput | `CodeBlock` clamps behind Show more; the daemon's cap is 400,000 characters. |
- * | Nested JSON input | ManagedWorkspaceTool, UnknownThirdPartyTool | |
- * | Risk levels | RiskLow, RiskMedium, RiskHigh, RiskWorkspace, RiskUnknown, RiskAbsent | Every level the risk helpers recognise, plus absent and unrecognised. |
+ * | Nested JSON input | ManagedWorkspaceTool, UnknownThirdPartyTool | Structure nests as labelled fields, short lists and small objects read on one line, and the raw JSON sits behind a disclosure. |
+ * | Long and multi-line text | LongTextParameter | A value on one line reads inline however long it is, and folds behind Show more once it runs long; text with line breaks keeps its lines in a code block. |
+ * | List of records | RecordListParameter | A list of same-shaped objects reads as a table, one column per key; a record missing a key leaves an empty cell. |
+ * | Risk levels | RiskLow, RiskMedium, RiskHigh, RiskWorkspace, RiskUnknown, RiskAbsent | A pill in the header, with the tolerance sentence on hover, or beside the pill as text where the pointer cannot hover. Levels with no tolerance tier carry neither. The neutral pills read faintly against the panel ground, which is unresolved. |
  * | Narrow or mobile | MobileWidth | Same panel inside the drawer at 390px. |
  *
  * ## Suggested order for follow-up design slices
@@ -97,17 +114,17 @@ import { ToolDetailPanel } from "./tool-detail-panel";
  * Ranked by how many calls each slice improves against how much design it
  * needs, which puts the two families the design lead named first.
  *
- * 1. Files. `file_edit` as a rendered diff and `file_write` as an editor view
- *    are the largest single readability win available.
- * 2. Shell. A terminal treatment for the command and its output.
- * 3. Memory. `recall` as a result list.
- * 4. MCP naming. Low volume, but the title is wrong on every call rather than
- *    merely plain.
+ * 1. Memory. `recall` as a result list rather than flat text.
+ * 2. MCP naming (LUM-3511). Low volume, but the title is wrong on every call
+ *    rather than merely plain.
+ * 3. A true diff for file changes (LUM-3403). The daemon already returns
+ *    whole-file before and after on every completed file call; the client
+ *    discards it, and it is not persisted, so this needs a daemon field
+ *    before the panel can show more than the requested hunk.
  *
- * ## Still open
- *
- * LUM-3511 for the MCP naming. Every other treatment below documents behaviour
- * the panel has, not a gap it is waiting on.
+ * Syntax highlighting is deliberately absent from all of these: there is no
+ * highlighter in the repository, and adding one is a dependency call that can
+ * be made later without changing any of these shapes.
  */
 const meta: Meta<typeof ToolDetailPanel> = {
   title: "Chat/ToolDetailPanel",
@@ -149,11 +166,7 @@ type Story = StoryObj<typeof ToolDetailPanel>;
 // Shell, the highest-volume family on the generic renderer
 // ---------------------------------------------------------------------------
 
-/**
- * `bash`, the single most-called tool. The command the user cares about is
- * inside the JSON object, quoted, next to the `activity` string that is
- * already shown as the header.
- */
+/** `bash`, the single most-called tool: the command, then what it printed. */
 export const Bash: Story = { args: { detail: bashDetail } };
 
 /** `bash` still running, with the live stdout tail under Output. */
@@ -191,15 +204,13 @@ export const FileReadEmptyOutput: Story = {
 export const FileReadError: Story = { args: { detail: fileReadMissingDetail } };
 
 /**
- * `file_write`. The written file body is a JSON string literal with escaped
- * newlines, which is the clearest argument for the editor treatment.
+ * `file_write`. The file renders under its path rather than as a JSON string
+ * literal. It shares `FileChangeDetail` with `file_edit`, so a write that was
+ * declined or failed says so in the same words an edit does.
  */
 export const FileWrite: Story = { args: { detail: fileWriteDetail } };
 
-/**
- * `file_edit`. The before and after strings are a diff, rendered as two
- * escaped JSON literals with no alignment between them.
- */
+/** `file_edit`. The before and after pair rendered as the diff it is. */
 export const FileEdit: Story = { args: { detail: fileEditDetail } };
 
 /** A one-line input and a short list output: the panel at its least dense. */
@@ -209,11 +220,25 @@ export const MinimalOutput: Story = { args: { detail: minimalDetail } };
 // Memory and search
 // ---------------------------------------------------------------------------
 
-/** `remember`. Full section chrome around a one-line acknowledgement. */
+/** `remember`: the facts it saved, as a list under whether they were saved. */
 export const Remember: Story = { args: { detail: rememberDetail } };
 
-/** `recall`. A ranked result list flattened into preformatted text. */
+/**
+ * `recall`: what it searched for and where, the answer, and the evidence the
+ * answer stands on.
+ */
 export const Recall: Story = { args: { detail: recallDetail } };
+
+/**
+ * `recall` from history recorded before it reported a structured result. Its
+ * text reads as the markdown it was written as.
+ */
+export const RecallTextOnly: Story = { args: { detail: recallTextOnlyDetail } };
+
+/** `recall` that found nothing, and says which place it could not search. */
+export const RecallNothingFound: Story = {
+  args: { detail: recallNothingFoundDetail },
+};
 
 /** `code_search`, the widest native input shape. */
 export const CodeSearch: Story = { args: { detail: codeSearchDetail } };
@@ -229,7 +254,10 @@ export const SubagentSpawn: Story = { args: { detail: subagentSpawnDetail } };
 // Managed workspace, MCP, and the unenumerable tail
 // ---------------------------------------------------------------------------
 
-/** A managed workspace tool. Nested-object input is the worst case for raw JSON. */
+/**
+ * A managed workspace tool. Its nested-object parameter renders as labelled
+ * fields, with its short lists on one line.
+ */
 export const ManagedWorkspaceTool: Story = {
   args: { detail: managedWorkspaceDetail },
 };
@@ -257,10 +285,60 @@ export const UnknownThirdPartyTool: Story = {
 // ---------------------------------------------------------------------------
 
 /**
+ * Forty short lines of output. Short in characters but taller than the fold,
+ * so it folds by the height it is drawn at.
+ */
+export const ManyShortLinesOutput: Story = {
+  args: { detail: manyShortLinesDetail },
+};
+
+/** A table parameter of twenty rows, folded as one value. */
+export const TallTableParameter: Story = {
+  args: { detail: tallTableParameterDetail },
+};
+
+/** A nested parameter group of twelve fields, folded as one value. */
+export const TallNestedParameter: Story = {
+  args: { detail: tallNestedParameterDetail },
+};
+
+/**
  * A long result, clamped behind Show more. Tool results reach the panel at up
  * to the daemon's 400,000 character cap, which is not a height a panel absorbs.
  */
 export const LargeOutput: Story = { args: { detail: largeOutputDetail } };
+
+/**
+ * An output table wider than the drawer and taller than a screen: thirty
+ * records with ten keys each. Columns take the width of their values on one
+ * line and the table scrolls sideways; the long `website` column wraps at the
+ * width cap.
+ */
+export const WideTableOutput: Story = {
+  args: { detail: wideTableOutputDetail },
+};
+
+/**
+ * Long and multi-line text. The note is one long line, so it reads inline and
+ * folds behind Show more once it runs past the clamp; the checklist is short
+ * but has line breaks, so it keeps them in a code block.
+ */
+export const LongTextParameter: Story = {
+  args: { detail: longTextParameterDetail },
+};
+
+/**
+ * A parameter that is a list of same-shaped records. It reads as a table with
+ * a column per key, in the order the keys first appear, instead of a numbered
+ * group of boxes. A record that omits a key leaves that cell empty, since an
+ * import or a query result commonly leaves a column out per row; a key present
+ * in fewer than half the records, or more than twelve keys, falls back to the
+ * nested group. Rows past the first hundred are counted under the table, and
+ * the raw input keeps them all.
+ */
+export const RecordListParameter: Story = {
+  args: { detail: recordListDetail },
+};
 
 // ---------------------------------------------------------------------------
 // Risk levels
@@ -355,6 +433,21 @@ export const WebSearchKind: Story = { args: { detail: webSearchDetail } };
  * body on purpose, so the error reads the way any other failed tool's does.
  */
 export const WebSearchError: Story = { args: { detail: webSearchErrorDetail } };
+
+/** A search still running says so, rather than that it found no sources. */
+export const WebSearchRunning: Story = {
+  args: { detail: webSearchRunningDetail },
+};
+
+/** A refused search says it did not run, never the note to the model. */
+export const WebSearchDenied: Story = {
+  args: { detail: webSearchDeniedDetail },
+};
+
+/** Only a search that finished with no results says it found no sources. */
+export const WebSearchNoSources: Story = {
+  args: { detail: webSearchNoSourcesDetail },
+};
 
 /** `web_fetch`. The fetched page, not the header-and-marker envelope. */
 export const WebFetch: Story = { args: { detail: webFetchDetail } };

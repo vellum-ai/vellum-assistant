@@ -3,33 +3,34 @@ import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  afterAll,
   afterEach,
   beforeEach,
   describe,
   expect,
-  mock,
   test,
 } from "bun:test";
 
+import { waitFor } from "../__tests__/helpers/wait-for.js";
 import { createCesProcessManager } from "./process-manager.js";
+
+const untilClosed = (predicate: () => boolean) =>
+  waitFor(predicate, {
+    timeoutMs: 2000,
+    message: "socket close never propagated to the transport",
+  });
+
+let mockSocketPath = "";
+
+function discoverTestSocket() {
+  return Promise.resolve({
+    mode: "managed" as const,
+    socketPath: mockSocketPath,
+  });
+}
 
 // ---------------------------------------------------------------------------
 // onTransportClose tests
 // ---------------------------------------------------------------------------
-
-// Mock executable-discovery so start() connects to our test socket.
-const realDiscovery = await import("./executable-discovery.js");
-
-let mockSocketPath = "";
-
-mock.module("./executable-discovery.js", () => ({
-  ...realDiscovery,
-  discoverCesWithRetry: async () => ({
-    mode: "sibling" as const,
-    socketPath: mockSocketPath,
-  }),
-}));
 
 describe("CesProcessManager.onTransportClose", () => {
   let tempDir: string;
@@ -60,12 +61,8 @@ describe("CesProcessManager.onTransportClose", () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  afterAll(() => {
-    mock.module("./executable-discovery.js", () => realDiscovery);
-  });
-
   test("fires handler when the transport dies (socket closed)", async () => {
-    const pm = createCesProcessManager({});
+    const pm = createCesProcessManager({ discover: discoverTestSocket });
     const transport = await pm.start();
     expect(transport.isAlive()).toBe(true);
 
@@ -79,17 +76,14 @@ describe("CesProcessManager.onTransportClose", () => {
       sock.destroy();
     }
 
-    // Give the close event a tick to propagate.
-    await new Promise((resolve) => setTimeout(resolve, 50));
-
-    expect(closeFired).toBe(true);
+    await untilClosed(() => closeFired);
     expect(transport.isAlive()).toBe(false);
 
     await pm.stop();
   });
 
   test("does not fire handler before the transport dies", async () => {
-    const pm = createCesProcessManager({});
+    const pm = createCesProcessManager({ discover: discoverTestSocket });
     await pm.start();
 
     let closeFired = false;
@@ -105,15 +99,14 @@ describe("CesProcessManager.onTransportClose", () => {
   });
 
   test("fires handler immediately if transport is already dead", async () => {
-    const pm = createCesProcessManager({});
+    const pm = createCesProcessManager({ discover: discoverTestSocket });
     const transport = await pm.start();
 
     // Kill the transport by destroying the server-side socket.
     for (const sock of connections) {
       sock.destroy();
     }
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(transport.isAlive()).toBe(false);
+    await untilClosed(() => !transport.isAlive());
 
     // Register handler AFTER transport is already dead.
     let closeFired = false;
@@ -183,44 +176,46 @@ describe("CesProcessManager transport-death logging", () => {
 
   test("logs WARN when the transport dies unexpectedly (remote close)", async () => {
     const { calls, logger } = makeRecordingLogger();
-    const pm = createCesProcessManager({ logger });
+    const pm = createCesProcessManager({
+      logger,
+      discover: discoverTestSocket,
+    });
     const transport = await pm.start();
 
     // The remote (server) closes the connection: genuinely-unexpected death.
     for (const sock of connections) {
       sock.destroy();
     }
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(transport.isAlive()).toBe(false);
-
-    expect(
+    await untilClosed(() =>
       calls.some(
         (c) => c.level === "warn" && c.msg.includes("died unexpectedly"),
       ),
-    ).toBe(true);
+    );
+    expect(transport.isAlive()).toBe(false);
 
     await pm.stop();
   });
 
   test("does not log WARN on an intentional stop()", async () => {
     const { calls, logger } = makeRecordingLogger();
-    const pm = createCesProcessManager({ logger });
+    const pm = createCesProcessManager({
+      logger,
+      discover: discoverTestSocket,
+    });
     await pm.start();
 
     await pm.stop();
-    // Let the socket close event propagate after destroy().
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await untilClosed(() =>
+      calls.some(
+        (c) =>
+          c.level === "debug" && c.msg.includes("CES socket transport closed"),
+      ),
+    );
 
     expect(
       calls.some(
         (c) => c.level === "warn" && c.msg.includes("died unexpectedly"),
       ),
     ).toBe(false);
-    expect(
-      calls.some(
-        (c) =>
-          c.level === "debug" && c.msg.includes("CES socket transport closed"),
-      ),
-    ).toBe(true);
   });
 });

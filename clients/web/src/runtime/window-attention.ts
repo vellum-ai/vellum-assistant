@@ -29,13 +29,17 @@ import { isElectron } from "@/runtime/is-electron";
  * the one that suppresses.
  *
  * This module also owns the synchronous reads of the same fact,
- * {@link isWindowAttended} and {@link isVisibleToUser}, because the
+ * {@link isWindowAttended}, {@link isWindowOnScreen}, and
+ * {@link isVisibleToUser}, because the
  * cross-platform branch belongs in the capability wrapper (`docs/ELECTRON.md`)
  * and the last reported state is what both answer from.
  */
 
 /** Last reported attention state, `null` before the first payload. */
 let attended: boolean | null = null;
+
+/** Last reported on-screen state, `null` before the first payload. */
+let onScreen: boolean | null = null;
 
 /**
  * Whether a reported window state means the user can see this window and is
@@ -61,12 +65,28 @@ export function subscribeToWindowAttention(
       const parsed = windowAttentionPayloadSchema.safeParse(payload);
       const next = parsed.success ? parsed.data : null;
       attended = isAttendedPayload(next);
+      if (next !== null) {
+        onScreen = next.visible && !next.minimized;
+      }
       callback(next);
     }) ?? (() => undefined);
   return () => {
     attended = null;
+    onScreen = null;
     unsubscribe();
   };
+}
+
+export function supportsWindowAttention(): boolean {
+  return isElectron() && !!window.vellum?.notifications?.onWindowAttention;
+}
+
+/**
+ * Whether the desktop window is visible and unminimized, without requiring
+ * keyboard focus. Unknown and non-Electron hosts keep foreground work enabled.
+ */
+export function isWindowOnScreen(): boolean {
+  return onScreen ?? true;
 }
 
 /**

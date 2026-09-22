@@ -1,5 +1,5 @@
-
 import { useTranslation } from "@/i18n";
+import { openDetailSheetFromTrigger } from "@/domains/chat/utils/open-detail-sheet-from-trigger";
 /**
  * Inline single-activity link — the lone affordance for ONE step of agent work,
  * in one of three variants:
@@ -45,6 +45,7 @@ import { useMemo } from "react";
 import { cn } from "@/utils/misc";
 import { StreamingShimmerText } from "@/domains/chat/components/streaming-shimmer-text";
 import { deriveStepLabel } from "@/domains/chat/components/tool-progress-card/derive-step-label";
+import { useActionDisplayLabel } from "@/domains/chat/components/tool-progress-card/action-display-label";
 import {
   toolDetailPayloadFromToolCall,
   type ToolCallCardStep,
@@ -57,7 +58,7 @@ import { WebsiteCarousel } from "@/domains/chat/components/web-search/website-ca
 import { SiteFavicon } from "@/domains/chat/components/web-search/site-favicon";
 import { sameThinkingTarget, useViewerStore } from "@/stores/viewer-store";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
-import type { WebSearchResultItem } from "@/assistant/web-activity-types";
+import type { WebSearchResultItem } from "@vellumai/assistant-api";
 
 export type SingleActivityProps =
   | {
@@ -114,6 +115,7 @@ interface ResolvedView {
 
 export function SingleActivity(props: SingleActivityProps) {
   const { t } = useTranslation("chat");
+  const resolveActionDisplayLabel = useActionDisplayLabel();
   // Both variants TOGGLE the shared tool-detail drawer and read its active
   // payload to drive the selected highlight. Hooks run unconditionally; the only
   // early return (empty, settled thinking) happens after them below.
@@ -153,7 +155,7 @@ export function SingleActivity(props: SingleActivityProps) {
           onClick={() => onExpandChange(!expanded)}
           className={cn(
             "group inline-flex items-center gap-2 -mx-1.5 px-1.5 py-1 rounded-md text-left text-[13px] font-medium transition-colors cursor-pointer",
-            "focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--border-focus)]",
+            "focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]",
             "text-[var(--content-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--content-default)]",
             isError && "text-[var(--system-negative-strong)]",
           )}
@@ -268,8 +270,13 @@ export function SingleActivity(props: SingleActivityProps) {
     };
   } else {
     const { toolCall } = props;
-    const { activity, info, title } = deriveStepLabel(toolCall);
-    const label = activity || info || title;
+    const { activity, info, title, actionDisplayKey } =
+      deriveStepLabel(toolCall);
+    const label = resolveActionDisplayLabel({
+      activity,
+      actionDisplayKey,
+      fallback: activity || info || title,
+    });
     const isError =
       Boolean(toolCall.isError) ||
       toolCall.confirmationDecision === "denied" ||
@@ -296,10 +303,10 @@ export function SingleActivity(props: SingleActivityProps) {
       data-testid={view.dataTestId}
       data-active={view.active ? "true" : "false"}
       aria-label={view.ariaLabel}
-      onClick={view.onClick}
+      onClick={(event) => openDetailSheetFromTrigger(event, view.onClick)}
       className={cn(
         "group inline-flex items-center gap-2 -mx-1.5 px-1.5 py-1 rounded-md text-left text-[13px] font-medium transition-colors cursor-pointer",
-        "focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--border-focus)]",
+        "focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]",
         view.active
           ? "bg-[var(--surface-active)] text-[var(--content-default)]"
           : "text-[var(--content-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--content-default)]",

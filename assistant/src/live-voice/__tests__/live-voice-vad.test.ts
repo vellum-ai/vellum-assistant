@@ -1,8 +1,10 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { beforeAll, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
 
 import type { TurnDetectorConfig } from "../../calls/media-turn-detector.js";
+import type { VoiceProgressNarrator } from "../../calls/progress-narration.js";
+import { TASK_UPDATE_SILENT_MARKER } from "../../calls/voice-control-protocol.js";
 import type {
   VoiceTurnCallbacks,
   VoiceTurnOptions,
@@ -12,13 +14,25 @@ import {
   loadRawConfig,
   saveRawConfig,
 } from "../../config/loader.js";
-import type { LiveVoiceFrontModelConfig } from "../../config/schemas/live-voice.js";
+import type { VoiceFrontModelConfig } from "../../config/schemas/voice.js";
+import type {
+  ConversationModeSessionCoordinator,
+  ModeSessionSourceHandle,
+} from "../../daemon/conversation-mode-session.js";
+import { RiskLevel } from "../../permissions/types.js";
 import type {
   StreamingTranscriber,
   SttStreamServerEvent,
 } from "../../stt/types.js";
-import { __resetRegistryForTesting } from "../../tools/registry.js";
+import {
+  __resetRegistryForTesting,
+  registerSkillTools,
+  unregisterSkillTools,
+} from "../../tools/registry.js";
+import { finalizeTool } from "../../tools/tool-defaults.js";
 import { getWorkspaceSkillsDir } from "../../util/platform.js";
+import type { LiveVoiceContinuationJudge } from "../continuation-judge.js";
+import type { LiveVoiceContinuationLabeler } from "../continuation-label.js";
 import type { LiveVoiceAudioArchiveResult } from "../live-voice-archive.js";
 import {
   CONTINUATION_DELIVERY_CONTENT,
@@ -26,6 +40,7 @@ import {
   type LiveVoiceBackgroundContinuationSpawner,
   LiveVoiceSession,
   type LiveVoiceSessionAudioArchiver,
+  type LiveVoiceSessionOptions,
   type LiveVoiceTtsStreamer,
   type LiveVoiceTurnStarter,
 } from "../live-voice-session.js";
@@ -48,7 +63,12 @@ import {
 // `mock.module` is process-global in Bun and leaks into sibling files that run
 // in the same process — run this file on its own (`bun test <path>`).
 const injectMessageIntoParentMock = mock(
-  (_parentConversationId: string, _message: string) => {},
+  (
+    _parentConversationId: string,
+    _message: string,
+    _metadata?: Record<string, unknown>,
+    _opts?: { cronRunId?: string | null; bypassLiveVoice?: boolean },
+  ) => {},
 );
 mock.module("../../subagent/notify.js", () => ({
   injectMessageIntoParent: injectMessageIntoParentMock,
@@ -182,7 +202,7 @@ function createHarness(options: {
   echoBargeInMargin?: number;
   echoEmaHalfLifeMs?: number;
   echoDrainSlackMs?: number;
-  frontModelConfig?: Partial<LiveVoiceFrontModelConfig>;
+  frontModelConfig?: Partial<VoiceFrontModelConfig>;
   emitMetrics?: boolean;
   metricsClock?: () => number;
   // Return a promise to hold a frame's transport write open (a backed-up
@@ -197,9 +217,18 @@ function createHarness(options: {
   // config path is exercised: unset thresholds come from getConfig().
   viaFactory?: boolean;
   spawnBackgroundContinuation?: LiveVoiceBackgroundContinuationSpawner;
+  labelBackgroundContinuation?: LiveVoiceContinuationLabeler;
+  judgeBackgroundContinuation?: LiveVoiceContinuationJudge;
   getTurnTeardown?: (conversationId: string) => Promise<void> | undefined;
   detachTeardownSettleTimeoutMs?: number;
   continuationAnnounceSilenceMs?: number;
+  progressNarrator?: VoiceProgressNarrator;
+  foregroundTaskResumeSilenceMs?: number;
+  foregroundTaskMaxSuspendedMs?: number;
+  foregroundTaskMaxInterveningTurns?: number;
+  acquireModeSessionResidency?: NonNullable<
+    LiveVoiceSessionOptions["acquireModeSessionResidency"]
+  >;
 }) {
   const sequencer = createLiveVoiceServerFrameSequencer();
   const frames: LiveVoiceServerFrame[] = [];
@@ -245,6 +274,7 @@ function createHarness(options: {
       options.startVoiceTurn ??
       mock(async () => ({ turnId: "bridge-turn", abort: mock() })),
     streamTtsAudio: options.streamTtsAudio ?? null,
+    progressNarrator: options.progressNarrator,
     archiveAudio: options.archiveAudio ?? null,
     emitMetrics: options.emitMetrics ?? false,
     ...(options.metricsClock ? { metricsClock: options.metricsClock } : {}),
@@ -274,6 +304,12 @@ function createHarness(options: {
     ...(options.spawnBackgroundContinuation
       ? { spawnBackgroundContinuation: options.spawnBackgroundContinuation }
       : {}),
+    ...(options.judgeBackgroundContinuation
+      ? { judgeBackgroundContinuation: options.judgeBackgroundContinuation }
+      : {}),
+    ...(options.labelBackgroundContinuation
+      ? { labelBackgroundContinuation: options.labelBackgroundContinuation }
+      : {}),
     ...(options.getTurnTeardown
       ? { getTurnTeardown: options.getTurnTeardown }
       : {}),
@@ -284,6 +320,21 @@ function createHarness(options: {
       ? {
           continuationAnnounceSilenceMs: options.continuationAnnounceSilenceMs,
         }
+      : {}),
+    ...(options.foregroundTaskResumeSilenceMs !== undefined
+      ? { foregroundTaskResumeSilenceMs: options.foregroundTaskResumeSilenceMs }
+      : {}),
+    ...(options.foregroundTaskMaxSuspendedMs !== undefined
+      ? { foregroundTaskMaxSuspendedMs: options.foregroundTaskMaxSuspendedMs }
+      : {}),
+    ...(options.foregroundTaskMaxInterveningTurns !== undefined
+      ? {
+          foregroundTaskMaxInterveningTurns:
+            options.foregroundTaskMaxInterveningTurns,
+        }
+      : {}),
+    ...(options.acquireModeSessionResidency
+      ? { acquireModeSessionResidency: options.acquireModeSessionResidency }
       : {}),
   };
   const session = options.viaFactory
@@ -303,6 +354,26 @@ function frameTypes(frames: LiveVoiceServerFrame[]): string[] {
 
 function countType(frames: LiveVoiceServerFrame[], type: string): number {
   return frames.filter((frame) => frame.type === type).length;
+}
+
+function foregroundTaskStateOf(session: LiveVoiceSession): {
+  phase: string;
+  request?: string;
+  interveningTurns?: number;
+  resumePending?: boolean;
+  hostToolStarted?: boolean;
+} | null {
+  return (
+    session as unknown as {
+      foregroundTaskState: {
+        phase: string;
+        request?: string;
+        interveningTurns?: number;
+        resumePending?: boolean;
+        hostToolStarted?: boolean;
+      } | null;
+    }
+  ).foregroundTaskState;
 }
 
 function makeTtsChunk(text: string): LiveVoiceTtsAudioChunk {
@@ -458,11 +529,625 @@ async function startForegroundWinsScenario(): Promise<{
   };
 }
 
+async function startForegroundTaskBargeInScenario(options?: {
+  foregroundTaskMaxInterveningTurns?: number;
+  foregroundTaskMaxSuspendedMs?: number;
+  foregroundTaskResumeSilenceMs?: number;
+  skillExecuteInput?: Record<string, unknown>;
+  skillExecuteAllowedToolNames?: ReadonlySet<string>;
+  startHostTool?: boolean;
+  judgeBackgroundContinuation?: LiveVoiceContinuationJudge;
+}): Promise<{
+  calls: VoiceTurnOptions[];
+  frames: LiveVoiceServerFrame[];
+  session: LiveVoiceSession;
+  spawnBackgroundContinuation: ReturnType<typeof mock>;
+}> {
+  const calls: VoiceTurnOptions[] = [];
+  const startVoiceTurn = mock(async (turn: VoiceTurnOptions) => {
+    calls.push(turn);
+    return {
+      turnId: `bridge-turn-${calls.length}`,
+      abort: mock(),
+      discard: mock(async () => {}),
+    };
+  });
+  const spawnBackgroundContinuation = mock(async () => "");
+  const { frames, session } = createHarness({
+    finals: ["change the title", "what title is there now"],
+    startVoiceTurn,
+    streamTtsAudio: mock(async (tts: LiveVoiceTtsOptions) => {
+      tts.onAudioChunk(makeTtsChunk("assistant audio"));
+      return makeTtsResult("assistant audio");
+    }),
+    spawnBackgroundContinuation,
+    ...(options?.judgeBackgroundContinuation
+      ? { judgeBackgroundContinuation: options.judgeBackgroundContinuation }
+      : {}),
+    foregroundTaskResumeSilenceMs: options?.foregroundTaskResumeSilenceMs ?? 20,
+    ...(options?.foregroundTaskMaxInterveningTurns !== undefined
+      ? {
+          foregroundTaskMaxInterveningTurns:
+            options.foregroundTaskMaxInterveningTurns,
+        }
+      : {}),
+    ...(options?.foregroundTaskMaxSuspendedMs !== undefined
+      ? { foregroundTaskMaxSuspendedMs: options.foregroundTaskMaxSuspendedMs }
+      : {}),
+  });
+
+  await session.start();
+  await session.handleBinaryAudio(LOUD_CHUNK);
+  await waitFor(() => calls.length === 1);
+
+  calls[0]?.callbacks?.assistant_text_delta?.(makeTextDelta("[1] One moment."));
+  calls[0]?.callbacks?.message_complete?.(makeMessageComplete());
+  await waitFor(() => calls.length === 2);
+
+  if (options?.startHostTool !== false) {
+    calls[1]?.callbacks?.tool_use_start?.("skill_execute", {
+      toolUseId: "tool-1",
+      input: options?.skillExecuteInput ?? {
+        tool: "computer_use_observe",
+        input: {},
+      },
+      ...(options?.skillExecuteAllowedToolNames !== undefined
+        ? { allowedToolNames: options.skillExecuteAllowedToolNames }
+        : {}),
+    });
+  }
+  await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+  await waitFor(() => calls.length === 3);
+
+  return { calls, frames, session, spawnBackgroundContinuation };
+}
+
+describe("LiveVoiceSession subagent outcomes", () => {
+  function outcome(subagentId: string, status = "completed") {
+    return {
+      taskId: subagentId,
+      message: `Task ${subagentId} ${status}`,
+      metadata: {
+        subagentNotification: { subagentId, label: subagentId, status },
+      },
+      cronRunId: "run-123",
+    };
+  }
+
+  function immediateTts(): LiveVoiceTtsStreamer {
+    return async (options) => {
+      options.onAudioChunk(makeTtsChunk("assistant audio"));
+      return makeTtsResult("assistant audio");
+    };
+  }
+
+  test("speaks independent outcomes through hidden tool-capable turns", async () => {
+    const { calls, startVoiceTurn } = makeAutoCompletingTurnStarter([
+      "The comparison is ready.",
+      "The export failed. It needs a connection.",
+    ]);
+    const { session, frames } = createHarness({
+      startVoiceTurn,
+      streamTtsAudio: immediateTts(),
+      continuationAnnounceSilenceMs: 20,
+    });
+    const before = injectMessageIntoParentMock.mock.calls.length;
+    await session.start();
+    try {
+      session.receiveSubagentNotification(outcome("task-1"));
+      session.receiveSubagentNotification(outcome("task-2", "failed"));
+      await waitFor(() => countType(frames, "tts_done") === 2);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(calls.map((call) => call.subagentNotification?.taskId)).toEqual([
+        "task-1",
+        "task-2",
+      ]);
+      for (const call of calls) {
+        expect(call.hiddenSyntheticPrompt).toBe(true);
+        expect(call.directEscalated).toBe(true);
+        expect(call.subagentNotification?.cronRunId).toBe("run-123");
+        expect(call.voiceControlPrompt).toContain(
+          "internal background task update",
+        );
+      }
+      expect(countType(frames, "tts_audio")).toBeGreaterThanOrEqual(2);
+    } finally {
+      await session.close("client_end");
+    }
+    expect(injectMessageIntoParentMock.mock.calls.length).toBe(before);
+  });
+
+  test("silently consumes a redundant update and still speaks the next useful result", async () => {
+    const { calls, startVoiceTurn } = makeAutoCompletingTurnStarter([
+      TASK_UPDATE_SILENT_MARKER,
+      "The export is ready.",
+    ]);
+    const { session, frames } = createHarness({
+      startVoiceTurn,
+      streamTtsAudio: immediateTts(),
+      continuationAnnounceSilenceMs: 10,
+    });
+    const before = injectMessageIntoParentMock.mock.calls.length;
+    await session.start();
+    try {
+      session.receiveSubagentNotification(outcome("task-1", "running"));
+      await waitFor(() => countType(frames, "tts_done") === 1);
+      expect(countType(frames, "tts_audio")).toBe(0);
+      expect(countType(frames, "assistant_text_delta")).toBe(0);
+      session.receiveSubagentNotification(outcome("task-2"));
+      await waitFor(() => countType(frames, "tts_done") === 2);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(calls).toHaveLength(2);
+      expect(countType(frames, "tts_audio")).toBe(1);
+    } finally {
+      await session.close("client_end");
+    }
+    expect(injectMessageIntoParentMock.mock.calls.length).toBe(before);
+  });
+
+  test("an interrupted silent decision leaves the update pending", async () => {
+    let callbacks: VoiceTurnCallbacks | undefined;
+    const { session } = createHarness({
+      startVoiceTurn: async (turn) => {
+        callbacks = turn.callbacks;
+        return { turnId: "turn-1", abort: mock() };
+      },
+      streamTtsAudio: immediateTts(),
+      continuationAnnounceSilenceMs: 10,
+    });
+    const first = outcome("task-1");
+    const before = injectMessageIntoParentMock.mock.calls.length;
+    await session.start();
+    session.receiveSubagentNotification(first);
+    await waitFor(() => callbacks !== undefined);
+    callbacks?.assistant_text_delta?.(makeTextDelta(TASK_UPDATE_SILENT_MARKER));
+    await session.handleClientFrame({ type: "interrupt" });
+    callbacks?.message_complete?.(makeMessageComplete());
+    await session.close("client_end");
+    expect(injectMessageIntoParentMock.mock.calls.slice(before)).toEqual([
+      [
+        "conversation-123",
+        first.message,
+        first.metadata,
+        { cronRunId: "run-123", bypassLiveVoice: true },
+      ],
+    ]);
+  });
+
+  test("waits through user speech and the current reply before announcing", async () => {
+    const calls: VoiceTurnOptions[] = [];
+    const { session } = createHarness({
+      finals: ["explain this setting"],
+      continuationAnnounceSilenceMs: 10,
+      streamTtsAudio: immediateTts(),
+      startVoiceTurn: async (turn) => {
+        calls.push(turn);
+        return { turnId: `turn-${calls.length}`, abort: mock() };
+      },
+    });
+    await session.start();
+    try {
+      await session.handleBinaryAudio(LOUD_CHUNK);
+      session.receiveSubagentNotification(outcome("task-1"));
+      await waitFor(() => calls.length === 1);
+      expect(calls[0]?.content).toBe("explain this setting");
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      expect(calls).toHaveLength(1);
+      calls[0]?.callbacks?.assistant_text_delta?.(
+        makeTextDelta("This is the setting."),
+      );
+      calls[0]?.callbacks?.message_complete?.(makeMessageComplete());
+      await waitFor(() => calls.length === 2);
+      expect(calls[1]?.subagentNotification?.taskId).toBe("task-1");
+    } finally {
+      await session.close("client_end");
+    }
+  });
+
+  test.each(["what does this setting mean", ""])(
+    "a barge-in (%j) retains both outcomes without spawning another worker",
+    async (utterance) => {
+      const calls: VoiceTurnOptions[] = [];
+      const spawnBackgroundContinuation = mock(
+        async () => "unexpected continuation",
+      );
+      const { session, frames } = createHarness({
+        finals: [utterance],
+        continuationAnnounceSilenceMs: 10,
+        streamTtsAudio: immediateTts(),
+        spawnBackgroundContinuation,
+        startVoiceTurn: async (turn) => {
+          calls.push(turn);
+          if (calls.length > 1) {
+            turn.callbacks?.assistant_text_delta?.(
+              makeTextDelta("Here is the answer."),
+            );
+            turn.callbacks?.message_complete?.(makeMessageComplete());
+          }
+          return { turnId: `turn-${calls.length}`, abort: mock() };
+        },
+      });
+      await session.start();
+      try {
+        session.receiveSubagentNotification(outcome("task-1"));
+        session.receiveSubagentNotification(outcome("task-2"));
+        await waitFor(() => calls.length === 1);
+        await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+        await waitFor(
+          () => countType(frames, "tts_done") === (utterance ? 3 : 2),
+        );
+        expect(calls.map((call) => call.subagentNotification?.taskId)).toEqual([
+          "task-1",
+          ...(utterance ? [undefined] : []),
+          "task-1",
+          "task-2",
+        ]);
+        expect(spawnBackgroundContinuation).not.toHaveBeenCalled();
+      } finally {
+        await session.close("client_end");
+      }
+    },
+  );
+
+  test("a completion replacing interrupted findings carries the delivery receipt into its retry", async () => {
+    const calls: VoiceTurnOptions[] = [];
+    const { session, frames } = createHarness({
+      finals: ["tell me about birds"],
+      continuationAnnounceSilenceMs: 10,
+      streamTtsAudio: immediateTts(),
+      startVoiceTurn: async (turn) => {
+        calls.push(turn);
+        return { turnId: `turn-${calls.length}`, abort: mock() };
+      },
+    });
+    await session.start();
+    try {
+      session.receiveSubagentNotification(outcome("task-1", "running"));
+      await waitFor(() => calls.length === 1);
+      calls[0]?.callbacks?.assistant_text_delta?.(
+        makeTextDelta("Here are all the generated findings."),
+      );
+      await waitFor(() => countType(frames, "tts_audio") > 0);
+      await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+      await waitFor(() => calls.length === 2);
+      session.receiveSubagentNotification(outcome("task-1", "completed"));
+      calls[1]?.callbacks?.assistant_text_delta?.(
+        makeTextDelta("Birds have feathers."),
+      );
+      calls[1]?.callbacks?.message_complete?.(makeMessageComplete());
+      await waitFor(() => calls.length === 3);
+      expect(calls[2]?.subagentNotification?.message).toBe(
+        "Task task-1 completed",
+      );
+      expect(calls[2]?.voiceControlPrompt).toContain(
+        "interrupted before playback completed",
+      );
+      expect(calls[2]?.voiceControlPrompt).toContain("Birds have feathers.");
+      expect(calls[2]?.voiceControlPrompt).not.toContain(
+        "Here are all the generated findings.",
+      );
+    } finally {
+      await session.close("client_end");
+    }
+  });
+
+  test("hang-up returns every undelivered outcome with its metadata and attribution", async () => {
+    const { session } = createHarness({ continuationAnnounceSilenceMs: 1_000 });
+    await session.start();
+    const first = outcome("task-1");
+    const second = outcome("task-2", "running");
+    const before = injectMessageIntoParentMock.mock.calls.length;
+    session.receiveSubagentNotification(first);
+    session.receiveSubagentNotification(second);
+    await session.close("client_end");
+    await session.close("client_end");
+    expect(injectMessageIntoParentMock.mock.calls.slice(before)).toEqual([
+      [
+        "conversation-123",
+        first.message,
+        first.metadata,
+        { cronRunId: "run-123", bypassLiveVoice: true },
+      ],
+      [
+        "conversation-123",
+        second.message,
+        second.metadata,
+        { cronRunId: "run-123", bypassLiveVoice: true },
+      ],
+    ]);
+    expect(session.receiveSubagentNotification(outcome("task-3"))).toBe(false);
+  });
+
+  test("hang-up hands back results only after the voice turn's queue-clearing abort settles", async () => {
+    let finishTeardown!: () => void;
+    const teardown = new Promise<void>((resolve) => {
+      finishTeardown = resolve;
+    });
+    const abort = mock(() => {});
+    const startVoiceTurn = mock(async () => ({ turnId: "turn-1", abort }));
+    const { session } = createHarness({
+      startVoiceTurn,
+      getTurnTeardown: () => teardown,
+      continuationAnnounceSilenceMs: 10,
+    });
+    await session.start();
+    const first = outcome("task-1");
+    session.receiveSubagentNotification(first);
+    await waitFor(() => startVoiceTurn.mock.calls.length === 1);
+    const before = injectMessageIntoParentMock.mock.calls.length;
+    const closing = session.close("client_end");
+    const duringClose = outcome("task-2");
+    expect(session.receiveSubagentNotification(duringClose)).toBe(true);
+    await waitFor(() => abort.mock.calls.length > 0);
+    const duringTeardown = outcome("task-3");
+    expect(session.receiveSubagentNotification(duringTeardown)).toBe(true);
+    expect(injectMessageIntoParentMock.mock.calls.length).toBe(before);
+    finishTeardown();
+    await closing;
+    expect(injectMessageIntoParentMock.mock.calls.slice(before)).toEqual(
+      [first, duringClose, duringTeardown].map((notification) => [
+        "conversation-123",
+        notification.message,
+        notification.metadata,
+        { cronRunId: "run-123", bypassLiveVoice: true },
+      ]),
+    );
+  });
+
+  test.each(["resolved", "rejected"])(
+    "hang-up waits for pending startup (%s) before handing back results",
+    async (mode) => {
+      let finishStartup!: () => void;
+      const startup = new Promise<void>((resolve) => {
+        finishStartup = resolve;
+      });
+      let finishTeardown!: () => void;
+      const teardown = new Promise<void>((resolve) => {
+        finishTeardown = resolve;
+      });
+      let registeredTeardown: Promise<void> | undefined;
+      let turn: VoiceTurnOptions | undefined;
+      const abort = mock(() => {});
+      const { session } = createHarness({
+        startVoiceTurn: async (options) => {
+          turn = options;
+          await startup;
+          if (mode === "rejected") {
+            throw new Error("startup unavailable");
+          }
+          registeredTeardown = teardown;
+          return { turnId: "turn-1", abort };
+        },
+        getTurnTeardown: () => registeredTeardown,
+        continuationAnnounceSilenceMs: 10,
+      });
+      await session.start();
+      const first = outcome("task-1");
+      const before = injectMessageIntoParentMock.mock.calls.length;
+      session.receiveSubagentNotification(first);
+      await waitFor(() => turn !== undefined);
+      const closing = session.close("client_end");
+      await waitFor(() => turn?.signal?.aborted === true);
+      expect(registeredTeardown).toBeUndefined();
+      expect(injectMessageIntoParentMock.mock.calls.length).toBe(before);
+      finishStartup();
+      if (mode === "resolved") {
+        await waitFor(() => abort.mock.calls.length > 0);
+        expect(injectMessageIntoParentMock.mock.calls.length).toBe(before);
+      }
+      finishTeardown();
+      await closing;
+      expect(injectMessageIntoParentMock.mock.calls.slice(before)).toEqual([
+        [
+          "conversation-123",
+          first.message,
+          first.metadata,
+          { cronRunId: "run-123", bypassLiveVoice: true },
+        ],
+      ]);
+    },
+  );
+
+  test("a failed announcement waits for a user turn before retrying", async () => {
+    const calls: VoiceTurnOptions[] = [];
+    const { session, frames } = createHarness({
+      finals: ["are you still there"],
+      continuationAnnounceSilenceMs: 10,
+      streamTtsAudio: immediateTts(),
+      startVoiceTurn: async (turn) => {
+        calls.push(turn);
+        if (calls.length === 1) {
+          throw new Error("conversation busy");
+        }
+        turn.callbacks?.assistant_text_delta?.(
+          makeTextDelta("Here is the answer."),
+        );
+        turn.callbacks?.message_complete?.(makeMessageComplete());
+        return { turnId: `turn-${calls.length}`, abort: mock() };
+      },
+    });
+    await session.start();
+    try {
+      session.receiveSubagentNotification(outcome("task-1"));
+      await waitFor(() => calls.length === 1);
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      expect(calls).toHaveLength(1);
+      await session.handleBinaryAudio(LOUD_CHUNK);
+      await waitFor(() => countType(frames, "tts_done") === 2);
+      expect(calls.map((call) => call.subagentNotification?.taskId)).toEqual([
+        "task-1",
+        undefined,
+        "task-1",
+      ]);
+    } finally {
+      await session.close("client_end");
+    }
+  });
+
+  test.each(["throws", "empty", "unspeakable"])(
+    "speech without delivered audio (%s) keeps the result for hang-up delivery",
+    async (mode) => {
+      const { startVoiceTurn, calls } = makeAutoCompletingTurnStarter([
+        mode === "unspeakable" ? "" : "The result is ready.",
+      ]);
+      const { session, frames } = createHarness({
+        startVoiceTurn,
+        continuationAnnounceSilenceMs: 10,
+        streamTtsAudio: async () => {
+          if (mode === "throws") {
+            throw new Error("speech unavailable");
+          }
+          return { ...makeTtsResult(""), chunks: 0 };
+        },
+      });
+      await session.start();
+      const first = outcome("task-1");
+      const before = injectMessageIntoParentMock.mock.calls.length;
+      session.receiveSubagentNotification(first);
+      await waitFor(() => countType(frames, "tts_done") === 1);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(calls).toHaveLength(1);
+      await session.close("client_end");
+      expect(injectMessageIntoParentMock.mock.calls.slice(before)).toEqual([
+        [
+          "conversation-123",
+          first.message,
+          first.metadata,
+          { cronRunId: "run-123", bypassLiveVoice: true },
+        ],
+      ]);
+    },
+  );
+
+  test("progress audio alone does not acknowledge the outcome", async () => {
+    const calls: VoiceTurnOptions[] = [];
+    const { session, frames } = createHarness({
+      startVoiceTurn: async (turn) => {
+        calls.push(turn);
+        return { turnId: "turn-1", abort: mock() };
+      },
+      streamTtsAudio: immediateTts(),
+      continuationAnnounceSilenceMs: 10,
+      frontModelConfig: {
+        progress: {
+          enabled: true,
+          opsThreshold: 3,
+          idleIntervalMs: 40,
+          maxSilenceMs: 40,
+          longOpMs: 15_000,
+          minGapMs: 60_000,
+          generationTimeoutMs: 1_500,
+        },
+      },
+      progressNarrator: { generateProgressText: async () => "Still working." },
+    });
+    const first = outcome("task-1");
+    const before = injectMessageIntoParentMock.mock.calls.length;
+    await session.start();
+    try {
+      session.receiveSubagentNotification(first);
+      await waitFor(() => countType(frames, "tts_audio") === 1);
+      calls[0]?.callbacks?.message_complete?.(makeMessageComplete());
+      await waitFor(() => countType(frames, "tts_done") === 1);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(calls).toHaveLength(1);
+    } finally {
+      await session.close("client_end");
+    }
+    expect(injectMessageIntoParentMock.mock.calls.slice(before)).toEqual([
+      [
+        "conversation-123",
+        first.message,
+        first.metadata,
+        { cronRunId: "run-123", bypassLiveVoice: true },
+      ],
+    ]);
+  });
+
+  test("speech during the playback tail retries the outcome after answering the user", async () => {
+    const { startVoiceTurn, calls } = makeAutoCompletingTurnStarter([
+      "The result is ready.",
+      "Here is the setting.",
+      "The result is ready.",
+    ]);
+    const audio = "x".repeat(28_800);
+    const { session, frames } = createHarness({
+      finals: ["explain this setting"],
+      startVoiceTurn,
+      continuationAnnounceSilenceMs: 10,
+      streamTtsAudio: async (options) => {
+        options.onAudioChunk(makeTtsChunk(audio));
+        return makeTtsResult(audio);
+      },
+    });
+    await session.start();
+    try {
+      session.receiveSubagentNotification(outcome("task-1"));
+      await waitFor(() => countType(frames, "tts_done") === 1);
+      await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+      await waitFor(() => countType(frames, "tts_done") === 3);
+      expect(calls.map((call) => call.subagentNotification?.taskId)).toEqual([
+        "task-1",
+        undefined,
+        "task-1",
+      ]);
+    } finally {
+      await session.close("client_end");
+    }
+  });
+
+  test("hang-up during playback preserves a generated but unheard result", async () => {
+    const { startVoiceTurn } = makeAutoCompletingTurnStarter([
+      "The comparison is ready.",
+    ]);
+    const audio = "x".repeat(28_800);
+    const { session, frames } = createHarness({
+      startVoiceTurn,
+      continuationAnnounceSilenceMs: 10,
+      streamTtsAudio: async (options) => {
+        options.onAudioChunk(makeTtsChunk(audio));
+        return makeTtsResult(audio);
+      },
+    });
+    await session.start();
+    const first = outcome("task-1");
+    const before = injectMessageIntoParentMock.mock.calls.length;
+    session.receiveSubagentNotification(first);
+    await waitFor(() => countType(frames, "tts_done") === 1);
+    await session.close("client_end");
+    expect(injectMessageIntoParentMock.mock.calls.slice(before)).toEqual([
+      [
+        "conversation-123",
+        first.message,
+        first.metadata,
+        { cronRunId: "run-123", bypassLiveVoice: true },
+      ],
+    ]);
+  });
+});
+
 describe("LiveVoiceSession server VAD", () => {
   // The foreground-wins classification consults the tool registry's owner map
   // (a tool is only provably read-only when it is the trusted built-in);
   // register the core baseline so built-in names resolve like in the daemon.
-  beforeAll(() => __resetRegistryForTesting());
+  beforeAll(() => {
+    __resetRegistryForTesting();
+    registerSkillTools(
+      "computer-use-test",
+      ["computer_use_key", "computer_use_observe", "read_file"].map((name) =>
+        finalizeTool({
+          name,
+          description: name,
+          category: "computer-use",
+          defaultRiskLevel: RiskLevel.Low,
+          executionTarget: "host",
+          input_schema: { type: "object", properties: {} },
+          execute: async () => ({ content: "ok", isError: false }),
+        }),
+      ),
+    );
+  });
+  afterAll(() => unregisterSkillTools("computer-use-test"));
 
   test("ready echoes turnDetection server_vad", async () => {
     const { frames, session } = createHarness({});
@@ -574,6 +1259,585 @@ describe("LiveVoiceSession server VAD", () => {
     });
     expect(countType(frames, "utterance_end")).toBe(2);
   });
+
+  test("an escalated task interrupted before its first tool stays on the parent", async () => {
+    const { calls, session, spawnBackgroundContinuation } =
+      await startForegroundTaskBargeInScenario({ startHostTool: false });
+
+    expect(spawnBackgroundContinuation).not.toHaveBeenCalled();
+    expect(foregroundTaskStateOf(session)).toMatchObject({
+      phase: "suspended",
+      hostToolStarted: false,
+    });
+
+    const frontDoorAnswer = calls[2];
+    frontDoorAnswer?.callbacks?.assistant_text_delta?.(
+      makeTextDelta("The title is Project Theta."),
+    );
+    frontDoorAnswer?.callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => calls.length === 4);
+
+    const resume = calls[3];
+    expect(resume).toMatchObject({
+      routingLeg: "escalated",
+      directEscalated: true,
+      hiddenSyntheticPrompt: true,
+    });
+    expect(resume?.content).toContain("change the title");
+    resume?.callbacks?.tool_use_start?.("skill_execute", {
+      toolUseId: "tool-2",
+      input: { tool: "computer_use_observe", input: {} },
+    });
+    expect(foregroundTaskStateOf(session)).toMatchObject({
+      phase: "owned",
+      hostToolStarted: true,
+    });
+
+    resume?.callbacks?.assistant_text_delta?.(makeTextDelta("Done."));
+    resume?.callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => foregroundTaskStateOf(session) === null);
+  });
+
+  function scriptedJudge(verdict: Promise<boolean> | boolean) {
+    const judged: Array<{
+      interruptedRequest: string;
+      interruption: string | null;
+    }> = [];
+    const judge: LiveVoiceContinuationJudge = async (args) => {
+      const interruption = await args.interruption;
+      judged.push({
+        interruptedRequest: args.interruptedRequest,
+        interruption,
+      });
+      const keep = await verdict;
+      return keep
+        ? { keep: true, outcome: "keep", noul: 0.9, latencyMs: 1 }
+        : { keep: false, outcome: "drop", noul: 0.1, latencyMs: 1 };
+    };
+    return { judge, judged };
+  }
+
+  async function answerInterruption(calls: VoiceTurnOptions[]) {
+    const answer = calls[2];
+    answer?.callbacks?.assistant_text_delta?.(makeTextDelta("Okay."));
+    answer?.callbacks?.message_complete?.(makeMessageComplete());
+  }
+
+  test("a suspended task the caller called off is cleared, not resumed", async () => {
+    const { judge, judged } = scriptedJudge(false);
+    const { calls, session } = await startForegroundTaskBargeInScenario({
+      startHostTool: false,
+      judgeBackgroundContinuation: judge,
+    });
+
+    await answerInterruption(calls);
+    await waitFor(() => judged.length === 1);
+    expect(judged[0]).toEqual({
+      interruptedRequest: "change the title",
+      interruption: "what title is there now",
+    });
+    await waitFor(() => foregroundTaskStateOf(session) === null);
+    // Well past the resume silence: no hidden resume turn was launched.
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(calls).toHaveLength(3);
+  });
+
+  test("a suspended task the caller still wants resumes as before", async () => {
+    const { judge } = scriptedJudge(true);
+    const { calls } = await startForegroundTaskBargeInScenario({
+      startHostTool: false,
+      judgeBackgroundContinuation: judge,
+    });
+
+    await answerInterruption(calls);
+    await waitFor(() => calls.length === 4);
+    expect(calls[3]).toMatchObject({ hiddenSyntheticPrompt: true });
+    expect(calls[3]?.content).toContain("change the title");
+  });
+
+  test("the resume waits for a verdict still in flight", async () => {
+    let decide!: (keep: boolean) => void;
+    const { judge } = scriptedJudge(
+      new Promise<boolean>((resolve) => {
+        decide = resolve;
+      }),
+    );
+    const { calls, session } = await startForegroundTaskBargeInScenario({
+      startHostTool: false,
+      judgeBackgroundContinuation: judge,
+    });
+
+    await answerInterruption(calls);
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(calls).toHaveLength(3);
+
+    decide(false);
+    await waitFor(() => foregroundTaskStateOf(session) === null);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(calls).toHaveLength(3);
+  });
+
+  test("a new barged-in task becomes the resume anchor", async () => {
+    const calls: VoiceTurnOptions[] = [];
+    const startVoiceTurn = mock(async (turn: VoiceTurnOptions) => {
+      calls.push(turn);
+      return {
+        turnId: `bridge-turn-${calls.length}`,
+        abort: mock(),
+        discard: mock(async () => {}),
+      };
+    });
+    let releaseFirstCompletionTts: (() => void) | undefined;
+    const { session } = createHarness({
+      finals: ["change the title", "add three bullets", "what is the title"],
+      startVoiceTurn,
+      streamTtsAudio: mock(async (tts: LiveVoiceTtsOptions) => {
+        tts.onAudioChunk(makeTtsChunk("assistant audio"));
+        if (tts.text.includes("First task done")) {
+          await new Promise<void>((resolve) => {
+            releaseFirstCompletionTts = resolve;
+          });
+        }
+        return makeTtsResult("assistant audio");
+      }),
+      foregroundTaskResumeSilenceMs: 20,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => calls.length === 1);
+    calls[0]?.callbacks?.assistant_text_delta?.(
+      makeTextDelta("[1] One moment."),
+    );
+    calls[0]?.callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => calls.length === 2);
+    calls[1]?.callbacks?.tool_use_start?.("skill_execute", {
+      toolUseId: "tool-1",
+      input: { tool: "computer_use_observe", input: {} },
+    });
+    calls[1]?.callbacks?.assistant_text_delta?.(
+      makeTextDelta("First task done."),
+    );
+    calls[1]?.callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => releaseFirstCompletionTts !== undefined);
+
+    await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+    await waitFor(() => calls.length === 3);
+    await waitFor(() => foregroundTaskStateOf(session) === null);
+    releaseFirstCompletionTts?.();
+    calls[2]?.callbacks?.assistant_text_delta?.(
+      makeTextDelta("[1] One moment."),
+    );
+    calls[2]?.callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => calls.length === 4);
+    expect(foregroundTaskStateOf(session)).toMatchObject({
+      phase: "owned",
+      request: "add three bullets",
+      hostToolStarted: false,
+    });
+
+    await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+    await waitFor(() => calls.length === 5);
+    calls[4]?.callbacks?.assistant_text_delta?.(
+      makeTextDelta("The title is Project Alpha."),
+    );
+    calls[4]?.callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => calls.length === 6);
+
+    const resume = calls[5];
+    expect(resume).toMatchObject({
+      routingLeg: "escalated",
+      directEscalated: true,
+      hiddenSyntheticPrompt: true,
+    });
+    expect(resume?.content).toContain("add three bullets");
+    expect(resume?.content).not.toContain("change the title");
+    resume?.callbacks?.assistant_text_delta?.(makeTextDelta("[TASK:STOP]"));
+    resume?.callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => foregroundTaskStateOf(session) === null);
+  });
+
+  test("an escalated task retries when its first tool-capable leg fails", async () => {
+    const calls: VoiceTurnOptions[] = [];
+    const startVoiceTurn = mock(async (turn: VoiceTurnOptions) => {
+      calls.push(turn);
+      return {
+        turnId: `bridge-turn-${calls.length}`,
+        abort: mock(),
+        discard: mock(async () => {}),
+      };
+    });
+    const { session } = createHarness({
+      finals: ["change the title"],
+      startVoiceTurn,
+      streamTtsAudio: mock(async (tts: LiveVoiceTtsOptions) => {
+        tts.onAudioChunk(makeTtsChunk("assistant audio"));
+        return makeTtsResult("assistant audio");
+      }),
+      foregroundTaskResumeSilenceMs: 20,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => calls.length === 1);
+    calls[0]?.callbacks?.assistant_text_delta?.(
+      makeTextDelta("[1] One moment."),
+    );
+    calls[0]?.callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => calls.length === 2);
+    expect(foregroundTaskStateOf(session)).toMatchObject({
+      phase: "owned",
+      hostToolStarted: false,
+    });
+
+    calls[1]?.onError?.("strong leg failed");
+    await waitFor(() => calls.length === 3);
+    expect(calls[2]).toMatchObject({
+      routingLeg: "escalated",
+      directEscalated: true,
+      hiddenSyntheticPrompt: true,
+    });
+    calls[2]?.callbacks?.assistant_text_delta?.(makeTextDelta("[TASK:STOP]"));
+    calls[2]?.callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => foregroundTaskStateOf(session) === null);
+  });
+
+  test("a barged-in skill host tool stays on the parent and resumes after the front door answers", async () => {
+    const { calls, frames, session, spawnBackgroundContinuation } =
+      await startForegroundTaskBargeInScenario();
+    expect(spawnBackgroundContinuation).not.toHaveBeenCalled();
+
+    const frontDoorAnswer = calls[2];
+    expect(frontDoorAnswer?.routingLeg).toBe("front-door");
+    expect(frontDoorAnswer?.voiceControlPrompt).toContain("[TASK:STOP]");
+    expect(frontDoorAnswer?.voiceControlPrompt).toContain("change the title");
+
+    // A direct answer cannot accidentally end the task. Once its speech has
+    // drained, the task resumes on the strong, tool-capable leg.
+    frontDoorAnswer?.callbacks?.assistant_text_delta?.(
+      makeTextDelta("The title is Project Alpha."),
+    );
+    frontDoorAnswer?.callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => calls.length === 4);
+
+    const resume = calls[3];
+    expect(resume).toMatchObject({
+      routingLeg: "escalated",
+      directEscalated: true,
+      hiddenSyntheticPrompt: true,
+    });
+    expect(resume?.content).toContain("change the title");
+    expect(resume?.content).toContain("[TASK:STOP]");
+    expect(
+      frames.filter((frame) => frame.type === "thinking").length,
+    ).toBeGreaterThanOrEqual(3);
+
+    // The strong leg can decline a stale resume silently and clear ownership.
+    const spokenBeforeStop = countType(frames, "assistant_text_delta");
+    resume?.callbacks?.assistant_text_delta?.(makeTextDelta("[TASK:STOP]"));
+    resume?.callbacks?.message_complete?.(makeMessageComplete());
+    await flushAsyncCallbacks();
+    expect(countType(frames, "assistant_text_delta")).toBe(spokenBeforeStop);
+    expect(foregroundTaskStateOf(session)).toBeNull();
+  });
+
+  test.each([
+    [
+      "a provider-wrapped inner tool",
+      {
+        _raw: JSON.stringify({
+          tool: "computer_use_observe",
+          input: {},
+        }),
+      },
+    ],
+    [
+      "an aliased inner tool",
+      {
+        tool: "computer_use_press_key",
+        input: { key: "Enter", reasoning: "Continue the task" },
+      },
+    ],
+  ])("recognizes host ownership for %s", async (_label, skillExecuteInput) => {
+    const { session, spawnBackgroundContinuation } =
+      await startForegroundTaskBargeInScenario({ skillExecuteInput });
+
+    expect(spawnBackgroundContinuation).not.toHaveBeenCalled();
+    expect(foregroundTaskStateOf(session)).toMatchObject({
+      phase: "suspended",
+    });
+    await session.close("client_end");
+  });
+
+  test("preserves an allowed host tool whose name is also an alias", async () => {
+    const { session, spawnBackgroundContinuation } =
+      await startForegroundTaskBargeInScenario({
+        skillExecuteInput: { tool: "read_file", input: {} },
+        skillExecuteAllowedToolNames: new Set(["read_file"]),
+      });
+
+    expect(spawnBackgroundContinuation).not.toHaveBeenCalled();
+    expect(foregroundTaskStateOf(session)).toMatchObject({
+      phase: "suspended",
+    });
+    await session.close("client_end");
+  });
+
+  test("retries suspended host work when the handed-off leg fails to start", async () => {
+    const calls: VoiceTurnOptions[] = [];
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      calls.push(options);
+      if (calls.length === 4) {
+        throw new Error("strong leg unavailable");
+      }
+      return {
+        turnId: `bridge-turn-${calls.length}`,
+        abort: mock(),
+        discard: mock(async () => {}),
+      };
+    });
+    const { session } = createHarness({
+      finals: ["change the title", "make it shorter"],
+      startVoiceTurn,
+      streamTtsAudio: mock(async (tts: LiveVoiceTtsOptions) => {
+        tts.onAudioChunk(makeTtsChunk("assistant audio"));
+        return makeTtsResult("assistant audio");
+      }),
+      foregroundTaskResumeSilenceMs: 20,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => calls.length === 1);
+    calls[0]?.callbacks?.assistant_text_delta?.(
+      makeTextDelta("[1] One moment."),
+    );
+    calls[0]?.callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => calls.length === 2);
+    calls[1]?.callbacks?.tool_use_start?.("skill_execute", {
+      toolUseId: "tool-1",
+      input: { tool: "computer_use_observe", input: {} },
+    });
+
+    await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+    await waitFor(() => calls.length === 3);
+    calls[2]?.callbacks?.assistant_text_delta?.(
+      makeTextDelta("[1] I will continue."),
+    );
+    calls[2]?.callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => calls.length === 5);
+
+    expect(calls[3]).toMatchObject({ routingLeg: "escalated" });
+    expect(calls[4]).toMatchObject({
+      routingLeg: "escalated",
+      directEscalated: true,
+      hiddenSyntheticPrompt: true,
+    });
+    calls[4]?.callbacks?.assistant_text_delta?.(makeTextDelta("[TASK:STOP]"));
+    calls[4]?.callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => foregroundTaskStateOf(session) === null);
+  });
+
+  test("retries suspended host work when the handed-off leg fails asynchronously", async () => {
+    const { calls, session } = await startForegroundTaskBargeInScenario();
+
+    calls[2]?.callbacks?.assistant_text_delta?.(
+      makeTextDelta("[1] I will continue."),
+    );
+    calls[2]?.callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => calls.length === 4);
+    await waitFor(() => foregroundTaskStateOf(session)?.phase === "owned");
+
+    calls[3]?.onError?.("strong leg failed");
+    await waitFor(() => calls.length === 5);
+
+    expect(calls[4]).toMatchObject({
+      routingLeg: "escalated",
+      directEscalated: true,
+      hiddenSyntheticPrompt: true,
+    });
+    calls[4]?.callbacks?.assistant_text_delta?.(makeTextDelta("[TASK:STOP]"));
+    calls[4]?.callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => foregroundTaskStateOf(session) === null);
+  });
+
+  test("a front-door task-stop answer abandons the suspended foreground task", async () => {
+    const { calls, frames, session } =
+      await startForegroundTaskBargeInScenario();
+
+    const frontDoorAnswer = calls[2];
+    frontDoorAnswer?.callbacks?.assistant_text_delta?.(
+      makeTextDelta("Okay, stopping. [TASK:STOP]"),
+    );
+    frontDoorAnswer?.callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    expect(calls).toHaveLength(3);
+    expect(foregroundTaskStateOf(session)).toBeNull();
+    expect(
+      frames.filter((frame) => frame.type === "assistant_text_delta").at(-1),
+    ).toMatchObject({ text: "Okay, stopping. " });
+  });
+
+  test("barging into completed host-task speech does not revive the task", async () => {
+    const calls: VoiceTurnOptions[] = [];
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      calls.push(options);
+      return { turnId: `bridge-turn-${calls.length}`, abort: mock() };
+    });
+    let releaseDoneTts: (() => void) | undefined;
+    const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
+      options.onAudioChunk(makeTtsChunk("assistant audio"));
+      if (options.text.includes("Done")) {
+        await new Promise<void>((resolve) => {
+          releaseDoneTts = resolve;
+        });
+      }
+      return makeTtsResult("assistant audio");
+    });
+    const { session } = createHarness({
+      finals: ["change the title", "one more thing"],
+      startVoiceTurn,
+      streamTtsAudio,
+      foregroundTaskResumeSilenceMs: 20,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => calls.length === 1);
+    calls[0]?.callbacks?.assistant_text_delta?.(
+      makeTextDelta("[1] One moment."),
+    );
+    calls[0]?.callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => calls.length === 2);
+    calls[1]?.callbacks?.tool_use_start?.("skill_execute", {
+      toolUseId: "tool-1",
+      input: { tool: "computer_use_observe", input: {} },
+    });
+    calls[1]?.callbacks?.assistant_text_delta?.(makeTextDelta("Done."));
+    calls[1]?.callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => releaseDoneTts !== undefined);
+
+    await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+    await waitFor(() => calls.length === 3);
+    await waitFor(() => foregroundTaskStateOf(session) === null);
+    calls[2]?.callbacks?.assistant_text_delta?.(makeTextDelta("Sure."));
+    calls[2]?.callbacks?.message_complete?.(makeMessageComplete());
+    releaseDoneTts?.();
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    expect(calls).toHaveLength(3);
+  });
+
+  test("too many intervening answers abandon a suspended foreground task", async () => {
+    const { calls, session } = await startForegroundTaskBargeInScenario({
+      foregroundTaskMaxInterveningTurns: 1,
+      foregroundTaskResumeSilenceMs: 60_000,
+    });
+
+    calls[2]?.callbacks?.assistant_text_delta?.(makeTextDelta("First answer."));
+    calls[2]?.callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => foregroundTaskStateOf(session)?.interveningTurns === 1);
+
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => calls.length === 4);
+    calls[3]?.callbacks?.assistant_text_delta?.(
+      makeTextDelta("Second answer."),
+    );
+    calls[3]?.callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => foregroundTaskStateOf(session) === null);
+
+    expect(calls).toHaveLength(4);
+    await session.close("client_end");
+  });
+
+  test("an old suspended foreground task is not revived", async () => {
+    const { calls, session } = await startForegroundTaskBargeInScenario({
+      foregroundTaskMaxSuspendedMs: 1,
+      foregroundTaskResumeSilenceMs: 20,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    calls[2]?.callbacks?.assistant_text_delta?.(makeTextDelta("Answer."));
+    calls[2]?.callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => foregroundTaskStateOf(session) === null);
+    await new Promise((resolve) => setTimeout(resolve, 60));
+
+    expect(calls).toHaveLength(3);
+  });
+
+  test.each(["hold_verdict", "speech_resumed"] as const)(
+    "a discarded speculative front-door turn leaves host ownership suspended: %s",
+    async (discardReason) => {
+      const calls: VoiceTurnOptions[] = [];
+      const discards: Array<ReturnType<typeof mock>> = [];
+      const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+        calls.push(options);
+        const discard = mock(async () => {});
+        discards.push(discard);
+        if (
+          discardReason === "hold_verdict" &&
+          options.unifiedVerdict === true
+        ) {
+          setTimeout(() => {
+            options.callbacks?.assistant_text_delta?.(makeTextDelta("[0]"));
+            options.callbacks?.message_complete?.(makeMessageComplete());
+          }, 0);
+        }
+        return {
+          turnId: `bridge-turn-${calls.length}`,
+          abort: mock(),
+          discard,
+        };
+      });
+      const spawnBackgroundContinuation = mock(async () => "");
+      const { session, transcribers } = createHarness({
+        finals: ["change the title", "actually just change it"],
+        startVoiceTurn,
+        streamTtsAudio: mock(async (tts: LiveVoiceTtsOptions) => {
+          tts.onAudioChunk(makeTtsChunk("assistant audio"));
+          return makeTtsResult("assistant audio");
+        }),
+        spawnBackgroundContinuation,
+        holdStopEventsFor: [1],
+        turnDetectorConfig: { silenceThresholdMs: 120 },
+        foregroundTaskResumeSilenceMs: 60_000,
+      });
+
+      await session.start();
+      await session.handleBinaryAudio(LOUD_CHUNK);
+      await waitFor(() => calls.length === 1);
+      calls[0]?.callbacks?.assistant_text_delta?.(
+        makeTextDelta("[1] One moment."),
+      );
+      calls[0]?.callbacks?.message_complete?.(makeMessageComplete());
+      await waitFor(() => calls.length === 2);
+      calls[1]?.callbacks?.tool_use_start?.("skill_execute", {
+        toolUseId: "tool-1",
+        input: { tool: "computer_use_observe", input: {} },
+      });
+
+      await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+      await waitFor(() => transcribers.length === 2);
+      transcribers[1]?.emit({ type: "partial", text: "actually" });
+      await waitFor(() => calls.length === 3);
+      expect(calls[2]?.unifiedVerdict).toBe(true);
+
+      if (discardReason === "speech_resumed") {
+        await session.handleBinaryAudio(LOUD_CHUNK);
+      }
+      await waitFor(() => (discards[2]?.mock.calls.length ?? 0) === 1);
+
+      expect(spawnBackgroundContinuation).not.toHaveBeenCalled();
+      expect(foregroundTaskStateOf(session)).toMatchObject({
+        phase: "suspended",
+        interveningTurns: 0,
+        resumePending: false,
+      });
+      await session.close("client_end");
+    },
+  );
 
   test("speech while the first tts_audio send is stuck in the queue does not cancel; barge-in works once it lands", async () => {
     let callbacks: VoiceTurnCallbacks | undefined;
@@ -855,10 +2119,224 @@ describe("LiveVoiceSession server VAD", () => {
 
     const spawnArgs = spawnBackgroundContinuation.mock.calls[0]?.[0];
     expect(spawnArgs?.parentConversationId).toBe("conversation-123");
-    expect(spawnArgs?.label).toContain("live-turn-1");
+    // The label is the interrupted request in the user's words, so the
+    // Activity row reads as work rather than an internal turn id.
+    expect(spawnArgs?.label).toBe("First question");
     // The objective carries the interrupted request so the continuation knows
     // what to finish even before the user message is persisted into history.
     expect(spawnArgs?.objective).toContain("first question");
+  });
+
+  async function bargeInWithJudge(keep: boolean) {
+    const judged: Array<{
+      interruptedRequest: string;
+      interruption: string | null;
+    }> = [];
+    const judgeBackgroundContinuation: LiveVoiceContinuationJudge = async (
+      args,
+    ) => {
+      const interruption = await args.interruption;
+      judged.push({
+        interruptedRequest: args.interruptedRequest,
+        interruption,
+      });
+      return keep
+        ? { keep: true, outcome: "keep", noul: 0.9, latencyMs: 1 }
+        : { keep: false, outcome: "drop", noul: 0.1, latencyMs: 1 };
+    };
+    const spawnBackgroundContinuation = mock(
+      async (_args: {
+        parentConversationId: string;
+        objective: string;
+        label: string;
+        signal: AbortSignal;
+      }): Promise<string> => "",
+    );
+    const calls: VoiceTurnOptions[] = [];
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      calls.push(options);
+      return { turnId: `bridge-turn-${calls.length}`, abort: mock() };
+    });
+    const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
+      options.onAudioChunk(makeTtsChunk("assistant audio"));
+      return makeTtsResult("assistant audio");
+    });
+    const { frames, session } = createHarness({
+      finals: ["first question", "never mind that"],
+      startVoiceTurn,
+      streamTtsAudio,
+      spawnBackgroundContinuation,
+      judgeBackgroundContinuation,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => frames.some((frame) => frame.type === "thinking"));
+    await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+    await waitFor(() => judged.length === 1);
+    await flushAsyncCallbacks();
+    return { judged, spawnBackgroundContinuation, calls };
+  }
+
+  test("the continuation judge sees the interrupting words and can drop the continuation", async () => {
+    const { judged, spawnBackgroundContinuation, calls } =
+      await bargeInWithJudge(false);
+
+    expect(judged).toEqual([
+      { interruptedRequest: "first question", interruption: "never mind that" },
+    ]);
+    expect(spawnBackgroundContinuation).not.toHaveBeenCalled();
+    // The foreground turn still carries the interrupted request.
+    const followUp = calls.find((c) => c.content === "never mind that");
+    expect(followUp?.voiceControlPrompt).toContain("first question");
+  });
+
+  test("a speculative interruption reaches the judge only once its turn commits", async () => {
+    const judged: Array<string | null> = [];
+    const judgeBackgroundContinuation: LiveVoiceContinuationJudge = async (
+      args,
+    ) => {
+      judged.push(await args.interruption);
+      return { keep: false, outcome: "drop", noul: 0.1, latencyMs: 1 };
+    };
+    let openGate!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      openGate = resolve;
+    });
+    const calls: VoiceTurnOptions[] = [];
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      calls.push(options);
+      if (options.content !== "first question") {
+        // The leg's first word is its verdict: nothing commits until then.
+        void gate.then(() => {
+          options.callbacks?.assistant_text_delta?.(
+            makeTextDelta("Sure thing."),
+          );
+          options.callbacks?.message_complete?.(makeMessageComplete());
+        });
+      }
+      return { turnId: `bridge-turn-${calls.length}`, abort: mock() };
+    });
+    const { frames, session, transcribers } = createHarness({
+      finals: ["first question", "never mind that"],
+      startVoiceTurn,
+      streamTtsAudio: makeImmediateTts(),
+      spawnBackgroundContinuation: mock(async () => ""),
+      judgeBackgroundContinuation,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => frames.some((frame) => frame.type === "thinking"));
+    await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+    await waitFor(() => transcribers.length === 2);
+    transcribers[1]?.emit({ type: "partial", text: "never mind that" });
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => calls.some((c) => c.content === "never mind that"));
+    expect(
+      calls.find((c) => c.content === "never mind that")?.unifiedVerdict,
+    ).toBe(true);
+
+    await flushAsyncCallbacks();
+    expect(judged).toEqual([]);
+
+    openGate();
+    await waitFor(() => judged.length === 1);
+    expect(judged).toEqual(["never mind that"]);
+  });
+
+  test("a keep verdict spawns the continuation as before", async () => {
+    const { spawnBackgroundContinuation } = await bargeInWithJudge(true);
+
+    await waitFor(() => spawnBackgroundContinuation.mock.calls.length === 1);
+    expect(spawnBackgroundContinuation.mock.calls[0]?.[0]?.objective).toContain(
+      "first question",
+    );
+  });
+
+  test("the continuation carries the label the model phrased", async () => {
+    const labelCalls: Array<{
+      parentConversationId: string;
+      interruptedRequest: string;
+    }> = [];
+    const labelBackgroundContinuation: LiveVoiceContinuationLabeler = async (
+      args,
+    ) => {
+      labelCalls.push({
+        parentConversationId: args.parentConversationId,
+        interruptedRequest: args.interruptedRequest,
+      });
+      return "Answering the first question";
+    };
+    const spawnBackgroundContinuation = mock(
+      async (_args: {
+        parentConversationId: string;
+        objective: string;
+        label: string;
+        signal: AbortSignal;
+      }): Promise<string> => "",
+    );
+    const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
+      options.onAudioChunk(makeTtsChunk("assistant audio"));
+      return makeTtsResult("assistant audio");
+    });
+    const { frames, session } = createHarness({
+      finals: ["first question", "second question"],
+      streamTtsAudio,
+      spawnBackgroundContinuation,
+      labelBackgroundContinuation,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => frames.some((frame) => frame.type === "thinking"));
+    await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+    await waitFor(() => spawnBackgroundContinuation.mock.calls.length === 1);
+
+    expect(labelCalls).toEqual([
+      {
+        parentConversationId: "conversation-123",
+        interruptedRequest: "first question",
+      },
+    ]);
+    expect(spawnBackgroundContinuation.mock.calls[0]?.[0]?.label).toBe(
+      "Answering the first question",
+    );
+  });
+
+  test("a failed label call falls back to the transcript label", async () => {
+    const labelBackgroundContinuation: LiveVoiceContinuationLabeler =
+      async () => {
+        throw new Error("provider down");
+      };
+    const spawnBackgroundContinuation = mock(
+      async (_args: {
+        parentConversationId: string;
+        objective: string;
+        label: string;
+        signal: AbortSignal;
+      }): Promise<string> => "",
+    );
+    const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
+      options.onAudioChunk(makeTtsChunk("assistant audio"));
+      return makeTtsResult("assistant audio");
+    });
+    const { frames, session } = createHarness({
+      finals: ["first question", "second question"],
+      streamTtsAudio,
+      spawnBackgroundContinuation,
+      labelBackgroundContinuation,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => frames.some((frame) => frame.type === "thinking"));
+    await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+    await waitFor(() => spawnBackgroundContinuation.mock.calls.length === 1);
+
+    expect(spawnBackgroundContinuation.mock.calls[0]?.[0]?.label).toBe(
+      "First question",
+    );
   });
 
   test("a client interrupt aborts an in-flight continuation", async () => {
@@ -1171,7 +2649,7 @@ describe("LiveVoiceSession server VAD", () => {
     return { startVoiceTurn, calls };
   }
 
-  test("a completed continuation's result folds into the next turn's control prompt", async () => {
+  test("a completed continuation remains pending across unrelated user turns", async () => {
     // Control the continuation's resolution so we know exactly when its result
     // is stashed relative to the turns we inspect.
     let resolveContinuation: ((result: string) => void) | undefined;
@@ -1229,14 +2707,14 @@ describe("LiveVoiceSession server VAD", () => {
     expect(resurfaced?.voiceControlPrompt).toContain("THE_RESULT");
     expect(resurfaced?.voiceControlPrompt).toContain("background");
 
-    // Consume-once: a later turn does not repeat it.
+    // Context exposure is not delivery, so a later turn still has the result.
     await session.handleBinaryAudio(LOUD_CHUNK);
     await waitFor(() => calls.some((c) => c.content === "fourth question"));
     const later = calls.find((c) => c.content === "fourth question");
-    expect(later?.voiceControlPrompt).not.toContain("THE_RESULT");
+    expect(later?.voiceControlPrompt).toContain("THE_RESULT");
   });
 
-  test("a client interrupt drops a stashed continuation result", async () => {
+  test("a client interrupt defers delivery without dropping a finished result", async () => {
     let resolveContinuation: ((result: string) => void) | undefined;
     const spawnBackgroundContinuation = mock(
       (_args: {
@@ -1281,15 +2759,15 @@ describe("LiveVoiceSession server VAD", () => {
     resolveContinuation?.("THE_RESULT");
     await flushAsyncCallbacks();
 
-    // ...but a client interrupt is a hard stop that drops it.
+    // Stopping speech defers delivery until the next user turn.
     await session.handleClientFrame({ type: "interrupt" });
     await flushAsyncCallbacks();
 
-    // The next turn carries no resurfaced result.
+    // Finished work remains available to the next turn.
     await session.handleBinaryAudio(LOUD_CHUNK);
     await waitFor(() => calls.some((c) => c.content === "third question"));
     const later = calls.find((c) => c.content === "third question");
-    expect(later?.voiceControlPrompt).not.toContain("THE_RESULT");
+    expect(later?.voiceControlPrompt).toContain("THE_RESULT");
   });
 
   test("an empty continuation result adds no context to the next turn", async () => {
@@ -1482,7 +2960,7 @@ describe("LiveVoiceSession server VAD", () => {
     resolvers[1]?.("");
   });
 
-  test("a new barge-in drops an already-stashed continuation result", async () => {
+  test("a new barge-in preserves an already-finished continuation", async () => {
     const resolvers: Array<(result: string) => void> = [];
     const spawnBackgroundContinuation = mock(
       (_args: {
@@ -1535,15 +3013,14 @@ describe("LiveVoiceSession server VAD", () => {
     resolvers[0]?.("A_RESULT");
     await flushAsyncCallbacks();
 
-    // Barge #2 is a fresh interruption: it must drop A's already-stashed result
-    // (and detach the newer continuation).
+    // Barge #2 starts a new continuation while the finished result stays pending.
     await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
     await waitFor(() => calls.some((c) => c.content === "third question"));
     await waitFor(() => resolvers.length === 2);
 
-    // The barge #2 follow-up turn carries no stale A result.
+    // The follow-up still has the completed result as context.
     const followUp = calls.find((c) => c.content === "third question");
-    expect(followUp?.voiceControlPrompt).not.toContain("A_RESULT");
+    expect(followUp?.voiceControlPrompt).toContain("A_RESULT");
 
     // Cleanup the still-pending newer continuation.
     resolvers[1]?.("");
@@ -1781,6 +3258,79 @@ describe("LiveVoiceSession server VAD", () => {
     expect(announcement?.voiceControlPrompt).toContain("first question");
   });
 
+  test("continuations and explicit workers share delivery and finish independently", async () => {
+    const continuation = makeControlledContinuation();
+    const { startVoiceTurn, calls } = makeResurfaceTurnStarter();
+    const { frames, session } = createHarness({
+      finals: ["first question", ""],
+      startVoiceTurn,
+      streamTtsAudio: makeImmediateTts(),
+      spawnBackgroundContinuation: continuation.spawnBackgroundContinuation,
+      continuationAnnounceSilenceMs: 20,
+    });
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => calls.length === 1);
+    await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+    await waitFor(
+      () => continuation.spawnBackgroundContinuation.mock.calls.length === 1,
+    );
+    await waitFor(() => countType(frames, "utterance_discarded") === 1);
+    continuation.finish("CONTINUATION_RESULT");
+    session.receiveSubagentNotification({
+      taskId: "task-1",
+      message: "WORKER_RESULT",
+      metadata: {},
+    });
+    await waitFor(() => countType(frames, "tts_done") === 2);
+    expect(
+      calls.filter((call) => call.content === "WORKER_RESULT"),
+    ).toHaveLength(1);
+    expect(announcementCount(calls)).toBe(1);
+    expect(announcementOf(calls)?.voiceControlPrompt).toContain(
+      "CONTINUATION_RESULT",
+    );
+    expect(announcementOf(calls)?.directEscalated).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    const before = injectMessageIntoParentMock.mock.calls.length;
+    await session.close("client_end");
+    expect(injectMessageIntoParentMock.mock.calls.length).toBe(before);
+  });
+
+  // Deepgram Flux sends interim updates through silence, each an empty
+  // partial. A call nobody is talking on is still idle.
+  test("an empty partial on an idle call does not hold the announcement back", async () => {
+    const continuation = makeControlledContinuation();
+    const { startVoiceTurn, calls } = makeResurfaceTurnStarter();
+    const { frames, session, transcribers } = createHarness({
+      finals: ["first question", ""],
+      startVoiceTurn,
+      streamTtsAudio: makeImmediateTts(),
+      spawnBackgroundContinuation: continuation.spawnBackgroundContinuation,
+      continuationAnnounceSilenceMs: 20,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => frames.some((frame) => frame.type === "thinking"));
+    await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+    await waitFor(
+      () => continuation.spawnBackgroundContinuation.mock.calls.length === 1,
+    );
+    await waitFor(() =>
+      frames.some((frame) => frame.type === "utterance_discarded"),
+    );
+    await waitFor(() => transcribers.some((t) => !t.stopped));
+    for (const transcriber of transcribers) {
+      if (!transcriber.stopped) {
+        transcriber.emit({ type: "partial", text: "" });
+      }
+    }
+
+    continuation.finish("THE_RESULT");
+    await waitFor(() => announcementOf(calls) !== undefined);
+  });
+
   test("an announcement persists hidden and is never delivered twice", async () => {
     const continuation = makeControlledContinuation();
     const { startVoiceTurn, calls } = makeResurfaceTurnStarter();
@@ -1818,7 +3368,7 @@ describe("LiveVoiceSession server VAD", () => {
     expect(later?.voiceControlPrompt).not.toContain("THE_RESULT");
   });
 
-  test("a user utterance before the silence elapses cancels the announcement", async () => {
+  test("an unrelated user reply does not consume the queued continuation", async () => {
     const continuation = makeControlledContinuation();
     const { startVoiceTurn, calls } = makeResurfaceTurnStarter();
     const { frames, session } = createHarness({
@@ -1827,7 +3377,7 @@ describe("LiveVoiceSession server VAD", () => {
       streamTtsAudio: makeImmediateTts(),
       spawnBackgroundContinuation: continuation.spawnBackgroundContinuation,
       // Long enough that the user always speaks first.
-      continuationAnnounceSilenceMs: 5_000,
+      continuationAnnounceSilenceMs: 250,
     });
 
     await session.start();
@@ -1844,14 +3394,16 @@ describe("LiveVoiceSession server VAD", () => {
     continuation.finish("THE_RESULT");
     await flushAsyncCallbacks();
 
-    // The user speaks first: their turn delivers the answer through the stash,
-    // and the announcement is dropped rather than repeating it after.
+    // The unrelated reply can see the result, but only says "ok".
     await session.handleBinaryAudio(LOUD_CHUNK);
     await waitFor(() => calls.some((c) => c.content === "third question"));
     const spoken = calls.find((c) => c.content === "third question");
     expect(spoken?.voiceControlPrompt).toContain("THE_RESULT");
-    await flushAsyncCallbacks();
-    expect(announcementOf(calls)).toBeUndefined();
+    await waitFor(() => announcementCount(calls) === 1);
+    expect(announcementOf(calls)?.voiceControlPrompt).toContain("THE_RESULT");
+    expect(announcementOf(calls)?.voiceControlPrompt).toContain(
+      'completed audio playback for this task was: "ok"',
+    );
   });
 
   test("an active turn at fire time announces after the turn becomes idle", async () => {
@@ -2074,52 +3626,42 @@ describe("LiveVoiceSession server VAD", () => {
     expect(later?.voiceControlPrompt).toContain("THE_RESULT");
   });
 
-  test("an announcement whose launch throws hands the answer back to the stash", async () => {
+  test("an announcement whose launch throws retains its result", async () => {
     const { startVoiceTurn, calls } = makeResurfaceTurnStarter();
     const { session } = createHarness({
       finals: ["stashed question"],
       startVoiceTurn,
       continuationAnnounceSilenceMs: 20,
     });
-
     await session.start();
-    await flushAsyncCallbacks();
-
     const internals = session as unknown as {
-      pendingContinuationResult: string | null;
-      pendingAnnouncement: { request: string; answer: string } | null;
-      scheduleContinuationAnnouncement: () => void;
+      receiveTaskOutcome: (
+        outcome: import("../task-outcomes.js").VoiceTaskOutcome,
+      ) => boolean;
       launchAssistantTurn: (
         utterance: unknown,
         content: string,
         opts?: unknown,
       ) => Promise<boolean>;
     };
-    // The announcement's launch REJECTS rather than returning false — a frame
-    // write failing ahead of the leg's own error handling. The `started ===
-    // false` re-stash never runs on that path, so only the catch can save the
-    // answer.
     const launch = internals.launchAssistantTurn.bind(session);
+    const failed = mock(() => {
+      throw new Error("thinking frame write failed");
+    });
     internals.launchAssistantTurn = async (utterance, content, opts) => {
       if (content === CONTINUATION_DELIVERY_CONTENT) {
-        throw new Error("thinking frame write failed");
+        return failed();
       }
       return launch(utterance, content, opts);
     };
-    internals.pendingContinuationResult = "THE_RESULT";
-    internals.pendingAnnouncement = {
-      request: "the first question",
-      answer: "THE_RESULT",
-    };
-    internals.scheduleContinuationAnnouncement();
-
-    // The attempt runs (the queue empties) and throws.
-    await waitFor(() => internals.pendingAnnouncement === null);
-    await flushAsyncCallbacks();
+    internals.receiveTaskOutcome({
+      taskId: "continuation-1",
+      message: "THE_RESULT",
+      metadata: {},
+      source: "continuation",
+    });
+    await waitFor(() => failed.mock.calls.length === 1);
     expect(announcementOf(calls)).toBeUndefined();
-    expect(internals.pendingContinuationResult).toBe("THE_RESULT");
-
-    // ...so the user's next turn still carries it.
     await session.handleBinaryAudio(LOUD_CHUNK);
     await waitFor(() => calls.some((c) => c.content === "stashed question"));
     expect(
@@ -2205,7 +3747,7 @@ describe("LiveVoiceSession server VAD", () => {
     expect(message).toContain("first question");
   });
 
-  test("a speculatively dispatched turn carries the stashed answer and cancels the announcement", async () => {
+  test("a speculative user reply preserves the pending announcement", async () => {
     const continuation = makeControlledContinuation();
     const { startVoiceTurn, calls } = makeResurfaceTurnStarter();
     const { frames, session, transcribers } = createHarness({
@@ -2248,22 +3790,66 @@ describe("LiveVoiceSession server VAD", () => {
     expect(speculative?.unifiedVerdict).toBe(true);
     expect(speculative?.voiceControlPrompt).toContain("THE_RESULT");
 
-    // The user's own turn is the delivery, so the queued announcement is
-    // cancelled rather than speaking the same answer again afterwards.
-    await new Promise((resolve) => setTimeout(resolve, 600));
-    expect(announcementCount(calls)).toBe(0);
+    // Completing an unrelated speculative reply does not acknowledge delivery.
+    await waitFor(() => announcementCount(calls) === 1);
   });
 
   test("a held speculative turn hands the stashed answer back for the replay", async () => {
     const continuation = makeControlledContinuation();
     const calls: VoiceTurnOptions[] = [];
-    const discard = mock(async () => {});
+    const claimedTurnIds: string[] = [];
+    const releasedTurnIds = new Set<string>();
+    let activation = 0;
+    let activeSource: ModeSessionSourceHandle | undefined;
+    const modeSessions = {
+      activateSource: (input: {
+        sourceId: string;
+        generation: number;
+        mode: "ambient" | "live_vision";
+      }) => {
+        activation += 1;
+        activeSource = {
+          sourceId: input.sourceId,
+          generation: input.generation,
+          activation,
+          id: `camera-session-${activation}`,
+          mode: input.mode,
+        };
+        return activeSource;
+      },
+      claimTurn: (turnId: string, source: ModeSessionSourceHandle) => {
+        if (source !== activeSource) {
+          return undefined;
+        }
+        claimedTurnIds.push(turnId);
+        return { id: source.id, mode: source.mode };
+      },
+      recordActivity: () => true,
+      releaseTurn: (turnId: string) => {
+        releasedTurnIds.add(turnId);
+        return true;
+      },
+      retireSource: (source: ModeSessionSourceHandle) => {
+        if (source !== activeSource) {
+          return false;
+        }
+        activeSource = undefined;
+        return true;
+      },
+      trackPersistedRow: () => {},
+    } as unknown as ConversationModeSessionCoordinator;
     // The first turn stays thinking so the barge-in lands on it. Every
     // speculative leg afterwards answers with the hold token while it is
     // offered one (`unifiedVerdict`), and answers for real on the replay.
     const startVoiceTurn: LiveVoiceTurnStarter = async (options) => {
       calls.push(options);
       const index = calls.length;
+      const discard = mock(async () => {
+        const requestId = options.preacceptedModeSession?.requestId;
+        if (requestId) {
+          modeSessions.releaseTurn(requestId);
+        }
+      });
       if (options.content !== "first question") {
         const reply = options.unifiedVerdict === true ? "[0]" : "Sure thing.";
         setTimeout(() => {
@@ -2284,9 +3870,19 @@ describe("LiveVoiceSession server VAD", () => {
       // The announcement must not fire during the hold window — the replay
       // turn is the delivery this test is about.
       continuationAnnounceSilenceMs: 5_000,
+      acquireModeSessionResidency: async () => ({
+        coordinator: modeSessions,
+        release: () => {},
+      }),
     });
 
     await session.start();
+    await session.handleClientFrame({
+      type: "sight_start",
+      cameraEpoch: 1,
+      source: "live",
+    });
+    expect(claimedTurnIds).toHaveLength(1);
     await session.handleBinaryAudio(LOUD_CHUNK);
     await waitFor(() => frames.some((frame) => frame.type === "thinking"));
     await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
@@ -2305,7 +3901,26 @@ describe("LiveVoiceSession server VAD", () => {
     await session.handleBinaryAudio(LOUD_CHUNK);
 
     // The speculative leg holds: it is rolled back, taking nothing with it.
-    await waitFor(() => discard.mock.calls.length === 1);
+    await waitFor(() =>
+      calls.some(
+        (call) =>
+          call.content === "third question" && call.unifiedVerdict === true,
+      ),
+    );
+    const speculative = calls.find(
+      (call) =>
+        call.content === "third question" && call.unifiedVerdict === true,
+    );
+    expect(speculative?.preacceptedModeSession).toBeDefined();
+    await waitFor(() =>
+      releasedTurnIds.has(speculative?.preacceptedModeSession?.requestId ?? ""),
+    );
+    const primaryIndex = claimedTurnIds.indexOf(
+      speculative!.preacceptedModeSession!.requestId,
+    );
+    expect(primaryIndex).toBeGreaterThanOrEqual(0);
+    expect(releasedTurnIds.has(claimedTurnIds[primaryIndex + 1]!)).toBe(true);
+    expect(releasedTurnIds.has(claimedTurnIds[primaryIndex + 2]!)).toBe(true);
 
     // The extension replays the boundary and the replay leg answers. It is a
     // different dispatch, so it only carries the answer if the rollback gave
@@ -2316,6 +3931,7 @@ describe("LiveVoiceSession server VAD", () => {
     const replay = calls.filter((c) => c.content === "third question")[1];
     expect(replay?.unifiedVerdict).toBeUndefined();
     expect(replay?.voiceControlPrompt).toContain("THE_RESULT");
+    await session.close("client_end");
   });
 
   test("an announcement waits out the client's queued playback", async () => {
@@ -2379,24 +3995,19 @@ describe("LiveVoiceSession server VAD", () => {
     // every transcript-derived idle signal still reads "nobody is speaking".
     await session.handleBinaryAudio(LOUD_CHUNK);
 
-    // A manual session reaches the announcement path only through machinery a
-    // server_vad barge-in owns, so the state a finished continuation leaves
-    // behind is staged directly: the stashed answer plus its queued
-    // announcement.
     const internals = session as unknown as {
-      pendingContinuationResult: string | null;
-      pendingAnnouncement: { request: string; answer: string } | null;
-      scheduleContinuationAnnouncement: () => void;
+      receiveTaskOutcome: (
+        outcome: import("../task-outcomes.js").VoiceTaskOutcome,
+      ) => boolean;
     };
-    internals.pendingContinuationResult = "THE_RESULT";
-    internals.pendingAnnouncement = {
-      request: "the first question",
-      answer: "THE_RESULT",
-    };
-    internals.scheduleContinuationAnnouncement();
+    internals.receiveTaskOutcome({
+      taskId: "continuation-1",
+      message: "THE_RESULT",
+      metadata: {},
+      source: "continuation",
+    });
 
-    // The silence timer and the single retry both find the utterance in
-    // flight, so the session never speaks over the in-progress utterance.
+    // The floor stays blocked while captured speech is awaiting release.
     await new Promise((resolve) => setTimeout(resolve, 200));
     expect(announcementOf(calls)).toBeUndefined();
 

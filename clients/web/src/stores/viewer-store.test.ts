@@ -1,14 +1,19 @@
 import { beforeEach, describe, it, expect, mock } from "bun:test";
+import { waitFor } from "@testing-library/react";
 
 import type {
   ActivityStepsPayload,
   MessageFilesPayload,
   ToolDetailPayload,
 } from "@/stores/viewer-store";
-import type { DocumentsByIdGetResponse } from "@/generated/daemon/types.gen";
+import type {
+  AppsByIdOpenPostResponse,
+  DocumentsByIdGetResponse,
+} from "@/generated/daemon/types.gen";
 import { ApiError } from "@/utils/api-errors";
-import { makeDisplayAttachment } from "@/domains/chat/components/chat-attachments/attachment-test-helpers";
+import { makeDisplayAttachment } from "@/domains/chat/components/chat-attachments/attachment-fixtures";
 import { useUnseenDocumentChangesStore } from "@/domains/chat/unseen-document-changes-store";
+import { trackDocumentSave } from "@/domains/chat/api/document-save";
 
 // The store opens documents through the daemon SDK. Spread the real module so
 // the actions this file does not exercise keep their real bindings.
@@ -18,17 +23,34 @@ type DocumentResult = {
   data: DocumentsByIdGetResponse | null;
 };
 
+type AppResult = {
+  data: AppsByIdOpenPostResponse;
+};
+
 let documentResult: () => Promise<DocumentResult> = () =>
   Promise.reject(new Error("not stubbed"));
+
+let appResult: () => Promise<AppResult> = () =>
+  Promise.reject(new Error("not stubbed"));
+
+/** How many app-open requests the SDK has been asked for. */
+let appRequests = 0;
 
 mock.module("@/generated/daemon/sdk.gen", () => ({
   ...daemonSdk,
   documentsByIdGet: () => documentResult(),
+  appsByIdOpenPost: () => {
+    appRequests++;
+    return appResult();
+  },
 }));
 
-const { isAppNotFoundError, useViewerStore } = await import(
-  "@/stores/viewer-store"
-);
+const {
+  isAppNotFoundError,
+  sameActivityStepsTarget,
+  sameChatInfoTarget,
+  useViewerStore,
+} = await import("@/stores/viewer-store");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -47,10 +69,12 @@ function unseenFor(conversationId: string): string[] {
 
 beforeEach(() => {
   getState().reset();
+  appRequests = 0;
   useUnseenDocumentChangesStore.setState({ changedDocuments: {} });
 });
 
 const SAMPLE_APP = {
+  assistantId: "asst-1",
   appId: "app-1",
   dirName: "my-app",
   name: "My App",
@@ -133,6 +157,158 @@ describe("openApp", () => {
   });
 });
 
+describe("loadApp", () => {
+  const OPENED_APP: AppsByIdOpenPostResponse = {
+    ...SAMPLE_APP,
+    origin: "https://app-1.example",
+  };
+
+  it("resolves true and stores the app it opened", async () => {
+    appResult = () => Promise.resolve({ data: OPENED_APP });
+
+    const loaded = await getState().loadApp("asst-1", "app-1");
+
+    expect(loaded).toBe(true);
+    const state = getState();
+    expect(state.mainView).toBe("app");
+    expect(state.activeAppId).toBe("app-1");
+    expect(state.openedAppState).toEqual(SAMPLE_APP);
+  });
+
+  it("records the assistant the request was made for", async () => {
+    appResult = () => Promise.resolve({ data: OPENED_APP });
+
+    await getState().loadApp("asst-2", "app-1");
+
+    // The response carries no assistant, so the app the viewer holds is keyed
+    // by the one it was asked for.
+    expect(getState().openedAppState?.assistantId).toBe("asst-2");
+  });
+
+  it("resolves false and falls back to chat when the app is gone", async () => {
+    appResult = () =>
+      Promise.reject({
+        error: { code: "NOT_FOUND", message: "App not found: app-1" },
+      });
+
+    const loaded = await getState().loadApp("asst-1", "app-1");
+
+    expect(loaded).toBe(false);
+    const state = getState();
+    expect(state.mainView).toBe("chat");
+    expect(state.activeAppId).toBeNull();
+    expect(state.openedAppState).toBeNull();
+  });
+
+  it("resolves false and leaves a newer app alone when it lands late", async () => {
+    let finish!: (value: AppResult) => void;
+    appResult = () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      });
+
+    const stale = getState().loadApp("asst-1", "app-1");
+    await waitFor(() => expect(finish).toBeFunction());
+    getState().openApp("app-2");
+    finish({ data: OPENED_APP });
+
+    expect(await stale).toBe(false);
+    const state = getState();
+    expect(state.mainView).toBe("app");
+    expect(state.activeAppId).toBe("app-2");
+    expect(state.openedAppState).toBeNull();
+  });
+
+  it("resolves false but still stores the app when the viewer left the app view", async () => {
+    let finish!: (value: AppResult) => void;
+    appResult = () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      });
+
+    const pending = getState().loadApp("asst-1", "app-1");
+    await waitFor(() => expect(finish).toBeFunction());
+    useViewerStore.setState({ mainView: "chat" });
+    finish({ data: OPENED_APP });
+
+    expect(await pending).toBe(false);
+    const state = getState();
+    expect(state.activeAppId).toBe("app-1");
+    expect(state.openedAppState).toEqual(SAMPLE_APP);
+  });
+
+  it("makes one request for concurrent loads of the same app", async () => {
+    appResult = () => Promise.resolve({ data: OPENED_APP });
+
+    const [first, second] = await Promise.all([
+      getState().loadApp("asst-1", "app-1"),
+      getState().loadApp("asst-1", "app-1"),
+    ]);
+
+    expect(appRequests).toBe(1);
+    expect(first).toBe(true);
+    expect(second).toBe(true);
+  });
+
+  it("starts its own request for another app or another assistant", async () => {
+    appResult = () => Promise.resolve({ data: OPENED_APP });
+
+    void getState().loadApp("asst-1", "app-1");
+    void getState().loadApp("asst-1", "app-2");
+    await getState().loadApp("asst-2", "app-2");
+
+    expect(appRequests).toBe(3);
+  });
+
+  it("abandons the request when the app is closed mid-flight", async () => {
+    let finish!: (value: AppResult) => void;
+    appResult = () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      });
+
+    const pending = getState().loadApp("asst-1", "app-1");
+    await waitFor(() => expect(finish).toBeFunction());
+    getState().closeApp();
+    finish({ data: OPENED_APP });
+
+    expect(await pending).toBe(false);
+    const state = getState();
+    expect(state.mainView).toBe("chat");
+    expect(state.activeAppId).toBeNull();
+    expect(state.openedAppState).toBeNull();
+  });
+
+  it("leaves a newer app open when an older request fails late", async () => {
+    let fail!: (reason: unknown) => void;
+    appResult = () =>
+      new Promise((_resolve, reject) => {
+        fail = reject;
+      });
+
+    const stale = getState().loadApp("asst-1", "app-1");
+    await waitFor(() => expect(fail).toBeFunction());
+    appResult = () => Promise.resolve({ data: OPENED_APP });
+    expect(await getState().loadApp("asst-1", "app-2")).toBe(true);
+    fail({ error: { code: "NOT_FOUND", message: "App not found: app-1" } });
+
+    expect(await stale).toBe(false);
+    const state = getState();
+    expect(state.mainView).toBe("app");
+    expect(state.activeAppId).toBe("app-2");
+    expect(state.openedAppState).toEqual(SAMPLE_APP);
+  });
+
+  it("refetches once the request it shared has settled", async () => {
+    appResult = () => Promise.resolve({ data: OPENED_APP });
+
+    await getState().loadApp("asst-1", "app-1");
+    await getState().loadApp("asst-1", "app-1");
+
+    expect(appRequests).toBe(2);
+  });
+});
+
 describe("setLoadedApp", () => {
   it("sets the opened app state", () => {
     getState().setLoadedApp(SAMPLE_APP);
@@ -140,18 +316,48 @@ describe("setLoadedApp", () => {
   });
 });
 
-describe("handleAppLoadFailed", () => {
-  it("resets to chat view and clears app state", () => {
+describe("releaseApp", () => {
+  it("clears the app state and leaves the view over it alone", () => {
+    useViewerStore.setState({
+      mainView: "document",
+      activeAppId: "app-1",
+      openedAppState: SAMPLE_APP,
+      isAppMinimized: true,
+    });
+    getState().releaseApp();
+    const state = getState();
+    expect(state.mainView).toBe("document");
+    expect(state.activeAppId).toBeNull();
+    expect(state.openedAppState).toBeNull();
+    expect(state.isAppMinimized).toBe(false);
+  });
+
+  it("settles overlay restore targets that named the app now gone", () => {
+    useViewerStore.setState({
+      mainView: "document",
+      activeAppId: "app-1",
+      openedAppState: SAMPLE_APP,
+      viewBeforeDocument: "app",
+      viewBeforeChatInfo: "app-editing",
+      viewBeforeToolDetail: "chat",
+    });
+    getState().releaseApp();
+    const state = getState();
+    expect(state.viewBeforeDocument).toBe("chat");
+    expect(state.viewBeforeChatInfo).toBe("chat");
+    expect(state.viewBeforeToolDetail).toBe("chat");
+  });
+
+  it("closing the overlay after a release lands on the chat", () => {
     useViewerStore.setState({
       mainView: "app",
       activeAppId: "app-1",
       openedAppState: SAMPLE_APP,
     });
-    getState().handleAppLoadFailed();
-    const state = getState();
-    expect(state.mainView).toBe("chat");
-    expect(state.activeAppId).toBeNull();
-    expect(state.openedAppState).toBeNull();
+    getState().openDocument();
+    getState().releaseApp();
+    getState().closeDocument();
+    expect(getState().mainView).toBe("chat");
   });
 });
 
@@ -590,6 +796,8 @@ describe("openProcessDetail", () => {
   });
 });
 
+const SAMPLE_CHAT_INFO = { assistantId: "a1", conversationId: "c1" };
+
 describe("closeActiveOverlay", () => {
   it("closes a tool detail overlay and restores its prior view", () => {
     getState().openToolDetail(SAMPLE_TOOL);
@@ -613,6 +821,28 @@ describe("closeActiveOverlay", () => {
     expect(getState().closeActiveOverlay()).toBe(true);
     expect(getState().mainView).toBe("chat");
     expect(getState().activeMessageFiles).toBeNull();
+  });
+
+  it("closes the chat-info overlay and restores its prior view", () => {
+    useViewerStore.setState({ mainView: "app" });
+    getState().openChatInfo(SAMPLE_CHAT_INFO);
+
+    expect(getState().closeActiveOverlay()).toBe(true);
+    expect(getState().mainView).toBe("app");
+    expect(getState().activeChatInfo).toBeNull();
+  });
+
+  it("pops the chat-info drill-in before closing the panel", () => {
+    getState().openChatInfo(SAMPLE_CHAT_INFO);
+    getState().setChatInfoCategory("apps");
+
+    expect(getState().closeActiveOverlay()).toBe(true);
+    expect(getState().mainView).toBe("chat-info");
+    expect(getState().activeChatInfo?.category).toBeNull();
+
+    expect(getState().closeActiveOverlay()).toBe(true);
+    expect(getState().mainView).toBe("chat");
+    expect(getState().activeChatInfo).toBeNull();
   });
 
   it("returns false without changing a non-overlay view", () => {
@@ -792,6 +1022,97 @@ describe("openActivitySteps / toggleActivitySteps / closeActivitySteps", () => {
     expect(state.activeActivitySteps?.groupIndex).toBe(2);
   });
 
+  it("keeps a tool-anchored group active after pagination shifts its index", () => {
+    const open: ActivityStepsPayload = {
+      messageId: "m1",
+      groupIndex: 0,
+      groupToolCallIds: ["tc-anchor"],
+      items: [],
+      toolCalls: [{ id: "tc-anchor", name: "bash", input: {} }],
+    };
+    const relocated = { ...open, groupIndex: 3 };
+
+    expect(sameActivityStepsTarget(open, relocated)).toBe(true);
+    getState().openActivitySteps(open);
+    getState().toggleActivitySteps(relocated);
+    expect(getState().mainView).toBe("chat");
+    expect(getState().activeActivitySteps).toBeNull();
+  });
+
+  it("keeps identity-less groups on exact index identity", () => {
+    const first: ActivityStepsPayload = {
+      messageId: "m1",
+      groupIndex: 0,
+      items: [],
+      toolCalls: [],
+    };
+    const shifted = { ...first, groupIndex: 3 };
+    expect(sameActivityStepsTarget(first, shifted)).toBe(false);
+  });
+
+  it("rejects a different anchored group that replaced the same index", () => {
+    const original: ActivityStepsPayload = {
+      messageId: "m1",
+      groupIndex: 0,
+      groupToolCallIds: ["tc-original"],
+      items: [],
+      toolCalls: [{ id: "tc-original", name: "bash", input: {} }],
+    };
+    const replacement: ActivityStepsPayload = {
+      ...original,
+      groupToolCallIds: ["tc-replacement"],
+      toolCalls: [{ id: "tc-replacement", name: "bash", input: {} }],
+    };
+    expect(sameActivityStepsTarget(original, replacement)).toBe(false);
+  });
+
+  it("matches a group when older history prepends another raw tool call", () => {
+    const open: ActivityStepsPayload = {
+      messageId: "m1",
+      groupIndex: 0,
+      groupToolCallIds: ["tc-existing"],
+      items: [],
+      toolCalls: [{ id: "tc-existing", name: "bash", input: {} }],
+    };
+    const extended: ActivityStepsPayload = {
+      ...open,
+      groupIndex: 3,
+      groupToolCallIds: ["tc-older", "tc-existing"],
+    };
+    expect(sameActivityStepsTarget(open, extended)).toBe(true);
+  });
+
+  it("uses raw ids when visible calls change after process suppression", () => {
+    const open: ActivityStepsPayload = {
+      messageId: "m1",
+      groupIndex: 0,
+      groupToolCallIds: ["tc-process", "tc-visible"],
+      items: [],
+      toolCalls: [
+        { id: "tc-process", name: "run_workflow", input: {} },
+        { id: "tc-visible", name: "bash", input: {} },
+      ],
+    };
+    const suppressed: ActivityStepsPayload = {
+      ...open,
+      toolCalls: [{ id: "tc-visible", name: "bash", input: {} }],
+    };
+    expect(sameActivityStepsTarget(open, suppressed)).toBe(true);
+  });
+
+  it("rejects overlapping raw ids from a different message", () => {
+    const first: ActivityStepsPayload = {
+      messageId: "m1",
+      groupIndex: 0,
+      groupToolCallIds: ["tc-shared"],
+      items: [],
+      toolCalls: [],
+    };
+    expect(sameActivityStepsTarget(first, { ...first, messageId: "m2" })).toBe(
+      false,
+    );
+  });
+
   it("identity-less payloads match on the first tool-call id", () => {
     const a: ActivityStepsPayload = {
       items: [],
@@ -871,6 +1192,151 @@ describe("openMessageFiles / toggleMessageFiles / closeMessageFiles", () => {
     expect(state.activeActivitySteps).toBeNull();
     expect(state.activeToolDetail).toBeNull();
     expect(state.mainView).toBe("message-files");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Chat info panel
+// ---------------------------------------------------------------------------
+
+describe("openChatInfo / toggleChatInfo / closeChatInfo / setChatInfoCategory", () => {
+  it("opens the panel at the top level and records the prior view", () => {
+    getState().openChatInfo(SAMPLE_CHAT_INFO);
+    const state = getState();
+    expect(state.mainView).toBe("chat-info");
+    expect(state.activeChatInfo).toEqual({
+      ...SAMPLE_CHAT_INFO,
+      category: null,
+    });
+    expect(state.viewBeforeChatInfo).toBe("chat");
+  });
+
+  it("close restores the prior view and clears the payload", () => {
+    useViewerStore.setState({ mainView: "app" });
+    getState().openChatInfo(SAMPLE_CHAT_INFO);
+    expect(getState().viewBeforeChatInfo).toBe("app");
+    getState().closeChatInfo();
+    const state = getState();
+    expect(state.mainView).toBe("app");
+    expect(state.activeChatInfo).toBeNull();
+  });
+
+  it("toggle closes the panel when targeting the SAME conversation", () => {
+    getState().openChatInfo(SAMPLE_CHAT_INFO);
+    getState().toggleChatInfo({ ...SAMPLE_CHAT_INFO });
+    const state = getState();
+    expect(state.mainView).toBe("chat");
+    expect(state.activeChatInfo).toBeNull();
+  });
+
+  it("toggle switches to a DIFFERENT conversation at the top level", () => {
+    getState().openChatInfo(SAMPLE_CHAT_INFO);
+    getState().setChatInfoCategory("files");
+    getState().toggleChatInfo({ ...SAMPLE_CHAT_INFO, conversationId: "c2" });
+    const state = getState();
+    expect(state.mainView).toBe("chat-info");
+    expect(state.activeChatInfo).toEqual({
+      assistantId: "a1",
+      conversationId: "c2",
+      category: null,
+    });
+  });
+
+  it("clearTranscriptPanelPayloads settles the chat-info view on a conversation switch", () => {
+    useViewerStore.setState({ mainView: "app" });
+    getState().openChatInfo(SAMPLE_CHAT_INFO);
+    getState().setChatInfoCategory("apps");
+
+    getState().clearTranscriptPanelPayloads();
+
+    const state = getState();
+    expect(state.activeChatInfo).toBeNull();
+    expect(state.mainView).toBe("app");
+  });
+
+  it("toggling to another conversation keeps the view the panel was opened from", () => {
+    useViewerStore.setState({ mainView: "app" });
+    getState().openChatInfo(SAMPLE_CHAT_INFO);
+    getState().toggleChatInfo({ ...SAMPLE_CHAT_INFO, conversationId: "c2" });
+
+    expect(getState().viewBeforeChatInfo).toBe("app");
+    getState().closeChatInfo();
+    expect(getState().mainView).toBe("app");
+  });
+
+  it("toggle treats the same conversation id under another assistant as a new target", () => {
+    getState().openChatInfo(SAMPLE_CHAT_INFO);
+    getState().toggleChatInfo({ ...SAMPLE_CHAT_INFO, assistantId: "a2" });
+    const state = getState();
+    expect(state.mainView).toBe("chat-info");
+    expect(state.activeChatInfo).toEqual({
+      assistantId: "a2",
+      conversationId: "c1",
+      category: null,
+    });
+  });
+
+  it("setChatInfoCategory drills in and back out on the open payload", () => {
+    getState().openChatInfo(SAMPLE_CHAT_INFO);
+    getState().setChatInfoCategory("frames");
+    expect(getState().activeChatInfo?.category).toBe("frames");
+    getState().setChatInfoCategory(null);
+    expect(getState().activeChatInfo?.category).toBeNull();
+  });
+
+  it("setChatInfoCategory does not notify when the category is unchanged", () => {
+    getState().openChatInfo(SAMPLE_CHAT_INFO);
+    getState().setChatInfoCategory("apps");
+    const before = getState().activeChatInfo;
+    getState().setChatInfoCategory("apps");
+    expect(getState().activeChatInfo).toBe(before);
+  });
+
+  it("setChatInfoCategory does nothing while the panel is closed", () => {
+    useViewerStore.setState({ mainView: "chat" });
+    getState().setChatInfoCategory("apps");
+    const state = getState();
+    expect(state.mainView).toBe("chat");
+    expect(state.activeChatInfo).toBeNull();
+  });
+});
+
+describe("sameChatInfoTarget", () => {
+  it("matches the open panel's own target at either level", () => {
+    getState().openChatInfo(SAMPLE_CHAT_INFO);
+    expect(sameChatInfoTarget(getState(), SAMPLE_CHAT_INFO)).toBe(true);
+
+    getState().setChatInfoCategory("files");
+    expect(sameChatInfoTarget(getState(), SAMPLE_CHAT_INFO)).toBe(true);
+  });
+
+  it("rejects another conversation, another assistant, and a closed panel", () => {
+    getState().openChatInfo(SAMPLE_CHAT_INFO);
+
+    expect(
+      sameChatInfoTarget(getState(), {
+        ...SAMPLE_CHAT_INFO,
+        conversationId: "c2",
+      }),
+    ).toBe(false);
+    expect(
+      sameChatInfoTarget(getState(), {
+        ...SAMPLE_CHAT_INFO,
+        assistantId: "a2",
+      }),
+    ).toBe(false);
+
+    getState().closeChatInfo();
+    expect(sameChatInfoTarget(getState(), SAMPLE_CHAT_INFO)).toBe(false);
+  });
+
+  // The payload outlives the view when another panel takes over, so the view
+  // is half the question.
+  it("rejects a payload left behind by another view", () => {
+    getState().openChatInfo(SAMPLE_CHAT_INFO);
+    useViewerStore.setState({ mainView: "app" });
+
+    expect(sameChatInfoTarget(getState(), SAMPLE_CHAT_INFO)).toBe(false);
   });
 });
 
@@ -1006,13 +1472,14 @@ describe("openWorkspaceFilePreview", () => {
   });
 
   it("makes an in-flight document load stale", async () => {
-    let resolveLoad: (value: DocumentResult) => void = () => {};
+    let resolveLoad!: (value: DocumentResult) => void;
     documentResult = () =>
       new Promise<DocumentResult>((resolve) => {
         resolveLoad = resolve;
       });
 
     const load = getState().loadDocument("asst-1", "surf-1");
+    await waitFor(() => expect(resolveLoad).toBeFunction());
     getState().openWorkspaceFilePreview("rows.csv", "csv");
 
     resolveLoad({ data: documentSurface() });
@@ -1057,6 +1524,69 @@ function documentSurface(
 }
 
 describe("loadDocument", () => {
+  it.each(["success", "failure", "cancelled"])(
+    "waits for a matching document save before fetching: %s",
+    async (outcome) => {
+      const read = mock(async () => ({ data: documentSurface() }));
+      documentResult = read;
+      let finish!: () => void;
+      let fail!: (error: Error) => void;
+      trackDocumentSave(
+        { assistantId: "asst-1", surfaceId: "surf-1" },
+        new Promise<void>((resolve, reject) => {
+          finish = resolve;
+          fail = reject;
+        }),
+      );
+      const opening = getState().loadDocument("asst-1", "surf-1");
+      await Promise.resolve();
+      expect(read).not.toHaveBeenCalled();
+      if (outcome === "cancelled") {
+        getState().closeDocument();
+      }
+      if (outcome === "failure") {
+        fail(new Error("offline"));
+      } else {
+        finish();
+      }
+      await opening;
+      expect(read).toHaveBeenCalledTimes(outcome === "success" ? 1 : 0);
+      if (outcome !== "success") {
+        expect(getState().openedDocumentState).toBeNull();
+        expect(getState().mainView).toBe("chat");
+      }
+    },
+  );
+
+  it.each(["success", "failure"])(
+    "an older same-surface load cannot replace or clear its newer owner: %s",
+    async (outcome) => {
+      let finish!: (value: DocumentResult) => void;
+      let fail!: (error: Error) => void;
+      documentResult = () =>
+        new Promise((resolve, reject) => {
+          finish = resolve;
+          fail = reject;
+        });
+      const oldLoad = getState().loadDocument("asst-1", "surf-1");
+      await waitFor(() => expect(finish).toBeFunction());
+      documentResult = async () => ({
+        data: documentSurface({ content: "Latest body" }),
+      });
+      await getState().loadDocument("asst-1", "surf-1");
+      if (outcome === "failure") {
+        fail(new Error("late failure"));
+      } else {
+        finish({ data: documentSurface({ content: "Stale body" }) });
+      }
+      await oldLoad;
+      expect(getState().mainView).toBe("document");
+      expect(getState().openedDocumentState).toMatchObject({
+        content: "Latest body",
+      });
+    },
+  );
+
   it("clears the unseen change for the document it opened", async () => {
     useUnseenDocumentChangesStore
       .getState()
@@ -1066,6 +1596,10 @@ describe("loadDocument", () => {
     await getState().loadDocument("asst-1", "surf-1");
 
     expect(getState().mainView).toBe("document");
+    expect(getState().openedDocumentState).toMatchObject({
+      assistantId: "asst-1",
+      surfaceId: "surf-1",
+    });
     expect(unseenFor("conv-1")).toEqual([]);
   });
 

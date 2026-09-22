@@ -38,22 +38,15 @@ import {
 import { openInHostBrowser } from "../util/browser.js";
 import { getLogger } from "../util/logger.js";
 import { APP_VERSION } from "../version.js";
+import {
+  MCP_OAUTH_CREDENTIAL_LEAVES,
+  mcpOAuthCredentialKey,
+  type McpOAuthCredentialTarget,
+  pluginMcpOAuthCredentialPrefix,
+  workspaceMcpOAuthCredentialTarget,
+} from "./credential-target.js";
 
 const log = getLogger("mcp-oauth");
-
-// Credential store key helpers
-function tokensKey(serverId: string): string {
-  return `mcp:${serverId}:tokens`;
-}
-function clientInfoKey(serverId: string): string {
-  return `mcp:${serverId}:client_info`;
-}
-function discoveryKey(serverId: string): string {
-  return `mcp:${serverId}:discovery`;
-}
-function clientBindingKey(serverId: string): string {
-  return `mcp:${serverId}:client_binding`;
-}
 
 /**
  * Logo shown on an authorization server's consent screen.
@@ -91,12 +84,15 @@ export interface McpOAuthProviderOptions {
    * URL to the IPC caller (CLI / web client).
    */
   onAuthorizationUrl?: (url: string) => void;
+  /** Credential identity. Defaults to the legacy workspace server id. */
+  credentialTarget?: McpOAuthCredentialTarget;
 }
 
 export class McpOAuthProvider implements OAuthClientProvider {
   private readonly serverId: string;
   private readonly serverUrl: string;
   private readonly interactive: boolean;
+  private readonly credentialTarget: McpOAuthCredentialTarget;
   private _codeVerifier: string | undefined;
   private _state: string | undefined;
   private _redirectUrl: string | undefined;
@@ -121,6 +117,8 @@ export class McpOAuthProvider implements OAuthClientProvider {
     this.serverUrl = serverUrl;
     this.interactive = interactive;
     this._onAuthorizationUrl = options.onAuthorizationUrl;
+    this.credentialTarget =
+      options.credentialTarget ?? workspaceMcpOAuthCredentialTarget(serverId);
   }
 
   // --- redirectUrl ---
@@ -167,7 +165,9 @@ export class McpOAuthProvider implements OAuthClientProvider {
   // --- Tokens ---
 
   async tokens(): Promise<OAuthTokens | undefined> {
-    const raw = await getSecureKeyAsync(tokensKey(this.serverId));
+    const raw = await getSecureKeyAsync(
+      mcpOAuthCredentialKey(this.credentialTarget, "tokens"),
+    );
     if (!raw) {
       return undefined;
     }
@@ -191,7 +191,9 @@ export class McpOAuthProvider implements OAuthClientProvider {
     // the previous refresh_token when the incoming response omits one.
     let toPersist: OAuthTokens = tokens;
     if (!tokens.refresh_token) {
-      const previous = await getSecureKeyAsync(tokensKey(this.serverId));
+      const previous = await getSecureKeyAsync(
+        mcpOAuthCredentialKey(this.credentialTarget, "tokens"),
+      );
       if (previous) {
         try {
           const parsed = JSON.parse(previous) as OAuthTokens;
@@ -204,7 +206,7 @@ export class McpOAuthProvider implements OAuthClientProvider {
       }
     }
     const ok = await setSecureKeyAsync(
-      tokensKey(this.serverId),
+      mcpOAuthCredentialKey(this.credentialTarget, "tokens"),
       JSON.stringify(toPersist),
     );
     if (!ok) {
@@ -263,7 +265,9 @@ export class McpOAuthProvider implements OAuthClientProvider {
    * fronts the resource.
    */
   async clientInformation(): Promise<OAuthClientInformationMixed | undefined> {
-    const raw = await getSecureKeyAsync(clientInfoKey(this.serverId));
+    const raw = await getSecureKeyAsync(
+      mcpOAuthCredentialKey(this.credentialTarget, "client_info"),
+    );
     if (!raw) {
       return undefined;
     }
@@ -294,7 +298,7 @@ export class McpOAuthProvider implements OAuthClientProvider {
     info: OAuthClientInformationMixed,
   ): Promise<void> {
     const ok = await setSecureKeyAsync(
-      clientInfoKey(this.serverId),
+      mcpOAuthCredentialKey(this.credentialTarget, "client_info"),
       JSON.stringify(info),
     );
     if (!ok) {
@@ -313,7 +317,7 @@ export class McpOAuthProvider implements OAuthClientProvider {
         redirectUri: this._redirectUrl,
       };
       const boundOk = await setSecureKeyAsync(
-        clientBindingKey(this.serverId),
+        mcpOAuthCredentialKey(this.credentialTarget, "client_binding"),
         JSON.stringify(binding),
       );
       if (!boundOk) {
@@ -349,7 +353,9 @@ export class McpOAuthProvider implements OAuthClientProvider {
    * redirect check already covers the case this plugin actually changes.
    */
   private async describeStaleBinding(): Promise<string | null> {
-    const raw = await getSecureKeyAsync(clientBindingKey(this.serverId));
+    const raw = await getSecureKeyAsync(
+      mcpOAuthCredentialKey(this.credentialTarget, "client_binding"),
+    );
     if (!raw) {
       // Registered before the binding was recorded. Keep it: discarding
       // every pre-existing registration would remake all of them at once.
@@ -410,7 +416,9 @@ export class McpOAuthProvider implements OAuthClientProvider {
   // --- Discovery State ---
 
   async discoveryState(): Promise<OAuthDiscoveryState | undefined> {
-    const raw = await getSecureKeyAsync(discoveryKey(this.serverId));
+    const raw = await getSecureKeyAsync(
+      mcpOAuthCredentialKey(this.credentialTarget, "discovery"),
+    );
     if (!raw) {
       return undefined;
     }
@@ -423,7 +431,7 @@ export class McpOAuthProvider implements OAuthClientProvider {
 
   async saveDiscoveryState(state: OAuthDiscoveryState): Promise<void> {
     const ok = await setSecureKeyAsync(
-      discoveryKey(this.serverId),
+      mcpOAuthCredentialKey(this.credentialTarget, "discovery"),
       JSON.stringify(state),
     );
     if (!ok) {
@@ -498,7 +506,9 @@ export class McpOAuthProvider implements OAuthClientProvider {
     );
 
     if (scope === "all" || scope === "tokens") {
-      const result = await deleteSecureKeyAsync(tokensKey(this.serverId));
+      const result = await deleteSecureKeyAsync(
+        mcpOAuthCredentialKey(this.credentialTarget, "tokens"),
+      );
       if (result === "error") {
         log.warn(
           { serverId: this.serverId },
@@ -512,7 +522,9 @@ export class McpOAuthProvider implements OAuthClientProvider {
       }
     }
     if (scope === "all" || scope === "client") {
-      const result = await deleteSecureKeyAsync(clientInfoKey(this.serverId));
+      const result = await deleteSecureKeyAsync(
+        mcpOAuthCredentialKey(this.credentialTarget, "client_info"),
+      );
       if (result === "error") {
         log.warn(
           { serverId: this.serverId },
@@ -527,14 +539,18 @@ export class McpOAuthProvider implements OAuthClientProvider {
       // The binding describes the registration being dropped, so it goes
       // with it. Leaving it would let a later registration inherit the
       // previous one's issuer and redirect URI.
-      await deleteSecureKeyAsync(clientBindingKey(this.serverId));
+      await deleteSecureKeyAsync(
+        mcpOAuthCredentialKey(this.credentialTarget, "client_binding"),
+      );
     }
     if (scope === "all" || scope === "verifier") {
       this._codeVerifier = undefined;
       this._state = undefined;
     }
     if (scope === "all" || scope === "discovery") {
-      const result = await deleteSecureKeyAsync(discoveryKey(this.serverId));
+      const result = await deleteSecureKeyAsync(
+        mcpOAuthCredentialKey(this.credentialTarget, "discovery"),
+      );
       if (result === "error") {
         log.warn(
           { serverId: this.serverId },
@@ -617,8 +633,10 @@ export class McpOAuthProvider implements OAuthClientProvider {
 /**
  * Check whether OAuth tokens exist in the credential store for a server.
  */
-export async function hasMcpOAuthTokens(serverId: string): Promise<boolean> {
-  const raw = await getSecureKeyAsync(tokensKey(serverId));
+export async function hasMcpOAuthTokens(
+  target: McpOAuthCredentialTarget,
+): Promise<boolean> {
+  const raw = await getSecureKeyAsync(mcpOAuthCredentialKey(target, "tokens"));
   return raw != null && raw.length > 0;
 }
 
@@ -631,10 +649,14 @@ export async function deleteMcpOAuthCredentials(
 ): Promise<{ ok: boolean; failedKeys: string[] }> {
   const [tokensResult, clientResult, bindingResult, discoveryResult] =
     await Promise.all([
-      deleteSecureKeyAsync(tokensKey(serverId)),
-      deleteSecureKeyAsync(clientInfoKey(serverId)),
-      deleteSecureKeyAsync(clientBindingKey(serverId)),
-      deleteSecureKeyAsync(discoveryKey(serverId)),
+      ...MCP_OAUTH_CREDENTIAL_LEAVES.map((leaf) =>
+        deleteSecureKeyAsync(
+          mcpOAuthCredentialKey(
+            workspaceMcpOAuthCredentialTarget(serverId),
+            leaf,
+          ),
+        ),
+      ),
     ]);
   const results = [
     { key: "tokens", result: tokensResult },
@@ -659,4 +681,50 @@ export async function deleteMcpOAuthCredentials(
       : "OAuth credential deletion completed with errors",
   );
   return { ok, failedKeys };
+}
+
+export interface PluginMcpOAuthCleanupResult {
+  readonly ok: boolean;
+  readonly unreachable: boolean;
+  readonly matchedKeys: string[];
+  readonly failedKeys: string[];
+}
+
+/** Delete every endpoint-scoped MCP OAuth record owned by one plugin. */
+export async function deletePluginMcpOAuthCredentials(
+  pluginName: string,
+): Promise<PluginMcpOAuthCleanupResult> {
+  const { listSecureKeysAsync } = await import("../security/secure-keys.js");
+  const listed = await listSecureKeysAsync();
+  if (listed.unreachable) {
+    return {
+      ok: false,
+      unreachable: true,
+      matchedKeys: [],
+      failedKeys: [],
+    };
+  }
+
+  const prefix = pluginMcpOAuthCredentialPrefix(pluginName);
+  const matchedKeys = listed.accounts.filter((key) => key.startsWith(prefix));
+  const deletionResults = await Promise.all(
+    matchedKeys.map(async (key) => {
+      try {
+        return { key, result: await deleteSecureKeyAsync(key) };
+      } catch {
+        return { key, result: "error" as const };
+      }
+    }),
+  );
+  const failedKeys = deletionResults
+    .filter(({ result }) => result === "error")
+    .map(({ key }) => key);
+  const ok = failedKeys.length === 0;
+  if (!ok) {
+    log.warn(
+      { pluginName, failedKeys },
+      "Some plugin MCP OAuth credentials could not be deleted",
+    );
+  }
+  return { ok, unreachable: false, matchedKeys, failedKeys };
 }

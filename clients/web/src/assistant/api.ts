@@ -617,11 +617,25 @@ export async function retireAssistant(): Promise<RetireResult> {
   };
 }
 
+export interface RetireAssistantOptions {
+  /**
+   * Platform id of the assistant that inherits this one's managed OAuth
+   * connections (a teleport target). The platform moves the rows before it
+   * revokes the retiring assistant's credentials, so this is the only moment
+   * they can follow the user to the new assistant.
+   */
+  successorAssistantId?: string;
+}
+
 export async function retireAssistantById(
   assistantId: string,
+  options: RetireAssistantOptions = {},
 ): Promise<RetireResult> {
   const { error, response } = await assistantsRetireDetailDestroy({
     path: { id: assistantId },
+    query: options.successorAssistantId
+      ? { successor_assistant_id: options.successorAssistantId }
+      : undefined,
     throwOnError: false,
   });
 

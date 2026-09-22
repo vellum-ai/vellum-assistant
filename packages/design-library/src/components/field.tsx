@@ -61,7 +61,7 @@ export function Field({
     <div
       data-slot="field-wrapper"
       className={cn(
-        "flex flex-col gap-1.5",
+        "flex flex-col gap-1",
         fullWidth ? "w-full" : "w-fit",
         className,
       )}
@@ -70,7 +70,7 @@ export function Field({
         <Typography
           as="label"
           id={`${id}-label`}
-          variant="body-small-default"
+          variant="label-medium-default"
           htmlFor={id}
           className={cn(
             "text-[var(--content-secondary)]",

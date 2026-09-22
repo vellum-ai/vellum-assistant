@@ -95,7 +95,10 @@ mock.module("../platform/client.js", () => ({
   isPlatformClientConfigured: () => isPlatformClientConfiguredMock(),
 }));
 
-import { emitNotificationSignal } from "../notifications/emit-signal.js";
+import {
+  classifyNotificationReceipt,
+  emitNotificationSignal,
+} from "../notifications/emit-signal.js";
 
 beforeEach(() => {
   evaluateSignalMock.mockReset();
@@ -662,7 +665,7 @@ describe("high/critical urgency channel force", () => {
       sourceChannel: "watcher" | "assistant_tool",
     ) {
       return emitNotificationSignal({
-        sourceEventName: "watcher.escalation",
+        sourceEventName: "watcher.notification",
         sourceChannel,
         sourceContextId: "watch-1",
         routingIntent: "single_channel",
@@ -705,5 +708,142 @@ describe("high/critical urgency channel force", () => {
       };
       expect(dispatched.selectedChannels).toEqual(["vellum"]);
     });
+  });
+});
+
+describe("exclusive channelAllowlist policy", () => {
+  function makeDecision(overrides: Record<string, unknown>) {
+    return {
+      shouldNotify: true,
+      selectedChannels: ["telegram"],
+      reasoningSummary: "LLM selected telegram only",
+      renderedCopy: {},
+      dedupeKey: "dedupe-allow-1",
+      confidence: 0.9,
+      fallbackUsed: false,
+      persistedDecisionId: "dec-allow-1",
+      ...overrides,
+    };
+  }
+
+  test("skips urgent vellum and platform force", async () => {
+    evaluateSignalMock.mockResolvedValue(
+      makeDecision({ selectedChannels: ["vellum"] }),
+    );
+
+    const result = await emitNotificationSignal({
+      sourceEventName: "user.send_notification",
+      sourceChannel: "assistant_tool",
+      sourceContextId: "cli-allowlist-1",
+      attentionHints: {
+        requiresAction: true,
+        urgency: "critical",
+        isAsyncBackground: false,
+        visibleInSourceNow: false,
+      },
+      contextPayload: {
+        requestedMessage: "telegram only",
+        channelAllowlist: ["vellum"],
+      },
+    });
+
+    expect(enforceRoutingIntentMock).not.toHaveBeenCalled();
+    const dispatched = dispatchDecisionMock.mock.calls[0][1] as {
+      selectedChannels: string[];
+      reasoningSummary: string;
+    };
+    expect(dispatched.selectedChannels).toEqual(["vellum"]);
+    expect(dispatched.reasoningSummary).not.toContain("forced");
+    expect(result.selectedChannels).toEqual(["vellum"]);
+    expect(result.receiptClass).toBe("unknown");
+  });
+
+  test("replaces an LLM selection with the connected allowlist", async () => {
+    evaluateSignalMock.mockResolvedValue(
+      makeDecision({ selectedChannels: ["vellum", "telegram", "platform"] }),
+    );
+
+    await emitNotificationSignal({
+      sourceEventName: "user.send_notification",
+      sourceChannel: "assistant_tool",
+      sourceContextId: "cli-allowlist-2",
+      attentionHints: {
+        requiresAction: true,
+        urgency: "high",
+        isAsyncBackground: false,
+        visibleInSourceNow: false,
+      },
+      contextPayload: { channelAllowlist: ["vellum"] },
+    });
+
+    const dispatched = dispatchDecisionMock.mock.calls[0][1] as {
+      selectedChannels: string[];
+      shouldNotify: boolean;
+      reasoningSummary: string;
+    };
+    expect(dispatched.selectedChannels).toEqual(["vellum"]);
+    expect(dispatched.shouldNotify).toBe(true);
+    expect(dispatched.reasoningSummary).toContain("channelAllowlist: vellum");
+  });
+
+  test("access-request floor still adds vellum when the allowlist omitted it", async () => {
+    evaluateSignalMock.mockResolvedValue(
+      makeDecision({ shouldNotify: false, selectedChannels: [] }),
+    );
+
+    await emitNotificationSignal<string>({
+      sourceEventName: "ingress.access_request",
+      sourceChannel: "telegram",
+      sourceContextId: "access-req-allowlist-1",
+      requiresConversation: true,
+      attentionHints: {
+        requiresAction: true,
+        urgency: "high",
+        isAsyncBackground: false,
+        visibleInSourceNow: false,
+      },
+      contextPayload: {
+        requestId: "req-allowlist-1",
+        channelAllowlist: ["telegram"],
+      },
+    });
+
+    const dispatched = dispatchDecisionMock.mock.calls[0][1] as {
+      shouldNotify: boolean;
+      selectedChannels: string[];
+      reasoningSummary: string;
+    };
+    expect(dispatched.shouldNotify).toBe(true);
+    expect(dispatched.selectedChannels).toContain("vellum");
+    expect(dispatched.reasoningSummary).toContain(
+      "vellum forced: decisionable access request",
+    );
+  });
+});
+
+describe("classifyNotificationReceipt", () => {
+  test("reports provider_accepted when an external channel is sent", () => {
+    expect(
+      classifyNotificationReceipt([
+        { channel: "telegram", destination: "chat-1", status: "sent" },
+        { channel: "vellum", destination: "vellum", status: "sent" },
+      ]),
+    ).toBe("provider_accepted");
+  });
+
+  test("reports gateway_accepted when only platform is accepted", () => {
+    expect(
+      classifyNotificationReceipt([
+        { channel: "platform", destination: "push", status: "pending" },
+      ]),
+    ).toBe("gateway_accepted");
+  });
+
+  test("does not claim client_os_posted from a vellum sent row", () => {
+    expect(
+      classifyNotificationReceipt([
+        { channel: "vellum", destination: "vellum", status: "sent" },
+      ]),
+    ).toBe("unknown");
   });
 });

@@ -509,9 +509,14 @@ describe("credentials/prompt route", () => {
       error: "unsupported_channel",
     };
 
-    // WHEN the route handles the prompt
+    // WHEN the route handles a conversation-scoped prompt
     const result = (await promptRoute!.handler({
-      body: { service: "stripe", field: "api_key", label: "Stripe API Key" },
+      body: {
+        service: "stripe",
+        field: "api_key",
+        label: "Stripe API Key",
+        conversationId: "conv-1",
+      },
     })) as PromptResponse;
 
     // THEN it is a plain failure with no cancel flag
@@ -520,6 +525,32 @@ describe("credentials/prompt route", () => {
     expect(result.error).toBe(
       "This conversation's channel does not support secure credential entry",
     );
+  });
+
+  test("names the missing conversation when a headless prompt cannot be delivered", async () => {
+    /**
+     * With no conversationId the failure is not about a channel: no client can
+     * render the card at all. The model-facing text must say so and steer to
+     * the in-app credentials page, never to pasting the value into chat.
+     */
+    // GIVEN a conversation-less prompt that could not mint a collection link
+    secretResult = {
+      value: null,
+      delivery: "store",
+      error: "unsupported_channel",
+    };
+
+    // WHEN the route handles a prompt with no conversationId
+    const result = (await promptRoute!.handler({
+      body: { service: "stripe", field: "api_key", label: "Stripe API Key" },
+    })) as PromptResponse;
+
+    // THEN it fails fast with headless-specific guidance
+    expect(result.ok).toBe(false);
+    expect(result.cancelled).toBeUndefined();
+    expect(result.error).toContain("No conversation is attached");
+    expect(result.error).toContain("Settings > Credentials");
+    expect(result.error).toContain("Never ask them to paste it into chat");
   });
 
   test("returns a pending collection link for unsupported channels when minted", async () => {
@@ -721,7 +752,8 @@ describe("credentials/prompt route", () => {
   test("still prompts for the ACP Claude token outside any conversation (headless CLI)", async () => {
     /**
      * A bare CLI `credentials prompt` with no conversation (headless) can't show
-     * an inline card, so the guard must not fire and the prompt proceeds.
+     * an inline card, so the guard must not fire and the prompt proceeds (where
+     * `requestSecretStandalone` fails fast into the collection-link fallback).
      */
     // GIVEN no conversation resolves (headless CLI, no conversationId)
     conversationExists = false;

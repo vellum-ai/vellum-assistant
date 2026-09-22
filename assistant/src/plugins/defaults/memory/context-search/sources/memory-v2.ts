@@ -26,6 +26,8 @@
 import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import { extname, join } from "node:path";
 
+import { safeStringSlice } from "@vellumai/plugin-api";
+
 import { embedWithRetry } from "../../../../../persistence/embeddings/embed.js";
 import { getLogger } from "../../logging.js";
 import { isPathInsideRoot } from "../../path-containment.js";
@@ -518,9 +520,11 @@ function buildLexicalExcerpt(
   if (focusedLine.length <= MEMORY_V2_LEXICAL_EXCERPT_MAX_CHARS) {
     return focusedLine;
   }
-  return `${focusedLine
-    .slice(0, MEMORY_V2_LEXICAL_EXCERPT_MAX_CHARS - 3)
-    .trimEnd()}...`;
+  return `${safeStringSlice(
+    focusedLine,
+    0,
+    MEMORY_V2_LEXICAL_EXCERPT_MAX_CHARS - 3,
+  ).trimEnd()}...`;
 }
 
 function toLexicalEvidence(match: MemoryV2LexicalMatch): RecallEvidence {

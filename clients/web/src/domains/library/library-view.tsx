@@ -9,8 +9,14 @@
  */
 
 import { useQueryClient } from "@tanstack/react-query";
-import { Download, Search } from "lucide-react";
-import { type ChangeEvent, useCallback, useRef, useState } from "react";
+import { Download, FilePlus, Search } from "lucide-react";
+import {
+  type ChangeEvent,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
 import { DeployDialogs } from "@/components/deploy-dialogs";
 import { DeleteAppDialog } from "@/components/delete-app-dialog";
@@ -18,10 +24,12 @@ import { LibraryDocumentCard } from "@/domains/library/components/library-docume
 import { LibraryEmptyState } from "@/domains/library/components/library-empty-state";
 import { LibraryGridSection } from "@/domains/library/components/library-grid-section";
 import { useLibraryData } from "@/domains/library/use-library-data";
+import { useIntelligenceLayoutSlotsStore } from "@/components/layout/intelligence-layout-slots-store";
 import { appsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useDeployStore } from "@/stores/deploy-store";
 import { useAppDelete } from "@/hooks/use-app-delete";
 import { usePinnedApps } from "@/hooks/use-pinned-apps";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 import type { AppSummary } from "@/types/app-types";
 import { getCachedAppHtml } from "@/utils/app-html-cache";
 import { importBundle } from "@/utils/import-bundle";
@@ -35,6 +43,10 @@ export interface LibraryViewProps {
   assistantName?: string;
   onNewConversation?: (initialMessage?: string) => void;
   onOpenDocument?: (documentSurfaceId: string) => void;
+  /** Create a blank document and open it. Omitted when the assistant cannot. */
+  onNewDocument?: () => void;
+  /** True while a document from {@link onNewDocument} is being created. */
+  isCreatingDocument?: boolean;
   onOpenApp: (appId: string) => void;
 }
 
@@ -43,9 +55,12 @@ export function LibraryView({
   assistantName,
   onNewConversation,
   onOpenDocument,
+  onNewDocument,
+  isCreatingDocument = false,
   onOpenApp,
 }: LibraryViewProps) {
   const { t } = useTranslation("library");
+  const isMobile = useIsMobile();
   const queryClient = useQueryClient();
   const { togglePin, pinnedAppIds } = usePinnedApps(assistantId);
   const isDeploying = useDeployStore.use.isDeploying();
@@ -140,6 +155,95 @@ export function LibraryView({
     [togglePin],
   );
 
+  // --- Header actions ---
+  // New Document sits right of Import as the primary action. Import is the
+  // only way a `.vellum` recipient gets their first app, so it stays
+  // reachable on the empty library as well as the populated one. It
+  // sits on the layout's heading row, to the right of the "Library" title,
+  // rather than on a row of its own above the search field; the file input
+  // it opens stays down in the body, so the click reaches a mounted input.
+  // Registered through the layout's slot store because the heading is the
+  // layout's, not this view's (see IntelligenceLayout).
+  const setHeaderTrailing =
+    useIntelligenceLayoutSlotsStore.use.setHeaderTrailing();
+  const showsImport = !loading && !error;
+  useEffect(() => {
+    if (!showsImport) {
+      setHeaderTrailing(null);
+      return;
+    }
+    const spinner = (
+      <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+    );
+    const importIcon = isImporting ? spinner : <Download aria-hidden />;
+    const newDocumentIcon = isCreatingDocument ? (
+      spinner
+    ) : (
+      <FilePlus aria-hidden />
+    );
+    setHeaderTrailing(
+      isMobile ? (
+        <div className="flex items-center gap-2">
+          <Button
+            shape="pill"
+            variant="ghost"
+            iconOnly={importIcon}
+            aria-label={t("libraryView.import")}
+            tooltip={t("libraryView.import")}
+            className="max-md:bg-[var(--surface-active)]"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isImporting}
+          />
+          {onNewDocument ? (
+            <Button
+              shape="pill"
+              variant="ghost"
+              iconOnly={newDocumentIcon}
+              aria-label={t("libraryView.newDocument")}
+              tooltip={t("libraryView.newDocument")}
+              className="max-md:bg-[var(--surface-active)]"
+              onClick={onNewDocument}
+              disabled={isCreatingDocument}
+            />
+          ) : null}
+        </div>
+      ) : (
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outlined"
+            size="regular"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isImporting}
+          >
+            {importIcon}
+            <span className="ml-1.5">{t("libraryView.import")}</span>
+          </Button>
+          {onNewDocument ? (
+            <Button
+              size="regular"
+              onClick={onNewDocument}
+              disabled={isCreatingDocument}
+            >
+              {newDocumentIcon}
+              <span className="ml-1.5">{t("libraryView.newDocument")}</span>
+            </Button>
+          ) : null}
+        </div>
+      ),
+    );
+    return () => {
+      setHeaderTrailing(null);
+    };
+  }, [
+    isMobile,
+    showsImport,
+    isImporting,
+    onNewDocument,
+    isCreatingDocument,
+    setHeaderTrailing,
+    t,
+  ]);
+
   // --- Render: loading ---
   if (loading) {
     return (
@@ -171,128 +275,115 @@ export function LibraryView({
     );
   }
 
-  // --- Render: empty state ---
-  if (apps.length === 0 && documents.length === 0) {
-    return (
-      <LibraryEmptyState
-        accept={bundleAccept}
-        fileInputRef={fileInputRef}
-        isImporting={isImporting}
-        onImportBundle={handleImportBundle}
-        onNewConversation={
-          onNewConversation ? () => onNewConversation() : undefined
-        }
-      />
-    );
-  }
+  const isEmpty = apps.length === 0 && documents.length === 0;
 
-  // --- Render: main library grid ---
+  // --- Render: library ---
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <div className="mb-4 flex shrink-0 items-center justify-end gap-4">
-        <div className="flex items-center gap-2">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept={bundleAccept}
-            className="hidden"
-            onChange={handleImportBundle}
+      {/* The picker the header's Import button opens. Outside the
+          empty/populated split so the button works on both. */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept={bundleAccept}
+        className="hidden"
+        onChange={handleImportBundle}
+      />
+
+      {isEmpty ? (
+        <div className="min-h-0 flex-1">
+          <LibraryEmptyState
+            onNewConversation={
+              onNewConversation ? () => onNewConversation() : undefined
+            }
           />
-          <Button
-            variant="outlined"
-            size="regular"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={isImporting}
-          >
-            {isImporting ? (
-              <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-            ) : (
-              <Download size={14} />
-            )}
-            <span className="ml-1.5">{t("libraryView.import")}</span>
-          </Button>
         </div>
-      </div>
-
-      <div className="mb-6 shrink-0">
-        <Input
-          fullWidth
-          type="text"
-          placeholder={t("libraryView.searchPlaceholder")}
-          value={searchText}
-          onChange={(e: ChangeEvent<HTMLInputElement>) =>
-            setSearchText(e.target.value)
-          }
-          leftIcon={<Search size={16} />}
-        />
-      </div>
-
-      <div className="flex-1 overflow-y-auto">
-        {filteredApps.length === 0 && filteredDocuments.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16">
-            <Search size={32} className="mb-4 text-[var(--content-tertiary)]" />
-            <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
-              {t("libraryView.noMatches", { query: searchText })}
-            </p>
-          </div>
-        ) : (
-          <div className="flex flex-col gap-8">
-            <LibraryGridSection
-              title={t("libraryView.pinned")}
-              apps={pinnedApps}
-              assistantId={assistantId}
-              pinnedAppIds={pinnedAppIds}
-              onOpen={onOpenApp}
-              onPin={handlePinToggle}
-              onDelete={setAppPendingDelete}
-              onDeploy={handleDeploy}
+      ) : (
+        <>
+          <div className="mb-6 shrink-0">
+            <Input
+              fullWidth
+              type="text"
+              placeholder={t("libraryView.searchPlaceholder")}
+              value={searchText}
+              onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                setSearchText(e.target.value)
+              }
+              leftIcon={<Search size={16} />}
             />
-            <LibraryGridSection
-              title={t("libraryView.recents")}
-              apps={recentApps}
-              assistantId={assistantId}
-              pinnedAppIds={pinnedAppIds}
-              onOpen={onOpenApp}
-              onPin={handlePinToggle}
-              onDelete={setAppPendingDelete}
-              onDeploy={handleDeploy}
-            />
-            {filteredDocuments.length > 0 ? (
-              <section>
-                <h2 className="mb-4 text-body-small-emphasised text-[color:var(--content-secondary)]">
-                  {t("libraryView.documents")}
-                </h2>
-                <div className="grid grid-cols-[repeat(auto-fill,minmax(max(220px,calc((100%-6rem)/5)),1fr))] gap-6">
-                  {filteredDocuments.map((doc) => (
-                    <LibraryDocumentCard
-                      key={doc.surfaceId}
-                      document={doc}
-                      onOpen={(documentSurfaceId) => {
-                        if (onOpenDocument) {
-                          onOpenDocument(documentSurfaceId);
-                        }
-                      }}
-                    />
-                  ))}
-                </div>
-              </section>
-            ) : null}
           </div>
-        )}
-      </div>
 
-      <DeployDialogs
-        assistantId={assistantId}
-        assistantName={assistantName}
-        onStartConversation={onNewConversation}
-      />
+          <div className="flex-1 overflow-y-auto">
+            {filteredApps.length === 0 && filteredDocuments.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16">
+                <Search
+                  size={32}
+                  className="mb-4 text-[var(--content-tertiary)]"
+                />
+                <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
+                  {t("libraryView.noMatches", { query: searchText })}
+                </p>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-8">
+                <LibraryGridSection
+                  title={t("libraryView.pinned")}
+                  apps={pinnedApps}
+                  assistantId={assistantId}
+                  pinnedAppIds={pinnedAppIds}
+                  onOpen={onOpenApp}
+                  onPin={handlePinToggle}
+                  onDelete={setAppPendingDelete}
+                  onDeploy={handleDeploy}
+                />
+                <LibraryGridSection
+                  title={t("libraryView.recents")}
+                  apps={recentApps}
+                  assistantId={assistantId}
+                  pinnedAppIds={pinnedAppIds}
+                  onOpen={onOpenApp}
+                  onPin={handlePinToggle}
+                  onDelete={setAppPendingDelete}
+                  onDeploy={handleDeploy}
+                />
+                {filteredDocuments.length > 0 ? (
+                  <section>
+                    <h2 className="mb-4 text-body-small-emphasised text-[color:var(--content-secondary)]">
+                      {t("libraryView.documents")}
+                    </h2>
+                    <div className="grid grid-cols-[repeat(auto-fill,minmax(max(220px,calc((100%-6rem)/5)),1fr))] gap-6">
+                      {filteredDocuments.map((doc) => (
+                        <LibraryDocumentCard
+                          key={doc.surfaceId}
+                          document={doc}
+                          onOpen={(documentSurfaceId) => {
+                            if (onOpenDocument) {
+                              onOpenDocument(documentSurfaceId);
+                            }
+                          }}
+                        />
+                      ))}
+                    </div>
+                  </section>
+                ) : null}
+              </div>
+            )}
+          </div>
 
-      <DeleteAppDialog
-        app={appPendingDelete}
-        isDeleting={isDeleting}
-        onConfirm={handleConfirmDelete}
-        onCancel={handleCancelDelete}
-      />
+          <DeployDialogs
+            assistantId={assistantId}
+            assistantName={assistantName}
+            onStartConversation={onNewConversation}
+          />
+
+          <DeleteAppDialog
+            app={appPendingDelete}
+            isDeleting={isDeleting}
+            onConfirm={handleConfirmDelete}
+            onCancel={handleCancelDelete}
+          />
+        </>
+      )}
     </div>
   );
 }

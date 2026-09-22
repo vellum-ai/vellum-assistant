@@ -32,11 +32,45 @@ mock.module("../fetch.js", () => ({
   fetchImpl: (...args: Parameters<FetchFn>) => fetchImpl(...args),
 }));
 
+let velayWebhooksEnabled = false;
+let claimedRoutes: { path: string; type: string; source?: string | null }[] =
+  [];
+let claimError: Error | undefined;
+
+// This suite reads the claim log instead of the real registry. Module mocks
+// are visible to every file in the run, so the untouched exports are spread
+// through rather than dropped.
+const actualRouteStore = await import("../db/webhook-ingress-route-store.js");
+mock.module("../db/webhook-ingress-route-store.js", () => ({
+  ...actualRouteStore,
+  registerWebhookIngressRoute: (input: {
+    path: string;
+    type: string;
+    source?: string | null;
+  }) => {
+    if (claimError) {
+      throw claimError;
+    }
+    claimedRoutes.push(input);
+    return input;
+  },
+}));
+
+const actualFlagResolver = await import("../feature-flag-resolver.js");
+mock.module("../feature-flag-resolver.js", () => ({
+  ...actualFlagResolver,
+  isFeatureFlagEnabled: (flag: string) =>
+    flag === "velay-webhooks" ? velayWebhooksEnabled : false,
+}));
+
 const { syncConfiguredTwilioPhoneNumberWebhooks } =
   await import("./webhook-sync.js");
 
 afterEach(() => {
   resetMockFetch();
+  velayWebhooksEnabled = false;
+  claimedRoutes = [];
+  claimError = undefined;
 });
 
 function makeCaches(opts: {
@@ -259,6 +293,79 @@ describe("syncConfiguredTwilioPhoneNumberWebhooks", () => {
     );
 
     expect(getMockFetchCalls()).toEqual([]);
+  });
+
+  test("claims the voice and status paths before calling Twilio when the flag is on", async () => {
+    velayWebhooksEnabled = true;
+    mockTwilioLookupAndUpdate();
+    let claimedBeforeTwilio: number | undefined;
+    const realFetchImpl = fetchImpl;
+    fetchImpl = mock(async (...args: Parameters<FetchFn>) => {
+      claimedBeforeTwilio ??= claimedRoutes.length;
+      return realFetchImpl(...args);
+    });
+
+    await syncConfiguredTwilioPhoneNumberWebhooks(
+      makeCaches({
+        phoneNumber: PHONE_NUMBER,
+        accountSid: ACCOUNT_SID,
+        authToken: AUTH_TOKEN,
+        publicBaseUrl: "https://velay.example.test",
+      }),
+    );
+
+    expect(claimedRoutes).toEqual([
+      {
+        path: "/webhooks/twilio/voice",
+        type: "twilio_voice",
+        source: PHONE_NUMBER,
+      },
+      {
+        path: "/webhooks/twilio/status",
+        type: "twilio_status",
+        source: PHONE_NUMBER,
+      },
+    ]);
+    expect(claimedBeforeTwilio).toBe(2);
+  });
+
+  test("claims nothing while the flag is off", async () => {
+    mockTwilioLookupAndUpdate();
+
+    await syncConfiguredTwilioPhoneNumberWebhooks(
+      makeCaches({
+        phoneNumber: PHONE_NUMBER,
+        accountSid: ACCOUNT_SID,
+        authToken: AUTH_TOKEN,
+        publicBaseUrl: "https://generic.example.test",
+      }),
+    );
+
+    expect(claimedRoutes).toEqual([]);
+    const calls = getMockFetchCalls();
+    expect(calls).toHaveLength(2);
+    const body = new URLSearchParams(String(calls[1].init.body));
+    expect(body.get("VoiceUrl")).toBe(
+      "https://generic.example.test/webhooks/twilio/voice",
+    );
+  });
+
+  test("syncs the provider anyway when a path claim fails", async () => {
+    velayWebhooksEnabled = true;
+    claimError = new Error("database disk image is malformed");
+    mockTwilioLookupAndUpdate();
+
+    await syncConfiguredTwilioPhoneNumberWebhooks(
+      makeCaches({
+        phoneNumber: PHONE_NUMBER,
+        accountSid: ACCOUNT_SID,
+        authToken: AUTH_TOKEN,
+        publicBaseUrl: "https://generic.example.test",
+      }),
+    );
+
+    expect(claimedRoutes).toEqual([]);
+    expect(getMockFetchCalls()).toHaveLength(2);
   });
 
   test("does not throw when Twilio lookup fails", async () => {

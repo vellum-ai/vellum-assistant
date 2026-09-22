@@ -25,10 +25,13 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-/** The width the panel actually gets (`w-96`), on the panel's own surface. */
+/**
+ * The width the panel actually gets (435px), on the panel's own surface,
+ * with the padding the bell puts around the scene.
+ */
 function Panel({ children }: { children: ReactNode }) {
   return (
-    <div className="w-96 rounded-lg border border-[var(--border-base)] bg-[var(--surface-base)] p-2">
+    <div className="w-[435px] rounded-[var(--radius-xl)] bg-[var(--surface-lift)] p-[var(--app-spacing-lg)] shadow-[var(--shadow-popover)]">
       {children}
     </div>
   );

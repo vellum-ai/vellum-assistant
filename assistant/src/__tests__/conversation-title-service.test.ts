@@ -50,7 +50,14 @@ const mockGetConversation = mock(
       isAutoTitle: number;
     },
 );
-const mockGetMessages = mock(() => [
+type TitleTestRow = {
+  role: string;
+  content: string;
+  /** Present on rows written under the tool-gated reply surface. */
+  metadata?: string;
+};
+
+const mockGetMessages = mock((): TitleTestRow[] => [
   { role: "user", content: "first message" },
   { role: "assistant", content: "first reply" },
   { role: "user", content: "follow-up" },
@@ -97,6 +104,7 @@ mock.module("../runtime/sync/resource-sync-events.js", () => ({
   publishConversationTitleChanged: mockPublishConversationTitleChanged,
 }));
 
+import { MESSAGE_KEYS } from "../i18n/index.js";
 import {
   AUTO_TITLE_DETERMINISTIC,
   AUTO_TITLE_LLM,
@@ -302,10 +310,10 @@ describe("conversation-title-service", () => {
       userMessage: "so about that t-shirt...",
     });
 
-    expect(result.title).toBe("Untitled Conversation");
+    expect(result.title).toBe(MESSAGE_KEYS.CONVERSATION_TITLE_UNTITLED);
     expect(mockUpdateConversationTitle).toHaveBeenCalledWith(
       "conv-1",
-      "Untitled Conversation",
+      MESSAGE_KEYS.CONVERSATION_TITLE_UNTITLED,
       AUTO_TITLE_DETERMINISTIC,
     );
   });
@@ -326,7 +334,7 @@ describe("conversation-title-service", () => {
       userMessage: "something",
     });
 
-    expect(result.title).toBe("Untitled Conversation");
+    expect(result.title).toBe(MESSAGE_KEYS.CONVERSATION_TITLE_UNTITLED);
   });
 
   // The core bug this PR fixes: weak title models emit their reasoning or
@@ -354,10 +362,10 @@ describe("conversation-title-service", () => {
       userMessage: "hey baby",
     });
 
-    expect(result.title).toBe("Untitled Conversation");
+    expect(result.title).toBe(MESSAGE_KEYS.CONVERSATION_TITLE_UNTITLED);
     expect(mockUpdateConversationTitle).toHaveBeenCalledWith(
       "conv-1",
-      "Untitled Conversation",
+      MESSAGE_KEYS.CONVERSATION_TITLE_UNTITLED,
       AUTO_TITLE_DETERMINISTIC,
     );
   });
@@ -416,7 +424,7 @@ describe("conversation-title-service", () => {
       userMessage: "x",
     });
 
-    expect(result.title).toBe("Untitled Conversation");
+    expect(result.title).toBe(MESSAGE_KEYS.CONVERSATION_TITLE_UNTITLED);
   });
 
   test("regeneration skips LLM call when recent messages have no extractable text", async () => {
@@ -508,17 +516,17 @@ describe("conversation-title-service", () => {
     });
 
     expect(provider.sendMessage).not.toHaveBeenCalled();
-    expect(result).toEqual({ title: "Untitled Conversation", updated: true });
+    expect(result).toEqual({ title: MESSAGE_KEYS.CONVERSATION_TITLE_UNTITLED, updated: true });
     expect(mockUpdateConversationTitle).toHaveBeenCalledWith(
       "conv-1",
-      "Untitled Conversation",
+      MESSAGE_KEYS.CONVERSATION_TITLE_UNTITLED,
       AUTO_TITLE_DETERMINISTIC,
     );
   });
 
   test("keeps a background job's deterministic title when the model declines", async () => {
     // The model answered with prose the normalizer rejects, so there is no
-    // generated title. Settling for "Untitled Conversation" would name the
+    // generated title. Settling for the untitled fallback would name the
     // job's work less well than the bootstrap title already does.
     mockGetConversation.mockImplementation(() => ({
       title: "Memory consolidation",
@@ -577,6 +585,9 @@ describe("conversation-title-service", () => {
     expect(content).not.toContain("Generate a very short title");
     expect(content).not.toContain("do NOT respond");
     expect(options.systemPrompt).toContain("Do NOT respond");
+    expect(options.systemPrompt).toContain(
+      "same language as the conversation content",
+    );
   });
 
   test("queueGenerateConversationTitle serializes concurrent calls", async () => {
@@ -654,12 +665,75 @@ describe("conversation-title-service", () => {
     ).find((c) => c[0] === "conv-1");
     expect(firstUpdate).toEqual([
       "conv-1",
-      "Untitled Conversation",
+      MESSAGE_KEYS.CONVERSATION_TITLE_UNTITLED,
       AUTO_TITLE_DETERMINISTIC,
     ]);
     const secondUpdate = (
       mockUpdateConversationTitle.mock.calls as unknown as string[][]
     ).find((c) => c[0] === "conv-2" && c[1] === "Recovery Title");
     expect(secondUpdate).toBeTruthy();
+  });
+});
+
+/**
+ * A gated turn's rows are not what a user read: the plain text is a private
+ * scratchpad and the reply is inside a `send_user_message` call whose result is
+ * the bare receipt "Delivered.". Titling from the raw rows named these
+ * conversations "Delivery Confirmation" instead of what they were about.
+ */
+describe("titles on a tool-gated turn", () => {
+  const PRIVATE = JSON.stringify({ assistantTextVisibility: "private" });
+
+  function seedGatedGreeting(): void {
+    mockGetMessages.mockReturnValueOnce([
+      {
+        role: "user",
+        content: JSON.stringify([
+          { type: "text", text: "yo yo!! whats your name" },
+        ]),
+      },
+      {
+        role: "assistant",
+        metadata: PRIVATE,
+        content: JSON.stringify([
+          {
+            type: "text",
+            text: "The user is greeting me and asking my name.",
+          },
+          {
+            type: "tool_use",
+            id: "toolu_send",
+            name: "send_user_message",
+            input: { message: "vizgrid. what's up?" },
+          },
+        ]),
+      },
+      {
+        role: "user",
+        content: JSON.stringify([
+          {
+            type: "tool_result",
+            tool_use_id: "toolu_send",
+            content: "Delivered.",
+          },
+        ]),
+      },
+    ]);
+  }
+
+  test("titles from the greeting, not the delivery", async () => {
+    seedGatedGreeting();
+    const provider = makeProvider();
+
+    await regenerateConversationTitle({ conversationId: "conv-1", provider });
+
+    const prompt = (provider.sendMessage.mock.calls[0] as any)?.[0]?.[0]
+      ?.content as string;
+    expect(prompt).toContain("yo yo!! whats your name");
+    // The delivered message is what the assistant said.
+    expect(prompt).toContain("vizgrid. what's up?");
+    // Neither the receipt nor the scratchpad reaches the title model.
+    expect(prompt).not.toContain("Delivered.");
+    expect(prompt).not.toContain("The user is greeting me");
   });
 });

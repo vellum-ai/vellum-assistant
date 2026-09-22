@@ -25,13 +25,9 @@ mock.module("../../mcp/effective-config.js", () => ({
     servers: {
       unabyss: {
         transport: { type: "streamable-http", url: "https://mcp.example/x" },
-        enabled: true,
-        defaultRiskLevel: "low",
-        maxTools: 20,
         source: "plugin",
       },
     },
-    globalMaxTools: 50,
   }),
   pluginMcpServersChangedSinceLastBuild: () => pluginServersChanged,
 }));
@@ -45,8 +41,12 @@ mock.module("../../mcp/mcp-header-store.js", () => ({
 }));
 
 mock.module("../../config/loader.js", () => ({
-  getConfig: () => ({ mcp: { servers: {}, globalMaxTools: 50 } }),
+  getConfig: () => ({}),
   invalidateConfigCache: () => {},
+}));
+
+mock.module("../../mcp/workspace-mcp-config.js", () => ({
+  loadWorkspaceMcpConfig: () => ({ servers: {} }),
 }));
 
 mock.module("../../tools/registry.js", () => ({

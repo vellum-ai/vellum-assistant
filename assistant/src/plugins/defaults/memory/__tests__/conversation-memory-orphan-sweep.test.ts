@@ -20,12 +20,16 @@ import {
 import { conversations } from "../../../../persistence/schema/index.js";
 import { sweepOrphanConversationMemoryTables } from "../conversation-memory-orphan-sweep.js";
 import { CONVERSATION_KEYED_MEMORY_TABLES } from "../conversation-memory-purge.js";
+import { ensureMemoryV3PluginSchema } from "../v3/plugin-schema.js";
 import {
   relocatedMemoryRowCount as rowCount,
   seedRelocatedMemoryRow as seedRow,
 } from "./relocated-memory-test-rows.js";
 
 await initializeDb();
+// The memory-v3 plugin creates its own tables (init hook, or a store's
+// first use), not the global chain: stand them up as the init hook does.
+ensureMemoryV3PluginSchema();
 
 function seedConversation(id: string): void {
   getDb()

@@ -23,7 +23,10 @@ let retireLocalResult: { ok: true } | { ok: false; error?: string } = {
 
 // --- module mocks --- //
 
-const retireAssistantByIdMock = mock(async (_id: string) => retireByIdResult);
+const retireAssistantByIdMock = mock(
+  async (_id: string, _options?: { successorAssistantId?: string }) =>
+    retireByIdResult,
+);
 const listAssistantsMock = mock(async () => ({
   ok: true as const,
   status: 200,
@@ -145,6 +148,40 @@ afterEach(() => {
 });
 
 describe("retireAssistant", () => {
+  test("platform assistant hands its OAuth connections to the successor", async () => {
+    // GIVEN a platform-hosted source and a teleport target to inherit from it
+    lockfileAssistants = [{ assistantId: "p1", cloud: "vellum" }];
+    storeAssistants = [{ id: "p1" }];
+
+    // WHEN retiring it with a successor
+    const outcome = await retireAssistant(queryClient, "p1", {
+      successorAssistantId: "succ",
+    });
+
+    // THEN the platform delete names the successor
+    expect(retireAssistantByIdMock).toHaveBeenCalledWith("p1", {
+      successorAssistantId: "succ",
+    });
+    expect(outcome.ok).toBe(true);
+  });
+
+  test("local assistant ignores a successor: the host CLI retires it", async () => {
+    // GIVEN a local source in local mode
+    isLocalClientValue = true;
+    lockfileAssistants = [{ assistantId: "l1", cloud: "local" }];
+    storeAssistants = [{ id: "l1" }];
+
+    // WHEN retiring it with a successor
+    const outcome = await retireAssistant(queryClient, "l1", {
+      successorAssistantId: "succ",
+    });
+
+    // THEN the local path ran and the platform delete was never called
+    expect(retireLocalAssistantMock).toHaveBeenCalledWith("l1");
+    expect(retireAssistantByIdMock).not.toHaveBeenCalled();
+    expect(outcome.ok).toBe(true);
+  });
+
   test("platform assistant routes through the platform delete by id", async () => {
     // GIVEN a platform-hosted target in web mode
     lockfileAssistants = [{ assistantId: "p1", cloud: "vellum" }];
@@ -154,7 +191,7 @@ describe("retireAssistant", () => {
     const outcome = await retireAssistant(queryClient, "p1");
 
     // THEN the platform delete ran with that id and the local path did not
-    expect(retireAssistantByIdMock).toHaveBeenCalledWith("p1");
+    expect(retireAssistantByIdMock).toHaveBeenCalledWith("p1", {});
     expect(retireLocalAssistantMock).not.toHaveBeenCalled();
     expect(forgetAssistantAvatarMock).toHaveBeenCalledWith(queryClient, "p1");
     expect(outcome.ok).toBe(true);
@@ -240,7 +277,7 @@ describe("retireAssistant", () => {
     const outcome = await retireAssistant(queryClient, "p1");
 
     // THEN it uses the platform delete (not local) and re-syncs the lockfile
-    expect(retireAssistantByIdMock).toHaveBeenCalledWith("p1");
+    expect(retireAssistantByIdMock).toHaveBeenCalledWith("p1", {});
     expect(retireLocalAssistantMock).not.toHaveBeenCalled();
     expect(syncPlatformAssistantsToLockfileMock).toHaveBeenCalledWith(
       [{ id: "p1", is_local: false, created: "" }],

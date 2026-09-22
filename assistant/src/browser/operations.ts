@@ -32,8 +32,38 @@ import {
 } from "../tools/browser/browser-execution.js";
 import { browserManager } from "../tools/browser/browser-manager.js";
 import { normalizeBrowserMode } from "../tools/browser/browser-mode.js";
-import type { ToolContext, ToolExecutionResult } from "../tools/types.js";
+import type { ToolExecutionResult } from "../tools/types.js";
+import type { BrowserOperationContext as ToolContext } from "./types.js";
 import type { BrowserOperation } from "./types.js";
+
+export type BrowserOperationLifecycle = "action" | "terminal" | "status";
+
+const OPERATION_LIFECYCLE: Record<BrowserOperation, BrowserOperationLifecycle> =
+  {
+    navigate: "action",
+    snapshot: "action",
+    screenshot: "action",
+    close: "terminal",
+    attach: "action",
+    detach: "terminal",
+    click: "action",
+    type: "action",
+    press_key: "action",
+    scroll: "action",
+    select_option: "action",
+    hover: "action",
+    wait_for: "action",
+    extract: "action",
+    wait_for_download: "action",
+    fill_credential: "action",
+    status: "status",
+  };
+
+export function browserOperationLifecycle(
+  operation: BrowserOperation,
+): BrowserOperationLifecycle {
+  return OPERATION_LIFECYCLE[operation];
+}
 
 // ── Dispatch handlers ────────────────────────────────────────────────
 

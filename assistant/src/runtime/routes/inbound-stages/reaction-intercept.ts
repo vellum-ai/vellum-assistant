@@ -35,6 +35,7 @@ import { createApprovalCopyGenerator } from "../../../daemon/approval-generators
 import { findConversation } from "../../../daemon/conversation-registry.js";
 import { getDiskPressureStatus } from "../../../daemon/disk-pressure-guard.js";
 import { classifyDiskPressureTurnPolicy } from "../../../daemon/disk-pressure-policy.js";
+import { actorAuthorProvenance } from "../../../daemon/message-provenance.js";
 import { processMessage } from "../../../daemon/process-message.js";
 import { renderReactionHistoryText } from "../../../daemon/reaction-history-render.js";
 import type { TrustContext } from "../../../daemon/trust-context-types.js";
@@ -60,7 +61,7 @@ import {
   storePayload,
 } from "../../../persistence/delivery-crud.js";
 import { markProcessed } from "../../../persistence/delivery-status.js";
-import { extractTextFromStoredMessageContent } from "../../../persistence/message-content.js";
+import { userFacingTextOfRow } from "../../../persistence/user-facing-content.js";
 import { getLogger } from "../../../util/logger.js";
 import { toTrustContext } from "../../actor-trust-resolver.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../assistant-scope.js";
@@ -386,7 +387,11 @@ function buildReactionWakeTurn(params: {
 
   const facts = reactionFacts(params);
   const neutralMeta = buildNeutralReactionMeta(facts);
-  const targetText = extractTextFromStoredMessageContent(targetRow.content);
+  // Quote what was actually posted: on a row a `send_user_message` turn marked
+  // private, that is the message the tool delivered, not the working notes
+  // beside it. Matches how the reload-time renderer and the reaction-target
+  // index read the same row.
+  const targetText = userFacingTextOfRow(targetRow.content, targetRow.metadata);
   const content = renderReactionHistoryText(
     neutralMeta,
     () => targetText || undefined,
@@ -540,6 +545,7 @@ async function persistReactionAsMessage(params: {
     {
       metadata: {
         ...provenanceFromTrustContext(params.trustCtx),
+        ...actorAuthorProvenance(params.trustCtx),
         ...buildReactionRowEnvelope(facts),
       },
       skipIndexing: true,

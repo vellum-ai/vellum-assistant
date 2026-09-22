@@ -163,7 +163,9 @@ export function SkillsReferenceAppBuilderContent() {
             &ldquo;Add an export-to-CSV button.&rdquo;
           </blockquote>
           <p className="mb-0 mt-4 text-zinc-600">
-            Your assistant makes targeted edits to the existing app. No need to start over.
+            Your assistant makes targeted edits to the existing app, then
+            compiles once the batch is done so the open app refreshes. No
+            need to start over.
           </p>
         </section>
 

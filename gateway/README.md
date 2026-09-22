@@ -48,6 +48,8 @@ Routing is configured via workspace config. See `ARCHITECTURE.md` for details.
 
 Webhook registration is now handled automatically by the gateway. On startup, the gateway reconciles the Telegram webhook by registering it at `${ingress.publicBaseUrl}/webhooks/telegram` with the configured secret and allowed updates. This also runs whenever the credential watcher detects changes to the bot token or webhook secret (e.g., secret rotation). If the ingress URL changes (e.g., tunnel restart), the config file watcher detects the change and triggers webhook reconciliation directly — no daemon involvement or gateway restart is needed.
 
+A managed platform pod owns no ingress of its own, so with the `velay-webhooks` flag off it registers a Django-hosted callback route instead of using an ingress URL. With the flag on, a pod claims `/webhooks/telegram` in the webhook ingress route registry and registers its published Velay URL, keeping the Django callback route as the fallback; flipping the flag re-runs the reconcile in either direction. See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full resolution order.
+
 For manual setup (or reference), register the webhook with Telegram using the `setWebhook` API method. Pass:
 
 - `url` — your gateway URL, e.g. `https://your-host/webhooks/telegram`
@@ -55,19 +57,6 @@ For manual setup (or reference), register the webhook with Telegram using the `s
 - `allowed_updates` — `["message", "edited_message", "callback_query"]`
 
 See the [Telegram Bot API docs](https://core.telegram.org/bots/api#setwebhook) for the full API reference.
-
-## Telegram Deliver Endpoint Security
-
-The `/deliver/telegram` endpoint requires bearer auth by default (fail-closed). The security behavior is:
-
-| Condition                                                                                 | Result                     |
-| ----------------------------------------------------------------------------------------- | -------------------------- |
-| Bearer token configured + valid `Authorization` header                                    | Request allowed            |
-| Bearer token configured + missing/invalid `Authorization` header                          | 401 Unauthorized           |
-| No bearer token configured + `telegram.deliverAuthBypass=true` in `workspace/config.json` | Request allowed (dev-only) |
-| No bearer token configured + bypass not set                                               | 503 Service Not Configured |
-
-This ensures that misconfiguration cannot expose an unauthenticated public message-send surface. In production, ensure JWT authentication is properly configured. The `telegram.deliverAuthBypass` config flag (in `workspace/config.json`) is intended for local development only and requires `APP_VERSION=0.0.0-dev`.
 
 ## Voice Ingress — Inbound Calls (Twilio)
 
@@ -104,15 +93,15 @@ The gateway normalizes Telegram `callback_query` updates (inline button clicks) 
 
 These fields are forwarded to the runtime in the `/channels/inbound` payload alongside the standard `conversationExternalId`, `externalMessageId`, and actor metadata. The runtime uses `callbackData` to route the click to the appropriate approval handler.
 
-**Normalization constraints:** Only DM-only (`private` chat type) callback queries are processed. Group and channel callbacks are dropped and acknowledged with `answerCallbackQuery` so the Telegram button spinner clears. Callback queries with no `data` field or no associated `message` are also dropped.
+**Normalization constraints:** Callback queries from private chats, groups, and supergroups are processed; a tap on a keyboard the bot posted is addressed to the bot by construction, and who may press it is the runtime's decision. Callbacks from broadcast channels are dropped and acknowledged with `answerCallbackQuery` so the Telegram button spinner clears. Callback queries with no `data` field or no associated `message` are also dropped. Every drop is logged with its reason before the update is acknowledged (`telegram/drop-log.ts`).
 
 **Stale callback blocking:** When the runtime receives `callbackData` that does not match any pending approval (e.g., a button from an old prompt), it returns `stale_ignored` and does not process the payload as a regular message. This is enforced regardless of whether the callback has non-empty content. The gateway sends a best-effort `answerCallbackQuery` acknowledgment for normalized callback updates (including stale, rejected, and forward-failure paths) so the button spinner clears promptly. Transient forwarding failures may still return `500` so Telegram retries update delivery.
 
 ## Approval Buttons and Inline Keyboard
 
-The `/deliver/telegram` endpoint accepts an optional `approval` field in the request body. When present, the gateway renders Telegram inline keyboard buttons below the message text.
+The gateway does not send approval prompts. The assistant's Telegram transport (`assistant/src/messaging/providers/telegram-bot/`) sends them to the Bot API directly, and when the reply payload carries an `approval` field it renders Telegram inline keyboard buttons below the message text. The gateway's part is the return trip: it normalizes the button press (`callback_query`) and forwards it as described above.
 
-**Approval payload shape:**
+**Approval reply payload shape:**
 
 ```json
 {
@@ -132,7 +121,7 @@ The `/deliver/telegram` endpoint accepts an optional `approval` field in the req
 
 **Inline keyboard format:** Each action is rendered as a single-button row. The callback data uses the compact format `apr:<requestId>:<action>` (e.g., `apr:request-uuid:approve_once`) so the runtime can parse it back when the button is clicked.
 
-**Fallback behavior:** For non-rich channels that do not support inline keyboards, the runtime substitutes the `plainTextFallback` string for the structured `promptText` before calling the delivery endpoint. The fallback includes plain-text instructions so the user can respond via text. The `supportsInlineOptions` channel capability (`channelSupportsInlineOptions()`) in the runtime determines which format to use. Free-text responses are classified by the conversational approval engine.
+**Fallback behavior:** For non-rich channels that do not support inline keyboards, the runtime substitutes the `plainTextFallback` string for the structured `promptText` before handing the prompt to the channel transport. The fallback includes plain-text instructions so the user can respond via text. The `supportsInlineOptions` channel capability (`channelSupportsInlineOptions()`) in the runtime determines which format to use. Free-text responses are classified by the conversational approval engine.
 
 ## Public Ingress Routes
 
@@ -143,7 +132,6 @@ Control-plane routes are listed with their flat paths. Clients emit assistant-sc
 | Route                                                 | Method          | Description                                                                                                                                   |
 | ----------------------------------------------------- | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
 | `/webhooks/telegram`                                  | POST            | Telegram bot webhook (validated via `TELEGRAM_WEBHOOK_SECRET`)                                                                                |
-| `/deliver/telegram`                                   | POST            | Internal endpoint for the assistant runtime to deliver outbound messages/attachments to Telegram chats                                        |
 | `/webhooks/twilio/voice`                              | POST            | Twilio voice webhook (validated via HMAC-SHA1 signature)                                                                                      |
 | `/webhooks/twilio/status`                             | POST            | Twilio status callback (validated via HMAC-SHA1 signature)                                                                                    |
 | `/webhooks/twilio/media-stream/:callSessionId/:token` | WS              | Twilio Media Streams WebSocket (bidirectional proxy to runtime; handshake metadata in URL path segments)                                      |
@@ -171,6 +159,16 @@ Control-plane routes are listed with their flat paths. Clients emit assistant-sc
 | `/healthz`                                            | GET             | Liveness probe                                                                                                                                |
 | `/readyz`                                             | GET             | Readiness probe                                                                                                                               |
 | `/schema`                                             | GET             | Returns the OpenAPI 3.1 schema for this gateway                                                                                               |
+
+### Webhook Ingress Route Registry
+
+Which of the `/webhooks/*` routes above an assistant actually answers through the Velay tunnel is a per-assistant allowlist, gated on the `velay-webhooks` feature flag. With the flag off the whole namespace is reachable, as it always was; with it on an assistant answers exactly the paths it has claimed.
+
+Three layers admit a request, each narrower than the last: Velay drops anything matching none of the RE2 rules the gateway advertises on the tunnel upgrade, the gateway's Velay bridge re-checks the registry as the frame arrives, and the route itself runs its own authentication (Telegram's `secret_token`, Twilio's signature, a plugin webhook's token).
+
+Claims are rows in `webhook_ingress_routes` in `gateway.sqlite`, which lives in `GATEWAY_SECURITY_DIR` and therefore survives a pod restart. The daemon claims over IPC for plugin webhooks; the gateway claims in-process for Telegram and Twilio. A claim that is unavailable, because the flag is off, no tunnel URL is published, or the write failed, falls back to registering a Django-hosted callback route, which is also the flag-off path. A new claim triggers a debounced tunnel reconnect so the edge rules catch up, so a path is always claimed before its URL is given to a provider.
+
+The `/webhooks/twilio/` subtree is still admitted by a static prefix rule, because the media-stream path carries per-call segments an exact-match row cannot express. See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full lifecycle.
 
 ### Tunnel Setup
 
@@ -292,15 +290,13 @@ curl -i -X POST http://localhost:7830/webhooks/telegram
 
 ## Outbound Attachments (Telegram)
 
-When the assistant includes attachments in a reply, the gateway downloads each attachment from the runtime API and delivers it to the Telegram chat:
+The gateway does not send attachments. When a reply carries attachments, the assistant's Telegram transport (`assistant/src/messaging/providers/telegram-bot/`) reads each one from the assistant's attachment store and uploads it to the Bot API itself:
 
-- **Images** (`image/*` MIME types) are sent via `sendPhoto` (multipart form upload).
-- **Other files** are sent via `sendDocument` (multipart form upload).
-- **Oversized** attachments (exceeding the hardcoded max attachment size, default 20 MB) are skipped and included in the partial-failure notice.
-- **Partial failures** are handled gracefully: each attachment is attempted independently. If any fail, a single summary notice is sent to the chat listing the undelivered filenames.
-- **Concurrency** is controlled by a hardcoded max concurrency limit (default 3).
+- **Images** (`image/jpeg`, `image/png`, `image/gif`, `image/webp`) within the Bot API's 10 MB photo upload limit are sent via `sendPhoto`; **larger images and other files** via `sendDocument`.
+- **Oversized** attachments (over the 50 MB `sendDocument` limit) are skipped.
+- **Partial failures**: each attachment is attempted on its own, and if any fail, one summary notice lists the undelivered filenames.
 
-Text and attachments are sent separately — the text reply goes first via `sendMessage`, then each attachment follows.
+The text reply goes first via `sendMessage`, then each attachment follows in order.
 
 ## Health & Readiness Probes
 
@@ -373,10 +369,24 @@ See [`benchmarking/gateway/README.md`](../benchmarking/gateway/README.md) for lo
 
 ### Guardian-Specific Troubleshooting
 
-| Symptom                                                        | Cause                                                                                                                                              | Resolution                                                                                                                                                                                                                            |
-| -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Guardian verification code reply gets no response              | The verification message did not reach the runtime, or the challenge expired                                                                       | Ensure the gateway is running, the bot token is valid, and the Telegram webhook is registered. Challenges expire after 10 minutes -- generate a new one via the desktop UI.                                                           |
-| Non-guardian actions auto-denied with "no guardian configured" | No guardian binding exists for the channel. The runtime is fail-closed for unverified channels.                                                    | Set up a guardian by running the verification flow from the desktop UI.                                                                                                                                                               |
-| Approval prompt not delivered to guardian                      | The `replyCallbackUrl` may be unreachable, or the guardian's chat ID is stale                                                                      | Verify `GATEWAY_PORT` is correct and the gateway is reachable at `http://127.0.0.1:<GATEWAY_PORT>` from the runtime (requires co-located networking in containerized deployments). Re-verify the guardian if the chat ID has changed. |
-| Guardian approval expired                                      | The 30-minute TTL elapsed without a decision. A proactive sweep (every 60s) auto-denied the approval and notified both the requester and guardian. | The non-guardian user must re-trigger the action.                                                                                                                                                                                     |
-| "Only the verified guardian can approve or deny"               | A non-guardian sender attempted to respond to a guardian approval prompt                                                                           | Only the guardian whose `actorExternalId` matches the approval request can approve or deny.                                                                                                                                           |
+| Symptom                                                        | Cause                                                                                                                                              | Resolution                                                                                                                                                                                                                                                                                                                                                                          |
+| -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Guardian verification code reply gets no response              | The code never reached the gateway, the challenge expired, or the assistant could not send the gateway's reply                                     | Ensure the gateway is running, the bot token is valid, and the Telegram webhook is registered. Search the gateway log for `Verification reply`: a reply the assistant could not send does not undo the verification, so check the binding with the `channel-verification-sessions status` CLI command. Challenges expire after 10 minutes -- generate a new one via the desktop UI. |
+| Non-guardian actions auto-denied with "no guardian configured" | No guardian binding exists for the channel. The runtime is fail-closed for unverified channels.                                                    | Set up a guardian by running the verification flow from the desktop UI.                                                                                                                                                                                                                                                                                                             |
+| Approval prompt not delivered to guardian                      | The assistant's channel transport could not send it (for example a missing or invalid bot token), or the guardian's chat ID is stale               | Check the assistant log for the transport's delivery error and confirm the channel's bot token is configured. For a channel with a transport the assistant never dials the `replyCallbackUrl`, so gateway reachability is not the cause. Re-verify the guardian if the chat ID has changed.                                                                                         |
+| Guardian approval expired                                      | The 30-minute TTL elapsed without a decision. A proactive sweep (every 60s) auto-denied the approval and notified both the requester and guardian. | The non-guardian user must re-trigger the action.                                                                                                                                                                                                                                                                                                                                   |
+| "Only the verified guardian can approve or deny"               | A non-guardian sender attempted to respond to a guardian approval prompt                                                                           | Only the guardian whose `actorExternalId` matches the approval request can approve or deny.                                                                                                                                                                                                                                                                                         |
+
+### Binary virtual desktop tunnel
+
+The gateway advertises `X-Vellum-Velay-Binary-WebSocket: 1` when registering.
+It uses binary tunnel messages only when Velay sends `binary_messages: true`
+on a `/v1/desktop/stream` open frame. The envelope is byte `0x01`, 32 lowercase
+ASCII hex connection-ID bytes, then the unchanged payload (including empty
+payloads). Control and text messages remain JSON. Other routes and older relays
+retain JSON/base64 framing. Deploy Velay support before updating gateways;
+older gateways can continue using the upgraded relay.
+
+Malformed tunnel messages retain the existing log-and-ignore behavior. Raw binary
+frames addressed to streams without desktop negotiation are ignored, preserving
+other active streams on the shared tunnel.

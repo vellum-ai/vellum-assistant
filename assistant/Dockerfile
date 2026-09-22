@@ -30,18 +30,9 @@ COPY assistant/package.json ./assistant/
 COPY assistant/src/api/package.json ./assistant/src/api/
 COPY --parents packages/*/package.json ./
 
-RUN bun install --frozen-lockfile --ignore-scripts \
+RUN --mount=type=cache,id=bun-install-cache,target=/root/.bun/install/cache \
+    bun install --frozen-lockfile --ignore-scripts \
     --filter='./assistant' --filter='./assistant/src/api'
-
-# The repo-root .dockerignore decides which skills (and files) ship.
-COPY skills ./skills
-RUN set -eu; for pkg in /app/skills/*/package.json; do \
-      [ -e "$pkg" ] || continue; \
-      dir="$(dirname "$pkg")"; \
-      echo "Installing dependencies for $dir"; \
-      (cd "$dir" && (bun install --frozen-lockfile 2>/dev/null || bun install)); \
-    done
-
 
 # Final stage
 FROM debian:trixie-slim@sha256:4ffb3a1511099754cddc70eb1b12e50ffdb67619aa0ab6c13fcd800a78ef7c7a AS runner
@@ -110,13 +101,77 @@ RUN apt-get update && apt-get install -y \
     xdg-utils \
     && rm -rf /var/lib/apt/lists/*
 
+# Desktop system packages persist through container replacement as image layers.
+RUN set -eu; \
+    wezterm_version=20240203-110809-5046fc22; \
+    case "$(dpkg --print-architecture)" in \
+        amd64) wezterm_suffix=Debian12.deb; wezterm_sha256=d3a5c97093fbc0a87e8f9616e44efc4c9503cfc495fd1cfe4ffeff88578d15f8 ;; \
+        arm64) wezterm_suffix=Debian12.arm64.deb; wezterm_sha256=351f8791c6e9561d687afa63834a2132de84800dad6e7c3d035cc6518d6c3744 ;; \
+        *) echo "Unsupported desktop architecture" >&2; exit 1 ;; \
+    esac; \
+    curl --fail --location --proto '=https' --proto-redir '=https' \
+        --retry 2 --max-time 300 --output /tmp/wezterm.deb \
+        "https://github.com/wezterm/wezterm/releases/download/${wezterm_version}/wezterm-${wezterm_version}.${wezterm_suffix}"; \
+    printf '%s  /tmp/wezterm.deb\n' "$wezterm_sha256" | sha256sum --check -; \
+    apt-get update; \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        adwaita-icon-theme \
+        at-spi2-core \
+        bamfdaemon \
+        dbus-daemon \
+        dbus-x11 \
+        feh \
+        fonts-liberation \
+        gnome-mines \
+        gvfs \
+        libcurl4 \
+        libegl1 \
+        libgl1-mesa-dri \
+        libgtk-3-0 \
+        libvulkan1 \
+        openbox \
+        plank \
+        python3 \
+        python3-dbus \
+        scrot \
+        thunar \
+        tigervnc-common \
+        tigervnc-standalone-server \
+        tumbler \
+        xauth \
+        xcompmgr \
+        xdotool \
+        xfonts-base \
+        xterm \
+        /tmp/wezterm.deb; \
+    wezterm --version; \
+    rm -rf /tmp/wezterm.deb /var/lib/apt/lists/* /var/cache/apt/archives/*.deb
+
+# Extract Chrome without running package scripts or registering its repository.
+RUN set -eu; \
+    chrome_version=153.0.8010.36-1; \
+    chrome_arch="$(dpkg --print-architecture)"; \
+    case "$chrome_arch" in \
+        amd64) chrome_sha256=9bb44e33031c2f2857cf36b4343051a12f93058e4b781e3c76313df87f6c8d32 ;; \
+        arm64) chrome_sha256=1fcf6ec51a9d52e26ff1ad807225f725be55069ad2b68c5d69361a2746665188 ;; \
+        *) echo "Unsupported Chrome architecture" >&2; exit 1 ;; \
+    esac; \
+    curl --fail --location --proto '=https' --proto-redir '=https' \
+        --retry 2 --max-time 300 --output /tmp/chrome.deb \
+        "https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_${chrome_version}_${chrome_arch}.deb"; \
+    printf '%s  /tmp/chrome.deb\n' "$chrome_sha256" | sha256sum --check -; \
+    dpkg-deb --extract /tmp/chrome.deb /; \
+    /opt/google/chrome/chrome --version; \
+    rm /tmp/chrome.deb
+
 # Copy bun binary from builder instead of re-installing
 COPY --from=builder /root/.bun/bin/bun /usr/local/bin/bun
 RUN ln -sf /usr/local/bin/bun /usr/local/bin/bunx
 
-COPY --from=builder /app /app
+COPY --link --from=builder /app /app
 
 # Copy source after installing dependencies for better layer caching.
+COPY packages/app-icons /app/packages/app-icons
 COPY packages/avatar-catalog /app/packages/avatar-catalog
 COPY packages/avatar-manifest /app/packages/avatar-manifest
 COPY packages/ces-client /app/packages/ces-client
@@ -131,13 +186,20 @@ COPY packages/twilio-client /app/packages/twilio-client
 
 COPY assistant /app/assistant
 
-# Materialize the git-ignored offline plugin manifest from its canonical source.
-# `assistant/src/cli/lib/plugin-catalog-local.ts` statically imports this JSON
-# (loaded even when platform features are enabled), so it must exist in the image
-# — the build installs with --ignore-scripts, so the postinstall sync that
-# regenerates it in dev never runs here. Mirrors how CI materializes the
-# feature-flag registry before building.
-COPY plugins/marketplace.json /app/assistant/src/cli/lib/bundled-marketplace.json
+# Resolve production workspace dependencies from the filesystem layout shipped
+# in the image.
+RUN bun run scripts/smoke-container-workspace-dependencies.ts
+
+# The repo-root .dockerignore decides which skills (and files) ship.
+COPY skills /app/skills
+
+# Materialize the git-ignored offline marketplace and reviewed local packages.
+# The build installs with --ignore-scripts, so the postinstall sync that creates
+# these static imports in development never runs here.
+COPY plugins /app/plugins
+COPY meta/sync-bundled-copies.ts /app/meta/
+RUN cd /app && bun run meta/sync-bundled-copies.ts --plugins-only && \
+    bun run assistant/scripts/generate-bundled-plugin-packages.ts
 
 # Install assistant CLI launcher backed by the bundled assistant package
 RUN printf '#!/usr/bin/env sh\nexec bun run /app/assistant/src/index.ts "$@"\n' > /usr/local/bin/assistant && \

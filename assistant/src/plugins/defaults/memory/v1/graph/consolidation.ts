@@ -10,7 +10,7 @@
 // (same format as extraction) that is applied to the graph.
 // ---------------------------------------------------------------------------
 
-import { getConfiguredProvider } from "@vellumai/plugin-api";
+import { getConfiguredProvider, safeStringSlice } from "@vellumai/plugin-api";
 
 import type { AssistantConfig } from "../../../../../config/types.js";
 import { getMemoryDb } from "../../../../../persistence/db-connection.js";
@@ -268,7 +268,9 @@ async function identifyDuplicateGroups(
   const listing = nodes
     .map((n) => {
       const preview =
-        n.content.length > 100 ? n.content.slice(0, 100) + "…" : n.content;
+        n.content.length > 100
+          ? safeStringSlice(n.content, 0, 100) + "…"
+          : n.content;
       return `[${n.id}] ${preview}`;
     })
     .join("\n");

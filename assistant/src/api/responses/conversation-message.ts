@@ -33,6 +33,10 @@ import {
 import { AnsweredQuestionSchema } from "../events/question-answered.js";
 import { QuestionEntrySchema } from "../events/question-request.js";
 import { ToolActivityMetadataSchema } from "../events/tool-result.js";
+import {
+  ModeSessionActivitySchema,
+  ModeSessionSchema,
+} from "../mode-session.js";
 
 // ---------------------------------------------------------------------------
 // Attachment metadata
@@ -51,6 +55,9 @@ export const ConversationMessageAttachmentSchema = z.object({
   thumbnailData: z.string().optional(),
   /** True when the attachment bytes are backed by a file on disk. */
   fileBacked: z.boolean().optional(),
+  /** True when this computer-use screenshot was placed on the reply
+   *  automatically. Missing or false identifies legacy or explicit placement. */
+  computerUseScreenshot: z.boolean().optional(),
 });
 export type ConversationMessageAttachment = z.infer<
   typeof ConversationMessageAttachmentSchema
@@ -489,6 +496,8 @@ export type ConversationContentBlock = z.infer<
  */
 export const ConversationMessageSchema = z.object({
   id: z.string(),
+  modeSession: ModeSessionSchema.optional(),
+  modeSessionActivity: ModeSessionActivitySchema.optional(),
   /**
    * Server message ids folded into this display row when consecutive
    * assistant messages were consolidated for history rendering.
@@ -615,6 +624,21 @@ export const ConversationMessageSchema = z.object({
    *  sentinel text, and treat the row as the turn's reply so nothing keeps
    *  waiting for one. */
   noResponse: z.boolean().optional(),
+  /** Set only on standalone ambient camera-frame rows, derived from
+   *  `messageMetadataIsAmbientSightKeep`. Clients may fold consecutive frames
+   *  into the following user message. Absent on shutter photos, spoken turns
+   *  carrying parked frames, and every other row. */
+  cameraFrame: z.literal(true).optional(),
+  /** How this assistant row's plain text reached the user, set only on a turn
+   *  that routed its reply through the `send_user_message` tool. `"private"`
+   *  means the row's text blocks are the model's working notes and the text
+   *  the client shows came from the tool call; `"visible"` means the turn
+   *  ended without ever calling the tool, so its raw text was surfaced as the
+   *  fallback and is the reply. Absent on every other row. Clients gate
+   *  per-row presentation (e.g. collapsing intermediate activity) on this
+   *  rather than on the feature flag, so a row keeps the treatment it was
+   *  written with. */
+  assistantTextVisibility: z.enum(["private", "visible"]).optional(),
   /** Present on a reaction row, either direction: an inbound reaction the
    *  daemon persisted, or the assistant's own (`selfAuthored`). Clients
    *  render a reaction line from this instead of the row's stored sentinel

@@ -15,6 +15,7 @@ import { useNavigate } from "react-router";
 import { getAssistantHealthz, hatchAssistant } from "@/assistant/api";
 import { retireAssistant } from "@/assistant/retire-service";
 import { bootstrapLocalAssistantPlatformIdentity } from "@/lib/local-platform-identity";
+import { t } from "@/i18n";
 import { getAppVersionInfo } from "@/runtime/app-info";
 import {
   assistantsList,
@@ -38,6 +39,8 @@ import {
 import { captureError } from "@/lib/sentry/capture-error";
 import { routes } from "@/utils/routes";
 
+import { ensureSourceBackup } from "./teleport-backup";
+import { resolveTeleportSuccessorId } from "./teleport-successor";
 import {
   classifyHosting,
   resolveDestination,
@@ -124,12 +127,21 @@ export function useTeleport(): TeleportController {
       createdFresh: false,
     };
     try {
+      // Snapshot the source before anything leaves it. A failure here aborts
+      // the teleport: the source is retired on Confirm & Switch, and that is
+      // only safe with a restore point behind it.
+      setStep(t("settings:teleportCard.backupStep"));
+      await ensureSourceBackup(source);
+
       if (destination === "platform") {
         await teleportToPlatform(source, setStep, setProgress, targetRef);
       } else if (destination === "local") {
         await teleportToLocal(source, setStep, setProgress, targetRef);
       } else {
-        throw new TeleportError("unknown", "Unsupported teleport destination.");
+        throw new TeleportError(
+          "unknown",
+          t("settings:teleportCard.unsupportedDestination"),
+        );
       }
       setPhase({ kind: "verifying" });
     } catch (error) {
@@ -138,8 +150,11 @@ export function useTeleport(): TeleportController {
           ? error.message
           : error instanceof Error
             ? error.message
-            : "Teleport failed.";
-      setPhase({ kind: "failed", error: `Teleport failed: ${message}` });
+            : t("settings:teleportCard.teleportFailedUnknown");
+      setPhase({
+        kind: "failed",
+        error: t("settings:teleportCard.teleportFailed", { message }),
+      });
       captureError(error, { context: "teleport-execute" });
       // A failure after the target was created (e.g. import non-2xx, job
       // failure) would otherwise orphan the fresh assistant — and the retry
@@ -175,20 +190,42 @@ export function useTeleport(): TeleportController {
     if (!target) {
       return;
     }
+    // Leave the verifying phase synchronously so Cancel is no longer offered.
+    // The switch below awaits network work (connecting, then registering the
+    // target as the successor); a cancel landing in that window would retire
+    // the fresh target while this continuation went on to retire the source.
+    setStep(t("settings:teleportCard.switchingStep"));
 
     void (async () => {
+      let successorAssistantId: string | null = null;
       try {
         const auth = useAuthStore.getState();
         if (target.kind === "managed") {
           await auth.connectPlatformAssistant(target.id);
         } else {
           await auth.connectLocalAssistant(target.id);
-          // The platform→local import strips `vellum:*` platform-identity
-          // credentials, so the freshly-imported local has no platform identity.
-          // Now that it's the active assistant, re-register it with the platform
-          // and inject those credentials (the web equivalent of the CLI's
-          // post-import injection) so managed/platform integrations keep working.
-          // Best-effort: a failure here shouldn't block the switch.
+        }
+        // The platform→local import strips `vellum:*` platform-identity
+        // credentials, so the freshly-imported local has no platform identity.
+        // Now that it's the active assistant, register it with the platform and
+        // inject those credentials (the web equivalent of the CLI's post-import
+        // injection). Successor resolution must finish before the retire
+        // below runs: it names the target as the successor for the source's
+        // OAuth connections, and the platform can only hand them to an
+        // assistant it already knows.
+        successorAssistantId = await resolveTeleportSuccessorId(target);
+        if (target.kind === "local") {
+          if (successorAssistantId === null) {
+            // The switch still proceeds; the OAuth connections stay behind
+            // with the retired source.
+            captureError(
+              new Error("teleport successor could not be resolved"),
+              { context: "teleport-successor-unresolved" },
+            );
+          }
+          // Completes or retries the local side of the bootstrap in the
+          // background. A fully resolved identity is served from the cache,
+          // so this is a no-op on the happy path.
           bootstrapLocalAssistantPlatformIdentity(target.id, {
             onError: (error) =>
               captureError(error, {
@@ -202,8 +239,11 @@ export function useTeleport(): TeleportController {
         const message =
           error instanceof Error
             ? error.message
-            : "Failed to switch assistant.";
-        setPhase({ kind: "failed", error: `Switch failed: ${message}` });
+            : t("settings:teleportCard.switchFailedUnknown");
+        setPhase({
+          kind: "failed",
+          error: t("settings:teleportCard.switchFailed", { message }),
+        });
         captureError(error, { context: "teleport-confirm-switch" });
         return;
       }
@@ -213,7 +253,9 @@ export function useTeleport(): TeleportController {
       // `retireAssistant` (the retire service) also reconciles the lockfile +
       // resolved-assistants store, so the retired source stops being selectable.
       if (original) {
-        void retireAssistant(queryClient, original.id).then((result) => {
+        void retireAssistant(queryClient, original.id, {
+          successorAssistantId: successorAssistantId ?? undefined,
+        }).then((result) => {
           if (!result.ok) {
             captureError(new Error(result.error), {
               context: "teleport-retire-source",
@@ -225,7 +267,7 @@ export function useTeleport(): TeleportController {
       reset();
       void navigate(routes.assistant, { replace: true });
     })();
-  }, [navigate, reset, queryClient]);
+  }, [navigate, reset, queryClient, setStep]);
 
   const cancelTeleport = useCallback(() => {
     const target = targetRef.current;
@@ -269,17 +311,17 @@ async function teleportToPlatform(
   setProgress: (fraction: number) => void,
   targetRef: MutableRefObject<AssistantRef | null>,
 ): Promise<void> {
-  setStep("Exporting assistant data...");
+  setStep(t("settings:teleportCard.stepExportingLocal"));
   const bundle = await exportLocalBundle(source, setProgress);
 
-  setStep("Resolving organization...");
+  setStep(t("settings:teleportCard.stepResolvingOrganization"));
   const organizationId = await resolveOrganizationId();
 
   // Pre-check before the expensive upload: block if a platform assistant
   // already exists for this account. Query the platform directly rather than
   // `getAssistant()` — that helper short-circuits to the (local) selected
   // assistant while a local source is active, which would bypass this guard.
-  setStep("Checking for existing assistant...");
+  setStep(t("settings:teleportCard.stepCheckingExisting"));
   const platformList = await assistantsList({
     query: { hosting: "platform" },
     throwOnError: false,
@@ -288,22 +330,24 @@ async function teleportToPlatform(
   if (existingPlatform) {
     throw new TeleportError(
       "existing_platform_assistant",
-      `You already have a platform assistant '${existingPlatform.id}'. Retire it first, then retry the teleport.`,
+      t("settings:teleportCard.existingPlatformAssistant", {
+        id: existingPlatform.id,
+      }),
     );
   }
 
-  setStep("Uploading data to cloud...");
+  setStep(t("settings:teleportCard.stepUploading"));
   // Stamp the upload with the source runtime version so the platform records
   // the bundle's compat band for the download-side version-mismatch guard.
   const upload = await requestSignedUploadUrl(source.resources?.runtimeVersion);
   await uploadToSignedUrl(upload.url, bundle, setProgress);
 
-  setStep("Setting up cloud assistant...");
+  setStep(t("settings:teleportCard.stepSettingUpCloud"));
   const hatch = await hatchAssistant(undefined, "create");
   if (!hatch.ok) {
     throw new TeleportError(
       "import_failed",
-      "Failed to set up the cloud assistant.",
+      t("settings:teleportCard.cloudSetupFailed"),
     );
   }
   if (hatch.status === 200) {
@@ -311,7 +355,9 @@ async function teleportToPlatform(
     // defensive guard and block rather than silently importing into it.
     throw new TeleportError(
       "existing_platform_assistant",
-      `You already have a platform assistant '${hatch.data.id}'. Retire it first, then retry the teleport.`,
+      t("settings:teleportCard.existingPlatformAssistant", {
+        id: hatch.data.id,
+      }),
     );
   }
   const managedId = hatch.data.id;
@@ -334,16 +380,17 @@ async function teleportToPlatform(
 
   // Wait for post-hatch provisioning to finish before importing — otherwise the
   // import's workspace swap can race the runtime's secret provisioning.
-  setStep("Finalizing cloud assistant...");
+  setStep(t("settings:teleportCard.stepFinalizingCloud"));
   await awaitAssistantProvisioned(managedId);
 
-  setStep("Importing data to cloud...");
+  setStep(t("settings:teleportCard.stepImportingToCloud"));
   const result = await importFromGcs(upload.bundleKey);
   if (result.status < 200 || result.status >= 300) {
     const body = result.body as { error?: string } | null;
     throw new TeleportError(
       "import_failed",
-      body?.error ?? `Import failed (HTTP ${result.status}).`,
+      body?.error ??
+        t("settings:teleportCard.importFailedHttp", { status: result.status }),
     );
   }
   if (result.status === 202) {
@@ -351,7 +398,7 @@ async function teleportToPlatform(
     if (!jobId) {
       throw new TeleportError(
         "import_failed",
-        "Import accepted but no job ID returned.",
+        t("settings:teleportCard.importNoJobId"),
       );
     }
     await awaitPlatformJob(jobId);
@@ -363,7 +410,7 @@ async function teleportToPlatform(
     if (body && body.success === false) {
       throw new TeleportError(
         "import_failed",
-        body.error ?? "Import reported failure.",
+        body.error ?? t("settings:teleportCard.importReportedFailure"),
       );
     }
   }
@@ -379,7 +426,7 @@ async function teleportToLocal(
   setProgress: (fraction: number) => void,
   targetRef: MutableRefObject<AssistantRef | null>,
 ): Promise<void> {
-  setStep("Preparing export...");
+  setStep(t("settings:teleportCard.stepPreparingExport"));
   // Stamp the upload with the managed source's runtime version so the platform
   // records the bundle's compat band — without it the download-side
   // version-mismatch guard has nothing to compare against and a newer-cloud →
@@ -389,13 +436,13 @@ async function teleportToLocal(
   // URL must be signed for the runtime-reachable storage endpoint.
   const upload = await requestSignedUploadUrl(sourceRuntimeVersion, "runtime");
 
-  setStep("Exporting cloud data...");
+  setStep(t("settings:teleportCard.stepExportingCloud"));
   const jobId = await exportManagedToGcs(source.assistantId, upload.url);
   await awaitManagedExportJob(source.assistantId, jobId);
 
   // Resolve the local target BEFORE requesting the download so the version
   // check runs against the local *runtime* version, not the Electron shell.
-  setStep("Preparing local assistant...");
+  setStep(t("settings:teleportCard.stepPreparingLocal"));
   const { assistant: local, createdFresh } = await resolveLocalTarget();
   // Record the target now so a failure during download/import cleans up a
   // freshly-hatched local instead of orphaning it.
@@ -408,20 +455,20 @@ async function teleportToLocal(
   if (!targetRuntimeVersion) {
     throw new TeleportError(
       "local_assistant_not_found",
-      "Could not determine the local assistant's runtime version. Restart or upgrade the local assistant, then retry the teleport.",
+      t("settings:teleportCard.localRuntimeVersionUnknown"),
     );
   }
 
-  setStep("Preparing import...");
+  setStep(t("settings:teleportCard.stepPreparingImport"));
   const downloadUrl = await requestSignedDownloadUrl(
     upload.bundleKey,
     targetRuntimeVersion,
   );
 
-  setStep("Downloading data...");
+  setStep(t("settings:teleportCard.stepDownloading"));
   const bundle = await downloadFromSignedUrl(downloadUrl, setProgress);
 
-  setStep("Importing data...");
+  setStep(t("settings:teleportCard.stepImporting"));
   await importWithRetry(local, bundle);
 
   // Hatching/waking the local target may have flipped the active assistant;
@@ -512,13 +559,13 @@ async function resolveOrganizationId(): Promise<string> {
   if (orgs.length === 0) {
     throw new TeleportError(
       "no_organizations",
-      "No organizations found for this account.",
+      t("settings:teleportCard.noOrganizations"),
     );
   }
   if (orgs.length > 1) {
     throw new TeleportError(
       "multiple_organizations",
-      "Multiple organizations found — please select one in account settings first.",
+      t("settings:teleportCard.multipleOrganizations"),
     );
   }
   const orgId = orgs[0]!.id;
@@ -559,13 +606,13 @@ async function awaitPlatformJob(jobId: string): Promise<void> {
     if (status.status === "failed") {
       throw new TeleportError(
         "import_failed",
-        status.error ?? "Import job failed",
+        status.error ?? t("settings:teleportCard.importJobFailed"),
       );
     }
   }
   throw new TeleportError(
     "import_failed",
-    "Import timed out after 60 minutes.",
+    t("settings:teleportCard.importTimedOut"),
   );
 }
 
@@ -582,7 +629,10 @@ async function awaitManagedExportJob(
       return;
     }
   }
-  throw new TeleportError("export_timed_out", "Export timed out.");
+  throw new TeleportError(
+    "export_timed_out",
+    t("settings:teleportCard.exportTimedOut"),
+  );
 }
 
 /**
@@ -602,7 +652,7 @@ async function resolveLocalTarget(): Promise<{
   if (!hatched.ok) {
     throw new TeleportError(
       "local_assistant_not_found",
-      hatched.error ?? "Could not create a local assistant.",
+      hatched.error ?? t("settings:teleportCard.localCreateFailed"),
     );
   }
   await loadLockfile();
@@ -613,7 +663,7 @@ async function resolveLocalTarget(): Promise<{
   if (!local) {
     throw new TeleportError(
       "local_assistant_not_found",
-      "Could not find or create a local assistant.",
+      t("settings:teleportCard.localNotFound"),
     );
   }
   return { assistant: local, createdFresh: true };
@@ -648,5 +698,8 @@ async function importWithRetry(
   }
   throw lastError instanceof Error
     ? lastError
-    : new TeleportError("import_failed", "Import failed.");
+    : new TeleportError(
+        "import_failed",
+        t("settings:teleportCard.importFailed"),
+      );
 }

@@ -1,28 +1,30 @@
-import { useQuery } from "@tanstack/react-query";
 import {
   ChevronLeft,
   ChevronRight,
   Download,
   FileIcon,
   Loader2,
-  X,
 } from "lucide-react";
 import type { FC, KeyboardEvent, MouseEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { usePortalContainer } from "@vellumai/design-library/utils/portal-container";
 
-import { fetchAttachmentContentBlob } from "@/domains/chat/components/chat-attachments/download-attachment";
 import { Button, Typography } from "@vellumai/design-library";
+
+import { PreviewModalHeader } from "@/domains/chat/components/preview-modal-header";
 
 import { PdfPreview } from "@/domains/chat/components/chat-attachments/pdf-preview";
 import { PreviewMessageCard } from "@/domains/chat/components/chat-attachments/preview-message-card";
 import { TextPreview } from "@/domains/chat/components/chat-attachments/text-preview";
+import { downloadAttachment } from "@/domains/chat/components/chat-attachments/download-attachment";
 import {
   classifyAttachment,
   formatAttachmentSize,
-} from "@/domains/chat/components/chat-attachments/utils";
+} from "@/utils/attachment-utils";
+import { useAttachmentObjectUrl } from "@/domains/chat/components/chat-attachments/use-attachment-object-url";
 import { useGallerySwipe } from "@/domains/chat/components/chat-attachments/use-gallery-swipe";
-import { baseMimeType, extensionOf } from "@/domains/chat/utils/mime-sniff";
+import { baseMimeType, extensionOf } from "@/utils/mime-sniff";
 import { useEdgeSwipeArbiterStore } from "@/stores/edge-swipe-arbiter-store";
 import type { DisplayAttachment } from "@/types/attachment-types";
 import { useTranslation } from "@/i18n";
@@ -52,29 +54,38 @@ const TEXT_PREVIEW_APPLICATION_MIMES = new Set([
   "application/xml",
 ]);
 
+type PreviewAttachment = DisplayAttachment & {
+  resolveReferenceMetadata?: boolean;
+};
+
 interface AttachmentPreviewModalProps {
   open: boolean;
   onClose: () => void;
-  attachment: DisplayAttachment;
+  attachment: PreviewAttachment;
   /** When set, the modal will fetch missing content from
    *  /v1/assistants/{assistantId}/attachments/{attachment.id}/content. */
   assistantId?: string | null;
   /** Full list of sibling attachments for gallery navigation. When provided
    *  with more than one entry, prev/next arrows and a position counter render. */
   siblingAttachments?: DisplayAttachment[];
+  /** The active attachment's position in `siblingAttachments`. Given by callers
+   *  whose list can hold two attachments with the same id, which the id lookup
+   *  below cannot tell apart. Honoured only while it still points at
+   *  `attachment`; otherwise, and when omitted, the position is looked up by
+   *  id. */
+  currentIndex?: number;
   /** Called when the user navigates to a different attachment via the gallery
-   *  arrows. The parent swaps the active `attachment` prop in response. */
-  onNavigate?: (attachment: DisplayAttachment) => void;
+   *  arrows. The parent swaps the active `attachment` prop in response, and
+   *  carries the position back so a duplicated id stays resolved. */
+  onNavigate?: (attachment: DisplayAttachment, index: number) => void;
 }
 
 /**
  * Full-screen preview modal for chat attachments. Handles images, videos, and
  * a non-previewable fallback card. When `previewUrl` is missing but
- * `assistantId` is provided, the modal lazily fetches the attachment content
- * from the backend, converts it to a blob URL, and revokes the URL on
- * cleanup. Dismissable via backdrop click, close button, or Escape key.
- *
- * Async fetch pattern modeled on `app/admin/AttachmentLightbox.tsx`.
+ * `assistantId` is provided, the bytes come from `useAttachmentObjectUrl`, so a
+ * thumbnail that has already fetched them hands this a cache hit rather than a
+ * second request. Dismissable via backdrop click, close button, or Escape key.
  */
 export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
   open,
@@ -82,9 +93,11 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
   attachment,
   assistantId,
   siblingAttachments,
+  currentIndex: givenIndex,
   onNavigate,
 }) => {
   const overlayRef = useRef<HTMLDivElement>(null);
+  const portalContainer = usePortalContainer();
 
   // Focus the overlay itself (not a child button) on open so the keydown
   // handler receives ArrowLeft/ArrowRight reliably — a focused child can steal
@@ -113,80 +126,42 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
     return () => unregisterBackOwner();
   }, [open, registerBackOwner, unregisterBackOwner]);
 
-  // Synthetic IDs from the text-parsing history fallback
-  // (parseAttachmentSummariesFromContent) can never resolve against the
-  // daemon's content endpoint, so we never fetch them — we show a clear message
-  // instead of a misleading network error.
-  const isRehydrated =
-    !attachment.previewUrl && attachment.id.startsWith("rehydrated:");
-
-  // Fetch content from the daemon only when there's no inline previewUrl and we
-  // have a real, resolvable id to fetch with.
-  const shouldFetch =
-    open &&
-    !attachment.previewUrl &&
-    !!assistantId &&
-    !!attachment.id &&
-    !isRehydrated;
-
-  const { data: blob, isError } = useQuery({
-    // The attachment id is stable and unique, so it is the cache key — reopening
-    // the same attachment reuses the fetched blob instead of refetching.
-    queryKey: ["attachmentContent", assistantId, attachment.id],
-    queryFn: async () => {
-      const data = await fetchAttachmentContentBlob(
-        assistantId!,
-        attachment.id,
-      );
-      if (!data) {
-        throw new Error("Failed to load file");
-      }
-      return data;
-    },
-    enabled: shouldFetch,
-    staleTime: Infinity,
-    retry: false,
-  });
-
-  // Hold the fetched blob as an object URL for the media/text renderers, and
-  // revoke it when the blob changes or the modal unmounts.
-  const [objectUrl, setObjectUrl] = useState<string | null>(null);
-  useEffect(() => {
-    if (!blob) {
-      setObjectUrl(null);
-      return;
-    }
-    const url = URL.createObjectURL(blob);
-    setObjectUrl(url);
-    return () => {
-      URL.revokeObjectURL(url);
-      setObjectUrl(null);
-    };
-  }, [blob]);
-
-  const effectiveUrl = attachment.previewUrl ?? objectUrl;
+  const {
+    url: effectiveUrl,
+    isError,
+    unavailable,
+    legacyId,
+    isPending,
+  } = useAttachmentObjectUrl(assistantId, attachment, open);
 
   // A full-size image whose bytes the browser can't decode (e.g. HEIC on
   // Chromium, even after fetching the stored original) falls through to the
   // non-image fallback card instead of rendering the broken-image glyph.
   const [decodeFailedUrl, setDecodeFailedUrl] = useState<string | null>(null);
 
-  // Loading until there's a usable URL: covers the fetch and the one-render gap
-  // between the blob arriving and its object URL being created.
-  const isLoadingPreview = shouldFetch && !objectUrl && !isError;
-
-  const previewError = isRehydrated
-    ? "Preview unavailable — file content was not preserved in chat history."
-    : isError
-      ? "Failed to load preview."
+  // Only a synthetic history id means the bytes were never kept. The rest of
+  // what `unavailable` covers still has a file behind it, so it falls through
+  // to the card that names it.
+  const previewError = legacyId
+    ? t("attachmentPreviewModal.legacyUnavailable")
+    : isError && !unavailable
+      ? t("attachmentPreviewModal.loadFailed")
       : null;
 
   const currentIndex = useMemo(() => {
     if (!siblingAttachments || siblingAttachments.length <= 1) {
       return -1;
     }
+    // The hint is only good while it still points at the attachment that was
+    // opened; a list that has shifted under the modal falls back to the id.
+    if (
+      givenIndex !== undefined &&
+      siblingAttachments[givenIndex] === attachment
+    ) {
+      return givenIndex;
+    }
     return siblingAttachments.findIndex((a) => a.id === attachment.id);
-  }, [siblingAttachments, attachment.id]);
+  }, [siblingAttachments, attachment, givenIndex]);
 
   const hasGallery =
     currentIndex !== -1 &&
@@ -200,7 +175,7 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
     const prevIndex =
       (currentIndex - 1 + siblingAttachments.length) %
       siblingAttachments.length;
-    onNavigate(siblingAttachments[prevIndex]!);
+    onNavigate(siblingAttachments[prevIndex]!, prevIndex);
   }, [hasGallery, siblingAttachments, currentIndex, onNavigate]);
 
   const goToNext = useCallback(() => {
@@ -208,7 +183,7 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
       return;
     }
     const nextIndex = (currentIndex + 1) % siblingAttachments.length;
-    onNavigate(siblingAttachments[nextIndex]!);
+    onNavigate(siblingAttachments[nextIndex]!, nextIndex);
   }, [hasGallery, siblingAttachments, currentIndex, onNavigate]);
 
   // Touch-first navigation (primarily iOS): swipe left/right to change item.
@@ -258,9 +233,13 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
     if (!effectiveUrl) {
       return;
     }
+    if (attachment.resolveReferenceMetadata) {
+      await downloadAttachment(attachment, assistantId);
+      return;
+    }
     const { saveFile } = await import("@/runtime/native-file");
     await saveFile(effectiveUrl, attachment.filename);
-  }, [effectiveUrl, attachment.filename]);
+  }, [assistantId, attachment, effectiveUrl]);
 
   if (!open) {
     return null;
@@ -288,7 +267,7 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
     TEXT_PREVIEW_EXTENSIONS.has(extension);
 
   const renderContent = () => {
-    if (isLoadingPreview) {
+    if (isPending) {
       return (
         <div className="flex items-center justify-center py-24">
           <Loader2 className="h-8 w-8 animate-spin text-white/70" />
@@ -394,7 +373,7 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
       // Focusable so the overlay can hold keyboard focus for the arrow-key
       // handler; the ring is suppressed since the dialog is the whole screen.
       tabIndex={-1}
-      className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/80 outline-none [-webkit-app-region:no-drag]"
+      className="pointer-events-auto fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/80 outline-none [-webkit-app-region:no-drag]"
       style={{
         paddingTop: "var(--safe-area-inset-top, env(safe-area-inset-top, 0px))",
         paddingBottom:
@@ -407,43 +386,18 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
       onKeyDown={handleKeyDown}
       onClick={handleBackdropClick}
     >
-      {/* Top chrome: file size (left), filename (center), download + close
-          (right). Absolute children anchor to the overlay's padding box, so the
-          parent's safe-area paddingTop does not offset them — the bar carries
-          the top inset itself to clear the notch/status bar.
-
-          The bar spans the full width above the preview, so it stays
-          click-through except for its own controls: on a short viewport the
-          preview's top edge reaches under it, and an opaque bar would eat
-          clicks on whatever the preview renders there (a link in a scrolled
-          text preview, for instance). Same treatment as the gallery chevrons
-          below. */}
-      <div
-        className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-center gap-3 px-4"
-        style={{
-          paddingTop:
-            "calc(var(--safe-area-inset-top, env(safe-area-inset-top, 0px)) + 1rem)",
-        }}
-      >
-        <Typography
-          variant="body-small-default"
-          className="pointer-events-auto w-11 shrink-0 truncate text-white/50"
-        >
-          {formatAttachmentSize(attachment.sizeBytes)}
-        </Typography>
-        <Typography
-          as="div"
-          variant="body-medium-lighter"
-          className="min-w-0 flex-1 truncate text-center text-white/90"
-        >
-          {/* The centred label is only as wide as its text, but its flex track
-              spans the whole middle of the bar. Take pointer events on the text
-              itself so it stays selectable and inert, and leave the empty track
-              either side click-through to whatever sits beneath. */}
-          <span className="pointer-events-auto">{attachment.filename}</span>
-        </Typography>
-        <div className="pointer-events-auto flex shrink-0 items-center gap-2">
+      <PreviewModalHeader
+        title={attachment.filename}
+        onClose={onClose}
+        leading={
+          <Typography variant="body-small-default" className="text-white/50">
+            {formatAttachmentSize(attachment.sizeBytes)}
+          </Typography>
+        }
+        actions={
           <Button
+            size="large"
+            shape="pill"
             variant="ghost"
             iconOnly={<Download />}
             expandOnMobile={false}
@@ -452,39 +406,34 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
             aria-label={t("attachmentPreviewModal.downloadAria", {
               filename: attachment.filename,
             })}
-            className="h-11 w-11 rounded-full bg-white/10 text-white/70 hover:bg-white/20 hover:text-white"
+            className="bg-white/10 text-white/70 hover:bg-white/20 hover:text-white"
             tintColor="currentColor"
           />
-          <Button
-            variant="ghost"
-            iconOnly={<X />}
-            expandOnMobile={false}
-            onClick={onClose}
-            aria-label={t("attachmentPreviewModal.closePreviewAria")}
-            className="h-11 w-11 rounded-full bg-white/10 text-white/70 hover:bg-white/20 hover:text-white"
-            tintColor="currentColor"
-          />
-        </div>
-      </div>
+        }
+      />
 
       {hasGallery && (
         <div className="pointer-events-none absolute inset-x-0 top-1/2 z-10 flex -translate-y-1/2 items-center justify-between px-4">
           <Button
+            size="large"
+            shape="pill"
             variant="ghost"
             iconOnly={<ChevronLeft />}
             expandOnMobile={false}
             onClick={goToPrev}
             aria-label={t("attachmentPreviewModal.previousAttachmentAria")}
-            className="pointer-events-auto h-11 w-11 rounded-full bg-white/10 text-white/70 hover:bg-white/20 hover:text-white"
+            className="pointer-events-auto bg-white/10 text-white/70 hover:bg-white/20 hover:text-white"
             tintColor="currentColor"
           />
           <Button
+            size="large"
+            shape="pill"
             variant="ghost"
             iconOnly={<ChevronRight />}
             expandOnMobile={false}
             onClick={goToNext}
             aria-label={t("attachmentPreviewModal.nextAttachmentAria")}
-            className="pointer-events-auto h-11 w-11 rounded-full bg-white/10 text-white/70 hover:bg-white/20 hover:text-white"
+            className="pointer-events-auto bg-white/10 text-white/70 hover:bg-white/20 hover:text-white"
             tintColor="currentColor"
           />
         </div>
@@ -525,6 +474,6 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
         </div>
       )}
     </div>,
-    document.body,
+    portalContainer ?? document.body,
   );
 };

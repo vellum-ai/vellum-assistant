@@ -7,10 +7,10 @@
  * drawing itself belongs to the presentations beside it, which take a snapshot
  * as props and so can be put in a story with one seeded by hand.
  *
- * One container serves both camera surfaces. Each mount names the surface it
+ * One container serves every camera surface. Each mount names the surface it
  * belongs to and renders nothing unless that surface is the one currently
- * feeding the gate, so the composer's tile and the voice room's viewfinder can
- * both mount a readout without ever putting two on screen.
+ * feeding the gate, so several viewfinders can each mount a readout without
+ * ever putting two on screen.
  *
  * ## Which presentation
  *
@@ -29,8 +29,7 @@
  * Only a mount that says so collapses. Whether a readout may stand down to a
  * strip is a fact about what surrounds it, which the mount knows and this
  * component does not: the voice room's readout sits over a full-bleed
- * viewfinder that a card would eat, and the composer's sits beside a corner
- * tile in a layout that is not the subject here.
+ * viewfinder that a card would eat.
  *
  * ## What a render costs
  *

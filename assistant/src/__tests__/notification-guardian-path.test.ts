@@ -160,6 +160,7 @@ describe("ASK_GUARDIAN notification path", () => {
     ensureConversation(convId);
 
     const session = createCallSession({
+      direction: "inbound",
       conversationId: convId,
       provider: "twilio",
       fromNumber: "+15550001111",
@@ -220,6 +221,7 @@ describe("ASK_GUARDIAN notification path", () => {
     };
 
     const session = createCallSession({
+      direction: "inbound",
       conversationId: convId,
       provider: "twilio",
       fromNumber: "+15550001111",
@@ -263,6 +265,7 @@ describe("ASK_GUARDIAN notification path", () => {
     };
 
     const session = createCallSession({
+      direction: "inbound",
       conversationId: convId,
       provider: "twilio",
       fromNumber: "+15550001111",
@@ -308,6 +311,7 @@ describe("ASK_GUARDIAN notification path", () => {
     };
 
     const session = createCallSession({
+      direction: "inbound",
       conversationId: convId,
       provider: "twilio",
       fromNumber: "+15550001111",
@@ -338,6 +342,7 @@ describe("ASK_GUARDIAN notification path", () => {
     ensureConversation(convId);
 
     const session = createCallSession({
+      direction: "inbound",
       conversationId: convId,
       provider: "twilio",
       fromNumber: "+15550001111",
@@ -370,6 +375,7 @@ describe("ASK_GUARDIAN notification path", () => {
     const sharedConvId = "conv-guardian-shared-thread";
 
     const session = createCallSession({
+      direction: "inbound",
       conversationId: convId,
       provider: "twilio",
       fromNumber: "+15550001111",
@@ -463,6 +469,7 @@ describe("ASK_GUARDIAN notification path", () => {
     };
 
     const session = createCallSession({
+      direction: "inbound",
       conversationId: convId,
       provider: "twilio",
       fromNumber: "+15550001111",

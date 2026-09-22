@@ -59,6 +59,7 @@ import {
   getWorkspaceHooksDir,
   getWorkspacePluginsDir,
 } from "../util/platform.js";
+import { hasPluginManifest } from "../util/plugin-manifest.js";
 import { collectSourceVersions } from "./collect-source-versions.js";
 import {
   deriveToolName,
@@ -768,7 +769,7 @@ async function scanPlugins(): Promise<void> {
       );
       continue;
     }
-    if (!existsSync(join(pluginDir, "package.json"))) {
+    if (!hasPluginManifest(pluginDir)) {
       continue;
     }
 

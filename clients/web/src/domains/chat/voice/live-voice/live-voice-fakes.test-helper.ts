@@ -25,6 +25,7 @@ import { mock } from "bun:test";
 import type {
   LiveVoiceClientEventMap,
   LiveVoiceClientEventName,
+  LiveVoiceConnectArgs,
 } from "@/domains/chat/voice/live-voice/live-voice-client";
 import type {
   LiveVoiceAudioCaptureOptions,
@@ -42,13 +43,9 @@ import {
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 
 export class FakeClient {
-  connectArgs: {
-    assistantId: string;
-    conversationId?: string;
-    turnDetection?: "manual" | "server_vad";
-    silenceThresholdMs?: number;
-    bargeInMinSpeechMs?: number;
-  } | null = null;
+  // The real client's own args type, not a restated copy, so a field added to
+  // the connect frame reaches every assertion made against this fake.
+  connectArgs: LiveVoiceConnectArgs | null = null;
   sentAudio: ArrayBuffer[] = [];
   sentText: string[] = [];
   /** Per-send options, index-aligned with {@link sentText}. */
@@ -86,13 +83,7 @@ export class FakeClient {
     return () => set?.delete(handler as (payload: never) => void);
   }
 
-  async connect(args: {
-    assistantId: string;
-    conversationId?: string;
-    turnDetection?: "manual" | "server_vad";
-    silenceThresholdMs?: number;
-    bargeInMinSpeechMs?: number;
-  }): Promise<void> {
+  async connect(args: LiveVoiceConnectArgs): Promise<void> {
     this.connectArgs = args;
   }
 
@@ -219,6 +210,8 @@ export class FakePlayer {
   /** Route the fake reports, and how many times it was asked to re-render it. */
   outputRoute: TtsOutputRoute = "unsupported";
   restartOutputRouteCount = 0;
+  /** Cues the controller played on the session bus. */
+  tones: unknown[] = [];
   /**
    * Chunks a `holdPlayback()` flush retained, or null when nothing is held.
    * The real player keeps the audio scheduled but not yet sounded; the fake
@@ -241,6 +234,9 @@ export class FakePlayer {
   }
   readOutputLevel(): number {
     return this.outputAmplitude;
+  }
+  playTone(recipe: unknown): void {
+    this.tones.push(recipe);
   }
   restartOutputRoute(): Promise<void> {
     this.restartOutputRouteCount++;
@@ -356,7 +352,9 @@ export function makeControlsSpies() {
     // Defaults to delivered. The reconnect-gap case (false) is asserted by the
     // tests that care, so the common path stays uncluttered.
     attachImage: mock((_attachmentId: string) => true),
-    sightFrame: mock((_attachmentId: string) => true),
+    sightFrame: mock(
+      (..._args: Parameters<LiveVoiceSessionControls["sightFrame"]>) => true,
+    ),
   } satisfies LiveVoiceSessionControls;
 }
 

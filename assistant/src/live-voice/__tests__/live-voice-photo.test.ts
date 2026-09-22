@@ -53,6 +53,7 @@ import {
   _pendingFrameReclaimCountForTests,
   _setProcessingWaitMsForTests,
   _standaloneImageQueueSizeForTests,
+  newestPersistedSightFrame,
   pendingStandaloneImagePersist,
   persistAmbientSightFrame,
   persistLiveVoicePhoto,
@@ -462,6 +463,39 @@ describe("persistLiveVoicePhoto", () => {
 });
 
 describe("persistAmbientSightFrame", () => {
+  test("reports where the daemon's half of the persist went", async () => {
+    const live = liveConversation("Live voice sight frame timing");
+    try {
+      const attachment = await uploadAttachment(
+        "frame.png",
+        "image/png",
+        IMAGE_BASE64,
+      );
+
+      const result = await persistAmbientSightFrame(
+        live.id,
+        attachment.id,
+        "voice",
+      );
+      expect(result.ok).toBe(true);
+      // Three legs, each a whole non-negative number of milliseconds: nothing
+      // was queued ahead of it and no turn held the flag, so the first two are
+      // near zero, and the write is whatever the store took.
+      expect(result.timing).toBeDefined();
+      for (const leg of Object.values(result.timing!)) {
+        expect(Number.isInteger(leg)).toBe(true);
+        expect(leg).toBeGreaterThanOrEqual(0);
+      }
+      expect(Object.keys(result.timing!).sort()).toEqual([
+        "flagWaitMs",
+        "queueWaitMs",
+        "writeMs",
+      ]);
+    } finally {
+      live.dispose();
+    }
+  });
+
   test("tags the row with the attachment it carries", async () => {
     const live = liveConversation("Live voice sight frame");
     try {
@@ -1590,6 +1624,44 @@ describe("standalone image persists are serialized per conversation", () => {
 
       // Nothing is left behind for a call that ended.
       expect(_standaloneImageQueueSizeForTests()).toBe(0);
+    } finally {
+      live.dispose();
+    }
+  });
+});
+
+describe("newestPersistedSightFrame", () => {
+  test("is null for a conversation that carries no frame", () => {
+    const live = liveConversation("Sight newest none");
+    try {
+      expect(newestPersistedSightFrame(live.id)).toBeNull();
+    } finally {
+      live.dispose();
+    }
+  });
+
+  test("names the last frame written, by the id the row carries", async () => {
+    const live = liveConversation("Sight newest");
+    try {
+      const first = await uploadFrame("first.png");
+      const second = await uploadFrame("second.png");
+      expect((await persistAmbientSightFrame(live.id, first, "voice")).ok).toBe(
+        true,
+      );
+      expect(
+        (await persistAmbientSightFrame(live.id, second, "voice")).ok,
+      ).toBe(true);
+
+      // A frame already linked elsewhere is stored under a fresh id, so the
+      // answer is read from the rows rather than assumed from the argument.
+      const rows = getMessages(live.id);
+      const storedSecond = sightFrameAttachmentIdsFromMetadata(
+        metadataOf(rows[1]),
+      )[0];
+      expect(newestPersistedSightFrame(live.id)).toEqual({
+        attachmentId: storedSecond,
+        capturedAt: rows[1].createdAt,
+      });
     } finally {
       live.dispose();
     }

@@ -9,8 +9,11 @@ mock.module("../../config/loader.js", () => ({
   getConfigReadOnly: () => ({ ui: mockUi }),
 }));
 
-const { resolveScheduleTimezone, expressionCarriesOwnTimezone } =
-  await import("../schedule-timezone.js");
+const {
+  resolveScheduleTimezone,
+  expressionCarriesOwnTimezone,
+  hourInTimeZone,
+} = await import("../schedule-timezone.js");
 
 afterEach(() => {
   mockUi = {};
@@ -42,9 +45,24 @@ describe("resolveScheduleTimezone", () => {
     expect(resolveScheduleTimezone(null)).toBeNull();
   });
 
-  test("ignores an invalid explicit value and falls back", () => {
+  test("an invalid explicit value is ignored and falls back", () => {
     mockUi = { userTimezone: "America/New_York" };
     expect(resolveScheduleTimezone("Not/AZone")).toBe("America/New_York");
+  });
+});
+
+describe("hourInTimeZone", () => {
+  test("returns the wall-clock hour in the given zone", () => {
+    // 23:00 UTC on a Pacific Daylight date is 16:00 in America/Los_Angeles.
+    const now = new Date("2026-09-08T23:00:00Z");
+    expect(hourInTimeZone("UTC", now)).toBe(23);
+    expect(hourInTimeZone("America/Los_Angeles", now)).toBe(16);
+    expect(hourInTimeZone("America/New_York", now)).toBe(19);
+  });
+
+  test("normalizes a 24-hour midnight encoding to 0", () => {
+    const midnightUtc = new Date("2026-09-08T00:00:00Z");
+    expect(hourInTimeZone("UTC", midnightUtc)).toBe(0);
   });
 });
 

@@ -9,6 +9,8 @@
  * whole point: the sampler keeps recording during a main-thread freeze, its
  * on-disk ring buffer survives the OOM SIGKILL that resets all in-VM state,
  * and telemetry keeps flushing while the daemon is busy or stalled.
+ * Periodic workspace git auto-commits also run here so large `git add` /
+ * `git commit` work cannot stall the daemon event loop.
  */
 
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -47,6 +49,7 @@ import {
   type FileDescriptorMonitorHandle,
   startFileDescriptorMonitor,
 } from "./file-descriptors.js";
+import { type MountWatchHandle, startMountWatch } from "./mount-watch.js";
 import {
   type PluginAutoUpdateHandle,
   startPluginAutoUpdate,
@@ -60,6 +63,10 @@ import {
   type ResourceSamplerHandle,
   startResourceSampler,
 } from "./resource-sampler.js";
+import {
+  startWorkspaceGitHeartbeat,
+  type WorkspaceGitHeartbeatHandle,
+} from "./workspace-git-heartbeat.js";
 
 const log = getLogger("monitoring-worker");
 
@@ -93,9 +100,11 @@ async function main(): Promise<void> {
 
   let sampler: ResourceSamplerHandle | null = null;
   let fdMonitor: FileDescriptorMonitorHandle | null = null;
+  let mountWatch: MountWatchHandle | null = null;
   let sourceWatch: PluginSourceWatchHandle | null = null;
   let autoUpdate: PluginAutoUpdateHandle | null = null;
   let recovery: RecoveryHandle | null = null;
+  let workspaceGitHeartbeat: WorkspaceGitHeartbeatHandle | null = null;
 
   let shuttingDown = false;
   let disposePidGuard: (() => void) | null = null;
@@ -105,12 +114,20 @@ async function main(): Promise<void> {
     }
     shuttingDown = true;
     log.info({ signal }, "Resource monitor process shutting down");
+    // Wait for in-flight git add/commit so SIGTERM does not leave index.lock.
+    try {
+      await workspaceGitHeartbeat?.stop();
+    } catch (err) {
+      log.warn({ err }, "Workspace git heartbeat shutdown failed (non-fatal)");
+    }
+    workspaceGitHeartbeat = null;
     recovery?.stop();
     stopConfigSnapshotReporter();
     stopMemoryTierReporter();
     stopDbIntegritySampler();
     autoUpdate?.stop();
     sourceWatch?.stop();
+    mountWatch?.stop();
     fdMonitor?.stop();
     sampler?.stop();
     // Bounded final telemetry flush, mirroring the daemon's shutdown. This
@@ -156,6 +173,9 @@ async function main(): Promise<void> {
   // Descriptor exhaustion is per-process and slow-moving, so it polls on its
   // own timer rather than riding the memory sampler's 250ms tick.
   fdMonitor = startFileDescriptorMonitor(config.monitoring);
+  // Assistant-container mount table only (this process's mount namespace).
+  // Warns only when /workspace, /data, or a virtiofs bind actually changes.
+  mountWatch = startMountWatch(config.monitoring);
   sourceWatch = startPluginSourceWatch(
     config.monitoring.pluginSourceScanIntervalMs,
   );
@@ -165,6 +185,10 @@ async function main(): Promise<void> {
   autoUpdate = startPluginAutoUpdate();
   // Crash recovery runs here, off the daemon's boot path and event loop.
   recovery = startRecovery();
+  // Workspace git auto-commit safety net. Turn-boundary commits stay on
+  // the daemon; this timer must not run there because large `git add` /
+  // `git commit` work stalls the event loop.
+  workspaceGitHeartbeat = startWorkspaceGitHeartbeat();
 
   // Flush the non-turn telemetry sources from this process, off the daemon's
   // event loop. The reporter's share_analytics gate reads the consent cache,
@@ -193,6 +217,7 @@ async function main(): Promise<void> {
     recovery?.stop();
     autoUpdate?.stop();
     sourceWatch?.stop();
+    mountWatch?.stop();
     fdMonitor?.stop();
     sampler?.stop();
     stopDbIntegritySampler();
@@ -205,6 +230,7 @@ async function main(): Promise<void> {
     recovery?.stop();
     autoUpdate?.stop();
     sourceWatch?.stop();
+    mountWatch?.stop();
     fdMonitor?.stop();
     sampler?.stop();
     stopDbIntegritySampler();
@@ -216,6 +242,7 @@ async function main(): Promise<void> {
     recovery?.stop();
     autoUpdate?.stop();
     sourceWatch?.stop();
+    mountWatch?.stop();
     fdMonitor?.stop();
     sampler?.stop();
     stopDbIntegritySampler();

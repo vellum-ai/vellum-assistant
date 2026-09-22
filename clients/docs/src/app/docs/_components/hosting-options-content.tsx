@@ -127,14 +127,14 @@ export function HostingOptionsContent() {
               Local
             </SectionHeading>
             <p className="mb-4 text-stone-600 dark:text-stone-400">
-              Your assistant runs on your Mac. Your machine, your data, nothing
-              leaves your computer. This is the option for users who want
-              maximum privacy and direct access to local files and tools.
+              Your assistant runs on your Mac or Windows PC. Your workspace stays on
+              your machine, with direct access to local files and tools. Prompts and
+              relevant context are still sent to your configured AI model provider.
             </p>
             <ul className="mb-4 list-disc space-y-4 pl-6 text-stone-600 dark:text-stone-400">
               <li>
-                <strong>Native</strong> — The assistant runs directly as a
-                process on your Mac. It&apos;s the simplest local setup and
+                <strong>Native</strong>: The assistant runs directly as a
+                process on your Mac or Windows PC. It&apos;s the simplest local setup and
                 gives the assistant full access to your system.
               </li>
               <li>

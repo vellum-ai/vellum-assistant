@@ -14,7 +14,8 @@ import { useState } from "react";
 
 import { Popover, Typography } from "@vellumai/design-library";
 
-import type { WebSearchResultItem } from "@/assistant/web-activity-types";
+import type { WebSearchResultItem } from "@vellumai/assistant-api";
+import { ExternalAnchor } from "@/components/external-anchor";
 import { ToolStepPill } from "@/domains/chat/components/tool-progress-card/tool-step-pill";
 import type { ToolCallCardStep } from "@/domains/chat/utils/tool-call-card-utils";
 import { useTranslation } from "@/i18n";
@@ -34,20 +35,18 @@ function monogramLetter(item: WebSearchResultItem): string {
  * A single source row inside the overflow popover. Renders the site favicon
  * (with a monogram fallback that survives image load errors), the page title,
  * and the domain, all wrapped in an external link that opens the source in a
- * new tab. Mirrors the chat's existing external-link convention (plain
- * `target="_blank"` anchors, as used by `ChatMarkdownMessage` and the
- * surface views) rather than introducing bespoke navigation.
+ * new tab. Goes through `ExternalAnchor`, the shared external-link
+ * convention, rather than introducing bespoke navigation.
  */
 function OverflowSourceLink({ item }: { item: WebSearchResultItem }) {
   const [imageFailed, setImageFailed] = useState(false);
   const hasFavicon = Boolean(item.faviconUrl) && !imageFailed;
 
   return (
-    <a
+    <ExternalAnchor
       href={item.url}
-      target="_blank"
-      rel="noopener noreferrer"
       className="flex items-center gap-2 rounded-[var(--radius-md)] px-2 py-1.5 hover:bg-[var(--surface-hover)]"
+      glyph={false}
     >
       <span
         aria-hidden="true"
@@ -63,7 +62,7 @@ function OverflowSourceLink({ item }: { item: WebSearchResultItem }) {
             onError={() => setImageFailed(true)}
           />
         ) : (
-          // typography: off-scale — 10px monogram inside 14px favicon slot
+          // typography: off-scale, 10px monogram inside 14px favicon slot
           <span className="text-[10px] font-medium leading-none text-[var(--content-default)]">
             {monogramLetter(item)}
           </span>
@@ -83,14 +82,14 @@ function OverflowSourceLink({ item }: { item: WebSearchResultItem }) {
           {item.domain}
         </Typography>
       </span>
-    </a>
+    </ExternalAnchor>
   );
 }
 
 /**
  * Interactive "+N more" pill rendered at the tail of a `web_search` row when
  * the result list was clamped. Clicking it opens a popover listing the
- * remaining (hidden) sources as links so they stay reachable — without it the
+ * remaining (hidden) sources as links so they stay reachable. Without it the
  * pill would be a dead-end with no way to inspect the additional results.
  *
  * The trigger visually matches `FaviconChip` so the pill sits flush in the
@@ -133,7 +132,7 @@ export function OverflowChip({ results }: { results: WebSearchResultItem[] }) {
 /**
  * Chip used inside a `web_search_error` step row to surface the provider's
  * `errorMessage`. Uses the default pill's outlined geometry and neutral
- * tokens — failures render like any other step, without error chrome.
+ * tokens: failures render like any other step, without error chrome.
  */
 function ErrorChip({ message }: { message: string }) {
   return (
@@ -158,7 +157,7 @@ function ErrorChip({ message }: { message: string }) {
  * popover.
  *
  * Keyed by `rank` (the documented uniqueness invariant on
- * `WebSearchResultItem`) rather than `url` — providers occasionally return
+ * `WebSearchResultItem`) rather than `url`: providers occasionally return
  * duplicate URLs, which would collide as React keys and cause stale/missing
  * chips during live updates.
  */
@@ -171,7 +170,7 @@ export function WebSearchStepRow({
   return (
     <div className="flex flex-wrap items-center gap-1">
       {(step.results ?? []).map((r) => (
-        // Each result is a `ToolStepPill` web variant — the same pill chrome as
+        // Each result is a `ToolStepPill` web variant: the same pill chrome as
         // tool steps, with the site favicon as the glyph, that opens the source
         // in a new tab.
         <ToolStepPill

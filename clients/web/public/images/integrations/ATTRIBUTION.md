@@ -11,15 +11,33 @@ doesn't tell a third party which providers a user is looking at.
 Downloaded from the URL each one replaces, so the bytes match the source
 exactly (except where noted).
 
-| Assets                                                                                                | Source                                                        | Licence                                                          |
-| ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- | ----------------------------------------------------------------- |
-| `airtable`, `asana`, `calendly`, `discord`, `dropbox`, `hubspot`, `sanity`, `spotify`, `telegram`, `todoist`, `x` | [Simple Icons](https://github.com/simple-icons/simple-icons)   | CC0-1.0 (public domain, no attribution required)                  |
-| `eventbrite`, `salesforce`                                                                            | [glincker/thesvg](https://github.com/glincker/thesvg)          | MIT (notice below)                                                |
-| `monday`                                                                                              | [WorldVectorLogo](https://worldvectorlogo.com/logo/monday-1)   | Trademark of monday.com; no software licence granted (see Trademark, below) |
+| Assets                                                                                                                          | Source                                                       | Licence                                                                     |
+| ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ | --------------------------------------------------------------------------- |
+| `airtable`, `asana`, `calendly`, `discord`, `dropbox`, `hubspot`, `quickbooks`, `sanity`, `spotify`, `telegram`, `todoist`, `x` | [Simple Icons](https://github.com/simple-icons/simple-icons) | CC0-1.0 (public domain, no attribution required)                            |
+| `eventbrite`, `salesforce`                                                                                                      | [glincker/thesvg](https://github.com/glincker/thesvg)        | MIT (notice below)                                                          |
+| `monday`                                                                                                                        | [WorldVectorLogo](https://worldvectorlogo.com/logo/monday-1) | Trademark of monday.com; no software licence granted (see Trademark, below) |
+| `stripe-link`                                                                                                                   | [link.com](https://link.com)                                 | Trademark of Stripe; no software licence granted (see Trademark, below)     |
 
 `monday`'s path data and fill colours are byte-identical to the source. Only
 the outer `viewBox` and a wrapping group transform were changed, to fit the
 source's wide mark into a square icon slot.
+
+`stripe-link` is the green Link symbol inlined in link.com's own header, with
+the site's CSS custom properties resolved to the brand colours they carry there
+(`#00D66F` circle, `#011E0F` mark). Link is a Stripe product with its own mark,
+so the parent Stripe `S` is not a stand-in for it.
+
+## MCP catalog additions
+
+Each bundled local MCP plugin owns its canonical `icon.png` and an
+`ICON_ATTRIBUTION.md` file under `plugins/mcp-catalog/<name>/`. The attribution
+file ships with the installed plugin and records the reviewed source URL,
+ownership, license when known, and any format conversion or background
+treatment.
+
+The `<name>-mcp.png` files in this directory are byte-identical derived copies
+for the web integration catalog. Generate them with
+`node scripts/plugins/sync-local-plugin-icons.mjs`. Do not edit them directly.
 
 ## Unrecorded provenance
 
@@ -35,6 +53,13 @@ Tracked in LUM-3144.
 
 Of these, only `figma`, `github`, `linear-light-logo`, `notion`, `outlook` and
 `slack` are referenced by `BUNDLED_LOGO_URLS`; the others are unused.
+
+`notion` is the monochrome mark on the white rounded square it carries as an
+app icon, so the black glyph keeps its contrast on a dark theme. The path data
+and fill are byte-identical to the asset's earlier form; only the outer
+`viewBox`, a wrapping group transform, and the white plate behind the mark were
+added. `plugins/mcp-catalog/notion/icon.png` gives the same asset the same
+treatment.
 
 ## MIT notice for glincker/thesvg
 

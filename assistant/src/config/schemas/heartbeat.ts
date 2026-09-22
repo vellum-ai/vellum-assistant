@@ -25,7 +25,7 @@ export const HeartbeatConfigSchema = z
       .nullable()
       .default(null)
       .describe(
-        "Timezone for cron expression evaluation, e.g. 'America/New_York'. Ignored when cronExpression is null.",
+        "Timezone for cron expression and active-hours evaluation, e.g. 'America/New_York'. When null, uses the user's configured or detected timezone, then the host clock.",
       ),
     activeHoursStart: z
       .number({ error: "heartbeat.activeHoursStart must be a number" })
@@ -35,7 +35,7 @@ export const HeartbeatConfigSchema = z
       .nullable()
       .default(8)
       .describe(
-        "Hour of the day (0-23) when heartbeat checks begin, or null to disable active hours restriction",
+        "Hour of the day (0-23) in the heartbeat timezone when heartbeat checks begin, or null to disable active hours restriction",
       ),
     activeHoursEnd: z
       .number({ error: "heartbeat.activeHoursEnd must be a number" })
@@ -45,7 +45,7 @@ export const HeartbeatConfigSchema = z
       .nullable()
       .default(22)
       .describe(
-        "Hour of the day (0-23) when heartbeat checks stop, or null to disable active hours restriction",
+        "Hour of the day (0-23) in the heartbeat timezone when heartbeat checks stop, or null to disable active hours restriction",
       ),
     maxConsecutiveRuns: z
       .number({ error: "heartbeat.maxConsecutiveRuns must be a number" })

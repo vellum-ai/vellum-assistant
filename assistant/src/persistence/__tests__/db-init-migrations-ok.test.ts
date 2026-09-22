@@ -16,7 +16,10 @@ import { migrationSteps } from "../steps.js";
 describe("initializeDb — migrationsOk return contract", () => {
   test("resolves to { migrationsOk: true } on a clean init", async () => {
     const result = await initializeDb();
-    expect(result).toEqual({ migrationsOk: true });
+    expect(result.migrationsOk).toBe(true);
+    expect(result.failedMigrations).toEqual([]);
+    expect(result.deferredMigrations).toEqual([]);
+    expect(result.validationError).toBeUndefined();
   });
 
   test("resolves to { migrationsOk: false } when a step is deferred", async () => {
@@ -34,13 +37,21 @@ describe("initializeDb — migrationsOk return contract", () => {
     migrationSteps.push(syntheticStep);
     try {
       const result = await initializeDb();
-      expect(result).toEqual({ migrationsOk: false });
+      expect(result.migrationsOk).toBe(false);
+      expect(result.deferredMigrations).toEqual([
+        {
+          name: "dbInitTestSyntheticDeferredStep",
+          missing: ["dbInitTestMissingPrerequisite"],
+        },
+      ]);
     } finally {
       migrationSteps.splice(migrationSteps.indexOf(syntheticStep), 1);
     }
 
     // The deferred step wrote nothing to the ledger, so a clean re-init
     // reports ready again.
-    expect(await initializeDb()).toEqual({ migrationsOk: true });
+    const recovered = await initializeDb();
+    expect(recovered.migrationsOk).toBe(true);
+    expect(recovered.deferredMigrations).toEqual([]);
   });
 });

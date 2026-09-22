@@ -35,6 +35,7 @@ interface ScheduleRecord {
   mode: string;
   status: string;
   routingIntent: string;
+  quiet: boolean;
   reuseConversation: boolean;
   wakeConversationId: string | null;
   sourceKey: string | null;
@@ -268,6 +269,7 @@ export function registerSchedulesCommand(program: Command): void {
               formatScheduleInferenceProfile(schedule.inferenceProfile),
             ],
             ["Routing intent", schedule.routingIntent],
+            ["Quiet", schedule.quiet ? "yes" : "no"],
             ["Reuse conversation", schedule.reuseConversation ? "yes" : "no"],
             ["Wake conversation", schedule.wakeConversationId ?? "—"],
             ["Retry count", String(schedule.retryCount)],

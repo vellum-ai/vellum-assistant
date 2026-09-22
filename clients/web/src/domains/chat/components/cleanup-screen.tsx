@@ -1,5 +1,6 @@
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 
+import { ExternalAnchor } from "@/components/external-anchor";
 import { Trans, useTranslation } from "@/i18n";
 
 import { useHintRotation } from "@/domains/chat/hooks/use-hint-rotation";
@@ -52,11 +53,11 @@ export function CleanupScreen() {
             i18nKey="cleanupScreen.timeoutBody"
             components={{
               communityLink: (
-                <a
+                <ExternalAnchor
                   href={VELLUM_COMMUNITY_URL}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-body-medium-default underline text-[var(--system-positive-strong)] hover:opacity-90"
+                  tone="default"
+                  className="text-body-medium-default"
+                  glyph={false}
                 />
               ),
             }}

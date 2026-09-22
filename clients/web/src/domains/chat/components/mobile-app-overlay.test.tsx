@@ -24,6 +24,7 @@ function renderOverlay(isAppMinimized: boolean): string {
   return renderToStaticMarkup(
     <MobileAppOverlay
       openedAppState={{
+        assistantId: "asst-1",
         appId: "app-1",
         dirName: "app-1",
         name: "Demo",
@@ -33,6 +34,7 @@ function renderOverlay(isAppMinimized: boolean): string {
       assistantId="assistant-1"
       onToggleMinimized={() => undefined}
       onClose={() => undefined}
+      onNavigateAppRoute={() => undefined}
       onShare={() => undefined}
       isSharing={false}
       isDeploying={false}

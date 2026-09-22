@@ -32,6 +32,8 @@ export function makeStoryAssistant(id: string): Assistant {
     ingress_url: null,
     platform_actor_token: null,
     access_consented: true,
+    access_consent_expires_at: null,
+    access_consent_never_expires: false,
   };
 }
 

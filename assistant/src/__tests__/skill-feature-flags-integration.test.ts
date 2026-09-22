@@ -60,7 +60,7 @@ function makeConfig(overrides: Partial<AssistantConfig> = {}): AssistantConfig {
   return {
     skills: {
       entries: {},
-      load: { extraDirs: [], watch: true, watchDebounceMs: 250 },
+      load: { extraDirs: [] },
       install: { nodeManager: "npm" },
       allowBundled: null,
       remoteProviders: {

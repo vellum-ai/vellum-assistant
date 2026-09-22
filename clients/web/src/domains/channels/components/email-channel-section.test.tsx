@@ -15,7 +15,8 @@
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { cleanup, render, screen } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 
@@ -24,6 +25,8 @@ import {
   organizationsBillingSubscriptionRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { SubscriptionResponse } from "@/generated/api/types.gen";
+import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 
 // The settings-card barrel re-exports toast surfaces; stub them so barrel
 // resolution doesn't pull the real toast module during the static render.
@@ -42,7 +45,9 @@ mock.module("@/hooks/use-platform-gate", () => ({
 
 let nativeAndroid = false;
 
+const platformDetection = await import("@/runtime/platform-detection");
 mock.module("@/runtime/platform-detection", () => ({
+  ...platformDetection,
   detectElectronHostOS: () => null,
   isNativeAndroid: () => nativeAndroid,
   useIsNativeAndroid: () => nativeAndroid,
@@ -158,5 +163,70 @@ describe("EmailChannelSection managed-email gate", () => {
     // The domain registration form renders (fail-open).
     expect(html).toContain("Subdomain");
     expect(html).toContain("Register");
+  });
+});
+
+describe("EmailChannelSection header with the Assistant Inbox flag", () => {
+  afterEach(() => {
+    cleanup();
+    useClientFeatureFlagStore.setState({ assistantInbox: false });
+  });
+
+  // Client-rendered, unlike the gate tests above: under
+  // `renderToStaticMarkup` a Zustand store serves its initial state, so a
+  // flag set for the test would never be seen.
+  function renderSection(subscription: SubscriptionResponse): void {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+    });
+    client.setQueryData(assistantsListQueryKey(), {
+      results: [{ id: ASSISTANT_ID, handle: ASSISTANT_HANDLE }],
+    });
+    client.setQueryData(
+      organizationsBillingSubscriptionRetrieveQueryKey(),
+      subscription,
+    );
+    for (const supportsManifest of [true, false]) {
+      client.setQueryData([...avatarQueryKey(ASSISTANT_ID), supportsManifest], {
+        components: null,
+        traits: null,
+        customImageUrl: null,
+      });
+    }
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <EmailChannelSection />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+  }
+
+  test("keeps the section's own title while the flag is off", () => {
+    useClientFeatureFlagStore.setState({ assistantInbox: false });
+    renderSection(makeSubscription(false));
+
+    expect(screen.getByRole("heading", { name: "Email" })).toBeTruthy();
+    expect(screen.queryByText("Give your assistant an inbox")).toBeNull();
+  });
+
+  test("an org without managed email gets the inbox pitch as the header", () => {
+    useClientFeatureFlagStore.setState({ assistantInbox: true });
+    renderSection(makeSubscription(false));
+
+    expect(
+      screen.getByRole("heading", { name: "Give your assistant an inbox" }),
+    ).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Email" })).toBeNull();
+    expect(
+      screen.queryByText(
+        "Configure how your assistant sends and receives email",
+      ),
+    ).toBeNull();
+    // One heading: the section's. The body brings no title of its own.
+    expect(screen.getAllByRole("heading")).toHaveLength(1);
+    expect(
+      screen.getByText(`hi@${ASSISTANT_HANDLE}.local.vellum.me`),
+    ).toBeTruthy();
   });
 });

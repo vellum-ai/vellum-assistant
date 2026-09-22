@@ -21,7 +21,6 @@ import {
   MergeContactsIpcResponseSchema,
   UpdateContactChannelIpcResponseSchema,
 } from "@vellumai/gateway-client/gateway-ipc-contracts";
-import { IpcCallError } from "@vellumai/gateway-client/ipc-client";
 import { z } from "zod";
 
 import {
@@ -41,6 +40,7 @@ import type {
   ContactWithChannels,
 } from "../../contacts/types.js";
 import { ipcCallPersistent } from "../../ipc/gateway-client.js";
+import { rethrowGatewayIpcFailure } from "../../ipc/gateway-ipc-errors.js";
 import { resolveGuardianName } from "../../prompts/user-reference.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS, GATEWAY_PRINCIPALS } from "../auth/route-policy.js";
@@ -49,27 +49,10 @@ import {
   resolveInviteGuardianName,
   triggerInviteCall,
 } from "../invite-service.js";
-import { BadRequestError, NotFoundError, RouteError } from "./errors.js";
+import { BadRequestError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("contact-routes");
-
-/**
- * Re-throw a relayed gateway `IpcCallError` as a `RouteError` so the IPC/HTTP
- * adapters honor its statusCode/errorCode (4xx surfaces as 4xx, not a generic
- * 500). Non-IpcCallError throws propagate unchanged.
- */
-function rethrowGatewayError(err: unknown): never {
-  if (err instanceof IpcCallError) {
-    throw new RouteError(
-      err.message,
-      err.errorCode ?? "INTERNAL_ERROR",
-      err.statusCode ?? 500,
-      err.errorDetails,
-    );
-  }
-  throw err;
-}
 
 function withGuardianNameOverride<
   T extends { role: string; displayName: string },
@@ -240,7 +223,7 @@ async function relayListContacts(limit: number, role: ContactRole | undefined) {
       contacts: contacts.map((c) => prepareContactResponse(c)),
     };
   } catch (err) {
-    rethrowGatewayError(err);
+    rethrowGatewayIpcFailure(err);
   }
 }
 
@@ -428,7 +411,7 @@ export async function handleGetContact(contactId: string) {
     if (err instanceof NotFoundError) {
       throw err;
     }
-    rethrowGatewayError(err);
+    rethrowGatewayIpcFailure(err);
   }
 }
 
@@ -452,7 +435,7 @@ export async function handleListInvites({
     });
     return { ok: true, invites };
   } catch (err) {
-    rethrowGatewayError(err);
+    rethrowGatewayIpcFailure(err);
   }
 }
 
@@ -478,7 +461,7 @@ export async function handleCreateInvite({ body = {} }: RouteHandlerArgs) {
         : {}),
     });
   } catch (err) {
-    rethrowGatewayError(err);
+    rethrowGatewayIpcFailure(err);
   }
   const invite = await composeInvitePresentation({
     contactId,
@@ -499,7 +482,7 @@ export async function handleRevokeInvite({
     const invite = await revokeInvite(pathParams.id);
     return { ok: true, invite };
   } catch (err) {
-    rethrowGatewayError(err);
+    rethrowGatewayIpcFailure(err);
   }
 }
 
@@ -527,7 +510,7 @@ async function handleRedeemVoiceInvite({ body = {} }: RouteHandlerArgs) {
         : {}),
     });
   } catch (err) {
-    rethrowGatewayError(err);
+    rethrowGatewayIpcFailure(err);
   }
 }
 
@@ -563,7 +546,7 @@ async function handleRedeemTokenInvite({ body = {} }: RouteHandlerArgs) {
     // `already_member` no-op (which consumes no invite use).
     return await redeemInviteByToken(parsed.data);
   } catch (err) {
-    rethrowGatewayError(err);
+    rethrowGatewayIpcFailure(err);
   }
 }
 
@@ -1030,7 +1013,7 @@ export async function handleMergeContactsRoute(args: RouteHandlerArgs) {
         : undefined,
     };
   } catch (err) {
-    rethrowGatewayError(err);
+    rethrowGatewayIpcFailure(err);
   }
 }
 
@@ -1061,6 +1044,6 @@ export async function handleUpdateContactChannelRoute(args: RouteHandlerArgs) {
     });
     return UpdateContactChannelIpcResponseSchema.parse(result);
   } catch (err) {
-    rethrowGatewayError(err);
+    rethrowGatewayIpcFailure(err);
   }
 }

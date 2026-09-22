@@ -33,7 +33,7 @@ mock.module("@/domains/settings/components/daily-credit-limit-card", () => ({
 mock.module("@/domains/settings/components/low-balance-alert-card", () => ({
   LowBalanceAlertCard: () => null,
 }));
-mock.module("@/domains/settings/components/referral-modal", () => ({
+mock.module("@/components/referral-modal", () => ({
   ReferralModal: () => null,
 }));
 mock.module("@/components/add-credits-modal", () => ({

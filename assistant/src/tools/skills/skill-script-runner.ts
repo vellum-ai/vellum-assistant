@@ -1,6 +1,7 @@
 import { join, resolve } from "node:path";
 
 import { computeSkillVersionHash } from "../../skills/version-hash.js";
+import { isAbortLikeError } from "../shared/abort.js";
 import type { ExecutionTarget } from "../tool-types.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 import { runSkillToolScriptSandbox } from "./sandbox-runner.js";
@@ -23,6 +24,12 @@ export interface RunSkillToolScriptOptions {
    *  with `execution_target: host` (in-process); non-bundled skills are forced to
    *  execute in the sandbox. */
   bundled?: boolean;
+  /**
+   * Catalog owner id when this skill is plugin-resident. The sandbox runner
+   * sets VELLUM_PLUGIN_NAME so the child can resolve credentials under
+   * that plugin's service.
+   */
+  pluginOwner?: string;
 }
 
 /**
@@ -41,6 +48,7 @@ export async function runSkillToolScript(
       timeoutMs: options.timeoutMs,
       expectedSkillVersionHash: options.expectedSkillVersionHash,
       skillDirHashResolver: options.skillDirHashResolver,
+      pluginOwner: options.pluginOwner,
     });
   }
 
@@ -112,6 +120,12 @@ export async function runSkillToolScript(
   try {
     return await module.run(input, context);
   } catch (err) {
+    // A cancellation is not a script failure. Re-throw it so the tool executor
+    // classifies the call as cancelled instead of reporting the abort reason
+    // as an opaque script error.
+    if (isAbortLikeError(err)) {
+      throw err;
+    }
     const message = err instanceof Error ? err.message : String(err);
     return {
       content: `Skill tool script "${executorPath}" threw an error: ${message}`,

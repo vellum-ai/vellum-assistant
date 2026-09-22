@@ -11,6 +11,7 @@ import { join } from "node:path";
 
 import { getAppDirPath } from "../apps/app-store.js";
 import { getConfig } from "../config/loader.js";
+import { isAbortLikeError } from "../tools/shared/abort.js";
 import { getLogger } from "../util/logger.js";
 import {
   resolveImageGenCredentials,
@@ -24,13 +25,15 @@ const log = getLogger("app-icon-generator");
  * Generate an app icon and save it to `~/.vellum/apps/{appId}/icon.png`.
  *
  * Uses the configured image-generation provider when credentials are
- * available. Silently no-ops if no credentials are configured or
- * generation fails.
+ * available. No-ops quietly when no credentials are configured or generation
+ * fails; a cancelled turn is raised rather than swallowed, so the caller can
+ * tell "stopped" apart from "could not be made".
  */
 export async function generateAppIcon(
   appId: string,
   appName: string,
   appDescription?: string,
+  opts?: { signal?: AbortSignal },
 ): Promise<void> {
   const config = getConfig();
   const svc = config.services["image-generation"];
@@ -39,6 +42,9 @@ export async function generateAppIcon(
     provider: backendProvider,
     managed,
   });
+  // Recheck: credential resolution is an await, and what follows pays a
+  // provider for an image.
+  opts?.signal?.throwIfAborted();
   if (!credentials) {
     log.debug(
       `${errorHint ?? "Image generation is not configured"} — skipping app icon generation`,
@@ -77,6 +83,7 @@ export async function generateAppIcon(
       prompt,
       mode: "generate",
       model: svc.model,
+      ...(opts?.signal ? { signal: opts.signal } : {}),
     });
 
     if (result.images.length === 0) {
@@ -95,10 +102,15 @@ export async function generateAppIcon(
 
     log.info({ appId, iconPath }, "App icon saved");
   } catch (error) {
+    // A cancelled turn is not a generation failure: skipping quietly would
+    // tell the caller the icon simply could not be made.
+    if (isAbortLikeError(error)) {
+      throw error;
+    }
     const message = mapImageGenError(backendProvider, error);
     log.warn(
       { appId, provider: backendProvider, error: message },
-      "App icon generation failed — skipping",
+      "App icon generation failed, skipping",
     );
   }
 }

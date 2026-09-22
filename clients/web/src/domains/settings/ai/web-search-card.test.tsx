@@ -171,6 +171,8 @@ describe("WebSearchCard — provider-only configuration", () => {
       "Firecrawl",
       "Keenable",
       "fastCRW",
+      "SearXNG",
+      "TinyFish",
     ]);
   });
 
@@ -266,9 +268,7 @@ describe("WebSearchCard — provider-only configuration", () => {
     }) as HTMLButtonElement;
     expect(saveButton.disabled).toBe(true);
 
-    const apiBaseInput = screen.getByPlaceholderText(
-      "https://api.fastcrw.com",
-    );
+    const apiBaseInput = screen.getByPlaceholderText("https://api.fastcrw.com");
     fireEvent.change(apiBaseInput, {
       target: { value: "http://localhost:3000" },
     });
@@ -287,6 +287,62 @@ describe("WebSearchCard — provider-only configuration", () => {
         },
       },
     });
+  });
+
+  test("SearXNG requires API Base and allows save without a key", async () => {
+    renderCard();
+
+    fireEvent.click(providerTrigger());
+    selectOption("SearXNG");
+
+    expect(screen.getByText("API Base")).toBeTruthy();
+    const saveButton = screen.getByRole("button", {
+      name: "Save",
+    }) as HTMLButtonElement;
+    expect(saveButton.disabled).toBe(true);
+
+    const apiBaseInput = screen.getByPlaceholderText("http://127.0.0.1:8888");
+    fireEvent.change(apiBaseInput, {
+      target: { value: "http://127.0.0.1:8888" },
+    });
+    expect(saveButton.disabled).toBe(false);
+
+    fireEvent.click(saveButton);
+
+    await waitFor(() => expect(configPatchCalls.length).toBe(1));
+    expect(provisionedKeys).toHaveLength(0);
+    expect(configPatchCalls[0]!.body).toMatchObject({
+      services: {
+        "web-search": {
+          provider: "searxng",
+          mode: "your-own",
+          apiBase: "http://127.0.0.1:8888",
+        },
+      },
+    });
+  });
+
+  test("TinyFish still requires a key when API Base is custom", () => {
+    renderCard();
+
+    fireEvent.click(providerTrigger());
+    selectOption("TinyFish");
+
+    const saveButton = screen.getByRole("button", {
+      name: "Save",
+    }) as HTMLButtonElement;
+    const apiBaseInput = screen.getByPlaceholderText(
+      "https://api.search.tinyfish.ai",
+    );
+    fireEvent.change(apiBaseInput, {
+      target: { value: "https://search.example.com/api" },
+    });
+
+    expect(saveButton.disabled).toBe(true);
+
+    const keyInput = screen.getByPlaceholderText("TinyFish API key...");
+    fireEvent.change(keyInput, { target: { value: "tinyfish-secret" } });
+    expect(saveButton.disabled).toBe(false);
   });
 
   test("a daemon predating the vellum provider gets the legacy managed write", async () => {

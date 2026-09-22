@@ -7,13 +7,15 @@ import { z } from "zod";
 
 import { getLogger } from "../logger.js";
 import { getWorkspaceDir } from "../paths.js";
+import {
+  isValidWebhookIngressPath,
+  MAX_WEBHOOK_INGRESS_PATH_LENGTH,
+  PLUGIN_WEBHOOK_PATH_PREFIX,
+} from "../velay/path-utils.js";
 import { IngressInboundSchema } from "./ingress-inbound.js";
 import { IngressVerificationSchema } from "./ingress-verification.js";
 
 const log = getLogger("plugin-ingress");
-
-/** Reserved namespace every plugin webhook is composed under. */
-export const PLUGIN_WEBHOOK_PREFIX = "/webhooks/plugins";
 
 /** Manifest location relative to a plugin's workspace directory. */
 export const PLUGIN_INGRESS_MANIFEST_RELPATH = join("channels", "ingress.json");
@@ -74,6 +76,10 @@ export const IngressRouteSchema = z.object({
    * `/webhooks/plugins/meeting-bot/realtime`. The prefix and the plugin
    * name are supplied by the gateway, so a declaration cannot name another
    * plugin's route.
+   *
+   * How long the path may be is not decided here: the budget it spends depends
+   * on the plugin's directory name, which discovery knows and this schema does
+   * not. See {@link assertComposablePaths}.
    */
   path: z
     .string()
@@ -238,7 +244,45 @@ export const PLUGIN_WEBHOOK_PATH_PATTERN =
 
 /** Compose the absolute public path the gateway serves for a route. */
 export function pluginWebhookPath(plugin: string, path: string): string {
-  return `${PLUGIN_WEBHOOK_PREFIX}/${plugin}/${path.replace(/^\/+/, "")}`;
+  return `${PLUGIN_WEBHOOK_PATH_PREFIX}${plugin}/${path.replace(/^\/+/, "")}`;
+}
+
+/**
+ * Refuse routes whose composed public path is not one the webhook registry
+ * will claim, in either spelling the gateway serves: the composed path and the
+ * same path with a trailing slash.
+ *
+ * The plugin's directory name is part of the composition, so the check belongs
+ * here, where the name is known, rather than in the schema, which sees only the
+ * declared half. The schema admits shapes the registry still refuses, such as a
+ * backslash or a character URL parsing rewrites, and length depends on a
+ * directory name the schema would have to assume the longest form of. A path
+ * the registry will not claim would otherwise be a route the ingress resolver
+ * reports servable and the registry holds no row for, so an uncomposable path
+ * is a declaration problem for its plugin instead.
+ */
+function assertComposablePaths(
+  plugin: string,
+  routes: readonly IngressRoute[],
+): void {
+  for (const route of routes) {
+    const composed = pluginWebhookPath(plugin, route.path);
+    const withTrailingSlash = `${composed}/`;
+    // Length is reported on its own because the count is what an author needs
+    // in order to shorten the path.
+    if (withTrailingSlash.length > MAX_WEBHOOK_INGRESS_PATH_LENGTH) {
+      throw new Error(
+        `route ${route.path}: composed public path is ${withTrailingSlash.length} characters, over the ${MAX_WEBHOOK_INGRESS_PATH_LENGTH} the webhook registry stores`,
+      );
+    }
+    for (const spelling of [composed, withTrailingSlash]) {
+      if (!isValidWebhookIngressPath(spelling)) {
+        throw new Error(
+          `route ${route.path}: composed public path ${spelling} is not a shape the webhook registry claims`,
+        );
+      }
+    }
+  }
 }
 
 /** Absolute paths a discovered plugin is asking the gateway to expose. */
@@ -305,7 +349,9 @@ export interface DiscoverPluginIngressOptions {
  * Scan the workspace for plugin ingress declarations.
  *
  * A manifest is untrusted input from the assistant and is validated here
- * independently of any checks the plugin performs on itself.
+ * independently of any checks the plugin performs on itself. This is also where
+ * composed path lengths are checked, because the plugin's directory name is
+ * half of what a public path spends.
  *
  * Plugins carrying a `.disabled` sentinel are skipped, matching the source
  * of truth the assistant uses for hooks, tools, and routes, so a disabled
@@ -381,6 +427,7 @@ export function discoverPluginIngress(
 
     try {
       const manifest = parsePluginIngressManifest(raw);
+      assertComposablePaths(plugin, manifest.routes);
       plugins.push({ plugin, routes: manifest.routes });
     } catch (err) {
       problems.push({
@@ -413,6 +460,8 @@ export class PluginIngressCache {
   private readonly workspaceDir: string | undefined;
   private snapshot: PluginIngressDiscovery = { plugins: [], problems: [] };
   private lastReadAt = 0;
+  private fingerprint = declarationFingerprint({ plugins: [], problems: [] });
+  private readonly changeListeners = new Set<() => void>();
 
   constructor(opts?: { ttlMs?: number; workspaceDir?: string }) {
     this.ttlMs = opts?.ttlMs ?? DEFAULT_TTL_MS;
@@ -427,6 +476,11 @@ export class PluginIngressCache {
         workspaceDir: this.workspaceDir,
       });
       this.lastReadAt = Date.now();
+      const fingerprint = declarationFingerprint(this.snapshot);
+      if (fingerprint !== this.fingerprint) {
+        this.fingerprint = fingerprint;
+        this.notifyChanged();
+      }
     }
     return this.snapshot;
   }
@@ -435,4 +489,44 @@ export class PluginIngressCache {
   invalidate(): void {
     this.lastReadAt = 0;
   }
+
+  /**
+   * Register a callback that fires when a refresh finds different
+   * declarations than the previous snapshot held, which is how an install,
+   * uninstall, toggle, or manifest edit becomes visible to anything that
+   * mirrors what plugins declare. Returns an unsubscribe function.
+   *
+   * The callback runs inside {@link get}, on whichever request drove the
+   * refresh, so it must not read back through this cache synchronously.
+   */
+  onChange(cb: () => void): () => void {
+    this.changeListeners.add(cb);
+    return () => {
+      this.changeListeners.delete(cb);
+    };
+  }
+
+  private notifyChanged(): void {
+    for (const cb of this.changeListeners) {
+      try {
+        cb();
+      } catch (err) {
+        log.warn({ err }, "Plugin ingress change listener failed");
+      }
+    }
+  }
+}
+
+/**
+ * Identity of what a discovery declares, so a refresh that read the same
+ * manifests again is not reported as a change. Plugin order is whatever the
+ * directory walk produced, so it is sorted out. Problems are excluded because
+ * a declaration that failed validation contributes no route either way.
+ */
+function declarationFingerprint(discovery: PluginIngressDiscovery): string {
+  return JSON.stringify(
+    [...discovery.plugins]
+      .sort((a, b) => a.plugin.localeCompare(b.plugin))
+      .map((p) => [p.plugin, p.routes]),
+  );
 }

@@ -11,6 +11,11 @@ import { getLogger } from "../util/logger.js";
 const log = getLogger("ces-rpc-record-backend");
 
 export interface CredentialRecordBackend {
+  /**
+   * Transport id. `"ces-rpc"` is the attached CES socket backend; live
+   * catalog listing fails over to CES HTTP when that transport is down.
+   */
+  readonly name?: string;
   isAvailable(): boolean;
   get(account: string): Promise<CredentialRecord | undefined>;
   set(account: string, record: CredentialRecord): Promise<boolean>;
@@ -29,6 +34,8 @@ export interface CredentialRecordBackend {
 }
 
 export class CesRpcRecordBackend implements CredentialRecordBackend {
+  readonly name = "ces-rpc";
+
   constructor(private readonly client: CesClient) {}
 
   isAvailable(): boolean {

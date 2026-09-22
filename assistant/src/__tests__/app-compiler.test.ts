@@ -112,6 +112,12 @@ describe("compileApp", () => {
     const html = await readFile(join(appDir, "dist", "index.html"), "utf-8");
     expect(html).toContain('src="main.js"');
     expect(html).toContain('type="module"');
+
+    const fingerprint = JSON.parse(
+      await readFile(join(appDir, "dist", ".source-fingerprint.json"), "utf-8"),
+    ) as { algorithm: string; files: Record<string, string> };
+    expect(fingerprint.algorithm).toBe("sha256");
+    expect(fingerprint.files["src/main.tsx"]).toMatch(/^[0-9a-f]{64}$/);
   });
 
   test("compiles preact JSX correctly", async () => {

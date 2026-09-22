@@ -264,7 +264,9 @@
   },
   "pluginToast": {
     "alreadyUpToDate": "{name} 已是最新版本",
+    "cleanupWarning": "插件清理已完成，但有一项警告。",
     "installed": "已安装 {name}",
+    "mcpOAuthCredentialsUnchecked": "凭据存储不可用，因此无法检查该插件之前的 MCP OAuth 凭据。",
     "pluginFallback": "插件",
     "pluginFallbackCapitalized": "插件",
     "removed": "已移除 {name}",
@@ -446,5 +448,9 @@
     "system": "系统",
     "integrations": "集成",
     "other": "其他"
+  },
+  "assistantHandleLine": {
+    "edit": "编辑用户名 @{handle}",
+    "editTitle": "编辑用户名"
   }
 }

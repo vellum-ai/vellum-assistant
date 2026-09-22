@@ -12,7 +12,9 @@ import type { SubscriptionResponse } from "@/generated/api/types.gen";
 
 let nativeAndroid = false;
 
+const platformDetection = await import("@/runtime/platform-detection");
 mock.module("@/runtime/platform-detection", () => ({
+  ...platformDetection,
   detectElectronHostOS: () => null,
   isNativeAndroid: () => nativeAndroid,
   useIsNativeAndroid: () => nativeAndroid,
@@ -70,6 +72,7 @@ function renderCard(planId: SubscriptionResponse["plan_id"]) {
           assistant={assistant}
           healthz={null}
           healthzLoading={false}
+          healthzFetching={false}
           healthzPolling={false}
           refetch={() => {}}
           refetchUntilResized={() => {}}

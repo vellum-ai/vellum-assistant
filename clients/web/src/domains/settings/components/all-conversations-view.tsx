@@ -11,7 +11,7 @@
  */
 
 import { useQueryClient } from "@tanstack/react-query";
-import { Archive, Loader2, RotateCcw, Search } from "lucide-react";
+import { Archive, RotateCcw, Search } from "lucide-react";
 import { type ChangeEvent, useCallback, useMemo, useState } from "react";
 
 import {
@@ -27,6 +27,7 @@ import { useTranslation } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 import type { Conversation } from "@/types/conversation-types";
 import { invalidateConversationQueries } from "@/utils/conversation-cache";
+import { useDisplayConversationTitle } from "@/utils/conversation-title";
 import { toast } from "@vellumai/design-library";
 import { Button } from "@vellumai/design-library/components/button";
 import {
@@ -79,16 +80,14 @@ function ConversationRow({
   isPending: boolean;
 }) {
   const { t } = useTranslation("settings");
+  const displayTitle = useDisplayConversationTitle();
   const { conversation, archived } = row;
   const dateText = formatConversationDate(
     conversation.lastMessageAt ?? conversation.createdAt,
   );
   const source = conversation.source ?? "vellum-assistant";
   const meta = [dateText, source].filter(Boolean).join(" · ");
-  const title =
-    conversation.title && conversation.title.trim().length > 0
-      ? conversation.title
-      : t("allConversationsView.untitled");
+  const title = displayTitle(conversation.title);
 
   return (
     <div
@@ -111,24 +110,18 @@ function ConversationRow({
       <Button
         variant="outlined"
         onClick={archived ? onUnarchive : onArchive}
+        loading={isPending}
+        leftIcon={archived ? undefined : <Archive />}
         disabled={isPending}
         className="shrink-0"
       >
-        {isPending ? (
-          <>
-            <Loader2 className="h-4 w-4 animate-spin" />
-            {archived
-              ? t("allConversationsView.unarchiving")
-              : t("allConversationsView.archiving")}
-          </>
-        ) : archived ? (
-          t("allConversationsView.unarchive")
-        ) : (
-          <>
-            <Archive className="h-4 w-4" />
-            {t("allConversationsView.archive")}
-          </>
-        )}
+        {isPending
+          ? archived
+            ? t("allConversationsView.unarchiving")
+            : t("allConversationsView.archiving")
+          : archived
+            ? t("allConversationsView.unarchive")
+            : t("allConversationsView.archive")}
       </Button>
     </div>
   );

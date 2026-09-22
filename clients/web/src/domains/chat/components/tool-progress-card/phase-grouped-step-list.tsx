@@ -37,6 +37,7 @@ import { Fragment, type ReactNode } from "react";
 import { Tooltip, Typography } from "@vellumai/design-library";
 
 import type { IconName } from "@/domains/chat/components/tool-progress-card/derive-step-label";
+import { useActionDisplayLabel } from "@/domains/chat/components/tool-progress-card/action-display-label";
 import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/three-dot-indicator";
 import { thinkingPreview } from "@/domains/chat/utils/thinking-preview";
 import {
@@ -84,7 +85,7 @@ export function phaseFromStep(step: ToolCallCardStep): string {
   }
   // step.kind === "tool"
   const title = step.title;
-  if (title.startsWith("Working")) {
+  if (isWorkingPhaseLabel(title)) {
     return title;
   }
   if (
@@ -101,6 +102,11 @@ export function phaseFromStep(step: ToolCallCardStep): string {
     return title;
   }
   return title;
+}
+
+/** Whether a phase label belongs to the general working phase family. */
+export function isWorkingPhaseLabel(label: string): boolean {
+  return label.startsWith("Working");
 }
 
 /**
@@ -183,7 +189,9 @@ function PhaseDurationLabel({
   }
   return (
     <Tooltip
-      content={t("phaseGroupedStepList.startedAt", { time: formatStartTime(startedAt) })}
+      content={t("phaseGroupedStepList.startedAt", {
+        time: formatStartTime(startedAt),
+      })}
       side="top"
       align="end"
     >
@@ -277,6 +285,8 @@ export interface PhaseGroupedStepListProps {
    * passes a renderer that preserves the favicon / overflow / error chips.
    */
   renderStep?: (step: ToolCallCardStep) => ReactNode;
+  /** Optional content rendered after the final step in each phase section. */
+  renderPhaseFooter?: (section: PhaseSection) => ReactNode;
   /**
    * When `true`, render the sections as a vertical timeline: each phase's
    * status icon sits in a left node column with a connector line running
@@ -292,6 +302,7 @@ export interface PhaseGroupedStepListProps {
 export function PhaseGroupedStepList({
   steps,
   renderStep,
+  renderPhaseFooter,
   timeline = false,
 }: PhaseGroupedStepListProps) {
   if (steps.length === 0) {
@@ -337,6 +348,7 @@ export function PhaseGroupedStepList({
             baseIndex={sectionOffsets[sectionIdx]!}
             isLast={sectionIdx === sections.length - 1}
             renderSectionSteps={renderSectionSteps}
+            renderPhaseFooter={renderPhaseFooter}
           />
         ))}
       </div>
@@ -367,6 +379,7 @@ export function PhaseGroupedStepList({
             />
             <div className="flex min-w-0 flex-col items-start gap-1 pl-[24px]">
               {renderSectionSteps(section, baseIndex)}
+              {renderPhaseFooter?.(section)}
             </div>
           </div>
         );
@@ -395,11 +408,13 @@ function TimelinePhaseSection({
   baseIndex,
   isLast,
   renderSectionSteps,
+  renderPhaseFooter,
 }: {
   section: PhaseSection;
   baseIndex: number;
   isLast: boolean;
   renderSectionSteps: (section: PhaseSection, baseIndex: number) => ReactNode;
+  renderPhaseFooter?: (section: PhaseSection) => ReactNode;
 }) {
   const totalDuration = sumDurationLabels(
     section.steps.map((s) => ("durationLabel" in s ? s.durationLabel : "")),
@@ -452,6 +467,7 @@ function TimelinePhaseSection({
         )}
       >
         {renderSectionSteps(section, baseIndex)}
+        {renderPhaseFooter?.(section)}
       </div>
     </div>
   );
@@ -617,17 +633,25 @@ function PhaseHeaderRow({
  * subagent timeline) call this so they can never drift from the rendering:
  *
  *  - `thinking` → always renders a pill.
- *  - `tool` → renders only when `info` is non-empty (status is ignored: a
- *    failing tool step with no `info` still has nothing to show).
+ *  - `tool` → renders only when its resolved label is non-empty.
  *  - `tool_error` / `web_search_error` → always render a message.
  *  - `web_search` → always renders its title.
  */
-export function stepRendersPill(step: ToolCallCardStep): boolean {
+export function stepRendersPill(
+  step: ToolCallCardStep,
+  resolveActionDisplayLabel: ReturnType<typeof useActionDisplayLabel>,
+): boolean {
   switch (step.kind) {
     case "thinking":
       return true;
     case "tool":
-      return step.info.length > 0;
+      return Boolean(
+        resolveActionDisplayLabel({
+          activity: step.activity,
+          actionDisplayKey: step.actionDisplayKey,
+          fallback: step.info,
+        }),
+      );
     case "tool_error":
     case "web_search_error":
     case "web_search":
@@ -646,6 +670,7 @@ export function stepRendersPill(step: ToolCallCardStep): boolean {
  * override.
  */
 export function DefaultStepPill({ step }: { step: ToolCallCardStep }) {
+  const resolveActionDisplayLabel = useActionDisplayLabel();
   if (step.kind === "thinking") {
     return (
       <StepPill>
@@ -660,7 +685,7 @@ export function DefaultStepPill({ step }: { step: ToolCallCardStep }) {
     // pill entirely rather than duplicating the phase header's title — e.g.
     // a skill call with no skill name shouldn't render a literal "Using a
     // skill" pill underneath a "Using a skill" phase header.
-    if (!stepRendersPill(step)) {
+    if (!stepRendersPill(step, resolveActionDisplayLabel)) {
       return null;
     }
     return (
@@ -669,7 +694,13 @@ export function DefaultStepPill({ step }: { step: ToolCallCardStep }) {
           aria-hidden="true"
           className="h-3.5 w-3.5 shrink-0 text-[var(--content-secondary)]"
         />
-        <PillText>{step.info}</PillText>
+        <PillText>
+          {resolveActionDisplayLabel({
+            activity: step.activity,
+            actionDisplayKey: step.actionDisplayKey,
+            fallback: step.info,
+          })}
+        </PillText>
       </StepPill>
     );
   }

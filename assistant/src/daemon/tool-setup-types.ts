@@ -59,6 +59,12 @@ export interface SubagentToolStats {
  * parity for desktop/web sources; channel-routed sources resolve every tool
  * gate identically under `hasNoClient: true` with or without them.)
  *
+ * A wake that also carries its source's recorded wire array
+ * (`Conversation.wireToolReplay`, set by `scopeWakeAllowedTools`) sends that
+ * array verbatim, so the pin then shapes only the execution-side inventory
+ * (`allowedToolNames`); the pin alone carries wire parity for a source with
+ * no recorded surface.
+ *
  * Tool-definition resolution ONLY. The executor callback and host-proxy
  * attachment paths never read the pin, so it cannot make a host tool
  * runnable: in execution gate mode every non-allowlisted call is rejected

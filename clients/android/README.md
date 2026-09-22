@@ -393,8 +393,134 @@ voice launches.
 
 ## Native notifications
 
-Android registers FCM on `vellum-alerts`, renders foreground pushes once, and handles background pushes and taps.
-FCM needs Play services and untracked `google-services.json`; failures retry on resume.
+Android registers FCM on the `vellum-alerts` channel and handles pushes and
+taps. FCM needs Play services and an untracked `google-services.json`;
+failures retry on resume.
+
+`AndroidPushRegistration.getCapabilities` advertises
+`native-notification-render` on token registration. The platform sends
+data-only pushes only to tokens that claim it, so a build that cannot render
+one natively must never claim it. The claim is deliberately not gated on
+`push-avatar-sender`: that flag is the platform's own switch for the data-only
+shape, while the capability says which tokens could render one, so a shell that
+can render natively says so whether the flag is on or off.
+
+The token capability is not live foreground ownership. New web code negotiates
+that separately with a versioned, page-generation-bound
+`AndroidPushRegistration.setNotificationOwnership` handshake only after the
+coordinator-backed local route is ready. The identity adapter is installed
+before the first asynchronous capability or foreground announcement. Page
+start, renderer loss, activity destruction, and bridge destruction enqueue a
+serialized clear. A stale call from an older page generation cannot restore
+ownership. These clears do not reset retained delivery results. Ownership
+negotiation is intentionally independent of `local-notification-avatar`, so
+turning assistant presentation off cannot send a local request back through an
+unshared deduplication lane.
+
+`SafeMessagingService` routes each push to exactly one owner. A push carrying a
+Firebase notification block keeps the existing `PushNotificationsPlugin`
+route. Data-only FCM and app-originated local requests after the ownership
+handshake use the process-wide `NotificationDeliveryCoordinator`. Both
+normalize the first semantically present correlation id, delivery id, or
+request key with the same trim and 512 UTF-16 code-unit bound. An overlength
+higher-precedence candidate fails closed rather than falling through. This full
+string key is separate from the numeric Android notification id, and the
+original SSE delivery id remains the acknowledgment id.
+`local-notification-avatar` controls whether a qualifying local request asks
+for assistant presentation. With it off, the same coordinator posts the app or
+plain presentation.
+
+Negotiated foreground data-only FCM visits the web runtime only for the same
+active-conversation, chat-route, and page-visible suppression decision used by
+SSE. If display is still required, it returns to the shared native coordinator
+for the only banner and channel-owned sound. Bounded process-RAM focus
+tombstones use the canonical key across FCM-first and SSE-first arrival, so
+navigating away between matching events does not reopen display. Before live
+ownership, compatibility routes remain available. After a coordinator claim,
+every success, duplicate, blocked result, timeout, malformed bridge response,
+or failure remains native-owned and cannot schedule a JavaScript fallback.
+Only a native process restart clears the bounded coordinator memory.
+
+`NativePushRenderer` posts the native notification. With a sender it is a
+`MessagingStyle` conversation: the avatar is the large icon, the assistant's
+name is the message line, and the conversation title is the header. Without a
+sender it matches what Firebase would have rendered. `vellum-alerts` is the only
+channel a payload may name: it is created if it is missing, because from API 26
+posting to a channel that does not exist is a silent no-op, and any other name
+posts here anyway and is logged once. Existing is not enough, since the voice
+session channel and Firebase's own fallback both exist and both post silently.
+The coordinator's full key and Android's numeric notification id serve
+different purposes. The coordinator prevents duplicate ownership across FCM
+and SSE without hashing away the full correlation identity. The numeric id
+still gives Android a stable integer for posting and replacement.
+
+Each conversation notification also publishes a long-lived dynamic shortcut,
+which is what gives Android the conversation treatment. The shortcut intent is
+the conversation's own app link, never the push's identifiers, so a tap opens
+the thread from a cold or a warm start and a week-old shortcut cannot replay a
+stale delivery. That link names the baked cloud host, and `MainActivity` refuses
+an app link while a self-hosted origin is configured, so a self-hosted install
+publishes no shortcut at all rather than one that only foregrounds the app. Two
+conversations keep a shortcut at a time: a product cap on how much of the
+launcher's list a notification may claim. The launcher's own budget counts the
+static New chat and Start voice entries towards the same total, but they are
+manifest shortcuts, so a dynamic push can only ever evict another dynamic one.
+The shortcuts leave with the token on `AndroidPushRegistration.unregister`, once
+that unregister has actually reached the push plugin, so the next account does
+not inherit the previous one's conversation titles and avatars.
+
+`AvatarCache` keeps the sender avatars on disk under the cache directory, eight
+at a time, evicted least-recently-used, each file re-hashed against the name it
+is filed under before it is drawn, and deleted when it no longer hashes to that
+name or has grown past the 512 KB cap. The avatar is resolved once the renderer
+confirms a notification can be posted at all, and before it is posted: the cache
+first, then an HTTPS download verified against the pushed sha256. The download
+runs inside `onMessageReceived` with a 3 s connect timeout, a 2 s read timeout,
+and a 3 s total budget that starts before the response head and spans the body,
+since the per-read timeout restarts on every chunk. A head that arrives slowly
+spends the body's share rather than adding to it, and one that spends all of it
+gives up before a byte of body is read. The budget is only read between chunks
+and Android fixes the socket timeout when the connection is made, so the read
+that crosses it still runs its own timeout out: a connect, the budget, and that
+last read bound a responding host at 8 s. The local cache read carries the cap
+but no deadline, having no host to trickle it. A miss just posts without an
+avatar.
+
+### Device QA checklist
+
+Native rendering needs a physical device with Play services and a data-only
+push from a lower environment. This local checklist supplements the canonical
+[notification avatar and local delivery QA ledger](../../docs/notification-avatar-local-qa.md),
+which owns statuses, the two-flag matrix, compatibility cases, and rollout
+gates. Verify:
+
+- Killed, background, and foreground delivery each post exactly one banner,
+  never two.
+- Foreground delivery during a cold start, before the web layer has loaded,
+  still posts.
+- A push arriving right after a WebView reload, while the web runtime has no
+  handler yet, still posts exactly one banner.
+- The first push for a new avatar hash downloads and shows the avatar; the
+  next push for the same hash shows it from the cache with no visible delay.
+- A push whose `sender_avatar_url` is missing posts without an avatar.
+- Tapping a notification opens the conversation it came from.
+- The conversation appears as a launcher shortcut; tapping it opens that
+  conversation from both a cold and a warm start rather than replaying the
+  push, and a third conversation evicts the oldest of ours without disturbing
+  New chat or Start voice.
+- Signing out clears our conversation shortcuts and leaves New chat and Start
+  voice in place.
+- A push arriving while a self-hosted origin is configured posts its banner and
+  publishes no launcher shortcut.
+- On API 24 or 25 the notification plays the default sound.
+- A push naming an unknown channel still arrives, on `vellum-alerts`.
+- Focused delivery suppresses both FCM-first and SSE-first orders while the
+  matching conversation route is visible, without losing the original SSE
+  acknowledgment id.
+- Reloading the WebView clears page ownership but does not make an already
+  claimed full key eligible for another banner or sound.
+- All four combinations of `push-avatar-sender` and
+  `local-notification-avatar` preserve exactly one delivery owner.
 
 ## Structure
 
@@ -480,14 +606,15 @@ wrong identity.
 Release builds enable resource shrinking and R8 optimization. Capacitor plugin
 annotations and methods are retained by `app/proguard-rules.pro`.
 
-## Google Play Internal Releases
+## Google Play Releases
 
 `.github/workflows/release-android.yaml` is the reusable Android release
-workflow. It builds a signed AAB, retains it as an artifact, and uploads it to
-the matching Play internal track through the Android Publisher API. The
-publisher uses Google's official Android Publisher client and repository-owned
-code, not an external Play publishing action. Production-track promotion
-remains manual.
+workflow. It builds a signed AAB, retains it as an artifact, and publishes it
+through the Android Publisher API. Dev and staging releases use their matching
+app's internal track. Production releases use the production track with a
+completed rollout, which submits the release for Play review and publishing.
+The publisher uses Google's official Android Publisher client and
+repository-owned code, not an external Play publishing action.
 When Firebase configuration is available, the workflow validates that it
 matches the selected flavor before including it in the build.
 
@@ -512,8 +639,8 @@ GitHub variables. `GCP_SERVICE_ACCOUNT` must match the environment's
 Never commit Firebase configuration, the keystore, or decoded secret material.
 The workflow removes restored files even when a build fails.
 
-`ANDROID_FIREBASE_CONFIG_B64` remains optional so signing and internal
-distribution do not depend on push setup. When it is absent, the workflow emits
+`ANDROID_FIREBASE_CONFIG_B64` remains optional so signing and Play distribution
+do not depend on push setup. When it is absent, the workflow emits
 a warning and the resulting AAB has no native push support. When it is present,
 malformed base64, invalid JSON, or a package mismatch fails the build.
 
@@ -524,7 +651,7 @@ distribution independently with these repository variables:
 |----------|------------------|
 | `ANDROID_DEV_RELEASE_ENABLED` | Dev releases |
 | `ANDROID_STAGING_RELEASE_ENABLED` | Staging releases |
-| `ANDROID_PRODUCTION_RELEASE_ENABLED` | Production releases |
+| `ANDROID_PRODUCTION_RELEASE_ENABLED` | Production releases to the Play production track |
 
 Set only `ANDROID_DEV_RELEASE_ENABLED` to `true` to test the dev app on its Play
 internal track. Leave the staging and production variables unset or set to
@@ -535,7 +662,7 @@ schedule.
 
 ### Manual Play Prerequisites
 
-Complete the following setup before enabling internal-track uploads:
+Complete the following setup before enabling Google Play publishing:
 
 1. Apply the platform Terraform stacks that enable the Android Publisher API
    in the dev, staging, and production GCP projects.
@@ -548,13 +675,16 @@ Complete the following setup before enabling internal-track uploads:
    upload a completed release.
 5. In Play Console, grant each environment's `GCP_SERVICE_ACCOUNT` access only
    to its matching app, with **View app information (read-only)** and
-   **Release apps to testing tracks**. Do not grant production publishing.
+   **Release apps to testing tracks**. For `ai.vellum.assistant`, also grant the
+   production environment's service account **Release to production, exclude
+   devices, and use Play App Signing**.
 6. Configure the repository and environment secrets above.
 7. Complete each Play listing, privacy policy, Data Safety form, content rating,
    and the declarations required for microphone and camera permissions.
 
-Before wider rollout, test the internal-track AAB on a physical device and
-verify its identity, web origin, authentication, keyboard, and file sharing.
+Before enabling `ANDROID_PRODUCTION_RELEASE_ENABLED`, test a signed production
+AAB on the production app's internal track using a physical device. Verify its
+identity, web origin, authentication, keyboard, and file sharing.
 
 ### Manual Firebase Prerequisites
 

@@ -18,7 +18,7 @@ import { ExternalLink } from "lucide-react";
 import { channelReportsMessageProvenance } from "@/domains/chat/channel-sidecar/channel-message-provenance";
 import type { ChannelTranscriptEntry } from "@/domains/chat/channel-sidecar/channel-sidecar-transcript";
 import { ChannelTranscriptEntryRow } from "@/domains/chat/channel-sidecar/channel-transcript-entry-row";
-import { DetailShell } from "@/components/detail-shell";
+import { DetailShell, DetailShellNotice } from "@/components/detail-shell";
 import { useTranslation } from "@/i18n";
 import type { ChannelSidecarRef } from "@/stores/viewer-store";
 import { ChannelIcon, getChannelLabel } from "@/utils/channel-presentation";
@@ -113,17 +113,13 @@ export function ChannelTranscriptPanelView({
       </Typography>
 
       {entries.length === 0 ? (
-        <Typography
-          as="p"
-          variant="body-small-default"
-          className="py-4 text-center text-[var(--content-tertiary)]"
-        >
+        <DetailShellNotice>
           {channelReportsMessageProvenance(sidecarRef.channelId)
             ? t("channelTranscriptPanel.emptyThread", { channel: channelLabel })
             : t("channelTranscriptPanel.emptyNoMessageDetail", {
                 channel: channelLabel,
               })}
-        </Typography>
+        </DetailShellNotice>
       ) : (
         <div className="flex flex-col gap-1">
           {entries.map((entry) => (

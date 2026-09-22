@@ -6,8 +6,23 @@
  * state or the daemon conversation store.
  */
 
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  describe,
+  expect,
+  mock,
+  spyOn,
+  test,
+} from "bun:test";
 
+import { setOverridesForTesting } from "../../__tests__/feature-flag-test-helpers.js";
+import { isSessionGroupsEnabled } from "../../config/session-groups-gate.js";
+import type { BrowserOperationToken } from "../../daemon/browser-mode-session.js";
+import { BrowserModeSessionProducer } from "../../daemon/browser-mode-session.js";
+import { desktopDependencies } from "../../desktop/desktop-dependencies.js";
+import * as desktopFeature from "../../desktop/virtual-desktop-feature.js";
+import { browserManager } from "../../tools/browser/browser-manager.js";
 import type { ToolExecutionResult } from "../../tools/types.js";
 
 // ---------------------------------------------------------------------------
@@ -31,12 +46,73 @@ let mockOperationCalls: Array<{
 let mockConversation: {
   trustContext?: { trustClass: string };
   transportInterface?: string;
+  currentTurnClientOs?: string;
+  clientOs?: string;
   getTurnActorPrincipalId?: () => string | undefined;
+  abortController?: AbortController;
+  currentRequestId?: string;
+  browserModeSessions?: {
+    beginOperation: (input: {
+      turnId: string;
+      lifecycle: "action" | "terminal" | "status";
+      at: number;
+    }) => BrowserOperationToken | undefined;
+    finishOperation: (
+      token: BrowserOperationToken | undefined,
+      outcome: {
+        at: number;
+        isError: boolean;
+        cancelled: boolean;
+        terminalReason?: "browser_closed" | "browser_detached";
+      },
+    ) => boolean;
+  };
 } | null = null;
+
+const lifecycleBegins: Array<{
+  turnId: string;
+  lifecycle: "action" | "terminal" | "status";
+  at: number;
+}> = [];
+const lifecycleFinishes: Array<{
+  token: BrowserOperationToken | undefined;
+  outcome: {
+    at: number;
+    isError: boolean;
+    cancelled: boolean;
+    terminalReason?: "browser_closed" | "browser_detached";
+  };
+}> = [];
+
+function browserLifecycle() {
+  return {
+    beginOperation(input: (typeof lifecycleBegins)[number]) {
+      lifecycleBegins.push(input);
+      return {
+        turnId: input.turnId,
+        lifecycle: input.lifecycle === "status" ? "action" : input.lifecycle,
+        owner: { id: "browser-session", mode: "browser" as const },
+      } as BrowserOperationToken;
+    },
+    finishOperation(
+      token: BrowserOperationToken | undefined,
+      outcome: (typeof lifecycleFinishes)[number]["outcome"],
+    ) {
+      lifecycleFinishes.push({ token, outcome });
+      return true;
+    },
+  };
+}
 
 let mockFindConversationCalls: string[] = [];
 
 mock.module("../../browser/operations.js", () => ({
+  browserOperationLifecycle: (operation: string) =>
+    operation === "status"
+      ? "status"
+      : operation === "close" || operation === "detach"
+        ? "terminal"
+        : "action",
   executeBrowserOperation: async (
     operation: string,
     input: Record<string, unknown>,
@@ -63,6 +139,47 @@ mock.module("../../daemon/conversation-registry.js", () => ({
   findConversation: (conversationId: string) => {
     mockFindConversationCalls.push(conversationId);
     return mockConversation ?? undefined;
+  },
+  findConversationOrSubagent: () => mockConversation ?? undefined,
+}));
+
+let desktopEnabled = false;
+let desktopReady = false;
+let desktopFailure = false;
+const enabledSpy = spyOn(
+  desktopFeature,
+  "isVirtualDesktopEnabled",
+).mockImplementation(() => desktopEnabled);
+const readySpy = spyOn(desktopDependencies, "getStatus").mockImplementation(
+  () => ({ state: desktopReady ? "ready" : "failed" }),
+);
+afterAll(() => {
+  enabledSpy.mockRestore();
+  readySpy.mockRestore();
+});
+
+let desktopContext: import("../../tools/types.js").ToolContext | undefined;
+mock.module("../../desktop/desktop-browser-operations.js", () => ({
+  executeDesktopBrowserTabs: async (
+    _params: unknown,
+    context: import("../../tools/types.js").ToolContext,
+  ) => {
+    desktopContext = context;
+    return {
+      content: JSON.stringify({ ok: true, tabs: [{ tabId: 1 }] }),
+      isError: false,
+    };
+  },
+  executeDesktopBrowserOperation: async (
+    _operation: string,
+    _input: Record<string, unknown>,
+    context: import("../../tools/types.js").ToolContext,
+  ) => {
+    desktopContext = context;
+    return {
+      content: desktopFailure ? "Desktop is busy" : "desktop",
+      isError: desktopFailure,
+    };
   },
 }));
 
@@ -92,10 +209,18 @@ function callHandler(
 // ---------------------------------------------------------------------------
 
 afterEach(() => {
+  setOverridesForTesting({});
+  desktopEnabled = false;
+  desktopReady = false;
+  desktopFailure = false;
+  desktopContext = undefined;
+  browserManager.clearPreferredBackendKind("conv-default-browser");
   mockOperationResult = { content: "ok", isError: false };
   mockOperationCalls = [];
   mockConversation = null;
   mockFindConversationCalls = [];
+  lifecycleBegins.length = 0;
+  lifecycleFinishes.length = 0;
 });
 
 // ---------------------------------------------------------------------------
@@ -411,6 +536,150 @@ describe("browser_execute route", () => {
     });
   });
 
+  test("brackets a typed live-turn action with browser lifecycle", async () => {
+    mockConversation = {
+      currentRequestId: "turn-123",
+      browserModeSessions: browserLifecycle(),
+      getTurnActorPrincipalId: () => undefined,
+    };
+
+    await callHandler({
+      operation: "navigate",
+      input: { url: "https://example.com" },
+      conversationId: "conv-live",
+    });
+
+    expect(lifecycleBegins).toEqual([
+      expect.objectContaining({ turnId: "turn-123", lifecycle: "action" }),
+    ]);
+    expect(lifecycleFinishes).toEqual([
+      expect.objectContaining({
+        token: expect.objectContaining({ turnId: "turn-123" }),
+        outcome: expect.objectContaining({
+          isError: false,
+          cancelled: false,
+        }),
+      }),
+    ]);
+  });
+
+  test("executes a live-turn action without tracking while session groups are disabled", async () => {
+    setOverridesForTesting({ "session-groups": false });
+    const activateSource = mock(() => {
+      throw new Error("disabled tracking must not activate a source");
+    });
+    mockConversation = {
+      currentRequestId: "turn-123",
+      browserModeSessions: new BrowserModeSessionProducer(
+        {
+          activateSource,
+          claimTurn: mock(() => undefined),
+          getTurnOwner: mock(() => undefined),
+          recordActivity: mock(() => false),
+          retireSource: mock(() => false),
+        },
+        1,
+        isSessionGroupsEnabled,
+      ),
+      getTurnActorPrincipalId: () => undefined,
+    };
+
+    const result = await callHandler({
+      operation: "navigate",
+      input: { url: "https://example.com" },
+      conversationId: "conv-live",
+    });
+
+    expect(result).toEqual({ content: "ok", isError: false });
+    expect(mockOperationCalls).toHaveLength(1);
+    expect(activateSource).not.toHaveBeenCalled();
+  });
+
+  test.each(["navigate", "close"] as const)(
+    "executes %s once after tracking admission throws",
+    async (operation) => {
+      mockConversation = {
+        currentRequestId: "turn-123",
+        browserModeSessions: {
+          ...browserLifecycle(),
+          beginOperation() {
+            throw new Error("tracking unavailable");
+          },
+        },
+        getTurnActorPrincipalId: () => undefined,
+      };
+      const result = await callHandler({
+        operation,
+        conversationId: "conv-live",
+      });
+      expect(result).toEqual({ content: "ok", isError: false });
+      expect(mockOperationCalls).toHaveLength(1);
+    },
+  );
+
+  test("passes typed terminal success and failure outcomes", async () => {
+    mockConversation = {
+      currentRequestId: "turn-123",
+      browserModeSessions: browserLifecycle(),
+      getTurnActorPrincipalId: () => undefined,
+    };
+
+    await callHandler({ operation: "detach", conversationId: "conv-live" });
+    expect(lifecycleBegins[0]).toMatchObject({ lifecycle: "terminal" });
+    expect(lifecycleFinishes[0]?.outcome).toMatchObject({
+      isError: false,
+      terminalReason: "browser_detached",
+    });
+
+    mockOperationResult = { content: "close failed", isError: true };
+    await callHandler({ operation: "close", conversationId: "conv-live" });
+    expect(lifecycleFinishes[1]?.outcome).toMatchObject({
+      isError: true,
+      terminalReason: "browser_closed",
+    });
+  });
+
+  test.each(["navigate", "close"] as const)(
+    "preserves a successful %s result when session tracking fails",
+    async (operation) => {
+      mockOperationResult = {
+        content: `${operation} completed`,
+        isError: false,
+      };
+      const lifecycle = browserLifecycle();
+      mockConversation = {
+        currentRequestId: "turn-123",
+        browserModeSessions: {
+          ...lifecycle,
+          finishOperation(token, outcome) {
+            lifecycle.finishOperation(token, outcome);
+            throw new Error("session tracking unavailable");
+          },
+        },
+        getTurnActorPrincipalId: () => undefined,
+      };
+
+      const result = await callHandler({
+        operation,
+        input: operation === "navigate" ? { url: "https://example.com" } : {},
+        conversationId: "conv-live",
+      });
+
+      expect(result).toEqual({
+        content: `${operation} completed`,
+        isError: false,
+      });
+      expect(mockOperationCalls).toHaveLength(1);
+      expect(lifecycleFinishes).toHaveLength(1);
+    },
+  );
+
+  test("does not observe lifecycle for a standalone CLI operation", async () => {
+    await callHandler({ operation: "navigate", sessionId: "standalone" });
+    expect(lifecycleBegins).toEqual([]);
+    expect(lifecycleFinishes).toEqual([]);
+  });
+
   // ── Input defaults ─────────────────────────────────────────────────
 
   test("defaults input to empty object when omitted", async () => {
@@ -421,4 +690,172 @@ describe("browser_execute route", () => {
     expect(mockOperationCalls).toHaveLength(1);
     expect(mockOperationCalls[0].input).toEqual({});
   });
+});
+
+test("desktop route preserves guardian ownership and live-turn cancellation", async () => {
+  const abortController = new AbortController();
+  mockConversation = {
+    trustContext: { trustClass: "guardian" },
+    getTurnActorPrincipalId: () => "user-123",
+    abortController,
+  };
+  const result = await callHandler(
+    { operation: "snapshot", desktop: true, conversationId: "conv-desktop" },
+    { "x-vellum-actor-principal-id": "user-other" },
+  );
+  expect(result).toMatchObject({ content: "desktop" });
+  expect(mockOperationCalls).toHaveLength(0);
+  expect(desktopContext).toMatchObject({
+    conversationId: "conv-desktop",
+    sourceActorPrincipalId: "user-123",
+    trustClass: "guardian",
+  });
+  expect(desktopContext?.signal?.aborted).toBe(false);
+  abortController.abort();
+  expect(desktopContext?.signal?.aborted).toBe(true);
+});
+
+function webConversation(clientOs = "web") {
+  desktopEnabled = true;
+  desktopReady = true;
+  mockConversation = {
+    trustContext: { trustClass: "guardian" },
+    transportInterface: "web",
+    currentTurnClientOs: clientOs,
+    getTurnActorPrincipalId: () => "user-123",
+  };
+}
+
+test("web browser commands default to the installed streamed Chrome", async () => {
+  webConversation();
+  const result = await callHandler({
+    operation: "navigate",
+    input: { url: "https://example.com" },
+    conversationId: "conv-default-browser",
+  });
+  expect(result).toMatchObject({ content: "desktop", isError: false });
+  expect(mockOperationCalls).toHaveLength(0);
+  expect(desktopContext?.clientOs).toBe("web");
+});
+
+test.each(["macos", "windows"])(
+  "%s renderer uses the personal browser despite its web transport",
+  async (clientOs) => {
+    webConversation(clientOs);
+    await callHandler({
+      operation: "snapshot",
+      conversationId: "conv-default-browser",
+    });
+    expect(mockOperationCalls).toHaveLength(1);
+    expect(desktopContext).toBeUndefined();
+  },
+);
+
+test("browser selection uses the active turn rather than a queued message's OS", async () => {
+  webConversation("macos");
+  mockConversation!.clientOs = "web";
+  await callHandler({
+    operation: "snapshot",
+    conversationId: "conv-default-browser",
+  });
+  expect(mockOperationCalls).toHaveLength(1);
+  expect(desktopContext).toBeUndefined();
+});
+
+test.each(["flag", "guardian", "actor"])(
+  "web preserves the existing browser when %s is unavailable",
+  async (missing) => {
+    webConversation();
+    if (missing === "flag") {
+      desktopEnabled = false;
+    }
+    if (missing === "guardian") {
+      mockConversation!.trustContext = { trustClass: "unknown" };
+    }
+    if (missing === "actor") {
+      mockConversation!.getTurnActorPrincipalId = () => undefined;
+    }
+    await callHandler({
+      operation: "snapshot",
+      conversationId: "conv-default-browser",
+    });
+    expect(mockOperationCalls).toHaveLength(1);
+    expect(desktopContext).toBeUndefined();
+  },
+);
+
+test.each([
+  { browser_mode: "local" },
+  { browser_mode: "playwright" },
+  { browser_mode: "extension" },
+  { browser_mode: "cdp-inspect" },
+  { target_client_id: "client-123" },
+  { use_active_tab: true },
+])("explicit browser choice %j wins over the web default", async (input) => {
+  webConversation();
+  await callHandler({
+    operation: "snapshot",
+    input,
+    conversationId: "conv-default-browser",
+  });
+  expect(mockOperationCalls).toHaveLength(1);
+  expect(desktopContext).toBeUndefined();
+});
+
+test("follow-up web commands retain an existing personal browser session", async () => {
+  webConversation();
+  browserManager.setPreferredBackendKind("conv-default-browser", "extension");
+  await callHandler({
+    operation: "snapshot",
+    conversationId: "conv-default-browser",
+  });
+  expect(mockOperationCalls).toHaveLength(1);
+  expect(desktopContext).toBeUndefined();
+});
+
+test("native clients can explicitly select the streamed browser", async () => {
+  webConversation("windows");
+  const result = await callHandler({
+    operation: "snapshot",
+    desktop: true,
+    conversationId: "conv-default-browser",
+  });
+  expect(result).toMatchObject({ content: "desktop" });
+  expect(desktopContext?.clientOs).toBe("windows");
+  expect(mockOperationCalls).toHaveLength(0);
+});
+
+test("web tab commands share the streamed browser default", async () => {
+  webConversation();
+  const { ROUTES } =
+    await import("../../runtime/routes/browser-tabs-routes.js");
+  const result = await ROUTES[0].handler({
+    body: { command: "list", conversationId: "conv-default-browser" },
+  });
+  expect(result).toEqual({ ok: true, tabs: [{ tabId: 1 }] });
+  expect(desktopContext?.clientOs).toBe("web");
+});
+
+test("a streamed browser failure does not switch to Playwright or personal Chrome", async () => {
+  webConversation();
+  desktopFailure = true;
+  const result = await callHandler({
+    operation: "click",
+    input: { selector: "#submit" },
+    conversationId: "conv-default-browser",
+  });
+  expect(result).toMatchObject({ isError: true, content: "Desktop is busy" });
+  expect(mockOperationCalls).toHaveLength(0);
+});
+
+test("missing image components do not redirect web browser use to a personal browser", async () => {
+  webConversation();
+  desktopReady = false;
+  await callHandler({
+    operation: "navigate",
+    input: { url: "https://example.com" },
+    conversationId: "conv-default-browser",
+  });
+  expect(desktopContext?.clientOs).toBe("web");
+  expect(mockOperationCalls).toHaveLength(0);
 });

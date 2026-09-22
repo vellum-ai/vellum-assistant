@@ -21,6 +21,7 @@ import { setConfig } from "./helpers/set-config.js";
 
 let mockGeminiKey: string | undefined = "test-gemini-key";
 let mockOpenAIKey: string | undefined = "test-openai-key";
+let mockOpenRouterKey: string | undefined = "test-openrouter-key";
 let mockGenerateResult = {
   images: [{ mimeType: "image/png", dataBase64: "generated-data" }],
   text: "A beautiful image",
@@ -29,6 +30,9 @@ let mockGenerateResult = {
 let mockGenerateError: Error | null = null;
 let lastGenerateProvider: unknown = null;
 let lastGenerateCredentials: unknown = null;
+let lastGenerateRequest: Record<string, unknown> | null = null;
+/** Holds the mocked generation in flight so a test can cancel mid-request. */
+let mockGenerateDelayMs = 0;
 
 /**
  * Seed the image-generation service entry in the real workspace config.
@@ -37,7 +41,7 @@ let lastGenerateCredentials: unknown = null;
  */
 function seedImageGenService(
   overrides: {
-    provider?: "vellum" | "gemini" | "openai";
+    provider?: "vellum" | "gemini" | "openai" | "openrouter";
     model?: string;
   } = {},
 ): void {
@@ -61,6 +65,9 @@ mock.module("../security/secure-keys.js", () => ({
     if (provider === "openai") {
       return mockOpenAIKey;
     }
+    if (provider === "openrouter") {
+      return mockOpenRouterKey;
+    }
     return undefined;
   },
 }));
@@ -69,10 +76,14 @@ mock.module("../media/image-service.js", () => ({
   generateImage: async (
     provider: unknown,
     credentials: unknown,
-    _request: Record<string, unknown>,
+    request: Record<string, unknown>,
   ) => {
     lastGenerateProvider = provider;
     lastGenerateCredentials = credentials;
+    lastGenerateRequest = request;
+    if (mockGenerateDelayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, mockGenerateDelayMs));
+    }
     if (mockGenerateError) {
       throw mockGenerateError;
     }
@@ -136,6 +147,7 @@ const CONFIG_DIR = join(
 beforeEach(() => {
   mockGeminiKey = "test-gemini-key";
   mockOpenAIKey = "test-openai-key";
+  mockOpenRouterKey = "test-openrouter-key";
   seedImageGenService();
   mockGenerateResult = {
     images: [{ mimeType: "image/png", dataBase64: "generated-data" }],
@@ -145,6 +157,8 @@ beforeEach(() => {
   mockGenerateError = null;
   lastGenerateProvider = null;
   lastGenerateCredentials = null;
+  lastGenerateRequest = null;
+  mockGenerateDelayMs = 0;
   mockManagedBaseUrl = undefined;
   mockManagedProxyContext = {
     enabled: false,
@@ -297,6 +311,49 @@ describe("image-studio skill script wrapper", () => {
     expect(result.isError).toBe(true);
     expect(result.content).toContain("OpenAI");
     expect(result.content).not.toContain("No Gemini API key");
+  });
+
+  test("OpenRouter accepts an arbitrary slug and keeps OpenRouter ownership", async () => {
+    seedImageGenService({
+      provider: "openrouter",
+      model: "google/gemini-3.1-flash-image-preview",
+    });
+
+    const result = await run(
+      { prompt: "a nebula", model: "black-forest-labs/flux" },
+      fakeContext,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(lastGenerateProvider).toBe("openrouter");
+    expect(lastGenerateCredentials).toEqual({
+      type: "direct",
+      apiKey: "test-openrouter-key",
+    });
+    expect(lastGenerateRequest?.model).toBe("black-forest-labs/flux");
+  });
+
+  test("OpenRouter qualifies a built-in alias and keeps OpenRouter ownership", async () => {
+    seedImageGenService({ provider: "openrouter" });
+
+    const result = await run({ prompt: "a robot", model: "openai" }, fakeContext);
+
+    expect(result.isError).toBe(false);
+    expect(lastGenerateProvider).toBe("openrouter");
+    expect(lastGenerateRequest?.model).toBe("openai/gpt-image-2");
+  });
+
+  test("OpenRouter returns a missing-key hint without falling back to Gemini", async () => {
+    seedImageGenService({ provider: "openrouter" });
+    mockOpenRouterKey = undefined;
+    mockGeminiKey = "gemini-key-should-not-be-used";
+
+    const result = await run({ prompt: "a cat" }, fakeContext);
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("OpenRouter API key");
+    expect(result.content).not.toContain("No Gemini API key");
+    expect(lastGenerateProvider).toBeNull();
   });
 
   test("explicit model override routes to owning provider (gemini config → openai call)", async () => {
@@ -593,6 +650,51 @@ describe("image-studio skill script wrapper", () => {
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain("outside the working directory");
+  });
+});
+
+describe("image-studio cancellation", () => {
+  test("an already-cancelled turn never starts a generation", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const context = {
+      ...makeContext(),
+      signal: controller.signal,
+    } as ToolContext;
+
+    await expect(run({ prompt: "a cat" }, context)).rejects.toThrow();
+    expect(lastGenerateProvider).toBeNull();
+  });
+
+  test("passes the turn signal to the generation request", async () => {
+    const controller = new AbortController();
+    const context = {
+      ...makeContext(),
+      signal: controller.signal,
+    } as ToolContext;
+
+    await run({ prompt: "a cat" }, context);
+
+    expect(lastGenerateRequest?.signal).toBe(controller.signal);
+  });
+
+  test("keeps a generation that resolves after the abort", async () => {
+    // The user cancels while the request is in flight and the provider still
+    // returns. The generation was paid for, so its images reach the model
+    // rather than being discarded as a cancellation.
+    const controller = new AbortController();
+    const context = {
+      ...makeContext(),
+      signal: controller.signal,
+    } as ToolContext;
+    mockGenerateDelayMs = 20;
+    setTimeout(() => controller.abort(), 5);
+
+    const result = await run({ prompt: "a cat" }, context);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Generated 1 image");
+    expect(result.contentBlocks).toHaveLength(1);
   });
 });
 

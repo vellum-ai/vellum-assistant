@@ -6,7 +6,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./accent": "./src/accent.ts"
+    "./accent": "./src/accent.ts",
+    "./notification-avatar": "./src/notification-avatar.ts"
   },
   "scripts": {
     "typecheck": "bunx tsc --noEmit",

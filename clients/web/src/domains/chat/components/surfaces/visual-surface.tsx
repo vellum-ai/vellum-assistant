@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 
 import { handleAppViewerAction } from "@/domains/chat/app-viewer-actions";
 import type { Surface } from "@/domains/chat/types/types";
@@ -78,6 +78,9 @@ function hashString(value: string): number {
 export function VisualSurface({ surface }: { surface: Surface }) {
   const { t } = useTranslation("chat");
   const navigate = useNavigate();
+  // The relay replaces the entry the transcript is on, so what that entry
+  // records (the app it was opened from) has to ride along with it.
+  const { state: entryState } = useLocation();
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const theme = useDocumentTheme();
   const fontCss = useWidgetFontCss();
@@ -147,9 +150,11 @@ export function VisualSurface({ surface }: { surface: Surface }) {
         if (!prompt) {
           return;
         }
-        handleAppViewerAction({ navigate, isMobile: false }, "relay_prompt", {
-          prompt,
-        });
+        handleAppViewerAction(
+          { navigate, isMobile: false, state: entryState },
+          "relay_prompt",
+          { prompt },
+        );
         return;
       }
       if (msg.type === "vellum_open_link") {
@@ -169,7 +174,7 @@ export function VisualSurface({ surface }: { surface: Surface }) {
 
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
-  }, [frameId, navigate]);
+  }, [frameId, navigate, entryState]);
 
   if (!html) {
     return null;

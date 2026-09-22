@@ -2,15 +2,6 @@ import { PROVIDER_DISPLAY_NAMES } from "@/assistant/llm-model-catalog";
 import { toKebabCase } from "@/domains/settings/ai/slugify";
 
 /**
- * Convert an arbitrary label into a URL/key-safe slug: lowercase, collapse any
- * run of non-alphanumeric characters into a single `-`, and strip leading and
- * trailing separators. e.g. "Claude Opus 4.7" -> "claude-opus-4-7".
- */
-function slugify(input: string): string {
-  return toKebabCase(input);
-}
-
-/**
  * Return `base` if it does not already exist in `existing`, otherwise append a
  * numeric suffix (`-2`, `-3`, ...) until the result is unique. Comparison is
  * case-insensitive.
@@ -45,7 +36,7 @@ export function deriveProviderDefaults(
   return {
     name: PROVIDER_DISPLAY_NAMES[providerType] ?? providerType,
     key: dedupeKey(
-      `${slugify(providerType)}-personal`,
+      `${toKebabCase(providerType)}-personal`,
       existingConnectionNames,
     ),
   };
@@ -84,7 +75,7 @@ export function uniqueProfileName(
   );
   const isFree = (candidate: string) =>
     !taken.has(candidate.toLowerCase()) &&
-    !taken.has(slugify(candidate).toLowerCase());
+    !taken.has(toKebabCase(candidate).toLowerCase());
 
   if (isFree(base)) {
     return base;
@@ -108,5 +99,5 @@ export function deriveProfileDefaults(
   ownKey?: string,
 ): { name: string; key: string } {
   const name = uniqueProfileName(modelDisplayName, existingProfileKeys, ownKey);
-  return { name, key: slugify(name) };
+  return { name, key: toKebabCase(name) };
 }

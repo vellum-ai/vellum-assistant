@@ -60,8 +60,10 @@ export function CallSummarySurface({
   return (
     <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-lift)]">
       <button
+        type="button"
         className="flex w-full items-center gap-2 px-3 py-2.5 text-left hover:bg-[var(--surface-hover)] rounded-lg"
         onClick={() => setExpanded((v) => !v)}
+        aria-expanded={events.length > 0 ? expanded : undefined}
       >
         <StatusIcon className="h-4 w-4 shrink-0 text-[var(--content-faint)]" />
         <span className="flex-1 text-body-medium-lighter text-[var(--content-strong)]">

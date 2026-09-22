@@ -15,16 +15,21 @@ import {
   updateNode,
 } from "../../../../plugins/defaults/memory/graph/store.js";
 import type { NewNode } from "../../../../plugins/defaults/memory/graph/types.js";
+import {
+  isAbortLikeError,
+  throwIfCancelled,
+} from "../../../../tools/shared/abort.js";
 import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
+import { safeStringSlice } from "../../../../util/unicode.js";
 
 const VALID_AUTONOMY_LEVELS = new Set<string>(["auto", "draft", "notify"]);
 
 export async function executePlaybookCreate(
   input: Record<string, unknown>,
-  _context: ToolContext,
+  context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const trigger = input.trigger as string;
   const action = input.action as string;
@@ -41,6 +46,8 @@ export async function executePlaybookCreate(
       isError: true,
     };
   }
+
+  throwIfCancelled(context);
 
   const channel = typeof input.channel === "string" ? input.channel : "*";
   const category =
@@ -62,7 +69,7 @@ export async function executePlaybookCreate(
   };
   const statement = JSON.stringify(playbook);
   const sanitizedTrigger = trigger.replace(/[\r\n]+/g, " ");
-  const subject = `Playbook: ${sanitizedTrigger}`.slice(0, 80);
+  const subject = safeStringSlice(`Playbook: ${sanitizedTrigger}`, 0, 80);
   const content = `${subject}\n${statement}`;
 
   try {
@@ -147,6 +154,11 @@ export async function executePlaybookCreate(
       isError: false,
     };
   } catch (err) {
+    // A cancelled turn is not a playbook failure: let it reach the executor's
+    // abort handling instead of being rendered as a tool error.
+    if (isAbortLikeError(err)) {
+      throw err;
+    }
     const msg = err instanceof Error ? err.message : String(err);
     return { content: `Error creating playbook: ${msg}`, isError: true };
   }

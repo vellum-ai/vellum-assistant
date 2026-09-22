@@ -2,11 +2,11 @@
  * The frame gate's tuning readout: what each frame scored, which check decided
  * it, and the thresholds it was decided against.
  *
- * Two surfaces feed the same gate (the composer's sight tile and the voice
- * room's viewfinder) and both are hard to reason about from the outside,
- * because the only visible sign of a decision is a photo appearing or not
- * appearing. This module is the instrument: it collects every decision the
- * gate makes and lets the thresholds be moved while the camera is running.
+ * The voice room's viewfinder feeds the gate, and it is hard to reason about
+ * from the outside, because the only visible sign of a decision is a photo
+ * appearing or not appearing. This module is the instrument: it collects every
+ * decision the gate makes and lets the thresholds be moved while the camera is
+ * running.
  *
  * ## One options record, mutated in place
  *
@@ -16,8 +16,8 @@
  *
  * That is not a convenience, it is the only safe way to do it. Rebuilding the
  * gate would reset its last-keep clock, which bypasses the rate floor and
- * fires an immediate keep, and on both surfaces a keep is a real upload and a
- * real persisted conversation message. So there is exactly one record, it
+ * fires an immediate keep, and a keep is a real upload and a real persisted
+ * conversation message. So there is exactly one record, it
  * lives here for the lifetime of the tab, and nothing ever replaces it.
  *
  * ## Overrides apply only while the readout is on
@@ -44,7 +44,7 @@ import {
 } from "./frame-gate";
 
 /** Which camera surface a decision came from. */
-export type FrameGateDebugSurface = "composer" | "voice";
+export type FrameGateDebugSurface = "voice";
 
 /**
  * Zero for every reason, rebuilt per call so no caller can write into another's
@@ -57,12 +57,13 @@ function emptyReasonCounts(): Record<FrameGateReason, number> {
     warmup: 0,
     featureless: 0,
     first: 0,
-    "rate-floor": 0,
     moving: 0,
+    settling: 0,
     heartbeat: 0,
     novel: 0,
     unchanged: 0,
     forced: 0,
+    answered: 0,
   };
 }
 
@@ -71,7 +72,7 @@ export const FRAME_GATE_OVERRIDE_KEYS = [
   "noveltyThreshold",
   "settleThreshold",
   "minDetail",
-  "minIntervalMs",
+  "forcedNoveltyThreshold",
   "maxIntervalMs",
 ] as const;
 
@@ -98,7 +99,7 @@ export const FRAME_GATE_SLIDER_BOUNDS: Record<
   noveltyThreshold: { min: 0, max: 2, step: 0.01 },
   settleThreshold: { min: 0, max: 0.5, step: 0.005 },
   minDetail: { min: 0, max: 60, step: 1 },
-  minIntervalMs: { min: 0, max: 30_000, step: 250 },
+  forcedNoveltyThreshold: { min: 0, max: 2, step: 0.01 },
   maxIntervalMs: { min: 1_000, max: 120_000, step: 1_000 },
 };
 
@@ -108,7 +109,7 @@ export function defaultFrameGateOverrides(): FrameGateOverrides {
     noveltyThreshold: DEFAULT_FRAME_GATE_OPTIONS.noveltyThreshold,
     settleThreshold: DEFAULT_FRAME_GATE_OPTIONS.settleThreshold,
     minDetail: DEFAULT_FRAME_GATE_OPTIONS.minDetail,
-    minIntervalMs: DEFAULT_FRAME_GATE_OPTIONS.minIntervalMs,
+    forcedNoveltyThreshold: DEFAULT_FRAME_GATE_OPTIONS.forcedNoveltyThreshold,
     maxIntervalMs: DEFAULT_FRAME_GATE_OPTIONS.maxIntervalMs,
   };
 }
@@ -118,7 +119,7 @@ type MutableFrameGateOptions = {
 };
 
 /**
- * The one options record both gates read from, for the lifetime of the tab.
+ * The one options record every gate reads from, for the lifetime of the tab.
  *
  * Hand this to `createFrameGate` instead of {@link DEFAULT_FRAME_GATE_OPTIONS}.
  * It holds exactly the defaults until the readout is enabled and a slider
@@ -128,7 +129,7 @@ type MutableFrameGateOptions = {
  *
  * Never put this in an effect's dependency array: it is a stable reference on
  * purpose, and an effect that rebuilt a gate when a threshold moved would
- * reset the rate floor and fire an unwanted keep.
+ * drop the baseline and fire an unwanted first keep.
  */
 const liveOptions: MutableFrameGateOptions = { ...DEFAULT_FRAME_GATE_OPTIONS };
 
@@ -229,7 +230,6 @@ function createSurfaceState(): SurfaceState {
 }
 
 const surfaces: Record<FrameGateDebugSurface, SurfaceState> = {
-  composer: createSurfaceState(),
   voice: createSurfaceState(),
 };
 
@@ -241,7 +241,7 @@ let enabled = false;
 
 export interface FrameGateDebugSnapshot {
   /**
-   * Which surface the readout is showing, or null when neither has produced a
+   * Which surface the readout is showing, or null when none has produced a
    * decision recently. The panel renders nothing on null.
    */
   readonly surface: FrameGateDebugSurface | null;
@@ -267,19 +267,14 @@ const EMPTY_SNAPSHOT: FrameGateDebugSnapshot = {
 };
 
 /**
- * Which surface the panel shows: whichever produced a decision most recently,
- * as long as it produced one recently enough to still be running a camera.
+ * Which surface the panel shows: one that produced a decision recently enough
+ * to still be running a camera.
  */
 function displayedSurface(): FrameGateDebugSurface | null {
   const cutoff = Date.now() - SURFACE_IDLE_MS;
-  const { composer, voice } = surfaces;
-  const voiceLive = voice.lastSeq > 0 && voice.lastSeenAt > cutoff;
-  const composerLive = composer.lastSeq > 0 && composer.lastSeenAt > cutoff;
-  if (voiceLive && (!composerLive || voice.lastSeq > composer.lastSeq)) {
+  const { voice } = surfaces;
+  if (voice.lastSeq > 0 && voice.lastSeenAt > cutoff) {
     return "voice";
-  }
-  if (composerLive) {
-    return "composer";
   }
   return null;
 }
@@ -483,51 +478,20 @@ function clampFrameGateOverride(
 
 /**
  * A complete set every threshold of which the gate can honor: each value
- * inside its own slider's range, and the interval pair the right way round.
+ * inside its own slider's range.
  *
  * The one seam a value passes through on its way into the store or the gate,
  * so a restored payload and a moved slider land on the same numbers the gate
  * applies. A readout drawing a value the gate is not using describes a session
  * that does not exist.
- *
- * The two intervals are one setting in two halves, not two settings. `offer`
- * reads the floor before the heartbeat, so a floor above the ceiling makes the
- * ceiling unreachable: the readout would draw a maximum no frame can ever be
- * judged against, which is the kind of session that teaches the reader
- * something untrue about the gate.
- *
- * `moved` names the threshold a writer just set, and the other half yields to
- * it, which is how a pair of coupled sliders behaves: pushing the floor up
- * carries the ceiling with it, pulling the ceiling down carries the floor.
- * Where nothing was moved, as when a stored payload is restored, the ceiling
- * rises to meet the floor.
- *
- * Ordering survives the clamp that follows it because the ceiling's range
- * covers the floor's: any floor value is reachable by the ceiling, and any
- * ceiling value at or above the floor's own minimum is reachable by the floor.
  */
 export function normalizeFrameGateOverrides(
   overrides: FrameGateOverrides,
-  moved?: FrameGateOverrideKey,
 ): FrameGateOverrides {
   const next = {} as FrameGateOverrides;
   for (const key of FRAME_GATE_OVERRIDE_KEYS) {
     next[key] = clampFrameGateOverride(key, overrides[key]);
   }
-  if (next.minIntervalMs <= next.maxIntervalMs) {
-    return next;
-  }
-  if (moved === "maxIntervalMs") {
-    next.minIntervalMs = clampFrameGateOverride(
-      "minIntervalMs",
-      next.maxIntervalMs,
-    );
-    return next;
-  }
-  next.maxIntervalMs = clampFrameGateOverride(
-    "maxIntervalMs",
-    next.minIntervalMs,
-  );
   return next;
 }
 
@@ -536,7 +500,7 @@ function discardCollected(): void {
     clearTimeout(idleHandle);
     idleHandle = null;
   }
-  for (const key of ["composer", "voice"] as const) {
+  for (const key of ["voice"] as const) {
     const state = surfaces[key];
     for (const keep of state.keeps) {
       URL.revokeObjectURL(keep.url);

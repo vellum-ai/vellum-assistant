@@ -93,9 +93,34 @@ export const CHANNEL_BOT_PROVIDER = {
  * connected" question, for any provider key.
  */
 export function isChannelBotProvider(providerKey: string): boolean {
-  return (Object.values(CHANNEL_BOT_PROVIDER) as readonly string[]).includes(
-    providerKey,
-  );
+  return channelForBotProvider(providerKey) !== undefined;
+}
+
+/**
+ * The provider key holding a channel's bot credential, or `undefined` when
+ * the channel has none, or is not a channel at all. Walks the map's own
+ * entries, so an inherited object property name is never a channel.
+ */
+export function botProviderForChannel(channelId: string): string | undefined {
+  return Object.entries(CHANNEL_BOT_PROVIDER).find(
+    ([id]) => id === channelId,
+  )?.[1];
+}
+
+/**
+ * The channel whose bot credential a provider key holds, or `undefined` when
+ * the key is not a bot's. The inverse of `botProviderForChannel`, for a
+ * surface that has only the provider key in hand and needs to speak in the
+ * channel's vocabulary.
+ */
+export function channelForBotProvider(
+  providerKey: string,
+): keyof typeof CHANNEL_BOT_PROVIDER | undefined {
+  return (
+    Object.entries(CHANNEL_BOT_PROVIDER) as Array<
+      [keyof typeof CHANNEL_BOT_PROVIDER, string]
+    >
+  ).find(([, key]) => key === providerKey)?.[0];
 }
 
 /**

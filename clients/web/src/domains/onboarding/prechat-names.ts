@@ -1,7 +1,5 @@
 /**
- * Personality groups and assistant-name pools for the PreChat onboarding
- * name-exchange screen. Mirrors macOS `PersonalityGroup.swift` and
- * `PreChatOnboardingState.swift`.
+ * Personality groups and assistant-name pools for the onboarding name step.
  */
 
 export interface PersonalityGroup {
@@ -45,26 +43,44 @@ export const PERSONALITY_GROUPS: readonly PersonalityGroup[] = [
 
 export const DEFAULT_GROUP_ID = "grounded";
 
+export type AssistantNamingSource = "randomized" | "custom";
+
+export const RESEARCH_NAMING_VARIANTS = {
+  randomized: "random_initial",
+  custom: "custom_name",
+} as const;
+
 const SUGGESTION_COUNT = 6;
 
-/**
- * All assistant names across every personality group.
- */
-function allNames(): string[] {
-  return PERSONALITY_GROUPS.flatMap((g) => g.names);
+export function allAssistantNames(): string[] {
+  return PERSONALITY_GROUPS.flatMap((group) => group.names);
+}
+
+export function pickAssistantName(
+  options: { exclude?: string; random?: () => number } = {},
+): string {
+  const names = allAssistantNames();
+  const random = options.random ?? Math.random;
+  const candidates = options.exclude
+    ? names.filter((name) => name !== options.exclude)
+    : names;
+  const pool = candidates.length > 0 ? candidates : names;
+  return pool[Math.floor(random() * pool.length)] ?? names[0] ?? "";
 }
 
 /**
  * Return `SUGGESTION_COUNT` unique names sampled uniformly at random from
  * the full 24-name pool (all personality groups). Uses a Fisher-Yates
- * partial shuffle. The result is stable per call — callers should memoize
+ * partial shuffle. The result is stable per call. Callers should memoize
  * with `useMemo` or `useState` to persist across re-renders.
  */
-export function sampleSuggestionNames(): string[] {
-  const pool = allNames();
+export function sampleSuggestionNames(
+  random: () => number = Math.random,
+): string[] {
+  const pool = allAssistantNames();
   const count = Math.min(SUGGESTION_COUNT, pool.length);
   for (let i = 0; i < count; i += 1) {
-    const j = i + Math.floor(Math.random() * (pool.length - i));
+    const j = i + Math.floor(random() * (pool.length - i));
     const tmp = pool[i]!;
     pool[i] = pool[j]!;
     pool[j] = tmp;

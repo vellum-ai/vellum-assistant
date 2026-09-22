@@ -86,6 +86,15 @@ describe("getSettingsRouteForClientTab — Debug page", () => {
     );
   });
 
+  test("resolves Personality to its settings page", () => {
+    expect(getSettingsRouteForClientTab("Personality")).toBe(
+      "/assistant/settings/personality",
+    );
+    expect(getSettingsRouteForClientTab("personality")).toBe(
+      "/assistant/settings/personality",
+    );
+  });
+
   test("no two sidebar items share a label", () => {
     // The label is a lookup key in the fallback tier, so a duplicate would make
     // resolution order-dependent.

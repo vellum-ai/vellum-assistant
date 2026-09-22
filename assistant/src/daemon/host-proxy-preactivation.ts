@@ -9,6 +9,8 @@
  *   - `daemon/process-message.ts` (create path, prepareConversationForMessage)
  *   - `daemon/conversation-process.ts` `drainSingleMessage` (re-add after dequeue)
  *   - `daemon/conversation-process.ts` `drainBatch` (re-add after dequeue)
+ *   - `calls/voice-session-bridge.ts` (tool-capable legs of a live-voice
+ *     session opened from the macOS desktop client)
  *
  * The create paths additionally instantiate the proxy itself; that
  * instantiation logic is per-proxy-class and stays inline at each create
@@ -79,6 +81,12 @@ export const HOST_PROXY_SKILL_PREACTIVATIONS: ReadonlyArray<{
   skillId: string;
 }> = [
   { capability: "host_cu", skillId: "computer-use" },
+  // Not `host_cu`: the marks are drawn in a window the client opens for
+  // itself, and only a client advertising that window can answer the request.
+  // Offered from the transport alone, the skill reaches Windows and Linux
+  // turns whose executors forward it to a native helper that has no such
+  // action.
+  { capability: "host_cu_annotate", skillId: "screen-annotation" },
   { capability: "host_app_control", skillId: "app-control" },
 ];
 
@@ -97,6 +105,18 @@ export const HOST_PROXY_SKILL_PREACTIVATIONS: ReadonlyArray<{
  *
  * Single source of truth for preactivation and proxy instantiation.
  */
+/**
+ * Capabilities a client asks for on its connection rather than getting from
+ * what it is. Each rides the host_cu transport and is answered only by a
+ * macOS build new enough to send the header (`events-routes.ts`), so the
+ * interface alone cannot say whether one is really there.
+ */
+const NEGOTIATED_CAPABILITIES: ReadonlySet<HostProxyCapability> = new Set([
+  "host_cu_window_capture",
+  "host_cu_sequence",
+  "host_cu_annotate",
+]);
+
 export function evaluateHostProxyAttachment(
   capability: HostProxyCapability,
   sourceInterface: InterfaceId | undefined,
@@ -105,7 +125,18 @@ export function evaluateHostProxyAttachment(
   if (!sourceInterface) {
     return { shouldAttach: false, reason: "denied_no_interface" };
   }
-  if (supportsHostProxy(sourceInterface, capability)) {
+  // A negotiated capability is never taken from the interface table. The
+  // table says macOS can draw, which is true of the client that sends the
+  // header and false of every build that predates it, and this shortcut does
+  // not look at the connection at all. Granting it here offered the skill to
+  // an older macOS client whose every point and clear was then refused for
+  // having nothing to draw on. Falling through puts it on the same footing as
+  // a cross-client grant, where an actual registered client has to advertise
+  // it.
+  if (
+    !NEGOTIATED_CAPABILITIES.has(capability) &&
+    supportsHostProxy(sourceInterface, capability)
+  ) {
     return { shouldAttach: true, reason: "native_support" };
   }
   if (sourceInterface === "chrome-extension") {

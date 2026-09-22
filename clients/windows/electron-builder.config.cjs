@@ -134,6 +134,8 @@ module.exports = {
   },
   publish: {
     provider: "generic",
+    // CD publishes latest.yml under the environment's channel name.
+    channel: "latest",
     url: `https://storage.googleapis.com/vellum-ai-${bucketEnv}-releases/win-electron/${targetArch}/`,
   },
   directories: {

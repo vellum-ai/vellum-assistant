@@ -31,15 +31,11 @@ import {
 } from "@/domains/chat/composer-store";
 import { prependChannelReference } from "@/domains/chat/channel-sidecar/channel-reference";
 import { useChannelReferenceStore } from "@/domains/chat/channel-sidecar/channel-reference-store";
-import { isLocallyHandledCommand } from "@/domains/chat/components/chat-composer/slash-command-catalog";
-import { uploadSightFrameAttachment } from "@/domains/chat/sight/sight-attachment";
-import { isAsyncChatScopeCurrent } from "@/domains/chat/utils/conversation-scope";
-import { useConversationStore } from "@/stores/conversation-store";
-import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import {
   useQuoteReplyStore,
   type StagedQuote,
 } from "@/domains/chat/quote-reply-store";
+import { finishActiveDictation } from "@/domains/chat/voice/finish-dictation";
 import { conversationsByIdUndoPost } from "@/generated/daemon/sdk.gen";
 import { haptic } from "@/utils/haptics";
 import { isPointerCoarse } from "@/utils/pointer";
@@ -74,18 +70,13 @@ export interface UseComposerSubmitParams {
    * are left fully intact. Omitted = always proceed.
    */
   beforeSend?: (content: string) => boolean;
-  /**
-   * Whether an image attached to this message would survive the turn: the same
-   * gate the drop/pick path applies, resolved once by the caller and passed in
-   * so the two cannot answer differently. False on an assistant older than the
-   * image-fallback plugin whose active profile has no vision, where the
-   * provider rejects the image and fails the whole turn.
-   *
-   * Only the Eyes frame consults it here; attachments the user picked were
-   * already filtered on the way in. Defaults to true, which is what a caller
-   * that attaches no images of its own means.
-   */
-  imageAttachmentsAllowed?: boolean;
+  /** Saves context before chat takes ownership of the message. Null cancels losslessly. */
+  prepareSend?: () => Promise<ComposerSendPreparation | null>;
+}
+
+export interface ComposerSendPreparation {
+  isCurrent: () => boolean;
+  release: () => void;
 }
 
 export interface ComposerSubmitResult {
@@ -125,7 +116,7 @@ export function useComposerSubmit({
   assistantId,
   activeConversationId,
   beforeSend,
-  imageAttachmentsAllowed = true,
+  prepareSend,
 }: UseComposerSubmitParams): ComposerSubmitResult {
   const shouldFocusInputRef = useRef(false);
   /**
@@ -133,21 +124,22 @@ export function useComposerSubmit({
    * were made. See where it is advanced in `submitMessage`.
    */
   const sendChainRef = useRef<Promise<void>>(Promise.resolve());
-  /**
-   * The vision gate as it stands right now, not as it stood when the submit
-   * began (the ref-backed fresh-closure pattern, as in `use-transcript-scroll`).
-   *
-   * A delivery can sit for as long as a capture and an upload take, and the
-   * user is free to switch model profiles inside that window. Switching
-   * re-renders the chat route, which recomputes the gate and re-renders this
-   * hook, so the ref carries the newly resolved answer by the time any queued
-   * delivery reaches its frame. Synced in a layout effect so it lands before
-   * the browser paints the new profile rather than after.
-   */
-  const imageAttachmentsAllowedRef = useRef(imageAttachmentsAllowed);
+  const preparingRef = useRef<symbol | null>(null);
+  const sendDisabledRef = useRef(sendDisabled);
+  const editingTarget = isEditing ? editingMessageId : null;
+  const editingTargetRef = useRef(editingTarget);
   useLayoutEffect(() => {
-    imageAttachmentsAllowedRef.current = imageAttachmentsAllowed;
-  }, [imageAttachmentsAllowed]);
+    sendDisabledRef.current = sendDisabled;
+    editingTargetRef.current = editingTarget;
+  }, [sendDisabled, editingTarget]);
+  const ownerRef = useRef({ assistantId, activeConversationId, mounted: true });
+  useLayoutEffect(() => {
+    ownerRef.current = { assistantId, activeConversationId, mounted: true };
+    preparingRef.current = null;
+    return () => {
+      ownerRef.current = { assistantId, activeConversationId, mounted: false };
+    };
+  }, [assistantId, activeConversationId, prepareSend]);
 
   // --- Focus effect -------------------------------------------------------
   useEffect(() => {
@@ -160,6 +152,47 @@ export function useComposerSubmit({
   // --- Submit logic -------------------------------------------------------
   const submitMessage = useCallback(
     async (inputOverride?: string, opts?: { bypassSecretCheck?: boolean }) => {
+      if (sendDisabled || preparingRef.current || !ownerRef.current.mounted) {
+        return;
+      }
+      const originatingOwner = ownerRef.current;
+      const editingAtPress = editingTargetRef.current;
+      // A send pressed mid-dictation means "finish, then send". Waiting for
+      // the transcript to land is what keeps the payload equal to what the
+      // user can read: the live partial is not in the draft yet, so sending
+      // first would drop everything spoken since the draft was last written
+      // (LUM-3432). An explicit override is its own payload (a starter
+      // prompt, the secret guard's re-send) and never the live draft, so it
+      // does not wait.
+      if (inputOverride === undefined) {
+        const outcome = await finishActiveDictation();
+        if (outcome === "no-transcript") {
+          // The spoken words did not survive. The draft sitting in the
+          // composer is not what the user asked to send, so leave it intact
+          // rather than sending it in their place.
+          return;
+        }
+        // The wait is long enough for the world to move. The composer is not
+        // keyed by conversation, so a thread switch during it lands the
+        // transcript in the new thread's draft while this closure still
+        // holds the old thread's `sendMessage`: sending now would clear one
+        // thread's draft and deliver it to another. A confirmation or secret
+        // prompt arriving during the wait flips `sendDisabled` for the same
+        // reason, and the prompt gate must win over a send pressed before it
+        // existed. An edit cancelled during the wait (Escape is live again
+        // once the recording has moved to processing) would otherwise still
+        // be undone and re-sent by this closure, which remembers the edit as
+        // it stood at the press. Either way the words stay in the draft for
+        // the user.
+        if (
+          ownerRef.current !== originatingOwner ||
+          !ownerRef.current.mounted ||
+          sendDisabledRef.current ||
+          editingTargetRef.current !== editingAtPress
+        ) {
+          return;
+        }
+      }
       const input = useComposerStore.getState().input;
       const chatAttachments = useComposerStore.getState().attachments;
       const uploadingCount = selectUploadingCount(chatAttachments);
@@ -169,7 +202,7 @@ export function useComposerSubmit({
       const stagedQuotes = useQuoteReplyStore.getState().stagedQuotes;
       const channelReference = useChannelReferenceStore.getState().reference;
       const trimmed = (inputOverride ?? input).trim();
-      if (sendDisabled) {
+      if (sendDisabledRef.current || preparingRef.current) {
         return;
       }
       // A staged channel reference is content in its own right: "look at this
@@ -205,140 +238,136 @@ export function useComposerSubmit({
         return;
       }
 
-      const attachmentsToSend: DisplayAttachment[] = chatAttachments
-        .filter(
-          (att): att is Extract<typeof att, { kind: "uploaded" }> =>
-            att.kind === "uploaded",
-        )
-        .map((att) => ({
-          id: att.id,
-          filename: att.filename,
-          mimeType: att.mimeType,
-          sizeBytes: att.sizeBytes,
-          previewUrl: att.previewUrl ?? null,
-          thumbnailUrl: att.thumbnailUrl ?? null,
-        }));
-
-      useComposerStore.getState().setInput("");
-      if (activeConversationId) {
-        useComposerStore.getState().clearDraft(activeConversationId);
-      }
-      if (inputRef.current) {
-        inputRef.current.style.height = "auto";
-      }
-      useComposerStore.getState().resetAttachments();
-      useQuoteReplyStore.getState().clearStagedQuotes();
-      useChannelReferenceStore.getState().clearReference();
-
-      if (!isPointerCoarse()) {
-        shouldFocusInputRef.current = true;
-      }
-      haptic.medium();
-
-      // Engage the auto-pin window so the new turn lands at the bottom.
-      scrollToLatest({ behavior: "auto" });
-
-      if (
-        isEditing &&
-        editingMessageId &&
-        assistantId &&
-        activeConversationId &&
-        canUndoEdit
-      ) {
-        cancelEditing();
-        try {
-          await conversationsByIdUndoPost({
-            path: { assistant_id: assistantId, id: activeConversationId },
-          });
-        } catch {
-          // If undo fails, still send the message as a new one
+      const attempt = Symbol();
+      let preparation: ComposerSendPreparation | null = null;
+      const releasePreparation = () => {
+        const current = preparation;
+        preparation = null;
+        current?.release();
+        if (preparingRef.current === attempt) {
+          preparingRef.current = null;
         }
-      }
-      // While the Eyes camera is up, the frame it is holding rides along as an
-      // attachment so the assistant answers about what it can see. Best effort:
-      // the helper swallows its own failures and a message with no frame still
-      // goes.
-      //
-      // Not for a command the send resolves by itself. `/status` and its
-      // siblings never become a chat message, so a frame captured for one is an
-      // image uploaded and persisted for nothing, and the round trip is latency
-      // a local command pays with no one waiting on an assistant. The frame is
-      // left where it is rather than consumed, so the next real message still
-      // carries it.
-      //
-      // Nor where an image would not survive the turn. The toggle is hidden in
-      // that case, so this is the backstop for a profile switched under a
-      // camera already running: attaching the frame anyway would fail the turn
-      // on the provider's image rejection, which costs the user their message.
-      // The gate belongs to this send's thread, not to the rendered route. The
-      // live ref follows whatever conversation is open, so once the user
-      // navigates away it answers for somebody else's profile: reading it then
-      // could drop a frame this thread can carry, or attach one it cannot. The
-      // send prefers the live answer while its own thread is on screen (a
-      // profile switch there re-renders through the ref) and otherwise falls
-      // back to the answer standing when the submit began, which is the last
-      // one its thread gave.
-      const gateAtSubmit = imageAttachmentsAllowedRef.current;
-      const sightGateAllows = () =>
-        assistantId !== null &&
-        activeConversationId !== null &&
-        isAsyncChatScopeCurrent({
-          currentAssistantId:
-            useResolvedAssistantsStore.getState().activeAssistantId,
-          currentConversationId:
-            useConversationStore.getState().activeConversationId,
-          requestAssistantId: assistantId,
-          requestConversationId: activeConversationId,
-        })
-          ? imageAttachmentsAllowedRef.current
-          : gateAtSubmit;
-
-      const deliver = async () => {
-        if (sightGateAllows() && !isLocallyHandledCommand(finalContent)) {
-          const sightAttachment = await uploadSightFrameAttachment(assistantId);
-          // Asked again on the way out: the upload itself is a window, and a
-          // profile switched to one without vision while the frame was in
-          // flight must not have it attached. The uploaded blob is left
-          // behind, like any failed send's.
-          if (sightAttachment && sightGateAllows()) {
-            attachmentsToSend.push(sightAttachment);
+      };
+      try {
+        if (prepareSend) {
+          preparingRef.current = attempt;
+          preparation = await prepareSend();
+          const owner = ownerRef.current;
+          if (
+            !preparation ||
+            !preparation.isCurrent() ||
+            sendDisabledRef.current ||
+            editingTargetRef.current !== editingAtPress ||
+            owner !== originatingOwner ||
+            !owner.mounted ||
+            owner.assistantId !== assistantId ||
+            owner.activeConversationId !== activeConversationId ||
+            useComposerStore.getState().input !== input ||
+            useComposerStore.getState().attachments !== chatAttachments ||
+            useQuoteReplyStore.getState().stagedQuotes !== stagedQuotes ||
+            useChannelReferenceStore.getState().reference !== channelReference
+          ) {
+            return;
           }
         }
 
-        // Forward the secret-check override only when this send explicitly
-        // carries it (the Send-anyway path); ordinary sends never set it.
-        await sendMessage(
-          finalContent,
-          attachmentsToSend,
-          opts?.bypassSecretCheck === true
-            ? { bypassSecretCheck: true }
-            : undefined,
-        );
-      };
+        const attachmentsToSend: DisplayAttachment[] = chatAttachments
+          .filter(
+            (att): att is Extract<typeof att, { kind: "uploaded" }> =>
+              att.kind === "uploaded",
+          )
+          .map((att) => ({
+            id: att.id,
+            filename: att.filename,
+            mimeType: att.mimeType,
+            sizeBytes: att.sizeBytes,
+            previewUrl: att.previewUrl ?? null,
+            thumbnailUrl: att.thumbnailUrl ?? null,
+          }));
 
-      // Deliveries run one after another, in the order they were submitted.
-      //
-      // The composer is cleared and re-enabled above, ahead of the frame upload
-      // `deliver` runs, so a second message can be written and sent while the
-      // first is still resolving its frame. Whichever upload finishes first
-      // would otherwise reach the send first, and the send treats a message
-      // arriving while a turn is starting as one to queue behind it: the two
-      // land in the assistant's history the wrong way round.
-      //
-      // The link runs whether the previous one resolved or rejected, and the
-      // chain is advanced with a continuation that cannot reject, so one failed
-      // send does not wedge every send after it. An Eyes-off submit awaits an
-      // already-resolved promise, which costs it a microtask.
-      const link = sendChainRef.current.then(deliver, deliver);
-      sendChainRef.current = link.then(
-        () => {},
-        () => {},
-      );
-      await link;
+        useComposerStore.getState().setInput("");
+        if (activeConversationId) {
+          useComposerStore.getState().clearDraft(activeConversationId);
+        }
+        if (inputRef.current) {
+          inputRef.current.style.height = "auto";
+        }
+        useComposerStore.getState().resetAttachments();
+        useQuoteReplyStore.getState().clearStagedQuotes();
+        useChannelReferenceStore.getState().clearReference();
+
+        if (!isPointerCoarse()) {
+          shouldFocusInputRef.current = true;
+        }
+        haptic.medium();
+
+        // Engage the auto-pin window so the new turn lands at the bottom.
+        scrollToLatest({ behavior: "auto" });
+
+        if (
+          isEditing &&
+          editingMessageId &&
+          assistantId &&
+          activeConversationId &&
+          canUndoEdit
+        ) {
+          cancelEditing();
+          try {
+            await conversationsByIdUndoPost({
+              path: { assistant_id: assistantId, id: activeConversationId },
+            });
+          } catch {
+            // If undo fails, still send the message as a new one
+          }
+        }
+
+        const deliver = async () => {
+          // Forward the secret-check override only when this send explicitly
+          // carries it (the Send-anyway path); ordinary sends never set it.
+          let delivery: Promise<void>;
+          try {
+            delivery = sendMessage(
+              finalContent,
+              attachmentsToSend,
+              opts?.bypassSecretCheck === true
+                ? { bypassSecretCheck: true }
+                : undefined,
+            );
+          } finally {
+            // Keep the saved context locked through the queue wait, until chat
+            // takes ownership of this message. Delivery completion does not hold it.
+            releasePreparation();
+          }
+          await delivery;
+        };
+
+        // Deliveries run one after another, in the order they were submitted.
+        //
+        // The composer is cleared and re-enabled above, ahead of the send
+        // `deliver` runs, so a second message can be written and sent while the
+        // first is still in flight. Whichever send settles first would otherwise
+        // reach the assistant first, and the send treats a message arriving while
+        // a turn is starting as one to queue behind it: the two land in the
+        // assistant's history the wrong way round.
+        //
+        // The link runs whether the previous one resolved or rejected, and the
+        // chain is advanced with a continuation that cannot reject, so one failed
+        // send does not wedge every send after it. The first submit of a quiet
+        // composer awaits an already-resolved promise, which costs it a microtask.
+        const link = sendChainRef.current.then(deliver, deliver);
+        sendChainRef.current = link.then(
+          () => {},
+          () => {},
+        );
+        await link;
+      } finally {
+        releasePreparation();
+      }
     },
     [
       sendDisabled,
       beforeSend,
+      prepareSend,
       activeConversationId,
       inputRef,
       scrollToLatest,

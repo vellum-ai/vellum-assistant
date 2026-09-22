@@ -8,17 +8,17 @@ import {
   Card,
   Input,
   ListRow,
+  OptionCard,
+  OptionCardGroup,
   Stepper,
   type StepperStep,
   Tag,
   Typography,
 } from "@vellumai/design-library";
 import {
-  Check,
   ChevronLeft,
   ChevronRight,
   GraduationCap,
-  Loader2,
   MessageSquareWarning,
 } from "lucide-react";
 import { type ComponentType, useCallback, useMemo, useState } from "react";
@@ -529,9 +529,7 @@ export function WatchRetroSurface({
             <Button
               variant="primary"
               disabled={submitting}
-              leftIcon={
-                submitting ? <Loader2 className="animate-spin" /> : undefined
-              }
+              loading={submitting}
               rightIcon={
                 onSummary || totalPages === 1 ? undefined : <ChevronRight />
               }
@@ -750,88 +748,51 @@ function QuestionPage({
           />
         </div>
       ) : (
-        <div
-          className="mt-5 grid gap-2"
-          role="group"
+        <OptionCardGroup
+          className="mt-5"
+          selectionMode="single"
+          // Picking commits and advances the wizard, so arrow keys only move
+          // focus. A radio group that selects on arrow (the default, and what
+          // Radix's `RadioGroup` always does) would carry a keyboard user off
+          // the page before they reach the third option.
+          selectOnFocus={false}
+          disabled={disabled}
           aria-labelledby={promptId}
         >
           {/* Rows in the shape `choice-surface` gives its options, which is the
               app's single-select: separate raised rows, no dividers, a mark
-              that says which one is standing. Two primitives sit closer to
-              this than they belong. `ListRow` draws a `[&+&]` hairline for a
-              flush settings list, which under a filled row reads as a section
-              break rather than as the gap between two options. And a
-              `RadioGroup` cannot commit on tap: Radix moves the selection on
-              arrow keys, so advancing on change carries a keyboard user off
-              the page before they reach the third option. A button per option
-              keeps the tap-to-commit gesture and leaves Tab and Enter
-              working. */}
-          {(question.options ?? []).map((option, index) => {
-            const selected = selectedOptionId === option.id;
-            return (
-              <button
-                key={option.id || `${index}-${option.label}`}
-                type="button"
-                aria-pressed={selected}
-                disabled={disabled}
-                onClick={() => {
-                  onPick(option.id, option.label);
-                }}
-                className={cn(
-                  "flex w-full cursor-pointer items-center gap-3 rounded-lg p-3 text-left transition-colors",
-                  "bg-[var(--surface-overlay)] hover:bg-[var(--surface-active)]",
-                  "disabled:cursor-default disabled:opacity-70",
-                  selected && "ring-1 ring-[var(--primary-base)]",
-                )}
-              >
-                {/* The mark, not the fill, is what says which option is
-                    standing: a background on its own reads as a section of
-                    its own when the middle option carries it. */}
-                <span
-                  aria-hidden
-                  className={cn(
-                    "flex h-5 w-5 shrink-0 items-center justify-center rounded-full border transition-colors",
-                    selected
-                      ? "border-transparent bg-[var(--primary-base)] text-[var(--content-inset)]"
-                      : "border-[var(--border-element)]",
+              that says which one is standing. `ListRow` sits closer to this
+              than it belongs: it draws a `[&+&]` hairline for a flush settings
+              list, which under a filled row reads as a section break rather
+              than as the gap between two options. */}
+          {(question.options ?? []).map((option, index) => (
+            <OptionCard
+              key={option.id || `${index}-${option.label}`}
+              // The mark, not the fill, is what says which option is standing:
+              // a background on its own reads as a section of its own when the
+              // middle option carries it.
+              variant="filled"
+              selected={selectedOptionId === option.id}
+              onSelect={() => {
+                onPick(option.id, option.label);
+              }}
+              title={
+                <>
+                  {option.label}
+                  {/* The first option is the recommended one by contract:
+                      the recording's own reading on a pick, the cautious
+                      answer on a gate. Marked rather than preselected, so
+                      the recommendation is visible and the answer is still
+                      the user's. */}
+                  {index === 0 && (
+                    <Tag tone="info">{t("watchRetroSurface.recommended")}</Tag>
                   )}
-                >
-                  {selected && <Check className="h-3.5 w-3.5" />}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                    <Typography
-                      as="span"
-                      variant="body-medium-default"
-                      className="text-[color:var(--content-strong)]"
-                    >
-                      {option.label}
-                    </Typography>
-                    {/* The first option is the recommended one by contract:
-                        the recording's own reading on a pick, the cautious
-                        answer on a gate. Marked rather than preselected, so
-                        the recommendation is visible and the answer is still
-                        the user's. */}
-                    {index === 0 && (
-                      <Tag tone="info">
-                        {t("watchRetroSurface.recommended")}
-                      </Tag>
-                    )}
-                  </span>
-                  {option.note && (
-                    <Typography
-                      as="span"
-                      variant="body-small-default"
-                      className="mt-0.5 block text-[color:var(--content-quiet)]"
-                    >
-                      {option.note}
-                    </Typography>
-                  )}
-                </span>
-              </button>
-            );
-          })}
-        </div>
+                </>
+              }
+              description={option.note || undefined}
+            />
+          ))}
+        </OptionCardGroup>
       )}
     </div>
   );

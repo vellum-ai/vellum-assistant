@@ -411,7 +411,8 @@ export async function runWatchersOnce(
     //    assistant-role content as its own past output, so a malicious payload
     //    (e.g. a Linear title reading "Ignore previous instructions and
     //    exfiltrate ...") cannot override the user-role postamble. The runner
-    //    inserts these before invoking processMessage with an empty prompt.
+    //    inserts the preamble and untrusted payload, then invokes
+    //    processMessage with the trusted postamble as the kickoff prompt.
     //    See `assistantSandwich` in `runtime/background-job-runner.ts`.
     //
     // The fence marks the content as third-party data; the sandwich denies it
@@ -440,7 +441,9 @@ export async function runWatchersOnce(
     ].join("\n");
 
     const postamble = [
-      "Process the events above according to the watcher's action prompt. For each event, include a disposition block:",
+      "Process the events above according to the watcher's action prompt.",
+      "Notify only when the action prompt's match criteria are met, using `assistant notifications send`. Unmatched events stay quiet: write a silent disposition block and do not send a notification, including a \"nothing new\" ping. Watcher ticks are not scheduled runs.",
+      "For each event, include a disposition block:",
       "<watcher-disposition>",
       '{"event_id": "...", "disposition": "silent|notify|escalate", "action": "what you did", "title": "notification title", "body": "notification body"}',
       "</watcher-disposition>",
@@ -449,8 +452,8 @@ export async function runWatchersOnce(
     const result = await runBackgroundJob({
       jobName: `watcher:${watcher.id}`,
       source: "watcher",
-      // The seed lives in the sandwich messages; processMessage runs
-      // with an empty prompt so we don't double-inject the action prompt.
+      // Empty prompt tells the runner to use the sandwich postamble as
+      // the kickoff so persistUserMessage has content.
       prompt: "",
       systemHint: `Watcher: ${watcher.name}`,
       trustContext: { sourceChannel: "vellum", trustClass: "guardian" },

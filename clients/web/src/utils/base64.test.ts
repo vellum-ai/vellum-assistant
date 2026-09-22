@@ -10,7 +10,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { decodeBase64Payload } from "./base64";
+import { decodeBase64Payload, encodeBase64Bytes } from "./base64";
 
 describe("decodeBase64Payload", () => {
   test("decodes bare base64, which is what the native bridge answers with", () => {
@@ -61,5 +61,30 @@ describe("decodeBase64Payload", () => {
     expect(() =>
       decodeBase64Payload("data:image/jpeg;base64,!!!not base64!!!"),
     ).toThrow();
+  });
+});
+
+/**
+ * The encoder chunks its input because `String.fromCharCode` is spread over a
+ * whole chunk at once, so the case worth pinning is a buffer larger than one
+ * chunk: a notification avatar is a few tens of kilobytes of PNG, which is
+ * exactly where a chunking bug would first show.
+ */
+describe("encodeBase64Bytes", () => {
+  test("encodes a short buffer", () => {
+    const bytes = new Uint8Array([0, 255, 16, 128, 7]);
+    expect(encodeBase64Bytes(bytes)).toBe(
+      Buffer.from(bytes).toString("base64"),
+    );
+  });
+
+  test("encodes a buffer larger than one chunk", () => {
+    const bytes = new Uint8Array(0x8000 + 517);
+    for (let index = 0; index < bytes.length; index++) {
+      bytes[index] = (index * 31) % 256;
+    }
+    expect(encodeBase64Bytes(bytes)).toBe(
+      Buffer.from(bytes).toString("base64"),
+    );
   });
 });

@@ -1,0 +1,77 @@
+name: Publish Windows release
+
+# Callers require a successful Windows build and the channel's release gates.
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: "Target environment: dev, staging, or production"
+        required: true
+        type: string
+
+concurrency:
+  group: windows-release-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish update feed
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Download x64 release artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: windows-release-x64
+          path: windows-artifacts/x64
+
+      - name: Download arm64 release artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        continue-on-error: ${{ inputs.environment == 'dev' }}
+        with:
+          name: windows-release-arm64
+          path: windows-artifacts/arm64
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      # Versioned installers and blockmaps land before the channel manifest so
+      # a client never reads a manifest that points at a missing installer.
+      # Feed layout: vellum-ai-<env>-releases/win-electron/<arch>/<env>.yml,
+      # matching resolveUpdateFeedUrl and autoUpdater.channel in the app.
+      - name: Upload Windows release artifacts to GCS
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          case "$ENVIRONMENT" in
+            production) BUCKET=vellum-ai-prod-releases ;;
+            *) BUCKET="vellum-ai-${ENVIRONMENT}-releases" ;;
+          esac
+          for ARCH in x64 arm64; do
+            ARCH_DIR="windows-artifacts/${ARCH}"
+            if [ ! -d "$ARCH_DIR" ]; then
+              echo "::warning::No ${ARCH} artifacts; skipping"
+              continue
+            fi
+            PREFIX="win-electron/${ARCH}"
+            INSTALLER=$(find "$ARCH_DIR" -name "*.exe" -type f | grep -m1 .)
+            BLOCKMAP=$(find "$ARCH_DIR" -name "*.exe.blockmap" -type f | grep -m1 .)
+            YML="$ARCH_DIR/latest.yml"
+            if [ -z "$INSTALLER" ] || [ -z "$BLOCKMAP" ] || [ ! -f "$YML" ]; then
+              echo "::error::${ARCH} artifacts are incomplete (installer, blockmap, and latest.yml are required)"
+              exit 1
+            fi
+            gcloud storage cp "$INSTALLER" "gs://${BUCKET}/${PREFIX}/$(basename "$INSTALLER")"
+            gcloud storage cp "$BLOCKMAP" "gs://${BUCKET}/${PREFIX}/$(basename "$BLOCKMAP")"
+            if [ "$ENVIRONMENT" = "dev" ]; then
+              gcloud storage cp "$INSTALLER" "gs://${BUCKET}/${PREFIX}/vellum-assistant-dev-${ARCH}.exe"
+            fi
+            gcloud storage cp "$YML" "gs://${BUCKET}/${PREFIX}/${ENVIRONMENT}.yml"
+          done

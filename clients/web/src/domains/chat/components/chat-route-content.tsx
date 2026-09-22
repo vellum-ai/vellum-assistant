@@ -39,6 +39,16 @@ import { useTranscriptData } from "@/domains/chat/hooks/use-transcript-data";
 import { useTranscriptMessages } from "@/domains/chat/transcript/use-transcript-messages";
 import { useChatEmptyState } from "@/domains/chat/hooks/use-chat-empty-state";
 import { useComposerSubmit } from "@/domains/chat/hooks/use-composer-submit";
+import type { useDocumentChatPreparation } from "@/domains/chat/hooks/use-document-chat-preparation";
+import type { useDocumentConversationRoute } from "@/domains/chat/hooks/use-document-conversation-route";
+import type { DocumentViewerContainerHandle } from "./document-viewer-container";
+import { DocumentChatContent } from "./document-chat-content";
+import { DocumentChatNavigation } from "./document-chat-navigation";
+import { getDocumentFeedbackPrompt } from "../document-conversation";
+import {
+  documentConversationUrl,
+  getDocumentConversationRoute,
+} from "../document-conversation-navigation";
 import { useDraftSecretDetection } from "@/domains/chat/hooks/use-draft-secret-detection";
 import type { SendChatMessageOptions } from "@/domains/chat/hooks/use-send-message";
 import {
@@ -62,7 +72,7 @@ import { resolveComposerPlaceholder } from "@/domains/chat/utils/composer-placeh
 import { isPopoutWindow } from "@/runtime/popout-window";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
-import { isImageAttachment } from "@/domains/chat/components/chat-attachments/utils";
+import { isImageAttachment } from "@/utils/attachment-utils";
 import { useChatAttachmentDropZone } from "@/domains/chat/components/chat-attachments/use-chat-attachment-drop-zone";
 import { useVisionAttachmentGate } from "@/lib/backwards-compat/vision-attachment-gate";
 import { useSupportsNewChatPlugins } from "@/lib/backwards-compat/use-supports-new-chat-plugins";
@@ -102,7 +112,7 @@ import type { DetectedSecret } from "@vellumai/service-contracts/secret-detectio
 import type { ThreadSuggestion } from "@/domains/chat/suggestions/types";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useTranslation } from "@/i18n";
-import { BottomSheet } from "@vellumai/design-library";
+import { BottomSheet, Notice } from "@vellumai/design-library";
 import { useEditMessage } from "@/domains/chat/hooks/use-edit-message";
 import { useOnboardingChoice } from "@/domains/chat/hooks/use-onboarding-choice";
 import { usePullRefresh } from "@/domains/chat/hooks/use-pull-refresh";
@@ -133,6 +143,7 @@ import type {
 } from "@/domains/chat/types/types";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import type { HistoryPaginationResult } from "@/domains/chat/transcript/use-history-pagination";
+import type { SessionDisclosureState } from "@/domains/chat/transcript/use-session-disclosure-state";
 import type { UIContext } from "@/domains/chat/turn-selectors";
 import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure";
 import { useActiveProfileModel } from "@/domains/chat/hooks/use-active-profile-model";
@@ -140,7 +151,6 @@ import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import { cmdEnterToSend } from "@/utils/composer-settings";
-import { haptic } from "@/utils/haptics";
 import { routes } from "@/utils/routes";
 import { lifecycleService } from "@/assistant/lifecycle-service";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
@@ -160,11 +170,15 @@ import {
 } from "@/domains/chat/rule-editor-actions";
 import { handleSurfaceAction } from "@/domains/chat/surface-actions";
 import { useRuleEditorStore } from "@/domains/chat/rule-editor-store";
-import { useOpenAppFromChat } from "@/domains/chat/hooks/use-open-app-from-chat";
+import {
+  useOpenDocumentFromChat,
+  useOpenAppFromChat,
+} from "@/domains/chat/hooks/use-open-app-from-chat";
 import { useVoiceInput } from "@/domains/chat/hooks/use-voice-input";
 import { useConversationListQuery } from "@/hooks/conversation-queries";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { shouldMintNewChatDraft } from "@/domains/chat/utils/conversation-selection";
 import { isNativeMobile } from "@/runtime/platform-detection";
@@ -208,6 +222,7 @@ export interface ChatMainPanelProps {
 
   // History pagination (from useConversationLoader in ActiveChatView)
   historyPagination: HistoryPaginationResult;
+  sessionDisclosureState?: SessionDisclosureState;
 
   // Disk pressure (single instance lives in ActiveChatView; passed down to
   // avoid duplicate polling intervals and bus subscriptions)
@@ -299,6 +314,7 @@ export function ChatMainPanel({
   onRetryLatestTurn,
   handleInspectMessage,
   historyPagination,
+  sessionDisclosureState,
   diskPressure,
   resourcePressure,
   setRefreshEpoch,
@@ -310,7 +326,14 @@ export function ChatMainPanel({
   onboardingChoiceEligible,
   didOnboarding,
   onboardingConversationId,
-}: ChatMainPanelProps) {
+  documentRoute,
+  documentEditorRef,
+  documentPreparation,
+}: ChatMainPanelProps & {
+  documentRoute: ReturnType<typeof useDocumentConversationRoute>;
+  documentEditorRef: RefObject<DocumentViewerContainerHandle | null>;
+  documentPreparation: ReturnType<typeof useDocumentChatPreparation> | null;
+}) {
   const location = useLocation();
   const navigate = useNavigate();
   const { t } = useTranslation("chat");
@@ -422,6 +445,8 @@ export function ChatMainPanel({
   // Store reads — viewer
   // -------------------------------------------------------------------------
   const mainView = useViewerStore.use.mainView();
+  const isMobile = useIsMobile();
+  const openedDocumentState = useViewerStore.use.openedDocumentState();
   const openedAppState = useViewerStore.use.openedAppState();
   const isAppMinimized = useViewerStore.use.isAppMinimized();
 
@@ -461,15 +486,7 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   // Action callbacks
   // -------------------------------------------------------------------------
-  const handleOpenDocument = useCallback(
-    (surfaceId: string) => {
-      haptic.light();
-      if (assistantId) {
-        void useViewerStore.getState().loadDocument(assistantId, surfaceId);
-      }
-    },
-    [assistantId],
-  );
+  const handleOpenDocument = useOpenDocumentFromChat();
 
   const { overlays: activeProcessOverlays, hasAny: hasActiveProcess } =
     useActiveProcessSlots(isPopout);
@@ -744,6 +761,7 @@ export function ChatMainPanel({
     showOnboardingChoice,
     creditsExhausted: balanceStatus.isExhausted,
   });
+  const sessionGroupsEnabled = useAssistantFeatureFlagStore.use.sessionGroups();
 
   // --- Ref writes (connect hook outputs to ActiveChatView's debug refs) ---
   useEffect(() => {
@@ -983,17 +1001,16 @@ export function ChatMainPanel({
       : undefined;
   const activeProfileModel = useActiveProfileModel(
     assistantId,
-    activeConversation?.conversationId,
+    activeConversationId ?? undefined,
     activeDraftProfile,
   );
   const activeModelSupportsVision = activeProfileModel?.supportsVision ?? true;
   const visionGateActive = useVisionAttachmentGate();
-  // Whether an image attached to the next message would survive the turn. One
-  // resolution for every surface that can attach one: the drop/pick filter
-  // below, the Eyes toggle, and the send's own camera frame. On an assistant
-  // with the image-fallback plugin the gate is inactive and the question does
-  // not arise; below it, an image on a profile without vision fails the whole
-  // turn on the provider's rejection.
+  // Whether an image attached to the next message would survive the turn, read
+  // by the drop/pick filter below. On an assistant with the image-fallback
+  // plugin the gate is inactive and the question does not arise; below it, an
+  // image on a profile without vision fails the whole turn on the provider's
+  // rejection.
   const imageAttachmentsAllowed =
     !visionGateActive || activeModelSupportsVision;
 
@@ -1079,6 +1096,8 @@ export function ChatMainPanel({
   // Scroll coordination
   // -------------------------------------------------------------------------
   const scrollCoordinator = useTranscriptScroll({
+    sessionGroupsEnabled,
+    isVisible: !(isMobile && documentRoute.showingDocument),
     transcriptRef,
     items: transcriptItems,
     conversationId: activeConversationId,
@@ -1106,11 +1125,11 @@ export function ChatMainPanel({
     typingDisabled,
     assistantId,
     activeConversationId,
-    imageAttachmentsAllowed,
     // Synchronous pre-send gate: re-scans the outgoing content so pastes
     // sent inside the detection debounce window are still caught. No
     // secrets → returns true, fully inert.
     beforeSend: draftSecretDetection.checkBeforeSend,
+    prepareSend: documentPreparation?.prepareSend,
   });
 
   // "Send anyway" on the blocked notice: arm the single-use client bypass
@@ -1157,7 +1176,6 @@ export function ChatMainPanel({
     useClientFeatureFlagStore.use.newThreadSuggestions();
   // Called unconditionally — the desktop drawer vs mobile sheet choice below
   // branches on this, but the hook must run on every render.
-  const isMobile = useIsMobile();
   const [selectedSuggestion, setSelectedSuggestion] =
     useState<ThreadSuggestion | null>(null);
 
@@ -1314,6 +1332,14 @@ export function ChatMainPanel({
   const chatTranscriptProps: TranscriptProps = {
     items: transcriptItems,
     conversationId: activeConversationId,
+    modeSessionDescriptors: historyPagination.modeSessions,
+    sessionDisclosureState,
+    sessionGroupsEnabled,
+    sessionClockConnected:
+      assistantState.kind === "active" &&
+      !(isMobile && documentRoute.showingDocument),
+    onBeforeSessionDisclosureToggle:
+      scrollCoordinator.prepareForDisclosureToggle,
     assistantDisplayName: assistantName?.trim() || undefined,
     onOpenRuleEditor: handleOpenRuleEditorForToolCall,
     onOpenApp: handleOpenApp,
@@ -1379,15 +1405,20 @@ export function ChatMainPanel({
       onSubmit={handleFormSubmit}
       inputRef={inputRef}
       typingDisabled={typingDisabled}
-      sendDisabled={sendDisabled}
+      sendDisabled={
+        sendDisabled ||
+        !!documentPreparation?.preparing ||
+        (!!documentPreparation &&
+          (documentRoute.isLoading || !!documentRoute.error))
+      }
       onAddAttachmentFiles={handleDroppedFiles}
-      imageAttachmentsAllowed={imageAttachmentsAllowed}
       voiceInputRef={voiceInputRef}
       voiceInterim={voiceInterim ?? undefined}
       onVoiceTranscript={handleVoiceTranscript}
       onVoiceInterimTranscript={setVoiceInterim}
       onVoiceError={setVoiceError}
       onVoiceBeforeStart={handleVoiceBeforeStart}
+      onBeforeLiveVoiceStart={documentPreparation?.prepareVoice}
       onStopGenerating={handleStopGenerating}
       isAssistantBusy={isAssistantBusy}
       assistantId={assistantId}
@@ -1442,6 +1473,9 @@ export function ChatMainPanel({
       }
       noticesAboveFormSlot={
         <>
+          {documentPreparation?.error && (
+            <Notice tone="error">{documentPreparation.error}</Notice>
+          )}
           {draftSecretDetection.matches.length > 0 &&
             // A blocked send always surfaces the notice — even when the
             // passive warning for these values was previously dismissed.
@@ -1542,6 +1576,23 @@ export function ChatMainPanel({
       ? "var(--app-strip-h, 64px)"
       : undefined;
 
+  const handleDocumentFeedback = async () => {
+    await documentPreparation?.runPrepared((snapshot) => {
+      if (activeConversationId && documentRoute.surfaceId) {
+        navigate(
+          documentConversationUrl(
+            activeConversationId,
+            documentRoute.surfaceId,
+            getDocumentConversationRoute(location.search).returnTo,
+            "chat",
+            getDocumentFeedbackPrompt(snapshot.title),
+          ),
+          { replace: true, state: location.state },
+        );
+      }
+    });
+  };
+
   const chatBody = (
     <ChatBody
       variant={variant}
@@ -1553,6 +1604,37 @@ export function ChatMainPanel({
           : isInMaintenanceWithNoMessages,
       }}
       composerSlot={composerNode}
+      documentSlot={
+        isMobile && documentRoute.surfaceId ? (
+          <DocumentChatContent
+            assistantId={assistantId}
+            surfaceId={documentRoute.surfaceId}
+            document={openedDocumentState}
+            loading={documentRoute.isLoading}
+            error={documentRoute.error}
+            editorRef={documentEditorRef}
+            onClose={documentRoute.closeDocument}
+            onViewConversation={documentRoute.viewConversation}
+            onRetry={documentRoute.reloadDocument}
+            onSubmitFeedback={() => {
+              void handleDocumentFeedback();
+            }}
+          />
+        ) : undefined
+      }
+      onViewConversation={documentRoute.viewConversation}
+      documentPresentation={
+        documentRoute.showingDocument ? "document" : "conversation"
+      }
+      sessionNavigationSlot={
+        isMobile &&
+        documentRoute.surfaceId &&
+        !documentRoute.showingDocument ? (
+          <DocumentChatNavigation
+            onReopenDocument={documentRoute.reopenDocument}
+          />
+        ) : undefined
+      }
       pluginPillsSlot={newChatPluginsSlot}
       dragHandlers={attachmentDropHandlers}
       isAttachmentDragOver={isAttachmentDragOver}

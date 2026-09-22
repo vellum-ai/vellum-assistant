@@ -97,6 +97,51 @@ describe("text-segment cleaning", () => {
 });
 
 describe("mapRuntimeToDisplayMessage", () => {
+  test("preserves canonical session membership and folded activity bounds", () => {
+    const modeSession = { mode: "browser" as const, id: "session-1" };
+    const modeSessionActivity = { firstAt: 1_000, lastAt: 2_000 };
+    const display = mapRuntimeToDisplayMessage(
+      makeMessage({ modeSession, modeSessionActivity }),
+    );
+
+    expect(display.modeSession).toEqual(modeSession);
+    expect(display.modeSessionActivity).toEqual(modeSessionActivity);
+  });
+
+  test("preserves screenshot provenance in flat and structured attachments", () => {
+    const automatic = {
+      id: "shot-1",
+      filename: "computer-use-click.png",
+      mimeType: "image/png",
+      sizeBytes: 10,
+      kind: "image",
+      computerUseScreenshot: true,
+    };
+    const explicit = {
+      id: "explicit-1",
+      filename: "report.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 20,
+      kind: "document",
+    };
+    const display = mapRuntimeToDisplayMessage(
+      makeMessage({
+        attachments: [automatic, explicit],
+        contentBlocks: [
+          { type: "attachment", attachment: automatic },
+          { type: "attachment", attachment: explicit },
+        ],
+      }),
+    );
+
+    expect(display.attachments?.[0]?.computerUseScreenshot).toBe(true);
+    expect(display.attachments?.[1]?.computerUseScreenshot).toBeUndefined();
+    expect(display.contentBlocks).toEqual([
+      { type: "attachment", attachment: automatic },
+      { type: "attachment", attachment: explicit },
+    ]);
+  });
+
   test("preserves queued-message state from history", () => {
     const display = mapRuntimeToDisplayMessage(
       makeMessage({
@@ -182,6 +227,53 @@ describe("mapRuntimeToDisplayMessage", () => {
       noResponse: true,
     });
     expect(mapRuntimeToDisplayMessage(m).isNoResponse).toBe(true);
+  });
+
+  test("flags a cameraFrame message as isCameraFrame", () => {
+    const message = makeMessage({
+      id: "frame-1",
+      role: "user",
+      cameraFrame: true,
+    });
+    expect(mapRuntimeToDisplayMessage(message).isCameraFrame).toBe(true);
+  });
+
+  test("does not infer camera frames from their text", () => {
+    const message = makeMessage({
+      role: "user",
+      ...wireTextBody("(camera frame)"),
+    });
+    expect(mapRuntimeToDisplayMessage(message).isCameraFrame).toBeUndefined();
+  });
+
+  test("carries the assistant-text visibility marker onto the display message", () => {
+    // The marker is the row's own, so each row in a conversation renders by
+    // its own value. An unmarked row stays unmarked, and an unrecognized value
+    // reads as no marker rather than being guessed at.
+    const plain = makeMessage({ id: "m-plain", role: "assistant" });
+    expect(
+      mapRuntimeToDisplayMessage(plain).assistantTextVisibility,
+    ).toBeUndefined();
+
+    for (const marker of ["private", "visible"] as const) {
+      const m = makeMessage({
+        id: `m-${marker}`,
+        role: "assistant",
+        assistantTextVisibility: marker,
+      } as Partial<ConversationMessage>);
+      expect(mapRuntimeToDisplayMessage(m).assistantTextVisibility).toBe(
+        marker,
+      );
+    }
+
+    const unknown = makeMessage({
+      id: "m-unknown",
+      role: "assistant",
+      assistantTextVisibility: "later",
+    } as unknown as Partial<ConversationMessage>);
+    expect(
+      mapRuntimeToDisplayMessage(unknown).assistantTextVisibility,
+    ).toBeUndefined();
   });
 
   test("carries deletedAt onto the display message", () => {

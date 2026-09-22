@@ -705,13 +705,11 @@ export class ContactStore {
       .where(eq(contactChannels.id, gwChannel.id))
       .run();
 
-    const after = this.db
+    return this.db
       .select()
       .from(contactChannels)
       .where(eq(contactChannels.id, gwChannel.id))
       .get()!;
-
-    return after;
   }
 
   /**

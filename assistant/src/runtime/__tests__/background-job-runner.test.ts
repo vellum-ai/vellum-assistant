@@ -490,7 +490,7 @@ describe("runBackgroundJob", () => {
     expect(bootstrapLastArgs).not.toHaveProperty("scheduleJobId");
   });
 
-  test("assistantSandwich seeds three messages in user/assistant/user order, with sandwich written before processMessage runs", async () => {
+  test("empty sandwich prompt uses the postamble as the processMessage kickoff", async () => {
     let addMessageCountAtProcessMessageStart = -1;
     processMessageImpl = async () => {
       addMessageCountAtProcessMessageStart = addMessageCalls.length;
@@ -508,7 +508,46 @@ describe("runBackgroundJob", () => {
       }),
     );
 
-    // All three sandwich addMessage calls happened.
+    // persistUserMessage rejects empty content, so the trusted postamble is
+    // the kickoff rather than a third addMessage plus an empty prompt.
+    expect(addMessageCalls).toHaveLength(2);
+    expect(addMessageCalls[0]).toMatchObject({
+      conversationId: STUB_CONVERSATION_ID,
+      role: "user",
+      content: "TRUSTED_PRE",
+    });
+    expect(addMessageCalls[1]).toMatchObject({
+      conversationId: STUB_CONVERSATION_ID,
+      role: "assistant",
+      content: "UNTRUSTED_PAYLOAD",
+    });
+    expect(processMessageCalls).toHaveLength(1);
+    expect(processMessageCalls[0].content).toBe("TRUSTED_POST");
+    expect(processMessageCalls[0].options).toMatchObject({
+      skipUserMessageIndexing: true,
+    });
+    expect(addMessageCountAtProcessMessageStart).toBe(2);
+    expect(emitCalls).toHaveLength(0);
+  });
+
+  test("non-empty sandwich prompt still seeds all three sandwich messages before processMessage", async () => {
+    let addMessageCountAtProcessMessageStart = -1;
+    processMessageImpl = async () => {
+      addMessageCountAtProcessMessageStart = addMessageCalls.length;
+      return { messageId: "msg-final" };
+    };
+
+    await runBackgroundJob(
+      baseOpts({
+        prompt: "do the test",
+        assistantSandwich: {
+          preamble: "TRUSTED_PRE",
+          content: "UNTRUSTED_PAYLOAD",
+          postamble: "TRUSTED_POST",
+        },
+      }),
+    );
+
     expect(addMessageCalls).toHaveLength(3);
     expect(addMessageCalls[0]).toMatchObject({
       conversationId: STUB_CONVERSATION_ID,
@@ -526,8 +565,7 @@ describe("runBackgroundJob", () => {
       content: "TRUSTED_POST",
     });
     expect(processMessageCalls).toHaveLength(1);
-    expect(processMessageCalls[0].content).toBe("");
-    // processMessage observed all 3 sandwich messages already in place.
+    expect(processMessageCalls[0].content).toBe("do the test");
     expect(addMessageCountAtProcessMessageStart).toBe(3);
   });
 

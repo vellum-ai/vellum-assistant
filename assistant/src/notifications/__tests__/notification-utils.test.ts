@@ -2,8 +2,10 @@ import { describe, expect, test } from "bun:test";
 
 import {
   collapseHorizontalWhitespace,
+  decodeLiteralLineBreaks,
   describeMedia,
   mediaEmbeds,
+  readPayloadStringArray,
   sanitizeMultilineMessagePreview,
   stripMarkdownForPreview,
 } from "../notification-utils.js";
@@ -276,5 +278,34 @@ describe("describeMedia", () => {
 
   test("returns empty for no labels, leaving the fallback to the caller", () => {
     expect(describeMedia([])).toBe("");
+  });
+});
+
+describe("readPayloadStringArray", () => {
+  test("returns string entries and drops non-strings", () => {
+    expect(
+      readPayloadStringArray(
+        { channelAllowlist: ["telegram", 1, "slack"] },
+        "channelAllowlist",
+      ),
+    ).toEqual(["telegram", "slack"]);
+  });
+
+  test("returns undefined when the key is missing or not an array", () => {
+    expect(readPayloadStringArray({ channelAllowlist: "telegram" }, "channelAllowlist")).toBeUndefined();
+    expect(readPayloadStringArray({}, "channelAllowlist")).toBeUndefined();
+    expect(readPayloadStringArray(null, "channelAllowlist")).toBeUndefined();
+  });
+});
+
+describe("decodeLiteralLineBreaks", () => {
+  test("turns literal newline escapes into real line breaks", () => {
+    expect(decodeLiteralLineBreaks("Line one\\n\\nLine two")).toBe(
+      "Line one\n\nLine two",
+    );
+  });
+
+  test("leaves ordinary markdown alone", () => {
+    expect(decodeLiteralLineBreaks("**3 new emails**")).toBe("**3 new emails**");
   });
 });

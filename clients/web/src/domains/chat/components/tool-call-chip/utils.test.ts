@@ -558,6 +558,28 @@ describe("extractInputSummary", () => {
       extractInputSummary("host_bash", { cmd: "assistant browser screenshot" }),
     ).toBe("assistant browser screenshot");
   });
+
+  test("falls through a blank command to the legacy cmd spelling", () => {
+    // A present-but-empty spelling is not an answer: the value is whichever
+    // spelling actually carries one.
+    expect(extractInputSummary("bash", { command: "", cmd: "ls -la" })).toBe(
+      "ls -la",
+    );
+  });
+
+  test("falls through a blank file_path to the other path spellings", () => {
+    expect(
+      extractInputSummary("file_edit", { file_path: "", path: "src/a.ts" }),
+    ).toBe("src/a.ts");
+  });
+
+  test("does not stop at a non-string alias", () => {
+    // A non-string spelling is skipped like a blank one, not treated as the
+    // answer for the whole branch.
+    expect(extractInputSummary("grep", { pattern: 7, query: "TODO" })).toBe(
+      "TODO",
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------

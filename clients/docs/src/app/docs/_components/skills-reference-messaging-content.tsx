@@ -149,7 +149,8 @@ Each platform is connected independently via OAuth (Slack, Gmail) or bot token
             </li>
             <li>
               <strong>Sending messages:</strong> Your assistant will confirm before sending messages
-              on your behalf. If you want it to send without asking, set that preference explicitly.
+              on your behalf. Gmail and Outlook compose into a mailbox draft first so you can review
+              before anything is sent. If you want it to send without asking, set that preference explicitly.
             </li>
             <li>
               <strong>Context awareness:</strong> Your assistant remembers which channels and contacts

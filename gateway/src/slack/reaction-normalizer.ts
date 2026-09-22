@@ -3,6 +3,7 @@ import {
   type SlackReactionEvent,
   type NormalizedSlackEvent,
 } from "./message-schemas.js";
+import { slackEmojiCharacter } from "@vellumai/slack-text";
 import type { GatewayConfig } from "../config.js";
 import { resolveAssistant, isRejection } from "../routing/resolve-assistant.js";
 
@@ -37,6 +38,8 @@ function normalizeSlackReaction(
   const routing = resolveAssistant(config, channel, event.user);
   if (isRejection(routing)) return null;
 
+  const character = slackEmojiCharacter(event.reaction);
+
   // The addressing parts (channel, message ts, emoji, reactor, op) name a
   // reaction, not one occurrence of one: they repeat byte for byte each time
   // the same person re-adds the same emoji. `event_id` is the component that
@@ -61,12 +64,15 @@ function normalizeSlackReaction(
         reaction: {
           op,
           emoji: event.reaction,
-          // Slack sends one namespace for both standard and workspace
-          // emoji and does not say which this is: `+1` and a workspace
-          // upload arrive identically, and only the workspace token can
-          // tell them apart. `shortcode` is that namespace, not a guess.
-          emojiKind: "shortcode",
-          emojiName: event.reaction,
+          // Slack names its reactions rather than sending the character, and
+          // sends one namespace for standard and workspace emoji alike. The
+          // adapter resolves the standard ones from Slack's own list here, so
+          // nothing past the normalizer needs Slack's naming; a name outside
+          // that list is a workspace upload only the workspace can render,
+          // and stays a `shortcode` in Slack's namespace.
+          ...(character !== undefined
+            ? { emojiKind: "unicode" as const, emojiName: character }
+            : { emojiKind: "shortcode" as const, emojiName: event.reaction }),
           targetMessageId: event.item.ts,
         },
         // A daemon that does not yet understand the structured payload

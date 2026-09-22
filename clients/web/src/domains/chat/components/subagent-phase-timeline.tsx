@@ -31,6 +31,7 @@ import {
   TimelineNode,
   type PhaseSection,
 } from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";
+import { useActionDisplayLabel } from "@/domains/chat/components/tool-progress-card/action-display-label";
 import { HeaderStepCarousel } from "@/domains/chat/components/tool-progress-card/header-step-carousel";
 import { ToolStepPill } from "@/domains/chat/components/tool-progress-card/tool-step-pill";
 import {
@@ -129,7 +130,7 @@ function latestThinkingText(section: PhaseSection): string | undefined {
  * Detail-map key for a step that can open a nested detail view: a tool step's
  * `toolCallId`, or a thinking step's `detailKey` (stamped by the subagent
  * projection). `undefined` for steps with no detail / no key, which stay
- * non-interactive. Mirrors the keys `buildSubagentStepDetails` emits.
+ * non-interactive. A tool key is the call's id in the subagent's history.
  */
 function stepDetailKey(step: ToolCallCardStep): string | undefined {
   if (step.kind === "tool") {
@@ -285,6 +286,7 @@ const SubagentPhaseRow = memo(function SubagentPhaseRow({
   onStepDetailClick?: (detailKey: string) => void;
 }) {
   const { t } = useTranslation("chat");
+  const resolveActionDisplayLabel = useActionDisplayLabel();
   const reduce = useReducedMotion();
   const rawStatus = phaseHeaderStatus(section.steps);
   // Only the active tail — the last phase while the subagent is still running —
@@ -323,7 +325,7 @@ const SubagentPhaseRow = memo(function SubagentPhaseRow({
   // clickable arm mirrors the expanded body's render condition below.
   const isExpandable = section.steps.some(
     (step) =>
-      stepRendersPill(step) ||
+      stepRendersPill(step, resolveActionDisplayLabel) ||
       (Boolean(onStepDetailClick) && Boolean(stepDetailKey(step))),
   );
 
@@ -398,6 +400,7 @@ const SubagentPhaseRow = memo(function SubagentPhaseRow({
         type="button"
         data-testid="subagent-phase-header"
         disabled={!isExpandable}
+        aria-expanded={isExpandable ? expanded : undefined}
         onClick={isExpandable ? () => onToggle(sectionKeyValue) : undefined}
         // Fixed 22px height (not py-based) so the bullet's centre is ALWAYS 11px
         // from the row top regardless of trailing content. A row with a duration
@@ -555,7 +558,11 @@ const SubagentPhaseRow = memo(function SubagentPhaseRow({
                         key={stepKey(step, stepIdx)}
                         variant="tool"
                         iconName={step.iconName}
-                        label={step.activity || step.info || step.title}
+                        label={resolveActionDisplayLabel({
+                          activity: step.activity,
+                          actionDisplayKey: step.actionDisplayKey,
+                          fallback: step.activity || step.info || step.title,
+                        })}
                         ariaLabel={t("subagentPhaseTimeline.viewToolDetails")}
                         onClick={() => onStepDetailClick(detailKey)}
                       />

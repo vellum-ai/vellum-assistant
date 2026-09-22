@@ -25,6 +25,7 @@ import type {
 } from "@/types/avatar";
 import { isAvatarState, isCharacterTraits } from "@/types/avatar";
 import { assertHasResponse } from "@/utils/api-errors";
+import { encodeBase64Bytes } from "@/utils/base64";
 
 /**
  * An assistant that predates accents answers without the field; the manifest
@@ -186,13 +187,7 @@ export async function uploadAvatarImage(
   file: File,
 ): Promise<boolean> {
   try {
-    const arrayBuffer = await file.arrayBuffer();
-    const base64 = btoa(
-      new Uint8Array(arrayBuffer).reduce(
-        (acc, byte) => acc + String.fromCharCode(byte),
-        "",
-      ),
-    );
+    const base64 = encodeBase64Bytes(new Uint8Array(await file.arrayBuffer()));
 
     if (!(await resolveSupportsAvatarStateManifest())) {
       return uploadAvatarImageLegacy(assistantId, base64);

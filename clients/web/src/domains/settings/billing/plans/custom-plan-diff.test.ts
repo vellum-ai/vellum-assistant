@@ -186,6 +186,54 @@ describe("computeCustomPlanDiff — seeded reconfigure", () => {
     expect(diff.rows.every((r) => r.previousLabel === undefined)).toBe(true);
   });
 
+  test("a fee-less seed reads the fee row as added and prices the previous total without it", () => {
+    // Only Mighty is sold without the platform fee; a custom plan always
+    // carries it, so keeping the tiers still adds the fee.
+    const diff = computeCustomPlanDiff({
+      proPlan: proPlan(),
+      noBundleLabel: NO_BUNDLE_LABEL,
+      seed: {
+        machineTier: "medium",
+        storageTier: "xs",
+        creditTier: null,
+        hasPlatformFee: false,
+      },
+      machineTier: "medium",
+      storageTier: "xs",
+      creditChoice: NO_EXTRA_CREDITS,
+    });
+
+    const baseRow = diff.rows.find((r) => r.key === "base");
+    expect(baseRow?.changed).toBe(true);
+    // No previous value to strike through: the fee simply was not billed.
+    expect(baseRow?.previousLabel).toBeUndefined();
+    expect(
+      diff.rows.filter((r) => r.key !== "base").every((r) => !r.changed),
+    ).toBe(true);
+    expect(diff.previousTotalCents).toBe(3500 + 500);
+    expect(diff.totalCents).toBe(2000 + 3500 + 500);
+    expect(diff.deltaCents).toBe(2000);
+  });
+
+  test("a seed that already bills the fee keeps the fee row unchanged", () => {
+    const diff = computeCustomPlanDiff({
+      proPlan: proPlan(),
+      noBundleLabel: NO_BUNDLE_LABEL,
+      seed: {
+        machineTier: "medium",
+        storageTier: "xs",
+        creditTier: null,
+        hasPlatformFee: true,
+      },
+      machineTier: "medium",
+      storageTier: "xs",
+      creditChoice: NO_EXTRA_CREDITS,
+    });
+
+    expect(diff.rows.find((r) => r.key === "base")?.changed).toBe(false);
+    expect(diff.deltaCents).toBe(0);
+  });
+
   test("a machine increase marks the machine row and carries the previous label", () => {
     const diff = computeCustomPlanDiff({
       proPlan: proPlan(),

@@ -8,7 +8,8 @@ import WebKit
 ///    `VoiceAudioSessionPlugin`, `VoiceLiveActivityPlugin`,
 ///    `ApnsEnvironmentPlugin`, `SelfHostedServersPlugin`,
 ///    `RecentChatsPlugin`, `WidgetSnapshotPlugin`, `AppIconPlugin`, and
-///    `ShareInboxPlugin` as local plugin instances at bridge init time.
+///    `ShareInboxPlugin`, and `SenderNotificationPlugin` as local plugin
+///    instances at bridge init time.
 ///    These plugins live inside the App target (no SPM module) so the bridge
 ///    won't discover them automatically.
 ///
@@ -201,6 +202,7 @@ class MyViewController: CAPBridgeViewController {
         bridge?.registerPluginInstance(WidgetSnapshotPlugin())
         bridge?.registerPluginInstance(AppIconPlugin())
         bridge?.registerPluginInstance(ShareInboxPlugin())
+        bridge?.registerPluginInstance(SenderNotificationPlugin())
         installNavigationDelegateProxy()
         installInputZoomPreventionUserScript()
         installViewportZoomLockUserScript()
@@ -274,25 +276,13 @@ class MyViewController: CAPBridgeViewController {
     /// the `SelfHostedServers` plugin's `switchTo`; must run on the main queue.
     func applyConfiguredOrigin(path: String? = nil) {
         bindServerTrackingToConfiguredOrigin()
+        navigationDelegateProxy?.resetSpaLoad()
         guard let destination = appliedServerURL else {
             return
         }
-        let entryURL = Self.appEntryURL(forBase: destination)
+        let entryURL = SelfHostedServer.appEntryURL(forBase: destination)
         let destinationURL = path.flatMap { Self.appRouteURL(forEntry: entryURL, path: $0) } ?? entryURL
         webView?.load(URLRequest(url: destinationURL))
-    }
-
-    /// The SPA entry point for a server base, `<base>/assistant`. The ingress
-    /// redirects a bare `/` to a prefix-less `/assistant/`, which would drop a
-    /// hosting prefix (base `https://host/assistant-123` → `https://host/assistant/`),
-    /// so the segment is appended here instead. Mirrors `AppDelegate`'s
-    /// pair-page URL; the baked cloud URL already carries the segment, so it is
-    /// returned unchanged. Tracking state keeps the bare base.
-    private static func appEntryURL(forBase base: URL) -> URL {
-        guard base.lastPathComponent != "assistant" else {
-            return base
-        }
-        return base.appendingPathComponent("assistant")
     }
 
     private static func appRouteURL(forEntry entry: URL, path: String) -> URL? {
@@ -564,7 +554,7 @@ extension MyViewController: WebViewNavigationFailureObserver {
                 guard let self else { return }
                 self.disarmUnreachableAlert()
                 self.appliedServerURL = origin
-                self.webView?.load(URLRequest(url: Self.appEntryURL(forBase: origin)))
+                self.webView?.load(URLRequest(url: SelfHostedServer.appEntryURL(forBase: origin)))
             })
             alert.addAction(UIAlertAction(title: "Choose Assistant", style: .default) { [weak self] _ in
                 guard let self else { return }
@@ -637,10 +627,15 @@ protocol WebViewNavigationFailureObserver: AnyObject {
 final class NavigationDelegateProxy: NSObject, WKNavigationDelegate {
     private weak var target: WebViewDelegationHandler?
     private weak var failureObserver: WebViewNavigationFailureObserver?
+    private var spaDidLoad = false
 
     init(forwardingTo target: WebViewDelegationHandler, failureObserver: WebViewNavigationFailureObserver) {
         self.target = target
         self.failureObserver = failureObserver
+    }
+
+    func resetSpaLoad() {
+        spaDidLoad = false
     }
 
     // Forward any selector this proxy doesn't implement to Capacitor's delegate
@@ -675,7 +670,9 @@ final class NavigationDelegateProxy: NSObject, WKNavigationDelegate {
     }
 
     /// Refuse a main document the configured self-hosted base answers with an
-    /// HTTP error, and report it as a load failure. Scoped by
+    /// HTTP error that means the server is gone, and report it as a load
+    /// failure. After the SPA has loaded, nested 4xx (settings paths,
+    /// platform probes) stay in the page. Scoped by
     /// `SelfHostedServer.contains` for the same reason the failure observer is:
     /// another path or port on the same host is not this server.
     ///
@@ -696,16 +693,26 @@ final class NavigationDelegateProxy: NSObject, WKNavigationDelegate {
     ) {
         guard navigationResponse.isForMainFrame,
               let response = navigationResponse.response as? HTTPURLResponse,
-              response.statusCode >= 400,
               let url = response.url,
-              let configured = SelfHostedServer.configuredURL(),
-              SelfHostedServer.contains(url, base: configured)
+              let configured = SelfHostedServer.configuredURL()
         else {
             decisionHandler(.allow)
             return
         }
-        decisionHandler(.cancel)
-        failureObserver?.webViewNavigationDidFail(Self.errorStatusFailure(for: url))
+        if SelfHostedServer.shouldTreatHttpErrorAsUnreachable(
+            status: response.statusCode,
+            failedURL: url,
+            server: configured,
+            pageAlreadyLoaded: spaDidLoad
+        ) {
+            decisionHandler(.cancel)
+            failureObserver?.webViewNavigationDidFail(Self.errorStatusFailure(for: url))
+            return
+        }
+        if response.statusCode < 400, SelfHostedServer.contains(url, base: configured) {
+            spaDidLoad = true
+        }
+        decisionHandler(.allow)
     }
 
     /// An HTTP error response as the kind of error `webViewNavigationDidFail`

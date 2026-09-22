@@ -20,12 +20,12 @@ export const BROWSER_STATUS_INPUT_FIELD = {
   CHECK_LOCAL_LAUNCH: "check_local_launch",
 } as const;
 
-/** Chrome Web Store listing for the Vellum Assistant browser extension. */
-export const CHROME_WEB_STORE_INSTALL_URL =
-  "https://chromewebstore.google.com/detail/vellum-assistant-browser/hphbdmpffeigpcdjkckleobjmhhokpne";
-
-/** User-facing install step for status userActions and command-failure hints. */
-export const CHROME_EXTENSION_INSTALL_HINT = `Install the Vellum Assistant Chrome extension from the Chrome Web Store: ${CHROME_WEB_STORE_INSTALL_URL}`;
+export {
+  CHROME_EXTENSION_INSTALL_HINT,
+  CHROME_WEB_STORE_INSTALL_URL,
+  DESKTOP_APP_DOWNLOAD_URL,
+  DESKTOP_APP_INSTALL_HINT,
+} from "../capability-offer.js";
 
 export const CDP_INSPECT_STATUS_DISCOVERY_CODE = {
   NO_TARGETS: DEVTOOLS_DISCOVERY_CODE.NO_TARGETS,

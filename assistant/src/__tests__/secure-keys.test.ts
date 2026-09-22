@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -10,6 +11,8 @@ import {
   expect,
   test,
 } from "bun:test";
+
+import { resolveIpcEndpoint } from "@vellumai/ipc-server-utils";
 
 // ---------------------------------------------------------------------------
 // Mock logger (no-op — compatible with other test files' identical mock)
@@ -61,7 +64,6 @@ describe("secure-keys", () => {
     delete process.env.VELLUM_DESKTOP_APP;
     delete process.env.IS_CONTAINERIZED;
     delete process.env.CES_CREDENTIAL_URL;
-    delete process.env.CES_LOCAL_SOCKET;
   });
 
   afterAll(() => {
@@ -77,6 +79,13 @@ describe("secure-keys", () => {
     test("set and get a key", async () => {
       await setSecureKeyAsync("openai", "sk-openai-789");
       expect(await getSecureKeyAsync("openai")).toBe("sk-openai-789");
+    });
+
+    test("does not poll for a CES socket when none is present", async () => {
+      const start = Date.now();
+      await getSecureKeyAsync("openai");
+      expect(Date.now() - start).toBeLessThan(1_000);
+      expect(getActiveBackendName()).toBe("encrypted-store");
     });
 
     test("get returns undefined for nonexistent key", async () => {
@@ -552,7 +561,6 @@ describe("secure-keys", () => {
     test("reads report unreachable (indeterminate), never absent", async () => {
       process.env.IS_CONTAINERIZED = "1";
       delete process.env.CES_CREDENTIAL_URL;
-      delete process.env.CES_LOCAL_SOCKET;
       _resetBackend();
 
       const result = await getSecureKeyResultAsync("openai");
@@ -564,7 +572,6 @@ describe("secure-keys", () => {
     test("does not pin the unreachable result: a ready CES client wins the next read", async () => {
       process.env.IS_CONTAINERIZED = "1";
       delete process.env.CES_CREDENTIAL_URL;
-      delete process.env.CES_LOCAL_SOCKET;
       _resetBackend();
 
       expect((await getSecureKeyResultAsync("openai")).unreachable).toBe(true);
@@ -596,6 +603,45 @@ describe("secure-keys", () => {
       const result = await getSecureKeyResultAsync("openai");
       expect(result.value).toBeUndefined();
       expect(result.unreachable).toBe(true);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Session ownership: boot claims reconnect before identity reads
+  // -----------------------------------------------------------------------
+  describe("CES session owner skips a second open", () => {
+    test("a registered reconnect owner does not handshake a live CES socket", async () => {
+      const dir = mkdtempSync(join(tmpdir(), "ces-owner-"));
+      const socketPath = resolveIpcEndpoint("ces", { workspaceDir: dir }).path;
+      const savedDir = process.env.CES_BOOTSTRAP_SOCKET_DIR;
+      process.env.CES_BOOTSTRAP_SOCKET_DIR = dir;
+
+      const connections: Array<import("node:net").Socket> = [];
+      const server: Server = createServer((socket) => {
+        connections.push(socket);
+        socket.on("error", () => {});
+      });
+      await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+
+      try {
+        setCesReconnect(async () => undefined);
+        const start = Date.now();
+        await getSecureKeyAsync("openai");
+        expect(Date.now() - start).toBeLessThan(1_000);
+        expect(getActiveBackendName()).toBe("encrypted-store");
+        expect(connections.length).toBe(0);
+      } finally {
+        for (const sock of connections) {
+          sock.destroy();
+        }
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+        if (savedDir !== undefined) {
+          process.env.CES_BOOTSTRAP_SOCKET_DIR = savedDir;
+        } else {
+          delete process.env.CES_BOOTSTRAP_SOCKET_DIR;
+        }
+        rmSync(dir, { recursive: true, force: true });
+      }
     });
   });
 });

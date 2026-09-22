@@ -1,6 +1,6 @@
 import { AlertCircle, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { useState, type ReactNode } from "react";
+import { useState, type MouseEvent, type ReactNode } from "react";
 
 import { Button, Typography } from "@vellumai/design-library";
 
@@ -139,7 +139,7 @@ export interface ToolProgressCardShellProps {
    * expand), the caller can compose by calling `onExpandChange` from inside
    * the override.
    */
-  onHeaderClick?: () => void;
+  onHeaderClick?: (event: MouseEvent<HTMLButtonElement>) => void;
   /**
    * Accessible label for the header button. Defaults to a description of
    * the expand/collapse action — consumers that override `onHeaderClick`
@@ -234,9 +234,9 @@ export function ToolProgressCardShell({
   const expanded = isControlled ? controlledExpanded : uncontrolledExpanded;
   const reduce = useReducedMotion();
 
-  const handleToggle = () => {
+  const handleToggle = (event: MouseEvent<HTMLButtonElement>) => {
     if (onHeaderClick) {
-      onHeaderClick();
+      onHeaderClick(event);
       return;
     }
     if (disableExpand) {

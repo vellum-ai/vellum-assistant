@@ -4,8 +4,8 @@
  * The properties worth pinning are the ones a refactor could quietly
  * break, each of which fails silently rather than loudly:
  *
- * 1. Plugin servers reach the manager at all. Reading only `config.mcp`
- *    leaves a plugin's tools missing with nothing logged.
+ * 1. Plugin servers reach the manager at all. Reading only the workspace
+ *    `mcp.json` leaves a plugin's tools missing with nothing logged.
  * 2. A workspace entry of the same id wins, so a plugin cannot redirect a
  *    server the user configured by hand.
  * 3. Every server is attributed. `source` is what `McpClient` reads to
@@ -24,6 +24,7 @@ import { getWorkspacePluginsDir } from "../../util/platform.js";
 import {
   buildEffectiveMcpConfig,
   pluginMcpServersChangedSinceLastBuild,
+  readEffectiveMcpConfig,
   resetEffectiveMcpConfigForTests,
 } from "../effective-config.js";
 
@@ -45,15 +46,12 @@ function removePlugin(name: string): void {
 }
 
 function workspaceConfig(servers: McpConfig["servers"]): McpConfig {
-  return { servers, globalMaxTools: 50 };
+  return { servers };
 }
 
 function workspaceServer(url: string): McpConfig["servers"][string] {
   return {
     transport: { type: "streamable-http", url },
-    enabled: true,
-    defaultRiskLevel: "high",
-    maxTools: 20,
   };
 }
 
@@ -100,13 +98,6 @@ describe("buildEffectiveMcpConfig", () => {
     expect(config.servers["from-workspace"].source).toEqual("workspace");
   });
 
-  test("plugin servers arrive at low risk", () => {
-    writePlugin("unabyss", UNABYSS);
-
-    const config = buildEffectiveMcpConfig(workspaceConfig({}));
-    expect(config.servers.unabyss.defaultRiskLevel).toEqual("low");
-  });
-
   test("a workspace server of the same id wins, and stays workspace-attributed", () => {
     writePlugin("shadowed", {
       shadowed: { type: "streamable-http", url: "https://loses.example/mcp" },
@@ -133,8 +124,6 @@ describe("buildEffectiveMcpConfig", () => {
 
     expect(Object.keys(config.servers)).toEqual(["unabyss"]);
     expect(config.servers.unabyss.source).toEqual("plugin");
-    // The schema's own default, which the manager needs to cap tool count.
-    expect(config.globalMaxTools).toEqual(50);
   });
 
   test("no plugins installed leaves the workspace config alone", () => {
@@ -191,6 +180,16 @@ describe("pluginMcpServersChangedSinceLastBuild", () => {
     buildEffectiveMcpConfig(workspaceConfig({}));
     writePlugin("unabyss", UNABYSS);
 
+    expect(pluginMcpServersChangedSinceLastBuild()).toBe(true);
+  });
+
+  test("a read-only resolution does not record the changed plugin set as applied", () => {
+    buildEffectiveMcpConfig(workspaceConfig({}));
+    writePlugin("unabyss", UNABYSS);
+
+    expect(
+      readEffectiveMcpConfig(workspaceConfig({})).servers.unabyss,
+    ).toBeDefined();
     expect(pluginMcpServersChangedSinceLastBuild()).toBe(true);
   });
 

@@ -69,7 +69,6 @@ mock.module(
 let mockSkillEntries: Array<{ id: string; content: string }> = [];
 
 mock.module("../substrate/skill-store.js", () => ({
-  SKILL_SLUG_PREFIX: "skills/",
   listSkillEntries: () => mockSkillEntries,
 }));
 
@@ -204,7 +203,7 @@ function insertItem(opts: {
 describe("Memory Item Routes", () => {
   beforeAll(async () => {
     await initializeDb();
-  });
+  }, 30_000);
 
   beforeEach(() => {
     // Keep memory v2 disabled so the v1 paths under test stay active.
@@ -1200,6 +1199,11 @@ describe("Memory Item Routes", () => {
       const body = (await res.json()) as RememberBody;
       expect(body.success).toBe(true);
       expect(body.message.length).toBeGreaterThan(0);
+      // Exactly the declared response fields: the handler's saved-facts list
+      // stays on the tool path.
+      expect(Object.keys(body).sort()).toEqual(
+        ["message", "pendingNodeId", "success"].sort(),
+      );
     });
 
     test("returns the pending node id of the appended entry", async () => {

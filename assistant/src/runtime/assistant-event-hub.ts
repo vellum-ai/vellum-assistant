@@ -49,10 +49,15 @@ export function capabilityForMessageType(
 }
 import type { AssistantEventEnvelope } from "../api/index.js";
 import { forwardEventPublishToDaemon } from "../ipc/events-publish-client.js";
+import {
+  type ClientConnectionEventReason,
+  recordClientConnectionEvent,
+} from "../persistence/client-connection-events-store.js";
 import { appendEventToStream } from "../signals/event-stream.js";
 import { getLogger } from "../util/logger.js";
 import { buildAssistantEvent } from "./assistant-event.js";
 import type { AssistantEventPublishOptions } from "./assistant-event-publish-options.js";
+import { matchesTargeting } from "./assistant-event-targeting.js";
 import { stampAndBuffer } from "./assistant-stream-state.js";
 import { isMainDaemonProcess } from "./process-role.js";
 
@@ -72,7 +77,7 @@ export type AssistantEventCallback = (
 
 /** Opaque handle returned by `subscribe`. Call `dispose()` to remove the subscription. */
 export interface AssistantEventSubscription {
-  dispose(): void;
+  dispose(reason?: ClientConnectionEventReason): void;
   /** True until `dispose()` has been called. */
   readonly active: boolean;
   /**
@@ -142,6 +147,10 @@ interface ClientEntry extends BaseSubscriberEntry {
    * service-token connections that have no principal.
    */
   actorPrincipalId?: string;
+  /** Client-reported build version (e.g. extension manifest version). */
+  clientVersion?: string;
+  /** Whether the client advertised an SSE idle watchdog on this connection. */
+  sseWatchdog?: boolean;
   /**
    * Last desktop presence reported by this client, for clients that report it.
    * In-memory only, so consumers must fail open when it is absent.
@@ -193,14 +202,22 @@ type SubscriberInput = DistributiveOmit<
  * Client connections register as subscribers with metadata and are queryable
  * via `listClients()`, `getMostRecentClientByCapability()`, etc.
  */
+export type ClientConnectionRecorder = typeof recordClientConnectionEvent;
+
 export class AssistantEventHub {
   private readonly subscribers = new Set<SubscriberEntry>();
   private readonly maxSubscribers: number;
   /** Monotonic source for per-connection ids, scoped to this hub. */
   private connectionCounter = 0;
+  private readonly recordConnection: ClientConnectionRecorder;
 
-  constructor(options?: { maxSubscribers?: number }) {
+  constructor(options?: {
+    maxSubscribers?: number;
+    recordConnection?: ClientConnectionRecorder;
+  }) {
     this.maxSubscribers = options?.maxSubscribers ?? Infinity;
+    this.recordConnection =
+      options?.recordConnection ?? recordClientConnectionEvent;
   }
 
   /**
@@ -231,6 +248,7 @@ export class AssistantEventHub {
       for (const entry of stale) {
         entry.active = false;
         this.subscribers.delete(entry);
+        this.recordClientLifecycle(entry, "stale_replaced");
         try {
           entry.onEvict();
         } catch {
@@ -258,6 +276,7 @@ export class AssistantEventHub {
       }
       oldest.active = false;
       this.subscribers.delete(oldest);
+      this.recordClientLifecycle(oldest, "cap_evicted");
       try {
         oldest.onEvict();
       } catch {
@@ -287,6 +306,7 @@ export class AssistantEventHub {
         },
         "subscriber registered (client)",
       );
+      this.recordClientLifecycle(entry, "sse_open");
     } else {
       log.info({ connectionId }, "subscriber registered (process)");
     }
@@ -294,11 +314,12 @@ export class AssistantEventHub {
     this.subscribers.add(entry);
 
     return {
-      dispose: () => {
+      dispose: (reason) => {
         if (entry.active) {
           entry.active = false;
           this.subscribers.delete(entry);
           if (entry.type === "client") {
+            this.recordClientLifecycle(entry, reason ?? "sse_close");
             log.info(
               {
                 clientId: entry.clientId,
@@ -323,21 +344,14 @@ export class AssistantEventHub {
    * Publish an event to all matching subscribers.
    *
    * Matching rules:
-   * - if `excludeClientId` is set, the subscriber with that clientId is
-   *   skipped regardless of every other rule (self-echo suppression — the
-   *   client that originated the mutation does not receive its own
-   *   invalidation back through the hub).
-   * - if `targetClientId` is set, deliver only to the subscriber with that
-   *   clientId, bypassing the conversation-id filter entirely (the web-origin
-   *   event's conversationId differs from the macOS client's subscribed
-   *   conversation).
-   * - if `filter.conversationId` is set (and `targetClientId` is not), the
-   *   `event.conversationId` must equal it
-   * - if `targetCapability` is set, only subscribers whose capabilities include
-   *   it receive the event; untargeted events go to all
-   * - if `targetInterfaceId` is set, only client subscribers whose
-   *   `interfaceId` matches receive the event; process subscribers and
-   *   non-matching clients are skipped.
+   * - the event's targeting (`excludeClientId`, `targetInterfaceId`,
+   *   `targetActorPrincipalId`, `targetClientId`, `targetCapability`) must
+   *   admit the subscriber, per {@link matchesTargeting}, the same check
+   *   replay applies
+   * - a subscriber's `filter.conversationId` must equal `event.conversationId`,
+   *   unless the event names a client with `targetClientId` (a web-origin
+   *   event's conversationId can differ from the conversation the targeted
+   *   macOS client subscribed to)
    *
    * Fanout is isolated: a throwing or rejecting subscriber does not abort
    * delivery to remaining subscribers.
@@ -362,10 +376,6 @@ export class AssistantEventHub {
       }
     }
 
-    const targetCapability = options?.targetCapability;
-    const targetClientId = options?.targetClientId;
-    const targetInterfaceId = options?.targetInterfaceId;
-    const excludeClientId = options?.excludeClientId;
     const snapshot = Array.from(this.subscribers);
     const errors: unknown[] = [];
 
@@ -373,61 +383,16 @@ export class AssistantEventHub {
       if (!entry.active) {
         continue;
       }
-
-      // Self-echo suppression: the originating client never receives the
-      // event back. Checked before every other rule so it composes with
-      // both targeted and untargeted broadcasts.
-      if (
-        excludeClientId != null &&
-        entry.type === "client" &&
-        entry.clientId === excludeClientId
-      ) {
+      if (!matchesTargeting(options, entry)) {
         continue;
       }
-
-      // Interface targeting: skip any subscriber that is not a client of
-      // the requested interface. Composes with `targetClientId` and
-      // `targetCapability` below.
-      if (targetInterfaceId != null) {
-        if (
-          entry.type !== "client" ||
-          entry.interfaceId !== targetInterfaceId
-        ) {
-          continue;
-        }
-      }
-
-      if (targetClientId != null) {
-        // Targeted: bypass conversation filter, deliver only to the named client.
-        if (entry.type !== "client" || entry.clientId !== targetClientId) {
-          continue;
-        }
-        if (
-          targetCapability != null &&
-          !entry.capabilities.includes(targetCapability)
-        ) {
-          continue;
-        }
-      } else {
-        // Untargeted: existing conversation-scoped + capability logic.
-        if (
-          event.conversationId != null &&
-          entry.filter.conversationId != null &&
-          entry.filter.conversationId !== event.conversationId
-        ) {
-          continue;
-        }
-
-        // Capability targeting: targeted events only go to subscribers that
-        // declare the required capability.
-        if (targetCapability != null) {
-          if (
-            entry.type !== "client" ||
-            !entry.capabilities.includes(targetCapability)
-          ) {
-            continue;
-          }
-        }
+      if (
+        options?.targetClientId == null &&
+        event.conversationId != null &&
+        entry.filter.conversationId != null &&
+        entry.filter.conversationId !== event.conversationId
+      ) {
+        continue;
       }
 
       try {
@@ -673,6 +638,7 @@ export class AssistantEventHub {
     for (const entry of targets) {
       entry.active = false;
       this.subscribers.delete(entry);
+      this.recordClientLifecycle(entry, "force_disconnect");
       try {
         entry.onEvict();
       } catch {
@@ -686,6 +652,29 @@ export class AssistantEventHub {
       );
     }
     return targets.length;
+  }
+
+  /**
+   * Best-effort history row for a client subscriber. Process subscribers
+   * and an unready database are skipped; a write failure never throws.
+   */
+  private recordClientLifecycle(
+    entry: SubscriberEntry,
+    reason: ClientConnectionEventReason,
+  ): void {
+    if (entry.type !== "client") {
+      return;
+    }
+    this.recordConnection({
+      clientId: entry.clientId,
+      interfaceId: entry.interfaceId,
+      connectionId: entry.connectionId,
+      reason,
+      actorPrincipalId: entry.actorPrincipalId,
+      clientVersion: entry.clientVersion,
+      sseWatchdog: entry.sseWatchdog,
+      machineName: entry.machineName,
+    });
   }
 
   /** Number of currently active subscribers (useful for tests and caps). */
@@ -716,6 +705,12 @@ export const assistantEventHub = new AssistantEventHub({ maxSubscribers: 100 });
  */
 let _hubChain = Promise.resolve();
 
+/** Targeting a caller of {@link broadcastMessage} may request. */
+export type BroadcastMessageOptions = Pick<
+  AssistantEventPublishOptions,
+  "targetClientId" | "targetInterfaceId" | "targetActorPrincipalId"
+>;
+
 /**
  * Wraps a `AssistantEvent` in an `AssistantEventEnvelope` envelope and publishes it
  * to the process-level hub.
@@ -735,14 +730,20 @@ let _hubChain = Promise.resolve();
 export function broadcastMessage(
   msg: AssistantEvent,
   conversationId?: string,
-  options?: { targetClientId?: string; targetInterfaceId?: InterfaceId },
+  options?: BroadcastMessageOptions,
 ): void {
   const resolvedConversationId = conversationId ?? extractConversationId(msg);
   const targetClientId = options?.targetClientId;
   const targetInterfaceId = options?.targetInterfaceId;
+  const targetActorPrincipalId = options?.targetActorPrincipalId;
 
   const event = buildAssistantEvent(msg, resolvedConversationId);
-  const targetCapability = capabilityForMessageType(msg.type);
+  // A reconnect can overlap an older executor with the same device ID.
+  // Filter at delivery too, not only when HostCuProxy resolves its target.
+  const targetCapability =
+    msg.type === "host_cu_request"
+      ? hostCuRequestCapability(msg.toolName, msg.input)
+      : capabilityForMessageType(msg.type);
   // Self-echo suppression: a `sync_changed` carrying an `originClientId`
   // means a specific client just mutated the resource. The hub must not
   // re-deliver the invalidation to that client — it already updated its
@@ -760,11 +761,13 @@ export function broadcastMessage(
     targetCapability != null ||
     targetClientId != null ||
     targetInterfaceId != null ||
+    targetActorPrincipalId != null ||
     excludeClientId != null
       ? {
           targetCapability,
           targetClientId,
           targetInterfaceId,
+          targetActorPrincipalId,
           excludeClientId,
         }
       : undefined;
@@ -774,6 +777,25 @@ export function broadcastMessage(
     .catch((err: unknown) => {
       log.warn({ err }, "assistant-events hub subscriber threw during publish");
     });
+}
+
+/**
+ * The capability a `host_cu_request` needs from the client that receives it.
+ * Window-scoped observation and batched actions are answered only by a helper
+ * that claimed them; an older helper would capture the whole desktop or end
+ * the session on the unknown tool.
+ */
+function hostCuRequestCapability(
+  toolName: string,
+  input: Record<string, unknown>,
+): HostProxyCapability {
+  if (Object.hasOwn(input, "capture_window_id")) {
+    return "host_cu_window_capture";
+  }
+  if (toolName === "computer_use_sequence") {
+    return "host_cu_sequence";
+  }
+  return "host_cu";
 }
 
 function extractConversationId(msg: AssistantEvent): string | undefined {

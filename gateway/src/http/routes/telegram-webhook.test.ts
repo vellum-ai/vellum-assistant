@@ -18,7 +18,6 @@ const resetConversationMock = mock(() => Promise.resolve());
 
 mock.module("../../telegram/api.js", () => ({
   callTelegramApi: callTelegramApiMock,
-  callTelegramApiMultipart: mock(() => Promise.resolve({})),
 }));
 
 mock.module("../../telegram/send.js", () => ({

@@ -1,7 +1,7 @@
 import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, describe, test } from "bun:test";
 
 import { getLogger, initLogger, LOG_FILE_PATTERN } from "../util/logger.js";
 
@@ -10,30 +10,45 @@ import { getLogger, initLogger, LOG_FILE_PATTERN } from "../util/logger.js";
 // ---------------------------------------------------------------------------
 //
 // `getLogger()` returns a Proxy that lazily creates a pino child against the
-// current rootLogger. Before this PR's refactor, the child was cached on
-// first access and never re-evaluated — which meant that across:
+// current rootLogger. The child is rebuilt whenever the root changes, so:
 //
-//   1. day rollover (ensureCurrentDate rebuilds rootLogger past UTC midnight),
-//   2. or a late `initLogger()` call (which swaps the rootLogger),
+//   1. day rollover (ensureCurrentDate rebuilds rootLogger past UTC midnight)
+//   2. a late `initLogger()` call (which swaps the rootLogger)
 //
-// previously-cached children kept writing to the OLD root's destination
-// forever — silently misrouting logs into the wrong daily file.
+// both keep writing to the active destination instead of a stale one.
 //
-// These tests pin the new contract: when the rootLogger changes, the proxy's
+// These tests pin that contract: when the rootLogger changes, the proxy's
 // next access rebuilds the child against the new root.
 //
 // We assert via file-system side effects (logs appearing in the expected
-// directory). pino's `sync: false` default makes the fd open asynchronous,
-// so we wait a tick before reading.
+// directory). `buildRotatingLogger` opens the pino destination with
+// `sync: false`, so the fd (and therefore the daily log file) appears
+// asynchronously. Poll until the file exists rather than sleeping a fixed
+// interval; a loaded CI runner can take longer than a single tick.
 //
-// NB: the file-creating fallback path itself is gated behind a BUN_TEST=1
+// The file-creating fallback path itself is gated behind a BUN_TEST=1
 // stderr fast-path in `getRootLogger()` (so test output stays sensible), so
 // these tests exercise the rebind via `initLogger()` calls instead. The
 // "no vellum.log" property is covered by `platform.test.ts` (asserts
 // `getLogsDir()` returns the directory) and by the mechanical guarantee that
 // `buildRotatingLogger` derives filenames via `logFilePathForDate`.
 
-const SLEEP_MS = 100;
+const LOG_FILE_WAIT_MS = 2_000;
+
+function hasDailyLogFile(dir: string): boolean {
+  return readdirSync(dir).some((f) => LOG_FILE_PATTERN.test(f));
+}
+
+async function waitForDailyLogFile(dir: string): Promise<void> {
+  const deadline = Date.now() + LOG_FILE_WAIT_MS;
+  while (Date.now() < deadline) {
+    if (hasDailyLogFile(dir)) {
+      return;
+    }
+    await Bun.sleep(10);
+  }
+  throw new Error(`Timed out waiting for a daily log file in ${dir}`);
+}
 
 const dirA = mkdtempSync(join(tmpdir(), "logger-rebind-A-"));
 const dirB = mkdtempSync(join(tmpdir(), "logger-rebind-B-"));
@@ -56,34 +71,20 @@ describe("getLogger() proxy rebind", () => {
 
     initLogger({ dir: dirA, retentionDays: 0 });
 
-    log.info("first — should land in dirA");
+    log.info("first: should land in dirA");
 
-    await Bun.sleep(SLEEP_MS);
-
-    const aFiles = readdirSync(dirA);
-    expect(aFiles.some((f) => LOG_FILE_PATTERN.test(f))).toBe(true);
+    await waitForDailyLogFile(dirA);
   });
 
   test("subsequent log calls follow rootLogger swaps from initLogger()", async () => {
-    // rootLogger is currently bound to dirA from the previous test. Reuse
-    // an existing proxy and verify it follows the swap.
+    initLogger({ dir: dirA, retentionDays: 0 });
     const log = getLogger("rebind-target");
     log.info("warm-up against dirA so the child is cached");
+    await waitForDailyLogFile(dirA);
 
-    await Bun.sleep(SLEEP_MS);
-
-    // Swap the rootLogger to a different directory.
     initLogger({ dir: dirB, retentionDays: 0 });
+    log.info("post-swap: should land in dirB if the proxy rebound");
 
-    log.info("post-swap — should land in dirB if the proxy rebound");
-
-    await Bun.sleep(SLEEP_MS);
-
-    // If the proxy correctly re-evaluates getRootLogger() on each access,
-    // the second log call hits the dirB root and dirB gets a daily log
-    // file. If the proxy were still caching the original child against the
-    // dirA root, dirB would stay empty.
-    const bFiles = readdirSync(dirB);
-    expect(bFiles.some((f) => LOG_FILE_PATTERN.test(f))).toBe(true);
+    await waitForDailyLogFile(dirB);
   });
 });

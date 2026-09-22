@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import {
   extractTarToDir,
+  SKILL_DEPENDENCY_INSTALL_ARGS,
+  SkillArchiveError,
   writeSkillFilesToDir,
 } from "../skills/catalog-install.js";
 import { makeTar } from "./helpers/tar-fixtures.js";
@@ -80,6 +82,30 @@ describe("extractTarToDir", () => {
 
     expect(foundSkillMd).toBe(true);
     expect(readFileSync(join(tempDir, "SKILL.md"), "utf-8")).toBe("# demo\n");
+  });
+
+  test("rejects a negative octal size field instead of spinning", () => {
+    const header = Buffer.alloc(512, 0);
+    Buffer.from("SKILL.md\0", "ascii").copy(header, 0);
+    header[156] = "0".charCodeAt(0);
+    // Signed octal in the size field parses to -512 with parseInt(..., 8),
+    // which would cancel the 512-byte header advance and loop forever.
+    Buffer.from("-0000001000\0", "ascii").copy(header, 124);
+    const tar = Buffer.concat([header, Buffer.alloc(1024, 0)]);
+
+    expect(() => extractTarToDir(tar, tempDir)).toThrow(SkillArchiveError);
+    expect(() => extractTarToDir(tar, tempDir)).toThrow(
+      "malformed tar size field",
+    );
+  });
+
+  test("dependency install argv suppresses lifecycle scripts", () => {
+    expect(SKILL_DEPENDENCY_INSTALL_ARGS).toEqual([
+      "install",
+      "--omit=dev",
+      "--ignore-scripts",
+      "--no-save",
+    ]);
   });
 });
 

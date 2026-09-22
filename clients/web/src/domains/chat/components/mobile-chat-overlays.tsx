@@ -1,7 +1,8 @@
 /**
- * Portal-based mobile overlay container for the app, document,
+ * Portal-based mobile overlay container for the app, workspace-file preview,
  * subagent-detail, workflow-detail, acp-run-detail, background-task-detail,
- * tool-detail, activity-steps, message-files, and channel-transcript viewers.
+ * tool-detail, activity-steps, message-files, chat-info, and
+ * channel-transcript viewers.
  * Reads from Zustand stores directly so the parent (ActiveChatView) doesn't
  * need to assemble inline handlers.
  *
@@ -10,34 +11,37 @@
 
 import { useCallback } from "react";
 import { createPortal } from "react-dom";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
+import { PortalContainerProvider } from "@vellumai/design-library/utils/portal-container";
 
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
-import { useConversationStore } from "@/stores/conversation-store";
 import { useDeployStore } from "@/stores/deploy-store";
 import { useAcpRunStore } from "@/domains/chat/acp-run-store";
 import { useBackgroundTaskStore } from "@/domains/chat/background-task-store";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
-import { useViewerStore } from "@/stores/viewer-store";
-import { routes } from "@/utils/routes";
+import { type ChatInfoCategory, useViewerStore } from "@/stores/viewer-store";
 
 import { MobileChannelTranscriptOverlay } from "@/domains/chat/channel-sidecar/mobile-channel-transcript-overlay";
 import { MobileAcpRunDetailOverlay } from "@/domains/chat/components/mobile-acp-run-detail-overlay";
 import { MobileActivityStepsOverlay } from "@/domains/chat/components/mobile-activity-steps-overlay";
 import { MobileAppOverlay } from "@/domains/chat/components/mobile-app-overlay";
 import { MobileBackgroundTaskDetailOverlay } from "@/domains/chat/components/mobile-background-task-detail-overlay";
-import { MobileDocumentOverlay } from "@/domains/chat/components/mobile-document-overlay";
+import { MobileChatInfoOverlay } from "@/domains/chat/components/mobile-chat-info-overlay";
+import { MobileWorkspaceFilePreviewOverlay } from "@/domains/chat/components/mobile-workspace-file-preview-overlay";
 import { MobileMessageFilesOverlay } from "@/domains/chat/components/mobile-message-files-overlay";
 import { MobileSubagentDetailOverlay } from "@/domains/chat/components/mobile-subagent-detail-overlay";
 import { MobileToolDetailOverlay } from "@/domains/chat/components/mobile-tool-detail-overlay";
+import { MobileWakeDetailOverlay } from "@/domains/chat/components/mobile-wake-detail-overlay";
 import { MobileWorkflowDetailOverlay } from "@/domains/chat/components/mobile-workflow-detail-overlay";
+import { useAppViewerRouteHandlers } from "@/domains/chat/hooks/use-app-viewer-route-handlers";
 import { useMobileOverlayTarget } from "@/domains/chat/hooks/use-mobile-overlay-target";
 import { handleAppViewerAction } from "@/domains/chat/app-viewer-actions";
 
 export function MobileChatOverlays() {
   const overlayTarget = useMobileOverlayTarget();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const mainView = useViewerStore.use.mainView();
@@ -45,24 +49,23 @@ export function MobileChatOverlays() {
   const openedDocumentState = useViewerStore.use.openedDocumentState();
   const isAppMinimized = useViewerStore.use.isAppMinimized();
   const activeSubagentId = useViewerStore.use.activeSubagentId();
+  const activeWakeDetail = useViewerStore.use.activeWakeDetail();
   const activeToolDetail = useViewerStore.use.activeToolDetail();
   const activeActivitySteps = useViewerStore.use.activeActivitySteps();
   const activeMessageFiles = useViewerStore.use.activeMessageFiles();
+  const activeChatInfo = useViewerStore.use.activeChatInfo();
   const activeWorkflowRunId = useViewerStore.use.activeWorkflowRunId();
   const activeAcpRunId = useViewerStore.use.activeAcpRunId();
   const activeBackgroundTaskId = useViewerStore.use.activeBackgroundTaskId();
-  const activeChannelTranscript =
-    useViewerStore.use.activeChannelTranscript();
+  const activeChannelTranscript = useViewerStore.use.activeChannelTranscript();
   const subagentById = useSubagentStore.use.byId();
   const workflowById = useWorkflowStore.use.byId();
   const acpRunById = useAcpRunStore.use.byId();
   const backgroundTaskById = useBackgroundTaskStore.use.byId();
   const isSharing = useDeployStore.use.isSharing();
   const isDeploying = useDeployStore.use.isDeploying();
-  const handleCloseApp = useCallback(() => {
-    useViewerStore.getState().closeApp();
-    useConversationStore.getState().setEditingConversationId(null);
-  }, []);
+  const { handleCloseApp, handleNavigateAppRoute } =
+    useAppViewerRouteHandlers();
 
   const handleShareApp = useCallback(() => {
     const app = useViewerStore.getState().openedAppState;
@@ -86,23 +89,17 @@ export function MobileChatOverlays() {
     // This portal only mounts on mobile (useMobileOverlayTarget), so
     // side-by-side never applies — `set_view: "split"` is a no-op here.
     (actionId: string, data?: Record<string, unknown>) =>
-      handleAppViewerAction({ navigate, isMobile: true }, actionId, data),
-    [navigate],
+      handleAppViewerAction(
+        { navigate, isMobile: true, state: location.state },
+        actionId,
+        data,
+      ),
+    [navigate, location.state],
   );
 
   const handleCloseDocument = useCallback(() => {
     useViewerStore.getState().closeDocument();
   }, []);
-
-  const handleDocumentSubmitFeedback = useCallback(() => {
-    const docState = useViewerStore.getState().openedDocumentState;
-    // Only a db-backed document has comments to submit feedback on.
-    if (!docState || docState.source !== "document") {
-      return;
-    }
-    const prompt = `Please review and address my comments on "${docState.documentName}".`;
-    navigate(routes.conversationWithPrompt(docState.conversationId, prompt));
-  }, [navigate]);
 
   const handleCloseSubagentDetail = useCallback(() => {
     useViewerStore.getState().closeSubagentDetail();
@@ -159,8 +156,23 @@ export function MobileChatOverlays() {
     useViewerStore.getState().closeMessageFiles();
   }, []);
 
+  const handleCloseChatInfo = useCallback(() => {
+    useViewerStore.getState().closeChatInfo();
+  }, []);
+
+  const handleSelectChatInfoCategory = useCallback(
+    (category: ChatInfoCategory | null) => {
+      useViewerStore.getState().setChatInfoCategory(category);
+    },
+    [],
+  );
+
   const handleCloseChannelTranscript = useCallback(() => {
     useViewerStore.getState().closeChannelTranscript();
+  }, []);
+
+  const handleCloseWakeDetail = useCallback(() => {
+    useViewerStore.getState().closeWakeDetail();
   }, []);
 
   if (!overlayTarget) {
@@ -168,7 +180,7 @@ export function MobileChatOverlays() {
   }
 
   return createPortal(
-    <>
+    <PortalContainerProvider container={overlayTarget}>
       <MobileAppOverlay
         openedAppState={mainView === "app" ? openedAppState : null}
         isAppMinimized={isAppMinimized}
@@ -177,19 +189,22 @@ export function MobileChatOverlays() {
           useViewerStore.getState().toggleAppMinimized();
         }}
         onClose={handleCloseApp}
+        onNavigateAppRoute={handleNavigateAppRoute}
         onShare={handleShareApp}
         isSharing={isSharing}
         onDeploy={handleDeployApp}
         isDeploying={isDeploying}
         onAction={handleAppAction}
       />
-      <MobileDocumentOverlay
+      <MobileWorkspaceFilePreviewOverlay
         openedDocumentState={
-          mainView === "document" ? openedDocumentState : null
+          mainView === "document" &&
+          openedDocumentState?.source === "workspace-file-preview"
+            ? openedDocumentState
+            : null
         }
         assistantId={assistantId}
         onClose={handleCloseDocument}
-        onSubmitFeedback={handleDocumentSubmitFeedback}
       />
       <MobileSubagentDetailOverlay
         entry={
@@ -201,6 +216,10 @@ export function MobileChatOverlays() {
         onStop={handleStopSubagent}
         onRequestDetail={handleRequestSubagentDetail}
         assistantId={assistantId}
+      />
+      <MobileWakeDetailOverlay
+        payload={mainView === "wake-detail" ? activeWakeDetail : null}
+        onClose={handleCloseWakeDetail}
       />
       <MobileWorkflowDetailOverlay
         entry={
@@ -243,13 +262,18 @@ export function MobileChatOverlays() {
         payload={mainView === "message-files" ? activeMessageFiles : null}
         onClose={handleCloseMessageFiles}
       />
+      <MobileChatInfoOverlay
+        payload={mainView === "chat-info" ? activeChatInfo : null}
+        onClose={handleCloseChatInfo}
+        onSelectCategory={handleSelectChatInfoCategory}
+      />
       <MobileChannelTranscriptOverlay
         sidecarRef={
           mainView === "channel-transcript" ? activeChannelTranscript : null
         }
         onClose={handleCloseChannelTranscript}
       />
-    </>,
+    </PortalContainerProvider>,
     overlayTarget,
   );
 }

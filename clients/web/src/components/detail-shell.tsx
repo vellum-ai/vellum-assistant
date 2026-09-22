@@ -9,7 +9,9 @@
  * alone, exported for hosts whose body/footer can't fit the default
  * scrollable-body wrapper (e.g. `AcpRunChatView`, which owns its own inner
  * scroll container and a sticky composer) but still need a pixel-identical
- * header.
+ * header. `DetailShellTitleWithCount` is the "title · N" header cluster and
+ * `DetailShellNotice` the quiet centred line an empty or failed body renders,
+ * both exported so every panel draws them from one place.
  */
 
 import type { LucideIcon } from "lucide-react";
@@ -17,6 +19,55 @@ import { X } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { Button, Typography } from "@vellumai/design-library";
+
+import { MidlineDot } from "@/components/midline-dot";
+import { useTranslation } from "@/i18n";
+
+/**
+ * Horizontal inset of `DetailShell`'s header, body, and footer, in px. A host
+ * that mounts `DetailShellHeader` on its own insets its own body.
+ */
+export const DETAIL_SHELL_BODY_INSET_PX = 20;
+
+/** The quiet centred line a body renders when it is empty or failed to load. */
+export function DetailShellNotice({ children }: { children: ReactNode }) {
+  return (
+    <Typography
+      as="p"
+      variant="body-small-default"
+      className="py-4 text-center text-[var(--content-tertiary)]"
+    >
+      {children}
+    </Typography>
+  );
+}
+
+/** Header title cluster: title · count, inline at the same size. */
+export function DetailShellTitleWithCount({
+  title,
+  count,
+}: {
+  title: ReactNode;
+  count: ReactNode;
+}) {
+  return (
+    <span className="flex min-w-0 items-center gap-1.5 py-0.5">
+      <Typography
+        variant="title-medium"
+        className="min-w-0 shrink truncate leading-snug text-[var(--content-default)]"
+      >
+        {title}
+      </Typography>
+      <MidlineDot />
+      <Typography
+        variant="title-medium"
+        className="shrink-0 whitespace-nowrap leading-snug text-[var(--content-secondary)]"
+      >
+        {count}
+      </Typography>
+    </span>
+  );
+}
 
 export interface DetailShellHeaderProps {
   /** Lucide icon rendered with default sizing/color. Ignored when `icon` is set. */
@@ -26,7 +77,7 @@ export interface DetailShellHeaderProps {
   title?: string;
   /**
    * Pre-composed title cluster rendered in place of the default truncating
-   * `title` Typography — for headers whose title mixes several inline pieces
+   * `title` Typography, for headers whose title mixes several inline pieces
    * (e.g. the activity-steps panel's "Thinking · 6 steps"). Takes precedence
    * over `title`.
    */
@@ -35,12 +86,14 @@ export interface DetailShellHeaderProps {
   headerTrailing?: ReactNode;
   /** Right-aligned action cluster after the spacer, before close (e.g. a Stop button). */
   headerActions?: ReactNode;
+  /**
+   * Close-button accessible name. Defaults to the shared catalog's "Close
+   * panel"; pass one to name what the panel is ("Close tool details").
+   */
   closeLabel?: string;
   /**
-   * Close-button hover tooltip. Defaults to the untranslated "Close": fine
-   * for domains outside the i18n cutover, but callers whose path is on the
-   * `local/no-untranslated-strings` allowlist (see `eslint.config.mjs`) must
-   * pass their own `t()`'d copy here instead.
+   * Close-button hover tooltip. Defaults to the shared catalog's "Close";
+   * pass one only to say something different.
    */
   closeTooltip?: string;
   /** Close-button style. Every current caller uses the bordered "outlined" X. */
@@ -55,16 +108,20 @@ export function DetailShellHeader({
   titleNode,
   headerTrailing,
   headerActions,
-  closeLabel = "Close panel",
-  closeTooltip = "Close",
+  closeLabel,
+  closeTooltip,
   closeVariant = "outlined",
   onClose,
 }: DetailShellHeaderProps) {
+  const { t } = useTranslation();
   return (
     // Divider uses `--border-hover` (the Figma sidepanel divider, #F6F5F4 in
     // light) rather than `--border-base`, which equals the drawer's
     // `--surface-lift` in dark mode and would render invisible.
-    <div className="flex shrink-0 items-center gap-3 border-b border-[var(--border-hover)] px-5 py-4">
+    <div
+      className="flex shrink-0 items-center gap-3 border-b border-[var(--border-hover)] py-4"
+      style={{ paddingInline: DETAIL_SHELL_BODY_INSET_PX }}
+    >
       {/* The leading cluster absorbs all the shrink (title truncates first,
           then the cluster clips) so the trailing controls, above all the
           close X, stay visible however narrow the panel gets. */}
@@ -103,8 +160,8 @@ export function DetailShellHeader({
         variant={closeVariant === "outlined" ? "outlined" : "ghost"}
         iconOnly={<X />}
         onClick={onClose}
-        aria-label={closeLabel}
-        tooltip={closeTooltip}
+        aria-label={closeLabel ?? t("detailShell.closePanel")}
+        tooltip={closeTooltip ?? t("detailShell.close")}
         // `-ml-1` trims the row's `gap-3` (12px) down to 8px specifically
         // between Close and whatever `headerActions` renders right before it
         // (a Stop button, "Go to Convo", …). Every other header gap stays at
@@ -134,18 +191,29 @@ export function DetailShell({
   ...headerProps
 }: DetailShellProps) {
   return (
-    <div className="flex h-full flex-col overflow-hidden rounded-xl bg-[var(--surface-lift)]">
+    <div
+      data-slot="detail-shell"
+      className="flex h-full flex-col overflow-hidden rounded-xl bg-[var(--surface-lift)]"
+    >
       {headerAbove}
       <DetailShellHeader {...headerProps} />
 
       {/* Scrollable body */}
-      <div className="flex-1 overflow-y-auto px-5 py-5">{children}</div>
+      <div
+        className="flex-1 overflow-y-auto py-5"
+        style={{ paddingInline: DETAIL_SHELL_BODY_INSET_PX }}
+      >
+        {children}
+      </div>
 
       {/* Pinned footer. Divider uses `--border-hover`, matching the header:
           `--border-base` equals the drawer's `--surface-lift` in dark mode
           and renders invisible. */}
       {footer && (
-        <div className="shrink-0 border-t border-[var(--border-hover)] px-5 py-4">
+        <div
+          className="shrink-0 border-t border-[var(--border-hover)] py-4"
+          style={{ paddingInline: DETAIL_SHELL_BODY_INSET_PX }}
+        >
           {footer}
         </div>
       )}

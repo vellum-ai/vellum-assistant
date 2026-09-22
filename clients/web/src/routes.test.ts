@@ -31,16 +31,15 @@ afterEach(() => {
   window.history.pushState(null, "", "/");
 });
 
-// Walk the matched route chain for `path` and report whether `AccountLayout`
-// is one of its layout components. Matching runs against the raw `routeTree`
-// (not the constructed `router`) because `createBrowserRouter` consumes the
-// `Component` field, leaving nothing to inspect.
-function isUnderAccountLayout(path: string): boolean {
+// Walk the matched route chain for `path` and report whether the component
+// named `name` is one of its layout components. Matching runs against the raw
+// `routeTree` (not the constructed `router`) because `createBrowserRouter`
+// consumes the `Component` field, leaving nothing to inspect.
+function isUnderComponent(path: string, name: string): boolean {
   const matches = matchRoutes(routeTree as never, path) ?? [];
   return matches.some(
     (m) =>
-      (m.route as { Component?: { name?: string } }).Component?.name ===
-      "AccountLayout",
+      (m.route as { Component?: { name?: string } }).Component?.name === name,
   );
 }
 
@@ -64,7 +63,8 @@ function middlewareExecutionOrder(path: string): unknown[] {
 function leafRouteComponentName(path: string): string | undefined {
   const matches = matchRoutes(routeTree as never, path) ?? [];
   const leaf = matches.at(-1)?.route as
-    { Component?: { name?: string } } | undefined;
+    | { Component?: { name?: string } }
+    | undefined;
   return leaf?.Component?.name;
 }
 
@@ -80,7 +80,7 @@ describe("account route compact-window grouping", () => {
     "/account/password/reset",
     "/account/password/reset/key/abc123",
   ])("%s is sized by AccountLayout", (path) => {
-    expect(isUnderAccountLayout(path)).toBe(true);
+    expect(isUnderComponent(path, "AccountLayout")).toBe(true);
   });
 
   // The OAuth completion / loopback pages render inside a popup child window
@@ -93,7 +93,7 @@ describe("account route compact-window grouping", () => {
     "/account/oauth/desktop-complete",
     "/account/platform-callback",
   ])("%s is NOT sized by AccountLayout", (path) => {
-    expect(isUnderAccountLayout(path)).toBe(false);
+    expect(isUnderComponent(path, "AccountLayout")).toBe(false);
   });
 });
 
@@ -173,6 +173,46 @@ describe("schedules routes", () => {
   });
 });
 
+describe("app viewer route", () => {
+  const appPath = "/assistant/conversations/c1/app/app-1";
+
+  test("renders the chat page", () => {
+    expect(leafRouteComponentName(appPath)).toBe("ChatPage");
+  });
+
+  test("captures the conversation and app ids as route params", () => {
+    const matches = matchRoutes(routeTree as never, appPath) ?? [];
+    expect(matches.at(-1)?.params).toEqual({
+      conversationId: "c1",
+      appId: "app-1",
+    });
+  });
+
+  // ChatPage owns its own lifecycle UI and must render in every assistant
+  // state, so the app sub-route sits beside the conversation route rather
+  // than under the gate.
+  test("stays outside ActiveAssistantGate and inside ChatLayoutRoute", () => {
+    expect(isUnderComponent(appPath, "ActiveAssistantGate")).toBe(false);
+    expect(isUnderComponent(appPath, "ChatLayoutRoute")).toBe(true);
+  });
+
+  // The sibling `inspect` sub-route is lazy and gated, and nothing else
+  // asserts that asymmetry: adding the app segment must not move it.
+  test("leaves the sibling inspect route on InspectPage behind the gate", async () => {
+    const inspectPath = "/assistant/conversations/c1/inspect";
+    const matches = matchRoutes(routeTree as never, inspectPath) ?? [];
+    const leaf = matches.at(-1)?.route as
+      | { lazy?: { Component: () => Promise<unknown> } }
+      | undefined;
+
+    expect(matches.at(-1)?.pathname).toBe(inspectPath);
+    expect(await leaf?.lazy?.Component()).toBe(
+      (await import("@/domains/chat/inspector/inspect-page")).InspectPage,
+    );
+    expect(isUnderComponent(inspectPath, "ActiveAssistantGate")).toBe(true);
+  });
+});
+
 describe("skills routes", () => {
   test("captures the skill id as a route param", () => {
     const matches =
@@ -192,6 +232,21 @@ describe("skills routes", () => {
     const matches = matchRoutes(routeTree as never, url) ?? [];
     expect(matches.length).toBeGreaterThan(0);
     expect(matches.at(-1)?.params.skillId).toBe("org/repo/shared-skill");
+  });
+});
+
+describe("Inspiration List route", () => {
+  // The celebration modal's "See the full list" navigates here. Without a
+  // route of its own the path falls through to the `/assistant/*` catch-all
+  // and the reward for finishing the checklist is a not-found page.
+  test("the celebration's destination matches a route of its own", async () => {
+    const { routes } = await import("@/utils/routes");
+    const matches =
+      matchRoutes(routeTree as never, routes.activationList) ?? [];
+    expect(matches.length).toBeGreaterThan(0);
+    expect(matches.at(-1)?.pathname).toBe(routes.activationList);
+    expect(matches.at(-1)?.params["*"]).toBeUndefined();
+    expect(hasRouteMiddleware(routes.activationList)).toBe(true);
   });
 });
 
@@ -264,7 +319,8 @@ describe("settings route compatibility", () => {
       "/assistant/settings/debug",
     );
     const leaf = matches?.at(-1)?.route as
-      { lazy?: unknown; Component?: { name?: string } } | undefined;
+      | { lazy?: unknown; Component?: { name?: string } }
+      | undefined;
     // `lazy` is the page itself; a redirect route would carry a named
     // `Component` instead.
     expect(leaf?.lazy).toBeDefined();
@@ -289,6 +345,37 @@ describe("Activity route compatibility", () => {
     expect(await leaf?.lazy?.Component()).toBe(
       (await import("@/domains/home/activity-redirect-page"))
         .ActivityRedirectPage,
+    );
+  });
+});
+
+describe("Settings route prefetching", () => {
+  // What `prefetchRoute` warms is every `lazy` on the matched branch, so the
+  // number of lazy properties on this branch is the number of round trips a
+  // cold tap on Settings pays before the router will commit. The layout and
+  // its index page are separate chunks, and warming the root has to cover
+  // both: warming only the layout would still leave the page to fetch on tap.
+  test("the Settings root carries the layout chunk and its index page chunk", async () => {
+    const matches =
+      matchRoutes(routeTree as never, "/assistant/settings") ?? [];
+    const lazyRoutes = matches.filter(
+      (m) => (m.route as { lazy?: unknown }).lazy !== undefined,
+    );
+
+    expect(lazyRoutes).toHaveLength(2);
+
+    const loaded = await Promise.all(
+      lazyRoutes.map(async (m) =>
+        (
+          m.route as { lazy: { Component: () => Promise<unknown> } }
+        ).lazy.Component(),
+      ),
+    );
+    expect(loaded).toContain(
+      (await import("@/domains/settings/settings-layout")).SettingsLayout,
+    );
+    expect(loaded).toContain(
+      (await import("@/domains/settings/pages/general-page")).GeneralPage,
     );
   });
 });

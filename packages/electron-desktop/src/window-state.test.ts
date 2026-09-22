@@ -13,9 +13,11 @@ let savedWindows: Record<string, SavedState> = {};
 let savedOnboardingActive: boolean | undefined = undefined;
 let savedCompanionHidden: boolean | undefined = undefined;
 let savedCompanionIntroSeen: boolean | undefined = undefined;
+let savedCompanionIntroSeenVersion: unknown = undefined;
 let savedCompanionSize: unknown = undefined;
 let savedCompanionAvatarSize: unknown = undefined;
 let savedCompanionOptionsSize: unknown = undefined;
+let savedCompanionCallDock: unknown = undefined;
 let savedTitleBarOverlay: unknown = undefined;
 let workArea = { x: 0, y: 0, width: 1920, height: 1080 };
 const storeSetMock = mock((_key: string, _value: unknown) => {});
@@ -33,6 +35,8 @@ mock.module("electron-store", () => ({
       if (key === "companionHidden") return savedCompanionHidden ?? fallback;
       if (key === "companionIntroSeen")
         return savedCompanionIntroSeen ?? fallback;
+      if (key === "companionIntroSeenVersion")
+        return savedCompanionIntroSeenVersion ?? fallback;
       if (key === "companionSize") {
         return savedCompanionSize ?? fallback;
       }
@@ -41,6 +45,9 @@ mock.module("electron-store", () => ({
       }
       if (key === "companionOptionsSize") {
         return savedCompanionOptionsSize ?? fallback;
+      }
+      if (key === "companionCallDock") {
+        return savedCompanionCallDock ?? fallback;
       }
       if (key === "titleBarOverlay") return savedTitleBarOverlay ?? fallback;
       if (key === "windows") return savedWindows;
@@ -65,11 +72,13 @@ mock.module("electron", () => ({
 const {
   restoreBounds,
   track,
+  readCompanionCallDock,
   readCompanionHidden,
-  readCompanionIntroSeen,
+  readCompanionIntroSeenVersion,
   readCompanionSize,
   readOnboardingActive,
   readTitleBarOverlayTheme,
+  writeCompanionCallDock,
   writeCompanionHidden,
   writeCompanionIntroSeen,
   writeCompanionSize,
@@ -103,9 +112,11 @@ beforeEach(() => {
   savedOnboardingActive = undefined;
   savedCompanionHidden = undefined;
   savedCompanionIntroSeen = undefined;
+  savedCompanionIntroSeenVersion = undefined;
   savedCompanionSize = undefined;
   savedCompanionAvatarSize = undefined;
   savedCompanionOptionsSize = undefined;
+  savedCompanionCallDock = undefined;
   savedTitleBarOverlay = undefined;
   workArea = { x: 0, y: 0, width: 1920, height: 1080 };
   storeSetMock.mockClear();
@@ -537,34 +548,96 @@ describe("companion surface sizes", () => {
   });
 });
 
+/**
+ * The edge the call bar rests on. The same bargain as the sizes: the file is
+ * JSON a user can edit, and the value picks where the window goes, so only an
+ * edge this build knows ever places it.
+ */
+describe("companion call dock", () => {
+  test("absent reads as the bottom, where every build puts the bar", () => {
+    expect(readCompanionCallDock()).toBe("bottom");
+  });
+
+  test("reads the edge the bar was dropped on", () => {
+    savedCompanionCallDock = "left";
+    expect(readCompanionCallDock()).toBe("left");
+  });
+
+  test("an edge this build does not know reads as the bottom", () => {
+    savedCompanionCallDock = "middle";
+    expect(readCompanionCallDock()).toBe("bottom");
+  });
+
+  test("writing persists the edge and skips one already recorded", () => {
+    writeCompanionCallDock("right");
+    expect(storeSetMock).toHaveBeenCalledWith("companionCallDock", "right");
+
+    storeSetMock.mockClear();
+    savedCompanionCallDock = "right";
+    writeCompanionCallDock("right");
+    expect(storeSetMock).not.toHaveBeenCalled();
+  });
+});
+
 describe("companion introduction seen flag", () => {
   /**
    * Absent means the run is still owed. That is the right way round: the
    * surface appears on the desktop without the user having opened it, and the
    * people most owed an explanation are the ones who have not had one.
    */
-  test("absent flag defaults to not yet seen", () => {
-    expect(readCompanionIntroSeen()).toBe(false);
+  test("nothing recorded reads as no run at all", () => {
+    expect(readCompanionIntroSeenVersion()).toBe(0);
   });
 
-  test("an explicit persisted flag wins over the default", () => {
-    savedCompanionIntroSeen = true;
-    expect(readCompanionIntroSeen()).toBe(true);
-  });
-
-  test("writing records that the run has happened", () => {
-    writeCompanionIntroSeen();
-    expect(storeSetMock).toHaveBeenCalledWith("companionIntroSeen", true);
+  test("a recorded version is what comes back", () => {
+    savedCompanionIntroSeenVersion = 2;
+    expect(readCompanionIntroSeenVersion()).toBe(2);
   });
 
   /**
-   * One way only. Every path out of a run writes this, and more than one can
+   * The first introduction recorded a boolean, before the run had a version at
+   * all. An install carrying it has seen version 1 and nothing since, which is
+   * how a rewritten run reaches the people who saw the first one.
+   */
+  test("the first run's boolean reads as version 1", () => {
+    savedCompanionIntroSeen = true;
+    expect(readCompanionIntroSeenVersion()).toBe(1);
+  });
+
+  test("a version outranks the boolean the first run left behind", () => {
+    savedCompanionIntroSeen = true;
+    savedCompanionIntroSeenVersion = 2;
+    expect(readCompanionIntroSeenVersion()).toBe(2);
+  });
+
+  // A store that came back with something other than a version is a store this
+  // cannot reason about, and the safe reading of "unknown" is "not shown".
+  test("a nonsense version reads as no run", () => {
+    savedCompanionIntroSeenVersion = "yes";
+    expect(readCompanionIntroSeenVersion()).toBe(0);
+  });
+
+  test("writing records the version that ran", () => {
+    writeCompanionIntroSeen(2);
+    expect(storeSetMock).toHaveBeenCalledWith("companionIntroSeenVersion", 2);
+  });
+
+  /**
+   * Forward only. Every path out of a run writes this, and more than one can
    * fire for the same run (the last beat, then the tray hiding the surface), so
    * re-asserting it must not churn the store file.
    */
-  test("writing again once seen is a no-op", () => {
-    savedCompanionIntroSeen = true;
-    writeCompanionIntroSeen();
+  test("writing the version again is a no-op", () => {
+    savedCompanionIntroSeenVersion = 2;
+    writeCompanionIntroSeen(2);
+    expect(storeSetMock).not.toHaveBeenCalled();
+  });
+
+  // The older run finishing late must not talk the record backwards and hand
+  // the user the new introduction all over again.
+  test("an older version never overwrites a newer one", () => {
+    savedCompanionIntroSeenVersion = 2;
+    writeCompanionIntroSeen(1);
     expect(storeSetMock).not.toHaveBeenCalled();
   });
 });

@@ -1,4 +1,5 @@
 import {
+  afterAll,
   afterEach,
   beforeEach,
   describe,
@@ -9,6 +10,7 @@ import {
 } from "bun:test";
 import { cleanup, renderHook, act } from "@testing-library/react";
 import type { ReactNode } from "react";
+import type { NavigateOptions, To } from "react-router";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
@@ -30,10 +32,20 @@ import {
 } from "@/stores/pending-deep-link-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useViewerStore } from "@/stores/viewer-store";
+import {
+  appEntryStateFor,
+  showOpenAppRoute,
+  showPath,
+} from "@/stores/open-app.test-helper";
 import type { ShareInboxItem } from "@/runtime/share-inbox-parse";
 import { routes } from "@/utils/routes";
 import * as toastModule from "@vellumai/design-library/components/toast";
+import type * as SentryReact from "@sentry/react";
 import { stubViewportAxes } from "@/hooks/viewport-axes.test-helper";
+import {
+  restoreStubbedModules,
+  stubModule,
+} from "@/utils/module-mock.test-helper";
 
 /**
  * Location the app is "on", advanced by the consumer's own `navigate` calls.
@@ -43,66 +55,79 @@ import { stubViewportAxes } from "@/hooks/viewport-axes.test-helper";
  */
 let mockPathname: string = routes.assistant;
 let mockSearch = "";
-const navigateMock = mock(
-  (
-    to: string | { pathname: string; search?: string; hash?: string },
-    _options?: { replace?: boolean },
-  ) => {
-    const path = typeof to === "string" ? to : to.pathname;
-    mockPathname = path.split("?")[0] ?? path;
-    return undefined;
-  },
-);
-mock.module("react-router", () => ({
+/** What the entry on screen records, which a same-entry replace carries. */
+let mockState: unknown = null;
+const navigateMock = mock((to: To | number, _options?: NavigateOptions) => {
+  // A history delta names no path, so the location stays where it is.
+  const path =
+    typeof to === "number"
+      ? mockPathname
+      : typeof to === "string"
+        ? to
+        : (to.pathname ?? mockPathname);
+  mockPathname = path.split("?")[0] ?? path;
+  return undefined;
+});
+stubModule("react-router", await import("react-router"), {
   useNavigate: () => navigateMock,
-  // Empty `search` is the main window — the room's pop-out gate
+  // Empty `search` is the main window: the room's pop-out gate
   // (`isPopoutWindow`) looks for `popout=1`.
-  useLocation: () => ({ pathname: mockPathname, search: mockSearch, hash: "" }),
-}));
+  useLocation: () => ({
+    pathname: mockPathname,
+    search: mockSearch,
+    hash: "",
+    state: mockState,
+    key: "default",
+  }),
+});
 
 const ensureMainWindowVisibleMock = mock(async () => undefined);
-mock.module("@/runtime/main-window", () => ({
+stubModule("@/runtime/main-window", await import("@/runtime/main-window"), {
   ensureMainWindowVisible: ensureMainWindowVisibleMock,
-}));
+});
 
 // Stub the toaster: the top-up success branch toasts, and no <Toaster /> is
-// mounted here. Full toast surface: `mock.module` is process-global in bun,
-// so a partial shape would shadow the other methods for later test files.
-const toastSuccessMock = mock((..._args: unknown[]) => undefined);
-mock.module("@vellumai/design-library/components/toast", () => ({
-  ...toastModule,
-  toast: Object.assign((..._args: unknown[]) => {}, {
-    success: toastSuccessMock,
-    error: () => {},
-    info: () => {},
-    warning: () => {},
-  }),
-}));
+// mounted here.
+const toastSuccessMock = mock<typeof toastModule.toast.success>(
+  (_message, _options) => "",
+);
+// The real toast carries its other kinds and `dismiss`; only the success
+// branch this suite asserts on is replaced.
+stubModule("@vellumai/design-library/components/toast", toastModule, {
+  toast: Object.assign(
+    (..._args: Parameters<typeof toastModule.toast>): string | number => "",
+    toastModule.toast,
+    { success: toastSuccessMock },
+  ),
+});
 
-const sentryBreadcrumbMock = mock((_args: unknown) => undefined);
-// Full Sentry surface — `mock.module` is process-global in bun, so a
-// partial mock would shadow `captureException` (used by `runtime/event-sources/*`
-// and `sse-service`) for every later test file in the run.
-mock.module("@sentry/react", () => ({
+const sentryBreadcrumbMock = mock<typeof SentryReact.addBreadcrumb>(
+  (_breadcrumb) => undefined,
+);
+stubModule("@sentry/react", await import("@sentry/react"), {
   addBreadcrumb: sentryBreadcrumbMock,
-  captureException: () => {},
-}));
+  captureException: () => "",
+});
 
 // Voice entry runs a readiness preflight before a session opens; stub it ready
 // so these tests stay about link handling. See `voice-entry-guards`.
-mock.module("@/domains/chat/voice/live-voice/live-voice-preflight-api", () => ({
-  preflightLiveVoice: async () => ({ status: "ready" }),
-}));
+stubModule(
+  "@/domains/chat/voice/live-voice/live-voice-preflight-api",
+  await import("@/domains/chat/voice/live-voice/live-voice-preflight-api"),
+  { preflightLiveVoice: async () => ({ status: "ready" }) },
+);
 
 const consumeShareInboxMock = mock(
   async (_id?: string | null): Promise<ShareInboxItem | null> => null,
 );
 const readShareInboxFilesMock = mock(async () => [] as File[]);
-mock.module("@/runtime/share-inbox", () => ({
+stubModule("@/runtime/share-inbox", await import("@/runtime/share-inbox"), {
   consumeShareInbox: consumeShareInboxMock,
   readShareInboxFiles: readShareInboxFilesMock,
   publishShareInboxSource: () => () => undefined,
-}));
+});
+
+afterAll(restoreStubbedModules);
 
 const { useGlobalDeepLinkConsumer } =
   await import("./use-global-deep-link-consumer");
@@ -118,6 +143,8 @@ const renderConsumer = () =>
   renderHook(() => useGlobalDeepLinkConsumer(), { wrapper: Wrapper });
 const { drainPendingVoiceStart } =
   await import("@/domains/chat/voice/live-voice/start-voice-request");
+const { voiceEntryGreetingSeed } =
+  await import("@/domains/chat/voice/live-voice/voice-entry-greeting");
 const { useIsVoiceRoomVisible } =
   await import("@/domains/chat/voice/voice-room/use-is-voice-room-visible");
 const { useVoicePrefsStore } = await import("@/stores/voice-prefs-store");
@@ -143,6 +170,7 @@ const resetStores = () => {
   useLiveVoiceStore.getState().setStarter(null);
   useAssistantIdentityStore.setState({ assistantId: null, version: null });
   useResolvedAssistantsStore.setState({ activeAssistantId: null });
+  showPath(routes.assistant);
 };
 
 /**
@@ -160,6 +188,7 @@ beforeEach(() => {
   __resetConnectDialogForTesting();
   mockPathname = routes.assistant;
   mockSearch = "";
+  mockState = null;
   queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -224,11 +253,7 @@ describe("deeplink.openThread", () => {
       narrow: false,
       coarsePointer: false,
     });
-    useViewerStore.setState({
-      mainView: "app",
-      activeAppId: "app-1",
-      openedAppState: { appId: "app-1", name: "My App", html: "<h1>hi</h1>" },
-    });
+    showOpenAppRoute({ conversationId: "conv-with-app" });
     renderConsumer();
 
     try {
@@ -240,6 +265,51 @@ describe("deeplink.openThread", () => {
       expect(useConversationStore.getState().editingConversationId).toBe(
         "abc-123",
       );
+      expect(navigateMock).toHaveBeenCalledWith(
+        "/assistant/conversations/abc-123/app/app-1",
+      );
+    } finally {
+      restoreViewport();
+    }
+  });
+
+  test("a same-thread tap beside an open app keeps the app in the URL", () => {
+    const restoreViewport = stubViewportAxes({
+      narrow: false,
+      coarsePointer: false,
+    });
+    useConversationStore.setState({ activeConversationId: "abc-123" });
+    showOpenAppRoute({ conversationId: "conv-with-app" });
+    renderConsumer();
+
+    try {
+      act(() => {
+        publish("deeplink.openThread", { threadId: "abc-123" });
+      });
+
+      expect(useViewerStore.getState().mainView).toBe("app-editing");
+      expect(navigateMock).toHaveBeenCalledWith(
+        "/assistant/conversations/abc-123/app/app-1",
+      );
+    } finally {
+      restoreViewport();
+    }
+  });
+
+  test("drops the app from the URL on a narrow viewport, which has no split", () => {
+    const restoreViewport = stubViewportAxes({
+      narrow: true,
+      coarsePointer: true,
+    });
+    showOpenAppRoute({ conversationId: "conv-with-app" });
+    renderConsumer();
+
+    try {
+      act(() => {
+        publish("deeplink.openThread", { threadId: "abc-123" });
+      });
+
+      expect(useViewerStore.getState().mainView).toBe("chat");
       expect(navigateMock).toHaveBeenCalledWith(
         "/assistant/conversations/abc-123",
       );
@@ -535,7 +605,12 @@ describe("deeplink.startVoice", () => {
     const conversationId = useConversationStore.getState().activeConversationId;
     expect(conversationId).not.toBeNull();
     expect(conversationId).not.toBe(PRIOR_CONVERSATION_ID);
-    expect(starterMock).toHaveBeenCalledWith("assistant-1", conversationId);
+    // A link is one of several ways in, and the daemon's telemetry is told
+    // which. The minted draft is empty, so the assistant speaks first on it.
+    expect(starterMock).toHaveBeenCalledWith("assistant-1", conversationId, {
+      entry: "deep_link",
+      seedText: voiceEntryGreetingSeed(true),
+    });
     expect(mockPathname).toBe(routes.conversation(conversationId ?? ""));
   };
 
@@ -1125,9 +1200,7 @@ describe("deeplink.share", () => {
       await Promise.resolve();
     });
 
-    expect(navigateMock).toHaveBeenCalledWith(
-      routes.conversation("conv-xyz"),
-    );
+    expect(navigateMock).toHaveBeenCalledWith(routes.conversation("conv-xyz"));
     const parked = usePendingDeepLinkStore.getState().pendingShareSend;
     expect(parked?.isNewDraft).toBe(false);
     expect(parked?.threadId).toBe("conv-xyz");
@@ -1239,7 +1312,7 @@ describe("deeplink.openCamera", () => {
     // transition away from the conversation the park is addressed to.
     expect(navigateMock).toHaveBeenCalledWith(
       { pathname: routes.conversation("conv-1"), search: "", hash: "" },
-      { replace: true },
+      { replace: true, state: null },
     );
   });
 
@@ -1258,7 +1331,7 @@ describe("deeplink.openCamera", () => {
     ).toBe("conv-1");
     expect(navigateMock).toHaveBeenCalledWith(
       { pathname: routes.conversation("conv-1"), search: "", hash: "" },
-      { replace: true },
+      { replace: true, state: null },
     );
   });
 
@@ -1268,11 +1341,8 @@ describe("deeplink.openCamera", () => {
       coarsePointer: false,
     });
     mockPathname = routes.conversation("conv-1");
-    useViewerStore.setState({
-      mainView: "app",
-      activeAppId: "app-1",
-      openedAppState: { appId: "app-1", name: "My App", html: "<h1>hi</h1>" },
-    });
+    mockSearch = "?prompt=hello";
+    showOpenAppRoute({ conversationId: "conv-with-app" });
     renderConsumer();
 
     try {
@@ -1288,8 +1358,40 @@ describe("deeplink.openCamera", () => {
         usePendingDeepLinkStore.getState().pendingCamera?.targetConversationId,
       ).toBe("conv-1");
       expect(navigateMock).toHaveBeenCalledWith(
-        { pathname: routes.conversation("conv-1"), search: "", hash: "" },
-        { replace: true },
+        {
+          pathname: routes.conversation("conv-1", "app-1"),
+          search: "?prompt=hello",
+          hash: "",
+        },
+        { replace: true, state: null },
+      );
+    } finally {
+      restoreViewport();
+    }
+  });
+
+  test("carries what the entry records, so closing the app still pops to it", () => {
+    const restoreViewport = stubViewportAxes({
+      narrow: false,
+      coarsePointer: false,
+    });
+    mockPathname = routes.conversation("conv-1");
+    mockState = appEntryStateFor("conv-1");
+    showOpenAppRoute({ conversationId: "conv-1" });
+    renderConsumer();
+
+    try {
+      act(() => {
+        publish("deeplink.openCamera", { provenance: null });
+      });
+
+      expect(navigateMock).toHaveBeenCalledWith(
+        {
+          pathname: routes.conversation("conv-1", "app-1"),
+          search: "",
+          hash: "",
+        },
+        { replace: true, state: appEntryStateFor("conv-1") },
       );
     } finally {
       restoreViewport();
@@ -1330,7 +1432,7 @@ describe("deeplink.openCamera", () => {
     for (const call of navigateMock.mock.calls) {
       expect(call).toEqual([
         { pathname: routes.conversation("conv-1"), search: "", hash: "" },
-        { replace: true },
+        { replace: true, state: null },
       ]);
     }
   });
@@ -1350,7 +1452,7 @@ describe("deeplink.openCamera", () => {
         search: "?prompt=hello",
         hash: "",
       },
-      { replace: true },
+      { replace: true, state: null },
     );
   });
 });

@@ -2,6 +2,7 @@ import { Fragment, type ReactNode } from "react";
 
 import { ChevronRight } from "lucide-react";
 
+import { MidlineDot } from "@/components/midline-dot";
 import {
   disarmReasonLabelKey,
   pluginNameFromSourceKey,
@@ -107,9 +108,7 @@ export function ScheduleRowShell({
             <span className="flex min-w-0 items-center gap-2 text-label-small-default text-[var(--content-tertiary)]">
               {metaParts.map((part, index) => (
                 <Fragment key={index}>
-                  {index > 0 ? (
-                    <span className="h-[3px] w-[3px] shrink-0 rounded-full bg-[var(--content-tertiary)]" />
-                  ) : null}
+                  {index > 0 ? <MidlineDot /> : null}
                   <span className="truncate">{part}</span>
                 </Fragment>
               ))}

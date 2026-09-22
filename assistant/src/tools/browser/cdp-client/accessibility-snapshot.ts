@@ -14,6 +14,8 @@
  * a later PR is a direct drop-in replacement.
  */
 
+import { safeStringSlice } from "../../../util/unicode.js";
+
 // ── Types ─────────────────────────────────────────────────────────────
 
 /**
@@ -288,7 +290,11 @@ function extractAttrs(node: RawAxNode): Record<string, string> {
     if (!PROPERTY_ALLOWLIST.has(name)) {
       continue;
     }
-    attrs[name] = stringifyAxValue(prop.value?.value).slice(0, MAX_VALUE_CHARS);
+    attrs[name] = safeStringSlice(
+      stringifyAxValue(prop.value?.value),
+      0,
+      MAX_VALUE_CHARS,
+    );
   }
   return attrs;
 }
@@ -346,12 +352,12 @@ export function transformAxTree(
     }
 
     const rawName = typeof node.name?.value === "string" ? node.name.value : "";
-    const name = rawName.trim().slice(0, MAX_NAME_CHARS);
+    const name = safeStringSlice(rawName.trim(), 0, MAX_NAME_CHARS);
 
     const rawValue = node.value?.value;
     const value =
       typeof rawValue === "string" && rawValue.length > 0
-        ? rawValue.slice(0, MAX_VALUE_CHARS)
+        ? safeStringSlice(rawValue, 0, MAX_VALUE_CHARS)
         : undefined;
 
     const attrs = extractAttrs(node);

@@ -33,6 +33,7 @@ import type { TrustContext } from "../daemon/trust-context-types.js";
 import { wakeAgentForOpportunity } from "../runtime/agent-wake.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { getLogger } from "../util/logger.js";
+import { safeStringSlice } from "../util/unicode.js";
 import type { CapabilityManifest } from "./capabilities.js";
 import {
   normalizeCapabilityManifest,
@@ -611,7 +612,7 @@ function truncateForSummary(s: string, runId: string): string {
   }
   const omitted = s.length - MAX_SUMMARY_RESULT_CHARS;
   return (
-    `${s.slice(0, MAX_SUMMARY_RESULT_CHARS)}… ` +
+    `${safeStringSlice(s, 0, MAX_SUMMARY_RESULT_CHARS)}… ` +
     `[truncated ${omitted} chars — fetch the full result with manage_workflows ` +
     `{ action: "get_result", run_id: "${runId}" }]`
   );

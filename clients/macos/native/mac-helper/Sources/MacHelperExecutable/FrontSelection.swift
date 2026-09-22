@@ -84,6 +84,9 @@ enum FrontSelection {
         var trusted: Bool
         var promptShown = false
         var bundleId: String?
+        /// Whether the application in front renders with Chromium. See
+        /// `isChromium`.
+        var chromium = false
         var focused = false
         var role: String?
         var path: Path = .none
@@ -91,7 +94,7 @@ enum FrontSelection {
         var selection: Selection?
 
         var logLine: String {
-            "trusted=\(trusted) prompt=\(promptShown) app=\(bundleId ?? "-") focused=\(focused) role=\(role ?? "-") path=\(path.rawValue) chars=\(chars) editable=\(selection?.editable ?? false)"
+            "trusted=\(trusted) prompt=\(promptShown) app=\(bundleId ?? "-") chromium=\(chromium) focused=\(focused) role=\(role ?? "-") path=\(path.rawValue) chars=\(chars) editable=\(selection?.editable ?? false)"
         }
     }
 
@@ -101,10 +104,264 @@ enum FrontSelection {
     /// not the moment to keep raising it.
     private nonisolated(unsafe) static var promptedForTrust = false
 
+    /// What the focused control in the application in front is, for a paste
+    /// that is about to be sent there.
+    ///
+    /// A read of its own rather than a by-product of `read()`: that one is
+    /// asked once, at the top of a hold, and answers a question about text
+    /// the user highlighted. This one is asked at the end, when the words
+    /// exist and the only question left is whether anything will take them.
+    /// Nothing is copied and no keystroke is sent, so it costs one
+    /// Accessibility round trip.
+    struct Focus {
+        /// Whether the application in front reports a focused element at all.
+        let focused: Bool
+        /// Whether that element takes text. See `takesText`.
+        let takesText: Bool
+        let role: String?
+        var bundleId: String?
+        var trusted = true
+        /// Whether the application in front renders with Chromium. See
+        /// `isChromium`.
+        var chromium = false
+        /// Why the focused element could not be read, when it could not be.
+        /// Two very different things end up as `focused=false`, and only the
+        /// log can tell them apart afterwards: an application that says
+        /// nothing is focused, and one that did not answer in time.
+        var error: AXError?
+
+        var logLine: String {
+            "trusted=\(trusted) app=\(bundleId ?? "-") chromium=\(chromium) focused=\(focused) role=\(role ?? "-") takesText=\(takesText) err=\(error.map { String($0.rawValue) } ?? "-")"
+        }
+    }
+
+    /// Where a paste sent to the application in front would land.
+    ///
+    /// Untrusted reads as somewhere to paste. Without the Accessibility grant
+    /// this cannot see a text field that is genuinely there, and withholding
+    /// the words on a read that cannot see anything would turn a missing
+    /// permission into dictation that never types.
+    static func readFocus() -> Focus {
+        guard AXIsProcessTrusted() else {
+            return Focus(
+                focused: false,
+                takesText: true,
+                role: nil,
+                bundleId: NSWorkspace.shared.frontmostApplication?.bundleIdentifier,
+                trusted: false
+            )
+        }
+        let frontApp = NSWorkspace.shared.frontmostApplication
+        let bundleId = frontApp?.bundleIdentifier
+        let chromium = isChromium(frontApp)
+        // Too late for this read, which answers without the tree below, but
+        // it gives the next hold's selection read a tree to find.
+        if chromium, let pid = frontApp?.processIdentifier {
+            turnOnChromiumAccessibility(pid)
+        }
+        let systemWide = AXUIElementCreateSystemWide()
+        AXUIElementSetMessagingTimeout(systemWide, requestTimeoutSeconds)
+        var focusedRef: CFTypeRef?
+        let status = AXUIElementCopyAttributeValue(
+            systemWide, kAXFocusedUIElementAttribute as CFString, &focusedRef
+        )
+        guard status == .success,
+            let focusedValue = focusedRef,
+            CFGetTypeID(focusedValue) == AXUIElementGetTypeID()
+        else {
+            // **Only a conclusive answer withholds the paste.** `noValue` and
+            // `attributeUnsupported` are the application saying there is
+            // nothing focused, which is the whole case this read exists to
+            // find. Everything else is this side failing to ask: the 50ms
+            // timeout expiring as `cannotComplete`, the API off, an answer
+            // that is not an element. A failure to ask has not seen the text
+            // field it would be withholding from, so it answers the way an
+            // untrusted read does.
+            //
+            // Chromium's "nothing focused" is not conclusive either: it keeps
+            // its web content's accessibility tree off until an assistive
+            // app turns it on, and asking for the focused element does not.
+            // With it off, a composer the caret is sitting in reads as
+            // nothing focused on every hold, not just the first.
+            let conclusive = !chromium
+                && (status == .noValue || status == .attributeUnsupported)
+            return Focus(
+                focused: false,
+                takesText: !conclusive,
+                role: nil,
+                bundleId: bundleId,
+                chromium: chromium,
+                error: status == .success ? nil : status
+            )
+        }
+        let focused = focusedValue as! AXUIElement
+        AXUIElementSetMessagingTimeout(focused, requestTimeoutSeconds)
+        let role = stringAttribute(focused, kAXRoleAttribute as CFString)
+        return Focus(
+            focused: true,
+            takesText: takesText(focused, role: role, chromium: chromium),
+            role: role,
+            bundleId: bundleId,
+            chromium: chromium
+        )
+    }
+
+    /// Answers from `isChromium`, by bundle path. An application's frameworks
+    /// do not change while it runs, and this is asked at the end of every hold.
+    private nonisolated(unsafe) static var chromiumBundles: [String: Bool] = [:]
+
+    /// Whether the application renders with Chromium: Chrome and the browsers
+    /// built on it, Electron apps, CEF apps. Every one of them carries
+    /// Chromium's resource pack inside a framework, whatever the framework is
+    /// named ("Electron Framework", "Google Chrome Framework", or an app's
+    /// own), which the Accessibility attributes cannot tell apart from a
+    /// native app's.
+    private static func isChromium(_ app: NSRunningApplication?) -> Bool {
+        guard let bundlePath = app?.bundleURL?.path else {
+            return false
+        }
+        if let known = chromiumBundles[bundlePath] {
+            return known
+        }
+        let frameworks = URL(fileURLWithPath: bundlePath)
+            .appendingPathComponent("Contents/Frameworks")
+        let found = ((try? FileManager.default.contentsOfDirectory(atPath: frameworks.path)) ?? [])
+            .filter { $0.hasSuffix(".framework") }
+            .contains {
+                FileManager.default.fileExists(
+                    atPath: frameworks
+                        .appendingPathComponent($0)
+                        .appendingPathComponent("Resources/chrome_100_percent.pak")
+                        .path
+                )
+            }
+        chromiumBundles[bundlePath] = found
+        return found
+    }
+
+    /// Ask a Chromium application to build its web content's accessibility
+    /// tree, which it keeps off until an assistive app asks for it. With it
+    /// off, the focused element and its selected text do not exist to be
+    /// read. `AXManualAccessibility` is the attribute Chromium and Electron
+    /// take for this; `AXEnhancedUserInterface` would do it too, but also
+    /// makes the system treat the application as driven by VoiceOver, which
+    /// slows its window moves and resizes.
+    ///
+    /// Asked on every read rather than remembered: it is one call, and a
+    /// relaunched application starts with the tree off again. The build is
+    /// asynchronous, so the read that turns it on may still find nothing
+    /// focused and fall back to the copy.
+    private static func turnOnChromiumAccessibility(_ pid: pid_t) {
+        let app = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(app, requestTimeoutSeconds)
+        _ = AXUIElementSetAttributeValue(
+            app, "AXManualAccessibility" as CFString, kCFBooleanTrue
+        )
+    }
+
+    /// Whether text pasted right now would land in this element.
+    ///
+    /// Settability decides it wherever the element will say. Yes is yes, and
+    /// **a settable-but-false answer is a no that nothing below overturns**:
+    /// a disabled or read-only text field has a text control's role and a
+    /// caret's attributes, and taking the role as a second opinion would hand
+    /// it a paste and call the words delivered.
+    ///
+    /// The rest is for the elements that will not say. A settability answer
+    /// the element did not give proves nothing either way, so the two weaker
+    /// marks get their turn: a text control's role, and a selected text
+    /// range, which is the generic sign of something with a caret in it and
+    /// catches the editors that answer to neither of the others.
+    ///
+    /// **The one exception is a Chromium group.** Web editors hand focus to a
+    /// wrapper that reports its text as unwritable while the editor inside it
+    /// takes the paste: Slack's composer is an `AXGroup` around its real
+    /// `AXTextArea`. Only that role is let through. A read-only field, a
+    /// button or a link in Chromium still answers no.
+    private static func takesText(
+        _ element: AXUIElement, role: String?, chromium: Bool
+    ) -> Bool {
+        if isDisabled(element) {
+            return false
+        }
+        switch settability(element) {
+        case .settable:
+            return true
+        case .fixed:
+            return chromium && role == chromiumWrapperRole
+        case .unknown:
+            break
+        }
+        if let role, textControlRoles.contains(role) {
+            return true
+        }
+        var rangeRef: CFTypeRef?
+        return AXUIElementCopyAttributeValue(
+            element, kAXSelectedTextRangeAttribute as CFString, &rangeRef
+        ) == .success
+    }
+
+    private static let chromiumWrapperRole = "AXGroup"
+
+    /// What an element says about writing its text: that it can be written,
+    /// that it cannot, or nothing usable. The third is its own answer because
+    /// the two weaker marks in `takesText` are only worth asking once this
+    /// one has come back empty.
+    private enum Settability {
+        case settable
+        case fixed
+        case unknown
+    }
+
+    private static func settability(_ element: AXUIElement) -> Settability {
+        var conclusiveNos = 0
+        for attribute in [kAXValueAttribute, kAXSelectedTextAttribute] {
+            var settable = DarwinBoolean(false)
+            let status = AXUIElementIsAttributeSettable(
+                element, attribute as CFString, &settable
+            )
+            if status == .success, settable.boolValue {
+                return .settable
+            }
+            // An attribute the element does not have is a no as firm as an
+            // attribute it has and will not let this process write: either
+            // way there is nothing here to put text into. Everything else is
+            // the ask failing rather than the element answering, the 50ms
+            // timeout expiring as `cannotComplete` above all, and proves
+            // nothing about the attribute it was asking after.
+            if status == .success
+                || status == .attributeUnsupported
+                || status == .noValue {
+                conclusiveNos += 1
+            }
+        }
+        // **Both, or neither.** The two attributes are independent and either
+        // one alone establishes editability, so a no from one beside a
+        // timeout from the other is not a no about the element. Calling it
+        // one would withhold the paste from an editor that was merely slow.
+        return conclusiveNos == 2 ? .fixed : .unknown
+    }
+
+    /// Whether the element says it is disabled. Only an explicit no counts: a
+    /// control that does not report the attribute is not claiming anything,
+    /// and this read never withholds a paste on silence.
+    private static func isDisabled(_ element: AXUIElement) -> Bool {
+        var enabledRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            element, kAXEnabledAttribute as CFString, &enabledRef
+        ) == .success,
+            let enabled = enabledRef as? Bool
+        else {
+            return false
+        }
+        return !enabled
+    }
+
     /// The current selection, and how it was found.
     static func read() -> Outcome {
         var outcome = Outcome(trusted: AXIsProcessTrusted())
-        outcome.bundleId = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        let frontApp = NSWorkspace.shared.frontmostApplication
+        outcome.bundleId = frontApp?.bundleIdentifier
         if !outcome.trusted {
             if !promptedForTrust {
                 promptedForTrust = true
@@ -113,31 +370,46 @@ enum FrontSelection {
             }
             return outcome
         }
+        outcome.chromium = isChromium(frontApp)
+        if outcome.chromium, let pid = frontApp?.processIdentifier {
+            turnOnChromiumAccessibility(pid)
+        }
 
         let systemWide = AXUIElementCreateSystemWide()
         AXUIElementSetMessagingTimeout(systemWide, requestTimeoutSeconds)
         var focusedRef: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(
+        var focused: AXUIElement?
+        if AXUIElementCopyAttributeValue(
             systemWide, kAXFocusedUIElementAttribute as CFString, &focusedRef
         ) == .success,
             let focusedValue = focusedRef,
             CFGetTypeID(focusedValue) == AXUIElementGetTypeID()
-        else {
+        {
+            focused = (focusedValue as! AXUIElement)
+        } else if !outcome.chromium {
             return outcome
         }
-        let focused = focusedValue as! AXUIElement
-        AXUIElementSetMessagingTimeout(focused, requestTimeoutSeconds)
-        outcome.focused = true
-        outcome.role = stringAttribute(focused, kAXRoleAttribute as CFString)
+        // A Chromium application with nothing focused goes on to the copy:
+        // until its accessibility tree has been built, which the call above
+        // only starts, a composer with a selection in it reads as nothing
+        // focused.
 
-        var text = stringAttribute(focused, kAXSelectedTextAttribute as CFString) ?? ""
-        var path = Path.selectedText
-        if isBlank(text) {
-            // Some text views answer the range but not the selected text
-            // itself; the value is the whole document, and the range picks
-            // the selection out of it.
-            text = selectionFromRange(focused) ?? ""
-            path = .range
+        var text = ""
+        var path = Path.none
+        if let focused {
+            AXUIElementSetMessagingTimeout(focused, requestTimeoutSeconds)
+            outcome.focused = true
+            outcome.role = stringAttribute(focused, kAXRoleAttribute as CFString)
+
+            text = stringAttribute(focused, kAXSelectedTextAttribute as CFString) ?? ""
+            path = .selectedText
+            if isBlank(text) {
+                // Some text views answer the range but not the selected text
+                // itself; the value is the whole document, and the range picks
+                // the selection out of it.
+                text = selectionFromRange(focused) ?? ""
+                path = .range
+            }
         }
         if isBlank(text) {
             switch selectionFromCopy() {
@@ -164,10 +436,15 @@ enum FrontSelection {
         // answers every Accessibility read with a one-character placeholder
         // and only the copy carries its selection. Known edge: an editor
         // that copies the current line on an empty selection (VS Code) reads
-        // as a selection nothing is over.
-        let editable = path == .copy
-            ? textControlRoles.contains(outcome.role ?? "")
-            : isEditable(focused)
+        // as a selection nothing is over. A copy with nothing focused has no
+        // control to go by and reads as not editable, so the hold asks about
+        // the selection rather than pasting over text it could not see.
+        let editable: Bool
+        if path == .copy {
+            editable = textControlRoles.contains(outcome.role ?? "")
+        } else {
+            editable = focused.map(isEditable) ?? false
+        }
         // Whitespace decides only whether anything is selected. What is
         // selected travels as it is: the indentation of a selected snippet is
         // part of what the user is asking about.
@@ -186,15 +463,13 @@ enum FrontSelection {
     /// web pages outside a contenteditable and read-only views do not. Asked
     /// rather than inferred from the role because a text view can be
     /// read-only and a web area can be an editor.
+    ///
+    /// An element that will not say reads as no here. This decides whether a
+    /// selection can be written back over, and writing over the user's text
+    /// on a guess is the mistake worth avoiding; `takesText` weighs the same
+    /// answer the other way, since what it risks is a paste going nowhere.
     private static func isEditable(_ element: AXUIElement) -> Bool {
-        for attribute in [kAXValueAttribute, kAXSelectedTextAttribute] {
-            var settable = DarwinBoolean(false)
-            if AXUIElementIsAttributeSettable(element, attribute as CFString, &settable) == .success,
-               settable.boolValue {
-                return true
-            }
-        }
-        return false
+        settability(element) == .settable
     }
 
     private static func isBlank(_ text: String) -> Bool {

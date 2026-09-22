@@ -35,6 +35,13 @@ export interface LlmCatalogModel {
   supportsThinking?: boolean;
   adaptiveThinkingOnly?: boolean;
   thinkingFloor?: "minimal" | "low";
+  /**
+   * Whether the model produces free-form chat text. Omit (or true) for
+   * ordinary chat models. False for structured-decision models that stay
+   * out of conversation pickers. They can still back a saved profile and a
+   * call-site pin.
+   */
+  supportsText?: boolean;
   longContextPricingThresholdTokens?: number;
   /** When set, the model is hidden unless that assistant flag is on. */
   featureFlag?: string;
@@ -152,6 +159,15 @@ export const MODELS_BY_PROVIDER = {
     },
   ],
   openai: [
+    {
+      id: "gpt-6-astra",
+      displayName: "GPT-6 Astra",
+      contextWindowTokens: 1_050_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      longContextPricingThresholdTokens: 272_000,
+    },
     {
       id: "gpt-5.6-sol",
       displayName: "GPT-5.6 Sol",
@@ -580,6 +596,25 @@ export const MODELS_BY_PROVIDER = {
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 64_000,
       supportsThinking: true,
+    },
+    {
+      id: "openai/gpt-6-astra",
+      displayName: "GPT-6 Astra",
+      contextWindowTokens: 1_050_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      longContextPricingThresholdTokens: 272_000,
+    },
+    {
+      id: "openai/gpt-6-astra-pro",
+      displayName: "GPT-6 Astra Pro",
+      vendor: "openai",
+      contextWindowTokens: 1_050_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      longContextPricingThresholdTokens: 272_000,
     },
     {
       id: "openai/gpt-5.6-sol",
@@ -1119,6 +1154,16 @@ export const MODELS_BY_PROVIDER = {
       supportsThinking: true,
     },
   ],
+  typesafe: [
+    {
+      id: "jev-latest",
+      displayName: "Jev",
+      contextWindowTokens: 32_000,
+      defaultContextWindowTokens: 32_000,
+      maxOutputTokens: 4_096,
+      supportsText: false,
+    },
+  ],
   vellum: [
     {
       id: "qwen/qwen3-8b",
@@ -1127,7 +1172,7 @@ export const MODELS_BY_PROVIDER = {
       contextWindowTokens: 32_768,
       defaultContextWindowTokens: 32_768,
       maxOutputTokens: 32_768,
-      featureFlag: "settings-developer-nav",
+      featureFlag: "vellum-hosted-inference",
     },
   ],
   "openai-compatible": [],
@@ -1150,6 +1195,7 @@ export const DEFAULT_MODEL_BY_PROVIDER: Record<LlmProviderId, string> = {
   opencode: "",
   baseten: "thinkingmachines/inkling",
   poolside: "poolside/laguna-s-2.1",
+  typesafe: "jev-latest",
   vellum: "qwen/qwen3-8b",
   "openai-compatible": "",
 };
@@ -1179,6 +1225,7 @@ export const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   opencode: "OpenCode",
   baseten: "Baseten",
   poolside: "Poolside",
+  typesafe: "TypeSafe",
 };
 
 /**
@@ -1234,6 +1281,7 @@ export const PROVIDER_SUPPORTS_PLATFORM_AUTH: Record<string, boolean> = {
   opencode: false,
   baseten: false,
   poolside: false,
+  typesafe: true,
   vellum: true,
 };
 
@@ -1251,6 +1299,7 @@ export const VELLUM_SERVED_PROVIDERS = [
   "gemini",
   "fireworks",
   "together",
+  "typesafe",
   "vellum",
 ] as const;
 
@@ -1323,35 +1372,78 @@ export function getManagedUpstreamForModel(
 // the "chatgpt" identity's model list resolves here like every provider's;
 // the settings domain re-exports it from codex-subscription-models.
 export const CODEX_SUBSCRIPTION_MODEL_IDS: ReadonlySet<string> = new Set([
+  "gpt-6-astra",
   "gpt-5.6-sol",
   "gpt-5.6-terra",
   "gpt-5.6-luna",
   "gpt-5.5",
-  // OpenAI retires these two from ChatGPT sign-in on 2026-08-31; API-key
-  // auth is unaffected.
-  "gpt-5.4",
-  "gpt-5.4-mini",
 ]);
 
-export const DEVELOPER_MODE_CATALOG_FLAG = "settings-developer-nav";
+export const HOSTED_INFERENCE_CATALOG_FLAG = "vellum-hosted-inference";
+
+export function catalogEnabledFlags(args: {
+  hostedInference?: boolean;
+}): Record<string, boolean> {
+  return {
+    [HOSTED_INFERENCE_CATALOG_FLAG]: args.hostedInference === true,
+  };
+}
 
 export function isCatalogModelVisible(
   model: Pick<LlmCatalogModel, "featureFlag">,
-  developerMode: boolean,
+  enabledFlags: Readonly<Record<string, boolean>>,
 ): boolean {
   if (!model.featureFlag) {
     return true;
   }
-  return model.featureFlag === DEVELOPER_MODE_CATALOG_FLAG && developerMode;
+  return enabledFlags[model.featureFlag] === true;
 }
 
 export function getVisibleModelsForProvider(
   provider: string,
-  developerMode: boolean,
+  enabledFlags: Readonly<Record<string, boolean>>,
 ): readonly LlmCatalogModel[] {
   return getModelsForProvider(provider).filter((model) =>
-    isCatalogModelVisible(model, developerMode),
+    isCatalogModelVisible(model, enabledFlags),
   );
+}
+
+/**
+ * Whether a catalog model produces free-form chat text. Unlisted providers
+ * and model ids default to true so custom endpoints and unknown snapshots
+ * stay usable as conversation models.
+ */
+export function catalogModelSupportsText(
+  provider: string | null | undefined,
+  modelId: string | null | undefined,
+): boolean {
+  if (!provider || !modelId) {
+    return true;
+  }
+  const model = getModelsForProvider(provider).find((m) => m.id === modelId);
+  return model?.supportsText !== false;
+}
+
+/** Visible catalog models that can back a conversation pin. */
+export function getTextGenerationModelsForProvider(
+  provider: string,
+  enabledFlags: Readonly<Record<string, boolean>>,
+): readonly LlmCatalogModel[] {
+  return getVisibleModelsForProvider(provider, enabledFlags).filter(
+    (model) => model.supportsText !== false,
+  );
+}
+
+/**
+ * Whether a provider has at least one chat-text model. Empty catalogs
+ * (custom endpoints) default to true because their models are user-defined.
+ */
+export function providerOffersTextGeneration(provider: string): boolean {
+  const models = getModelsForProvider(provider);
+  if (models.length === 0) {
+    return true;
+  }
+  return models.some((model) => model.supportsText !== false);
 }
 
 export function getModelsForProvider(

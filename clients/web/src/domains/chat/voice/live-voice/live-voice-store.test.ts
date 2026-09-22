@@ -19,24 +19,30 @@ import { makeControlsSpies } from "@/domains/chat/voice/live-voice/live-voice-fa
 import {
   attachLiveVoiceImage,
   dismissLiveVoiceFailure,
+  endLiveVoiceSightSession,
   endLiveVoiceSession,
   getLiveVoiceInputAmplitude,
   getLiveVoicePlaybackProgress,
   isLiveVoiceMicLive,
   isLiveVoiceSessionActive,
   isLiveVoiceSessionOwnedBy,
+  isLiveVoiceUserSpeaking,
   LIVE_VOICE_STATE_KEYS,
+  isOnToolStep,
   liveVoiceSurfaceLabelKey,
   minimizeVoiceRoom,
   releaseLiveVoiceTurn,
   PER_JOB_CEILING_MS,
   restoreVoiceRoom,
   sendLiveVoiceSightFrame,
+  startLiveVoiceSightSession,
   setLiveVoiceMuted,
+  setLiveVoiceScreenShare,
   stopLiveVoiceResponse,
   subscribeSettledLiveVoiceState,
   updateLiveVoiceSessionConfig,
   useLiveVoiceStore,
+  type LiveVoiceResponsePhase,
   type LiveVoiceSessionState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { toVoiceAvatarVisual } from "@/domains/chat/voice/voice-room/voice-avatar-state";
@@ -257,12 +263,16 @@ function surfaceLabel(
   reconnecting: boolean,
   assistantAudioActive: boolean,
   muted: boolean,
+  responsePhase: LiveVoiceResponsePhase | null = null,
+  onToolStep = false,
 ): string {
   const key = liveVoiceSurfaceLabelKey(
     state,
     reconnecting,
     assistantAudioActive,
     muted,
+    responsePhase,
+    onToolStep,
   );
   if (!key) {
     return "";
@@ -292,7 +302,60 @@ describe("LIVE_VOICE_STATE_KEYS", () => {
   });
 });
 
+describe("isOnToolStep", () => {
+  test("is a turn with an activity label", () => {
+    expect(
+      isOnToolStep({
+        activityLabel: "Searching the web",
+        pendingApprovalRequestId: null,
+      }),
+    ).toBe(true);
+  });
+
+  test("is not a turn waiting on the user's approval", () => {
+    expect(
+      isOnToolStep({
+        activityLabel: "Waiting for approval",
+        pendingApprovalRequestId: "approval-123",
+      }),
+    ).toBe(false);
+  });
+
+  test("is not a turn with no activity", () => {
+    expect(
+      isOnToolStep({ activityLabel: "", pendingApprovalRequestId: null }),
+    ).toBe(false);
+  });
+});
+
 describe("liveVoiceSurfaceLabelKey", () => {
+  test("shows a neutral working status while an escalated response prepares", () => {
+    expect(surfaceLabel("thinking", false, false, false, "escalated")).toBe(
+      "Working on that…",
+    );
+    expect(surfaceLabel("speaking", false, false, false, "escalated")).toBe(
+      "Working on that…",
+    );
+    expect(surfaceLabel("speaking", false, true, false, "escalated")).toBe(
+      "Speaking…",
+    );
+  });
+
+  test("a turn on a tool step reads as working wherever it would read thinking", () => {
+    expect(surfaceLabel("thinking", false, false, false, null, true)).toBe(
+      "Working on that…",
+    );
+    expect(surfaceLabel("speaking", false, false, false, null, true)).toBe(
+      "Working on that…",
+    );
+    expect(surfaceLabel("speaking", false, true, false, null, true)).toBe(
+      "Speaking…",
+    );
+    expect(surfaceLabel("listening", false, false, false, null, true)).toBe(
+      "Listening…",
+    );
+  });
+
   test("a speaking phase with no audio playing reads as thinking", () => {
     // `speaking` stays set across a mid-turn tool run (the ack was spoken and
     // the assistant is now silent) so every surface says "Thinking…".
@@ -616,8 +679,18 @@ describe("sendLiveVoiceSightFrame", () => {
     useLiveVoiceStore.getState().setControls(controls);
     const kept = useLiveVoiceStore.getState().sessionGeneration;
 
-    expect(sendLiveVoiceSightFrame("att-1", kept)).toBe(true);
-    expect(controls.sightFrame).toHaveBeenCalledWith("att-1");
+    const timing = {
+      reason: "forced",
+      armToKeepMs: 40,
+      keepToEncodedMs: 30,
+      encodedToUploadedMs: 200,
+      uploadedToSentMs: 0,
+      bytes: 12345,
+    };
+    expect(sendLiveVoiceSightFrame("att-1", kept, timing)).toBe(true);
+    // The timing rides the frame as given: the daemon's log is where it is
+    // read, and nothing here has a reason to reshape it.
+    expect(controls.sightFrame).toHaveBeenCalledWith("att-1", timing);
   });
 
   test("refuses a frame kept in a session that ended", () => {
@@ -642,6 +715,28 @@ describe("sendLiveVoiceSightFrame", () => {
         useLiveVoiceStore.getState().sessionGeneration,
       ),
     ).toBe(false);
+  });
+});
+
+describe("live voice sight session lifecycle", () => {
+  test("routes start and end through the active session controls", () => {
+    const controls = makeControlsSpies();
+    const startSightSession = mock(
+      (_cameraEpoch: number, _source: "live" | "ambient") => true,
+    );
+    const endSightSession = mock((_cameraEpoch: number) => true);
+    Object.assign(controls, { startSightSession, endSightSession });
+    useLiveVoiceStore.getState().setControls(controls);
+
+    expect(startLiveVoiceSightSession(7, "ambient")).toBe(true);
+    expect(endLiveVoiceSightSession(7)).toBe(true);
+    expect(startSightSession).toHaveBeenCalledWith(7, "ambient");
+    expect(endSightSession).toHaveBeenCalledWith(7);
+  });
+
+  test("reports unsupported when no session lifecycle controls are present", () => {
+    expect(startLiveVoiceSightSession(1, "live")).toBe(false);
+    expect(endLiveVoiceSightSession(1)).toBe(false);
   });
 });
 
@@ -1286,5 +1381,104 @@ describe("useLiveVoiceStore — playback-progress provider", () => {
 
     useLiveVoiceStore.getState().setPlaybackProgressProvider(() => null);
     expect(getLiveVoicePlaybackProgress()).toBeNull();
+  });
+});
+
+describe("useLiveVoiceStore — screen share", () => {
+  afterEach(() => {
+    useLiveVoiceStore.getState().reset();
+  });
+
+  test("drops a target with no session to show it to", () => {
+    setLiveVoiceScreenShare({ kind: "display", displayId: 1 });
+    expect(useLiveVoiceStore.getState().screenShareTarget).toBeNull();
+  });
+
+  test("holds the target for a running session, and clears it on the stop", () => {
+    useLiveVoiceStore.getState().setState("listening");
+    setLiveVoiceScreenShare({ kind: "window", windowId: 7 });
+    expect(useLiveVoiceStore.getState().screenShareTarget).toEqual({
+      kind: "window",
+      windowId: 7,
+    });
+    setLiveVoiceScreenShare(null);
+    expect(useLiveVoiceStore.getState().screenShareTarget).toBeNull();
+  });
+
+  test("survives a reconnect and not a new session", () => {
+    useLiveVoiceStore.getState().setState("listening");
+    setLiveVoiceScreenShare({ kind: "window", windowId: 7 });
+    useLiveVoiceStore.getState().reset({ sessionContinues: true });
+    expect(useLiveVoiceStore.getState().screenShareTarget).toEqual({
+      kind: "window",
+      windowId: 7,
+    });
+    useLiveVoiceStore.getState().reset();
+    expect(useLiveVoiceStore.getState().screenShareTarget).toBeNull();
+  });
+});
+
+describe("isLiveVoiceUserSpeaking", () => {
+  test("is the VAD's utterance in hands-free", () => {
+    expect(
+      isLiveVoiceUserSpeaking({
+        state: "listening",
+        handsFree: true,
+        utteranceOpen: false,
+      }),
+    ).toBe(false);
+    expect(
+      isLiveVoiceUserSpeaking({
+        state: "thinking",
+        handsFree: true,
+        utteranceOpen: true,
+      }),
+    ).toBe(true);
+  });
+
+  test("is the session listening in push-to-talk, which has no VAD", () => {
+    expect(
+      isLiveVoiceUserSpeaking({
+        state: "listening",
+        handsFree: false,
+        utteranceOpen: false,
+      }),
+    ).toBe(true);
+    expect(
+      isLiveVoiceUserSpeaking({
+        state: "thinking",
+        handsFree: false,
+        utteranceOpen: true,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("useLiveVoiceStore — a refused sight frame ends the share", () => {
+  afterEach(() => {
+    useLiveVoiceStore.getState().reset();
+  });
+
+  test("clears the target with the latch, so a reconnect cannot resume it", () => {
+    useLiveVoiceStore.getState().setState("listening");
+    setLiveVoiceScreenShare({ kind: "window", windowId: 7 });
+    useLiveVoiceStore.getState().noteSightFrameRefused(true);
+    expect(useLiveVoiceStore.getState().screenShareTarget).toBeNull();
+    useLiveVoiceStore.getState().reset({ sessionContinues: true });
+    expect(useLiveVoiceStore.getState().screenShareTarget).toBeNull();
+  });
+
+  /**
+   * The picker is not closed by the refusal, so its rows stay pressable. A
+   * pick taken then would sit unshown until a reconnect cleared the latch and
+   * started capture off a gesture made before the assistant refused.
+   */
+  test("takes no new target once the assistant has refused the frame", () => {
+    useLiveVoiceStore.getState().setState("listening");
+    useLiveVoiceStore.getState().noteSightFrameRefused(true);
+    setLiveVoiceScreenShare({ kind: "window", windowId: 9 });
+    expect(useLiveVoiceStore.getState().screenShareTarget).toBeNull();
+    useLiveVoiceStore.getState().reset({ sessionContinues: true });
+    expect(useLiveVoiceStore.getState().screenShareTarget).toBeNull();
   });
 });

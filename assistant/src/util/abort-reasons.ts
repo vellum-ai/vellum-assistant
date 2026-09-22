@@ -21,7 +21,18 @@ export type AbortReasonKind =
   /** A signal-file cancel was written by an out-of-process caller (CLI, hook). */
   | "signal_cancel"
   /** Voice session bridge aborted the conversation (turn supersession, call end). */
-  | "voice_session_aborted";
+  | "voice_session_aborted"
+  /**
+   * One spoken progress update ran out of its generation budget.
+   *
+   * Distinct from {@link "voice_session_aborted"} because nothing was aborted
+   * but the update itself: the call is still up, the turn is still running,
+   * and the only consequence is that this beat goes unspoken. Sharing the
+   * session-abort kind made a narrator that had gone fail-open read in the
+   * logs as a session dying over and over, which is the opposite of what the
+   * line means.
+   */
+  | "voice_progress_narration_timeout";
 
 const ABORT_REASON_TAG = "__vellumAbortReason" as const;
 
@@ -60,6 +71,74 @@ export function createAbortReason(
  */
 export function isUserInterruptAbort(reason: AbortReason | undefined): boolean {
   return reason?.kind === "user_cancel" || reason?.kind === "signal_cancel";
+}
+
+/**
+ * Synthetic `tool_result` text for a tool call an ordinary cancel cut off.
+ */
+export const CANCELLED_TOOL_RESULT_TEXT = "Cancelled by user";
+
+/**
+ * Synthetic `tool_result` text for a tool call a newly arrived user message
+ * cut off.
+ *
+ * States the fact about this one call and nothing else. What the model should
+ * do about the interruption belongs on the interrupting message
+ * ({@link INTERRUPTED_TURN_NOTE_TEXT}), which is read once no matter how many
+ * calls the abort stopped and which sits after the user's words rather than
+ * before them.
+ *
+ * Distinct from {@link CANCELLED_TOOL_RESULT_TEXT} because the model's next
+ * decision is different. A plain cancel ends the work; a preemption means a
+ * message is waiting, and the abandoned call may well have taken effect on the
+ * outside world before the abort landed.
+ */
+export const PREEMPTED_TOOL_RESULT_TEXT =
+  "Stopped early because the user sent a new message. This call may have completed anyway; check before repeating it.";
+
+/**
+ * Annotation appended to the LLM-facing content of the user message that
+ * interrupted a turn.
+ *
+ * The one place the behavior after an interrupt is spelled out, and it rides
+ * on every interrupt, whether or not a tool call was stopped. Leading with the
+ * short reply is the point: the user is waiting to learn they were heard, and
+ * a turn that opens with more reasoning or another tool call leaves them
+ * staring at silence.
+ *
+ * Tagged rather than written as prose so it reads as a system annotation on
+ * the message instead of something the user typed. It rides on the LLM-facing
+ * content only: the persisted row stays exactly what the user sent, so no
+ * client renders it.
+ */
+export const INTERRUPTED_TURN_NOTE_TEXT =
+  "<interrupted_turn>The user sent this while you were still working, so that work stopped. Reply right away, in a line or two, before any more thinking or tool calls, so the user knows you heard them. Then pick the earlier work back up only if it is still wanted. Never apologize for or mention the interruption.</interrupted_turn>";
+
+/**
+ * The synthetic `tool_result` text that matches why the turn was aborted.
+ *
+ * Takes the raw `AbortSignal.reason` (or any candidate) so call sites can hand
+ * over whatever they hold without unwrapping it first; anything that is not a
+ * tagged {@link AbortReason} reads as an ordinary cancel.
+ */
+export function abortedToolResultText(reasonCandidate: unknown): string {
+  if (isPreemptedByNewMessage(reasonCandidate)) {
+    return PREEMPTED_TOOL_RESULT_TEXT;
+  }
+  return CANCELLED_TOOL_RESULT_TEXT;
+}
+
+/**
+ * Whether the abort hands the conversation straight to a new user message.
+ * Work the turn had in flight is then the replacement turn's to resume or
+ * abandon, so state that reads as "still going" (a progress card) stays as it
+ * is instead of being settled as if the turn had ended.
+ */
+export function isPreemptedByNewMessage(reasonCandidate: unknown): boolean {
+  return (
+    isAbortReason(reasonCandidate) &&
+    reasonCandidate.kind === "preempted_by_new_message"
+  );
 }
 
 export function isAbortReason(value: unknown): value is AbortReason {

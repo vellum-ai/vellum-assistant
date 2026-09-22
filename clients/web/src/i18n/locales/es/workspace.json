@@ -13,6 +13,10 @@
     "createTriggerTitle": "Nuevo archivo o carpeta",
     "nameLabel": "Nombre",
     "nameError": "Escribe el nombre de un solo archivo o carpeta, sin barras.",
+    "nameTaken": "«{name}» ya existe en esta carpeta.",
+    "createFailed": "No se pudo crear. Revisa el nombre e inténtalo de nuevo.",
+    "renameFailed": "No se pudo cambiar el nombre. Revisa el nombre e inténtalo de nuevo.",
+    "deleteFailed": "No se pudo eliminar. Inténtalo de nuevo.",
     "cancel": "Cancelar",
     "sortByNameAria": "Ordenar por nombre",
     "sortBySizeAria": "Ordenar por tamaño",
@@ -23,6 +27,10 @@
     "searchPlaceholder": "Buscar archivos",
     "clearSearchAria": "Borrar la búsqueda",
     "noFilesFound": "No se han encontrado archivos",
+    "searchScope": "Buscando en las carpetas abiertas",
+    "noSearchMatches": "No hay coincidencias en las carpetas abiertas",
+    "searchIncomplete": "Algunas carpetas no se incluyen en la búsqueda. Abre una carpeta para buscar dentro de ella.",
+    "noMatches": "No hay coincidencias",
     "deleteFolderTitle": "Eliminar la carpeta",
     "deleteFileTitle": "Eliminar el archivo",
     "deleteFileMessage": "¿Seguro que quieres eliminar <name>{name}</name>? Esto no se puede deshacer.",
@@ -43,6 +51,7 @@
     "browseFiles": "Explorar archivos",
     "fileNotFound": "Archivo no encontrado",
     "saveFailed": "No se pudo guardar",
+    "unknownSize": "Tamaño desconocido",
     "downloadAria": "Descargar {name}"
   }
 }

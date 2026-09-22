@@ -5,6 +5,7 @@ import { QueryClient } from "@tanstack/react-query";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
 import type { TurnActions, TurnState } from "@/domains/chat/turn-store";
 import { INITIAL_TURN_STATE } from "@/domains/chat/turn-store";
+import { useComposerStore } from "@/domains/chat/composer-store";
 
 interface MakeCtxOptions {
   pendingQueuedMessageIds?: string[];
@@ -36,10 +37,12 @@ export function makeCtx(
   } = overrides;
 
   return {
+    eventConversationId: "conv-1",
     router: { push: mock(() => {}) },
     isNative: false,
     streamContext: { assistantId: "ast-1", conversationId: "conv-1" },
     assistantId: "ast-1",
+    composerSessionGeneration: useComposerStore.getState().sessionGeneration,
     setOptimisticSends: mock(() => {}),
     turnActions: {
       requestSend: mock(() => {}),
@@ -116,6 +119,7 @@ export function makeCtx(
       return true;
     }),
     lastActivityVersionRef: { current: new Map() },
+    lastCompletedToolNameRef: { current: undefined },
     currentAssistantMessageIdRef: { current: undefined },
     ...restOverrides,
   };

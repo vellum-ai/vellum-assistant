@@ -61,7 +61,10 @@ export function CollapsedGroupFlyout({
   );
 
   return (
-    <div className="pb-1">
+    // The colour the rows sit on: this opens in a `Popover.Content`, which
+    // paints `--surface-lift`. The swipe wrapper backs each row with it so a
+    // swiped row covers the action behind it instead of showing it through.
+    <div className="pb-1 [--swipe-item-surface:var(--surface-lift)]">
       <div className="flex items-center justify-between px-4 py-1">
         <span className="text-body-small-default text-[var(--content-tertiary)]">
           {title}

@@ -1,17 +1,16 @@
 /**
  * Read the curated plugin marketplace manifest from the canonical repo.
  *
- * The manifest at `plugins/marketplace.json` whitelists external
- * ecosystem plugins so they appear in `assistant plugins search` / the web
- * catalog and become installable by name. Its shape is a subset of the
- * Claude Code marketplace manifest
- * (https://code.claude.com/docs/en/plugin-marketplaces) — `name` + `owner` +
- * a `plugins` array where each entry carries a `name` and a `source`. Only
- * `github` sources are resolved today.
+ * The manifest at `plugins/marketplace.json` whitelists reviewed plugins so
+ * they appear in `assistant plugins search` / the web catalog and become
+ * installable by name. Its shape extends the Claude Code marketplace manifest
+ * (https://code.claude.com/docs/en/plugin-marketplaces) with packages embedded
+ * in the assistant distribution.
  *
- * The manifest is fetched from the repo at a git ref (via the GitHub Contents
- * API) rather than bundled into the assistant build — so the whitelist can
- * grow without shipping a new release.
+ * The manifest is both fetched from the repo at a git ref and bundled into the
+ * assistant build. GitHub entries may grow without a new release. Local entries
+ * can only resolve when their exact path and version are embedded in that
+ * release.
  * Every external source pins an explicit `ref` that MUST be a full commit SHA:
  * the fetched code is locked to an immutable revision. Tags and branches are
  * rejected because they are mutable — an upstream owner could retag/repoint
@@ -60,7 +59,7 @@ const PLUGIN_NAME_RE = /^[a-z0-9][a-z0-9_-]*$/;
 const COMMIT_SHA_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
 
 export const githubSourceSchema = z.object({
-  /** Discriminator. Only GitHub sources are resolved today. */
+  /** Discriminator for a reviewed external repository. */
   source: z.literal("github"),
   /** `owner/repo` of the external plugin repository. */
   repo: z.string().regex(REPO_SLUG_RE, "expected an `owner/repo` slug"),
@@ -89,10 +88,61 @@ export const githubSourceSchema = z.object({
     ),
 });
 
+/**
+ * A plugin package shipped inside the assistant distribution. The path is a
+ * key into the generated bundled-package map, never a path resolved from the
+ * current working directory.
+ */
+export const localSourceSchema = z.object({
+  source: z.literal("local"),
+  path: z
+    .string()
+    .regex(/^plugins\/[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)+$/)
+    .refine(
+      (path) =>
+        !path
+          .split(/[/\\]/)
+          .some((segment) => segment === "." || segment === ".."),
+      "path must be a clean bundled-package path",
+    ),
+  version: z.string().min(1),
+  repo: z.never().optional(),
+  ref: z.never().optional(),
+});
+
+export const marketplaceSourceSchema = z.discriminatedUnion("source", [
+  githubSourceSchema,
+  localSourceSchema,
+]);
+
+export const mcpIntegrationSchema = z.object({
+  kind: z.literal("mcp"),
+  displayName: z.string().min(1),
+  documentationUrl: z.string().url(),
+  verifiedAt: z.iso.date(),
+  verification: z.literal("documentation-only"),
+  setup: z.object({
+    mode: z.enum(["oauth", "manual"]),
+    instructions: z.string().min(1),
+  }),
+  /** Filename under the web client's bundled integration-image directory. */
+  logo: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.-]*$/),
+  /**
+   * Where the integrations catalog files the entry. Any string at this
+   * boundary: a catalog newer than this build can name a category it does not
+   * know, and one unfamiliar slug must not reject the whole catalog. Clients
+   * normalize against the shared vocabulary; the bundled inventory test holds
+   * every entry in this repo to it.
+   */
+  category: z.string().optional(),
+  /** Existing main OAuth provider used to group a related MCP connection. */
+  oauthProvider: z.string().regex(PLUGIN_NAME_RE).optional(),
+});
+
 const marketplaceEntrySchema = z.object({
   /** Install name. `assistant plugins install <name>` resolves to this entry. */
   name: z.string().regex(PLUGIN_NAME_RE, "expected a kebab-case install name"),
-  source: githubSourceSchema,
+  source: marketplaceSourceSchema,
   description: z.string().optional(),
   /** Free-form grouping hint (e.g. `productivity`). Informational. */
   category: z.string().optional(),
@@ -111,9 +161,10 @@ const marketplaceEntrySchema = z.object({
       "expected a short emoji, not a URL or path",
     )
     .optional(),
+  integration: mcpIntegrationSchema.optional(),
 });
 
-export const marketplaceManifestSchema = z.object({
+const marketplaceManifestBaseSchema = z.object({
   name: z.string(),
   owner: z
     .object({
@@ -122,14 +173,33 @@ export const marketplaceManifestSchema = z.object({
       email: z.string().optional(),
     })
     .optional(),
+});
+
+export const marketplaceManifestSchema = marketplaceManifestBaseSchema.extend({
   plugins: z.array(marketplaceEntrySchema),
 });
 
-/** A single whitelisted external plugin entry. */
+const fetchedMarketplaceManifestSchema = marketplaceManifestBaseSchema.extend({
+  plugins: z.array(z.unknown()),
+});
+
+function readSourceDiscriminator(entry: unknown): unknown {
+  if (typeof entry !== "object" || entry === null) {
+    return null;
+  }
+  const source = (entry as Record<string, unknown>).source;
+  if (typeof source !== "object" || source === null) {
+    return null;
+  }
+  return (source as Record<string, unknown>).source;
+}
+
+/** A single reviewed plugin entry. */
 export type MarketplaceEntry = z.infer<typeof marketplaceEntrySchema>;
 
 /** Concrete GitHub coordinates an entry resolves to for install. */
-export interface ResolvedPluginSource {
+export interface ResolvedGitHubPluginSource {
+  readonly kind: "github";
   readonly owner: string;
   readonly repo: string;
   /** Directory within the repo holding the plugin root; `""` = repo root. */
@@ -137,6 +207,17 @@ export interface ResolvedPluginSource {
   /** Git ref to fetch from. */
   readonly ref: string;
 }
+
+/** Concrete bundled-package coordinates an entry resolves to for install. */
+export interface ResolvedLocalPluginSource {
+  readonly kind: "local";
+  readonly path: string;
+  readonly version: string;
+}
+
+export type ResolvedPluginSource =
+  | ResolvedGitHubPluginSource
+  | ResolvedLocalPluginSource;
 
 /** Options controlling which marketplace revision to read. */
 export interface FetchMarketplaceOptions {
@@ -236,23 +317,42 @@ export async function fetchMarketplaceEntries(
     json = JSON.parse(await res.text());
   } catch (err) {
     throw new MarketplaceFetchError(
-      `Marketplace manifest is not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
+      `Marketplace manifest is not valid JSON: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
     );
   }
 
-  const parsed = marketplaceManifestSchema.safeParse(json);
+  const parsed = fetchedMarketplaceManifestSchema.safeParse(json);
   if (!parsed.success) {
     throw new MarketplaceFetchError(
       `Marketplace manifest failed validation: ${parsed.error.message}`,
     );
   }
-
-  return parsed.data.plugins;
+  const entries: MarketplaceEntry[] = [];
+  for (const rawEntry of parsed.data.plugins) {
+    const sourceKind = readSourceDiscriminator(rawEntry);
+    if (
+      typeof sourceKind === "string" &&
+      sourceKind !== "github" &&
+      sourceKind !== "local"
+    ) {
+      continue;
+    }
+    const entry = marketplaceEntrySchema.safeParse(rawEntry);
+    if (!entry.success) {
+      throw new MarketplaceFetchError(
+        `Marketplace manifest failed validation: ${entry.error.message}`,
+      );
+    }
+    entries.push(entry.data);
+  }
+  return entries;
 }
 
 /**
- * Resolve a plugin name to concrete GitHub coordinates using the supplied
- * marketplace entries. Returns `null` when no entry claims the name.
+ * Resolve a plugin name to its exact source using the supplied marketplace
+ * entries. Returns `null` when no entry claims the name.
  */
 export function resolveMarketplaceSource(
   name: string,
@@ -262,8 +362,16 @@ export function resolveMarketplaceSource(
   if (!entry) {
     return null;
   }
+  if (entry.source.source === "local") {
+    return {
+      kind: "local",
+      path: entry.source.path,
+      version: entry.source.version,
+    };
+  }
   const [owner, repo] = entry.source.repo.split("/", 2) as [string, string];
   return {
+    kind: "github",
     owner,
     repo,
     path: entry.source.path ?? "",

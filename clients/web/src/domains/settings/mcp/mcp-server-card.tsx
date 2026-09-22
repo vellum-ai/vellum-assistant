@@ -1,288 +1,134 @@
-import {
-  AlertCircle,
-  CheckCircle2,
-  ChevronDown,
-  ChevronRight,
-  KeyRound,
-  Loader2,
-  LogIn,
-  LogOut,
-  Power,
-  RefreshCw,
-  Trash2,
-} from "lucide-react";
-import { useCallback, useState } from "react";
+import { MoreHorizontal, Settings, Trash2 } from "lucide-react";
 
-import type { McpServerEntry, McpToolsSummaryServer } from "./mcp-api";
+import { ActionMenu } from "@vellumai/design-library/components/action-menu";
 import { Button } from "@vellumai/design-library/components/button";
-import { Card } from "@vellumai/design-library/components/card";
-import { ListRow } from "@vellumai/design-library/components/list-row";
-import { Toggle } from "@vellumai/design-library/components/toggle";
+import { Tag } from "@vellumai/design-library/components/tag";
 
 import { useTranslation } from "@/i18n";
 
-type SettingsTranslate = ReturnType<
-  typeof useTranslation<"settings">
->["t"];
-
-const STATUS_CONFIG: Record<
-  string,
-  { icon: typeof CheckCircle2; className: string }
-> = {
-  connected: {
-    icon: CheckCircle2,
-    className: "text-[var(--system-positive-strong)]",
-  },
-  "needs-auth": {
-    icon: KeyRound,
-    className: "text-[var(--system-warning-strong)]",
-  },
-  disabled: {
-    icon: Power,
-    className: "text-[var(--content-tertiary)]",
-  },
-};
-
-const DEFAULT_STATUS = {
-  icon: AlertCircle,
-  className: "text-[var(--system-negative-strong)]",
-};
-
-function statusLabel(status: string, t: SettingsTranslate): string {
-  switch (status) {
-    case "connected":
-      return t("mcpServerCard.statusConnected");
-    case "needs-auth":
-      return t("mcpServerCard.statusNeedsAuth");
-    case "disabled":
-      return t("mcpServerCard.statusDisabled");
-    default:
-      return t("mcpServerCard.statusError");
-  }
-}
+import {
+  INTEGRATION_ACTION_SIZING,
+  IntegrationListRow,
+} from "../components/integration-list-row";
+import { integrationHostname } from "../integration-items";
+import type { McpServerEntry } from "./mcp-api";
+import { McpIntegrationIcon } from "./mcp-integration-icon";
 
 interface McpServerCardProps {
   server: McpServerEntry;
-  toolsSummary: McpToolsSummaryServer | undefined;
-  onToggleEnabled: (serverId: string, enabled: boolean) => void;
   onRemove: (serverId: string) => void;
   onConfigure: (serverId: string) => void;
   onAuthenticate: (serverId: string) => void;
-  onRevokeOAuth: (serverId: string) => void;
-  isUpdating: boolean;
+  onManagePlugin: (pluginName?: string) => void;
   isAuthenticating: boolean;
-  isRevoking: boolean;
+  connectDisabled?: boolean;
 }
 
 export function McpServerCard({
   server,
-  toolsSummary,
-  onToggleEnabled,
   onRemove,
   onConfigure,
   onAuthenticate,
-  onRevokeOAuth,
-  isUpdating,
+  onManagePlugin,
   isAuthenticating,
-  isRevoking,
+  connectDisabled = false,
 }: McpServerCardProps) {
   const { t } = useTranslation("settings");
-  const [toolsExpanded, setToolsExpanded] = useState(false);
-  const statusInfo = STATUS_CONFIG[server.status] ?? DEFAULT_STATUS;
-  const StatusIcon = statusInfo.icon;
-
-  const handleToggle = useCallback(
-    (next: boolean) => onToggleEnabled(server.id, next),
-    [onToggleEnabled, server.id],
-  );
-
-  const handleRemove = useCallback(
-    () => onRemove(server.id),
-    [onRemove, server.id],
-  );
-
-  const handleConfigure = useCallback(
-    () => onConfigure(server.id),
-    [onConfigure, server.id],
-  );
-
-  const handleAuthenticate = useCallback(
-    () => onAuthenticate(server.id),
-    [onAuthenticate, server.id],
-  );
-
-  const handleRevokeOAuth = useCallback(
-    () => onRevokeOAuth(server.id),
-    [onRevokeOAuth, server.id],
-  );
-
-  const toggleToolsExpanded = useCallback(
-    () => setToolsExpanded((prev) => !prev),
-    [],
-  );
+  const pluginOwned = server.source === "plugin";
+  const needsAuth =
+    !pluginOwned &&
+    server.status === "needs-auth" &&
+    server.transport.type !== "stdio";
+  // Configure is the resting action, so it takes the same outlined icon slot
+  // the rest of the list uses. The exceptional states keep their verb: a
+  // reconnect or a plugin hand-off is not something to guess from a glyph.
+  const configureOnly = !pluginOwned && !isAuthenticating && !needsAuth;
+  const actionLabel = pluginOwned
+    ? t("mcpServerCard.managePlugin")
+    : isAuthenticating
+      ? t("mcpServerCard.connecting")
+      : server.hasOAuth
+        ? t("mcpServerCard.reconnect")
+        : t("mcpServerCard.finishConnecting");
 
   return (
-    <Card.Root>
-      <Card.Body>
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex min-w-0 flex-1 items-center gap-3">
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <span className="truncate text-body-medium-default text-[var(--content-default)]">
-                  {server.id}
-                </span>
-                <span
-                  className={`flex items-center gap-1 text-label-medium-default ${statusInfo.className}`}
-                >
-                  <StatusIcon className="h-3.5 w-3.5" />
-                  {statusLabel(server.status, t)}
-                </span>
-                {server.hasOAuth ? (
-                  <span className="rounded-full bg-[var(--surface-lift)] px-2 py-0.5 text-label-small-default text-[var(--content-secondary)]">
-                    {t("mcpServerCard.oauthBadge")}
-                  </span>
-                ) : null}
-              </div>
-              <div className="mt-0.5 flex items-center gap-2 text-body-small-default text-[var(--content-tertiary)]">
-                <span>{server.transport.type}</span>
-                {toolsSummary ? (
-                  <>
-                    <span aria-hidden="true">&middot;</span>
-                    <span>
-                      {t("mcpServerCard.toolCount", {
-                        count: toolsSummary.toolCount,
-                      })}
-                    </span>
-                    <span aria-hidden="true">&middot;</span>
-                    <span>
-                      {t("mcpServerCard.estimatedTokens", {
-                        count: toolsSummary.estimatedTokens.toLocaleString(),
-                      })}
-                    </span>
-                  </>
-                ) : null}
-              </div>
-            </div>
-          </div>
-
-          <div className="flex shrink-0 items-center gap-2">
-            {isUpdating || isAuthenticating ? (
-              <Loader2 className="h-4 w-4 animate-spin text-[var(--content-tertiary)]" />
-            ) : null}
-            {server.status === "needs-auth" &&
-            server.transport.type !== "stdio" &&
-            !server.hasOAuth ? (
-              <Button
-                variant="ghost"
-                size="compact"
-                leftIcon={<LogIn />}
-                onClick={handleAuthenticate}
-                disabled={isAuthenticating}
-              >
-                {isAuthenticating
-                  ? t("mcpServerCard.authenticating")
-                  : t("mcpServerCard.authenticate")}
-              </Button>
-            ) : null}
-            {server.hasOAuth ? (
-              <>
-                <Button
-                  variant="ghost"
-                  size="compact"
-                  leftIcon={<RefreshCw />}
-                  onClick={handleAuthenticate}
-                  disabled={isAuthenticating}
-                  tooltip={t("mcpServerCard.reAuthTooltip")}
-                >
-                  {t("mcpServerCard.reAuth")}
-                </Button>
-                <Button
-                  variant="dangerGhost"
-                  size="compact"
-                  leftIcon={<LogOut />}
-                  onClick={handleRevokeOAuth}
-                  disabled={isRevoking}
-                  tooltip={t("mcpServerCard.revokeOAuthTooltip")}
-                >
-                  {isRevoking
-                    ? t("mcpServerCard.revoking")
-                    : t("mcpServerCard.revoke")}
-                </Button>
-              </>
-            ) : null}
-            <Toggle
-              checked={server.enabled}
-              onChange={handleToggle}
-              disabled={isUpdating}
-              aria-label={
-                server.enabled
-                  ? t("mcpServerCard.toggleDisableAriaLabel", {
-                      serverId: server.id,
-                    })
-                  : t("mcpServerCard.toggleEnableAriaLabel", {
-                      serverId: server.id,
-                    })
+    <IntegrationListRow
+      icon={<McpIntegrationIcon />}
+      title={server.id}
+      subtitle={pluginOwned ? server.pluginName : integrationHostname(server)}
+      status={
+        server.status === "connected" ? undefined : (
+          <Tag tone="negative">{t("mcpServerCard.statusNeedsAttention")}</Tag>
+        )
+      }
+      primaryAction={
+        configureOnly ? (
+          <Button
+            variant="outlined"
+            className={INTEGRATION_ACTION_SIZING}
+            iconOnly={<Settings />}
+            aria-label={t("mcpServerCard.configureLabel", {
+              serverId: server.id,
+            })}
+            onClick={() => onConfigure(server.id)}
+          />
+        ) : (
+          <Button
+            variant={needsAuth ? "primary" : "outlined"}
+            loading={isAuthenticating}
+            onClick={() => {
+              if (pluginOwned) {
+                onManagePlugin(server.pluginName);
+              } else if (needsAuth) {
+                onAuthenticate(server.id);
               }
-            />
+            }}
+            disabled={isAuthenticating || (needsAuth && connectDisabled)}
+          >
+            {actionLabel}
+          </Button>
+        )
+      }
+      actionMenu={
+        <ActionMenu.Root>
+          <ActionMenu.Trigger asChild>
             <Button
               variant="ghost"
-              size="compact"
-              onClick={handleConfigure}
-              tooltip={t("mcpServerCard.configureTooltip")}
-            >
-              {t("mcpServerCard.configure")}
-            </Button>
-            <Button
-              variant="dangerGhost"
-              size="compact"
-              iconOnly={<Trash2 />}
-              onClick={handleRemove}
-              tooltip={t("mcpServerCard.removeServerTooltip")}
-              aria-label={t("mcpServerCard.removeServerAriaLabel", {
+              iconOnly={<MoreHorizontal />}
+              className={INTEGRATION_ACTION_SIZING}
+              aria-label={t("mcpServerCard.moreActions", {
                 serverId: server.id,
               })}
             />
-          </div>
-        </div>
-
-        {toolsSummary && toolsSummary.tools.length > 0 ? (
-          <div className="mt-3 border-t border-[var(--border-base)] pt-2">
-            <button
-              type="button"
-              onClick={toggleToolsExpanded}
-              className="flex w-full cursor-pointer items-center gap-1 text-body-small-default text-[var(--content-secondary)] hover:text-[var(--content-default)]"
-            >
-              {toolsExpanded ? (
-                <ChevronDown className="h-3.5 w-3.5" />
-              ) : (
-                <ChevronRight className="h-3.5 w-3.5" />
-              )}
-              {t("mcpServerCard.registeredTools", {
-                count: toolsSummary.toolCount,
-              })}
-            </button>
-
-            {toolsExpanded ? (
-              <div className="mt-2 max-h-60 overflow-y-auto">
-                {toolsSummary.tools.map((tool) => (
-                  <ListRow
-                    key={tool.name}
-                    title={tool.name}
-                    subtitle={tool.description || undefined}
-                    trailing={
-                      <span className="whitespace-nowrap text-body-small-default text-[var(--content-secondary)]">
-                        {t("mcpServerCard.toolTokensAbbrev", {
-                          count: tool.estimatedTokens.toLocaleString(),
-                        })}
-                      </span>
-                    }
-                  />
-                ))}
-              </div>
+          </ActionMenu.Trigger>
+          <ActionMenu.Content
+            title={server.id}
+            showTitle
+            closeLabel={t("mcpServerCard.actionsSheetClose")}
+            align="end"
+          >
+            {needsAuth || pluginOwned ? (
+              <ActionMenu.Item
+                icon={Settings}
+                label={
+                  pluginOwned
+                    ? t("mcpServerCard.viewDetails")
+                    : t("mcpServerCard.configure")
+                }
+                onSelect={() => onConfigure(server.id)}
+              />
             ) : null}
-          </div>
-        ) : null}
-      </Card.Body>
-    </Card.Root>
+            {!pluginOwned ? (
+              <ActionMenu.Item
+                icon={Trash2}
+                label={t("mcpServerCard.removeServer")}
+                tone="destructive"
+                onSelect={() => onRemove(server.id)}
+              />
+            ) : null}
+          </ActionMenu.Content>
+        </ActionMenu.Root>
+      }
+    />
   );
 }

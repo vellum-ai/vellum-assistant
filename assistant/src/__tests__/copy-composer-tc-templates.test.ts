@@ -53,7 +53,7 @@ describe("guardian_decision fallback copy", () => {
     const result = composeFallbackCopy(signal, ["vellum"]);
     const copy = result.vellum!;
 
-    expect(copy.title).toBe("Trusted Contact Decision");
+    expect(copy.title).toBe("Access request denied");
     expect(copy.body).toBe("Alice's access request has been denied by Bob.");
   });
 
@@ -216,7 +216,7 @@ describe("guardian_decision fallback copy", () => {
     const result = composeFallbackCopy(signal, ["vellum"]);
     const copy = result.vellum!;
 
-    expect(copy.title).toBe("Trusted Contact Decision");
+    expect(copy.title).toBe("Access request denied");
     expect(copy.body).toBe(
       "Someone's access request has been denied by a guardian.",
     );

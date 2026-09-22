@@ -38,6 +38,7 @@ const mockListProviders = mock(() => [
     identityBody: null,
     identityFormat: null,
     identityOkField: null,
+    responseOkField: null,
     identityResponsePaths: null,
     featureFlag: null,
     createdAt: 1735689500000,
@@ -80,6 +81,7 @@ const mockListProviders = mock(() => [
     identityBody: null,
     identityFormat: null,
     identityOkField: null,
+    responseOkField: null,
     identityResponsePaths: null,
     featureFlag: null,
     createdAt: 1735689600000,
@@ -178,6 +180,8 @@ describe("GET /v1/oauth/providers", () => {
       "supports_managed_mode",
       "managed_service_is_paid",
       "feature_flag",
+      "category",
+      "tenant_host",
       "acts_as",
     ];
 

@@ -78,7 +78,7 @@ afterEach(() => {
 describe("startsOnSwipeActionRow", () => {
   test("is true on a marked row and its descendants", () => {
     const row = document.createElement("div");
-    row.setAttribute("data-slot", "swipe-action-row");
+    row.setAttribute("data-swipe-action-row", "");
     const label = document.createElement("span");
     row.appendChild(label);
     document.body.appendChild(row);
@@ -173,7 +173,7 @@ describe("useSwipeCloseDrawer", () => {
     // is what keeps it reachable.
     const onClose = mock(() => {});
     const row = document.createElement("div");
-    row.setAttribute("data-slot", "swipe-action-row");
+    row.setAttribute("data-swipe-action-row", "");
     const label = document.createElement("span");
     row.appendChild(label);
     document.body.appendChild(row);

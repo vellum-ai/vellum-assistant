@@ -25,7 +25,7 @@ import { guardianLabelKey, resolveFeedItemTitle } from "../utils";
  * when they swap.
  */
 export const NOTIFICATIONS_PANEL_HEADER_CLASS =
-  "mb-[var(--app-spacing-sm)] flex min-h-8 items-center gap-[var(--app-spacing-xs)]";
+  "flex min-h-8 items-center gap-[var(--app-spacing-xs)] border-b border-[var(--border-subtle)] px-[var(--app-spacing-lg)] py-[var(--app-spacing-md)]";
 
 /**
  * Notification bodies read as prose here, so paragraphs and list items take a
@@ -51,11 +51,12 @@ export interface NotificationsBellDetailProps {
    */
   contentMaxHeight?: string;
   /**
-   * Ids of the conversations that still exist, merged from the foreground,
-   * background, and scheduled lists.
+   * Ids of conversations the by-id read has vouched for (or is still
+   * vouching for, while pending). Sidebar list membership is not consulted:
+   * scheduled runs are missing from the foreground list even when they exist.
    */
   validConversationIds: Set<string>;
-  /** True while any of those lists has yet to resolve. */
+  /** True while the by-id read for this item's conversation is in flight. */
   areConversationListsPending: boolean;
   /**
    * Links to the entities this notification names (its schedule, the skill it
@@ -113,7 +114,7 @@ export function NotificationsBellDetail({
   // request needs nothing of anyone, so the same name reads as plain text.
   const isTitleAwaitingAction = isPendingGuardianFeedItem(item);
 
-  // The lists start loading when this view opens, so validation has a pending
+  // The by-id read starts when this view opens, so validation has a pending
   // state a warm-cache surface would not have. Every
   // list a candidate link depends on has to land before any link becomes
   // reachable, so the buttons settle together rather than one at a time and a
@@ -122,10 +123,11 @@ export function NotificationsBellDetail({
     (conversationId !== null && areConversationListsPending) ||
     areEntityLinksPending;
 
-  // A link the lists have yet to vouch for still renders, holding the box it
-  // will occupy so the footer keeps its shape once validation resolves. One
-  // whose target turns out to be gone drops out (entity links are dropped by
-  // the resolver itself, the conversation link here).
+  // A link the by-id read (or an entity list) has yet to vouch for still
+  // renders, holding the box it will occupy so the footer keeps its shape
+  // once validation resolves. One whose target turns out to be gone drops
+  // out (entity links are dropped by the resolver itself, the conversation
+  // link here).
   const linkedConversationId =
     conversationId !== null &&
     (isValidationPending || validConversationIds.has(conversationId))
@@ -199,7 +201,7 @@ export function NotificationsBellDetail({
       <div
         data-testid="notifications-bell-detail-content"
         style={{ height: contentHeight, maxHeight: contentMaxHeight }}
-        className="overflow-y-auto px-[var(--app-spacing-md)]"
+        className="overflow-y-auto px-[var(--app-spacing-lg)] pt-[var(--app-spacing-lg)]"
       >
         {item.detailPanel?.kind === "toolPermission" ? (
           <HomeToolPermissionCard item={item} />
@@ -249,7 +251,7 @@ export function NotificationsBellDetail({
       */}
       <div
         data-testid="notifications-bell-detail-footer"
-        className="mt-[var(--app-spacing-sm)] flex flex-wrap items-center justify-between gap-[var(--app-spacing-sm)] border-t border-[var(--border-base)] pt-[var(--app-spacing-sm)]"
+        className="flex flex-wrap items-center justify-between gap-[var(--app-spacing-sm)] border-t border-[var(--border-subtle)] p-[var(--app-spacing-lg)]"
       >
         <Typography
           variant="body-small-lighter"

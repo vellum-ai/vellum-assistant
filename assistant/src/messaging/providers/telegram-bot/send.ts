@@ -13,6 +13,7 @@ import type {
 import { getAttachmentContent } from "../../../persistence/attachments-store.js";
 import type { RuntimeAttachmentMetadata } from "../../../runtime/http-types.js";
 import { getLogger } from "../../../util/logger.js";
+import { type AcknowledgedSend, acknowledgedSend } from "../send-result.js";
 import {
   callTelegramBotApi,
   callTelegramBotApiMultipart,
@@ -30,7 +31,9 @@ const TELEGRAM_MAX_MESSAGE_LEN = 4000;
 /** Telegram Bot API enforces a 1-64 byte limit on InlineKeyboardButton callback_data. */
 const TELEGRAM_MAX_CALLBACK_DATA_BYTES = 64;
 
-// Telegram Bot API sendDocument upload limit is 50 MB
+// Bot API limits for a multipart upload: 10 MB for a photo, 50 MB for any
+// other file (https://core.telegram.org/bots/api#sending-files).
+const TELEGRAM_MAX_PHOTO_BYTES = 10 * 1024 * 1024;
 const TELEGRAM_MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024;
 
 const TELEGRAM_IMAGE_MIME_PREFIXES = [
@@ -125,15 +128,19 @@ function buildInlineKeyboard(approval: ApprovalUIMetadata): {
 // Public API
 // ---------------------------------------------------------------------------
 
-/** Outcome of a Telegram reply send. */
-export interface TelegramSendResult {
-  /**
-   * Channel-native id of the last sent chunk (the message carrying the
-   * inline keyboard when an approval was attached). Callers that need to
-   * address the message later (e.g. approval-card withdrawal) persist this.
-   * Undefined when the API response did not carry a message id.
-   */
-  lastMessageId?: string;
+/**
+ * Outcome of a Telegram reply send: `lastMessageId` is the final chunk (the
+ * message carrying the inline keyboard when an approval was attached) and
+ * `messageIds` every chunk the provider acknowledged, in send order. See
+ * {@link AcknowledgedSend} for why the two are derived separately.
+ */
+export type TelegramSendResult = AcknowledgedSend;
+
+/** The message id a Telegram send response carries, when it carries one. */
+function sentMessageId(sent: TelegramMessage | undefined): string | undefined {
+  return typeof sent?.message_id === "number"
+    ? String(sent.message_id)
+    : undefined;
 }
 
 /**
@@ -191,7 +198,7 @@ export async function sendTelegramReply(
 ): Promise<TelegramSendResult> {
   const chunks = splitText(text, TELEGRAM_MAX_MESSAGE_LEN);
 
-  let lastMessageId: string | undefined;
+  const ids: Array<string | undefined> = [];
   for (let i = 0; i < chunks.length; i++) {
     const payload: Record<string, unknown> = {
       chat_id: chatId,
@@ -209,14 +216,11 @@ export async function sendTelegramReply(
       "sendMessage",
       payload,
     );
-    lastMessageId =
-      typeof sent?.message_id === "number"
-        ? String(sent.message_id)
-        : undefined;
+    ids.push(sentMessageId(sent));
   }
 
   log.debug({ chatId, chunks: chunks.length }, "Telegram reply sent");
-  return lastMessageId !== undefined ? { lastMessageId } : {};
+  return acknowledgedSend(ids);
 }
 
 /**
@@ -251,12 +255,11 @@ export async function sendTelegramRichReply(
   markdown: string,
   approval?: ApprovalUIMetadata,
   opts?: TelegramSendOptions,
-): Promise<void> {
+): Promise<TelegramSendResult> {
   const html = renderTelegramHtml(markdown);
   if (html === undefined) {
     // No renderable rich content — send as plain text.
-    await sendTelegramReply(chatId, markdown, approval, opts);
-    return;
+    return sendTelegramReply(chatId, markdown, approval, opts);
   }
 
   const payload: Record<string, unknown> = {
@@ -269,16 +272,20 @@ export async function sendTelegramRichReply(
   }
 
   try {
-    await callTelegramBotApi("sendRichMessage", payload);
+    // sendRichMessage returns the sent Message like sendMessage does.
+    const sent = await callTelegramBotApi<TelegramMessage>(
+      "sendRichMessage",
+      payload,
+    );
     log.debug({ chatId }, "Telegram rich message sent");
+    return acknowledgedSend([sentMessageId(sent)]);
   } catch (err) {
     if (err instanceof TelegramNonRetryableError) {
       log.warn(
         { chatId, description: err.description },
         "Telegram rejected rich message; falling back to plain text",
       );
-      await sendTelegramReply(chatId, markdown, approval, opts);
-      return;
+      return sendTelegramReply(chatId, markdown, approval, opts);
     }
     throw err;
   }
@@ -291,8 +298,9 @@ export type TelegramAttachmentResult = {
 };
 
 /**
- * Send attachments to a Telegram chat, using sendPhoto for images and
- * sendDocument for everything else.
+ * Send attachments to a Telegram chat, using sendPhoto for an image within
+ * the photo limit and sendDocument for everything else, so an image over it
+ * still arrives as a file.
  */
 export async function sendTelegramAttachments(
   chatId: string,
@@ -346,10 +354,10 @@ export async function sendTelegramAttachments(
         form.set("message_thread_id", String(threadFields.message_thread_id));
       }
 
-      const isImage = TELEGRAM_IMAGE_MIME_PREFIXES.some((p) =>
-        mimeType.startsWith(p),
-      );
-      if (isImage) {
+      const sendsAsPhoto =
+        TELEGRAM_IMAGE_MIME_PREFIXES.some((p) => mimeType.startsWith(p)) &&
+        content.length <= TELEGRAM_MAX_PHOTO_BYTES;
+      if (sendsAsPhoto) {
         form.set("photo", blob, filename);
         await callTelegramBotApiMultipart("sendPhoto", form);
       } else {

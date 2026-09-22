@@ -9,6 +9,8 @@
 
 import { describe, expect, test } from "bun:test";
 
+import { IpcConnectError } from "@vellumai/gateway-client/ipc-client";
+
 import {
   RouteError,
   UnprocessableEntityError,
@@ -76,5 +78,15 @@ describe("AssistantIpcServer error envelope", () => {
     expect(response.error).toBe("Error: raw");
     expect(response.errorCode).toBeUndefined();
     expect(response.errorDetails).toBeUndefined();
+  });
+
+  test("IpcConnectError surfaces as 503 SERVICE_UNAVAILABLE", () => {
+    const response = buildErrorResponse(
+      new IpcConnectError("connect ENOENT", "ENOENT"),
+    );
+
+    expect(response.statusCode).toBe(503);
+    expect(response.errorCode).toBe("SERVICE_UNAVAILABLE");
+    expect(response.error).toContain("Gateway is not reachable over IPC");
   });
 });

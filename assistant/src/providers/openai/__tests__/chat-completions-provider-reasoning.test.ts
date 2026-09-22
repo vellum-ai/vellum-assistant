@@ -1,12 +1,14 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import OpenAI from "openai";
 
+import { ProviderError } from "../../../util/errors.js";
 import { isPlaceholderSentinelText } from "../../placeholder-sentinels.js";
 import {
   EMPTY_ASSISTANT_TURN_PLACEHOLDER,
   OpenAIChatCompletionsProvider,
   type OpenAIChatCompletionsProviderOptions,
+  resetReasoningOptOutRejectersForTests,
 } from "../chat-completions-provider.js";
 
 type ReasoningDetail = {
@@ -777,6 +779,65 @@ function rejection(message: string, status = 400): Error {
 }
 
 describe("reasoning opt-out rejection fallback", () => {
+  beforeEach(() => {
+    resetReasoningOptOutRejectersForTests();
+  });
+
+  test("remembers a rejecting model and skips the opt-out on later requests", async () => {
+    const { provider, requests } = stubProviderWithErrors(
+      [rejection("reasoning_effort 'none' is not supported for this model")],
+      OK_CHUNKS,
+    );
+    const send = () =>
+      provider.sendMessage(
+        [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+        { config: { effort: "none" } },
+      );
+
+    await send();
+    await send();
+
+    expect(requests).toHaveLength(3);
+    expect(
+      (requests[2] as { reasoning_effort?: string }).reasoning_effort,
+    ).toBeUndefined();
+  });
+
+  test("does not remember when success needed a further compat retry", async () => {
+    // The broad /reasoning/ match misreads the reasoning_content round-trip
+    // error as an opt-out rejection; the request only succeeds after the
+    // backfill retry, so the opt-out itself was never proven unsupported.
+    const { provider, requests } = stubProviderWithErrors(
+      [
+        rejection("reasoning_content must be passed back to the API"),
+        rejection("reasoning_content must be passed back to the API"),
+      ],
+      OK_CHUNKS,
+    );
+    const messages = [
+      {
+        role: "user" as const,
+        content: [{ type: "text" as const, text: "hi" }],
+      },
+      {
+        role: "assistant" as const,
+        content: [{ type: "text" as const, text: "hello" }],
+      },
+      {
+        role: "user" as const,
+        content: [{ type: "text" as const, text: "again" }],
+      },
+    ];
+
+    await provider.sendMessage(messages, { config: { effort: "none" } });
+    await provider.sendMessage(messages, { config: { effort: "none" } });
+
+    expect(requests).toHaveLength(4);
+    expect(
+      (requests[3] as { reasoning_effort?: string }).reasoning_effort,
+    ).toBe("none");
+  });
+
   test("retries once without reasoning params when a model rejects the explicit opt-out", async () => {
     const { provider, requests } = stubProviderWithErrors(
       [rejection("reasoning_effort 'none' is not supported for this model")],
@@ -925,6 +986,99 @@ describe("thinking-mode tool_choice rejection fallback", () => {
       reasoning_effort?: string;
     };
     expect(first.tool_choice).toBe("none");
+    expect(first.reasoning_effort).toBe("high");
+    expect(second.tool_choice).toBeUndefined();
+    expect(second.reasoning_effort).toBe("high");
+    expect(
+      (response.rawRequest as { tool_choice?: unknown }).tool_choice,
+    ).toBeUndefined();
+    const text = response.content.find((b) => b.type === "text") as
+      | { type: "text"; text: string }
+      | undefined;
+    expect(text?.text).toBe("ok");
+  });
+
+  test("ProviderError.rawRequest is the post-retry params when the retried call fails", async () => {
+    const { provider } = stubProviderWithErrors(
+      [
+        rejection("Thinking mode does not support this tool_choice"),
+        Object.assign(
+          new Error("Thinking mode does not support this tool_choice"),
+          { status: 400 },
+        ),
+      ],
+      OK_CHUNKS,
+    );
+
+    try {
+      await provider.sendMessage(
+        [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+        {
+          tools: [
+            {
+              name: "bash",
+              description: "Run a shell command",
+              input_schema: { type: "object", properties: {} },
+            },
+          ],
+          config: { tool_choice: { type: "none" }, effort: "high" },
+        },
+      );
+      throw new Error("expected ProviderError");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ProviderError);
+      const rejected = error as ProviderError;
+      expect(
+        (rejected.rawRequest as { tool_choice?: unknown } | undefined)
+          ?.tool_choice,
+      ).toBeUndefined();
+      expect(
+        (rejected.rawRequest as { reasoning_effort?: string } | undefined)
+          ?.reasoning_effort,
+      ).toBe("high");
+    }
+  });
+
+  test("retries once when Kimi rejects a specified tool_choice in thinking mode", async () => {
+    const { provider, requests } = stubProviderWithErrors(
+      [
+        rejection(
+          "tool_choice 'specified' is incompatible with thinking enabled",
+        ),
+      ],
+      OK_CHUNKS,
+    );
+
+    const response = await provider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+      {
+        tools: [
+          {
+            name: "select_pages",
+            description: "Pick relevant memory pages",
+            input_schema: { type: "object", properties: {} },
+          },
+        ],
+        config: {
+          tool_choice: { type: "tool", name: "select_pages" },
+          effort: "high",
+        },
+      },
+    );
+
+    expect(requests).toHaveLength(2);
+    const first = requests[0] as {
+      tool_choice?: { type: string; function: { name: string } };
+      reasoning_effort?: string;
+    };
+    const second = requests[1] as {
+      tool_choice?: unknown;
+      reasoning_effort?: string;
+    };
+    expect(first.tool_choice).toEqual({
+      type: "function",
+      function: { name: "select_pages" },
+    });
     expect(first.reasoning_effort).toBe("high");
     expect(second.tool_choice).toBeUndefined();
     expect(second.reasoning_effort).toBe("high");
@@ -1141,33 +1295,80 @@ describe("unknown assistant reasoning field rejection fallback", () => {
     },
   ];
 
-  test("retries once without reasoning_content when a strict schema rejects it", async () => {
+  test.each([
+    [
+      "a strict schema",
+      "Additional properties are not allowed ('reasoning_content' was unexpected)",
+    ],
+    ["Groq", "property 'reasoning_content' is unsupported"],
+  ])(
+    "retries once without reasoning_content when %s rejects it",
+    async (_upstream, message) => {
+      const { provider, requests } = stubProviderWithErrors(
+        [rejection(message)],
+        OK_CHUNKS,
+        { assistantReasoningField: "reasoning_content" },
+      );
+
+      const response = await provider.sendMessage(thinkingHistory);
+
+      expect(requests).toHaveLength(2);
+      const first = requests[0] as {
+        messages: Array<{ reasoning_content?: string; content: string | null }>;
+      };
+      const second = requests[1] as {
+        messages: Array<{ reasoning_content?: string; content: string | null }>;
+      };
+      expect(first.messages[0].reasoning_content).toBe("hidden chain");
+      expect(second.messages[0].reasoning_content).toBeUndefined();
+      expect(second.messages[0].content).toBe("answer");
+      const text = response.content.find((b) => b.type === "text") as
+        | { type: "text"; text: string }
+        | undefined;
+      expect(text?.text).toBe("ok");
+    },
+  );
+
+  test("preserves assistant tool calls when stripping an unsupported reasoning_content", async () => {
     const { provider, requests } = stubProviderWithErrors(
-      [
-        rejection(
-          "Additional properties are not allowed ('reasoning_content' was unexpected)",
-        ),
-      ],
+      [rejection("property 'reasoning_content' is unsupported")],
       OK_CHUNKS,
       { assistantReasoningField: "reasoning_content" },
     );
 
-    const response = await provider.sendMessage(thinkingHistory);
+    await provider.sendMessage([
+      {
+        role: "assistant",
+        content: [
+          { type: "thinking", thinking: "hidden chain", signature: "" },
+          {
+            type: "tool_use",
+            id: "call_1",
+            name: "lookup",
+            input: { q: "x" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "call_1", content: "found" },
+        ],
+      },
+    ]);
 
     expect(requests).toHaveLength(2);
-    const first = requests[0] as {
-      messages: Array<{ reasoning_content?: string; content: string | null }>;
-    };
     const second = requests[1] as {
-      messages: Array<{ reasoning_content?: string; content: string | null }>;
+      messages: Array<{
+        role: string;
+        reasoning_content?: string;
+        tool_calls?: Array<{ id: string; function: { name: string } }>;
+      }>;
     };
-    expect(first.messages[0].reasoning_content).toBe("hidden chain");
-    expect(second.messages[0].reasoning_content).toBeUndefined();
-    expect(second.messages[0].content).toBe("answer");
-    const text = response.content.find((b) => b.type === "text") as
-      | { type: "text"; text: string }
-      | undefined;
-    expect(text?.text).toBe("ok");
+    const assistant = second.messages.find((m) => m.role === "assistant");
+    expect(assistant?.reasoning_content).toBeUndefined();
+    expect(assistant?.tool_calls?.[0]?.id).toBe("call_1");
+    expect(assistant?.tool_calls?.[0]?.function.name).toBe("lookup");
   });
 
   test("does not strip reasoning_content on a must-be-passed-back error", async () => {
@@ -1187,6 +1388,38 @@ describe("unknown assistant reasoning field rejection fallback", () => {
       (requests[0] as { messages: Array<{ reasoning_content?: string }> })
         .messages[0].reasoning_content,
     ).toBe("hidden chain");
+  });
+
+  test("does not strip reasoning_content on a 429 output-token limit", async () => {
+    const { provider, requests } = stubProviderWithErrors(
+      [
+        rejection(
+          "Rate limit reached for model `qwen/qwen3-32b` in organization `org_x` on tokens per minute (TPM): Limit 1000, Requested 4000.",
+          429,
+        ),
+      ],
+      OK_CHUNKS,
+      { assistantReasoningField: "reasoning_content" },
+    );
+
+    await expect(provider.sendMessage(thinkingHistory)).rejects.toThrow();
+    expect(requests).toHaveLength(1);
+  });
+
+  test("does not strip reasoning_content on a 413 input-token limit", async () => {
+    const { provider, requests } = stubProviderWithErrors(
+      [
+        rejection(
+          "Request too large for model `qwen/qwen3-32b` in organization `org_x` on tokens per minute (TPM): Limit 7000, Requested 24936.",
+          413,
+        ),
+      ],
+      OK_CHUNKS,
+      { assistantReasoningField: "reasoning_content" },
+    );
+
+    await expect(provider.sendMessage(thinkingHistory)).rejects.toThrow();
+    expect(requests).toHaveLength(1);
   });
 
   test("does not retry unknown-field 500s", async () => {

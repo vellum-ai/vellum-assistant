@@ -13,11 +13,15 @@ export const SYNC_TAGS = {
   assistantConfig: "assistant:self:config",
   assistantSounds: "assistant:self:sounds",
   assistantSchedules: "assistant:self:schedules",
+  assistantDesktop: "assistant:self:desktop",
   assistantTheme: "assistant:self:theme",
   appsList: "apps:list",
   documentsList: "documents:list",
   pluginsList: "plugins:list",
+  mcpList: "mcp:list",
   conversationsList: "conversations:list",
+  /** Activation-checklist progress: task launches, step counts, completions. */
+  activationProgress: "activation:progress",
   featureFlagsClient: "feature-flags:client",
   featureFlagsAssistant: "feature-flags:assistant",
   /** ACP credential-failure markers, which drive the inline Connect card.

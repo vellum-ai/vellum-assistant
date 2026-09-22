@@ -2,25 +2,26 @@
  * Vellum channel adapter — delivers notifications to connected desktop
  * and mobile clients via the daemon's event broadcast mechanism.
  *
- * The adapter broadcasts a `notification_intent` message that the Vellum
- * client uses for two distinct purposes: paired-conversation bookkeeping
- * (mark-unseen + history catch-up, fallback dedup) and posting an OS
- * banner via `UNUserNotificationCenter`. The banner posting is gated by
- * the `silent` flag — set to true for non-urgent (`low`/`medium`) signals
- * so the notification center inbox still receives the entry but the OS
- * does not surface a push banner. Urgent signals (`high`/`critical`)
- * broadcast with `silent: false` and fire the banner.
+ * The adapter broadcasts a `notification_intent` message that the client
+ * turns into an OS notification (`use-notification-intent-sync.ts` in the
+ * web client, which every first-party app runs). The `silent` flag is true
+ * for non-urgent (`low`/`medium`) signals, and the client posts nothing for
+ * those: they reach their conversation (and the home feed, for background
+ * work) without a banner.
+ * Urgent signals (`high`/`critical`) broadcast with `silent: false` and
+ * banner.
  *
  * Guardian-sensitive notifications (approval requests, access requests)
- * are annotated with `targetGuardianPrincipalId` so that only clients
- * bound to the guardian identity display them. Non-guardian clients
- * should ignore notifications with a `targetGuardianPrincipalId` that
- * does not match their own identity.
+ * are delivered only to connections authenticated as the guardian: the hub
+ * matches `targetActorPrincipalId` against each connection's verified
+ * principal, so no other connection ever receives the title and body. The
+ * payload's `targetGuardianPrincipalId` records that scoping for clients.
  */
 
 import type { AssistantEvent } from "../../api/index.js";
-import type { InterfaceId } from "../../channels/types.js";
+import { getAssistantName } from "../../daemon/identity-helpers.js";
 import { updateMessageContent } from "../../persistence/conversation-crud.js";
+import type { BroadcastMessageOptions } from "../../runtime/assistant-event-hub.js";
 import { publishConversationMessagesChanged } from "../../runtime/sync/resource-sync-events.js";
 import { getLogger } from "../../util/logger.js";
 import type {
@@ -35,28 +36,16 @@ import type {
 
 const log = getLogger("notif-adapter-vellum");
 
-/**
- * Optional targeting/filtering applied at the hub when a broadcast is
- * emitted. Mirrors the third argument of
- * `broadcastMessage()` in `runtime/assistant-event-hub.ts`. Callers can
- * use `targetInterfaceId` to scope a legacy message to a single client
- * surface (e.g. macOS) during a migration window.
- */
-export interface BroadcastFnOptions {
-  targetClientId?: string;
-  targetInterfaceId?: InterfaceId;
-}
-
 export type BroadcastFn = (
   msg: AssistantEvent,
   conversationId?: string,
-  options?: BroadcastFnOptions,
+  options?: BroadcastMessageOptions,
 ) => void;
 
 /**
  * Event name prefixes that carry guardian-sensitive content (approval
- * requests, access requests). Notifications for these events are scoped
- * to bound guardian devices via `targetGuardianPrincipalId`.
+ * requests, access requests). Notifications for these events reach only
+ * the guardian's own connections.
  */
 const GUARDIAN_SENSITIVE_EVENT_PREFIXES = [
   "guardian.question",
@@ -85,10 +74,9 @@ export class VellumAdapter implements ChannelAdapter {
     destination: ChannelDestination,
   ): Promise<DeliveryResult> {
     try {
-      // For guardian-sensitive events, annotate the outbound message with
-      // the target guardian identity so clients can filter. The
-      // guardianPrincipalId comes from the vellum binding resolved by
-      // the destination resolver.
+      // For guardian-sensitive events, deliver only to the guardian's own
+      // connections. The guardianPrincipalId comes from the vellum binding
+      // resolved by the destination resolver.
       const guardianPrincipalId =
         typeof destination.metadata?.guardianPrincipalId === "string"
           ? destination.metadata.guardianPrincipalId
@@ -101,20 +89,26 @@ export class VellumAdapter implements ChannelAdapter {
 
       const silent =
         payload.urgency !== "high" && payload.urgency !== "critical";
+      const assistantName = getAssistantName()?.trim() || undefined;
 
-      this.broadcast({
-        type: "notification_intent",
-        deliveryId: payload.deliveryId,
-        correlationId: payload.correlationId,
-        sourceEventName: payload.sourceEventName,
-        title: payload.copy.title,
-        body: payload.copy.body,
-        deepLinkMetadata: payload.deepLinkTarget,
-        targetGuardianPrincipalId,
-        silent,
-        remotePushDispatched: payload.remotePushDispatched,
-        remotePushPlatforms: payload.remotePushPlatforms,
-      } as AssistantEvent);
+      this.broadcast(
+        {
+          type: "notification_intent",
+          deliveryId: payload.deliveryId,
+          correlationId: payload.correlationId,
+          sourceEventName: payload.sourceEventName,
+          ...(assistantName ? { assistantName } : {}),
+          title: payload.copy.title,
+          body: payload.copy.body,
+          deepLinkMetadata: payload.deepLinkTarget,
+          targetGuardianPrincipalId,
+          silent,
+          remotePushDispatched: payload.remotePushDispatched,
+          remotePushPlatforms: payload.remotePushPlatforms,
+        },
+        undefined,
+        { targetActorPrincipalId: targetGuardianPrincipalId },
+      );
 
       log.info(
         {

@@ -103,10 +103,11 @@ const openWorkspaceFile = mock(async (_path: string) => {});
 
 mock.module("@/utils/open-workspace-file", () => ({ openWorkspaceFile }));
 
-const { ChatMarkdownMessage, isVellumLink } = await import(
-  "@/domains/chat/components/chat-markdown-message"
-);
+const { ChatMarkdownMessage, isVellumLink } =
+  await import("@/domains/chat/components/chat-markdown-message");
 const { useViewerStore } = await import("@/stores/viewer-store");
+const { attachmentContentQueryKey } =
+  await import("@/domains/chat/components/chat-attachments/use-attachment-object-url");
 
 function makeAttachment(
   overrides: Pick<DisplayAttachment, "filename" | "mimeType"> &
@@ -115,10 +116,14 @@ function makeAttachment(
   return { id: "att-1", sizeBytes: 1024, previewUrl: null, ...overrides };
 }
 
-function renderMarkdown(props: ChatMarkdownMessageProps) {
+function renderMarkdown(
+  props: ChatMarkdownMessageProps,
+  seed?: (client: QueryClient) => void,
+) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
+  seed?.(queryClient);
   return render(<ChatMarkdownMessage {...props} />, {
     wrapper: ({ children }: { children: ReactNode }) => (
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
@@ -213,6 +218,89 @@ describe("isVellumLink", () => {
 });
 
 describe("ChatMarkdownMessage (file link dispatch)", () => {
+  test.each([
+    [
+      "vellum://workspace/media/generated/chart.png",
+      "Download the edited picture",
+    ],
+    ["/workspace/media/generated/chart.png", "**Download** the image"],
+    ["media/generated/chart.png", "Descargar la imagen"],
+  ])("%s uses the preview action for caption %s", (href, caption) => {
+    const onVellumLinkClick = mock((_href: string, _text: string) => {});
+    renderMarkdown({
+      content: `[${caption}](${href})`,
+      assistantId: "asst-1",
+      onVellumLinkClick,
+    });
+
+    const link = screen.getByRole("link", { name: "View image: chart.png" });
+    expect(link.textContent).toBe("View image: chart.png");
+    fireEvent.click(link);
+
+    expect(useViewerStore.getState().openedDocumentState).toMatchObject({
+      workspacePath: "media/generated/chart.png",
+      previewKind: "image",
+    });
+    const closeLink = screen.getByRole("link", {
+      name: "Close preview: chart.png",
+    });
+    expect(closeLink.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(closeLink);
+    expect(useViewerStore.getState().mainView).toBe("chat");
+    expect(
+      screen.getByRole("link", { name: "View image: chart.png" }),
+    ).toBeTruthy();
+    expect(onVellumLinkClick).not.toHaveBeenCalled();
+    expect(openWorkspaceFile).not.toHaveBeenCalled();
+  });
+
+  test.each([undefined, "revealing", "caughtUp"] as const)(
+    "file options keep the original attachment label with reveal state %s",
+    (streamWordFade) => {
+      const onVellumLinkClick = mock((_href: string, _text: string) => {});
+      const href = "vellum://host/tmp/original.png";
+      renderMarkdown({
+        content: `[**export**.png](${href})`,
+        assistantId: "asst-1",
+        onVellumLinkClick,
+        streamWordFade,
+      });
+
+      const link = screen.getByRole("link", {
+        name: "File options: original.png",
+      });
+      fireEvent.click(link);
+      expect(onVellumLinkClick).toHaveBeenCalledWith(href, "export.png");
+      expect(useViewerStore.getState().openedDocumentState).toBeNull();
+    },
+  );
+
+  test("user-authored local links retain their caption", () => {
+    renderMarkdown({
+      content: "[**my chart**](/workspace/chart.png)",
+      assistantId: "asst-1",
+      fileLinkLabels: "markdown",
+    });
+
+    const link = screen.getByRole("link", { name: "my chart" });
+    expect(link.querySelector("strong")?.textContent).toBe("my chart");
+    fireEvent.click(link);
+    expect(useViewerStore.getState().openedDocumentState).toMatchObject({
+      source: "workspace-file-preview",
+      workspacePath: "chart.png",
+    });
+  });
+
+  test("external download links keep their original caption and destination", () => {
+    renderMarkdown({
+      content: "[Download the image](https://example.com/chart.png)",
+    });
+
+    const link = screen.getByRole("link", { name: "Download the image" });
+    expect(link.getAttribute("href")).toBe("https://example.com/chart.png");
+    expect(link.getAttribute("target")).toBe("_blank");
+  });
+
   test("with an assistant a file link opens the drawer, not the modal", () => {
     const onVellumLinkClick = mock((_href: string, _text: string) => {});
     const { container } = renderMarkdown({
@@ -278,6 +366,7 @@ describe("ChatMarkdownMessage (file link dispatch)", () => {
     });
 
     const anchor = container.querySelector("a")!;
+    expect(anchor.textContent).toBe("File options: report.pdf");
     expect(anchor.getAttribute("href")).toBe(
       "vellum://workspace/scratch/report.pdf",
     );
@@ -294,12 +383,13 @@ describe("ChatMarkdownMessage (file link dispatch)", () => {
 
   test("a workspace path link falls back to the same modal as vellum://", () => {
     const onVellumLinkClick = mock((_href: string, _text: string) => {});
-    const { container } = renderMarkdown({
+    renderMarkdown({
       content: "[Open](/workspace/scratch/report.pdf)",
       onVellumLinkClick,
     });
 
-    fireEvent.click(container.querySelector("a")!);
+    const link = screen.getByRole("link", { name: "File options: report.pdf" });
+    fireEvent.click(link);
     expect(onVellumLinkClick.mock.calls[0]).toEqual([
       "vellum://workspace/scratch/report.pdf",
       "Open",
@@ -319,12 +409,15 @@ describe("ChatMarkdownMessage (file link dispatch)", () => {
   });
 
   test("a percent-encoded path decodes to the workspace path it names", () => {
-    const { container } = renderMarkdown({
+    renderMarkdown({
       content:
         "[file with spaces](/workspace/scratch/shot%20with%20spaces.png)",
     });
 
-    fireEvent.click(container.querySelector("a")!);
+    const link = screen.getByRole("link", {
+      name: "Open in workspace: shot with spaces.png",
+    });
+    fireEvent.click(link);
     expect(openWorkspaceFile).toHaveBeenCalledWith(
       "scratch/shot with spaces.png",
     );
@@ -421,6 +514,47 @@ describe("ChatMarkdownMessage (image dispatch)", () => {
     ).toBeTruthy();
     expect(attachmentsByIdContentGet).toHaveBeenCalledTimes(1);
     expect(workspaceFileContentGet).not.toHaveBeenCalled();
+  });
+
+  test("a rehydrated attachment falls back rather than loading forever", () => {
+    // A synthetic `rehydrated:` id has no bytes behind it and never will, so
+    // the inline image settles on the fallback instead of a loading chip.
+    const { container } = renderMarkdown({
+      content: "![alt](vellum://workspace/scratch/chart.png)",
+      attachments: [
+        makeAttachment({
+          id: "rehydrated:0",
+          filename: "chart.png",
+          mimeType: "image/png",
+        }),
+      ],
+      assistantId: "asst-1",
+    });
+
+    expect(screen.getByText("Image failed to load (alt)")).toBeTruthy();
+    expect(container.querySelector("img")).toBeNull();
+    expect(attachmentsByIdContentGet).not.toHaveBeenCalled();
+  });
+
+  test("an image draws bytes another reader already cached, with no fetch of its own", async () => {
+    const { container } = renderMarkdown(
+      {
+        content: "![alt](vellum://workspace/scratch/chart.png)",
+        attachments: [
+          makeAttachment({ filename: "chart.png", mimeType: "image/png" }),
+        ],
+        assistantId: "asst-1",
+      },
+      (client) => {
+        client.setQueryData(
+          attachmentContentQueryKey("asst-1", "att-1"),
+          new Blob([new Uint8Array(PNG_BYTES)], { type: "image/png" }),
+        );
+      },
+    );
+
+    await waitFor(() => expect(container.querySelector("img")).not.toBeNull());
+    expect(attachmentsByIdContentGet).not.toHaveBeenCalled();
   });
 
   test("a vellum:// image with no matching attachment renders the workspace embed", async () => {

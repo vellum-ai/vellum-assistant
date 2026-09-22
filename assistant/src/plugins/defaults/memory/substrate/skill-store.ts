@@ -38,6 +38,7 @@ import { generateSparseEmbedding } from "../../../../persistence/embeddings/embe
 import { applyCorrectionIfCalibrated } from "../anisotropy.js";
 import { embedWithBackend } from "../embeddings.js";
 import { getLogger } from "../logging.js";
+import { SKILL_SLUG_PREFIX, skillSlugFor } from "./capability-slugs.js";
 import { invalidatePageIndex } from "./page-index.js";
 import {
   backfillKindOnPointsWithPrefix,
@@ -59,25 +60,12 @@ import type { SkillEntry } from "./types.js";
 const log = getLogger("memory-v2-skill-store");
 
 /**
- * Slug prefix under which skill embeddings are indexed in
- * `memory_v2_concept_pages`. Concept-page slugs must match
- * `[a-z0-9][a-z0-9-]*(/...)*`, and `skills` matches that pattern, so the
- * prefix coexists with hand-authored concept pages without escape work.
- */
-export const SKILL_SLUG_PREFIX = "skills/";
-
-/**
  * Payload discriminator written on every skill-seeded Qdrant point. Keeps
  * skill rows distinguishable from user-authored concept pages that happen to
  * be slugged under `skills/...`, so prefix pruning never deletes a hand-
  * authored page sitting in the same namespace.
  */
 const SKILL_PAYLOAD_KIND = "skill";
-
-/** Compose the unified-collection slug for a skill id. */
-export function skillSlugFor(id: string): string {
-  return `${SKILL_SLUG_PREFIX}${id}`;
-}
 
 /**
  * Module-level cache of rendered skill entries keyed by skill id. `null` until
@@ -504,11 +492,6 @@ export function getSkillCapability(idOrSlug: string): SkillEntry | null {
     : idOrSlug;
   const entry = readableEntries()?.get(id);
   return entry ? Object.freeze({ ...entry }) : null;
-}
-
-/** True iff the slug refers to a skill entry in the unified collection. */
-export function isSkillSlug(slug: string): boolean {
-  return slug.startsWith(SKILL_SLUG_PREFIX);
 }
 
 /**

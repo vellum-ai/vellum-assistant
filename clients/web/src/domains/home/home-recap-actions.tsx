@@ -159,9 +159,13 @@ export function swipeActionsFor(
     });
 }
 
-/** A glyph control in the row's trailing cell, square unless it carries a label. */
+/**
+ * A glyph control in the row's trailing cell, square unless it carries a label.
+ * Sized to the title line it shares with the timestamp, so revealing the
+ * controls never grows the row.
+ */
 const ACTION_CONTROL_CLASS = cn(
-  "flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md",
+  "flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-md",
   "text-[var(--content-secondary)] transition-colors",
   "hover:bg-[var(--surface-hover)] hover:text-[var(--content-default)]",
 );

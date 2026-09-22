@@ -55,6 +55,11 @@ import {
   type WatchStreamSocketData,
 } from "./http/routes/watch-stream-websocket.js";
 import {
+  createDesktopStreamWebsocketHandler,
+  getDesktopStreamWebsocketHandlers,
+  type DesktopStreamSocketData,
+} from "./http/routes/desktop-stream-websocket.js";
+import {
   createSpeechRelayUpgradeHandler,
   getSpeechRelayWebsocketHandlers,
   type SpeechRelaySocketData,
@@ -136,6 +141,7 @@ import {
 } from "./backup/backup-routes.js";
 import { startBackupWorker } from "./backup/backup-worker.js";
 import { createWorkspaceCommitProxyHandler } from "./http/routes/workspace-commit-proxy.js";
+import { createDesktopSetupProxyHandler } from "./http/routes/desktop-setup-proxy.js";
 import { createBrainGraphProxyHandler } from "./http/routes/brain-graph-proxy.js";
 import { createLogExportHandler } from "./http/routes/log-export.js";
 import { createLogTailHandler } from "./http/routes/log-tail.js";
@@ -170,6 +176,10 @@ import {
   isPluginWebhookSocketData,
 } from "./http/routes/plugin-webhook-websocket.js";
 import { resolveCachedPluginIngress } from "./channels/plugin-ingress-approvals.js";
+import {
+  reconcilePluginWebhookRoutes,
+  watchPluginIngressForWebhookRoutes,
+} from "./channels/plugin-webhook-route-sync.js";
 import { PLUGIN_WEBHOOK_PATH_PATTERN } from "./channels/plugin-ingress.js";
 import {
   createChannelPermissionOverridesListHandler,
@@ -178,6 +188,11 @@ import {
   createChannelPermissionResolveHandler,
 } from "./http/routes/channel-permission-overrides.js";
 import { getLogger, initLogger } from "./logger.js";
+import {
+  bindPlatformIdentityCredentialCache,
+  ensurePlatformIdentityIds,
+  resolvePlatformAssistantIdOrUndefined,
+} from "./platform-identity.js";
 import { getPlatformBaseUrl } from "./platform-url.js";
 import { CircuitBreakerOpenError, uploadAttachment } from "./runtime/client.js";
 import {
@@ -215,7 +230,10 @@ import {
 import { SleepWakeDetector } from "./sleep-wake-detector.js";
 import { callTelegramApi } from "./telegram/api.js";
 import { fetchImpl } from "./fetch.js";
-import { arePlatformFeaturesEnabled } from "./feature-flag-resolver.js";
+import {
+  arePlatformFeaturesEnabled,
+  isFeatureFlagEnabled,
+} from "./feature-flag-resolver.js";
 import { isNewCommand, handleNewCommand } from "./webhook-pipeline.js";
 import { reconcileTelegramWebhook } from "./telegram/webhook-manager.js";
 import { registerEmailCallbackRoute } from "./email/register-callback.js";
@@ -235,6 +253,7 @@ import { admissionPolicyRoutes } from "./ipc/admission-policy-handlers.js";
 import { channelPermissionRoutes } from "./ipc/channel-permission-handlers.js";
 import { trustVerdictRoutes } from "./ipc/trust-verdict-handlers.js";
 import { guardianDeliveryRoutes } from "./ipc/guardian-delivery-handlers.js";
+import { createDebugExportRoutes } from "./ipc/debug-export-handlers.js";
 import { createLogTailRoutes } from "./ipc/log-tail-handlers.js";
 import { createChannelSocketHealthRoutes } from "./ipc/channel-socket-health-handlers.js";
 import { createCredentialRequestIpcRoutes } from "./ipc/credential-request-handlers.js";
@@ -244,9 +263,11 @@ import { trustRulesRoutes } from "./ipc/trust-rules-handlers.js";
 
 import { riskClassificationRoutes } from "./ipc/risk-classification-handlers.js";
 import { createVelayRoutes } from "./ipc/velay-handlers.js";
+import { createWebhookRouteRoutes } from "./ipc/webhook-route-handlers.js";
 import { refreshRouteSchema } from "./ipc/route-schema-cache.js";
 import { initGatewayDb } from "./db/connection.js";
 import { cleanupExpiredInboundEvents } from "./db/inbound-dedup-store.js";
+import { onWebhookIngressRoutesChanged } from "./db/webhook-ingress-route-store.js";
 import { runPostAssistantReady } from "./post-assistant-ready.js";
 import {
   clearManagedPublicBaseUrl,
@@ -320,6 +341,16 @@ function isWatchStreamSocketData(data: unknown): data is WatchStreamSocketData {
     !!data &&
     typeof data === "object" &&
     (data as { wsType?: unknown }).wsType === "watch-stream"
+  );
+}
+
+function isDesktopStreamSocketData(
+  data: unknown,
+): data is DesktopStreamSocketData {
+  return (
+    !!data &&
+    typeof data === "object" &&
+    (data as { wsType?: unknown }).wsType === "desktop-stream"
   );
 }
 
@@ -398,15 +429,35 @@ async function main() {
   initTrustRuleCache();
   initAdmissionPolicyCache();
 
+  // Plugin rows in the webhook registry are derived from the declarations the
+  // ingress gate currently serves, so startup recomputes them from what is
+  // installed and approved right now rather than trusting whatever the last
+  // run left behind. Anything that moved while the gateway was down settles
+  // here, and the watch below keeps them settling while it runs.
+  reconcilePluginWebhookRoutes();
+  watchPluginIngressForWebhookRoutes();
+
   // ── TTL caches ──
   // Instantiate caches for credential and config file reads.
   // Handlers read dynamic credentials and config.json values from these
   // caches at call time, with automatic TTL refresh.
   const credentialCache = new CredentialCache();
+  bindPlatformIdentityCredentialCache(credentialCache);
+  void ensurePlatformIdentityIds();
   const configFileCache = new ConfigFileCache();
   const velayTunnelClient = createVelayTunnelClient(config, {
     credentials: credentialCache,
     configFile: configFileCache,
+  });
+  // Velay only sees a webhook route on the next tunnel connect, so a registry
+  // write asks for one. With the flag off the advertised rules are a constant,
+  // so a write changes nothing worth reconnecting for; registry maintenance
+  // must never touch the tunnel in that state. A flag flip re-advertises via
+  // the flag-change handler, which picks up any rows written while off.
+  onWebhookIngressRoutesChanged(() => {
+    if (isFeatureFlagEnabled("velay-webhooks")) {
+      velayTunnelClient?.requestRulesRefresh("webhook-routes-changed");
+    }
   });
 
   // ── Integration readiness flags ──
@@ -538,9 +589,7 @@ async function main() {
   );
   const handleTwilioVoiceVerifyCallback =
     createTwilioVoiceVerifyCallbackHandler(config, twilioValidationCaches);
-  const handleTwilioMediaWs = createTwilioMediaWebsocketHandler(config, {
-    configFile: configFileCache,
-  });
+  const handleTwilioMediaWs = createTwilioMediaWebsocketHandler(config);
   const handlePluginWebhookWs = createPluginWebhookWebsocketHandler({
     config,
     resolve: resolveCachedPluginIngress,
@@ -548,6 +597,7 @@ async function main() {
   });
   const handleSttStreamWs = createSttStreamWebsocketHandler(config);
   const handleWatchStreamWs = createWatchStreamWebsocketHandler(config);
+  const handleDesktopStreamWs = createDesktopStreamWebsocketHandler(config);
   const handleLiveVoiceWs = createLiveVoiceWebsocketHandler(config);
   const handleSpeechRelaySttWs = createSpeechRelayUpgradeHandler(
     config,
@@ -572,6 +622,7 @@ async function main() {
   const pluginWebhookWebsocketHandlers = getPluginWebhookWebsocketHandlers();
   const sttStreamWebsocketHandlers = getSttStreamWebsocketHandlers();
   const watchStreamWebsocketHandlers = getWatchStreamWebsocketHandlers();
+  const desktopStreamWebsocketHandlers = getDesktopStreamWebsocketHandlers();
   const liveVoiceWebsocketHandlers = getLiveVoiceWebsocketHandlers();
   const speechRelayWebsocketHandlers = getSpeechRelayWebsocketHandlers();
   const { handler: handleWhatsAppWebhook, dedupCache: whatsappDedupCache } =
@@ -629,6 +680,7 @@ async function main() {
   const migrationJobStatusProxy = createMigrationJobStatusProxyHandler(config);
   const migrationRollbackProxy = createMigrationRollbackProxyHandler(config);
   const workspaceCommitProxy = createWorkspaceCommitProxyHandler(config);
+  const desktopSetupProxy = createDesktopSetupProxyHandler(config);
   const brainGraphProxy = createBrainGraphProxyHandler(config);
   const handleLogExport = createLogExportHandler(config);
   const handleLogTail = createLogTailHandler(config);
@@ -667,6 +719,10 @@ async function main() {
     config,
     resolve: resolveCachedPluginIngress,
     credentials: credentialCache,
+    // HMAC payloads can sign the public request URL. Read through the cache
+    // so a tunnel registering a public base is picked up without a restart.
+    ingressPublicBaseUrl: () =>
+      configFileCache.getString("ingress", "publicBaseUrl"),
   });
   const handleChannelPermissionOverridesList =
     createChannelPermissionOverridesListHandler();
@@ -888,22 +944,27 @@ async function main() {
     },
 
     // ── Vercel control plane ──
+    // The dedicated proxy mints a gateway service token, so the daemon
+    // never sees the caller's scopes. Edge-scoped auth is the check.
     {
       path: "/v1/integrations/vercel/config",
       method: "GET",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.read",
       handler: (req) => vercelControlPlaneProxy.handleGetVercelConfig(req),
     },
     {
       path: "/v1/integrations/vercel/config",
       method: "POST",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req) => vercelControlPlaneProxy.handleSetVercelConfig(req),
     },
     {
       path: "/v1/integrations/vercel/config",
       method: "DELETE",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req) => vercelControlPlaneProxy.handleDeleteVercelConfig(req),
     },
 
@@ -1897,6 +1958,18 @@ async function main() {
     handler: (req) => handleCreateToken(req, server, config.trustProxy),
   });
 
+  for (const method of ["GET", "POST"] as const) {
+    const setupRoute = {
+      method,
+      auth: "edge-guardian" as const,
+      handler: desktopSetupProxy,
+    };
+    routes.push(
+      { path: /^\/v1\/desktop\/setup\/?$/, ...setupRoute },
+      { path: /^\/v1\/assistants\/[^/]+\/desktop\/setup\/?$/, ...setupRoute },
+    );
+  }
+
   // Runtime proxy catch-all — must be last so specific routes are checked first.
   routes.push({
     path: /^\//, // match everything
@@ -1940,6 +2013,10 @@ async function main() {
           watchStreamWebsocketHandlers.open(ws as never);
           return;
         }
+        if (isDesktopStreamSocketData(ws.data)) {
+          desktopStreamWebsocketHandlers.open(ws as never);
+          return;
+        }
         if (isLiveVoiceSocketData(ws.data)) {
           liveVoiceWebsocketHandlers.open(ws as never);
           return;
@@ -1967,6 +2044,10 @@ async function main() {
           watchStreamWebsocketHandlers.message(ws as never, message);
           return;
         }
+        if (isDesktopStreamSocketData(ws.data)) {
+          desktopStreamWebsocketHandlers.message(ws as never, message);
+          return;
+        }
         if (isLiveVoiceSocketData(ws.data)) {
           liveVoiceWebsocketHandlers.message(ws as never, message);
           return;
@@ -1992,6 +2073,10 @@ async function main() {
         }
         if (isWatchStreamSocketData(ws.data)) {
           watchStreamWebsocketHandlers.close(ws as never, code, reason);
+          return;
+        }
+        if (isDesktopStreamSocketData(ws.data)) {
+          desktopStreamWebsocketHandlers.close(ws as never, code, reason);
           return;
         }
         if (isLiveVoiceSocketData(ws.data)) {
@@ -2229,6 +2314,15 @@ async function main() {
       return undefined as unknown as Response;
     }
 
+    // Guardian-only through the same gate as the watch stream.
+    if (url.pathname === "/v1/desktop/stream") {
+      const upgradeResult = await handleDesktopStreamWs(req, server);
+      if (upgradeResult !== undefined) {
+        return upgradeResult;
+      }
+      return undefined as unknown as Response;
+    }
+
     if (url.pathname === "/v1/live-voice") {
       const upgradeResult = await handleLiveVoiceWs(req, server);
       if (upgradeResult !== undefined) return upgradeResult;
@@ -2397,14 +2491,13 @@ async function main() {
     lastRecordActivityTs = now;
 
     try {
-      const [platformBaseUrl, assistantApiKey, assistantIdRaw] =
-        await Promise.all([
+      const [platformBaseUrl, assistantApiKey, assistantId] = await Promise.all(
+        [
           getPlatformBaseUrl(credentialCache),
           credentialCache.get(credentialKey("vellum", "assistant_api_key")),
-          credentialCache.get(credentialKey("vellum", "platform_assistant_id")),
-        ]);
-
-      const assistantId = assistantIdRaw?.trim() || undefined;
+          resolvePlatformAssistantIdOrUndefined(),
+        ],
+      );
 
       if (!platformBaseUrl || !assistantApiKey || !assistantId) return;
 
@@ -2600,7 +2693,7 @@ async function main() {
               attachmentIds = result.attachmentIds;
               normalized.event.message.content = appendFailedAttachmentNotice(
                 normalized.event.message.content,
-                result.failedAttachmentNames,
+                result,
               );
             }
 
@@ -2767,10 +2860,13 @@ async function main() {
 
     const vellumCreds = event.credentials.get("vellum");
     vellumReady = !!(
-      vellumCreds?.platform_base_url &&
-      vellumCreds?.assistant_api_key &&
-      vellumCreds?.platform_assistant_id
+      vellumCreds?.platform_base_url && vellumCreds?.assistant_api_key
     );
+    if (vellumReady) {
+      // Re-run validate when the API key / base URL change so a warm-pool
+      // claim does not keep the previous assistant's bound owner ids.
+      void ensurePlatformIdentityIds();
+    }
     const twilioCreds = event.credentials.get("twilio");
 
     // Side effects keyed by service name
@@ -2900,10 +2996,16 @@ async function main() {
 
     // Side effect: reconcile Telegram webhook when ingress URL changes
     const onlyVelayPublicBaseUrlChanged = isOnlyVelayPublicBaseUrlChange(event);
+    // A Velay-only publicBaseUrl change is the tunnel registering. While
+    // `velay-webhooks` is on that URL is what Telegram must be pointed at, so
+    // the suppression that keeps a tunnel address out of provider config is
+    // exactly what has to lift.
+    const telegramSuppressed =
+      onlyVelayPublicBaseUrlChanged && !isFeatureFlagEnabled("velay-webhooks");
 
     if (
       event.changedKeys.has("ingress") &&
-      !onlyVelayPublicBaseUrlChanged &&
+      !telegramSuppressed &&
       isTelegramConfigured()
     ) {
       reconcileTelegramWebhook(telegramCaches).catch((err) => {
@@ -2972,16 +3074,17 @@ async function main() {
     ...guardianDeliveryRoutes,
     ...riskClassificationRoutes,
     ...createLogTailRoutes(config),
+    ...createDebugExportRoutes(config),
     ...createChannelSocketHealthRoutes({
       slack: () => slackSocketClient,
       discord: () => discordGatewayClient,
     }),
     ...trustRulesRoutes,
     ...createVelayRoutes(velayTunnelClient),
+    ...createWebhookRouteRoutes(),
     ...createCredentialRequestIpcRoutes(
       config,
       configFileCache,
-      credentialCache,
       ensurePublicIngressLiveForCredentialLink,
     ),
   ]);
@@ -2994,8 +3097,27 @@ async function main() {
     assistantRuntimeBaseUrl: config.assistantRuntimeBaseUrl,
   });
 
+  let velayWebhooksEnabled = isFeatureFlagEnabled("velay-webhooks");
   emitFlagChanged = () => {
     ipcServer.emit("feature_flags_changed");
+    // The flag decides the shape of the advertised rules, so flipping it has
+    // to re-advertise rather than wait out the periodic tunnel refresh.
+    const enabled = isFeatureFlagEnabled("velay-webhooks");
+    if (enabled !== velayWebhooksEnabled) {
+      velayWebhooksEnabled = enabled;
+      velayTunnelClient?.requestRulesRefresh("velay-webhooks-flag-changed");
+      // The flag also decides which address a pod hands Telegram, and nothing
+      // else re-runs the reconcile when it moves. One call covers a flip in
+      // either direction because the resolver reads the new value.
+      if (isTelegramConfigured()) {
+        reconcileTelegramWebhook(telegramCaches).catch((err) => {
+          log.error(
+            { err },
+            "Failed to reconcile Telegram webhook after velay-webhooks flag change",
+          );
+        });
+      }
+    }
   };
 
   const featureFlagWatcher = new FeatureFlagWatcher({

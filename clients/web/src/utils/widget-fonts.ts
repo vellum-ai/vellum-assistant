@@ -18,6 +18,8 @@
  * widgets fall back to the `system-ui` tail of `--font-sans`.
  */
 
+import { encodeBase64Bytes } from "@/utils/base64";
+
 /** Font families inlined into widgets. Anything else the host loads is ignored. */
 const WIDGET_FONT_FAMILIES = new Set(["dm sans", "dm mono", "instrument serif"]);
 
@@ -116,16 +118,6 @@ function mimeForUrl(url: string): string {
   return MIME_BY_EXTENSION[extension] ?? "application/octet-stream";
 }
 
-function toBase64(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
-  const CHUNK = 0x8000;
-  let binary = "";
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
-  }
-  return btoa(binary);
-}
-
 /** Rewrite one `@font-face` rule's `src` URL to an inlined `data:` URI. */
 async function inlineFontFace(rule: CSSStyleRule): Promise<string | null> {
   const src = rule.style.getPropertyValue("src");
@@ -145,7 +137,7 @@ async function inlineFontFace(rule: CSSStyleRule): Promise<string | null> {
   if (buffer.byteLength === 0 || buffer.byteLength > MAX_FONT_BYTES) {
     return null;
   }
-  const dataUri = `data:${mimeForUrl(url)};base64,${toBase64(buffer)}`;
+  const dataUri = `data:${mimeForUrl(url)};base64,${encodeBase64Bytes(new Uint8Array(buffer))}`;
   return rule.cssText.replace(match[0], `url("${dataUri}")`);
 }
 

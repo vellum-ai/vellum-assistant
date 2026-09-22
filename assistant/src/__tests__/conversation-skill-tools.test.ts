@@ -545,6 +545,33 @@ describe("projectSkillTools", () => {
     expect(mockRegisteredTools.has("deploy")).toBe(true);
   });
 
+  test("catalog membership changes are visible on the next projection with a persistent cache", () => {
+    const cache = {};
+    mockCatalog = [];
+    mockManifests = { deploy: makeManifest(["deploy_run"]) };
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="deploy" />'),
+    ];
+
+    const result1 = projectSkillTools(history, {
+      previouslyActiveSkillIds: sessionState,
+      cache,
+    });
+    expect(result1.allowedToolNames.size).toBe(0);
+    expect(sessionState.has("deploy")).toBe(false);
+
+    mockCatalog = [makeSkill("deploy")];
+
+    const result2 = projectSkillTools(history, {
+      previouslyActiveSkillIds: sessionState,
+      cache,
+    });
+    expect(result2.allowedToolNames).toEqual(new Set(["deploy_run"]));
+    expect(sessionState.has("deploy")).toBe(true);
+    expect(mockRegisteredTools.has("deploy")).toBe(true);
+  });
+
   test("skill with manifest failure on turn 1 is registered when manifest is available on turn 2", () => {
     mockCatalog = [makeSkill("deploy")];
     // No manifest — will fail to load

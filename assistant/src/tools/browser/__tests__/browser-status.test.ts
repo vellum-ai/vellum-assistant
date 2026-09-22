@@ -6,6 +6,7 @@ import {
   BROWSER_STATUS_INPUT_FIELD,
   BROWSER_STATUS_MODE,
   CHROME_EXTENSION_INSTALL_HINT,
+  DESKTOP_APP_INSTALL_HINT,
 } from "../browser-status-constants.js";
 import { CdpError } from "../cdp-client/errors.js";
 
@@ -217,6 +218,7 @@ describe("executeBrowserStatus", () => {
     expect(extension.details.transport).toBe("extension-ws");
     expect(extension.userActions).toEqual([
       CHROME_EXTENSION_INSTALL_HINT,
+      DESKTOP_APP_INSTALL_HINT,
       "Tell the user to make sure a browser is open with the Vellum Chrome extension on.",
     ]);
   });
@@ -244,6 +246,7 @@ describe("executeBrowserStatus", () => {
     expect(extension.summary).toContain("probe failed");
     expect(extension.userActions).toEqual([
       CHROME_EXTENSION_INSTALL_HINT,
+      DESKTOP_APP_INSTALL_HINT,
       "Tell the user to make sure a browser is open with the Vellum Chrome extension on.",
     ]);
   });

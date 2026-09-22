@@ -10,10 +10,13 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  bufferEntryText,
   formatBufferTimestamp,
   formatRememberEntry,
   isBufferEntryStart,
+  joinBufferEntries,
   matchBufferEntryStart,
+  splitBufferContent,
   splitBufferEntries,
 } from "../buffer-format.js";
 
@@ -200,5 +203,45 @@ describe("splitBufferEntries", () => {
 
   test("empty input yields no groups", () => {
     expect(splitBufferEntries([])).toEqual([]);
+  });
+});
+
+describe("splitBufferContent / joinBufferEntries", () => {
+  const content =
+    formatRememberEntry("Alice prefers dark mode", new Date(2026, 0, 1, 9, 0)) +
+    formatRememberEntry(
+      "Bob's plan:\n- [ ] step one\n\nend",
+      new Date(2026, 0, 1, 9, 1),
+    );
+
+  test("round-trips newline-terminated content byte for byte", () => {
+    expect(joinBufferEntries(splitBufferContent(content))).toBe(content);
+  });
+
+  test("an entry's text is the same whether or not it is last in the file", () => {
+    const [first] = splitBufferContent(content);
+    const [alone] = splitBufferContent(
+      formatRememberEntry(
+        "Alice prefers dark mode",
+        new Date(2026, 0, 1, 9, 0),
+      ),
+    );
+    expect(bufferEntryText(alone!)).toBe(bufferEntryText(first!));
+    expect(bufferEntryText(alone!)).toBe(
+      "- [Jan 1, 9:00 AM] Alice prefers dark mode",
+    );
+  });
+
+  test("empty content has no entries and joins back to empty", () => {
+    expect(splitBufferContent("")).toEqual([]);
+    expect(joinBufferEntries([])).toBe("");
+  });
+
+  test("content without a terminating newline keeps its last line intact", () => {
+    const entries = splitBufferContent("- [Jan 1, 9:00 AM] partial appe");
+    expect(entries).toHaveLength(1);
+    expect(bufferEntryText(entries[0]!)).toBe(
+      "- [Jan 1, 9:00 AM] partial appe",
+    );
   });
 });

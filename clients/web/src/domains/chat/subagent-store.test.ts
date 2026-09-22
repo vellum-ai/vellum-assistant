@@ -1,5 +1,23 @@
-import { beforeEach, describe, expect, it, mock, setSystemTime } from "bun:test";
-import type { SubagentInnerEvent } from "@vellumai/assistant-api";
+import {
+  beforeEach,
+  describe,
+  expect,
+  it,
+  mock,
+  setSystemTime,
+} from "bun:test";
+import type {
+  AssistantEventEnvelope,
+  SubagentInnerEvent,
+} from "@vellumai/assistant-api";
+import type * as FetchSubagentHistory from "./fetch-subagent-history";
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types";
+import { emptyHistory } from "@/domains/chat/transcript/rolling-snapshot";
+import {
+  pushSseEvent,
+  resetSseDebugStateForTests,
+} from "@/lib/streaming/stream-debug";
 
 let selfLookupSupported = true;
 mock.module("@/lib/backwards-compat/subagent-detail-self-lookup", () => ({
@@ -19,6 +37,17 @@ const fetchSubagentDetail = mock(
   ): Promise<null> => null,
 );
 mock.module("./fetch-subagent-detail", () => ({ fetchSubagentDetail }));
+
+const fetchSubagentHistory = mock(
+  async (
+    _assistantId: string,
+    _conversationId: string,
+  ): Promise<PaginatedHistoryResult> => emptyHistory(),
+);
+mock.module(
+  "./fetch-subagent-history",
+  (): Partial<typeof FetchSubagentHistory> => ({ fetchSubagentHistory }),
+);
 
 interface ReconcileReply {
   ok: boolean;
@@ -43,13 +72,19 @@ const subagentsReconcileGet = mock(
       data: reconcileReply.ok
         ? { subagents: reconcileReply.subagents ?? {} }
         : undefined,
-      response: { ok: reconcileReply.ok, status: reconcileReply.ok ? 200 : 500 },
+      response: {
+        ok: reconcileReply.ok,
+        status: reconcileReply.ok ? 200 : 500,
+      },
     };
   },
 );
 mock.module("@/generated/daemon/sdk.gen", () => ({
   subagentsReconcileGet,
-  subagentsByIdAbortPost: mock(async () => ({ data: undefined, response: { ok: true } })),
+  subagentsByIdAbortPost: mock(async () => ({
+    data: undefined,
+    response: { ok: true },
+  })),
 }));
 
 const actualDiagnostics = await import("@/lib/diagnostics");
@@ -66,13 +101,11 @@ mock.module("@/lib/diagnostics", () => ({
 
 const { useSubagentStore } = await import("@/domains/chat/subagent-store");
 // Imported after the SDK mock so it binds to the same mocked store module.
-const { reconcileSubagentStoreFromNotifications } = await import(
-  "@/domains/chat/hooks/reconcile-subagent-hydration"
-);
+const { reconcileSubagentStoreFromNotifications } =
+  await import("@/domains/chat/hooks/reconcile-subagent-hydration");
 const { useConversationStore } = await import("@/stores/conversation-store");
-const { useResolvedAssistantsStore } = await import(
-  "@/stores/resolved-assistants-store"
-);
+const { useResolvedAssistantsStore } =
+  await import("@/stores/resolved-assistants-store");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -107,6 +140,8 @@ beforeEach(() => {
   selfLookupSupported = true;
   reconcileSupported = true;
   fetchSubagentDetail.mockClear();
+  fetchSubagentHistory.mockClear();
+  resetSseDebugStateForTests();
   subagentsReconcileGet.mockClear();
   reconcileRequests.length = 0;
   reconcileReply = { ok: true, subagents: {} };
@@ -341,6 +376,63 @@ describe("changeStatus", () => {
 
     expect(getState().byId["sa-1"]!.status).toBe("failed");
     expect(getState().byId["sa-1"]!.error).toBe("Out of context window");
+  });
+
+  it("applies settled totals from a repeated terminal status", () => {
+    // A budget stop marks the child aborted while its loop is still unwinding,
+    // so the first terminal event carries pre-settlement totals. The daemon
+    // re-sends the same status once the run settles, and that second event has
+    // to land: the terminal-usage latch guards the incremental `usage_progress`
+    // path, not this one.
+    getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "Agent",
+      objective: "Task",
+      timestamp: NOW,
+    });
+
+    getState().changeStatus({
+      subagentId: "sa-1",
+      status: "aborted",
+      inputTokens: 10,
+      outputTokens: 5,
+    });
+    getState().changeStatus({
+      subagentId: "sa-1",
+      status: "aborted",
+      inputTokens: 900,
+      outputTokens: 400,
+    });
+
+    expect(getState().byId["sa-1"]!.status).toBe("aborted");
+    expect(getState().byId["sa-1"]!.inputTokens).toBe(900);
+    expect(getState().byId["sa-1"]!.outputTokens).toBe(400);
+  });
+
+  it("still ignores a straggling usage_progress after a terminal total", () => {
+    // The re-send above must not reopen the incremental path: a late
+    // `usage_progress` would stack on top of the settled totals.
+    getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "Agent",
+      objective: "Task",
+      timestamp: NOW,
+    });
+
+    getState().changeStatus({
+      subagentId: "sa-1",
+      status: "aborted",
+      inputTokens: 900,
+      outputTokens: 400,
+    });
+    getState().updateUsage({
+      subagentId: "sa-1",
+      inputTokens: 50,
+      outputTokens: 20,
+    });
+
+    expect(getState().byId["sa-1"]!.inputTokens).toBe(900);
+    expect(getState().byId["sa-1"]!.outputTokens).toBe(400);
   });
 
   it("updates token counts and cost when provided", () => {
@@ -717,6 +809,31 @@ describe("receiveEvent", () => {
     expect(events[1]!.content).toBe("ls");
     expect(events[2]!.type).toBe("tool_result");
     expect(events[2]!.content).toBe("file.txt");
+  });
+
+  it("summarises past a blank priority key to the one carrying a value", () => {
+    getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "Agent",
+      objective: "Task",
+      timestamp: NOW,
+    });
+
+    // `command` is scanned before `url`, and a blank value does not end the
+    // scan: the step is labelled with the field that carries something.
+    getState().receiveEvent({
+      subagentId: "sa-1",
+      event: {
+        type: "tool_use_start",
+        toolName: "web_fetch",
+        input: { command: "", url: "https://example.com/docs" },
+      },
+      timestamp: NOW + 100,
+    });
+
+    expect(getState().byId["sa-1"]!.events[0]!.content).toBe(
+      "https://example.com/docs",
+    );
   });
 
   it("coalesces consecutive text deltas into one event", () => {
@@ -2204,7 +2321,10 @@ describe("reconcileFromDaemon", () => {
   it("leaves an entry spawned after the request went out alone", async () => {
     reconcileReply = { ok: true, subagents: {} };
 
-    const pending = getState().reconcileFromDaemon("assistant-1", "conv-parent");
+    const pending = getState().reconcileFromDaemon(
+      "assistant-1",
+      "conv-parent",
+    );
     getState().spawnSubagent({
       subagentId: "sa-late",
       label: "Agent",
@@ -2224,7 +2344,10 @@ describe("reconcileFromDaemon", () => {
     // evidence: the next pass, which does see them, decides.
     reconcileReply = { ok: true, subagents: {} };
 
-    const pending = getState().reconcileFromDaemon("assistant-1", "conv-parent");
+    const pending = getState().reconcileFromDaemon(
+      "assistant-1",
+      "conv-parent",
+    );
     reconcileSubagentStoreFromNotifications(
       getState(),
       [{ subagentId: "sa-hydrated", label: "Agent", status: "running" }],
@@ -2266,7 +2389,10 @@ describe("reconcileFromDaemon", () => {
     });
     reconcileReply = { ok: true, subagents: {} };
 
-    const pending = getState().reconcileFromDaemon("assistant-1", "conv-parent");
+    const pending = getState().reconcileFromDaemon(
+      "assistant-1",
+      "conv-parent",
+    );
     // The terminal event the snapshot predates.
     getState().changeStatus({ subagentId: "sa-1", status: "completed" });
     await pending;
@@ -2370,7 +2496,11 @@ describe("reconcileFromDaemon", () => {
     // The dropped stream may have straddled a terminal status, and a reconcile
     // skipped here is never retried, the row would stay `running` forever.
     await getState().reconcileFromDaemon("assistant-1", "conv-parent");
-    await getState().reconcileFromDaemon("assistant-1", "conv-parent", "reopen");
+    await getState().reconcileFromDaemon(
+      "assistant-1",
+      "conv-parent",
+      "reopen",
+    );
 
     expect(subagentsReconcileGet).toHaveBeenCalledTimes(2);
   });
@@ -2385,23 +2515,30 @@ describe("reconcileFromDaemon", () => {
   });
 
   it("lets a reopen take the window so the reconnect's load pass is a no-op", async () => {
-    await getState().reconcileFromDaemon("assistant-1", "conv-parent", "reopen");
+    await getState().reconcileFromDaemon(
+      "assistant-1",
+      "conv-parent",
+      "reopen",
+    );
     await getState().reconcileFromDaemon("assistant-1", "conv-parent");
 
     expect(subagentsReconcileGet).toHaveBeenCalledTimes(1);
   });
 
   it("keeps each parent's reopen on its own window", async () => {
-    await getState().reconcileFromDaemon("assistant-1", "conv-parent", "reopen");
+    await getState().reconcileFromDaemon(
+      "assistant-1",
+      "conv-parent",
+      "reopen",
+    );
     await getState().reconcileFromDaemon("assistant-1", "conv-other");
 
     expect(reconcileRequests).toHaveLength(2);
   });
 
   it("does not settle a candidate re-parented mid-round-trip", async () => {
-    // `ensureEntry` guesses the conversation on screen as parent, so a later
-    // `subagent_event` can re-attribute the stub. This response describes the
-    // conversation it asked about, not the one the row now belongs to.
+    // A later `subagent_event` can re-parent a stub. This response describes
+    // the conversation it asked about, not the one the row now belongs to.
     getState().spawnSubagent({
       subagentId: "sa-moved",
       label: "Agent",
@@ -2412,7 +2549,10 @@ describe("reconcileFromDaemon", () => {
     });
     reconcileReply = { ok: true, subagents: {} };
 
-    const pending = getState().reconcileFromDaemon("assistant-1", "conv-parent");
+    const pending = getState().reconcileFromDaemon(
+      "assistant-1",
+      "conv-parent",
+    );
     getState().setParentConversationId("sa-moved", "conv-other");
     await pending;
 
@@ -2433,9 +2573,17 @@ describe("reconcileFromDaemon", () => {
     // nothing.
     await Promise.all([
       getState().reconcileFromDaemon("assistant-1", "conv-parent"),
-      getState().reconcileFromDaemon("assistant-1", "conv-parent", "unknown_id"),
+      getState().reconcileFromDaemon(
+        "assistant-1",
+        "conv-parent",
+        "unknown_id",
+      ),
     ]);
-    await getState().reconcileFromDaemon("assistant-1", "conv-parent", "reopen");
+    await getState().reconcileFromDaemon(
+      "assistant-1",
+      "conv-parent",
+      "reopen",
+    );
 
     expect(reconcileKicks().map((event) => event.details.trigger)).toEqual([
       "mount",
@@ -2499,7 +2647,10 @@ describe("reconcileFromDaemon", () => {
       } as SubagentInnerEvent,
       timestamp: NOW,
     });
-    reconcileReply = { ok: true, subagents: { "sa-1": { status: "completed" } } };
+    reconcileReply = {
+      ok: true,
+      subagents: { "sa-1": { status: "completed" } },
+    };
 
     await getState().reconcileFromDaemon("assistant-1", "conv-parent");
 
@@ -2622,7 +2773,10 @@ describe("reconcileFromDaemon", () => {
       },
     };
 
-    const pending = getState().reconcileFromDaemon("assistant-1", "conv-parent");
+    const pending = getState().reconcileFromDaemon(
+      "assistant-1",
+      "conv-parent",
+    );
     // The user switched conversation (or assistant) mid-round-trip.
     getState().reset();
     await pending;
@@ -2642,7 +2796,10 @@ describe("reconcileFromDaemon", () => {
     });
     reconcileReply = { ok: true, subagents: {} };
 
-    const pending = getState().reconcileFromDaemon("assistant-1", "conv-parent");
+    const pending = getState().reconcileFromDaemon(
+      "assistant-1",
+      "conv-parent",
+    );
     getState().reset();
     // A row the newly-active context spawned, absent from the stale snapshot.
     getState().spawnSubagent({
@@ -2677,7 +2834,10 @@ describe("reconcileFromDaemon", () => {
       timestamp: NOW,
     });
 
-    const pending = getState().reconcileFromDaemon("assistant-1", "conv-parent");
+    const pending = getState().reconcileFromDaemon(
+      "assistant-1",
+      "conv-parent",
+    );
     // History for the SAME conversation arrives while the request is out.
     // Hydration is a pure upsert, it never resets, so it cannot invalidate
     // the snapshot that recovers a run history never heard about.
@@ -2695,7 +2855,10 @@ describe("reconcileFromDaemon", () => {
   });
 
   it("re-requests after a reset instead of joining the invalidated call", async () => {
-    const pending = getState().reconcileFromDaemon("assistant-1", "conv-parent");
+    const pending = getState().reconcileFromDaemon(
+      "assistant-1",
+      "conv-parent",
+    );
     getState().reset();
     reconcileReply = {
       ok: true,
@@ -2867,19 +3030,19 @@ describe("reconcileFromDaemon hydration arming", () => {
 });
 
 // ---------------------------------------------------------------------------
-// ensureEntry: parent scoping falls back to the conversation on screen
+// ensureEntry: parent scoping comes from the evidence, never the screen
 // ---------------------------------------------------------------------------
 
 describe("ensureEntry parent scoping", () => {
-  it("scopes an id-less stub to the active conversation", () => {
+  it("leaves an id-less stub unscoped even with a conversation on screen", () => {
     useConversationStore.getState().setActiveConversationId("conv-active");
 
     getState().ensureEntry({ subagentId: "sa-1", timestamp: NOW });
 
-    expect(getState().byId["sa-1"]?.parentConversationId).toBe("conv-active");
+    expect(getState().byId["sa-1"]?.parentConversationId).toBeUndefined();
   });
 
-  it("prefers the parent id the evidence carried", () => {
+  it("scopes the stub to the parent id the evidence carries", () => {
     useConversationStore.getState().setActiveConversationId("conv-active");
 
     getState().ensureEntry({
@@ -2893,11 +3056,21 @@ describe("ensureEntry parent scoping", () => {
     );
   });
 
-  it("lets reconcile's orphan pass settle a stub it scoped", async () => {
-    // Without the fallback the stub belongs to no conversation: the overlay
-    // shows it in all of them and the per-parent orphan pass settles it in
-    // none.
-    useConversationStore.getState().setActiveConversationId("conv-parent");
+  it("lets reconcile's orphan pass settle a stub scoped to its parent", async () => {
+    getState().ensureEntry({
+      subagentId: "sa-1",
+      timestamp: NOW,
+      status: "running",
+      parentConversationId: "conv-parent",
+    });
+    reconcileReply = { ok: true, subagents: {} };
+
+    await getState().reconcileFromDaemon("assistant-1", "conv-parent");
+
+    expect(getState().byId["sa-1"]?.status).toBe("interrupted");
+  });
+
+  it("never settles an unscoped stub, which belongs to no conversation", async () => {
     getState().ensureEntry({
       subagentId: "sa-1",
       timestamp: NOW,
@@ -2907,7 +3080,7 @@ describe("ensureEntry parent scoping", () => {
 
     await getState().reconcileFromDaemon("assistant-1", "conv-parent");
 
-    expect(getState().byId["sa-1"]?.status).toBe("interrupted");
+    expect(getState().byId["sa-1"]?.status).toBe("running");
   });
 });
 
@@ -2969,7 +3142,9 @@ describe("attachParentMessage", () => {
     getState().attachParentMessage("sa-early", "msg-1");
 
     expect(
-      getState().byParent.get("msg-1")?.map((e) => e.subagentId),
+      getState()
+        .byParent.get("msg-1")
+        ?.map((e) => e.subagentId),
     ).toEqual(["sa-early", "sa-late"]);
   });
 
@@ -2995,5 +3170,270 @@ describe("attachParentMessage", () => {
     getState().attachParentMessage("sa-missing", "msg-1");
 
     expect(getState().byId).toBe(byIdBefore);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// history: the subagent's canonical transcript, fetched and streamed
+// ---------------------------------------------------------------------------
+
+describe("history", () => {
+  const PARENT = "conv-parent";
+
+  /** A `subagent_event` envelope wrapping `event`, stamped at `seq`. */
+  function subagentEnvelope(
+    seq: number,
+    event: SubagentInnerEvent,
+  ): AssistantEventEnvelope {
+    return {
+      id: `evt-${seq}`,
+      conversationId: PARENT,
+      seq,
+      emittedAt: new Date(NOW + seq).toISOString(),
+      message: {
+        type: "subagent_event",
+        conversationId: PARENT,
+        subagentId: "sa-1",
+        event,
+      },
+    };
+  }
+
+  const toolStart = (seq: number) =>
+    subagentEnvelope(seq, {
+      type: "tool_use_start",
+      toolName: "bash",
+      input: { command: "ls" },
+      toolUseId: "tu-1",
+      messageId: "msg-1",
+      startedAt: NOW,
+    });
+
+  const toolResult = (seq: number) =>
+    subagentEnvelope(seq, {
+      type: "tool_result",
+      toolName: "bash",
+      result: "file-a",
+      toolUseId: "tu-1",
+      messageId: "msg-1",
+      riskLevel: "low",
+      completedAt: NOW + 500,
+    });
+
+  /** Deliver `envelope` the way the stream does: buffered, then folded. */
+  function stream(envelope: AssistantEventEnvelope) {
+    pushSseEvent("client-1", envelope);
+    getState().applySubagentEnvelope(envelope);
+  }
+
+  /** The child's `/messages` snapshot anchored at `seq`, the call unresolved. */
+  function snapshotAt(seq: number | null): PaginatedHistoryResult {
+    return {
+      ...emptyHistory(),
+      seq,
+      messages: [
+        {
+          id: "msg-1",
+          role: "assistant",
+          toolCalls: [
+            {
+              id: "tu-1",
+              name: "bash",
+              input: { command: "ls" },
+              startedAt: NOW,
+            },
+          ],
+        },
+      ],
+    };
+  }
+
+  const earlierCall: ChatMessageToolCall = {
+    id: "tu-0",
+    name: "bash",
+    input: { command: "pwd" },
+    result: "/",
+  };
+
+  function toolCalls(): ChatMessageToolCall[] {
+    return (getState().byId["sa-1"]?.history?.messages ?? []).flatMap(
+      (m) => m.toolCalls ?? [],
+    );
+  }
+
+  function spawn(status: "running" | "completed" = "running") {
+    getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "Agent",
+      objective: "",
+      status,
+      conversationId: "conv-child",
+      parentConversationId: PARENT,
+      timestamp: NOW,
+    });
+  }
+
+  it("does not fold events into an unseeded entry", () => {
+    spawn();
+    getState().applySubagentEnvelope(toolStart(1));
+    expect(getState().byId["sa-1"]?.history).toBeNull();
+  });
+
+  it("folds live events into a seeded entry with their own timing", () => {
+    spawn();
+    getState().seedLiveHistory("sa-1");
+    stream(toolStart(1));
+    stream(toolResult(2));
+
+    expect(toolCalls()).toEqual([
+      expect.objectContaining({
+        id: "tu-1",
+        result: "file-a",
+        riskLevel: "low",
+        startedAt: NOW,
+        completedAt: NOW + 500,
+      }),
+    ]);
+  });
+
+  it("events applied, then a snapshot arrives: one call, nothing lost", () => {
+    spawn();
+    getState().seedLiveHistory("sa-1");
+    stream(toolStart(10));
+    stream(toolResult(11));
+
+    // Persisted through the start only, and carrying an earlier call this
+    // client never saw streamed; the result is in the buffered tail.
+    const snapshot = snapshotAt(10);
+    snapshot.messages = [
+      { id: "msg-0", role: "assistant", toolCalls: [earlierCall] },
+      ...snapshot.messages,
+    ];
+    getState().seedHistory("sa-1", snapshot);
+
+    expect(toolCalls().map((tc) => tc.id)).toEqual(["tu-0", "tu-1"]);
+    expect(toolCalls()[1]).toMatchObject({ result: "file-a" });
+    expect(getState().byId["sa-1"]?.history?.seq).toBe(11);
+  });
+
+  it("a snapshot, then replayed events: one call, replays are no-ops", () => {
+    spawn();
+    pushSseEvent("client-1", toolStart(5));
+    pushSseEvent("client-1", toolResult(6));
+
+    getState().seedHistory("sa-1", snapshotAt(5));
+    expect(toolCalls()).toHaveLength(1);
+    expect(toolCalls()[0]).toMatchObject({ id: "tu-1", result: "file-a" });
+
+    const seeded = getState().byId["sa-1"]?.history;
+    getState().applySubagentEnvelope(toolStart(5));
+    getState().applySubagentEnvelope(toolResult(6));
+    expect(getState().byId["sa-1"]?.history).toBe(seeded);
+  });
+
+  it("an anchor-less snapshot never replaces a live view that folded events", () => {
+    spawn();
+    getState().seedLiveHistory("sa-1");
+    stream(toolStart(3));
+
+    getState().seedHistory("sa-1", emptyHistory());
+
+    expect(toolCalls()).toHaveLength(1);
+  });
+
+  it("loadHistoryIfNeeded seeds the history from the child conversation", async () => {
+    spawn("completed");
+    fetchSubagentHistory.mockResolvedValueOnce(snapshotAt(null));
+
+    await getState().loadHistoryIfNeeded("assistant-1", "sa-1");
+
+    expect(fetchSubagentHistory).toHaveBeenCalledWith(
+      "assistant-1",
+      "conv-child",
+    );
+    expect(toolCalls()).toHaveLength(1);
+  });
+
+  it("fetchDetailIfNeeded leaves the history for the panel to load", async () => {
+    spawn("completed");
+
+    await getState().fetchDetailIfNeeded("assistant-1", "sa-1");
+
+    expect(fetchSubagentHistory).not.toHaveBeenCalled();
+    expect(getState().byId["sa-1"]?.history).toBeNull();
+  });
+
+  it("concurrent loads share one fetch", async () => {
+    spawn("completed");
+    fetchSubagentHistory.mockResolvedValueOnce(snapshotAt(null));
+
+    await Promise.all([
+      getState().loadHistoryIfNeeded("assistant-1", "sa-1"),
+      getState().loadHistoryIfNeeded("assistant-1", "sa-1"),
+    ]);
+
+    expect(fetchSubagentHistory).toHaveBeenCalledTimes(1);
+  });
+
+  it("a failed fetch leaves the history unseeded, and the next load retries", async () => {
+    spawn("completed");
+    fetchSubagentHistory.mockRejectedValueOnce(new Error("offline"));
+
+    await getState().loadHistoryIfNeeded("assistant-1", "sa-1");
+    expect(getState().byId["sa-1"]?.history).toBeNull();
+
+    fetchSubagentHistory.mockResolvedValueOnce(snapshotAt(null));
+    await getState().loadHistoryIfNeeded("assistant-1", "sa-1");
+
+    expect(fetchSubagentHistory).toHaveBeenCalledTimes(2);
+    expect(toolCalls()).toHaveLength(1);
+  });
+
+  it("a stream gap during a fetch discards that fetch and refetches", async () => {
+    spawn("completed");
+    let resolveFirst: (snapshot: PaginatedHistoryResult) => void = () => {};
+    fetchSubagentHistory.mockImplementationOnce(
+      () =>
+        new Promise<PaginatedHistoryResult>((resolve) => {
+          resolveFirst = resolve;
+        }),
+    );
+    const load = getState().loadHistoryIfNeeded("assistant-1", "sa-1");
+
+    getState().invalidateHistories(PARENT);
+    // The refetch carries the call; the pre-gap snapshot is empty.
+    fetchSubagentHistory.mockResolvedValueOnce(snapshotAt(null));
+    resolveFirst(emptyHistory());
+    await load;
+
+    expect(fetchSubagentHistory).toHaveBeenCalledTimes(2);
+    expect(toolCalls()).toHaveLength(1);
+  });
+
+  it("a stream gap drops fetched histories so the next load refetches", async () => {
+    spawn();
+    getState().spawnSubagent({
+      subagentId: "sa-live-only",
+      label: "Agent",
+      objective: "",
+      status: "running",
+      parentConversationId: PARENT,
+      timestamp: NOW,
+    });
+    // Known only by its parent, so nothing can refetch it: its history is
+    // whatever the stream folded.
+    getState().seedLiveHistory("sa-live-only");
+    fetchSubagentHistory.mockResolvedValueOnce(snapshotAt(null));
+    await getState().loadHistoryIfNeeded("assistant-1", "sa-1");
+
+    getState().invalidateHistories(PARENT);
+
+    expect(getState().byId["sa-1"]?.history).toBeNull();
+    // No child conversation to refetch from, so its live history is kept.
+    expect(getState().byId["sa-live-only"]?.history).not.toBeNull();
+
+    fetchSubagentHistory.mockResolvedValueOnce(snapshotAt(null));
+    await getState().loadHistoryIfNeeded("assistant-1", "sa-1");
+    expect(fetchSubagentHistory).toHaveBeenCalledTimes(2);
   });
 });

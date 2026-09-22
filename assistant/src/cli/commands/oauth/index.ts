@@ -9,6 +9,7 @@ import { oauthHelp } from "./index.help.js";
 import { registerModeCommand } from "./mode.js";
 import { registerPingCommand } from "./ping.js";
 import { registerProviderCommands } from "./providers.js";
+import { registerProxyUrlCommand } from "./proxy-url.js";
 import { registerRequestCommand } from "./request.js";
 import { registerStatusCommand } from "./status.js";
 import { registerTokenCommand } from "./token.js";
@@ -74,6 +75,12 @@ export function registerOAuthCommand(program: Command): void {
       // -----------------------------------------------------------------------
 
       registerTokenCommand(oauth);
+
+      // -----------------------------------------------------------------------
+      // proxy-url: mint a passthrough-proxy grant for a third-party CLI
+      // -----------------------------------------------------------------------
+
+      registerProxyUrlCommand(oauth);
     },
   });
 }

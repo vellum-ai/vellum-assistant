@@ -5,6 +5,10 @@ import { extname, join } from "node:path";
 
 import { resolveBatchTranscriber } from "../../../../providers/speech-to-text/resolve.js";
 import type { BatchTranscriber } from "../../../../stt/types.js";
+import {
+  isAbortLikeError,
+  throwIfCancelled,
+} from "../../../../tools/shared/abort.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -15,6 +19,7 @@ import {
   FFPROBE_TIMEOUT_MS,
   spawnWithTimeout,
 } from "../../../../util/spawn.js";
+import { safeStringSlice } from "../../../../util/unicode.js";
 
 const VIDEO_EXTENSIONS = new Set([
   ".mp4",
@@ -50,7 +55,10 @@ const STT_REQUEST_TIMEOUT_MS = 300_000;
 // Helpers
 // ---------------------------------------------------------------------------
 
-async function getAudioDuration(audioPath: string): Promise<number> {
+async function getAudioDuration(
+  audioPath: string,
+  signal?: AbortSignal,
+): Promise<number> {
   const result = await spawnWithTimeout(
     [
       "ffprobe",
@@ -63,6 +71,7 @@ async function getAudioDuration(audioPath: string): Promise<number> {
       audioPath,
     ],
     FFPROBE_TIMEOUT_MS,
+    signal,
   );
   if (result.exitCode !== 0) {
     return 0;
@@ -74,6 +83,7 @@ async function splitAudio(
   audioPath: string,
   chunkDir: string,
   chunkDurationSecs: number,
+  signal?: AbortSignal,
 ): Promise<string[]> {
   const chunkPattern = join(chunkDir, "chunk-%03d.wav");
   const result = await spawnWithTimeout(
@@ -95,9 +105,12 @@ async function splitAudio(
       chunkPattern,
     ],
     FFMPEG_TRANSCODE_TIMEOUT_MS,
+    signal,
   );
   if (result.exitCode !== 0) {
-    throw new Error(`Failed to split audio: ${result.stderr.slice(0, 300)}`);
+    throw new Error(
+      `Failed to split audio: ${safeStringSlice(result.stderr, 0, 300)}`,
+    );
   }
   const files = await readdir(chunkDir);
   return files
@@ -140,16 +153,24 @@ async function resolveSource(
 }
 
 /** Convert source to 16kHz mono WAV for consistent processing. */
-async function toWav(inputPath: string, isVideo: boolean): Promise<string> {
+async function toWav(
+  inputPath: string,
+  isVideo: boolean,
+  signal?: AbortSignal,
+): Promise<string> {
   const wavPath = join(tmpdir(), `vellum-transcribe-${randomUUID()}.wav`);
   const args = ["ffmpeg", "-y", "-i", inputPath];
   if (isVideo) {
     args.push("-vn");
   }
   args.push("-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", wavPath);
-  const result = await spawnWithTimeout(args, FFMPEG_TRANSCODE_TIMEOUT_MS);
+  const result = await spawnWithTimeout(
+    args,
+    FFMPEG_TRANSCODE_TIMEOUT_MS,
+    signal,
+  );
   if (result.exitCode !== 0) {
-    throw new Error(`ffmpeg failed: ${result.stderr.slice(0, 500)}`);
+    throw new Error(`ffmpeg failed: ${safeStringSlice(result.stderr, 0, 500)}`);
   }
   return wavPath;
 }
@@ -158,21 +179,32 @@ async function toWav(inputPath: string, isVideo: boolean): Promise<string> {
 // Transcription via resolved STT provider
 // ---------------------------------------------------------------------------
 
+/**
+ * The signal a single STT request runs under: the provider's own deadline, and
+ * the turn's cancellation when there is one. Without the turn's signal a paid
+ * request outlives a stopped turn until its five-minute timeout.
+ */
+function sttRequestSignal(context: ToolContext): AbortSignal {
+  const timeout = AbortSignal.timeout(STT_REQUEST_TIMEOUT_MS);
+  return context.signal ? AbortSignal.any([context.signal, timeout]) : timeout;
+}
+
 async function transcribeWithProvider(
   audioPath: string,
   transcriber: BatchTranscriber,
   context: ToolContext,
 ): Promise<string> {
-  const duration = await getAudioDuration(audioPath);
+  const duration = await getAudioDuration(audioPath, context.signal);
   const fileSize = Bun.file(audioPath).size;
 
   // If small enough, send directly
   if (fileSize <= STT_CHUNK_MAX_BYTES) {
+    throwIfCancelled(context);
     const audioBuffer = await readFile(audioPath);
     const result = await transcriber.transcribe({
       audio: audioBuffer,
       mimeType: "audio/wav",
-      signal: AbortSignal.timeout(STT_REQUEST_TIMEOUT_MS),
+      signal: sttRequestSignal(context),
     });
     return result.text;
   }
@@ -187,19 +219,22 @@ async function transcribeWithProvider(
         duration / 60,
       )}min) - splitting into chunks...\n`,
     );
-    const chunks = await splitAudio(audioPath, chunkDir, CHUNK_DURATION_SECS);
+    const chunks = await splitAudio(
+      audioPath,
+      chunkDir,
+      CHUNK_DURATION_SECS,
+      context.signal,
+    );
     const parts: string[] = [];
 
     for (let i = 0; i < chunks.length; i++) {
-      if (context.signal?.aborted) {
-        throw new Error("Cancelled");
-      }
+      throwIfCancelled(context);
       context.onOutput?.(`  Transcribing chunk ${i + 1}/${chunks.length}...\n`);
       const audioBuffer = await readFile(chunks[i]);
       const result = await transcriber.transcribe({
         audio: audioBuffer,
         mimeType: "audio/wav",
-        signal: AbortSignal.timeout(STT_REQUEST_TIMEOUT_MS),
+        signal: sttRequestSignal(context),
       });
       if (result.text) {
         parts.push(result.text);
@@ -233,6 +268,7 @@ export async function run(
       isError: true,
     };
   }
+  throwIfCancelled(context);
 
   // Resolve the configured STT provider. A typed resolver error already names
   // the mismatch (e.g. a streaming-only provider) and its fix, so it reaches
@@ -261,7 +297,7 @@ export async function run(
 
   try {
     // Convert to WAV
-    wavPath = await toWav(inputPath, isVideo);
+    wavPath = await toWav(inputPath, isVideo, context.signal);
 
     const text = await transcribeWithProvider(wavPath, transcriber, context);
 
@@ -271,6 +307,11 @@ export async function run(
 
     return { content: text, isError: false };
   } catch (err) {
+    // A cancelled turn is not a transcription failure: let it reach the
+    // executor's abort handling instead of being rendered as a tool error.
+    if (isAbortLikeError(err)) {
+      throw err;
+    }
     return {
       content: `Transcription failed: ${(err as Error).message}`,
       isError: true,

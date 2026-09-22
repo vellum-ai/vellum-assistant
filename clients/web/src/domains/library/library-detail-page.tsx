@@ -4,7 +4,6 @@ import { useLocation, useNavigate, useParams } from "react-router";
 
 import { DeployDialogs } from "@/components/deploy-dialogs";
 import { EdgeSwipeHitZone } from "@/components/edge-swipe-hit-zone";
-import { toast } from "@vellumai/design-library";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { useEdgeSwipeBack } from "@/hooks/use-edge-swipe-back";
@@ -16,12 +15,13 @@ import { useDeployStore } from "@/stores/deploy-store";
 import { primeAppHtmlCache } from "@/utils/app-html-cache";
 import { navigateToNewConversation } from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
-import { shareApp } from "@/utils/share-app";
+import { shareAppWithToast } from "@/utils/share-app-with-toast";
 import { isReadOnlyApp } from "@/types/app-types";
 
 import { useTranslation } from "@/i18n";
 
 interface LoadedApp {
+  assistantId: string;
   appId: string;
   dirName?: string;
   name: string;
@@ -63,6 +63,7 @@ export function LibraryDetailPage() {
         }
         primeAppHtmlCache(assistantId, result.appId, result.html);
         setApp({
+          assistantId,
           appId: result.appId,
           dirName: result.dirName,
           name: result.name,
@@ -86,6 +87,13 @@ export function LibraryDetailPage() {
     void navigate(routes.library.root);
   }, [navigate]);
 
+  const handleNavigateAppRoute = useCallback(
+    (href: string) => {
+      void navigate(href);
+    },
+    [navigate],
+  );
+
   useEdgeSwipeBack({
     containerRef: swipeContainerRef,
     onBack: handleClose,
@@ -101,20 +109,22 @@ export function LibraryDetailPage() {
     }
   }, [app, editApp]);
 
+  // The nav bar draws a spinner while the export runs, so this surface owns
+  // the busy flag rather than taking the menus' ref-guarded hook.
   const handleShare = useCallback(async () => {
     if (!app || isSharing) {
       return;
     }
     setIsSharing(true);
     try {
-      await shareApp(assistantId, app.appId, app.name);
-      toast.success(t("libraryAppCard.exported"), {
-        description: `${app.name}.vellum`,
-      });
-    } catch (err) {
-      toast.error(t("libraryAppCard.shareFailed"), {
-        description: err instanceof Error ? err.message : undefined,
-      });
+      await shareAppWithToast(
+        assistantId,
+        { id: app.appId, name: app.name },
+        {
+          exported: t("libraryAppCard.exported"),
+          failed: t("libraryAppCard.shareFailed"),
+        },
+      );
     } finally {
       setIsSharing(false);
     }
@@ -184,6 +194,7 @@ export function LibraryDetailPage() {
           html={app.html}
           assistantId={assistantId}
           onClose={handleClose}
+          onNavigateAppRoute={handleNavigateAppRoute}
           {...(isReadOnlyApp(app.origin)
             ? {}
             : {

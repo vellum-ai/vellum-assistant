@@ -3,18 +3,27 @@ import { Loader2 } from "lucide-react";
 
 import { PlatformLoginNotice } from "@/components/platform-login-notice";
 import {
-  assistantsAccessConsentRetrieveOptions,
-  assistantsAccessConsentRetrieveSetQueryData,
+  formatRelativeAge,
+  useRelativeAgeTick,
+} from "@/domains/settings/pair-device/relative-age";
+import {
+  assistantsAccessConsentDetailReadOptions,
+  assistantsAccessConsentDetailReadSetQueryData,
 } from "@/generated/api/@tanstack/react-query.gen";
-import { assistantsAccessConsentPartialUpdate } from "@/generated/api/sdk.gen";
+import { assistantsAccessConsentDetailPartialUpdate } from "@/generated/api/sdk.gen";
 import {
   useActiveAssistantIsPlatformHosted,
   useActiveAssistantLifecycleIsLoading,
   usePlatformGate,
 } from "@/hooks/use-platform-gate";
 import { useTranslation } from "@/i18n";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import { Button } from "@vellumai/design-library/components/button";
 import { toast } from "@vellumai/design-library/components/toast";
 import { Toggle } from "@vellumai/design-library/components/toggle";
+
+// setTimeout caps at 2^31-1 ms; a week-long grant fits, but clamp anyway.
+const MAX_REFETCH_DELAY_MS = 2 ** 31 - 1;
 
 export function AccessConsentSetting() {
   const { t } = useTranslation("settings");
@@ -39,30 +48,84 @@ export function AccessConsentSetting() {
   // empty state below.
   const isLifecycleLoading = useActiveAssistantLifecycleIsLoading();
   const queryClient = useQueryClient();
+  // The privacy page is not under `ActiveAssistantGate`, so read the raw
+  // store and wait for a non-null id.
+  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
+  const canQuery =
+    platformGate === "full" && isPlatformHosted && assistantId !== null;
 
   const { data, isLoading, isError } = useQuery({
-    ...assistantsAccessConsentRetrieveOptions(),
-    enabled: platformGate === "full" && isPlatformHosted,
+    ...assistantsAccessConsentDetailReadOptions({
+      path: { id: assistantId ?? "" },
+    }),
+    enabled: canQuery,
+    // Refetch once the grant lapses so an open tab flips to off on its own
+    // instead of showing a toggle the server no longer honors.
+    refetchInterval: (query) => {
+      const ends = query.state.data?.access_consent_expires_at;
+      if (!query.state.data?.access_consented || !ends) {
+        return false;
+      }
+      const msUntilEnd = new Date(ends).getTime() - Date.now() + 1_000;
+      return Math.min(Math.max(msUntilEnd, 1_000), MAX_REFETCH_DELAY_MS);
+    },
   });
 
+  // A grant lapses on its own (24h by default). Extending is just enabling
+  // again: the server restarts the clock from now. The owner can instead keep
+  // it on until they turn it off.
+  const isOn = data?.access_consented === true;
+  // A platform from before the override omits this field. Then the button
+  // to keep access on is hidden, since that platform could not honor it.
+  const canKeepOn =
+    isOn && typeof data.access_consent_never_expires === "boolean";
+  const neverExpires = isOn && data.access_consent_never_expires === true;
+  const expiresAt =
+    isOn && !neverExpires ? data.access_consent_expires_at : null;
+  useRelativeAgeTick(expiresAt !== null);
+
+  // The target id travels with the mutation rather than being read from
+  // render scope in `onSuccess`: if the active assistant changes while the
+  // PATCH is in flight, the response must land in the cache of the assistant
+  // it was sent for, not whichever one is now on screen.
   const updateConsent = useMutation({
-    mutationFn: async (next: boolean) => {
-      const { data: updated } = await assistantsAccessConsentPartialUpdate({
-        body: { access_consented: next },
-        throwOnError: true,
-      });
+    mutationFn: async ({
+      assistantId: targetId,
+      next,
+      mode,
+    }: {
+      assistantId: string;
+      next: boolean;
+      /** Why the owner is enabling, for the toast and the request body. */
+      mode?: "extend" | "keepOn" | "expireAgain";
+    }) => {
+      const { data: updated } =
+        await assistantsAccessConsentDetailPartialUpdate({
+          path: { id: targetId },
+          body: {
+            access_consented: next,
+            ...(mode === "keepOn" ? { never_expires: true } : {}),
+          },
+          throwOnError: true,
+        });
       return updated;
     },
-    onSuccess: (updated) => {
-      assistantsAccessConsentRetrieveSetQueryData(
+    onSuccess: (updated, variables) => {
+      assistantsAccessConsentDetailReadSetQueryData(
         queryClient,
-        undefined,
+        { path: { id: variables.assistantId } },
         updated,
       );
       toast.success(
-        updated?.access_consented
-          ? t("accessConsentSetting.toastEnabled")
-          : t("accessConsentSetting.toastDisabled"),
+        variables.mode === "extend"
+          ? t("accessConsentSetting.toastExtended")
+          : variables.mode === "keepOn"
+            ? t("accessConsentSetting.toastKeptOn")
+            : variables.mode === "expireAgain"
+              ? t("accessConsentSetting.toastExpiring")
+              : updated?.access_consented
+                ? t("accessConsentSetting.toastEnabled")
+                : t("accessConsentSetting.toastDisabled"),
       );
     },
     onError: () => {
@@ -93,6 +156,7 @@ export function AccessConsentSetting() {
   const disabled =
     platformGate !== "full" ||
     !isPlatformHosted ||
+    assistantId === null ||
     isLoading ||
     isError ||
     updateConsent.isPending;
@@ -112,6 +176,72 @@ export function AccessConsentSetting() {
               {t("accessConsentSetting.loadError")}
             </p>
           )}
+          {expiresAt !== null && (
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <p className="text-body-small-lighter text-[var(--content-tertiary)]">
+                {t("accessConsentSetting.expiresAt", {
+                  when: formatRelativeAge(expiresAt),
+                })}
+              </p>
+              <Button
+                variant="outlined"
+                size="compact"
+                disabled={disabled}
+                onClick={() => {
+                  if (assistantId) {
+                    updateConsent.mutate({
+                      assistantId,
+                      next: true,
+                      mode: "extend",
+                    });
+                  }
+                }}
+              >
+                {t("accessConsentSetting.extend")}
+              </Button>
+              {canKeepOn && (
+                <Button
+                  variant="outlined"
+                  size="compact"
+                  disabled={disabled}
+                  onClick={() => {
+                    if (assistantId) {
+                      updateConsent.mutate({
+                        assistantId,
+                        next: true,
+                        mode: "keepOn",
+                      });
+                    }
+                  }}
+                >
+                  {t("accessConsentSetting.keepOn")}
+                </Button>
+              )}
+            </div>
+          )}
+          {neverExpires && (
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <p className="text-body-small-lighter text-[var(--content-tertiary)]">
+                {t("accessConsentSetting.staysOn")}
+              </p>
+              <Button
+                variant="outlined"
+                size="compact"
+                disabled={disabled}
+                onClick={() => {
+                  if (assistantId) {
+                    updateConsent.mutate({
+                      assistantId,
+                      next: true,
+                      mode: "expireAgain",
+                    });
+                  }
+                }}
+              >
+                {t("accessConsentSetting.expireAgain")}
+              </Button>
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {platformGate === "disabled" ? null : (
@@ -122,7 +252,11 @@ export function AccessConsentSetting() {
               <Toggle
                 checked={checked}
                 disabled={disabled}
-                onChange={() => updateConsent.mutate(!checked)}
+                onChange={() => {
+                  if (assistantId) {
+                    updateConsent.mutate({ assistantId, next: !checked });
+                  }
+                }}
               />
             </>
           )}

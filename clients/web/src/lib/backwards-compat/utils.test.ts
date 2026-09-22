@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { cleanup, renderHook } from "@testing-library/react";
 
 import {
+  isLocalBuildVersion,
   useAssistantScopedSupports,
   useAssistantSupports,
   whenAssistantVersionKnown,
@@ -26,6 +27,29 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   useAssistantIdentityStore.getState().clearIdentity();
+});
+
+describe("isLocalBuildVersion", () => {
+  test("recognizes a vel up build", () => {
+    expect(isLocalBuildVersion("0.12.2-local.20260918200000.abcdef1")).toBe(
+      true,
+    );
+    expect(isLocalBuildVersion("0.12.2-local")).toBe(true);
+  });
+
+  test("rejects releases, CI dev builds, and unknown versions", () => {
+    for (const version of [
+      "0.12.2",
+      "0.12.2-dev.202609181913.1108ac3",
+      "0.12.2-rc.1",
+      "0.12.2-localhost",
+      "not-a-version",
+      null,
+      undefined,
+    ]) {
+      expect(isLocalBuildVersion(version)).toBe(false);
+    }
+  });
 });
 
 describe("useAssistantSupports", () => {

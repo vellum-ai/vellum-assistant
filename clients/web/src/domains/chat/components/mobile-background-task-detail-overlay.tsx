@@ -1,7 +1,6 @@
 import { lazy } from "react";
 
-import { LazyBoundary } from "@/components/lazy-boundary";
-import { useMobileOverlayViewportStyle } from "@/hooks/use-mobile-overlay-viewport-style";
+import { MobileDetailSheet } from "@/domains/chat/components/mobile-detail-sheet";
 import type { BackgroundTaskEntry } from "@/domains/chat/background-task-store";
 
 const BackgroundTaskDetailPanel = lazy(() =>
@@ -15,27 +14,18 @@ interface MobileBackgroundTaskDetailOverlayProps {
   onClose: () => void;
 }
 
-/**
- * Mobile-only full-screen overlay that hosts the background-task detail panel.
- *
- * **Mounting constraint**: must render inside `RootLayout`'s
- * `#viewport-overlays` portal, outside the main content wrapper.
- */
+/** Mobile detail presentation, mounted under the viewport portal provider. */
 export function MobileBackgroundTaskDetailOverlay({
   entry,
   onClose,
 }: MobileBackgroundTaskDetailOverlayProps) {
-  const shellStyle = useMobileOverlayViewportStyle();
-
-  if (!entry) {
-    return null;
-  }
-
   return (
-    <div className="fixed inset-x-0 z-30" style={shellStyle}>
-      <LazyBoundary>
-        <BackgroundTaskDetailPanel entry={entry} onClose={onClose} />
-      </LazyBoundary>
-    </div>
+    <MobileDetailSheet data={entry} onClose={onClose}>
+      {(value) => (
+        <BackgroundTaskDetailPanel
+          entry={value} onClose={onClose}
+        />
+      )}
+    </MobileDetailSheet>
   );
 }

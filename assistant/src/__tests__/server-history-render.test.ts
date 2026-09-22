@@ -1,8 +1,11 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import type { AnsweredQuestion } from "../api/events/question-answered.js";
+import type {
+  ToolActivityMetadata,
+  WebFetchMetadata,
+} from "../api/events/tool-result.js";
 import { renderHistoryContent } from "../daemon/handlers/shared.js";
-import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 import {
   getAttachmentsForMessage,
   linkAttachmentToMessage,
@@ -673,6 +676,93 @@ describe("renderHistoryContent", () => {
     ]);
 
     expect(output.toolCalls[0].activityMetadata).toBeUndefined();
+  });
+
+  test("hydrates persisted recall and remember activity", () => {
+    const recall: ToolActivityMetadata = {
+      recall: {
+        query: "launch plan",
+        depth: "standard",
+        sources: ["memory", "workspace"],
+        answer: "The launch moved to Friday.",
+        evidence: [
+          {
+            source: "workspace",
+            title: "notes/launch.md",
+            locator: "notes/launch.md:4",
+            excerpt: "Launch moves to Friday.",
+          },
+        ],
+        searchedSources: [
+          { source: "memory", status: "searched", evidenceCount: 0 },
+          {
+            source: "workspace",
+            status: "degraded",
+            evidenceCount: 1,
+            error: "index stale",
+          },
+        ],
+      },
+    };
+    const remember: ToolActivityMetadata = {
+      remember: { facts: ["Prefers window seats"] },
+    };
+
+    const output = renderHistoryContent([
+      {
+        type: "tool_use",
+        id: "tu_1",
+        name: "recall",
+        input: { query: "launch plan" },
+        _activityMetadata: recall,
+      },
+      {
+        type: "tool_use",
+        id: "tu_2",
+        name: "remember",
+        input: { content: "Prefers window seats" },
+        _activityMetadata: remember,
+      },
+    ]);
+
+    expect(output.toolCalls[0].activityMetadata).toEqual(recall);
+    expect(output.toolCalls[1].activityMetadata).toEqual(remember);
+  });
+
+  test("drops a malformed activity entry and keeps a valid sibling", () => {
+    const webFetch: WebFetchMetadata = {
+      url: "https://example.com",
+      finalUrl: "https://example.com",
+      status: 200,
+      byteCount: 1024,
+      charCount: 900,
+      truncated: false,
+      domain: "example.com",
+      redirectCount: 0,
+      durationMs: 40,
+    };
+    const output = renderHistoryContent([
+      {
+        type: "tool_use",
+        id: "tu_1",
+        name: "web_fetch",
+        input: { url: "https://example.com" },
+        _activityMetadata: {
+          webSearch: { query: "x", results: "not a list" },
+          webFetch,
+        },
+      },
+      {
+        type: "server_tool_use",
+        id: "tu_2",
+        name: "web_search",
+        input: { query: "x" },
+        _activityMetadata: { webSearch: { query: 42 } },
+      },
+    ]);
+
+    expect(output.toolCalls[0].activityMetadata).toEqual({ webFetch });
+    expect(output.toolCalls[1].activityMetadata).toBeUndefined();
   });
 
   test("ignores non-array _risk*Options annotations", () => {

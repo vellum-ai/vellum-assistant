@@ -5,11 +5,21 @@ import {
   validateEdgeToken,
   mintServiceToken,
 } from "../../auth/token-exchange.js";
+import type { ScopeProfile } from "../../auth/types.js";
 import type { GatewayConfig } from "../../config.js";
-import type { ConfigFileCache } from "../../config-file-cache.js";
 import { getLogger } from "../../logger.js";
 
 const log = getLogger("twilio-media-ws");
+
+/**
+ * Identity of the relay token `mintRelayToken` embeds in the `<Stream>` TwiML
+ * Twilio dials back with, and the only credential this upgrade accepts. The
+ * sibling upgrades on `runtime-audio-stream.ts` and `live-voice-websocket.ts`
+ * require an actor principal; Twilio presents the gateway service principal
+ * instead, so that is the equivalent gate here.
+ */
+const RELAY_TOKEN_SUB = "svc:gateway:self";
+const RELAY_TOKEN_PROFILE: ScopeProfile = "gateway_service_v1";
 
 // Cap buffered messages to prevent unbounded memory growth if upstream stalls
 const MAX_PENDING_MESSAGES = 100;
@@ -72,10 +82,7 @@ export function extractMediaStreamMetadata(url: URL): {
  *
  * Uses the same edge-token auth model as the relay websocket upgrades.
  */
-export function createTwilioMediaWebsocketHandler(
-  config: GatewayConfig,
-  caches?: { configFile?: ConfigFileCache },
-) {
+export function createTwilioMediaWebsocketHandler(config: GatewayConfig) {
   return function handleUpgrade(
     req: Request,
     server: import("bun").Server<unknown>,
@@ -91,11 +98,7 @@ export function createTwilioMediaWebsocketHandler(
     // Authenticate before upgrading. Twilio passes the token via path
     // segments (primary) or query parameters (legacy fallback) since
     // WebSocket upgrades don't support arbitrary headers.
-    const isBypassed =
-      process.env.APP_VERSION === "0.0.0-dev" &&
-      (caches?.configFile?.getBoolean("telegram", "deliverAuthBypass") ??
-        false);
-    const authResponse = checkMediaStreamAuth(req, url, pathToken, isBypassed);
+    const authResponse = checkMediaStreamAuth(req, url, pathToken);
     if (authResponse) return authResponse;
 
     const upgraded = server.upgrade(req, {
@@ -123,20 +126,15 @@ export function createTwilioMediaWebsocketHandler(
  *   2. Path-segment token extracted by {@link extractMediaStreamMetadata}
  *   3. `token` query parameter (legacy Twilio media streams fallback)
  *
- * Fail-closed: rejects all unauthenticated requests unless the deliver auth
- * bypass flag is set (local-dev only escape hatch).
+ * Fail-closed: rejects every request without a valid edge token. A valid edge
+ * token is not enough on its own; it must carry the relay-token identity (see
+ * {@link RELAY_TOKEN_SUB}).
  */
 function checkMediaStreamAuth(
   req: Request,
   url: URL,
   pathToken: string | null,
-  isBypassed: boolean,
 ): Response | null {
-  // Local-dev bypass: allow unauthenticated access when deliverAuthBypass is set
-  if (isBypassed) {
-    return null;
-  }
-
   // Priority: Authorization header > path segment > query param
   const authHeader = req.headers.get("authorization");
   const queryToken = url.searchParams.get("token");
@@ -156,6 +154,17 @@ function checkMediaStreamAuth(
     log.warn(
       { reason: result.reason },
       "Media stream WS: authentication failed",
+    );
+    return new Response("Unauthorized", { status: 401 });
+  }
+
+  if (
+    result.claims.sub !== RELAY_TOKEN_SUB ||
+    result.claims.scope_profile !== RELAY_TOKEN_PROFILE
+  ) {
+    log.warn(
+      { sub: result.claims.sub, scopeProfile: result.claims.scope_profile },
+      "Media stream WS: token is not a relay token",
     );
     return new Response("Unauthorized", { status: 401 });
   }

@@ -26,6 +26,7 @@ import {
 import { stripCommentLines } from "../util/strip-comment-lines.js";
 import { cleanupBootstrapFiles } from "./bootstrap-cleanup.js";
 import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "./cache-boundary.js";
+import { resolveDelegateIndependentTasks } from "./delegation-gate.js";
 import { resolveGuardianPersona, resolveUserSlug } from "./persona-resolver.js";
 import { renderWorkspaceSections } from "./sections.js";
 import { isTemplateContent } from "./template-detection.js";
@@ -419,6 +420,36 @@ export interface BuildSystemPromptOptions {
    * is selected, the conversation is marked as an activation session.
    */
   conversationId?: string;
+  /**
+   * Whether this turn's user-facing text goes through the `send_user_message`
+   * tool. Renders the `01-send-user-message` section. Set by the conversation
+   * for a main-agent turn with the `send-user-message` flag on; every other
+   * prompt build leaves it unset, so the section stays out of the prompt for
+   * subagents, calls, live-voice, and background workers.
+   */
+  sendUserMessageTool?: boolean;
+  /**
+   * Whether the turn this prompt serves can actually spawn subagents, one of
+   * the two inputs to the parallel-delegation section's gate (the other is
+   * whether the turn is channel-delivered, read from `channelCapabilities`).
+   * Absent means no, so a prompt built outside a turn (a side-chain, a
+   * one-shot generator) never carries guidance it cannot act on.
+   *
+   * The live turn answers it from its resolved tool surface via
+   * `canSpawnSubagentsForTurn` (workspace `tools.exclude`, a wire-scoped
+   * background run's `allowedTools`, tools disabled, a read-only subagent
+   * pass), rather than from a caller's assumption.
+   */
+  canSpawnSubagents?: boolean;
+  /**
+   * The delegation section's rendered state, replacing the derivation from
+   * `canSpawnSubagents` and `channelCapabilities` when set. A fork wake
+   * replaying its source conversation's recorded surface passes the state
+   * the source's live turn rendered (`ConversationToolSurface`), so the
+   * fork's system prompt matches the source's byte for byte even though the
+   * wake's own scope cannot spawn; a spawn is still rejected at execution.
+   */
+  delegateIndependentTasks?: boolean;
 }
 
 /**
@@ -487,7 +518,13 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   const ctx = {
     ...options,
     hasNoClient,
+    // The delegation section's gate, or the rendered state a replaying wake
+    // carries from its source (see `resolveDelegateIndependentTasks`).
+    delegateIndependentTasks:
+      options?.delegateIndependentTasks ??
+      resolveDelegateIndependentTasks(options),
     isContainerized: getIsContainerized(),
+    sendUserMessageTool: options?.sendUserMessageTool === true,
     workspaceDir: getWorkspaceDir(),
     userSlug,
     channelSlug,

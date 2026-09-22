@@ -1,8 +1,23 @@
 import type { Resvg as ResvgType } from "@resvg/resvg-js";
+import type { NotificationAvatarMediaType } from "@vellumai/avatar-manifest/notification-avatar";
 
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("resvg-lazy");
+
+/** Raster formats resvg decodes inside an `<image>` href; anything else renders blank. */
+export const RESVG_DECODABLE_TYPES: ReadonlySet<string> = new Set<string>([
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+]);
+
+/** Whether a sniffed media type is one resvg can draw into an SVG. */
+export function isResvgDecodableType(
+  mediaType: string | null,
+): mediaType is NotificationAvatarMediaType {
+  return mediaType !== null && RESVG_DECODABLE_TYPES.has(mediaType);
+}
 
 type ResvgLoadResult =
   | { available: true; Resvg: typeof ResvgType }

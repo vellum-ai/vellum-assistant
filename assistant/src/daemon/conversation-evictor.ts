@@ -6,8 +6,7 @@ const log = getLogger("conversation-evictor");
 
 /** Minimal interface a conversation must satisfy to be evictable. */
 export interface EvictableConversation {
-  isProcessing(): boolean;
-  hasQueuedMessages(): boolean;
+  hasInFlightWork(): boolean;
   dispose(): void;
 }
 
@@ -29,7 +28,7 @@ export interface EvictionResult {
   lruEvicted: number;
   /** Conversations evicted due to memory pressure. */
   memoryEvicted: number;
-  /** Conversations skipped because they were actively processing. */
+  /** Conversations skipped because they retained in-flight work. */
   skipped: number;
 }
 
@@ -72,11 +71,6 @@ export class ConversationEvictor {
    */
   onEvict(conversationId: string): void {
     getSubagentManager().abortAllForParent(conversationId);
-  }
-
-  /** Protect conversations with in-flight subagents from eviction. */
-  shouldProtect(conversationId: string): boolean {
-    return getSubagentManager().hasActiveChildren(conversationId);
   }
 
   /** Record an access for the given conversation (resets its idle clock). */
@@ -141,11 +135,7 @@ export class ConversationEvictor {
       if (now - lastAccessTime < this.ttlMs) {
         continue;
       }
-      if (
-        conversation.isProcessing() ||
-        conversation.hasQueuedMessages() ||
-        this.shouldProtect(id)
-      ) {
+      if (conversation.hasInFlightWork()) {
         result.skipped++;
         continue;
       }
@@ -216,20 +206,11 @@ export class ConversationEvictor {
     log.debug({ conversationId: id }, "Evicted idle conversation");
   }
 
-  /**
-   * Return idle (non-processing) conversations sorted by last access time
-   * ascending (least recently used first).
-   */
+  /** Return evictable conversations in least-recently-used order. */
   private idleConversationsByLru(): Array<[string, EvictableConversation]> {
     const idle: Array<[string, EvictableConversation, number]> = [];
     for (const [id, conversation] of this.conversations) {
-      if (conversation.isProcessing()) {
-        continue;
-      }
-      if (conversation.hasQueuedMessages()) {
-        continue;
-      }
-      if (this.shouldProtect(id)) {
+      if (conversation.hasInFlightWork()) {
         continue;
       }
       idle.push([id, conversation, this.lastAccess.get(id) ?? 0]);

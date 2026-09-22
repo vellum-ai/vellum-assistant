@@ -64,10 +64,11 @@ export function LetsChatTomorrowStep({
 }: LetsChatTomorrowStepProps) {
   const { t } = useTranslation("onboarding");
   const tone = useOnboardingTone();
-  const { handleConnect, oauthInProgress } = useGoogleCalendarConnect({
-    assistantId: assistantId ?? "",
-    onConnect: onConnected,
-  });
+  const { handleConnect, cancelConnect, oauthInProgress } =
+    useGoogleCalendarConnect({
+      assistantId: assistantId ?? "",
+      onConnect: onConnected,
+    });
   // Clear any stale re-prompt before reopening the consent popup so the message
   // reflects only the latest attempt.
   const handleConnectClick = () => {
@@ -136,8 +137,12 @@ export function LetsChatTomorrowStep({
           {(!waitingForAssistant || hatchError) && (
             <button
               type="button"
-              onClick={onSkip}
-              disabled={oauthInProgress}
+              onClick={() => {
+                // Waiting ends when the connection lands or the user leaves,
+                // so this stays reachable throughout.
+                cancelConnect();
+                onSkip();
+              }}
               className="cursor-pointer text-body-small-default transition-opacity hover:opacity-100 disabled:opacity-60"
               style={{ color: tone.fgMuted }}
             >

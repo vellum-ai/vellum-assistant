@@ -14,7 +14,7 @@
  * client carrying that list for the assistant it renders.
  */
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { type QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Bell } from "lucide-react";
 
 import { Button } from "@vellumai/design-library";
@@ -22,6 +22,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu";
 import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
+import { createStoryQueryClient } from "@/lib/story-query-cache";
 import type { AvatarData } from "@/hooks/use-assistant-avatar";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import { PreferencesMenu } from "@/domains/chat/components/preferences-menu";
@@ -141,7 +142,7 @@ const PINNED_APPS: AppSummary[] = [
  * back to the browser-local pin list, so these stories would document a path
  * they do not mean to show.
  */
-function seedApps(client: QueryClient, assistantId: string): QueryClient {
+function seedApps(client: QueryClient, assistantId: string): void {
   client.setQueryData(
     appsGetQueryKey({ path: { assistant_id: assistantId } }),
     {
@@ -149,7 +150,6 @@ function seedApps(client: QueryClient, assistantId: string): QueryClient {
     },
   );
   client.setQueryData(["assistant-capability", "appPins", assistantId], true);
-  return client;
 }
 
 /**
@@ -163,12 +163,9 @@ function storyClient(assistantId: string): QueryClient {
   if (existing) {
     return existing;
   }
-  const client = seedApps(
-    new QueryClient({
-      defaultOptions: { queries: { retry: false, staleTime: Infinity } },
-    }),
-    assistantId,
-  );
+  const client = createStoryQueryClient((seeded) => {
+    seedApps(seeded, assistantId);
+  });
   storyClients.set(assistantId, client);
   return client;
 }
@@ -243,16 +240,15 @@ function seededAvatarClient(
   assistantId: string,
   data: AvatarData,
 ): QueryClient {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+  return createStoryQueryClient((client) => {
+    for (const supportsManifest of [true, false]) {
+      client.setQueryData(
+        [...avatarQueryKey(assistantId), supportsManifest],
+        data,
+      );
+    }
+    seedApps(client, assistantId);
   });
-  for (const supportsManifest of [true, false]) {
-    client.setQueryData(
-      [...avatarQueryKey(assistantId), supportsManifest],
-      data,
-    );
-  }
-  return seedApps(client, assistantId);
 }
 
 /* A stand-in for an uploaded photo, inline so the story needs no network and
@@ -492,6 +488,34 @@ export const CharacterAvatar: Story = {
 };
 
 /**
+ * The phone the drawer stories stand in. The overlay's shell is not the
+ * desktop one: `chat-layout` mounts it as a full-bleed sheet over the chat,
+ * and the page behind it has to be there to confirm the sheet's opaque
+ * surface fully covers it. The frame is a 402x874 phone.
+ */
+function withPhoneFrame(Story: () => React.ReactElement) {
+  return (
+    <div className="relative h-[874px] w-[402px] overflow-hidden bg-[var(--surface-base)]">
+      {/* Stand-in for the chat the drawer covers: only whether the sheet
+        fully hides it is under test, not its own layout. */}
+      <div className="absolute inset-0 flex flex-col gap-3 p-4 pt-24 text-body-medium-lighter text-[var(--content-default)]">
+        <p>You&rsquo;re absolutely right, and thank you for correcting me.</p>
+        <p>
+          The decel valve draws its air from above the sensor plate, so CIS has
+          accounted for that air with a corresponding fuel increase.
+        </p>
+      </div>
+      <aside
+        className="absolute inset-0 flex flex-col"
+        style={{ background: DRAWER_SURFACE_BACKGROUND }}
+      >
+        <Story />
+      </aside>
+    </div>
+  );
+}
+
+/**
  * The mobile drawer (Figma 7842-83305). Its own decorator, because the
  * overlay's shell is not the desktop one: `chat-layout` mounts it as a
  * full-bleed sheet over the chat, and the page behind it has to be there to
@@ -502,27 +526,7 @@ export const OverlayDrawer: Story = {
   name: "Overlay drawer (mobile)",
   parameters: { layout: "centered" },
   beforeEach: () => seedViewMode("asst-overlay", "all"),
-  decorators: [
-    (Story) => (
-      <div className="relative h-[874px] w-[402px] overflow-hidden bg-[var(--surface-base)]">
-        {/* Stand-in for the chat the drawer covers: only whether the sheet
-            fully hides it is under test, not its own layout. */}
-        <div className="absolute inset-0 flex flex-col gap-3 p-4 pt-24 text-body-medium-lighter text-[var(--content-default)]">
-          <p>You&rsquo;re absolutely right, and thank you for correcting me.</p>
-          <p>
-            The decel valve draws its air from above the sensor plate, so CIS
-            has accounted for that air with a corresponding fuel increase.
-          </p>
-        </div>
-        <aside
-          className="absolute inset-0 flex flex-col"
-          style={{ background: DRAWER_SURFACE_BACKGROUND }}
-        >
-          <Story />
-        </aside>
-      </div>
-    ),
-  ],
+  decorators: [withPhoneFrame],
   args: {
     ...SHARED_ARGS,
     assistantId: "asst-overlay",
@@ -537,6 +541,40 @@ export const OverlayDrawer: Story = {
     ),
     notificationsAction: (
       <Button variant="ghost" iconOnly={<Bell />} aria-label="Notifications" />
+    ),
+  },
+};
+
+const OVERLAY_CHARACTER_AVATAR_CLIENT = seededAvatarClient(
+  "asst-overlay-character",
+  {
+    components: BUNDLED_COMPONENTS,
+    traits: { bodyShape: "blob", eyeStyle: "curious", color: "purple" },
+    customImageUrl: null,
+  },
+);
+
+/**
+ * The drawer with the eyes in the identity pill. The eyes sit on the axis
+ * every other leading glyph in the drawer centres on (the section headers'
+ * and the pinned apps'), so whether those glyphs and their labels line up
+ * with the assistant row is read here rather than on the brain fallback the
+ * plain drawer story shows.
+ */
+export const OverlayDrawerCharacterAvatar: Story = {
+  ...OverlayDrawer,
+  name: "Overlay drawer (mobile) · character avatar",
+  beforeEach: () => seedViewMode("asst-overlay-character", "all"),
+  decorators: [withAvatar(OVERLAY_CHARACTER_AVATAR_CLIENT), withPhoneFrame],
+  args: {
+    ...OverlayDrawer.args,
+    assistantId: "asst-overlay-character",
+    assistantName: "Haze II",
+    footerAction: (
+      <PreferencesMenu
+        assistantId="asst-overlay-character"
+        triggerVariant="pill"
+      />
     ),
   },
 };

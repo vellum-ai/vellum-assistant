@@ -329,13 +329,16 @@ describe("POST /v1/btw", () => {
     expect(mockBuildSystemPrompt).toHaveBeenCalledWith({
       excludeBootstrap: true,
       excludeCustomPrefix: true,
+      // The side-chain forces `tool_choice: none`, so the prompt must not
+      // carry guidance about handing work to subagents it cannot spawn.
+      canSpawnSubagents: false,
     });
     expect(options!.config!.tool_choice).toEqual({ type: "none" });
     expect(options!.config!.callSite).toBe("identityIntro");
     expect(options!.config!.modelIntent).toBeUndefined();
   });
 
-  test("greeting requests pass callSite: 'emptyStateGreeting'", async () => {
+  test("greeting requests pass callSite: 'emptyStateGreeting' and send no tools", async () => {
     const provider = makeMockProvider();
     const session = makeMockSession(provider);
     mockGetOrCreateConversation.mockImplementationOnce(async () => session);
@@ -349,6 +352,9 @@ describe("POST /v1/btw", () => {
     expect(provider.sendMessage).toHaveBeenCalledTimes(1);
     const [, options] = provider.sendMessage.mock.calls[0];
     expect(options!.config!.callSite).toBe("emptyStateGreeting");
+    // The greeting targets no real conversation, so there is no cache prefix
+    // for tool definitions to share; they would only cost tokens.
+    expect(options!.tools).toEqual([]);
   });
 
   test("greeting requests include fresh turn context using the client timezone", async () => {

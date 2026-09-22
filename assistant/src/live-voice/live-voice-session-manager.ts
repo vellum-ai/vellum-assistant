@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import type { SubagentParentNotification } from "../subagent/parent-notification.js";
 import {
   createLiveVoiceServerFrameSequencer,
   type LiveVoiceClientFrame,
@@ -52,6 +53,9 @@ export interface LiveVoiceSession {
   handleClientFrame(frame: LiveVoiceClientFrame): MaybePromise<void>;
   handleBinaryAudio(chunk: Uint8Array): MaybePromise<void>;
   close(reason: LiveVoiceSessionCloseReason): MaybePromise<void>;
+  receiveSubagentNotification?(
+    notification: SubagentParentNotification,
+  ): boolean;
 }
 
 export interface LiveVoiceServerFrameSink {
@@ -69,6 +73,12 @@ export interface LiveVoiceServerFrameSink {
 export interface LiveVoiceSessionFactoryContext {
   sessionId: string;
   startFrame: LiveVoiceClientStartFrame;
+  /**
+   * The guardian the gateway admitted this session's socket for, when it
+   * named one. The session's turns run as this principal; absent means they
+   * run with no actor and their host-proxy calls are refused.
+   */
+  guardianPrincipalId?: string;
   sendFrame(frame: LiveVoiceServerFramePayload): Promise<LiveVoiceServerFrame>;
   /**
    * Releases this session's manager slot after a failure that happens once
@@ -258,10 +268,21 @@ export class LiveVoiceSessionManager {
     return this.activeSession?.sessionId ?? null;
   }
 
+  deliverSubagentNotification(
+    conversationId: string,
+    notification: SubagentParentNotification,
+  ): boolean {
+    const active = this.activeSession;
+    if (active === null || active.holder.conversationId !== conversationId) {
+      return false;
+    }
+    return active.session.receiveSubagentNotification?.(notification) ?? false;
+  }
+
   async startSession(
     startFrame: LiveVoiceClientStartFrame,
     sink: LiveVoiceServerFrameSink,
-    options: { signal?: AbortSignal } = {},
+    options: { signal?: AbortSignal; guardianPrincipalId?: string } = {},
   ): Promise<LiveVoiceStartSessionResult> {
     const signal = options.signal;
     if (isAborted(signal)) {
@@ -321,6 +342,9 @@ export class LiveVoiceSessionManager {
     const context: LiveVoiceSessionFactoryContext = {
       sessionId,
       startFrame,
+      ...(options.guardianPrincipalId
+        ? { guardianPrincipalId: options.guardianPrincipalId }
+        : {}),
       sendFrame: async (payload) => {
         // `ready` carries the conversation the session actually landed in,
         // which is the only source for one it minted itself. Read in passing

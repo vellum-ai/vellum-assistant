@@ -214,4 +214,59 @@ export function currentLocale(): SupportedLocale {
   return isSupportedLocale(language) ? language : DEFAULT_LOCALE;
 }
 
+/** The primary language subtag of a BCP 47 tag, lowercased. */
+function primaryLanguage(tag: string): string {
+  return tag.split("-")[0].toLowerCase();
+}
+
+/**
+ * The locale to format dates, times, and numbers in.
+ *
+ * {@link currentLocale} answers with one of the five language tags the app
+ * ships a catalog for, which is the right answer for copy and the wrong one
+ * for formatting: it drops the region, so a UK user reading English copy
+ * would get US date order and 12-hour times. This returns the host's own tag
+ * whenever its primary language subtag is the app locale's, and the app
+ * locale otherwise, so `en-GB` under app locale `en` keeps its region while
+ * `de-DE` under `en` does not format German dates beside English copy.
+ *
+ * The host's whole preference list is searched, not just its first entry, so a
+ * user whose device leads with English while the app runs in Spanish still
+ * formats in the Spanish region they also listed. Comparison is by primary
+ * subtag, so a `zh-TW` host keeps `zh-TW` under either Chinese catalog, and a
+ * tag `Intl` cannot parse is skipped rather than chosen and rejected, so the
+ * entry behind it still gets its turn.
+ *
+ * References:
+ * - https://developer.mozilla.org/en-US/docs/Web/API/Navigator/languages
+ * - https://www.rfc-editor.org/rfc/rfc5646 (BCP 47 tag structure)
+ * - https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Intl/getCanonicalLocales
+ */
+export function formatLocale(): string {
+  const app = currentLocale();
+  const host = systemLocales().find(
+    (tag) =>
+      primaryLanguage(tag) === primaryLanguage(app) && isFormattableLocale(tag),
+  );
+  return host ?? app;
+}
+
+/**
+ * Whether `Intl` will accept `tag`, which is not a given for a host-reported
+ * one: a POSIX environment reports `C`, and an underscored `en_US` reaches us
+ * from more than one shell. Every `Intl` constructor throws `RangeError` on
+ * those, and this is read by every date, time, and number formatter in the
+ * app, so the tag is checked once here instead of failing a render later.
+ */
+function isFormattableLocale(tag: string): boolean {
+  try {
+    Intl.getCanonicalLocales(tag);
+    return true;
+  } catch {
+    // A tag Intl cannot parse is host data the caller falls back from, not a
+    // fault to report.
+    return false;
+  }
+}
+
 export { i18next };

@@ -31,6 +31,7 @@ import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { Select } from "@vellumai/design-library/components/select";
 import { toast } from "@vellumai/design-library/components/toast";
+import { textLinkVariants } from "@vellumai/design-library/components/text-link";
 
 function releaseLabel(
   release: ReleaseListItem,
@@ -72,7 +73,7 @@ function CurrentVersionValue({
         {version ?? "—"}
       </button>
       {message && (
-        <p className="mt-1 text-body-small-default text-[var(--content-accent)]">
+        <p className="mt-1 text-body-small-default text-[var(--system-positive-strong)]">
           {message}
         </p>
       )}
@@ -354,15 +355,12 @@ export function AssistantUpgrades({
             <Button
               variant={isRollback ? "outlined" : "primary"}
               className="min-w-[160px] shrink-0"
-              leftIcon={
+              loading={
                 upgradeCreate.isPending ||
                 rollbackCreate.isPending ||
-                isPollingUpgrade ? (
-                  <Loader2 className="animate-spin" />
-                ) : (
-                  <RefreshCw />
-                )
+                isPollingUpgrade
               }
+              leftIcon={<RefreshCw />}
               onClick={() => setShowConfirmation(true)}
               disabled={
                 !upgradeAvailable ||
@@ -396,7 +394,7 @@ export function AssistantUpgrades({
               stableLink: (
                 <a
                   href="#preview-release-channel"
-                  className="text-[var(--primary-base)] underline-offset-2 hover:underline"
+                  className={textLinkVariants()}
                 />
               ),
             }}
@@ -534,13 +532,8 @@ export function LocalAssistantUpgrades({
       <Button
         variant="primary"
         className="min-w-[160px]"
-        leftIcon={
-          upgradeCreate.isPending ? (
-            <Loader2 className="animate-spin" />
-          ) : (
-            <RefreshCw />
-          )
-        }
+        loading={upgradeCreate.isPending}
+        leftIcon={<RefreshCw />}
         onClick={() => setShowConfirmation(true)}
         disabled={
           upgradeCreate.isPending ||

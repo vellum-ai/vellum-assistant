@@ -75,6 +75,15 @@ export const MonitoringConfigSchema = z
       .describe(
         "Minimum interval between file-descriptor warnings while usage stays over the threshold, in milliseconds. Crossing the threshold always warns immediately; this only throttles the repeats.",
       ),
+    mountWatchIntervalMs: z
+      .number({ error: "monitoring.mountWatchIntervalMs must be a number" })
+      .int("monitoring.mountWatchIntervalMs must be an integer")
+      .min(1_000, "monitoring.mountWatchIntervalMs must be at least 1000ms")
+      .max(60_000, "monitoring.mountWatchIntervalMs must be <= 60000ms")
+      .default(10_000)
+      .describe(
+        "How often the monitor diffs the assistant container's mount table (/proc/self/mountinfo plus statfs of /workspace and /data), in milliseconds. Logs only when the watched mounts change. Default 10 seconds so a virtiofs bind drop is timestamped without a line per poll.",
+      ),
     pluginSourceScanIntervalMs: z
       .number({
         error: "monitoring.pluginSourceScanIntervalMs must be a number",

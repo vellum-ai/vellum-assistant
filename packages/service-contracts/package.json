@@ -26,7 +26,9 @@
     "./error": "./src/error.ts",
     "./reactions": "./src/reactions.ts",
     "./guardian-requests": "./src/guardian-requests.ts",
-    "./platform-credential": "./src/platform-credential.ts"
+    "./platform-credential": "./src/platform-credential.ts",
+    "./plan-credit": "./src/plan-credit.ts",
+    "./integration-categories": "./src/integration-categories.ts"
   },
   "scripts": {
     "typecheck": "bunx tsc --noEmit",

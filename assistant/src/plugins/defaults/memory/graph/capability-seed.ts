@@ -5,7 +5,7 @@
 // semantic retrieval.
 // ---------------------------------------------------------------------------
 
-import { CLI_COMMAND_HELP } from "@vellumai/plugin-api";
+import { CLI_COMMAND_HELP, safeStringSlice } from "@vellumai/plugin-api";
 import { and, eq, like, sql } from "drizzle-orm";
 
 import { isAssistantFeatureFlagEnabled } from "../../../../config/assistant-feature-flags.js";
@@ -16,6 +16,7 @@ import {
   loadSkillCatalog,
   type SkillSummary,
 } from "../../../../config/skills.js";
+import { loadWorkspaceMcpConfig } from "../../../../mcp/workspace-mcp-config.js";
 import {
   enqueueMemoryJob,
   upsertEmbedGraphNodeJob,
@@ -131,14 +132,9 @@ export function seedSkillGraphNodes(): void {
       const input = fromSkillSummary(summary);
 
       if (summary.id === "mcp-setup") {
-        const servers = config.mcp?.servers;
-        if (servers) {
-          const names = Object.keys(servers).filter(
-            (name: string) => servers[name]?.enabled !== false,
-          );
-          if (names.length > 0) {
-            input.description += ` Configured: ${names.join(", ")}`;
-          }
+        const names = Object.keys(loadWorkspaceMcpConfig().servers);
+        if (names.length > 0) {
+          input.description += ` Configured: ${names.join(", ")}`;
         }
       }
 
@@ -249,7 +245,7 @@ function buildSkillContent(input: SkillCapabilityInput): string {
     content += ` Avoid when: ${input.avoidWhen.join("; ")}.`;
   }
   if (content.length > 500) {
-    content = content.slice(0, 500);
+    content = safeStringSlice(content, 0, 500);
   }
   return content;
 }

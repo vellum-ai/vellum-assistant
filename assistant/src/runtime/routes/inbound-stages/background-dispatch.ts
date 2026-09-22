@@ -105,8 +105,11 @@ export interface BackgroundProcessingParams {
   chatType?: string;
   /** IANA timezone reported by the active client for the current turn. */
   clientTimezone?: string;
-  /** Slack app_mention/direct bot mention signal from the gateway. */
-  slackBotMentioned?: boolean;
+  /**
+   * The message addresses the assistant by name, as stated by the channel
+   * (`sourceMetadata.botMentioned`). Absent means not established.
+   */
+  botMentioned?: boolean;
   /**
    * Slack-specific inbound metadata extracted at the HTTP boundary. Threaded
    * through to `persistUserMessage` so the row can be tagged with a
@@ -166,7 +169,7 @@ export function processChannelMessageInBackground(
     sourceLanguageCode,
     chatType,
     clientTimezone,
-    slackBotMentioned,
+    botMentioned,
     slackInbound,
     channelInbound,
     slackReactionRowMeta,
@@ -204,7 +207,7 @@ export function processChannelMessageInBackground(
       initiatorUserId: slackInbound?.actorExternalUserId,
       startImmediately: shouldShowActivityImmediately({
         chatType,
-        botMentioned: slackBotMentioned,
+        botMentioned,
       }),
     });
     const stopApprovalWatcher = replyCallbackUrl
@@ -283,6 +286,7 @@ export function processChannelMessageInBackground(
           },
           assistantId,
           trustContext: trustCtx,
+          author: trustCtx,
           isInteractive: resolveRoutingState(trustCtx).promptWaitingAllowed,
           ...(displayContent !== undefined ? { displayContent } : {}),
           ...(cmdIntent ? { commandIntent: cmdIntent } : {}),
@@ -449,10 +453,6 @@ type ChannelActivityController = {
   stop: () => void;
 };
 
-export function shouldShowActivityForText(text: string): boolean {
-  return hasDeliverableAssistantText(text);
-}
-
 /**
  * Room shapes with one other participant, in each channel's own word for it.
  *
@@ -610,7 +610,7 @@ function startChannelActivity(params: {
         return;
       }
       observedAssistantText += msg.text;
-      if (shouldShowActivityForText(observedAssistantText)) {
+      if (hasDeliverableAssistantText(observedAssistantText)) {
         show();
       }
     },

@@ -1,5 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Share, X } from "lucide-react";
+import { useState } from "react";
+import { expect, userEvent, waitFor, within } from "storybook/test";
 
 import { Button } from "./button";
 import { BottomSheet } from "./bottom-sheet";
@@ -200,4 +202,60 @@ export const FullBleed: Story = {
       </BottomSheet.Content>
     </BottomSheet.Root>
   ),
+};
+
+/** A tall detail surface with native body scrolling and a dedicated drag handle. */
+export const Detail: Story = {
+  args: {
+    triggerLabel: "Open details",
+    title: "Activity details",
+    description: "Review the output, then return to the conversation.",
+    showIcon: false,
+  },
+  // Local state lets the interaction test exercise transitions without the args channel.
+  render: function Render({ triggerLabel, title, description }) {
+    const [open, setOpen] = useState(false);
+    return (
+      <BottomSheet.Root open={open} onOpenChange={setOpen}>
+        <BottomSheet.Trigger asChild>
+          <Button>{triggerLabel}</Button>
+        </BottomSheet.Trigger>
+        <BottomSheet.Content variant="detail" padded={false}>
+          <BottomSheet.Header className="px-4">
+            <BottomSheet.Title>{title}</BottomSheet.Title>
+            <BottomSheet.Description>{description}</BottomSheet.Description>
+          </BottomSheet.Header>
+          <BottomSheet.Body className="min-h-0 px-4">
+            {Array.from({ length: 30 }, (_, index) => (
+              <p key={index}>Output line {index + 1}</p>
+            ))}
+          </BottomSheet.Body>
+          <BottomSheet.Footer className="p-4">
+            <BottomSheet.Close asChild>
+              <Button>Close details</Button>
+            </BottomSheet.Close>
+          </BottomSheet.Footer>
+        </BottomSheet.Content>
+      </BottomSheet.Root>
+    );
+  },
+  play: async ({ canvasElement }) => {
+    const page = within(canvasElement.ownerDocument.body);
+    const trigger = page.getByRole("button", { name: "Open details" });
+    await userEvent.click(trigger);
+    const dialog = await page.findByRole("dialog", {
+      name: "Activity details",
+    });
+    await waitFor(() => expect(dialog).toBeVisible());
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() =>
+      expect(page.queryByRole("dialog")).not.toBeInTheDocument(),
+    );
+    await waitFor(() => expect(trigger).toHaveFocus());
+    await userEvent.click(trigger);
+    await userEvent.click(page.getByRole("button", { name: "Close details" }));
+    await waitFor(() =>
+      expect(page.queryByRole("dialog")).not.toBeInTheDocument(),
+    );
+  },
 };

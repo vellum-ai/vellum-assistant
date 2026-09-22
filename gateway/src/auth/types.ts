@@ -14,6 +14,7 @@ export type ScopeProfile =
   | "gateway_ingress_v1"
   | "gateway_service_v1"
   | "local_v1"
+  | "oauth_proxy_v1"
   | "speech_relay_v1"
   | "ui_page_v1";
 
@@ -38,7 +39,8 @@ export type Scope =
   | "feature_flags.read"
   | "feature_flags.write"
   | "speech.relay"
-  | "local.all";
+  | "local.all"
+  | "oauth.proxy";
 
 // ---------------------------------------------------------------------------
 // Principal types — derived from the sub pattern

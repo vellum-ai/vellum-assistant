@@ -5,6 +5,8 @@ import {
   DAILY_LIMIT_PATTERNS,
   INSUFFICIENT_CREDITS_PATTERNS,
   isChatTemplateFailureError,
+  MODEL_NOT_FOUND_PATTERNS,
+  UNSUPPORTED_MODEL_ID_PATTERNS,
   VISION_NOT_SUPPORTED_PATTERNS,
 } from "../../util/provider-error-patterns.js";
 
@@ -52,8 +54,8 @@ export function normalizedErrorText(n: NormalizedOpenAIAPIError): string {
 
 /**
  * Map an OpenAI-compatible error to a semantic {@link ProviderErrorReason}.
- * Order matters — the model-restriction check precedes the generic 401/403
- * credential branch, and billing precedes credentials.
+ * Order matters: model restriction and model-not-found precede the generic
+ * 401/403 credential branch, and billing precedes credentials.
  */
 export function deriveReason(
   n: NormalizedOpenAIAPIError,
@@ -72,8 +74,21 @@ export function deriveReason(
   }
 
   if (
-    /model .*(?:not found|does not exist)/i.test(haystack) ||
+    MODEL_NOT_FOUND_PATTERNS.some((re) => re.test(haystack)) ||
     /model_not_found/i.test(`${n.apiErrorCode ?? ""} ${n.apiErrorType ?? ""}`)
+  ) {
+    return "model_not_found";
+  }
+
+  // OpenCode's unsupported-model payload uses type=ModelError on a 401.
+  // Gate on 4xx so a 5xx that happens to carry that type stays server_error
+  // (retryable) instead of model_not_found (not retryable, fallback-eligible).
+  if (
+    status !== undefined &&
+    status >= 400 &&
+    status < 500 &&
+    (UNSUPPORTED_MODEL_ID_PATTERNS.some((re) => re.test(haystack)) ||
+      /ModelError/i.test(`${n.apiErrorCode ?? ""} ${n.apiErrorType ?? ""}`))
   ) {
     return "model_not_found";
   }

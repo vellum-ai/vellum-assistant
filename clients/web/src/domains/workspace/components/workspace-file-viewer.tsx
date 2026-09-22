@@ -28,7 +28,7 @@ import {
   FileTextarea,
   SourcePre,
 } from "@/components/file-editor";
-import { useTranslation } from "@/i18n";
+import { formatLocale, useTranslation } from "@/i18n";
 import { FileMarkdown, isMarkdown } from "@/components/file-markdown";
 import { isJson, prettifyJson } from "@/domains/workspace/utils/file-json";
 import { formatFileSize } from "@/utils/format-file-size";
@@ -106,13 +106,8 @@ function HeaderDownloadButton({
     <Button
       variant="ghost"
       size="regular"
-      iconOnly={
-        isDownloading ? (
-          <Loader2 className="animate-spin" aria-hidden />
-        ) : (
-          <Download aria-hidden />
-        )
-      }
+      loading={isDownloading}
+      iconOnly={<Download aria-hidden />}
       onClick={() => void download()}
       disabled={isDownloading}
       aria-label={t("workspaceFileViewer.downloadAria", { name })}
@@ -404,7 +399,7 @@ function BinaryFileCard({
                 color: "var(--content-secondary, var(--content-tertiary))",
               }}
             >
-              {formatFileSize(size, "Unknown size")}
+              {formatFileSize(size, t("workspaceFileViewer.unknownSize"))}
             </p>
             {modifiedAt && (
               <p
@@ -414,20 +409,15 @@ function BinaryFileCard({
                 }}
               >
                 {t("workspaceFileViewer.modifiedLabel")}{" "}
-                {new Date(modifiedAt).toLocaleString()}
+                {new Date(modifiedAt).toLocaleString(formatLocale())}
               </p>
             )}
           </div>
           <Button
             variant="outlined"
             size="compact"
-            leftIcon={
-              isDownloading ? (
-                <Loader2 className="animate-spin" aria-hidden />
-              ) : (
-                <Download aria-hidden />
-              )
-            }
+            loading={isDownloading}
+            leftIcon={<Download aria-hidden />}
             onClick={handleDownload}
             disabled={isDownloading}
             aria-label={t("workspaceFileViewer.downloadAria", { name })}
@@ -440,7 +430,7 @@ function BinaryFileCard({
           {error && (
             <p
               className="mt-2 text-body-small-default"
-              style={{ color: "var(--system-error)" }}
+              style={{ color: "var(--system-negative-strong)" }}
             >
               {t("workspaceFileViewer.downloadFailed")}
             </p>

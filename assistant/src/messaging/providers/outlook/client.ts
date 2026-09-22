@@ -69,28 +69,22 @@ async function request<T>(
   const canRetry = isIdempotent(method);
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    let resp: OAuthConnectionResponse;
-    try {
-      const extraHeaders =
-        options?.headers &&
-        typeof options.headers === "object" &&
-        !Array.isArray(options.headers)
-          ? (options.headers as Record<string, string>)
-          : {};
-      resp = await connection.request({
-        method,
-        path,
-        query,
-        headers: {
-          "Content-Type": "application/json",
-          ...extraHeaders,
-        },
-        body: options?.body ? JSON.parse(options.body as string) : undefined,
-      });
-    } catch (err) {
-      // Network-level errors from connection.request() are not retryable
-      throw err;
-    }
+    const extraHeaders =
+      options?.headers &&
+      typeof options.headers === "object" &&
+      !Array.isArray(options.headers)
+        ? (options.headers as Record<string, string>)
+        : {};
+    const resp: OAuthConnectionResponse = await connection.request({
+      method,
+      path,
+      query,
+      headers: {
+        "Content-Type": "application/json",
+        ...extraHeaders,
+      },
+      body: options?.body ? JSON.parse(options.body as string) : undefined,
+    });
 
     if (resp.status < 200 || resp.status >= 300) {
       if (canRetry && isRetryable(resp.status) && attempt < MAX_RETRIES) {
@@ -286,6 +280,18 @@ export async function markMessageRead(
   );
 }
 
+/** Map in-memory file parts to Graph fileAttachment objects. */
+export function toOutlookFileAttachments(
+  attachments: Array<{ filename: string; mimeType: string; data: Buffer }>,
+): OutlookSendFileAttachment[] {
+  return attachments.map((att) => ({
+    "@odata.type": "#microsoft.graph.fileAttachment",
+    name: att.filename,
+    contentType: att.mimeType,
+    contentBytes: att.data.toString("base64"),
+  }));
+}
+
 /** Create a draft message in the user's Drafts folder. */
 export async function createDraft(
   connection: OAuthConnection,
@@ -293,7 +299,7 @@ export async function createDraft(
 ): Promise<OutlookMessage> {
   return request<OutlookMessage>(connection, "/v1.0/me/messages", {
     method: "POST",
-    body: JSON.stringify(draft),
+    body: JSON.stringify({ ...draft, isDraft: true }),
   });
 }
 

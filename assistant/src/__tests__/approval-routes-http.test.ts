@@ -9,6 +9,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import type { AssistantEvent } from "../api/index.js";
 import type { Conversation } from "../daemon/conversation.js";
 import type { SecretPromptResult } from "../permissions/secret-prompt-types.js";
+import { mockUnownedModeSessions } from "./helpers/mock-conversation.js";
 
 mock.module("../config/env.js", () => ({
   isHttpAuthDisabled: () => true,
@@ -120,6 +121,7 @@ function makeIdleSession(opts?: {
     addPreactivatedSkillId: () => {},
     enqueueMessage: () => ({ queued: false, requestId: "noop" }),
     hasAnyPendingConfirmation: () => false,
+    modeSessions: mockUnownedModeSessions(),
     runAgentLoop: async (
       _content: string,
       _messageId: string,
@@ -183,6 +185,7 @@ function makeConfirmationEmittingSession(opts?: {
     addPreactivatedSkillId: () => {},
     enqueueMessage: () => ({ queued: false, requestId: "noop" }),
     hasAnyPendingConfirmation: () => false,
+    modeSessions: mockUnownedModeSessions(),
     runAgentLoop: async (
       _content: string,
       _messageId: string,
@@ -238,8 +241,10 @@ function makeConfirmationEmittingSession(opts?: {
 // Tests
 // ---------------------------------------------------------------------------
 
-const TEST_TOKEN = "test-bearer-token-approvals";
-const AUTH_HEADERS = { Authorization: `Bearer ${TEST_TOKEN}` };
+// This suite mocks isHttpAuthDisabled() to true, so a request carrying no
+// bearer authenticates through the dev bypass. A bearer that is present is
+// verified against the signing key, which these tests do not set up.
+const AUTH_HEADERS: Record<string, string> = {};
 
 describe("standalone approval endpoints — HTTP layer", () => {
   let server: RuntimeHttpServer;

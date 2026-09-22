@@ -13,10 +13,10 @@
     "logIn": "Iniciar sesión",
     "logOut": "Cerrar sesión",
     "loginToUse": "Inicia sesión para usar",
-    "downloadMacApp": "Descargar la app de macOS",
+    "downloadMacOSApp": "Descargar la app de macOS",
+    "downloadWindowsApp": "Descargar la app de Windows",
     "claim": "Reclamar",
-    "skipForNow": "Omitir por ahora",
-    "starting": "Empezando…"
+    "skipForNow": "Omitir por ahora"
   },
   "welcome": {
     "title": "Te damos la bienvenida a Vellum",
@@ -133,9 +133,6 @@
   },
   "stepIndicator": {
     "ariaLabel": "Paso {current} de {total}"
-  },
-  "googleCalendar": {
-    "authorizationFailed": "No se pudo iniciar la autorización de Google Calendar."
   },
   "introductionScreen": {
     "greetingNamed": "¡Hola, {name}!",
@@ -255,7 +252,6 @@
     "bodyLoadingWithClaims": "Todavía estoy revisando el resto. Puedes ir mirando lo que va llegando.",
     "bodyReadyWithClaims": "He buscado en la web. Siéntete libre de quitar cualquier cosa que no sea cierta.",
     "bodyLoadingEmpty": "Todavía lo estoy armando…",
-    "bodyReadyEmpty": "No he encontrado mucho, lo iremos completando al chatear.",
     "removeClaim": "Quitar «{claim}»",
     "notMe": "Esto no soy yo",
     "stillSearching": "Todavía buscando…"
@@ -286,10 +282,5 @@
         "prompt": "Redacta algo a partir de unas notas sueltas que te daré."
       }
     }
-  },
-  "letsChatReadyStep": {
-    "title": "Ya está todo listo",
-    "setupNote": "Me he configurado con plugins según quién eres.",
-    "letsChat": "Hablemos"
   }
 }

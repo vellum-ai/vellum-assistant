@@ -44,6 +44,16 @@ export interface VoiceKeyHandlers {
   /** Start a call, or end the one that is running. */
   onDoubleTap: () => void;
   /**
+   * The key was touched, once. Both halves of a double tap arrive here too,
+   * each on its own release.
+   *
+   * Optional because a tap asks for nothing: it starts no dictation and no
+   * call, and a caller with nothing to draw is right to ignore it. What it is
+   * for is saying the key works, to a surface that is in the middle of teaching
+   * it.
+   */
+  onTap?: () => void;
+  /**
    * Whether the host took the key. `false` when it refused (no helper, or
    * Input Monitoring ungranted), which is the settings card's cue to say so.
    */
@@ -80,6 +90,9 @@ async function askForInputMonitoringOnce(): Promise<void> {
  * user is somewhere else entirely. The helper reports the key as a hold span,
  * and the gestures are read off the span here (see `voice-key-gestures`).
  *
+ * A single tap asks for nothing and is reported anyway, for a caller that wants
+ * to show the key being touched. Nothing here acts on it.
+ *
  * **A hold is a microphone.** Every `onHoldStart` is closed exactly once, so
  * the effect's teardown closes an open hold too: a binding that goes away
  * mid-hold would otherwise leave the microphone on with nothing left to turn
@@ -90,6 +103,7 @@ export function useVoiceKey({
   onHoldStart,
   onHoldEnd,
   onDoubleTap,
+  onTap,
   onRegistered,
 }: VoiceKeyHandlers & { key: VoiceKey }): void {
   // Read through a ref so a caller that re-renders does not re-register the
@@ -98,11 +112,18 @@ export function useVoiceKey({
     onHoldStart,
     onHoldEnd,
     onDoubleTap,
+    onTap,
     onRegistered,
   });
   useEffect(() => {
-    handlers.current = { onHoldStart, onHoldEnd, onDoubleTap, onRegistered };
-  }, [onHoldStart, onHoldEnd, onDoubleTap, onRegistered]);
+    handlers.current = {
+      onHoldStart,
+      onHoldEnd,
+      onDoubleTap,
+      onTap,
+      onRegistered,
+    };
+  }, [onHoldStart, onHoldEnd, onDoubleTap, onTap, onRegistered]);
 
   // The binding as a string, so the effect re-runs on a real change of key and
   // not on every render that hands over an equal array.
@@ -122,6 +143,9 @@ export function useVoiceKey({
             return;
           case "holdEnd":
             handlers.current.onHoldEnd();
+            return;
+          case "tap":
+            handlers.current.onTap?.();
             return;
           case "doubleTap":
             handlers.current.onDoubleTap();

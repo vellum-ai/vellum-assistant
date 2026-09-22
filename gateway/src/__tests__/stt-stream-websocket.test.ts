@@ -1,7 +1,16 @@
 import { afterEach, describe, test, expect, mock } from "bun:test";
-import type { GatewayConfig } from "../config.js";
-import { initSigningKey, mintToken } from "../auth/token-service.js";
-import { CURRENT_POLICY_EPOCH } from "../auth/policy.js";
+import {
+  createFakeDownstreamWs,
+  makeConfig,
+  makeFakeServer,
+  mintEdgeToken,
+  mintServiceEdgeToken,
+  settle,
+  startFakeRuntime,
+  upgradedData,
+  waitFor,
+  type FakeRuntime,
+} from "./runtime-stream-test-utils.js";
 
 // Dictation is NOT a guardian-only surface. The binding lookup is mocked to a
 // principal that no token below matches, so any consultation of it would
@@ -20,67 +29,6 @@ const { createSttStreamWebsocketHandler, getSttStreamWebsocketHandlers } =
   await import("../http/routes/stt-stream-websocket.js");
 import type { SttStreamSocketData } from "../http/routes/stt-stream-websocket.js";
 import { setVelayBridgeAuthHeader } from "../velay/bridge-auth.js";
-
-const TEST_SIGNING_KEY = Buffer.from("test-signing-key-at-least-32-bytes-long");
-initSigningKey(TEST_SIGNING_KEY);
-
-/** Mint a valid actor edge JWT for STT stream auth. */
-function mintEdgeToken(actorPrincipalId: string = "test-user"): string {
-  return mintToken({
-    aud: "vellum-gateway",
-    sub: `actor:test-assistant:${actorPrincipalId}`,
-    scope_profile: "actor_client_v1",
-    policy_epoch: CURRENT_POLICY_EPOCH,
-    ttlSeconds: 300,
-  });
-}
-
-/** Mint a service-style token (no actor principal). */
-function mintServiceEdgeToken(): string {
-  return mintToken({
-    aud: "vellum-gateway",
-    sub: "svc:gateway:self",
-    scope_profile: "gateway_service_v1",
-    policy_epoch: CURRENT_POLICY_EPOCH,
-    ttlSeconds: 300,
-  });
-}
-
-function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
-  return {
-    assistantRuntimeBaseUrl: "http://localhost:7821",
-    routingEntries: [],
-    port: 7830,
-    runtimeProxyRequireAuth: true,
-    shutdownDrainMs: 5000,
-    runtimeTimeoutMs: 30000,
-    runtimeMaxRetries: 2,
-    runtimeInitialBackoffMs: 500,
-    maxWebhookPayloadBytes: 1048576,
-    logFile: { dir: undefined, retentionDays: 30 },
-    maxAttachmentBytes: {
-      telegram: 50 * 1024 * 1024,
-      slack: 100 * 1024 * 1024,
-      whatsapp: 16 * 1024 * 1024,
-      default: 50 * 1024 * 1024,
-    },
-    maxAttachmentConcurrency: 3,
-    gatewayInternalBaseUrl: "http://127.0.0.1:7830",
-    trustProxy: false,
-    ...overrides,
-  } as GatewayConfig;
-}
-
-function makeFakeServer(upgradeResult: boolean = true) {
-  return {
-    requestIP: mock(() => ({
-      address: "127.0.0.1",
-      family: "IPv4",
-      port: 54000,
-    })),
-    upgrade: mock(() => upgradeResult),
-  } as unknown as import("bun").Server<unknown>;
-}
 
 // ---------------------------------------------------------------------------
 // createSttStreamWebsocketHandler — upgrade handler tests
@@ -181,12 +129,9 @@ describe("createSttStreamWebsocketHandler", () => {
     expect(res).toBeUndefined();
     expect(server.upgrade).toHaveBeenCalledTimes(1);
 
-    // Verify provider is undefined in socket data
-    const upgradeCall = (server.upgrade as ReturnType<typeof mock>).mock
-      .calls[0] as unknown[];
-    const opts = upgradeCall[1] as { data: SttStreamSocketData };
-    expect(opts.data.provider).toBeUndefined();
-    expect(opts.data.mimeType).toBe("audio/webm");
+    const data = upgradedData<SttStreamSocketData>(server);
+    expect(data.provider).toBeUndefined();
+    expect(data.mimeType).toBe("audio/webm");
   });
 
   test("returns 400 when mimeType is missing", () => {
@@ -296,12 +241,11 @@ describe("createSttStreamWebsocketHandler", () => {
     const server = makeFakeServer();
     handler(req, server);
 
-    const upgradeCall = (server.upgrade as ReturnType<typeof mock>).mock
-      .calls[0] as unknown[];
-    const opts = upgradeCall[1] as { data: SttStreamSocketData };
-    expect(opts.data.provider).toBe("deepgram");
-    expect(opts.data.mimeType).toBe("audio/webm");
-    expect(opts.data.sampleRate).toBe(16000);
+    expect(upgradedData<SttStreamSocketData>(server)).toMatchObject({
+      provider: "deepgram",
+      mimeType: "audio/webm",
+      sampleRate: 16000,
+    });
   });
 });
 
@@ -310,32 +254,17 @@ describe("createSttStreamWebsocketHandler", () => {
 // ---------------------------------------------------------------------------
 
 describe("getSttStreamWebsocketHandlers", () => {
-  function createFakeDownstreamWs(data: Partial<SttStreamSocketData> = {}) {
-    const sent: (string | Uint8Array)[] = [];
-    const closes: { code: number; reason: string }[] = [];
-    const fullData: SttStreamSocketData = {
+  const makeSttWs = () =>
+    createFakeDownstreamWs<SttStreamSocketData>({
       wsType: "stt-stream",
       config: makeConfig(),
       provider: "deepgram",
       mimeType: "audio/webm",
-      ...data,
-    };
-    return {
-      data: fullData,
-      sent,
-      closes,
-      send: mock((msg: string | Uint8Array) => {
-        sent.push(msg);
-      }),
-      close: mock((code?: number, reason?: string) => {
-        closes.push({ code: code ?? 1000, reason: reason ?? "" });
-      }),
-    };
-  }
+    });
 
   test("open handler initializes pending messages buffer", () => {
     const handlers = getSttStreamWebsocketHandlers();
-    const ws = createFakeDownstreamWs();
+    const ws = makeSttWs();
 
     // The open handler creates a WebSocket to upstream which will fail in test,
     // but pendingMessages should be initialized before that happens.
@@ -350,7 +279,7 @@ describe("getSttStreamWebsocketHandlers", () => {
 
   test("message handler buffers messages when upstream is not connected", () => {
     const handlers = getSttStreamWebsocketHandlers();
-    const ws = createFakeDownstreamWs();
+    const ws = makeSttWs();
     ws.data.pendingMessages = [];
 
     handlers.message(ws as never, "test-audio-frame");
@@ -360,7 +289,7 @@ describe("getSttStreamWebsocketHandlers", () => {
 
   test("message handler closes connection on buffer overflow", () => {
     const handlers = getSttStreamWebsocketHandlers();
-    const ws = createFakeDownstreamWs();
+    const ws = makeSttWs();
     ws.data.pendingMessages = new Array(100).fill("x"); // At MAX_PENDING_MESSAGES
 
     handlers.message(ws as never, "overflow-frame");
@@ -370,7 +299,7 @@ describe("getSttStreamWebsocketHandlers", () => {
 
   test("close handler cleans up pending messages and closes upstream", () => {
     const handlers = getSttStreamWebsocketHandlers();
-    const ws = createFakeDownstreamWs();
+    const ws = makeSttWs();
     ws.data.pendingMessages = ["some-data"];
 
     const fakeUpstream = {
@@ -387,7 +316,7 @@ describe("getSttStreamWebsocketHandlers", () => {
 
   test("close handler is safe when upstream is already closed", () => {
     const handlers = getSttStreamWebsocketHandlers();
-    const ws = createFakeDownstreamWs();
+    const ws = makeSttWs();
 
     const fakeUpstream = {
       readyState: WebSocket.CLOSED,
@@ -398,6 +327,56 @@ describe("getSttStreamWebsocketHandlers", () => {
     handlers.close(ws as never, 1000, "normal");
 
     expect(fakeUpstream.close).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Dictation carries JSON transcript and lifecycle frames, each self-contained.
+ * A dropped one costs a fragment, not the session, so the desktop stream's
+ * teardown must not reach this route: the usual trigger is a runtime frame
+ * landing just after the browser socket closed.
+ */
+describe("a dropped downstream frame does not end a dictation session", () => {
+  let runtime: FakeRuntime;
+  afterEach(() => {
+    runtime?.server.stop(true);
+  });
+
+  const makeViewerWs = (sendStatus?: number) =>
+    createFakeDownstreamWs<SttStreamSocketData>(
+      {
+        wsType: "stt-stream",
+        config: makeConfig({
+          assistantRuntimeBaseUrl: `http://127.0.0.1:${runtime.server.port}`,
+        }),
+        mimeType: "audio/webm",
+      },
+      { sendStatus },
+    );
+
+  test("keeps both sides open when a send is dropped", async () => {
+    runtime = startFakeRuntime('{"type":"transcript","text":"hello"}');
+    const handlers = getSttStreamWebsocketHandlers();
+    const ws = makeViewerWs(0);
+
+    handlers.open(ws as never);
+    await waitFor(() => ws.sent.length > 0);
+    await settle();
+
+    expect(ws.closes).toEqual([]);
+    expect(ws.data.upstream!.readyState).toBe(WebSocket.OPEN);
+  });
+
+  test("does not treat an empty frame as a dropped one", async () => {
+    runtime = startFakeRuntime("");
+    const handlers = getSttStreamWebsocketHandlers();
+    const ws = makeViewerWs(0);
+
+    handlers.open(ws as never);
+    await waitFor(() => ws.sent.length > 0);
+    await settle();
+
+    expect(ws.closes).toEqual([]);
   });
 });
 
@@ -478,11 +457,13 @@ describe("createSttStreamWebsocketHandler: velay-attested managed auth", () => {
     orgId = VELAY_ORG_ID as string | null,
     token,
     managed = true,
+    velayBaseUrl,
   }: {
     bridgeProof?: boolean;
     orgId?: string | null;
     token?: string;
     managed?: boolean;
+    velayBaseUrl?: string;
   }) => {
     if (managed) {
       process.env.IS_PLATFORM = "true";
@@ -500,7 +481,9 @@ describe("createSttStreamWebsocketHandler: velay-attested managed auth", () => {
     if (bridgeProof) {
       setVelayBridgeAuthHeader(headers);
     }
-    const handler = createSttStreamWebsocketHandler(makeConfig());
+    const handler = createSttStreamWebsocketHandler(
+      makeConfig(velayBaseUrl ? { velayBaseUrl } : {}),
+    );
     const query = token ? `&token=${token}` : "";
     const req = new Request(
       `http://localhost:7830/v1/stt/stream?mimeType=audio/pcm${query}`,
@@ -539,9 +522,31 @@ describe("createSttStreamWebsocketHandler: velay-attested managed auth", () => {
     expect(server.upgrade).toHaveBeenCalledTimes(1);
   });
 
-  /** The attestation means nothing off the platform: only the token does. */
-  test("ignores velay headers on a self-hosted gateway", () => {
+  /** With no velay tunnel there is no bridge to have come through. */
+  test("ignores velay headers on a gateway with no velay tunnel", () => {
     const { res, server } = managedUpgrade({ managed: false });
+
+    expect(res!.status).toBe(401);
+    expect(server.upgrade).not.toHaveBeenCalled();
+  });
+
+  /** A locally hosted gateway with a tunnel takes the velay path like a managed pod. */
+  test("admits an attested caller on a locally hosted gateway with a velay tunnel", () => {
+    const { res, server } = managedUpgrade({
+      managed: false,
+      velayBaseUrl: "https://velay.example.test",
+    });
+
+    expect(res).toBeUndefined();
+    expect(server.upgrade).toHaveBeenCalledTimes(1);
+  });
+
+  test("still ignores spoofed headers on a locally hosted gateway with a velay tunnel", () => {
+    const { res, server } = managedUpgrade({
+      managed: false,
+      velayBaseUrl: "https://velay.example.test",
+      bridgeProof: false,
+    });
 
     expect(res!.status).toBe(401);
     expect(server.upgrade).not.toHaveBeenCalled();

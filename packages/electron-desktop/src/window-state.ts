@@ -2,10 +2,12 @@ import { BrowserWindow, screen, type Rectangle } from "electron";
 import Store from "electron-store";
 
 import {
+  COMPANION_DOCKS,
   COMPANION_SIZE_AXES,
   COMPANION_SIZES,
   DEFAULT_COMPANION_SIZE,
   titleBarOverlayThemeSchema,
+  type CompanionDock,
   type CompanionSize,
   type CompanionSizeAxis,
   type TitleBarOverlayTheme,
@@ -55,11 +57,20 @@ interface StoreSchema {
   // axes, and `writeCompanionSize` keeps it current for the one state it can
   // say: both axes on the same size.
   companionSize?: CompanionSize;
-  // Whether the companion's one-time introduction has run. Held here rather
+  // Which version of the companion's introduction has run. Held here rather
   // than in the surface's renderer because that renderer reloads, and a run
   // recorded there would start again from the top every time it did. Optional:
-  // absent means it has not run (see `readCompanionIntroSeen`).
+  // absent means none has (see `readCompanionIntroSeenVersion`).
+  companionIntroSeenVersion?: number;
+  // What the first companion introduction recorded, before the run had a
+  // version: `true` means its four beats were seen, which is version 1. Kept
+  // for the installs that carry it and never written again.
   companionIntroSeen?: boolean;
+  // Which edge of the display the companion's call bar rests on, as the user
+  // last dropped it. Main's for the reason the sizes are: the call places the
+  // window and sizes its canvas by it. Optional: absent means the bottom (see
+  // `readCompanionCallDock`).
+  companionCallDock?: CompanionDock;
   // How the Windows title-bar overlay's caption buttons are painted, as last
   // published by the renderer's active theme. A main-process concern for the
   // same reason the flags above are: the overlay's colors are constructor
@@ -186,27 +197,82 @@ export const readCompanionSize = (axis: CompanionSizeAxis): CompanionSize =>
   DEFAULT_COMPANION_SIZE;
 
 /**
- * Whether the companion's one-time introduction has already run.
+ * Which version of the companion's introduction this install has been shown,
+ * or 0 for none.
  *
- * Absent defaults to `false`, so an install with nothing recorded gets a run.
- * That is the right way round: the surface appears on the desktop without the
- * user having opened it, and the people most owed an explanation of it are the
- * ones who have not had one.
+ * **A version rather than a flag, because the run is rewritten.** The first
+ * one had four beats and told the user about a control the surface no longer
+ * draws; a later one introduces things the first never mentioned. Under a
+ * boolean, everybody who saw the first run was silently excluded from every
+ * run after it, which is the opposite of what a rewritten introduction is for.
+ *
+ * Nothing recorded reads as 0, so an install with no history gets a run. That
+ * is the right way round: the surface appears on the desktop without the user
+ * having opened it, and the people most owed an explanation of it are the ones
+ * who have not had one. A stored boolean is the first run's own record and
+ * counts as version 1.
  */
-export const readCompanionIntroSeen = (): boolean =>
-  store().get("companionIntroSeen", false);
+export const readCompanionIntroSeenVersion = (): number => {
+  const seen = store().get("companionIntroSeenVersion");
+  if (typeof seen === "number" && Number.isInteger(seen) && seen > 0) {
+    return seen;
+  }
+  return store().get("companionIntroSeen", false) ? 1 : 0;
+};
 
 /**
- * Record that the introduction has been seen. One way only, and no-op when
- * already set: nothing in the app un-sees it, and a run that could be reset by
- * a stray write is a floating panel that starts explaining itself again months
- * later.
+ * Record that the introduction's `version` has been seen.
+ *
+ * Forward only, and no-op at or below what is already recorded: nothing in the
+ * app un-sees a run, and one that could be reset by a stray write is a floating
+ * panel that starts explaining itself again months later.
  */
-export const writeCompanionIntroSeen = (): void => {
-  if (readCompanionIntroSeen()) {
+export const writeCompanionIntroSeen = (version: number): void => {
+  if (readCompanionIntroSeenVersion() >= version) {
     return;
   }
-  store().set("companionIntroSeen", true);
+  store().set("companionIntroSeenVersion", version);
+};
+
+/**
+ * Forget that any introduction has been seen, so the next surface to open runs
+ * the current one again.
+ *
+ * For the developer tray's "Replay Companion Intro" only. Nothing a user can
+ * reach un-sees a run: see the one-way note on
+ * {@link writeCompanionIntroSeen}. The first run's own key goes too, or an
+ * install carrying it would replay as far as version 1 and stop.
+ */
+export const clearCompanionIntroSeen = (): void => {
+  store().delete("companionIntroSeenVersion");
+  store().delete("companionIntroSeen");
+};
+
+/**
+ * Which edge of the display the call bar rests on.
+ *
+ * Validated the way the sizes are: the value picks a placement and a canvas
+ * shape, and one this build does not know would place the bar nowhere. Absent
+ * and unknown both read as the bottom, the one edge every build has put the
+ * bar on.
+ */
+export const readCompanionCallDock = (): CompanionDock => {
+  const stored: CompanionDock | undefined = store().get("companionCallDock");
+  return stored !== undefined && COMPANION_DOCKS.includes(stored)
+    ? stored
+    : "bottom";
+};
+
+/**
+ * Persist the edge the bar was dropped on. No-op when the effective value is
+ * unchanged, so a drop back onto the edge it was already on does not churn the
+ * store file.
+ */
+export const writeCompanionCallDock = (dock: CompanionDock): void => {
+  if (readCompanionCallDock() === dock) {
+    return;
+  }
+  store().set("companionCallDock", dock);
 };
 
 /**
@@ -318,8 +384,7 @@ const isSavedWindowState = (value: unknown): value is SavedWindowState => {
     isUsableDimension(state.width) &&
     isUsableDimension(state.height) &&
     typeof state.isFullScreen === "boolean" &&
-    (state.isMaximized === undefined ||
-      typeof state.isMaximized === "boolean")
+    (state.isMaximized === undefined || typeof state.isMaximized === "boolean")
   );
 };
 

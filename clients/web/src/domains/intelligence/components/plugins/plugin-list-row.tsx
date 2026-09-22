@@ -1,10 +1,10 @@
-import { ArrowDownToLine, Loader2, Puzzle, Trash2 } from "lucide-react";
+import { ArrowDownToLine, Puzzle, Trash2 } from "lucide-react";
 import type { KeyboardEvent } from "react";
 
-import { PluginIcon } from "@/domains/intelligence/components/plugins/plugin-icon";
+import { PluginIcon } from "@/components/plugins/plugin-icon";
 import { UpdateAvailableBadge } from "@/domains/intelligence/components/plugins/update-available-badge";
-import type { PluginListItem } from "@/domains/intelligence/plugins/types";
-import { usePluginIconSrc } from "@/domains/intelligence/plugins/use-plugin-icon-src";
+import type { PluginListItem } from "@/lib/plugins/types";
+import { usePluginIconSrc } from "@/hooks/use-plugin-icon-src";
 import type { PluginDrift } from "@/domains/intelligence/use-plugin-drift";
 import { useTranslation } from "@/i18n";
 import { Button, Card, Tag } from "@vellumai/design-library";
@@ -82,6 +82,7 @@ export function PluginListRow({
           size="sm"
           external={item.external}
           icon={item.icon}
+          iconUrl={item.iconUrl}
           iconSrc={iconSrc}
           className={dimmed ? "opacity-50" : undefined}
         />
@@ -150,7 +151,8 @@ export function PluginListRow({
           isInstalling ? (
             <Button
               type="button"
-              iconOnly={<Loader2 className="animate-spin" aria-hidden />}
+              loading
+              iconOnly={<ArrowDownToLine aria-hidden />}
               disabled
               aria-label={t("pluginListRow.installingAriaLabel")}
               expandOnMobile={false}
@@ -184,13 +186,8 @@ export function PluginListRow({
             <Button
               type="button"
               variant="dangerOutline"
-              iconOnly={
-                isRemoving ? (
-                  <Loader2 className="animate-spin" aria-hidden />
-                ) : (
-                  <Trash2 aria-hidden />
-                )
-              }
+              loading={isRemoving}
+              iconOnly={<Trash2 aria-hidden />}
               onClick={(e) => {
                 e.stopPropagation();
                 onRemove?.();

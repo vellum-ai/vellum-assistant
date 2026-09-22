@@ -13,6 +13,7 @@ import {
   mockGatewayIpc,
   resetMockGatewayIpc,
 } from "../__tests__/mock-gateway-ipc.js";
+import { ServiceUnavailableError } from "../runtime/routes/errors.js";
 import {
   ipcCall,
   ipcCallPersistent,
@@ -67,11 +68,14 @@ describe("ipcCallPersistent", () => {
     expect(result).toBe("persistent-result");
   });
 
-  test("throws when mock simulates error", async () => {
+  test("maps a missing gateway socket to ServiceUnavailableError", async () => {
     mockGatewayIpc(null, { error: true });
 
+    await expect(ipcCallPersistent("any_method")).rejects.toBeInstanceOf(
+      ServiceUnavailableError,
+    );
     await expect(ipcCallPersistent("any_method")).rejects.toThrow(
-      /Mock IPC socket error/,
+      /Gateway is not reachable over IPC: Mock IPC socket error/,
     );
   });
 

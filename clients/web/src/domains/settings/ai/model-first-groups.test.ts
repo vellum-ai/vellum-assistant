@@ -35,7 +35,7 @@ function input(
 ): ModelFirstInput {
   return {
     connections,
-    developerMode: false,
+    hostedInference: false,
     activeAssistantIsSelfHosted: true,
     labelFor: (provider) => PROVIDER_DISPLAY_NAMES[provider] ?? provider,
     defaultEntryMetaLabel: "Default",
@@ -44,7 +44,9 @@ function input(
 }
 
 function groupLabels(connections: ProviderConnection[]): string[] {
-  return resolveModelFirstGroups(input(connections)).map((group) => group.label);
+  return resolveModelFirstGroups(input(connections)).map(
+    (group) => group.label,
+  );
 }
 
 function groupFor(connections: ProviderConnection[], key: string) {
@@ -89,6 +91,17 @@ describe("resolveModelFirstGroups", () => {
     }
   });
 
+  test("omits structured-decision providers from the section list", () => {
+    expect(groupLabels([])).not.toContain("TypeSafe");
+    expect(groupLabels([])).not.toContain("Jev");
+    expect(groupLabels([connection("jev-key", "typesafe")])).not.toContain(
+      "TypeSafe",
+    );
+    expect(groupLabels([connection("jev-key", "typesafe")])).not.toContain(
+      "Jev",
+    );
+  });
+
   test("merges the providers that list one vendor's work", () => {
     // Fireworks lists the newest MiniMax, OpenRouter the older ones, and
     // MiniMax hosts its own: one section, each model once.
@@ -100,9 +113,9 @@ describe("resolveModelFirstGroups", () => {
       1,
     );
     // A model two providers list still lands in one section, once.
-    expect(namesOf([], "xai").filter((name) => name === "Grok 4.3")).toHaveLength(
-      1,
-    );
+    expect(
+      namesOf([], "xai").filter((name) => name === "Grok 4.3"),
+    ).toHaveLength(1);
     // And a variant only a gateway lists joins its maker's section.
     expect(namesOf([], "openai")).toContain("GPT-5.6 Sol Pro");
   });
@@ -260,13 +273,14 @@ describe("collapseSectionRows", () => {
   });
 
   test("spends the three rows on three lines, not three versions of one", () => {
-    // Every OpenAI line's newest member is a 5.6, so the section leads with
-    // those rather than walking down through 5.5 and 5.4.
+    // Astra is its own line, then each 5.6 flavor is a line of its own, so
+    // the section leads with those rather than walking down through 5.5
+    // and 5.4.
     const { shown } = collapseSectionRows(optionsFor("openai"));
     expect(shown.map((option) => option.displayName)).toEqual([
+      "GPT-6 Astra",
       "GPT-5.6 Sol",
       "GPT-5.6 Terra",
-      "GPT-5.6 Luna",
     ]);
   });
 

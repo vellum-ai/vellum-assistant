@@ -1,5 +1,14 @@
 import { describe, expect, mock, test } from "bun:test";
 
+import type {
+  VoiceProgressNarrator,
+  VoiceProgressTextInput,
+} from "../../calls/progress-narration.js";
+import {
+  pickProgressPhrase,
+  PROGRESS_FALLBACK_PHRASES,
+  PROGRESS_FALLBACK_PHRASES_BY_LANGUAGE,
+} from "../../calls/progress-phrases.js";
 import { sanitizeForTts } from "../../calls/tts-text-sanitizer.js";
 import type {
   VoiceTurnCallbacks,
@@ -7,9 +16,9 @@ import type {
 } from "../../calls/voice-session-bridge.js";
 import { loadRawConfig, saveRawConfig } from "../../config/loader.js";
 import type {
-  LiveVoiceFrontModelConfig,
-  LiveVoiceProgressConfig,
-} from "../../config/schemas/live-voice.js";
+  VoiceFrontModelConfig,
+  VoiceProgressConfig,
+} from "../../config/schemas/voice.js";
 import type {
   StreamingTranscriber,
   SttStreamServerEvent,
@@ -21,15 +30,6 @@ import {
 } from "../live-voice-session.js";
 import type { LiveVoiceSessionFactoryContext } from "../live-voice-session-manager.js";
 import type { LiveVoiceTtsOptions } from "../live-voice-tts.js";
-import type {
-  VoiceProgressNarrator,
-  VoiceProgressTextInput,
-} from "../progress-narration.js";
-import {
-  pickProgressPhrase,
-  PROGRESS_FALLBACK_PHRASES,
-  PROGRESS_FALLBACK_PHRASES_BY_LANGUAGE,
-} from "../progress-phrases.js";
 import {
   createLiveVoiceServerFrameSequencer,
   type LiveVoiceClientStartFrame,
@@ -142,8 +142,8 @@ function makeProgressNarrator(
 }
 
 function progressConfig(
-  overrides: Partial<LiveVoiceProgressConfig> = {},
-): Partial<LiveVoiceFrontModelConfig> {
+  overrides: Partial<VoiceProgressConfig> = {},
+): Partial<VoiceFrontModelConfig> {
   const idleIntervalMs = overrides.idleIntervalMs ?? 60_000;
   return {
     progress: {
@@ -163,7 +163,7 @@ function progressConfig(
 }
 
 function createProgressHarness(options: {
-  frontModelConfig: Partial<LiveVoiceFrontModelConfig>;
+  frontModelConfig: Partial<VoiceFrontModelConfig>;
   progressNarrator: VoiceProgressNarrator;
   emitMetrics?: boolean;
   gateTtsText?: (text: string) => Promise<void> | null;
@@ -924,6 +924,85 @@ describe("LiveVoiceSession progress narration", () => {
     await waitFor(() => ttsTexts.includes("Second narration."));
     expect(generateProgressText).toHaveBeenCalledTimes(2);
 
+    emitMessageComplete(getCallbacks);
+  });
+});
+
+describe("LiveVoiceSession spoken update cadence", () => {
+  async function runTurnAskingFor(
+    session: LiveVoiceSession,
+    getCallbacks: () => VoiceTurnCallbacks | undefined,
+    frames: { type: string }[],
+    reply: string,
+  ): Promise<void> {
+    emitTextDelta(getCallbacks, reply);
+    emitMessageComplete(getCallbacks);
+    await waitFor(
+      () => frames.some((frame) => frame.type === "tts_done"),
+      "first turn never finished",
+    );
+    // Let the post-turn re-arm run before releasing the next turn.
+    await sleep(20);
+    const previous = getCallbacks();
+    // Typed, because a manual session's microphone re-arm is not what this
+    // exercises: the cadence is the session's, however the next turn arrives.
+    await session.handleClientFrame({ type: "text", text: "go ahead" });
+    await waitFor(() => getCallbacks() !== previous, "next turn never started");
+  }
+
+  test("after the user asks for fewer updates, tool activity no longer narrates", async () => {
+    const generateProgressText = mock(async () => GENERATED_NARRATION);
+    const { frames, session, getCallbacks, ttsTexts } = createProgressHarness({
+      frontModelConfig: progressConfig({ opsThreshold: 3, minGapMs: 10 }),
+      progressNarrator: makeProgressNarrator(generateProgressText),
+    });
+
+    await startReleasedTurn(session, getCallbacks);
+    await runTurnAskingFor(
+      session,
+      getCallbacks,
+      frames,
+      "Sure, I'll only check in now and then. [UPDATES:FEWER]",
+    );
+    emitToolStart(getCallbacks, "web_search", "tool-1");
+    emitToolResult(getCallbacks, "web_search", "tool-1");
+    emitToolStart(getCallbacks, "file_read", "tool-2");
+    emitToolResult(getCallbacks, "file_read", "tool-2");
+    emitToolStart(getCallbacks, "web_search", "tool-3");
+    await sleep(40);
+
+    expect(generateProgressText).not.toHaveBeenCalled();
+    expect(ttsTexts.join(" ")).not.toContain("[UPDATES");
+    emitMessageComplete(getCallbacks);
+  });
+
+  test("asking for updates back restores the normal cadence", async () => {
+    const generateProgressText = mock(async () => GENERATED_NARRATION);
+    const { frames, session, getCallbacks, ttsTexts } = createProgressHarness({
+      frontModelConfig: progressConfig({ opsThreshold: 3, minGapMs: 10 }),
+      progressNarrator: makeProgressNarrator(generateProgressText),
+    });
+
+    await startReleasedTurn(session, getCallbacks);
+    await runTurnAskingFor(
+      session,
+      getCallbacks,
+      frames,
+      "Okay, fewer updates. [UPDATES:FEWER]",
+    );
+    frames.length = 0;
+    await runTurnAskingFor(
+      session,
+      getCallbacks,
+      frames,
+      "Got it, I'll keep you posted. [UPDATES:NORMAL]",
+    );
+    emitToolStart(getCallbacks, "web_search", "tool-1");
+    emitToolStart(getCallbacks, "file_read", "tool-2");
+    emitToolStart(getCallbacks, "web_search", "tool-3");
+    await waitFor(() => ttsTexts.includes(GENERATED_NARRATION));
+
+    expect(generateProgressText).toHaveBeenCalledTimes(1);
     emitMessageComplete(getCallbacks);
   });
 });

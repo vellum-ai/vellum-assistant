@@ -552,6 +552,13 @@ Message content (stored as JSON `ContentBlock[]` in the DB) is flattened for the
 
 Attachments are materialized into `conversations/<conversation>/attachments/` as soon as they are linked to a message. During disk-view sync, the JSONL record reuses those filenames directly and only falls back to materializing legacy rows that have not been projected yet. Filename collisions are still resolved by appending a numeric suffix (e.g., `photo-2.png`, `photo-3.png`).
 
+Computer-use screenshot media is materialized while its tool-result row is
+finalized, so earlier frames remain represented in tool history, JSONL, and
+compaction inputs. The final screenshot-bearing invocation reuses that same
+attachment ID for an additional reply link. A single attachment can therefore
+appear on both a tool-result row and a reply row without creating a second
+attachment-store object.
+
 ### Backfill Migration
 
 Existing conversations created before the disk view was introduced are backfilled by workspace migration `009-backfill-conversation-disk-view`, which replays all conversations and their messages through the disk-view sync functions.

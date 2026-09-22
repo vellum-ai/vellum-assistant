@@ -1,33 +1,20 @@
 /**
- * The "Output" section of a `skill_load` detail panel (Figma node
- * 7778-163402): a Clean/Raw switch over one card, clamped to a readable height
- * with a Show more control.
+ * The "Output" section of a `skill_load` detail panel: the skill's instructions
+ * rendered as markdown and clamped to a readable height. The verbatim result is
+ * Raw output, which the drawer offers below every call.
  *
- * `skill_load`'s output is the skill body itself — markdown that renders
- * properly (Clean) but that an operator sometimes needs to see verbatim, header
- * lines and tool manifest included (Raw). Those were two separate collapsed
- * disclosures; the segment control makes them one thing viewed two ways, which
- * is what they are.
+ * `skill_load`'s output is the skill body itself: markdown that reads properly
+ * rendered, but that an operator sometimes needs verbatim, header lines and
+ * tool manifest included.
  */
 
-import { useState } from "react";
-
-import { SegmentControl } from "@vellumai/design-library";
-
 import {
-  ClampedContent,
-  CopyButton,
+  CodeBlock,
+  DetailBlock,
   SectionLabel,
 } from "@/components/detail-primitives";
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import { useTranslation } from "@/i18n";
-
-type OutputMode = "clean" | "raw";
-
-const MODES = [
-  { value: "clean" as const, label: "Clean" },
-  { value: "raw" as const, label: "Raw" },
-];
 
 export function SkillLoadOutput({
   /** Instruction markdown, header and tool manifest already stripped. */
@@ -41,58 +28,29 @@ export function SkillLoadOutput({
   assistantId?: string | null;
 }) {
   const { t } = useTranslation("chat");
-  const [mode, setMode] = useState<OutputMode>("clean");
 
-  // A skill whose body is nothing but the header and its tool manifest parses
-  // to empty instructions; Raw is then the only view worth offering, so the
-  // switch would be a control with one real choice.
-  const hasClean = instructions !== "";
-  const hasRaw = raw !== "";
-  if (!hasClean && !hasRaw) {
+  if (instructions === "" && raw === "") {
     return null;
   }
 
-  const activeMode: OutputMode = hasClean ? mode : "raw";
-  const body = activeMode === "clean" ? instructions : raw;
-
+  // A skill whose body is nothing but the header and its tool manifest parses
+  // to empty instructions. The verbatim result is then the whole output, and
+  // leaving it to Raw output would leave the section looking empty. It draws
+  // as a code block rather than the filled card the rendered instructions use,
+  // because that is what it is: the body as the daemon returned it.
   return (
     <div>
-      <div className="mb-2 flex items-center justify-between gap-3">
-        {/* The row owns the spacing under the header, so the label drops its
-            own bottom margin — otherwise it sits off-centre from the switch. */}
-        <SectionLabel className="mb-0">
-          {t("skillLoadOutput.output")}
-        </SectionLabel>
-        {hasClean && hasRaw && (
-          <SegmentControl
-            items={MODES}
-            value={activeMode}
-            onChange={setMode}
-            ariaLabel={t("skillLoadOutput.outputFormatAria")}
-            // The control defaults to `w-full` for full-width pickers; here it
-            // trails the section label, so it hugs its two segments instead.
-            // The segments keep `flex-1`, so they stay equal width.
-            className="w-auto shrink-0"
+      <SectionLabel>{t("toolDetailPanel.output")}</SectionLabel>
+      {instructions !== "" ? (
+        <DetailBlock variant="filled">
+          <ChatMarkdownMessage
+            content={instructions}
+            assistantId={assistantId}
           />
-        )}
-      </div>
-
-      <div className="relative rounded-xl bg-[var(--surface-overlay)] p-3">
-        <ClampedContent length={body.length}>
-          {activeMode === "clean" ? (
-            <ChatMarkdownMessage
-              content={instructions}
-              assistantId={assistantId}
-            />
-          ) : (
-            <pre className="font-mono text-xs whitespace-pre-wrap break-words text-[var(--content-default)]">
-              {raw}
-            </pre>
-          )}
-        </ClampedContent>
-
-        {activeMode === "raw" && <CopyButton text={raw} />}
-      </div>
+        </DetailBlock>
+      ) : (
+        <CodeBlock text={raw} />
+      )}
     </div>
   );
 }

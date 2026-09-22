@@ -15,16 +15,21 @@ import {
   getNode,
   updateNode,
 } from "../../../../plugins/defaults/memory/graph/store.js";
+import {
+  isAbortLikeError,
+  throwIfCancelled,
+} from "../../../../tools/shared/abort.js";
 import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
+import { safeStringSlice } from "../../../../util/unicode.js";
 
 const VALID_AUTONOMY_LEVELS = new Set<string>(["auto", "draft", "notify"]);
 
 export async function executePlaybookUpdate(
   input: Record<string, unknown>,
-  _context: ToolContext,
+  context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const playbookId = input.playbook_id as string;
   if (!playbookId || typeof playbookId !== "string") {
@@ -33,6 +38,7 @@ export async function executePlaybookUpdate(
       isError: true,
     };
   }
+  throwIfCancelled(context);
 
   try {
     const existing = getNode(playbookId);
@@ -95,7 +101,7 @@ export async function executePlaybookUpdate(
 
     const statement = JSON.stringify(updated);
     const sanitizedTrigger = updated.trigger.replace(/[\r\n]+/g, " ");
-    const subject = `Playbook: ${sanitizedTrigger}`.slice(0, 80);
+    const subject = safeStringSlice(`Playbook: ${sanitizedTrigger}`, 0, 80);
     const content = `${subject}\n${statement}`;
 
     // Check for duplicate content among other playbook nodes
@@ -153,6 +159,11 @@ export async function executePlaybookUpdate(
       isError: false,
     };
   } catch (err) {
+    // A cancelled turn is not a playbook failure: let it reach the executor's
+    // abort handling instead of being rendered as a tool error.
+    if (isAbortLikeError(err)) {
+      throw err;
+    }
     const msg = err instanceof Error ? err.message : String(err);
     return { content: `Error updating playbook: ${msg}`, isError: true };
   }

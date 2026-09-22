@@ -1,17 +1,17 @@
 /**
  * CES process manager.
  *
- * Creates transport connections to the CES process — either a CLI-launched
- * sibling over a Unix socket (bare-metal/local), or a managed sidecar over
- * its bootstrap socket (containerized). The process manager owns only the
- * transport connection lifecycle; the CES process itself is managed by the
- * CLI (sibling) or the pod infrastructure (managed).
+ * Creates a transport connection to the CES process over the shared bootstrap
+ * socket. Local CLI siblings and managed sidecars bind the same path under
+ * `CES_BOOTSTRAP_SOCKET_DIR`. The process manager owns only the transport
+ * connection lifecycle; the CES process itself is managed by the CLI
+ * (sibling) or the pod infrastructure (managed).
  *
- * Managed env contract:
- * - CES_BOOTSTRAP_SOCKET  — Path to the bootstrap Unix socket (shared emptyDir)
- * - /assistant-data-ro     — Assistant data mounted read-only into the CES sidecar
- * - /ces-data              — CES private data directory (separate PVC)
- * - CES_HEALTH_PORT        — Health check port exposed by the CES sidecar
+ * Env contract:
+ * - CES_BOOTSTRAP_SOCKET_DIR: directory containing `ces.sock`
+ * - /assistant-data-ro: assistant data mounted read-only into CES
+ * - /ces-data: CES private data directory (separate PVC)
+ * - CES_HEALTH_PORT: health check port exposed by the CES sidecar
  */
 
 import { createConnection, type Socket } from "node:net";
@@ -24,7 +24,6 @@ import {
   discoverCesWithRetry,
   type DiscoveryResult,
   type ManagedDiscoverySuccess,
-  type SiblingDiscoverySuccess,
 } from "./executable-discovery.js";
 
 const log = getLogger("ces-process-manager");
@@ -62,6 +61,12 @@ export interface CesProcessManagerConfig {
 
   /** Logger override. Defaults to the module logger; injected in tests. */
   logger?: PmLogger;
+
+  /**
+   * Socket discovery. Defaults to `discoverCesWithRetry`. Tests inject a
+   * stub that returns a known socket path.
+   */
+  discover?: typeof discoverCesWithRetry;
 }
 
 // ---------------------------------------------------------------------------
@@ -70,7 +75,7 @@ export interface CesProcessManagerConfig {
 
 export interface CesProcessManager {
   /**
-   * Connect to the CES process (sibling socket or managed sidecar socket).
+   * Connect to the CES bootstrap socket.
    * Returns a CesTransport ready for use with createCesClient().
    *
    * Throws if CES is unavailable.
@@ -107,6 +112,7 @@ export function createCesProcessManager(
   config: CesProcessManagerConfig,
 ): CesProcessManager {
   const pmLog = config.logger ?? log;
+  const discover = config.discover ?? discoverCesWithRetry;
   let managedSocket: Socket | null = null;
   let discoveryResult: DiscoveryResult | null = null;
   let running = false;
@@ -119,16 +125,15 @@ export function createCesProcessManager(
         throw new Error("CES process manager is already running");
       }
 
-      // Poll for the socket with a short backoff. Both the managed bootstrap
-      // socket and the CLI-launched sibling socket are bound asynchronously,
-      // so a reconnecting assistant can briefly race the re-bind.
-      discoveryResult = await discoverCesWithRetry();
+      // Poll for the socket with a short backoff. CES binds
+      // asynchronously, so a reconnecting assistant can briefly race
+      // the re-bind.
+      discoveryResult = await discover();
 
       if (discoveryResult.mode === "unavailable") {
         throw new CesUnavailableError(discoveryResult.reason);
       }
 
-      // managed sidecar or CLI-launched sibling — both connect to a socket.
       const transport = await connectManagedSocket(discoveryResult);
       currentTransport = transport;
       wireTransportClose(transport);
@@ -200,11 +205,11 @@ export function createCesProcessManager(
   }
 
   // -------------------------------------------------------------------------
-  // Socket connection — managed sidecar or CLI-launched local sibling
+  // Socket connection
   // -------------------------------------------------------------------------
 
   async function connectManagedSocket(
-    discovery: ManagedDiscoverySuccess | SiblingDiscoverySuccess,
+    discovery: ManagedDiscoverySuccess,
   ): Promise<SocketTransport> {
     pmLog.info(
       { socketPath: discovery.socketPath, mode: discovery.mode },

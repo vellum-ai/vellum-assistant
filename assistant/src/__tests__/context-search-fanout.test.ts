@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
+import type { RecallSource } from "../api/events/tool-result.js";
 import type { AssistantConfig } from "../config/schema.js";
 import { formatDeterministicRecallAnswer } from "../plugins/defaults/memory/context-search/format.js";
 import { runDeterministicRecallSearch } from "../plugins/defaults/memory/context-search/search.js";
 import type {
   RecallEvidence,
   RecallSearchContext,
-  RecallSource,
   RecallSourceAdapter,
 } from "../plugins/defaults/memory/context-search/types.js";
 

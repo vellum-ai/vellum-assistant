@@ -2,8 +2,8 @@
  * Tests for `ImageGenerationCard`'s provider-only configuration (the
  * Managed / Your Own mode toggle is gone — Vellum is a provider):
  *
- *   1. No mode segmented-control renders; the picker offers Vellum and
- *      Gemini.
+ *   1. No mode segmented-control renders; the picker offers Vellum,
+ *      Gemini, OpenAI, and OpenRouter.
  *   2. Vellum needs no API key, lists every model, and saves as a
  *      provider+mode pair for old-daemon compatibility.
  *   3. Gemini gates on a key and lists only gemini models.
@@ -181,11 +181,16 @@ describe("ImageGenerationCard — provider-only configuration", () => {
     expect(trigger("Image generation provider")).toBeTruthy();
   });
 
-  test("the provider picker offers Vellum, Gemini and OpenAI", () => {
+  test("the provider picker offers Vellum, Gemini, OpenAI and OpenRouter", () => {
     renderCard();
 
     fireEvent.click(trigger("Image generation provider"));
-    expect(visibleOptions()).toEqual(["Vellum", "Gemini", "OpenAI"]);
+    expect(visibleOptions()).toEqual([
+      "Vellum",
+      "Gemini",
+      "OpenAI",
+      "OpenRouter",
+    ]);
   });
 
   test("Vellum hides the key field, lists every model, and saves the pair", async () => {
@@ -391,6 +396,91 @@ describe("ImageGenerationCard — provider-only configuration", () => {
     expect(localStorage.getItem("vellum:ai:imageGenModel")).toBe(
       "gemini-3.1-flash-image-preview",
     );
+  });
+
+  test("OpenRouter uses a free-text model field and provisions the openrouter key", async () => {
+    renderCard();
+
+    fireEvent.click(trigger("Image generation provider"));
+    selectOption("OpenRouter");
+
+    expect(
+      screen.getByPlaceholderText("Enter your OpenRouter API key"),
+    ).toBeTruthy();
+    expect(screen.queryByRole("combobox", { name: "Image generation model" })).toBeNull();
+
+    const modelInput = screen.getByLabelText("Image generation model");
+    fireEvent.change(modelInput, { target: { value: "goo" } });
+    expect((modelInput as HTMLInputElement).value).toBe("goo");
+
+    fireEvent.change(modelInput, {
+      target: { value: "google/gemini-3.5-flash" },
+    });
+    const keyInput = screen.getByPlaceholderText(
+      "Enter your OpenRouter API key",
+    );
+    fireEvent.change(keyInput, { target: { value: "or-secret" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(configPatchCalls.length).toBe(1));
+    expect(configPatchCalls[0]!.body).toMatchObject({
+      services: {
+        "image-generation": { provider: "openrouter", mode: "your-own" },
+      },
+    });
+    expect(provisionedKeys).toEqual([
+      { provider: "openrouter", key: "or-secret" },
+    ]);
+    await waitFor(() => expect(modelPutCalls.length).toBe(1));
+    expect(modelPutCalls[0]!.body).toMatchObject({
+      modelId: "google/gemini-3.5-flash",
+    });
+    expect(localStorage.getItem(LS_IMAGE_GEN_PROVIDER)).toBe("openrouter");
+    expect(localStorage.getItem("vellum:ai:imageGenModel")).toBe(
+      "google/gemini-3.5-flash",
+    );
+  });
+
+  test("an empty OpenRouter model falls back to the Gemini Flash slug", async () => {
+    renderCard();
+
+    fireEvent.click(trigger("Image generation provider"));
+    selectOption("OpenRouter");
+
+    const modelInput = screen.getByLabelText("Image generation model");
+    fireEvent.change(modelInput, { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(modelPutCalls.length).toBe(1));
+    expect(modelPutCalls[0]!.body).toMatchObject({
+      modelId: "google/gemini-3.1-flash-image-preview",
+    });
+    expect(configPatchCalls[0]!.body).toMatchObject({
+      services: {
+        "image-generation": { provider: "openrouter", mode: "your-own" },
+      },
+    });
+  });
+
+  test("an OpenRouter daemon config renders the saved slug", () => {
+    daemonConfigData = {
+      services: {
+        "image-generation": {
+          mode: "your-own",
+          provider: "openrouter",
+          model: "openai/gpt-image-2",
+        },
+      },
+    };
+    renderCard();
+
+    expect(trigger("Image generation provider").textContent).toContain(
+      "OpenRouter",
+    );
+    expect(
+      (screen.getByLabelText("Image generation model") as HTMLInputElement)
+        .value,
+    ).toBe("openai/gpt-image-2");
   });
 
   test("a daemon predating the vellum provider gets the legacy managed write", async () => {

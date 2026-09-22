@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { eq, like } from "drizzle-orm";
 
 import {
+  getAttachmentContent,
   getAttachmentsForMessage,
   linkAttachmentToMessage,
   uploadAttachment,
@@ -17,10 +18,17 @@ import {
 import {
   addMessage,
   createConversation,
+  deleteConversation,
   forkConversation,
   getMessages,
+  listConversationAttachments,
+  updateMessageMetadata,
 } from "../persistence/conversation-crud.js";
 import { getConversationDirPath } from "../persistence/conversation-disk-view.js";
+import {
+  COMPUTER_USE_SCREENSHOT_ATTACHMENT_IDS_KEY,
+  computerUseScreenshotAttachmentIdsFromMetadata,
+} from "../persistence/conversation-types.js";
 import {
   getDb,
   getLogsDb,
@@ -57,9 +65,13 @@ import { hydrate as hydrateActivationState } from "../plugins/defaults/memory/v2
 import {
   getInjected as getV3Injected,
   markPruned as markV3Pruned,
+  MEMORY_V3_INJECTED_BLOCK_FORMAT,
+  MEMORY_V3_INJECTED_BLOCK_FORMAT_METADATA_KEY,
   MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
   recordInjected as recordV3Injected,
 } from "../plugins/defaults/memory/v3/ever-injected-store.js";
+import { ensureMemoryV3InjectedSectionsSchema } from "../plugins/defaults/memory/v3/plugin-schema.js";
+import { handleListMessages } from "../runtime/routes/conversation-routes.js";
 
 await initializeDb();
 
@@ -71,13 +83,16 @@ function resetTables(): void {
   getMemoryDb()!.delete(activationState).run();
   db.delete(conversationCompactionEvents).run();
   // conversation_graph_memory_state, memory_retrospective_state, and
-  // memory_v3_ever_injected all live on the memory connection now.
+  // memory_v3_injected_sections all live on the memory connection.
   getMemoryDb()!.delete(conversationGraphMemoryState).run();
   getMemoryDb()!.delete(memoryRetrospectiveState).run();
   getLogsDb()!.delete(llmRequestLogs).run();
   db.delete(toolInvocations).run();
   getMemoryDb()!.delete(memoryJobs).run();
-  getMemorySqlite()!.exec("DELETE FROM memory_v3_ever_injected");
+  // The plugin creates this table itself (init hook, or a store's first use);
+  // the reset runs before either, so stand it up here.
+  ensureMemoryV3InjectedSectionsSchema(getMemorySqlite()!);
+  getMemorySqlite()!.exec("DELETE FROM memory_v3_injected_sections");
   db.run("DELETE FROM message_attachments");
   db.run("DELETE FROM attachments");
   db.run("DELETE FROM messages");
@@ -742,6 +757,188 @@ describe("forkConversation", () => {
     );
   });
 
+  test("remaps automatic screenshot refs and widens fork provenance", async () => {
+    const screenshotBase64 =
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==";
+    const source = createConversation("Computer use thread");
+    await addMessage(source.id, "user", "Open the example", {
+      skipIndexing: true,
+    });
+    await addMessage(
+      source.id,
+      "assistant",
+      JSON.stringify([
+        {
+          type: "tool_use",
+          id: "computer-use-call",
+          name: "computer_use_click",
+          input: { x: 10, y: 20 },
+        },
+      ]),
+      { skipIndexing: true },
+    );
+    const screenshot = await uploadAttachment(
+      "computer-use-click.png",
+      "image/png",
+      screenshotBase64,
+    );
+    const toolResult = await addMessage(
+      source.id,
+      "user",
+      JSON.stringify([
+        {
+          type: "tool_result",
+          tool_use_id: "computer-use-call",
+          content: "Clicked",
+          contentBlocks: [
+            {
+              type: "image",
+              source: {
+                type: "workspace_ref",
+                media_type: "image/png",
+                attachmentId: screenshot.id,
+                sizeBytes: Buffer.from(screenshotBase64, "base64").byteLength,
+              },
+            },
+          ],
+        },
+      ]),
+      { skipIndexing: true },
+    );
+    linkAttachmentToMessage(toolResult.id, screenshot.id, 0);
+
+    const reply = await addMessage(
+      source.id,
+      "assistant",
+      JSON.stringify([{ type: "text", text: "Done." }]),
+      { skipIndexing: true },
+    );
+    linkAttachmentToMessage(reply.id, screenshot.id, 0);
+    const explicit = await uploadAttachment(
+      "report.pdf",
+      "application/pdf",
+      "JVBERg==",
+    );
+    linkAttachmentToMessage(reply.id, explicit.id, 1);
+    updateMessageMetadata(reply.id, {
+      [COMPUTER_USE_SCREENSHOT_ATTACHMENT_IDS_KEY]: [screenshot.id],
+    });
+
+    const fork = forkConversation({ conversationId: source.id });
+    const forkRows = getMessages(fork.id);
+    const forkToolResult = forkRows.find(
+      (row) =>
+        row.role === "user" &&
+        JSON.stringify(row.content).includes("tool_result"),
+    );
+    const forkReply = forkRows.find(
+      (row) =>
+        row.role === "assistant" &&
+        JSON.stringify(row.content).includes("Done."),
+    );
+    expect(forkToolResult).toBeDefined();
+    expect(forkReply).toBeDefined();
+
+    const forkReplyAttachments = getAttachmentsForMessage(forkReply!.id);
+    const clonedScreenshot = forkReplyAttachments.find(
+      (attachment) => attachment.originalFilename === "computer-use-click.png",
+    );
+    const clonedExplicit = forkReplyAttachments.find(
+      (attachment) => attachment.originalFilename === "report.pdf",
+    );
+    expect(clonedScreenshot?.id).toBeDefined();
+    expect(clonedScreenshot?.id).not.toBe(screenshot.id);
+    expect(clonedExplicit?.id).toBeDefined();
+    expect(JSON.stringify(forkToolResult!.content)).toContain(
+      `"attachmentId":"${clonedScreenshot!.id}"`,
+    );
+    expect(JSON.stringify(forkToolResult!.content)).not.toContain(
+      `"attachmentId":"${screenshot.id}"`,
+    );
+    const persistedSourceToolResult = getMessages(source.id).find(
+      (row) => row.id === toolResult.id,
+    );
+    expect(JSON.stringify(persistedSourceToolResult?.content)).toContain(
+      `"attachmentId":"${screenshot.id}"`,
+    );
+    expect(JSON.stringify(persistedSourceToolResult?.content)).not.toContain(
+      `"attachmentId":"${clonedScreenshot!.id}"`,
+    );
+    expect(
+      getAttachmentsForMessage(forkToolResult!.id).map(
+        (attachment) => attachment.id,
+      ),
+    ).toEqual([clonedScreenshot!.id]);
+
+    deleteConversation(source.id);
+
+    const forkJsonl = readFileSync(
+      join(getConversationDirPath(fork.id, fork.createdAt), "messages.jsonl"),
+      "utf-8",
+    );
+    expect(forkJsonl).toContain(
+      '"toolResults":[{"content":"Clicked"}],"attachments":["computer-use-click.png"]',
+    );
+
+    const forkMarkerIds = computerUseScreenshotAttachmentIdsFromMetadata(
+      parseMetadata(forkReply!.metadata) as Record<string, unknown>,
+    );
+    expect(forkMarkerIds).toEqual([screenshot.id, clonedScreenshot!.id]);
+    expect(forkMarkerIds).not.toContain(clonedExplicit!.id);
+
+    const history = (await handleListMessages({
+      queryParams: { conversationId: fork.id },
+    })) as {
+      messages: Array<{
+        toolCalls?: Array<{ imageAttachmentIds?: string[] }>;
+        attachments: Array<{
+          id: string;
+          computerUseScreenshot?: boolean;
+        }>;
+      }>;
+    };
+    expect(
+      history.messages.flatMap((message) =>
+        (message.toolCalls ?? []).flatMap(
+          (toolCall) => toolCall.imageAttachmentIds ?? [],
+        ),
+      ),
+    ).toEqual([clonedScreenshot!.id]);
+    const hydratedScreenshot = history.messages
+      .flatMap((message) => message.attachments)
+      .find((attachment) => attachment.id === clonedScreenshot!.id);
+    const hydratedExplicit = history.messages
+      .flatMap((message) => message.attachments)
+      .find((attachment) => attachment.id === clonedExplicit!.id);
+    expect(hydratedScreenshot?.computerUseScreenshot).toBe(true);
+    expect(hydratedExplicit?.computerUseScreenshot).toBeUndefined();
+    expect(getAttachmentContent(screenshot.id)).toBeNull();
+    expect(getAttachmentContent(clonedScreenshot!.id)?.toString("base64")).toBe(
+      screenshotBase64,
+    );
+
+    const firstFilesPage = listConversationAttachments(fork.id, {
+      limit: 1,
+      offset: 0,
+    });
+    const secondFilesPage = listConversationAttachments(fork.id, {
+      limit: 1,
+      offset: 1,
+    });
+    expect(firstFilesPage.total).toBe(2);
+    expect(secondFilesPage.total).toBe(2);
+    expect(
+      [...firstFilesPage.attachments, ...secondFilesPage.attachments].map(
+        (attachment) => attachment.id,
+      ),
+    ).toEqual([clonedScreenshot!.id, clonedExplicit!.id]);
+    expect(
+      [...firstFilesPage.attachments, ...secondFilesPage.attachments].every(
+        (attachment) => attachment.messageId === forkReply!.id,
+      ),
+    ).toBe(true);
+  });
+
   test("inherits the source conversation's inference profile", async () => {
     const source = createConversation("Pinned profile thread");
     await addMessage(source.id, "user", "Use the balanced profile", {
@@ -1180,31 +1377,56 @@ describe("forkConversation", () => {
     ]);
   });
 
-  test("copies the parent's memory-v3 everInjected record into a full fork", async () => {
+  test("copies the parent's memory-v3 section record into a full fork", async () => {
     const source = createConversation("V3 carry thread");
     await addMessage(source.id, "user", "first turn", { skipIndexing: true });
 
     recordV3Injected(
       source.id,
       [
-        { slug: "topics/page-a", bytes: 120 },
-        { slug: "topics/page-b", bytes: 340 },
+        { slug: "topics/page-a", key: "", bytes: 120 },
+        { slug: "topics/page-a", key: "Notes", bytes: 80 },
+        { slug: "topics/page-b", key: "", bytes: 340 },
       ],
       1_700_000_000_000,
     );
-    markV3Pruned(source.id, ["topics/page-b"], 1_700_000_001_000);
+    markV3Pruned(
+      source.id,
+      [{ slug: "topics/page-b", key: "" }],
+      1_700_000_001_000,
+    );
 
     const fork = forkConversation({ conversationId: source.id });
 
     // Full-row copy, pruned state included.
-    expect(getV3Injected(fork.id)).toEqual(
-      new Map([
-        ["topics/page-a", { bytes: 120, prunedAt: null }],
-        ["topics/page-b", { bytes: 340, prunedAt: 1_700_000_001_000 }],
-      ]),
-    );
+    expect(getV3Injected(fork.id)).toEqual([
+      {
+        slug: "topics/page-a",
+        key: "",
+        bytes: 120,
+        injectedAt: 1_700_000_000_000,
+        lastSelectedAt: 1_700_000_000_000,
+        prunedAt: null,
+      },
+      {
+        slug: "topics/page-a",
+        key: "Notes",
+        bytes: 80,
+        injectedAt: 1_700_000_000_000,
+        lastSelectedAt: 1_700_000_000_000,
+        prunedAt: null,
+      },
+      {
+        slug: "topics/page-b",
+        key: "",
+        bytes: 340,
+        injectedAt: 1_700_000_000_000,
+        lastSelectedAt: 1_700_000_000_000,
+        prunedAt: 1_700_000_001_000,
+      },
+    ]);
     // Parent record is untouched.
-    expect(getV3Injected(source.id).size).toBe(2);
+    expect(getV3Injected(source.id)).toHaveLength(3);
   });
 
   test("leaves the fork's memory-v3 record empty when the parent has none", async () => {
@@ -1215,15 +1437,22 @@ describe("forkConversation", () => {
 
     const fork = forkConversation({ conversationId: source.id });
 
-    expect(getV3Injected(fork.id).size).toBe(0);
+    expect(getV3Injected(fork.id)).toEqual([]);
   });
 
-  test("truncated fork seeds the memory-v3 record from inherited v3 card blocks", async () => {
+  test("truncated fork seeds the memory-v3 record from inherited v3 section blocks", async () => {
     const source = createConversation("V3 truncated seed thread");
+    // A lead (bare page header) and a heading section of one page, plus
+    // another page's lead.
+    const leadA = "# memory/concepts/topics/page-a.md\nLead A";
+    const notesA = "# memory/concepts/topics/page-a.md § Notes\nNotes A";
+    const leadB = "# memory/concepts/topics/page-b.md\nLead B";
+    const skill = "# Skill: meet-join\nJoin a meeting.";
     await addMessage(source.id, "user", "first turn", {
       metadata: {
-        [MEMORY_V3_INJECTED_BLOCK_METADATA_KEY]:
-          "# memory/concepts/topics/page-a.md\nCard A\n\n# memory/concepts/topics/page-b.md\nCard B",
+        [MEMORY_V3_INJECTED_BLOCK_FORMAT_METADATA_KEY]:
+          MEMORY_V3_INJECTED_BLOCK_FORMAT,
+        [MEMORY_V3_INJECTED_BLOCK_METADATA_KEY]: `${leadA}\n\n${notesA}\n\n${leadB}\n\n${skill}`,
         // A v2 block on the same message must seed only the v2 record.
         memoryInjectedBlock: "# memory/concepts/topics/page-v2.md\nSummary",
       },
@@ -1238,11 +1467,13 @@ describe("forkConversation", () => {
     await addMessage(source.id, "assistant", "second reply", {
       skipIndexing: true,
     });
-    // Past the fork boundary — its card must NOT be claimed.
+    // Past the fork boundary, its section must NOT be claimed.
     await addMessage(source.id, "user", "third turn", {
       metadata: {
+        [MEMORY_V3_INJECTED_BLOCK_FORMAT_METADATA_KEY]:
+          MEMORY_V3_INJECTED_BLOCK_FORMAT,
         [MEMORY_V3_INJECTED_BLOCK_METADATA_KEY]:
-          "# memory/concepts/topics/page-c.md\nCard C",
+          "# memory/concepts/topics/page-c.md\nLead C",
       },
       skipIndexing: true,
     });
@@ -1250,9 +1481,10 @@ describe("forkConversation", () => {
     recordV3Injected(
       source.id,
       [
-        { slug: "topics/page-a", bytes: 120 },
-        { slug: "topics/page-b", bytes: 340 },
-        { slug: "topics/page-c", bytes: 90 },
+        { slug: "topics/page-a", key: "", bytes: 120 },
+        { slug: "topics/page-a", key: "Notes", bytes: 60 },
+        { slug: "topics/page-b", key: "", bytes: 340 },
+        { slug: "topics/page-c", key: "", bytes: 90 },
       ],
       1_700_000_000_000,
     );
@@ -1262,30 +1494,57 @@ describe("forkConversation", () => {
       throughMessageId: boundaryMessage.id,
     });
 
-    // Exactly the slugs whose card blocks live in the copied history,
-    // dedup-only (`bytes = 0` — resident accounting restarts on the child).
-    expect(getV3Injected(fork.id)).toEqual(
-      new Map([
-        ["topics/page-a", { bytes: 0, prunedAt: null }],
-        ["topics/page-b", { bytes: 0, prunedAt: null }],
-      ]),
-    );
-    // The v2 seed picked up only the v2 block, not the v3 cards.
+    // Exactly the sections whose blocks live in the copied history, each
+    // carrying the bytes of its inherited span (the child's resident
+    // accounting starts at what it inherited), plus the inherited skill chunk
+    // as a zero-byte capability row.
+    expect(
+      getV3Injected(fork.id).map(({ slug, key, bytes, prunedAt }) => ({
+        slug,
+        key,
+        bytes,
+        prunedAt,
+      })),
+    ).toEqual([
+      { slug: "skills/meet-join", key: "", bytes: 0, prunedAt: null },
+      {
+        slug: "topics/page-a",
+        key: "",
+        bytes: Buffer.byteLength(leadA),
+        prunedAt: null,
+      },
+      {
+        slug: "topics/page-a",
+        key: "Notes",
+        bytes: Buffer.byteLength(notesA),
+        prunedAt: null,
+      },
+      {
+        slug: "topics/page-b",
+        key: "",
+        bytes: Buffer.byteLength(leadB),
+        prunedAt: null,
+      },
+    ]);
+    // The v2 seed picked up only the v2 block, not the v3 sections.
     const childState = await hydrateActivationState(fork.id);
     expect(childState?.everInjected.map((e) => e.slug)).toEqual([
       "topics/page-v2",
     ]);
   });
 
-  test("truncated fork carries the parent's pruned tombstones for inherited v3 slugs", async () => {
+  test("truncated fork carries the parent's pruned tombstones for inherited v3 sections", async () => {
     // Pruning never rewrites the persisted metadata block, so the fork scan
-    // sees pruned cards' sections too — the seed must tombstone them, or the
-    // child's rehydration would resurrect cards the parent's live view lost.
+    // sees pruned sections too, the seed must tombstone them, or the child's
+    // rehydration would resurrect sections the parent's live view lost.
     const source = createConversation("V3 truncated pruned thread");
+    const leadA = "# memory/concepts/topics/page-a.md\nLead A";
+    const notesB = "# memory/concepts/topics/page-b.md § Notes\nNotes B";
     await addMessage(source.id, "user", "first turn", {
       metadata: {
-        [MEMORY_V3_INJECTED_BLOCK_METADATA_KEY]:
-          "# memory/concepts/topics/page-a.md\nCard A\n\n# memory/concepts/topics/page-b.md\nCard B",
+        [MEMORY_V3_INJECTED_BLOCK_FORMAT_METADATA_KEY]:
+          MEMORY_V3_INJECTED_BLOCK_FORMAT,
+        [MEMORY_V3_INJECTED_BLOCK_METADATA_KEY]: `${leadA}\n\n${notesB}`,
       },
       skipIndexing: true,
     });
@@ -1302,24 +1561,43 @@ describe("forkConversation", () => {
     recordV3Injected(
       source.id,
       [
-        { slug: "topics/page-a", bytes: 120 },
-        { slug: "topics/page-b", bytes: 340 },
+        { slug: "topics/page-a", key: "", bytes: 120 },
+        { slug: "topics/page-b", key: "Notes", bytes: 340 },
       ],
       1_700_000_000_000,
     );
-    markV3Pruned(source.id, ["topics/page-b"], 1_700_000_005_000);
+    markV3Pruned(
+      source.id,
+      [{ slug: "topics/page-b", key: "Notes" }],
+      1_700_000_005_000,
+    );
 
     const fork = forkConversation({
       conversationId: source.id,
       throughMessageId: boundaryMessage.id,
     });
 
-    expect(getV3Injected(fork.id)).toEqual(
-      new Map([
-        ["topics/page-a", { bytes: 0, prunedAt: null }],
-        ["topics/page-b", { bytes: 0, prunedAt: 1_700_000_005_000 }],
-      ]),
-    );
+    expect(
+      getV3Injected(fork.id).map(({ slug, key, bytes, prunedAt }) => ({
+        slug,
+        key,
+        bytes,
+        prunedAt,
+      })),
+    ).toEqual([
+      {
+        slug: "topics/page-a",
+        key: "",
+        bytes: Buffer.byteLength(leadA),
+        prunedAt: null,
+      },
+      {
+        slug: "topics/page-b",
+        key: "Notes",
+        bytes: Buffer.byteLength(notesB),
+        prunedAt: 1_700_000_005_000,
+      },
+    ]);
   });
 
   test("defaults conversationType to standard and inherits the parent's group", async () => {

@@ -4,6 +4,7 @@ import {
   safeStringSlice,
   stripOrphanedSurrogates,
   stripOrphanedSurrogatesDeep,
+  surrogateSafeWindow,
 } from "../util/unicode.js";
 
 // U+1F389 PARTY POPPER = "\uD83C\uDF89" (a surrogate pair).
@@ -171,6 +172,19 @@ describe("stripOrphanedSurrogatesDeep", () => {
     expect(result.value.b[1]).toBe("also clean");
   });
 
+  test("skipKey leaves a property unscanned and uncopied", () => {
+    const payload = { type: "base64", data: `raw${HIGH}` };
+    const input = { text: `bad${HIGH}`, payload };
+    const result = stripOrphanedSurrogatesDeep(input, {
+      skipKey: (key, parent) => key === "data" && parent.type === "base64",
+    });
+    expect(result.changed).toBe(true);
+    expect(result.fixedStringCount).toBe(1);
+    expect(result.value.text).toBe(`bad${REPLACEMENT}`);
+    // The skipped subtree is carried over by reference, orphan and all.
+    expect(result.value.payload).toBe(payload);
+  });
+
   test("leaves non-plain objects untouched", () => {
     class Custom {
       value = `bad${HIGH}`;
@@ -287,5 +301,40 @@ describe("stripOrphanedSurrogatesDeep", () => {
     expect(result.changed).toBe(true);
     const json = JSON.stringify(result.value);
     expect(() => JSON.parse(json)).not.toThrow();
+  });
+});
+
+describe("surrogateSafeWindow", () => {
+  const codeAt = (text: string) => (i: number) => text.charCodeAt(i);
+
+  test("a start that lands on a low surrogate backs up to include the pair", () => {
+    const text = `a${EMOJI}b`;
+    expect(surrogateSafeWindow(text.length, codeAt(text), 2, 10)).toEqual({
+      start: 1,
+      end: 4,
+    });
+  });
+
+  test("an end that would cut a pair backs off one unit", () => {
+    const text = `ab${EMOJI}cd`;
+    expect(surrogateSafeWindow(text.length, codeAt(text), 0, 3)).toEqual({
+      start: 0,
+      end: 2,
+    });
+  });
+
+  test("a one-unit window on a pair takes the whole pair so paging advances", () => {
+    const text = `${EMOJI}x`;
+    expect(surrogateSafeWindow(text.length, codeAt(text), 0, 1)).toEqual({
+      start: 0,
+      end: 2,
+    });
+  });
+
+  test("clamps to the text bounds", () => {
+    expect(surrogateSafeWindow(3, codeAt("abc"), 10, 5)).toEqual({
+      start: 3,
+      end: 3,
+    });
   });
 });

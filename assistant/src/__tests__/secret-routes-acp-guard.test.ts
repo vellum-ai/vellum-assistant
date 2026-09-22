@@ -1,6 +1,11 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { ACP_OAUTH_TOKEN_FIELD, ACP_SERVICE } from "../acp/acp-credentials.js";
+import {
+  ACP_OAUTH_EXPIRES_AT_FIELD,
+  ACP_OAUTH_REFRESH_TOKEN_FIELD,
+  ACP_OAUTH_TOKEN_FIELD,
+  ACP_SERVICE,
+} from "../acp/acp-credentials.js";
 import { credentialKey } from "../security/credential-key.js";
 
 let secureKeyStore: Record<string, string | undefined> = {};
@@ -32,6 +37,11 @@ mock.module("../oauth/manual-token-connection.js", () => ({
   syncManualTokenConnection: async () => {},
 }));
 
+mock.module("../runtime/routes/credential-in-use.js", () => ({
+  assertCredentialNotInUse: () => [],
+  invalidateConnectionsAfterCredentialDelete: () => {},
+}));
+
 afterAll(() => {
   mock.restore();
 });
@@ -41,6 +51,9 @@ import { ROUTES } from "../runtime/routes/secret-routes.js";
 
 const addRoute = ROUTES.find(
   (r) => r.method === "POST" && r.endpoint === "secrets",
+)!;
+const deleteRoute = ROUTES.find(
+  (r) => r.method === "DELETE" && r.endpoint === "secrets",
 )!;
 
 function addAcpOauthToken(value: string) {
@@ -73,5 +86,50 @@ describe("secret routes ACP OAuth-token format guard", () => {
     expect(
       secureKeyStore[credentialKey(ACP_SERVICE, ACP_OAUTH_TOKEN_FIELD)],
     ).toBe("sk-ant-oat01-valid-oauth-token");
+  });
+
+  test("stores a pasted Claude token without touching leftover refresh material", async () => {
+    secureKeyStore[credentialKey(ACP_SERVICE, ACP_OAUTH_REFRESH_TOKEN_FIELD)] =
+      "stale-refresh";
+    secureKeyStore[credentialKey(ACP_SERVICE, ACP_OAUTH_EXPIRES_AT_FIELD)] =
+      "111";
+
+    await addAcpOauthToken("sk-ant-oat01-pasted-token");
+
+    expect(
+      secureKeyStore[credentialKey(ACP_SERVICE, ACP_OAUTH_TOKEN_FIELD)],
+    ).toBe("sk-ant-oat01-pasted-token");
+    expect(
+      secureKeyStore[credentialKey(ACP_SERVICE, ACP_OAUTH_REFRESH_TOKEN_FIELD)],
+    ).toBe("stale-refresh");
+    expect(
+      secureKeyStore[credentialKey(ACP_SERVICE, ACP_OAUTH_EXPIRES_AT_FIELD)],
+    ).toBe("111");
+  });
+
+  test("deletes only the requested Claude access-token field", async () => {
+    secureKeyStore[credentialKey(ACP_SERVICE, ACP_OAUTH_TOKEN_FIELD)] =
+      "sk-ant-oat01-connected";
+    secureKeyStore[credentialKey(ACP_SERVICE, ACP_OAUTH_REFRESH_TOKEN_FIELD)] =
+      "refresh-leftover";
+    secureKeyStore[credentialKey(ACP_SERVICE, ACP_OAUTH_EXPIRES_AT_FIELD)] =
+      "111";
+
+    await deleteRoute.handler({
+      body: {
+        type: "credential",
+        name: `${ACP_SERVICE}:${ACP_OAUTH_TOKEN_FIELD}`,
+      },
+    });
+
+    expect(
+      secureKeyStore[credentialKey(ACP_SERVICE, ACP_OAUTH_TOKEN_FIELD)],
+    ).toBeUndefined();
+    expect(
+      secureKeyStore[credentialKey(ACP_SERVICE, ACP_OAUTH_REFRESH_TOKEN_FIELD)],
+    ).toBe("refresh-leftover");
+    expect(
+      secureKeyStore[credentialKey(ACP_SERVICE, ACP_OAUTH_EXPIRES_AT_FIELD)],
+    ).toBe("111");
   });
 });

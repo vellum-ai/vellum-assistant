@@ -11,6 +11,8 @@
 
 import { createRequire } from "node:module";
 
+import { isSessionGroupsEnabled } from "../config/session-groups-gate.js";
+import type { SubagentParentNotification } from "../subagent/parent-notification.js";
 import { getLogger } from "../util/logger.js";
 import { LiveVoiceSessionManager } from "./live-voice-session-manager.js";
 
@@ -23,6 +25,15 @@ type LiveVoiceSessionFactory =
 
 let manager: LiveVoiceSessionManager | null = null;
 let bundledSessionFactory: LiveVoiceSessionFactory | null = null;
+
+export function deliverSubagentNotificationToLiveVoice(
+  conversationId: string,
+  notification: SubagentParentNotification,
+): boolean {
+  return (
+    manager?.deliverSubagentNotification(conversationId, notification) ?? false
+  );
+}
 
 export function setBundledLiveVoiceSessionFactory(
   factory: LiveVoiceSessionFactory | null,
@@ -50,7 +61,31 @@ export function getLiveVoiceSessionManager(): LiveVoiceSessionManager {
           (
             require("./live-voice-session.js") as typeof import("./live-voice-session.js")
           ).createLiveVoiceSession;
-        return createSession(context);
+        const modeSessionOptions = isSessionGroupsEnabled()
+          ? {
+              acquireModeSessionResidency: async (conversationId: string) => {
+                const { ensureConversationExists } =
+                  require("../persistence/conversation-crud.js") as typeof import("../persistence/conversation-crud.js");
+                const { publishConversationListAndMetadataChanged } =
+                  require("../runtime/sync/resource-sync-events.js") as typeof import("../runtime/sync/resource-sync-events.js");
+                if (ensureConversationExists(conversationId, "vellum")) {
+                  publishConversationListAndMetadataChanged(
+                    "created",
+                    conversationId,
+                  );
+                }
+                const { getOrCreateConversation } =
+                  require("../daemon/conversation-store.js") as typeof import("../daemon/conversation-store.js");
+                const conversation =
+                  await getOrCreateConversation(conversationId);
+                return {
+                  coordinator: conversation.modeSessions,
+                  release: conversation.acquireLiveVoiceResidency(),
+                };
+              },
+            }
+          : {};
+        return createSession(context, modeSessionOptions);
       },
       // The manager reclaims a slot on its own only when a session stopped
       // behaving: either its teardown overran the close budget, or its client

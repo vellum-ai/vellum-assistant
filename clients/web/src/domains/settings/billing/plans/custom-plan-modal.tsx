@@ -21,7 +21,7 @@ import type {
   StorageTierEnum,
 } from "@/generated/api/types.gen";
 import { useTranslation } from "@/i18n";
-import { handleNativeAnchorClick } from "@/utils/native-anchor";
+import { ExternalAnchor } from "@/components/external-anchor";
 import { Button } from "@vellumai/design-library/components/button";
 import {
   Select,
@@ -62,7 +62,7 @@ export interface CustomPlanModalProps {
   pending: boolean;
   /**
    * The Pro subscriber's current storage size, when reconfiguring an existing
-   * Pro plan. Storage is upgrade-only for Pro (the change-storage-tier endpoint
+   * Pro plan. Storage is upgrade-only for Pro (change-package
    * rejects downgrades), so tiers below this size render disabled. Leave
    * null/undefined for the base checkout path, where every tier is selectable.
    */
@@ -113,16 +113,15 @@ function PickerLabel({
       <span className="text-[11px] font-medium text-[var(--content-secondary)]">
         {label}
       </span>
-      <a
+      <ExternalAnchor
         href={docsUrl}
-        target="_blank"
-        rel="noopener noreferrer"
         aria-label={docsLabel}
-        onClick={(e) => handleNativeAnchorClick(e, docsUrl)}
-        className="text-[11px] font-medium text-[var(--content-tertiary)] underline hover:text-[var(--content-default)]"
+        tone="quiet"
+        glyph={false}
+        className="text-[11px] font-medium text-[var(--content-tertiary)]"
       >
         {learnMore}
-      </a>
+      </ExternalAnchor>
     </div>
   );
 }
@@ -318,9 +317,12 @@ export function CustomPlanModal({
   // one dimension differs from the seed. Base checkout has no seed, so a
   // complete selection is always submittable. Compared against the raw seed
   // values (not the priced diff) so a seed tier the catalog dropped still reads
-  // as changed once the user picks a live replacement.
+  // as changed once the user picks a live replacement. A fee-less (Mighty) seed
+  // never matches: a custom plan always carries the platform fee, so keeping
+  // the tiers still adds (and bills) the fee.
   const matchesSeed =
     initialSelection != null &&
+    initialSelection.hasPlatformFee !== false &&
     machineTier === (initialSelection.machineTier ?? BASELINE_MACHINE) &&
     storageTier === initialSelection.storageTier &&
     creditChoice === (initialSelection.creditTier ?? NO_EXTRA_CREDITS);

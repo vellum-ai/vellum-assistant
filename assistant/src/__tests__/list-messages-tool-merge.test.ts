@@ -15,9 +15,16 @@ import { setConfig } from "./helpers/set-config.js";
 setConfig("memory", { enabled: false, v2: { enabled: false } });
 
 import {
+  linkAttachmentToMessage,
+  uploadAttachment,
+} from "../persistence/attachments-store.js";
+import {
   addMessage,
   createConversation,
+  getMessageById,
+  updateMessageMetadata,
 } from "../persistence/conversation-crud.js";
+import { COMPUTER_USE_SCREENSHOT_ATTACHMENT_IDS_KEY } from "../persistence/conversation-types.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { handleListMessages } from "../runtime/routes/conversation-routes.js";
@@ -50,7 +57,15 @@ interface MessagePayload {
   toolCalls?: ToolCallPayload[];
   textSegments?: string[];
   contentOrder?: string[];
-  contentBlocks?: Array<{ type: string; [key: string]: unknown }>;
+  contentBlocks?: Array<{
+    type: string;
+    attachment?: { id: string; computerUseScreenshot?: boolean };
+    [key: string]: unknown;
+  }>;
+  attachments?: Array<{
+    id: string;
+    computerUseScreenshot?: boolean;
+  }>;
 }
 
 describe("handleListMessages tool_result merging", () => {
@@ -215,6 +230,75 @@ describe("handleListMessages tool_result merging", () => {
       role: "assistant",
       mergedMessageIds: [tail.id],
     });
+  });
+
+  test("preserves donor automatic screenshot provenance during consolidation", async () => {
+    const conv = createConversation();
+    await addMessage(
+      conv.id,
+      "user",
+      JSON.stringify([{ type: "text", text: "inspect this" }]),
+    );
+    const anchor = await addMessage(
+      conv.id,
+      "assistant",
+      JSON.stringify([{ type: "text", text: "Working." }]),
+      { metadata: { anchorContext: "kept" } },
+    );
+    const explicit = await uploadAttachment(
+      "notes.pdf",
+      "application/pdf",
+      "JVBERg==",
+    );
+    linkAttachmentToMessage(anchor.id, explicit.id, 0);
+
+    const donor = await addMessage(
+      conv.id,
+      "assistant",
+      JSON.stringify([{ type: "text", text: "Done." }]),
+    );
+    const screenshot = await uploadAttachment(
+      "computer-use-click.png",
+      "image/png",
+      "c2NyZWVuc2hvdA==",
+    );
+    linkAttachmentToMessage(donor.id, screenshot.id, 0);
+    updateMessageMetadata(donor.id, {
+      [COMPUTER_USE_SCREENSHOT_ATTACHMENT_IDS_KEY]: [screenshot.id],
+    });
+
+    const anchorBefore = getMessageById(anchor.id)?.metadata;
+    const donorBefore = getMessageById(donor.id)?.metadata;
+    const response = await handleListMessages(createTestArgs(conv.id));
+    const body = response as { messages: MessagePayload[] };
+    const merged = body.messages[1]!;
+
+    expect(merged.attachments?.map((attachment) => attachment.id)).toEqual([
+      explicit.id,
+      screenshot.id,
+    ]);
+    expect(merged.attachments?.[0]?.computerUseScreenshot).toBeUndefined();
+    expect(merged.attachments?.[1]?.computerUseScreenshot).toBe(true);
+    const attachmentBlocks = merged.contentBlocks?.filter(
+      (block) => block.type === "attachment",
+    );
+    expect(
+      attachmentBlocks?.map((block) =>
+        block.type === "attachment" ? block.attachment?.id : undefined,
+      ),
+    ).toEqual([explicit.id, screenshot.id]);
+    expect(
+      attachmentBlocks?.[0]?.type === "attachment"
+        ? attachmentBlocks[0].attachment?.computerUseScreenshot
+        : undefined,
+    ).toBeUndefined();
+    expect(
+      attachmentBlocks?.[1]?.type === "attachment"
+        ? attachmentBlocks[1].attachment?.computerUseScreenshot
+        : undefined,
+    ).toBe(true);
+    expect(getMessageById(anchor.id)?.metadata).toBe(anchorBefore);
+    expect(getMessageById(donor.id)?.metadata).toBe(donorBefore);
   });
 
   test("orphan tool_result at pagination boundary is suppressed entirely", async () => {

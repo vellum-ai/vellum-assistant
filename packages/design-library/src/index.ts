@@ -4,7 +4,9 @@ export {
   type ButtonProps,
   type ButtonVariant,
   type ButtonSize,
+  type ButtonShape,
 } from "./components/button";
+export { SplitButton, type SplitButtonProps } from "./components/split-button";
 export {
   Card,
   CardRoot,
@@ -13,6 +15,30 @@ export {
   CardFooter,
   type CardRootProps,
 } from "./components/card";
+export {
+  OptionCard,
+  OptionCardGroup,
+  optionCardVariants,
+  type OptionCardProps,
+  type OptionCardGroupProps,
+  type OptionCardSelectionMode,
+} from "./components/option-card";
+export {
+  Table,
+  TableBody,
+  TableCaption,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  type TableAlign,
+  type TableCellProps,
+  type TableDensity,
+  type TableDividers,
+  type TableHeadProps,
+  type TableProps,
+  type TableRowProps,
+} from "./components/table";
 export { CrossfadeStack } from "./components/crossfade-stack";
 export { Notice, type NoticeProps, type NoticeTone } from "./components/notice";
 export { ProgressBar, type ProgressBarProps } from "./components/progress-bar";
@@ -36,18 +62,26 @@ export {
   type ScrollShadowOrientation,
   type ScrollShadowFadeEdges,
 } from "./components/scroll-shadow";
+export { FilterChip, type FilterChipProps } from "./components/filter-chip";
 export {
   Tag,
   tagVariants,
   type TagProps,
   type TagTone,
 } from "./components/tag";
+export { Chip, chipVariants, type ChipProps } from "./components/chip";
 export {
   Typography,
   type TypographyProps,
   type TypographyVariant,
   type TypographyAs,
 } from "./components/typography";
+export {
+  TextLink,
+  textLinkVariants,
+  type TextLinkProps,
+  type TextLinkTone,
+} from "./components/text-link";
 export { Popover, type PopoverContentProps } from "./components/popover";
 export {
   Input,
@@ -258,6 +292,14 @@ export {
   type CollapsibleTriggerProps,
   type CollapsibleContentProps,
 } from "./components/collapsible";
+export {
+  Disclosure,
+  disclosureTriggerVariants,
+  type DisclosureRootProps,
+  type DisclosureTriggerProps,
+  type DisclosureTriggerSize,
+  type DisclosureContentProps,
+} from "./components/disclosure";
 export {
   Combobox,
   type ComboboxRootProps,

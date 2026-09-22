@@ -20,19 +20,31 @@ import type {
   AppVersionInfo,
   AssistantStatus,
   BundleScanData,
+  CompanionAnnotationPhase,
+  CompanionAnnotationStroke,
+  CompanionAnnotationTool,
   CompanionCapturePick,
   CompanionCaptureSources,
   CompanionCharacter,
   CompanionGrowth,
   CompanionContext,
   CompanionIntroAction,
+  CompanionIntroCallControl,
+  CompanionIntroReport,
   CompanionSurfaceState,
   ConnectivityState,
+  ScreenCaptureFrame,
   DeepLink,
   DictationOverlayHitRegion,
   DictationOverlayMessage,
   DictationOverlayState,
   DictationPartialEvent,
+  DictationOfferAnswer,
+  CompanionPopoverAnswer,
+  CompanionPopoverView,
+  CompanionPicker,
+  ChordBinding,
+  ChordRegistrationResult,
   DictationPartialsResult,
   DictationTranscribeResult,
   DownloadDoneEvent,
@@ -70,12 +82,14 @@ import type {
   UpdateState,
   UpdateStatus,
   VellumCommand,
+  VellumBridge,
   VoiceActivityContent,
   VoiceActivityControl,
   VoiceActivityControlAction,
   VoiceActivityPhase,
   VoiceActivityStart,
   VoiceActivityState,
+  WatchCaptureTarget,
   WindowAttentionPayload,
 } from "@vellumai/ipc-contract";
 
@@ -86,6 +100,8 @@ export type {
   CompanionGrowth,
   CompanionContext,
   CompanionIntroAction,
+  CompanionIntroCallControl,
+  CompanionIntroReport,
   CompanionSurfaceState,
   ConnectivityState,
   DeepLink,
@@ -139,6 +155,7 @@ declare global {
       };
       text?: {
         insertIntoFrontApp(text: string): Promise<TextInsertionResult>;
+        undoInFrontApp?(): Promise<TextInsertionResult>;
         openAutomationSettings(): Promise<void>;
       };
       hotkeys?: {
@@ -161,6 +178,15 @@ declare global {
         getState?(): Promise<HelperState>;
         restart?(): Promise<HelperRestartResult>;
         onState?(callback: (state: HelperState) => void): () => void;
+        apps?: {
+          running(bundleIds: readonly string[]): Promise<string[]>;
+          quit(bundleId: string): Promise<boolean>;
+          frontmost(): Promise<string | null>;
+        };
+        input?: {
+          setActivityWatch(enable: boolean): Promise<boolean>;
+          onActivity(callback: () => void): () => void;
+        };
         hotkey?: {
           setVoiceModeChord?(
             activator: VoiceModeChord | null,
@@ -168,6 +194,7 @@ declare global {
           setModifierHold?(
             hold: ModifierHold,
           ): Promise<ModifierHoldRegistrationResult>;
+          setChords?(binding: ChordBinding): Promise<ChordRegistrationResult>;
           readFrontSelection?(): Promise<HotkeySelection | null>;
           onRegistrationChange?(
             callback: (active: boolean) => void,
@@ -193,15 +220,7 @@ declare global {
           ): () => void;
         };
       };
-      permissions?: {
-        getState(): Promise<SystemPermissionsState>;
-        request(kind: SystemPermissionKind): Promise<SystemPermissionStateItem>;
-        openSettings(
-          kind: SystemPermissionKind,
-        ): Promise<SystemPermissionStateItem>;
-        quitAndReopen(): Promise<void>;
-        onState(callback: (state: SystemPermissionsState) => void): () => void;
-      };
+      permissions?: VellumBridge["permissions"];
       commands: {
         on(callback: (command: VellumCommand) => void): () => void;
       };
@@ -384,12 +403,64 @@ declare global {
       companion?: {
         getState(): Promise<CompanionSurfaceState | null>;
         onState(callback: (state: CompanionSurfaceState) => void): () => void;
+        /** Optional: shells that predate the staged introduction have none. */
+        getIntroStage?(): Promise<boolean>;
+        onIntroStage?(callback: (staged: boolean) => void): () => void;
+        /**
+         * Optional for the same reason: a shell that predates the run's call
+         * beats asks for no chord. Pushed to the app's own window only, since
+         * that is the window a chord reaches.
+         */
+        getIntroChord?(): Promise<CompanionIntroCallControl | null>;
+        onIntroChord?(
+          callback: (control: CompanionIntroCallControl | null) => void,
+        ): () => void;
+        /**
+         * Optional for the same reason: a shell that predates the run reports
+         * nothing about it. Pushed to the app's own window only, since it is
+         * the window that can report one.
+         */
+        onIntroReport?(
+          callback: (report: CompanionIntroReport) => void,
+        ): () => void;
+        takeIntroReports?(): Promise<CompanionIntroReport[]>;
         setInteractive?(interactive: boolean): void;
         moveBy?(dx: number, dy: number): void;
+        release?(): void;
         startVoice?(): void;
         toggleWatch?(pick?: CompanionCapturePick): void;
         listCaptureSources?(): Promise<CompanionCaptureSources>;
+        setScreenShare?(pick?: CompanionCapturePick): void;
+        setAnnotating?(annotating: boolean): void;
+        toggleAnnotating?(): void;
+        clearMarks?(): void;
+        setAnnotationTool?(tool: CompanionAnnotationTool): void;
+        annotateShare?(
+          phase: CompanionAnnotationPhase,
+          strokes: readonly CompanionAnnotationStroke[],
+          ink: string,
+        ): void;
+        setFrameScrolling?(scrolling: boolean): void;
+        frameDrawn?(): void;
+        sharedFrame?(target: WatchCaptureTarget): void;
+        captureScreen?(
+          target: WatchCaptureTarget,
+        ): Promise<ScreenCaptureFrame | null>;
+        captureSourceThumbnail?(
+          target: WatchCaptureTarget,
+        ): Promise<string | null>;
         answerWatchRetro?(open: boolean): void;
+        answerDictationOffer?(
+          answer: DictationOfferAnswer,
+          offerId: string,
+        ): void;
+        answerPopover?(answer: CompanionPopoverAnswer, popoverId: string): void;
+        setPopoverSize?(popoverId: string, width: number, height: number): void;
+        setPopoverView?(popoverId: string, view: CompanionPopoverView): void;
+        setAttachedPopoverHeight?(popoverId: string, height: number): void;
+        togglePicker?(picker: CompanionPicker): void;
+        openLink?(url: string): void;
+        takesPrompts?(): Promise<boolean>;
         activate?(): void;
         setContext?(context: CompanionContext): void;
         advanceIntro?(action: CompanionIntroAction): void;

@@ -27,8 +27,10 @@ import {
 import {
   INSUFFICIENT_CREDITS_PATTERNS,
   isChatTemplateFailureError,
+  isModelNotFoundError,
   isVisionNotSupportedError,
 } from "../util/provider-error-patterns.js";
+import { safeStringSlice } from "../util/unicode.js";
 
 /**
  * Classified conversation error ready for client emission.
@@ -429,6 +431,11 @@ function classifyCore(
       return contextTooLargeClassification();
     }
     if (error.statusCode === 401 || error.statusCode === 403) {
+      // OpenCode (and similar OpenAI-compat endpoints) return 401 for an
+      // unknown model id. That must not read as a rejected key.
+      if (isModelNotFoundError(message)) {
+        return modelNotFoundClassification();
+      }
       // Managed routes through the assistant API key; if that credential is
       // stale, the user cannot fix it from model settings. Everything else is
       // a credential the user owns, so the copy names which one to update and
@@ -574,7 +581,7 @@ function classifyCore(
       const detailMatch = message.match(/API error \(\d+\):\s*(.+)/i);
       const detail = detailMatch?.[1];
       const suffix = detail
-        ? `: ${detail.length > 200 ? detail.slice(0, 200) + "…" : detail}`
+        ? `: ${detail.length > 200 ? safeStringSlice(detail, 0, 200) + "…" : detail}`
         : "";
       return {
         code: "PROVIDER_API",
@@ -606,7 +613,7 @@ function extractProviderDetail(message: string): string | undefined {
   if (!detail) {
     return undefined;
   }
-  return detail.length > 200 ? `${detail.slice(0, 200)}…` : detail;
+  return detail.length > 200 ? `${safeStringSlice(detail, 0, 200)}…` : detail;
 }
 
 /**
@@ -675,13 +682,7 @@ function reasonToClassification(
         errorCategory: "provider_network_error",
       };
     case "model_not_found":
-      return {
-        code: "PROVIDER_API",
-        userMessage:
-          "The selected model wasn't found by the provider. Switch models in Settings → Models & Services.",
-        retryable: false,
-        errorCategory: "provider_model_not_found",
-      };
+      return modelNotFoundClassification();
     case "model_restricted": {
       const detail = extractProviderDetail(args.message);
       const prefix = "This model isn't available on your current provider plan";
@@ -887,6 +888,19 @@ function providerServerErrorClassification(): Omit<
     userMessage: "The AI provider returned a server error.",
     retryable: true,
     errorCategory: "provider_server_error",
+  };
+}
+
+function modelNotFoundClassification(): Omit<
+  ClassifiedConversationError,
+  "debugDetails"
+> {
+  return {
+    code: "PROVIDER_API",
+    userMessage:
+      "The selected model wasn't found by the provider. Switch models in Settings → Models & Services.",
+    retryable: false,
+    errorCategory: "provider_model_not_found",
   };
 }
 

@@ -455,3 +455,34 @@ describe("QuestionPrompter", () => {
     expect(sent).toHaveLength(0);
   });
 });
+
+test("desktop help presentation survives broadcast and pending recovery until Done", async () => {
+  const { prompter, sent } = makePrompter();
+  const pending = prompter.prompt({
+    conversationId: "conv-123",
+    questions: [
+      {
+        question: "Please complete the CAPTCHA.",
+        presentation: "virtual_desktop",
+        options: [
+          { id: "done", label: "Done" },
+          { id: "skip", label: "Skip" },
+        ],
+      },
+    ],
+  });
+  const request = sent.find(
+    (event) => event.type === "question_request",
+  ) as QuestionRequestEvent;
+  expect(request.questions[0]?.presentation).toBe("virtual_desktop");
+  expect(_piStore.get(request.requestId)?.questionDetails?.entries).toEqual(
+    request.questions,
+  );
+  resolveBatch(request.requestId, [
+    { questionId: "q1", kind: "option", optionId: "done" },
+  ]);
+  expect((await pending).entries).toEqual([
+    { questionId: "q1", decision: "option", optionId: "done" },
+  ]);
+  expect(_piStore.has(request.requestId)).toBe(false);
+});

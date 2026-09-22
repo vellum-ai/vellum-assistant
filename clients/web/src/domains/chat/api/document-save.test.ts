@@ -17,12 +17,68 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   documentsPost,
 }));
 
-const { markdownWordCount, saveDocumentContent } = await import(
-  "@/domains/chat/api/document-save"
-);
+const {
+  markdownWordCount,
+  saveDocumentContent,
+  trackDocumentSave,
+  waitForDocumentSaves,
+} = await import("@/domains/chat/api/document-save");
 
 beforeEach(() => {
   documentsPost.mockClear();
+});
+
+describe("document save waits", () => {
+  const target = { assistantId: "assistant-1", surfaceId: "surface-1" };
+
+  function deferred() {
+    let resolve!: () => void;
+    let reject!: (error: Error) => void;
+    const promise = new Promise<void>((yes, no) => {
+      resolve = yes;
+      reject = no;
+    });
+    return { promise, resolve, reject };
+  }
+
+  test("waits only for the matching assistant and surface", async () => {
+    const write = deferred();
+    trackDocumentSave(target, write.promise);
+    const done = mock(() => {});
+    const waiting = waitForDocumentSaves(target).then(done);
+    await waitForDocumentSaves({ ...target, assistantId: "assistant-2" });
+    await waitForDocumentSaves({ ...target, surfaceId: "surface-2" });
+    expect(done).not.toHaveBeenCalled();
+    write.resolve();
+    await waiting;
+    expect(done).toHaveBeenCalledTimes(1);
+    await waitForDocumentSaves(target);
+  });
+
+  test("includes another drain registered while a prior drain is pending", async () => {
+    const first = deferred();
+    const second = deferred();
+    trackDocumentSave(target, first.promise);
+    const done = mock(() => {});
+    const waiting = waitForDocumentSaves(target).then(done);
+    trackDocumentSave(target, second.promise);
+    first.resolve();
+    await first.promise;
+    await Promise.resolve();
+    expect(done).not.toHaveBeenCalled();
+    second.resolve();
+    await waiting;
+    expect(done).toHaveBeenCalledTimes(1);
+  });
+
+  test("a failed drain rejects its waiter and releases the entry for retry", async () => {
+    const write = deferred();
+    trackDocumentSave(target, write.promise);
+    const waiting = waitForDocumentSaves(target);
+    write.reject(new Error("offline"));
+    await expect(waiting).rejects.toThrow("offline");
+    await waitForDocumentSaves(target);
+  });
 });
 
 describe("markdownWordCount", () => {

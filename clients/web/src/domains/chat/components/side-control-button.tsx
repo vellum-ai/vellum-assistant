@@ -50,6 +50,7 @@ export function SideControlButton({
   const shimmer = loading ? <ShimmerSurface /> : null;
   return (
     <Button
+      shape="pill"
       variant="ghost"
       active
       {...rest}
@@ -81,7 +82,7 @@ export function SideControlButton({
         // `border-0` drops the ghost Button's own 1px border: an outline made
         // these read as inset rather than as chips sitting on the surface. No
         // shadow either, for the same reason: the fill alone is the shape.
-        "relative overflow-hidden rounded-full border-0 bg-[var(--surface-lift)]",
+        "relative overflow-hidden border-0 bg-[var(--surface-lift)]",
         className,
       )}
     >

@@ -81,11 +81,18 @@ export interface LiveVoiceConnection {
 export function createLiveVoiceConnection(options: {
   send: LiveVoiceFrameSender;
   close?: () => void;
+  /**
+   * The guardian the gateway admitted this socket for. Held for the life of
+   * the socket rather than re-read per session, because it is a fact about
+   * the admission and cannot change without a new socket.
+   */
+  guardianPrincipalId?: string;
 }): LiveVoiceConnection {
   return new LiveVoiceConnectionImpl(
     options.send,
     getLiveVoiceSessionManager(),
     options.close,
+    options.guardianPrincipalId,
   );
 }
 
@@ -103,6 +110,7 @@ class LiveVoiceConnectionImpl implements LiveVoiceConnection {
     private readonly send: LiveVoiceFrameSender,
     private readonly manager: LiveVoiceSessionManager,
     private readonly closeTransport?: () => void,
+    private readonly guardianPrincipalId?: string,
   ) {}
 
   get sessionId(): string | undefined {
@@ -204,7 +212,12 @@ class LiveVoiceConnectionImpl implements LiveVoiceConnection {
               ? { closeTransport: this.closeTransport }
               : {}),
           },
-          { signal: pending.signal },
+          {
+            signal: pending.signal,
+            ...(this.guardianPrincipalId
+              ? { guardianPrincipalId: this.guardianPrincipalId }
+              : {}),
+          },
         );
       } finally {
         if (this.pendingStart === pending) {

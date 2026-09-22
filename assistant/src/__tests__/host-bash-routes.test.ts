@@ -381,7 +381,7 @@ describe("handleHostBashResult", () => {
 
   // ── Untargeted-request behavior (regression for new check) ─────────
 
-  describe("untargeted request — actor principal check is skipped", () => {
+  describe("untargeted request: source actor still binds when recorded", () => {
     test("accepts even when submitting actor is absent and no target client is set", async () => {
       const requestId = "req-untargeted-no-actor";
       registerPending(requestId);
@@ -394,6 +394,35 @@ describe("handleHostBashResult", () => {
       expect(result).toEqual({ accepted: true });
       expect(resolveSpy).toHaveLength(1);
       expect(resolvedIds).toContain(requestId);
+    });
+
+    test("rejects a different actor when the pending request recorded a source actor", () => {
+      const requestId = "req-untargeted-actor-mismatch";
+      registerPending(requestId, {
+        targetActorPrincipalId: "principal-owner",
+      });
+
+      expect(() =>
+        handleHostBashResult({
+          body: bashBody(requestId),
+          headers: { "x-vellum-actor-principal-id": "principal-attacker" },
+        }),
+      ).toThrow(ForbiddenError);
+    });
+
+    test("accepts the recorded source actor on an untargeted pending request", async () => {
+      const requestId = "req-untargeted-actor-match";
+      registerPending(requestId, {
+        targetActorPrincipalId: "principal-owner",
+      });
+
+      const result = await handleHostBashResult({
+        body: bashBody(requestId),
+        headers: { "x-vellum-actor-principal-id": "principal-owner" },
+      });
+
+      expect(result).toEqual({ accepted: true });
+      expect(resolveSpy).toHaveLength(1);
     });
   });
 

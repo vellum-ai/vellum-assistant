@@ -1,20 +1,20 @@
 /**
  * Tests for the memory-v3 step-0 branch in `applyRuntimeInjections`:
- * spotlight strip + v2 tail suppression.
+ * pointer strip + v2 tail suppression.
  *
  * When `memory.v3.live` is on AND the v3 injector (id `memory-v3`,
  * placement `after-memory-prefix`) produces a block — possibly EMPTY-TEXT on
  * an all-repeat turn — runtime assembly strips the v2 `<memory>` prefix from
  * the TAIL user message only before splicing the v3 block. Historical user
- * messages keep their memory blocks byte-identical (frozen v3 cards and
+ * messages keep their memory blocks byte-identical (frozen v3 sections and
  * pre-cutover v2 blocks both ride the cached prefix); the old whole-layer
  * strip is gone.
  *
- * Leftover `<memory_spotlight>` blocks are stripped from the TAIL user
- * message only (mid-turn re-entry / post-compact must not double-stack).
- * Historical user messages keep the spotlight they were sent with. The
- * spotlight injector's `after-memory-prefix` block is spliced onto the
- * current tail and captured on `blocks`.
+ * Leftover `<memory_pointer>` blocks are stripped from the TAIL user message
+ * only (mid-turn re-entry / post-compact must not double-stack). Historical
+ * user messages keep the pointer they were sent with. The pointer injector's
+ * `after-memory-prefix` block is spliced onto the current tail and captured
+ * on `blocks` for metadata persistence.
  *
  * v2 suppression stays keyed off whether v3 produced a block, NOT off the
  * gate alone: a v3 failure (`produce()` → null) leaves v2's block intact
@@ -24,20 +24,30 @@
  * `isMemoryV3Live` mock slot.
  *
  * The strip discriminates v2's dynamic block by IDENTITY, not by prefix: v2's
- * `INJECTION_HEADER` and v3's `V3_CARDS_INJECTION_HEADER` are deliberately
+ * `INJECTION_HEADER` and v3's `V3_INJECTION_HEADER` are deliberately
  * byte-identical, and v2's router block leads with that header whenever any
  * summary section is present, so no prefix can tell the layers apart. The
  * identity — the exact text v2 prepended this turn — is read off the live
  * graph-memory handle, which these tests register and seed per test.
+ *
+ * The Step 1 run-messages replacement is exercised here too, through a fake
+ * replace-placement injector standing in for the Slack transcript: the
+ * memory prefix carried onto the transcript's tail leaves out a v3-owned
+ * block (a retried anchor's rehydrated frozen block) whenever v3 produced a
+ * block for the assembly, and keeps it as the turn's only memory otherwise.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { ConversationGraphMemory } from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
-import { wrapMemorySpotlightBlock } from "../plugins/defaults/memory/memory-marker.js";
+import { wrapMemoryPointerBlock } from "../plugins/defaults/memory/memory-marker.js";
 import { INJECTION_HEADER } from "../plugins/defaults/memory/v2/injection.js";
-import { V3_CARDS_INJECTION_HEADER } from "../plugins/defaults/memory/v3/render-injection.js";
-import { MEMORY_V3_COMMIT_META_KEY } from "../plugins/defaults/memory/v3/types.js";
+import { V3_INJECTION_HEADER } from "../plugins/defaults/memory/v3/render-injection.js";
+import {
+  markV3LiveBlock,
+  MEMORY_V3_COMMIT_META_KEY,
+  v3LiveBlockFormat,
+} from "../plugins/defaults/memory/v3/types.js";
 import type {
   InjectionBlock,
   Injector,
@@ -75,6 +85,17 @@ mock.module("../config/memory-v3-gate.js", () => ({
     (memory?.v3?.live === true || memory?.v2?.enabled === true),
 }));
 
+// Step 0 applies the section store's tombstones to the v3-owned blocks of
+// the folded-back history. The real store reads the memory DB; this slot
+// stands in for the conversation's pruned set (empty for every other test).
+let prunedSectionsSlot: ReadonlyMap<string, ReadonlySet<string>> = new Map();
+const realEverInjectedStore =
+  await import("../plugins/defaults/memory/v3/ever-injected-store.js");
+mock.module("../plugins/defaults/memory/v3/ever-injected-store.js", () => ({
+  ...realEverInjectedStore,
+  getPrunedSections: () => prunedSectionsSlot,
+}));
+
 const { applyRuntimeInjections } =
   await import("../daemon/conversation-runtime-assembly.js");
 
@@ -110,6 +131,9 @@ function seedV2Identity(text: string | null): void {
  * does too. `inner === null` means the injector produced nothing this turn
  * (error/empty selection); `inner === ""` mirrors an all-repeat turn (block
  * produced, empty text — nothing attached, but v2 is still suppressed).
+ * `commit` is the residency commit the real injector attaches to a turn's
+ * first produce outside a run-messages replacement; a block without one is
+ * attached in memory only and never captured for persistence.
  */
 function v3Injector(inner: string | null, commit?: () => void): Injector {
   return {
@@ -129,16 +153,36 @@ function v3Injector(inner: string | null, commit?: () => void): Injector {
   };
 }
 
-/** A fake v3 spotlight injector mirroring the real id + placement. */
-function spotlightInjector(inner: string): Injector {
+/** A fake v3 pointer injector mirroring the real id + placement. */
+function pointerInjector(inner: string): Injector {
   return {
-    name: "memory-v3-spotlight",
+    name: "memory-v3-pointer",
     order: 1001,
     async produce(): Promise<InjectionBlock | null> {
       return {
-        id: "memory-v3-spotlight",
-        text: wrapMemorySpotlightBlock(inner),
+        id: "memory-v3-pointer",
+        text: wrapMemoryPointerBlock(inner),
         placement: "after-memory-prefix",
+      };
+    },
+  };
+}
+
+/**
+ * A fake run-messages replacement mirroring the Slack transcript injector's
+ * placement: assembly swaps the history for `transcript` and carries the
+ * original tail's memory prefix onto its tail.
+ */
+function replaceInjector(transcript: Message[]): Injector {
+  return {
+    name: "slack-messages",
+    order: 60,
+    async produce(): Promise<InjectionBlock | null> {
+      return {
+        id: "slack-messages",
+        text: "",
+        placement: "replace-run-messages",
+        messagesOverride: transcript,
       };
     },
   };
@@ -169,6 +213,7 @@ describe("memory-v3-live v2 suppression", () => {
     // Clean baseline: v3-live off (registry/config default). Each test seeds
     // the gate value it needs.
     memoryV3LiveSlot = false;
+    prunedSectionsSlot = new Map();
   });
 
   afterEach(() => {
@@ -180,7 +225,7 @@ describe("memory-v3-live v2 suppression", () => {
 
   test("flag ON + v3 produced a block → TAIL v2 stripped, historical memory blocks frozen in place", async () => {
     memoryV3LiveSlot = true;
-    injectorChainSlot.push(v3Injector("net-new cards"));
+    injectorChainSlot.push(v3Injector("net-new cards", () => {}));
     seedV2Identity("fresh recalled fact");
 
     // History: a prior user turn carrying a frozen memory block (a v3 card
@@ -214,8 +259,9 @@ describe("memory-v3-live v2 suppression", () => {
     expect(texts[1]).toBe("current question");
     expect(texts).toHaveLength(2);
 
-    // The v3 block is captured for metadata persistence (UNWRAPPED) and the
-    // turn is marked v3-active so the hook skips v2's metadata write.
+    // The committed v3 block is captured for metadata persistence
+    // (UNWRAPPED) and the turn is marked v3-active so the hook skips v2's
+    // metadata write.
     expect(result.blocks.memoryV3InjectedBlock).toBe("net-new cards");
     expect(result.blocks.memoryV3Active).toBe(true);
   });
@@ -243,18 +289,26 @@ describe("memory-v3-live v2 suppression", () => {
     expect(result.blocks.memoryV3Active).toBe(true);
   });
 
-  test("historical leftover spotlight stays; the fresh spotlight splices onto the tail", async () => {
+  test("historical pointer stays; the fresh pointer splices onto the tail and is captured", async () => {
     memoryV3LiveSlot = true;
-    injectorChainSlot.push(v3Injector(""), spotlightInjector("fresh sections"));
+    injectorChainSlot.push(v3Injector(""), pointerInjector("fresh refs"));
 
-    const staleSpotlight = {
+    const historicalPointer = {
       type: "text" as const,
-      text: wrapMemorySpotlightBlock("stale sections"),
+      text: wrapMemoryPointerBlock("earlier refs"),
+    };
+    const frozenSections = {
+      type: "text" as const,
+      text: "<memory>\nfrozen sections\n</memory>",
     };
     const runMessages: Message[] = [
       {
         role: "user",
-        content: [{ type: "text", text: "earlier question" }, staleSpotlight],
+        content: [
+          frozenSections,
+          historicalPointer,
+          { type: "text", text: "earlier question" },
+        ],
       },
       {
         role: "assistant",
@@ -267,28 +321,26 @@ describe("memory-v3-live v2 suppression", () => {
       ...makeTurnContext(),
     });
 
-    // Historical turn keeps the spotlight it was sent with.
-    expect(result.messages[0].content).toEqual([
-      { type: "text", text: "earlier question" },
-      staleSpotlight,
-    ]);
-    // Fresh spotlight splices onto the tail (no memory prefix, so index 0)
-    // and is captured for metadata persist.
+    // The historical turn keeps the pointer it was sent with, byte-identical
+    // (the same object, in fact: nothing above the tail is rewritten).
+    expect(result.messages[0]).toBe(runMessages[0]);
+    // The fresh pointer splices onto the tail (no memory prefix, so index 0)
+    // and is captured for metadata persistence.
     const texts = tailTexts(result.messages);
     expect(texts).toEqual([
-      wrapMemorySpotlightBlock("fresh sections"),
+      wrapMemoryPointerBlock("fresh refs"),
       "current question",
     ]);
-    expect(result.blocks.memoryV3SpotlightBlock).toBe(
-      wrapMemorySpotlightBlock("fresh sections"),
+    expect(result.blocks.memoryV3PointerBlock).toBe(
+      wrapMemoryPointerBlock("fresh refs"),
     );
   });
 
-  test("tail leftover spotlight is stripped before the fresh spotlight splices", async () => {
+  test("a tail leftover pointer is stripped before the fresh pointer splices (no double-stack)", async () => {
     memoryV3LiveSlot = true;
-    injectorChainSlot.push(v3Injector(""), spotlightInjector("fresh sections"));
+    injectorChainSlot.push(v3Injector(""), pointerInjector("fresh refs"));
 
-    const staleOnTail = wrapMemorySpotlightBlock("stale sections");
+    const staleOnTail = wrapMemoryPointerBlock("stale refs");
     const runMessages: Message[] = [
       {
         role: "user",
@@ -304,12 +356,72 @@ describe("memory-v3-live v2 suppression", () => {
     });
 
     expect(tailTexts(result.messages)).toEqual([
-      wrapMemorySpotlightBlock("fresh sections"),
+      wrapMemoryPointerBlock("fresh refs"),
       "current question",
     ]);
-    expect(result.blocks.memoryV3SpotlightBlock).toBe(
-      wrapMemorySpotlightBlock("fresh sections"),
+    expect(result.blocks.memoryV3PointerBlock).toBe(
+      wrapMemoryPointerBlock("fresh refs"),
     );
+  });
+
+  test("a legacy <memory_spotlight> rehydrated onto the tail from an earlier build's row is stripped the same way", async () => {
+    memoryV3LiveSlot = true;
+    injectorChainSlot.push(v3Injector(""), pointerInjector("fresh refs"));
+
+    const legacyOnTail =
+      "<memory_spotlight>\nlegacy matched section\n</memory_spotlight>";
+    const runMessages: Message[] = [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: legacyOnTail },
+          { type: "text", text: "current question" },
+        ],
+      },
+    ];
+
+    const result = await applyRuntimeInjections(runMessages, {
+      ...makeTurnContext(),
+    });
+
+    expect(tailTexts(result.messages)).toEqual([
+      wrapMemoryPointerBlock("fresh refs"),
+      "current question",
+    ]);
+  });
+
+  test("a turn with no pointer captures none (nothing to persist)", async () => {
+    memoryV3LiveSlot = true;
+    injectorChainSlot.push(v3Injector("net-new sections"));
+
+    const result = await applyRuntimeInjections(
+      [{ role: "user", content: [{ type: "text", text: "current question" }] }],
+      { ...makeTurnContext() },
+    );
+
+    expect(result.blocks.memoryV3PointerBlock).toBeUndefined();
+  });
+
+  test("the pointer lands after this turn's frozen <memory> block on the tail", async () => {
+    memoryV3LiveSlot = true;
+    injectorChainSlot.push(
+      v3Injector("net-new sections"),
+      pointerInjector("fresh refs"),
+    );
+
+    const runMessages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "current question" }] },
+    ];
+
+    const result = await applyRuntimeInjections(runMessages, {
+      ...makeTurnContext(),
+    });
+
+    expect(tailTexts(result.messages)).toEqual([
+      "<memory>\nnet-new sections\n</memory>",
+      wrapMemoryPointerBlock("fresh refs"),
+      "current question",
+    ]);
   });
 
   test("convergence re-entry: a tail leading with this turn's frozen v3 cards (and <info>) is NOT stripped", async () => {
@@ -324,7 +436,7 @@ describe("memory-v3-live v2 suppression", () => {
     injectorChainSlot.push(v3Injector(""));
     seedV2Identity("fresh recalled fact");
 
-    const frozenV3Block = `<memory>\n${V3_CARDS_INJECTION_HEADER}\n\n# memory/concepts/page-a.md\nhead\n</memory>`;
+    const frozenV3Block = `<memory>\n${V3_INJECTION_HEADER}\n\n# memory/concepts/page-a.md\nhead\n</memory>`;
     const infoBlock = "<info>\nstatic memory\n</info>";
     const runMessages: Message[] = [
       {
@@ -356,7 +468,7 @@ describe("memory-v3-live v2 suppression", () => {
     injectorChainSlot.push(v3Injector(""));
     seedV2Identity("fresh recalled fact");
 
-    const frozenV3Block = `<memory>\n${V3_CARDS_INJECTION_HEADER}\n\n# memory/concepts/page-a.md\nhead\n</memory>`;
+    const frozenV3Block = `<memory>\n${V3_INJECTION_HEADER}\n\n# memory/concepts/page-a.md\nhead\n</memory>`;
     const runMessages: Message[] = [
       {
         role: "user",
@@ -385,12 +497,12 @@ describe("memory-v3-live v2 suppression", () => {
     // The collision this guards: v2's router block leads with
     // INJECTION_HEADER whenever any summary section is present — the dominant
     // production case — and v3's card header is deliberately the same bytes.
-    expect(INJECTION_HEADER).toBe(V3_CARDS_INJECTION_HEADER);
+    expect(INJECTION_HEADER).toBe(V3_INJECTION_HEADER);
 
     const v2Inner = `${INJECTION_HEADER}\n\n## memory/concepts/page-b.md\nsummary of page b`;
     seedV2Identity(v2Inner);
 
-    const frozenV3Block = `<memory>\n${V3_CARDS_INJECTION_HEADER}\n\n# memory/concepts/page-a.md\nhead\n</memory>`;
+    const frozenV3Block = `<memory>\n${V3_INJECTION_HEADER}\n\n# memory/concepts/page-a.md\nhead\n</memory>`;
     const infoBlock = "<info>\nstatic memory\n</info>";
     const runMessages: Message[] = [
       {
@@ -429,7 +541,7 @@ describe("memory-v3-live v2 suppression", () => {
     const v2Inner = `${INJECTION_HEADER}\n\n## memory/concepts/page-b.md\nsummary of page b`;
     seedV2Identity(v2Inner);
 
-    const frozenV3Block = `<memory>\n${V3_CARDS_INJECTION_HEADER}\n\n# memory/concepts/page-a.md\nhead\n</memory>`;
+    const frozenV3Block = `<memory>\n${V3_INJECTION_HEADER}\n\n# memory/concepts/page-a.md\nhead\n</memory>`;
     const runMessages: Message[] = [
       {
         role: "user",
@@ -500,6 +612,29 @@ describe("memory-v3-live v2 suppression", () => {
     await applyRuntimeInjections(runMessages, { ...makeTurnContext() });
 
     expect(commit).toHaveBeenCalledTimes(1);
+  });
+
+  test("a v3 block carrying no commit is attached in memory only: never captured, so nothing persists it", async () => {
+    memoryV3LiveSlot = true;
+    injectorChainSlot.push(v3Injector("uncommitted sections"));
+    seedV2Identity(null);
+    const runMessages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "question" }] },
+    ];
+
+    const result = await applyRuntimeInjections(runMessages, {
+      ...makeTurnContext(),
+    });
+
+    // The block reaches the model, and v3 still owns the turn's `<memory>`
+    // layer, but a block the store will never claim must not be persisted:
+    // a persisted, unclaimed copy would render again on every later turn.
+    expect(tailTexts(result.messages)).toEqual([
+      "<memory>\nuncommitted sections\n</memory>",
+      "question",
+    ]);
+    expect(result.blocks.memoryV3InjectedBlock).toBeUndefined();
+    expect(result.blocks.memoryV3Active).toBe(true);
   });
 
   test("the commit callback is SKIPPED when the tail is not a user message (block never attaches)", async () => {
@@ -579,6 +714,413 @@ describe("memory-v3-live v2 suppression", () => {
       .map((b) => b.text);
     expect(firstUserTexts[0]).toBe("<memory>\nold recalled fact\n</memory>");
     expect(offResult.blocks.memoryV3Active).toBe(false);
+  });
+
+  /**
+   * Turn 1 froze page-a's and page-b's leads in one block, and the valve
+   * tombstoned page-b's lead on that same turn, before the block folded back
+   * into the live history, so the copy rode back in with the tombstone
+   * already in the store.
+   */
+  function foldedBackHistoryWithTombstonedSection(): {
+    frozenBlock: { type: "text"; text: string };
+    historicalUser: Message;
+    runMessages: Message[];
+  } {
+    const frozenBlock = {
+      type: "text" as const,
+      text: `<memory>\n${V3_INJECTION_HEADER}\n\n# memory/concepts/page-a.md\nhead a\n\n# memory/concepts/page-b.md\nhead b\n</memory>`,
+    };
+    markV3LiveBlock(frozenBlock);
+    const historicalUser: Message = {
+      role: "user",
+      content: [frozenBlock, { type: "text", text: "earlier question" }],
+    };
+    prunedSectionsSlot = new Map([["page-b", new Set([""])]]);
+    return {
+      frozenBlock,
+      historicalUser,
+      runMessages: [
+        historicalUser,
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "earlier answer" }],
+        },
+        { role: "user", content: [{ type: "text", text: "current question" }] },
+      ],
+    };
+  }
+
+  test("Step 0 retires an older capability copy once a later owned block carries the capability again, sections untouched", async () => {
+    memoryV3LiveSlot = true;
+    injectorChainSlot.push(v3Injector(""));
+    seedV2Identity(null);
+    const cli = "# CLI command: export\nExport a conversation.";
+    // A post-compaction re-entry rendered the CLI command in memory on turn
+    // 1; turn 2 selected it again against the reset store and persisted a
+    // new copy.
+    const reentry = markV3LiveBlock({
+      type: "text" as const,
+      text: `<memory>\n${V3_INJECTION_HEADER}\n\n# memory/concepts/page-a.md\nhead a\n\n${cli}\n</memory>`,
+    });
+    const persisted = markV3LiveBlock({
+      type: "text" as const,
+      text: `<memory>\n${V3_INJECTION_HEADER}\n\n${cli}\n</memory>`,
+    });
+    const turn1: Message = {
+      role: "user",
+      content: [reentry, { type: "text", text: "turn 1" }],
+    };
+    const turn2: Message = {
+      role: "user",
+      content: [persisted, { type: "text", text: "turn 2" }],
+    };
+    const runMessages: Message[] = [
+      turn1,
+      { role: "assistant", content: [{ type: "text", text: "reply" }] },
+      turn2,
+      { role: "assistant", content: [{ type: "text", text: "reply" }] },
+      { role: "user", content: [{ type: "text", text: "turn 3" }] },
+    ];
+
+    await applyRuntimeInjections(runMessages, { ...makeTurnContext() });
+
+    expect(turn1.content).toEqual([
+      {
+        type: "text",
+        text: `<memory>\n${V3_INJECTION_HEADER}\n\n# memory/concepts/page-a.md\nhead a\n</memory>`,
+      },
+      { type: "text", text: "turn 1" },
+    ]);
+    expect(turn2.content[0]).toBe(persisted);
+  });
+
+  test("Step 0 strips the store's tombstoned sections from the v3-owned blocks of the folded-back history, every turn", async () => {
+    memoryV3LiveSlot = true;
+    injectorChainSlot.push(v3Injector(""));
+    seedV2Identity(null);
+    const { historicalUser, runMessages } =
+      foldedBackHistoryWithTombstonedSection();
+
+    const result = await applyRuntimeInjections(runMessages, {
+      ...makeTurnContext(),
+    });
+
+    // In place on the shared message object, so the loop's fold-back keeps
+    // it, and the provider-bound history carries no copy of the section.
+    const strippedContent: Message["content"] = [
+      {
+        type: "text",
+        text: `<memory>\n${V3_INJECTION_HEADER}\n\n# memory/concepts/page-a.md\nhead a\n</memory>`,
+      },
+      { type: "text", text: "earlier question" },
+    ];
+    expect(historicalUser.content).toEqual(strippedContent);
+    expect(result.messages[0].content).toEqual(strippedContent);
+    expect(tailTexts(result.messages)).toEqual(["current question"]);
+
+    // Idempotent: the next turn's assembly walks the same history and leaves
+    // it as is.
+    const again = await applyRuntimeInjections(runMessages, {
+      ...makeTurnContext(),
+    });
+    expect(again.messages[0].content).toEqual(strippedContent);
+  });
+
+  test("flag OFF → the store's tombstones are never consulted and an owned block keeps every section", async () => {
+    const { frozenBlock, historicalUser, runMessages } =
+      foldedBackHistoryWithTombstonedSection();
+
+    const result = await applyRuntimeInjections(runMessages, {
+      ...makeTurnContext(),
+    });
+
+    expect(historicalUser.content[0]).toBe(frozenBlock);
+    expect(result.messages[0].content).toEqual(historicalUser.content);
+  });
+
+  test("a re-injection assembly (post-compaction) attaches the v3 block but withholds its commit", async () => {
+    memoryV3LiveSlot = true;
+    let commits = 0;
+    injectorChainSlot.push(
+      v3Injector("re-injected sections", () => {
+        commits += 1;
+      }),
+    );
+    seedV2Identity(null);
+    const runMessages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "tool result" }] },
+    ];
+
+    const result = await applyRuntimeInjections(runMessages, {
+      ...makeTurnContext(),
+      reinjection: true,
+    });
+
+    // The block rides the continuation history and is captured as usual;
+    // only the residency commit is withheld, since nothing persists it.
+    expect(tailTexts(result.messages)).toEqual([
+      "<memory>\nre-injected sections\n</memory>",
+      "tool result",
+    ]);
+    expect(result.blocks.memoryV3InjectedBlock).toBe("re-injected sections");
+    expect(commits).toBe(0);
+  });
+
+  test("a turn re-run onto an anchor carrying a current-format frozen block merges the net-new block into it: one block, the first run's entries then the rerun's, captured merged, committed once", async () => {
+    memoryV3LiveSlot = true;
+    let commits = 0;
+    injectorChainSlot.push(
+      v3Injector(
+        `${V3_INJECTION_HEADER}\n\n# memory/concepts/page-b.md\nhead b`,
+        () => {
+          commits += 1;
+        },
+      ),
+    );
+    const pointerInner =
+      "Already in context above, relevant again this turn:\nmemory/concepts/page-a.md";
+    injectorChainSlot.push(pointerInjector(pointerInner));
+    seedV2Identity(null);
+    // The anchor as `loadFromDb` rehydrated it for the retry: the first
+    // run's frozen block, marked current from its row's format stamp.
+    const anchorBlock = markV3LiveBlock({
+      type: "text" as const,
+      text: `<memory>\n${V3_INJECTION_HEADER}\n\n# memory/concepts/page-a.md\nhead a\n</memory>`,
+    });
+    const runMessages: Message[] = [
+      {
+        role: "user",
+        content: [anchorBlock, { type: "text", text: "retried question" }],
+      },
+    ];
+
+    const result = await applyRuntimeInjections(runMessages, {
+      ...makeTurnContext(),
+    });
+
+    const mergedInner = `${V3_INJECTION_HEADER}\n\n# memory/concepts/page-a.md\nhead a\n\n# memory/concepts/page-b.md\nhead b`;
+    expect(tailTexts(result.messages)).toEqual([
+      `<memory>\n${mergedInner}\n</memory>`,
+      wrapMemoryPointerBlock(pointerInner),
+      "retried question",
+    ]);
+    const tail = result.messages[result.messages.length - 1]!;
+    expect(v3LiveBlockFormat(tail.content[0]!)).toBe("current");
+    expect(result.blocks.memoryV3InjectedBlock).toBe(mergedInner);
+    expect(commits).toBe(1);
+  });
+
+  test("a legacy-format anchor block cannot take the rerun's entries: the block rides the tail in memory only, uncaptured, commit withheld", async () => {
+    memoryV3LiveSlot = true;
+    let commits = 0;
+    const rerunBlock = `<memory>\n${V3_INJECTION_HEADER}\n\n# memory/concepts/page-b.md\nhead b\n</memory>`;
+    injectorChainSlot.push(
+      v3Injector(
+        `${V3_INJECTION_HEADER}\n\n# memory/concepts/page-b.md\nhead b`,
+        () => {
+          commits += 1;
+        },
+      ),
+    );
+    seedV2Identity(null);
+    // A pre-stamp row's block: rehydrated legacy.
+    const anchorBlock = markV3LiveBlock(
+      {
+        type: "text" as const,
+        text: `<memory>\n${V3_INJECTION_HEADER}\n\n# memory/concepts/page-a.md\nhead a\n</memory>`,
+      },
+      "legacy",
+    );
+    const runMessages: Message[] = [
+      {
+        role: "user",
+        content: [anchorBlock, { type: "text", text: "retried question" }],
+      },
+    ];
+
+    const result = await applyRuntimeInjections(runMessages, {
+      ...makeTurnContext(),
+    });
+
+    const tail = result.messages[result.messages.length - 1]!;
+    expect(tail.content[0]).toBe(anchorBlock);
+    expect(tailTexts(result.messages)).toEqual([
+      anchorBlock.text,
+      rerunBlock,
+      "retried question",
+    ]);
+    expect(result.blocks.memoryV3InjectedBlock).toBeUndefined();
+    expect(commits).toBe(0);
+  });
+
+  /** An injector that records the `replacesRunMessages` it was handed and
+   *  contributes nothing. */
+  function replacementProbe(
+    name: string,
+    order: number,
+    seen: Map<string, boolean | undefined>,
+  ): Injector {
+    return {
+      name,
+      order,
+      async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
+        seen.set(name, ctx.replacesRunMessages);
+        return null;
+      },
+    };
+  }
+
+  test("the run-messages replacement is stated on the turn context of every injector after the replacing one, and of none when no injector replaces", async () => {
+    const seen = new Map<string, boolean | undefined>();
+    const transcript: Message[] = [
+      { role: "user", content: [{ type: "text", text: "transcript line" }] },
+    ];
+    const runMessages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "question" }] },
+    ];
+    injectorChainSlot.push(
+      replacementProbe("before-replace", 10, seen),
+      replaceInjector(transcript),
+      replacementProbe("after-replace", 1000, seen),
+    );
+
+    const replaced = await applyRuntimeInjections(runMessages, {
+      ...makeTurnContext(),
+    });
+
+    expect(seen.get("before-replace")).toBeUndefined();
+    expect(seen.get("after-replace")).toBe(true);
+    expect(tailTexts(replaced.messages)).toEqual(["transcript line"]);
+
+    // The replacing injector out of the chain (its plugin disabled or never
+    // registered): the flag follows the replacement, so nobody is told of
+    // one and the history stays the turn's own.
+    injectorChainSlot.length = 0;
+    seen.clear();
+    injectorChainSlot.push(
+      replacementProbe("before-replace", 10, seen),
+      replacementProbe("after-replace", 1000, seen),
+    );
+
+    const kept = await applyRuntimeInjections(runMessages, {
+      ...makeTurnContext(),
+    });
+
+    expect(seen.get("before-replace")).toBeUndefined();
+    expect(seen.get("after-replace")).toBeUndefined();
+    expect(tailTexts(kept.messages)).toEqual(["question"]);
+  });
+
+  test("a retry assembled onto a run-messages replacement leaves the anchor's frozen block off the transcript: the fresh render is the single copy, uncaptured, commit withheld", async () => {
+    memoryV3LiveSlot = true;
+    let commits = 0;
+    // The replacement renders every selection afresh, page-a included, so
+    // the rerun's block carries the very section the anchor's block froze.
+    const freshInner = `${V3_INJECTION_HEADER}\n\n# memory/concepts/page-a.md\nhead a`;
+    injectorChainSlot.push(
+      replaceInjector([
+        { role: "user", content: [{ type: "text", text: "transcript line" }] },
+      ]),
+    );
+    injectorChainSlot.push(
+      v3Injector(freshInner, () => {
+        commits += 1;
+      }),
+    );
+    seedV2Identity(null);
+    // The anchor as `loadFromDb` rehydrated it for the retry, behind a
+    // static `<info>` block that is not v3's to leave behind.
+    const anchorBlock = markV3LiveBlock({
+      type: "text" as const,
+      text: `<memory>\n${freshInner}\n</memory>`,
+    });
+    const infoBlock = {
+      type: "text" as const,
+      text: "<info>\nstatic memory\n</info>",
+    };
+    const runMessages: Message[] = [
+      {
+        role: "user",
+        content: [
+          infoBlock,
+          anchorBlock,
+          { type: "text", text: "retried question" },
+        ],
+      },
+    ];
+
+    const result = await applyRuntimeInjections(runMessages, {
+      ...makeTurnContext(),
+    });
+
+    // The static block is carried, the anchor's v3 block is not, and the
+    // fresh block lands behind the carried prefix on the transcript's tail:
+    // one copy of page-a reaches the model.
+    expect(tailTexts(result.messages)).toEqual([
+      infoBlock.text,
+      `<memory>\n${freshInner}\n</memory>`,
+      "transcript line",
+    ]);
+    const tail = result.messages[result.messages.length - 1]!;
+    expect(tail.content).not.toContain(anchorBlock);
+    expect(result.blocks.memoryV3InjectedBlock).toBeUndefined();
+    expect(commits).toBe(0);
+  });
+
+  test("a retry assembled onto a run-messages replacement with no v3 block this turn carries the anchor's frozen block as the turn's only memory", async () => {
+    memoryV3LiveSlot = true;
+    injectorChainSlot.push(
+      replaceInjector([
+        { role: "user", content: [{ type: "text", text: "transcript line" }] },
+      ]),
+    );
+    injectorChainSlot.push(v3Injector(null));
+    seedV2Identity(null);
+    const anchorBlock = markV3LiveBlock({
+      type: "text" as const,
+      text: `<memory>\n${V3_INJECTION_HEADER}\n\n# memory/concepts/page-a.md\nhead a\n</memory>`,
+    });
+    const runMessages: Message[] = [
+      {
+        role: "user",
+        content: [anchorBlock, { type: "text", text: "retried question" }],
+      },
+    ];
+
+    const result = await applyRuntimeInjections(runMessages, {
+      ...makeTurnContext(),
+    });
+
+    const tail = result.messages[result.messages.length - 1]!;
+    expect(tail.content[0]).toBe(anchorBlock);
+    expect(tailTexts(result.messages)).toEqual([
+      anchorBlock.text,
+      "transcript line",
+    ]);
+    expect(result.blocks.memoryV3InjectedBlock).toBeUndefined();
+  });
+
+  test("an all-repeat v3 block on a user tail attaches nothing but still commits (the valve pass)", async () => {
+    memoryV3LiveSlot = true;
+    let commits = 0;
+    injectorChainSlot.push(
+      v3Injector("", () => {
+        commits += 1;
+      }),
+    );
+    seedV2Identity(null);
+    const runMessages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "question" }] },
+    ];
+
+    const result = await applyRuntimeInjections(runMessages, {
+      ...makeTurnContext(),
+    });
+
+    expect(tailTexts(result.messages)).toEqual(["question"]);
+    expect(result.blocks.memoryV3InjectedBlock).toBeUndefined();
+    expect(commits).toBe(1);
   });
 
   test("no v3 injector registered + flag ON → no stripping, messages untouched", async () => {

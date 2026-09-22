@@ -23,10 +23,14 @@ import {
   getMessageById,
   updateMessageContent,
 } from "../persistence/conversation-crud.js";
-import { isBackgroundConversationType } from "../persistence/conversation-types.js";
+import {
+  ASSISTANT_INITIATED_SOURCE,
+  isBackgroundConversationType,
+} from "../persistence/conversation-types.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { getLogger } from "../util/logger.js";
 import { normalizeTitle, stripMarkdown } from "../util/short-title.js";
+import { readChannelAllowlist } from "./channel-allowlist.js";
 import { isConversationSeedSane } from "./conversation-seed-composer.js";
 import { deriveTitle } from "./copy-composer.js";
 import {
@@ -194,7 +198,7 @@ export async function writeHomeFeedItemForSignal(
     timestamp: now,
     createdAt: now,
     status: "new",
-    category,
+    ...(category ? { category } : {}),
     noteworthy: deriveNoteworthy(signal),
     fromAssistant: signal.sourceChannel === "assistant_tool",
     ...(guardianProjection ? { guardianRequest: guardianProjection } : {}),
@@ -272,6 +276,11 @@ async function resolveOwnedConversationMessageId(
   sourceConversationId: string | undefined,
   summary: string,
 ): Promise<string | undefined> {
+  // The completed reply is already the source conversation's canonical row.
+  // This signal's body is a compact push preview, not conversation content.
+  if (signal.sourceEventName === "chat.assistant_reply") {
+    return undefined;
+  }
   if (vellumDelivery?.conversationId) {
     return vellumDelivery.conversationId === sourceConversationId
       ? vellumDelivery.messageId
@@ -442,14 +451,24 @@ const EVENT_CATEGORY_MAP: Record<string, FeedItemCategory> = {
   "activity.complete": "background",
   "watcher.notification": "system",
   "schedule.notify": "scheduling",
+  "schedule.result": "scheduling",
   "guardian.question": "security",
   "guardian.channel_activation": "security",
   "ingress.access_request": "security",
   "telegram.webhook_health_alert": "system",
 };
 
-function deriveCategory(signal: NotificationSignal): FeedItemCategory {
-  return EVENT_CATEGORY_MAP[signal.sourceEventName] ?? "system";
+/**
+ * Map a signal's source event to a feed category, or nothing when the event
+ * has no entry. An unmapped event, such as a deliberate assistant
+ * notification (`assistant.share`), carries no category rather than a
+ * catch-all bucket named for our architecture: readers that filter by
+ * category skip it, and nothing has to guess.
+ */
+function deriveCategory(
+  signal: NotificationSignal,
+): FeedItemCategory | undefined {
+  return EVENT_CATEGORY_MAP[signal.sourceEventName];
 }
 
 function deriveDetailPanelKind(
@@ -480,7 +499,21 @@ function deriveDetailPanelKind(
  * `assistant_tool` mirrors unconditionally because the documented
  * `notifications send` skill (and background-job failure emits) deliberately
  * does not require a background-typed conversation or the
- * `isAsyncBackground` hint.
+ * `isAsyncBackground` hint. `chat.assistant_reply` also mirrors: it is the
+ * durable in-app record for the push sent after a user leaves a chat, while
+ * retaining the normal interactive conversation as its navigation target.
+ *
+ * A delivery that materialized an assistant-initiated thread never mirrors.
+ * Under the `assistant-initiated-threads` flag, `conversation-pairing.ts`
+ * promotes a background `assistant.share` into a standard conversation
+ * stamped {@link ASSISTANT_INITIATED_SOURCE}, and that thread's row in the
+ * sidebar's assistant section is the share's one surface. Mirroring it here
+ * as well put the same share in the bell a second time, labeled by its
+ * source channel ("Heartbeat"). The check reads the paired conversation's
+ * `source` rather than re-deriving the promotion rule, so it holds however
+ * that rule narrows or widens. Guardian requests are checked first on
+ * purpose: the bell is their canonical home whatever conversation they pair
+ * with.
  */
 function resolveHomeFeedMirror(
   signal: NotificationSignal,
@@ -511,22 +544,56 @@ function resolveHomeFeedMirror(
     : fallbackConversationId;
   const sourceScheduleJobId = sourceRow?.scheduleJobId ?? undefined;
 
-  if (signal.sourceChannel === "assistant_tool") {
-    return { mirror: true, sourceConversationId, sourceScheduleJobId };
-  }
-  if (signal.attentionHints.isAsyncBackground) {
-    return { mirror: true, sourceConversationId, sourceScheduleJobId };
-  }
   // Guardian requests always project into the feed: the "Needs
   // attention" item is the request's canonical home, and the request
   // blocks on the guardian whatever kind of conversation raised it.
   if (isGuardianRequestSignalEvent(signal.sourceEventName)) {
     return { mirror: true, sourceConversationId, sourceScheduleJobId };
   }
+  if (isAssistantInitiatedThreadDelivery(fallbackConversationId)) {
+    return { mirror: false };
+  }
+  if (
+    signal.sourceChannel === "assistant_tool" ||
+    signal.sourceEventName === "chat.assistant_reply"
+  ) {
+    const allowlist = readChannelAllowlist(signal.contextPayload);
+    if (!allowlist || allowlist.includes("vellum")) {
+      return { mirror: true, sourceConversationId, sourceScheduleJobId };
+    }
+  }
+  if (signal.attentionHints.isAsyncBackground) {
+    return { mirror: true, sourceConversationId, sourceScheduleJobId };
+  }
   if (isBackgroundConversationType(sourceRow?.conversationType)) {
     return { mirror: true, sourceConversationId, sourceScheduleJobId };
   }
   return { mirror: false };
+}
+
+/**
+ * Whether the vellum delivery this signal produced landed in a thread the
+ * sidebar's assistant section already shows.
+ *
+ * Best-effort like the source lookup above: a missing id, a missing row, or
+ * a lookup failure all read as "not an assistant thread", so a storage
+ * hiccup degrades to the pre-existing behavior (a bell row) rather than
+ * dropping the notification everywhere.
+ */
+function isAssistantInitiatedThreadDelivery(
+  deliveryConversationId: string | undefined,
+): boolean {
+  if (!deliveryConversationId) {
+    return false;
+  }
+  try {
+    return (
+      getConversation(deliveryConversationId)?.source ===
+      ASSISTANT_INITIATED_SOURCE
+    );
+  } catch {
+    return false;
+  }
 }
 
 /**

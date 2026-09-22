@@ -70,6 +70,7 @@ describe("start frame", () => {
     const start = socket.sentFrames()[0]!;
 
     expect(start.type).toBe("start");
+    expect(start.entry).toBe("cli");
     // Load-bearing: without it the daemon refuses a session whose speech-to-text
     // credential is missing, which is the case this client exists to survive.
     expect(start.textInput).toBe(true);

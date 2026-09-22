@@ -9,10 +9,8 @@ import { dirname, join } from "node:path";
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import type { AssistantEventEnvelope } from "../api/index.js";
-import type {
-  EventTargeting,
-  ReplaySubscriber,
-} from "../runtime/assistant-stream-state.js";
+import type { AssistantEventPublishOptions } from "../runtime/assistant-event-publish-options.js";
+import type { SubscriberIdentity } from "../runtime/assistant-event-targeting.js";
 import {
   _peekStreamForTesting,
   _resetStreamStateForTesting,
@@ -103,7 +101,7 @@ describe("assistant-stream-state", () => {
       /** Targeted events stay in the ring so replay can filter them. */
 
       // GIVEN a targeting modifier
-      const targeting: EventTargeting = {
+      const targeting: AssistantEventPublishOptions = {
         targetCapability: "host_bash",
       };
 
@@ -334,28 +332,28 @@ describe("assistant-stream-state", () => {
   });
 
   describe("getReplayWindow — targeting filter", () => {
-    const MACOS_CLIENT: ReplaySubscriber = {
+    const MACOS_CLIENT: SubscriberIdentity = {
       type: "client",
       clientId: "mac-1",
       interfaceId: "macos",
       capabilities: ["host_bash", "host_file", "host_cu", "host_browser"],
     };
 
-    const WEB_CLIENT: ReplaySubscriber = {
+    const WEB_CLIENT: SubscriberIdentity = {
       type: "client",
       clientId: "web-1",
       interfaceId: "web",
       capabilities: [],
     };
 
-    const CHROME_EXT_CLIENT: ReplaySubscriber = {
+    const CHROME_EXT_CLIENT: SubscriberIdentity = {
       type: "client",
       clientId: "ext-1",
       interfaceId: "chrome-extension",
       capabilities: ["host_browser"],
     };
 
-    const PROCESS_SUB: ReplaySubscriber = { type: "process" };
+    const PROCESS_SUB: SubscriberIdentity = { type: "process" };
 
     test("untargeted events are replayed to all subscriber types", () => {
       /** Events without targeting metadata go to everyone. */
@@ -489,6 +487,28 @@ describe("assistant-stream-state", () => {
       expect(macReplay!.map((e) => e.seq)).toEqual([1]);
       expect(webReplay).toEqual([]);
       expect(procReplay).toEqual([]);
+    });
+
+    test("principal-targeted events only replay to that principal's clients", () => {
+      stampAndBuffer(mkEvent(), {
+        targeting: { targetActorPrincipalId: "principal-g" },
+      });
+
+      const guardian = getReplayWindow(0, {
+        ...WEB_CLIENT,
+        actorPrincipalId: "principal-g",
+      });
+      const other = getReplayWindow(0, {
+        ...WEB_CLIENT,
+        actorPrincipalId: "principal-x",
+      });
+      const noPrincipal = getReplayWindow(0, WEB_CLIENT);
+      const proc = getReplayWindow(0, PROCESS_SUB);
+
+      expect(guardian!.map((e) => e.seq)).toEqual([1]);
+      expect(other).toEqual([]);
+      expect(noPrincipal).toEqual([]);
+      expect(proc).toEqual([]);
     });
 
     test("mixed targeting across events filters per-entry", () => {

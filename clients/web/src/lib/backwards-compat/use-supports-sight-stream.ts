@@ -65,7 +65,7 @@
  * Delete this gate, and the `MIN_VERSION` branch in `use-voice-room-sight.ts`,
  * once the minimum supported assistant is >= MIN_VERSION.
  */
-import { useAssistantScopedSupports } from "./utils";
+import { assistantScopedSupports, useAssistantScopedSupports } from "./utils";
 
 export const MIN_VERSION = "0.11.7-dev.202609010224.44cd29e";
 
@@ -82,4 +82,15 @@ export function useSupportsSightStream(
   sessionAssistantId: string | null | undefined,
 ): boolean {
   return useAssistantScopedSupports(MIN_VERSION, sessionAssistantId);
+}
+
+/**
+ * The same answer as a snapshot, for callers that are not components: the
+ * companion mirror reads it inside a store subscription to tell the surface
+ * whether the running call can be shown the screen.
+ */
+export function supportsSightStream(
+  sessionAssistantId: string | null | undefined,
+): sessionAssistantId is string {
+  return assistantScopedSupports(MIN_VERSION, sessionAssistantId);
 }

@@ -46,6 +46,7 @@ import { syncMessageToDisk } from "../persistence/conversation-disk-view.js";
 import { enqueueLexicalIndexForMessage } from "../persistence/job-handlers/message-lexical.js";
 import { indexMessageNow } from "../plugins/defaults/memory/indexer.js";
 import type { Message } from "../providers/types.js";
+import { resolveTurnReplyMessageId } from "../runtime/channel-reply-delivery.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
 import {
   finalizeStrandedInflightContent,
@@ -62,6 +63,8 @@ interface TurnTailContext {
 /** Minimal per-run handler state {@link settleTurnContent} consumes. */
 interface TurnContentState {
   readonly lastAssistantMessageId: string | undefined;
+  /** Earlier reply rows that must join the final disk-view export. */
+  readonly assistantMessageIdsToSync: ReadonlySet<string>;
   /** In-flight content writers the turn left behind (see EventHandlerState). */
   readonly inflightWriters: Map<string, InflightContentWriter>;
 }
@@ -70,6 +73,12 @@ interface TurnContentState {
 interface TurnTailState {
   readonly deferredFinalizeEffects: ReadonlyArray<() => Promise<void>>;
   readonly lastAssistantMessageId: string | undefined;
+  /**
+   * Visibility marker stamped on the last assistant row (see
+   * `EventHandlerState`). `"private"` means that row's text is working notes,
+   * so the turn's reply lives on an earlier row.
+   */
+  readonly lastAssistantTextVisibility?: "private" | "visible";
 }
 
 /**
@@ -217,20 +226,31 @@ export async function settleTurnContent(params: {
     );
   }
 
-  // Mirror the final assistant row into the JSONL disk view. Guarded like the
-  // steps above: this runs AFTER the terminal SSE, so a throw here must not
-  // escape into the loop's outer catch and emit a second, contradictory
-  // terminal event for a turn the client already saw complete.
-  try {
-    if (state.lastAssistantMessageId && liveConversation) {
-      syncMessageToDisk(
-        ctx.conversationId,
-        state.lastAssistantMessageId,
-        liveConversation.createdAt,
-      );
+  // Mirror every assistant row finalized by this turn into the JSONL disk
+  // view. Most turns contribute only their last row. A turn that delivered its
+  // reply through `send_user_message` can also contribute an earlier row that
+  // received the reply attachment. Set insertion order preserves the reply's
+  // position, while adding the last row deduplicates the ordinary case where
+  // both ids are the same.
+  if (liveConversation) {
+    const messageIds = new Set(state.assistantMessageIdsToSync);
+    if (state.lastAssistantMessageId) {
+      messageIds.add(state.lastAssistantMessageId);
     }
-  } catch (err) {
-    rlog.warn({ err }, "Failed to sync assistant message to disk (non-fatal)");
+    for (const messageId of messageIds) {
+      try {
+        syncMessageToDisk(
+          ctx.conversationId,
+          messageId,
+          liveConversation.createdAt,
+        );
+      } catch (err) {
+        rlog.warn(
+          { err, messageId },
+          "Failed to sync assistant message to disk (non-fatal)",
+        );
+      }
+    }
   }
 }
 
@@ -311,9 +331,21 @@ export async function runDeferredTurnTail(params: {
   // dispatch, which retries with backoff, and nothing below here depends on
   // the emit. The producer never rejects.
   if (turnCompleted && state.lastAssistantMessageId) {
+    // The preview quotes the reply, which is not always the turn's last row: a
+    // turn that routed its text through `send_user_message` usually ends on a
+    // private wrap-up row that projects to nothing. Resolve the row channel
+    // delivery would send, so the push carries the same words.
+    const replyMessageId =
+      state.lastAssistantTextVisibility === "private"
+        ? resolveTurnReplyMessageId(
+            conversationId,
+            userMessageId,
+            state.lastAssistantMessageId,
+          )
+        : state.lastAssistantMessageId;
     void emitAssistantReplyNotification({
       conversationId,
-      assistantMessageId: state.lastAssistantMessageId,
+      assistantMessageId: replyMessageId,
       userMessageId,
       ...(replyDeliveredInAppOnly ? { replyDeliveredInAppOnly: true } : {}),
       rlog,

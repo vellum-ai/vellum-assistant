@@ -130,7 +130,7 @@ describe("getSchemaAtPath", () => {
     expect(properties).toBeDefined();
     expect(properties.enabled).toBeDefined();
     expect(properties.voice).toBeDefined();
-    expect(properties.safety).toBeDefined();
+    expect(properties.disclosure).toBeDefined();
   });
 
   test("navigates through .transform() wrappers (ingress → object schema)", () => {
@@ -230,7 +230,7 @@ describe("z.toJSONSchema integration", () => {
     expect(properties).toBeDefined();
     expect(properties!.enabled).toBeDefined();
     expect(properties!.voice).toBeDefined();
-    expect(properties!.safety).toBeDefined();
+    expect(properties!.disclosure).toBeDefined();
   });
 
   test("sub-schema at a leaf like llm.profileSession.defaultTtlSeconds produces integer schema", () => {

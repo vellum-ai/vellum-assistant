@@ -81,11 +81,13 @@
  */
 
 import { useCallback, useEffect, useRef } from "react";
+import { recordVoiceInputDiagnostic } from "@/domains/chat/voice/live-voice/input-diagnostics";
 
 import {
   LiveVoiceChannelClient,
   RETRYABLE_LIVE_VOICE_CLOSE_CODES,
   type LiveVoiceClientError,
+  type LiveVoiceSightFrameTiming,
 } from "@/domains/chat/voice/live-voice/live-voice-client";
 import {
   LiveVoiceAudioCapture,
@@ -97,13 +99,28 @@ import {
   type TtsAudioChunk,
 } from "@/domains/chat/voice/live-voice/tts-playback";
 import { describeBusyFailure } from "@/domains/chat/voice/live-voice/busy-failure";
+import type {
+  LiveVoiceEntry,
+  LiveVoiceSessionControlServerFrame,
+  LiveVoiceSightSource,
+} from "@/domains/chat/voice/live-voice/protocol";
+import {
+  applyLiveVoiceSessionControl,
+  liveVoiceSessionControls,
+} from "@/domains/chat/voice/live-voice/session-control";
 import { fixedT } from "@/i18n";
+import { prewarmToneContext } from "@/lib/sounds/tone-synth";
+import {
+  playVoiceEndTone,
+  resolveVoiceStartTone,
+} from "@/lib/sounds/voice-start-tone";
 import {
   isLiveVoiceSessionActive,
   type LiveVoiceErrorRecovery,
   minimizeVoiceRoom,
   useLiveVoiceStore,
   type LiveVoiceSessionState,
+  type LiveVoiceTypedTurnOptions,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import {
   interruptSensitivityToMs,
@@ -193,7 +210,7 @@ export interface UseLiveVoiceResult {
    * when there is no session up to take it or the assistant does not take
    * typed turns; the caller keeps the text either way.
    */
-  sendText: (text: string) => boolean;
+  sendText: (text: string, options?: LiveVoiceTypedTurnOptions) => boolean;
 }
 
 /** Per-session options for {@link UseLiveVoiceResult.start}. */
@@ -204,6 +221,12 @@ export interface LiveVoiceStartOptions {
    * socket. Defaults to the legacy per-turn push-to-talk flow.
    */
   handsFree?: boolean;
+  /**
+   * Which control asked for the session, for the daemon's telemetry. Sent on
+   * every connect the session makes, reconnects included: a socket blip does
+   * not change where the user started from.
+   */
+  entry?: LiveVoiceEntry;
   /**
    * A first turn to take on the session's behalf, sent once the microphone is
    * live, so the assistant speaks without waiting for the user.
@@ -249,6 +272,8 @@ export interface UseLiveVoiceOptions {
     options: ConstructorParameters<typeof LiveVoiceAudioCapture>[0],
   ) => LiveVoiceAudioCapture;
   createPlayer?: () => LiveVoiceAudioPlayer;
+  /** Plays the end tone. Overridable in tests. */
+  playEndTone?: () => void;
   /**
    * When `false`, this hook instance does not subscribe to the high-frequency
    * audio/transcript store fields — `inputAmplitude` (updated on every mic
@@ -305,6 +330,8 @@ interface SessionContext {
    * to `listening` instead of tearing down.
    */
   handsFree: boolean;
+  /** Where the session was started from; reused verbatim on reconnect. */
+  entry: LiveVoiceEntry | undefined;
   /**
    * In-flight (or settled) mic acquisition — `capture.start()` kicked off at
    * connect time by {@link beginCaptureStartup} so getUserMedia + the worklet
@@ -333,6 +360,13 @@ interface SessionContext {
    * frame, or hands-free stt-final); identifies which response owns the state.
    */
   responseEpoch: number;
+  /**
+   * A session control the user asked for out loud, waiting for its spoken
+   * acknowledgement to be heard. Dropped when the user talks over it for real
+   * (their utterance becomes a turn, or a turn is cancelled), so "wait" over a
+   * goodbye keeps the call. See `applySessionControlOnceHeard`.
+   */
+  pendingSessionControl: LiveVoiceSessionControlServerFrame | null;
   /** Whether an interrupt was already sent for the current response. */
   interruptSent: boolean;
   /**
@@ -397,7 +431,31 @@ interface SessionContext {
   heldPlaybackTimer: ReturnType<typeof setTimeout> | null;
   /** Resolved {@link HELD_PLAYBACK_TIMEOUT_MS} for this session. */
   heldPlaybackTimeoutMs: number;
+  /**
+   * A typed turn that asked to be kept if the assistant refuses it for being
+   * mid-reply. Set when such a turn goes out and cleared by any other typed
+   * turn or by a turn starting, since a turn the user put after it is the
+   * one that stands. See {@link retryBusyTypedTurn}.
+   */
+  busyRetry: {
+    text: string;
+    hidden: boolean;
+    timer: ReturnType<typeof setTimeout> | null;
+  } | null;
 }
+
+/**
+ * How long a typed turn refused for being mid-reply waits before it is put
+ * again. The assistant refuses a typed turn while its last reply is still
+ * audible, or while it takes the microphone to be mid-word, and says nothing
+ * about when that ends, so the turn is put again on a short cadence until it
+ * is taken. There is no cap: the floor can stay held for longer than any
+ * reply runs (a microphone hearing the speakers holds it), and a turn dropped
+ * for that is a click the assistant never hears. What ends it instead is a
+ * turn starting, see the `thinking` handler: either this turn was taken, or
+ * the user said something after it and those words are the ones that stand.
+ */
+const BUSY_TYPED_TURN_RETRY_MS = 500;
 
 /** Number of bytes per Int16 PCM sample. */
 const BYTES_PER_SAMPLE = 2;
@@ -539,35 +597,51 @@ export function useLiveVoice(
    * disable dictation and keep the transcript surface mounted). Callers that
    * need a terminal state other than `idle` (e.g. `finishWithError` → `failed`)
    * set it *after* calling `teardown()`, so the reset can't clobber it.
+   *
+   * A session that reached `ready` plays the end tone unless `silent`: an
+   * error has its own surface, and an unmount is not the user ending a call.
    */
-  const teardown = useCallback(() => {
-    // Cancel any pending hands-free reconnect first — teardown is terminal, so
-    // a queued reconnect must not resurrect the session behind idle UI.
-    cancelPendingConnection();
-    reconnectAttemptRef.current = 0;
-    initialConnectAttemptRef.current = 0;
-    hasReadyRef.current = false;
-    const session = sessionRef.current;
-    if (!session) {
-      // During the reconnect backoff gap `sessionRef` is null while the store
-      // still shows an active (`connecting`) session with live controls. An
-      // unmount here (its cleanup calls teardown) must still reset the store,
-      // or it strands non-idle with stale controls — dictation stays disabled
-      // and a phantom session lingers after navigation. Guard on non-idle so a
-      // teardown with nothing to do doesn't churn the store.
-      if (useLiveVoiceStore.getState().state !== "idle") {
-        useLiveVoiceStore.getState().reset();
+  const teardown = useCallback(
+    (options?: TeardownOptions) => {
+      if (!options?.silent) {
+        playEndToneIfLive(
+          hasReadyRef.current,
+          optionsRef.current.playEndTone ?? playVoiceEndTone,
+        );
       }
-      return;
-    }
-    sessionRef.current = null;
-    disposeSessionPrimitives(session);
-    useLiveVoiceStore.getState().reset();
-  }, [cancelPendingConnection]);
+      // Cancel any pending hands-free reconnect first — teardown is terminal, so
+      // a queued reconnect must not resurrect the session behind idle UI.
+      cancelPendingConnection();
+      reconnectAttemptRef.current = 0;
+      initialConnectAttemptRef.current = 0;
+      hasReadyRef.current = false;
+      const session = sessionRef.current;
+      if (!session) {
+        // During the reconnect backoff gap `sessionRef` is null while the store
+        // still shows an active (`connecting`) session with live controls. An
+        // unmount here (its cleanup calls teardown) must still reset the store,
+        // or it strands non-idle with stale controls — dictation stays disabled
+        // and a phantom session lingers after navigation. Guard on non-idle so a
+        // teardown with nothing to do doesn't churn the store.
+        if (useLiveVoiceStore.getState().state !== "idle") {
+          useLiveVoiceStore.getState().reset();
+        }
+        return;
+      }
+      sessionRef.current = null;
+      disposeSessionPrimitives(session);
+      useLiveVoiceStore.getState().reset();
+    },
+    [cancelPendingConnection],
+  );
 
   const stop = useCallback(async () => {
     // A user-initiated stop ends the session outright — drop any pending
     // reconnect and its attempt budget.
+    playEndToneIfLive(
+      hasReadyRef.current,
+      optionsRef.current.playEndTone ?? playVoiceEndTone,
+    );
     cancelPendingConnection();
     reconnectAttemptRef.current = 0;
     initialConnectAttemptRef.current = 0;
@@ -581,6 +655,7 @@ export function useLiveVoice(
     sessionRef.current = null;
     session.generation += 1;
     clearAssistantAudioActive(session);
+    clearBusyRetry(session);
     useLiveVoiceStore.getState().setState("ending");
     for (const unsubscribe of session.unsubscribes) {
       unsubscribe();
@@ -716,9 +791,34 @@ export function useLiveVoice(
    * reconnect gap is right to drop, since the fresh session is the one that
    * would persist it and the moment it belonged to has passed.
    */
-  const sightFrame = useCallback((attachmentId: string): boolean => {
-    return sessionRef.current?.client.sightFrame(attachmentId) ?? false;
-  }, []);
+  const sightFrame = useCallback(
+    (
+      attachmentId: string,
+      timing?: LiveVoiceSightFrameTiming,
+      lifecycle?: { cameraEpoch: number; source: LiveVoiceSightSource },
+    ): boolean => {
+      return (
+        sessionRef.current?.client.sightFrame(
+          attachmentId,
+          timing,
+          lifecycle,
+        ) ?? false
+      );
+    },
+    [],
+  );
+
+  const startSightSession = useCallback(
+    (cameraEpoch: number, source: LiveVoiceSightSource): boolean =>
+      sessionRef.current?.client.sightStart(cameraEpoch, source) ?? false,
+    [],
+  );
+
+  const endSightSession = useCallback(
+    (cameraEpoch: number): boolean =>
+      sessionRef.current?.client.sightEnd(cameraEpoch) ?? false,
+    [],
+  );
 
   const createPlayer = useCallback(
     () =>
@@ -737,6 +837,9 @@ export function useLiveVoice(
     const player = createPlayer();
     standbyPlayerRef.current = player;
     player.prewarm();
+    // The end tone plays after the session player is gone, on its own
+    // context, which only this gesture can unlock.
+    prewarmToneContext();
   }, [createPlayer]);
 
   const cancelPrewarmedPlayback = useCallback(() => {
@@ -758,7 +861,7 @@ export function useLiveVoice(
       startOptions: LiveVoiceStartOptions,
     ) => {
       if (sessionRef.current) {
-        teardown();
+        teardown({ silent: true });
       }
       startGenerationRef.current += 1;
 
@@ -816,6 +919,8 @@ export function useLiveVoice(
         setOutputMuted,
         updateConfig,
         attachImage,
+        startSightSession,
+        endSightSession,
         sightFrame,
       });
 
@@ -855,10 +960,12 @@ export function useLiveVoice(
         unsubscribes: [],
         generation: 0,
         handsFree: startOptions.handsFree === true,
+        entry: startOptions.entry,
         captureRunning: false,
         forwardingAudio: false,
         responseAudioStarted: false,
         responseEpoch: 0,
+        pendingSessionControl: null,
         interruptSent: false,
         endAfterReply: false,
         releaseInFlight: false,
@@ -872,22 +979,30 @@ export function useLiveVoice(
         heldPlaybackTimer: null,
         heldPlaybackTimeoutMs:
           opts.heldPlaybackTimeoutMs ?? HELD_PLAYBACK_TIMEOUT_MS,
+        busyRetry: null,
       };
 
+      const captureDiagnosticId = crypto.randomUUID();
+      let diagnosticSessionId: string | null = null;
+      const recordInputDiagnostic = (
+        event: string,
+        details: Record<string, unknown> = {},
+      ) => {
+        recordVoiceInputDiagnostic(event, {
+          captureId: captureDiagnosticId,
+          sessionId: diagnosticSessionId,
+          conversationId,
+          entry: session.entry,
+          ...details,
+        });
+      };
       const capture = (
         opts.createCapture ?? ((o) => new LiveVoiceAudioCapture(o))
       )({
         onChunk: (buf) => handleChunk(session, buf),
         onAmplitude: (amplitude) =>
           handleAmplitude(session, amplitude, teardown),
-        // Full-duplex capture runs without AGC. Barge-in is decided on the
-        // daemon by comparing mean absolute amplitude against a threshold on
-        // the absolute 16-bit scale, and AGC is a moving gain in front of that
-        // fixed number: it lifts a quiet room's noise floor toward the level
-        // speech reaches in a loud one, so ordinary room noise clears the gate
-        // and cancels the reply. Every other consumer of this capture pipeline
-        // is half-duplex and keeps the default (JARVIS-1694).
-        autoGainControl: false,
+        onDiagnostic: recordInputDiagnostic,
       });
       session.capture = capture;
       sessionRef.current = session;
@@ -919,6 +1034,38 @@ export function useLiveVoice(
       // open keeps the session for them, and an accepted one disarms the
       // end outright. Runs again after a discarded utterance, since room
       // noise that opened one and was retracted is not the user carrying on.
+      // Apply the pending session control once its acknowledgement has
+      // actually been heard. A drain also resolves when an onset flushes
+      // playback, so a flushed drain proves nothing: while the onset's
+      // utterance is open or its audio is held, the control waits. An
+      // utterance that becomes a turn (`thinking`) or a cancelled turn drops
+      // it, since the user talked over it for real; a discarded one re-arms
+      // this, since room noise that opened an utterance is not the user
+      // changing their mind.
+      const applySessionControlOnceHeard = (): void => {
+        const frame = session.pendingSessionControl;
+        if (frame === null) {
+          return;
+        }
+        // A resumed reply bumps the epoch and re-arms this with a waiter of
+        // its own; a waiter from before the resume must not settle onto audio
+        // that is playing again.
+        const responseEpoch = session.responseEpoch;
+        void session.player.waitUntilDrained().then(() => {
+          if (
+            !live() ||
+            session.pendingSessionControl !== frame ||
+            session.responseEpoch !== responseEpoch ||
+            session.utteranceOpen ||
+            session.player.hasHeldPlayback()
+          ) {
+            return;
+          }
+          session.pendingSessionControl = null;
+          applyLiveVoiceSessionControl(frame);
+        });
+      };
+
       const endAfterReplyWhenQuiet = (): void => {
         if (!live() || !session.endAfterReply) {
           return;
@@ -944,6 +1091,11 @@ export function useLiveVoice(
           if (!live()) {
             return;
           }
+          diagnosticSessionId = frame.sessionId;
+          recordInputDiagnostic("session_ready", {
+            turnDetection: frame.turnDetection,
+            conversationId: frame.conversationId,
+          });
           // Version skew: an older daemon ignores the start frame's
           // turnDetection and runs a manual session without echoing the mode.
           // Fall back to manual behavior (auto-release, amplitude barge-in,
@@ -961,6 +1113,7 @@ export function useLiveVoice(
           // The session has connected at least once: retire the initial-connect
           // resilience (a later drop reconnects via `reconnectAttemptRef`) and
           // clear its budget.
+          const isFirstReady = !hasReadyRef.current;
           hasReadyRef.current = true;
           initialConnectAttemptRef.current = 0;
           useLiveVoiceStore.getState().setReconnecting(false);
@@ -994,6 +1147,12 @@ export function useLiveVoice(
           void finishCaptureStartup(session, teardown).then(() => {
             if (!live() || !session.captureRunning) {
               return;
+            }
+            // The mic is open: cue the user that the conversation is live.
+            // Only on the session's first `ready`, so a mid-call reconnect
+            // stays silent.
+            if (isFirstReady) {
+              session.player.playTone(resolveVoiceStartTone());
             }
             const seed = pendingSeedRef.current;
             pendingSeedRef.current = null;
@@ -1029,6 +1188,10 @@ export function useLiveVoice(
           if (!live() || !session.handsFree) {
             return;
           }
+          recordInputDiagnostic("speech_started", {
+            playbackActive: session.responseAudioStarted,
+            alreadyHoldingPlayback: session.player.hasHeldPlayback(),
+          });
           // Server VAD heard the user: flush tail playback unconditionally
           // (even mid-`thinking`, when no cancellation follows) and open the
           // next utterance. Speech resuming inside a HELD utterance (semantic
@@ -1087,7 +1250,15 @@ export function useLiveVoice(
           // The utterance the barge-in opened held no speech, so the barge-in
           // was wrong: put the flushed reply back rather than leaving silence
           // where the answer was. Resuming sets `speaking` itself.
-          if (resumeHeldPlayback(session, teardown)) {
+          const resumed = resumeHeldPlayback(session, teardown);
+          recordInputDiagnostic("utterance_discarded", {
+            playbackResumed: resumed,
+          });
+          // Same for a spoken control the onset held off. Re-armed after the
+          // resume, so its drain waits on the reply playing again rather than
+          // resolving on the silence the flush left.
+          applySessionControlOnceHeard();
+          if (resumed) {
             return;
           }
           // The closed utterance had no usable speech (noise/cough); return
@@ -1152,6 +1323,10 @@ export function useLiveVoice(
             // this final may be the first frame of the next turn we see).
             session.interruptSent = false;
           }
+          // This accepted final starts a new response in either input mode.
+          // Clear the prior response's handoff before the server's `thinking`
+          // frame so its status cannot leak into the dispatch gap.
+          s.setResponsePhase(null);
           s.setState("thinking");
         }),
         client.on("thinking", () => {
@@ -1167,11 +1342,18 @@ export function useLiveVoice(
           //
           // New response: reset the per-response transcript and barge-in flags.
           // A turn starting is the definitive answer that the barge-in before
-          // it was real, so the previous reply's held audio is spent.
+          // it was real, so the previous reply's held audio is spent, and so is
+          // a control that reply asked for: the user carried on instead.
           clearHeldPlayback(session);
+          session.pendingSessionControl = null;
           session.responseEpoch += 1;
           session.responseAudioStarted = false;
           session.interruptSent = false;
+          // A turn starting settles a kept typed turn too: it is either this
+          // turn, taken at last, or one the user spoke after it, and words
+          // put after it are the ones that stand. Either way there is
+          // nothing left to put again.
+          clearBusyRetry(session);
           // The previous response's measurement is spent — a `metrics` frame
           // for THIS turn must pair with this turn's own first audio (or
           // null, for a response that produces none).
@@ -1188,6 +1370,7 @@ export function useLiveVoice(
           session.player.resetPlaybackProgress();
           const s = useLiveVoiceStore.getState();
           s.clearAssistantTranscript();
+          s.setResponsePhase(null);
           s.setState("thinking");
         }),
         client.on("activity", (frame) => {
@@ -1202,9 +1385,14 @@ export function useLiveVoice(
           // than leaving it — the daemon retires a wait by sending the line
           // without it, so treating absence as "unchanged" would strand the
           // island's Approve/Deny buttons on a decision already made.
-          useLiveVoiceStore
-            .getState()
-            .setActivityLabel(frame.label, frame.approvalRequestId ?? null);
+          const s = useLiveVoiceStore.getState();
+          s.setActivityLabel(frame.label, frame.approvalRequestId ?? null);
+          // Ordinary tool and approval activity temporarily overlays the
+          // escalated response. It does not end that response, so keep the
+          // underlying phase for the empty activity frame that follows.
+          if (frame.kind === "escalation") {
+            s.setResponsePhase("escalated");
+          }
         }),
         client.on("assistantTextDelta", (frame) => {
           if (!live() || frame.text.length === 0) {
@@ -1277,10 +1465,26 @@ export function useLiveVoice(
             minimizeVoiceRoom();
           });
         }),
+        client.on("sessionControl", (frame) => {
+          if (!live()) {
+            return;
+          }
+          // The user asked out loud to end or mute. Same local drain as the
+          // minimize above: the goodbye or the "muting you" is heard in full
+          // before the call ends or the mic goes quiet.
+          session.pendingSessionControl = frame;
+          applySessionControlOnceHeard();
+        }),
         client.on("turnCancelled", () => {
           if (!live() || !session.handsFree) {
             return;
           }
+          recordInputDiagnostic("turn_cancelled", {
+            holdingPlayback: session.player.hasHeldPlayback(),
+          });
+          // A cancelled turn's control goes with it.
+          session.pendingSessionControl = null;
+          useLiveVoiceStore.getState().setResponsePhase(null);
           // Drop the cancelled turn's bound stamp so the next response's
           // audio can't pair against it. The unbound `speechEndedAtMs` is
           // left alone — it belongs to a newer overlapping utterance whose
@@ -1347,6 +1551,12 @@ export function useLiveVoice(
           useLiveVoiceStore
             .getState()
             .noteSightFrameRefused(rejected.unsupported, rejected.attachmentId);
+        }),
+        client.on("textTurnRejected", (rejected) => {
+          if (!live()) {
+            return;
+          }
+          retryBusyTypedTurn(session, rejected.reason);
         }),
         client.on("busy", (frame) => {
           if (!live()) {
@@ -1418,6 +1628,8 @@ export function useLiveVoice(
                 setOutputMuted,
                 updateConfig,
                 attachImage,
+                startSightSession,
+                endSightSession,
                 sightFrame,
               });
               console.warn(
@@ -1428,6 +1640,7 @@ export function useLiveVoice(
                 reconnectTimerRef.current = null;
                 void connectSessionRef.current?.(assistantId, conversationId, {
                   handsFree: true,
+                  ...(session.entry ? { entry: session.entry } : {}),
                 });
               }, delayMs);
               return;
@@ -1487,6 +1700,8 @@ export function useLiveVoice(
               setOutputMuted,
               updateConfig,
               attachImage,
+              startSightSession,
+              endSightSession,
               sightFrame,
             });
             console.warn(
@@ -1497,6 +1712,7 @@ export function useLiveVoice(
               reconnectTimerRef.current = null;
               void connectSessionRef.current?.(assistantId, conversationId, {
                 handsFree: true,
+                ...(session.entry ? { entry: session.entry } : {}),
               });
             }, delayMs);
             return;
@@ -1520,6 +1736,8 @@ export function useLiveVoice(
       await client.connect({
         assistantId,
         conversationId,
+        ...(session.entry ? { entry: session.entry } : {}),
+        sessionControls: liveVoiceSessionControls(assistantId, session.entry),
         ...(session.handsFree
           ? {
               turnDetection: "server_vad" as const,
@@ -1540,6 +1758,8 @@ export function useLiveVoice(
       setOutputMuted,
       updateConfig,
       attachImage,
+      startSightSession,
+      endSightSession,
       sightFrame,
       createPlayer,
     ],
@@ -1596,20 +1816,23 @@ export function useLiveVoice(
   // resets the store to idle so a mid-session unmount doesn't strand it in a
   // non-idle phase (which would keep dictation disabled via the composer) and
   // cancels any pending reconnect so it can't fire after unmount.
-  useEffect(() => () => teardown(), [teardown]);
+  useEffect(() => () => teardown({ silent: true }), [teardown]);
 
   /**
    * Put a typed turn to the running session, as the user's own words.
    * `false` when there is no session up to take it, or the assistant does
    * not take typed turns; the caller keeps the text either way.
    */
-  const sendText = useCallback((text: string): boolean => {
-    const session = sessionRef.current;
-    if (!session) {
-      return false;
-    }
-    return sendTextTurn(session, text);
-  }, []);
+  const sendText = useCallback(
+    (text: string, options?: LiveVoiceTypedTurnOptions): boolean => {
+      const session = sessionRef.current;
+      if (!session) {
+        return false;
+      }
+      return sendTextTurn(session, text, options);
+    },
+    [],
+  );
 
   return {
     state,
@@ -1644,6 +1867,7 @@ function disposeSessionPrimitives(
   session.generation += 1;
   clearAssistantAudioActive(session);
   clearHeldPlaybackTimer(session);
+  clearBusyRetry(session);
   for (const unsubscribe of session.unsubscribes) {
     unsubscribe();
   }
@@ -1865,13 +2089,72 @@ function releasePushToTalk(session: SessionContext): void {
 function sendTextTurn(
   session: SessionContext,
   text: string,
-  options?: { hidden?: boolean },
+  options?: LiveVoiceTypedTurnOptions & { hidden?: boolean },
 ): boolean {
-  const sent = session.client.sendText(text, options);
+  const hidden = options?.hidden === true;
+  // The cut-in goes first so the daemon reads the two frames in order: the
+  // interrupt cancels the reply, then the text starts the next turn. Only a
+  // hands-free session survives its own interrupt; a manual one ends on it,
+  // so there the turn is sent as is and kept until the reply has been heard.
+  if (options?.bargeIn === true && session.handsFree) {
+    interruptTurnHandsFree(session, { whileThinking: true });
+  }
+  const sent = session.client.sendText(text, { hidden });
   if (sent) {
     session.speechEndedAtMs = performance.now();
+    // Any typed turn going out settles what a busy refusal would be about:
+    // the one just sent. A turn that did not ask to be kept clears a kept
+    // one, since the user put words after it and those are what stand.
+    clearBusyRetry(session);
+    if (options?.retryWhenBusy === true) {
+      session.busyRetry = { text, hidden, timer: null };
+    }
   }
   return sent;
+}
+
+/**
+ * The assistant refused the last typed turn. Put it again after a moment if
+ * it asked to be kept and the refusal was only that the assistant was still
+ * replying; forget it for any other refusal.
+ *
+ * The retry goes through the client alone rather than {@link sendTextTurn}:
+ * the latency anchor was stamped when the turn first went out, and the turn
+ * is already the kept one.
+ */
+function retryBusyTypedTurn(
+  session: SessionContext,
+  reason: "busy" | "unsupported",
+): void {
+  const retry = session.busyRetry;
+  if (retry === null) {
+    return;
+  }
+  if (reason !== "busy") {
+    clearBusyRetry(session);
+    return;
+  }
+  const generation = session.generation;
+  retry.timer = setTimeout(() => {
+    retry.timer = null;
+    if (session.generation !== generation || session.busyRetry !== retry) {
+      return;
+    }
+    if (!session.client.sendText(retry.text, { hidden: retry.hidden })) {
+      clearBusyRetry(session);
+    }
+  }, BUSY_TYPED_TURN_RETRY_MS);
+}
+
+function clearBusyRetry(session: SessionContext): void {
+  const retry = session.busyRetry;
+  if (retry === null) {
+    return;
+  }
+  if (retry.timer !== null) {
+    clearTimeout(retry.timer);
+  }
+  session.busyRetry = null;
 }
 
 /**
@@ -1909,9 +2192,20 @@ function interruptIfSpeaking(
  * Unlike the manual barge-in above this does not require `player.isPlaying`:
  * `speaking` can hold between chunks with more audio still inbound, and the
  * cancel must land regardless.
+ *
+ * `whileThinking` also cuts in on a reply that has not started speaking. The
+ * daemon cancels any turn that is not yet final either way; the default
+ * leaves a thinking turn alone because the stop control is about playback.
  */
-function interruptTurnHandsFree(session: SessionContext): void {
-  if (useLiveVoiceStore.getState().state !== "speaking") {
+function interruptTurnHandsFree(
+  session: SessionContext,
+  options?: { whileThinking?: boolean },
+): void {
+  const state = useLiveVoiceStore.getState().state;
+  const inReply =
+    state === "speaking" ||
+    (options?.whileThinking === true && state === "thinking");
+  if (!inReply) {
     return;
   }
   if (session.interruptSent) {
@@ -2139,13 +2433,29 @@ async function finishResponseAfterPlayback(
   teardown();
 }
 
+interface TeardownOptions {
+  /** Skip the end tone (an error or unmount, not the call ending). */
+  silent?: boolean;
+}
+
+/**
+ * Close a session that actually went live with the inverse of its start tone.
+ * Read before the caller clears `hasReadyRef`, and before the store reset
+ * drops `outputMuted`.
+ */
+function playEndToneIfLive(hadReady: boolean, play: () => void): void {
+  if (hadReady && !useLiveVoiceStore.getState().outputMuted) {
+    play();
+  }
+}
+
 /** Fail the session: tear down primitives and surface the message. */
 function finishWithError(
   session: SessionContext,
-  teardown: () => void,
+  teardown: (options?: TeardownOptions) => void,
   message: string,
   recovery: LiveVoiceErrorRecovery | null = null,
 ): void {
-  teardown();
+  teardown({ silent: true });
   useLiveVoiceStore.getState().fail(message, recovery);
 }

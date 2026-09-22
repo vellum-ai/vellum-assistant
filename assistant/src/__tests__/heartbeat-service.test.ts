@@ -2,6 +2,8 @@ import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { hasSetConstructs } from "../schedule/recurrence-engine.js";
+
 const testWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR!;
 
 // Default the warm-pool gate to OPEN for existing tests — they predate
@@ -80,11 +82,14 @@ function setHeartbeatConfig(overrides: Partial<HeartbeatSeed> = {}): void {
 //
 // HeartbeatService imports computeNextRunAt for cron scheduling.
 // Tests mutate `mockComputeNextRunAt` to control the next cron occurrence.
+// `hasSetConstructs` is re-exported because `schedule-timezone` imports it
+// from the same module and must keep working under this mock.
 let mockComputeNextRunAtResult: number | null = null;
 let mockComputeNextRunAtError: Error | null = null;
 let computeNextRunAtCallCount = 0;
 
 mock.module("../schedule/recurrence-engine.js", () => ({
+  hasSetConstructs,
   computeNextRunAt: (_spec: {
     syntax: string;
     expression: string;
@@ -303,8 +308,11 @@ export function setTestProcessMessage(
 }
 
 // Import after mocks are set up
-const { HeartbeatService, isShallowProfile } =
-  await import("../heartbeat/heartbeat-service.js");
+const {
+  HeartbeatService,
+  isShallowProfile,
+  shouldRescheduleHeartbeatForTimezoneChange,
+} = await import("../heartbeat/heartbeat-service.js");
 
 // Read the bundled template files so we can write them into the test workspace
 const templatesDir = join(import.meta.dirname!, "..", "prompts", "templates");
@@ -326,11 +334,10 @@ const SCAFFOLD_PERSONA = stripCommentLines(GUARDIAN_PERSONA_TEMPLATE).trim();
 const { resolveCallSiteConfig } = await import("../config/llm-resolver.js");
 const { LLMSchema } = await import("../config/schemas/llm.js");
 
-// Capture broadcastMessage so tests can observe the alerts and
-// conversation-created events the heartbeat service emits directly.
+// Capture broadcastMessage so tests can observe the conversation-created
+// events the heartbeat service emits directly.
 type BroadcastedMessage = { type: string; [key: string]: unknown };
 const broadcastedMessages: BroadcastedMessage[] = [];
-let onBroadcast: ((msg: BroadcastedMessage) => void) | null = null;
 
 mock.module("../runtime/assistant-event-hub.js", () => ({
   assistantEventHub: {
@@ -339,7 +346,6 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
   },
   broadcastMessage: (msg: BroadcastedMessage) => {
     broadcastedMessages.push(msg);
-    onBroadcast?.(msg);
   },
 }));
 
@@ -349,7 +355,6 @@ describe("HeartbeatService", () => {
     content: string;
     options?: { callSite?: string };
   }>;
-  let alerterCalls: Array<{ type: string; title: string; body: string }>;
 
   afterEach(() => {
     // Clean up workspace files between tests so file-existence tests don't leak
@@ -360,13 +365,7 @@ describe("HeartbeatService", () => {
 
   beforeEach(() => {
     processMessageCalls = [];
-    alerterCalls = [];
     broadcastedMessages.length = 0;
-    onBroadcast = (msg) => {
-      if (msg.type === "heartbeat_alert") {
-        alerterCalls.push(msg as { type: string; title: string; body: string });
-      }
-    };
     createdConversations.length = 0;
     conversationIdCounter = 0;
     mockStoredMessages.length = 0;
@@ -410,17 +409,20 @@ describe("HeartbeatService", () => {
 
     heartbeatConfig = defaultHeartbeatSeed();
     setHeartbeatConfig();
+    setConfig("ui", {});
   });
 
   function createService(overrides?: {
     processMessage?: (...args: unknown[]) => Promise<{ messageId: string }>;
     getCurrentHour?: () => number;
+    now?: () => Date;
   }) {
     if (overrides?.processMessage) {
       setTestProcessMessage(overrides.processMessage);
     }
     return new HeartbeatService({
       getCurrentHour: overrides?.getCurrentHour,
+      now: overrides?.now,
     });
   }
 
@@ -562,6 +564,37 @@ describe("HeartbeatService", () => {
     expect(processMessageCalls).toHaveLength(0);
   });
 
+  test("active hours guard uses user timezone in interval mode", async () => {
+    setConfig("ui", { detectedTimezone: "America/Los_Angeles" });
+    setHeartbeatConfig({
+      cronExpression: null,
+      timezone: null,
+      activeHoursStart: 8,
+      activeHoursEnd: 22,
+    });
+
+    // 23:00 UTC is 16:00 Pacific (inside 8-22) and 23:00 host-local
+    // (outside 8-22). If the guard still used the host clock this would skip.
+    const inside = createService({
+      now: () => new Date("2026-09-08T23:00:00Z"),
+      getCurrentHour: () => 23,
+    });
+    expect(await inside.runOnce()).toBe(true);
+    expect(processMessageCalls).toHaveLength(1);
+
+    processMessageCalls.length = 0;
+    createdConversations.length = 0;
+
+    // 06:00 UTC is 23:00 Pacific, outside 8-22, even though 6 is inside
+    // a naive UTC 8-22 window.
+    const outside = createService({
+      now: () => new Date("2026-09-09T06:00:00Z"),
+      getCurrentHour: () => 6,
+    });
+    expect(await outside.runOnce()).toBe(false);
+    expect(processMessageCalls).toHaveLength(0);
+  });
+
   test("overlap prevention works", async () => {
     let resolveFirst: () => void;
     const firstPromise = new Promise<void>((r) => {
@@ -651,21 +684,6 @@ describe("HeartbeatService", () => {
     expect(processMessageCalls).toHaveLength(1);
   });
 
-  test("alerts on processMessage failure", async () => {
-    const service = createService({
-      processMessage: async () => {
-        throw new Error("LLM timeout");
-      },
-    });
-
-    await service.runOnce();
-
-    expect(alerterCalls).toHaveLength(1);
-    expect(alerterCalls[0].type).toBe("heartbeat_alert");
-    expect(alerterCalls[0].title).toBe("Heartbeat Failed");
-    expect(alerterCalls[0].body).toBe("LLM timeout");
-  });
-
   test("successful run updates lastRunAt and nextRunAt", async () => {
     const service = createService();
     expect(service.lastRunAt).toBeNull();
@@ -680,24 +698,6 @@ describe("HeartbeatService", () => {
     expect(service.nextRunAt!).toBeGreaterThanOrEqual(
       before + heartbeatConfig.intervalMs,
     );
-  });
-
-  test("alerts on conversation creation failure", async () => {
-    // Override createConversation to throw via a fresh import trick:
-    // Since createConversation is mocked at module level, we simulate
-    // this by having processMessage throw before it's called — but the
-    // real fix is that executeRun wraps createConversation in the try/catch.
-    // We verify by checking that any error in executeRun triggers the alert.
-    const service = createService({
-      processMessage: async () => {
-        throw new Error("DB locked");
-      },
-    });
-
-    await service.runOnce();
-
-    expect(alerterCalls).toHaveLength(1);
-    expect(alerterCalls[0].body).toBe("DB locked");
   });
 
   test("resetTimer() pushes nextRunAt forward", () => {
@@ -962,7 +962,23 @@ describe("HeartbeatService", () => {
         "slack",
       ]);
 
-      expect(prompt).toContain("google, slack");
+      expect(prompt).toContain(
+        "google (integration, acts as the connected person), slack (integration, acts as the connected person)",
+      );
+    });
+
+    test("prompt tells an integration apart from the channel bot of the same name", () => {
+      const service = createService();
+      const { prompt } = service.buildPrompt("- Check things", ["slack"]);
+
+      expect(prompt).toContain(
+        "slack (integration, acts as the connected person)",
+      );
+      expect(prompt).not.toContain("slack_channel");
+      expect(prompt).toContain("A channel bot is the assistant's own identity");
+
+      const bot = service.buildPrompt("- Check things", ["slack_channel"]);
+      expect(bot.prompt).toContain("slack_channel (the slack channel bot)");
     });
   });
 
@@ -1307,26 +1323,25 @@ describe("HeartbeatService", () => {
     test("active hours guard uses cron timezone when configured", async () => {
       setHeartbeatConfig({
         cronExpression: "0 9,12,15,18 * * *",
-        timezone: "UTC",
-        activeHoursStart: 9,
-        activeHoursEnd: 17,
+        timezone: "America/Los_Angeles",
+        activeHoursStart: 8,
+        activeHoursEnd: 22,
       });
       mockComputeNextRunAtResult = Date.now() + 3_600_000;
 
-      const service = createService();
+      // 23:00 UTC = 16:00 PDT, inside 8-22 Pacific.
+      const service = createService({
+        now: () => new Date("2026-09-08T23:00:00Z"),
+        getCurrentHour: () => 23,
+      });
       service.start();
-
-      // In cron mode with timezone, the hour is computed via Intl.DateTimeFormat
-      // rather than getCurrentHour(). The test verifies the code path runs without
-      // error — the actual hour depends on the system clock and UTC conversion.
-      // We just verify it doesn't throw and returns a boolean result.
       const result = await service.runOnce();
-      // Result depends on current UTC hour vs active window — either outcome is valid
-      expect(typeof result).toBe("boolean");
+      expect(result).toBe(true);
+      expect(processMessageCalls).toHaveLength(1);
       service.stop();
     });
 
-    test("active hours guard falls back to getCurrentHour when cron mode has no timezone", async () => {
+    test("active hours guard falls back to getCurrentHour when no timezone is known", async () => {
       setHeartbeatConfig({
         cronExpression: "0 9,12,15,18 * * *",
         timezone: null,
@@ -1408,21 +1423,6 @@ describe("HeartbeatService", () => {
         conversationId: "conv-1",
         error: "LLM timeout",
       });
-    });
-
-    test("CAS false suppresses failure alerter and feed event", async () => {
-      mockCompleteHeartbeatRun.mockImplementation(() => false);
-
-      const service = createService({
-        processMessage: async () => {
-          throw new Error("LLM timeout");
-        },
-      });
-
-      await service.runOnce();
-
-      // completeHeartbeatRun returned false, so alerter should NOT be called
-      expect(alerterCalls).toHaveLength(0);
     });
 
     test("active-hours skip calls skipHeartbeatRun", async () => {
@@ -1703,5 +1703,55 @@ describe("HeartbeatService", () => {
 
       expect(prompt).not.toContain("<heartbeat-disposition>");
     });
+  });
+});
+
+describe("shouldRescheduleHeartbeatForTimezoneChange", () => {
+  test("reschedules cron heartbeats when the fallback user timezone changes", () => {
+    expect(
+      shouldRescheduleHeartbeatForTimezoneChange(
+        {
+          ui: { userTimezone: "America/New_York" },
+          heartbeat: { cronExpression: "0 9 * * *" },
+        },
+        {
+          ui: { userTimezone: "America/Los_Angeles" },
+          heartbeat: { cronExpression: "0 9 * * *" },
+        },
+      ),
+    ).toBe(true);
+  });
+
+  test("ignores ui timezone changes in interval mode", () => {
+    expect(
+      shouldRescheduleHeartbeatForTimezoneChange(
+        { ui: { userTimezone: "America/New_York" }, heartbeat: {} },
+        {
+          ui: { userTimezone: "America/Los_Angeles" },
+          heartbeat: {},
+        },
+      ),
+    ).toBe(false);
+  });
+
+  test("ignores ui timezone changes when heartbeat.timezone is set", () => {
+    expect(
+      shouldRescheduleHeartbeatForTimezoneChange(
+        {
+          ui: { userTimezone: "America/New_York" },
+          heartbeat: {
+            cronExpression: "0 9 * * *",
+            timezone: "UTC",
+          },
+        },
+        {
+          ui: { userTimezone: "America/Los_Angeles" },
+          heartbeat: {
+            cronExpression: "0 9 * * *",
+            timezone: "UTC",
+          },
+        },
+      ),
+    ).toBe(false);
   });
 });

@@ -107,6 +107,7 @@ import {
   persistWakeTriggerMessage,
   scopeWakeAllowedTools,
 } from "../daemon/wake-conversation-ops.js";
+import { desktopAutomationLease } from "../desktop/desktop-automation-lease.js";
 import {
   recordCompactionEndBestEffort,
   recordCompactionStartBestEffort,
@@ -118,7 +119,7 @@ import {
   setAgentLoopExitReasonOnLatestLog,
 } from "../persistence/llm-request-log-store.js";
 import type { SystemPromptPersonaOverride } from "../prompts/system-prompt.js";
-import type { Message } from "../providers/types.js";
+import type { Message, ToolDefinition } from "../providers/types.js";
 import {
   type UntrustedContentSource,
   wrapUntrustedContent,
@@ -126,6 +127,7 @@ import {
 import type { CompletedBackgroundTool } from "../tools/background-tool-registry.js";
 import { getLogger } from "../util/logger.js";
 import { createKeyedSingleFlight } from "../util/single-flight.js";
+import { safeStringSlice } from "../util/unicode.js";
 
 const log = getLogger("agent-wake");
 
@@ -139,7 +141,7 @@ const WAKE_POSTAMBLE =
 
 /** Sanitize a value for use as an XML attribute (no quotes/brackets/newlines). */
 function sanitizeEventAttr(value: string): string {
-  return value.replace(/[<>"&\r\n]/g, "").slice(0, 200);
+  return safeStringSlice(value.replace(/[<>"&\r\n]/g, ""), 0, 200);
 }
 
 /**
@@ -349,6 +351,27 @@ export interface WakeOptions {
    * skill-management authoring tools callable directly.
    */
   preactivateSkillIds?: readonly string[];
+  /**
+   * Tool definitions to send verbatim as the wake's wire tool array, in place
+   * of the ones the conversation would resolve for itself. Used by fork-based
+   * memory retrospectives to replay the SOURCE conversation's recorded surface
+   * (`getRecordedConversationToolSurface`) so the provider prompt-cache prefix matches
+   * the source's live turns byte for byte. Definitions only: what may execute
+   * is still decided by `allowedTools` and the turn's own active set. Applied
+   * and restored alongside `allowedTools`; ignored when `allowedTools` is
+   * absent.
+   */
+  wireToolDefinitions?: readonly ToolDefinition[];
+  /**
+   * Whether the source's recorded surface rendered the system prompt's
+   * parallel-delegation section, replayed into the wake's prompt so that
+   * tier of the provider cache prefix matches the source's too (the wake's
+   * own scope cannot spawn, so deriving it would render the section off where
+   * an interactive source rendered it on). Prompt only: a spawn attempt is
+   * still rejected at execution. Applied and restored alongside
+   * `allowedTools`; ignored when `allowedTools` is absent.
+   */
+  delegateIndependentTasks?: boolean;
   /**
    * Explicit persona/channel slugs for the wake's system-prompt build,
    * applied to the conversation for the duration of the run and restored
@@ -687,6 +710,10 @@ function inspectWakeOutput(
   // "produced output" when the final assistant message is just a summary
   // — we must persist the entire tail so the DB mirrors in-memory
   // history.
+  //
+  // Plain text is the whole signal here: a wake never routes its reply through
+  // `send_user_message` (the tool is off for direct wakes, see the turn-snapshot
+  // pin below), so its assistant text is what the user reads.
   let hasVisibleText = false;
   const toolUseNames: string[] = [];
   for (const msg of tailMessages) {
@@ -1085,7 +1112,7 @@ export async function wakeAgentForOpportunity(
       try {
         recordRequestLog(
           conversationId,
-          JSON.stringify(record.rawRequest),
+          JSON.stringify(record.rawRequest ?? null),
           JSON.stringify(record.rawResponse),
           undefined,
           record.provider,
@@ -1348,6 +1375,31 @@ export async function wakeAgentForOpportunity(
       persistedTailIndex += newMessages.length;
     };
 
+    /**
+     * Rebuild the loop's system prompt under whatever tool scope and per-turn
+     * stamps are in effect right now.
+     *
+     * A wake drives `agentLoop.run` itself, so the loop holds whatever prompt
+     * the conversation last synced. Sections gated on the turn's resolved tool
+     * surface would otherwise be inherited from the last app turn: a wake whose
+     * allowlist omits the subagent dispatch path would still be told to hand
+     * independent work to subagents, and an unrestricted wake following a
+     * restricted turn would be told not to. A conversation carrying a
+     * system-prompt override (a subagent fork) resolves it verbatim, so this is
+     * a no-op there.
+     */
+    const syncWakeLoopSystemPrompt = (): void => {
+      try {
+        conversation.syncLoopSystemPrompt();
+      } catch (err) {
+        // A prompt rebuild is a refinement, never a reason to lose the wake.
+        log.warn(
+          { conversationId, source, err },
+          "agent-wake: failed to sync the loop system prompt; continuing",
+        );
+      }
+    };
+
     let wakeToolScopeRestored = false;
     let restoreWakeToolScope: (() => void) | null = null;
     const restoreWakeAllowedTools = (): void => {
@@ -1355,17 +1407,35 @@ export async function wakeAgentForOpportunity(
         return;
       }
       wakeToolScopeRestored = true;
-      if (!restoreWakeToolScope) {
-        return;
+      if (restoreWakeToolScope) {
+        try {
+          restoreWakeToolScope();
+        } catch (err) {
+          log.warn(
+            { conversationId, source, err },
+            "agent-wake: failed to restore tool allowlist; continuing",
+          );
+        }
       }
-      try {
-        restoreWakeToolScope();
-      } catch (err) {
-        log.warn(
-          { conversationId, source, err },
-          "agent-wake: failed to restore tool allowlist; continuing",
-        );
-      }
+    };
+
+    /**
+     * Undo everything the wake scoped onto the conversation, then rebuild the
+     * prompt once under what is left.
+     *
+     * The order is load-bearing. `wakePersonaOverride` is read by
+     * `buildCurrentSystemPrompt`, so a rebuild that runs before the clear
+     * leaves the loop holding the wake's persona: the next wake's pre-run
+     * compaction gate reads `conversation.systemPrompt` through the window
+     * manager and would size, and summarize, against a prompt belonging to a
+     * turn that already ended. Rebuilding after both restores is also why this
+     * is one function rather than a rebuild bolted onto either half.
+     */
+    const restoreWakeTurnScope = (): void => {
+      desktopAutomationLease.releaseForConversation(conversationId);
+      restoreWakeAllowedTools();
+      clearWakePersonaOverride();
+      syncWakeLoopSystemPrompt();
     };
     const applyWakeAllowedTools = (): boolean => {
       if (!opts.allowedTools) {
@@ -1375,9 +1445,13 @@ export async function wakeAgentForOpportunity(
         restoreWakeToolScope = scopeWakeAllowedTools(
           conversation,
           new Set(opts.allowedTools),
-          opts.toolGateMode,
-          opts.toolContextPin,
-          opts.preactivateSkillIds,
+          {
+            gateMode: opts.toolGateMode,
+            toolContextPin: opts.toolContextPin,
+            preactivateSkillIds: opts.preactivateSkillIds,
+            wireToolDefinitions: opts.wireToolDefinitions,
+            delegateIndependentTasks: opts.delegateIndependentTasks,
+          },
         );
         return true;
       } catch (err) {
@@ -1500,8 +1574,19 @@ export async function wakeAgentForOpportunity(
       const priorTurnIsNonInteractive =
         conversation.currentTurnIsNonInteractive;
       const priorTurnTrust = conversation.currentTurnTrustContext;
+      const priorSendUserMessageActive =
+        conversation.currentTurnSendUserMessageActive;
       conversation.currentCallSite = callSite;
       conversation.currentTurnOverrideProfile = overrideProfile;
+      // A wake drives the loop directly rather than through
+      // `runAgentLoopImpl`, so it neither suppresses streamed assistant text
+      // nor stamps a visibility marker on the rows it persists itself. Offering
+      // `send_user_message` here would hand the model a delivery tool whose
+      // message nothing emits, so the wake would end holding a tool chip and no
+      // words. Pinning the turn snapshot false keeps the tool off every direct
+      // wake (scheduled, heartbeat, background-tool, retrospective forks) and
+      // leaves the wake's plain text as its reply, exactly as today.
+      conversation.currentTurnSendUserMessageActive = false;
       // Same reason as the stamps above: a wake triggered by a schedule firing
       // delegates work to subagents whose usage must attribute to that firing.
       conversation.currentTurnCronRunId = opts.cronRunId ?? null;
@@ -1515,6 +1600,14 @@ export async function wakeAgentForOpportunity(
       if (opts.trustContext) {
         conversation.currentTurnTrustContext = opts.trustContext;
       }
+
+      // Rebuild the prompt under the allowlist and the stamps just applied,
+      // the way `runAgentLoopImpl` does for a normal turn. The loop holds
+      // whatever prompt the conversation last synced, so a wake on a
+      // conversation that already ran a tool-gated turn would otherwise carry
+      // that turn's `01-send-user-message` section while the pin above
+      // withholds the tool.
+      syncWakeLoopSystemPrompt();
 
       let updatedHistory: Message[];
       try {
@@ -1602,6 +1695,12 @@ export async function wakeAgentForOpportunity(
         conversation.currentTurnCronRunId = priorTurnCronRunId;
         conversation.currentTurnIsNonInteractive = priorTurnIsNonInteractive;
         conversation.currentTurnTrustContext = priorTurnTrust;
+        conversation.currentTurnSendUserMessageActive =
+          priorSendUserMessageActive;
+        // The prompt is part of what the wake stamped, so restore it with the
+        // rest rather than leaving the loop holding a wake-scoped prompt for
+        // whatever runs next.
+        conversation.syncLoopSystemPrompt();
       }
 
       // The loop swallows provider rejections into a graceful no-output
@@ -1712,8 +1811,7 @@ export async function wakeAgentForOpportunity(
       // accepts entries while processing === true, and drain expects
       // processing to already be false). The finally block handles the
       // error/early-return paths where no tail was produced.
-      restoreWakeAllowedTools();
-      clearWakePersonaOverride();
+      restoreWakeTurnScope();
       try {
         conversation.setProcessing(false);
       } catch (err) {
@@ -1738,8 +1836,7 @@ export async function wakeAgentForOpportunity(
       // the try body before reaching the drain block, so `drainedInTry` is
       // still false.
       if (!drainedInTry) {
-        restoreWakeAllowedTools();
-        clearWakePersonaOverride();
+        restoreWakeTurnScope();
         try {
           conversation.setProcessing(false);
         } catch (err) {

@@ -176,6 +176,26 @@ describe("memory_worker_status", () => {
     ).toBe(true);
   });
 
+  test("accepts custom as a documented embedding provider on the wire", async () => {
+    backendStatus = {
+      enabled: true,
+      degraded: false,
+      provider: "custom",
+      model: "text-embedding-3-small",
+      reason: null,
+    };
+
+    const res = await handler("memory_worker_status")();
+
+    expect(res).toMatchObject({
+      embedding: { provider: "custom" },
+    });
+    expect(
+      embeddingStatusSchema.safeParse((res as { embedding: unknown }).embedding)
+        .success,
+    ).toBe(true);
+  });
+
   test("surfaces a degraded embedding backend with a reason when none is configured", async () => {
     backendStatus = {
       enabled: true,

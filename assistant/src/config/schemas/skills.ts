@@ -32,20 +32,6 @@ const SkillsLoadConfigSchema = z
       )
       .default([])
       .describe("Additional directories to search for skill definitions"),
-    watch: z
-      .boolean({ error: "skills.load.watch must be a boolean" })
-      .default(true)
-      .describe(
-        "Whether to watch skill directories for changes and auto-reload",
-      ),
-    watchDebounceMs: z
-      .number({ error: "skills.load.watchDebounceMs must be a number" })
-      .int()
-      .positive()
-      .default(250)
-      .describe(
-        "Debounce delay in milliseconds for skill file change detection",
-      ),
   })
   .describe("Controls how skills are discovered and loaded");
 

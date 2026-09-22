@@ -21,6 +21,7 @@ import {
   assistantEventHub,
   broadcastMessage,
 } from "../runtime/assistant-event-hub.js";
+import { snapshotHostProxyActorPrincipalId } from "../runtime/auth/same-actor.js";
 import type { PendingInteraction } from "../runtime/pending-interactions.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
@@ -142,6 +143,7 @@ export abstract class HostProxyBase<TRequest, TResultPayload> {
     extraFields?: Record<string, unknown>,
     targetClientId?: string,
     timeoutMsOverride?: number,
+    sourceActorPrincipalId?: string,
   ): Promise<TResultPayload> {
     const requestId = uuid();
     const effectiveTimeoutMs = timeoutMsOverride ?? this.timeoutMs;
@@ -206,15 +208,14 @@ export abstract class HostProxyBase<TRequest, TResultPayload> {
       // (HostCuProxy bypasses dispatchRequest entirely with its own inline
       //  request method that registers directly, which is why CU works
       //  without this base-level fix.)
-      // Snapshot the target's actorPrincipalId at registration time so the
-      // result-route same-actor check has a stable value to compare against —
-      // the target client's SSE subscription may briefly disconnect between
-      // dispatch and result submission, which would make a live hub lookup
-      // falsely 403 a legitimate result.
-      const targetActorPrincipalId =
-        targetClientId != null
-          ? assistantEventHub.getActorPrincipalIdForClient(targetClientId)
-          : undefined;
+      // Snapshot the actor principal at registration so the result-route
+      // same-actor check has a stable value. Targeted dispatch uses the
+      // target client; untargeted dispatch uses the turn's source actor.
+      const targetActorPrincipalId = snapshotHostProxyActorPrincipalId({
+        hub: assistantEventHub,
+        targetClientId,
+        sourceActorPrincipalId,
+      });
       pendingInteractions.register(requestId, {
         conversationId,
         kind: this.resultPendingKind,

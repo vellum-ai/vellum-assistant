@@ -5,7 +5,7 @@
   "description": "Electron wrapper for the Vellum Assistant macOS app.",
   "main": "out/main/index.js",
   "scripts": {
-    "setup": "node node_modules/electron/install.js && bash scripts/build-mac-helper.sh",
+    "setup": "node node_modules/electron/install.js && bash scripts/build-mac-helper.sh && (bash scripts/build-notifier.sh || echo 'notifier unavailable; notifications fall back to Electron')",
     "dev": "bun run install:all && bun scripts/dev.ts",
     "dev:standalone": "bun run install:all && bun run scripts/reclaim-dev-port.ts && concurrently --kill-others --names web,electron --prefix-colors blue,green \"bun run dev:web\" \"bun run dev:electron\"",
     "dev:electron-only": "bun install && bun run setup && bun run prepare:electron-dev && electron-vite dev",
@@ -31,6 +31,8 @@
     "electron": "42.2.0",
     "electron-builder": "26.8.1",
     "electron-vite": "5.0.0",
+    "node-addon-api": "8.9.0",
+    "node-gyp": "12.4.0",
     "typescript": "5.9.3",
     "vite": "7.3.3"
   },

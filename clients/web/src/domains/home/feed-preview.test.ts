@@ -518,6 +518,12 @@ describe("flattenSummary", () => {
     ).toBe("Deploy failed The api never came up.");
   });
 
+  test("turns literal newline escapes into markdown line breaks before flattening", () => {
+    expect(flattenSummary("Line one\\n\\n**Line two**")).toBe(
+      "Line one Line two",
+    );
+  });
+
   test("returns an empty string for a summary with nothing renderable", () => {
     expect(flattenSummary("```\nconst a = 1;\n```")).toBe("");
   });

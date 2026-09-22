@@ -982,6 +982,7 @@ describe("OpenAIProvider", () => {
     );
 
     expect(lastCreateParams!.max_completion_tokens).toBe(64000);
+    expect(lastCreateParams).not.toHaveProperty("max_tokens");
   });
 
   // -----------------------------------------------------------------------

@@ -1,4 +1,4 @@
-import { Loader2, Mic, Square } from "lucide-react";
+import { Mic, Square } from "lucide-react";
 import {
   forwardRef,
   useCallback,
@@ -1168,10 +1168,9 @@ export const VoiceInputButton = forwardRef<
   return (
     <Button
       variant="ghost"
+      loading={processing}
       iconOnly={
-        processing ? (
-          <Loader2 className="animate-spin" strokeWidth={2} />
-        ) : recording ? (
+        recording ? (
           // Rounded-square "stop" glyph, stroked to match the detail-panel
           // stop button and the rest of the icon set. Sized to 20px via
           // `iconOnlyGlyphClassName` below.
@@ -1210,7 +1209,6 @@ export const VoiceInputButton = forwardRef<
       disabled={disabled || processing}
       aria-label={label}
       aria-pressed={recording}
-      aria-busy={processing}
       title={label}
       className={cn(
         // Tertiary resting tone, matching the composer action row's icons

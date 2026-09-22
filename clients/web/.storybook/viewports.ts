@@ -29,6 +29,17 @@ export const SB_VIEWPORTS = {
     type: "mobile" as const,
   },
   /**
+   * The narrowest phone the app's own designs are drawn for. `sbNarrowPhone`
+   * is a smaller legacy screen; this is the width a current phone layout
+   * assumes, and it is 12px wider than `sbMobile`, which is enough to change
+   * how many fixed-width tiles fit on one line.
+   */
+  sbCompactPhone: {
+    name: "Mobile (compact)",
+    styles: { width: "402px", height: "874px" },
+    type: "mobile" as const,
+  },
+  /**
    * A desktop window too short for what it holds. Height is the whole point:
    * a dialog that keeps room for an open menu has to give that room back
    * here, and a story pinned to it shows whether the footer survives.

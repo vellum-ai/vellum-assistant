@@ -50,8 +50,8 @@ import { suggestToolName } from "./tool-name-aliases.js";
 import { recordToolCompletion } from "./tool-profiler.js";
 import type { ExecutionTarget } from "./tool-types.js";
 import {
-  isDiskPressureCleanupToolName,
   type OwnerInfo,
+  survivesDiskPressureCleanup,
   type Tool,
   type ToolContext,
   type ToolExecutionResult,
@@ -837,7 +837,11 @@ export class ToolApprovalHandler {
     // sandbox/host routing reflects the tool actually registered under this
     // name at execution time.
     const tool = getTool(name);
-    const executionTarget = resolveExecutionTarget(tool ?? { name });
+    const executionTarget = resolveExecutionTarget(
+      tool ?? { name },
+      input,
+      context,
+    );
 
     // Determine whether this invocation requires a scoped grant. Capture
     // the consume params now but defer the actual atomic consumption until
@@ -887,7 +891,9 @@ export class ToolApprovalHandler {
 
     if (
       context.diskPressureCleanupModeActive === true &&
-      !isDiskPressureCleanupToolName(name)
+      !survivesDiskPressureCleanup(name, {
+        sendUserMessageActive: context.sendUserMessageActive,
+      })
     ) {
       const msg = `Tool "${name}" is not available during disk pressure cleanup mode.`;
       this.auditGateError(context, name, input, riskLevel, startTime, msg);

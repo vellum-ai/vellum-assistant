@@ -51,7 +51,9 @@ API Keys (agent shells refuse inline keys unless --generated is passed).
 
 Examples:
   $ assistant config set llm.defaultProvider.provider anthropic
-  $ assistant config set calls.enabled true`,
+  $ assistant config set calls.enabled true
+  $ assistant config set memory.embeddings.provider custom
+  $ assistant config set memory.embeddings.baseUrl https://gateway.example.com/v1`,
     },
     {
       name: "get",

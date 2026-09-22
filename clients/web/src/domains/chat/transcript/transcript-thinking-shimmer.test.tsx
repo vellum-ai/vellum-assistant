@@ -34,6 +34,22 @@ mock.module("@/domains/chat/components/tool-call-chip/tool-call-chip", () => ({
   ToolCallChip: () => <div data-testid="tool-call-chip" />,
 }));
 
+mock.module("@/domains/chat/components/streaming-shimmer-text", () => ({
+  AVATAR_ACCENT: "currentColor",
+  SPREAD_MID_RATIO: 0.72,
+  SWEEP_ANGLE: 106,
+  SWEEP_DURATION_MS: 1500,
+  buildBandGradient: () => "none",
+  shimmerStopsForAccent: () => [],
+  StreamingShimmerText: ({
+    children,
+    "data-testid": dataTestId,
+  }: {
+    children: string;
+    "data-testid"?: string;
+  }) => <span data-testid={dataTestId ?? "streaming-shimmer"}>{children}</span>,
+}));
+
 mock.module("@/components/assistant/surfaces", () => ({
   SurfaceRouter: () => <div data-testid="surface-router" />,
 }));
@@ -73,14 +89,49 @@ function assistantThinkingItem(id: string, reasoning: string): MessageItem {
   return { kind: "message", key: id, message: msg };
 }
 
+function assistantToolThenThinkingItem(id: string): MessageItem {
+  const msg: DisplayMessage = {
+    id,
+    role: "assistant",
+    contentBlocks: [
+      {
+        type: "tool_use",
+        toolCall: {
+          id: "tc-complete",
+          name: "bash",
+          input: { command: "date" },
+          completedAt: 1,
+        },
+      },
+      { type: "text", text: "\n" },
+      { type: "thinking", thinking: "Preparing the next step" },
+    ],
+  };
+  return { kind: "message", key: id, message: msg };
+}
+
+/** The same row, marked the way a reply carried by `send_user_message` is. */
+function privateThinkingItem(id: string, reasoning: string): MessageItem {
+  const item = assistantThinkingItem(id, reasoning);
+  return {
+    ...item,
+    message: { ...item.message, assistantTextVisibility: "private" },
+  };
+}
+
 const noop = () => {};
 const sharedProps = { onSurfaceAction: noop };
 
-function renderTurn() {
+function renderTurn(
+  responseItem: MessageItem = assistantThinkingItem(
+    "a1",
+    "live reasoning so far",
+  ),
+) {
   return render(
     <LatestTurnRow
       anchorMessage={userItem("u1", "do the thing")}
-      responseItems={[assistantThinkingItem("a1", "live reasoning so far")]}
+      responseItems={[responseItem]}
       {...sharedProps}
     />,
   );
@@ -112,5 +163,56 @@ describe("streaming thinking shimmer wiring", () => {
     expect(getByTestId("thought-process-link")).toBeTruthy();
     expect(queryByTestId("thought-process-loading")).toBeNull();
     expect(getByText("Thinking")).toBeTruthy();
+  });
+
+  test("awaiting user input → static 'Thinking' label, no shimmer", () => {
+    useTurnStore.setState({ phase: "awaiting_user_input" });
+    const { getByTestId, queryByTestId, getByText } = renderTurn();
+    expect(getByTestId("thought-process-link")).toBeTruthy();
+    expect(queryByTestId("thought-process-loading")).toBeNull();
+    expect(getByText("Thinking")).toBeTruthy();
+  });
+
+  test("completed tool plus blank plus active thinking keeps the merged header shimmering", () => {
+    useTurnStore.setState({ phase: "thinking" });
+    const { getByTestId } = renderTurn(
+      assistantToolThenThinkingItem("a-tool-thinking"),
+    );
+
+    const card = getByTestId("tool-progress-card-shell");
+    expect(card.textContent).toContain("Thinking");
+    expect(getByTestId("streaming-shimmer")).toBeTruthy();
+  });
+
+  test("the same merged header is static while awaiting user input", () => {
+    useTurnStore.setState({ phase: "awaiting_user_input" });
+    const { getByTestId, queryByTestId } = renderTurn(
+      assistantToolThenThinkingItem("a-tool-thinking-settled"),
+    );
+
+    const card = getByTestId("tool-progress-card-shell");
+    expect(card.textContent).toContain("Thinking");
+    expect(queryByTestId("streaming-shimmer")).toBeNull();
+  });
+});
+
+describe("a row whose prose is a scratchpad", () => {
+  test("streaming turn → no thinking row, shimmering or otherwise", () => {
+    useTurnStore.setState({ phase: "thinking" });
+    const { queryByTestId, queryByText } = renderTurn(
+      privateThinkingItem("a1", "let me look that up"),
+    );
+    expect(queryByTestId("thought-process-link")).toBeNull();
+    expect(queryByTestId("thought-process-loading")).toBeNull();
+    expect(queryByText("Thinking")).toBeNull();
+  });
+
+  test("settled turn → the reasoning it carries stays unrendered", () => {
+    useTurnStore.setState({ phase: "idle" });
+    const { queryByTestId, queryByText } = renderTurn(
+      privateThinkingItem("a1", "let me look that up"),
+    );
+    expect(queryByTestId("thought-process-link")).toBeNull();
+    expect(queryByText("let me look that up")).toBeNull();
   });
 });

@@ -2,7 +2,7 @@
  * Canonical source for API-key-addressable providers.
  *
  * This module composes the full set of providers that store API keys in
- * secure storage (the `api_key` secret type) from four sources:
+ * secure storage (the `api_key` secret type) from five sources:
  *
  * 1. **LLM providers** -- derived from `PROVIDER_CATALOG`
  *    (`model-catalog.ts`). Adding a provider to the catalog automatically
@@ -15,6 +15,8 @@
  * 4. **TTS catalog providers** -- dynamically derived from the canonical
  *    TTS provider catalog by selecting entries whose secret requirements
  *    use the bare-name (non-credential) storage convention.
+ * 5. **Embedding-only providers** -- currently `custom`, the
+ *    OpenAI-compatible memory embeddings endpoint.
  *
  * Consumers that need the set of valid API-key provider names should
  * import {@link API_KEY_PROVIDERS} from this module rather than
@@ -116,6 +118,13 @@ function catalogApiKeyNames(): string[] {
     );
 }
 
+/**
+ * Embedding-only API-key names. `custom` is the OpenAI-compatible memory
+ * embeddings provider and is not an LLM catalog entry, so it is declared
+ * here rather than in `PROVIDER_CATALOG`.
+ */
+const EMBEDDING_API_KEY_PROVIDERS: readonly string[] = ["custom"];
+
 // ---------------------------------------------------------------------------
 // Unified export
 // ---------------------------------------------------------------------------
@@ -148,6 +157,7 @@ export const API_KEY_PROVIDERS: readonly string[] = (() => {
     ...LLM_AND_SEARCH_API_KEY_PROVIDERS,
     ...sttApiKeyProviderNames(),
     ...catalogApiKeyNames(),
+    ...EMBEDDING_API_KEY_PROVIDERS,
   ]) {
     if (!seen.has(name)) {
       seen.add(name);

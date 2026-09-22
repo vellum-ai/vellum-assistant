@@ -39,6 +39,7 @@ import {
   MAX_HATCH_WAIT_MS,
   POLL_INTERVAL_MS,
 } from "@/domains/onboarding/purchased-provisioning";
+import { getDesktopAppDownloadActionKey } from "@/domains/onboarding/utils/desktop-app-copy";
 import {
   isLocalClient,
   loadLockfile,
@@ -55,6 +56,7 @@ import {
 import { buildNavigationState } from "@/lib/navigation/build-state";
 import { hatchLocalAssistant } from "@/runtime/local-mode-host";
 import { isElectron } from "@/runtime/is-electron";
+import { useDesktopAppPlatform } from "@/runtime/desktop-app-platform";
 import { setSelectedAssistant } from "@/assistant/selection";
 import { useAuthStore } from "@/stores/auth-store";
 import { getActiveOrganizationIdForRequests } from "@/stores/organization-store";
@@ -158,6 +160,7 @@ export function decideHatchGate(): HatchGateDecision {
 
 export function HatchingScreen() {
   const { t } = useTranslation("onboarding");
+  const desktopAppPlatform = useDesktopAppPlatform();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
@@ -813,12 +816,11 @@ export function HatchingScreen() {
               <Button
                 asChild
                 variant="primary"
-                size="regular"
+                size={electron ? "regular" : "large"}
                 fullWidth
-                className={electron ? undefined : "h-11 text-base"}
               >
                 <a href={`${window.location.origin}/download`}>
-                  {t("actions.downloadMacApp")}
+                  {t(getDesktopAppDownloadActionKey(desktopAppPlatform))}
                 </a>
               </Button>
             </div>
@@ -836,9 +838,8 @@ export function HatchingScreen() {
             {apiKeyRejected ? (
               <Button
                 variant="primary"
-                size="regular"
+                size={electron ? "regular" : "large"}
                 fullWidth
-                className={electron ? undefined : "h-11 text-base"}
                 onClick={() =>
                   void navigate(
                     hostingParam
@@ -853,9 +854,8 @@ export function HatchingScreen() {
             ) : (
               <Button
                 variant="primary"
-                size="regular"
+                size={electron ? "regular" : "large"}
                 fullWidth
-                className={electron ? undefined : "h-11 text-base"}
                 onClick={() => {
                   segmentStartRef.current = 0;
                   segmentStartTimeRef.current = Date.now();
@@ -874,9 +874,8 @@ export function HatchingScreen() {
             )}
             <Button
               variant="outlined"
-              size="regular"
+              size={electron ? "regular" : "large"}
               fullWidth
-              className={electron ? undefined : "h-11 text-base"}
               onClick={() =>
                 void navigate(
                   useLocalHatch

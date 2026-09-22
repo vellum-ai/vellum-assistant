@@ -70,12 +70,36 @@ export function embeddingInputContentHash(input: EmbeddingInput): string {
   return hash.digest("hex");
 }
 
+/**
+ * Durable cache identity for an embedding input. Folds provider extras
+ * (Gemini task type / dimensions, custom endpoint URL / dimensions) into the
+ * bare content hash so a change that alters the vector for identical text is
+ * a cache miss. With no extras this is the bare {@link embeddingInputContentHash}.
+ */
+export function embeddingContentHashWithExtras(
+  input: EmbeddingInput,
+  extras: string[] = [],
+): string {
+  const base = embeddingInputContentHash(input);
+  if (extras.length === 0) {
+    return base;
+  }
+  return createHash("sha256")
+    .update(`${base}\0${extras.join("\0")}`)
+    .digest("hex");
+}
+
 // ---------------------------------------------------------------------------
 // Backend interface types (extracted from embedding-backend.ts to break
 // circular imports between the factory and provider implementations)
 // ---------------------------------------------------------------------------
 
-export type EmbeddingProviderName = "local" | "openai" | "gemini" | "ollama";
+export type EmbeddingProviderName =
+  | "local"
+  | "openai"
+  | "gemini"
+  | "ollama"
+  | "custom";
 
 export interface EmbeddingRequestOptions {
   signal?: AbortSignal;
@@ -89,25 +113,6 @@ export interface EmbeddingBackend {
     options?: EmbeddingRequestOptions,
   ): Promise<number[][]>;
   dispose?(): void;
-  /**
-   * Deterministic teardown for daemon shutdown: release any OS resources the
-   * backend owns (e.g. a worker subprocess) and resolve only once they are
-   * confirmed gone. Unlike {@link dispose}, which may defer while embeds are
-   * in flight, this must not leave a child process behind.
-   */
-  shutdown?(): Promise<void>;
-  /**
-   * Release owned OS resources synchronously, for a process that must exit this
-   * tick. Unlike {@link shutdown} it cannot wait for confirmation, so it uses
-   * the uncatchable signal rather than the graceful one.
-   */
-  terminateNow?(): void;
-  /**
-   * Reap any owned child still attributable to this process, without needing a
-   * handle for it. Backstop for a teardown that could not resolve its handle in
-   * time.
-   */
-  sweepOwnedWorkers?(): Promise<void>;
 }
 
 /**

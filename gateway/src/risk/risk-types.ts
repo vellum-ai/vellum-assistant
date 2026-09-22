@@ -271,6 +271,7 @@ export type DangerousPatternType =
   | "base64_execute"
   | "process_substitution"
   | "sensitive_redirect"
+  | "network_redirect"
   | "dangerous_substitution"
   | "env_injection";
 

@@ -162,3 +162,4 @@ assistant watchers digest --id abc123 --hours 8
 - `assistant watchers digest` is the go-to command when the user asks "what happened with my email?" or similar questions about watcher activity.
 - Watchers can be enabled/disabled via `assistant watchers update` without deleting them -- use `--disabled` to pause and `--enabled` to resume.
 - Each provider requires appropriate credentials to be configured. The `--credential-service` flag can override the default credential service if needed.
+- Notify only when the action prompt's match criteria are met. Unmatched events stay quiet: do not send a notification whose only content is that nothing matched. Watcher ticks are not scheduled runs.

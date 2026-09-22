@@ -16,12 +16,26 @@ mock.module("../fetch.js", () => ({
   fetchImpl: (...args: Parameters<FetchFn>) => fetchMock(...args),
 }));
 
+let velayWebhooksFlagEnabled = false;
+let registeredWebhookPaths = new Set<string>();
+
+mock.module("../feature-flag-resolver.js", () => ({
+  isFeatureFlagEnabled: (key: string) =>
+    key === "velay-webhooks" ? velayWebhooksFlagEnabled : false,
+}));
+
+mock.module("../db/webhook-ingress-route-store.js", () => ({
+  hasWebhookIngressRoute: (path: string) => registeredWebhookPaths.has(path),
+}));
+
 const { bridgeVelayHttpRequest } = await import("./http-bridge.js");
 
 const TWILIO_EXAMPLE_PATH = "/webhooks/twilio/example";
 
 afterEach(() => {
   fetchMock = mock(async () => new Response());
+  velayWebhooksFlagEnabled = false;
+  registeredWebhookPaths = new Set();
 });
 
 function makeFrame(
@@ -291,5 +305,87 @@ describe("Velay HTTP bridge", () => {
 
     expect(captured).toHaveLength(1);
     expect(captured[0].get("x-velay-forwarded")).toBe("1");
+  });
+});
+
+describe("Velay HTTP bridge webhook ingress registry", () => {
+  const STATIC_PATHS = [
+    TWILIO_EXAMPLE_PATH,
+    "/v1/audio/550e8400-e29b-41d4-a716-446655440000",
+    "/assistant/credentials/enter",
+    "/v1/credential-requests/peek",
+    "/v1/credential-requests/submit",
+  ];
+
+  test("flag off: a registered webhook path is still rejected", async () => {
+    registeredWebhookPaths = new Set(["/webhooks/telegram"]);
+    fetchMock = mock(async () => {
+      throw new Error("should not fetch");
+    });
+
+    const response = await bridgeVelayHttpRequest(
+      makeFrame({ path: "/webhooks/telegram" }),
+      "http://127.0.0.1:7830",
+    );
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(response.status_code).toBe(502);
+  });
+
+  test("flag on: a registered webhook path is forwarded and its response relayed", async () => {
+    velayWebhooksFlagEnabled = true;
+    registeredWebhookPaths = new Set(["/webhooks/telegram"]);
+    const captured: string[] = [];
+    fetchMock = mock(async (input: string | URL | Request) => {
+      captured.push((input as Request).url);
+      return new Response("handled", { status: 202 });
+    });
+
+    const response = await bridgeVelayHttpRequest(
+      makeFrame({ path: "/webhooks/telegram" }),
+      "http://127.0.0.1:7830",
+    );
+
+    expect(captured).toEqual(["http://127.0.0.1:7830/webhooks/telegram"]);
+    expect(response.status_code).toBe(202);
+    expect(decodeBase64(response.body_base64)).toBe("handled");
+  });
+
+  test("flag on: an unregistered webhook path is rejected without contacting the loopback listener", async () => {
+    velayWebhooksFlagEnabled = true;
+    registeredWebhookPaths = new Set(["/webhooks/telegram"]);
+    fetchMock = mock(async () => {
+      throw new Error("should not fetch");
+    });
+
+    for (const path of [
+      "/webhooks/slack",
+      "/webhooks/telegram/extra",
+      "/webhooks/telegramX",
+    ]) {
+      const response = await bridgeVelayHttpRequest(
+        makeFrame({ path }),
+        "http://127.0.0.1:7830",
+      );
+      expect(response.status_code).toBe(502);
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("static allowlist paths are forwarded regardless of the flag", async () => {
+    for (const flagEnabled of [false, true]) {
+      velayWebhooksFlagEnabled = flagEnabled;
+      registeredWebhookPaths = new Set();
+
+      for (const path of STATIC_PATHS) {
+        fetchMock = mock(async () => new Response("ok", { status: 200 }));
+        const response = await bridgeVelayHttpRequest(
+          makeFrame({ path }),
+          "http://127.0.0.1:7830",
+        );
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(response.status_code).toBe(200);
+      }
+    }
   });
 });

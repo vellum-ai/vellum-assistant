@@ -12,17 +12,7 @@
  * turn has finished.
  */
 
-/**
- * Axis ids the personality sliders key their values by. Each is 0–100 with
- * 0 = the left label and 100 = the right label.
- */
-export const PERSONALITY_AXIS_IDS = {
-  companionCoworker: "companion-coworker",
-  genzBoomer: "genz-boomer",
-  executeCollaborate: "execute-collaborate",
-  playfulSerious: "playful-serious",
-  politeUnfiltered: "polite-unfiltered",
-} as const;
+import { PERSONALITY_AXIS_IDS } from "@vellumai/assistant-api";
 
 /**
  * Consecutive identical assistant reads that mark the rewrite turn settled —

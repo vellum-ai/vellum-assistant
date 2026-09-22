@@ -13,20 +13,29 @@ import {
 
 import type { LoopToolExecutor } from "../agent/loop.js";
 import type { AssistantEvent } from "../api/index.js";
+import { stripInjectionsForCompaction } from "../context/strip-injections.js";
+import type { AttachmentResolutionResult } from "../daemon/conversation-attachments.js";
 import {
   queueConversationNotice,
   resetConversationNoticesForTests,
 } from "../daemon/conversation-notices.js";
+import { desktopAutomationLease } from "../desktop/desktop-automation-lease.js";
 import { getConversationDirName } from "../persistence/conversation-directories.js";
 import type { UserPromptSubmitContext } from "../plugin-api/types.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
 import { registerPlugin } from "../plugins/registry.js";
-import type { Message, Provider, ToolDefinition } from "../providers/types.js";
+import type {
+  Message,
+  Provider,
+  SendMessageOptions,
+  ToolDefinition,
+} from "../providers/types.js";
 import { ContextOverflowError } from "../providers/types.js";
 import {
   resolveUsageAttribution,
   type UsageAttributionInput,
 } from "../usage/attribution.js";
+import { createAbortReason } from "../util/abort-reasons.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { setConfig } from "./helpers/set-config.js";
 
@@ -38,6 +47,11 @@ const conversationCrudRealSnapshot = {
 const conversationDiskViewRealSnapshot = {
   ...(createRequire(import.meta.url)(
     "../persistence/conversation-disk-view.js",
+  ) as Record<string, unknown>),
+};
+const channelReplyDeliveryRealSnapshot = {
+  ...(createRequire(import.meta.url)(
+    "../runtime/channel-reply-delivery.js",
   ) as Record<string, unknown>),
 };
 // Disable the catalog default so resolution lands on llm.default.
@@ -332,12 +346,19 @@ const deleteMessageByIdMock = mock(() => ({
   segmentIds: [],
   deletedSummaryIds: [],
 }));
-const reserveMessageMock = mock(async () => ({ id: "msg-reserve" }));
+const reserveMessageMock = mock(async () => ({
+  id: "msg-reserve",
+  createdAt: 1_700_000_000_050,
+}));
 /** Persisted rows the loop reads back. Empty unless a test seeds one. */
 let mockStoredMessages: unknown[] = [];
 const updateMessageContentMock = mock(() => {});
 const finalizeMessageContentMock = mock(() => {});
-const addMessageMock = mock(() => ({ id: "mock-msg-id" }));
+const addMessageMock = mock(() => ({
+  id: "mock-msg-id",
+  createdAt: 1_700_000_000_100,
+}));
+const updateConversationContextWindowMock = mock(() => {});
 mock.module("../persistence/conversation-crud.js", () => ({
   setConversationProcessingStartedAt: () => {},
   isConversationProcessing: () => false,
@@ -358,7 +379,7 @@ mock.module("../persistence/conversation-crud.js", () => ({
   getConversationOriginInterface: () => null,
   addMessage: addMessageMock,
   deleteMessageById: deleteMessageByIdMock,
-  updateConversationContextWindow: () => {},
+  updateConversationContextWindow: updateConversationContextWindowMock,
   updateConversationSlackContextWatermark:
     updateConversationSlackContextWatermarkMock,
   updateConversationTitle: () => {},
@@ -415,6 +436,10 @@ afterAll(() => {
     "../persistence/conversation-disk-view.js",
     () => conversationDiskViewRealSnapshot,
   );
+  mock.module(
+    "../runtime/channel-reply-delivery.js",
+    () => channelReplyDeliveryRealSnapshot,
+  );
 });
 
 const syncMessageToDiskMock = mock(() => {});
@@ -423,6 +448,19 @@ mock.module("../persistence/conversation-disk-view.js", () => ({
   syncMessageToDisk: syncMessageToDiskMock,
   rebuildConversationDiskViewFromDbState:
     rebuildConversationDiskViewFromDbStateMock,
+}));
+
+let mockTurnReplyMessageId: string | undefined;
+const resolveTurnReplyMessageIdMock = mock(
+  (
+    _conversationId: string,
+    _userMessageId: string | undefined,
+    fallbackMessageId: string,
+  ) => mockTurnReplyMessageId ?? fallbackMessageId,
+);
+mock.module("../runtime/channel-reply-delivery.js", () => ({
+  ...channelReplyDeliveryRealSnapshot,
+  resolveTurnReplyMessageId: resolveTurnReplyMessageIdMock,
 }));
 
 mock.module("../apps/app-store.js", () => ({
@@ -504,7 +542,11 @@ const getSlackCompactionWatermarkForPrefixMock = mock(
 );
 mock.module("../daemon/conversation-runtime-assembly.js", () => ({
   applyRuntimeInjections: applyRuntimeInjectionsMock,
-  stripInjectionsForCompaction: (msgs: Message[]) => msgs,
+  // The real strip, not a pass-through: this module re-exports it, and a
+  // module mock overrides the re-exported binding at its source, so a stub
+  // here would turn the compaction strip the loop and the event dispatcher
+  // import from `context/strip-injections.js` into a no-op as well.
+  stripInjectionsForCompaction,
   isSlackChannelConversation: () => false,
   getSlackCompactionWatermarkForPrefix:
     getSlackCompactionWatermarkForPrefixMock,
@@ -573,11 +615,16 @@ mock.module("../daemon/conversation-usage.js", () => ({
   recordUsage: recordUsageMock,
 }));
 
-const resolveAssistantAttachmentsMock = mock(async () => ({
-  assistantAttachments: [],
-  emittedAttachments: [],
-  directiveWarnings: [],
-}));
+const resolveAssistantAttachmentsMock = mock(
+  async (): Promise<AttachmentResolutionResult> => ({
+    assistantAttachments: [],
+    emittedAttachments: [],
+    directiveWarnings: [],
+    persistedFiles: [],
+    linkedAttachmentIds: [],
+    computerUseScreenshotAttachmentIds: [],
+  }),
+);
 mock.module("../daemon/conversation-attachments.js", () => ({
   resolveAssistantAttachments: resolveAssistantAttachmentsMock,
   approveHostAttachmentRead: async () => true,
@@ -596,6 +643,9 @@ mock.module("../daemon/assistant-attachments.js", () => ({
   }),
 }));
 
+// Flipped by the turn-boundary-commit tests; every other test leaves the commit
+// finishing inside its wait budget.
+let raceWithTimeoutOutcome: "completed" | "timed_out" = "completed";
 mock.module("../daemon/conversation-media-retry.js", () => ({
   stripMediaPayloadsForRetry: (msgs: Message[]) => ({
     messages: msgs,
@@ -603,7 +653,7 @@ mock.module("../daemon/conversation-media-retry.js", () => ({
     replacedBlocks: 0,
     latestUserIndex: null,
   }),
-  raceWithTimeout: async () => "completed" as const,
+  raceWithTimeout: async () => raceWithTimeoutOutcome,
 }));
 
 mock.module("../workspace/turn-commit.js", () => ({
@@ -676,13 +726,27 @@ mock.module("../persistence/llm-request-log-store.js", () => ({
 // ── Imports (after mocks) ────────────────────────────────────────────
 
 import { AgentLoop } from "../agent/loop.js";
-import type { Conversation } from "../daemon/conversation.js";
+import { Conversation } from "../daemon/conversation.js";
 import {
   applyCompactionResult,
   runAgentLoopImpl,
 } from "../daemon/conversation-agent-loop.js";
 import type { QueueDrainReason } from "../daemon/conversation-queue-manager.js";
+import {
+  resetTurnFinalizationsForTesting,
+  waitForTurnFinalization,
+} from "../daemon/turn-finalization.js";
 import { settleTurnTail } from "../daemon/turn-tail-chain.js";
+import type { PostCompactContext } from "../hooks/types.js";
+import { ConversationGraphMemory } from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
+import {
+  wrapMemoryBlock,
+  wrapMemoryPointerBlock,
+} from "../plugins/defaults/memory/memory-marker.js";
+import {
+  getActiveSections as getV3ActiveSections,
+  recordInjected as recordV3Injected,
+} from "../plugins/defaults/memory/v3/ever-injected-store.js";
 import { asConversation } from "./helpers/mock-conversation.js";
 import {
   createMockProvider,
@@ -739,6 +803,19 @@ function makeCtx(
     toolExecutor,
   });
 
+  const modeSessions = {
+    getTurnOwner: () => undefined,
+    getTerminalDisposition: () => undefined,
+    keepsSessionOpenAfterTurn: () => false,
+    trackPersistedRow: () => false,
+    recordStructuralWait: () => false,
+    invalidateStructuralWait: mock(() => false),
+    beginDraining: () => false,
+    finalizeTurn: () => false,
+    releaseTurn: () => false,
+    transferTurn: () => false,
+  } as unknown as Conversation["modeSessions"];
+
   const ctx = asConversation({
     conversationId: "test-conv",
     messages: [
@@ -786,6 +863,7 @@ function makeCtx(
     pendingSurfaceActions: new Map(),
     surfaceActionRequestIds: new Set<string>(),
     currentTurnSurfaces: [],
+    modeSessions,
 
     workingDir: "/tmp",
     channelCapabilities: undefined,
@@ -838,7 +916,7 @@ function makeCtx(
     modelOverride: undefined,
 
     graphMemory: {
-      onCompacted: async () => {},
+      onCompacted: async () => true,
       prepareMemory: async () => ({
         runMessages: [],
         injectedTokens: 0,
@@ -867,6 +945,26 @@ function makeCtx(
   }
   fakeContextWindowManagers.set(conversationId, ctx.contextWindowManager);
   return ctx;
+}
+
+function makeSendUserMessageCtx(): Conversation {
+  return makeCtx({
+    currentCallSite: "mainAgent",
+    providerResponses: [
+      toolUseResponse("tu_1", "send_user_message", {
+        message: "Here is the result.",
+      }),
+      textResponse("Finished delivery."),
+    ],
+    loopTools: [
+      {
+        name: "send_user_message",
+        description: "deliver",
+        input_schema: { type: "object" },
+      },
+    ],
+    toolExecutor: async () => ({ content: "Delivered.", isError: false }),
+  });
 }
 
 /**
@@ -909,11 +1007,47 @@ function makeCompactionResult(
   };
 }
 
+/**
+ * `makeCtx` overrides for a real loop that appends a tool turn, is rejected as
+ * context-too-large on the following call, and recovers on the retry, so the
+ * reactive overflow ladder runs between the rejection and the recovery.
+ */
+function overflowAfterToolTurnScenario(): NonNullable<
+  Parameters<typeof makeCtx>[0]
+> {
+  return {
+    providerResponses: [
+      toolUseResponse("t1", "file_read", {}),
+      new ContextOverflowError(
+        "context_length_exceeded: 250000 tokens > 200000 maximum",
+        "mock-provider",
+        { actualTokens: 250_000, maxTokens: 200_000 },
+      ),
+      textResponse("recovered"),
+    ],
+    loopTools: [
+      {
+        name: "file_read",
+        description: "Read a file",
+        input_schema: { type: "object", properties: {} },
+      },
+    ],
+    toolExecutor: async () => ({ content: "ok", isError: false }),
+    contextWindowManager: {
+      updateConfig: () => {},
+      shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
+      maybeCompact: async () => ({ compacted: false }),
+    } as unknown as Conversation["contextWindowManager"],
+  };
+}
+
 // ── Tests ────────────────────────────────────────────────────────────
 
 beforeEach(() => {
   setConfig("ui", {});
   seedLlmConfig();
+  raceWithTimeoutOutcome = "completed";
+  resetTurnFinalizationsForTesting();
   mockEstimateTokens = 1000;
   mockReducerStepFn = null;
   mockOverflowAction = "fail_gracefully";
@@ -926,6 +1060,8 @@ beforeEach(() => {
   setAgentLoopExitReasonOnLatestLogMock.mockClear();
   syncMessageToDiskMock.mockClear();
   rebuildConversationDiskViewFromDbStateMock.mockClear();
+  mockTurnReplyMessageId = undefined;
+  resolveTurnReplyMessageIdMock.mockClear();
   emitAssistantReplyNotificationMock.mockClear();
   updateMessageMetadataMock.mockClear();
   updateMessageMetadataMock.mockImplementation(() => {});
@@ -976,6 +1112,9 @@ beforeEach(() => {
     assistantAttachments: [],
     emittedAttachments: [],
     directiveWarnings: [],
+    persistedFiles: [],
+    linkedAttachmentIds: [],
+    computerUseScreenshotAttachmentIds: [],
   }));
   mockMessageById = null;
   resetConversationNoticesForTests();
@@ -986,7 +1125,388 @@ beforeEach(() => {
   resetPluginRegistryAndRegisterDefaults();
 });
 
+function makeModeSessionDouble(options?: {
+  terminalDisposition?: {
+    status: "completed" | "interrupted";
+    endReason: string;
+  };
+  structuralWait?: boolean;
+  sourceLifetime?: boolean;
+}) {
+  const owner = { id: "session-1", mode: "computer_use" as const };
+  const trackPersistedRow = mock(() => true);
+  const recordStructuralWait = mock(() => options?.structuralWait ?? false);
+  const beginDraining = mock(() => true);
+  const finalizeTurn = mock(() => true);
+  const releaseTurn = mock(() => true);
+  const transferTurn = mock(() => true);
+  const coordinator = {
+    getTurnOwner: () => owner,
+    getTerminalDisposition: () => options?.terminalDisposition,
+    keepsSessionOpenAfterTurn: () => options?.sourceLifetime ?? false,
+    trackPersistedRow,
+    recordStructuralWait,
+    beginDraining,
+    finalizeTurn,
+    releaseTurn,
+    transferTurn,
+  } as unknown as Conversation["modeSessions"];
+  return {
+    coordinator,
+    trackPersistedRow,
+    recordStructuralWait,
+    beginDraining,
+    finalizeTurn,
+    releaseTurn,
+    transferTurn,
+  };
+}
+
+describe("prompt cache warming", () => {
+  test("attributes provider usage to the conversation", async () => {
+    const sendMessage = mock(
+      async (_messages: Message[], _options?: SendMessageOptions) =>
+        textResponse("unused"),
+    );
+    const conversation = Object.assign(
+      Object.create(Conversation.prototype) as object,
+      {
+        conversationId: "conv-cache-warm-test",
+        messages: [],
+        provider: { name: "mock-provider", sendMessage },
+        agentLoop: { getResolvedTools: () => [] },
+        buildCurrentSystemPrompt: () => "system prompt",
+      },
+    ) as unknown as Conversation;
+
+    await conversation.warmPromptCache();
+
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(sendMessage.mock.calls[0]?.[1]?.config).toMatchObject({
+      callSite: "mainAgent",
+      conversationId: "conv-cache-warm-test",
+      max_tokens: 16,
+      selectionSeed: "conv-cache-warm-test",
+    });
+    expect(
+      sendMessage.mock.calls[0]?.[1]?.config?.usageTracking,
+    ).toBeUndefined();
+  });
+
+  test("stays non-rejecting when request preparation fails", async () => {
+    const sendMessage = mock(async () => textResponse("unused"));
+    const conversation = Object.assign(
+      Object.create(Conversation.prototype) as object,
+      {
+        conversationId: "conv-cache-warm-test",
+        messages: [],
+        provider: { name: "mock-provider", sendMessage },
+        agentLoop: {
+          getResolvedTools: () => {
+            throw new Error("tool resolution failed");
+          },
+        },
+        buildCurrentSystemPrompt: () => "system prompt",
+      },
+    ) as unknown as Conversation;
+
+    await expect(conversation.warmPromptCache()).resolves.toBeUndefined();
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  test("does not rebuild a system prompt explicitly removed by a hook", async () => {
+    const sendMessage = mock(
+      async (_messages: Message[], _options?: SendMessageOptions) =>
+        textResponse("unused"),
+    );
+    const buildCurrentSystemPrompt = mock(() => "rebuilt prompt");
+    const conversation = Object.assign(
+      Object.create(Conversation.prototype) as object,
+      {
+        conversationId: "conv-cache-warm-test",
+        messages: [],
+        provider: { name: "mock-provider", sendMessage },
+        agentLoop: { getResolvedTools: () => [] },
+        buildCurrentSystemPrompt,
+      },
+    ) as unknown as Conversation;
+
+    await conversation.warmPromptCache({ systemPrompt: null, tools: [] });
+
+    expect(buildCurrentSystemPrompt).not.toHaveBeenCalled();
+    expect(sendMessage.mock.calls[0]?.[1]?.systemPrompt).toBeUndefined();
+  });
+});
+
 describe("session-agent-loop", () => {
+  describe("mode session settlement", () => {
+    test.each(["reply", "provider error"] as const)(
+      "row tracking failures preserve tool output and the final %s",
+      async (outcome) => {
+        const sessions = makeModeSessionDouble();
+        sessions.trackPersistedRow.mockImplementation(() => {
+          throw new Error("session row tracking unavailable");
+        });
+        for (let index = 1; index <= 3; index += 1) {
+          reserveMessageMock.mockImplementationOnce(async () => ({
+            id: `msg-tracking-${index}`,
+            createdAt: 1_700_000_000_050 + index,
+          }));
+        }
+        mockMessageById = {
+          id: "msg-tracking-2",
+          conversationId: "test-conv",
+          createdAt: 1_700_000_000_052,
+          role: "user",
+          content: "[]",
+          metadata: null,
+        };
+        const scripted = createMockProvider([
+          toolUseResponse("tool-123", "file_read", {}),
+          outcome === "reply"
+            ? textResponse("Finished reading")
+            : new Error("upstream unavailable"),
+        ]);
+        let savedToolOutputBeforeFollowup = false;
+        const provider: Provider = {
+          ...scripted.provider,
+          async sendMessage(messages, options) {
+            if (scripted.calls.length === 1) {
+              savedToolOutputBeforeFollowup = inflightDeltaFiles().some(
+                (path) => readFileSync(path, "utf8").includes("file content"),
+              );
+            }
+            return scripted.provider.sendMessage(messages, options);
+          },
+        };
+        const executeTool = mock(async () => ({
+          content: "file content",
+          isError: false,
+        }));
+        const ctx = makeCtx({
+          modeSessions: sessions.coordinator,
+          loopProvider: provider,
+          loopTools: [
+            {
+              name: "file_read",
+              description: "Read a file",
+              input_schema: { type: "object", properties: {} },
+            },
+          ],
+          toolExecutor: executeTool,
+        });
+        const events: AssistantEvent[] = [];
+
+        await runAgentLoopImpl(ctx, "read the file", "msg-user-123", (event) =>
+          events.push(event),
+        );
+
+        expect(executeTool).toHaveBeenCalledTimes(1);
+        expect(scripted.calls).toHaveLength(2);
+        expect(savedToolOutputBeforeFollowup).toBe(true);
+        expect(
+          events.filter((event) => event.type === "assistant_turn_start"),
+        ).toHaveLength(2);
+        expect(
+          events.filter((event) => event.type === "message_complete"),
+        ).toHaveLength(1);
+        expect(events.some((event) => event.type === "error")).toBe(false);
+        expect(inflightDeltaFiles()).toHaveLength(0);
+        expect(sessions.finalizeTurn).toHaveBeenCalledTimes(1);
+        const finalized = (
+          finalizeMessageContentMock.mock.calls as unknown as Array<
+            [string, string, unknown]
+          >
+        ).map(([id, content]) => ({ id, content }));
+        expect(finalized).toContainEqual({
+          id: "msg-tracking-2",
+          content: expect.stringContaining("file content"),
+        });
+        if (outcome === "reply") {
+          expect(finalized).toContainEqual({
+            id: "msg-tracking-3",
+            content: expect.stringContaining("Finished reading"),
+          });
+          expect(addMessageMock).not.toHaveBeenCalled();
+        } else {
+          expect(addMessageMock).toHaveBeenCalledTimes(1);
+          expect(backfillMessageIdOnLogsMock).toHaveBeenCalledWith(
+            "test-conv",
+            "mock-msg-id",
+          );
+          expect(ctx.messages.at(-1)?.content).toEqual([
+            {
+              type: "text",
+              text: mockConversationErrorClassification.userMessage,
+            },
+          ]);
+        }
+      },
+    );
+
+    test("finalizes an owned turn after its assistant output settles", async () => {
+      const sessions = makeModeSessionDouble();
+      const ctx = makeCtx({ modeSessions: sessions.coordinator });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      expect(sessions.trackPersistedRow).toHaveBeenCalledWith(
+        "test-req",
+        expect.any(String),
+        expect.anything(),
+      );
+      expect(sessions.beginDraining).not.toHaveBeenCalled();
+      expect(sessions.finalizeTurn).toHaveBeenCalledWith({
+        turnId: "test-req",
+        status: "completed",
+        endedAt: expect.any(Number),
+        endReason: "turn_settled",
+        lastActivityAt: expect.any(Number),
+      });
+    });
+
+    test.each(["throw", "conflict"] as const)(
+      "keeps a delivered reply successful after a finalization %s",
+      async (failedOperation) => {
+        const sessions = makeModeSessionDouble();
+        sessions.finalizeTurn.mockImplementation(() => {
+          if (failedOperation === "throw") {
+            throw new Error("session settlement unavailable");
+          }
+          return false;
+        });
+        const ctx = makeCtx({ modeSessions: sessions.coordinator });
+        const events: AssistantEvent[] = [];
+
+        await runAgentLoopImpl(ctx, "hello", "msg-1", (event) =>
+          events.push(event),
+        );
+
+        expect(
+          events.filter((event) => event.type === "message_complete"),
+        ).toHaveLength(1);
+        expect(events.some((event) => event.type === "error")).toBe(false);
+        expect(sessions.releaseTurn).toHaveBeenCalledWith("test-req", {
+          status: "completed",
+          endReason: "turn_settled",
+        });
+      },
+    );
+
+    test("releases a retired source only after final output settles", async () => {
+      const sessions = makeModeSessionDouble({
+        terminalDisposition: {
+          status: "interrupted",
+          endReason: "browser_cancelled",
+        },
+      });
+      const ctx = makeCtx({ modeSessions: sessions.coordinator });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      expect(sessions.beginDraining).not.toHaveBeenCalled();
+      expect(sessions.releaseTurn).toHaveBeenCalledWith("test-req", {
+        status: "completed",
+        endReason: "turn_settled",
+      });
+      expect(sessions.finalizeTurn).not.toHaveBeenCalled();
+    });
+
+    test("keeps a source-lifetime session active across a cancelled turn", async () => {
+      const abortController = new AbortController();
+      const provider: Provider = {
+        name: "mock",
+        async sendMessage(_messages, options) {
+          options?.onEvent?.({ type: "text_delta", text: "partial" });
+          abortController.abort();
+          return textResponse("partial");
+        },
+      };
+      const sessions = makeModeSessionDouble({ sourceLifetime: true });
+      const cancelledCtx = makeCtx({
+        loopProvider: provider,
+        abortController,
+        modeSessions: sessions.coordinator,
+      });
+
+      await runAgentLoopImpl(cancelledCtx, "hello", "msg-1", () => {});
+
+      expect(sessions.releaseTurn).toHaveBeenCalledWith("test-req");
+      expect(sessions.beginDraining).not.toHaveBeenCalled();
+      expect(sessions.finalizeTurn).not.toHaveBeenCalled();
+
+      const laterCtx = makeCtx({ modeSessions: sessions.coordinator });
+      await runAgentLoopImpl(laterCtx, "later", "msg-2", () => {});
+
+      expect(sessions.releaseTurn).toHaveBeenCalledTimes(2);
+      expect(sessions.finalizeTurn).not.toHaveBeenCalled();
+    });
+
+    test("keeps a source-lifetime session active across a failed turn", async () => {
+      const sessions = makeModeSessionDouble({ sourceLifetime: true });
+      const failedCtx = makeCtx({
+        loopProvider: {
+          name: "mock",
+          async sendMessage() {
+            throw new Error("provider failure");
+          },
+        } as Provider,
+        modeSessions: sessions.coordinator,
+      });
+
+      await runAgentLoopImpl(failedCtx, "hello", "msg-1", () => {});
+
+      expect(sessions.releaseTurn).toHaveBeenCalledWith("test-req");
+      expect(sessions.beginDraining).not.toHaveBeenCalled();
+      expect(sessions.finalizeTurn).not.toHaveBeenCalled();
+    });
+
+    test("keeps an owned turn open for an exact structural response", async () => {
+      const sessions = makeModeSessionDouble({ structuralWait: true });
+      const ctx = makeCtx({
+        modeSessions: sessions.coordinator,
+        pendingSurfaceActions: new Map([
+          ["surface-1", { surfaceType: "form" }],
+        ]) as Conversation["pendingSurfaceActions"],
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      expect(sessions.recordStructuralWait).toHaveBeenCalledWith("test-req", {
+        kind: "surface",
+        responseId: "surface-1",
+      });
+      expect(sessions.releaseTurn).toHaveBeenCalledWith("test-req");
+      expect(sessions.beginDraining).not.toHaveBeenCalled();
+      expect(sessions.finalizeTurn).not.toHaveBeenCalled();
+    });
+
+    test("transfers ownership to the queued turn at a checkpoint", async () => {
+      const sessions = makeModeSessionDouble();
+      const ctx = makeCtx({
+        modeSessions: sessions.coordinator,
+        providerResponses: [toolUseResponse("tu-1", "file_read", {})],
+        loopTools: [
+          {
+            name: "file_read",
+            description: "Read a file",
+            input_schema: { type: "object", properties: {} },
+          },
+        ],
+        toolExecutor: async () => ({ content: "file content", isError: false }),
+        canHandoffAtCheckpoint: () => true,
+        queue: {
+          snapshot: () => [{ requestId: "msg-2" }],
+        } as unknown as Conversation["queue"],
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      expect(sessions.transferTurn).toHaveBeenCalledWith("test-req", "msg-2");
+      expect(sessions.finalizeTurn).not.toHaveBeenCalled();
+    });
+  });
+
   describe("user-prompt-submit hook failures", () => {
     test("passes the effective profile to hooks even when it was already announced", async () => {
       // Both profiles are complete (provider + model) so each is a usable
@@ -1384,6 +1904,43 @@ describe("session-agent-loop", () => {
       expect(cleanupFlagDuringInjection()).toEqual([true]);
     });
 
+    test("re-syncs the system prompt once the cleanup-mode policy is known", async () => {
+      // Sections gated on the turn's resolved tool surface (the
+      // parallel-delegation guidance, which needs the skill dispatcher that
+      // cleanup mode withholds) are built by the first sync, which runs before
+      // the disk-pressure decision. A cleanup-mode turn therefore syncs a
+      // second time, with the flag already set.
+      mockDiskPressureDecision = {
+        action: "allow-cleanup-mode",
+        reason: "local-owner",
+      };
+      const observed: Array<boolean | undefined> = [];
+      const ctx = makeCtx();
+      ctx.syncLoopSystemPrompt = () => {
+        observed.push(ctx.diskPressureCleanupModeActive);
+      };
+
+      await runAgentLoopImpl(ctx, "free up space", "msg-1", () => {});
+
+      expect(observed).toEqual([undefined, true]);
+    });
+
+    test("does not re-sync the system prompt on an ordinary turn", async () => {
+      // The mode is cleared at the end of every turn, so the first sync
+      // already ran under the answer the turn keeps. A second rebuild would
+      // cost every turn a prompt render for nothing.
+      mockDiskPressureDecision = { action: "allow-normal" };
+      const observed: Array<boolean | undefined> = [];
+      const ctx = makeCtx();
+      ctx.syncLoopSystemPrompt = () => {
+        observed.push(ctx.diskPressureCleanupModeActive);
+      };
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      expect(observed).toEqual([undefined]);
+    });
+
     test("keeps the cleanup-mode flag set across overflow recovery reinjection", async () => {
       mockDiskPressureDecision = {
         action: "allow-cleanup-mode",
@@ -1459,6 +2016,79 @@ describe("session-agent-loop", () => {
       });
     });
 
+    test("holds the finalization barrier open past a commit that outran its budget", async () => {
+      // `raceWithTimeout` returning `timed_out` means the turn stops waiting,
+      // not that the commit stopped: it is still staging the working tree. The
+      // barrier has to outlast it, or an interrupt is told the turn is finished
+      // and lets the replacement turn write files into the old turn's commit.
+      let finishCommit = () => {};
+      const commitTurnChanges = mock(
+        () =>
+          new Promise<void>((resolve) => {
+            finishCommit = resolve;
+          }),
+      );
+      raceWithTimeoutOutcome = "timed_out";
+      const ctx = makeCtx({
+        commitTurnChanges:
+          commitTurnChanges as unknown as Conversation["commitTurnChanges"],
+      });
+
+      await runAgentLoopImpl(ctx, "write a file", "msg-1", () => {});
+
+      expect(commitTurnChanges).toHaveBeenCalled();
+      // The loop has returned, but the commit has not, so the barrier stands.
+      expect(await waitForTurnFinalization("test-conv", 5)).toBe(false);
+
+      finishCommit();
+
+      expect(await waitForTurnFinalization("test-conv", 1000)).toBe(true);
+    });
+
+    test("closes the finalization barrier when the commit lands in budget", async () => {
+      const ctx = makeCtx();
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      expect(await waitForTurnFinalization("test-conv", 5)).toBe(true);
+    });
+
+    test("emits the interrupt bridge at turn head and disarms it", async () => {
+      // `interruptRunningTurn` arms the flag instead of emitting, because the
+      // send can still fail before any turn runs and an activity state is
+      // cached and replayed to reconnecting clients. The loop is the first
+      // point at which the replacement turn is certainly running.
+      const activityStates: unknown[][] = [];
+      const ctx = makeCtx({
+        pendingInterruptActivityBridge: true,
+        emitActivityState: (...args: unknown[]) => {
+          activityStates.push(args);
+        },
+      });
+
+      await runAgentLoopImpl(ctx, "and now the time", "msg-1", () => {});
+
+      expect(activityStates[0]).toEqual(["thinking", "message_interrupted"]);
+      // Disarmed, so a later unrelated turn does not replay the transition.
+      expect(ctx.pendingInterruptActivityBridge).toBe(false);
+    });
+
+    test("emits no interrupt bridge on a turn nothing interrupted", async () => {
+      const activityStates: unknown[][] = [];
+      const ctx = makeCtx({
+        emitActivityState: (...args: unknown[]) => {
+          activityStates.push(args);
+        },
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      expect(activityStates).not.toContainEqual([
+        "thinking",
+        "message_interrupted",
+      ]);
+    });
+
     test("blocked background turns clear processing state and drain the queue", async () => {
       mockDiskPressureDecision = {
         action: "block",
@@ -1489,6 +2119,30 @@ describe("session-agent-loop", () => {
         { anchor: "global", requestId: "test-req" },
       ]);
     });
+  });
+
+  test("releases desktop control before a completed turn accepts another message", async () => {
+    const events: AssistantEvent[] = [];
+    const ctx = makeCtx();
+    const release = spyOn(desktopAutomationLease, "releaseForConversation");
+    const setProcessing = ctx.setProcessing.bind(ctx);
+    ctx.setProcessing = (processing) => {
+      if (!processing) {
+        expect(release).toHaveBeenCalledWith(ctx.conversationId);
+      }
+      setProcessing(processing);
+    };
+    try {
+      await runAgentLoopImpl(ctx, "hello", "msg-1", (event) =>
+        events.push(event),
+      );
+      expect(events.some((event) => event.type === "message_complete")).toBe(
+        true,
+      );
+      expect(release).toHaveBeenCalledTimes(1);
+    } finally {
+      release.mockRestore();
+    }
   });
 
   describe("tool execution errors via agent loop", () => {
@@ -1525,6 +2179,157 @@ describe("session-agent-loop", () => {
       expect(conversationError).toBeUndefined();
       const complete = events.find((e) => e.type === "message_complete");
       expect(complete).toBeDefined();
+    });
+
+    test("carries automatic screenshot provenance on message completion", async () => {
+      resolveAssistantAttachmentsMock.mockImplementation(async () => ({
+        assistantAttachments: [],
+        emittedAttachments: [
+          {
+            id: "screenshot-1",
+            filename: "computer-use-click.png",
+            mimeType: "image/png",
+            data: "c2NyZWVuc2hvdA==",
+            sourceType: "tool_block" as const,
+            computerUseScreenshot: true,
+          },
+        ],
+        directiveWarnings: [],
+        persistedFiles: [],
+        linkedAttachmentIds: ["screenshot-1"],
+        computerUseScreenshotAttachmentIds: ["screenshot-1"],
+      }));
+      const events: AssistantEvent[] = [];
+      const ctx = makeCtx({ providerResponses: [textResponse("Done")] });
+
+      await runAgentLoopImpl(ctx, "click it", "msg-1", (event) =>
+        events.push(event),
+      );
+
+      const complete = events.find(
+        (event) => event.type === "message_complete",
+      );
+      expect(complete?.attachments?.[0]?.computerUseScreenshot).toBe(true);
+      const syncCalls = syncMessageToDiskMock.mock.calls as unknown as Array<
+        [string, string, number]
+      >;
+      const finalRowSyncs = syncCalls.filter(
+        (call) => call[1] === "msg-reserve",
+      );
+      expect(finalRowSyncs).toHaveLength(1);
+    });
+
+    test("defers an earlier delivered attachment reply to ordered turn settlement", async () => {
+      const featureFlags = await import("../config/assistant-feature-flags.js");
+      const flagSpy = spyOn(
+        featureFlags,
+        "isAssistantFeatureFlagEnabled",
+      ).mockImplementation((key: string) => key === "send-user-message");
+      reserveMessageMock
+        .mockImplementationOnce(async () => ({
+          id: "msg-delivered-reply",
+          createdAt: 1_700_000_000_050,
+        }))
+        .mockImplementationOnce(async () => ({
+          id: "msg-tool-result",
+          createdAt: 1_700_000_000_050,
+        }))
+        .mockImplementationOnce(async () => ({
+          id: "msg-final-private",
+          createdAt: 1_700_000_000_050,
+        }));
+      mockTurnReplyMessageId = "msg-delivered-reply";
+      resolveAssistantAttachmentsMock.mockImplementation(async () => ({
+        assistantAttachments: [],
+        emittedAttachments: [],
+        directiveWarnings: [],
+        persistedFiles: [],
+        linkedAttachmentIds: ["attachment-1"],
+        computerUseScreenshotAttachmentIds: [],
+      }));
+      const assistantSyncsAtTerminal: string[][] = [];
+      const ctx = makeSendUserMessageCtx();
+
+      try {
+        await runAgentLoopImpl(ctx, "click it", "msg-1", (event) => {
+          if (event.type !== "message_complete") {
+            return;
+          }
+          const calls = syncMessageToDiskMock.mock.calls as unknown as Array<
+            [string, string, number]
+          >;
+          assistantSyncsAtTerminal.push(
+            calls
+              .map((call) => call[1])
+              .filter((id) =>
+                ["msg-delivered-reply", "msg-final-private"].includes(id),
+              ),
+          );
+        });
+      } finally {
+        flagSpy.mockRestore();
+      }
+
+      expect(resolveTurnReplyMessageIdMock).toHaveBeenCalledWith(
+        "test-conv",
+        "msg-1",
+        "msg-final-private",
+      );
+      expect(assistantSyncsAtTerminal.at(-1)).toEqual([]);
+      const calls = syncMessageToDiskMock.mock.calls as unknown as Array<
+        [string, string, number]
+      >;
+      expect(
+        calls
+          .map((call) => call[1])
+          .filter((id) =>
+            ["msg-delivered-reply", "msg-final-private"].includes(id),
+          ),
+      ).toEqual(["msg-delivered-reply", "msg-final-private"]);
+    });
+
+    test("does not queue an earlier delivered reply without a linked attachment", async () => {
+      const featureFlags = await import("../config/assistant-feature-flags.js");
+      const flagSpy = spyOn(
+        featureFlags,
+        "isAssistantFeatureFlagEnabled",
+      ).mockImplementation((key: string) => key === "send-user-message");
+      reserveMessageMock
+        .mockImplementationOnce(async () => ({
+          id: "msg-delivered-empty",
+          createdAt: 1_700_000_000_050,
+        }))
+        .mockImplementationOnce(async () => ({
+          id: "msg-tool-result-empty",
+          createdAt: 1_700_000_000_050,
+        }))
+        .mockImplementationOnce(async () => ({
+          id: "msg-final-empty",
+          createdAt: 1_700_000_000_050,
+        }));
+      mockTurnReplyMessageId = "msg-delivered-empty";
+
+      try {
+        await runAgentLoopImpl(
+          makeSendUserMessageCtx(),
+          "click it",
+          "msg-1",
+          () => {},
+        );
+      } finally {
+        flagSpy.mockRestore();
+      }
+
+      const calls = syncMessageToDiskMock.mock.calls as unknown as Array<
+        [string, string, number]
+      >;
+      expect(
+        calls
+          .map((call) => call[1])
+          .filter((id) =>
+            ["msg-delivered-empty", "msg-final-empty"].includes(id),
+          ),
+      ).toEqual(["msg-final-empty"]);
     });
   });
 
@@ -1784,6 +2589,43 @@ describe("session-agent-loop", () => {
       const call = recordRequestLogMock.mock.calls[0] as unknown as unknown[];
       expect(call[5]).toBe("callAgent");
     });
+
+    test("reports only the first finalized model call", async () => {
+      const tool: ToolDefinition = {
+        name: "echo",
+        description: "Echo",
+        input_schema: { type: "object" },
+      };
+      const onFirstModelCallPrepared = mock(() => {});
+      const ctx = makeCtx({
+        providerResponses: [
+          toolUseResponse("tool-1", "echo", {}),
+          textResponse("done"),
+        ],
+        loopTools: [tool],
+        toolExecutor: async () => ({ content: "ok", isError: false }),
+      });
+      const turnSignal = ctx.abortController?.signal;
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {}, {
+        callSite: "callAgent",
+        inferenceCallSite: "mainAgent",
+        overrideProfile: "quality-optimized",
+        forceOverrideProfile: true,
+        onFirstModelCallPrepared,
+      });
+
+      expect(onFirstModelCallPrepared).toHaveBeenCalledTimes(1);
+      expect(onFirstModelCallPrepared).toHaveBeenCalledWith({
+        callSite: "mainAgent",
+        overrideProfile: "quality-optimized",
+        forceOverrideProfile: true,
+        signal: turnSignal,
+        systemPrompt: "system prompt",
+        tools: [tool],
+      });
+      expect(ctx.currentCallSite).toBe("callAgent");
+    });
   });
 
   describe("usage accounting", () => {
@@ -2000,6 +2842,48 @@ describe("session-agent-loop", () => {
       );
     });
 
+    test("carries automatic screenshot provenance on generation handoff", async () => {
+      resolveAssistantAttachmentsMock.mockImplementation(async () => ({
+        assistantAttachments: [],
+        emittedAttachments: [
+          {
+            id: "screenshot-1",
+            filename: "computer-use-click.png",
+            mimeType: "image/png",
+            data: "c2NyZWVuc2hvdA==",
+            sourceType: "tool_block" as const,
+            computerUseScreenshot: true,
+          },
+        ],
+        directiveWarnings: [],
+        persistedFiles: [],
+        linkedAttachmentIds: ["screenshot-1"],
+        computerUseScreenshotAttachmentIds: ["screenshot-1"],
+      }));
+      const events: AssistantEvent[] = [];
+      const ctx = makeCtx({
+        providerResponses: [toolUseResponse("tu-1", "file_read", {})],
+        loopTools: [
+          {
+            name: "file_read",
+            description: "Read a file",
+            input_schema: { type: "object", properties: {} },
+          },
+        ],
+        toolExecutor: async () => ({ content: "content", isError: false }),
+        canHandoffAtCheckpoint: () => true,
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", (event) =>
+        events.push(event),
+      );
+
+      const handoff = events.find(
+        (event) => event.type === "generation_handoff",
+      );
+      expect(handoff?.attachments?.[0]?.computerUseScreenshot).toBe(true);
+    });
+
     test("continues when canHandoffAtCheckpoint returns false", async () => {
       const events: AssistantEvent[] = [];
 
@@ -2050,11 +2934,91 @@ describe("session-agent-loop", () => {
         },
       };
 
-      const ctx = makeCtx({ loopProvider: provider, abortController });
+      const sessions = makeModeSessionDouble();
+      const ctx = makeCtx({
+        loopProvider: provider,
+        abortController,
+        modeSessions: sessions.coordinator,
+      });
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
       const cancelled = events.find((e) => e.type === "generation_cancelled");
       expect(cancelled).toBeDefined();
+      expect(sessions.finalizeTurn).toHaveBeenCalledWith({
+        turnId: "test-req",
+        status: "interrupted",
+        endedAt: expect.any(Number),
+        endReason: "cancelled",
+        lastActivityAt: expect.any(Number),
+      });
+    });
+
+    // A `task_progress` card mid-run. `data` mirrors what `ui_show` stores for
+    // the card template, which is what the end-of-turn settle inspects.
+    function runningCardState(): Map<string, unknown> {
+      return new Map([
+        [
+          "surface-1",
+          {
+            title: "Working",
+            actions: [],
+            surfaceType: "card",
+            data: {
+              template: "task_progress",
+              templateData: {
+                status: "in_progress",
+                steps: [{ label: "Build", status: "in_progress" }],
+              },
+            },
+          },
+        ],
+      ]);
+    }
+
+    function cardStatus(ctx: { surfaceState: Map<string, unknown> }): unknown {
+      const entry = ctx.surfaceState.get("surface-1") as {
+        data: { templateData: { status: unknown } };
+      };
+      return entry.data.templateData.status;
+    }
+
+    test("settles a running progress card when the user stops the turn", async () => {
+      const abortController = new AbortController();
+      const provider: Provider = {
+        name: "mock",
+        async sendMessage(_messages, options) {
+          options?.onEvent?.({ type: "text_delta", text: "partial" });
+          abortController.abort(
+            createAbortReason("user_cancel", "test", "conv-1"),
+          );
+          return textResponse("partial");
+        },
+      };
+      const ctx = makeCtx({ loopProvider: provider, abortController });
+      ctx.surfaceState = runningCardState() as typeof ctx.surfaceState;
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+      expect(cardStatus(ctx)).toBe("pending");
+    });
+
+    test("keeps a running progress card live when a new message preempts the turn", async () => {
+      // The replacement turn owns the card: it resumes the work or closes it
+      // out itself, so settling here would show finished work that then
+      // restarts with no visible reason.
+      const abortController = new AbortController();
+      const provider: Provider = {
+        name: "mock",
+        async sendMessage(_messages, options) {
+          options?.onEvent?.({ type: "text_delta", text: "partial" });
+          abortController.abort(
+            createAbortReason("preempted_by_new_message", "test", "conv-1"),
+          );
+          return textResponse("partial");
+        },
+      };
+      const ctx = makeCtx({ loopProvider: provider, abortController });
+      ctx.surfaceState = runningCardState() as typeof ctx.surfaceState;
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+      expect(cardStatus(ctx)).toBe("in_progress");
     });
 
     test("handles AbortError thrown from agent loop as user cancellation", async () => {
@@ -2166,6 +3130,114 @@ describe("session-agent-loop", () => {
       });
     });
 
+    test("drops the private marker when an error row replaces the failed call", async () => {
+      // GIVEN a gated turn whose first call delivered through the tool (so the
+      // state carries `"private"`) and whose next call is rejected.
+      const featureFlags = await import("../config/assistant-feature-flags.js");
+      const flagSpy = spyOn(
+        featureFlags,
+        "isAssistantFeatureFlagEnabled",
+      ).mockImplementation((key: string) => key === "send-user-message");
+      const events: AssistantEvent[] = [];
+      const ctx = makeCtx({
+        currentCallSite: "mainAgent",
+        providerResponses: [
+          toolUseResponse("tu_1", "send_user_message", {
+            message: "Looking now.",
+          }),
+          new Error("provider exploded"),
+        ],
+        loopTools: [
+          {
+            name: "send_user_message",
+            description: "deliver",
+            input_schema: { type: "object" },
+          },
+        ],
+        toolExecutor: async () => ({ content: "Delivered.", isError: false }),
+      });
+
+      try {
+        await runAgentLoopImpl(ctx, "hi", "msg-1", (event) =>
+          events.push(event),
+        );
+      } finally {
+        flagSpy.mockRestore();
+      }
+
+      // THEN the terminal event describes the row it actually ends on. The
+      // error row carries no visibility marker, so labelling it private would
+      // disagree with persisted history and read to clients as working
+      // activity that produced no reply.
+      const complete = events.filter(
+        (event) => event.type === "message_complete",
+      );
+      expect(complete.length).toBeGreaterThan(0);
+      expect(complete.at(-1)).not.toHaveProperty("assistantTextVisibility");
+    });
+
+    test("never narrates the delivery tool as work in progress", async () => {
+      // The call IS the reply the user just read and its result is a bare
+      // receipt, so "Processing send user message results" would narrate
+      // plumbing at the moment the answer appears.
+      const activityStates: unknown[][] = [];
+      const ctx = makeCtx({
+        currentCallSite: "mainAgent",
+        emitActivityState: (...args: unknown[]) => {
+          activityStates.push(args);
+        },
+        providerResponses: [
+          toolUseResponse("tu_1", "send_user_message", {
+            message: "Two meetings today.",
+          }),
+          textResponse("done"),
+        ],
+        loopTools: [
+          {
+            name: "send_user_message",
+            description: "deliver",
+            input_schema: { type: "object" },
+          },
+        ],
+        toolExecutor: async () => ({ content: "Delivered.", isError: false }),
+      });
+
+      await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
+
+      expect(JSON.stringify(activityStates)).not.toContain(
+        "Processing send user message results",
+      );
+    });
+
+    test("still narrates an ordinary tool's results", async () => {
+      const activityStates: unknown[][] = [];
+      const ctx = makeCtx({
+        currentCallSite: "mainAgent",
+        emitActivityState: (...args: unknown[]) => {
+          activityStates.push(args);
+        },
+        providerResponses: [
+          toolUseResponse("tu_1", "bash", { command: "ls" }),
+          textResponse("done"),
+        ],
+        loopTools: [
+          {
+            name: "bash",
+            description: "run",
+            input_schema: { type: "object" },
+          },
+        ],
+        toolExecutor: async () => ({ content: "ok", isError: false }),
+      });
+
+      await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
+
+      // `bash` reads as "command" in the client-facing name map.
+      expect(JSON.stringify(activityStates)).toContain(
+        "Processing command results",
+      );
+    });
+
     test("drains queue after completion", async () => {
       // GIVEN a real loop that answers in a single text turn
       let drainReason: QueueDrainReason | undefined;
@@ -2272,6 +3344,38 @@ describe("session-agent-loop", () => {
       expect(ctx.pendingSurfaceActions.has("page-1")).toBe(true);
       expect(ctx.pendingSurfaceActions.has("stale-table-1")).toBe(false);
       expect(ctx.pendingSurfaceActions.has("stale-form-1")).toBe(false);
+      expect(ctx.modeSessions.invalidateStructuralWait).toHaveBeenCalledTimes(
+        2,
+      );
+      expect(ctx.modeSessions.invalidateStructuralWait).toHaveBeenCalledWith({
+        kind: "surface",
+        responseId: "stale-table-1",
+      });
+      expect(ctx.modeSessions.invalidateStructuralWait).toHaveBeenCalledWith({
+        kind: "surface",
+        responseId: "stale-form-1",
+      });
+    });
+
+    test("tracking cleanup failure does not prevent a new user turn", async () => {
+      const events: AssistantEvent[] = [];
+      const ctx = makeCtx();
+      ctx.pendingSurfaceActions.set("stale-surface", { surfaceType: "form" });
+      ctx.modeSessions.invalidateStructuralWait = () => {
+        throw new Error("session tracking unavailable");
+      };
+      await runAgentLoopImpl(
+        ctx,
+        "hello",
+        "msg-1",
+        (event) => events.push(event),
+        { isUserMessage: true },
+      );
+      expect(ctx.pendingSurfaceActions.has("stale-surface")).toBe(false);
+      expect(
+        events.filter((event) => event.type === "message_complete"),
+      ).toHaveLength(1);
+      expect(events.some((event) => event.type === "error")).toBe(false);
     });
 
     test("withholds the dismissal event and keeps the surface pending when its persisted write fails", async () => {
@@ -2305,6 +3409,7 @@ describe("session-agent-loop", () => {
       // The card stays live on the client, so the daemon must keep treating it
       // as pending; the sweep retries on the next user message.
       expect(ctx.pendingSurfaceActions.has("stale-table-2")).toBe(true);
+      expect(ctx.modeSessions.invalidateStructuralWait).not.toHaveBeenCalled();
     });
 
     test("dismisses the remaining surfaces when one write fails", async () => {
@@ -2368,6 +3473,7 @@ describe("session-agent-loop", () => {
       expect(completeEvents).toHaveLength(0);
       // The pending surface should still be there
       expect(ctx.pendingSurfaceActions.has("active-table-1")).toBe(true);
+      expect(ctx.modeSessions.invalidateStructuralWait).not.toHaveBeenCalled();
     });
 
     test("no-op when no pending surfaces exist", async () => {
@@ -2426,6 +3532,11 @@ describe("session-agent-loop", () => {
         isUserMessage: true,
       });
 
+      expect(ctx.pendingSurfaceActions.has("stale-table-1")).toBe(false);
+      expect(ctx.modeSessions.invalidateStructuralWait).toHaveBeenCalledWith({
+        kind: "surface",
+        responseId: "stale-table-1",
+      });
       expect(ctx.isProcessing()).toBe(false);
       expect(ctx.abortController).toBeNull();
       expect(ctx.currentRequestId).toBeUndefined();
@@ -2693,9 +3804,18 @@ describe("session-agent-loop", () => {
       // shape too, so a reload explains why the assistant stopped instead of
       // ending on a bare tool call.
       reserveMessageMock
-        .mockImplementationOnce(async () => ({ id: "msg-reserve-1" }))
-        .mockImplementationOnce(async () => ({ id: "msg-reserve-2" }))
-        .mockImplementationOnce(async () => ({ id: "msg-reserve-3" }));
+        .mockImplementationOnce(async () => ({
+          id: "msg-reserve-1",
+          createdAt: 1_700_000_000_051,
+        }))
+        .mockImplementationOnce(async () => ({
+          id: "msg-reserve-2",
+          createdAt: 1_700_000_000_052,
+        }))
+        .mockImplementationOnce(async () => ({
+          id: "msg-reserve-3",
+          createdAt: 1_700_000_000_053,
+        }));
       mockConversationErrorClassification = DAILY_LIMIT_CLASSIFICATION;
 
       // GIVEN a run whose first call asks for a tool, the tool succeeds, and
@@ -3207,8 +4327,14 @@ describe("session-agent-loop", () => {
       // `llm_call_started` must delete the stranded row so the transcript
       // does not accumulate empty assistant bubbles.
       reserveMessageMock
-        .mockImplementationOnce(async () => ({ id: "msg-strand-A" }))
-        .mockImplementationOnce(async () => ({ id: "msg-strand-B" }));
+        .mockImplementationOnce(async () => ({
+          id: "msg-strand-A",
+          createdAt: 1_700_000_000_051,
+        }))
+        .mockImplementationOnce(async () => ({
+          id: "msg-strand-B",
+          createdAt: 1_700_000_000_052,
+        }));
       // Indexer/projector mocks default to no-op; no finalized row in this
       // test, so `mockMessageById` stays null.
 
@@ -3270,6 +4396,7 @@ describe("session-agent-loop", () => {
       // reservation id.
       reserveMessageMock.mockImplementationOnce(async () => ({
         id: "msg-orphaned-reservation",
+        createdAt: 1_700_000_000_051,
       }));
 
       // GIVEN a real loop that reserves an assistant row at
@@ -3312,6 +4439,7 @@ describe("session-agent-loop", () => {
     test("managed-key provider-error cleanup publishes message invalidation after deleting the reservation", async () => {
       reserveMessageMock.mockImplementationOnce(async () => ({
         id: "msg-managed-key-reservation",
+        createdAt: 1_700_000_000_051,
       }));
       mockConversationErrorClassification = {
         code: "MANAGED_KEY_INVALID",
@@ -3648,6 +4776,7 @@ describe("session-agent-loop", () => {
       // error message lands.
       reserveMessageMock.mockImplementationOnce(async () => ({
         id: "msg-orphan-with-partial",
+        createdAt: 1_700_000_000_051,
       }));
 
       // GIVEN a real loop whose provider streams a delta — landing a debounced
@@ -4429,30 +5558,7 @@ describe("session-agent-loop", () => {
       // context-too-large error on the following call — reactive overflow
       // recovery strips that appended history when it compacts before a final
       // call recovers.
-      const ctx = makeCtx({
-        providerResponses: [
-          toolUseResponse("t1", "file_read", {}),
-          new ContextOverflowError(
-            "context_length_exceeded: 250000 tokens > 200000 maximum",
-            "mock-provider",
-            { actualTokens: 250_000, maxTokens: 200_000 },
-          ),
-          textResponse("recovered"),
-        ],
-        loopTools: [
-          {
-            name: "file_read",
-            description: "Read a file",
-            input_schema: { type: "object", properties: {} },
-          },
-        ],
-        toolExecutor: async () => ({ content: "ok", isError: false }),
-        contextWindowManager: {
-          updateConfig: () => {},
-          shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
-          maybeCompact: async () => ({ compacted: false }),
-        } as unknown as Conversation["contextWindowManager"],
-      });
+      const ctx = makeCtx(overflowAfterToolTurnScenario());
 
       // WHEN the loop runs the turn to completion
       await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
@@ -4483,35 +5589,648 @@ describe("session-agent-loop", () => {
       // context-too-large error on the following call, driving the
       // overflow-recovery strip whose marker-write helper is stubbed to throw,
       // before a final call recovers.
-      const ctx = makeCtx({
-        providerResponses: [
-          toolUseResponse("t1", "file_read", {}),
-          new ContextOverflowError(
-            "context_length_exceeded: 250000 tokens > 200000 maximum",
-            "mock-provider",
-            { actualTokens: 250_000, maxTokens: 200_000 },
-          ),
-          textResponse("recovered"),
-        ],
-        loopTools: [
-          {
-            name: "file_read",
-            description: "Read a file",
-            input_schema: { type: "object", properties: {} },
-          },
-        ],
-        toolExecutor: async () => ({ content: "ok", isError: false }),
-        contextWindowManager: {
-          updateConfig: () => {},
-          shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
-          maybeCompact: async () => ({ compacted: false }),
-        } as unknown as Conversation["contextWindowManager"],
-      });
+      const ctx = makeCtx(overflowAfterToolTurnScenario());
 
-      // Must not throw — the strip-site marker write is wrapped in try/catch.
+      // Must not throw: the strip-site marker write is wrapped in try/catch.
       await expect(
         runAgentLoopImpl(ctx, "hello", "msg-1", () => {}),
       ).resolves.toBeUndefined();
+    });
+  });
+
+  describe("injection ledger reset after an injection strip", () => {
+    // The durable base is injection-stripped on every pipeline run, so the
+    // frozen memory blocks the ledgers claim leave history whether or not a
+    // summary lands. The ledgers must reset either way, and before the
+    // post-compaction hook re-injects onto the stripped base; otherwise the
+    // next turn classifies a re-selected section as resident and points at a
+    // block that is gone. The reset is gated on the history-stripped marker:
+    // without it a restart rehydrates the stripped blocks, so cleared ledgers
+    // would inject each section again beside its rehydrated copy.
+
+    /** Seed the real memory-v3 section store with one resident section (and
+     *  prove the store is live in this process, so an empty read after the
+     *  run is a reset rather than a degraded store), then arrange a real
+     *  graph memory whose `onCompacted` records its position in `order`
+     *  before running for real, and a post-compact hook that records when
+     *  re-injection ran. */
+    function arrangeResidentSectionAndObservers(conversationId: string) {
+      recordV3Injected(conversationId, [
+        { slug: "page-a", key: "", bytes: 100 },
+      ]);
+      expect(getV3ActiveSections(conversationId)).toEqual(
+        new Map([["page-a", new Set([""])]]),
+      );
+      const order: string[] = [];
+      const graphMemory = new ConversationGraphMemory(conversationId);
+      const original = graphMemory.onCompacted.bind(graphMemory);
+      const onCompacted = spyOn(graphMemory, "onCompacted").mockImplementation(
+        async (count: number) => {
+          order.push("reset");
+          return await original(count);
+        },
+      );
+      registerPlugin({
+        manifest: { name: "test-observe-post-compact", version: "1.0.0" },
+        hooks: {
+          "post-compact": async () => {
+            order.push("post_compact");
+          },
+        },
+      });
+      return { graphMemory, onCompacted, order };
+    }
+
+    /** A manager whose pipeline runs (recorded in `order`) and finds nothing
+     *  eligible to summarize, dropping the estimate back under budget so the
+     *  provider call proceeds. */
+    function noopPipelineManager(
+      order: string[],
+    ): Conversation["contextWindowManager"] {
+      return {
+        updateConfig: () => {},
+        shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
+        maybeCompact: async (messages: Message[]) => {
+          order.push("pipeline");
+          mockEstimateTokens = 1000;
+          return { compacted: false, messages };
+        },
+      } as unknown as Conversation["contextWindowManager"];
+    }
+
+    test("a budget-gate run that finds nothing to summarize resets the ledgers before re-injection", async () => {
+      const { graphMemory, onCompacted, order } =
+        arrangeResidentSectionAndObservers("test-conv");
+      // Above the loop's first-call gate threshold, so it compacts in place
+      // before its first provider call.
+      mockEstimateTokens = 90_000;
+      const ctx = makeCtx({
+        graphMemory,
+        contextWindowManager: noopPipelineManager(order),
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      // THEN the marker written at the strip is durable, so the ledgers reset
+      // exactly once on its strength (no second marker write), as a strip
+      // with no summary, and before the post-compaction hook re-injected onto
+      // the stripped base
+      expect(setConversationHistoryStrippedAtMock).toHaveBeenCalledTimes(1);
+      expect(setConversationHistoryStrippedAtMock).toHaveBeenCalledWith(
+        "test-conv",
+        expect.any(Number),
+      );
+      expect(onCompacted.mock.calls).toEqual([[0]]);
+      expect(order).toEqual(["pipeline", "reset", "post_compact"]);
+      // AND the section store no longer claims the section, so the next turn
+      // injects it net-new instead of pointing at a block that is gone
+      expect(getV3ActiveSections("test-conv")).toEqual(new Map());
+    });
+
+    /** Stub the marker write so the first write succeeds and every later
+     *  write fails, as a transient SQLite error (SQLITE_BUSY) landing between
+     *  the strip and the reset would. */
+    function failMarkerWritesAfterTheFirst(): void {
+      let markerWrites = 0;
+      setConversationHistoryStrippedAtMock.mockImplementation(() => {
+        markerWrites += 1;
+        if (markerWrites > 1) {
+          throw new Error("SQLITE_BUSY");
+        }
+      });
+    }
+
+    /** A manager whose pipeline runs (recorded in `order`) and compacts,
+     *  summarizing two persisted messages and dropping the estimate back under
+     *  budget so the provider call proceeds. */
+    function compactingPipelineManager(
+      order: string[],
+    ): Conversation["contextWindowManager"] {
+      return {
+        updateConfig: () => {},
+        shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
+        maybeCompact: async (messages: Message[]) => {
+          order.push("pipeline");
+          mockEstimateTokens = 1000;
+          return {
+            ...makeCompactionResult({
+              messages: [
+                { role: "user", content: [{ type: "text", text: "summary" }] },
+                messages[messages.length - 1]!,
+              ],
+              compactedPersistedMessages: 2,
+              compactedMessages: 2,
+            }),
+            compacted: true,
+            summaryFailed: false,
+          };
+        },
+      } as unknown as Conversation["contextWindowManager"];
+    }
+
+    test("resets the ledgers on the strip's durable marker write when a later marker write would fail", async () => {
+      const { graphMemory, onCompacted, order } =
+        arrangeResidentSectionAndObservers("test-conv");
+      failMarkerWritesAfterTheFirst();
+      mockEstimateTokens = 90_000;
+      const ctx = makeCtx({
+        graphMemory,
+        contextWindowManager: noopPipelineManager(order),
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      // THEN the marker the strip wrote is durable, so the reset does not
+      // depend on a re-attempt that would fail: the ledgers reset once,
+      // before re-injection, and the store no longer claims the section
+      expect(onCompacted.mock.calls).toEqual([[0]]);
+      expect(order).toEqual(["pipeline", "reset", "post_compact"]);
+      expect(getV3ActiveSections("test-conv")).toEqual(new Map());
+    });
+
+    test("resets the ledgers on the strip's durable marker write when the pipeline compacts and a later marker write would fail", async () => {
+      const { graphMemory, onCompacted, order } =
+        arrangeResidentSectionAndObservers("test-conv");
+      failMarkerWritesAfterTheFirst();
+      mockEstimateTokens = 90_000;
+      const ctx = makeCtx({
+        graphMemory,
+        contextWindowManager: compactingPipelineManager(order),
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      // THEN the durable commit resets the ledgers with the summarized count
+      // on the strip's marker, without depending on a re-attempt that fails
+      expect(onCompacted.mock.calls).toEqual([[2]]);
+      expect(order).toEqual(["pipeline", "reset", "post_compact"]);
+      expect(getV3ActiveSections("test-conv")).toEqual(new Map());
+    });
+
+    test("an overflow rung that reduces without summarizing resets the ledgers before re-injection", async () => {
+      const { graphMemory, onCompacted, order } =
+        arrangeResidentSectionAndObservers("test-conv");
+      // Reducer: a truncation rung that reduces the history with no summary.
+      mockReducerStepFn = (msgs: Message[]) => {
+        order.push("pipeline");
+        return {
+          messages: msgs,
+          tier: "tool_result_truncation",
+          state: {
+            appliedTiers: ["tool_result_truncation"],
+            injectionMode: "full",
+            exhausted: false,
+          },
+          estimatedTokens: 5000,
+        };
+      };
+      const ctx = makeCtx({ ...overflowAfterToolTurnScenario(), graphMemory });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      expect(onCompacted.mock.calls).toEqual([[0]]);
+      expect(order).toEqual(["pipeline", "reset", "post_compact"]);
+      expect(getV3ActiveSections("test-conv")).toEqual(new Map());
+    });
+
+    /**
+     * The resident section's frozen memory-v3 block as it sits on an earlier
+     * turn's user message. A reset clears its residency, so re-injection
+     * renders the section net-new; a skipped reset leaves it resident, so
+     * re-injection points at it instead.
+     */
+    const FROZEN_SECTION_BLOCK = wrapMemoryBlock("## page-a\nbody");
+    /** The pointer re-injection emits for the section while it is resident. */
+    const SECTION_POINTER_BLOCK = wrapMemoryPointerBlock("page-a");
+
+    /** Earlier turns whose user message carries the frozen section block. */
+    function historyWithFrozenSection(): Message[] {
+      return [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "Earlier turn" },
+            { type: "text", text: FROZEN_SECTION_BLOCK },
+          ],
+        },
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "Earlier reply" }],
+        },
+      ];
+    }
+
+    /** The number of text blocks across `messages` whose text is `text`. */
+    function countTextBlocks(messages: Message[], text: string): number {
+      return messages
+        .flatMap((message) => message.content)
+        .filter((block) => block.type === "text" && block.text === text).length;
+    }
+
+    /**
+     * Register a post-compact hook standing in for the memory plugin's
+     * re-injection: it records the history it receives beside the durable
+     * history at that moment, then partitions the section by residency the
+     * way the real injector does (a section the store still claims gets a
+     * pointer on the tail; one a reset left unclaimed renders net-new there)
+     * and writes the result back onto the context, as the real hook does.
+     */
+    function registerReinjectingPostCompactHook(ctx: Conversation): {
+      received: Array<{ history: Message[]; durable: Message[] }>;
+    } {
+      const received: Array<{ history: Message[]; durable: Message[] }> = [];
+      registerPlugin({
+        manifest: { name: "test-reinject-post-compact", version: "1.0.0" },
+        hooks: {
+          "post-compact": async (hookCtx: PostCompactContext) => {
+            received.push({
+              history: hookCtx.history,
+              durable: structuredClone(ctx.messages),
+            });
+            const resident = getV3ActiveSections(ctx.conversationId).has(
+              "page-a",
+            );
+            const tail = hookCtx.history[hookCtx.history.length - 1]!;
+            hookCtx.history = [
+              ...hookCtx.history.slice(0, -1),
+              {
+                ...tail,
+                content: [
+                  ...tail.content,
+                  {
+                    type: "text",
+                    text: resident
+                      ? SECTION_POINTER_BLOCK
+                      : FROZEN_SECTION_BLOCK,
+                  },
+                ],
+              },
+            ];
+          },
+        },
+      });
+      return { received };
+    }
+
+    /** Stub the marker write to fail at the strip and again at the
+     *  re-attempt that precedes the reset, as a SQLite lock held across the
+     *  compaction (SQLITE_BUSY) would. */
+    function failEveryMarkerWrite(): void {
+      setConversationHistoryStrippedAtMock.mockImplementation(() => {
+        throw new Error("SQLITE_BUSY");
+      });
+    }
+
+    test("continues a budget-gate run that found nothing to summarize from the stripped base, so a section re-injected after the reset reaches the provider once", async () => {
+      // GIVEN a resident section whose frozen block sits on an earlier turn's
+      // user message, and a pipeline run that finds nothing to summarize
+      const { graphMemory, order } =
+        arrangeResidentSectionAndObservers("test-conv");
+      const { provider, calls } = createMockProvider(
+        [textResponse("response")],
+        "mock-provider",
+      );
+      mockEstimateTokens = 90_000;
+      const ctx = makeCtx({
+        graphMemory,
+        contextWindowManager: noopPipelineManager(order),
+        loopProvider: provider,
+        messages: historyWithFrozenSection(),
+      });
+      const { received } = registerReinjectingPostCompactHook(ctx);
+
+      // WHEN the loop runs the turn
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      // THEN the hook re-injected onto the history the durable commit holds:
+      // the stripped base, with the frozen block gone from the earlier message
+      expect(received).toHaveLength(1);
+      const { history, durable } = received[0]!;
+      expect(countTextBlocks(durable, FROZEN_SECTION_BLOCK)).toBe(0);
+      expect(countTextBlocks(history, FROZEN_SECTION_BLOCK)).toBe(0);
+      expect(history).toEqual(durable);
+      // AND the provider call that followed carried the section exactly once,
+      // rendered net-new on the tail
+      expect(calls).toHaveLength(1);
+      expect(countTextBlocks(calls[0]!.messages, FROZEN_SECTION_BLOCK)).toBe(1);
+    });
+
+    test("continues an overflow rung that reduced without summarizing from the stripped base, so the retry carries a re-injected section once", async () => {
+      // GIVEN a resident section whose frozen block sits on an earlier turn's
+      // user message, and a truncation rung that reduces with no summary
+      const { graphMemory, order } =
+        arrangeResidentSectionAndObservers("test-conv");
+      mockReducerStepFn = (msgs: Message[]) => {
+        order.push("pipeline");
+        return {
+          messages: msgs,
+          tier: "tool_result_truncation",
+          state: {
+            appliedTiers: ["tool_result_truncation"],
+            injectionMode: "full",
+            exhausted: false,
+          },
+          estimatedTokens: 5000,
+        };
+      };
+      const scenario = overflowAfterToolTurnScenario();
+      const { provider, calls } = createMockProvider(
+        scenario.providerResponses!,
+        "mock-provider",
+      );
+      const ctx = makeCtx({
+        ...scenario,
+        graphMemory,
+        loopProvider: provider,
+        messages: historyWithFrozenSection(),
+      });
+      const { received } = registerReinjectingPostCompactHook(ctx);
+
+      // WHEN the loop runs the turn through the rejection and the retry
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      // THEN the hook re-injected onto the stripped base the durable commit
+      // holds, not the rung's reduced copy of the injected history
+      expect(received).toHaveLength(1);
+      const { history, durable } = received[0]!;
+      expect(countTextBlocks(durable, FROZEN_SECTION_BLOCK)).toBe(0);
+      expect(countTextBlocks(history, FROZEN_SECTION_BLOCK)).toBe(0);
+      expect(history).toEqual(durable);
+      // AND the rejected call carried the frozen copy while the retry after
+      // the rung carried the re-injected copy alone, so recovery regained no
+      // tokens it set out to remove
+      expect(calls).toHaveLength(3);
+      expect(countTextBlocks(calls[1]!.messages, FROZEN_SECTION_BLOCK)).toBe(1);
+      expect(countTextBlocks(calls[2]!.messages, FROZEN_SECTION_BLOCK)).toBe(1);
+    });
+
+    test("continues a budget-gate run whose strip marker cannot be made durable from the injected history, so the section the intact ledgers still claim reaches the provider once", async () => {
+      // GIVEN a resident section whose frozen block sits on an earlier turn's
+      // user message, a pipeline run that finds nothing to summarize, and a
+      // marker write that fails at the strip and at the re-attempt
+      const { graphMemory, onCompacted, order } =
+        arrangeResidentSectionAndObservers("test-conv");
+      failEveryMarkerWrite();
+      const { provider, calls } = createMockProvider(
+        [textResponse("response")],
+        "mock-provider",
+      );
+      mockEstimateTokens = 90_000;
+      const ctx = makeCtx({
+        graphMemory,
+        contextWindowManager: noopPipelineManager(order),
+        loopProvider: provider,
+        messages: historyWithFrozenSection(),
+      });
+      const { received } = registerReinjectingPostCompactHook(ctx);
+
+      // WHEN the loop runs the turn
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      // THEN both marker writes failed, so no reset ran and the store still
+      // claims the section
+      expect(setConversationHistoryStrippedAtMock).toHaveBeenCalledTimes(2);
+      expect(onCompacted).not.toHaveBeenCalled();
+      expect(getV3ActiveSections("test-conv")).toEqual(
+        new Map([["page-a", new Set([""])]]),
+      );
+      // AND the hook re-injected onto the history the durable commit holds:
+      // the injected history, the frozen block still on the earlier message
+      // where the store's residency expects it
+      expect(received).toHaveLength(1);
+      const { history, durable } = received[0]!;
+      expect(countTextBlocks(durable, FROZEN_SECTION_BLOCK)).toBe(1);
+      expect(countTextBlocks(history, FROZEN_SECTION_BLOCK)).toBe(1);
+      expect(history).toEqual(durable);
+      // AND the provider call that followed carried the section exactly once:
+      // the frozen copy, pointed at rather than rendered again
+      expect(calls).toHaveLength(1);
+      expect(countTextBlocks(calls[0]!.messages, FROZEN_SECTION_BLOCK)).toBe(1);
+      expect(countTextBlocks(calls[0]!.messages, SECTION_POINTER_BLOCK)).toBe(
+        1,
+      );
+    });
+
+    test("continues a budget-gate run whose ledger clear fails from the injected history, so the section the ledgers still claim reaches the provider once", async () => {
+      // GIVEN a resident section whose frozen block sits on an earlier turn's
+      // user message, a pipeline run that finds nothing to summarize, a
+      // marker write that succeeds, and a ledger clear that fails
+      const { graphMemory, onCompacted, order } =
+        arrangeResidentSectionAndObservers("test-conv");
+      onCompacted.mockImplementation(async () => {
+        order.push("reset");
+        return false;
+      });
+      const { provider, calls } = createMockProvider(
+        [textResponse("response")],
+        "mock-provider",
+      );
+      mockEstimateTokens = 90_000;
+      const ctx = makeCtx({
+        graphMemory,
+        contextWindowManager: noopPipelineManager(order),
+        loopProvider: provider,
+        messages: historyWithFrozenSection(),
+      });
+      const { received } = registerReinjectingPostCompactHook(ctx);
+
+      // WHEN the loop runs the turn
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      // THEN the marker landed at the strip and the reset ran but reported an
+      // incomplete clear, so the store still claims the section
+      expect(setConversationHistoryStrippedAtMock).toHaveBeenCalledTimes(1);
+      expect(onCompacted.mock.calls).toEqual([[0]]);
+      expect(order).toEqual(["pipeline", "reset", "post_compact"]);
+      expect(getV3ActiveSections("test-conv")).toEqual(
+        new Map([["page-a", new Set([""])]]),
+      );
+      // AND the hook re-injected onto the injected history the durable commit
+      // holds, the frozen block still on the earlier message where the
+      // store's residency expects it
+      expect(received).toHaveLength(1);
+      const { history, durable } = received[0]!;
+      expect(countTextBlocks(durable, FROZEN_SECTION_BLOCK)).toBe(1);
+      expect(countTextBlocks(history, FROZEN_SECTION_BLOCK)).toBe(1);
+      expect(history).toEqual(durable);
+      // AND the provider call carried the section exactly once: the frozen
+      // copy, pointed at rather than rendered again
+      expect(calls).toHaveLength(1);
+      expect(countTextBlocks(calls[0]!.messages, FROZEN_SECTION_BLOCK)).toBe(1);
+      expect(countTextBlocks(calls[0]!.messages, SECTION_POINTER_BLOCK)).toBe(
+        1,
+      );
+    });
+
+    test("continues an overflow rung whose strip marker cannot be made durable from the rung's reduced history with its injections intact, so the retry carries the section the intact ledgers still claim once", async () => {
+      // GIVEN a resident section whose frozen block sits on an earlier turn's
+      // user message, a truncation rung that reduces with no summary, and a
+      // marker write that fails at the strip and at the re-attempt
+      const { graphMemory, onCompacted, order } =
+        arrangeResidentSectionAndObservers("test-conv");
+      failEveryMarkerWrite();
+      mockReducerStepFn = (msgs: Message[]) => {
+        order.push("pipeline");
+        return {
+          messages: msgs,
+          tier: "tool_result_truncation",
+          state: {
+            appliedTiers: ["tool_result_truncation"],
+            injectionMode: "full",
+            exhausted: false,
+          },
+          estimatedTokens: 5000,
+        };
+      };
+      const scenario = overflowAfterToolTurnScenario();
+      const { provider, calls } = createMockProvider(
+        scenario.providerResponses!,
+        "mock-provider",
+      );
+      const ctx = makeCtx({
+        ...scenario,
+        graphMemory,
+        loopProvider: provider,
+        messages: historyWithFrozenSection(),
+      });
+      const { received } = registerReinjectingPostCompactHook(ctx);
+
+      // WHEN the loop runs the turn through the rejection and the retry
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      // THEN no reset ran and the store still claims the section
+      expect(setConversationHistoryStrippedAtMock).toHaveBeenCalledTimes(2);
+      expect(onCompacted).not.toHaveBeenCalled();
+      expect(getV3ActiveSections("test-conv")).toEqual(
+        new Map([["page-a", new Set([""])]]),
+      );
+      // AND the hook re-injected onto the injected history the durable commit
+      // holds, the frozen block still on the earlier message
+      expect(received).toHaveLength(1);
+      const { history, durable } = received[0]!;
+      expect(countTextBlocks(durable, FROZEN_SECTION_BLOCK)).toBe(1);
+      expect(countTextBlocks(history, FROZEN_SECTION_BLOCK)).toBe(1);
+      expect(history).toEqual(durable);
+      // AND the retry after the rung carried the frozen copy once, pointed at
+      // rather than rendered again
+      expect(calls).toHaveLength(3);
+      expect(countTextBlocks(calls[2]!.messages, FROZEN_SECTION_BLOCK)).toBe(1);
+      expect(countTextBlocks(calls[2]!.messages, SECTION_POINTER_BLOCK)).toBe(
+        1,
+      );
+    });
+
+    test("leaves the ledgers intact when the history-stripped marker cannot be written", async () => {
+      const { graphMemory, onCompacted, order } =
+        arrangeResidentSectionAndObservers("test-conv");
+      failEveryMarkerWrite();
+      mockEstimateTokens = 90_000;
+      const ctx = makeCtx({
+        graphMemory,
+        contextWindowManager: noopPipelineManager(order),
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      // THEN the reset re-attempted the write (no write for the strip had
+      // succeeded) and that failed too, so no reset ran: a restart rehydrates
+      // the frozen blocks with no marker to skip them, so the store must keep
+      // claiming the section
+      expect(setConversationHistoryStrippedAtMock).toHaveBeenCalledTimes(2);
+      expect(onCompacted).not.toHaveBeenCalled();
+      expect(order).toEqual(["pipeline", "post_compact"]);
+      expect(getV3ActiveSections("test-conv")).toEqual(
+        new Map([["page-a", new Set([""])]]),
+      );
+    });
+
+    test("applyCompactionResult resets the ledgers only once the marker is written", async () => {
+      const order: string[] = [];
+      setConversationHistoryStrippedAtMock.mockImplementation(() => {
+        order.push("marker");
+      });
+      const onCompacted = mock(async (_count: number) => {
+        order.push("reset");
+        return true;
+      });
+      const ctx = makeCtx({
+        graphMemory: { onCompacted } as unknown as Conversation["graphMemory"],
+      });
+
+      await applyCompactionResult(
+        ctx,
+        makeCompactionResult(),
+        () => {},
+        "req-1",
+      );
+
+      expect(onCompacted.mock.calls).toEqual([[4]]);
+      expect(order).toEqual(["marker", "reset"]);
+    });
+
+    test("applyCompactionResult leaves the ledgers intact when the compaction commit throws, so a reload of the un-compacted history finds its frozen blocks still claimed", async () => {
+      setConversationHistoryStrippedAtMock.mockImplementation(() => {
+        throw new Error("db write failed");
+      });
+      updateConversationContextWindowMock.mockImplementationOnce(() => {
+        throw new Error("SQLITE_READONLY");
+      });
+      const onCompacted = mock(async (_count: number) => true);
+      const ctx = makeCtx({
+        graphMemory: { onCompacted } as unknown as Conversation["graphMemory"],
+      });
+
+      await expect(
+        applyCompactionResult(ctx, makeCompactionResult(), () => {}, "req-1"),
+      ).rejects.toThrow("SQLITE_READONLY");
+
+      expect(onCompacted).not.toHaveBeenCalled();
+    });
+
+    test("applyCompactionResult resets the ledgers even when the marker cannot be written, since the compacted history has already lost its frozen blocks", async () => {
+      setConversationHistoryStrippedAtMock.mockImplementation(() => {
+        throw new Error("db write failed");
+      });
+      const onCompacted = mock(async (_count: number) => true);
+      const ctx = makeCtx({
+        graphMemory: { onCompacted } as unknown as Conversation["graphMemory"],
+      });
+
+      // The marker write is best-effort, so the durable commit still lands.
+      await expect(
+        applyCompactionResult(ctx, makeCompactionResult(), () => {}, "req-1"),
+      ).resolves.toBeUndefined();
+
+      expect(setConversationHistoryStrippedAtMock).toHaveBeenCalledWith(
+        "test-conv",
+        expect.any(Number),
+      );
+      // The summary output carries no frozen block, so the ledgers must not
+      // keep claiming sections whose blocks are gone.
+      expect(onCompacted.mock.calls).toEqual([[4]]);
+    });
+
+    test("applyCompactionResult resets the ledgers on an already-durable marker without a second write", async () => {
+      setConversationHistoryStrippedAtMock.mockImplementation(() => {
+        throw new Error("SQLITE_BUSY");
+      });
+      const onCompacted = mock(async (_count: number) => true);
+      const ctx = makeCtx({
+        graphMemory: { onCompacted } as unknown as Conversation["graphMemory"],
+      });
+
+      await applyCompactionResult(
+        ctx,
+        makeCompactionResult(),
+        () => {},
+        "req-1",
+        { historyStripMarkerDurable: true },
+      );
+
+      // The strip's marker write already succeeded, so the reset neither
+      // needs nor attempts another write that would fail here.
+      expect(setConversationHistoryStrippedAtMock).not.toHaveBeenCalled();
+      expect(onCompacted.mock.calls).toEqual([[4]]);
     });
   });
 });

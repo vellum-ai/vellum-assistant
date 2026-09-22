@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, renderHook } from "@testing-library/react";
+import { act, cleanup, renderHook } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createElement, type ReactNode } from "react";
 
 import type { AssistantEvent } from "@/types/event-types";
 import { useStreamStore } from "@/domains/chat/stream-store";
+import { useSessionDisclosureState } from "@/domains/chat/transcript/use-session-disclosure-state";
 
 const handlerCalls: Array<{ kind: string; conversationId?: string }> = [];
 
@@ -116,6 +117,7 @@ describe("handleStreamEvent — defense-in-depth conversation routing guard", ()
         delta: "hi",
       } as unknown as AssistantEvent,
       0,
+      "conv-A",
     );
     expect(handlerCalls.length).toBeGreaterThan(0);
     expect(handlerCalls[handlerCalls.length - 1]?.conversationId).toBe(
@@ -134,6 +136,7 @@ describe("handleStreamEvent — defense-in-depth conversation routing guard", ()
         delta: "hi",
       } as unknown as AssistantEvent,
       0,
+      "conv-B",
     );
     const delta = handlerCalls.find((c) => c.kind === "assistant_text_delta");
     expect(delta).toBeUndefined();
@@ -147,6 +150,7 @@ describe("handleStreamEvent — defense-in-depth conversation routing guard", ()
         delta: "no key",
       } as unknown as AssistantEvent,
       0,
+      undefined,
     );
     const delta = handlerCalls.find((c) => c.kind === "assistant_text_delta");
     expect(delta).toBeUndefined();
@@ -163,6 +167,7 @@ describe("handleStreamEvent — defense-in-depth conversation routing guard", ()
         messageId: "m1",
       } as unknown as AssistantEvent,
       0,
+      "conv-A",
     );
     const result = handlerCalls.find((c) => c.kind === "message_complete");
     expect(result).toBeUndefined();
@@ -178,6 +183,7 @@ describe("handleStreamEvent — defense-in-depth conversation routing guard", ()
         tags: ["assistant:self:identity"],
       } as unknown as AssistantEvent,
       0,
+      undefined,
     );
     // sync_changed is a no-op in the stream handler (bus subscribers
     // own it). The global event passing the guard is the key point.
@@ -196,6 +202,7 @@ describe("handleStreamEvent — defense-in-depth conversation routing guard", ()
         updatedAt: "2026-05-22T00:00:00Z",
       } as unknown as AssistantEvent,
       0,
+      undefined,
     );
     // home_feed_updated is now handled by useAssistantResourceSync (bus
     // subscriber), not the monolithic handler. The switch case is a no-op.
@@ -214,8 +221,59 @@ describe("handleStreamEvent — defense-in-depth conversation routing guard", ()
         delta: "old",
       } as unknown as AssistantEvent,
       3,
+      "conv-A",
     );
     const delta = handlerCalls.find((c) => c.kind === "assistant_text_delta");
     expect(delta).toBeUndefined();
+  });
+
+  test("records a live session boundary even when completion lands in the same batch", () => {
+    setupStreamStore();
+    const { result } = renderHook(
+      () => {
+        const disclosure = useSessionDisclosureState("conv-A");
+        const handler = useStreamEventHandler({
+          push: () => {},
+          isNative: false,
+          cancelReconciliation: () => {},
+          startReconciliationLoop: () => {},
+          setAssetsRefreshKey: () => {},
+          observeLiveModeSession: disclosure.observeLiveSession,
+        });
+        return { disclosure, ...handler };
+      },
+      { wrapper },
+    );
+
+    expect(result.current.disclosure.isSessionOpen("historic-session")).toBe(
+      false,
+    );
+    act(() => {
+      result.current.handleStreamEvent(
+        {
+          type: "assistant_turn_start",
+          conversationId: "conv-A",
+          messageId: "assistant-1",
+          modeSession: { mode: "browser", id: "fast-session" },
+        } as unknown as AssistantEvent,
+        0,
+        "conv-A",
+      );
+      result.current.handleStreamEvent(
+        {
+          type: "message_complete",
+          conversationId: "conv-A",
+          messageId: "assistant-1",
+          modeSession: { mode: "browser", id: "fast-session" },
+        } as unknown as AssistantEvent,
+        0,
+        "conv-A",
+      );
+    });
+
+    expect(result.current.disclosure.isSessionOpen("fast-session")).toBe(true);
+    expect(result.current.disclosure.isSessionOpen("historic-session")).toBe(
+      false,
+    );
   });
 });

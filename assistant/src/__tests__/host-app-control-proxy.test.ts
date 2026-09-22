@@ -1398,7 +1398,7 @@ describe("HostAppControlProxy", () => {
       proxy.dispose();
     });
 
-    test("request() without targetClientId: does not register targetActorPrincipalId", async () => {
+    test("request() without targetClientId: registers the source actor principal", async () => {
       const proxy = new HostAppControlProxy("conv-1");
       const ctrl = new AbortController();
 
@@ -1413,7 +1413,7 @@ describe("HostAppControlProxy", () => {
 
       const sent = sentMessages[0] as Record<string, unknown>;
       expect(registeredInteractions[0].targetClientId).toBeUndefined();
-      expect(registeredInteractions[0].targetActorPrincipalId).toBeUndefined();
+      expect(registeredInteractions[0].targetActorPrincipalId).toBe("user-1");
 
       proxy.resolve(sent.requestId as string, payload({ pngBase64: PNG_A }));
       await resultPromise;

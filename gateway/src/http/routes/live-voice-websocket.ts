@@ -5,13 +5,14 @@ import {
   mintServiceToken,
 } from "../../auth/token-exchange.js";
 import { admitActorToken } from "../../auth/actor-token-revocation.js";
+import { findVellumGuardian } from "../../auth/guardian-bootstrap.js";
 import { parseSub } from "../../auth/subject.js";
 import type { GatewayConfig } from "../../config.js";
 import { getLogger } from "../../logger.js";
 import { requestHasVelayBridgeAuth } from "../../velay/bridge-auth.js";
 import {
   extractVelayAttestedContext,
-  isPlatformManaged,
+  acceptsVelayAttestation,
   requireBoundGuardian,
   requireManagedGuardian,
 } from "./guardian-pin.js";
@@ -28,6 +29,17 @@ const MAX_PENDING_MESSAGES = 100;
 export type LiveVoiceSocketData = {
   wsType: "live-voice";
   config: GatewayConfig;
+  /**
+   * The guardian this socket was admitted for, read from the gateway's own
+   * binding at admission.
+   *
+   * The daemon cannot work this out for itself. It is reached through a
+   * service token, so every socket looks the same to it, and any answer it
+   * resolved independently would be a second, later reading of a binding that
+   * can change in between. This is the one the admission decision was
+   * actually made against.
+   */
+  guardianPrincipalId?: string;
   upstream?: WebSocket;
   pendingMessages?: (string | ArrayBuffer | Uint8Array)[];
 };
@@ -46,13 +58,16 @@ export function createLiveVoiceWebsocketHandler(config: GatewayConfig) {
     }
 
     const url = new URL(req.url);
-    const authResponse = await checkLiveVoiceAuth(req, url, config);
-    if (authResponse) return authResponse;
+    const admission = await checkLiveVoiceAuth(req, url, config);
+    if (admission.response) return admission.response;
 
     const upgraded = server.upgrade(req, {
       data: {
         wsType: "live-voice",
         config,
+        ...(admission.guardianPrincipalId
+          ? { guardianPrincipalId: admission.guardianPrincipalId }
+          : {}),
       } satisfies LiveVoiceSocketData,
     });
 
@@ -64,21 +79,38 @@ export function createLiveVoiceWebsocketHandler(config: GatewayConfig) {
   };
 }
 
+/**
+ * What admission settled: a refusal, or the guardian the socket belongs to.
+ *
+ * The principal is reported rather than merely checked because the daemon has
+ * no way to ask. Both accepting paths already resolve the binding to make
+ * their decision, so naming it here costs nothing and is the only reading
+ * taken at the moment the decision was made.
+ */
+interface LiveVoiceAdmission {
+  response?: Response;
+  guardianPrincipalId?: string;
+}
+
 async function checkLiveVoiceAuth(
   req: Request,
   url: URL,
   config: GatewayConfig,
-): Promise<Response | null> {
+): Promise<LiveVoiceAdmission> {
   if (!config.runtimeProxyRequireAuth) {
-    return null;
+    // Auth off: nothing was admitted, so nothing is claimed about who this
+    // is. The daemon reads a socket with no guardian as a turn with no actor.
+    return {};
   }
 
-  // Managed/cloud path: velay validates the browser wsToken and injects
-  // X-Velay-* context into the tunnel frame. Trust it only when this request
-  // also has the process-local proof injected by the gateway's own loopback
-  // bridge. A direct request to a reachable gateway can spoof X-Velay-* names,
-  // but cannot know the bridge proof value.
-  if (isPlatformManaged()) {
+  // Velay path: velay validates the browser wsToken and injects X-Velay-*
+  // context into the tunnel frame. Trust it only when this request also has
+  // the process-local proof injected by the gateway's own loopback bridge. A
+  // direct request to a reachable gateway can spoof X-Velay-* names, but
+  // cannot know the bridge proof value. Taken by managed pods and by locally
+  // hosted gateways with a velay tunnel alike; the Twilio media socket has no
+  // such branch because it authenticates a gateway-minted relay token.
+  if (acceptsVelayAttestation(config)) {
     const velayContext = extractVelayAttestedContext(req);
     if (velayContext) {
       if (requestHasVelayBridgeAuth(req)) {
@@ -86,7 +118,7 @@ async function checkLiveVoiceAuth(
         // turn with the guardian's trust context. The velay attestation proves
         // the caller is *a* platform user who traversed velay, not that they
         // are THIS assistant's guardian, so cross-check the velay user id
-        // against the stored `platform_user_id` (the same guardian check the
+        // against the bound platform user id (the same guardian check the
         // edge-auth middleware applies to guardian routes under the managed
         // bypass). Without it, any velay-authorized org user reaching this
         // assistant would be stamped guardian downstream.
@@ -94,17 +126,26 @@ async function checkLiveVoiceAuth(
           velayContext.userId,
           log,
         );
-        if (guardianError) return guardianError;
+        if (guardianError) return { response: guardianError };
+        // Velay attests a platform user, not an actor principal, so the
+        // principal comes from the gateway's own binding rather than from
+        // anything the request carried.
+        const guardian = await findVellumGuardian();
         log.info(
-          { userId: velayContext.userId, orgId: velayContext.orgId },
+          {
+            userId: velayContext.userId,
+            orgId: velayContext.orgId,
+            guardianPrincipalId: guardian?.principalId,
+          },
           "Live voice WS: authenticated via velay-attested managed context",
         );
-        return null;
+        return { guardianPrincipalId: guardian?.principalId };
       }
       log.warn("Live voice WS: ignoring velay context without bridge proof");
     }
-    // No (or incomplete) velay attestation — fall through to the actor-JWT
-    // path below so a managed deployment still accepts a valid actor edge JWT.
+    // No (or incomplete) velay attestation: fall through to the actor-JWT
+    // path below so a velay-reachable gateway still accepts a valid actor
+    // edge JWT.
   }
 
   const authHeader = req.headers.get("authorization");
@@ -117,18 +158,18 @@ async function checkLiveVoiceAuth(
 
   if (!rawToken) {
     log.warn("Live voice WS: no token provided");
-    return new Response("Unauthorized", { status: 401 });
+    return { response: new Response("Unauthorized", { status: 401 }) };
   }
 
   const result = validateEdgeToken(rawToken);
   if (!result.ok) {
     log.warn({ reason: result.reason }, "Live voice WS: authentication failed");
-    return new Response("Unauthorized", { status: 401 });
+    return { response: new Response("Unauthorized", { status: 401 }) };
   }
 
   if (!admitActorToken(rawToken, result.claims)) {
     log.warn("Live voice WS: rejected, actor token revoked");
-    return new Response("Unauthorized", { status: 401 });
+    return { response: new Response("Unauthorized", { status: 401 }) };
   }
 
   const parsed = parseSub(result.claims.sub);
@@ -144,7 +185,7 @@ async function checkLiveVoiceAuth(
       },
       "Live voice WS: denied token without actor principal",
     );
-    return new Response("Unauthorized", { status: 401 });
+    return { response: new Response("Unauthorized", { status: 401 }) };
   }
 
   // Live voice is a guardian-only surface: the room runs in the owner's own
@@ -153,7 +194,14 @@ async function checkLiveVoiceAuth(
   // check the guardian edge-auth middleware applies to guardian-only HTTP
   // routes. Any valid-but-non-guardian actor token is rejected here rather
   // than reaching the daemon with an identity the voice path cannot represent.
-  return requireBoundGuardian(parsed.actorPrincipalId, log);
+  const guardianError = await requireBoundGuardian(
+    parsed.actorPrincipalId,
+    log,
+  );
+  if (guardianError) return { response: guardianError };
+  // The pin above passes only when the token's principal IS the bound
+  // guardian, so this is the binding rather than what the caller claimed.
+  return { guardianPrincipalId: parsed.actorPrincipalId };
 }
 
 /**
@@ -172,6 +220,19 @@ export function getLiveVoiceWebsocketHandlers() {
           baseUrl: config.assistantRuntimeBaseUrl,
           path: "/v1/live-voice",
           serviceToken: mintServiceToken(),
+          // The guardian this socket was admitted for, so the daemon stamps
+          // its turns with the identity the admission decision was made
+          // against rather than resolving one of its own a moment later.
+          // Gateway-resolved and carried on a service-token authenticated
+          // dial the client cannot reach, which is what makes it safe to
+          // trust; it is never a header the caller supplied.
+          ...(ws.data.guardianPrincipalId
+            ? {
+                extraParams: {
+                  guardianPrincipalId: ws.data.guardianPrincipalId,
+                },
+              }
+            : {}),
         });
 
       log.info(

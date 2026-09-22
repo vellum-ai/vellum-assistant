@@ -3,7 +3,39 @@ import { describe, expect, it } from "bun:test";
 import {
   liveVoiceEndScreen,
   liveVoiceSilenceReason,
+  liveVoiceStartScreen,
 } from "../live-voice-funnel.js";
+
+describe("liveVoiceStartScreen", () => {
+  it("stamps the client and the entry point", () => {
+    expect(liveVoiceStartScreen("macos", "companion")).toBe(
+      "started_macos:companion",
+    );
+  });
+
+  it("keeps both halves present when a client sends neither", () => {
+    // A query splits the stamp on its colon; a stand-in for a missing half
+    // keeps that split from needing a null branch per side.
+    expect(liveVoiceStartScreen(undefined, undefined)).toBe(
+      "started_unknown:unknown",
+    );
+    expect(liveVoiceStartScreen(null, null)).toBe("started_unknown:unknown");
+  });
+
+  it("stands in for whichever half is missing on its own", () => {
+    expect(liveVoiceStartScreen("ios")).toBe("started_ios:unknown");
+    expect(liveVoiceStartScreen(undefined, "deep_link")).toBe(
+      "started_unknown:deep_link",
+    );
+  });
+
+  it("keeps the longest stamp inside the wire field's 64-char bound", () => {
+    // The parser caps `entry` at 32 characters and the longest `ClientOs` is
+    // `windows`; the stamp built from both must still fit the ingest cap.
+    const longest = liveVoiceStartScreen("windows", "a".repeat(32));
+    expect(longest.length).toBeLessThanOrEqual(64);
+  });
+});
 
 describe("liveVoiceSilenceReason", () => {
   it("blames the transport when the session never went active", () => {

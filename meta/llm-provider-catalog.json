@@ -244,6 +244,34 @@
       "defaultModel": "gpt-5.5",
       "models": [
         {
+          "id": "gpt-6-astra",
+          "displayName": "GPT-6 Astra",
+          "contextWindowTokens": 1050000,
+          "maxOutputTokens": 128000,
+          "defaultContextWindowTokens": 200000,
+          "longContextPricingThresholdTokens": 272000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 10,
+            "outputPer1mTokens": 50,
+            "cacheWritePer1mTokens": 12.5,
+            "cacheReadPer1mTokens": 1,
+            "tiers": [
+              {
+                "inputTokenThreshold": 272000,
+                "inputPer1mTokens": 20,
+                "outputPer1mTokens": 75,
+                "cacheWritePer1mTokens": 25,
+                "cacheReadPer1mTokens": 2
+              }
+            ]
+          }
+        },
+        {
           "id": "gpt-5.6-sol",
           "displayName": "GPT-5.6 Sol",
           "contextWindowTokens": 1050000,
@@ -1180,6 +1208,62 @@
             "outputPer1mTokens": 5,
             "cacheWritePer1mTokens": 1.25,
             "cacheReadPer1mTokens": 0.1
+          }
+        },
+        {
+          "id": "openai/gpt-6-astra",
+          "displayName": "GPT-6 Astra",
+          "contextWindowTokens": 1050000,
+          "maxOutputTokens": 128000,
+          "defaultContextWindowTokens": 200000,
+          "longContextPricingThresholdTokens": 272000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 10,
+            "outputPer1mTokens": 50,
+            "cacheWritePer1mTokens": 12.5,
+            "cacheReadPer1mTokens": 1,
+            "tiers": [
+              {
+                "inputTokenThreshold": 272000,
+                "inputPer1mTokens": 20,
+                "outputPer1mTokens": 75,
+                "cacheWritePer1mTokens": 25,
+                "cacheReadPer1mTokens": 2
+              }
+            ]
+          }
+        },
+        {
+          "id": "openai/gpt-6-astra-pro",
+          "displayName": "GPT-6 Astra Pro",
+          "contextWindowTokens": 1050000,
+          "maxOutputTokens": 128000,
+          "defaultContextWindowTokens": 200000,
+          "longContextPricingThresholdTokens": 272000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 10,
+            "outputPer1mTokens": 50,
+            "cacheWritePer1mTokens": 12.5,
+            "cacheReadPer1mTokens": 1,
+            "tiers": [
+              {
+                "inputTokenThreshold": 272000,
+                "inputPer1mTokens": 20,
+                "outputPer1mTokens": 75,
+                "cacheWritePer1mTokens": 25,
+                "cacheReadPer1mTokens": 2
+              }
+            ]
           }
         },
         {
@@ -2344,13 +2428,48 @@
       ]
     },
     {
+      "id": "typesafe",
+      "displayName": "TypeSafe",
+      "subtitle": "TypeSafe System One decision model. Returns structured answers, not generated text. Requires a TypeSafe API key.",
+      "setupMode": "api-key",
+      "setupHint": "Enter your TypeSafe API key to enable Jev.",
+      "envVar": "TYPESAFE_API_KEY",
+      "apiKeyPlaceholder": "Your TypeSafe API key",
+      "credentialsGuide": {
+        "description": "Sign in to TypeSafe and create an API key.",
+        "url": "https://typesafe.ai",
+        "linkLabel": "Open TypeSafe"
+      },
+      "supportsPlatformAuth": true,
+      "defaultModel": "jev-latest",
+      "models": [
+        {
+          "id": "jev-latest",
+          "displayName": "Jev",
+          "contextWindowTokens": 32000,
+          "maxOutputTokens": 4096,
+          "defaultContextWindowTokens": 32000,
+          "longContextMode": "unsupported",
+          "supportsThinking": false,
+          "supportsCaching": false,
+          "supportsVision": false,
+          "supportsToolUse": false,
+          "supportsText": false,
+          "pricing": {
+            "inputPer1mTokens": 0.042,
+            "outputPer1mTokens": 0
+          }
+        }
+      ]
+    },
+    {
       "id": "vellum",
       "displayName": "Vellum",
       "subtitle": "Models served on Vellum GPU nodes through the managed connection.",
       "setupMode": "api-key",
       "setupHint": "Uses the assistant API key through the Vellum managed connection. These models cannot use a bring-your-own key.",
       "supportsPlatformAuth": true,
-      "featureFlag": "settings-developer-nav",
+      "featureFlag": "vellum-hosted-inference",
       "defaultModel": "qwen/qwen3-8b",
       "models": [
         {
@@ -2368,7 +2487,7 @@
             "inputPer1mTokens": 0.3,
             "outputPer1mTokens": 0.3
           },
-          "featureFlag": "settings-developer-nav"
+          "featureFlag": "vellum-hosted-inference"
         }
       ]
     }

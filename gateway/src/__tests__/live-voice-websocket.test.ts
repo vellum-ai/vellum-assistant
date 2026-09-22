@@ -10,15 +10,18 @@ import {
   test,
 } from "bun:test";
 
-import { CURRENT_POLICY_EPOCH } from "../auth/policy.js";
-import { initSigningKey, mintToken } from "../auth/token-service.js";
-import type { GatewayConfig } from "../config.js";
 import type { LiveVoiceSocketData } from "../http/routes/live-voice-websocket.js";
 import { setVelayBridgeAuthHeader } from "../velay/bridge-auth.js";
-
-// The bound-guardian platform user id, shared by the velay mock and the velay
-// tests (their attested caller must match it to authenticate).
-const VELAY_USER_ID = "11111111-1111-1111-1111-111111111111";
+import {
+  GUARDIAN_PRINCIPAL,
+  VELAY_USER_ID,
+  createFakeDownstreamWs,
+  makeConfig,
+  makeFakeServer,
+  mintEdgeToken,
+  mintServiceEdgeToken,
+  upgradedData,
+} from "./runtime-stream-test-utils.js";
 
 // The live-voice upgrade pins actor tokens to the bound guardian. Mock the
 // binding lookup (set BEFORE importing the module under test) so the actor
@@ -26,7 +29,7 @@ const VELAY_USER_ID = "11111111-1111-1111-1111-111111111111";
 // `mintEdgeToken`'s default principal.
 let mockFindVellumGuardian = mock(
   async (): Promise<{ principalId: string } | null> => ({
-    principalId: "test-user",
+    principalId: GUARDIAN_PRINCIPAL,
   }),
 );
 mock.module("../auth/guardian-bootstrap.js", () => ({
@@ -42,88 +45,19 @@ let mockReadCredential = mock(
 mock.module("../credential-reader.js", () => ({
   readCredential: (key: string) => mockReadCredential(key),
 }));
+mock.module("../platform-user-id.js", () => ({
+  readStoredPlatformUserId: async () => {
+    const userId = await mockReadCredential("vellum:platform_user_id");
+    return { userId, unreachable: false };
+  },
+}));
 
 const { createLiveVoiceWebsocketHandler, getLiveVoiceWebsocketHandlers } =
   await import("../http/routes/live-voice-websocket.js");
 
-const TEST_SIGNING_KEY = Buffer.from("test-signing-key-at-least-32-bytes-long");
-initSigningKey(TEST_SIGNING_KEY);
-
 const WS_CONNECTING = WebSocket.CONNECTING;
 const WS_OPEN = WebSocket.OPEN;
 const WS_CLOSED = WebSocket.CLOSED;
-
-function mintEdgeToken(actorPrincipalId: string = "test-user"): string {
-  return mintToken({
-    aud: "vellum-gateway",
-    sub: `actor:test-assistant:${actorPrincipalId}`,
-    scope_profile: "actor_client_v1",
-    policy_epoch: CURRENT_POLICY_EPOCH,
-    ttlSeconds: 300,
-  });
-}
-
-function mintServiceEdgeToken(): string {
-  return mintToken({
-    aud: "vellum-gateway",
-    sub: "svc:gateway:self",
-    scope_profile: "gateway_service_v1",
-    policy_epoch: CURRENT_POLICY_EPOCH,
-    ttlSeconds: 300,
-  });
-}
-
-function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
-  return {
-    assistantRuntimeBaseUrl: "http://localhost:7821",
-    routingEntries: [],
-    port: 7830,
-    runtimeProxyRequireAuth: true,
-    shutdownDrainMs: 5000,
-    runtimeTimeoutMs: 30000,
-    runtimeMaxRetries: 2,
-    runtimeInitialBackoffMs: 500,
-    maxWebhookPayloadBytes: 1048576,
-    logFile: { dir: undefined, retentionDays: 30 },
-    maxAttachmentBytes: {
-      telegram: 50 * 1024 * 1024,
-      slack: 100 * 1024 * 1024,
-      whatsapp: 16 * 1024 * 1024,
-      default: 50 * 1024 * 1024,
-    },
-    maxAttachmentConcurrency: 3,
-    gatewayInternalBaseUrl: "http://127.0.0.1:7830",
-    trustProxy: false,
-    ...overrides,
-  };
-}
-
-function makeFakeServer(upgradeResult: boolean = true) {
-  return {
-    requestIP: mock(() => ({
-      address: "127.0.0.1",
-      family: "IPv4",
-      port: 54000,
-    })),
-    upgrade: mock(() => upgradeResult),
-  } as unknown as import("bun").Server<unknown>;
-}
-
-function createFakeDownstreamWs(data: LiveVoiceSocketData) {
-  const sent: (string | Uint8Array)[] = [];
-  const closes: { code: number; reason: string }[] = [];
-  return {
-    data,
-    sent,
-    closes,
-    send: mock((msg: string | Uint8Array) => {
-      sent.push(msg);
-    }),
-    close: mock((code?: number, reason?: string) => {
-      closes.push({ code: code ?? 1000, reason: reason ?? "" });
-    }),
-  };
-}
 
 function createFakeUpstreamWs() {
   const listeners: Record<string, ((...args: unknown[]) => void)[]> = {};
@@ -155,7 +89,9 @@ function createFakeUpstreamWs() {
 // Reset both mocks to their success defaults — file-scoped so per-test
 // overrides never leak into later describes.
 beforeEach(() => {
-  mockFindVellumGuardian = mock(async () => ({ principalId: "test-user" }));
+  mockFindVellumGuardian = mock(async () => ({
+    principalId: GUARDIAN_PRINCIPAL,
+  }));
   mockReadCredential = mock(async () => VELAY_USER_ID);
 });
 
@@ -175,12 +111,11 @@ describe("createLiveVoiceWebsocketHandler", () => {
     expect(res).toBeUndefined();
     expect(server.upgrade).toHaveBeenCalledTimes(1);
 
-    const call = (server.upgrade as ReturnType<typeof mock>).mock
-      .calls[0] as unknown[];
-    expect(call[0]).toBe(req);
-    expect((call[1] as { data: LiveVoiceSocketData }).data).toEqual({
+    expect(server.upgrade).toHaveBeenCalledWith(req, expect.anything());
+    expect(upgradedData<LiveVoiceSocketData>(server)).toEqual({
       wsType: "live-voice",
       config,
+      guardianPrincipalId: "test-user",
     });
   });
 
@@ -383,6 +318,25 @@ describe("createLiveVoiceWebsocketHandler — velay-attested managed auth", () =
     expect(server.upgrade).toHaveBeenCalledTimes(1);
   });
 
+  /**
+   * Velay attests a platform user, not an actor principal, so this path has
+   * no principal in the request at all. The binding supplies it, which is
+   * what lets the managed deployment carry an identity downstream rather than
+   * leaving the daemon to resolve one of its own.
+   */
+  test("managed mode carries the bound guardian's principal on the socket", async () => {
+    setPlatform(true);
+    const handler = createLiveVoiceWebsocketHandler(makeConfig());
+    const server = makeFakeServer();
+    await handler(makeVelayReq(), server);
+
+    const call = (server.upgrade as ReturnType<typeof mock>).mock
+      .calls[0] as unknown[];
+    expect(
+      (call[1] as { data: LiveVoiceSocketData }).data.guardianPrincipalId,
+    ).toBe("test-user");
+  });
+
   // Guardian pinning on the velay path: the attested caller must match the
   // stored platform_user_id, or the daemon's guardian stamp would be unbacked.
   test("managed mode + bridge proof but velay user is not the bound guardian is rejected", async () => {
@@ -488,13 +442,50 @@ describe("createLiveVoiceWebsocketHandler — velay-attested managed auth", () =
     expect(server.upgrade).not.toHaveBeenCalled();
   });
 
-  test("local mode does NOT trust X-Velay-* headers even with bridge proof", async () => {
+  test("a gateway with no velay tunnel does NOT trust X-Velay-* headers even with bridge proof", async () => {
     setPlatform(false);
     const handler = createLiveVoiceWebsocketHandler(makeConfig());
     const server = makeFakeServer();
     const res = await handler(makeVelayReq(), server);
 
     expect(res).toBeInstanceOf(Response);
+    expect(res!.status).toBe(401);
+    expect(server.upgrade).not.toHaveBeenCalled();
+  });
+
+  /**
+   * A locally hosted assistant reaches the mobile app through a velay tunnel
+   * with IS_PLATFORM unset. The attestation arrives through the same bridge
+   * as on a managed pod, so the tunnel, not the env var, is what admits it.
+   */
+  test("a locally hosted gateway with a velay tunnel trusts an attested caller with bridge proof", async () => {
+    setPlatform(false);
+    const handler = createLiveVoiceWebsocketHandler(
+      makeConfig({ velayBaseUrl: "https://velay.example.test" }),
+    );
+    const server = makeFakeServer();
+    const res = await handler(makeVelayReq(), server);
+
+    expect(res).toBeUndefined();
+    expect(server.upgrade).toHaveBeenCalledTimes(1);
+    const call = (server.upgrade as ReturnType<typeof mock>).mock
+      .calls[0] as unknown[];
+    expect(
+      (call[1] as { data: LiveVoiceSocketData }).data.guardianPrincipalId,
+    ).toBe("test-user");
+  });
+
+  test("a locally hosted gateway with a velay tunnel still ignores spoofed headers without bridge proof", async () => {
+    setPlatform(false);
+    const handler = createLiveVoiceWebsocketHandler(
+      makeConfig({ velayBaseUrl: "https://velay.example.test" }),
+    );
+    const server = makeFakeServer();
+    const res = await handler(
+      makeVelayReq(undefined, { bridgeAuth: false }),
+      server,
+    );
+
     expect(res!.status).toBe(401);
     expect(server.upgrade).not.toHaveBeenCalled();
   });
@@ -518,6 +509,11 @@ describe("getLiveVoiceWebsocketHandlers", () => {
   const OriginalWebSocket = globalThis.WebSocket;
   let fakeUpstream: ReturnType<typeof createFakeUpstreamWs>;
   let handlers: ReturnType<typeof getLiveVoiceWebsocketHandlers>;
+  const makeLiveVoiceWs = (config = makeConfig()) =>
+    createFakeDownstreamWs<LiveVoiceSocketData>({
+      wsType: "live-voice",
+      config,
+    });
 
   beforeEach(() => {
     fakeUpstream = createFakeUpstreamWs();
@@ -537,12 +533,9 @@ describe("getLiveVoiceWebsocketHandlers", () => {
   });
 
   test("open targets the runtime live voice websocket with a service token", async () => {
-    const ws = createFakeDownstreamWs({
-      wsType: "live-voice",
-      config: makeConfig({
-        assistantRuntimeBaseUrl: "http://runtime.internal:7821",
-      }),
-    });
+    const ws = makeLiveVoiceWs(
+      makeConfig({ assistantRuntimeBaseUrl: "http://runtime.internal:7821" }),
+    );
 
     handlers.open(ws as never);
 
@@ -556,10 +549,7 @@ describe("getLiveVoiceWebsocketHandlers", () => {
   });
 
   test("buffers downstream text and binary messages before upstream opens", async () => {
-    const ws = createFakeDownstreamWs({
-      wsType: "live-voice",
-      config: makeConfig(),
-    });
+    const ws = makeLiveVoiceWs();
     const binaryFrame = new Uint8Array([1, 2, 3]);
 
     handlers.open(ws as never);
@@ -571,10 +561,7 @@ describe("getLiveVoiceWebsocketHandlers", () => {
   });
 
   test("flushes buffered messages on upstream open", async () => {
-    const ws = createFakeDownstreamWs({
-      wsType: "live-voice",
-      config: makeConfig(),
-    });
+    const ws = makeLiveVoiceWs();
     const binaryFrame = new Uint8Array([4, 5, 6]);
 
     handlers.open(ws as never);
@@ -589,10 +576,7 @@ describe("getLiveVoiceWebsocketHandlers", () => {
   });
 
   test("forwards downstream binary audio frames without JSON conversion", async () => {
-    const ws = createFakeDownstreamWs({
-      wsType: "live-voice",
-      config: makeConfig(),
-    });
+    const ws = makeLiveVoiceWs();
     const binaryFrame = new Uint8Array([9, 8, 7]);
 
     handlers.open(ws as never);
@@ -605,10 +589,7 @@ describe("getLiveVoiceWebsocketHandlers", () => {
   });
 
   test("forwards upstream text and binary frames to the downstream socket", async () => {
-    const ws = createFakeDownstreamWs({
-      wsType: "live-voice",
-      config: makeConfig(),
-    });
+    const ws = makeLiveVoiceWs();
 
     handlers.open(ws as never);
     fakeUpstream.emit("message", { data: '{"type":"ready"}' });
@@ -620,10 +601,7 @@ describe("getLiveVoiceWebsocketHandlers", () => {
   });
 
   test("closes downstream with 1008 on pending buffer overflow", async () => {
-    const ws = createFakeDownstreamWs({
-      wsType: "live-voice",
-      config: makeConfig(),
-    });
+    const ws = makeLiveVoiceWs();
 
     handlers.open(ws as never);
     for (let i = 0; i < 100; i++) {
@@ -635,10 +613,7 @@ describe("getLiveVoiceWebsocketHandlers", () => {
   });
 
   test("downstream close clears pending messages and closes connecting upstream", async () => {
-    const ws = createFakeDownstreamWs({
-      wsType: "live-voice",
-      config: makeConfig(),
-    });
+    const ws = makeLiveVoiceWs();
 
     handlers.open(ws as never);
     handlers.message(ws as never, "pending");
@@ -651,10 +626,7 @@ describe("getLiveVoiceWebsocketHandlers", () => {
   });
 
   test("upstream close and error events close the downstream socket", async () => {
-    const ws = createFakeDownstreamWs({
-      wsType: "live-voice",
-      config: makeConfig(),
-    });
+    const ws = makeLiveVoiceWs();
 
     handlers.open(ws as never);
     fakeUpstream.emit("close", { code: 1001, reason: "going away" });

@@ -205,6 +205,7 @@ export class CliLiveVoiceClient {
       type: "start",
       audio: LIVE_VOICE_AUDIO_FORMAT,
       textInput: true,
+      entry: "cli",
       ...(this.options.conversationId
         ? { conversationId: this.options.conversationId }
         : {}),

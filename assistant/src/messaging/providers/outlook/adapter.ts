@@ -19,18 +19,7 @@ import type {
   SendResult,
 } from "../../provider-types.js";
 import * as outlook from "./client.js";
-import type { OutlookMessage, OutlookSendFileAttachment } from "./types.js";
-
-function toGraphAttachments(
-  attachments: NonNullable<SendOptions["attachments"]>,
-): OutlookSendFileAttachment[] {
-  return attachments.map((att) => ({
-    "@odata.type": "#microsoft.graph.fileAttachment",
-    name: att.filename,
-    contentType: att.mimeType,
-    contentBytes: att.data.toString("base64"),
-  }));
-}
+import type { OutlookMessage } from "./types.js";
 
 function requireConnection(
   connection: OAuthConnection | undefined,
@@ -155,7 +144,7 @@ export const outlookMessagingProvider: MessagingProvider = {
   ): Promise<SendResult> {
     const conn = requireConnection(connection);
     const attachments = options?.attachments?.length
-      ? toGraphAttachments(options.attachments)
+      ? outlook.toOutlookFileAttachments(options.attachments)
       : undefined;
 
     if (options?.inReplyTo) {

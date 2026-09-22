@@ -700,6 +700,36 @@ describe("OpenAIResponsesProvider", () => {
     });
   });
 
+  test('GPT-6 Astra effort: "max" is sent as reasoning.effort "max"', async () => {
+    const astraProvider = new OpenAIResponsesProvider("sk-test", "gpt-6-astra");
+    fakeStreamEvents = [textDeltaEvent("OK"), completedEvent(10, 2)];
+
+    await astraProvider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      { config: { effort: "max" } },
+    );
+
+    expect(lastStreamParams!.reasoning).toEqual({
+      effort: "max",
+      summary: "auto",
+    });
+  });
+
+  test('GPT-6 Astra effort: "none" snaps to the lowest accepted value', async () => {
+    const astraProvider = new OpenAIResponsesProvider("sk-test", "gpt-6-astra");
+    fakeStreamEvents = [textDeltaEvent("OK"), completedEvent(10, 2)];
+
+    await astraProvider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      { config: { effort: "none" } },
+    );
+
+    expect(lastStreamParams!.reasoning).toEqual({
+      effort: "low",
+      summary: "auto",
+    });
+  });
+
   test("no effort config means no reasoning in params", async () => {
     fakeStreamEvents = [textDeltaEvent("OK"), completedEvent(10, 2)];
 
@@ -843,6 +873,18 @@ describe("OpenAIResponsesProvider", () => {
     );
 
     expect(lastStreamParams!.text).toEqual({ verbosity: "high" });
+  });
+
+  test("verbosity is forwarded for GPT-6 Astra", async () => {
+    const astraProvider = new OpenAIResponsesProvider("sk-test", "gpt-6-astra");
+    fakeStreamEvents = [textDeltaEvent("OK"), completedEvent(10, 2)];
+
+    await astraProvider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      { config: { verbosity: "low" } },
+    );
+
+    expect(lastStreamParams!.text).toEqual({ verbosity: "low" });
   });
 
   test("verbosity is forwarded for GPT-5 fine-tune IDs", async () => {

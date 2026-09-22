@@ -186,10 +186,12 @@ const { ensureActivationStateSchema } =
   await import("../../../../../persistence/migrations/343-move-activation-state-to-memory-db.js");
 const { ensureConversationGraphMemoryStateSchema } =
   await import("../../../../../persistence/migrations/344-move-conversation-graph-memory-state-to-memory-db.js");
-const { ensureMemoryV3EverInjectedSchema } =
-  await import("../../../../../persistence/migrations/345-move-memory-v3-ever-injected-to-memory-db.js");
-const { getActiveSlugs: getV3ActiveSlugs, recordInjected: recordV3Injected } =
-  await import("../../v3/ever-injected-store.js");
+const { ensureMemoryV3InjectedSectionsSchema } =
+  await import("../../v3/plugin-schema.js");
+const {
+  getActiveSections: getV3ActiveSections,
+  recordInjected: recordV3Injected,
+} = await import("../../v3/ever-injected-store.js");
 const schema = await import("../../../../../persistence/schema/index.js");
 const { _resetMemoryV2QdrantForTests } =
   await import("../../substrate/qdrant.js");
@@ -240,12 +242,13 @@ function createTestDb(): DrizzleDb {
   `);
   migrateActivationState(db);
   // The relocated per-conversation tables prepareMemory touches — activation
-  // state, graph-memory state, and v3 ever-injected — all live on the dedicated
-  // memory connection now, so the mocked handle carries each one's schema.
+  // state, graph-memory state, and the v3 section record, all live on the
+  // dedicated memory connection, so the mocked handle carries each one's
+  // schema.
   memorySqliteHandle = new Database(":memory:");
   ensureActivationStateSchema(memorySqliteHandle);
   ensureConversationGraphMemoryStateSchema(memorySqliteHandle);
-  ensureMemoryV3EverInjectedSchema(memorySqliteHandle);
+  ensureMemoryV3InjectedSectionsSchema(memorySqliteHandle);
   return db;
 }
 
@@ -777,16 +780,20 @@ describe("ConversationGraphMemory.onCompacted — v2 activation eviction", () =>
     const before = await hydrateActivationState(conversationId);
     expect(before?.everInjected.map((e) => e.slug)).toContain("alice-vscode");
 
-    // Seed a memory-v3 everInjected record too: the same trigger clears it
-    // (the frozen card blocks those slugs rode were just compacted away).
-    recordV3Injected(conversationId, [{ slug: "alice-vscode", bytes: 100 }]);
-    expect(getV3ActiveSlugs(conversationId)).toEqual(new Set(["alice-vscode"]));
+    // Seed a memory-v3 section record too: the same trigger clears it (the
+    // frozen section blocks those pages rode were just compacted away).
+    recordV3Injected(conversationId, [
+      { slug: "alice-vscode", key: "", bytes: 100 },
+    ]);
+    expect(getV3ActiveSections(conversationId)).toEqual(
+      new Map([["alice-vscode", new Set([""])]]),
+    );
 
     await memory.onCompacted(1);
 
     const after = await hydrateActivationState(conversationId);
     expect(after?.everInjected).toEqual([]);
-    expect(getV3ActiveSlugs(conversationId)).toEqual(new Set());
+    expect(getV3ActiveSections(conversationId)).toEqual(new Map());
 
     // Turn 2 — same Qdrant relevance. With everInjected cleared the slug
     // should appear again in the injection block (re-attached on the new

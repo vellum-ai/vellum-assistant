@@ -13,10 +13,12 @@
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { type ButtonHTMLAttributes, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
+import { normalizeQuestionRequest } from "@/domains/chat/api/event-types";
+import { useInteractionStore } from "@/domains/chat/interaction-store";
 import type { ChatBodyProps } from "@/domains/chat/components/chat-body";
 import { useBannerVisibilityStore } from "@/stores/banner-visibility-store";
 
@@ -120,8 +122,8 @@ mock.module("@/domains/chat/refresh-feedback-pill", () => ({
   RefreshFeedbackPill: () => <div>REFRESH_PILL</div>,
 }));
 
-mock.module("@/domains/chat/components/question-prompt-slot", () => ({
-  QuestionPromptSlot: () => <div data-testid="question-prompt-slot" />,
+mock.module("@/domains/chat/components/question-prompt-card", () => ({
+  QuestionPromptCard: () => <div data-testid="question-prompt-card" />,
 }));
 
 let keyboardOpen = false;
@@ -174,6 +176,128 @@ function withEmptyState(overrides: Partial<ChatBodyProps> = {}): ChatBodyProps {
     ...overrides,
   });
 }
+
+describe("shared document presentation", () => {
+  test("desktop help can reopen the transcript from a document without replacing the composer", () => {
+    const question = normalizeQuestionRequest({
+      type: "question_request",
+      requestId: "req-help",
+      question: "Complete verification.",
+      options: [{ id: "done", label: "Done" }],
+      questions: [
+        {
+          id: "q1",
+          question: "Complete verification.",
+          options: [{ id: "done", label: "Done" }],
+          presentation: "virtual_desktop",
+        },
+      ],
+    });
+    useInteractionStore.setState({
+      pendingQuestion: { requestId: "req-help", entries: question },
+    });
+    let viewConversationCalls = 0;
+    const props = baseProps({
+      scrollAreaProps: { ...baseProps().scrollAreaProps, messageCount: 1 },
+      documentSlot: (
+        <textarea aria-label="Document" defaultValue="Unsaved edit" />
+      ),
+      composerSlot: <textarea aria-label="Message" defaultValue="Draft" />,
+      onViewConversation: () => {
+        viewConversationCalls += 1;
+      },
+    });
+    try {
+      const view = render(<ChatBody {...props} />);
+      const composer = view.getByRole("textbox", { name: "Message" });
+      const editor = view.getByRole("textbox", { name: "Document" });
+      expect(
+        view
+          .getByText("The virtual desktop needs your help.")
+          .closest("[hidden]"),
+      ).toBeNull();
+      fireEvent.click(view.getByRole("button", { name: "View conversation" }));
+      expect(viewConversationCalls).toBe(1);
+      view.rerender(
+        <ChatBody {...props} documentPresentation="conversation" />,
+      );
+      expect(
+        view.queryByText("The virtual desktop needs your help."),
+      ).toBeNull();
+      expect(view.getByTestId("transcript").closest("[hidden]")).toBeNull();
+      expect(view.getByRole("textbox", { name: "Message" })).toBe(composer);
+      view.rerender(<ChatBody {...props} documentPresentation="document" />);
+      expect(view.getByRole("textbox", { name: "Document" })).toBe(editor);
+      act(() => useInteractionStore.setState({ pendingQuestion: null }));
+      expect(
+        view.queryByRole("button", { name: "View conversation" }),
+      ).toBeNull();
+    } finally {
+      act(() => useInteractionStore.setState({ pendingQuestion: null }));
+    }
+  });
+
+  test("preserves the edited document and composer when only presentation changes", () => {
+    const props = baseProps({
+      scrollAreaProps: { ...baseProps().scrollAreaProps, messageCount: 1 },
+      composerSlot: (
+        <textarea aria-label="Message" defaultValue="Draft message" />
+      ),
+      documentSlot: (
+        <textarea aria-label="Document" defaultValue="Original text" />
+      ),
+    });
+    const view = render(<ChatBody {...props} />);
+    const editor = view.getByRole("textbox", { name: "Document" });
+    const composer = view.getByRole("textbox", { name: "Message" });
+    fireEvent.change(editor, { target: { value: "Locally edited text" } });
+    fireEvent.change(composer, { target: { value: "Unsaved message" } });
+    const transcript = view.getByTestId("transcript");
+    expect(transcript.closest("[hidden]")).not.toBeNull();
+
+    view.rerender(<ChatBody {...props} documentPresentation="conversation" />);
+    expect(view.queryByRole("textbox", { name: "Document" })).toBeNull();
+    expect(editor.closest("[inert]")).not.toBeNull();
+    expect(transcript.closest("[hidden]")).toBeNull();
+    expect(view.getByRole("textbox", { name: "Message" })).toBe(composer);
+
+    view.rerender(<ChatBody {...props} documentPresentation="document" />);
+    expect(view.getByRole("textbox", { name: "Document" })).toBe(editor);
+    expect(view.getByDisplayValue("Locally edited text")).toBe(editor);
+    expect(view.getByRole("textbox", { name: "Message" })).toBe(composer);
+    expect(view.getByDisplayValue("Unsaved message")).toBe(composer);
+    expect(editor.closest("[hidden]")).toBeNull();
+    expect(transcript.closest("[inert]")).not.toBeNull();
+  });
+
+  test("preserves the same focused composer and transcript across presentation switches", () => {
+    const props = baseProps({
+      scrollAreaProps: { ...baseProps().scrollAreaProps, messageCount: 1 },
+      composerSlot: (
+        <textarea aria-label="Message" defaultValue="Keep this draft" />
+      ),
+      queuedDrawerSlot: <div data-testid="queue">Queued message</div>,
+      genericChatError: { message: "Please retry" },
+    });
+    const view = render(<ChatBody {...props} />);
+    const input = view.getByRole("textbox");
+    input.focus();
+    const transcript = view.getByTestId("transcript");
+    view.rerender(
+      <ChatBody {...props} documentSlot={<div>Document editor</div>} />,
+    );
+    expect(view.getByRole("textbox")).toBe(input);
+    expect(document.activeElement).toBe(input);
+    expect(view.getByTestId("transcript")).toBe(transcript);
+    expect(transcript.closest("[hidden]")).not.toBeNull();
+    expect(view.getByTestId("queue")).not.toBeNull();
+    expect(view.getByText("Please retry")).not.toBeNull();
+    view.rerender(<ChatBody {...props} />);
+    expect(view.getByRole("textbox")).toBe(input);
+    expect(document.activeElement).toBe(input);
+    expect(transcript.closest("[hidden]")).toBeNull();
+  });
+});
 
 describe("ChatBody — empty-state centering (LUM-1566)", () => {
   test("applies safe_center and overflow-y-auto when empty state is visible", () => {
@@ -314,7 +438,7 @@ describe("ChatBody — banner overlay suppression (LUM-1566)", () => {
 describe("ChatBody — banner-visibility store mirroring", () => {
   // The shared store must reflect the banner actually being MOUNTED
   // (bannerSlot provided AND not on the empty state), not merely a
-  // candidate slot existing — a sidebar tip hides itself while the store
+  // candidate slot existing. Activation surfaces hide while the store
   // reports a visible banner. Count-based register/unregister keeps
   // concurrent instances (main chat + app-editing side panel) from
   // clobbering each other.

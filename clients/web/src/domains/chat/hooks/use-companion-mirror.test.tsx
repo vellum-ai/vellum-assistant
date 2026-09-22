@@ -12,12 +12,14 @@ const published: CompanionContext[] = [];
 // at teardown. What the clear then publishes is the runtime module's own rule,
 // and `runtime/companion-surface.test.ts` exercises the real one.
 const clearWorkingMock = mock(() => undefined);
+const clearPopoverMock = mock(() => undefined);
 
 mock.module("@/runtime/companion-surface", () => ({
   setCompanionContext: (context: CompanionContext) => {
     published.push(context);
   },
   clearCompanionWorking: clearWorkingMock,
+  clearCompanionPopover: clearPopoverMock,
   // The targeted path the running dictation's words take, which reuses the
   // last context rather than rebuilding one. Recorded the same way, since what
   // matters to these cases is what reached the surface.
@@ -86,6 +88,8 @@ const captureLanded = () => {
 };
 
 const { useTurnStore } = await import("@/domains/chat/turn-store");
+const { clearDictationOffer, setDictationOffer } =
+  await import("@/domains/chat/voice/dictation-offer-store");
 const { useConversationStore } = await import("@/stores/conversation-store");
 const { useChatSessionStore } =
   await import("@/domains/chat/chat-session-store");
@@ -101,6 +105,14 @@ const { useResolvedAssistantsStore } =
   await import("@/stores/resolved-assistants-store");
 const { MIN_VERSION: TARGET_MIN_VERSION } =
   await import("@/lib/backwards-compat/watch-capture-target");
+const { useInteractionStore } =
+  await import("@/domains/chat/interaction-store");
+const { offerSurfaceToCompanion, useCompanionPopoverStore } =
+  await import("@/domains/chat/companion-popover");
+const { useVoiceKeyTapStore } =
+  await import("@/domains/chat/voice/voice-key-tap-store");
+const { useIntroCallChordStore } =
+  await import("@/domains/chat/voice/intro-call-chord-store");
 const { useCompanionMirror } = await import("./use-companion-mirror");
 
 function Mirror() {
@@ -314,6 +326,32 @@ describe("the middle of a turn, where the client looks idle", () => {
  * it. Without this the surface would go quiet for the whole of a turn the user
  * is waiting on.
  */
+describe("the dictation offer the companion mirror publishes", () => {
+  const WISPR = { bundleId: "com.electron.wispr-flow", name: "Wispr Flow" };
+
+  test("says nothing while none stands", () => {
+    render(<Mirror />);
+    expect(latest().dictationOffer).toBeUndefined();
+  });
+
+  test("carries the words and the other app's name while it stands", async () => {
+    render(<Mirror />);
+    setDictationOffer(WISPR, "Send me the files.", null);
+    await waitFor(() => {
+      expect(latest().dictationOffer).toMatchObject({
+        reason: "claimed",
+        app: "Wispr Flow",
+        text: "Send me the files.",
+      });
+    });
+
+    clearDictationOffer();
+    await waitFor(() => {
+      expect(latest().dictationOffer).toBeUndefined();
+    });
+  });
+});
+
 describe("the watch summary the companion mirror publishes", () => {
   const SESSION = {
     sessionId: "sess-1",
@@ -629,4 +667,269 @@ test("mounts and publishes without throwing", () => {
   }).not.toThrow();
 
   expect(published.length).toBeGreaterThan(0);
+});
+
+const { useLiveVoiceStore } =
+  await import("@/domains/chat/voice/live-voice/live-voice-store");
+const { seedLiveVoiceSession } =
+  await import("@/domains/chat/voice/live-voice/live-voice-fakes.test-helper");
+const { MIN_VERSION: SIGHT_MIN_VERSION } =
+  await import("@/lib/backwards-compat/use-supports-sight-stream");
+
+/**
+ * What the call is being shown, and whether it can be shown anything. Both
+ * ride the live-voice store, which moves on every amplitude sample, so the
+ * cases here are also about the mirror publishing only when one of the two
+ * actually changed.
+ */
+describe("the screen share the companion mirror publishes", () => {
+  afterEach(() => {
+    act(() => {
+      useLiveVoiceStore.getState().reset();
+    });
+  });
+
+  test("offers nothing with no call, and a share once a session runs on an assistant that takes the frame", async () => {
+    render(<Mirror />);
+    expect(latest().screenShareEnabled).toBe(false);
+    act(() => {
+      useAssistantIdentityStore
+        .getState()
+        .setIdentity("test-asst", SIGHT_MIN_VERSION, "asst-1");
+      seedLiveVoiceSession("listening", {
+        assistantId: "asst-1",
+        conversationId: null,
+      });
+    });
+    await waitFor(() => {
+      expect(latest().screenShareEnabled).toBe(true);
+    });
+    act(() => {
+      useLiveVoiceStore.getState().reset();
+    });
+    await waitFor(() => {
+      expect(latest().screenShareEnabled).toBe(false);
+    });
+  });
+
+  test("carries the target only while frames can flow", async () => {
+    render(<Mirror />);
+    act(() => {
+      seedLiveVoiceSession("listening", {
+        assistantId: "asst-1",
+        conversationId: null,
+      });
+      useLiveVoiceStore
+        .getState()
+        .setScreenShareTarget({ kind: "window", windowId: 7 });
+    });
+    // An assistant that predates the frame: the share is held in the store
+    // and never reaches the surface.
+    await Promise.resolve();
+    expect(latest().screenShare).toBeUndefined();
+    act(() => {
+      useAssistantIdentityStore
+        .getState()
+        .setIdentity("test-asst", SIGHT_MIN_VERSION, "asst-1");
+    });
+    await waitFor(() => {
+      expect(latest().screenShare).toEqual({ kind: "window", windowId: 7 });
+    });
+    const pushes = published.length;
+    // An amplitude sample moves the store and nothing the surface draws.
+    act(() => {
+      useLiveVoiceStore.getState().setInputAmplitude(0.4);
+    });
+    await Promise.resolve();
+    expect(published.length).toBe(pushes);
+    act(() => {
+      useLiveVoiceStore.getState().setScreenShareTarget(null);
+    });
+    await waitFor(() => {
+      expect(latest().screenShare).toBeUndefined();
+    });
+  });
+
+  /**
+   * The marks the assistant places name a rectangle and nothing else, so the
+   * shell needs to be told whose call the surface belongs to before it can
+   * refuse one that came from anywhere else.
+   */
+  test("names the conversation whose call is sharing", async () => {
+    render(<Mirror />);
+    act(() => {
+      useAssistantIdentityStore
+        .getState()
+        .setIdentity("test-asst", SIGHT_MIN_VERSION, "asst-1");
+      seedLiveVoiceSession("listening", {
+        assistantId: "asst-1",
+        conversationId: "conv-abc",
+      });
+    });
+    await waitFor(() => {
+      expect(latest().callConversationId).toBe("conv-abc");
+    });
+    // Withheld with the share it qualifies: an id beside a share that cannot
+    // flow would name a conversation with nothing to own.
+    act(() => {
+      useLiveVoiceStore.getState().reset();
+    });
+    await waitFor(() => {
+      expect(latest().callConversationId).toBeUndefined();
+    });
+  });
+});
+
+describe("the popover the companion mirror publishes", () => {
+  afterEach(() => {
+    act(() => {
+      useInteractionStore.getState().resetAll();
+      useCompanionPopoverStore.setState({ offeredSurfaceId: null });
+    });
+  });
+
+  test("publishes the approval the turn is waiting on, and clears it", async () => {
+    render(<Mirror />);
+    expect(latest().popover).toBeUndefined();
+
+    act(() => {
+      useInteractionStore
+        .getState()
+        .showConfirmation({ requestId: "req-1", toolName: "bash" });
+    });
+    await waitFor(() => {
+      expect(latest().popover?.id).toBe("req-1");
+    });
+
+    act(() => {
+      useInteractionStore.getState().dismissConfirmationIfMatches("req-1");
+    });
+    await waitFor(() => {
+      expect(latest().popover).toBeUndefined();
+    });
+  });
+
+  /**
+   * Completion lands on the transcript snapshot, which is written on every
+   * streamed delta, so the mirror has to notice the one write that matters.
+   */
+  test("stops showing the popover when the layout goes away", () => {
+    const { unmount } = render(<Mirror />);
+    clearPopoverMock.mockClear();
+
+    unmount();
+
+    expect(clearPopoverMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("takes a surface down when the transcript completes it", async () => {
+    const surface = {
+      surfaceId: "surf-1",
+      surfaceType: "card",
+      data: { title: "Pick a time" },
+    };
+    act(() => {
+      useChatSessionStore.setState({
+        snapshot: { messages: [{ id: "m-1", role: "assistant", surfaces: [surface] }] },
+        dismissedSurfaceIds: new Set(),
+      } as never);
+    });
+    render(<Mirror />);
+    act(() => {
+      offerSurfaceToCompanion("surf-1");
+    });
+    await waitFor(() => {
+      expect(latest().popover?.kind).toBe("card");
+    });
+
+    act(() => {
+      useChatSessionStore.setState({
+        snapshot: {
+          messages: [
+            {
+              id: "m-1",
+              role: "assistant",
+              surfaces: [{ ...surface, completed: true }],
+            },
+          ],
+        },
+      } as never);
+    });
+    await waitFor(() => {
+      expect(latest().popover).toBeUndefined();
+    });
+  });
+});
+
+/**
+ * The tap count reaches the surface unfiltered, because the filter is upstream.
+ *
+ * The bridge counts a tap only while an introduction is staged, so by the time
+ * the store moves there is a card waiting for it. A gate here instead would let
+ * the store climb behind a closed publish and hand the next run a total it never
+ * earned, which the card would read as presses already made.
+ */
+describe("the tap count the companion mirror publishes", () => {
+  test("publishes every move of the count", async () => {
+    render(<Mirror />);
+    const before = latest().voiceKeyTaps ?? 0;
+
+    act(() => {
+      useVoiceKeyTapStore.getState().countTap();
+    });
+
+    await waitFor(() => {
+      expect(latest().voiceKeyTaps).toBe(before + 1);
+    });
+  });
+
+  test("publishes nothing while the count stands still", () => {
+    render(<Mirror />);
+    const pushes = published.length;
+
+    // What a tap outside a run amounts to here: the bridge declines to count
+    // it, so this store never hears about it and neither does the surface.
+    expect(published.length).toBe(pushes);
+    expect(latest().voiceKeyTaps).toBe(useVoiceKeyTapStore.getState().taps);
+  });
+});
+
+/**
+ * The presses of a call's shortcut reach the surface the same way, and for the
+ * same reason: the chord is heard by the window that armed it, and the card
+ * drawing that chord is a different renderer.
+ *
+ * The control travels with the count. A count alone says a chord was pressed
+ * and not which one, and the run walks between cards while a press is still
+ * crossing.
+ */
+describe("the shortcut presses the companion mirror publishes", () => {
+  test("publishes the press and the control it was for", async () => {
+    render(<Mirror />);
+    const before = latest().introChordPresses ?? 0;
+
+    act(() => {
+      useIntroCallChordStore.getState().countPress("draw");
+    });
+
+    await waitFor(() => {
+      expect(latest().introChordPresses).toBe(before + 1);
+      expect(latest().introChordControl).toBe("draw");
+    });
+  });
+
+  /**
+   * Nothing is armed to hear one of these outside the three beats that ask
+   * for it, so a store standing still is the resting state of every window
+   * that is not in a run.
+   */
+  test("publishes nothing while no press has been made", () => {
+    render(<Mirror />);
+    const pushes = published.length;
+
+    expect(published.length).toBe(pushes);
+    expect(latest().introChordPresses).toBe(
+      useIntroCallChordStore.getState().presses,
+    );
+  });
 });

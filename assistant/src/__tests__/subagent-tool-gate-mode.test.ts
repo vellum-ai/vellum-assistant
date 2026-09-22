@@ -66,6 +66,40 @@ mock.module("../daemon/conversation-skill-tools.js", () => ({
   })),
 }));
 
+// Records every wire tool surface the resolver persists (conversation id +
+// tool names + the hash it already knew), and lets a test make the write fail.
+type RecordedSurface = {
+  tools: ToolDefinition[];
+  delegateIndependentTasks: boolean | null;
+};
+let recordedSurfaces: Array<{
+  conversationId: string;
+  toolNames: string[];
+  delegateIndependentTasks: boolean | null;
+  knownHash: string | undefined;
+}> = [];
+let recordSurfaceThrows: Error | null = null;
+mock.module("../persistence/conversation-tool-surface.js", () => ({
+  recordConversationToolSurface: (
+    conversationId: string,
+    surface: RecordedSurface,
+    knownHash?: string,
+  ) => {
+    recordedSurfaces.push({
+      conversationId,
+      toolNames: surface.tools.map((t) => t.name),
+      delegateIndependentTasks: surface.delegateIndependentTasks,
+      knownHash,
+    });
+    if (recordSurfaceThrows) {
+      throw recordSurfaceThrows;
+    }
+    return `hash:${surface.tools.map((t) => t.name).join(",")}`;
+  },
+  hashConversationToolSurface: (surface: RecordedSurface) =>
+    `hash:${surface.tools.map((t) => t.name).join(",")}`,
+}));
+
 // ---------------------------------------------------------------------------
 // Imports after mocks are in place
 // ---------------------------------------------------------------------------
@@ -75,6 +109,7 @@ import { createSurfaceMutex } from "../daemon/conversation-surfaces.js";
 import {
   createResolveToolsCallback,
   createToolExecutor,
+  createWireToolSurfaceRecorder,
   isRefusedInReadOnlyPass,
   type SubagentToolStats,
 } from "../daemon/conversation-tool-setup.js";
@@ -88,6 +123,7 @@ import {
 } from "../tools/registry.js";
 import { RiskLevel } from "../tools/tool-types.js";
 import type { Tool } from "../tools/types.js";
+import { uiShowTool } from "../tools/ui-surface/definitions.js";
 import { asConversation } from "./helpers/mock-conversation.js";
 
 // ---------------------------------------------------------------------------
@@ -249,14 +285,73 @@ describe("createResolveToolsCallback — toolContextPin", () => {
     });
   }
 
-  test("control: without a pin, a clientless fork drops every client-gated tool from the wire", () => {
+  test("Slack and desktop turns keep the same full ui_show schema while surfaces persist", () => {
+    projectedSkillToolNames = [];
+    const slackCaps = {
+      channel: "slack" as const,
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+    };
+    const desktopCaps = {
+      channel: "macos" as const,
+      dashboardCapable: true,
+      supportsDynamicUi: true,
+      supportsVoiceInput: true,
+    };
+    const liveSlackResolve = createResolveToolsCallback(
+      [uiShowTool],
+      makeProjectionCtx({
+        hasNoClient: false,
+        channelCapabilities: slackCaps,
+      }),
+    )!;
+    const clientlessSlackResolve = createResolveToolsCallback(
+      [uiShowTool],
+      clientlessExecutionCtx({
+        channelCapabilities: slackCaps,
+      }),
+    )!;
+    const liveDesktopResolve = createResolveToolsCallback(
+      [uiShowTool],
+      makeProjectionCtx({
+        hasNoClient: false,
+        channelCapabilities: desktopCaps,
+      }),
+    )!;
+
+    const [liveSlackUiShow] = liveSlackResolve(EMPTY_HISTORY);
+    const [clientlessSlackUiShow] = clientlessSlackResolve(EMPTY_HISTORY);
+    const [liveDesktopUiShow] = liveDesktopResolve(EMPTY_HISTORY);
+    expect(liveSlackUiShow).toEqual(clientlessSlackUiShow);
+    expect(liveSlackUiShow).toEqual(liveDesktopUiShow);
+    expect(
+      (
+        liveSlackUiShow.input_schema as {
+          properties: { surface_type: { enum: string[] } };
+        }
+      ).properties.surface_type.enum,
+    ).toContain("choice");
+    expect(liveSlackUiShow.description).toContain("dynamic_page");
+  });
+
+  test("control: without a pin, a clientless fork drops client-gated tools but keeps host and UI tools", () => {
     projectedSkillToolNames = [];
     const resolve = createResolveToolsCallback(
       CLIENT_GATED_DEFS,
       clientlessExecutionCtx(),
     )!;
 
-    expect(resolve(EMPTY_HISTORY).map((t) => t.name)).toEqual(["remember"]);
+    // Host tool definitions stay on the wire for background turns, and
+    // ui_show stays because background UI surfaces persist and return. The
+    // executor rejects host tools on explicitly non-interactive turns before
+    // dispatch; ask_question and request_system_permission remain
+    // client-gated at resolution.
+    expect(resolve(EMPTY_HISTORY).map((t) => t.name)).toEqual([
+      "remember",
+      "host_bash",
+      "ui_show",
+    ]);
   });
 
   test("a desktop-source pin restores the host/UI/client tool defs on the wire", () => {
@@ -291,7 +386,14 @@ describe("createResolveToolsCallback — toolContextPin", () => {
       }),
     )!;
 
-    expect(resolve(EMPTY_HISTORY).map((t) => t.name)).toEqual(["remember"]);
+    // Host tool definitions stay on the wire for background turns, and
+    // ui_show survives the clientless pin: it persists and returns. The
+    // executor rejects host tools on explicitly non-interactive turns.
+    expect(resolve(EMPTY_HISTORY).map((t) => t.name)).toEqual([
+      "remember",
+      "host_bash",
+      "ui_show",
+    ]);
   });
 
   test("invariant: a pinned-in tool is on the wire but can never execute", async () => {
@@ -1048,5 +1150,196 @@ describe("createResolveToolsCallback — read-only hides dynamic MCP tools", () 
     )!;
 
     expect(resolve(EMPTY_HISTORY).map((t) => t.name)).toContain("srv_send");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Resolver: wire tool surface record + replay (fork cache parity)
+// ---------------------------------------------------------------------------
+
+describe("createResolveToolsCallback: wire tool surface record and replay", () => {
+  beforeEach(() => {
+    recordedSurfaces = [];
+    recordSurfaceThrows = null;
+    projectedSkillToolNames = [];
+  });
+
+  test("the resolver itself never records: out-of-band callers read it too", () => {
+    const toolDefs = [makeToolDef("remember"), makeToolDef("tool_b")];
+    const ctx = makeProjectionCtx({ conversationId: "conv-live" });
+    const resolve = createResolveToolsCallback(toolDefs, ctx)!;
+
+    // The `/compact` token count resolves outside any turn, where presence
+    // reads clientless; recording here would overwrite the sent surface.
+    resolve(EMPTY_HISTORY);
+
+    expect(recordedSurfaces).toEqual([]);
+    expect(ctx.recordedToolSurfaceHash).toBeUndefined();
+  });
+
+  test("the send-boundary recorder records the sent array, keyed by conversation, and remembers its hash", () => {
+    const ctx = makeProjectionCtx({
+      conversationId: "conv-live",
+      renderedDelegateIndependentTasks: true,
+    });
+    const record = createWireToolSurfaceRecorder(ctx);
+    const sent = [makeToolDef("remember"), makeToolDef("web_search")];
+
+    record(sent);
+    record(sent);
+
+    // Every provider call records; the persistence layer dedupes on the hash
+    // handed back from the previous call.
+    expect(recordedSurfaces).toEqual([
+      {
+        conversationId: "conv-live",
+        toolNames: ["remember", "web_search"],
+        delegateIndependentTasks: true,
+        knownHash: undefined,
+      },
+      {
+        conversationId: "conv-live",
+        toolNames: ["remember", "web_search"],
+        delegateIndependentTasks: true,
+        knownHash: "hash:remember,web_search",
+      },
+    ]);
+    expect(ctx.recordedToolSurfaceHash).toBe("hash:remember,web_search");
+  });
+
+  test("the recorder records the state the prompt build captured, never a re-derivation", () => {
+    const sent = [makeToolDef("remember")];
+
+    // The loop sends the prompt built before the run, so the captured state
+    // is recorded as is even where the live scope would now derive the
+    // opposite: a spawn path excluded after the build (here, an allowlist
+    // with none) still records the section on...
+    createWireToolSurfaceRecorder(
+      makeProjectionCtx({
+        conversationId: "conv-captured-on",
+        subagentAllowedTools: new Set(["remember"]),
+        renderedDelegateIndependentTasks: true,
+      }),
+    )(sent);
+    // ...and a path restored after the build still records it off.
+    createWireToolSurfaceRecorder(
+      makeProjectionCtx({
+        conversationId: "conv-captured-off",
+        renderedDelegateIndependentTasks: false,
+      }),
+    )(sent);
+    // A verbatim system-prompt override captures unknown.
+    createWireToolSurfaceRecorder(
+      makeProjectionCtx({
+        conversationId: "conv-override",
+        renderedDelegateIndependentTasks: null,
+      }),
+    )(sent);
+    // No prompt built yet: unknown as well.
+    createWireToolSurfaceRecorder(
+      makeProjectionCtx({ conversationId: "conv-unbuilt" }),
+    )(sent);
+
+    expect(
+      recordedSurfaces.map((r) => [
+        r.conversationId,
+        r.delegateIndependentTasks,
+      ]),
+    ).toEqual([
+      ["conv-captured-on", true],
+      ["conv-captured-off", false],
+      ["conv-override", null],
+      ["conv-unbuilt", null],
+    ]);
+  });
+
+  test("a failed record is swallowed and still counts as recorded", () => {
+    recordSurfaceThrows = new Error("no such table");
+    const record = createWireToolSurfaceRecorder(
+      makeProjectionCtx({ conversationId: "conv-live" }),
+    );
+
+    expect(() => record([makeToolDef("remember")])).not.toThrow();
+    record([makeToolDef("remember")]);
+
+    // The second call carries the hash from the failed first one, so a
+    // persistent failure is retried once per distinct surface, not per call.
+    expect(recordedSurfaces.map((r) => r.knownHash)).toEqual([
+      undefined,
+      "hash:remember",
+    ]);
+  });
+
+  test("the recorder skips arrays that are not the conversation's own surface", () => {
+    const tools = [makeToolDef("remember")];
+
+    // A replaying wake sends its source's array.
+    createWireToolSurfaceRecorder(
+      makeProjectionCtx({ conversationId: "conv-fork", wireToolReplay: tools }),
+    )(tools);
+    // A tools-disabled call sends nothing; a fork replaying [] could never
+    // call remember.
+    createWireToolSurfaceRecorder(
+      makeProjectionCtx({ conversationId: "conv-live" }),
+    )([]);
+    // Disk-pressure cleanup narrows the wire to cleanup tools.
+    createWireToolSurfaceRecorder(
+      makeProjectionCtx({
+        conversationId: "conv-live",
+        diskPressureCleanupModeActive: true,
+      }),
+    )(tools);
+
+    expect(recordedSurfaces).toEqual([]);
+  });
+
+  test("replays wireToolReplay verbatim on the wire while execution still derives from the fork's own context", () => {
+    projectedSkillToolNames = ["scaffold_managed_skill"];
+    const replay: ToolDefinition[] = [
+      makeToolDef("bash"),
+      makeToolDef("remember"),
+      makeToolDef("bell_jingle"),
+      {
+        type: "web_search_20250305",
+        name: "web_search",
+        max_uses: 5,
+      } as unknown as ToolDefinition,
+    ];
+    // The fork's own registry lacks bell_jingle (a user-plugin tool the
+    // worker never loads) and web_search (a server tool the loop appends).
+    const toolDefs = [makeToolDef("remember"), makeToolDef("bash")];
+    const ctx = makeProjectionCtx({
+      conversationId: "conv-fork",
+      subagentAllowedTools: new Set(["remember"]),
+      subagentToolGateMode: "execution",
+      wireToolReplay: replay,
+    });
+    const resolve = createResolveToolsCallback(toolDefs, ctx)!;
+
+    const tools = resolve(EMPTY_HISTORY);
+
+    // Byte-identical to the source's recorded array, in the source's order,
+    // including definitions this process could never resolve.
+    expect(JSON.stringify(tools)).toBe(JSON.stringify(replay));
+    // Execution-side inventory is still the fork's own derivation (plus the
+    // preactivated skill tools), never widened by the replayed definitions.
+    expect(ctx.allowedToolNames).toEqual(
+      new Set(["remember", "bash", "scaffold_managed_skill"]),
+    );
+  });
+
+  test("replay returns a fresh array each call so the loop cannot mutate the recorded one", () => {
+    const replay = [makeToolDef("remember")];
+    const ctx = makeProjectionCtx({
+      conversationId: "conv-fork",
+      wireToolReplay: replay,
+    });
+    const resolve = createResolveToolsCallback([makeToolDef("remember")], ctx)!;
+
+    const first = resolve(EMPTY_HISTORY);
+    first.push(makeToolDef("injected"));
+
+    expect(resolve(EMPTY_HISTORY).map((t) => t.name)).toEqual(["remember"]);
+    expect(replay.map((t) => t.name)).toEqual(["remember"]);
   });
 });

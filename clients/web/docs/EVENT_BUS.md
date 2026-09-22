@@ -43,13 +43,63 @@ Centralizing through a bus also gives us:
 | `clients/web/src/runtime/event-sources/*`                 | One file per host-environment signal (DOM visibility, network online/offline, Capacitor app state, Electron `powerMonitor`, Electron window attention, Electron deep links). Each calls `publish` directly and returns an unsubscribe.                                                                                    |
 | `clients/web/src/runtime/event-sources/lifecycle-edge.ts` | Not a source: the shared seam the DOM-visibility, Capacitor app-state, and Electron window-attention sources publish through. Collapses two reports of one physical foreground / background edge into a single `app.resume` / `app.hidden`.                                                                          |
 | `clients/web/src/lib/lifecycle-diagnostics.ts`            | Bus consumer that records `app.*` / `power.*` signals into the durable lifecycle diagnostics ring so support bundles show whether any resume / visibility / network signal fired, and whether a desktop window reported itself watched (`app.attention`) when a notification did not arrive. Attached once alongside the signal sources in `use-event-bus-init.ts`.                                       |
-| `clients/web/src/assistant/sse-service.ts`                | Non-React owner of the assistant-scoped SSE connection. Opens the stream, republishes envelopes as `sse.event`, drives the bounce policy from `app.*` / `power.*` / `reachability.*` signals.                                                                                                  |
+| `clients/web/src/assistant/sse-service.ts`                | Non-React owner of the assistant-scoped SSE connection. Opens the stream, republishes envelopes as `sse.event` a task's worth at a time (see [SSE envelope delivery](#sse-envelope-delivery)), drives the bounce policy from `app.*` / `power.*` / `reachability.*` signals.                                                                                                  |
 
 The bus is a plain pub/sub module. Handlers fire synchronously from
-`publish()` so a burst of events isn't collapsed into a single React
-commit cycle. The handler `Map` lives in module scope, not in any
-Zustand store — consumers never read it, only register handlers into
-it and dispatch through it.
+`publish()` and never through reactive state: an event held in a store
+field reaches React once per commit, so a burst written inside one
+batched commit would surface only its last event and lose the rest.
+Every published event reaches every handler. The handler `Map` lives in
+module scope, not in any Zustand store: consumers never read it, only
+register handlers into it and dispatch through it.
+
+### SSE envelope delivery
+
+Losing no event is a delivery guarantee. It is not a promise of one
+React commit per event, and `sse.event` is where the difference matters.
+The stream transport hands envelopes over one per microtask (its
+`for await` read loop), and React flushes a synchronous commit in the
+microtask after a store write. Published straight from that callback, a
+network chunk or a reconnect replay of N envelopes is N full commits
+back to back inside one task. That saturates a slower renderer for the
+length of a reply, and it is how the app reached
+`Maximum update depth exceeded`: React counts a commit toward its
+nested-update limit when it finishes with an update still pending, any
+effect that sets state leaves one pending until the task ends, and the
+store write after the fiftieth such commit throws.
+
+`sse-service.ts` therefore queues envelopes and drains the queue from a
+single `MessageChannel` task, publishing each in arrival order, so React
+batches everything the run writes into one commit. The rules the queue
+keeps:
+
+- **Order.** The queue is flushed synchronously before `sse.opened` and
+  `sse.closed` are published and on every teardown path (hidden grace,
+  power, reachability, anchor, debug, detach), so no lifecycle signal
+  overtakes an envelope received before it.
+- **Nothing dropped by a teardown.** A flushed envelope is dispatched
+  exactly as if it had been published on arrival. Only an envelope that
+  arrives after detach is discarded; its `seq` never advanced the
+  reconnect cursor, and the next attach starts cold.
+- **A task, and not a timer or a frame.** Browsers throttle timers in a
+  background tab and stop animation frames, and the stream stays open
+  through the hidden grace window to deliver notifications.
+
+- **A drain survives its own failure.** The queue is consumed as it is
+  published, so if a throw ever escapes `publish`, only the envelope being
+  published is lost and the rest drain on the next task.
+
+A subscriber may rely on seeing every envelope in order. It may not rely
+on React having committed between two envelopes.
+
+### Handler errors
+
+`publish` catches each handler's throw so one failing subscriber cannot
+block the ones after it, and reports it through `captureError`
+(`context: "event_bus.handler"`, tagged `bus_event` with the event name).
+A handler that throws has skipped the rest of its work for that event,
+and most subscribers have no catch of their own, so the report is the
+only trace.
 
 ## Event protocol
 
@@ -82,7 +132,7 @@ Every event name in `BusEventMap` has a typed payload. Producers:
 | `download.started`                 | `{ filename }`                                                                                | Plain browser only: `saveFile` handed a download to the browser's own download UI. Electron reports real outcomes via `download.done` instead, and Capacitor's share sheet is its own feedback, so neither publishes this. `use-download-feedback` consumes and shows the acknowledgment toast.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `download.done`                    | `{ id?, filename, state }`                                                                    | The Electron main process finished (or failed) saving a download this window started (`runtime/event-sources/electron-downloads.ts`); or `saveFile` could not fetch a URL source into a blob on Electron so no download could start (the shell denies the cross-origin anchor fallback); or the Capacitor save path failed to fetch or stage the source before the share sheet could present. `id` accompanies `state: "completed"` and keys the file-manager reveal. `use-download-feedback` consumes and shows the completion or failure toast.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `deeplink.send`                    | `{ message }`                                                                                 | Electron host only: inbound `vellum://send?message=…` URL routed by Launch Services. Chat domain consumes to pre-fill the composer.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| `deeplink.openThread`              | `{ threadId }`                                                                                | Electron host: inbound `vellum://thread/<id>` URL. Also published by the notification-tap handler (`hooks/use-notification-tap-navigation.ts`) on every platform — Capacitor local notifications, Electron notification actions, browser `Notification.onclick` — and by APNs remote-push taps on Capacitor iOS (`runtime/push-registration.ts`). Chat domain consumes to navigate.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `deeplink.openThread`              | `{ threadId }`                                                                                | Electron host: inbound `vellum://thread/<id>` URL. Also published by the notification-tap handler (`hooks/use-notification-tap-navigation.ts`) on every platform (Capacitor local notifications, Electron notification actions, browser `Notification.onclick`) and by remote-push taps through `runtime/push-registration.ts`: APNs on Capacitor iOS, and on Capacitor Android the data-only FCM pushes `SafeMessagingService` renders natively, whose tap intent carries `google.message_id` so the Capacitor plugin emits `pushNotificationActionPerformed`. Chat domain consumes to navigate.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `deeplink.sendToThread`            | `{ threadId, message, provenance: "intent" \| null }`                                         | Capacitor iOS: inbound `vellum-assistant://thread/<id>?message=…` URL (`runtime/event-sources/capacitor-deep-links.ts`), produced by the "Send Message to Chat" App Intent (LUM-3230). `parseOpenThreadDeepLink` validates the id's shape and bounds/sanitizes the message (2000 chars, typed-text control-character rules, CRLF normalized); a thread link whose message fails sanitization publishes plain `deeplink.openThread` instead, so this event always carries usable text. `provenance` is `"intent"` only when the iOS shell proved an App Intent produced the URL (see the provenance note below the table). `useGlobalDeepLinkConsumer` navigates to the conversation either way; with proven provenance it parks a _send request_ that `useDeepLinkThreadSend` (chat domain) fulfils once the target thread is confirmed to exist and demotes to a pre-fill when it is gone or the park has aged out; without it, it parks the message as a composer pre-fill and requests focus, one tap from sent.                                                                                                                                                                                                                                                                                                                                                                                 |
 | `deeplink.billingCheckoutComplete` | `{ status, sessionId, flow: "subscription" \| "top_up" }`                                     | Electron host (`runtime/event-sources/electron-deep-links.ts`) and Capacitor iOS (`runtime/event-sources/capacitor-deep-links.ts`): inbound `<scheme>://billing/checkout-complete?status=…&session_id=…&flow=…` URL. The platform bounces a native-initiated Stripe Checkout here once the user finishes in the system browser (Electron) or the in-app `SFSafariViewController` (iOS). Parsers default an absent `flow` param to `subscription` (all released clients and current Pro links). `useGlobalDeepLinkConsumer` branches on `flow`: a `subscription` checkout navigates to billing with the `session_id` (opening the Pro onboarding wizard) or to the upgrade-cancel page on `status: "cancel"`; a `top_up` checkout toasts + refetches the billing summary on success with no forced navigation, and on cancel lands on billing with `billing_status=cancel`, funneling into the billing page's server-verified checkout-bonus offer flow. `AddCreditsModal` also subscribes and dismisses itself on any `top_up` return, close-only: the summary refetch on success is owned by `useGlobalDeepLinkConsumer` via `notifyCheckoutSuccess`, and the modal's Capacitor `browserFinished` listener (also close-only) cannot fire on Electron, so this event is the desktop shell's only close signal.                                                                                      |
 | `deeplink.startVoice`              | `{ mode: "new" \| "resume", prompt: string \| null, provenance: "intent" \| null }`           | Capacitor iOS: inbound `vellum-assistant://voice?mode=…&prompt=…` URL (`runtime/event-sources/capacitor-deep-links.ts`). The single native→SPA voice command channel: Siri and the Action Button (App Intents), the Dynamic Island Live Activity's tap-to-return `widgetURL`, and manual test links all arrive here. `useGlobalDeepLinkConsumer` navigates and hands the request to the live-voice starter, parking it while the layout-scoped session controller is unmounted (cold launch). `mode: "resume"` only navigates back to a running session. `prompt` is what Siri's "Ask …" intent collected before the app was up: `parseStartVoiceDeepLink` bounds it (2000 chars) and rejects control characters. With no call running the consumer skips the voice session either way (it has no text-turn frame; JARVIS-1522) and then branches on `provenance`: proven, the prompt is asked as a text turn in a fresh conversation via `navigateToNewConversation`'s `?prompt=` auto-send; unproven, it is parked in the composer inbox (`deeplink.send`'s one-shot store) with focus requested and never auto-sent. A prompt arriving mid-call parks as a pre-fill regardless. See the hook's docstring.                                                                                                                                                                                        |
@@ -340,11 +390,17 @@ export function setupMyStore(): () => void {
 ## Testing
 
 `lib/event-bus.test.ts` covers the pub/sub surface (subscribe,
-unsubscribe, publish, isolation between event names, throwing-handler
-robustness). `assistant/sse-service.test.ts` covers SSE behavior:
-open gating, event re-broadcast, `sse.opened` cause tagging, teardown
+unsubscribe, publish, isolation between event names, and a throwing
+handler: downstream handlers still run, and each throw is reported
+through `captureError` tagged with its event). `assistant/sse-service.test.ts` covers SSE behavior:
+open gating, event re-broadcast, envelope delivery (one task per run,
+ordering against `sse.opened` / `sse.closed` / teardown / detach),
+`sse.opened` cause tagging, teardown
 on `app.hidden`, reopen on `app.resume`, the dedup window, and the
-power-driven bounce paths. `use-event-bus-init.test.tsx` asserts the
+power-driven bounce paths. `assistant/sse-service-react-commits.test.tsx`
+renders a component against the real service and bus and asserts a long
+run of envelopes costs one commit and never trips React's nested-update
+limit. `use-event-bus-init.test.tsx` asserts the
 thin React-adapter contract (don't attach without a resolved id /
 without an active assistant). Each `runtime/event-sources/*` file
 has a colocated unit test exercising its publish contract via

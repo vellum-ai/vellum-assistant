@@ -1,7 +1,8 @@
 import type { CommandRiskSpec } from "../../risk-types.js";
 
 const spec: CommandRiskSpec = {
-  baseRisk: "low",
+  baseRisk: "medium",
+  reason: "DNS lookup: the queried name reaches an external resolver",
 };
 
 export default spec;

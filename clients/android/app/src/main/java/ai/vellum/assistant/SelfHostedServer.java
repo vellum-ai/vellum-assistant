@@ -20,7 +20,7 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-final class SelfHostedServer {
+public final class SelfHostedServer {
     private static final String CONFIG_DIRECTORY = "capacitor-self-hosted";
     private static final String CONFIG_FILE = "capacitor.config.json";
     private static final String PREFERENCES_NAME = "self_hosted_server";
@@ -65,7 +65,7 @@ final class SelfHostedServer {
 
     private SelfHostedServer() {}
 
-    static URI configured(Context context) {
+    public static URI configured(Context context) {
         return configured(new PreferencesStore(context));
     }
 
@@ -244,6 +244,59 @@ final class SelfHostedServer {
     static boolean isActive(Store store, URI url) {
         URI active = configured(store);
         return active != null && url != null && canonicalString(active).equals(canonicalString(url));
+    }
+
+    /**
+     * Whether a main-frame HTTP error means the configured server cannot be
+     * reached. A dead tunnel answers 4xx/5xx on the first document (the
+     * provider's own error page). After the SPA has loaded once, only an
+     * error on the app entry itself is treated as a lost assistant. Nested
+     * 4xx from settings paths, platform probes, or a WebView that
+     * mis-attributes a subresource as the main frame are not.
+     */
+    static boolean shouldTreatHttpErrorAsUnreachable(
+        int status,
+        String failedUrl,
+        URI server,
+        boolean pageAlreadyLoaded
+    ) {
+        if (status < 400 || server == null || !contains(server, failedUrl)) {
+            return false;
+        }
+        if (!pageAlreadyLoaded) {
+            return true;
+        }
+        return samePage(appEntryUrl(server).toASCIIString(), failedUrl);
+    }
+
+    /**
+     * Whether a main-frame document GET should stay in the running SPA.
+     * Settings items are {@code <a href>} plus preventDefault. A WebView
+     * that still performs the document navigation would leave the in-memory
+     * remote-gateway token behind and, without an SPA fallback, 4xx.
+     * The app entry and pair page remain full-page loads.
+     */
+    static boolean shouldCancelInAppDocumentNavigation(
+        String targetUrl,
+        URI server,
+        boolean pageAlreadyLoaded,
+        String method
+    ) {
+        if (!pageAlreadyLoaded || server == null) {
+            return false;
+        }
+        if (method == null || !"GET".equalsIgnoreCase(method)) {
+            return false;
+        }
+        if (!contains(server, targetUrl)) {
+            return false;
+        }
+        String entry = appEntryUrl(server).toASCIIString();
+        if (samePage(entry, targetUrl)) {
+            return false;
+        }
+        String pair = appRoute(entry, "pair");
+        return pair == null || !samePage(pair, targetUrl);
     }
 
     /**

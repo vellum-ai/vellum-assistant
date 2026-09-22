@@ -1,16 +1,19 @@
-import { useQuery } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import type { FC, MouseEvent } from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
+import { resolveComputerUseToolName } from "@vellumai/assistant-api";
 
 import { AttachmentDownloadOverlay } from "@/domains/chat/components/chat-attachments/attachment-download-overlay";
+import { AttachmentPreviewBox } from "@/domains/chat/components/chat-attachments/attachment-preview-box";
 import {
-  downloadAttachment,
-  fetchAttachmentContentBlob,
-} from "@/domains/chat/components/chat-attachments/download-attachment";
-import { estimateBase64Bytes } from "@/domains/chat/components/chat-attachments/utils";
+  ComputerUseScreenshotPreview,
+  type ComputerUseScreenshotTransition,
+} from "@/domains/chat/components/chat-attachments/computer-use-screenshot-preview";
+import { downloadAttachment } from "@/domains/chat/components/chat-attachments/download-attachment";
+import { estimateBase64Bytes } from "@/utils/attachment-utils";
+import { useAttachmentObjectUrl } from "@/domains/chat/components/chat-attachments/use-attachment-object-url";
 import { useAttachmentPreview } from "@/domains/chat/components/chat-attachments/use-attachment-preview";
-import { sniffMimeType } from "@/domains/chat/utils/mime-sniff";
+import { sniffMimeType } from "@/utils/mime-sniff";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { DisplayAttachment } from "@/types/attachment-types";
 
@@ -171,6 +174,64 @@ function toolResultImageInputs(toolCall: ChatMessageToolCall): {
 }
 
 /**
+ * One tool-result image, plus the identity the strip lists it under.
+ *
+ * `id` cannot serve: a referenced image carries the workspace attachment id it
+ * fetches by, and two tool calls in one turn can name the same one. The strip
+ * also drops entries from the middle as a turn settles, so a positional key
+ * would shift under a surviving image and remount it, throwing away the object
+ * URL it had already fetched.
+ */
+export interface ToolResultImage extends DisplayAttachment {
+  /** Stable across a mid-turn removal and unique within the strip. */
+  stripKey: string;
+  /** Stable for one produced image across inline-to-reference hydration. */
+  occurrenceKey: string;
+  /** Producing tool-call occurrence, stable across inline-to-reference swaps. */
+  toolCallId: string;
+  /** Resolve canonical filename and MIME metadata before saving this reference. */
+  resolveReferenceMetadata?: boolean;
+}
+
+type IncludeToolResultImage = (
+  toolCall: ChatMessageToolCall,
+  index: number,
+  total: number,
+) => boolean;
+
+interface CachedToolResultImage {
+  source: string;
+  filename: string;
+  image: ToolResultImage;
+}
+
+/** Retains only the previous projection's images. Create once per message. */
+export function createToolResultImageProjector() {
+  let previous = new Map<string, CachedToolResultImage>();
+  return (
+    toolCalls: ChatMessageToolCall[],
+    includeImage?: IncludeToolResultImage,
+  ): ToolResultImage[] => {
+    const next = new Map<string, CachedToolResultImage>();
+    const images = projectImages(
+      toolCalls,
+      includeImage,
+      (key, source, filename, build) => {
+        const cached = previous.get(key);
+        const image =
+          cached?.source === source && cached.filename === filename
+            ? cached.image
+            : build();
+        next.set(key, { source, filename, image });
+        return image;
+      },
+    );
+    previous = next;
+    return images;
+  };
+}
+
+/**
  * Project a message's tool-result images into {@link DisplayAttachment}
  * objects.
  *
@@ -186,71 +247,120 @@ function toolResultImageInputs(toolCall: ChatMessageToolCall): {
  * Filenames use the server's `<tool-prefix>.<ext>` naming; a tool that emits
  * more than one image additionally gets an index suffix so the names stay
  * distinct (the server keeps same-named attachments apart by id instead).
- * Referenced entries have no wire-carried MIME/size, so they default to a
- * generic image type — the fetched blob supplies the real bytes for preview
- * and download.
+ * Referenced entries have no wire-carried filename, MIME, or size, so their
+ * projected values are display fallbacks. Downloads resolve the canonical
+ * stored metadata before saving the fetched bytes.
  */
-function buildToolResultAttachments(
+export function projectToolResultImages(
   toolCalls: ChatMessageToolCall[],
-  embeddedImageNames: ReadonlySet<string>,
-): DisplayAttachment[] {
-  const attachments: DisplayAttachment[] = [];
+  includeImage?: IncludeToolResultImage,
+): ToolResultImage[] {
+  return projectImages(
+    toolCalls,
+    includeImage,
+    (_key, _source, _filename, build) => build(),
+  );
+}
+
+function projectImages(
+  toolCalls: ChatMessageToolCall[],
+  includeImage: IncludeToolResultImage | undefined,
+  resolve: (
+    key: string,
+    source: string,
+    filename: string,
+    build: () => ToolResultImage,
+  ) => ToolResultImage,
+): ToolResultImage[] {
+  const attachments: ToolResultImage[] = [];
   let globalIndex = 0;
   for (const tc of toolCalls) {
     const { refIds, base64Images } = toolResultImageInputs(tc);
     const total = refIds.length + base64Images.length;
-    const prefix = toolNameToFilePrefix(tc.name);
-    // Positional: a media tool writes its images to the workspace in the order
-    // it reports them, so image `i` of this call is the file named `i`th in its
-    // result. An image whose file the reply embeds is presented there instead.
-    const savedNames = embeddedImageNames.size
-      ? imageFileNamesInResult(tc.result)
-      : [];
-    const isEmbedded = (index: number): boolean => {
-      const name = savedNames[index];
-      return name !== undefined && embeddedImageNames.has(name);
-    };
-    let imageIndex = -1;
+    const producingToolName =
+      resolveComputerUseToolName(tc.name, tc.input) ?? tc.name;
+    const prefix = toolNameToFilePrefix(producingToolName);
     let localIndex = 0;
     const nameFor = (ext: string): string => {
-      const base = tc.name ? prefix : `image-${globalIndex}`;
+      const base = producingToolName ? prefix : `image-${globalIndex}`;
       const suffix = total > 1 ? `-${localIndex}` : "";
       return `${base}${suffix}.${ext}`;
     };
     refIds.forEach((attachmentId) => {
       globalIndex += 1;
       localIndex += 1;
-      imageIndex += 1;
-      if (isEmbedded(imageIndex)) {
+      if (includeImage && !includeImage(tc, localIndex, total)) {
         return;
       }
-      attachments.push({
-        id: attachmentId,
-        filename: nameFor("png"),
-        mimeType: "image/png",
-        sizeBytes: 0,
-        previewUrl: null,
-      });
+      const stripKey = `tool-ref:${tc.id}:${localIndex}`;
+      attachments.push(
+        resolve(stripKey, attachmentId, nameFor("png"), () => ({
+          id: attachmentId,
+          stripKey,
+          occurrenceKey: `${tc.id}:${localIndex}`,
+          toolCallId: tc.id,
+          filename: nameFor("png"),
+          mimeType: "image/png",
+          sizeBytes: 0,
+          previewUrl: null,
+          resolveReferenceMetadata: true,
+        })),
+      );
     });
     base64Images.forEach((imageData) => {
       globalIndex += 1;
       localIndex += 1;
-      imageIndex += 1;
-      if (isEmbedded(imageIndex)) {
+      if (includeImage && !includeImage(tc, localIndex, total)) {
         return;
       }
-      const { mimeType, base64, src } = normalizeToolResultImage(imageData);
-      const ext = mimeType.split("/")[1] ?? "png";
-      attachments.push({
-        id: `tool-image:${tc.id}:${localIndex}`,
-        filename: nameFor(ext),
-        mimeType,
-        sizeBytes: estimateBase64Bytes(base64),
-        previewUrl: src,
-      });
+      const syntheticId = `tool-image:${tc.id}:${localIndex}`;
+      attachments.push(
+        resolve(syntheticId, imageData, nameFor(""), () => {
+          const { mimeType, base64, src } = normalizeToolResultImage(imageData);
+          const ext = mimeType.split("/")[1] ?? "png";
+          return {
+            id: syntheticId,
+            stripKey: syntheticId,
+            occurrenceKey: `${tc.id}:${localIndex}`,
+            toolCallId: tc.id,
+            filename: nameFor(ext),
+            mimeType,
+            sizeBytes: estimateBase64Bytes(base64),
+            previewUrl: src,
+          };
+        }),
+      );
     });
   }
   return attachments;
+}
+
+function embeddedToolResultImageKeys(
+  toolCalls: ChatMessageToolCall[],
+  projectedImages: ToolResultImage[],
+  embeddedImageNames: ReadonlySet<string>,
+): Set<string> {
+  const keys = new Set<string>();
+  if (embeddedImageNames.size === 0) {
+    return keys;
+  }
+  const imagesByToolCallId = new Map<string, ToolResultImage[]>();
+  for (const image of projectedImages) {
+    const images = imagesByToolCallId.get(image.toolCallId) ?? [];
+    images.push(image);
+    imagesByToolCallId.set(image.toolCallId, images);
+  }
+  for (const toolCall of toolCalls) {
+    const savedNames = imageFileNamesInResult(toolCall.result);
+    const images = imagesByToolCallId.get(toolCall.id) ?? [];
+    for (let index = 0; index < images.length; index += 1) {
+      const name = savedNames[index];
+      if (name !== undefined && embeddedImageNames.has(name)) {
+        keys.add(images[index]!.stripKey);
+      }
+    }
+  }
+  return keys;
 }
 
 /**
@@ -280,8 +390,16 @@ export function resolveToolResultImages(
   toolCalls: ChatMessageToolCall[],
   messageAttachments: readonly DisplayAttachment[] | undefined,
   embeddedImageNames: ReadonlySet<string> = EMPTY_NAMES,
-): DisplayAttachment[] {
-  const shown = buildToolResultAttachments(toolCalls, embeddedImageNames);
+  projectedImages: ToolResultImage[] = projectToolResultImages(toolCalls),
+): ToolResultImage[] {
+  const embeddedKeys = embeddedToolResultImageKeys(
+    toolCalls,
+    projectedImages,
+    embeddedImageNames,
+  );
+  const shown = projectedImages.filter(
+    (image) => !embeddedKeys.has(image.stripKey),
+  );
   if (!messageAttachments?.length) {
     return shown;
   }
@@ -331,58 +449,39 @@ const ToolResultImageThumb: FC<{
 };
 
 /**
- * Lazily fetches a workspace-referenced tool-result image by attachment id and
- * renders it from an object URL, revoked on unmount. Uses the same fetch/cache
- * key as the preview modal, so opening the modal reuses the already-fetched
- * blob. Until the fetch resolves (or when no assistant id is available to fetch
- * with), a spinner placeholder holds the slot.
+ * Renders a workspace-referenced tool-result image from the object URL
+ * {@link useAttachmentObjectUrl} fetches for it, which shares its cache entry
+ * with the preview modal. A spinner holds the slot while that resolves; bytes
+ * that failed, or can never be fetched at all (no assistant id, an id that can
+ * never resolve), fall back to the image glyph, so the box names a file whose
+ * picture is missing rather than sitting empty.
  */
 const ReferencedToolResultImage: FC<{
   attachment: DisplayAttachment;
   assistantId?: string | null;
 }> = ({ attachment, assistantId }) => {
-  const shouldFetch = !!assistantId && !!attachment.id;
+  const { url, isError } = useAttachmentObjectUrl(
+    assistantId,
+    attachment,
+    true,
+  );
 
-  const { data: blob, isError } = useQuery({
-    queryKey: ["attachmentContent", assistantId, attachment.id],
-    queryFn: async () => {
-      const data = await fetchAttachmentContentBlob(
-        assistantId!,
-        attachment.id,
-      );
-      if (!data) {
-        throw new Error("Failed to load image");
-      }
-      return data;
-    },
-    enabled: shouldFetch,
-    staleTime: Infinity,
-    retry: false,
-  });
-
-  const [objectUrl, setObjectUrl] = useState<string | null>(null);
-  useEffect(() => {
-    if (!blob) {
-      setObjectUrl(null);
-      return;
-    }
-    const url = URL.createObjectURL(blob);
-    setObjectUrl(url);
-    return () => {
-      URL.revokeObjectURL(url);
-      setObjectUrl(null);
-    };
-  }, [blob]);
-
-  if (!objectUrl) {
+  if (!url) {
     return (
       <div
         data-testid="tool-result-image-placeholder"
-        className={`flex h-40 w-40 items-center justify-center ${IMAGE_CLASS}`}
+        className={`h-40 w-40 ${IMAGE_CLASS}`}
       >
-        {!isError && (
-          <Loader2 className="h-6 w-6 animate-spin text-[var(--content-tertiary)]" />
-        )}
+        <AttachmentPreviewBox
+          className="h-full w-full"
+          kind="image"
+          glyphClassName="h-6 w-6"
+          placeholder={
+            isError ? null : (
+              <Loader2 className="h-6 w-6 animate-spin text-[var(--content-tertiary)]" />
+            )
+          }
+        />
       </div>
     );
   }
@@ -390,7 +489,7 @@ const ReferencedToolResultImage: FC<{
   return (
     <img
       data-testid="tool-result-image"
-      src={objectUrl}
+      src={url}
       alt={attachment.filename}
       className={IMAGE_CLASS}
     />
@@ -399,6 +498,9 @@ const ReferencedToolResultImage: FC<{
 
 interface ToolResultImagesProps {
   toolCalls: ChatMessageToolCall[];
+  /** Images selected by a message-wide presentation. An explicit empty list
+   *  suppresses the component's default per-group resolution. */
+  resolvedImages?: ToolResultImage[];
   /** The message's end-of-turn attachments, which render their own interactive
    *  chips below the body. An image already shown there is dropped from this
    *  strip. See {@link resolveToolResultImages} for how the two are matched. */
@@ -407,6 +509,8 @@ interface ToolResultImagesProps {
    *  {@link embeddedImageFileNames}. An embedded image is presented there. */
   embeddedImageNames?: ReadonlySet<string>;
   assistantId?: string | null;
+  /** Message-scoped transition used only by the selected computer-use image. */
+  computerUseScreenshotTransition?: ComputerUseScreenshotTransition;
 }
 
 /**
@@ -420,18 +524,21 @@ interface ToolResultImagesProps {
  */
 export const ToolResultImages: FC<ToolResultImagesProps> = ({
   toolCalls,
+  resolvedImages,
   messageAttachments,
   embeddedImageNames,
   assistantId,
+  computerUseScreenshotTransition,
 }) => {
   const attachments = useMemo(
     () =>
+      resolvedImages ??
       resolveToolResultImages(
         toolCalls,
         messageAttachments,
         embeddedImageNames,
       ),
-    [toolCalls, messageAttachments, embeddedImageNames],
+    [resolvedImages, toolCalls, messageAttachments, embeddedImageNames],
   );
   const { openPreview, previewModal } = useAttachmentPreview(
     assistantId,
@@ -448,41 +555,61 @@ export const ToolResultImages: FC<ToolResultImagesProps> = ({
     [assistantId],
   );
 
+  // The modal outlives the strip: an image the end-of-turn attachments take
+  // over mid-preview empties this list, and unmounting the modal with it would
+  // close a preview the user still has open.
   if (attachments.length === 0) {
-    return null;
+    return previewModal;
   }
 
   return (
     <>
       <div className="flex w-full flex-wrap gap-2">
-        {attachments.map((att) => (
-          <div
-            key={att.id}
-            role="button"
-            aria-label={att.filename}
-            title={att.filename}
-            tabIndex={0}
-            onClick={() => openPreview(att)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                openPreview(att);
-              }
-            }}
-            data-reveal-row=""
-            className="group relative w-fit cursor-pointer"
-          >
-            <ToolResultImageThumb attachment={att} assistantId={assistantId} />
-            <AttachmentDownloadOverlay
-              filename={att.filename}
-              onDownload={(e: MouseEvent<HTMLButtonElement>) => {
-                e.stopPropagation();
-                handleDownload(att);
+        {attachments.map((att, index) => {
+          if (
+            computerUseScreenshotTransition?.targetOccurrenceKey ===
+            att.occurrenceKey
+          ) {
+            return (
+              <ComputerUseScreenshotPreview
+                key={att.occurrenceKey}
+                assistantId={assistantId}
+                transition={computerUseScreenshotTransition}
+              />
+            );
+          }
+          return (
+            <div
+              key={att.stripKey}
+              role="button"
+              aria-label={att.filename}
+              title={att.filename}
+              tabIndex={0}
+              onClick={() => openPreview(att, index)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  openPreview(att, index);
+                }
               }}
-              className="rounded-md"
-            />
-          </div>
-        ))}
+              data-reveal-row=""
+              className="group relative w-fit cursor-pointer"
+            >
+              <ToolResultImageThumb
+                attachment={att}
+                assistantId={assistantId}
+              />
+              <AttachmentDownloadOverlay
+                filename={att.filename}
+                onDownload={(e: MouseEvent<HTMLButtonElement>) => {
+                  e.stopPropagation();
+                  handleDownload(att);
+                }}
+                className="rounded-md"
+              />
+            </div>
+          );
+        })}
       </div>
       {previewModal}
     </>

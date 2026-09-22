@@ -11,7 +11,6 @@ import {
 import { StringDedupCache } from "../../dedup-cache.js";
 import {
   appendFailedAttachmentNotice,
-  AttachmentTooLargeError,
   ingestAttachments,
 } from "../../attachments/ingest.js";
 import { handleInbound } from "../../handlers/handle-inbound.js";
@@ -204,7 +203,6 @@ export function createWhatsAppWebhookHandler(
             config,
             from,
             ROUTING_REJECTION_NOTICE,
-            undefined,
             apiCaches,
           ).catch((err) => {
             tlog.error(
@@ -218,7 +216,7 @@ export function createWhatsAppWebhookHandler(
             event.sourceChannel,
             event.message.conversationExternalId,
             async (text) => {
-              await sendWhatsAppReply(config, from, text, undefined, apiCaches);
+              await sendWhatsAppReply(config, from, text, apiCaches);
             },
             tlog,
           );
@@ -238,7 +236,6 @@ export function createWhatsAppWebhookHandler(
             config,
             from,
             ROUTING_REJECTION_NOTICE,
-            undefined,
             apiCaches,
           ).catch((err) => {
             tlog.error(
@@ -279,7 +276,6 @@ export function createWhatsAppWebhookHandler(
                 isSkippableError: (error) =>
                   error instanceof AttachmentValidationError ||
                   error instanceof ContentMismatchError ||
-                  error instanceof AttachmentTooLargeError ||
                   error instanceof WhatsAppNonRetryableError,
               },
             },
@@ -287,7 +283,7 @@ export function createWhatsAppWebhookHandler(
           attachmentIds = result.attachmentIds;
           event.message.content = appendFailedAttachmentNotice(
             event.message.content,
-            result.failedAttachmentNames,
+            result,
           );
         } catch (err) {
           // Transient attachment failure — return 500 so Meta retries.
@@ -330,7 +326,6 @@ export function createWhatsAppWebhookHandler(
                 config,
                 from,
                 ROUTING_REJECTION_NOTICE,
-                undefined,
                 apiCaches,
               ).catch((err) => {
                 tlog.error(

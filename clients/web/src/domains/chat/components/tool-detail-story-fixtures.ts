@@ -38,11 +38,12 @@ function payload(
 }
 
 // ---------------------------------------------------------------------------
-// Native tools on the generic renderer
+// Native tools
 //
-// These are the tools with no entry in `tool-activity-renderers`, so each one
-// below renders as the title/activity/raw-JSON block plus a `<pre>` Output.
-// Together they are the large majority of production tool calls.
+// The large majority of production tool calls. `bash`, the file-change tools,
+// `remember` and `recall` have their own renderers in
+// `tool-activity-renderers`; the rest render as the generic parameters block
+// plus a `<pre>` Output.
 // ---------------------------------------------------------------------------
 
 /** `bash`, the single most-called tool in the product. */
@@ -242,15 +243,33 @@ export const rememberDetail: ToolDetailPayload = payload({
   toolCallId: "tc-remember-1",
   toolName: "remember",
   title: "Remembering",
-  activity: "Saving a preference",
+  activity: "Saving standup preferences",
   input: {
-    activity: "Saving a preference",
-    content:
+    activity: "Saving standup preferences",
+    content: [
       "Prefers the standup summary grouped by project rather than by day.",
+      "Wants blockers listed before progress in every summary.",
+    ],
   },
-  result: "Saved to memory.",
+  result: "Saved 2 facts to knowledge base.",
+  activityMetadata: {
+    remember: {
+      facts: [
+        "Prefers the standup summary grouped by project rather than by day.",
+        "Wants blockers listed before progress in every summary.",
+      ],
+    },
+  },
   riskLevel: "low",
 });
+
+const recallInput = {
+  activity: "Looking up the release checklist",
+  query: "release checklist staging bake",
+  depth: "deep",
+  max_results: 10,
+  sources: ["memory", "conversations", "workspace"],
+};
 
 /** `recall`, which sends the highest-arity native input. */
 export const recallDetail: ToolDetailPayload = payload({
@@ -258,19 +277,107 @@ export const recallDetail: ToolDetailPayload = payload({
   toolName: "recall",
   title: "Recalling",
   activity: "Looking up the release checklist",
-  input: {
-    activity: "Looking up the release checklist",
-    query: "release checklist staging bake",
-    depth: "deep",
-    max_results: 10,
-    sources: ["memory", "conversations", "documents"],
-  },
+  input: recallInput,
   result: [
-    "1. Release checklist (memory, updated 3 days ago)",
-    "   Cut the release branch, let staging bake, then dispatch production.",
-    "2. Staging bake window (conversation, 1 week ago)",
-    "   The bake is 30 minutes unless the diff touches the gateway.",
+    "Cut the release branch, let staging bake for 30 minutes, then dispatch production. The bake runs longer when the diff touches the gateway.",
+    "",
+    "Searched sources: memory, conversations, workspace.",
   ].join("\n"),
+  activityMetadata: {
+    recall: {
+      query: "release checklist staging bake",
+      depth: "deep",
+      sources: ["memory", "conversations", "workspace"],
+      answer:
+        "Cut the release branch, let staging bake for **30 minutes**, then dispatch production. The bake runs longer when the diff touches the gateway.",
+      evidence: [
+        {
+          source: "memory",
+          title: "release-checklist",
+          locator: "memory/concepts/release-checklist.md:3",
+          path: "memory/concepts/release-checklist.md",
+          excerpt:
+            "3: Cut the release branch, let staging bake, then dispatch production.",
+        },
+        {
+          source: "conversations",
+          title: "Planning the Thursday release",
+          locator:
+            "5b1e9c2a-7f40-4d8e-9a11-3c6f2e8d0b47#c02f4a91-1e6b-4b7d-8c35-9d2e7a6f1b08",
+          excerpt:
+            "The bake is 30 minutes unless the diff touches the gateway, then an hour.",
+          timestampMs: 1_757_000_000_000,
+          conversationId: "5b1e9c2a-7f40-4d8e-9a11-3c6f2e8d0b47",
+          messageId: "c02f4a91-1e6b-4b7d-8c35-9d2e7a6f1b08",
+        },
+        {
+          source: "workspace",
+          title: "docs/releasing.md",
+          locator: "docs/releasing.md:14",
+          path: "docs/releasing.md",
+          excerpt:
+            "14: Wait for the staging bake before dispatching production.",
+        },
+      ],
+      searchedSources: [
+        { source: "memory", status: "searched", evidenceCount: 4 },
+        { source: "conversations", status: "searched", evidenceCount: 2 },
+        { source: "workspace", status: "searched", evidenceCount: 1 },
+      ],
+    },
+  },
+  riskLevel: "low",
+});
+
+/**
+ * `recall` from history recorded before it reported a structured result: the
+ * text is all there is.
+ */
+export const recallTextOnlyDetail: ToolDetailPayload = payload({
+  toolCallId: "tc-recall-2",
+  toolName: "recall",
+  title: "Recalling",
+  activity: "Looking up the release checklist",
+  input: recallInput,
+  result: [
+    "Found evidence:",
+    "1. [memory] Release checklist (memory/release-checklist.md): Cut the release branch, let staging bake, then dispatch production.",
+    "2. [conversations] Staging bake window (Planning the Thursday release, 1 week ago): The bake is 30 minutes unless the diff touches the gateway, then an hour.",
+    "Searched sources: memory, conversations, workspace.",
+  ].join("\n"),
+  riskLevel: "low",
+});
+
+/** `recall` that found nothing, with one place it could not fully search. */
+export const recallNothingFoundDetail: ToolDetailPayload = payload({
+  toolCallId: "tc-recall-3",
+  toolName: "recall",
+  title: "Recalling",
+  activity: "Looking for the offsite venue",
+  input: { activity: "Looking for the offsite venue", query: "offsite venue" },
+  result: [
+    "No reliable results found.",
+    "Searched sources: memory, conversations, workspace.",
+    "Degraded sources: workspace (search index is still building).",
+  ].join("\n"),
+  activityMetadata: {
+    recall: {
+      query: "offsite venue",
+      depth: "standard",
+      sources: ["memory", "conversations", "workspace"],
+      evidence: [],
+      searchedSources: [
+        { source: "memory", status: "searched", evidenceCount: 0 },
+        { source: "conversations", status: "searched", evidenceCount: 0 },
+        {
+          source: "workspace",
+          status: "degraded",
+          evidenceCount: 0,
+          error: "search index is still building",
+        },
+      ],
+    },
+  },
   riskLevel: "low",
 });
 
@@ -434,6 +541,162 @@ export const unknownToolDetail: ToolDetailPayload = payload({
 // ---------------------------------------------------------------------------
 
 /**
+ * A third-party tool whose input carries a list of records. The list lays out
+ * as a table with a column per key across the records; the second contact has
+ * no `owner`, so that cell is empty rather than breaking the table.
+ */
+export const recordListDetail: ToolDetailPayload = payload({
+  toolCallId: "tc-contacts-import-1",
+  toolName: "acme_crm_import_contacts",
+  title: "Working",
+  activity: "Importing three contacts into the inbound list",
+  input: {
+    activity: "Importing three contacts into the inbound list",
+    list: "Inbound",
+    contacts: [
+      { email: "ada@example.com", stage: "qualified", owner: "growth" },
+      { email: "grace@example.com", stage: "new" },
+      { email: "linus@example.com", stage: "trial", owner: "sales" },
+    ],
+    skip_existing: true,
+  },
+  result: JSON.stringify({ imported: 3, skipped: 0 }, null, 2),
+  riskLevel: "medium",
+});
+
+/**
+ * A third-party tool whose parameters show both halves of the text rule: a
+ * long note on one line reads inline and folds behind Show more, and a short
+ * checklist with line breaks keeps its lines in a block.
+ */
+export const longTextParameterDetail: ToolDetailPayload = payload({
+  toolCallId: "tc-notes-append-1",
+  toolName: "acme_notes_append",
+  title: "Working",
+  activity: "Adding the planting plan to the garden notebook",
+  input: {
+    activity: "Adding the planting plan to the garden notebook",
+    notebook: "Garden",
+    note: [
+      "Start tomatoes, peppers and basil indoors in the second week of March under the shop light, and keep the tray on the heat mat until most seedlings are up.",
+      "Harden them off on the porch for ten days once nights stay above ten degrees, bringing them in if the forecast drops.",
+      "Plant the tomatoes in the two back beds with cages set at planting time, peppers along the fence where they get afternoon sun, and basil between the tomatoes.",
+      "Direct sow beans and squash in the front bed after the last frost date, then mulch everything with straw once the soil has warmed.",
+      "Water deeply twice a week rather than a little every day, and check the drip line for clogs at the start of each month.",
+      "Pick beans every other day once they start, and pull any squash leaves that show mildew before it spreads down the row.",
+    ].join(" "),
+    checklist: "Order compost\nFix the rain barrel tap\nLabel the seed trays",
+  },
+  result: JSON.stringify({ appended: true }, null, 2),
+  riskLevel: "low",
+});
+
+/**
+ * A query whose result is a list of thirty records with ten keys each: wider
+ * than the drawer and taller than a screen. The columns take the width of
+ * their values on one line and the table scrolls sideways; the long `website`
+ * column wraps once it reaches the width cap.
+ */
+export const wideTableOutputDetail: ToolDetailPayload = payload({
+  toolCallId: "tc-accounts-query-1",
+  toolName: "mcp__warehouse__query",
+  title: "Working",
+  activity: "Listing the accounts on the team and enterprise plans",
+  input: {
+    activity: "Listing the accounts on the team and enterprise plans",
+    query:
+      "select * from accounts where plan in ('team', 'enterprise') limit 30",
+  },
+  result: JSON.stringify(
+    Array.from({ length: 30 }, (_, index) => ({
+      id: `acct_${1000 + index}`,
+      name: `Example Account ${index + 1}`,
+      email: `user${index + 1}@example.com`,
+      plan: index % 3 === 0 ? "enterprise" : "team",
+      seats: 10 + index,
+      region: "us-east-1",
+      created_at: "2026-08-03T12:00:00Z",
+      owner: "growth",
+      status: index % 4 === 0 ? "churn_risk" : "active",
+      website: `https://example.com/accounts/${1000 + index}/overview`,
+    })),
+  ),
+  riskLevel: "low",
+});
+
+/**
+ * Output of many short lines: forty file paths, far under the length that
+ * reads as "long" in characters but taller than the fold, so it folds by the
+ * height it is drawn at.
+ */
+export const manyShortLinesDetail: ToolDetailPayload = payload({
+  toolCallId: "tc-list-files-1",
+  toolName: "acme_repo_list_files",
+  title: "Working",
+  activity: "Listing the files the change touched",
+  input: {
+    activity: "Listing the files the change touched",
+    since: "main",
+  },
+  result: Array.from({ length: 40 }, (_, index) => `src/f${index + 1}.ts`).join(
+    "\n",
+  ),
+  riskLevel: "low",
+});
+
+/**
+ * A parameter that is a list of twenty records: a table taller than the fold,
+ * so the table folds as one value with a single Show more.
+ */
+export const tallTableParameterDetail: ToolDetailPayload = payload({
+  toolCallId: "tc-tasks-import-1",
+  toolName: "acme_tasks_import",
+  title: "Working",
+  activity: "Importing twenty tasks into the launch board",
+  input: {
+    activity: "Importing twenty tasks into the launch board",
+    board: "Launch",
+    tasks: Array.from({ length: 20 }, (_, index) => ({
+      title: `Task ${index + 1}`,
+      owner: index % 2 === 0 ? "design" : "engineering",
+      due: `2026-10-${String(index + 1).padStart(2, "0")}`,
+    })),
+  },
+  result: JSON.stringify({ imported: 20 }),
+  riskLevel: "low",
+});
+
+/**
+ * A parameter that is an object of many fields: a nested group taller than the
+ * fold, so the group folds as one value.
+ */
+export const tallNestedParameterDetail: ToolDetailPayload = payload({
+  toolCallId: "tc-settings-update-1",
+  toolName: "acme_workspace_update_settings",
+  title: "Working",
+  activity: "Updating the workspace notification settings",
+  input: {
+    activity: "Updating the workspace notification settings",
+    settings: {
+      digest: "daily",
+      digest_hour: 9,
+      timezone: "America/New_York",
+      mentions: "immediately",
+      replies: "immediately",
+      reactions: "never",
+      weekly_summary: true,
+      quiet_hours_start: "22:00",
+      quiet_hours_end: "07:00",
+      channels: "email and push",
+      escalate_after_minutes: 30,
+      include_resolved: false,
+    },
+  },
+  result: JSON.stringify({ updated: true }),
+  riskLevel: "low",
+});
+
+/**
  * Long enough to exercise the Output clamp. The daemon truncates a tool result
  * at up to `HARD_MAX_TOOL_RESULT_CHARS` (400,000, see
  * `assistant/src/plugins/defaults/tool-result-truncate/`), so this is well
@@ -473,8 +736,9 @@ export const minimalDetail: ToolDetailPayload = payload({
 // ---------------------------------------------------------------------------
 // Risk levels
 //
-// `getRiskNoticeTone` and `getRiskBadgeWeakStyle` recognise low, medium, high
-// and workspace, and fall through to a neutral "Unknown" for anything else.
+// `getRiskBadgeWeakStyle` recognises low, medium, high and workspace, and falls
+// through to a neutral "Unknown" for anything else. Only the first three have a
+// tolerance sentence, so the rest render as a bare pill.
 // ---------------------------------------------------------------------------
 
 /** A `bashDetail` at one risk level, keyed so each level is its own call. */
@@ -487,7 +751,7 @@ export function riskVariant(riskLevel: string | undefined): ToolDetailPayload {
 }
 
 // ---------------------------------------------------------------------------
-// Skills, which are the only tools with purpose-built renderers today
+// Skills
 // ---------------------------------------------------------------------------
 
 /**
@@ -691,6 +955,46 @@ export const webSearchErrorDetail: ToolDetailPayload = payload({
   result:
     "Error: the search provider returned 503 Service Unavailable after 3 attempts.",
   status: "error",
+});
+
+/** A search still in flight: the query, and no sources yet. */
+export const webSearchRunningDetail: ToolDetailPayload = payload({
+  toolCallId: "tc-web-search-3",
+  toolName: "web_search",
+  title: "Searching the web",
+  activity: "Searching for Storybook autodocs configuration",
+  kind: "web_search",
+  input: { activity: "Searching the web", query: "storybook autodocs tag" },
+  searchQuery: "storybook autodocs tag",
+  searchResults: [],
+  status: "running",
+});
+
+/** A search the user did not approve. Its result is the note to the model. */
+export const webSearchDeniedDetail: ToolDetailPayload = payload({
+  toolCallId: "tc-web-search-4",
+  toolName: "web_search",
+  title: "Searching the web",
+  activity: "Searching for Storybook autodocs configuration",
+  kind: "web_search",
+  input: { activity: "Searching the web", query: "storybook autodocs tag" },
+  searchQuery: "storybook autodocs tag",
+  searchResults: [],
+  result:
+    'Permission denied. The "web_search" tool was not allowed. Do NOT retry this tool call immediately.',
+  status: "denied",
+});
+
+/** A search that finished and found nothing. */
+export const webSearchNoSourcesDetail: ToolDetailPayload = payload({
+  toolCallId: "tc-web-search-5",
+  toolName: "web_search",
+  title: "Searching the web",
+  activity: "Searching for an obscure configuration flag",
+  kind: "web_search",
+  input: { activity: "Searching the web", query: "storybook autodocs zz-flag" },
+  searchQuery: "storybook autodocs zz-flag",
+  searchResults: [],
 });
 
 /**

@@ -1,4 +1,4 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
@@ -10,6 +10,7 @@ import type {
   ConfigGetResponse,
   ConfigLlmCallsitesGetResponse,
 } from "@/generated/daemon/types.gen";
+import { createStoryQueryClient } from "@/lib/story-query-cache";
 import { OverridesDetailPanel } from "@/domains/settings/ai/overrides-detail-panel";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
@@ -80,30 +81,26 @@ const CONFIG: ConfigGetResponse = {
   },
 };
 
-// Seed through the generated options factories rather than a hand-written
-// key. HeyAPI bakes the path params into the query key, so a literal
-// `[{ _id: "configGet" }]` misses and the panel renders its error state.
-function seededClient(config: ConfigGetResponse) {
-  const client = new QueryClient({
-    defaultOptions: {
-      queries: {
-        retry: false,
-        refetchOnWindowFocus: false,
-        staleTime: Infinity,
-      },
-    },
-  });
-  const path = { assistant_id: ASSISTANT_ID };
-  client.setQueryData(configLlmCallsitesGetOptions({ path }).queryKey, CATALOG);
-  client.setQueryData(configGetOptions({ path }).queryKey, config);
-  return client;
-}
-
-/** Wraps a story in a provider seeded with `config`. */
+/**
+ * Wraps a story in a provider seeded with `config`.
+ *
+ * Seeding goes through the generated options factories rather than a
+ * hand-written key. HeyAPI bakes the path params into the query key, so a
+ * literal `[{ _id: "configGet" }]` misses and the panel renders its error
+ * state.
+ */
 function withConfig(config: ConfigGetResponse) {
+  const client = createStoryQueryClient((cache) => {
+    const path = { assistant_id: ASSISTANT_ID };
+    cache.setQueryData(
+      configLlmCallsitesGetOptions({ path }).queryKey,
+      CATALOG,
+    );
+    cache.setQueryData(configGetOptions({ path }).queryKey, config);
+  });
   return function ConfigDecorator(Story: () => ReactNode) {
     return (
-      <QueryClientProvider client={seededClient(config)}>
+      <QueryClientProvider client={client}>
         <div style={{ maxWidth: 560, height: 720 }}>
           <Story />
         </div>

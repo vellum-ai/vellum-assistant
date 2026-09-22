@@ -2,8 +2,8 @@ import {
   estimateGeminiAudioTokens,
   normalizeGeminiAudioMime,
 } from "../providers/gemini/inline-media.js";
+import { requestSupportsInlineAudio } from "../providers/inline-audio-support.js";
 import { mediaSourceByteLength } from "../providers/media-resolve.js";
-import { modelSupportsAudioInput } from "../providers/model-catalog.js";
 import {
   estimateOpenAICompatAudioTokens,
   isOpenAICompatInlineAudio,
@@ -159,7 +159,7 @@ function estimateFileDataTokens(
   // receive eligible audio inline as `input_audio` parts, billed by duration.
   if (
     options?.model !== undefined &&
-    modelSupportsAudioInput(options.model) &&
+    requestSupportsInlineAudio(options.model) &&
     isOpenAICompatInlineAudio(block.source.media_type, byteLength)
   ) {
     return estimateOpenAICompatAudioTokens(byteLength);

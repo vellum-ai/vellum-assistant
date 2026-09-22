@@ -591,8 +591,11 @@ describe("forwardAppControlProxyTool", () => {
       ctx,
     );
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("no proxy resolver available");
-    expect(result.content).toContain("app_control_click");
+    expect(result.content).toContain(
+      "The Vellum desktop app is needed to control apps on your computer",
+    );
+    expect(result.content).toContain("https://www.vellum.ai/downloads");
+    expect(result.content).not.toContain("app_control_click");
   });
 
   test("delegates to proxy resolver when available", async () => {

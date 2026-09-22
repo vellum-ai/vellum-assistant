@@ -49,8 +49,9 @@ async function createGuardianRequest(
   params: CreateGuardianRequestIpcParams,
 ): Promise<SimGuardianRequest> {
   // The schema requires `guardianPrincipalId`, mirroring the gateway store's
-  // integrity guard (every contract kind is decisionable).
-  return bridgeState.seedRequest(
+  // integrity guard (every contract kind is decisionable). The sim's create
+  // then rejects a duplicate id, mirroring the store's strict insert.
+  return bridgeState.module.createGuardianRequest(
     CreateGuardianRequestIpcParamsSchema.parse(params),
   );
 }

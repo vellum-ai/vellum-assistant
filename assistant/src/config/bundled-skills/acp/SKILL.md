@@ -23,6 +23,18 @@ Use `acp_spawn` to delegate a coding task to an external agent. The agent runs a
 
 Users can refer to agents by natural names: "claude code", "codex cli", and "openai codex" all resolve to the canonical `claude` and `codex` ids (unless the user's config defines an agent literally keyed by that name, which always wins).
 
+## Choosing a model
+
+Claude runs on Opus unless the user names a model; every other agent starts on its own default.
+
+When the user does name one, pass it as `model` on `acp_spawn`. Model names are the agent's own vocabulary, not Assistant model ids: an alias such as `default`, `sonnet`, `opus`, `haiku`, `fable`, or `opusplan` for Claude, or a full model id. Pass what the user said and let the agent resolve it.
+
+The spawn result reports `requestedModel` and `effectiveModel`. Treat `effectiveModel` as authoritative for the top-level ACP session. Never infer that model from the task text or from a nested subagent. When `requestedModel` is non-null and differs from `effectiveModel`, state which model the session is actually running on and relay `modelWarning` when present.
+
+If the agent refuses the model, or advertises no model selector, the spawn result says so: relay it in one sentence and carry on, because the session is live on the agent's own model.
+
+A session runs on the model it started on, so a different model means a new `acp_spawn`. A standing default per agent lives in the config at `acp.agents.<id>.model`.
+
 ## When the user names Claude Code or Codex
 
 If they name Claude Code or Codex without asking you to run it here (for example they say that tool will do the work), offer once, in one short sentence, that you can connect and run it in this conversation. Then continue with whatever they were doing.
@@ -35,21 +47,23 @@ If they name Claude Code or Codex without asking you to run it here (for example
 
 ACP is always available - default profiles for `claude` and `codex` ship out-of-box, so no config edit is needed to start. First-time setup is just making the adapter binary available, then spawning:
 
-1. Install the adapter binary if it's missing. This happens automatically: when `acp_spawn` finds the agent's binary missing from PATH, the assistant installs it once via a sandboxed bun global install and proceeds in the same call (see "Automatic adapter availability" below).
+1. Install the adapter binary if it's missing. This happens automatically: when `acp_spawn` finds the agent's binary missing from PATH, the assistant installs the pinned version via a sandboxed bun global install and proceeds in the same call (see "Automatic adapter availability" below).
 
 2. Call `acp_spawn`. Do NOT run `vellum sleep && vellum wake` - that kills the conversation.
 
 ## Automatic adapter availability
 
-When `acp_spawn` finds the agent's binary missing from PATH, the assistant installs it once via a sandboxed bun global install and then runs the real installed binary. The install runs in a fresh empty temporary directory (never the task's project directory), with known secrets stripped from the installer environment and the registry pinned to the public npm registry, so a malicious project directory cannot hijack package resolution or capture a token. After this one-time install, the adapter is a normal trusted binary on PATH and every later spawn (and resume) uses it directly.
+When an agent's binary is missing from PATH, the assistant installs the adapter version it was built against via a sandboxed bun global install and then runs the real installed binary. The install runs in a fresh empty temporary directory (never the task's project directory), with known secrets stripped from the installer environment and the registry pinned to the public npm registry, so a malicious project directory cannot hijack package resolution or capture a token.
 
-Only the allowlisted out-of-box packages are ever installed this way (`@agentclientprotocol/claude-agent-acp`, `@zed-industries/codex-acp`); user-configured agents with custom commands are never installed automatically.
+An adapter already on PATH is left alone, whoever installed it: the install runs only when preflight found no binary at all.
 
-Manual installation is fallback guidance for unusual setups: bun unavailable, restricted global installs, or an auto-install failure (the failure reason is surfaced in the tool result).
+Only the allowlisted out-of-box packages are ever installed this way (`@agentclientprotocol/claude-agent-acp`, `@agentclientprotocol/codex-acp`); user-configured agents with custom commands are never installed automatically.
+
+Manual installation is fallback guidance for unusual setups: bun unavailable, restricted global installs, or an auto-install failure (the failure reason is surfaced in the tool result). Install the pinned version below rather than `@latest`, so the adapter matches what the assistant was built against.
 
 ```bash
-bun add -g @agentclientprotocol/claude-agent-acp   # claude
-bun add -g @zed-industries/codex-acp               # codex
+bun add -g @agentclientprotocol/claude-agent-acp@0.75.1   # claude
+bun add -g @agentclientprotocol/codex-acp@1.10.0          # codex
 ```
 
 ## Claude setup
@@ -72,14 +86,11 @@ Do NOT ask the user to paste the token into chat — the secure prompt keeps it 
 
 ## Codex setup
 
-The `codex-acp` adapter is installed automatically when missing, but it shells out to the underlying `codex` CLI, which must also be on PATH:
+The `@agentclientprotocol/codex-acp` adapter runs Codex App Server using its included `@openai/codex` dependency.
 
-1. **Install the Codex CLI** (version 0.111 or higher) via OpenAI's distribution channel of choice. The adapter will fail if `codex` isn't on PATH.
+**Authenticate.** The adapter reuses an existing Codex login. To sign in, use `codex login` from an installed Codex CLI. API-key authentication supports `CODEX_API_KEY` and `OPENAI_API_KEY`.
 
-2. **Authenticate.** The `codex-acp` adapter inherits whatever auth the underlying `codex` CLI uses. Typical flows:
-   - `codex login` (OAuth)
-   - `CODEX_API_KEY` environment variable
-   - `OPENAI_API_KEY` environment variable
+**Optional CLI override.** Set `CODEX_PATH` in the agent profile's `env` to use a different compatible Codex executable. Keep the agent command as `codex-acp`.
 
 Do NOT put API keys (or any secret) in the workspace config file - secrets never belong in the workspace directory. Use the credential store instead.
 
@@ -87,20 +98,14 @@ Do NOT put API keys (or any secret) in the workspace config file - secrets never
 
 - Two agents are supported out-of-box: `claude` (via the `claude-agent-acp` adapter) and `codex` (via the `codex-acp` adapter).
 - NEVER use `claude`, `claude -p`, `claude --acp`, or the bare `codex` CLI as the ACP `command`. Claude and Codex only speak the protocol through their dedicated `*-acp` adapters.
-- Default profiles for both ship out-of-box. Users only need an `agents.<id>` entry in config if they want to override the defaults (e.g. point to a custom binary path or pass extra args/env). An `acp.agents.<id>` entry replaces the bundled default entirely (no field merge), so any override must spell out the full `command` and `args`, not just the field being changed.
+- Default profiles for both ship out-of-box. Users only need an `agents.<id>` entry in config if they want to override the defaults (e.g. point to a custom binary path or pass extra args/env). An entry that still runs the bundled adapter, whether it omits `command` or names the same binary by name or full path, inherits the `command`, `description` and `model` it leaves out, so a single-field change such as `acp.agents.claude.model` is all it takes. An entry that points the id at a different binary stands on its own, so it must spell out everything it needs, `command` included.
 - NEVER change an existing ACP config to use a different command. If the config already has `claude-agent-acp` or `codex-acp`, leave it alone.
 
 ## Updating an adapter
 
-Adapters are installed once via a bun global install. To update one to the latest version, ask the user first, then re-install it globally:
+Adapter upgrades ship with Assistant releases: the pinned version is what a missing adapter is installed at. An adapter already on PATH is never replaced, so a user who upgrades one themselves keeps that version.
 
-```bash
-bun add -g @agentclientprotocol/claude-agent-acp@latest
-# or
-bun add -g @zed-industries/codex-acp@latest
-```
-
-Then retry the `acp_spawn` call.
+Codex uses the adapter's bundled dependency by default, within the version range declared by the adapter. If `CODEX_PATH` selects a separate CLI, update that installation separately.
 
 ## When to use acp_steer vs acp_spawn
 
@@ -120,5 +125,5 @@ Default to the conversation's current working directory when spawning an agent. 
 
 - The spawned agent runs autonomously with its own tools, file editing, and terminal access.
 - Results are streamed back and injected into the conversation when the agent completes.
-- Use `acp_status` to check on running agents and `acp_abort` to stop them.
+- Use `acp_status` to inspect running and idle agents. Use `acp_steer` to attempt follow-up work on an idle session; do not replace it with a new `acp_spawn`.
 - The `cwd` parameter controls where the agent works - set it to the project root the user wants the agent to operate in.

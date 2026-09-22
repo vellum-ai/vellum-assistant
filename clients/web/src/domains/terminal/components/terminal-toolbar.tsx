@@ -1,4 +1,4 @@
-import { Loader2, PlugZap, Terminal, Unplug, Wrench, X } from "lucide-react";
+import { PlugZap, Terminal, Unplug, Wrench, X } from "lucide-react";
 
 import { useTranslation } from "@/i18n";
 import type { TerminalStatus } from "@/domains/terminal/types";
@@ -79,9 +79,8 @@ export function TerminalToolbar({
           <Button
             variant="danger"
             size="compact"
-            leftIcon={
-              isConnecting ? <Loader2 className="animate-spin" /> : <Unplug />
-            }
+            loading={isConnecting}
+            leftIcon={<Unplug />}
             onClick={onDisconnect}
             disabled={isConnecting}
             title={t("terminalToolbar.disconnectTitle")}

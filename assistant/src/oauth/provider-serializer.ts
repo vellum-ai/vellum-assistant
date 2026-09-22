@@ -19,6 +19,9 @@ export type SerializedProvider = ReturnType<typeof serializeProvider> &
   Record<string, unknown>;
 
 import { isChannelBotProvider } from "@vellumai/service-contracts/channels";
+import type { IntegrationCategory } from "@vellumai/service-contracts/integration-categories";
+
+import { PROVIDER_SEED_DATA } from "./seed-providers.js";
 
 /**
  * Lightweight summary projection of an OAuth provider, suitable for API
@@ -36,6 +39,17 @@ export interface SerializedProviderSummary {
   supports_managed_mode: boolean;
   managed_service_is_paid: boolean;
   feature_flag: string | null;
+  /**
+   * Where the integrations catalog files the provider. `null` for a row with
+   * no seed entry, such as a provider a user registered by hand.
+   */
+  category: IntegrationCategory | null;
+  /**
+   * Per-tenant providers only (Shopify): what a client must collect before
+   * starting a managed connect, since the provider's OAuth endpoints live on
+   * the customer's own host. `null` for providers with one global host.
+   */
+  tenant_host: { pattern: string; label: string; placeholder: string } | null;
   /**
    * Which sense of "connected" this provider represents: `assistant` for a bot
    * credential people reach the assistant through, `user` for a grant letting
@@ -133,6 +147,7 @@ function _serializeProvider(
       : null,
     identityFormat: row.identityFormat ?? null,
     identityOkField: row.identityOkField ?? null,
+    responseOkField: row.responseOkField ?? null,
     featureFlag: row.featureFlag ?? null,
     redirectUri:
       options?.redirectUri !== undefined ? options.redirectUri : null,
@@ -164,6 +179,8 @@ export function serializeProviderSummary(
     supports_managed_mode: !!row.managedServiceConfigKey,
     managed_service_is_paid: !!row.managedServiceIsPaid,
     feature_flag: row.featureFlag ?? null,
+    category: PROVIDER_SEED_DATA[row.provider]?.category ?? null,
+    tenant_host: PROVIDER_SEED_DATA[row.provider]?.tenantHost ?? null,
     acts_as: isChannelBotProvider(row.provider) ? "assistant" : "user",
   };
 }

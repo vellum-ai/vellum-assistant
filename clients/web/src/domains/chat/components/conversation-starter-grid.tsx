@@ -1,4 +1,4 @@
-import { ConversationStarterChip } from "@/domains/chat/components/conversation-starter-chip";
+import { ConversationStarterChip } from "@/components/conversation-starter-chip";
 import type { ConversationStarter } from "@/domains/chat/utils/conversation-starters";
 import { MAX_CONVERSATION_STARTER_CHIPS } from "@/domains/chat/utils/empty-state-constants";
 

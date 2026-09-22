@@ -434,3 +434,49 @@ describe("ambient camera frames are not retrospective work", () => {
     expect(hasQualifyingUserMessageAfter(CONV, null)).toBe(true);
   });
 });
+
+describe("retrospective accounting: a cursor survives its row's deletion", () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run(`DELETE FROM messages`);
+    db.run(`DELETE FROM conversations`);
+    createConversation({ id: CONV });
+  });
+
+  test("a deleted cursor row with a stored timestamp still bounds the count, the slice, and the user-activity probe", () => {
+    insertRaw({ role: "user", content: TEXT, createdAt: 1_000 });
+    const reply = insertRaw({
+      role: "assistant",
+      content: TEXT,
+      createdAt: 2_000,
+    });
+    // Regenerate: the reply the cursor sits on is discarded and replaced.
+    getDb().delete(messages).where(eq(messages.id, reply)).run();
+    const regenerated = insertRaw({
+      role: "assistant",
+      content: TEXT,
+      createdAt: 3_000,
+    });
+    const followUp = insertRaw({
+      role: "user",
+      content: TEXT,
+      createdAt: 4_000,
+    });
+
+    const cursor = { id: reply, createdAt: 2_000 };
+    expect(countRetrospectiveMessagesAfter(CONV, cursor)).toBe(2);
+    expect(
+      getRetrospectiveMessagesAfter(CONV, cursor).map((r) => r.id),
+    ).toEqual([regenerated, followUp]);
+    expect(hasQualifyingUserMessageAfter(CONV, cursor)).toBe(true);
+  });
+
+  test("a deleted cursor row without a timestamp still reads as no new work", () => {
+    insertRaw({ role: "user", content: TEXT, createdAt: 1_000 });
+
+    const cursor = { id: "gone", createdAt: null };
+    expect(countRetrospectiveMessagesAfter(CONV, cursor)).toBe(0);
+    expect(getRetrospectiveMessagesAfter(CONV, cursor)).toEqual([]);
+    expect(hasQualifyingUserMessageAfter(CONV, cursor)).toBe(false);
+  });
+});

@@ -13,10 +13,10 @@
     "logIn": "Войти",
     "logOut": "Выйти",
     "loginToUse": "Войти, чтобы пользоваться",
-    "downloadMacApp": "Скачать приложение для macOS",
+    "downloadMacOSApp": "Скачать приложение для macOS",
+    "downloadWindowsApp": "Скачать приложение для Windows",
     "claim": "Забрать",
-    "skipForNow": "Пока пропустить",
-    "starting": "Запускаем…"
+    "skipForNow": "Пока пропустить"
   },
   "welcome": {
     "title": "Добро пожаловать в Vellum",
@@ -133,9 +133,6 @@
   },
   "stepIndicator": {
     "ariaLabel": "Шаг {current} из {total}"
-  },
-  "googleCalendar": {
-    "authorizationFailed": "Не удалось начать авторизацию Google Calendar."
   },
   "introductionScreen": {
     "greetingNamed": "Привет, {name}!",
@@ -255,7 +252,6 @@
     "bodyLoadingWithClaims": "Ещё проверяю остальное. Просмотр по мере появления.",
     "bodyReadyWithClaims": "Я поискал в интернете. Смело убирай всё, что неправда.",
     "bodyLoadingEmpty": "Ещё собираю это вместе…",
-    "bodyReadyEmpty": "Мало что нашлось, дозаполним по ходу диалога.",
     "removeClaim": "Убрать «{claim}»",
     "notMe": "Это не я",
     "stillSearching": "Ещё ищу…"
@@ -286,10 +282,5 @@
         "prompt": "Набросай текст по нескольким черновым заметкам, которые я дам."
       }
     }
-  },
-  "letsChatReadyStep": {
-    "title": "Всё готово",
-    "setupNote": "Плагины уже настроены под этот профиль.",
-    "letsChat": "Давай поговорим"
   }
 }

@@ -33,10 +33,18 @@ export interface DeliveredChannelPost {
   channel: ChannelId;
   /** Channel-native id of the chat the post landed in. */
   externalChatId: string;
+  /** The thread or topic the post landed in, absent when it is not in one. */
+  threadId?: string;
   /** The text the adapter sent, as the channel received it. */
   text: string;
   /** The message id the channel assigned when it acknowledged the post. */
   providerMessageId: string;
+  /**
+   * The ids of the further posts the same text became when the channel
+   * split it, in send order. Each is reconciled onto the row like the first,
+   * so a reaction, edit, or delete naming any chunk resolves to this row.
+   */
+  additionalProviderMessageIds?: readonly string[];
   /**
    * The conversation whose turn made the post, when a different one from
    * the home it is recorded in (the messaging tool sending from a scheduled
@@ -56,6 +64,7 @@ export async function recordDeliveredChannelPost(
   const envelope: ProviderMessageMetadata = {
     source: post.channel,
     conversationExternalId: post.externalChatId,
+    ...(post.threadId ? { threadId: post.threadId } : {}),
     eventKind: "message",
   };
   const row = await addMessage(post.conversationId, "assistant", post.text, {
@@ -72,7 +81,11 @@ export async function recordDeliveredChannelPost(
         : {}),
     },
   });
-  await makeSentMessageIdReconciler(row.id)(post.providerMessageId);
+  const reconcile = makeSentMessageIdReconciler(row.id);
+  await reconcile(post.providerMessageId);
+  for (const id of post.additionalProviderMessageIds ?? []) {
+    await reconcile(id);
+  }
   // A resident conversation reloads its history on the next turn so the
   // post is in context; the client refetches the transcript.
   findConversation(post.conversationId)?.markHistoryStale();

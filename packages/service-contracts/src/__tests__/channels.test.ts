@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  botProviderForChannel,
   CHANNEL_BOT_PROVIDER,
   CHANNEL_IDS,
+  channelForBotProvider,
   isChannelBotProvider,
   isChannelUserIntegration,
   isChannelId,
@@ -38,6 +40,35 @@ describe("isChannelId", () => {
     expect(isChannelId(undefined)).toBe(false);
     expect(isChannelId(null)).toBe(false);
     expect(isChannelId(42)).toBe(false);
+  });
+});
+
+describe("botProviderForChannel and channelForBotProvider", () => {
+  test("are inverses over every entry of the map", () => {
+    for (const [channelId, botProviderKey] of Object.entries(
+      CHANNEL_BOT_PROVIDER,
+    )) {
+      expect(botProviderForChannel(channelId)).toBe(botProviderKey);
+      expect(channelForBotProvider(botProviderKey)).toBe(
+        channelId as keyof typeof CHANNEL_BOT_PROVIDER,
+      );
+    }
+  });
+
+  test("answer nothing for a channel without a bot, a person's grant, or an unknown key", () => {
+    expect(botProviderForChannel("phone")).toBeUndefined();
+    expect(botProviderForChannel("vellum")).toBeUndefined();
+    expect(botProviderForChannel("not-a-channel")).toBeUndefined();
+    // `slack` is the person's integration standing beside the bot's key.
+    expect(channelForBotProvider("slack")).toBeUndefined();
+    expect(channelForBotProvider("google")).toBeUndefined();
+  });
+
+  test("never resolve an inherited object property as a channel or a key", () => {
+    for (const name of ["constructor", "toString", "__proto__"]) {
+      expect(botProviderForChannel(name)).toBeUndefined();
+      expect(channelForBotProvider(name)).toBeUndefined();
+    }
   });
 });
 

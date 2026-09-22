@@ -6,6 +6,7 @@ import { MemoryRouter } from "react-router";
 type TextInsertionStatus =
   | "inserted"
   | "vellum-focused"
+  | "no-text-field"
   | "automation-denied"
   | "blocked"
   | "unavailable";
@@ -57,6 +58,7 @@ let holdHandlers: {
   onHoldStart: (start: HoldStart) => void;
   onHoldEnd: () => void;
   onDoubleTap: () => void;
+  onTap: () => void;
 } | null = null;
 mock.module("@/domains/chat/voice/use-voice-key", () => ({
   useVoiceKey: (options: {
@@ -65,6 +67,7 @@ mock.module("@/domains/chat/voice/use-voice-key", () => ({
     }) => void;
     onHoldEnd: () => void;
     onDoubleTap: () => void;
+    onTap: () => void;
   }) => {
     // The hook hands the bridge a selection still being read; the tests
     // describe what it will resolve to.
@@ -73,17 +76,30 @@ mock.module("@/domains/chat/voice/use-voice-key", () => ({
         options.onHoldStart({ selection: Promise.resolve(start.selection) }),
       onHoldEnd: options.onHoldEnd,
       onDoubleTap: options.onDoubleTap,
+      onTap: options.onTap,
     };
   },
 }));
 
+/**
+ * Whether the companion's introduction is staged, which is main's answer and
+ * the only thing that decides whether a tap is worth counting.
+ */
+let introStaged = false;
+mock.module("@/runtime/companion-intro-stage", () => ({
+  companionIntroStaged: () => introStaged,
+  useCompanionIntroStaged: () => introStaged,
+}));
+
 const askedTexts: string[] = [];
+const askedEntries: string[] = [];
 let nextAskTaken = true;
 const announceAskRefusedMock = mock(() => undefined);
 const toggleVoiceMock = mock(() => undefined);
 mock.module("@/domains/chat/voice/live-voice/start-voice-request", () => ({
-  askVoiceFromSurface: (_navigate: unknown, ask: string) => {
+  askVoiceFromSurface: (_navigate: unknown, ask: string, entry: string) => {
     askedTexts.push(ask);
+    askedEntries.push(entry);
     return nextAskTaken;
   },
   announceAskRefused: announceAskRefusedMock,
@@ -141,6 +157,22 @@ mock.module("@/domains/chat/voice/dictation-api", () => ({
   },
 }));
 
+mock.module("@/runtime/running-apps", () => ({
+  runningApps: async () => [],
+  quitApp: async () => true,
+  frontmostApp: async () => "com.example.editor",
+}));
+mock.module("@/runtime/input-activity", () => ({
+  setInputActivityWatch: async () => true,
+  subscribeToInputActivity: () => () => {},
+}));
+
+let runningClaimant: { bundleId: string; name: string } | null = null;
+mock.module("@/domains/chat/voice/fn-claimants", () => ({
+  FN_CLAIMANTS: [{ bundleId: "com.electron.wispr-flow", name: "Wispr Flow" }],
+  findRunningFnClaimant: async () => runningClaimant,
+}));
+
 mock.module("@/runtime/text-insertion", () => ({
   insertTextIntoFrontApp: async (text: string) => {
     insertedTexts.push(text);
@@ -158,6 +190,8 @@ mock.module("@vellumai/design-library/components/toast", () => ({
 }));
 
 const { GlobalPushToTalkBridge } = await import("./global-push-to-talk-bridge");
+const { clearDictationOffer, useDictationOfferStore } =
+  await import("@/domains/chat/voice/dictation-offer-store");
 const { formatVoiceError } = await import("@/domains/chat/utils/chat");
 const { useComposerStore } = await import("@/domains/chat/composer-store");
 const { useVoiceRecordingStore } =
@@ -166,6 +200,8 @@ const { useConversationStore } = await import("@/stores/conversation-store");
 const { useViewerStore } = await import("@/stores/viewer-store");
 const { useAssistantIdentityStore } =
   await import("@/stores/assistant-identity-store");
+const { useVoiceKeyTapStore } =
+  await import("@/domains/chat/voice/voice-key-tap-store");
 
 const renderBridge = (assistantId: string | null = "assistant-1") => {
   // The bridge's voice mode shortcut navigates to the conversation surface
@@ -196,16 +232,20 @@ afterEach(() => {
   dictationCalls.length = 0;
   insertedTexts.length = 0;
   askedTexts.length = 0;
+  askedEntries.length = 0;
   nextAskTaken = true;
   announceAskRefusedMock.mockClear();
   toggleVoiceMock.mockClear();
   toastErrorMock.mockClear();
+  runningClaimant = null;
+  clearDictationOffer();
   useVoiceRecordingStore.getState().reset();
   useComposerStore.getState().setInput("");
   useComposerStore.getState().fullReset();
   useConversationStore.getState().reset();
   useViewerStore.getState().reset();
   useAssistantIdentityStore.getState().clearIdentity();
+  introStaged = false;
   localStorage.clear();
 });
 
@@ -238,6 +278,41 @@ describe("GlobalPushToTalkBridge", () => {
       formatVoiceError("dictation-paste-blocked"),
       { id: "voice-error:dictation-paste-blocked" },
     );
+  });
+
+  /**
+   * The user is in the application the paste was meant for. The composer
+   * behind this window, in whatever conversation was last selected, is not
+   * somewhere they will think to look, so the words go up on the companion
+   * with a reason that says the paste failed.
+   */
+  test("offers the transcript on the companion when the paste fails", async () => {
+    nextTextInsertionStatus = "blocked";
+    const voiceInput = renderBridge();
+
+    await act(async () => {
+      await voiceInput.onTranscript("fallback text");
+    });
+
+    expect(useDictationOfferStore.getState().offer).toMatchObject({
+      reason: "paste-failed",
+      text: "fallback text",
+    });
+  });
+
+  test("offers the transcript when Automation is denied", async () => {
+    nextTextInsertionStatus = "automation-denied";
+    const voiceInput = renderBridge();
+
+    await act(async () => {
+      await voiceInput.onTranscript("fallback text");
+    });
+
+    expect(useDictationOfferStore.getState().offer).toMatchObject({
+      reason: "paste-failed",
+      text: "fallback text",
+    });
+    expect(useComposerStore.getState().input).toBe("fallback text");
   });
 
   test("lands a soft-landed transcript in the conversation already selected", async () => {
@@ -277,6 +352,63 @@ describe("GlobalPushToTalkBridge", () => {
       useConversationStore.getState().draftConversationIds.has(draftId ?? ""),
     ).toBe(true);
     expect(useViewerStore.getState().mainView).toBe("chat");
+  });
+
+  /**
+   * A hold that ends over something that does not take text keeps its words.
+   * Nothing failed, so nothing is announced as a failure; the words go up on
+   * the companion, on the same offer another app's paste puts them on and
+   * with the reason that says the only answer here is the clipboard.
+   */
+  test("offers the transcript when nothing in front takes text", async () => {
+    nextTextInsertionStatus = "no-text-field";
+    const voiceInput = renderBridge();
+
+    await act(async () => {
+      await voiceInput.onTranscript("onions, tomatoes, and a bag of rice");
+    });
+
+    expect(useDictationOfferStore.getState().offer).toMatchObject({
+      reason: "no-text-field",
+      text: "onions, tomatoes, and a bag of rice",
+    });
+    expect(toastErrorMock).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The offer needs the companion surface to be on screen, and the user can
+   * turn that off. The composer is the floor under it either way, so the words
+   * are somewhere the user can reach even then.
+   */
+  test("still soft-lands those words in the composer", async () => {
+    nextTextInsertionStatus = "no-text-field";
+    const voiceInput = renderBridge();
+
+    await act(async () => {
+      await voiceInput.onTranscript("onions, tomatoes, and a bag of rice");
+    });
+
+    expect(useComposerStore.getState().input).toBe(
+      "onions, tomatoes, and a bag of rice",
+    );
+  });
+
+  /**
+   * The overlay's error state says a paste was refused. Nothing was refused
+   * here and nothing was sent, so a check is the truthful thing for it to
+   * draw.
+   */
+  test("does not mark the recording as an insertion failure", async () => {
+    nextTextInsertionStatus = "no-text-field";
+    const voiceInput = renderBridge();
+
+    await act(async () => {
+      await voiceInput.onTranscript("onions, tomatoes, and a bag of rice");
+    });
+
+    expect(
+      useVoiceRecordingStore.getState().dictationInsertionError,
+    ).toBeNull();
   });
 
   test("uses stable toast IDs for repeated voice errors", () => {
@@ -370,6 +502,173 @@ test("a double tap of the voice key is Talk", () => {
   });
 
   expect(toggleVoiceMock).toHaveBeenCalledTimes(1);
+  // Named for the daemon's telemetry: the same macOS client also starts calls
+  // from the composer and the companion, and only the entry tells them apart.
+  expect(toggleVoiceMock).toHaveBeenCalledWith(
+    expect.any(Function),
+    "voice_key",
+  );
+});
+
+/**
+ * A single tap is counted for the companion's introduction and for nothing
+ * else, and the introduction runs once.
+ *
+ * The store has no reset, on purpose (`voice-key-tap-store`), so these read the
+ * distance the count moved rather than where it landed.
+ */
+describe("counting taps for the introduction", () => {
+  /** How far the count moves while `body` runs. */
+  const tapsCountedDuring = (body: () => void): number => {
+    const before = useVoiceKeyTapStore.getState().taps;
+    body();
+    return useVoiceKeyTapStore.getState().taps - before;
+  };
+
+  test("does not count a tap with no run staged", () => {
+    renderBridge("a1");
+
+    const counted = tapsCountedDuring(() => {
+      act(() => {
+        holdHandlers?.onTap();
+        holdHandlers?.onTap();
+      });
+    });
+
+    // Fn is the globe key, so these are the emoji picker and the input-source
+    // switch as much as they are anything of ours. Nothing is drawing the count,
+    // so nothing pays for a push.
+    expect(counted).toBe(0);
+  });
+
+  test("counts a tap once a run is staged", () => {
+    renderBridge("a1");
+    introStaged = true;
+
+    const counted = tapsCountedDuring(() => {
+      act(() => {
+        holdHandlers?.onTap();
+        holdHandlers?.onTap();
+      });
+    });
+
+    expect(counted).toBe(2);
+  });
+
+  /**
+   * The gate is read on the tap rather than held on the binding, so a run that
+   * starts under a bridge already mounted is counted without the key being
+   * rebound. Nothing counted while the run was down is waiting to be released
+   * into it: the card would read that backlog as presses already made.
+   */
+  test("counts nothing from before the run when one starts", () => {
+    renderBridge("a1");
+
+    const beforeRun = tapsCountedDuring(() => {
+      act(() => {
+        holdHandlers?.onTap();
+        holdHandlers?.onTap();
+        holdHandlers?.onTap();
+      });
+    });
+    introStaged = true;
+    const duringRun = tapsCountedDuring(() => {
+      act(() => {
+        holdHandlers?.onTap();
+      });
+    });
+
+    expect(beforeRun).toBe(0);
+    expect(duringRun).toBe(1);
+  });
+
+  /** And it closes again with the run, for the install's whole remaining life. */
+  test("stops counting when the run ends", () => {
+    renderBridge("a1");
+    introStaged = true;
+    act(() => {
+      holdHandlers?.onTap();
+    });
+    introStaged = false;
+
+    const counted = tapsCountedDuring(() => {
+      act(() => {
+        holdHandlers?.onTap();
+        holdHandlers?.onTap();
+      });
+    });
+
+    expect(counted).toBe(0);
+  });
+});
+
+/**
+ * Another dictation app that heard the same key has pasted by the time the
+ * transcript lands. Pasting beside it would leave the sentence twice, so the
+ * words are offered on the companion instead.
+ */
+describe("a hold beside another dictation app", () => {
+  test("offers the words instead of pasting them", async () => {
+    runningClaimant = {
+      bundleId: "com.electron.wispr-flow",
+      name: "Wispr Flow",
+    };
+    nextTextInsertionStatus = "inserted";
+    nextDictationResult = { mode: "dictation", text: "Send me the files." };
+    const voiceInput = renderBridge("a1");
+
+    act(() => {
+      holdHandlers?.onHoldStart({ selection: null });
+    });
+    await act(async () => {
+      await voiceInput.onTranscript("send me the files");
+    });
+
+    expect(insertedTexts).toEqual([]);
+    expect(useDictationOfferStore.getState().offer).toMatchObject({
+      app: { name: "Wispr Flow" },
+      text: "Send me the files.",
+      frontApp: "com.example.editor",
+    });
+  });
+
+  test("a new hold takes a standing offer down", async () => {
+    runningClaimant = {
+      bundleId: "com.electron.wispr-flow",
+      name: "Wispr Flow",
+    };
+    nextDictationResult = { mode: "dictation", text: "first" };
+    const voiceInput = renderBridge("a1");
+
+    act(() => {
+      holdHandlers?.onHoldStart({ selection: null });
+    });
+    await act(async () => {
+      await voiceInput.onTranscript("first");
+    });
+    expect(useDictationOfferStore.getState().offer?.text).toBe("first");
+
+    act(() => {
+      holdHandlers?.onHoldStart({ selection: null });
+    });
+    expect(useDictationOfferStore.getState().offer).toBeNull();
+  });
+
+  test("pastes as usual when no such app is running", async () => {
+    nextTextInsertionStatus = "inserted";
+    nextDictationResult = { mode: "dictation", text: "Send me the files." };
+    const voiceInput = renderBridge("a1");
+
+    act(() => {
+      holdHandlers?.onHoldStart({ selection: null });
+    });
+    await act(async () => {
+      await voiceInput.onTranscript("send me the files");
+    });
+
+    expect(insertedTexts).toEqual(["Send me the files."]);
+    expect(useDictationOfferStore.getState().offer).toBeNull();
+  });
 });
 
 describe("a hold over a selection", () => {
@@ -390,6 +689,7 @@ describe("a hold over a selection", () => {
     expect(askedTexts).toEqual([
       "> the powerhouse\n> of the cell\n\nwhat does this mean",
     ]);
+    expect(askedEntries).toEqual(["voice_key_ask"]);
     expect(insertedTexts).toEqual([]);
     expect(toastErrorMock).not.toHaveBeenCalled();
   });

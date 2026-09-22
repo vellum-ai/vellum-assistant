@@ -1,13 +1,12 @@
 /**
- * Install a plugin by name from the canonical GitHub source.
+ * Install a reviewed plugin by name from its catalog source.
  *
- * A name resolves to a whitelisted external ecosystem plugin — an entry in the
- * curated `plugins/marketplace.json` manifest. The pinned
- * `owner/repo[/path]@ref` (see {@link ./plugin-marketplace}) is fetched with a
- * shallow `git` clone at that ref — one network operation regardless of repo
- * size, immune to GitHub's unauthenticated API rate-limit, and recording the
- * exact resolved commit for provenance — and materialized into
- * `<workspacePluginsDir>/<name>/` so the daemon discovers it on next start.
+ * A name resolves to an entry in the curated `plugins/marketplace.json`
+ * manifest. A GitHub source is fetched with a shallow clone at its pinned ref.
+ * A local source is read from the exact package version embedded in the
+ * assistant distribution. Both are materialized into
+ * `<workspacePluginsDir>/<name>/` and record their source in the provenance
+ * sidecar.
  *
  * When we curate an adapter stub for the plugin (a `plugins/<name>/` directory
  * in this repo with a `scripts.postinstall` command), the stub is overlaid
@@ -52,6 +51,11 @@ import {
   getWorkspacePluginsDir,
   isWindows,
 } from "../../util/platform.js";
+import {
+  getPluginManifestInstallAction,
+  readPluginManifest,
+} from "../../util/plugin-manifest.js";
+import { materializeBundledPluginPackage } from "./bundled-plugin-packages.js";
 import type { FetchLike } from "./fetch-like.js";
 import {
   type DependencyInstaller,
@@ -147,20 +151,13 @@ export interface InstallPluginOptions {
    */
   readonly directSource?: PluginFetchSource;
   /**
-   * Install from these PRE-RESOLVED, TRUSTED GitHub coordinates while STILL
-   * overlaying the curated `plugins/<name>` adapter stub. This is the offline
-   * analogue of a marketplace install: the pin came from the reviewed bundled
-   * catalog instead of a live marketplace fetch, so — unlike
-   * {@link InstallPluginOptions.directSource} — the source is trusted and the
-   * adapter stub is kept. `trustedSource` names the EXTERNAL plugin repo, so
-   * `trustedSource.ref` (its immutable content commit) cannot address the stub,
-   * which lives in this repo; the stub is fetched from the canonical repo at
-   * {@link InstallPluginOptions.ref} (default {@link DEFAULT_PLUGIN_REF}) — the
-   * bundled catalog records no canonical-repo pin. When set, marketplace
-   * resolution and {@link InstallPluginOptions.commitOverride} are skipped;
-   * `trustedSource.ref` selects the commit to clone (the reviewed pin).
+   * Install from an exact source resolved by the reviewed catalog. GitHub
+   * sources retain the curated adapter overlay. Local sources are complete
+   * packages embedded in the assistant distribution and do not use an adapter.
+   * Marketplace resolution and {@link InstallPluginOptions.commitOverride} are
+   * skipped when this is set.
    */
-  readonly trustedSource?: PluginFetchSource;
+  readonly trustedSource?: PluginMaterializeSource;
 }
 
 /**
@@ -193,6 +190,8 @@ export interface InstallPluginDeps {
   readonly beforeSwap?: () => Promise<void>;
   /** Consent gate between staging and finalize; see {@link ConfirmStagedInstall}. */
   readonly confirmStaged?: ConfirmStagedInstall;
+  /** Override embedded-package materialization for focused tests. */
+  readonly materializeLocalPackage?: typeof materializeBundledPluginPackage;
 }
 
 /** Successful install result. */
@@ -315,21 +314,39 @@ export interface PluginFetchSource {
   readonly ref: string;
 }
 
+/** Reviewed package embedded in the assistant distribution. */
+export interface LocalPluginFetchSource {
+  readonly kind: "local";
+  readonly path: string;
+  readonly version: string;
+  readonly ref?: undefined;
+}
+
+export type PluginMaterializeSource =
+  | PluginFetchSource
+  | LocalPluginFetchSource;
+
+export function isLocalPluginSource(
+  source: PluginMaterializeSource,
+): source is LocalPluginFetchSource {
+  return "kind" in source && source.kind === "local";
+}
+
 /** Build the `owner/repo/path` label used in not-found errors. */
-function sourceLabel(source: PluginFetchSource): string {
+function sourceLabel(source: PluginMaterializeSource): string {
+  if (isLocalPluginSource(source)) {
+    return source.path;
+  }
   return source.rootPath
     ? `${source.owner}/${source.repo}/${source.rootPath}`
     : `${source.owner}/${source.repo}`;
 }
 
 /**
- * Resolve a plugin name to the concrete GitHub coordinates of its pinned
- * marketplace entry, or `null` when no entry claims the name.
- *
- * The marketplace is external-only by construction — a same-named
- * `plugins/<name>` directory is the plugin's optional *adapter stub* (a curated
- * `package.json` + postinstall script overlaid onto the clone to translate it
- * into Vellum's shape; see {@link applyAdapterStub}), not a standalone plugin.
+ * Resolve a plugin name to its exact marketplace source, or `null` when no
+ * entry claims the name. A GitHub entry may have a same-named adapter stub
+ * under `plugins/<name>` that is overlaid onto the clone. A local entry refers
+ * to a fully self-contained package embedded in the assistant distribution.
  *
  * A transient marketplace failure (rate-limit / 5xx) surfaces as a retryable
  * {@link PluginSourceUnavailableError}; a malformed manifest propagates as a
@@ -340,7 +357,7 @@ async function resolvePluginSource(
   name: string,
   marketplaceRef: string,
   fetchFn: FetchLike,
-): Promise<PluginFetchSource | null> {
+): Promise<PluginMaterializeSource | null> {
   let resolved: ResolvedPluginSource | null;
   try {
     const entries = await fetchMarketplaceEntries(
@@ -357,6 +374,14 @@ async function resolvePluginSource(
 
   if (!resolved) {
     return null;
+  }
+
+  if (resolved.kind === "local") {
+    return {
+      kind: "local",
+      path: resolved.path,
+      version: resolved.version,
+    };
   }
 
   return {
@@ -456,7 +481,7 @@ export async function installPlugin(
   // adapter stub). A trusted pre-resolved source (offline bundled-catalog
   // install) supplies its coordinates too but keeps the curated overlay.
   // Otherwise the name is resolved against the reviewed manifest.
-  let effectiveSource: PluginFetchSource;
+  let effectiveSource: PluginMaterializeSource;
   // Ref the curated adapter stub is fetched at, or `null` to skip the overlay.
   let stubRef: string | null;
   if (opts.directSource) {
@@ -470,7 +495,7 @@ export async function installPlugin(
     // recorded offline, the stub is fetched at `marketplaceRef` (its default,
     // DEFAULT_PLUGIN_REF).
     effectiveSource = opts.trustedSource;
-    stubRef = marketplaceRef;
+    stubRef = isLocalPluginSource(effectiveSource) ? null : marketplaceRef;
   } else {
     const source = await resolvePluginSource(name, marketplaceRef, deps.fetch);
     if (!source) {
@@ -483,12 +508,15 @@ export async function installPlugin(
     // A commit override installs a specific plugin revision while still taking
     // owner/repo/path (and the adapter stub, via `marketplaceRef`) from the
     // manifest; otherwise the reviewed pin from the manifest is materialized.
-    effectiveSource = opts.commitOverride
-      ? { ...source, ref: opts.commitOverride }
-      : source;
-    stubRef = marketplaceRef;
+    effectiveSource =
+      opts.commitOverride && !isLocalPluginSource(source)
+        ? { ...source, ref: opts.commitOverride }
+        : source;
+    stubRef = isLocalPluginSource(effectiveSource) ? null : marketplaceRef;
   }
-  const ref = effectiveSource.ref;
+  const ref = isLocalPluginSource(effectiveSource)
+    ? effectiveSource.version
+    : effectiveSource.ref;
 
   const pluginsDir = deps.workspacePluginsDir ?? getWorkspacePluginsDir();
   const target = join(pluginsDir, name);
@@ -591,7 +619,7 @@ export async function confirmStagedOrAbort(
 export interface FinalizeStagedInstallParams {
   readonly name: string;
   /** Source coordinates recorded in the provenance sidecar. */
-  readonly source: PluginFetchSource;
+  readonly source: PluginMaterializeSource;
   /** Ref recorded in the sidecar (the resolved commit SHA for marketplace installs). */
   readonly ref: string;
   readonly commit: string | null;
@@ -731,16 +759,22 @@ export const INSTALL_META_FILENAME = "install-meta.json";
 export type InstallOrigin = "vellum";
 
 /** Resolved source coordinates recorded in the provenance sidecar. */
-export interface InstallMetaSource {
-  /** Source kind. Only `github` is written today. */
-  readonly kind: string;
-  readonly owner: string;
-  readonly repo: string;
-  /** Repo-relative directory holding the plugin root; absent = repo root. */
-  readonly path?: string;
-  /** Ref the install resolved through (the pinned commit SHA for marketplace installs). */
-  readonly ref: string;
-}
+export type InstallMetaSource =
+  | {
+      readonly kind: "github";
+      readonly owner: string;
+      readonly repo: string;
+      readonly path?: string;
+      readonly ref: string;
+    }
+  | {
+      readonly kind: "local";
+      readonly path: string;
+      readonly version: string;
+      readonly owner?: undefined;
+      readonly repo?: undefined;
+      readonly ref?: undefined;
+    };
 
 /**
  * Parsed contents of the `install-meta.json` provenance sidecar — what was
@@ -835,7 +869,7 @@ export interface MaterializedTree {
 export async function materializePluginTree(
   opts: {
     /** Source coordinates; `source.ref` selects the commit to clone. */
-    readonly source: PluginFetchSource;
+    readonly source: PluginMaterializeSource;
     /** Install name, used to locate the curated adapter stub. */
     readonly name: string;
     /**
@@ -850,26 +884,36 @@ export async function materializePluginTree(
   },
   deps: InstallPluginDeps,
 ): Promise<MaterializedTree> {
-  const cloned = await copyExternalViaGit(
-    opts.source,
-    opts.destDir,
-    deps.runGit ?? defaultGitRunner,
-  );
+  const cloned = isLocalPluginSource(opts.source)
+    ? {
+        fileCount: (
+          deps.materializeLocalPackage ?? materializeBundledPluginPackage
+        )(opts.source.path, opts.source.version, opts.destDir),
+        commit: null,
+        committedAt: null,
+      }
+    : await copyExternalViaGit(
+        opts.source,
+        opts.destDir,
+        deps.runGit ?? defaultGitRunner,
+      );
   // An external clone is often a foreign-ecosystem plugin (e.g. a Claude Code
   // plugin) that the Vellum loader can't run as-is. When we curate an adapter
   // stub for it, overlay the stub and run its transform so the materialized
   // tree is a valid Vellum plugin. Raw clones (no stub) are left untouched,
   // except for a minimal package.json synthesis when the upstream repo shipped
-  // none — the Vellum loader hard-requires one and would silently skip the
-  // plugin without it. The synthesis is deterministic (name + fixed version +
-  // fixed peer-dep range), so it produces the same bytes on initial install
+  // no recognized manifest. The synthesis is deterministic (name + fixed
+  // version + fixed peer-dep range), so it produces the same bytes on initial install
   // and upgrade re-materialization; the fingerprint is computed after
   // materialization, so the synthesized file is present in both baselines and
   // the comparison stays clean.
   if (cloned.fileCount > 0 && opts.stubRef !== null) {
     await applyAdapterStub(opts.name, opts.stubRef, opts.destDir, deps);
   }
-  if (cloned.fileCount > 0 && !existsSync(join(opts.destDir, "package.json"))) {
+  if (
+    cloned.fileCount > 0 &&
+    getPluginManifestInstallAction(opts.destDir) === "synthesize-legacy"
+  ) {
     synthesizeMinimalPackageJson(opts.name, opts.destDir);
   }
   return cloned;
@@ -1545,7 +1589,7 @@ export async function resolveTreeRefPath(
 /** Inputs for {@link writeInstallMeta}, resolved during a fresh install. */
 interface WriteInstallMetaParams {
   readonly name: string;
-  readonly source: PluginFetchSource;
+  readonly source: PluginMaterializeSource;
   readonly ref: string;
   readonly commit: string | null;
   /** ISO-8601 committer timestamp of {@link WriteInstallMetaParams.commit} (UTC); null when unknown. */
@@ -1557,22 +1601,15 @@ interface WriteInstallMetaParams {
 }
 
 /**
- * Read the `version` field from a staged plugin's `package.json`. Lenient — a
- * missing or malformed manifest simply yields `undefined` so provenance is
+ * Read the `version` field from a staged plugin's selected manifest. A
+ * missing or malformed manifest yields `undefined` so provenance is
  * recorded without it rather than failing the install.
  */
-function readStagedPackageVersion(stagingDir: string): string | undefined {
-  const pkgPath = join(stagingDir, "package.json");
-  if (!existsSync(pkgPath)) {
-    return undefined;
-  }
+function readStagedManifestVersion(stagingDir: string): string | undefined {
   try {
-    const parsed: unknown = JSON.parse(readFileSync(pkgPath, "utf8"));
-    if (typeof parsed === "object" && parsed !== null) {
-      const version = (parsed as Record<string, unknown>).version;
-      if (typeof version === "string" && version.length > 0) {
-        return version;
-      }
+    const version = readPluginManifest(stagingDir).version;
+    if (version && version.length > 0) {
+      return version;
     }
   } catch {
     // fall through to undefined
@@ -1599,21 +1636,24 @@ function writeInstallMeta(
     contentHash,
   }: WriteInstallMetaParams,
 ): void {
+  const local = isLocalPluginSource(source);
   const meta: InstallMeta = {
     origin: "vellum",
     installedAt: new Date().toISOString(),
-    version: readStagedPackageVersion(stagingDir),
-    sourceRepo: `${source.owner}/${source.repo}`,
+    version: readStagedManifestVersion(stagingDir),
+    sourceRepo: local ? undefined : `${source.owner}/${source.repo}`,
     contentHash,
     author: "user",
     name,
-    source: {
-      kind: "github",
-      owner: source.owner,
-      repo: source.repo,
-      path: source.rootPath || undefined,
-      ref,
-    },
+    source: local
+      ? { kind: "local", path: source.path, version: source.version }
+      : {
+          kind: "github",
+          owner: source.owner,
+          repo: source.repo,
+          path: source.rootPath || undefined,
+          ref,
+        },
     commit,
     committedAt,
     ...(etag ? { etag } : {}),
@@ -1657,13 +1697,35 @@ export function readInstallMeta(pluginDir: string): InstallMeta | null {
     return null;
   }
   const source = src as Record<string, unknown>;
-  if (
-    typeof obj.name !== "string" ||
-    typeof source.owner !== "string" ||
-    typeof source.repo !== "string" ||
-    typeof source.ref !== "string"
-  ) {
+  if (typeof obj.name !== "string") {
     return null;
+  }
+
+  let parsedSource: InstallMetaSource;
+  if (source.kind === "local") {
+    if (typeof source.path !== "string" || typeof source.version !== "string") {
+      return null;
+    }
+    parsedSource = {
+      kind: "local",
+      path: source.path,
+      version: source.version,
+    };
+  } else {
+    if (
+      typeof source.owner !== "string" ||
+      typeof source.repo !== "string" ||
+      typeof source.ref !== "string"
+    ) {
+      return null;
+    }
+    parsedSource = {
+      kind: "github",
+      owner: source.owner,
+      repo: source.repo,
+      path: typeof source.path === "string" ? source.path : undefined,
+      ref: source.ref,
+    };
   }
 
   const optionalString = (value: unknown): string | undefined =>
@@ -1683,13 +1745,7 @@ export function readInstallMeta(pluginDir: string): InstallMeta | null {
         ? obj.author
         : undefined,
     name: obj.name,
-    source: {
-      kind: typeof source.kind === "string" ? source.kind : "github",
-      owner: source.owner,
-      repo: source.repo,
-      path: typeof source.path === "string" ? source.path : undefined,
-      ref: source.ref,
-    },
+    source: parsedSource,
     commit: typeof obj.commit === "string" ? obj.commit : null,
     ...(typeof obj.etag === "string" ? { etag: obj.etag } : {}),
     committedAt: typeof obj.committedAt === "string" ? obj.committedAt : null,

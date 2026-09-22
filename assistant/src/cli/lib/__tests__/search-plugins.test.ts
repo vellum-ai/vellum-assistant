@@ -151,6 +151,37 @@ describe("assertValidSearchPattern", () => {
 });
 
 describe("marketplaceMatch", () => {
+  test("projects a bundled MCP package and its integration metadata", () => {
+    const match = marketplaceMatch({
+      name: "fathom",
+      source: {
+        source: "local",
+        path: "plugins/mcp-catalog/fathom",
+        version: "1.0.0",
+      },
+      integration: {
+        kind: "mcp",
+        displayName: "Fathom",
+        documentationUrl: "https://developers.fathom.ai/mcp-docs",
+        verifiedAt: "2026-09-10",
+        verification: "documentation-only",
+        setup: { mode: "oauth", instructions: "Sign in to Fathom." },
+        logo: "fathom.png",
+      },
+    });
+
+    expect(match).toMatchObject({
+      name: "fathom",
+      path: "local:plugins/mcp-catalog/fathom@1.0.0",
+      integration: { kind: "mcp", logo: "fathom.png" },
+      source: {
+        kind: "local",
+        path: "plugins/mcp-catalog/fathom",
+        version: "1.0.0",
+      },
+    });
+  });
+
   test("projects a root entry onto a github source with a display locator", () => {
     expect(
       marketplaceMatch(

@@ -698,7 +698,10 @@ export async function streamCommitImport(
         // Retired-feature paths (see `policy.RETIRED_ARCHIVE_PATHS`) are
         // expected in legacy bundles and skip silently so the import report
         // matches preflight; anything else unresolvable earns a warning.
-        if (!policy.isRetiredArchivePath(archivePath)) {
+        if (
+          !policy.isRetiredArchivePath(archivePath) &&
+          !policy.isGatewayArchivePath(archivePath)
+        ) {
           warnings.push(
             `Skipped "${archivePath}": no known disk target for this archive path`,
           );

@@ -14,6 +14,7 @@ import {
   getModelProfiles,
   type ImageContent,
   type PluginLogger,
+  type Provider,
   resolveMediaSourceData,
 } from "@vellumai/plugin-api";
 
@@ -23,7 +24,17 @@ import {
   setCachedCaption,
 } from "./caption-cache.js";
 
-const CAPTION_TIMEOUT_MS = 30_000;
+/**
+ * Time-box for the vision caption request. Kept below the 30s plugin hook
+ * time-box so a timed-out caption still substitutes prompt text rather than
+ * discarding the whole hook.
+ */
+export const CAPTION_TIMEOUT_MS = 25_000;
+
+export type CaptionResult =
+  | { status: "caption"; text: string }
+  | { status: "timeout" }
+  | { status: "failed" };
 
 const CAPTION_SYSTEM_PROMPT =
   "You are a vision assistant. Describe the image concisely in 1-2 sentences. " +
@@ -61,25 +72,25 @@ export function findVisionProfile(): string | null {
  *          cache row so `conversation-deleted` cleanup stays accurate.
  * @param profileKey  Key of a vision-capable profile (from {@link findVisionProfile}).
  * @param logger    Turn-scoped logger for attribution.
- * @returns The caption text, or `null` when captioning failed (caller should
- *          use a fail-open placeholder).
+ * @returns A caption, a timeout marker, or `failed` when captioning could
+ *          not run (caller substitutes fail-open prompt text).
  */
 export async function captionImage(
   image: ImageContent,
   conversationId: string,
   profileKey: string,
   logger: PluginLogger,
-): Promise<string | null> {
+): Promise<CaptionResult> {
   // Hash the image's content (resolving a reference source to its bytes, a
   // no-op for inline base64) so the caption cache keys on the image itself.
   const resolved = resolveMediaSourceData(image.source);
   if (!resolved) {
-    return null;
+    return { status: "failed" };
   }
   const hash = imageHash(resolved.data);
   const cached = getCachedCaption(hash, conversationId);
   if (cached !== undefined) {
-    return cached;
+    return { status: "caption", text: cached };
   }
 
   try {
@@ -92,28 +103,14 @@ export async function captionImage(
         { plugin: "image-fallback" },
         "No provider resolved for vision captioning profile",
       );
-      return null;
+      return { status: "failed" };
     }
 
-    const response = await provider.sendMessage(
-      [
-        {
-          role: "user",
-          content: [image, { type: "text", text: CAPTION_USER_PROMPT }],
-        },
-      ],
-      {
-        systemPrompt: CAPTION_SYSTEM_PROMPT,
-        config: {
-          callSite: "vision",
-          conversationId,
-          overrideProfile: profileKey,
-          forceOverrideProfile: true,
-          tool_choice: { type: "none" },
-        },
-        signal: AbortSignal.timeout(CAPTION_TIMEOUT_MS),
-      },
-    );
+    const response = await sendCaptionRequest(provider, {
+      image,
+      conversationId,
+      profileKey,
+    });
 
     // Vision captioning returns text content; concatenate any text blocks
     // (effectively always one here, since tool use is disabled).
@@ -123,19 +120,99 @@ export async function captionImage(
       .trim();
     if (caption.length > 0) {
       setCachedCaption(hash, conversationId, caption);
-      return caption;
+      return { status: "caption", text: caption };
     }
 
     logger.warn(
       { plugin: "image-fallback" },
       "Vision captioning returned empty text",
     );
-    return null;
+    return { status: "failed" };
   } catch (err) {
+    if (isCaptionTimeoutError(err)) {
+      logger.warn(
+        { plugin: "image-fallback", err, profileKey },
+        "Vision captioning timed out",
+      );
+      return { status: "timeout" };
+    }
     logger.warn(
       { plugin: "image-fallback", err },
       "Vision captioning call failed",
     );
-    return null;
+    return { status: "failed" };
   }
+}
+
+/**
+ * Label of the vision profile used for captioning, for timeout prompt text.
+ */
+export function visionProfileLabel(profileKey: string): string {
+  const profile = getModelProfiles().find((p) => p.key === profileKey);
+  return profile?.label ?? profileKey;
+}
+
+function isCaptionTimeoutError(err: unknown): boolean {
+  if (!(err instanceof Error)) {
+    return false;
+  }
+  return (
+    err.name === "TimeoutError" ||
+    err.name === "AbortError" ||
+    err.name === "APIUserAbortError"
+  );
+}
+
+/**
+ * Time-box the vision `sendMessage` call itself: abort the request at
+ * {@link CAPTION_TIMEOUT_MS}, and settle on that deadline even if the provider
+ * ignores the abort signal.
+ */
+async function sendCaptionRequest(
+  provider: Provider,
+  args: {
+    image: ImageContent;
+    conversationId: string;
+    profileKey: string;
+  },
+): Promise<Awaited<ReturnType<Provider["sendMessage"]>>> {
+  const signal = AbortSignal.timeout(CAPTION_TIMEOUT_MS);
+  const timedOut = new Promise<never>((_, reject) => {
+    const rejectTimedOut = () => {
+      reject(
+        signal.reason instanceof Error
+          ? signal.reason
+          : new DOMException("The operation timed out", "TimeoutError"),
+      );
+    };
+    if (signal.aborted) {
+      rejectTimedOut();
+      return;
+    }
+    signal.addEventListener("abort", rejectTimedOut, { once: true });
+  });
+  // Absorb whichever side loses the race so a late abort or late response
+  // does not become an unhandled rejection.
+  timedOut.catch(() => {});
+  const work = provider.sendMessage(
+    [
+      {
+        role: "user",
+        content: [args.image, { type: "text", text: CAPTION_USER_PROMPT }],
+      },
+    ],
+    {
+      systemPrompt: CAPTION_SYSTEM_PROMPT,
+      config: {
+        callSite: "vision",
+        conversationId: args.conversationId,
+        overrideProfile: args.profileKey,
+        forceOverrideProfile: true,
+        tool_choice: { type: "none" },
+      },
+      signal,
+    },
+  );
+  work.catch(() => {});
+  return await Promise.race([work, timedOut]);
 }

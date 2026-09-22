@@ -26,6 +26,15 @@ import {
 } from "../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../config/types.js";
 import {
+  deleteMemoryCheckpoint,
+  getMemoryCheckpoint,
+  setMemoryCheckpoint,
+} from "../persistence/checkpoints.js";
+import {
+  CUSTOM_EMBEDDING_SPACE_CHECKPOINT,
+  customEmbeddingSpaceIdentity,
+} from "../persistence/embeddings/embedding-backend.js";
+import {
   probeBackendDimension,
   readConceptPageCollectionDim,
 } from "../persistence/embeddings/embedding-identity.js";
@@ -50,6 +59,7 @@ export type ReconcileOutcome =
   | { action: "noop"; dim: number | null }
   | { action: "commit-fresh"; dim: number }
   | { action: "migrate"; fromDim: number; toDim: number }
+  | { action: "reembed-space"; dim: number }
   | { action: "defer-degraded"; reason: string };
 
 /**
@@ -72,6 +82,12 @@ export interface ReconcileDeps {
   ensureCollections: (dim: number) => Promise<void>;
   /** Enqueue the reembed jobs that repopulate the (re)created collections. */
   enqueueReembed: () => void;
+  /** Identity of the configured custom embeddings endpoint, or null. */
+  customEmbeddingSpaceIdentity: (config: AssistantConfig) => string | null;
+  /** Last custom embedding space recorded for the populated collections. */
+  readCustomEmbeddingSpace: () => string | null;
+  /** Persist (or clear) the custom embedding space identity. */
+  writeCustomEmbeddingSpace: (identity: string | null) => void;
 }
 
 /**
@@ -201,7 +217,36 @@ export function defaultDeps(config: AssistantConfig): ReconcileDeps {
       }
     },
     enqueueReembed: () => defaultEnqueueReembed(config),
+    customEmbeddingSpaceIdentity,
+    readCustomEmbeddingSpace: () =>
+      getMemoryCheckpoint(CUSTOM_EMBEDDING_SPACE_CHECKPOINT),
+    writeCustomEmbeddingSpace: (identity) => {
+      if (identity == null) {
+        deleteMemoryCheckpoint(CUSTOM_EMBEDDING_SPACE_CHECKPOINT);
+      } else {
+        setMemoryCheckpoint(CUSTOM_EMBEDDING_SPACE_CHECKPOINT, identity);
+      }
+    },
   };
+}
+
+function syncCustomEmbeddingSpace(
+  config: AssistantConfig,
+  deps: ReconcileDeps,
+  opts: { reembedOnChange: boolean },
+): "unchanged" | "recorded" | "reembed" {
+  const current = deps.customEmbeddingSpaceIdentity(config);
+  const stored = deps.readCustomEmbeddingSpace();
+  if (current === stored) {
+    return "unchanged";
+  }
+  if (opts.reembedOnChange && current != null && stored != null) {
+    deps.enqueueReembed();
+    deps.writeCustomEmbeddingSpace(current);
+    return "reembed";
+  }
+  deps.writeCustomEmbeddingSpace(current);
+  return "recorded";
 }
 
 /**
@@ -211,12 +256,18 @@ export function defaultDeps(config: AssistantConfig): ReconcileDeps {
  *  - `noop` — committed dimension already matches (or auto-mode declines to
  *    thrash); no writes, no destructive calls. Also returned immediately when
  *    `memory.enabled === false`, before any probe/read/persist/enqueue.
+ *    When the custom embeddings endpoint identity changed at the same
+ *    dimension, this becomes `reembed-space` instead: enqueue a reembed
+ *    without recreating collections.
  *  - `commit-fresh` — fresh install adopts the reachable backend's dimension:
  *    commit the dim, ensure the collections EXIST at it (create-if-absent, never
  *    destroy), and enqueue a reembed.
  *  - `migrate` — deliberate provider intent with a confirmed probe: commit the
  *    new dim, then destroy + recreate the collections (the only destructive
  *    path) and enqueue a reembed.
+ *  - `reembed-space`: committed dimension already matches, but the custom
+ *    embeddings endpoint (base URL / model / requested dimensions) changed.
+ *    Enqueue a reembed so query and document vectors stay in one space.
  *  - `defer-degraded` — backend unreachable, OR the committed dimension could
  *    not be read (Qdrant unreachable / existing collection unreadable): no
  *    write, no destructive call; warn and leave the collections untouched.
@@ -284,14 +335,25 @@ export async function reconcileEmbeddingIdentity(
   });
 
   switch (action.kind) {
-    case "noop":
+    case "noop": {
+      const spaceOutcome = syncCustomEmbeddingSpace(config, deps, {
+        reembedOnChange: true,
+      });
+      if (spaceOutcome === "reembed" && committedDim != null) {
+        log.info(
+          "Custom embedding endpoint changed at the committed dimension; enqueued reembed",
+        );
+        return { action: "reembed-space", dim: committedDim };
+      }
       return { action: "noop", dim: committedDim };
+    }
 
     case "commit-fresh": {
       deps.setInMemoryVectorSize(action.dim);
       deps.persistVectorSize(action.dim);
       await deps.ensureCollections(action.dim);
       deps.enqueueReembed();
+      syncCustomEmbeddingSpace(config, deps, { reembedOnChange: false });
       log.info(
         { dim: action.dim },
         "Committed fresh embedding dimension and ensured collections",
@@ -324,6 +386,7 @@ export async function reconcileEmbeddingIdentity(
         throw err;
       }
       deps.enqueueReembed();
+      syncCustomEmbeddingSpace(config, deps, { reembedOnChange: false });
       log.warn(
         { fromDim: action.fromDim, toDim: action.toDim },
         "Migrated embedding dimension: recreated collections and enqueued reembed",

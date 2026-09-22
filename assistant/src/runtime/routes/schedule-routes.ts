@@ -14,6 +14,7 @@ import { getOrCreateConversation } from "../../daemon/conversation-store.js";
 import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../../daemon/trust-context.js";
 import { bootstrapConversation } from "../../persistence/conversation-bootstrap.js";
 import { getConversation } from "../../persistence/conversation-crud.js";
+import { isLifecycleQuiesced } from "../../persistence/lifecycle-quiesce.js";
 import {
   getUsageCostForRun,
   listRunConversationIds,
@@ -62,6 +63,7 @@ import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { parseEpochMillisRange } from "./epoch-millis-range.js";
 import {
   BadRequestError,
+  ConflictError,
   ForbiddenError,
   InternalError,
   NotFoundError,
@@ -211,6 +213,7 @@ const scheduleSchema = z.object({
   mode: z.enum(["notify", "execute", "script", "wake", "workflow"]),
   status: z.enum(["active", "firing", "fired", "cancelled"]),
   routingIntent: z.enum(["single_channel", "multi_channel", "all_channels"]),
+  quiet: z.boolean(),
   reuseConversation: z.boolean(),
   wakeConversationId: z.string().nullable(),
   workflowName: z.string().nullable(),
@@ -379,6 +382,7 @@ function serializeSchedule(
     mode: j.mode,
     status: j.status,
     routingIntent: j.routingIntent,
+    quiet: j.quiet,
     reuseConversation: j.reuseConversation,
     wakeConversationId: j.wakeConversationId,
     workflowName: j.workflowName,
@@ -1302,11 +1306,17 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Run schedule now",
     description:
-      "Trigger an immediate execution of a schedule. A plugin-sourced schedule is rejected with a 400 when its plugin is disabled or no longer declares it.",
+      "Trigger an immediate execution of a schedule. A plugin-sourced schedule is rejected with a 400 when its plugin is disabled or no longer declares it. Returns 409 while a drain quiesce lease is active so run-now cannot start work the shutdown snapshot would miss.",
     tags: ["schedules"],
     responseBody: z.object({
       schedules: z.array(scheduleSchema).describe("Updated schedule list"),
     }),
+    additionalResponses: {
+      "409": {
+        description:
+          "A drain quiesce lease is active, so run-now is not starting new work.",
+      },
+    },
     handler: ({ pathParams, headers }: RouteHandlerArgs) =>
       handleRunScheduleNow(pathParams!.id, headers),
   },
@@ -1319,6 +1329,12 @@ async function handleRunScheduleNow(
   const schedule = getSchedule(id);
   if (!schedule) {
     throw new NotFoundError("Schedule not found");
+  }
+
+  if (isLifecycleQuiesced()) {
+    throw new ConflictError(
+      "The assistant is shutting down and is not starting new schedule runs.",
+    );
   }
 
   // A plugin-sourced row runs the plugin's own script or prompt, so run-now is

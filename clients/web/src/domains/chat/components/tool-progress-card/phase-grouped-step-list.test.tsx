@@ -9,17 +9,23 @@
 
 import { afterEach, describe, expect, test } from "bun:test";
 
-import { cleanup, render } from "@testing-library/react";
+import { act, cleanup, render } from "@testing-library/react";
 
 import {
+  DefaultStepPill,
   PhaseGroupedStepList,
   phaseHeaderStatus,
   sumDurationLabels,
 } from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";
+import { SubagentPhaseTimeline } from "@/domains/chat/components/subagent-phase-timeline";
 import type { ToolCallCardStep } from "@/domains/chat/utils/tool-call-card-utils";
+
+const { useAssistantFeatureFlagStore } =
+  await import("@/stores/assistant-feature-flag-store");
 
 afterEach(() => {
   cleanup();
+  useAssistantFeatureFlagStore.setState({ sessionGroups: false });
 });
 
 function thinking(
@@ -35,7 +41,7 @@ function bash(
   status: "running" | "completed" | "error" | "denied" = "completed",
   duration = "",
   toolCallId = `tc-${command}`,
-): ToolCallCardStep {
+): Extract<ToolCallCardStep, { kind: "tool" }> {
   return {
     kind: "tool",
     title: "Working",
@@ -56,6 +62,22 @@ describe("PhaseGroupedStepList — empty input", () => {
 });
 
 describe("PhaseGroupedStepList — phase grouping", () => {
+  test("localized action wording does not split the stable Working phase", () => {
+    useAssistantFeatureFlagStore.setState({ sessionGroups: true });
+    const steps = [
+      { ...bash("raw click"), actionDisplayKey: "click" as const },
+      { ...bash("raw type"), actionDisplayKey: "type" as const },
+    ];
+    const { getAllByTestId, getByText, queryByText } = render(
+      <PhaseGroupedStepList steps={steps} />,
+    );
+
+    expect(getAllByTestId("phase-section")).toHaveLength(1);
+    expect(getByText("Clicking")).toBeTruthy();
+    expect(getByText("Typing")).toBeTruthy();
+    expect(queryByText("raw click")).toBeNull();
+  });
+
   test("two consecutive Thinking steps collapse into one phase with two pills", () => {
     const steps: ToolCallCardStep[] = [
       thinking("Forming a query"),
@@ -86,6 +108,42 @@ describe("PhaseGroupedStepList — phase grouping", () => {
     expect(sections[0]!.getAttribute("data-phase-label")).toBe("Thinking");
     expect(sections[1]!.getAttribute("data-phase-label")).toBe("Working");
     expect(sections[2]!.getAttribute("data-phase-label")).toBe("Thinking");
+  });
+});
+
+describe("PhaseGroupedStepList - phase footer", () => {
+  test.each([false, true])(
+    "renders one footer after the final step when timeline=%s",
+    (timeline) => {
+      const { getAllByTestId } = render(
+        <PhaseGroupedStepList
+          steps={[
+            bash("first", "completed", "1s", "tc-a"),
+            bash("second", "completed", "1s", "tc-b"),
+          ]}
+          timeline={timeline}
+          renderPhaseFooter={(section) => (
+            <div data-testid="phase-footer">{section.label}</div>
+          )}
+        />,
+      );
+
+      const section = getAllByTestId("phase-section")[0]!;
+      const steps = section.querySelectorAll('[data-testid="phase-step-pill"]');
+      const footer = getAllByTestId("phase-footer")[0]!;
+      expect(getAllByTestId("phase-footer")).toHaveLength(1);
+      expect(
+        steps[steps.length - 1]!.compareDocumentPosition(footer) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    },
+  );
+
+  test("keeps existing callers footer-free by default", () => {
+    const { queryByTestId } = render(
+      <PhaseGroupedStepList steps={[bash("only")]} />,
+    );
+    expect(queryByTestId("phase-footer")).toBeNull();
   });
 });
 
@@ -407,4 +465,54 @@ describe("sumDurationLabels", () => {
     expect(sumDurationLabels([])).toBe("");
     expect(sumDurationLabels(["", ""])).toBe("");
   });
+});
+
+test("default tool pills preserve the exact legacy detail until session groups is enabled", () => {
+  const step: ToolCallCardStep = {
+    ...bash("git status"),
+    activity: "Checking the release",
+    actionDisplayKey: "terminal",
+  };
+  const { getByText, queryByText } = render(<DefaultStepPill step={step} />);
+  expect(getByText("git status")).toBeTruthy();
+  expect(queryByText("Checking the release")).toBeNull();
+  act(() => useAssistantFeatureFlagStore.setState({ sessionGroups: true }));
+  expect(getByText("Checking the release")).toBeTruthy();
+  expect(queryByText("git status")).toBeNull();
+});
+
+test.each([
+  { activity: "Checking the release", expected: "Checking the release" },
+  { actionDisplayKey: "terminal" as const, expected: "Running a command" },
+])(
+  "info-less default pills follow the displayed label ($expected)",
+  (input) => {
+    const step = { ...bash(""), ...input };
+    const { queryByTestId, getByText } = render(
+      <DefaultStepPill step={step} />,
+    );
+    expect(queryByTestId("phase-step-pill")).toBeNull();
+    act(() => useAssistantFeatureFlagStore.setState({ sessionGroups: true }));
+    expect(getByText(input.expected)).toBeTruthy();
+    act(() => useAssistantFeatureFlagStore.setState({ sessionGroups: false }));
+    expect(queryByTestId("phase-step-pill")).toBeNull();
+  },
+);
+
+test("expanded subagent steps reactively gate action wording without changing phases", () => {
+  const step = { ...bash("git status"), actionDisplayKey: "terminal" as const };
+  const { getByText, queryByText, getByTestId } = render(
+    <SubagentPhaseTimeline
+      steps={[step]}
+      expandedKeys={new Set(["0-Working-tc-git status"])}
+      onStepDetailClick={() => {}}
+    />,
+  );
+  const phase = getByTestId("subagent-phase-section");
+  expect(getByText("git status")).toBeTruthy();
+  act(() => useAssistantFeatureFlagStore.setState({ sessionGroups: true }));
+  expect(getByText("Running a command")).toBeTruthy();
+  expect(queryByText("git status")).toBeNull();
+  expect(getByTestId("subagent-phase-section")).toBe(phase);
+  expect(getByText("Working")).toBeTruthy();
 });

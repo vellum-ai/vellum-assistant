@@ -1,11 +1,11 @@
 /**
  * The MCP configuration the daemon actually runs.
  *
- * Two sources contribute servers: the workspace `config.json`, which the
+ * Two sources contribute servers: the workspace `mcp.json`, which the
  * user owns, and each installed plugin's `mcp.json`, which its author
  * owns. Both must reach the MCP manager, so every consumer that starts
- * servers builds its config through here rather than reading
- * `config.mcp` directly — a path that only reads the workspace half
+ * servers builds its config through here rather than reading the
+ * workspace file directly — a path that only reads the workspace half
  * leaves a plugin's tools silently missing.
  *
  * Every server comes out attributed with its {@link McpServerSource}, so
@@ -42,8 +42,25 @@ let lastBuiltPluginFingerprint: string | null = null;
 export function buildEffectiveMcpConfig(
   workspaceConfig?: McpConfig,
 ): ResolvedMcpConfig {
-  // An absent `mcp` key still has to yield the schema's own defaults
-  // (`globalMaxTools`), since plugin servers alone are enough to need them.
+  const result = resolveEffectiveMcpConfig(workspaceConfig, true);
+  lastBuiltPluginFingerprint = fingerprintServers(result.pluginServers);
+  return result.config;
+}
+
+/** Resolve the effective config without recording it as applied by runtime. */
+export function readEffectiveMcpConfig(
+  workspaceConfig?: McpConfig,
+): ResolvedMcpConfig {
+  return resolveEffectiveMcpConfig(workspaceConfig, false).config;
+}
+
+function resolveEffectiveMcpConfig(
+  workspaceConfig: McpConfig | undefined,
+  reportIssues: boolean,
+): {
+  config: ResolvedMcpConfig;
+  pluginServers: ReturnType<typeof readPluginMcpServers>["servers"];
+} {
   const base = workspaceConfig ?? McpConfigSchema.parse({});
   const servers: Record<string, ResolvedMcpServerConfig> = {};
   for (const [id, config] of Object.entries(base.servers)) {
@@ -51,30 +68,32 @@ export function buildEffectiveMcpConfig(
   }
 
   const { servers: pluginServers, issues } = readPluginMcpServers();
-  for (const issue of issues) {
-    log.warn(
-      {
-        plugin: issue.pluginName,
-        ...(issue.serverKey && { serverKey: issue.serverKey }),
-      },
-      `Plugin MCP declaration problem: ${issue.message}`,
-    );
+  if (reportIssues) {
+    for (const issue of issues) {
+      log.warn(
+        {
+          plugin: issue.pluginName,
+          ...(issue.serverKey && { serverKey: issue.serverKey }),
+        },
+        `Plugin MCP declaration problem: ${issue.message}`,
+      );
+    }
   }
 
   for (const server of pluginServers) {
     if (Object.hasOwn(servers, server.id)) {
-      log.warn(
-        { plugin: server.pluginName, serverId: server.id },
-        "Plugin MCP server shadowed by a workspace server of the same id; skipping",
-      );
+      if (reportIssues) {
+        log.warn(
+          { plugin: server.pluginName, serverId: server.id },
+          "Plugin MCP server shadowed by a workspace server of the same id; skipping",
+        );
+      }
       continue;
     }
     servers[server.id] = server.config;
   }
 
-  lastBuiltPluginFingerprint = fingerprintPluginServers();
-
-  return { ...base, servers };
+  return { config: { ...base, servers }, pluginServers };
 }
 
 /**
@@ -100,6 +119,12 @@ export function pluginMcpServersChangedSinceLastBuild(): boolean {
  */
 function fingerprintPluginServers(): string {
   const { servers } = readPluginMcpServers();
+  return fingerprintServers(servers);
+}
+
+function fingerprintServers(
+  servers: ReturnType<typeof readPluginMcpServers>["servers"],
+): string {
   return JSON.stringify(
     [...servers]
       .sort((a, b) => a.id.localeCompare(b.id))

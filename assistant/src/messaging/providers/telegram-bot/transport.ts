@@ -2,6 +2,7 @@ import type { StreamPlan, StreamPlanStep } from "@vellumai/gateway-client";
 import { ChannelDeliveryError } from "@vellumai/gateway-client/http-delivery";
 
 import { getLogger } from "../../../util/logger.js";
+import { directDeliveryContext } from "../callback-routing.js";
 import type {
   CallbackContext,
   ChannelTransport,
@@ -54,17 +55,27 @@ function draftText(text: string, plan: StreamPlan | undefined): string {
   return [body, planText].filter(Boolean).join("\n\n");
 }
 
-/**
- * Telegram's draft id is minted by the caller, unlike a stream id a platform
- * hands back, and only has to be non-zero and stable for the life of one
- * draft. The clock supplies that without any state to keep between calls.
- */
-function mintDraftId(): number {
-  return Date.now();
-}
-
 export const telegramTransport: ChannelTransport = {
   channel: "telegram",
+
+  /**
+   * A chat is a chat id, with `threadId` naming a forum topic. A person's DM
+   * chat id is their user id on Telegram, so reaching one is naming that
+   * chat and needs no resolution of its own.
+   */
+  addressFor(target) {
+    const threadId = target.threadId?.trim();
+    return {
+      ctx: directDeliveryContext("telegram", threadId ? { threadId } : {}),
+      chatId: target.chatId,
+      ...(threadId ? { threadId } : {}),
+    };
+  },
+
+  // A Telegram chat's inbound conversation is keyed per chat and can be
+  // reset or deleted between sends; a proactive post re-binds it so the
+  // next inbound from the chat lands where the post lives.
+  bindsChatOnProactiveSend: true,
 
   // Telegram clears a chat action after about five seconds.
   activityRefreshMs: 4_000,
@@ -86,22 +97,23 @@ export const telegramTransport: ChannelTransport = {
     const { chatId, text, attachments, approval } = payload;
     const opts = threadOptions(ctx);
 
+    let messageIds: string[] = [];
     if (text) {
       // Telegram answers a rich render by forwarding markdown to
       // `sendRichMessage`, degrading to plain text otherwise and on any
       // rich-send rejection.
-      if (payload.renderRichly) {
-        await sendTelegramRichReply(chatId, text, approval, opts);
-      } else {
-        await sendTelegramReply(chatId, text, approval, opts);
-      }
+      const sent = payload.renderRichly
+        ? await sendTelegramRichReply(chatId, text, approval, opts)
+        : await sendTelegramReply(chatId, text, approval, opts);
+      messageIds = sent.messageIds;
     } else if (approval) {
-      await sendTelegramReply(
+      const sent = await sendTelegramReply(
         chatId,
         approval.plainTextFallback || "Approval required",
         approval,
         opts,
       );
+      messageIds = sent.messageIds;
     }
 
     if (attachments && attachments.length > 0) {
@@ -118,7 +130,8 @@ export const telegramTransport: ChannelTransport = {
       { chatId, hasText: !!text, messageThreadId: opts?.messageThreadId },
       "Telegram reply delivered (direct)",
     );
-    return { ok: true };
+    // Every chunk the text became is acknowledged; attachment posts are not.
+    return { ok: true, messageIds };
   },
 
   async edit(_ctx, target) {
@@ -144,7 +157,9 @@ export const telegramTransport: ChannelTransport = {
     if (op.action === "stop") {
       return { ok: true, ts: op.streamId };
     }
-    const draftId = op.action === "start" ? mintDraftId() : Number(op.streamId);
+    // Telegram mints draft ids on the caller. A non-zero clock tick is enough
+    // for the life of one draft.
+    const draftId = op.action === "start" ? Date.now() : Number(op.streamId);
     if (!Number.isFinite(draftId) || draftId === 0) {
       return { ok: false };
     }

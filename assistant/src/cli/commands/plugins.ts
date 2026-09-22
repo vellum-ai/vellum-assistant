@@ -53,9 +53,10 @@ import {
   PluginAlreadyInStateException,
   PluginDirectoryNotFoundError,
 } from "../lib/toggle-plugin.js";
+import type { PluginUninstallWarningKey } from "../lib/uninstall-plugin.js";
 import type { PluginUpgradeResult } from "../lib/upgrade-plugin.js";
 import { getCliLogger } from "../logger.js";
-import { pluginsHelp } from "./plugins.help.js";
+import { PLUGINS_SEARCH_INSTALL_HINT, pluginsHelp } from "./plugins.help.js";
 
 const loadModule = createRequire(import.meta.url);
 
@@ -234,11 +235,36 @@ export function registerPluginsCommand(program: Command): void {
               // pinned commit. With platform features disabled (air-gapped /
               // self-hosted) there is no platform to call, so resolve the pin
               // from the bundled catalog and install through the GitHub path.
-              if (libs.catalogLocal.arePlatformFeaturesEnabled()) {
-                result = await libs.installPlatform.installPluginViaPlatform(
-                  { name: nameOrUrl, force: opts.force },
-                  { fetch: globalThis.fetch.bind(globalThis), confirmStaged },
-                );
+              const platformEnabled =
+                libs.catalogLocal.arePlatformFeaturesEnabled();
+              if (platformEnabled) {
+                let match;
+                try {
+                  match = (
+                    await libs.catalogCache.getPluginCatalog(
+                      DEFAULT_PLUGIN_REF,
+                      { fetch: globalThis.fetch.bind(globalThis) },
+                    )
+                  ).matches.find((candidate) => candidate.name === nameOrUrl);
+                } catch {
+                  // The install endpoint remains authoritative and can succeed
+                  // independently when catalog discovery is unavailable.
+                }
+                if (match?.source.kind === "local") {
+                  result = await libs.installGitHub.installPlugin(
+                    {
+                      name: nameOrUrl,
+                      force: opts.force,
+                      trustedSource: match.source,
+                    },
+                    { fetch: globalThis.fetch.bind(globalThis), confirmStaged },
+                  );
+                } else {
+                  result = await libs.installPlatform.installPluginViaPlatform(
+                    { name: nameOrUrl, force: opts.force },
+                    { fetch: globalThis.fetch.bind(globalThis), confirmStaged },
+                  );
+                }
               } else {
                 const source =
                   libs.catalogLocal.resolveBundledPluginSource(nameOrUrl);
@@ -249,19 +275,30 @@ export function registerPluginsCommand(program: Command): void {
                   process.exitCode = 1;
                   return;
                 }
-                result = await libs.installGitHub.installPlugin(
-                  {
-                    name: nameOrUrl,
-                    force: opts.force,
-                    trustedSource: {
-                      owner: source.owner,
-                      repo: source.repo,
-                      rootPath: source.path,
-                      ref: source.ref,
+                if (source.kind === "local") {
+                  result = await libs.installGitHub.installPlugin(
+                    {
+                      name: nameOrUrl,
+                      force: opts.force,
+                      trustedSource: source,
                     },
-                  },
-                  { fetch: globalThis.fetch.bind(globalThis), confirmStaged },
-                );
+                    { fetch: globalThis.fetch.bind(globalThis), confirmStaged },
+                  );
+                } else {
+                  result = await libs.installGitHub.installPlugin(
+                    {
+                      name: nameOrUrl,
+                      force: opts.force,
+                      trustedSource: {
+                        owner: source.owner,
+                        repo: source.repo,
+                        rootPath: source.path,
+                        ref: source.ref,
+                      },
+                    },
+                    { fetch: globalThis.fetch.bind(globalThis), confirmStaged },
+                  );
+                }
               }
             } else {
               const installOpts = direct
@@ -606,6 +643,7 @@ export function registerPluginsCommand(program: Command): void {
             console.log(
               `${result.matches.length} match${result.matches.length === 1 ? "" : "es"} for "${result.query}".`,
             );
+            console.log(PLUGINS_SEARCH_INSTALL_HINT);
           } catch (err) {
             if (err instanceof libs.search.InvalidSearchPatternError) {
               console.error(err.message);
@@ -665,11 +703,16 @@ export function registerPluginsCommand(program: Command): void {
             // when the daemon is unreachable (a transport error carries no
             // `statusCode`); an operator can still uninstall while it's stopped,
             // and `shutdown` then runs in this process, the only one available.
-            const daemon = await cliIpcCall<{ name: string; target: string }>(
-              "plugins_uninstall",
-              { pathParams: { name } },
-            );
-            let result: { name: string; target: string };
+            const daemon = await cliIpcCall<{
+              name: string;
+              target: string;
+              warnings?: PluginUninstallWarningKey[];
+            }>("plugins_uninstall", { pathParams: { name } });
+            let result: {
+              name: string;
+              target: string;
+              warnings?: PluginUninstallWarningKey[];
+            };
             if (daemon.ok && daemon.result) {
               result = daemon.result;
             } else if (daemon.statusCode === undefined) {
@@ -692,6 +735,11 @@ export function registerPluginsCommand(program: Command): void {
             console.log(
               `Uninstalled plugin "${result.name}" from ${result.target}`,
             );
+            for (const warning of result.warnings ?? []) {
+              console.warn(
+                `Warning: ${libs.uninstall.resolvePluginUninstallWarning(warning)}`,
+              );
+            }
           } catch (err) {
             if (err instanceof libs.installGitHub.InvalidPluginNameError) {
               console.error(err.message);
@@ -1378,8 +1426,11 @@ function driftLine(changes: FingerprintComparison | null): string {
   return parts.join(", ");
 }
 
-/** Build the GitHub web URL for a remote pin's location (repo, or repo subtree). */
+/** Build the display location for a bundled package or GitHub pin. */
 function remoteLocation(remote: PluginRemoteInfo): string {
+  if (remote.kind === "local") {
+    return `bundled:${remote.path}`;
+  }
   const base = `https://github.com/${remote.repo}`;
   return remote.path ? `${base}/tree/${remote.commit}/${remote.path}` : base;
 }

@@ -274,6 +274,29 @@ describe("HostFileProxy — targetClientId (Phase 2)", () => {
     });
   });
 
+  test("selects the most recently active same-user client when several are connected", async () => {
+    setup();
+    setupMultipleClients(["client-1", "client-2"]);
+
+    const resultPromise = proxy.request(
+      { operation: "read", path: "/tmp/file.txt" },
+      "session-1",
+      undefined,
+      undefined,
+      TEST_PRINCIPAL,
+    );
+
+    const sent = sentMessages[0] as Record<string, unknown>;
+    expect(sent.targetClientId).toBe("client-1");
+    const options = sentMessageOptions[0] as
+      | Record<string, unknown>
+      | undefined;
+    expect(options?.targetClientId).toBe("client-1");
+
+    proxy.resolve(sent.requestId as string, { content: "ok", isError: false });
+    expect((await resultPromise).isError).toBe(false);
+  });
+
   // ── targetClientId in cancel (abort signal) ──────────────────────────
 
   describe("targetClientId in cancel — abort signal", () => {

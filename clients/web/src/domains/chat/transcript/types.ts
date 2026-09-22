@@ -10,10 +10,12 @@ import type {
 import type { RuntimeSubagentNotification } from "@/domains/chat/api/messages";
 import type { BackgroundTaskEntry } from "@/domains/chat/background-task-store";
 import type { MessagesGetResponse } from "@/generated/daemon/types.gen";
+import type { ModeSessionDescriptor } from "@vellumai/assistant-api";
 
 export type TranscriptItemKind =
   | "message"
   | "thinking"
+  | "pendingDesktopHelp"
   | "pendingSecret"
   | "pendingConfirmation"
   | "pendingContactRequest"
@@ -31,6 +33,8 @@ export interface TranscriptItemBase {
 export interface MessageItem extends TranscriptItemBase {
   kind: "message";
   message: DisplayMessage;
+  /** Frames saved before the utterance, or a standalone run hosted by its first frame. */
+  cameraFrames?: DisplayMessage[];
 }
 
 export interface ThinkingItem extends TranscriptItemBase {
@@ -46,6 +50,11 @@ export interface ThinkingItem extends TranscriptItemBase {
    * prompt — is signaling progress (see `shouldShowThinkingIndicator`).
    */
   active: boolean;
+}
+
+export interface PendingDesktopHelpItem extends TranscriptItemBase {
+  kind: "pendingDesktopHelp";
+  requestId: string;
 }
 
 export interface PendingSecretItem extends TranscriptItemBase {
@@ -112,6 +121,7 @@ export interface EphemeralMetaItem extends TranscriptItemBase {
 export type TranscriptItem =
   | MessageItem
   | ThinkingItem
+  | PendingDesktopHelpItem
   | PendingSecretItem
   | PendingConfirmationItem
   | PendingContactRequestItem
@@ -162,6 +172,8 @@ export interface PaginatedHistoryResult
    *  completion); it is optional so other constructors (snapshot spreads, tests)
    *  need not restate it. */
   backgroundToolCompletions?: BackgroundTaskEntry[];
+  /** Batched lifecycle descriptors for session ids represented by this page. */
+  modeSessions?: ModeSessionDescriptor[];
   /** Client-stamped seq generation captured when this page's `/messages`
    *  request was ISSUED (see `reconnect-cursor.ts`). Lets the snapshot-anchor
    *  frontier be tagged with the generation its watermark belongs to, so a

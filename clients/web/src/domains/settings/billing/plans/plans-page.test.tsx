@@ -83,13 +83,8 @@ let cancelSubscriptionResolves = true;
 // When non-null the cancel call rejects with this, driving the error path
 // (the hook toasts and resolves null, so the confirm dialog stays open).
 let cancelSubscriptionError: unknown = null;
-let machineTierCall: Captured | null = null;
-let storageTierCall: Captured | null = null;
-let creditTierCall: Captured | null = null;
 let openedUrl: string | null = null;
 let nativeAndroid = false;
-// When non-null, the change-machine-tier call rejects — drives the failure path.
-let machineTierError: unknown = null;
 // Success/info-toast messages captured from the mocked toast module, so a path
 // can assert exactly which confirmations fired without rendering the Toaster.
 const toastSuccessCalls: string[] = [];
@@ -162,21 +157,6 @@ mock.module("@/generated/api/sdk.gen", () => ({
       data: { status: "ok", cancel_at: "2026-09-24T00:00:00Z" },
       response: { ok: true },
     });
-  },
-  organizationsBillingSubscriptionChangeMachineTierCreate: (opts: Captured) => {
-    machineTierCall = opts;
-    if (machineTierError !== null) {
-      return Promise.reject(machineTierError);
-    }
-    return Promise.resolve({ data: {}, response: { ok: true } });
-  },
-  organizationsBillingSubscriptionChangeStorageTierCreate: (opts: Captured) => {
-    storageTierCall = opts;
-    return Promise.resolve({ data: {}, response: { ok: true } });
-  },
-  organizationsBillingSubscriptionChangeCreditTierCreate: (opts: Captured) => {
-    creditTierCall = opts;
-    return Promise.resolve({ data: {}, response: { ok: true } });
   },
   organizationsBillingSubscriptionRetrieve: () =>
     Promise.resolve({ data: subscriptionFixture, response: { ok: true } }),
@@ -631,12 +611,8 @@ beforeEach(() => {
   cancelSubscriptionCall = null;
   cancelSubscriptionResolves = true;
   cancelSubscriptionError = null;
-  machineTierCall = null;
-  storageTierCall = null;
-  creditTierCall = null;
   openedUrl = null;
   nativeAndroid = false;
-  machineTierError = null;
   changePackageAutoResolve = true;
   changePackageData = {
     status: "ok",
@@ -954,8 +930,14 @@ describe("PlansPage — Pro package switch (change-package)", () => {
   });
 
   test("Pro → Free downgrade confirms first, then cancels via the cancel endpoint", async () => {
-    const { findByRole, findByText, findByTestId, getByTestId, queryByText } =
-      renderInteractive(proSuperSubscription());
+    const {
+      findByRole,
+      findByText,
+      findByTestId,
+      getByRole,
+      getByTestId,
+      queryByText,
+    } = renderInteractive(proSuperSubscription());
 
     // Below Super, Base reads "Downgrade to Base". Clicking it opens the confirm
     // dialog, not an immediate cancellation.
@@ -963,32 +945,96 @@ describe("PlansPage — Pro package switch (change-package)", () => {
     await findByText("Downgrade to Base?");
     expect(cancelSubscriptionCall).toBeNull();
 
+    // The confirm asks why first: until a reason is picked the button is
+    // disabled, so a click can't post a survey-less cancellation.
+    const confirm = (await findByTestId(
+      "confirm-free-downgrade-button",
+    )) as HTMLButtonElement;
+    expect(confirm.disabled).toBe(true);
+    fireEvent.click(getByRole("radio", { name: "I don't use it enough" }));
+    await waitFor(() => expect(confirm.disabled).toBe(false));
+
     // Confirming posts the subscription-cancel endpoint (the same action as the
-    // adjust-plan modal's Downgrade to Base) and closes the confirm.
-    // Cancellation can't go through the package-only change-package endpoint.
-    fireEvent.click(await findByTestId("confirm-free-downgrade-button"));
+    // adjust-plan modal's Downgrade to Base) with the survey as its body, and
+    // closes the confirm. Cancellation can't go through the package-only
+    // change-package endpoint.
+    fireEvent.click(confirm);
     await waitFor(() => expect(cancelSubscriptionCall).not.toBeNull());
+    expect(cancelSubscriptionCall!.body).toEqual({
+      feedback: "unused",
+      comment: null,
+    });
     await waitFor(() => expect(queryByText("Downgrade to Base?")).toBeNull());
     // The confirmation toast names the scheduled end date.
     expect(
       toastInfoCalls.some((m) => m.startsWith("Pro plan canceled")),
     ).toBe(true);
-    // Stays on the plans page with no Stripe redirect, and never touches the
+    // Lands on the billing settings tab (where the pending cancellation is
+    // shown) with no Stripe redirect, and never touches the
     // portal/package/checkout endpoints.
-    expect(getByTestId("loc").textContent).toBe("/assistant/plans");
+    await waitFor(() =>
+      expect(getByTestId("loc").textContent).toBe(routes.settings.usageBilling),
+    );
     expect(openedUrl).toBeNull();
     expect(portalSessionCall).toBeNull();
     expect(changePackageCall).toBeNull();
     expect(upgradeCall).toBeNull();
   });
 
+  test("picking Other reveals a comment box whose trimmed text rides along", async () => {
+    const { findByRole, findByTestId, getByRole, queryByTestId } =
+      renderInteractive(proSuperSubscription());
+
+    fireEvent.click(await findByRole("button", { name: "Downgrade to Base" }));
+    await findByTestId("confirm-free-downgrade-button");
+    // The free-text box only exists for "Other".
+    expect(queryByTestId("cancel-reason-comment")).toBeNull();
+    fireEvent.click(getByRole("radio", { name: "Other" }));
+    const comment = (await findByTestId(
+      "cancel-reason-comment",
+    )) as HTMLTextAreaElement;
+    fireEvent.change(comment, {
+      target: { value: "  Moving the team to a shared workspace.  " },
+    });
+
+    fireEvent.click(await findByTestId("confirm-free-downgrade-button"));
+    await waitFor(() => expect(cancelSubscriptionCall).not.toBeNull());
+    expect(cancelSubscriptionCall!.body).toEqual({
+      feedback: "other",
+      comment: "Moving the team to a shared workspace.",
+    });
+  });
+
+  test("a comment typed under Other is dropped when another reason is picked", async () => {
+    const { findByRole, findByTestId, getByRole } = renderInteractive(
+      proSuperSubscription(),
+    );
+
+    fireEvent.click(await findByRole("button", { name: "Downgrade to Base" }));
+    await findByTestId("confirm-free-downgrade-button");
+    fireEvent.click(getByRole("radio", { name: "Other" }));
+    fireEvent.change(await findByTestId("cancel-reason-comment"), {
+      target: { value: "half-typed" },
+    });
+    // Switching away hides the box; the text it held was never chosen.
+    fireEvent.click(getByRole("radio", { name: "It's too expensive" }));
+
+    fireEvent.click(await findByTestId("confirm-free-downgrade-button"));
+    await waitFor(() => expect(cancelSubscriptionCall).not.toBeNull());
+    expect(cancelSubscriptionCall!.body).toEqual({
+      feedback: "too_expensive",
+      comment: null,
+    });
+  });
+
   test("a non-entitlement Pro status falls back to the Stripe billing portal", async () => {
     // The cancel endpoint 403s a sub `is_pro_active` rejects, so an unpaid
     // Pro sub keeps the old portal handoff, where Stripe can still cancel it.
-    const { findByRole, findByText, findByTestId } = renderInteractive({
-      ...proSuperSubscription(),
-      status: "unpaid",
-    });
+    const { findByRole, findByText, findByTestId, queryByTestId } =
+      renderInteractive({
+        ...proSuperSubscription(),
+        status: "unpaid",
+      });
 
     fireEvent.click(await findByRole("button", { name: "Downgrade to Base" }));
     // The confirm's body copy states the handoff instead of promising an
@@ -996,6 +1042,9 @@ describe("PlansPage — Pro package switch (change-package)", () => {
     await findByText("You'll be taken to Stripe to cancel your subscription.", {
       exact: false,
     });
+    // Stripe's cancel page runs its own survey, so this confirm asks nothing
+    // and needs no reason before it can be confirmed.
+    expect(queryByTestId("cancel-reason-survey")).toBeNull();
     fireEvent.click(await findByTestId("confirm-free-downgrade-button"));
 
     await waitFor(() => expect(openedUrl).toBe(PORTAL_URL));
@@ -1019,11 +1068,12 @@ describe("PlansPage — Pro package switch (change-package)", () => {
 
   test("a failed cancellation keeps the confirm open for a retry", async () => {
     cancelSubscriptionError = { detail: "Cancellation failed." };
-    const { findByRole, findByText, findByTestId } = renderInteractive(
-      proSuperSubscription(),
-    );
+    const { findByRole, findByText, findByTestId, getByRole } =
+      renderInteractive(proSuperSubscription());
 
     fireEvent.click(await findByRole("button", { name: "Downgrade to Base" }));
+    await findByTestId("confirm-free-downgrade-button");
+    fireEvent.click(getByRole("radio", { name: "It's too complicated" }));
     fireEvent.click(await findByTestId("confirm-free-downgrade-button"));
     await waitFor(() => expect(cancelSubscriptionCall).not.toBeNull());
 
@@ -1053,7 +1103,7 @@ describe("PlansPage — Pro package switch (change-package)", () => {
     // Hold the cancel request in flight so the cancel mutation's pending state
     // stays true after the Free downgrade is confirmed.
     cancelSubscriptionResolves = false;
-    const { findByRole, findByTestId } = renderInteractive(
+    const { findByRole, findByTestId, getByRole } = renderInteractive(
       proMightySubscription(),
     );
 
@@ -1061,6 +1111,7 @@ describe("PlansPage — Pro package switch (change-package)", () => {
     const confirm = (await findByTestId(
       "confirm-free-downgrade-button",
     )) as HTMLButtonElement;
+    fireEvent.click(getByRole("radio", { name: "I don't use it enough" }));
     fireEvent.click(confirm);
 
     // The cancel request is in flight and never settles: the confirm dialog
@@ -1508,7 +1559,7 @@ function continueButton(): HTMLButtonElement {
   return button;
 }
 
-describe("PlansPage — Pro custom plan (change-tier)", () => {
+describe("PlansPage: Pro custom plan (change-package with explicit tiers)", () => {
   test("an eligible Pro sub's Configure opens the white modal, not adjust_plan", async () => {
     const { findByRole, getByTestId, getByText } = renderInteractive(
       proMightySubscription(),
@@ -1522,7 +1573,7 @@ describe("PlansPage — Pro custom plan (change-tier)", () => {
     expect(upgradeCall).toBeNull();
   });
 
-  test("Continue dispatches change-tier for the changed dims and opens the resize takeover", async () => {
+  test("Continue posts the whole selection to change-package and opens the resize takeover", async () => {
     // Current config is medium machine / 10 GB (xs) storage / no credits.
     const { findByRole, findByTestId } = renderInteractive(
       proMightySubscription(),
@@ -1536,11 +1587,14 @@ describe("PlansPage — Pro custom plan (change-tier)", () => {
     selectOption("Usage bundle", "50 credits");
     fireEvent.click(continueButton());
 
-    await waitFor(() => expect(machineTierCall).not.toBeNull());
-    expect(machineTierCall!.body).toEqual({ machine_tier: "large" });
-    expect(creditTierCall!.body).toEqual({ credit_tier: "credits_50" });
-    // Storage is unchanged, so no storage-tier request fires.
-    expect(storageTierCall).toBeNull();
+    await waitFor(() => expect(changePackageCall).not.toBeNull());
+    // Every dimension travels as explicit tiers, the unchanged storage included:
+    // the server diffs the target and applies it as one change.
+    expect(changePackageCall!.body).toEqual({
+      machine_tier: "large",
+      storage_tier: "xs",
+      credit_tier: "credits_50",
+    });
 
     // A machine change resizes the assistant, so the takeover opens; checkout
     // (which no-ops for active Pro) is never touched.
@@ -1577,11 +1631,12 @@ describe("PlansPage — Pro custom plan (change-tier)", () => {
     selectOption("Usage bundle", "50 credits");
     fireEvent.click(continueButton());
 
-    await waitFor(() => expect(creditTierCall).not.toBeNull());
-    expect(creditTierCall!.body).toEqual({ credit_tier: "credits_50" });
-    // Machine and storage are unchanged, so no resource-tier request fires.
-    expect(machineTierCall).toBeNull();
-    expect(storageTierCall).toBeNull();
+    await waitFor(() => expect(changePackageCall).not.toBeNull());
+    expect(changePackageCall!.body).toEqual({
+      machine_tier: "medium",
+      storage_tier: "xs",
+      credit_tier: "credits_50",
+    });
 
     // A credit-only change owes no provisioning but still opens the takeover for
     // a readable confirmation moment.
@@ -1612,10 +1667,12 @@ describe("PlansPage — Pro custom plan (change-tier)", () => {
     selectOption("Storage", "30 GB");
     fireEvent.click(continueButton());
 
-    await waitFor(() => expect(storageTierCall).not.toBeNull());
-    expect(storageTierCall!.body).toEqual({ storage_tier: "s" });
-    expect(machineTierCall).toBeNull();
-    expect(creditTierCall).toBeNull();
+    await waitFor(() => expect(changePackageCall).not.toBeNull());
+    expect(changePackageCall!.body).toEqual({
+      machine_tier: "medium",
+      storage_tier: "s",
+      credit_tier: null,
+    });
 
     await findByTestId("resize-takeover");
     expect(takeoverResizeContext?.canLowerResources).toBe(false);
@@ -1640,8 +1697,12 @@ describe("PlansPage — Pro custom plan (change-tier)", () => {
     selectOption("Usage bundle", "50 credits");
     fireEvent.click(continueButton());
 
-    await waitFor(() => expect(machineTierCall).not.toBeNull());
-    expect(machineTierCall!.body).toEqual({ machine_tier: "medium" });
+    await waitFor(() => expect(changePackageCall).not.toBeNull());
+    expect(changePackageCall!.body).toEqual({
+      machine_tier: "medium",
+      storage_tier: "xs",
+      credit_tier: "credits_50",
+    });
 
     await findByTestId("resize-takeover");
     // The copy stays neutral; only the ceiling question flips.
@@ -1660,9 +1721,8 @@ describe("PlansPage — Pro custom plan (change-tier)", () => {
     selectOption("Machine size", "Large machine (4 vCPU, 8 GiB)");
     fireEvent.click(continueButton());
 
-    await waitFor(() => expect(machineTierCall).not.toBeNull());
+    await waitFor(() => expect(changePackageCall).not.toBeNull());
     await findByTestId("resize-takeover");
-    expect(creditTierCall).toBeNull();
     expect(takeoverResizeContext?.credits).toBeNull();
   });
 
@@ -1681,7 +1741,7 @@ describe("PlansPage — Pro custom plan (change-tier)", () => {
 
     getByText("Create a custom plan");
     expect(getByTestId("loc").textContent).toBe("/assistant/plans");
-    expect(machineTierCall).toBeNull();
+    expect(changePackageCall).toBeNull();
     expect(upgradeCall).toBeNull();
   });
 
@@ -1709,7 +1769,7 @@ describe("PlansPage — Pro custom plan (change-tier)", () => {
 
     getByText("Create a custom plan");
     expect(getByTestId("loc").textContent).toBe("/assistant/plans");
-    expect(machineTierCall).toBeNull();
+    expect(changePackageCall).toBeNull();
     expect(upgradeCall).toBeNull();
   });
 });

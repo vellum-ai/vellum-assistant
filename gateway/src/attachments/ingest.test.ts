@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import pino from "pino";
 import type { GatewayConfig } from "../config.js";
-import { appendFailedAttachmentNotice, ingestAttachments } from "./ingest.js";
+import {
+  appendFailedAttachmentNotice,
+  AttachmentTooLargeError,
+  ingestAttachments,
+} from "./ingest.js";
 
 const log = pino({ level: "silent" });
 
@@ -65,6 +69,74 @@ describe("ingestAttachments", () => {
 
     expect(downloadedIds).toEqual(["small"]);
     expect(result.attachmentIds).toEqual(["file.txt"]);
+    // The oversized file is accounted for, never dropped in silence.
+    expect(result.oversizedAttachments).toEqual([
+      { name: "large.txt", fileSize: 21, limit: 20 },
+    ]);
+    expect(result.failedAttachmentNames).toEqual([]);
+  });
+
+  test("a size the download layer rejects is oversized, not a retrieval failure, under either policy", async () => {
+    // The provider omitted or understated the size, so the pre-download
+    // filter let the file through and the byte reader threw. Too large is
+    // never transient, so the rethrow policy does not see it either.
+    const download = async () => {
+      throw new AttachmentTooLargeError("too big", {
+        limit: 20,
+        fileSize: 25,
+      });
+    };
+    const upload = async () => ({ id: "unused" });
+
+    const rethrowing = await ingestAttachments(
+      config(),
+      "telegram",
+      [attachment("unsized")],
+      log,
+      {
+        download,
+        upload,
+        failurePolicy: {
+          mode: "rethrow-unless-skippable",
+          isSkippableError: () => false,
+        },
+      },
+    );
+    expect(rethrowing.oversizedAttachments).toEqual([
+      { name: "unsized.txt", fileSize: 25, limit: 20 },
+    ]);
+    expect(rethrowing.failedAttachmentNames).toEqual([]);
+
+    const skipping = await ingestAttachments(
+      config(),
+      "slack",
+      [attachment("unsized")],
+      log,
+      { download, upload, failurePolicy: { mode: "skip" } },
+    );
+    expect(skipping.oversizedAttachments).toEqual([
+      { name: "unsized.txt", fileSize: 25, limit: 20 },
+    ]);
+    expect(skipping.failedAttachmentNames).toEqual([]);
+  });
+
+  test("a stream that overflowed without a stated size is oversized with the size unknown", async () => {
+    const result = await ingestAttachments(
+      config(),
+      "discord",
+      [attachment("stream")],
+      log,
+      {
+        download: async () => {
+          throw new AttachmentTooLargeError("too big", { limit: 100 });
+        },
+        upload: async () => ({ id: "unused" }),
+        failurePolicy: { mode: "skip" },
+      },
+    );
+    expect(result.oversizedAttachments).toEqual([
+      { name: "stream.txt", limit: 100 },
+    ]);
   });
 
   test("bounds concurrent downloads", async () => {
@@ -116,6 +188,7 @@ describe("ingestAttachments", () => {
     expect(skipped).toEqual({
       attachmentIds: ["good-id"],
       failedAttachmentNames: ["bad.txt"],
+      oversizedAttachments: [],
     });
 
     await expect(
@@ -134,15 +207,106 @@ describe("ingestAttachments", () => {
 });
 
 describe("appendFailedAttachmentNotice", () => {
+  const nothing = { failedAttachmentNames: [], oversizedAttachments: [] };
+
+  test("leaves content alone when every attachment arrived", () => {
+    expect(appendFailedAttachmentNotice("hello", nothing)).toBe("hello");
+    expect(appendFailedAttachmentNotice("", nothing)).toBe("");
+  });
+
   test("uses the notice as content for Slack's empty message path", () => {
-    expect(appendFailedAttachmentNotice("", ["file.txt"])).toBe(
+    expect(
+      appendFailedAttachmentNotice("", {
+        ...nothing,
+        failedAttachmentNames: ["file.txt"],
+      }),
+    ).toBe(
       '[The user attached file(s) that could not be retrieved: "file.txt". Ask them to re-send if the content is important.]',
     );
   });
 
   test("separates the notice from non-empty content", () => {
-    expect(appendFailedAttachmentNotice("hello", ["file.txt"])).toBe(
+    expect(
+      appendFailedAttachmentNotice("hello", {
+        ...nothing,
+        failedAttachmentNames: ["file.txt"],
+      }),
+    ).toBe(
       'hello\n\n[The user attached file(s) that could not be retrieved: "file.txt". Ask them to re-send if the content is important.]',
+    );
+  });
+
+  test("an oversized file is named with its size and the cap, and not asked to be re-sent", () => {
+    expect(
+      appendFailedAttachmentNotice("hello", {
+        ...nothing,
+        oversizedAttachments: [
+          {
+            name: "tour.mov",
+            fileSize: 60 * 1024 * 1024,
+            limit: 20 * 1024 * 1024,
+          },
+        ],
+      }),
+    ).toBe(
+      'hello\n\n[The user attached file(s) too large to receive: "tour.mov" (60 MB, over the 20 MB limit). Re-sending the same file will not help; if the content is important, ask for a smaller version or a link.]',
+    );
+  });
+
+  test("sizes keep one decimal only when it says something", () => {
+    expect(
+      appendFailedAttachmentNotice("", {
+        ...nothing,
+        oversizedAttachments: [
+          {
+            name: "a.bin",
+            fileSize: 20.5 * 1024 * 1024,
+            limit: 20 * 1024 * 1024,
+          },
+        ],
+      }),
+    ).toContain('"a.bin" (20.5 MB, over the 20 MB limit)');
+  });
+
+  test("a file one byte over a whole-megabyte cap reads as larger than the cap", () => {
+    expect(
+      appendFailedAttachmentNotice("", {
+        ...nothing,
+        oversizedAttachments: [
+          {
+            name: "edge.bin",
+            fileSize: 20 * 1024 * 1024 + 1,
+            limit: 20 * 1024 * 1024,
+          },
+        ],
+      }),
+    ).toContain('"edge.bin" (20.1 MB, over the 20 MB limit)');
+  });
+
+  test("a file whose size is unknown names only the cap", () => {
+    expect(
+      appendFailedAttachmentNotice("", {
+        ...nothing,
+        oversizedAttachments: [{ name: "stream.bin", limit: 16 * 1024 * 1024 }],
+      }),
+    ).toContain('"stream.bin" (over the 16 MB limit)');
+  });
+
+  test("a retrieval failure and an oversized file each get their own line", () => {
+    expect(
+      appendFailedAttachmentNotice("", {
+        failedAttachmentNames: ["a.txt"],
+        oversizedAttachments: [
+          {
+            name: "b.mov",
+            fileSize: 30 * 1024 * 1024,
+            limit: 16 * 1024 * 1024,
+          },
+        ],
+      }),
+    ).toBe(
+      '[The user attached file(s) that could not be retrieved: "a.txt". Ask them to re-send if the content is important.]\n' +
+        '[The user attached file(s) too large to receive: "b.mov" (30 MB, over the 16 MB limit). Re-sending the same file will not help; if the content is important, ask for a smaller version or a link.]',
     );
   });
 });

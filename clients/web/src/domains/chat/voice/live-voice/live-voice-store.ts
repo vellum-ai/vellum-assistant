@@ -23,9 +23,19 @@
 
 import { create } from "zustand";
 
-import type { LiveVoiceMetricsServerFrame } from "@/domains/chat/voice/live-voice/protocol";
+import type { LiveVoiceSightFrameTiming } from "@/domains/chat/voice/live-voice/live-voice-client";
+import type {
+  LiveVoiceEntry,
+  LiveVoiceMetricsServerFrame,
+  LiveVoiceSightSource,
+} from "@/domains/chat/voice/live-voice/protocol";
 import type { LiveVoicePlaybackProgress } from "@/domains/chat/voice/live-voice/tts-playback";
 import { createSelectors } from "@/utils/create-selectors";
+import type {
+  CompanionAnnotationPhase,
+  CompanionAnnotationStroke,
+  WatchCaptureTarget,
+} from "@vellumai/ipc-contract";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -67,6 +77,7 @@ export type LiveVoiceStatusKey =
   | "liveVoiceStatus.reconnecting"
   | "liveVoiceStatus.listening"
   | "liveVoiceStatus.thinking"
+  | "liveVoiceStatus.working"
   | "liveVoiceStatus.speaking"
   | "liveVoiceStatus.ending"
   | "liveVoiceStatus.muted";
@@ -130,12 +141,18 @@ export const LIVE_VOICE_STATE_KEYS: Record<
  * Only `listening` is remapped for mute. Muting the microphone does not make
  * the assistant stop thinking or speaking, and relabelling those would trade
  * one false statement for another.
+ *
+ * A turn on a tool step (`onToolStep`, the session's activity label is set)
+ * reads as "Working…" where it would read "Thinking…": the assistant is off
+ * doing something, and the step itself says what.
  */
 export function liveVoiceSurfaceLabelKey(
   state: LiveVoiceSessionState,
   reconnecting: boolean,
   assistantAudioActive: boolean,
   muted: boolean,
+  responsePhase: LiveVoiceResponsePhase | null = null,
+  onToolStep = false,
 ): LiveVoiceStatusKey | null {
   if (state === "listening" && muted) {
     return "liveVoiceStatus.muted";
@@ -143,11 +160,28 @@ export function liveVoiceSurfaceLabelKey(
   if (state === "connecting" && reconnecting) {
     return "liveVoiceStatus.reconnecting";
   }
+  if (
+    (responsePhase === "escalated" || onToolStep) &&
+    (state === "thinking" || (state === "speaking" && !assistantAudioActive))
+  ) {
+    return "liveVoiceStatus.working";
+  }
   if (state === "speaking" && !assistantAudioActive) {
     return "liveVoiceStatus.thinking";
   }
   return LIVE_VOICE_STATE_KEYS[state];
 }
+
+/**
+ * Whether the turn is off on a tool step: the session carries an activity
+ * label and is not waiting on the user's approval, which carries one too. The
+ * one reading of it every surface takes, for "Working…" and for the call's
+ * work list alike.
+ */
+export const isOnToolStep = (
+  session: Pick<LiveVoiceState, "activityLabel" | "pendingApprovalRequestId">,
+): boolean =>
+  session.activityLabel !== "" && session.pendingApprovalRequestId === null;
 
 /**
  * Imperative controls for the active session, registered by the
@@ -174,6 +208,11 @@ export interface LiveVoiceSessionControls {
    * unless the session is `speaking`.
    */
   interrupt: () => void;
+  startSightSession?: (
+    cameraEpoch: number,
+    source: LiveVoiceSightSource,
+  ) => boolean;
+  endSightSession?: (cameraEpoch: number) => boolean;
   /**
    * Mute (or unmute) the mic without ending the session. While muted the
    * capture graph keeps running but silence is streamed in place of the
@@ -222,7 +261,11 @@ export interface LiveVoiceSessionControls {
    *
    * Callers must gate on `useSupportsSightStream`.
    */
-  sightFrame: (attachmentId: string) => boolean;
+  sightFrame: (
+    attachmentId: string,
+    timing?: LiveVoiceSightFrameTiming,
+    lifecycle?: { cameraEpoch: number; source: LiveVoiceSightSource },
+  ) => boolean;
 }
 
 /**
@@ -243,6 +286,9 @@ export interface LiveVoiceTurnLatency {
   readonly server: LiveVoiceMetricsServerFrame | null;
   readonly clientHeardLatencyMs: number | null;
 }
+
+/** Extra response phase exposed by structured activity frames. */
+export type LiveVoiceResponsePhase = "escalated";
 
 /** Viewport-space point (px) the color room's entrance grows from. */
 export interface LiveVoiceEntryOrigin {
@@ -280,12 +326,31 @@ export interface LiveVoiceSessionStarter {
    * Put a typed turn to the running session. Returns whether it went out: a
    * session that is not up, or an assistant without typed turns, takes
    * nothing, and the caller keeps the words.
+   *
+   * `bargeIn` cuts the assistant off first if it is mid-reply, the way a
+   * person stops explaining a step once they see it done. `retryWhenBusy`
+   * keeps the turn if the assistant still refuses it and puts it again until
+   * it is taken or the user says something else. Both are for a turn the
+   * user did not type and cannot see refused: a click on a pointed-at control
+   * is one, and it usually lands while the step is still being said.
    */
-  sendText(text: string): boolean;
+  sendText(text: string, options?: LiveVoiceTypedTurnOptions): boolean;
 }
 
-/** The first turn a session takes on a caller's behalf, and what follows it. */
+/** How a typed turn is put to the session. See {@link LiveVoiceSessionStarter}. */
+export interface LiveVoiceTypedTurnOptions {
+  bargeIn?: boolean;
+  retryWhenBusy?: boolean;
+}
+
+/**
+ * What a caller hands the starter besides the ids: which control the start
+ * came from, and the first turn the session takes on the caller's behalf with
+ * what follows it.
+ */
 export interface LiveVoiceSeedOptions {
+  /** Which control asked for the session, for the daemon's telemetry. */
+  entry?: LiveVoiceEntry;
   seedText?: string;
   seedVisible?: boolean;
   endAfterSeedReply?: boolean;
@@ -448,6 +513,8 @@ export interface LiveVoiceState {
    * `reset()` clears it with everything else.
    */
   activityLabel: string;
+  /** Neutral handoff state while the conversation profile prepares a reply. */
+  responsePhase: LiveVoiceResponsePhase | null;
   /**
    * The confirmation the current turn is blocked on, or `null` when it is not
    * blocked on one.
@@ -471,6 +538,65 @@ export interface LiveVoiceState {
    * Session-scoped, so `reset()` clears it with everything else.
    */
   utteranceOpen: boolean;
+  /**
+   * The display or window the user is sharing with the session, or null when
+   * nothing is shared. The ask behind the macOS companion's share control:
+   * `use-live-voice-screen-share.ts` takes frames of it for as long as it is
+   * set and the session can be shown anything, and lowers it when it cannot.
+   * Session-scoped, and kept across a reconnect: the user is still sharing
+   * while the transport comes back.
+   */
+  screenShareTarget: WatchCaptureTarget | null;
+  /**
+   * The user asked out loud for the call to start (`start`) or stop (`stop`)
+   * looking through the camera, and the voice room has not taken the ask yet.
+   * The camera is the room's (its hooks own the viewfinder and Live), and the
+   * room may not even be mounted when the ask lands, so the ask waits here for
+   * the room to take it. Taken once: a room that mounts later must not reopen
+   * the camera for an old ask. A newer ask replaces an older one.
+   */
+  cameraLookRequest: CameraLookRequest | null;
+  /**
+   * The assistant asked to look (`look_screen`, `look_camera`) and the fresh
+   * frame that answers it has not been taken yet. Whatever the look turned on,
+   * or found already on, owes the call one frame of it now, whether or not the
+   * frame gate would call the view new: the session answers the look from that
+   * frame, and says nothing until it lands. Taken once, by the screen share
+   * hook or the room's sight hook, with {@link takeLiveVoiceLookFrame}.
+   */
+  lookFrameRequested: { readonly screen: boolean; readonly camera: boolean };
+  /**
+   * Whether the user has the mouse down on the shared surface, drawing.
+   *
+   * The reason it is here rather than left to the drawing itself: while it is
+   * true nothing is sent. A frame taken mid-stroke is a circle half drawn,
+   * around nothing in particular, and the cadence that would take it is the
+   * user's own voice, which is exactly what they are doing while they draw.
+   *
+   * Published from the macOS companion's frame window through main, so it is
+   * false on every other host and on a session nobody is drawing on, which is
+   * the cadence behaving as it always did.
+   */
+  shareDrawing: boolean;
+  /**
+   * The last drawing the user finished on the shared surface, or null before
+   * they have made one.
+   *
+   * `id` is what makes a release an event rather than a value: two identical
+   * circles drawn in the same place are two things the user did, and a
+   * consumer watching the strokes alone would see the second as no change at
+   * all. It counts up within a session and resets with one.
+   *
+   * The strokes are fractions of the shared surface (see
+   * `CompanionAnnotationStroke`), so they are drawn onto whatever size the
+   * frame comes back at without anything else having to be carried.
+   */
+  shareAnnotation: {
+    id: number;
+    strokes: readonly CompanionAnnotationStroke[];
+    /** The colour they were drawn in, so the copy on the frame matches. */
+    ink: string;
+  } | null;
   /** In-flight partial transcript of the user's current utterance. */
   partialTranscript: string;
   /** Last finalized user transcript. */
@@ -587,6 +713,8 @@ export interface LiveVoiceActions {
     activityLabel: string,
     pendingApprovalRequestId?: string | null,
   ) => void;
+  /** Set or clear the current response's structured handoff phase. */
+  setResponsePhase: (responsePhase: LiveVoiceResponsePhase | null) => void;
   /** Set whether the controller is retrying a dropped connection. */
   setReconnecting: (reconnecting: boolean) => void;
   /**
@@ -656,6 +784,25 @@ export interface LiveVoiceActions {
   setConfigNotice: (notice: string | null) => void;
   /** Record whether the server VAD is holding an utterance open. */
   setUtteranceOpen: (utteranceOpen: boolean) => void;
+  /** Set or clear what the session is being shown. See `screenShareTarget`. */
+  setScreenShareTarget: (screenShareTarget: WatchCaptureTarget | null) => void;
+  /** Raise or take the spoken camera ask. See `cameraLookRequest`. */
+  setCameraLookRequest: (cameraLookRequest: CameraLookRequest | null) => void;
+  /** Raise or take a look's frame ask. See `lookFrameRequested`. */
+  setLookFrameRequested: (source: LookFrameSource, requested: boolean) => void;
+  /**
+   * Record a mark the user is making on the shared surface: the hand going
+   * down, or coming off with the strokes it left.
+   *
+   * One action for both edges, because they are one gesture and the order
+   * matters: the release has to arrive at a consumer that already knows the
+   * hand was down, or the frame it holds back is a frame it never held.
+   */
+  setShareAnnotation: (
+    phase: CompanionAnnotationPhase,
+    strokes: readonly CompanionAnnotationStroke[],
+    ink: string,
+  ) => void;
   setPartialTranscript: (text: string) => void;
   setFinalTranscript: (text: string) => void;
   /** Append a delta to the accumulated assistant transcript. */
@@ -782,6 +929,28 @@ export function isLiveVoiceSessionActive(
 }
 
 /**
+ * Whether the user is part-way through saying something, as the session
+ * reports it.
+ *
+ * Two sessions, two signals, and no third opinion about either: hands-free
+ * runs on the server VAD, whose boundary the store publishes as
+ * `utteranceOpen`, and a manual session has no VAD at all, so the thing that
+ * opens the user's turn is the session reaching `listening`, which is where
+ * push-to-talk starts forwarding audio. Named for the user rather than the
+ * session, whose own `speaking` phase is the assistant's voice and the
+ * opposite of this. One answer to "is the user talking" for every surface
+ * that acts on the edge of a turn: the room's sight arms a keep on it, and the
+ * screen share takes a frame on each side of it.
+ */
+export function isLiveVoiceUserSpeaking(
+  session: Pick<LiveVoiceState, "state" | "handsFree" | "utteranceOpen">,
+): boolean {
+  return session.handsFree
+    ? session.utteranceOpen
+    : session.state === "listening";
+}
+
+/**
  * Whether the mic is live in `state` — capturing audio with amplitude flowing
  * into the store. True for the whole listening→speaking span: the capture
  * graph runs for the entire session so amplitude keeps flowing for barge-in
@@ -854,6 +1023,7 @@ const INITIAL_SESSION_STATE: Omit<
   assistantAudioActive: false,
   microphoneActive: false,
   activityLabel: "",
+  responsePhase: null,
   pendingApprovalRequestId: null,
   reconnecting: false,
   assistantId: null,
@@ -868,6 +1038,11 @@ const INITIAL_SESSION_STATE: Omit<
   sightFrameRetractions: [],
   controls: null,
   utteranceOpen: false,
+  screenShareTarget: null,
+  cameraLookRequest: null,
+  lookFrameRequested: { screen: false, camera: false },
+  shareDrawing: false,
+  shareAnnotation: null,
   partialTranscript: "",
   finalTranscript: "",
   assistantTranscript: "",
@@ -1013,6 +1188,10 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
   setMicrophoneActive: (microphoneActive) => set({ microphoneActive }),
   setActivityLabel: (activityLabel, pendingApprovalRequestId = null) =>
     set({ activityLabel, pendingApprovalRequestId }),
+  setResponsePhase: (responsePhase) =>
+    set((state) =>
+      state.responsePhase === responsePhase ? state : { responsePhase },
+    ),
   setReconnecting: (reconnecting) => set({ reconnecting }),
   setSessionContext: (assistantId, conversationId) =>
     // A fresh session always opens with the mic live, even if the controller
@@ -1088,6 +1267,11 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
         const assistantId = s.assistantId;
         return {
           sightFramesUnsupported: true,
+          // The share ends with the latch rather than merely pausing behind
+          // it. The latch resets on a reconnect, which can land on an
+          // upgraded assistant, and a target kept across that gap would
+          // resume a share the surface had already drawn as stopped.
+          screenShareTarget: null,
           outstandingSightFrames: [],
           prunedSightFrames: [],
           sightFramesToReclaim:
@@ -1170,6 +1354,51 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
   setFirstRunCardOpen: (firstRunCardOpen) => set({ firstRunCardOpen }),
   setConfigNotice: (configNotice) => set({ configNotice }),
   setUtteranceOpen: (utteranceOpen) => set({ utteranceOpen }),
+  setCameraLookRequest: (cameraLookRequest) => set({ cameraLookRequest }),
+  setLookFrameRequested: (source, requested) =>
+    set((s) => ({
+      lookFrameRequested: { ...s.lookFrameRequested, [source]: requested },
+    })),
+  setScreenShareTarget: (screenShareTarget) =>
+    set((s) => ({
+      screenShareTarget,
+      // A share that ends owes nothing: the look it was asked for has no
+      // screen to be answered from, and a later share must not take a frame
+      // for it.
+      ...(screenShareTarget === null
+        ? {
+            lookFrameRequested: { ...s.lookFrameRequested, screen: false },
+          }
+        : {}),
+      // A share that ends takes the drawing on it with it: the marks belong to
+      // a surface that is no longer being shown, and a `drawing` left true
+      // would hold the next share's first frame for a hand that is long since
+      // off the mouse.
+      shareDrawing: false,
+      shareAnnotation: null,
+    })),
+  setShareAnnotation: (phase, strokes, ink) =>
+    set((s) => {
+      if (phase === "drawing") {
+        return { shareDrawing: true };
+      }
+      // A release carrying nothing is the hand being let go of on the layer's
+      // behalf: the mode was turned off, or the share ended, while a stroke
+      // was still being made. It lifts the hold and no more. Counting it as a
+      // drawing would send a frame of a surface with nothing on it, for a
+      // mark the user never finished.
+      if (strokes.length === 0) {
+        return { shareDrawing: false };
+      }
+      return {
+        shareDrawing: false,
+        shareAnnotation: {
+          id: (s.shareAnnotation?.id ?? 0) + 1,
+          strokes,
+          ink,
+        },
+      };
+    }),
   setPartialTranscript: (partialTranscript) => set({ partialTranscript }),
   setFinalTranscript: (finalTranscript) => set({ finalTranscript }),
   appendAssistantTranscript: (delta) =>
@@ -1199,6 +1428,10 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
       sessionGeneration: opts?.sessionContinues
         ? s.sessionGeneration
         : s.sessionGeneration + 1,
+      // A share survives a reconnect for the reason the generation does: the
+      // user is still sharing, and the transport coming back is not their
+      // business.
+      screenShareTarget: opts?.sessionContinues ? s.screenShareTarget : null,
       // `sightFramesToReclaim` is absent from INITIAL_SESSION_STATE on purpose
       // and so survives this: a queue a teardown could discard would strand
       // the uploads it exists to collect. It also GROWS here, because the
@@ -1429,9 +1662,102 @@ export function attachLiveVoiceImage(
  * session. Module-level for the same stable-identity reasons as
  * {@link endLiveVoiceSession}.
  */
+/**
+ * Share `target` with the running session, or stop sharing with `null`.
+ *
+ * Module-level for the reason {@link endLiveVoiceSession} is: the command
+ * arrives from the companion surface through main, and the root layout that
+ * consumes it holds no session. A target is dropped unless a session is
+ * running that can actually be shown it, since nothing could be shown one
+ * otherwise and the surface would draw a share that never flows; the session's
+ * own reset clears it at the end.
+ *
+ * The latch is one of the terms, not just the session. A picker left open
+ * when the assistant refuses a frame is still pressable, and a target taken
+ * from it would sit in the store unshown until a reconnect cleared the latch
+ * and started capture off a gesture the user made before the refusal.
+ */
+export function setLiveVoiceScreenShare(
+  target: WatchCaptureTarget | null,
+): void {
+  const state = useLiveVoiceStore.getState();
+  if (
+    target !== null &&
+    (!isLiveVoiceSessionActive(state.state) || state.sightFramesUnsupported)
+  ) {
+    return;
+  }
+  state.setScreenShareTarget(target);
+}
+
+/** What a spoken camera ask wants the voice room to do. */
+export type CameraLookRequest = "start" | "stop";
+
+/** What a look is of: the shared screen or the room's camera. */
+export type LookFrameSource = "screen" | "camera";
+
+/**
+ * Owe the session one fresh frame of `source` for a look it asked for. No-op
+ * without an active session or with an assistant that cannot take frames,
+ * since no frame could be sent.
+ */
+export function requestLiveVoiceLookFrame(source: LookFrameSource): void {
+  const state = useLiveVoiceStore.getState();
+  if (!isLiveVoiceSessionActive(state.state) || state.sightFramesUnsupported) {
+    return;
+  }
+  state.setLookFrameRequested(source, true);
+}
+
+/**
+ * Take the look frame owed for `source`, if any, so exactly one frame answers
+ * it. Returns whether one was owed.
+ */
+export function takeLiveVoiceLookFrame(source: LookFrameSource): boolean {
+  const state = useLiveVoiceStore.getState();
+  if (!state.lookFrameRequested[source]) {
+    return false;
+  }
+  state.setLookFrameRequested(source, false);
+  return true;
+}
+
+/**
+ * Ask the voice room to open the camera in Live ("look at this") or to close
+ * it ("stop looking"). No-op without an active session, and a start is also
+ * refused by an assistant that cannot take frames. The room takes the ask
+ * with {@link takeLiveVoiceCameraLookRequest}.
+ */
+export function requestLiveVoiceCameraLook(request: CameraLookRequest): void {
+  const state = useLiveVoiceStore.getState();
+  if (!isLiveVoiceSessionActive(state.state)) {
+    return;
+  }
+  if (request === "start" && state.sightFramesUnsupported) {
+    return;
+  }
+  // A look that stops owes no frame of what it stopped showing.
+  if (request === "stop") {
+    state.setLookFrameRequested("camera", false);
+  }
+  state.setCameraLookRequest(request);
+}
+
+/** Take the pending camera ask, if any, so it is acted on exactly once. */
+export function takeLiveVoiceCameraLookRequest(): CameraLookRequest | null {
+  const state = useLiveVoiceStore.getState();
+  const request = state.cameraLookRequest;
+  if (request !== null) {
+    state.setCameraLookRequest(null);
+  }
+  return request;
+}
+
 export function sendLiveVoiceSightFrame(
   attachmentId: string,
   sessionGeneration: number,
+  timing?: LiveVoiceSightFrameTiming,
+  lifecycle?: { cameraEpoch: number; source: LiveVoiceSightSource },
 ): boolean {
   const state = useLiveVoiceStore.getState();
   if (state.sessionGeneration !== sessionGeneration) {
@@ -1442,11 +1768,31 @@ export function sendLiveVoiceSightFrame(
   if (state.sightFramesUnsupported) {
     return false;
   }
-  const sent = state.controls?.sightFrame(attachmentId) ?? false;
+  const sent = lifecycle
+    ? (state.controls?.sightFrame(attachmentId, timing, lifecycle) ?? false)
+    : (state.controls?.sightFrame(attachmentId, timing) ?? false);
   if (sent) {
     state.noteSightFrameSent(attachmentId);
   }
   return sent;
+}
+
+export function startLiveVoiceSightSession(
+  cameraEpoch: number,
+  source: LiveVoiceSightSource,
+): boolean {
+  return (
+    useLiveVoiceStore
+      .getState()
+      .controls?.startSightSession?.(cameraEpoch, source) ?? false
+  );
+}
+
+export function endLiveVoiceSightSession(cameraEpoch: number): boolean {
+  return (
+    useLiveVoiceStore.getState().controls?.endSightSession?.(cameraEpoch) ??
+    false
+  );
 }
 
 /**

@@ -21,9 +21,10 @@ import { hostTransferExecutor } from "@vellumai/electron-desktop/host-proxy/exec
 import { createHostUiSnapshotExecutor } from "@vellumai/electron-desktop/host-proxy/executors/host-ui-snapshot-executor";
 
 import { getDevRendererBase, RENDERER_BASE_PROD } from "./app-config";
+import { showCompanionCoachmarks } from "./companion-window";
 import { hostAppControlExecutor } from "./executors/host-app-control-executor";
 import { hostBashExecutor } from "./executors/host-bash-adapter";
-import { hostCuExecutor } from "./executors/host-cu-executor";
+import { createHostCuExecutor } from "./executors/host-cu-executor";
 import {
   getWatchedLockfile,
   onLockfileChange,
@@ -52,7 +53,7 @@ export const installHostProxyBridge = (
           assistantId,
           err,
         });
-        return null;
+        return { ok: false, status: 500, error: (err as Error).message };
       }
 
       const result = await getGuardianAccessToken(
@@ -65,11 +66,11 @@ export const installHostProxyBridge = (
       if (!result.ok) {
         log.warn("[host-proxy-router] failed to obtain guardian token", {
           assistantId,
+          status: result.status,
           error: result.error,
         });
-        return null;
       }
-      return result.accessToken;
+      return result;
     },
     getSessionToken,
     getLockfile: getWatchedLockfile,
@@ -79,13 +80,21 @@ export const installHostProxyBridge = (
       getClientId: getDeviceId,
       getMachineName: hostname,
       interfaceId: "macos",
+      supportsWindowCapture: true,
+      supportsSequence: true,
+      supportsCoachmarks: true,
     }),
     executors: {
       host_bash: hostBashExecutor,
       host_file: hostFileExecutor,
       host_transfer: hostTransferExecutor,
       host_browser: browserExecutor,
-      host_cu: hostCuExecutor,
+      // Built here rather than imported ready-made: pointing at the shared
+      // surface is answered in this process, and what it draws on belongs to
+      // the window layer. The wiring is the app's to do.
+      host_cu: createHostCuExecutor({
+        showCoachmarks: showCompanionCoachmarks,
+      }),
       host_app_control: hostAppControlExecutor,
       host_ui_snapshot: uiSnapshotExecutor,
     },

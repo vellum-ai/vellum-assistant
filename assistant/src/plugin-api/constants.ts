@@ -34,6 +34,8 @@ export const HOOKS = {
   CONVERSATION_DELETED: "conversation-deleted",
   /** Fires once when every conversation is wiped at once (the clear-all reset), after the main tables are cleared. Carries no `conversationId`; cleanup hooks wipe their own per-conversation state wholesale. */
   CONVERSATIONS_CLEARED: "conversations-cleared",
+  /** Fires once per deleted message row, after the row is removed, carrying the row's `(createdAt, id)` so a hook can settle state that pointed at it. Fire-and-forget cleanup signal, like `conversation-deleted`; whole-conversation deletes dispatch that hook instead. */
+  MESSAGE_DELETED: "message-deleted",
 } as const;
 
 /** Union of every hook name declared in {@link HOOKS}. */

@@ -3,7 +3,6 @@ import { resolve } from "node:path";
 import { afterAll, describe, expect, test } from "bun:test";
 
 import { RiskLevel } from "../permissions/types.js";
-import { allComputerUseTools } from "../tools/computer-use/definitions.js";
 import {
   __resetRegistryForTesting,
   getTool,
@@ -29,7 +28,7 @@ const manifestPath = resolve(
 const manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
 
 describe("computer-use skill manifest regression", () => {
-  test("manifest has exactly 11 tools", () => {
+  test("manifest has exactly 12 tools", () => {
     expect(manifest.tools).toHaveLength(COMPUTER_USE_TOOL_COUNT);
   });
 
@@ -71,30 +70,6 @@ describe("computer-use skill manifest regression", () => {
   test("all manifest tools have category: computer-use", () => {
     for (const tool of manifest.tools) {
       expect(tool.category).toBe("computer-use");
-    }
-  });
-
-  test("manifest descriptions match core definitions", async () => {
-    await initializeTools();
-
-    for (const cuTool of allComputerUseTools) {
-      const manifestTool = manifest.tools.find(
-        (t: { name: string }) => t.name === cuTool.name,
-      );
-      expect(manifestTool).toBeDefined();
-      expect(manifestTool.description).toBe(cuTool.description);
-    }
-  });
-
-  test("manifest input_schema matches core definitions", async () => {
-    await initializeTools();
-
-    for (const cuTool of allComputerUseTools) {
-      const manifestTool = manifest.tools.find(
-        (t: { name: string }) => t.name === cuTool.name,
-      );
-      expect(manifestTool).toBeDefined();
-      expect(manifestTool.input_schema).toEqual(cuTool.input_schema);
     }
   });
 

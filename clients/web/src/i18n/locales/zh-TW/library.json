@@ -1,10 +1,8 @@
 {
   "libraryEmptyState": {
     "heading": "您的資料庫是空的",
-    "body": "請您的助理建立內容，或匯入共享應用程式",
-    "newConversation": "新增對話",
-    "separator": "或",
-    "importFile": "匯入 .vellum 檔案"
+    "body": "請您的助理建立內容",
+    "newConversation": "新增對話"
   },
   "libraryView": {
     "importFailed": "匯入應用程式失敗",
@@ -12,6 +10,8 @@
     "loadingAria": "正在載入應用程式",
     "retry": "重試",
     "import": "匯入",
+    "newDocument": "新增文件",
+    "newDocumentFailed": "無法建立文件。請再試一次。",
     "searchPlaceholder": "搜尋您的資料庫",
     "noMatches": "沒有應用程式或文件符合「{query}」",
     "pinned": "已釘選",

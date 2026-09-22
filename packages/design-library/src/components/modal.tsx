@@ -3,19 +3,13 @@ import { X, type LucideIcon } from "lucide-react";
 import { createContext, useContext, type ComponentProps, type ReactNode } from "react";
 
 import { cn } from "../utils/cn";
+import { useOverlayDismiss } from "../utils/overlay-dismiss";
 import { usePortalContainer } from "../utils/portal-container";
 
 /**
  * Internal context that threads `onOpenChange` from `Root` to `Content` so
- * the overlay can explicitly dismiss the modal on click.
- *
- * iOS Safari/WKWebView only fires `click` events from elements it considers
- * "clickable". Radix's DismissableLayer defers touch-dismiss to a `click`
- * listener on the document, which never fires from the plain overlay div on
- * iOS. An explicit `onClick` on the overlay ensures the modal dismisses on
- * tap-outside.
- *
- * @see https://developer.apple.com/library/archive/documentation/AppleApplications/Reference/SafariWebContent/HandlingEvents/HandlingEvents.html
+ * the overlay can explicitly dismiss the modal on a backdrop press. See
+ * {@link useOverlayDismiss} for why the overlay carries handlers of its own.
  */
 const ModalContext = createContext<{
   onOpenChange?: (open: boolean) => void;
@@ -64,9 +58,10 @@ interface ModalContentProps extends ComponentProps<typeof Dialog.Content> {
   hideCloseButton?: boolean;
   overlayClassName?: string;
   /**
-   * When `false`, clicking the overlay backdrop no longer dismisses the modal.
-   * Pair with Radix's `onInteractOutside`/`onEscapeKeyDown` (passed through to
-   * `Dialog.Content`) to make a modal fully non-dismissible. Defaults to `true`.
+   * When `false`, the backdrop no longer dismisses the modal. It is the whole
+   * answer: the overlay is the only thing that dismisses this dialog from
+   * outside, so a non-dismissible modal pairs it with `onEscapeKeyDown` and
+   * nothing else. Defaults to `true`.
    */
   dismissOnOverlayClick?: boolean;
   children?: ReactNode;
@@ -79,11 +74,16 @@ function Content({
   dismissOnOverlayClick = true,
   className,
   children,
+  onInteractOutside,
   ref,
   ...props
 }: ModalContentProps) {
   const container = usePortalContainer();
   const { onOpenChange } = useContext(ModalContext);
+  const dismiss = useOverlayDismiss({
+    enabled: dismissOnOverlayClick,
+    onDismiss: () => onOpenChange?.(false),
+  });
   return (
     <Dialog.Portal container={container ?? undefined}>
       <Dialog.Overlay
@@ -92,14 +92,22 @@ function Content({
           "fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4",
           overlayClassName,
         )}
-        onClick={(e) => {
-          if (!dismissOnOverlayClick) return;
-          if (e.target === e.currentTarget) onOpenChange?.(false);
-        }}
+        {...dismiss}
       >
         <Dialog.Content
           ref={ref}
           data-slot="modal-content"
+          // The backdrop covers the viewport, so a press outside this dialog
+          // is a press on the backdrop, and the overlay already reports that
+          // one. Leaving Radix's outside-dismissal on as well gives the dialog
+          // a second way to close that it cannot see the gesture behind: the
+          // check runs on the click, after React has flushed, so a nested
+          // dialog or menu that closed on the same press is gone by then and
+          // its press reads as an outside press on this one. One owner.
+          onInteractOutside={(event) => {
+            onInteractOutside?.(event);
+            event.preventDefault();
+          }}
           className={cn(
             "relative flex max-h-[calc(100vh-2rem)] w-full flex-col rounded-xl border shadow-xl",
             SIZE_CLASSES[size],

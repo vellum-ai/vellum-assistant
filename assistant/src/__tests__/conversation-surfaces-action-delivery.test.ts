@@ -38,8 +38,16 @@ interface ProcessMessageCall {
 
 function makeContext(sent: AssistantEvent[] = []): Conversation & {
   processMessageCalls: ProcessMessageCall[];
+  acceptedSurfaceResponses: Array<{
+    requestId: string;
+    response: { kind: "surface"; responseId: string };
+  }>;
 } {
   const processMessageCalls: ProcessMessageCall[] = [];
+  const acceptedSurfaceResponses: Array<{
+    requestId: string;
+    response: { kind: "surface"; responseId: string };
+  }> = [];
   return asConversation({
     conversationId: "conv-1",
     sendToClient: (msg: AssistantEvent) => sent.push(msg),
@@ -54,6 +62,18 @@ function makeContext(sent: AssistantEvent[] = []): Conversation & {
     accumulatedSurfaceState: new Map<string, Record<string, unknown>>(),
     surfaceActionRequestIds: new Set<string>(),
     currentTurnSurfaces: [],
+    modeSessions: {
+      acceptTurn: (
+        requestId: string,
+        response?: { kind: "surface"; responseId: string },
+      ) => {
+        if (response?.kind === "surface") {
+          acceptedSurfaceResponses.push({ requestId, response });
+        }
+        return undefined;
+      },
+      getTurnOwner: () => undefined,
+    } as unknown as Conversation["modeSessions"],
     isProcessing: () => false,
     enqueueMessage: () => ({ queued: false, requestId: "req-1" }),
     getQueueDepth: () => 0,
@@ -70,6 +90,7 @@ function makeContext(sent: AssistantEvent[] = []): Conversation & {
     },
     withSurface: createSurfaceMutex(),
     processMessageCalls,
+    acceptedSurfaceResponses,
   });
 }
 
@@ -77,6 +98,129 @@ describe("surface action delivery to assistant", () => {
   beforeEach(() => {
     broadcastedMessages = [];
   });
+
+  test.each([true, false])(
+    "matching surface answers retain their session across cleanup (pending=%s)",
+    async (hasPending) => {
+      const { initializeDb } = await import("../persistence/db-init.js");
+      const { createConversation } =
+        await import("../persistence/conversation-crud.js");
+      const { ConversationModeSessionCoordinator } =
+        await import("../daemon/conversation-mode-session.js");
+      const { cleanupStandaloneSurface } =
+        await import("../daemon/conversation-surfaces.js");
+      await initializeDb();
+      const conversation = createConversation();
+      const coordinator = new ConversationModeSessionCoordinator(
+        conversation.id,
+      );
+      const handle = coordinator.activateSource({
+        sourceId: "browser-source",
+        generation: 1,
+        mode: "browser",
+        sourceStartedAt: 100,
+      })!;
+      coordinator.claimTurn("turn-origin", handle, 110);
+      coordinator.recordStructuralWait("turn-origin", {
+        kind: "surface",
+        responseId: "surface-123",
+      });
+      coordinator.releaseTurn("turn-origin");
+      const ctx = Object.assign(makeContext(), {
+        conversationId: conversation.id,
+        modeSessions: coordinator,
+      });
+      ctx.surfaceState.set("surface-123", {
+        surfaceType: "form",
+        data: { fields: [] },
+      });
+      if (hasPending) {
+        ctx.pendingSurfaceActions.set("surface-123", { surfaceType: "form" });
+      }
+
+      await handleSurfaceAction(ctx, "surface-123", "submit", {});
+
+      expect(ctx.processMessageCalls).toHaveLength(1);
+      const acceptedTurnId = ctx.processMessageCalls[0]!.requestId!;
+      expect(coordinator.getTurnOwner(acceptedTurnId)?.id).toBe(handle.id);
+      expect(ctx.pendingSurfaceActions.has("surface-123")).toBe(false);
+      cleanupStandaloneSurface(ctx, "surface-123");
+      expect(
+        coordinator.getTerminalDisposition(acceptedTurnId),
+      ).toBeUndefined();
+      expect(coordinator.getTurnOwner(acceptedTurnId)?.id).toBe(handle.id);
+      expect(
+        coordinator.acceptTurn("turn-replayed", {
+          kind: "surface",
+          responseId: "surface-123",
+        }),
+      ).toBeUndefined();
+      coordinator.releaseTurn(acceptedTurnId, {
+        status: "completed",
+        endReason: "turn_settled",
+      });
+      expect(coordinator.hasResidentWork()).toBe(false);
+    },
+  );
+
+  test.each([false, true])(
+    "queued surface answers retain handoff ownership without pinning the old turn (wait=%s)",
+    async (hasRecordedWait) => {
+      const { initializeDb } = await import("../persistence/db-init.js");
+      const { createConversation } =
+        await import("../persistence/conversation-crud.js");
+      const { ConversationModeSessionCoordinator } =
+        await import("../daemon/conversation-mode-session.js");
+      await initializeDb();
+      const conversation = createConversation();
+      const coordinator = new ConversationModeSessionCoordinator(
+        conversation.id,
+      );
+      const handle = coordinator.activateSource({
+        sourceId: "browser-source",
+        generation: 1,
+        mode: "browser",
+        sourceStartedAt: 100,
+      })!;
+      coordinator.claimTurn("turn-origin", handle, 110);
+      if (hasRecordedWait) {
+        coordinator.recordStructuralWait("turn-origin", {
+          kind: "surface",
+          responseId: "surface-123",
+        });
+      }
+      const ctx = Object.assign(makeContext(), {
+        conversationId: conversation.id,
+        modeSessions: coordinator,
+      });
+      let queuedRequestId: string | undefined;
+      ctx.enqueueMessage = (message) => {
+        queuedRequestId = message.requestId;
+        return { queued: true, requestId: message.requestId! };
+      };
+      ctx.surfaceState.set("surface-123", {
+        surfaceType: "form",
+        data: { fields: [] },
+      });
+      ctx.pendingSurfaceActions.set("surface-123", { surfaceType: "form" });
+
+      await handleSurfaceAction(ctx, "surface-123", "submit", {});
+
+      expect(ctx.processMessageCalls).toHaveLength(0);
+      expect(queuedRequestId).toBeDefined();
+      expect(coordinator.getTurnOwner(queuedRequestId!)?.id).toBe(
+        hasRecordedWait ? handle.id : undefined,
+      );
+      coordinator.transferTurn("turn-origin", queuedRequestId!);
+      expect(coordinator.getTurnOwner("turn-origin")).toBeUndefined();
+      expect(coordinator.getTurnOwner(queuedRequestId!)?.id).toBe(handle.id);
+      coordinator.releaseTurn(queuedRequestId!, {
+        status: "completed",
+        endReason: "turn_settled",
+      });
+      expect(coordinator.hasResidentWork()).toBe(false);
+    },
+  );
 
   test("table action button click triggers processMessage with action content", async () => {
     const sent: AssistantEvent[] = [];
@@ -131,6 +275,13 @@ describe("surface action delivery to assistant", () => {
     expect(call.content).toContain("row-1");
     expect(call.content).toContain("row-2");
     expect(call.activeSurfaceId).toBe(surfaceId);
+    expect(call.requestId).toBeDefined();
+    expect(ctx.acceptedSurfaceResponses).toEqual([
+      {
+        requestId: call.requestId!,
+        response: { kind: "surface", responseId: surfaceId },
+      },
+    ]);
 
     // Verify pending action was cleared
     expect(ctx.pendingSurfaceActions.has(surfaceId)).toBe(false);

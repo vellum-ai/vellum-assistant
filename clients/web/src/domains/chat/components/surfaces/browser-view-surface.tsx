@@ -1,5 +1,6 @@
 import { ExternalLink } from "lucide-react";
 
+import { ExternalAnchor } from "@/components/external-anchor";
 import type { Surface } from "@/domains/chat/types/types";
 
 import { SurfaceContainer } from "@/domains/chat/components/surfaces/surface-container";
@@ -36,15 +37,15 @@ export function BrowserViewSurface({
         {(() => {
           const isSafeUrl = /^https?:\/\//i.test(data.url ?? "");
           return isSafeUrl ? (
-            <a
+            <ExternalAnchor
               href={data.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-1 inline-flex items-center gap-1.5 text-body-medium-lighter text-[var(--system-positive-strong)] underline decoration-[var(--system-positive-strong)]/30 transition-colors hover:opacity-80"
+              tone="default"
+              className="mt-1 inline-flex items-center gap-1.5 text-body-medium-lighter decoration-[var(--system-positive-strong)]/30"
+              glyph={false}
             >
               <ExternalLink className="h-3.5 w-3.5 shrink-0" />
               <span className="break-all">{data.url}</span>
-            </a>
+            </ExternalAnchor>
           ) : (
             <span className="mt-1 text-body-medium-lighter text-[var(--content-quiet)] break-all">
               {data.url}

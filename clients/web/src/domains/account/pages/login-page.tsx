@@ -76,9 +76,8 @@ function NativeLoginForm({ returnTo }: { returnTo: string | null }) {
         <Button
           type="button"
           variant="primary"
-          size="regular"
+          size="large"
           fullWidth
-          className="h-11 text-base"
           onClick={handleSignIn}
           disabled={loading}
         >

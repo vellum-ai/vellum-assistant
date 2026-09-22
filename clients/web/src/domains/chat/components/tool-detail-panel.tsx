@@ -13,70 +13,39 @@ import { useTranslation } from "@/i18n";
  * text via `useLiveThinkingText` (see `ThinkingDetailBody`).
  */
 
-import {
-  Bolt,
-  Brain,
-  Code,
-  FileText,
-  Globe,
-  Monitor,
-  Pen,
-  Plug,
-  Sparkles,
-  SquareTerminal,
-  UserPlus,
-  type LucideIcon,
-} from "lucide-react";
+import { Bolt, Brain } from "lucide-react";
 
-import { Notice, Typography } from "@vellumai/design-library";
+import { Typography } from "@vellumai/design-library";
 
-import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
-import { CodeBlock, SectionLabel } from "@/components/detail-primitives";
 import { DetailShell } from "@/components/detail-shell";
+import { RiskChip } from "@/domains/chat/components/risk-chip";
+import { ThinkingDetailMarkdown } from "@/domains/chat/components/thinking-detail-markdown";
+import { friendlyName } from "@/domains/chat/components/tool-call-chip/utils";
+import { RawDisclosure } from "@/domains/chat/components/tool-activity/raw-disclosure";
+import {
+  ToolOutputSection,
+  useResultLayout,
+} from "@/domains/chat/components/tool-activity/tool-output-section";
 import { getToolActivityRenderer } from "@/domains/chat/components/tool-activity/tool-activity-renderers";
-import { titleCaseToolName } from "@/domains/chat/components/tool-call-chip/utils";
-import { useLiveThinkingText } from "@/domains/chat/hooks/use-live-thinking-text";
-import { useLiveToolCall } from "@/domains/chat/hooks/use-live-tool-call";
 import {
-  deriveStepLabelFromName,
-  type IconName,
-} from "@/domains/chat/components/tool-progress-card/derive-step-label";
-import {
-  getRiskBadgeWeakStyle,
-  getRiskNoticeTone,
-  getRiskToleranceHint,
-} from "@/domains/chat/utils/risk";
+  TRANSCRIPT_TOOL_CALL_SOURCE,
+  useLiveToolCall,
+  type ToolCallSource,
+} from "@/domains/chat/hooks/use-live-tool-call";
+import { deriveStepLabelFromName } from "@/domains/chat/components/tool-progress-card/derive-step-label";
+import { ICON_MAP } from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";
 import {
   isToolCallDenied,
   isToolCallRunning,
 } from "@/domains/chat/utils/tool-call-status";
+import { ToolInputParameters } from "@/domains/chat/components/tool-activity/tool-input-parameters";
+import { toolCallParams } from "@/domains/chat/utils/tool-input";
+import { jsonText } from "@/domains/chat/utils/value-layout";
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 
 /**
- * Concrete lucide icon for each `IconName` produced by `deriveStepLabel`.
- * Local copy of the map used by `phase-grouped-step-list` so this panel picks
- * a matching header glyph without importing card internals.
- */
-const ICON_MAP: Record<IconName, LucideIcon> = {
-  code: Code,
-  terminal: SquareTerminal,
-  file: FileText,
-  globe: Globe,
-  pen: Pen,
-  monitor: Monitor,
-  plug: Plug,
-  sparkle: Sparkles,
-  "user-plus": UserPlus,
-  bolt: Bolt,
-  brain: Brain,
-};
-
-/**
- * Thinking variant body. Reuses the shared shell but renders the reasoning
- * markdown live: it re-derives the text from the chat-session store via the
- * payload's stable identity so an open drawer streams as deltas land, falling
- * back to the open-time `thinkingText` snapshot when the source can't be
- * resolved (e.g. message paged out, or an identity-less payload).
+ * Thinking variant body. Reuses the shared shell around the live reasoning
+ * markdown (see `ThinkingDetailMarkdown`).
  */
 function ThinkingDetailBody({
   detail,
@@ -88,11 +57,6 @@ function ThinkingDetailBody({
   assistantId?: string | null;
 }) {
   const { t } = useTranslation("chat");
-  const live = useLiveThinkingText(
-    detail.messageId,
-    detail.thinkingGroupIndex,
-    detail.thinkingItemIndex,
-  );
   return (
     <DetailShell
       Glyph={Brain}
@@ -101,44 +65,43 @@ function ThinkingDetailBody({
       closeVariant="outlined"
       onClose={onClose}
     >
-      <ChatMarkdownMessage
-        content={live ?? detail.thinkingText ?? ""}
-        hardLineBreaks
-        assistantId={assistantId}
-      />
+      <ThinkingDetailMarkdown detail={detail} assistantId={assistantId} />
     </DetailShell>
   );
 }
 
 /**
- * Tool-variant detail sections — the tool name, activity, input `CodeBlock`,
- * and "Output" — with no surrounding shell, header, or close button. Composed
- * by `ToolDetailPanel` inside its own `DetailShell`, and reused by
- * `SubagentDetailPanel` to show a nested tool call under the subagent's own
- * header.
+ * The body of a tool detail: whatever the tool's registered renderer shows, or
+ * the generic parameter and Output sections when it has none. No shell,
+ * header or close button, so every panel that hosts a tool call frames it its
+ * own way: `ToolDetailPanel`, `ActivityStepsPanel` and `SubagentDetailPanel`
+ * all compose this, which is what makes a call read the same wherever it is
+ * opened.
  *
- * Subscribes to the chat-session store via `useLiveToolCall` so an open drawer
+ * The tool that ran and its risk level belong to `ToolDetailHeaderTitle`, so
+ * nothing here repeats them.
+ *
+ * Reads the call from its `source` via `useLiveToolCall` so an open drawer
  * streams `tool_output_chunk` output while the call runs and flips to the final
  * `result` when it lands, falling back to the open-time snapshot on `detail`
  * when the call can't be resolved live (e.g. paged out).
  */
 export function ToolDetailBody({
   detail,
+  source,
   assistantId,
 }: {
   detail: ToolDetailPayload;
+  /** Where the call lives, so the body reads it live. */
+  source: ToolCallSource;
   /** Threaded to any markdown a tool-specific renderer shows. */
   assistantId?: string | null;
 }) {
-  const { t } = useTranslation("chat");
-  const liveTc = useLiveToolCall(detail.toolCallId);
+  const liveTc = useLiveToolCall(source, detail.toolCallId);
   const result = liveTc?.result ?? detail.result;
+  const activityMetadata = liveTc?.activityMetadata ?? detail.activityMetadata;
   const streamedOutput = liveTc?.streamedOutput ?? detail.streamedOutput;
 
-  // An empty string is a result: the tool ran and returned nothing. Only an
-  // absent result means the call has not produced one yet.
-  const hasResult = result !== undefined;
-  const isEmptyResult = result === "";
   const isRunning = liveTc
     ? isToolCallRunning(liveTc)
     : detail.status === "running";
@@ -149,108 +112,69 @@ export function ToolDetailBody({
   const isDenied = liveTc
     ? isToolCallDenied(liveTc)
     : detail.status === "denied";
-  const hasStreamedOutput = !!streamedOutput;
-  const inputJson = JSON.stringify(detail.input, null, 2);
 
-  // Risk assessment can land after the drawer opens — prefer the live call.
-  // The raw `riskReason` rule-match string ("ls (default)") is internal
-  // classifier jargon and is deliberately NOT shown.
-  const riskLevel = liveTc?.riskLevel ?? detail.riskLevel;
-  const riskHint = getRiskToleranceHint(riskLevel);
-  const riskStyle = getRiskBadgeWeakStyle(riskLevel);
-
-  // What the Output section says when it has no text to show. Every terminal
-  // call that produced nothing lands on `emptyOutput`, including one that was
-  // force-completed with no result at all, so the section always answers "what
-  // came back" rather than disappearing.
-  const outputNoticeKey =
-    isDenied && !hasResult
-      ? "toolDetailPanel.denied"
-      : isRunning
-        ? "toolDetailPanel.running"
-        : "toolDetailPanel.emptyOutput";
-
-  // Tools with purpose-built activity UI replace the generic name/activity/JSON
-  // block; those that also own their output suppress the shared Output section.
+  // Tools with purpose-built activity UI replace the generic parameters; those
+  // that also own their output suppress the shared Output section.
   const renderer = getToolActivityRenderer(detail);
+  const output = renderer?.output ?? "shared";
+  const settled = !isRunning && !isDenied && !isError;
+  const layout = useResultLayout(
+    output === "shared" ? result : undefined,
+    settled,
+  );
+  // The result is offered raw wherever what is shown of it above is not
+  // already the raw text: a renderer's readable view of it, or the shared
+  // section's fields. A refused, failed or running call has no result of its
+  // own to offer; what it shows is its state.
+  const rawOutput =
+    settled &&
+    result &&
+    (output === "own" || (output === "shared" && layout !== null))
+      ? result
+      : null;
 
+  // One root owns the spacing between sections, so a host that lays the body
+  // out in a flex column of its own cannot add its gap to the body's.
   return (
-    <>
-      {/* Risk Level — a single tone-coloured bar reading "<level> →
-          <when it auto-approves>" (Figma node 7778-163402). The level and its
-          tolerance hint were previously a badge stacked over a caption in a
-          neutral card, which spent three lines saying one thing. */}
-      {riskLevel && (
-        <div className="mb-5">
-          <SectionLabel>{t("toolDetailPanel.riskLevel")}</SectionLabel>
-          <Notice
-            tone={getRiskNoticeTone(riskLevel)}
-            data-testid="risk-notice"
-            data-risk-level={riskLevel}
-          >
-            {/* `Notice` renders its message in `--content-secondary`; the
-                colour class on this span applies directly to the text and so
-                beats the inherited value, giving the Figma's tone-matched
-                sentence without a design-library fork. */}
-            <span className={riskStyle.text}>
-              {riskHint ? `${riskStyle.label} → ${riskHint}` : riskStyle.label}
-            </span>
-          </Notice>
-        </div>
-      )}
-
-      {/* Tool-specific activity UI when the tool has one, else the generic
-          name + activity + raw JSON input block. */}
+    <div className="flex flex-col gap-5">
+      {/* Tool-specific body when the tool has one, else the call's parameters
+          with its raw input behind a disclosure. The header names the tool and
+          shows its risk, so neither is repeated here. */}
       {renderer ? (
         <renderer.Component
           detail={detail}
           result={result}
+          activityMetadata={activityMetadata}
           streamedOutput={streamedOutput}
           isRunning={isRunning}
           isError={isError}
+          isDenied={isDenied}
           assistantId={assistantId}
         />
       ) : (
-        <div>
-          <Typography
-            variant="body-medium-default"
-            as="div"
-            className="text-[var(--content-default)]"
-          >
-            {titleCaseToolName(detail.toolName)}
-          </Typography>
-          <div className="mt-2">
-            <CodeBlock text={inputJson} />
-          </div>
-        </div>
+        <ToolInputParameters params={toolCallParams(detail.input)} />
       )}
 
-      {/* Output — the final result once present, else the live streamed tail
-          while running, else a bare running placeholder. Suppressed for tools
-          whose renderer already presents the result itself. */}
-      {!renderer?.ownsOutput && (
-        <div className="mt-5">
-          <SectionLabel>{t("toolDetailPanel.output")}</SectionLabel>
-          {hasResult && !isEmptyResult ? (
-            <CodeBlock
-              text={result as string}
-              tone={isError ? "error" : "default"}
-            />
-          ) : hasStreamedOutput ? (
-            <CodeBlock text={streamedOutput as string} />
-          ) : (
-            <Typography
-              variant="body-small-default"
-              as="p"
-              className="text-[var(--content-tertiary)]"
-              data-testid="tool-output-notice"
-            >
-              {t(outputNoticeKey)}
-            </Typography>
-          )}
-        </div>
+      {/* Output, laid out like the input when the result is structured.
+          Suppressed for tools whose renderer already presents the result. */}
+      {output === "shared" && (
+        <ToolOutputSection
+          result={result}
+          layout={layout}
+          streamedOutput={streamedOutput}
+          isDenied={isDenied}
+          isRunning={isRunning}
+          isError={isError}
+        />
       )}
-    </>
+
+      {/* Every call's raw data, in one place under the same names whatever
+          renders the call above, so no renderer can leave it out. */}
+      <div className="flex flex-col gap-1">
+        <RawDisclosure side="input" text={() => jsonText(detail.input)} />
+        {rawOutput && <RawDisclosure side="output" text={() => rawOutput} />}
+      </div>
+    </div>
   );
 }
 
@@ -269,6 +193,60 @@ export function toolDetailHeaderTitle(detail: ToolDetailPayload): string {
   return (detail.activity || detail.title).replace(/\s+/g, " ").trim();
 }
 
+/**
+ * Header title for a tool detail: the activity sentence, and under it the tool
+ * that ran with its risk level.
+ *
+ * Shared by every panel that hosts a `ToolDetailBody` so a call is headed the
+ * same way wherever it is opened, and so the body never has to repeat any of
+ * it. The sentence wraps to two lines rather than truncating on one, because
+ * most activity sentences are longer than a single line at the drawer's
+ * default width; the native tooltip carries the tail of the rest.
+ */
+export function ToolDetailHeaderTitle({
+  detail,
+  source,
+}: {
+  detail: ToolDetailPayload;
+  /** Where the call lives, so the risk level reads live. */
+  source: ToolCallSource;
+}) {
+  // Risk is classified asynchronously and can land after the drawer opens, so
+  // read it live and fall back to the open-time snapshot. The raw `riskReason`
+  // rule-match string ("ls (default)") is classifier jargon and stays hidden.
+  const liveTc = useLiveToolCall(source, detail.toolCallId);
+  const riskLevel = liveTc?.riskLevel ?? detail.riskLevel;
+  const title = toolDetailHeaderTitle(detail);
+  return (
+    <div className="min-w-0 py-0.5">
+      <Typography
+        variant="title-medium"
+        as="div"
+        title={title}
+        className="line-clamp-2 leading-snug text-[var(--content-default)]"
+      >
+        {title}
+      </Typography>
+      {/* Wraps rather than competing for one line. Where the device cannot
+          hover, `RiskChip` renders the tolerance sentence as a second sibling
+          here, and on one line that sentence takes the space the tool name
+          needs: at the drawer's width "Edit File" came out as "Edit...". The
+          tool that ran is the thing this row exists to name, so the sentence
+          moves to its own line instead. */}
+      <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+        <Typography
+          variant="body-small-lighter"
+          as="span"
+          className="shrink-0 truncate text-[var(--content-tertiary)]"
+        >
+          {friendlyName(detail.toolName)}
+        </Typography>
+        <RiskChip level={riskLevel} />
+      </div>
+    </div>
+  );
+}
+
 export function ToolDetailPanel({
   detail,
   onClose,
@@ -284,7 +262,7 @@ export function ToolDetailPanel({
   assistantId?: string | null;
 }) {
   const { t } = useTranslation("chat");
-  // Thinking variant — reuse the same shell/header but render the full
+  // Thinking variant: reuse the same shell/header but render the full
   // reasoning markdown with no input/output sections and no risk badge.
   if (detail.kind === "thinking") {
     return (
@@ -299,19 +277,26 @@ export function ToolDetailPanel({
   const { iconName } = deriveStepLabelFromName(detail.toolName, detail.input);
   const Glyph = ICON_MAP[iconName] ?? Bolt;
 
-  const title = toolDetailHeaderTitle(detail);
-
   return (
     <DetailShell
       Glyph={Glyph}
-      title={title}
+      titleNode={
+        <ToolDetailHeaderTitle
+          detail={detail}
+          source={TRANSCRIPT_TOOL_CALL_SOURCE}
+        />
+      }
       closeLabel={t("toolDetailPanel.closeAria")}
       // Bordered X, matching the Figma sidepanel header and the sibling
       // background-task / settings drawers.
       closeVariant="outlined"
       onClose={onClose}
     >
-      <ToolDetailBody detail={detail} assistantId={assistantId} />
+      <ToolDetailBody
+        detail={detail}
+        source={TRANSCRIPT_TOOL_CALL_SOURCE}
+        assistantId={assistantId}
+      />
     </DetailShell>
   );
 }

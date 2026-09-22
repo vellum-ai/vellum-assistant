@@ -8,13 +8,13 @@
  * the short list collapses to.
  */
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactElement } from "react";
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import { AssistantSwitcher } from "@/domains/chat/components/assistant-switcher";
 import { avatarQueryKey, type AvatarData } from "@/hooks/use-assistant-avatar";
+import { withQueryCache } from "@/lib/story-query-cache";
 import { useAuthStore } from "@/stores/auth-store";
 import {
   useResolvedAssistantsStore,
@@ -39,14 +39,11 @@ const TRAITS: Record<string, CharacterTraits> = {
   "asst-3": { bodyShape: "burst", eyeStyle: "surprised", color: "pink" },
 };
 
-/* One client for every story: the seeds are per-assistant-id and the stories
+/* One cache for every story: the seeds are per-assistant-id and the stories
    share the ids. Both spellings of the key carry each avatar, since the hook
    appends its manifest-support flag and a story cannot know which way that
    resolves. */
-const AVATAR_CLIENT = (() => {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false, staleTime: Infinity } },
-  });
+const withAvatarCache = withQueryCache((client) => {
   for (const [id, traits] of Object.entries(TRAITS)) {
     for (const supportsManifest of [true, false]) {
       client.setQueryData([...avatarQueryKey(id), supportsManifest], {
@@ -56,8 +53,7 @@ const AVATAR_CLIENT = (() => {
       } satisfies AvatarData);
     }
   }
-  return client;
-})();
+});
 
 function seedStores(assistants: ResolvedAssistant[]): void {
   useResolvedAssistantsStore.setState({
@@ -85,13 +81,12 @@ const meta: Meta<typeof AssistantSwitcher> = {
     (Story: () => ReactElement) => {
       seedStores(ASSISTANTS);
       return (
-        <QueryClientProvider client={AVATAR_CLIENT}>
-          <div className="w-[280px] rounded-2xl bg-[var(--surface-base)] p-3">
-            <Story />
-          </div>
-        </QueryClientProvider>
+        <div className="w-[280px] rounded-2xl bg-[var(--surface-base)] p-3">
+          <Story />
+        </div>
       );
     },
+    withAvatarCache,
   ],
 };
 

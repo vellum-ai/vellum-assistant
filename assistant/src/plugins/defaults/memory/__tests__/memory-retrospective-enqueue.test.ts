@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import type { MessagesAfterRef } from "../../../../persistence/message-cursor.js";
+
 // ---------------------------------------------------------------------------
 // Mock state — reset between tests.
 // ---------------------------------------------------------------------------
@@ -17,6 +19,7 @@ let cfgThrows = false;
 let mockStateRow: {
   conversationId: string;
   lastProcessedMessageId: string;
+  lastProcessedCreatedAt: number | null;
   lastRunAt: number;
   rememberedLog: string[];
 } | null = null;
@@ -24,7 +27,7 @@ let tailQualifies = true;
 let gateProbeThrows = false;
 let gateProbeCalls: Array<{
   conversationId: string;
-  afterMessageId: string | null;
+  after: MessagesAfterRef;
 }> = [];
 
 mock.module("../../../../persistence/conversation-crud.js", () => ({
@@ -68,9 +71,9 @@ mock.module("../memory-retrospective-state.js", () => ({
 mock.module("../memory-retrospective-accounting.js", () => ({
   hasQualifyingUserMessageAfter: (
     conversationId: string,
-    afterMessageId: string | null,
+    after: MessagesAfterRef,
   ) => {
-    gateProbeCalls.push({ conversationId, afterMessageId });
+    gateProbeCalls.push({ conversationId, after });
     if (gateProbeThrows) {
       throw new Error("messages table unavailable");
     }
@@ -170,10 +173,11 @@ describe("enqueueMemoryRetrospectiveIfEnabled", () => {
     expect(gateProbeCalls).toHaveLength(0);
   });
 
-  test("gate probes the tail from the state row's cursor", () => {
+  test("gate probes the tail from the state row's cursor, timestamp included", () => {
     mockStateRow = {
       conversationId: "c1",
       lastProcessedMessageId: "m9",
+      lastProcessedCreatedAt: 9_000,
       lastRunAt: 1,
       rememberedLog: [],
     };
@@ -183,7 +187,7 @@ describe("enqueueMemoryRetrospectiveIfEnabled", () => {
     });
 
     expect(gateProbeCalls).toEqual([
-      { conversationId: "c1", afterMessageId: "m9" },
+      { conversationId: "c1", after: { id: "m9", createdAt: 9_000 } },
     ]);
   });
 

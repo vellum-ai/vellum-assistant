@@ -29,10 +29,14 @@ const realPluginApi = await import("@vellumai/plugin-api");
 
 let selectMockActive = false;
 let sendMessageImpl: (() => Promise<ProviderResponse>) | null = null;
+// The messages of the most recent selector call, for asserting the rendered
+// pool.
+let lastMessages: unknown = null;
 
 const mockProvider = {
   name: "mock-memory-v3-selector",
-  async sendMessage(): Promise<ProviderResponse> {
+  async sendMessage(messages: unknown): Promise<ProviderResponse> {
+    lastMessages = messages;
     if (!sendMessageImpl) {
       throw new Error("sendMessageImpl not configured");
     }
@@ -50,7 +54,7 @@ mock.module("@vellumai/plugin-api", () => ({
       : realPluginApi.getConfiguredProvider(...args),
 }));
 
-const { MemoryV3RetrievalUnavailableError, selectPool } =
+const { MemoryV3RetrievalUnavailableError, renderFinderLine, selectPool } =
   await import("./pool-select.js");
 
 function response(content: ContentBlock[]): ProviderResponse {
@@ -68,9 +72,11 @@ const turn: MemoryRoutingTurn = {
   recentContext: "",
 };
 
-const pool = {
+const pool: Parameters<typeof selectPool>[0] = {
   stable: [],
-  finder: [{ slug: "page-a" as Slug, descriptor: "a descriptor" }],
+  finder: [
+    { slug: "page-a" as Slug, descriptor: "a descriptor", lane: "needle" },
+  ],
 };
 
 describe("selectPool", () => {
@@ -127,8 +133,10 @@ describe("selectPool", () => {
         },
       ]);
     expect(await selectPool(pool, turn)).toEqual({
-      pages: [{ slug: "page-a", pinned: false }],
+      pages: [{ slug: "page-a", sections: [] }],
       keptAll: false,
+      pool,
+      turn,
     });
   });
 
@@ -138,15 +146,49 @@ describe("selectPool", () => {
         { type: "tool_use", id: "call-1", name: "select_pages", input: {} },
       ]);
     expect(await selectPool(pool, turn)).toEqual({
-      pages: [{ slug: "page-a", pinned: false }],
+      pages: [{ slug: "page-a", sections: [] }],
       keptAll: true,
+      pool,
+      turn,
     });
   });
 
+  test("a finder line is shown as its pool number and renderFinderLine", async () => {
+    sendMessageImpl = async () =>
+      response([
+        {
+          type: "tool_use",
+          id: "call-1",
+          name: "select_pages",
+          input: { ids: [] },
+        },
+      ]);
+    const candidate: Parameters<typeof renderFinderLine>[0] = {
+      slug: "page-a" as Slug,
+      descriptor: "a descriptor",
+      lane: "needle",
+    };
+    await selectPool(
+      {
+        stable: [{ slug: "page-s" as Slug, card: "card s", lane: "core" }],
+        finder: [candidate],
+      },
+      turn,
+    );
+    const sent = JSON.stringify(lastMessages);
+    expect(sent).toContain(
+      JSON.stringify(`[2] ${renderFinderLine(candidate)}`).slice(1, -1),
+    );
+    expect(sent).toContain(JSON.stringify("[1] card s").slice(1, -1));
+  });
+
   test("an empty candidate pool returns no selections", async () => {
-    expect(await selectPool({ stable: [], finder: [] }, turn)).toEqual({
+    const emptyPool = { stable: [], finder: [] };
+    expect(await selectPool(emptyPool, turn)).toEqual({
       pages: [],
       keptAll: false,
+      pool: emptyPool,
+      turn,
     });
   });
 });

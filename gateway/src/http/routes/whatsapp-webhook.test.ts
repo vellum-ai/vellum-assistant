@@ -56,9 +56,6 @@ mock.module("../../whatsapp/download.js", () => ({
 
 mock.module("../../whatsapp/send.js", () => ({
   sendWhatsAppReply: sendWhatsAppReplyMock,
-  sendWhatsAppAttachments: mock(() =>
-    Promise.resolve({ allFailed: false, failureCount: 0, totalCount: 0 }),
-  ),
 }));
 
 mock.module("../../whatsapp/api.js", () => ({

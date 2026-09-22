@@ -13,8 +13,8 @@
  *  - never re-throw — the caller always gets a structured result and decides
  *    whether to alert further
  *
- * Producers that have their own bespoke failure UX (e.g. heartbeat's existing
- * alerter banner) can opt out of the failure-emit via
+ * Producers whose failure alerting is owned elsewhere (e.g. the scheduler's
+ * retry policy) can opt out of the failure-emit via
  * `suppressFailureNotifications`.
  */
 
@@ -104,9 +104,9 @@ export interface RunBackgroundJobOptions {
   timeoutMs: number;
   /**
    * When true, failures do NOT emit an `activity.failed` notification.
-   * Use for jobs whose failure alerting is owned elsewhere: heartbeat's
-   * alerter banner, and the scheduler's retry policy (which alerts once,
-   * when retries are exhausted, instead of once per attempt).
+   * Use for jobs whose failure alerting is owned elsewhere, such as the
+   * scheduler's retry policy (which alerts once, when retries are
+   * exhausted, instead of once per attempt).
    */
   suppressFailureNotifications?: boolean;
   /** Conversation grouping id. Defaults to `"system:background"`. */
@@ -171,17 +171,23 @@ export interface RunBackgroundJobOptions {
    */
   allowPreFirstUserMessage?: boolean;
   /**
-   * Optional prompt-injection mitigation. When set, the runner adds three
-   * messages to the conversation BEFORE invoking `processMessage`:
+   * Optional prompt-injection mitigation. When set, the runner seeds the
+   * conversation with a user/assistant/user sandwich BEFORE invoking
+   * `processMessage`:
    *
-   *   1. `user` role: `preamble`     — static, trusted instructions.
-   *   2. `assistant` role: `content` — attacker-controllable payload (the LLM
+   *   1. `user` role: `preamble`     - static, trusted instructions.
+   *   2. `assistant` role: `content` - attacker-controllable payload (the LLM
    *      treats it as its own past output, not as user instructions).
-   *   3. `user` role: `postamble`    — static, trusted action prompt.
+   *   3. `user` role: `postamble`    - static, trusted action prompt.
    *
-   * `processMessage` is then invoked with whatever `prompt` the caller set
-   * (often empty or a short kicker) since the conversation already carries
-   * the seed.
+   * An empty `prompt` is a signal that the sandwich already carries the
+   * seed. In that case the runner persists only the preamble and untrusted
+   * content, then invokes `processMessage` with the postamble.
+   * `persistUserMessage` requires content or attachments, so the kickoff
+   * cannot be empty.
+   *
+   * A non-empty `prompt` still seeds all three sandwich messages, then
+   * invokes `processMessage` with that kicker.
    *
    * Used by the watcher engine to ingest external provider events safely:
    * a malicious Linear title or Gmail subject reaches the model only in
@@ -324,28 +330,29 @@ export async function runBackgroundJob(
     // messages. The LLM treats assistant-role content as its own prior
     // output, not as user instructions, so a malicious payload (e.g. a
     // crafted Linear title) cannot override the postamble's action prompt.
-    if (opts.assistantSandwich) {
-      await addMessage(
-        conversation.id,
-        "user",
-        opts.assistantSandwich.preamble,
-        { skipIndexing: true },
-      );
-      await addMessage(
-        conversation.id,
-        "assistant",
-        opts.assistantSandwich.content,
-        { skipIndexing: true },
-      );
-      await addMessage(
-        conversation.id,
-        "user",
-        opts.assistantSandwich.postamble,
-        { skipIndexing: true },
-      );
+    const sandwich = opts.assistantSandwich;
+    let kickoffPrompt = opts.prompt;
+    let kickoffFromPostamble = false;
+    if (sandwich) {
+      await addMessage(conversation.id, "user", sandwich.preamble, {
+        skipIndexing: true,
+      });
+      await addMessage(conversation.id, "assistant", sandwich.content, {
+        skipIndexing: true,
+      });
+      if (opts.prompt.trim() === "") {
+        // persistUserMessage rejects empty content. The sandwich already
+        // carries the seed, so the trusted postamble is the kickoff.
+        kickoffFromPostamble = true;
+        kickoffPrompt = sandwich.postamble;
+      } else {
+        await addMessage(conversation.id, "user", sandwich.postamble, {
+          skipIndexing: true,
+        });
+      }
     }
 
-    const work = processMessage(conversation.id, opts.prompt, {
+    const work = processMessage(conversation.id, kickoffPrompt, {
       trustContext: opts.trustContext,
       callSite: opts.callSite,
       ...(opts.overrideProfile
@@ -355,7 +362,9 @@ export async function runBackgroundJob(
       ...(opts.cronRunId ? { cronRunId: opts.cronRunId } : {}),
       ...(opts.allowedTools ? { allowedTools: opts.allowedTools } : {}),
       ...(opts.toolGateMode ? { toolGateMode: opts.toolGateMode } : {}),
-      ...(opts.skipPromptIndexing ? { skipUserMessageIndexing: true } : {}),
+      ...(opts.skipPromptIndexing || kickoffFromPostamble
+        ? { skipUserMessageIndexing: true }
+        : {}),
     });
     // Absorb late rejections: if the timeout wins the race, `work` keeps
     // running and may eventually reject — swallow so it doesn't surface as

@@ -2,8 +2,10 @@
  * `notification_intent` SSE event.
  *
  * Broadcast when a notification should be displayed. Clients turn it
- * into a local OS / in-app notification, filter guardian-scoped intents
- * to matching devices, and ack delivery back to the daemon.
+ * into a local OS / in-app notification and ack delivery back to the
+ * daemon. A guardian-scoped intent (`targetGuardianPrincipalId` set) is
+ * delivered only to connections whose verified principal is that
+ * guardian, so every client that receives one is meant to show it.
  *
  * `silent` tells the client not to post the intent to the OS
  * notification surface (non-banner side effects still run); the server
@@ -20,6 +22,8 @@ import { z } from "zod";
 export const NotificationIntentEventSchema = z.object({
   type: z.literal("notification_intent"),
   sourceEventName: z.string(),
+  /** Verified assistant name supplied by the assistant when available. */
+  assistantName: z.string().optional(),
   title: z.string(),
   body: z.string(),
   deliveryId: z.string().optional(),

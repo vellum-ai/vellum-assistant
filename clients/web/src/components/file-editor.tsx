@@ -5,18 +5,12 @@
  */
 
 import { Check, Copy, Download, Pencil } from "lucide-react";
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useCallback, type ReactNode } from "react";
 
 import { Button } from "@vellumai/design-library/components/button";
 
+import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { useTranslation } from "@/i18n";
-import { copyToClipboard } from "@/lib/copy-to-clipboard";
 import { saveFile } from "@/runtime/native-file";
 
 export const MONO_FONT =
@@ -42,41 +36,23 @@ export function ContentActionBar({
   extraActions?: ReactNode;
 }) {
   const { t } = useTranslation();
-  const [copied, setCopied] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { copy, copied } = useCopyToClipboard({
+    errorMessage: t("contentActionBar.copyFailed"),
+  });
 
-  const handleCopy = useCallback(() => {
-    copyToClipboard(content, {
-      errorMessage: t("contentActionBar.copyFailed"),
-      onCopied: () => {
-        setCopied(true);
-        if (timerRef.current) {
-          clearTimeout(timerRef.current);
-        }
-        timerRef.current = setTimeout(() => setCopied(false), 1500);
-      },
-    });
-  }, [content, t]);
+  const handleCopy = useCallback(() => copy(content), [copy, content]);
 
   const rawContent = downloadContent ?? content;
   const handleDownload = useCallback(() => {
     void saveFile(new Blob([rawContent], { type: mimeType }), fileName);
   }, [rawContent, fileName, mimeType]);
 
-  useEffect(() => {
-    return () => {
-      if (timerRef.current) {
-        clearTimeout(timerRef.current);
-      }
-    };
-  }, []);
-
   if (isEditing) {
     return null;
   }
 
   return (
-    <div className="absolute right-3 top-3 z-10 flex items-center gap-1 rounded-md bg-[var(--surface-primary)] shadow-sm">
+    <div className="absolute right-3 top-3 z-10 flex items-center gap-1 rounded-md bg-[var(--surface-lift)] shadow-sm">
       {showEdit && onToggleEdit && (
         <Button
           variant="ghost"
@@ -160,7 +136,7 @@ export function EditFooter({
       {error && (
         <span
           className="mr-auto text-body-small-default"
-          style={{ color: "var(--system-error)" }}
+          style={{ color: "var(--system-negative-strong)" }}
         >
           {error}
         </span>

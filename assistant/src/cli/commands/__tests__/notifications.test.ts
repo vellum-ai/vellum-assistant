@@ -175,7 +175,7 @@ describe("notifications send", () => {
       "--source-channel",
       "assistant_tool",
       "--source-event-name",
-      "user.send_notification",
+      "schedule.notify",
       "--message",
       "Hello",
     ]);
@@ -186,7 +186,7 @@ describe("notifications send", () => {
 
     const body = lastSendBody();
     expect(body.sourceChannel).toBe("assistant_tool");
-    expect(body.sourceEventName).toBe("user.send_notification");
+    expect(body.sourceEventName).toBe("schedule.notify");
     const payload = body.contextPayload as Record<string, unknown>;
     expect(payload.requestedMessage).toBe("Hello");
   });
@@ -221,7 +221,7 @@ describe("notifications send", () => {
       "--source-channel",
       "assistant_tool",
       "--source-event-name",
-      "user.send_notification",
+      "schedule.notify",
       "--message",
       "Hello",
       "--preferred-channels",
@@ -235,13 +235,38 @@ describe("notifications send", () => {
     expect(payload.preferredChannels).toEqual(["telegram", "slack"]);
   });
 
-  test("send rejects invalid urgency", async () => {
+  test("send passes exclusive channel allowlist", async () => {
     const { parsed, exitCode } = await runCommand([
       "send",
       "--source-channel",
       "assistant_tool",
       "--source-event-name",
       "user.send_notification",
+      "--message",
+      "Alarm",
+      "--channels",
+      "telegram",
+      "--urgent",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(parsed.ok).toBe(true);
+    expect(parsed.selectedChannels).toEqual([]);
+    expect(parsed.deliveryResults).toEqual([]);
+    expect(parsed.receiptClass).toBe("unknown");
+
+    const payload = lastSendBody().contextPayload as Record<string, unknown>;
+    expect(payload.channelAllowlist).toEqual(["telegram"]);
+    expect(payload.preferredChannels).toBeUndefined();
+  });
+
+  test("send rejects invalid urgency", async () => {
+    const { parsed, exitCode } = await runCommand([
+      "send",
+      "--source-channel",
+      "assistant_tool",
+      "--source-event-name",
+      "schedule.notify",
       "--message",
       "Hello",
       "--urgency",
@@ -265,7 +290,7 @@ describe("notifications send", () => {
       "--source-channel",
       "water_reminder",
       "--source-event-name",
-      "user.send_notification",
+      "schedule.notify",
       "--message",
       "Hello",
     ]);
@@ -300,7 +325,7 @@ describe("notifications send", () => {
       "--source-channel",
       "assistant_tool",
       "--source-event-name",
-      "user.send_notification",
+      "schedule.notify",
       "--message",
       "Hi",
       "--conversation-id",
@@ -320,7 +345,7 @@ describe("notifications send", () => {
       "--source-channel",
       "assistant_tool",
       "--source-event-name",
-      "user.send_notification",
+      "schedule.notify",
       "--message",
       "Hi",
     ]);
@@ -335,7 +360,7 @@ describe("notifications send", () => {
       "--source-channel",
       "assistant_tool",
       "--source-event-name",
-      "user.send_notification",
+      "schedule.notify",
       "--message",
       "Hi",
       "--conversation-id",
@@ -359,7 +384,7 @@ describe("notifications send", () => {
       "--source-channel",
       "assistant_tool",
       "--source-event-name",
-      "user.send_notification",
+      "schedule.notify",
       "--message",
       "Hello",
     ]);
@@ -384,7 +409,7 @@ describe("notifications send", () => {
       "--source-channel",
       "assistant_tool",
       "--source-event-name",
-      "user.send_notification",
+      "schedule.notify",
       "--message",
       "Hello",
     ]);

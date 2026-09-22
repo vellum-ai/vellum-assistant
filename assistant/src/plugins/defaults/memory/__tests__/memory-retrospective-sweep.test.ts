@@ -412,3 +412,34 @@ describe("listSweepCandidateConversationIds", () => {
     ]);
   });
 });
+
+describe("runRetrospectiveSweep: cursor survives a regenerated reply", () => {
+  beforeEach(() => {
+    resetTables();
+    enqueueCalls = [];
+    enqueueDeclines = new Set();
+  });
+
+  test("a stale conversation whose cursor row was regenerated away is still swept", async () => {
+    const conv = createConversation({ id: "conv-a" });
+    insertMessage(conv.id, { createdAt: 1_000 });
+    const reply = insertMessage(conv.id, {
+      role: "assistant",
+      createdAt: 2_000,
+    });
+    await upsertRetrospectiveState({
+      conversationId: conv.id,
+      lastProcessedMessageId: reply,
+      lastProcessedCreatedAt: 2_000,
+      lastRunAt: Date.now() - SWEEP_INTERVAL_MS - 60_000,
+    });
+    getDb().delete(messages).where(eq(messages.id, reply)).run();
+    insertMessage(conv.id, { role: "assistant", createdAt: 3_000 });
+
+    await runRetrospectiveSweep(makeConfig());
+
+    expect(enqueueCalls).toEqual([
+      { conversationId: conv.id, trigger: "sweep" },
+    ]);
+  });
+});

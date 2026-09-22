@@ -16,6 +16,9 @@
 
 import { useMemo, useState } from "react";
 
+import { useTranslation } from "@/i18n";
+import { displayConversationTitle } from "@/utils/conversation-title";
+
 import {
   type ConversationFilter,
   bucketSources,
@@ -46,6 +49,7 @@ export function useAllConversationsData(
 ) {
   const [searchText, setSearchText] = useState("");
   const [filter, setFilter] = useState<ConversationFilter>(initialFilter);
+  const { t } = useTranslation();
 
   // The archived bucket renders from the archived list alone, so the active
   // lists stay unfetched until a filter needs them — they can drain a large
@@ -112,8 +116,11 @@ export function useAllConversationsData(
   );
 
   const rows = useMemo(
-    () => filterBySearch(stateFiltered, searchText),
-    [stateFiltered, searchText],
+    () =>
+      filterBySearch(stateFiltered, searchText, (title) =>
+        displayConversationTitle(title, t),
+      ),
+    [stateFiltered, searchText, t],
   );
 
   const loading = isBucketLoading(filter, { activeLoading, archivedLoading });

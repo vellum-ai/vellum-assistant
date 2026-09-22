@@ -162,7 +162,7 @@ export class ApiError extends Error {
  * wording there.
  *
  * Only matches {@link ApiError}, which the daemon client's error interceptor
- * produces for `throwOnError: true` calls — its `message` is already the
+ * produces for `throwOnError: true` calls, so its `message` is already the
  * server's `error.message` when the body carried one. The synthesized
  * `HTTP <status>` fallback is treated as no message at all.
  */

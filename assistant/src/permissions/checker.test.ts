@@ -15,13 +15,16 @@ mock.module("../config/assistant-feature-flags.js", () => ({
 }));
 
 // `buildPolicyContext` (used by the integration tests below) precomputes the
-// proc-to-skills gate via `isV3TierActive`. Drive it through this slot so a
-// test can put the production threading path in the active / inactive state.
+// retrospective skill-improvement gate. Keep the v3 tier active while the
+// dedicated gate changes so the production threading test covers the new
+// opt-out rather than the old v3 condition.
 let mockV3TierActive = true;
+let mockSkillImprovementActive = true;
 mock.module("../config/memory-v3-gate.js", () => ({
   isMemoryEnabled: (config?: { memory?: { enabled?: boolean } }) =>
     config?.memory?.enabled !== false,
   isV3TierActive: () => mockV3TierActive,
+  isSkillImprovementActive: () => mockSkillImprovementActive,
   isMemoryV3Live: () => mockV3TierActive,
   usesConceptPageMemory: (memory?: {
     enabled?: boolean;
@@ -219,6 +222,7 @@ describe("Permission Checker (gateway IPC)", () => {
     mockCachedThreshold = "low";
     mockRefreshedThreshold = null;
     mockV3TierActive = true;
+    mockSkillImprovementActive = true;
     thresholdCallLog.length = 0;
     mockSkillCatalog = [];
     mockResolvedSkill = null;
@@ -1173,10 +1177,11 @@ describe("Permission Checker (gateway IPC)", () => {
     });
 
     test("grant does NOT fire when proc-to-skills is inactive, even for the retrospective turn", async () => {
-      // Same retrospective ToolContext, but the feature is inactive (flag off
-      // or v3 not live). buildPolicyContext stamps `procToSkillsActive: false`,
-      // so the grant is dead and the high-risk scaffold prompts.
-      mockV3TierActive = false;
+      // The retrospective keeps its live v3 tier, but this independent flag is
+      // off. buildPolicyContext stamps `procToSkillsActive: false`, so the
+      // grant is dead and the high-risk scaffold prompts.
+      mockV3TierActive = true;
+      mockSkillImprovementActive = false;
       mockIpcClassifyRiskResult = {
         risk: "high",
         reason: "Skill scaffold",

@@ -1,8 +1,8 @@
 import { maybeDefaultSpeechToManaged } from "../config/managed-speech-defaults.js";
 import { rehydratePlatformCredentials } from "../config/platform-rehydration.js";
 import type { AssistantConfig } from "../config/types.js";
-import { buildEffectiveMcpConfig } from "../mcp/effective-config.js";
 import { getMcpServerManager } from "../mcp/manager.js";
+import { startConfiguredMcpServers } from "../mcp/startup.js";
 import { gmailMessagingProvider } from "../messaging/providers/gmail/adapter.js";
 import { outlookMessagingProvider } from "../messaging/providers/outlook/adapter.js";
 import { slackProvider as slackMessagingProvider } from "../messaging/providers/slack/adapter.js";
@@ -10,9 +10,9 @@ import { telegramBotMessagingProvider } from "../messaging/providers/telegram-bo
 import { whatsappMessagingProvider } from "../messaging/providers/whatsapp/adapter.js";
 import { registerMessagingProvider } from "../messaging/registry.js";
 import { initializeProviders } from "../providers/registry.js";
+import { publishMcpChanged } from "../runtime/sync/resource-sync-events.js";
 import { validateSubagentRoleAllowlists } from "../subagent/validate-allowlists.js";
-import { createMcpToolsFromServer } from "../tools/mcp/mcp-tool-factory.js";
-import { initializeTools, registerMcpTools } from "../tools/registry.js";
+import { initializeTools } from "../tools/registry.js";
 import { getLogger } from "../util/logger.js";
 import { initWatcherEngine } from "../watcher/engine.js";
 import { registerWatcherProvider } from "../watcher/provider-registry.js";
@@ -63,28 +63,11 @@ export async function initializeProvidersAndTools(
   }
 
   // Start MCP servers — workspace-configured and plugin-declared alike —
-  // and register their tools.
-  const mcpConfig = buildEffectiveMcpConfig(config.mcp);
-  if (Object.keys(mcpConfig.servers).length > 0) {
-    const manager = getMcpServerManager();
-    try {
-      const serverToolInfos = await manager.start(mcpConfig);
-      for (const { serverId, serverConfig, tools } of serverToolInfos) {
-        const mcpTools = createMcpToolsFromServer(
-          tools,
-          serverId,
-          serverConfig,
-          manager,
-        );
-        registerMcpTools(serverId, mcpTools);
-      }
-    } catch (err) {
-      log.error(
-        { err },
-        "MCP server initialization failed — continuing without MCP tools",
-      );
-    }
-  }
+  // and register their tools. Shared with the schedule worker, which hosts
+  // agent turns in its own process and so needs its own connections.
+  getMcpServerManager().setUnexpectedCloseHandler(() => publishMcpChanged());
+  await startConfiguredMcpServers();
+  publishMcpChanged();
 
   log.info("Daemon startup: providers and tools initialized");
 }

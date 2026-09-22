@@ -62,7 +62,8 @@
     "toggleFailed": "切換排程失敗。",
     "notUsedForWorkflow": "不適用於工作流程執行",
     "enabled": "已啟用",
-    "disabled": "已停用"
+    "disabled": "已停用",
+    "timezone": "時區"
   },
   "systemTaskDetail": {
     "openMemorySettings": "開啟記憶體設定",

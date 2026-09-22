@@ -12,6 +12,7 @@ import type { TagTone } from "@vellumai/design-library/components/tag";
 
 import { fetchScheduleUsageSummary } from "@/domains/settings/api/schedules";
 import { resolveScheduleUsageWindow } from "@/domains/settings/utils/schedule-usage-window";
+import { t as defaultT } from "@/i18n";
 import { canScheduleStillRun } from "@/utils/schedules";
 
 // ---------------------------------------------------------------------------
@@ -60,12 +61,12 @@ export function formatScheduleRunCount(count: number): string {
   return `${formatted} ${count === 1 ? "run" : "runs"}`;
 }
 
-export function formatInterval(ms: number): string {
+export function formatInterval(ms: number, t = defaultT): string {
   const minutes = Math.round(ms / 60_000);
   if (minutes >= 60 && minutes % 60 === 0) {
-    return `Every ${minutes / 60} hr`;
+    return t("scheduleFormatters.everyHours", { count: minutes / 60 });
   }
-  return `Every ${minutes} min`;
+  return t("scheduleFormatters.everyMinutes", { count: minutes });
 }
 
 /**
@@ -196,23 +197,32 @@ export function systemTaskKindFromUrlId(
   }
 }
 
-export function heartbeatSubtitle(config: HeartbeatConfigGetResponse): string {
+export function heartbeatSubtitle(
+  config: HeartbeatConfigGetResponse,
+  fallbackTimezone?: string | null,
+  t = defaultT,
+): string {
+  const timezone =
+    config.effectiveTimezone || config.timezone || fallbackTimezone || null;
   if (config.cronExpression) {
-    return config.timezone
-      ? `Cron: ${config.cronExpression} (${config.timezone})`
+    return timezone
+      ? `Cron: ${config.cronExpression} (${timezone})`
       : `Cron: ${config.cronExpression}`;
   }
-  let subtitle = formatInterval(config.intervalMs);
+  let subtitle = formatInterval(config.intervalMs, t);
   if (config.activeHoursStart != null && config.activeHoursEnd != null) {
-    subtitle += ` (${config.activeHoursStart}:00–${config.activeHoursEnd}:00)`;
+    subtitle += timezone
+      ? ` (${config.activeHoursStart}:00–${config.activeHoursEnd}:00 ${timezone})`
+      : ` (${config.activeHoursStart}:00–${config.activeHoursEnd}:00)`;
   }
   return subtitle;
 }
 
 export function consolidationSubtitle(
   config: ConsolidationConfigGetResponse,
+  t = defaultT,
 ): string {
-  return formatInterval(config.intervalMs);
+  return formatInterval(config.intervalMs, t);
 }
 
 /**
@@ -220,6 +230,10 @@ export function consolidationSubtitle(
  * not interval-scheduled — so the cadence line describes the trigger instead
  * of formatting `intervalMs`.
  */
+export function retrospectiveSubtitle(t = defaultT): string {
+  return t("scheduleFormatters.retrospectiveSubtitle");
+}
+
 export const RETROSPECTIVE_SUBTITLE = "After conversation activity";
 
 // ---------------------------------------------------------------------------

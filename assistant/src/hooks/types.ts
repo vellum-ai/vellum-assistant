@@ -594,6 +594,28 @@ export interface PostModelCallInputContext {
   /** Provider-reported stop reason for the turn; `null` when not reported. */
   readonly stopReason: string | null;
   /**
+   * True when this run's plain assistant text does not reach the user: the
+   * turn routes its reply through the `send_user_message` tool instead, and
+   * {@link content}'s text blocks are private working notes. A hook that
+   * decides whether the user was answered must read this rather than assume
+   * visible text was delivered. Absent or false on every ordinary run, so a
+   * hook reads it as `=== true`.
+   */
+  readonly assistantTextSuppressed?: boolean;
+  /**
+   * Whether the user has already been told the OUTCOME of this run's work,
+   * decided by the host so a hook cannot reach a different answer than the
+   * loop does.
+   *
+   * True when the last response that called any tool reported on the work
+   * before it: every one of its tool calls delivered a message to the user. A
+   * response that sends a message alongside other tool calls is a progress
+   * update, and a call the executor rejects (blank or non-string message)
+   * delivers nothing, so neither counts. Absent on a host that does not
+   * compute it, so a hook reads it as `=== true`.
+   */
+  readonly userToldOutcome?: boolean;
+  /**
    * The provider rejection that ended the call, on a rejection outcome. Absent
    * on a finalized reply. A hook that recovers from a specific rejection class
    * inspects this and may repair {@link messages} and set {@link decision} to
@@ -657,3 +679,36 @@ export interface ConversationDeletedContext
  * {@link BaseHookContext}.
  */
 export type ConversationsClearedContext = BaseHookContext;
+
+// ─── Message-deleted hook context ────────────────────────────────────────────
+
+/**
+ * Context passed to the `message-deleted` hook. Fires once per deleted
+ * message row, from the shared single-message delete primitive, after the row
+ * is removed. Whole-conversation deletes dispatch `conversation-deleted`
+ * instead.
+ *
+ * Fire-and-forget like `conversation-deleted`: the primitive is synchronous
+ * and does not wait for the chain. The row is gone by the time a hook runs,
+ * so the context carries the row's `createdAt` alongside its id. Together
+ * they are the `(createdAt, id)` position the row held, which is what a hook
+ * keeping a cursor on that row needs to record once the row can no longer be
+ * looked up. The default memory plugin contributes a hook here that stamps
+ * its retrospective cursor.
+ */
+export interface MessageDeletedInputContext {
+  /** ID of the conversation that owned the row. */
+  readonly conversationId: string;
+  /** ID of the deleted message row. */
+  readonly messageId: string;
+  /** The deleted row's `createdAt`. */
+  readonly createdAt: number;
+}
+
+/**
+ * The full `message-deleted` context a hook receives: the dispatching call
+ * site's {@link MessageDeletedInputContext} plus the pipeline-stamped
+ * {@link BaseHookContext} capabilities.
+ */
+export interface MessageDeletedContext
+  extends MessageDeletedInputContext, BaseHookContext {}

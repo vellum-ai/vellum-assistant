@@ -7,13 +7,14 @@ import { BackendUnavailableError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import { getMemoryDb } from "./db-connection.js";
 import {
+  durableEmbeddingCacheExtras,
   embedWithBackend,
   generateSparseEmbedding,
   getMemoryBackendStatus,
 } from "./embeddings/embedding-backend.js";
 import type { EmbeddingInput } from "./embeddings/embedding-types.js";
 import {
-  embeddingInputContentHash,
+  embeddingContentHashWithExtras,
   normalizeEmbeddingInput,
 } from "./embeddings/embedding-types.js";
 import { withQdrantBreaker } from "./embeddings/qdrant-circuit-breaker.js";
@@ -186,7 +187,10 @@ export async function embedAndUpsert(
     );
   }
 
-  const contentHash = embeddingInputContentHash(input);
+  const contentHash = embeddingContentHashWithExtras(
+    input,
+    durableEmbeddingCacheExtras(config, status.provider),
+  );
   let provider = status.provider;
   let model = status.model!;
   let vector: number[];

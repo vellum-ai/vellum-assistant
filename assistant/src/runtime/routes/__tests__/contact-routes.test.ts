@@ -15,7 +15,10 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { IpcCallError } from "@vellumai/gateway-client/ipc-client";
+import {
+  IpcCallError,
+  IpcConnectError,
+} from "@vellumai/gateway-client/ipc-client";
 import { z } from "zod";
 
 let ipcCalls: { method: string; params?: Record<string, unknown> }[] = [];
@@ -240,6 +243,16 @@ describe("contacts read API relays from the gateway", () => {
       statusCode: 503,
     });
     // No assistant-DB fallback read.
+    expect(contactStoreReadGuard).not.toHaveBeenCalled();
+  });
+
+  test("list surfaces a missing gateway socket as 503", async () => {
+    ipcError = new IpcConnectError("connect ENOENT", "ENOENT");
+
+    await expect(handleListContacts({ limit: "50" })).rejects.toMatchObject({
+      statusCode: 503,
+      code: "SERVICE_UNAVAILABLE",
+    });
     expect(contactStoreReadGuard).not.toHaveBeenCalled();
   });
 

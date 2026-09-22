@@ -12,6 +12,7 @@
  * covered by `src/__tests__/conversation-wait-for-idle.test.ts`.
  */
 import {
+  afterEach,
   beforeEach,
   describe,
   expect,
@@ -31,12 +32,29 @@ mock.module("../../daemon/conversation-store.js", () => ({
   getOrCreateConversation: async () => fakeConversation,
 }));
 
-// Vision capability of the image pin's target profile. Install-dependent in
-// production (a BYO provider resolves the profile key through its own column
-// of the intent matrix), so it is scripted rather than read from a catalog.
-let pinProfileSupportsVision = true;
-mock.module("../../plugin-api/vision-support.js", () => ({
-  doesSupportVision: () => pinProfileSupportsVision,
+// The escalation judge's verdict for front-door legs, scripted per test.
+let judgeEscalationCalls: Array<{ utterance: string }> = [];
+let judgeEscalationVerdict = false;
+// When set, the judge's verdict waits on this before resolving.
+let judgeEscalationGate: Promise<void> | null = null;
+mock.module("../voice-escalation-judge.js", () => ({
+  judgeEscalation: async (args: { utterance: string }) => {
+    judgeEscalationCalls.push({ utterance: args.utterance });
+    if (judgeEscalationGate) {
+      await judgeEscalationGate;
+    }
+    return {
+      escalate: judgeEscalationVerdict,
+      outcome: judgeEscalationVerdict ? "escalate" : "clear",
+      latencyMs: 0,
+    };
+  },
+}));
+
+const unresolvableProviderNames = new Set<string>();
+mock.module("../../providers/provider-resolvability.js", () => ({
+  dispatchProviderResolvable: (provider: string) =>
+    !unresolvableProviderNames.has(provider),
 }));
 
 // Attachment hydration for the parked-camera-frame path. Only `att-frame-*`
@@ -126,6 +144,9 @@ mock.module("../../persistence/conversation-crud.js", () => ({
 }));
 
 import { setConfig } from "../../__tests__/helpers/set-config.js";
+import type { PreparedModelCall } from "../../agent/loop.js";
+import { selectWinningProfile } from "../../config/llm-resolver.js";
+import { getConfig } from "../../config/loader.js";
 import { ABORT_WATCHDOG_MS } from "../../daemon/abort-watchdog.js";
 import { VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND } from "../../plugin-api/constants.js";
 import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
@@ -162,6 +183,9 @@ interface WaitForIdleCall {
 
 interface FakeConversation {
   conversationId: string;
+  /** Per-conversation profile pin an escalated leg follows; absent = none. */
+  inferenceProfile?: string | null;
+  inferenceProfileExpiresAt?: number | null;
   callSessionId: string | undefined;
   forcePromptSideEffects: boolean;
   currentRequestId: string | undefined;
@@ -189,6 +213,7 @@ interface FakeConversation {
     opts?: { decisionContext?: string },
   ) => void;
   runAgentLoop: (...args: unknown[]) => Promise<void>;
+  warmPromptCache: (options?: Record<string, unknown>) => Promise<void>;
   getMessages: () => Array<{ role: string; content: unknown[] }>;
   abort: (reason?: unknown) => void;
   loadFromDb: () => Promise<void>;
@@ -208,6 +233,10 @@ function makeFakeConversation(opts: {
   workingDir?: string;
   /** In-memory history the profile pin reads; undefined models a text-only call. */
   messages?: Array<{ role: string; content: unknown[] }>;
+  /** Per-conversation profile pin; undefined models an unpinned conversation. */
+  inferenceProfile?: string;
+  /** Expiry of that pin; a past stamp models a lapsed session pin. */
+  inferenceProfileExpiresAt?: number;
 }) {
   const waitForIdleCalls: WaitForIdleCall[] = [];
   const confirmationDecisions: Array<{ requestId: string; decision: string }> =
@@ -224,6 +253,12 @@ function makeFakeConversation(opts: {
     | undefined;
   const conversation: FakeConversation = {
     conversationId: "conv-voice-bridge-test",
+    ...(opts.inferenceProfile !== undefined
+      ? { inferenceProfile: opts.inferenceProfile }
+      : {}),
+    ...(opts.inferenceProfileExpiresAt !== undefined
+      ? { inferenceProfileExpiresAt: opts.inferenceProfileExpiresAt }
+      : {}),
     // The workspace boundary the reach check compares paths against. A real
     // conversation always has one; without it the approval gate fails closed.
     workingDir: opts.workingDir ?? "/tmp/workspace-voice-bridge-test",
@@ -278,6 +313,7 @@ function makeFakeConversation(opts: {
       confirmationDecisions.push({ requestId, decision });
     },
     runAgentLoop: () => (opts.runAgentLoop ?? (async () => {}))(),
+    warmPromptCache: async () => {},
     getMessages: () => opts.messages ?? [],
     abort: () => {},
     loadFromDb: async () => {
@@ -310,6 +346,7 @@ interface FakeTurnState {
   assistantId: string | undefined;
   callSessionId: string | undefined;
   trustContext: unknown;
+  actorPrincipalId: string | undefined;
   commandIntent: unknown;
   turnChannelContext: unknown;
   turnInterfaceContext: unknown;
@@ -332,6 +369,8 @@ function wireTurnState(
   const conv = fake as FakeConversation & {
     assistantId?: string;
     trustContext?: unknown;
+    currentTurnSourceActorPrincipalId?: string;
+    currentTurnActorStampGeneration?: number;
     commandIntent?: unknown;
     channelCapabilities?: unknown;
     voiceCallControlPrompt?: string;
@@ -341,6 +380,22 @@ function wireTurnState(
   conv.assistantId = initial.assistantId;
   conv.callSessionId = initial.callSessionId;
   conv.trustContext = initial.trustContext;
+  // The real Conversation counts every write to the actor stamp behind an
+  // accessor (see `currentTurnActorStampGeneration`), which is what lets a
+  // turn tell its own stamp from a concurrent writer's. The fake counts them
+  // the same way, so the bridge's check is exercised here rather than being
+  // trivially true against a plain property.
+  let actorPrincipal = initial.actorPrincipalId;
+  conv.currentTurnActorStampGeneration = 0;
+  Object.defineProperty(conv, "currentTurnSourceActorPrincipalId", {
+    configurable: true,
+    get: () => actorPrincipal,
+    set: (value: string | undefined) => {
+      actorPrincipal = value;
+      conv.currentTurnActorStampGeneration =
+        (conv.currentTurnActorStampGeneration ?? 0) + 1;
+    },
+  });
   conv.commandIntent = initial.commandIntent;
   conv.channelCapabilities = initial.channelCapabilities;
   conv.voiceCallControlPrompt = initial.voiceCallControlPrompt;
@@ -374,6 +429,7 @@ function wireTurnState(
     assistantId: conv.assistantId,
     callSessionId: conv.callSessionId,
     trustContext: conv.trustContext,
+    actorPrincipalId: conv.currentTurnSourceActorPrincipalId,
     commandIntent: conv.commandIntent,
     turnChannelContext,
     turnInterfaceContext,
@@ -393,6 +449,7 @@ function makeWinnerState(): FakeTurnState {
     assistantId: "assistant-winner",
     callSessionId: "session-winner",
     trustContext: { sourceChannel: "imessage", trustClass: "trusted_contact" },
+    actorPrincipalId: "principal-winner",
     commandIntent: undefined,
     turnChannelContext: {
       userMessageChannel: "imessage",
@@ -674,9 +731,142 @@ describe("startVoiceTurn camera-frame attachments", () => {
       voiceSessionTurn: true,
     });
   });
+
+  test("claims a captured camera source before voice user persistence", async () => {
+    const events: string[] = [];
+    const fake = makeFakeConversation({
+      processing: false,
+      events,
+      onPersist: () => events.push("persisted"),
+    });
+    const claims: Array<{ turnId: string; sourceId: string }> = [];
+    Object.assign(fake.conversation, {
+      modeSessions: {
+        claimTurn: (
+          turnId: string,
+          source: { sourceId: string; id: string; mode: string },
+        ) => {
+          claims.push({ turnId, sourceId: source.sourceId });
+          events.push("claimed");
+          return { id: source.id, mode: source.mode };
+        },
+        releaseTurn: () => {},
+      },
+    });
+    fakeConversation = fake.conversation;
+
+    await startVoiceTurn({
+      ...makeTurnOptions(),
+      content: "what is this",
+      modeSessionSource: {
+        sourceId: "live-voice-camera:voice-1",
+        generation: 7,
+        activation: 1,
+        id: "session-camera",
+        mode: "live_vision",
+      },
+    });
+
+    expect(claims).toHaveLength(1);
+    expect(claims[0]?.sourceId).toBe("live-voice-camera:voice-1");
+    expect(events.indexOf("claimed")).toBeLessThan(events.indexOf("persist"));
+  });
+
+  test("uses preaccepted camera ownership without reclaiming a retired source", async () => {
+    let releaseIdle!: () => void;
+    const idle = new Promise<void>((resolve) => {
+      releaseIdle = resolve;
+    });
+    let reachedAdmission!: () => void;
+    const admissionStarted = new Promise<void>((resolve) => {
+      reachedAdmission = resolve;
+    });
+    const fake = makeFakeConversation({
+      processing: true,
+      waitForIdle: async () => {
+        reachedAdmission();
+        await idle;
+        fake.setProcessingFlag(false);
+        return true;
+      },
+    });
+    const claims: string[] = [];
+    const owner = { id: "session-camera", mode: "live_vision" as const };
+    Object.assign(fake.conversation, {
+      modeSessions: {
+        claimTurn: (turnId: string) => {
+          claims.push(turnId);
+          return undefined;
+        },
+        getTurnOwner: (turnId: string) =>
+          turnId === "preaccepted-request" ? owner : undefined,
+        releaseTurn: () => {},
+      },
+    });
+    fakeConversation = fake.conversation;
+
+    const starting = startVoiceTurn({
+      ...makeTurnOptions(),
+      content: "what is this",
+      preacceptedModeSession: {
+        requestId: "preaccepted-request",
+        source: {
+          sourceId: "live-voice-camera:voice-1",
+          generation: 7,
+          activation: 1,
+          ...owner,
+        },
+      },
+    });
+    await admissionStarted;
+
+    releaseIdle();
+    await starting;
+
+    expect(claims).toEqual([]);
+    expect(fake.lastPersistOpts()?.requestId).toBe("preaccepted-request");
+  });
 });
 
 describe("startVoiceTurn hiddenSyntheticPrompt", () => {
+  test("task announcements retain metadata and cron attribution without a user echo", async () => {
+    const fake = makeFakeConversation({ processing: false });
+    fakeConversation = fake.conversation;
+    const loopOptions: unknown[] = [];
+    fake.conversation.runAgentLoop = async (...args: unknown[]) => {
+      loopOptions.push(args[2]);
+    };
+    const metadata = {
+      subagentNotification: {
+        subagentId: "task-1",
+        label: "Compare options",
+        status: "completed",
+      },
+    };
+    const echoes = await collectUserMessageEchoes(async () => {
+      await startVoiceTurn({
+        ...makeTurnOptions(),
+        content: "Comparison completed",
+        hiddenSyntheticPrompt: true,
+        subagentNotification: {
+          taskId: "task-1",
+          message: "Comparison completed",
+          metadata,
+          cronRunId: "run-123",
+        },
+      });
+    });
+    expect(fake.lastPersistOpts()?.metadata).toMatchObject({
+      ...metadata,
+      hidden: true,
+      scripted: true,
+      voiceSessionTurn: true,
+    });
+    expect(loopOptions).toEqual([
+      expect.objectContaining({ cronRunId: "run-123" }),
+    ]);
+    expect(echoes).toEqual([]);
+  });
   // A caller whose internal instruction is composed per call carries no
   // sentinel for the content comparisons to recognize, so it declares itself.
   const SYNTHETIC_CONTENT =
@@ -784,6 +974,22 @@ describe("startVoiceTurn triage-and-escalate control prompt", () => {
     expect(installed()).toContain(frontDoorDecisionRule({ includeHold: true }));
   });
 
+  test("a hidden look follow-up routes the original request", async () => {
+    const installed = captureInstalledPrompt();
+    const callerUtterance = "Show me where to add a new page.";
+    const content = "(fresh view taken; answer from it now)";
+    await startVoiceTurn({
+      ...makeTurnOptions(),
+      content,
+      routingUtterance: callerUtterance,
+      hiddenSyntheticPrompt: true,
+      voiceControlPrompt: LIVE_VOICE_PROMPT,
+      routingLeg: "front-door",
+    });
+    expect(installed()).toContain(frontDoorDecisionRule({ callerUtterance }));
+    expect(installed()).not.toContain(JSON.stringify(content));
+  });
+
   test("appends the escalated continuation rule to a caller-supplied prompt", async () => {
     const installed = captureInstalledPrompt();
     await startVoiceTurn({
@@ -793,6 +999,53 @@ describe("startVoiceTurn triage-and-escalate control prompt", () => {
     });
     expect(installed()).toContain(LIVE_VOICE_PROMPT);
     expect(installed()).toContain(escalatedContinuationRule());
+  });
+
+  test("a direct escalated turn keeps the caller-supplied resume prompt verbatim", async () => {
+    const installed = captureInstalledPrompt();
+    await startVoiceTurn({
+      ...makeTurnOptions(),
+      voiceControlPrompt: LIVE_VOICE_PROMPT,
+      routingLeg: "escalated",
+      directEscalated: true,
+    });
+    expect(installed()).toBe(LIVE_VOICE_PROMPT);
+  });
+
+  test("the auto-built phone prompt carries the front-door rule anchored to the caller's words", async () => {
+    const installed = captureInstalledPrompt();
+    await startVoiceTurn({
+      ...makeTurnOptions(),
+      content: "what time is it",
+      routingLeg: "front-door",
+    });
+    expect(installed()).toContain("<voice_call_control>");
+    expect(installed()).toContain(
+      `13. ${frontDoorDecisionRule({ callerUtterance: "what time is it" })}`,
+    );
+  });
+
+  test("a phone sentinel anchors the front-door rule on its persisted form", async () => {
+    const installed = captureInstalledPrompt();
+    await startVoiceTurn({ ...makeTurnOptions(), routingLeg: "front-door" });
+    expect(installed()).toContain(
+      frontDoorDecisionRule({
+        callerUtterance: "(call connected — deliver opening greeting)",
+      }),
+    );
+    expect(installed()).not.toContain(JSON.stringify(CALL_OPENING_MARKER));
+  });
+
+  test("the auto-built phone prompt carries the escalated continuation rule", async () => {
+    const installed = captureInstalledPrompt();
+    await startVoiceTurn({
+      ...makeTurnOptions(),
+      routingLeg: "escalated",
+      spokenEscalationBridge: "One moment.",
+    });
+    expect(installed()).toContain(
+      `13. ${escalatedContinuationRule("One moment.")}`,
+    );
   });
 
   test("leaves a caller-supplied prompt verbatim when no routing leg is set", async () => {
@@ -813,7 +1066,7 @@ describe("default call protocol numbered rules", () => {
     const installed = captureInstalledPrompt();
     await startVoiceTurn(makeTurnOptions());
     expect(installed()).toContain(
-      "12. Speak the caller's language: reply in the language of the caller's most recent actual speech, and follow them if they switch languages mid-call. Synthetic user turns (parenthetical markers like the call-connected and verification-completed notices) are not caller speech and never set the language. Before the caller has spoken, such as on the opening greeting turn, use the language the Task context implies, if any; otherwise default to English.",
+      "11. Speak the caller's language: reply in the language of the caller's most recent actual speech, and follow them if they switch languages mid-call. Synthetic user turns (parenthetical markers like the call-connected and verification-completed notices) are not caller speech and never set the language. Before the caller has spoken, such as on the opening greeting turn, use the language the Task context implies, if any; otherwise default to English.",
     );
   });
 
@@ -1489,6 +1742,103 @@ describe("startVoiceTurn queued-message drain race", () => {
   });
 });
 
+describe("startVoiceTurn actor principal", () => {
+  // The turn's actor is what host proxies match connected desktop clients
+  // against (`pickSameUserAutoResolve`). A turn that carries none matches no
+  // client, so every computer-use call it makes is refused however healthy
+  // the connected client is.
+
+  test("stamps the caller's actor for the duration of the turn", async () => {
+    const statesAtPersist: FakeTurnState[] = [];
+    const fake = makeFakeConversation({
+      processing: false,
+      onPersist: () => {
+        statesAtPersist.push(readState());
+      },
+    });
+    const readState = wireTurnState(fake.conversation, {});
+    fakeConversation = fake.conversation;
+
+    await startVoiceTurn({
+      ...makeTurnOptions(undefined, "conv-actor-stamp"),
+      actorPrincipalId: "principal-guardian",
+    });
+
+    expect(statesAtPersist.length).toBe(1);
+    expect(statesAtPersist[0]!.actorPrincipalId).toBe("principal-guardian");
+  });
+
+  /**
+   * A phone caller is whoever dialled in. Resolving them to a desktop client
+   * would hand an inbound caller the owner's machine, so the telephony path
+   * passes no actor and the turn must not invent one.
+   */
+  test("a turn with no caller actor leaves the conversation without one", async () => {
+    const statesAtPersist: FakeTurnState[] = [];
+    const fake = makeFakeConversation({
+      processing: false,
+      onPersist: () => {
+        statesAtPersist.push(readState());
+      },
+    });
+    const readState = wireTurnState(fake.conversation, {});
+    fakeConversation = fake.conversation;
+
+    await startVoiceTurn(makeTurnOptions(undefined, "conv-actor-absent"));
+
+    expect(statesAtPersist.length).toBe(1);
+    expect(statesAtPersist[0]!.actorPrincipalId).toBeUndefined();
+  });
+
+  /** The stamp is the turn's, so it goes when the turn does. */
+  test("releases the actor when the turn ends", async () => {
+    const fake = makeFakeConversation({ processing: false });
+    const readState = wireTurnState(fake.conversation, {});
+    fakeConversation = fake.conversation;
+
+    const handle = await startVoiceTurn({
+      ...makeTurnOptions(undefined, "conv-actor-release"),
+      actorPrincipalId: "principal-guardian",
+    });
+    handle.abort();
+    await flushMicrotasks();
+
+    expect(readState().actorPrincipalId).toBeUndefined();
+  });
+
+  /**
+   * The release is not unconditional. `runAgentLoopImpl` gives up the
+   * processing claim before the turn-boundary commit is awaited, so a retry
+   * can take the conversation and stamp its own actor while this turn is
+   * still unwinding. The retry route installs no auth-context fallback, so a
+   * clear on the way out would leave it with no actor at all and its
+   * host-proxy calls refused.
+   */
+  test("does not clear an actor another turn stamped while this one unwound", async () => {
+    let conv: { currentTurnSourceActorPrincipalId?: string } | null = null;
+    const fake = makeFakeConversation({
+      processing: false,
+      runAgentLoop: async () => {
+        conv!.currentTurnSourceActorPrincipalId = "principal-retry";
+      },
+    });
+    conv = fake.conversation as {
+      currentTurnSourceActorPrincipalId?: string;
+    };
+    const readState = wireTurnState(fake.conversation, {});
+    fakeConversation = fake.conversation;
+
+    const handle = await startVoiceTurn({
+      ...makeTurnOptions(undefined, "conv-actor-release-guard"),
+      actorPrincipalId: "principal-guardian",
+    });
+    handle.abort();
+    await flushMicrotasks();
+
+    expect(readState().actorPrincipalId).toBe("principal-retry");
+  });
+});
+
 describe("startVoiceTurn race-loss state restore", () => {
   // A busy persist means a concurrent turn (the lock winner) is running with
   // per-turn state it installed. Every race-loss path must put the winner's
@@ -1545,6 +1895,54 @@ describe("startVoiceTurn race-loss state restore", () => {
       assistantMessageInterface: "phone",
     });
     expect(retryState.voiceCallControlPrompt).toContain("voice_call_control");
+  });
+
+  /**
+   * The winner here is an ordinary message turn, which stamps the actor
+   * directly (`conversation-routes`, `conversation-process`) rather than
+   * through this bridge. It shares the guardian, so it writes the identical
+   * string this turn did and the field cannot say which of them wrote it.
+   * Reverting on that would hand the winner a principal from an earlier turn,
+   * and automatic host-client resolution would then go looking for that other
+   * principal's desktop.
+   */
+  test("an ordinary turn's actor stamp is not reverted by a losing voice turn", async () => {
+    const statesDuringWait: FakeTurnState[] = [];
+    const fake = makeFakeConversation({
+      processing: false,
+      waitForIdle: async () => {
+        statesDuringWait.push(readState());
+        fake.setProcessingFlag(false);
+        return true;
+      },
+      onPersist: (attempt) => {
+        if (attempt === 1) {
+          // The winner takes the conversation and stamps the same guardian,
+          // the way an ordinary turn does: a direct write, counted but
+          // otherwise invisible to this bridge.
+          (
+            fake.conversation as { currentTurnSourceActorPrincipalId?: string }
+          ).currentTurnSourceActorPrincipalId = "principal-guardian";
+          fake.setProcessingFlag(true);
+          throw new Error("Conversation is already processing a message");
+        }
+      },
+    });
+    // What an earlier turn left resident, and what a value-based revert would
+    // wrongly put back.
+    const readState = wireTurnState(fake.conversation, {
+      actorPrincipalId: "principal-other",
+    });
+    fakeConversation = fake.conversation;
+
+    await startVoiceTurn({
+      ...makeTurnOptions(undefined, "conv-race-ordinary-winner"),
+      callSessionId: "session-voice-loser",
+      actorPrincipalId: "principal-guardian",
+    });
+
+    expect(statesDuringWait.length).toBe(1);
+    expect(statesDuringWait[0]!.actorPrincipalId).toBe("principal-guardian");
   });
 
   test("a busy persist whose retry wait exhausts the budget leaves the winner's values in place", async () => {
@@ -1738,7 +2136,7 @@ describe("startVoiceTurn tool-event forwarding", () => {
     fakeConversation = fake.conversation;
   }
 
-  test("tool_use_start delivers the tool name, toolUseId, and input", async () => {
+  test("tool_use_start delivers the tool name, input, and active allowlist", async () => {
     makeEventEmittingConversation([
       {
         type: "tool_use_start",
@@ -1747,6 +2145,11 @@ describe("startVoiceTurn tool-event forwarding", () => {
         toolUseId: "toolu-1",
       },
     ]);
+    (
+      fakeConversation as typeof fakeConversation & {
+        allowedToolNames?: Set<string>;
+      }
+    ).allowedToolNames = new Set(["web_search"]);
 
     const starts: Array<{ toolName: string; detail?: unknown }> = [];
     await startVoiceTurn({
@@ -1760,7 +2163,11 @@ describe("startVoiceTurn tool-event forwarding", () => {
     expect(starts).toEqual([
       {
         toolName: "web_search",
-        detail: { toolUseId: "toolu-1", input: { query: "weather" } },
+        detail: {
+          toolUseId: "toolu-1",
+          input: { query: "weather" },
+          allowedToolNames: new Set(["web_search"]),
+        },
       },
     ]);
   });
@@ -1918,6 +2325,68 @@ describe("front-door leg tool suppression", () => {
   });
 });
 
+describe("desktop skill preactivation", () => {
+  async function preactivatedFor(turn: Record<string, unknown>): Promise<{
+    skillIds: string[];
+    proxyInterfaces: unknown[];
+    skillIdsDuringLoop: string[];
+  }> {
+    const skillIds: string[] = [];
+    const proxyInterfaces: unknown[] = [];
+    let skillIdsDuringLoop: string[] = [];
+    const fake = makeFakeConversation({
+      processing: false,
+      runAgentLoop: async () => {
+        skillIdsDuringLoop = [...skillIds];
+      },
+    });
+    Object.assign(fake.conversation, {
+      addPreactivatedSkillId: (id: string) => {
+        skillIds.push(id);
+      },
+      ensureHostProxiesForTurn: (sourceInterface: unknown) => {
+        proxyInterfaces.push(sourceInterface);
+      },
+    });
+    fakeConversation = fake.conversation;
+
+    await startVoiceTurn({
+      ...makeTurnOptions(undefined, "conv-desktop-skills"),
+      userMessageInterface: "macos",
+      ...turn,
+    });
+    await flushMicrotasks();
+    return { skillIds, proxyInterfaces, skillIdsDuringLoop };
+  }
+
+  test("an escalated leg of a macOS desktop session starts with computer use active", async () => {
+    const result = await preactivatedFor({
+      routingLeg: "escalated",
+      macosDesktopSession: true,
+    });
+
+    expect(result.skillIdsDuringLoop).toContain("computer-use");
+    expect(result.proxyInterfaces).toEqual(["macos"]);
+  });
+
+  test("a session from any other client leaves the desktop skills to be loaded", async () => {
+    const result = await preactivatedFor({ routingLeg: "escalated" });
+
+    expect(result.skillIds).toEqual([]);
+    expect(result.proxyInterfaces).toEqual([]);
+  });
+
+  test("the toolless front-door leg is never preactivated", async () => {
+    const result = await preactivatedFor({
+      routingLeg: "front-door",
+      macosDesktopSession: true,
+    });
+
+    expect(result.skillIds).toEqual([]);
+    expect(result.proxyInterfaces).toEqual([]);
+  });
+});
+
 describe("cutFrontDoorContentAtVerdict", () => {
   test("null when the content carries no verdict token (committed answer)", () => {
     expect(
@@ -2062,6 +2531,51 @@ describe("front-door hub stream gate", () => {
     );
 
     expect(texts.join("")).toBe("It is Tuesday, and it is sunny.");
+  });
+
+  test("an answer waits on the escalation judge before reaching the hub", async () => {
+    let openGate!: () => void;
+    judgeEscalationGate = new Promise<void>((resolve) => {
+      openGate = resolve;
+    });
+    judgeEscalationVerdict = false;
+    makeStreamingConversation(["Sure, ", "it's Tuesday."]);
+    try {
+      const whilePending = await collectBroadcastText(() =>
+        startVoiceTurn({ ...makeTurnOptions(), routingLeg: "front-door" }),
+      );
+      expect(whilePending).toEqual([]);
+
+      const afterClear = await collectBroadcastText(async () => {
+        openGate();
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      });
+      expect(afterClear.join("")).toBe("Sure, it's Tuesday.");
+    } finally {
+      judgeEscalationGate = null;
+    }
+  });
+
+  test("an overruled answer never reaches the hub", async () => {
+    judgeEscalationVerdict = true;
+    makeStreamingConversation(["Yeah okay, ", "I'll do it."]);
+
+    const texts = await collectBroadcastText(async () => {
+      const handle = await startVoiceTurn({
+        ...makeTurnOptions(),
+        routingLeg: "front-door",
+      });
+      // What the driver does with an escalate verdict on a held answer.
+      void handle.escalationJudgement?.then((escalate) => {
+        if (escalate) {
+          handle.overrule?.();
+        }
+      });
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    });
+
+    expect(texts).toEqual([]);
+    judgeEscalationVerdict = false;
   });
 
   test("an answer that merely opens with a bracket is released in full", async () => {
@@ -2210,6 +2724,60 @@ describe("transcript hygiene (teardown pass)", () => {
     expect(events).toContain("loadFromDb");
   });
 
+  test("an answer the escalation judge overruled is deleted", async () => {
+    const { events, releaseLoop } = makeReservedRowConversation({
+      holdLoopOpen: true,
+    });
+    getMessageByIdImpl = () => makeRow("I'm adding it to the draft now.");
+
+    const handle = await startVoiceTurn({
+      ...makeTurnOptions(),
+      routingLeg: "front-door",
+    });
+    await flushMicrotasks();
+    handle.overrule?.();
+    releaseLoop();
+    await flushMicrotasks();
+
+    // Only the unheard answer goes: the user row stays for the escalated leg.
+    expect(crudLog.deletes).toEqual(["assistant-row-1"]);
+    expect(events).toContain("loadFromDb");
+  });
+
+  test("a verdict that lands after the model finished still deletes the overruled row", async () => {
+    let openGate!: () => void;
+    judgeEscalationGate = new Promise<void>((resolve) => {
+      openGate = resolve;
+    });
+    judgeEscalationVerdict = true;
+    const { events } = makeReservedRowConversation();
+    getMessageByIdImpl = () => makeRow("Yeah okay, I'll do it.");
+    try {
+      const handle = await startVoiceTurn({
+        ...makeTurnOptions(),
+        routingLeg: "front-door",
+      });
+      void handle.escalationJudgement?.then((escalate) => {
+        if (escalate) {
+          handle.overrule?.();
+        }
+      });
+      // The loop has finished; teardown hygiene waits on the verdict.
+      await flushMicrotasks();
+      expect(crudLog.deletes).toEqual([]);
+
+      openGate();
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      await flushMicrotasks();
+
+      expect(crudLog.deletes).toEqual(["assistant-row-1"]);
+      expect(events).toContain("loadFromDb");
+    } finally {
+      judgeEscalationGate = null;
+      judgeEscalationVerdict = false;
+    }
+  });
+
   test("a committed front-door answer (no verdict token) is left untouched", async () => {
     const { events } = makeReservedRowConversation();
     getMessageByIdImpl = () => makeRow("It is Tuesday.");
@@ -2282,6 +2850,25 @@ describe("transcript hygiene (teardown pass)", () => {
     ]);
     expect(crudLog.deletes).toHaveLength(0);
     // The clean row must reach in-memory history and sync consumers.
+    expect(events).toContain("loadFromDb");
+  });
+
+  test("a row ending with a session control marker persists with it stripped", async () => {
+    const { events } = makeReservedRowConversation();
+    getMessageByIdImpl = () =>
+      makeRow("Muting you for thirty seconds. [MUTE:30]");
+
+    await startVoiceTurn({ ...makeTurnOptions(), routingLeg: "front-door" });
+    await flushMicrotasks();
+
+    expect(crudLog.updates).toEqual([
+      {
+        messageId: "assistant-row-1",
+        content: JSON.stringify([
+          { type: "text", text: "Muting you for thirty seconds." },
+        ]),
+      },
+    ]);
     expect(events).toContain("loadFromDb");
   });
 
@@ -2415,23 +3002,19 @@ describe("transcript hygiene (teardown pass)", () => {
   });
 });
 
-describe("startVoiceTurn image-bearing profile pin", () => {
-  /** A persisted user message carrying a photo taken mid-call. */
-  const PHOTO_HISTORY = [
-    { role: "user", content: [{ type: "text", text: "here's a photo:" }] },
-    {
-      role: "user",
-      content: [
-        { type: "text", text: "here's a photo:" },
-        { type: "image", source: { type: "base64", data: "abc" } },
-      ],
-    },
-  ];
+/** A persisted user message carrying a photo taken mid-call. */
+const PHOTO_HISTORY = [
+  { role: "user", content: [{ type: "text", text: "here's a photo:" }] },
+  {
+    role: "user",
+    content: [
+      { type: "text", text: "here's a photo:" },
+      { type: "image", source: { type: "base64", data: "abc" } },
+    ],
+  },
+];
 
-  beforeEach(() => {
-    pinProfileSupportsVision = true;
-  });
-
+describe("startVoiceTurn with images in history", () => {
   async function runOptionsFor(opts: {
     messages?: Array<{ role: string; content: unknown[] }>;
     turn?: Record<string, unknown>;
@@ -2449,40 +3032,14 @@ describe("startVoiceTurn image-bearing profile pin", () => {
     return runOptions;
   }
 
-  test("a text-only call keeps the call-site profile", async () => {
-    const runOptions = await runOptionsFor({});
-
-    expect(runOptions.overrideProfile).toBeUndefined();
-    expect(runOptions.forceOverrideProfile).toBeUndefined();
-  });
-
-  test("an image in history pins the image-capable profile", async () => {
-    // `callAgent`'s balanced profile carries no guarantee that its model takes
-    // an image, and a model that rejects one fails the whole leg.
+  test("an image in history leaves the call-site profile in place", async () => {
+    // A text-only model gets the image captioned by the image-fallback
+    // plugin, the same as a typed turn, so no profile is pinned for it.
     const runOptions = await runOptionsFor({ messages: PHOTO_HISTORY });
 
-    expect(runOptions.overrideProfile).toBe("latency-optimized");
-    // callAgent is not `mainAgent`, so an unforced override would sit below
-    // the call-site profile and never apply.
-    expect(runOptions.forceOverrideProfile).toBe(true);
-  });
-
-  test("an image nested in a tool result counts too", async () => {
-    const runOptions = await runOptionsFor({
-      messages: [
-        {
-          role: "user",
-          content: [
-            {
-              type: "tool_result",
-              contentBlocks: [{ type: "image", source: { data: "abc" } }],
-            },
-          ],
-        },
-      ],
-    });
-
-    expect(runOptions.overrideProfile).toBe("latency-optimized");
+    expect(runOptions.callSite).toBe("callAgent");
+    expect(runOptions.overrideProfile).toBeUndefined();
+    expect(runOptions.forceOverrideProfile).toBeUndefined();
   });
 
   test("a front-door leg is left alone — its own call site pins it", async () => {
@@ -2495,24 +3052,435 @@ describe("startVoiceTurn image-bearing profile pin", () => {
     expect(runOptions.callSite).toBe("voiceFrontDoor");
   });
 
-  test("no pin when the pin target can't take an image either", async () => {
-    // Fireworks: `latency-optimized` resolves to a text-only model while
-    // `balanced` is vision-capable, so pinning would break the very turn the
-    // pin exists to save.
-    pinProfileSupportsVision = false;
-
-    const runOptions = await runOptionsFor({ messages: PHOTO_HISTORY });
-
-    expect(runOptions.overrideProfile).toBeUndefined();
-    expect(runOptions.forceOverrideProfile).toBeUndefined();
-  });
-
-  test("an explicit routing pin wins over the image pin", async () => {
+  test("an explicit routing pin still applies", async () => {
     const runOptions = await runOptionsFor({
       messages: PHOTO_HISTORY,
       turn: { overrideProfile: "quality-optimized" },
     });
 
     expect(runOptions.overrideProfile).toBe("quality-optimized");
+  });
+});
+
+describe("startVoiceTurn escalated-leg profile pin", () => {
+  beforeEach(() => {
+    unresolvableProviderNames.clear();
+  });
+
+  afterEach(() => {
+    unresolvableProviderNames.clear();
+    setConfig("llm", {});
+    setConfig("rateLimit", {});
+  });
+
+  async function runOptionsFor(opts: {
+    messages?: Array<{ role: string; content: unknown[] }>;
+    inferenceProfile?: string;
+    inferenceProfileExpiresAt?: number;
+    turn?: Record<string, unknown>;
+  }): Promise<Record<string, unknown>> {
+    const fake = makeFakeConversation({
+      processing: false,
+      ...(opts.messages ? { messages: opts.messages } : {}),
+      ...(opts.inferenceProfile
+        ? { inferenceProfile: opts.inferenceProfile }
+        : {}),
+      ...(opts.inferenceProfileExpiresAt !== undefined
+        ? { inferenceProfileExpiresAt: opts.inferenceProfileExpiresAt }
+        : {}),
+    });
+    fakeConversation = fake.conversation;
+    let runOptions: Record<string, unknown> = {};
+    fake.conversation.runAgentLoop = async (...args: unknown[]) => {
+      runOptions = args[2] as Record<string, unknown>;
+    };
+    await startVoiceTurn({
+      ...makeTurnOptions(),
+      routingLeg: "escalated",
+      ...(opts.turn ?? {}),
+    });
+    return runOptions;
+  }
+
+  function reportPreparedTarget(
+    runOptions: Record<string, unknown>,
+    overrideProfile: string,
+  ): void {
+    const onPrepared = runOptions.onFirstModelCallPrepared as (prepared: {
+      callSite: "mainAgent";
+      overrideProfile: string;
+      forceOverrideProfile: boolean;
+      systemPrompt: string;
+      tools: [];
+    }) => void;
+    onPrepared({
+      callSite: "mainAgent",
+      overrideProfile,
+      forceOverrideProfile: true,
+      systemPrompt: "prepared prompt",
+      tools: [],
+    });
+  }
+
+  test("with no chat-model selection the leg keeps the call-site profile", async () => {
+    const runOptions = await runOptionsFor({});
+
+    expect(runOptions.callSite).toBe("callAgent");
+    expect(runOptions.inferenceCallSite).toBe("mainAgent");
+    expect(runOptions.overrideProfile).toBeUndefined();
+    expect(runOptions.forceOverrideProfile).toBeUndefined();
+  });
+
+  test("the workspace chat-model selection pins the leg", async () => {
+    // `callAgent`'s chain never consults `llm.activeProfile`, so without the
+    // pin the hand-off would land on the site's shipped default while the
+    // same conversation's typed turns run on the user's pick.
+    setConfig("llm", { activeProfile: "quality-optimized" });
+
+    const runOptions = await runOptionsFor({});
+
+    expect(runOptions.callSite).toBe("callAgent");
+    expect(runOptions.inferenceCallSite).toBe("mainAgent");
+    expect(runOptions.overrideProfile).toBe("quality-optimized");
+    expect(runOptions.forceOverrideProfile).toBe(true);
+    expect(runOptions.onFirstModelCallPrepared).toBeFunction();
+  });
+
+  test("starts warming the finalized request without awaiting it", async () => {
+    setConfig("llm", { activeProfile: "quality-optimized" });
+    const runOptions = await runOptionsFor({});
+    const warmPromptCache = mock(() => new Promise<void>(() => {}));
+    fakeConversation.warmPromptCache = warmPromptCache;
+    const onFirstModelCallPrepared = runOptions.onFirstModelCallPrepared as (
+      prepared: PreparedModelCall,
+    ) => void;
+    const tools = [
+      {
+        name: "dynamic_tool",
+        description: "Dynamic",
+        input_schema: { type: "object" as const },
+      },
+    ];
+    const turnAbort = new AbortController();
+
+    expect(
+      onFirstModelCallPrepared({
+        callSite: "mainAgent",
+        overrideProfile: "hook-selected-profile",
+        forceOverrideProfile: true,
+        signal: turnAbort.signal,
+        systemPrompt: "hook-edited prompt",
+        tools,
+      }),
+    ).toBeUndefined();
+
+    expect(warmPromptCache).toHaveBeenCalledWith({
+      callSite: "mainAgent",
+      overrideProfile: "hook-selected-profile",
+      forceOverrideProfile: true,
+      signal: turnAbort.signal,
+      systemPrompt: "hook-edited prompt",
+      tools,
+    });
+  });
+
+  test("reports the conversation profile selected for the handoff", async () => {
+    setConfig("llm", { activeProfile: "quality-optimized" });
+    const onEscalationTargetResolved = mock();
+
+    const runOptions = await runOptionsFor({
+      turn: { onEscalationTargetResolved },
+    });
+    reportPreparedTarget(runOptions, "quality-optimized");
+
+    expect(onEscalationTargetResolved).toHaveBeenCalledWith({
+      profile: "quality-optimized",
+      source: "conversation",
+    });
+  });
+
+  test("reports the concrete profile selected from a mix", async () => {
+    setConfig("llm", {
+      activeProfile: "voice-mix",
+      profiles: {
+        "voice-mix": {
+          mix: [
+            { profile: "quality-optimized", weight: 1 },
+            { profile: "cost-optimized", weight: 1 },
+          ],
+        },
+      },
+    });
+    let selectedProfile: string | undefined;
+    selectWinningProfile("mainAgent", getConfig().llm, {
+      overrideProfile: "voice-mix",
+      forceOverrideProfile: true,
+      selectionSeed: "conv-voice-bridge-test",
+      onMixSelected: ({ chosenProfile }) => {
+        selectedProfile = chosenProfile;
+      },
+    });
+    const onEscalationTargetResolved = mock();
+    const runOptions = await runOptionsFor({
+      turn: { onEscalationTargetResolved },
+    });
+
+    // The leg is pinned to the chosen arm itself (see the mix pin test).
+    expect(runOptions.overrideProfile).toBe(selectedProfile);
+    reportPreparedTarget(runOptions, runOptions.overrideProfile as string);
+
+    expect(selectedProfile).toBeDefined();
+    expect(onEscalationTargetResolved).toHaveBeenCalledWith({
+      profile: selectedProfile,
+      source: "conversation",
+    });
+  });
+
+  test("warms the main-agent route when the conversation has no profile pin", async () => {
+    const runOptions = await runOptionsFor({});
+    const warmPromptCache = mock(async () => {});
+    fakeConversation.warmPromptCache = warmPromptCache;
+    const onFirstModelCallPrepared = runOptions.onFirstModelCallPrepared as (
+      prepared: PreparedModelCall,
+    ) => void;
+    onFirstModelCallPrepared({
+      callSite: "mainAgent",
+      forceOverrideProfile: false,
+      systemPrompt: "system prompt",
+      tools: [],
+    });
+
+    expect(warmPromptCache).toHaveBeenCalledWith({
+      callSite: "mainAgent",
+      forceOverrideProfile: false,
+      signal: undefined,
+      systemPrompt: "system prompt",
+      tools: [],
+    });
+  });
+
+  test("does not warm a route whose finalized policy disables caching", async () => {
+    const runOptions = await runOptionsFor({});
+    const warmPromptCache = mock(async () => {});
+    fakeConversation.warmPromptCache = warmPromptCache;
+    const onFirstModelCallPrepared = runOptions.onFirstModelCallPrepared as (
+      prepared: PreparedModelCall,
+    ) => void;
+
+    onFirstModelCallPrepared({
+      callSite: "mainAgent",
+      forceOverrideProfile: false,
+      disableCache: true,
+      systemPrompt: "system prompt",
+      tools: [],
+    });
+
+    expect(warmPromptCache).not.toHaveBeenCalled();
+  });
+
+  test("does not warm when requests are rate limited", async () => {
+    setConfig("rateLimit", { maxRequestsPerMinute: 1 });
+    const runOptions = await runOptionsFor({});
+    const warmPromptCache = mock(async () => {});
+    fakeConversation.warmPromptCache = warmPromptCache;
+
+    expect(runOptions.onFirstModelCallPrepared).toBeFunction();
+    reportPreparedTarget(runOptions, "quality-optimized");
+    expect(warmPromptCache).not.toHaveBeenCalled();
+  });
+
+  test("reports a profile selected by final pre-model routing", async () => {
+    setConfig("llm", { activeProfile: "quality-optimized" });
+    const onEscalationTargetResolved = mock();
+
+    const runOptions = await runOptionsFor({
+      turn: { onEscalationTargetResolved },
+    });
+    reportPreparedTarget(runOptions, "cost-optimized");
+
+    expect(onEscalationTargetResolved).toHaveBeenCalledWith({
+      profile: "cost-optimized",
+      source: "pre_model_hook",
+    });
+  });
+
+  test("the conversation's own pin wins over the workspace selection", async () => {
+    setConfig("llm", { activeProfile: "quality-optimized" });
+
+    const runOptions = await runOptionsFor({
+      inferenceProfile: "cost-optimized",
+    });
+
+    expect(runOptions.overrideProfile).toBe("cost-optimized");
+    expect(runOptions.forceOverrideProfile).toBe(true);
+  });
+
+  test("a lapsed conversation pin falls back to the workspace selection", async () => {
+    setConfig("llm", { activeProfile: "quality-optimized" });
+
+    const runOptions = await runOptionsFor({
+      inferenceProfile: "cost-optimized",
+      inferenceProfileExpiresAt: Date.now() - 1,
+    });
+
+    expect(runOptions.overrideProfile).toBe("quality-optimized");
+  });
+
+  test("only the escalated leg follows the conversation", async () => {
+    setConfig("llm", { activeProfile: "quality-optimized" });
+
+    const frontDoor = await runOptionsFor({
+      turn: { routingLeg: "front-door" },
+    });
+    expect(frontDoor.callSite).toBe("voiceFrontDoor");
+    expect(frontDoor.overrideProfile).toBeUndefined();
+
+    const unrouted = await runOptionsFor({ turn: { routingLeg: undefined } });
+    expect(unrouted.callSite).toBe("callAgent");
+    expect(unrouted.overrideProfile).toBeUndefined();
+  });
+
+  test("an image keeps a text-only conversation profile", async () => {
+    // The escalated leg is the tool-capable brain of the call. Images reach a
+    // text-only model as image-fallback captions, never by swapping the leg
+    // onto the latency-class profile.
+    setConfig("llm", { activeProfile: "quality-optimized" });
+
+    const runOptions = await runOptionsFor({ messages: PHOTO_HISTORY });
+
+    expect(runOptions.overrideProfile).toBe("quality-optimized");
+    expect(runOptions.forceOverrideProfile).toBe(true);
+    expect(runOptions.inferenceCallSite).toBe("mainAgent");
+  });
+
+  test("a mix pins the arm serving this conversation, not the mix name", async () => {
+    // The image-fallback check judges the pinned profile, and a mix reads as
+    // vision-capable when any arm is. Pinning the chosen arm keeps a
+    // text-only arm from receiving raw images.
+    setConfig("llm", {
+      activeProfile: "voice-mix",
+      profiles: {
+        "voice-mix": {
+          mix: [
+            { profile: "quality-optimized", weight: 1 },
+            { profile: "cost-optimized", weight: 1 },
+          ],
+        },
+      },
+    });
+    let chosenArm: string | undefined;
+    selectWinningProfile("mainAgent", getConfig().llm, {
+      selectionSeed: "conv-voice-bridge-test",
+      onMixSelected: ({ chosenProfile }) => {
+        chosenArm = chosenProfile;
+      },
+    });
+    expect(chosenArm).toBeDefined();
+
+    const runOptions = await runOptionsFor({ messages: PHOTO_HISTORY });
+
+    expect(runOptions.overrideProfile).toBe(chosenArm);
+    expect(runOptions.forceOverrideProfile).toBe(true);
+  });
+
+  test("an explicit routing pin wins over the conversation profile", async () => {
+    setConfig("llm", { activeProfile: "quality-optimized" });
+
+    const runOptions = await runOptionsFor({
+      turn: { overrideProfile: "balanced" },
+    });
+
+    expect(runOptions.overrideProfile).toBe("balanced");
+  });
+
+  test("a mix with no resolvable arm falls back to the main-agent profile", async () => {
+    setConfig("llm", {
+      activeProfile: "stale-mix",
+      profiles: {
+        "stale-a": {
+          provider: "deleted-connection-a",
+          model: "model-a",
+        },
+        "stale-b": {
+          provider: "deleted-connection-b",
+          model: "model-b",
+        },
+        "stale-mix": {
+          mix: [
+            { profile: "stale-a", weight: 1 },
+            { profile: "stale-b", weight: 1 },
+          ],
+        },
+      },
+      callSites: {
+        mainAgent: { profile: "quality-optimized" },
+      },
+    });
+    unresolvableProviderNames.add("deleted-connection-a");
+    unresolvableProviderNames.add("deleted-connection-b");
+    const runOptions = await runOptionsFor({ messages: PHOTO_HISTORY });
+
+    expect(runOptions.overrideProfile).toBe("quality-optimized");
+  });
+});
+
+describe("startVoiceTurn escalation judge", () => {
+  beforeEach(() => {
+    judgeEscalationCalls = [];
+    judgeEscalationVerdict = false;
+    fakeConversation = makeFakeConversation({ processing: false }).conversation;
+  });
+
+  test("a front-door leg carries the judge's verdict and an overrule", async () => {
+    judgeEscalationVerdict = true;
+
+    const handle = await startVoiceTurn({
+      ...makeTurnOptions(),
+      content: "Text my mom I'm late.",
+      routingLeg: "front-door",
+    });
+
+    expect(judgeEscalationCalls).toEqual([
+      { utterance: "Text my mom I'm late." },
+    ]);
+    expect(await handle.escalationJudgement).toBe(true);
+    expect(typeof handle.overrule).toBe("function");
+  });
+
+  test("escalated, unrouted, and synthetic legs are not judged", async () => {
+    const escalated = await startVoiceTurn({
+      ...makeTurnOptions(),
+      routingLeg: "escalated",
+    });
+    const unrouted = await startVoiceTurn(makeTurnOptions());
+    const synthetic = await startVoiceTurn({
+      ...makeTurnOptions(),
+      routingLeg: "front-door",
+      hiddenSyntheticPrompt: true,
+    });
+
+    expect(judgeEscalationCalls).toEqual([]);
+    for (const handle of [escalated, unrouted, synthetic]) {
+      expect(handle.escalationJudgement).toBeUndefined();
+      expect(handle.overrule).toBeUndefined();
+    }
+  });
+
+  test.each([
+    "What do you see on my screen?",
+    "Show me where to add a new page.",
+  ])("a captured look bypasses the text-only judge: %s", async (request) => {
+    judgeEscalationVerdict = true;
+    const handle = await startVoiceTurn({
+      ...makeTurnOptions(),
+      content: "(fresh view taken; answer from it now)",
+      routingUtterance: request,
+      routingLeg: "front-door",
+      hiddenSyntheticPrompt: true,
+    });
+
+    expect(judgeEscalationCalls).toEqual([]);
+    expect(handle.escalationJudgement).toBeUndefined();
+    expect(handle.overrule).toBeUndefined();
   });
 });

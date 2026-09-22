@@ -21,7 +21,7 @@ function makeSignal(
     createdAt: Date.now(),
     sourceChannel: "scheduler",
     sourceContextId: "ctx-1",
-    sourceEventName: "user.send_notification",
+    sourceEventName: "assistant.share",
     contextPayload: {},
     attentionHints: {
       requiresAction: false,
@@ -500,6 +500,76 @@ describe("composeFallbackCopy plugin schedule templates", () => {
     expect(copy.vellum?.body).toContain("bad expression");
     expect(copy.vellum?.body).not.toContain("\u001b");
     expect(copy.vellum?.body).not.toContain("\n");
+  });
+});
+
+// ── activity.complete rendering ───────────────────────────────────────
+
+describe("activity.complete copy", () => {
+  function completeSignal(
+    contextPayload: Record<string, unknown>,
+  ): NotificationSignal {
+    return makeSignal({
+      sourceEventName: "activity.complete",
+      contextPayload,
+    });
+  }
+
+  test("a producer-authored title survives the fallback path", () => {
+    // The home feed reads the payload title first; the popup must say the
+    // same thing when the classifier was unreachable.
+    const copy = composeFallbackCopy(
+      completeSignal({
+        title: "Skill updated: Weekly Report Export",
+        summary: "Added the retry after an expired session.",
+      }),
+      CHANNELS,
+    );
+    expect(copy.vellum?.title).toBe("Skill updated: Weekly Report Export");
+    expect(copy.vellum?.body).toBe("Added the retry after an expired session.");
+  });
+
+  test("the pass-through's requestedTitle is honored when no title is set", () => {
+    const copy = composeFallbackCopy(
+      completeSignal({
+        requestedTitle: "Nightly export finished",
+        summary: "Wrote 12 files to the reports folder.",
+      }),
+      CHANNELS,
+    );
+    expect(copy.vellum?.title).toBe("Nightly export finished");
+  });
+
+  test("without an authored title the headline is the summary's first sentence", () => {
+    const copy = composeFallbackCopy(
+      completeSignal({
+        summary:
+          "Added the retry after an expired session. Dropped the login step.",
+      }),
+      CHANNELS,
+    );
+    expect(copy.vellum?.title).toBe(
+      "Added the retry after an expired session.",
+    );
+  });
+
+  test("an authored title the normalizer rejects falls back to the derived one", () => {
+    const copy = composeFallbackCopy(
+      completeSignal({
+        title: "Skill\nupdated",
+        summary: "Added the retry after an expired session.",
+      }),
+      CHANNELS,
+    );
+    expect(copy.vellum?.title).toBe(
+      "Added the retry after an expired session.",
+    );
+  });
+
+  test("neither a title nor a summary still says something happened", () => {
+    const copy = composeFallbackCopy(completeSignal({}), CHANNELS);
+    expect(copy.vellum?.title).toBe("Activity complete");
+    expect(copy.vellum?.body).toBe("An activity has completed");
   });
 });
 

@@ -175,9 +175,14 @@ export const Held: Story = {
   args: { held: true, edge: "top" },
 };
 
-/** Hanging upside down off the bottom rim, as the chat page's hello does. */
-export const HeldBelow: Story = {
-  args: { held: true, edge: "bottom" },
+/** Up at the rim's left quarter rather than on its centre line. */
+export const HeldTopLeft: Story = {
+  args: { held: true, edge: "topLeft" },
+};
+
+/** And at its right quarter. */
+export const HeldTopRight: Story = {
+  args: { held: true, edge: "topRight" },
 };
 
 /** The surface's real clock, at life size, on the busiest backdrop. */

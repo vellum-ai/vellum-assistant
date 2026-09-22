@@ -28,7 +28,7 @@ import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
  *
  * Indexed by {@link WATCH_FLAG}, the same key Electron main reads to decide
  * whether the companion surface draws the control at all. The store key is the
- * flag key here because the key is a single word, so `kebabToStoreKey` returns
+ * flag key here because the key is a single word, so `flagKeyToStoreKey` returns
  * it unchanged (`feature-flag-catalog.ts`).
  *
  * Anything that is not a positive evaluation is a no: registry defaults before

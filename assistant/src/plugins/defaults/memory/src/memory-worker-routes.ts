@@ -32,7 +32,9 @@ const log = getLogger("memory-worker-routes");
 export const embeddingStatusSchema = z.object({
   enabled: z.boolean(),
   degraded: z.boolean(),
-  provider: z.enum(["local", "openai", "gemini", "ollama"]).nullable(),
+  provider: z
+    .enum(["local", "openai", "gemini", "ollama", "custom"])
+    .nullable(),
   model: z.string().nullable(),
   reason: z.string().nullable(),
 });

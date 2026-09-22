@@ -1,5 +1,4 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { Loader2 } from "lucide-react";
 import {
   useEffect,
   useLayoutEffect,
@@ -224,11 +223,7 @@ export function AddCredentialModal({
               disabled={
                 saving || !service.trim() || !field.trim() || !value.trim()
               }
-              leftIcon={
-                saving ? (
-                  <Loader2 className="animate-spin" aria-hidden />
-                ) : undefined
-              }
+              loading={saving}
             >
               {t("addCredentialModal.save")}
             </Button>

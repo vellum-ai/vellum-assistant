@@ -68,9 +68,7 @@ function linearToMulaw(sample: number): number {
   // Determine segment
   const exponent = segmentSearch(sample);
   const mantissa = (sample >> (exponent + 3)) & 0x0f;
-  const mulawByte = ~(sign | (exponent << 4) | mantissa) & 0xff;
-
-  return mulawByte;
+  return ~(sign | (exponent << 4) | mantissa) & 0xff;
 }
 
 function segmentSearch(val: number): number {

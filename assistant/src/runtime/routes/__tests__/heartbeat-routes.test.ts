@@ -23,6 +23,11 @@ mock.module("../../../heartbeat/heartbeat-service.js", () => ({
   },
 }));
 
+mock.module("../../../schedule/schedule-timezone.js", () => ({
+  resolveScheduleTimezone: (explicit: string | null | undefined) =>
+    explicit ?? "America/Los_Angeles",
+}));
+
 // ─── Setup ─────────────────────────────────────────────────────────────────
 
 let workspaceDir: string;
@@ -110,5 +115,24 @@ describe("setHeartbeatConfig handler", () => {
     expect(onDisk).toEqual({
       heartbeat: { intervalMs: 60000, enabled: true },
     });
+  });
+});
+
+describe("getHeartbeatConfig handler", () => {
+  test("returns the resolved timezone separately from the stored override", async () => {
+    writeFileSync(
+      configPath,
+      JSON.stringify({ heartbeat: { enabled: true } }, null, 2) + "\n",
+    );
+    invalidateConfigCache();
+
+    const handler = findHandler("getHeartbeatConfig");
+    const result = (await handler({})) as {
+      timezone: string | null;
+      effectiveTimezone: string | null;
+    };
+
+    expect(result.timezone).toBeNull();
+    expect(result.effectiveTimezone).toBe("America/Los_Angeles");
   });
 });

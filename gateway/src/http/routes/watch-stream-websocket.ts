@@ -15,24 +15,17 @@
  * with two queries rather than two implementations that agree today.
  *
  * What is this route's own is who may open it. Watch is guardian-only and
- * dictation is not, so the pin below is layered here rather than added to the
+ * dictation is not, so the pin is opted into here rather than added to the
  * shared gate, where it would take dictation with it.
  */
 
 import {
-  authorizeRuntimeAudioStream,
   createRuntimeAudioStreamHandlers,
   type RuntimeAudioStreamState,
 } from "./runtime-audio-stream.js";
-import {
-  extractVelayAttestedContext,
-  isPlatformManaged,
-  requireBoundGuardian,
-  requireManagedGuardian,
-} from "./guardian-pin.js";
+import { authorizeGuardianStream } from "./guardian-pin.js";
 import type { GatewayConfig } from "../../config.js";
 import { getLogger } from "../../logger.js";
-import { requestHasVelayBridgeAuth } from "../../velay/bridge-auth.js";
 
 const log = getLogger("watch-stream-ws");
 
@@ -133,65 +126,9 @@ export function createWatchStreamWebsocketHandler(config: GatewayConfig) {
     req: Request,
     server: import("bun").Server<unknown>,
   ): Promise<Response | undefined> {
-    // Checked here as well as in the shared gate, because the managed path
-    // below skips that gate entirely: without this, a managed caller sending a
-    // plain request would fall through to `server.upgrade` and get a 500.
-    if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") {
-      return new Response("Upgrade Required", { status: 426 });
-    }
-
-    // Managed/cloud path, taken before the token path exactly as live voice
-    // takes it: velay validated the browser's token and injected the caller,
-    // and the bridge proof is what says this request really came through the
-    // gateway's own loopback bridge rather than from someone who guessed the
-    // header names. An incomplete attestation falls through, so a managed
-    // deployment still accepts a valid actor edge JWT.
-    let managedGuardian = false;
-    if (isPlatformManaged() && config.runtimeProxyRequireAuth) {
-      const velayContext = extractVelayAttestedContext(req);
-      if (velayContext) {
-        if (requestHasVelayBridgeAuth(req)) {
-          const guardianError = await requireManagedGuardian(
-            velayContext.userId,
-            log,
-          );
-          if (guardianError) {
-            return guardianError;
-          }
-          log.info(
-            { userId: velayContext.userId, orgId: velayContext.orgId },
-            "Watch stream WS: authenticated via velay-attested managed context",
-          );
-          managedGuardian = true;
-        } else {
-          log.warn(
-            "Watch stream WS: ignoring velay context without bridge proof",
-          );
-        }
-      }
-    }
-
-    // The token path, and its half of the pin. Skipped entirely when velay
-    // already attested this caller as the guardian: there is no edge JWT on
-    // that path to validate, and requiring one would reject the managed
-    // callers the attestation exists to admit.
-    if (!managedGuardian) {
-      const auth = authorizeRuntimeAudioStream(req, config, log);
-      if (!auth.ok) {
-        return auth.response;
-      }
-      // A null principal is the dev bypass, which validated no token and has
-      // nothing to compare. That bypass turns runtime proxy auth off
-      // wholesale, and this is not the place to reintroduce it.
-      if (auth.actorPrincipalId !== null) {
-        const guardianError = await requireBoundGuardian(
-          auth.actorPrincipalId,
-          log,
-        );
-        if (guardianError) {
-          return guardianError;
-        }
-      }
+    const denied = await authorizeGuardianStream(req, config, log);
+    if (denied) {
+      return denied;
     }
 
     const url = new URL(req.url);

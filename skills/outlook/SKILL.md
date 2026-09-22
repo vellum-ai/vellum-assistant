@@ -38,8 +38,9 @@ All operations use CLI scripts that return JSON:
 ### Email Operations
 
 ```bash
-# Draft an email
+# Draft an email (--to is optional; omit it to create a draft with no recipient)
 bun run scripts/outlook-email.ts draft --to "user@example.com" --subject "Hello" --body "Message body"
+bun run scripts/outlook-email.ts draft --subject "Hello" --body "Message body"
 
 # Send an existing draft (REQUIRES user confirmation before execution)
 bun run scripts/outlook-email.ts send-draft --draft-id "AAMk..."
@@ -123,13 +124,15 @@ If the user has not explicitly confirmed, do not execute these operations. A gen
 
 ## Drafting vs Sending (Outlook)
 
-Outlook uses a **draft-first workflow** where appropriate:
+Outlook uses a **draft-first workflow**, matching Gmail. Compose and reply land in the user's Outlook Drafts folder. Nothing is sent until they confirm.
 
-- The messaging skill's send operation sends messages directly via the Graph API.
-- The `draft` operation creates a draft in the Outlook Drafts folder for user review before sending.
+- Prefer `messaging_send` with `platform: "outlook"`. That creates a real Outlook draft (not a local file). Recipients are optional: if the user has not named a To address, pass a non-email `conversation_id` (for example `drafts`) and still create the draft.
+- `bun run scripts/outlook-email.ts draft` does the same via Graph. `--to` is optional.
+- Do not inspect this skill's scripts before creating a draft. Call `messaging_send` or run the draft command immediately.
+- Do not tell the user a draft exists until the tool or script returns success with a `draftId`. If creation fails or is interrupted, say so and offer the email copy in chat (clipboard or an in-app notification if they ask).
 - The `forward` operation creates a forward draft, preserving attachments.
 
-When the user asks to "draft" or "compose" an email, use the draft script. When they say "send", use the messaging skill's send. If ambiguous, prefer drafting so the user can review first.
+**To actually send:** use `bun run scripts/outlook-email.ts send-draft` with the draft ID after the user has reviewed it. Only run send-draft when the user explicitly says "send it" or equivalent.
 
 ## Differences from Gmail
 

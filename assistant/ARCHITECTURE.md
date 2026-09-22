@@ -70,6 +70,7 @@ All HTTP API requests use a single `Authorization: Bearer <jwt>` header for auth
 | `svc:gateway:<assistantId>`              | `svc_gateway`  | Gateway service (ingress, webhooks) |
 | `svc:internal:<assistantId>:<sessionId>` | `svc_internal` | Internal service connections        |
 | `svc:daemon:<identifier>`                | `svc_daemon`   | Daemon service token (local)        |
+| `local:<assistantId>:<conversationId>`   | `local`        | Local session or single-route grant |
 
 **Scope profiles:**
 
@@ -79,6 +80,7 @@ All HTTP API requests use a single `Authorization: Bearer <jwt>` header for auth
 | `gateway_ingress_v1` | `ingress.write`, `internal.write`                                                                                                                     | Gateway channel inbound + webhook forwarding |
 | `gateway_service_v1` | `chat.{read,write}`, `settings.{read,write}`, `attachments.{read,write}`, `internal.write`                                                            | Gateway service-to-daemon calls              |
 | `local_v1`           | `local.all`                                                                                                                                           | Local (loopback) conversation sessions       |
+| `oauth_proxy_v1`     | `oauth.proxy`                                                                                                                                         | OAuth passthrough proxy route only           |
 | `speech_relay_v1`    | `speech.relay`                                                                                                                                        | Daemon dial of the gateway speech relay only |
 | `ui_page_v1`         | `settings.read`                                                                                                                                       | Served UI pages                              |
 
@@ -94,7 +96,7 @@ All HTTP API requests use a single `Authorization: Bearer <jwt>` header for auth
 
 **Credential storage:** Only hashed tokens are persisted. Access token hashes go in `credential_records`; refresh token hashes in `refresh_token_records`. Raw tokens are returned once and never stored server-side.
 
-**Notification scoping:** Guardian-sensitive notifications are annotated with `targetGuardianPrincipalId` for identity-scoped delivery.
+**Notification scoping:** Guardian-sensitive notifications (`notification_intent`, `notification_conversation_created`) are published with `targetActorPrincipalId`, so the event hub delivers them, live, on reconnect replay, and from the `events/tail` recovery route, only to SSE connections whose verified `actorPrincipalId` is the guardian's. Connections without a principal never receive them. The payload's `targetGuardianPrincipalId` records the scoping.
 
 **Key source files:**
 
@@ -287,32 +289,35 @@ The WhatsApp channel enables inbound and outbound messaging via the Meta WhatsAp
 
 **Ingress** (`GET /webhooks/whatsapp` — verification, `POST /webhooks/whatsapp` — messages):
 
-1. **Webhook verification**: Meta sends a `GET` with `hub.mode=subscribe`, `hub.verify_token`, and `hub.challenge`. The gateway compares `hub.verify_token` against `WHATSAPP_WEBHOOK_VERIFY_TOKEN` and echoes `hub.challenge` as plain text.
-2. On `POST`, the gateway verifies the `X-Hub-Signature-256` header (HMAC-SHA256 of the raw request body using `WHATSAPP_APP_SECRET`) when the app secret is configured. Fail-closed: requests are rejected when the secret is set but the signature fails.
+1. **Webhook verification**: Meta sends a `GET` with `hub.mode=subscribe`, `hub.verify_token`, and `hub.challenge`. The gateway compares `hub.verify_token` against the `webhook_verify_token` credential and echoes `hub.challenge` as plain text.
+2. On `POST`, the gateway verifies the `X-Hub-Signature-256` header (HMAC-SHA256 of the raw request body using the `app_secret` credential). Fail-closed: a request is rejected with 500 when no app secret is configured, and with 403 when the signature does not match.
 3. **Normalization**: Text and media messages (image, audio, video, document, sticker) from `messages` change fields are forwarded. Delivery receipts, read receipts, and unsupported message types (contacts, location) are silently acknowledged with `{ ok: true }`. Media attachments are downloaded from the WhatsApp Cloud API, uploaded to the runtime attachment store, and their IDs are passed alongside the message content.
 4. **`/new` command**: When the message body is `/new` (case-insensitive), the gateway resolves routing, resets the conversation, and sends a confirmation message without forwarding to the runtime.
 5. The payload is normalized into a `GatewayInboundEvent` with `sourceChannel: "whatsapp"` and `conversationExternalId` set to the sender's WhatsApp phone number (E.164).
 6. WhatsApp message IDs are deduplicated via `StringDedupCache` (24-hour TTL).
 7. The gateway marks each inbound message as read (best-effort, fire-and-forget).
-8. The event is forwarded to the runtime via `POST /channels/inbound` with WhatsApp-specific transport hints and a `replyCallbackUrl` pointing to `/deliver/whatsapp`.
+8. The event is forwarded to the runtime via `POST /channels/inbound` with WhatsApp-specific transport hints and a `replyCallbackUrl` of `<gatewayInternalBaseUrl>/deliver/whatsapp`. The gateway serves no route at that path: the daemon uses the URL only to address the reply (see Egress).
 
-**Egress** (`POST /deliver/whatsapp`):
+**Egress** (daemon WhatsApp transport, `src/messaging/providers/whatsapp/`):
 
-1. The runtime calls the gateway's `/deliver/whatsapp` endpoint with `{ to, text }` or `{ chatId, text }` (alias).
-2. The gateway authenticates the request via bearer token (same fail-closed model as other deliver endpoints).
-3. The gateway sends the message via the WhatsApp Cloud API `/{phoneNumberId}/messages` endpoint using the configured access token.
-4. Text is split at 4096 characters if needed.
+1. Replies, approval prompts, and proactive sends go out through the daemon's `whatsappTransport` (`transport.ts`), which calls the Meta Cloud API itself. `isDirectDelivery()` in `src/messaging/providers/index.ts` resolves the `/deliver/whatsapp` callback URL to this transport through `channelForCallback()` (`src/messaging/providers/callback-routing.ts`), so the daemon never posts back to the gateway or dials the URL's host and port. The gateway's own replies to invite and verification codes it intercepts at ingress reach this transport the same way: `deliverVerificationReply` (`gateway/src/verification/reply-delivery.ts`) hands the reply and the inbound message's callback URL to the daemon's IPC-only `deliver_gateway_reply` method (`src/ipc/routes/channel-reply-ipc-routes.ts`), which resolves the transport from that URL.
+2. `api.ts` reads `phone_number_id` and `access_token` from the secure store and sends through the Cloud API `/{phoneNumberId}/messages` endpoint.
+3. `send.ts` splits text into 4096-character chunks, preferring newline and then whitespace boundaries.
+4. An approval prompt renders as an interactive message with up to three reply buttons whose ids follow the shared `apr:<requestId>:<action>` convention. When the cap forces a cut, the reject and block actions are kept. The gateway normalizes the guardian's `button_reply` back into callback data on ingress.
+5. Attachments up to 25 MB are uploaded to the Cloud API media endpoint and sent as image, video, or document messages. Any that fail are listed in a follow-up text notice.
 
-**Required credentials**:
+The gateway sends only its own notices to WhatsApp (the `/new` confirmation and routing-rejection notices), through `gateway/src/whatsapp/send.ts`.
 
-- `WHATSAPP_PHONE_NUMBER_ID` — the numeric WhatsApp Business phone number ID from Meta
-- `WHATSAPP_ACCESS_TOKEN` — System User or temporary access token
-- `WHATSAPP_APP_SECRET` — App secret for webhook signature verification
-- `WHATSAPP_WEBHOOK_VERIFY_TOKEN` — Token for the Meta webhook subscription handshake
+**Required credentials** (credential vault, `whatsapp` service):
 
-These can be set via environment variables or stored in the credential vault (CES / encrypted store) under the `whatsapp` service prefix.
+- `phone_number_id`: the numeric WhatsApp Business phone number ID from Meta
+- `access_token`: System User or temporary access token
+- `app_secret`: app secret for webhook signature verification
+- `webhook_verify_token`: token for the Meta webhook subscription handshake
 
-**Limitations (v1)**: Rich approval UI (inline buttons) is not supported. Contacts and location message types are acknowledged but not forwarded.
+The daemon reads `phone_number_id` and `access_token` to send. The gateway reads all four: the last two for ingress, and the first two for its own notices.
+
+**Limitations**: Contacts and location message types are acknowledged but not forwarded.
 
 **Channel Readiness**: The channel readiness HTTP endpoints (`GET /v1/channels/readiness`, `POST /v1/channels/readiness/refresh`) backed by `ChannelReadinessService` in `src/runtime/channel-readiness-service.ts` provide a unified readiness subsystem for all channels. Each channel registers a `ChannelProbe` that runs synchronous local checks (credential presence, ingress config) and optional async remote checks with a 5-minute TTL cache. Built-in probes: Telegram (bot token, webhook secret, ingress). The GET endpoint returns cached snapshots; the refresh endpoint invalidates the cache first. Unknown channels return `unsupported_channel`. Route handlers live in `src/runtime/routes/channel-readiness-routes.ts`.
 
@@ -607,8 +612,12 @@ Every phone call connects over Twilio Media Streams: the voice webhook emits `<C
 
 Transcription mode is selected once per session in `media-stream-stt-session.ts`:
 
-- **Streaming** (default): when `calls.voice.telephonyStreaming` is enabled and the `telephony` role resolves a streaming transcriber (`resolveStreamingTranscriber({ role: "telephony" })`), inbound audio is decoded (mu-law → PCM16, resampled 8 kHz → 16 kHz) and fed to the provider's realtime adapter. Replies trigger only on utterance-boundary finals (for Deepgram, `speech_final`/`UtteranceEnd`, never mid-sentence `is_final` segments), and barge-in fires from local energy VAD, never from transcriber partials.
+- **Streaming** (default): when `calls.voice.telephonyStreaming` is enabled and the `telephony` role resolves a streaming transcriber (`resolveStreamingTranscriber({ role: "telephony" })`), inbound audio is decoded (mu-law → PCM16, resampled 8 kHz → 16 kHz) and fed to the provider's realtime adapter. Replies trigger only on utterance-boundary finals (for Deepgram, `speech_final`/`UtteranceEnd`, never mid-sentence `is_final` segments), and barge-in fires from local energy VAD, never from transcriber partials. While something is interruptible (an assistant turn in flight, thinking or speaking, or a completed turn's tail still playing from Twilio's buffer), caller speech arms the shared sustained-speech barge-in guard (`src/calls/barge-in-guard.ts`, the same accounting live voice uses: speech accumulates toward 250 ms, short gaps are tolerated, a run that is mostly silence resets) and every inbound frame feeds it; outside that window the guard is dropped, so the caller's own utterance never carries into a turn that starts before the local VAD ends it. Only a fired guard reaches `CallController.handleBargeIn`, which interrupts a turn in either phase and ignores an idle controller (the playing tail is cleared instead).
 - **Batch fallback**: otherwise the session segments turns with the energy-based `MediaTurnDetector` and transcribes each completed turn via the same role's batch API. Both halves of a call read the `telephony` role, which is why a role names its consumer rather than a boundary.
+
+Every phone turn runs the same two-leg triage as live voice through `startVoiceTurn` (`src/calls/voice-session-bridge.ts`): `call-controller.ts` opens on a toolless front-door leg (`routingLeg: "front-door"`, the `voiceFrontDoor` call site) and drives it through the shared `createFrontDoorLegCoordinator` (`src/calls/voice-leg-coordinator.ts`), which reads the stream through the verdict machine and sequences the hand-off (pause narration, abort the leg, resolve and speak the bridge, mark it as the floor holder, start the escalated leg pinned to the conversation's own model, re-arm narration); each driver supplies only a host for how text and the bridge are spoken, how a leg is started or aborted, and (live voice only) the speculative hold and commit. Phone has no partial transcripts, so the hold verdict is never taught and routing is escalate-only. The controller also passes the bridge's turn callbacks (tool activity is recorded as `tool_use_started` / `tool_use_completed` call events, persisted row ids ride the `assistant_spoke` event), `launchedAtMs` for dispatch timing, and a `voiceTelemetry` bag keyed by the call session with a `phone_inbound` / `phone_outbound` entry. Both drivers share the spoken progress narration cadence (`src/calls/voice-progress-cadence.ts`, tuned by `voice.frontModel.progress`): the cadence owns the tool-activity log, the triggers (an ops burst, a long operation completing, a full interval of audible silence with news, the `maxSilenceMs` heartbeat) and the generated or static phrase, while each driver supplies its own view of audible silence (live voice from its TTS queue and playback-tail estimate; the media-stream transport from `isPlaybackIdle()` and a running sum of sent frame durations) and how to speak a phrase.
+
+Both drivers also share the per-turn latency marks (`src/calls/voice-metrics.ts`). The controller opens a turn's marks when it dispatches, seeded with when the caller's transcript arrived, and stamps the leg dispatch, the first assistant delta, the first audible audio, a barge-in, and how the turn settled. Live voice streams a snapshot to its client on every mark; a call has no client on the line, so the aggregate is logged once per turn, cancelled turns included. Each call also records a `phone_call_started` / `phone_call_ended` pair on the onboarding telemetry substrate (`src/telemetry/phone-call-funnel.ts`), written by the call store at session creation and at the single terminal status transition: duration is the gap between the two rows, and a call that took no caller turn carries why on the end row (`silent_no_connect` when it never connected, `silent_no_turn` when it did and nobody spoke).
 
 A credential preflight (`resolveTelephonyCredentialReadiness()` in `src/calls/telephony-credential-preflight.ts`) gates every call: it requires a credentialed, telephony-capable STT provider **and** a media-stream-playable TTS provider (the configured one or a credentialed playable fallback). Inbound calls that fail the preflight receive `<Say>` setup-required copy plus `<Hangup/>` instead of a doomed stream; outbound placement fails before dialing via `preflightVoiceIngress()` with the same user-facing message.
 
@@ -619,6 +628,7 @@ Key modules:
 | `src/calls/twilio-routes.ts`                        | Voice webhook handler; generates `<Connect><Stream>` TwiML, enforces the inbound credential preflight |
 | `src/calls/telephony-credential-preflight.ts`       | Combined STT + TTS credential-readiness resolver                                                      |
 | `src/calls/media-stream-parser.ts`                  | Twilio Media Streams protocol parser                                                                  |
+| `src/calls/voice-metrics.ts`                        | Per-turn latency marks, shared with live voice                                                        |
 | `src/calls/media-turn-detector.ts`                  | Energy-based VAD turn detector for raw audio (batch mode)                                             |
 | `src/calls/media-stream-stt-session.ts`             | STT session — streaming/batch mode selection and transcription via `services.stt`                     |
 | `src/calls/media-stream-audio-transcode.ts`         | Mu-law ↔ PCM16 codecs and resampling                                                                  |
@@ -725,11 +735,11 @@ The assistant-side live voice module is intentionally bounded under `src/live-vo
 | `live-voice-session.ts`         | Session orchestration: streaming STT, push-to-talk release, voice turn bridge callbacks, assistant text deltas, TTS, archive, metrics, interrupt, and close |
 | `live-voice-tts.ts`             | Streaming TTS helper that resolves `services.tts`, requires `TtsProvider.synthesizeStream()`, and forwards audio chunks as `tts_audio` frames               |
 | `live-voice-archive.ts`         | Audio artifact creation/linking for user utterance and assistant response message IDs                                                                       |
-| `live-voice-metrics.ts`         | Per-session and per-turn latency snapshots emitted as `metrics` frames                                                                                      |
+| `../calls/voice-metrics.ts`     | Shared per-session and per-turn latency marks; live voice emits each snapshot as a `metrics` frame, phone calls log the per-turn aggregate                  |
 
-Live voice STT uses the same `resolveStreamingTranscriber()` path as conversation streaming. For V1 latency-sensitive behavior, the selected `services.stt.provider` must resolve to a `daemon-streaming` transcriber whose catalog entry has `conversationStreamingMode: "realtime-ws"` and usable credentials. Providers that only support batch or incremental-batch transcription remain valid for other voice surfaces, but do not satisfy live voice's streaming STT requirement.
+Live voice STT uses the same `resolveStreamingTranscriber()` path as conversation streaming, dialed with the provider the `liveVoice` STT role resolves to after managed-speech defaulting (`resolveEffectiveSpeechProviders`, see `config/managed-speech-defaults.ts`). For V1 latency-sensitive behavior, that provider must resolve to a `daemon-streaming` transcriber whose catalog entry has `conversationStreamingMode: "realtime-ws"` and usable credentials. Providers that only support batch or incremental-batch transcription remain valid for other voice surfaces, but do not satisfy live voice's streaming STT requirement.
 
-Live voice TTS uses `streamLiveVoiceTtsAudio()` and the configured `services.tts.provider`. The selected provider must be registered, catalog-compatible, and expose `capabilities.supportsStreaming` plus `synthesizeStream()`. Providers whose catalog entry advertises `supportsStreaming` (currently all four catalog providers: ElevenLabs, Fish Audio, Deepgram, and xAI) satisfy this requirement; a buffered-only provider would remain available for buffered message playback or other supported surfaces, but live voice reports a TTS error instead of silently falling back to buffered playback.
+Live voice TTS uses `streamLiveVoiceTtsAudio()` and the TTS provider that `resolveEffectiveSpeechProviders` settles on (the configured `services.tts.provider`, or the managed `vellum` provider when the configured one has no usable credentials). The selected provider must be registered, catalog-compatible, and expose `capabilities.supportsStreaming` plus `synthesizeStream()`. Providers whose catalog entry advertises `supportsStreaming` (currently all five catalog providers: ElevenLabs, Fish Audio, Deepgram, xAI, and the managed Vellum provider) satisfy this requirement; a buffered-only provider would remain available for buffered message playback or other supported surfaces, but live voice reports a TTS error instead of silently falling back to buffered playback.
 
 The `voiceFrontDoor` prompt skips current-turn legacy and v3 memory retrieval, while prior frozen memory cards and static memory context remain available. The front-door rule escalates rather than guessing when required personal context is absent. The escalated leg runs the ordinary memory pipeline against the latest visible caller prompt before the quality model, with low selector effort. This keeps memory work off the front-door TTFT path without cross-leg speculative state.
 
@@ -1292,9 +1302,8 @@ graph TB
         RM_DIR["rmSync skill directory"]
     end
 
-    subgraph "File Watcher"
-        WATCHER["Skills directory watcher<br/>detects changes"]
-        EVICT["Session eviction<br/>+ recreation"]
+    subgraph "Capability reseed"
+        RESEED["SKILL.md mtime poll<br/>reseeds capability cards"]
     end
 
     SNIPPET --> EVAL_TOOL
@@ -1307,14 +1316,12 @@ graph TB
     SCAFFOLD --> MANAGED_STORE
     MANAGED_STORE --> SKILL_DIR
 
-    SKILL_DIR --> WATCHER
-    WATCHER --> EVICT
-
+    SKILL_DIR --> RESEED
     SKILL_DIR --> SKILL_LOAD
     SKILL_LOAD --> SESSION
 
     DELETE --> RM_DIR
-    RM_DIR --> WATCHER
+    RM_DIR --> RESEED
 ```
 
 **Key design decisions:**
@@ -1322,7 +1329,7 @@ graph TB
 - `evaluate_typescript_code` always forces `sandbox.enabled = true` regardless of global config.
 - Snippet contract: must export `default` or `run` with signature `(input: unknown) => unknown | Promise<unknown>`.
 - Managed-store writes are atomic (tmp file + rename) to prevent partial `SKILL.md` files.
-- After persist or delete, the file watcher triggers conversation eviction; the next turn runs in a fresh conversation. The model's system prompt instructs it to continue normally.
+- After persist or delete, capability cards reseed from the `SKILL.md` set. The next turn continues in the same conversation.
 - macOS UI shows Inspect and Delete controls for managed skills only (source = "managed").
 - `skill_load` resolves the recursive include graph (via `include-graph.ts`) before emitting output. Missing children are listed as suggested skills without child `<loaded_skill>` markers; cycles still produce `isError: true` with no marker. Valid includes produce an "Included Skills (immediate)" metadata section showing child ID, name, description, and path.
 
@@ -1405,15 +1412,15 @@ skills/<skill-id>/
 
 The following capabilities ship as bundled skills in `assistant/src/config/bundled-skills/`:
 
-| Skill ID        | Tools                                                                                                                                                                                                                                                             | Purpose                                                                                                                                                                                                                                                                                              |
-| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `browser`       | `browser_navigate`, `browser_snapshot`, `browser_screenshot`, `browser_close`, `browser_click`, `browser_type`, `browser_press_key`, `browser_wait_for`, `browser_extract`, `browser_fill_credential`                                                             | Headless browser automation — web scraping, form filling, interaction (previously core-registered as `headless-browser`; now skill-provided with default allow rules)                                                                                                                                |
-| `gmail`         | Gmail search, archive, send, etc.                                                                                                                                                                                                                                 | Email management via OAuth2 integration                                                                                                                                                                                                                                                              |
-| `computer-use`  | `computer_use_observe`, `computer_use_click`, `computer_use_type_text`, `computer_use_key`, `computer_use_scroll`, `computer_use_drag`, `computer_use_wait`, `computer_use_open_app`, `computer_use_run_applescript`, `computer_use_done`, `computer_use_respond` | Computer-use proxy tools preactivated via `preactivatedSkillIds` in desktop sessions. Each tool forwards actions to a compatible connected desktop host via `HostCuProxy`, which handles request/resolve proxying, step counting, loop detection, and observation formatting in the same agent loop. |
-| `weather`       | `get-weather`                                                                                                                                                                                                                                                     | Fetch current weather data                                                                                                                                                                                                                                                                           |
-| `app-builder`   | `app_create`, `app_delete`, `app_refresh`, `app_generate_icon`                                                                                                                                                                                                    | Dynamic app authoring — create and manage persistent apps; file editing uses generic file tools plus `app_refresh` (activated via `skill_load app-builder`; `app_open` remains a core proxy tool)                                                                                                    |
-| `self-upgrade`  | (instruction-only)                                                                                                                                                                                                                                                | Self-improvement workflow                                                                                                                                                                                                                                                                            |
-| `start-the-day` | (instruction-only)                                                                                                                                                                                                                                                | Morning briefing routine                                                                                                                                                                                                                                                                             |
+| Skill ID        | Tools                                                                                                                                                                                                                                                                                      | Purpose                                                                                                                                                                                                                                                                                              |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `browser`       | `browser_navigate`, `browser_snapshot`, `browser_screenshot`, `browser_close`, `browser_click`, `browser_type`, `browser_press_key`, `browser_wait_for`, `browser_extract`, `browser_fill_credential`                                                                                      | Headless browser automation: web scraping, form filling, interaction (previously core-registered as `headless-browser`; now skill-provided with default allow rules)                                                                                                                                 |
+| `gmail`         | Gmail search, archive, send, etc.                                                                                                                                                                                                                                                          | Email management via OAuth2 integration                                                                                                                                                                                                                                                              |
+| `computer-use`  | `computer_use_observe`, `computer_use_click`, `computer_use_type_text`, `computer_use_key`, `computer_use_scroll`, `computer_use_drag`, `computer_use_wait`, `computer_use_open_app`, `computer_use_run_applescript`, `computer_use_sequence`, `computer_use_done`, `computer_use_respond` | Computer-use proxy tools preactivated via `preactivatedSkillIds` in desktop sessions. Each tool forwards actions to a compatible connected desktop host via `HostCuProxy`, which handles request/resolve proxying, step counting, loop detection, and observation formatting in the same agent loop. |
+| `weather`       | `get-weather`                                                                                                                                                                                                                                                                              | Fetch current weather data                                                                                                                                                                                                                                                                           |
+| `app-builder`   | `app_create`, `app_delete`, `app_refresh`, `app_generate_icon`                                                                                                                                                                                                                             | Dynamic app authoring: create and manage persistent apps; file editing uses generic file tools plus `app_refresh` (activated via `skill_load app-builder`; `app_open` remains a core proxy tool)                                                                                                     |
+| `self-upgrade`  | (instruction-only)                                                                                                                                                                                                                                                                         | Self-improvement workflow                                                                                                                                                                                                                                                                            |
+| `start-the-day` | (instruction-only)                                                                                                                                                                                                                                                                         | Morning briefing routine                                                                                                                                                                                                                                                                             |
 
 ### Activation and Projection Flow
 
@@ -1923,12 +1930,14 @@ Keep-alive heartbeats (every 30 s by default):
 
 ### Key Source Files
 
-| File                                            | Role                                                                           |
-| ----------------------------------------------- | ------------------------------------------------------------------------------ |
-| `assistant/src/runtime/assistant-event.ts`      | `AssistantEvent` type, `buildAssistantEvent()` factory, SSE framing helpers    |
-| `assistant/src/runtime/assistant-event-hub.ts`  | `AssistantEventHub` class and process-level singleton                          |
-| `assistant/src/runtime/routes/events-routes.ts` | `handleSubscribeAssistantEvents()` — SSE route handler                         |
-| `assistant/src/daemon/server.ts`                | Session event paths that publish to the hub (`send` → `publishAssistantEvent`) |
+| File                                                 | Role                                                                                  |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `assistant/src/runtime/assistant-event.ts`           | `AssistantEvent` type, `buildAssistantEvent()` factory, SSE framing helpers           |
+| `assistant/src/runtime/assistant-event-hub.ts`       | `AssistantEventHub` class and process-level singleton                                 |
+| `assistant/src/runtime/assistant-event-targeting.ts` | `matchesTargeting()`, the targeting check live fanout and replay share                |
+| `assistant/src/runtime/assistant-stream-state.ts`    | Per-assistant `seq` counter and ring buffer behind reconnect and `events/tail` replay |
+| `assistant/src/runtime/routes/events-routes.ts`      | `handleSubscribeAssistantEvents()`, the SSE route handler                             |
+| `assistant/src/daemon/server.ts`                     | Session event paths that publish to the hub (`send` → `publishAssistantEvent`)        |
 
 ---
 
@@ -1989,7 +1998,7 @@ An SSE push event surfaces new conversations in the macOS client sidebar:
 
 - **`notification_conversation_created`** — Emitted by `broadcaster.ts` when a notification delivery **creates** a new vellum conversation (strategy `start_new_conversation`, `createdNewConversation: true`). **Not** emitted when a conversation is reused. Payload: `{ conversationId, title, sourceEventName }`.
 
-The event follows this pattern: the daemon creates a server-side conversation, persists an initial message, and broadcasts the SSE event so the macOS `ConversationManager` can create a visible conversation in the sidebar.
+The daemon persists the conversation and its initial message before broadcasting, so a client that receives the event can fetch the conversation immediately. A guardian-sensitive conversation is announced only to the guardian's own connections.
 
 ### Conversation Routing Decision Flow
 
@@ -2027,12 +2036,15 @@ Reminders carry optional `routingIntent` (`single_channel` | `multi_channel` | `
 
 ### Channel Delivery
 
-Notifications are delivered to three channel types:
+Notifications are delivered to five channel types. The daemon sends to external channels itself, calling each provider's API through the send modules in `src/messaging/providers/<channel>/`; nothing goes through the gateway.
 
 - **Vellum (always connected)**: SSE via the daemon's broadcast mechanism. The `VellumAdapter` emits a `notification_intent` message with rendered copy and optional `deepLinkMetadata` (includes `conversationId` for conversation navigation and `messageId` for message-level scroll anchoring).
-- **Telegram (when guardian binding exists)**: HTTP POST to the gateway's `/deliver/telegram` endpoint. Requires an active guardian binding for the assistant.
+- **Platform (always connected)**: the `PlatformPushAdapter` posts the notification to the platform's `/v1/assistants/{id}/push/dispatch/` endpoint for native mobile push. Without platform credentials the delivery is recorded as failed.
+- **Telegram (when the guardian has a chat ID)**: the `TelegramAdapter` calls the Telegram Bot API through `telegram-bot/send.ts`. Approval cards carry inline keyboard buttons and fall back to plain text with typed-reply instructions if the rich send fails.
+- **Slack (when the guardian's chat is a DM)**: the `SlackAdapter` posts through `slack/send.ts`. Only `D`-prefixed DM channels qualify, so a binding made from a shared channel never receives notifications.
+- **Discord (when the guardian binding names a user)**: the `DiscordAdapter` opens the guardian's DM through the Discord REST API and sends through `discord/send.ts`.
 
-Connected channels are resolved at signal emission time: vellum is always included, and binding-based channels (Telegram) are included only when an active guardian binding exists for the assistant.
+Connected channels are resolved at signal emission time by `getConnectedChannels()` in `emit-signal.ts`, from the guardian delivery list (`getGuardianDelivery()`): vellum and platform are always included, and Telegram, Slack, and Discord are included only when that list gives the guardian a deliverable endpoint on the channel.
 
 **Key modules:**
 
@@ -2046,8 +2058,11 @@ Connected channels are resolved at signal emission time: vellum is always includ
 | `assistant/src/notifications/conversation-pairing.ts`                      | Materializes conversation + message per delivery; executes conversation reuse decisions                                               |
 | `assistant/src/notifications/conversation-candidates.ts`                   | Builds per-channel candidate set of recent conversations for the decision engine                                                      |
 | `assistant/src/notifications/adapters/macos.ts`                            | Vellum adapter — broadcasts `notification_intent` via SSE with deep-link metadata                                                     |
-| `assistant/src/notifications/adapters/telegram.ts`                         | Telegram adapter — POSTs to gateway `/deliver/telegram`                                                                               |
-| `assistant/src/notifications/destination-resolver.ts`                      | Resolves per-channel endpoints (vellum SSE, Telegram chat ID from guardian binding)                                                   |
+| `assistant/src/notifications/adapters/platform.ts`                         | Platform adapter: posts to the platform push-dispatch endpoint for native mobile push                                                 |
+| `assistant/src/notifications/adapters/telegram.ts`                         | Telegram adapter: calls the Telegram Bot API through `messaging/providers/telegram-bot/send.ts`                                       |
+| `assistant/src/notifications/adapters/slack.ts`                            | Slack adapter: posts to the guardian's DM through `messaging/providers/slack/send.ts`                                                 |
+| `assistant/src/notifications/adapters/discord.ts`                          | Discord adapter: sends to the guardian's DM through `messaging/providers/discord/send.ts`                                             |
+| `assistant/src/notifications/destination-resolver.ts`                      | Resolves per-channel endpoints from the guardian delivery list (Telegram and Slack chat ID, Discord user ID)                          |
 | `assistant/src/notifications/copy-composer.ts`                             | Template-based fallback copy when LLM copy is unavailable                                                                             |
 | `assistant/src/notifications/preference-extractor.ts`                      | Detects preference statements in conversation messages                                                                                |
 | `assistant/src/notifications/preferences-store.ts`                         | CRUD for user notification preferences                                                                                                |
@@ -2190,7 +2205,7 @@ The `TtsUseCase` discriminator (`"phone-call"` or `"message-playback"`) lets pro
 - **`native-twilio`** — the text-token path: spoken text is sent via `sendTextToken()`, which the media-stream transport re-synthesizes through daemon TTS. Collapsing this mode into `synthesized-play` is a documented deferred follow-up.
 - **`synthesized-play`** — The assistant synthesises audio via the provider's HTTP API and streams it through the audio store / `sendPlayUrl()` path.
 
-**Phone call integration:** Phone calls run on the media-stream transport, where the daemon synthesises speech via the configured TTS provider and transcodes it to mu-law 8 kHz frames (`media-stream-output.ts`). Each catalog entry declares `mediaStreamPlayback.outputFormat` (`pcm`, `wav`, or `none`); `resolveTelephonyTtsCapability()` (`src/calls/telephony-tts-capability.ts`) combines that field with credential availability into a playable / not-playable verdict, and the call TTS resolver falls back to a credentialed playable provider rather than producing silence.
+**Phone call integration:** Phone calls run on the media-stream transport, where the daemon synthesises speech via the effective TTS provider (the configured one after managed-speech defaulting, `resolveEffectiveSpeechProviders`, the same substitution live voice makes) and transcodes it to mu-law 8 kHz frames (`media-stream-output.ts`). Each catalog entry declares `mediaStreamPlayback.outputFormat` (`pcm`, `wav`, or `none`); `resolveTelephonyTtsCapability()` (`src/calls/telephony-tts-capability.ts`) combines that field with credential availability into a playable / not-playable verdict, and the call TTS resolver falls back to a credentialed playable provider rather than producing silence.
 
 **Adding a new TTS provider (catalog-first checklist):**
 

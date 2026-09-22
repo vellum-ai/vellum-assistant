@@ -2,6 +2,7 @@ import {
   isNoResponseOnlyText,
   isPotentialNoResponsePrefix,
 } from "@vellumai/service-contracts/no-response";
+import { isComputerUseToolCall } from "@vellumai/assistant-api";
 import {
   Fragment,
   type MouseEvent as ReactMouseEvent,
@@ -13,15 +14,19 @@ import {
 } from "react";
 
 import { BubbleAttachments } from "@/domains/chat/components/chat-attachments/bubble-attachments";
+import { CameraFrameGrid } from "@/domains/chat/components/chat-attachments/camera-frame-grid";
+import { getMessageRenderKind } from "@/domains/chat/transcript/message-render-kind";
 import { resolveAttachmentFilename } from "@vellumai/service-contracts/attachment-naming";
 
 import { downloadAttachment } from "@/domains/chat/components/chat-attachments/download-attachment";
 import { MessageAttachments } from "@/domains/chat/components/chat-attachments/message-attachments";
+import { useComputerUseScreenshotTransition } from "@/domains/chat/components/chat-attachments/computer-use-screenshot-preview";
 import {
+  createToolResultImageProjector,
   embeddedImageFileNames,
-  resolveToolResultImages,
   ToolResultImages,
 } from "@/domains/chat/components/chat-attachments/tool-result-images";
+import { deriveTranscriptImagePresentation } from "@/domains/chat/transcript/computer-use-image-presentation";
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import {
   VellumFileActionModal,
@@ -45,9 +50,12 @@ import {
   type IconName,
 } from "@/domains/chat/components/tool-progress-card/derive-step-label";
 import {
+  activityHasDedicatedCard,
   activityItemsToCardData,
   type ContentBlockActivityItem,
+  finalResponseStartIndex,
   groupContentBlocks,
+  groupOptionsForMessage,
   isSubagentSpawnCall,
   isTaskProgressSurface,
 } from "@/domains/chat/transcript/message-content";
@@ -58,6 +66,7 @@ import { AnsweredQuestionCard } from "@/domains/chat/components/answered-questio
 import { useCoarsePointerReveal } from "@/domains/chat/transcript/use-coarse-pointer-reveal";
 import { AssistantContentDisclosure } from "@/domains/chat/transcript/assistant-content-disclosure";
 import { parseInlineSurfaces } from "@/domains/chat/utils/parse-inline-surfaces";
+import { useHideThinkingUi } from "@/domains/chat/hooks/use-hide-thinking-ui";
 import { useSmoothStreamText } from "@/domains/chat/hooks/use-smooth-stream-text";
 import { useTranslation } from "@/i18n";
 import { useSupportsRedactedCredentialChips } from "@/lib/backwards-compat/use-supports-redacted-credential-chips";
@@ -70,6 +79,7 @@ import { wireSurfaceToDisplay } from "@/domains/chat/utils/map-runtime-message";
 import { isPointerCoarse } from "@/utils/pointer";
 import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 import { useLongPress } from "@/hooks/use-long-press";
+import { isInteractiveTarget } from "@/utils/interactive-target";
 import { openWorkspaceFile } from "@/utils/open-workspace-file";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
@@ -83,7 +93,6 @@ import type { ConversationMessageSurface } from "@vellumai/assistant-api";
 import {
   computeCardBackedWorkflowRunIds,
   extractBgIdFromResult,
-  isInteractiveClickTarget,
   lookupSubagentEntriesForMessage,
   acpRunIdForCall,
   resolveAcpRunIds,
@@ -142,6 +151,7 @@ function safeDecodeURIComponent(value: string): string {
  */
 export function TranscriptMessageBody({
   message,
+  cameraFrames,
   conversationId,
   acpConnectInlineToolUseId,
   assistantDisplayName,
@@ -170,19 +180,41 @@ export function TranscriptMessageBody({
   const inlineAssistantIntermediates =
     useClientFeatureFlagStore.use.inlineAssistantIntermediates();
   const isSlackMessage = Boolean(message.slackMessage);
-  const isSlackReaction = message.slackMessage?.eventKind === "reaction";
+  const isSlackReaction = getMessageRenderKind(message) === "slackReaction";
   const isUser = message.role === "user";
-  const hasAttachments = Boolean(message.attachments?.length);
+  const isStandaloneFrameGroup = isUser && cameraFrames?.[0]?.id === message.id;
+  // Two reasons this row shows no reasoning: the transcript-wide gate, and the
+  // row's own private marker. `groupOptionsForMessage` drops the settled blocks
+  // for either; this is what keeps the live row from shimmering a "Thinking"
+  // label over the reply while the turn is still running.
+  const hideThinkingUi = useHideThinkingUi();
+  const hidesThinking =
+    hideThinkingUi || message.assistantTextVisibility === "private";
+  const hasCanonicalAttachments =
+    !isStandaloneFrameGroup && Boolean(message.attachments?.length);
   // Gated on the transcript owner: an older daemon neutralizes nothing, so
   // sentinel-shaped text in its transcripts must never chip-ify, and only the
   // active assistant's version is known (see the gate module).
   const supportsRedactedCredentialChips =
     useSupportsRedactedCredentialChips(assistantId);
 
-  // User-typed thinking tags must render verbatim; only assistant text splits.
-  const groups = groupContentBlocks(message.contentBlocks ?? [], {
-    splitInlineThinking: !isUser,
-  });
+  // User-typed thinking tags must render verbatim, and a row marked private
+  // carries no reasoning the user reads.
+  const groups = groupContentBlocks(
+    isStandaloneFrameGroup ? [] : (message.contentBlocks ?? []),
+    groupOptionsForMessage(message, hideThinkingUi),
+  );
+  const orderedMessageToolCalls = useMemo(
+    () =>
+      message.contentBlocks !== undefined
+        ? message.contentBlocks.flatMap((block) =>
+            block.type === "tool_use" && block.toolCall.id !== undefined
+              ? [{ ...block.toolCall, id: block.toolCall.id }]
+              : [],
+          )
+        : (message.toolCalls ?? []),
+    [message.contentBlocks, message.toolCalls],
+  );
 
   // Only the trailing text group of a streaming assistant message is still
   // growing, so only it gets the typewriter re-pacing; earlier groups (and
@@ -207,6 +239,39 @@ export function TranscriptMessageBody({
     () => embeddedImageFileNames(message.contentBlocks),
     [message.contentBlocks],
   );
+  const projectImages = useMemo(() => createToolResultImageProjector(), []);
+  const imagePresentation = useMemo(
+    () =>
+      deriveTranscriptImagePresentation(
+        orderedMessageToolCalls,
+        message.attachments,
+        embeddedImageNames,
+        projectImages,
+      ),
+    [
+      orderedMessageToolCalls,
+      message.attachments,
+      embeddedImageNames,
+      projectImages,
+    ],
+  );
+  const visibleAssistantAttachments = imagePresentation.visibleAttachments;
+  const screenshotTransition = useComputerUseScreenshotTransition({
+    assistantId,
+    scopeKey:
+      message.id ??
+      `anonymous-assistant-message:${message.timestamp ?? "unknown"}`,
+    target: imagePresentation.selectedComputerUseImage,
+  });
+  const selectedImagesByGroupIndex = groups.map((group) => {
+    if (group.type !== "activity") {
+      return [];
+    }
+    const { toolCalls } = activityItemsToCardData(group.items);
+    return toolCalls.flatMap(
+      (toolCall) => imagePresentation.imagesByToolCallId.get(toolCall.id) ?? [],
+    );
+  });
 
   const isTouch = isPointerCoarse();
 
@@ -232,15 +297,16 @@ export function TranscriptMessageBody({
   // on the markdown container itself (see `renderTextWithInlineSurfaces`).
   const collapsedSegmentClass = `break-words ${textBubbleWidthClass}`;
 
-  const forkMessageId = message.id;
+  const actionMessageId = isStandaloneFrameGroup
+    ? cameraFrames?.at(-1)?.id
+    : message.id;
   const forkHandler =
-    forkMessageId && onForkConversation
-      ? () => onForkConversation(forkMessageId)
+    actionMessageId && onForkConversation
+      ? () => onForkConversation(actionMessageId)
       : undefined;
-  const summarizeMessageId = message.id;
   const summarizeHandler =
-    summarizeMessageId && onSummarizeUpToHere
-      ? () => onSummarizeUpToHere(summarizeMessageId)
+    actionMessageId && onSummarizeUpToHere
+      ? () => onSummarizeUpToHere(actionMessageId)
       : undefined;
   const inspectMessageId = message.id;
   const inspectHandler =
@@ -307,7 +373,7 @@ export function TranscriptMessageBody({
         return;
       }
       const target = e.target as Element | null;
-      if (isInteractiveClickTarget(target)) {
+      if (isInteractiveTarget(target)) {
         return;
       }
 
@@ -437,9 +503,10 @@ export function TranscriptMessageBody({
    * question with nothing to show are all not card-backed, so they keep the
    * chip instead of vanishing from the transcript.
    *
-   * Read by all three places that must agree on this: the chip filter, the
-   * group's suppression set, and the collapse guard that keeps a card-backed
-   * group out of the "Earlier activity" disclosure.
+   * Read by the places that must agree on this: the chip filter, the group's
+   * suppression set, the collapse guard that keeps a card-backed group out of
+   * the "Earlier activity" disclosure, and the final-response boundary that
+   * treats a dedicated card as visible output.
    */
   const isCardBacked = (tc: ChatMessageToolCall): boolean =>
     cardBackedWorkflowRunId(tc) !== null ||
@@ -612,6 +679,7 @@ export function TranscriptMessageBody({
                     !isUser && supportsRedactedCredentialChips
                   }
                   workspacePathLinks={!isUser}
+                  fileLinkLabels={isUser ? "markdown" : "action"}
                 />
               </div>
             );
@@ -631,6 +699,7 @@ export function TranscriptMessageBody({
           streamWordFade={streamWordFade}
           redactedCredentialChips={!isUser && supportsRedactedCredentialChips}
           workspacePathLinks={!isUser}
+          fileLinkLabels={isUser ? "markdown" : "action"}
         />
       </div>
     );
@@ -784,12 +853,24 @@ export function TranscriptMessageBody({
     );
   };
 
-  const renderToolResultImages = (toolCalls: ChatMessageToolCall[]) => (
+  const renderToolResultImages = (
+    toolCalls: ChatMessageToolCall[],
+    groupIndex: number,
+  ) => (
     <ToolResultImages
       toolCalls={toolCalls}
-      messageAttachments={message.attachments}
-      embeddedImageNames={embeddedImageNames}
+      resolvedImages={selectedImagesByGroupIndex[groupIndex]}
       assistantId={assistantId}
+      computerUseScreenshotTransition={
+        imagePresentation.selectedComputerUseImage &&
+        toolCalls.some(
+          (toolCall) =>
+            toolCall.id ===
+            imagePresentation.selectedComputerUseImage?.toolCallId,
+        )
+          ? screenshotTransition
+          : undefined
+      }
     />
   );
 
@@ -845,6 +926,10 @@ export function TranscriptMessageBody({
       cardItems[0]?.kind === "toolCall" &&
       renderableToolCalls.length === 1 &&
       !WEB_TOOL_NAMES.has(renderableToolCalls[0]!.name) &&
+      !isComputerUseToolCall(
+        renderableToolCalls[0]!.name,
+        renderableToolCalls[0]!.input,
+      ) &&
       !renderableToolCalls[0]!.pendingConfirmation
         ? renderableToolCalls[0]!
         : null;
@@ -852,7 +937,7 @@ export function TranscriptMessageBody({
       return (
         <Fragment key={key}>
           <SingleActivity variant="tool" toolCall={loneTool} />
-          {renderToolResultImages(groupToolCalls)}
+          {renderToolResultImages(groupToolCalls, groupIndex)}
           {renderInlineSubagentCards(groupToolCalls)}
           {renderInlineWorkflowCards(groupToolCalls)}
           {renderInlineAcpRunCards(groupToolCalls)}
@@ -886,7 +971,9 @@ export function TranscriptMessageBody({
           <div className="w-full">
             <MultiActivityGroup
               toolCalls={groupCardToolCalls}
+              groupToolCallIds={groupToolCalls.map((toolCall) => toolCall.id)}
               items={groupCardItems}
+              active={isStreaming && isLatestMessage && isLastGroup}
               messageId={message.id}
               groupIndex={groupIndex}
               onOpenRuleEditor={onOpenRuleEditor}
@@ -896,7 +983,7 @@ export function TranscriptMessageBody({
               onDismissUnknownNudge={onDismissUnknownNudge}
             />
           </div>
-          {renderToolResultImages(groupToolCalls)}
+          {renderToolResultImages(groupToolCalls, groupIndex)}
           {renderInlineSubagentCards(groupToolCalls)}
           {renderInlineWorkflowCards(groupToolCalls)}
           {renderInlineAcpRunCards(groupToolCalls)}
@@ -910,7 +997,8 @@ export function TranscriptMessageBody({
     // inline thinking `SingleActivity`, plus any spawn cards. A trailing run
     // reads as still-streaming only while the row is live.
     const combinedThinking = thinkingContents.join("\n");
-    const showThinking = combinedThinking || (isStreaming && isLastGroup);
+    const showThinking =
+      !hidesThinking && (combinedThinking || (isStreaming && isLastGroup));
     return (
       <Fragment key={key}>
         {showThinking && (
@@ -922,7 +1010,7 @@ export function TranscriptMessageBody({
             groupIndex={groupIndex}
           />
         )}
-        {renderToolResultImages(groupToolCalls)}
+        {renderToolResultImages(groupToolCalls, groupIndex)}
         {renderInlineSubagentCards(groupToolCalls)}
         {renderInlineWorkflowCards(groupToolCalls)}
         {renderInlineAcpRunCards(groupToolCalls)}
@@ -936,8 +1024,7 @@ export function TranscriptMessageBody({
     items: Array<{ kind: "text" | "nonText"; node: ReactNode }>,
   ): ReactNode => {
     type Slot =
-      | { kind: "bubble"; nodes: ReactNode[] }
-      | { kind: "raw"; node: ReactNode };
+      { kind: "bubble"; nodes: ReactNode[] } | { kind: "raw"; node: ReactNode };
     const slots: Slot[] = [];
     let textRun: ReactNode[] = [];
 
@@ -962,20 +1049,32 @@ export function TranscriptMessageBody({
     }
     flushTextRun();
 
-    if (hasAttachments && message.attachments) {
-      const attachmentsNode = (
+    const appendToLastBubble = (node: ReactNode) => {
+      const lastBubble = slots.findLast((slot) => slot.kind === "bubble");
+      if (lastBubble) {
+        lastBubble.nodes.push(node);
+      } else {
+        slots.push({ kind: "bubble", nodes: [node] });
+      }
+    };
+
+    if (hasCanonicalAttachments && message.attachments) {
+      appendToLastBubble(
         <BubbleAttachments
           key="user-attachments"
           attachments={message.attachments}
           assistantId={assistantId}
-        />
+        />,
       );
-      const lastBubble = slots.findLast((slot) => slot.kind === "bubble");
-      if (lastBubble) {
-        lastBubble.nodes.push(attachmentsNode);
-      } else {
-        slots.push({ kind: "bubble", nodes: [attachmentsNode] });
-      }
+    }
+    if (cameraFrames?.length) {
+      appendToLastBubble(
+        <CameraFrameGrid
+          key="camera-frames"
+          frames={cameraFrames}
+          assistantId={assistantId}
+        />,
+      );
     }
 
     let bubbleIndex = 0;
@@ -1015,6 +1114,25 @@ export function TranscriptMessageBody({
       (it) => it.kind === "thinking" && it.text.length > 0,
     );
     return hasThinking || (isStreaming && groupIndex === groups.length - 1);
+  };
+
+  /**
+   * Whether a group draws anything the user can see. Timeline rows
+   * (`groupRendersRow`) plus dedicated inline cards that the timeline
+   * predicate excludes: those cards are not chips, but they are visible
+   * output and bound the final-response walk.
+   */
+  const groupDrawsVisibleOutput = (
+    group: (typeof groups)[number],
+    groupIndex: number,
+  ): boolean => {
+    if (groupRendersRow(group, groupIndex)) {
+      return true;
+    }
+    if (group.type !== "activity") {
+      return false;
+    }
+    return activityHasDedicatedCard(group.items, isCardBacked);
   };
 
   /**
@@ -1096,25 +1214,20 @@ export function TranscriptMessageBody({
   // truncates inside the card instead of overflowing the message column.
   const columnClass = `flex w-full min-w-0 flex-col gap-2 ${isUser ? "items-end" : "items-start"}`;
 
-  // See `TranscriptMessageBodyProps.isLatestMessage` for why only the latest
-  // message collapses this row instead of reserving its height. `-mt-2`
-  // cancels the column's `gap-2` slot while collapsed — a zero-height flex
-  // item still incurs the parent gap — and animates back to `mt-0` on reveal.
-  const trailerHeightClass = isLatestMessage
-    ? "h-0 -mt-2 overflow-hidden group-hover/msg:h-8 group-hover/msg:mt-0 has-[:focus-visible]:h-8 has-[:focus-visible]:mt-0 group-data-[revealed=true]/msg:h-8 group-data-[revealed=true]/msg:mt-0"
-    : "h-6 overflow-hidden";
-
+  // Copy and Read aloud stay visible on every copyable row, including the
+  // latest turn sitting above the parked avatar. Secondary actions (retry,
+  // bookmark, Slack, fork, summarize, inspect) stay hover/tap-revealed inside
+  // `MessageHoverActions`.
   const trailer = (
     <>
       <SlackMessageAttribution
         message={message}
         assistantDisplayName={assistantDisplayName}
       />
-      <div
-        className={`${trailerHeightClass} opacity-0 transition-[height,margin,opacity] duration-200 ease-out group-hover/msg:opacity-100 has-[:focus-visible]:opacity-100 group-data-[revealed=true]/msg:opacity-100 motion-reduce:transition-none`}
-      >
+      <div className="h-6">
         <MessageHoverActions
           message={message}
+          showTextActions={!isStandaloneFrameGroup}
           conversationId={conversationId}
           openInSlackUrl={slackMessageUrl}
           onFork={forkHandler}
@@ -1142,6 +1255,11 @@ export function TranscriptMessageBody({
     return (
       <div
         ref={wrapperRef}
+        id={
+          !isStandaloneFrameGroup && message.id
+            ? `msg-${message.id}`
+            : undefined
+        }
         data-message-id={message.id || undefined}
         data-message-role={message.role}
         onClick={handleBubbleClick}
@@ -1161,6 +1279,7 @@ export function TranscriptMessageBody({
           <div onClick={(e) => e.stopPropagation()}>
             <MessageLongPressActions
               message={message}
+              showTextActions={!isStandaloneFrameGroup}
               conversationId={conversationId}
               openInSlackUrl={slackMessageUrl}
               onFork={forkHandler}
@@ -1175,14 +1294,24 @@ export function TranscriptMessageBody({
     );
   }
 
-  const finalResponseGroupIndex = groups.findLastIndex(
-    (group) => group.type === "text" && group.text.trim().length > 0,
+  const finalResponseGroupIndex = finalResponseStartIndex(
+    groups,
+    groupDrawsVisibleOutput,
   );
-  // Per-user opt-out of the "Earlier activity" disclosure: with the flag on,
-  // no group is collapsible, so the whole response renders inline at full
-  // size and none of the collapsed styling applies.
+  // Three reasons no group is collapsible, after which the whole response
+  // renders inline at full size and none of the collapsed styling applies: the
+  // per-user opt-out; the `send-user-message` flag, under which every text
+  // block is a message the assistant chose to send and none is "earlier"
+  // prose to fold away; and a row the daemon marks private, whose prose
+  // arrives projected into thinking blocks with the reply as its own text.
+  // The third reason is the row's own marker, so a row sent under the flag
+  // stays inline after the flag is turned off.
   const collapsibleGroupIndexes = groups.flatMap((group, groupIndex) => {
-    if (inlineAssistantIntermediates) {
+    if (
+      inlineAssistantIntermediates ||
+      hideThinkingUi ||
+      message.assistantTextVisibility === "private"
+    ) {
       return [];
     }
     if (groupIndex >= finalResponseGroupIndex) {
@@ -1205,17 +1334,12 @@ export function TranscriptMessageBody({
       // Pinned only when the strip actually draws something. A group whose
       // images the end-of-turn attachments already show draws nothing, so it
       // has no reason to sit outside "Earlier activity".
-      resolveToolResultImages(
-        toolCalls,
-        message.attachments,
-        embeddedImageNames,
-      ).length > 0 ||
+      selectedImagesByGroupIndex[groupIndex]!.length > 0 ||
+      activityHasDedicatedCard(group.items, isCardBacked) ||
       toolCalls.some(
         (toolCall) =>
           isToolCallRunning(toolCall) ||
           toolCall.pendingConfirmation !== undefined ||
-          isSubagentSpawnCall(toolCall) ||
-          isCardBacked(toolCall) ||
           acpConnectToolUseId === toolCall.id ||
           unknownNudgeToolCallIds?.has(toolCall.id) === true,
       );
@@ -1326,9 +1450,10 @@ export function TranscriptMessageBody({
         {pendingVisualToolUseIds.map((toolUseId) => (
           <VisualPlaceholder key={`visual-pending-${toolUseId}`} />
         ))}
-        {hasAttachments && (
+        {hasCanonicalAttachments && (
           <MessageAttachments
-            attachments={message.attachments ?? []}
+            attachments={visibleAssistantAttachments}
+            panelAttachments={message.attachments ?? []}
             assistantId={assistantId}
             messageId={message.id}
           />
@@ -1339,6 +1464,7 @@ export function TranscriptMessageBody({
         {trailer}
       </div>
       {vellumFileModal}
+      {screenshotTransition.previewModal}
       {isTouch && !isAssistant && (
         <div onClick={(e) => e.stopPropagation()}>
           <MessageLongPressActions

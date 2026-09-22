@@ -5,16 +5,17 @@ import {
   resolveImageGenCredentials,
   resolveImageGenRouting,
 } from "../../../../media/image-credentials.js";
-import {
-  describeImageModels,
-  resolveImageModel,
-} from "../../../../media/image-models.js";
+import { resolveRequestedImageModel } from "../../../../media/image-models.js";
 import {
   generateImage,
   mapImageGenError,
 } from "../../../../media/image-service.js";
 import { getFilePathBySourcePath } from "../../../../persistence/attachments-store.js";
 import type { ImageContent } from "../../../../providers/types.js";
+import {
+  isAbortLikeError,
+  throwIfCancelled,
+} from "../../../../tools/shared/abort.js";
 import { sandboxPolicy } from "../../../../tools/shared/filesystem/path-policy.js";
 import type {
   ToolContext,
@@ -107,21 +108,21 @@ export async function run(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
+  throwIfCancelled(context);
   const config = getConfig();
   const svc = config.services["image-generation"];
   let modelOverride = input.model;
-  // Resolve tier aliases (fast, quality, openai) to concrete model IDs via
-  // the registry. Unknown values get an error listing the current catalog so
-  // callers can self-correct without a stale schema enum.
+  // Resolve aliases and OpenRouter slugs against the configured provider.
+  // Built-in providers still list the current catalog on unknown values.
   if (typeof modelOverride === "string" && modelOverride) {
-    const entry = resolveImageModel(modelOverride);
-    if (!entry) {
+    const resolved = resolveRequestedImageModel(modelOverride, svc.provider);
+    if (resolved.error) {
       return {
-        content: `Unknown model "${modelOverride}". Available models and aliases:\n${describeImageModels()}\n\nRetry with one of the aliases above, or omit the model parameter to use the configured default.`,
+        content: `${resolved.error}\n\nRetry with one of the aliases above, or omit the model parameter to use the configured default.`,
         isError: true,
       };
     }
-    modelOverride = entry.id;
+    modelOverride = resolved.model;
   }
   // Backend and managed-ness resolve together: an explicit model re-routes
   // to the model's backend (e.g. `gpt-image-2` under a gemini config routes
@@ -201,6 +202,12 @@ export async function run(
     sourceImages = validPathImages;
   }
 
+  // Recheck: credential resolution and the source-image reads above are all
+  // awaits, so a cancel landing during them must not still start a paid
+  // generation. Past this line the request is in flight and carries the turn's
+  // signal, so a cancel aborts it rather than being checked for.
+  throwIfCancelled(context);
+
   try {
     const result = await generateImage(provider, credentials, {
       prompt,
@@ -208,8 +215,11 @@ export async function run(
       sourceImages,
       model,
       variants,
+      ...(context.signal ? { signal: context.signal } : {}),
     });
 
+    // No cancellation check here on purpose. The generation resolved, so it was
+    // paid for; discarding it would charge the user and hand the model nothing.
     const imageCount = result.images.length;
     const { savedPaths, saveError } = saveGeneratedImages(
       result.images,
@@ -254,6 +264,11 @@ export async function run(
       contentBlocks,
     };
   } catch (error) {
+    // A cancelled turn is not a generation failure: let it reach the
+    // executor's abort handling instead of being rendered as a tool error.
+    if (isAbortLikeError(error)) {
+      throw error;
+    }
     // Echo the model that failed so callers (including the skill's retry
     // branch) can key off the error text instead of remembering their input.
     return {

@@ -117,8 +117,8 @@ describe("CheckoutBonusModal", () => {
   test("renders the offered amount from props, not a hardcoded figure", () => {
     renderModal({ amountUsd: "7.50" });
 
-    screen.getByRole("heading", { name: "Here's $7.50 on us" });
-    expect(claimButton().textContent).toBe("Claim $7.50 in credits");
+    screen.getByRole("heading", { name: "Here's $7.50 of extra usage on us" });
+    expect(claimButton().textContent).toBe("Claim $7.50 in extra usage");
     screen.getByRole("button", { name: "No thanks" });
   });
 
@@ -134,7 +134,9 @@ describe("CheckoutBonusModal", () => {
 
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
     expect(claimCalls).toBe(1);
-    expect(successToasts).toEqual(["$10 in credits added to your account."]);
+    expect(successToasts).toEqual([
+      "$10 in extra usage added to your usage balance.",
+    ]);
     expect(infoToasts).toEqual([]);
     expect(queryClient.getQueryState(SUMMARY_KEY)?.isInvalidated).toBe(true);
     expect(queryClient.getQueryState(ELIGIBILITY_KEY)?.isInvalidated).toBe(
@@ -171,7 +173,7 @@ describe("CheckoutBonusModal", () => {
 
     await waitFor(() =>
       expect(errorToasts).toEqual([
-        "Could not add the credits. Please try again.",
+        "Could not add the extra usage. Please try again.",
       ]),
     );
     expect(onOpenChange).not.toHaveBeenCalled();

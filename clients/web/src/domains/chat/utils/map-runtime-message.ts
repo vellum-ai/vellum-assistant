@@ -2,6 +2,7 @@ import type {
   ConversationMessage,
   ConversationMessageSurface,
 } from "@vellumai/assistant-api";
+import { readAssistantTextVisibility } from "@/domains/chat/utils/assistant-text-visibility";
 import { runtimeAttachmentsToDisplay } from "@/domains/chat/utils/attachment-mapping";
 import { parseAttachmentSummariesFromContent } from "@/domains/chat/utils/parse-attachment-summaries";
 import type {
@@ -156,6 +157,12 @@ export function mapRuntimeToDisplayMessage(
   if (m.mergedMessageIds?.length) {
     msg.mergedMessageIds = m.mergedMessageIds;
   }
+  if (m.modeSession) {
+    msg.modeSession = m.modeSession;
+  }
+  if (m.modeSessionActivity) {
+    msg.modeSessionActivity = m.modeSessionActivity;
+  }
   if (m.clientMessageId) {
     msg.clientMessageId = m.clientMessageId;
   }
@@ -188,6 +195,13 @@ export function mapRuntimeToDisplayMessage(
   }
   if (m.noResponse) {
     msg.isNoResponse = true;
+  }
+  if (m.cameraFrame) {
+    msg.isCameraFrame = true;
+  }
+  const assistantTextVisibility = readAssistantTextVisibility(m);
+  if (assistantTextVisibility) {
+    msg.assistantTextVisibility = assistantTextVisibility;
   }
   if (m.reaction) {
     msg.reaction = m.reaction;

@@ -1,4 +1,4 @@
-import { Gift, Loader2 } from "lucide-react";
+import { Gift } from "lucide-react";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
@@ -27,11 +27,11 @@ export interface CheckoutBonusModalProps {
 }
 
 /**
- * Offer dialog for the one-time abandoned-checkout credit bonus. The parent
- * decides when to show it (server-verified eligibility); this component owns
- * the claim call. The server re-verifies on claim, so a stale offer resolves
- * to `already_claimed` / `ineligible` and the dialog bows out with an info
- * toast instead of granting.
+ * Offer dialog for the one-time abandoned-checkout extra-usage bonus. The
+ * parent decides when to show it (server-verified eligibility); this component
+ * owns the claim call. The server re-verifies on claim, so a stale offer
+ * resolves to `already_claimed` / `ineligible` and the dialog bows out with an
+ * info toast instead of granting.
  */
 export function CheckoutBonusModal({
   open,
@@ -115,9 +115,7 @@ export function CheckoutBonusModal({
           </Modal.Close>
           <Button
             variant="primary"
-            leftIcon={
-              pending ? <Loader2 className="animate-spin" /> : undefined
-            }
+            loading={pending}
             onClick={handleClaim}
             disabled={pending}
             data-testid="claim-checkout-bonus-button"

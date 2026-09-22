@@ -1,3 +1,4 @@
+import type { VoiceEscalationProfileSource } from "../calls/voice-escalation-target.js";
 import { type ClientOs, parseClientOs } from "../channels/types.js";
 
 const LIVE_VOICE_CLIENT_FRAME_TYPES = [
@@ -9,6 +10,8 @@ const LIVE_VOICE_CLIENT_FRAME_TYPES = [
   "update_config",
   "attach_image",
   "attach_frame",
+  "sight_start",
+  "sight_end",
   "sight_frame",
   "text",
 ] as const;
@@ -30,6 +33,7 @@ const _LIVE_VOICE_SERVER_FRAME_TYPES = [
   "tts_done",
   "turn_cancelled",
   "minimize_room",
+  "session_control",
   "metrics",
   "archived",
   "error",
@@ -65,6 +69,20 @@ export interface LiveVoiceProtocolError {
 type LiveVoiceParseResult<T> =
   | { ok: true; frame: T }
   | { ok: false; error: LiveVoiceProtocolError };
+
+type LiveVoiceParseFailure = Extract<
+  LiveVoiceParseResult<never>,
+  { ok: false }
+>;
+
+function liveVoiceParseFailure(
+  code: LiveVoiceProtocolErrorCode,
+  message: string,
+  field: string,
+  frameType: string,
+): LiveVoiceParseFailure {
+  return { ok: false, error: { code, message, field, frameType } };
+}
 
 export interface LiveVoiceAudioConfig {
   readonly mimeType: "audio/pcm";
@@ -135,6 +153,89 @@ export interface LiveVoiceClientStartFrame {
    * load-bearing for what a voice turn may do.
    */
   readonly client?: ClientOs;
+  /**
+   * Which control the session was asked from, as distinct from which client
+   * (`client`) it was asked on. The macOS app alone has three: the chat's
+   * voice button (`composer`), the companion surface's Talk (`companion`),
+   * and the voice key (`voice_key`, or `voice_key_ask` for a hold made over a
+   * selection). `deep_link` is Siri, a widget, the Action Button or a Live
+   * Activity tap, and `cli` the terminal client. Absent from clients that
+   * predate the field.
+   *
+   * Analytics only, exactly like `client`, and unlike `client` an open string
+   * rather than a closed set: the values are minted where the controls are,
+   * in the clients, and a daemon older than the client that sent one must
+   * carry the value through rather than erase it. The parser bounds the shape
+   * instead ({@link parseLiveVoiceEntry}) and drops anything outside it, so a
+   * malformed value costs a chart facet and never the session.
+   */
+  readonly entry?: string;
+  /**
+   * The session controls this client can carry out when a reply asks for one
+   * (see {@link LiveVoiceSessionControlServerFrame}). The session teaches the
+   * model only the controls listed here, so a client that cannot hang up or
+   * mute is never told it can.
+   *
+   * Absent means none: a client that predates the field would ignore the
+   * frame, and a spoken "okay, ending the call" that ends nothing is worse
+   * than the model not offering. Values this daemon does not know are dropped
+   * rather than rejected, so a newer client can list controls an older daemon
+   * has never heard of.
+   */
+  readonly sessionControls?: readonly LiveVoiceSessionControl[];
+  /**
+   * This client sends a fresh `sight_frame` right after it carries out a look
+   * control, with timing reason `look`, whether or not a share or the camera
+   * was already running. The session answers the look from that frame on a
+   * turn of its own, so the reply that asked for the look only acknowledges it.
+   *
+   * Absent means false: a client that predates the field sends no such frame,
+   * and a session waiting on one would promise a look that never comes.
+   */
+  readonly lookFrames?: boolean;
+}
+
+const LIVE_VOICE_SESSION_CONTROLS = [
+  "end",
+  "mute",
+  "look_screen",
+  "look_camera",
+  "look_stop",
+] as const;
+
+/** A session control a client can carry out on the assistant's behalf. */
+export type LiveVoiceSessionControl =
+  (typeof LIVE_VOICE_SESSION_CONTROLS)[number];
+
+/**
+ * A start frame's `sessionControls`, reduced to the known values with
+ * duplicates removed; empty when the field is absent or not an array.
+ */
+export function parseLiveVoiceSessionControls(
+  value: unknown,
+): LiveVoiceSessionControl[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return LIVE_VOICE_SESSION_CONTROLS.filter((control) =>
+    value.includes(control),
+  );
+}
+
+/**
+ * The shape a start frame's `entry` must have: a short snake_case token.
+ *
+ * The bound is set by where the value lands. The started telemetry row stamps
+ * `started_<client>:<entry>` into a 64-character wire field, and the longest
+ * `ClientOs` is seven characters, so 32 leaves the stamp well inside it.
+ */
+const LIVE_VOICE_ENTRY_PATTERN = /^[a-z][a-z0-9_]{0,31}$/;
+
+/** Parse a start frame's `entry`. Returns `null` for anything off-shape. */
+export function parseLiveVoiceEntry(value: unknown): string | null {
+  return typeof value === "string" && LIVE_VOICE_ENTRY_PATTERN.test(value)
+    ? value
+    : null;
 }
 
 /**
@@ -279,6 +380,59 @@ export interface LiveVoiceClientAttachFrameFrame {
 export interface LiveVoiceClientSightFrameFrame {
   readonly type: "sight_frame";
   readonly attachmentId: string;
+  readonly cameraEpoch?: number;
+  readonly source?: LiveVoiceSightSource;
+  /**
+   * How long the client's half of the frame took, for the daemon's log. The
+   * daemon adds its own half and the distance from the speech onset it
+   * announced, which is what makes a frame that answered the wrong question
+   * legible after the fact. Optional: an older client sends none.
+   */
+  readonly timing?: LiveVoiceSightFrameTiming;
+}
+
+export type LiveVoiceSightSource = "live" | "ambient";
+
+export interface LiveVoiceClientSightStartFrame {
+  readonly type: "sight_start";
+  readonly cameraEpoch: number;
+  readonly source?: LiveVoiceSightSource;
+}
+
+export interface LiveVoiceClientSightEndFrame {
+  readonly type: "sight_end";
+  readonly cameraEpoch: number;
+}
+
+/**
+ * The client leg of one kept frame, as durations between its own marks.
+ *
+ * Durations rather than timestamps because the two clocks are not the same
+ * clock: the client stamps from `performance.now` and the daemon from wall
+ * time, and only the client can say how long its encode and upload took.
+ * Every field is a non-negative whole number of milliseconds.
+ */
+export interface LiveVoiceSightFrameTiming {
+  /**
+   * Why the gate kept the frame: `forced` is the keep a speech onset asked
+   * for, everything else is the ambient cadence. Free-form so a new gate
+   * reason needs no daemon change to be logged.
+   */
+  readonly reason: string;
+  /**
+   * From the arm that asked for this keep to the keep itself. Present only on
+   * a forced keep, where it is the distance from the client hearing
+   * `speech_started` to a frame that postdates it.
+   */
+  readonly armToKeepMs?: number;
+  /** From the keep to a JPEG in hand, sized for upload. */
+  readonly keepToEncodedMs: number;
+  /** From the JPEG to the attachment id, which is the HTTP upload. */
+  readonly encodedToUploadedMs: number;
+  /** From the id to the send, which is the wait for older keeps to go first. */
+  readonly uploadedToSentMs: number;
+  /** The JPEG that was uploaded, in bytes. */
+  readonly bytes: number;
 }
 
 /**
@@ -329,6 +483,8 @@ export type LiveVoiceClientFrame =
   | LiveVoiceClientUpdateConfigFrame
   | LiveVoiceClientAttachImageFrame
   | LiveVoiceClientAttachFrameFrame
+  | LiveVoiceClientSightStartFrame
+  | LiveVoiceClientSightEndFrame
   | LiveVoiceClientSightFrameFrame
   | LiveVoiceClientTextTurnFrame;
 
@@ -359,6 +515,8 @@ export interface LiveVoiceReadyServerFrame extends LiveVoiceServerFrameBase {
    * every typed turn with an `unknown_type` error.
    */
   readonly textInput?: boolean;
+  /** Whether this session accepts camera lifecycle epochs. */
+  readonly sightSessions?: boolean;
   /**
    * Whether the session's speech-to-text leg is live. Absent means yes, which
    * is the only thing an older daemon can have meant: it rejects a session it
@@ -453,8 +611,9 @@ export interface LiveVoiceThinkingServerFrame extends LiveVoiceServerFrameBase {
  * the room) can otherwise only say "Thinking...". The label is composed here
  * rather than by each surface for the same reason phase wording is composed
  * once: the Live Activity has two independent drivers (this socket and an APNs
- * push the daemon dispatches), they must carry identical content, and the only
- * way to guarantee that is for both to be handed the same string.
+ * push the daemon dispatches), they must carry compatible content. Structured
+ * kinds let in-conversation surfaces use localized copy while system-level
+ * surfaces can suppress internal detail.
  *
  * An empty `label` means "no current activity", which is what a turn's end
  * sends. Emitted only on change, never per tool result.
@@ -463,6 +622,12 @@ export interface LiveVoiceActivityServerFrame extends LiveVoiceServerFrameBase {
   readonly type: "activity";
   readonly turnId: string;
   readonly label: string;
+  /** Structured reason for the activity, when a client needs custom display. */
+  readonly kind?: "escalation";
+  /** Selected inference profile for diagnostics, never default UI copy. */
+  readonly profile?: string;
+  /** Why the selected profile won for this leg. */
+  readonly profileSource?: VoiceEscalationProfileSource;
   /**
    * The confirmation this turn is blocked on, when the label describes a wait
    * rather than work in flight. Absent otherwise.
@@ -515,6 +680,29 @@ export interface LiveVoiceMinimizeRoomServerFrame extends LiveVoiceServerFrameBa
   readonly turnId: string;
 }
 
+/**
+ * A session control the just-completed reply asked for with a terminal marker
+ * (`[END_CALL]`, `[MUTE]`, `[MUTE:<seconds>]`). Sent only after the turn's TTS
+ * has fully drained, so the spoken acknowledgement is heard first, never for a
+ * turn the user barged in on, at most once per turn, and only for a control
+ * the client listed in the start frame's `sessionControls`.
+ *
+ * - `end`: end the session the way the client's own end control does.
+ * - `mute`: mute the microphone. With `durationMs`, unmute again once it
+ *   elapses; without, stay muted until the user unmutes. The timer is the
+ *   client's: a muted microphone sends silence, so the daemon cannot hear an
+ *   "unmute".
+ * - `look_screen`: start showing the call the user's screen.
+ * - `look_camera`: start showing the call what the camera sees.
+ * - `look_stop`: stop showing the call the screen and the camera.
+ */
+export interface LiveVoiceSessionControlServerFrame extends LiveVoiceServerFrameBase {
+  readonly type: "session_control";
+  readonly turnId: string;
+  readonly action: LiveVoiceSessionControl;
+  readonly durationMs?: number;
+}
+
 export interface LiveVoiceMetricsServerFrame extends LiveVoiceServerFrameBase {
   readonly type: "metrics";
   readonly event?: string;
@@ -556,8 +744,6 @@ export interface LiveVoiceMetricsServerFrame extends LiveVoiceServerFrameBase {
    * condition as the two fields above.
    */
   readonly endpointDecisionSource?: "front-door" | "provider";
-  /** Which floor-holding ack actually spoke during the turn, if any. */
-  readonly ackSpoken?: "first_delta" | "tool_use";
   /**
    * Spoken progress narrations during the turn. Present only when at least
    * one progress update spoke (otherwise the field is absent, keeping frames
@@ -638,6 +824,7 @@ export type LiveVoiceServerFrame =
   | LiveVoiceTtsDoneServerFrame
   | LiveVoiceTurnCancelledServerFrame
   | LiveVoiceMinimizeRoomServerFrame
+  | LiveVoiceSessionControlServerFrame
   | LiveVoiceMetricsServerFrame
   | LiveVoiceArchivedServerFrame
   | LiveVoiceErrorServerFrame;
@@ -659,6 +846,7 @@ export type LiveVoiceServerFramePayload =
   | WithoutSeq<LiveVoiceTtsDoneServerFrame>
   | WithoutSeq<LiveVoiceTurnCancelledServerFrame>
   | WithoutSeq<LiveVoiceMinimizeRoomServerFrame>
+  | WithoutSeq<LiveVoiceSessionControlServerFrame>
   | WithoutSeq<LiveVoiceMetricsServerFrame>
   | WithoutSeq<LiveVoiceArchivedServerFrame>
   | WithoutSeq<LiveVoiceErrorServerFrame>;
@@ -751,6 +939,10 @@ export function validateLiveVoiceClientFrame(
       return validateAttachImageFrame(value);
     case "attach_frame":
       return validateAttachFrameFrame(value);
+    case "sight_start":
+      return validateSightStartFrame(value);
+    case "sight_end":
+      return validateSightEndFrame(value);
     case "sight_frame":
       return validateSightFrameFrame(value);
     case "text":
@@ -899,9 +1091,188 @@ function validateSightFrameFrame(
     );
   }
 
+  const lifecycle = validateOptionalSightLifecycle(value, "sight_frame");
+  if (!lifecycle.ok) {
+    return lifecycle;
+  }
+
+  if (!("timing" in value) || value.timing === undefined) {
+    return {
+      ok: true,
+      frame: {
+        type: "sight_frame",
+        attachmentId: value.attachmentId,
+        ...lifecycle.fields,
+      },
+    };
+  }
+
+  const timing = validateSightFrameTiming(value.timing);
+  if (timing === null) {
+    return protocolError(
+      "invalid_field",
+      "sight_frame frame field timing must carry non-negative integer durations and a reason",
+      "timing",
+      "sight_frame",
+    );
+  }
+
   return {
     ok: true,
-    frame: { type: "sight_frame", attachmentId: value.attachmentId },
+    frame: {
+      type: "sight_frame",
+      attachmentId: value.attachmentId,
+      ...lifecycle.fields,
+      timing,
+    },
+  };
+}
+
+function validateSightStartFrame(
+  value: Record<string, unknown>,
+): LiveVoiceParseResult<LiveVoiceClientSightStartFrame> {
+  const lifecycle = validateRequiredSightLifecycle(value, "sight_start");
+  if (!lifecycle.ok) {
+    return lifecycle;
+  }
+  return {
+    ok: true,
+    frame: { type: "sight_start", ...lifecycle.fields },
+  };
+}
+
+function validateSightEndFrame(
+  value: Record<string, unknown>,
+): LiveVoiceParseResult<LiveVoiceClientSightEndFrame> {
+  if (!isPositiveSafeInteger(value.cameraEpoch)) {
+    return protocolError(
+      "invalid_field",
+      "sight_end frame field cameraEpoch must be a positive safe integer",
+      "cameraEpoch",
+      "sight_end",
+    );
+  }
+  return {
+    ok: true,
+    frame: { type: "sight_end", cameraEpoch: value.cameraEpoch },
+  };
+}
+
+function validateRequiredSightLifecycle(
+  value: Record<string, unknown>,
+  frameType: "sight_start",
+):
+  | { ok: true; fields: { cameraEpoch: number; source?: LiveVoiceSightSource } }
+  | LiveVoiceParseFailure {
+  if (!isPositiveSafeInteger(value.cameraEpoch)) {
+    return liveVoiceParseFailure(
+      "invalid_field",
+      `${frameType} frame field cameraEpoch must be a positive safe integer`,
+      "cameraEpoch",
+      frameType,
+    );
+  }
+  if (value.source !== undefined && !isLiveVoiceSightSource(value.source)) {
+    return liveVoiceParseFailure(
+      "invalid_field",
+      `${frameType} frame field source must be live or ambient`,
+      "source",
+      frameType,
+    );
+  }
+  return {
+    ok: true,
+    fields: {
+      cameraEpoch: value.cameraEpoch,
+      ...(value.source ? { source: value.source } : {}),
+    },
+  };
+}
+
+function validateOptionalSightLifecycle(
+  value: Record<string, unknown>,
+  frameType: "sight_frame",
+):
+  | {
+      ok: true;
+      fields: { cameraEpoch?: number; source?: LiveVoiceSightSource };
+    }
+  | LiveVoiceParseFailure {
+  if (value.cameraEpoch === undefined && value.source === undefined) {
+    return { ok: true, fields: {} };
+  }
+  if (!isPositiveSafeInteger(value.cameraEpoch)) {
+    return liveVoiceParseFailure(
+      "invalid_field",
+      `${frameType} frame field cameraEpoch must be a positive safe integer when lifecycle fields are present`,
+      "cameraEpoch",
+      frameType,
+    );
+  }
+  if (value.source !== undefined && !isLiveVoiceSightSource(value.source)) {
+    return liveVoiceParseFailure(
+      "invalid_field",
+      `${frameType} frame field source must be live or ambient`,
+      "source",
+      frameType,
+    );
+  }
+  return {
+    ok: true,
+    fields: {
+      cameraEpoch: value.cameraEpoch,
+      ...(value.source ? { source: value.source } : {}),
+    },
+  };
+}
+
+function isPositiveSafeInteger(value: unknown): value is number {
+  return Number.isSafeInteger(value) && typeof value === "number" && value > 0;
+}
+
+function isLiveVoiceSightSource(value: unknown): value is LiveVoiceSightSource {
+  return value === "live" || value === "ambient";
+}
+
+/**
+ * Parse a `sight_frame`'s `timing`. Null for anything off-shape: a timing is
+ * for the log, so nothing about it is coerced, but a malformed one still
+ * refuses the frame, since a client that sends one means to send a whole one.
+ */
+function validateSightFrameTiming(
+  value: unknown,
+): LiveVoiceSightFrameTiming | null {
+  if (typeof value !== "object" || value === null) {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  const isDuration = (duration: unknown): duration is number =>
+    isIntInRange(duration, 0, Number.MAX_SAFE_INTEGER);
+  const {
+    reason,
+    armToKeepMs,
+    keepToEncodedMs,
+    encodedToUploadedMs,
+    uploadedToSentMs,
+    bytes,
+  } = record;
+  if (
+    !isNonEmptyString(reason) ||
+    !isDuration(keepToEncodedMs) ||
+    !isDuration(encodedToUploadedMs) ||
+    !isDuration(uploadedToSentMs) ||
+    !isDuration(bytes) ||
+    (armToKeepMs !== undefined && !isDuration(armToKeepMs))
+  ) {
+    return null;
+  }
+  return {
+    reason,
+    ...(armToKeepMs !== undefined ? { armToKeepMs } : {}),
+    keepToEncodedMs,
+    encodedToUploadedMs,
+    uploadedToSentMs,
+    bytes,
   };
 }
 
@@ -1075,6 +1446,15 @@ function validateStartFrame(
     );
   }
 
+  if ("lookFrames" in value && typeof value.lookFrames !== "boolean") {
+    return protocolError(
+      "invalid_field",
+      "start frame field lookFrames must be a boolean",
+      "lookFrames",
+      "start",
+    );
+  }
+
   if ("textInput" in value && typeof value.textInput !== "boolean") {
     return protocolError(
       "invalid_field",
@@ -1088,6 +1468,10 @@ function validateStartFrame(
   // analytics dimension, and failing a session's startup over it would trade a
   // gap in a chart for a user who cannot talk to their assistant.
   const client = parseClientOs(value.client);
+  // Same policy for the same reason: a dimension, not a capability.
+  const entry = parseLiveVoiceEntry(value.entry);
+  // Same policy again: an unknown control is a newer client, not a bad frame.
+  const sessionControls = parseLiveVoiceSessionControls(value.sessionControls);
 
   return {
     ok: true,
@@ -1097,6 +1481,7 @@ function validateStartFrame(
         ? { conversationId: value.conversationId }
         : {}),
       ...(client ? { client } : {}),
+      ...(entry ? { entry } : {}),
       audio: audioConfig.frame,
       ...(isLiveVoiceTurnDetectionMode(value.turnDetection)
         ? { turnDetection: value.turnDetection }
@@ -1108,6 +1493,8 @@ function validateStartFrame(
         ? { bargeInMinSpeechMs: value.bargeInMinSpeechMs }
         : {}),
       ...(value.textInput === true ? { textInput: true } : {}),
+      ...(sessionControls.length > 0 ? { sessionControls } : {}),
+      ...(value.lookFrames === true ? { lookFrames: true } : {}),
     },
   };
 }

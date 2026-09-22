@@ -79,13 +79,7 @@ export interface CameraGateDebugState {
 
 export interface CameraGateDebugActions {
   setHudEnabled: (next: boolean) => void;
-  /**
-   * Move one threshold. Takes effect on the next frame the gate judges.
-   *
-   * The two intervals are coupled: moving one past the other carries the other
-   * with it, so both sliders visibly move and the pair stays one the gate can
-   * honor.
-   */
+  /** Move one threshold. Takes effect on the next frame the gate judges. */
   setOverride: (key: FrameGateOverrideKey, value: number) => void;
   /** Put every threshold back to the value the gate ships with. */
   resetOverrides: () => void;
@@ -121,8 +115,7 @@ const INITIAL_STATE: CameraGateDebugState = {
  * Restored values go through the same normalization the gate's writer applies,
  * which is what keeps a slider, its meter's tick, and the number the gate
  * judges against in agreement after bounds tighten or localStorage is
- * hand-edited. A stored interval pair the wrong way round comes back with the
- * ceiling raised to the floor.
+ * hand-edited.
  */
 function completeOverrides(saved: unknown): FrameGateOverrides {
   const base = defaultFrameGateOverrides();
@@ -156,10 +149,10 @@ const useCameraGateDebugStoreBase = create<CameraGateDebugStore>()(
 
       setOverride: (key: FrameGateOverrideKey, value: number) => {
         set({
-          overrides: normalizeFrameGateOverrides(
-            { ...get().overrides, [key]: value },
-            key,
-          ),
+          overrides: normalizeFrameGateOverrides({
+            ...get().overrides,
+            [key]: value,
+          }),
         });
       },
 

@@ -15,9 +15,14 @@ import {
 import { cn } from "@vellumai/design-library/utils/cn";
 
 import {
-  SIDEBAR_CHIP_GAP,
+  SIDEBAR_CHIP_GAP_CLASSES,
+  SIDEBAR_HEADER_PADDING_X,
+  SIDEBAR_MOBILE_CHIP_CLASSES,
+  SIDEBAR_MOBILE_GLYPH_CLASSES,
   SIDEBAR_ROW_PADDING_X,
+  SIDEBAR_SECTION_CONTENT_PADDING_TOP,
   SIDEBAR_SECTION_INDENT,
+  SIDEBAR_SECTION_TITLE_GAP,
   SIDEBAR_SECTION_TITLE_TEXT_CLASSES,
 } from "@/components/sidebar-nav-geometry";
 import { useLongPressSheet } from "@/hooks/use-long-press-sheet";
@@ -280,7 +285,15 @@ function CollapsibleNavSectionSection({
   /* One slot for both header branches. The collapsible and non-collapsible
      headers show the same glyph on the same axis, so they read it from here
      rather than each rendering their own copy. */
-  const glyph = iconNode ?? (Icon ? <Icon size={12} aria-hidden /> : null);
+  /* 14px on a pointer viewport, the size every pill's leading icon is drawn
+     at there (Figma 8300:167416); on a phone the 16px those icons grow to,
+     so a header's glyph carries the same weight as the pinned app's above
+     it at either breakpoint. */
+  const glyph =
+    iconNode ??
+    (Icon ? (
+      <Icon size={14} aria-hidden className={SIDEBAR_MOBILE_GLYPH_CLASSES} />
+    ) : null);
   const iconSlot = glyph ? (
     <span
       data-slot="collapsible-nav-section-icon"
@@ -294,8 +307,11 @@ function CollapsibleNavSectionSection({
            Lucide glyph draws in `currentColor` at a known size. A custom node
            carries its own colour and its own geometry (the assistant
            section's accent disc is a full row-height circle), so the slot
-           hugs it instead of boxing it. */
+           hugs it instead of boxing it. On a phone the box is the chip the
+           assistant row keeps its eyes in, so the glyph centres on the axis
+           the eyes do. */
         !iconNode && "h-[14px] w-[14px] text-[var(--content-tertiary)]",
+        !iconNode && SIDEBAR_MOBILE_CHIP_CLASSES,
       )}
     >
       {glyph}
@@ -306,20 +322,27 @@ function CollapsibleNavSectionSection({
      the other is inert, so the geometry and the content are declared once and
      the branch below chooses only the element. */
   /* A card supplies the section's own inset, so the header sits flush
-     inside it as a bare 16px row with the smaller of the two title sizes. */
+     inside it as a bare row with no vertical padding of its own. Its title
+     takes the smaller of the two sizes on a wide viewport, and on a touch
+     viewport the same large body size the pills above it (the assistant
+     row, a pinned app) set their labels in, so a card's title stands at the
+     same size as every other entry in the drawer rather than reading as a
+     caption beneath them. */
   const titleClasses = cn(
     card ? "py-0" : "py-[6px] max-md:py-3",
+    SIDEBAR_CHIP_GAP_CLASSES,
     SIDEBAR_SECTION_TITLE_TEXT_CLASSES,
     /* `!` twice over: the shared title classes pin their own weight the same
        way, so a plain utility here loses to them rather than replacing them. */
     card &&
-      "text-body-small-default max-md:text-body-small-default font-[500]!",
+      "text-body-small-default max-md:text-body-large-default font-[500]!",
   );
 
+  /* The rail header leads at a pill's inset so its glyph and label line up
+     with the pills above it; its trailing inset stays the row's. */
   const titleStyle = {
-    paddingLeft: card ? 0 : SIDEBAR_ROW_PADDING_X,
+    paddingLeft: card ? 0 : SIDEBAR_HEADER_PADDING_X,
     paddingRight: card ? 0 : SIDEBAR_ROW_PADDING_X,
-    gap: SIDEBAR_CHIP_GAP,
   };
 
   const titleContent = (
@@ -361,7 +384,7 @@ function CollapsibleNavSectionSection({
       {/* The horizontal geometry (padding, chip width, gap) is inline from
           sidebar-nav-geometry at every breakpoint — the assistant cluster
           shares it, so section icons and labels sit on the same axes as
-          the New Chat plus and the assistant eyes. Only the vertical
+          the assistant eyes. Only the vertical
           metrics grow on mobile. */}
       {collapsible ? (
         // The one toggle target: a click anywhere on the title row expands
@@ -393,7 +416,12 @@ function CollapsibleNavSectionSection({
         </SideMenu.SectionHeader>
       )}
       {collapsible || trailing || collapsedIndicator ? (
-        <span className="flex shrink-0 items-center gap-1 pr-[6px] max-md:pr-2">
+        /* No inset of its own on a phone: the card's 12px right padding plus
+           the 30px chevron box's 6px lead-out puts the chevron glyph's right
+           edge 18px in, which is where the pinned-app pill above sets its
+           unpin glyph (8px padding plus a 36px target's 10px lead-out), so
+           the two right edges are one line down the drawer. */
+        <span className="flex shrink-0 items-center gap-1 pr-[6px] max-md:pr-0">
           {trailing || collapsedIndicator ? (
             <CrossfadeStack>
               {collapsedIndicator ? (
@@ -501,18 +529,22 @@ function CollapsibleNavSectionSection({
         // Trigger, not a descendant) can read this item's own open/closed
         // `data-state` for its rotation.
         "group/section",
-        // While open, only the bottom-most section grows to claim whatever
-        // space the sidebar has left instead of the row list capping at a
-        // fixed height - `min-h-0` is what lets a flex item shrink below its
-        // content's natural size, which flex-1 needs here to actually cap
-        // rather than just growing forever. Every other section (even open,
+        // While open, only the bottom-most section may take the space the
+        // sidebar has left instead of the row list capping at a fixed
+        // height. It hugs its rows and shrinks under that space (`min-h-0`
+        // is what lets a flex item shrink below its content's natural
+        // size), so a short or previewed list is a short card, not a card
+        // the height of the rail with empty surface under its rows. It
+        // grows (`flex-1`) only around a windowed row list, which needs a
+        // definite height to know what to render and is long enough to
+        // have outgrown the rail anyway. Every other section (even open,
         // even unbounded) sizes to its own content: flex-grow has no notion
         // of "this section needs the room," so giving every open section a
         // share stretched a two-row group into a mostly-empty box the same
         // size as a busy one beside it.
         !unbounded &&
           isLast &&
-          "data-[state=open]:min-h-0 data-[state=open]:flex-1",
+          "data-[state=open]:min-h-0 has-[[data-slot=conversation-list-windowed]]:flex-1",
         drag?.dragging && "opacity-50",
         // Insertion line, matching the conversation-row drop indicator.
         drag?.dropEdge === "before" &&
@@ -527,19 +559,25 @@ function CollapsibleNavSectionSection({
       {/*
        * The card carries no padding of its own (the header row above is
        * already a self-contained pill), so the content picks up the same
-       * 12px horizontal inset directly, plus a little vertical breathing
-       * room from the header above it and the card's bottom edge below.
+       * 12px horizontal inset directly, plus the card's bottom edge below.
        * Defined here rather than at each call site so no section can nest
        * differently from the rest.
+       *
+       * The top inset is the one part that is not the same number in both
+       * branches, and deliberately so: it is whatever is left of
+       * {@link SIDEBAR_SECTION_TITLE_GAP} after the header row above has
+       * spent its own surplus height on the same gap, so a title stands the
+       * same distance from its first row whichever surface draws it. See
+       * that constant for why the gap is measured from the title's text.
        */}
       {collapsible ? (
         <Collapsible.Content
           className={cn(
             "sidebar-section-list",
-            card
-              ? "pt-3 [&_[data-slot=side-menu-sub-list]]:gap-0"
-              : "pt-2 pb-2",
-            !unbounded && isLast && "flex min-h-0 flex-1 flex-col",
+            card ? "[&_[data-slot=side-menu-sub-list]]:gap-0" : "pb-2",
+            !unbounded &&
+              isLast &&
+              "flex min-h-0 flex-col has-[[data-slot=conversation-list-windowed]]:flex-1",
             contentClassName,
           )}
           style={{
@@ -547,6 +585,9 @@ function CollapsibleNavSectionSection({
               ? 0
               : SIDEBAR_ROW_PADDING_X + SIDEBAR_SECTION_INDENT,
             paddingRight: card ? 0 : SIDEBAR_ROW_PADDING_X,
+            paddingTop: card
+              ? SIDEBAR_SECTION_TITLE_GAP
+              : SIDEBAR_SECTION_CONTENT_PADDING_TOP,
           }}
         >
           {children}
@@ -557,9 +598,7 @@ function CollapsibleNavSectionSection({
         // in the root's open list.
         <div
           className={cn(
-            card
-              ? "pt-3 [&_[data-slot=side-menu-sub-list]]:gap-0"
-              : "pt-2 pb-2",
+            card ? "[&_[data-slot=side-menu-sub-list]]:gap-0" : "pb-2",
             contentClassName,
           )}
           style={{
@@ -567,6 +606,9 @@ function CollapsibleNavSectionSection({
               ? 0
               : SIDEBAR_ROW_PADDING_X + SIDEBAR_SECTION_INDENT,
             paddingRight: card ? 0 : SIDEBAR_ROW_PADDING_X,
+            paddingTop: card
+              ? SIDEBAR_SECTION_TITLE_GAP
+              : SIDEBAR_SECTION_CONTENT_PADDING_TOP,
           }}
         >
           {children}

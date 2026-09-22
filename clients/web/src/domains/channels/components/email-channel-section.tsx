@@ -4,13 +4,20 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
+import { ExternalAnchor } from "@/components/external-anchor";
+import { useInboxPitchCopy } from "@/domains/assistant-inbox/hooks/use-inbox-pitch-copy";
 import { PlatformLoginNotice } from "@/components/platform-login-notice";
-import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen";
+import {
+  assistantsListOptions,
+  organizationsBillingSubscriptionRetrieveOptions,
+} from "@/generated/api/@tanstack/react-query.gen";
 import { credentialsInspectPost } from "@/generated/daemon/sdk.gen";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { usePlatformAssistantId } from "@/hooks/use-platform-assistant-id";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { captureError } from "@/lib/sentry/capture-error";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useEnvironmentStore } from "@/stores/environment-store";
 import { shouldRetryDaemonError } from "@/utils/daemon-errors";
 import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
@@ -104,6 +111,28 @@ export function EmailChannelSection() {
 
   const byoConfigured = byoCredentialQuery.data?.hasSecret === true;
 
+  // -- Inbox pitch header ----------------------------------------------------
+  /* With the Assistant Inbox flag on, an org without managed email sees the
+     inbox's pitch in the managed body, and this header carries the pitch's
+     title and line in place of the section's own, so the pitch is introduced
+     once rather than by a settings heading and then a card heading. The
+     subscription is the same cached query `EmailManagedContent` reads, and
+     only an explicit denial counts, as it does there. */
+  const inboxEnabled = useClientFeatureFlagStore.use.assistantInbox();
+  const assistantName = useAssistantIdentityStore.use.name();
+  const pitchCopy = useInboxPitchCopy(assistantName ?? "");
+  const { data: subscription } = useQuery({
+    ...organizationsBillingSubscriptionRetrieveOptions(),
+    enabled: inboxEnabled && isOrgReady && platformGate === "full",
+  });
+  const showInboxPitch =
+    inboxEnabled &&
+    platformGate === "full" &&
+    mode === "managed" &&
+    managedAssistantId !== null &&
+    !!subscription?.entitlements &&
+    subscription.entitlements.managed_email !== true;
+
   // -- Handlers --------------------------------------------------------------
   const handleModeChange = useCallback((next: ServiceMode) => {
     setMode(next);
@@ -142,17 +171,17 @@ export function EmailChannelSection() {
             }}
           />
         </span>
-        <a
+        <ExternalAnchor
           href={selectedByoProvider.docsUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 text-[var(--system-positive-strong)] underline hover:opacity-80"
+          tone="default"
+          className="inline-flex items-center gap-1"
+          glyph={false}
         >
           {t("emailChannelSection.openProvider", {
             providerName: selectedByoProvider.displayName,
           })}
           <ExternalLink className="h-3 w-3" />
-        </a>
+        </ExternalAnchor>
       </div>
     </div>
   );
@@ -179,7 +208,7 @@ export function EmailChannelSection() {
 
       {byoConfigured ? (
         <div className="space-y-3">
-          <div className="flex items-center gap-2 rounded-lg border border-[var(--system-positive-subtle)] bg-[var(--surface-sunken)] p-3 text-body-small-default text-[var(--content-default)]">
+          <div className="flex items-center gap-2 rounded-lg border border-[var(--system-positive-weak)] bg-[var(--surface-sunken)] p-3 text-body-small-default text-[var(--content-default)]">
             <CircleCheck className="h-4 w-4 shrink-0 text-[var(--system-positive-strong)]" />
             <span>
               <Trans
@@ -197,17 +226,17 @@ export function EmailChannelSection() {
               />
             </span>
           </div>
-          <a
+          <ExternalAnchor
             href={selectedByoProvider.docsUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-body-small-default text-[var(--system-positive-strong)] underline hover:opacity-80"
+            tone="default"
+            className="inline-flex items-center gap-1 text-body-small-default"
+            glyph={false}
           >
             {t("emailChannelSection.openProvider", {
               providerName: selectedByoProvider.displayName,
             })}
             <ExternalLink className="h-3 w-3" />
-          </a>
+          </ExternalAnchor>
         </div>
       ) : (
         byoSetupInstructions
@@ -234,8 +263,10 @@ export function EmailChannelSection() {
   return (
     <ServiceCard
       id="email"
-      title={t("emailChannelSection.title")}
-      subtitle={t("emailChannelSection.subtitle")}
+      title={showInboxPitch ? pitchCopy.title : t("emailChannelSection.title")}
+      subtitle={
+        showInboxPitch ? pitchCopy.subtitle : t("emailChannelSection.subtitle")
+      }
       mode={mode}
       onModeChange={handleModeChange}
     >

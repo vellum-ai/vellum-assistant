@@ -56,6 +56,7 @@ import {
   type ToolCallCardStep,
 } from "@/domains/chat/utils/tool-call-card-utils";
 import type { ToolDetailPayload } from "@/stores/viewer-store";
+import { readToolInputString } from "@/domains/chat/utils/tool-input";
 
 export type { ToolCallCardData, ToolCallCardStep };
 
@@ -106,8 +107,7 @@ function trimTextPreview(input: string): string {
  * mirroring the main-chat placeholder.
  */
 function webFetchReadingText(event: SubagentTimelineEvent): string {
-  const fromInput =
-    event.input && typeof event.input.url === "string" ? event.input.url : "";
+  const fromInput = readToolInputString(event.input ?? {}, "url");
   const raw = (fromInput || event.content || "").trim();
   const domain = raw ? extractDomain(raw) : "";
   return domain ? `Reading ${domain}` : "Reading…";
@@ -238,6 +238,7 @@ export function mapToolEventToStep(
     title: label.title,
     info: label.info || content,
     activity: label.activity,
+    actionDisplayKey: label.actionDisplayKey,
     status: "running",
   };
 }
@@ -407,9 +408,9 @@ export function applyTimelineEvent(
         // stay distinct in the timeline; it survives the `...target` spread on
         // completion.
         const query =
-          event.input && typeof event.input.query === "string"
-            ? event.input.query
-            : event.content || undefined;
+          readToolInputString(event.input ?? {}, "query") ||
+          event.content ||
+          undefined;
         steps.push({
           kind: "web_search",
           query,
@@ -871,9 +872,9 @@ export function applyDetailEvent(
     // timeline projection builds, keyed by the same `toolUseId`.
     if (toolName === "web_search") {
       const query =
-        event.input && typeof event.input.query === "string"
-          ? event.input.query
-          : event.content || undefined;
+        readToolInputString(event.input ?? {}, "query") ||
+        event.content ||
+        undefined;
       payloads.push({
         toolCallId,
         toolName,
@@ -915,7 +916,13 @@ export function applyDetailEvent(
       payloads.map((payload, i) => ({
         toolCallId: payload.toolCallId,
         toolName: payload.toolName,
-        running: meta[i]!.running,
+        // The timeline never tracks a `web_fetch` as in flight, so a follow-up
+        // that names neither a tool id nor a tool must not close one here
+        // either: the two projections would close different calls.
+        running:
+          meta[i]!.running &&
+          (payload.toolName !== "web_fetch" ||
+            Boolean(event.toolUseId || event.toolName)),
       })),
       event,
     );
@@ -944,11 +951,13 @@ export function applyDetailEvent(
             searchResults: event.isError
               ? []
               : parseWebSearchResultText(event.result ?? event.content),
-            // On failure, keep the full provider/backend error so the nested
-            // detail can show it untruncated — the timeline chip only carries
-            // a `trimTextPreview` snippet. Parity with how a failed tool keeps
-            // its full `result`.
-            result: event.isError ? (event.result ?? event.content) : undefined,
+            // Keep the full result either way. On failure it is the provider
+            // or backend error, shown untruncated where the timeline chip only
+            // carries a `trimTextPreview` snippet. On success it is the text
+            // the model actually read, snippets and any written answer
+            // included, which the source chips drop; the drawer offers it as
+            // Raw output.
+            result: event.result ?? event.content,
           }
         : {
             ...target,

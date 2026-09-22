@@ -1,9 +1,9 @@
-import { randomUUID } from "node:crypto";
-
 import { z } from "zod";
 
 import {
   addDocumentConversation,
+  createDocument,
+  DEFAULT_DOCUMENT_TITLE,
   deleteDocument,
   findInDocument,
   findRecentEmptyDocumentByTitle,
@@ -11,20 +11,16 @@ import {
   getDocumentsForConversation,
   isDocumentAssociatedWithConversation,
   replaceInDocument,
-  saveDocument,
   searchDocumentsByTitle,
   updateDocumentContent,
 } from "../../documents/document-store.js";
 import { canActOnPrivilegedDocuments } from "../../runtime/effective-capabilities.js";
+import { throwIfCancelled } from "../shared/abort.js";
 import {
   invalidToolInputResult,
   nullAsOmitted,
 } from "../shared/zod-tool-schema.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
-
-function isPrivilegedDocumentActor(context: ToolContext): boolean {
-  return canActOnPrivilegedDocuments(context);
-}
 
 export function documentNotFound(surfaceId: string): ToolExecutionResult {
   return {
@@ -42,7 +38,7 @@ export function canAccessDocument(
   context: ToolContext,
 ): boolean {
   return (
-    isPrivilegedDocumentActor(context) ||
+    canActOnPrivilegedDocuments(context) ||
     isDocumentAssociatedWithConversation(surfaceId, context.conversationId)
   );
 }
@@ -285,7 +281,8 @@ export function executeDocumentCreate(
   if (!parsedInput.success) {
     return invalidToolInputResult("document_create", parsedInput.error);
   }
-  const title = parsedInput.data.title || "Untitled Document";
+  throwIfCancelled(context);
+  const title = parsedInput.data.title || DEFAULT_DOCUMENT_TITLE;
   const initialContent = parsedInput.data.initial_content || "";
 
   const reused = maybeReuseEmptyDocument(title, initialContent, context);
@@ -293,21 +290,21 @@ export function executeDocumentCreate(
     return reused;
   }
 
-  const surfaceId = `doc-${randomUUID()}`;
-
   // Persist the document so any client (web or macOS) can fetch it via
   // GET /v1/documents/:id. The macOS client may later update the row
   // via document_save; ON CONFLICT DO UPDATE handles that.
-  const wordCount = initialContent
-    .split(/\s+/)
-    .filter((w) => w.length > 0).length;
-  saveDocument({
-    surfaceId,
+  const created = createDocument({
     conversationId: context.conversationId,
     title,
     content: initialContent,
-    wordCount,
   });
+  if (!created.success) {
+    return {
+      content: JSON.stringify({ success: false, error: created.error }),
+      isError: true,
+    };
+  }
+  const { surfaceId } = created;
 
   // Send document_editor_show message to open the built-in RTE
   if (context.sendToClient) {
@@ -389,6 +386,7 @@ export function executeDocumentUpdate(
   if (!parsedInput.success) {
     return invalidToolInputResult("document_update", parsedInput.error);
   }
+  throwIfCancelled(context);
   if (typeof input.content !== "string") {
     return invalidInput("content is required and must be a string");
   }
@@ -519,7 +517,7 @@ export function executeDocumentList(
   const docs = query
     ? searchDocumentsByTitle(
         query,
-        isPrivilegedDocumentActor(context)
+        canActOnPrivilegedDocuments(context)
           ? {}
           : { conversationId: context.conversationId },
       )
@@ -547,6 +545,7 @@ export function executeDocumentDelete(
   if (!parsedInput.success) {
     return invalidToolInputResult("document_delete", parsedInput.error);
   }
+  throwIfCancelled(context);
   const surfaceIdOrError = validateSurfaceId(input);
   if (typeof surfaceIdOrError !== "string") {
     return surfaceIdOrError;
@@ -637,6 +636,7 @@ export function executeDocumentReplaceText(
   if (!parsedInput.success) {
     return invalidToolInputResult("document_replace_text", parsedInput.error);
   }
+  throwIfCancelled(context);
   const surfaceIdOrError = validateSurfaceId(input);
   if (typeof surfaceIdOrError !== "string") {
     return surfaceIdOrError;

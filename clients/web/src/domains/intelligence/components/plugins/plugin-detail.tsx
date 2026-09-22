@@ -1,7 +1,7 @@
 import { ArrowLeft } from "lucide-react";
 
 import { FileMarkdown } from "@/components/file-markdown";
-import { PluginIcon } from "@/domains/intelligence/components/plugins/plugin-icon";
+import { PluginIcon } from "@/components/plugins/plugin-icon";
 import {
   PluginDetailActionError,
   PluginDetailActions,
@@ -12,7 +12,7 @@ import {
 import { PluginOriginBadge } from "@/domains/intelligence/components/plugins/plugin-origin-badge";
 import { UpdateAvailableBadge } from "@/domains/intelligence/components/plugins/update-available-badge";
 import { usePluginDetail } from "@/domains/intelligence/plugins/use-plugin-detail";
-import { usePluginIconSrc } from "@/domains/intelligence/plugins/use-plugin-icon-src";
+import { usePluginIconSrc } from "@/hooks/use-plugin-icon-src";
 import { usePluginToggle } from "@/domains/intelligence/plugins/use-plugin-toggle";
 import type { PluginDrift } from "@/domains/intelligence/use-plugin-drift";
 import type { PluginsByNameGetResponse } from "@/generated/daemon/types.gen";

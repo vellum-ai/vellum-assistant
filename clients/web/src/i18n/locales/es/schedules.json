@@ -62,7 +62,8 @@
     "toggleFailed": "No se pudo cambiar el estado de la programación.",
     "notUsedForWorkflow": "No se usa en ejecuciones de flujo de trabajo",
     "enabled": "Activada",
-    "disabled": "Desactivada"
+    "disabled": "Desactivada",
+    "timezone": "Zona horaria"
   },
   "systemTaskDetail": {
     "openMemorySettings": "Abrir la configuración de Memoria",

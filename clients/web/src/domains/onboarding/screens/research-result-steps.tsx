@@ -13,7 +13,8 @@
  * are the REAL research output — the route fires the research turn against the
  * hatched assistant (see `research-runner.ts`) and threads the parsed
  * `{ claims, suggestions }` in here. Each step falls back to a graceful
- * loading / empty presentation while the turn is still streaming.
+ * loading presentation while the turn is still streaming. Settled empty
+ * results do not keep this card on screen: the route skips ahead.
  */
 
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -415,12 +416,51 @@ export function ResearchResultsStep({
   const { t } = useTranslation("onboarding");
   const tone = DARK_TONE;
   const reduce = useReducedMotion();
+  // `useReducedMotion` is `null` until the media query resolves. Treat that
+  // unknown window like reduced motion: do not mount rows at opacity 0. Copy
+  // already counts them as visible, so a stuck enter would show results copy
+  // over a blank list.
+  const animatePresence = reduce === false;
   // Locally track removed claims by their text so a user can prune what's wrong
   // without mutating the streamed list (which may still be growing).
   const [removed, setRemoved] = useState<Set<string>>(() => new Set());
-  const visible = claims.filter((c) => !removed.has(c.claim));
+  // Copy and the list share this array. A blank or pruned claim is not a
+  // visible row, so it cannot keep the results copy (or this card) on screen.
+  const visible = claims.filter(
+    (c) => c.claim.trim().length > 0 && !removed.has(c.claim),
+  );
   const hasClaims = visible.length > 0;
   const canContinue = !loading;
+  const advancedRef = useRef(false);
+
+  // Settled with nothing visible: leave this card. The route skips the same
+  // way when research lands empty (after aggregator filtering). Pruning the
+  // last row is the in-step case. A hatch-error hold keeps `loading` false
+  // with an empty list and `removed` empty; skip continue there so retry can
+  // refill this step (the route also holds when `hatchError` is set).
+  useEffect(() => {
+    if (loading || hasClaims || advancedRef.current) {
+      return;
+    }
+    if (removed.size === 0) {
+      return;
+    }
+    advancedRef.current = true;
+    onContinue([...removed]);
+  }, [loading, hasClaims, removed, onContinue]);
+
+  // Do not paint the settled empty card. The looking-you-up carousel and the
+  // route skip cover "research found nothing"; this return covers the frame
+  // after the last prune (and any empty mount) before the next step lands.
+  if (!hasClaims && !loading) {
+    return null;
+  }
+
+  const bodyKey = hasClaims
+    ? loading
+      ? "researchResultsStep.bodyLoadingWithClaims"
+      : "researchResultsStep.bodyReadyWithClaims"
+    : "researchResultsStep.bodyLoadingEmpty";
 
   return (
     <div className="absolute inset-0 z-10" style={{ color: tone.fg }}>
@@ -428,12 +468,12 @@ export function ResearchResultsStep({
 
       {/* Bounded to the viewport bottom so a long claims list can't push the
           continue button off-screen on short windows. The button is a pinned
-          footer; everything above it scrolls as one region (min-h-0 lets it
-          shrink), so the claims stay reachable even when the window is shorter
-          than the heading + button alone. */}
+          footer; the region above it is flex-1 + min-h-0 so it gets a real
+          height and can scroll, instead of shrinking to zero around the
+          heading. Claim rows are shrink-0 so flex cannot collapse them. */}
       <div className="absolute bottom-0 left-1/2 top-[11%] sm:top-[8%] z-10 flex w-full max-w-xl -translate-x-1/2 flex-col px-6 pb-8">
-        <div className="flex min-h-0 flex-col overflow-y-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none]">
-          <div className="flex items-center gap-3">
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none]">
+          <div className="flex shrink-0 items-center gap-3">
             <MiniAssistant />
             <h1
               className="text-[2.2rem] leading-none"
@@ -442,26 +482,25 @@ export function ResearchResultsStep({
               {t("researchResultsStep.title")}
             </h1>
           </div>
-          <p className="mb-7 mt-2 text-[15px]" style={{ color: tone.fgMuted }}>
-            {hasClaims
-              ? loading
-                ? t("researchResultsStep.bodyLoadingWithClaims")
-                : t("researchResultsStep.bodyReadyWithClaims")
-              : loading
-                ? t("researchResultsStep.bodyLoadingEmpty")
-                : t("researchResultsStep.bodyReadyEmpty")}
+          <p
+            className="mb-7 mt-2 shrink-0 text-[15px]"
+            style={{ color: tone.fgMuted }}
+          >
+            {t(bodyKey)}
           </p>
 
-          <div className="flex flex-col gap-3">
-            <AnimatePresence>
+          <div className="flex shrink-0 flex-col gap-3">
+            <AnimatePresence initial={false}>
               {visible.map((fact) => (
                 <motion.div
                   key={fact.claim}
-                  layout
-                  initial={reduce ? false : { opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={reduce ? undefined : { opacity: 0, scale: 0.95 }}
-                  className="flex items-center justify-between gap-3 rounded-2xl px-5 py-4 text-[15px]"
+                  layout={animatePresence}
+                  initial={animatePresence ? { opacity: 0 } : false}
+                  animate={{ opacity: 1 }}
+                  exit={
+                    animatePresence ? { opacity: 0, scale: 0.95 } : undefined
+                  }
+                  className="flex shrink-0 items-center justify-between gap-3 rounded-2xl px-5 py-4 text-[15px]"
                   style={{
                     backgroundColor: tone.isLight
                       ? "rgba(0,0,0,0.06)"
@@ -900,296 +939,6 @@ export function SuggestionsStep({
             head={anchors.head}
             note={anchors.note}
             flyToNote={flown && hasNote && anchors.note !== undefined}
-            reduce={reduce}
-            onLanded={() => setLanded(true)}
-          />
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Let's chat (plugins-ready terminal step)
-// ---------------------------------------------------------------------------
-
-/**
- * Terminal step for the research-onboarding flow (replaces SuggestionsStep,
- * now that the "Create my personality" step is always on). The suggestions idea
- * is retired: instead this confirms
- * the capabilities already set up for the assistant — chosen from the user's
- * role, hobby, and what the web research surfaced — and offers a single "Let's
- * chat" button. Clicking primes a fresh chat with a hidden kickoff message so
- * the assistant opens by proactively greeting the user in the persona they just
- * configured.
- *
- * Reuses SuggestionsStep's plugin choreography: one avatar rests over the
- * heading and flies down to land beside the "already set up …" note once the
- * installed plugins are known.
- */
-export function LetsChatReadyStep({
-  installedPlugins = [],
-  pluginCatalog = {},
-  onStart,
-  onBack,
-  onForward,
-  disabled = false,
-}: {
-  /**
-   * Capabilities installed for the assistant this run (deterministic floor +
-   * the model's persona-level picks, catalog-gated). Surfaced as cards; empty
-   * when none were set up.
-   */
-  installedPlugins?: string[];
-  /** Name → description for the installed plugins, for the card subtitles. */
-  pluginCatalog?: Record<string, string>;
-  /**
-   * Enter the chat: awaits any in-flight plugin installs / corrections, then
-   * hands off to the primed conversation. May be async — the button shows a
-   * pending state until it resolves.
-   */
-  onStart: () => void | Promise<void>;
-  onBack: () => void;
-  /** Redo into this step — only set when the user has stepped back. */
-  onForward?: () => void;
-  /**
-   * Externally hold the "Let's chat" CTA (a resumed completed journey still
-   * waiting on the established-assistant guard, or a dead hatch with no
-   * assistant to hand off to). Disables the button and no-ops the handoff until
-   * cleared. Back-navigation stays interactive.
-   */
-  disabled?: boolean;
-}) {
-  const { t } = useTranslation("onboarding");
-  // Constant dark surface for the UI (the plugin cards match the facts cards).
-  const tone = DARK_TONE;
-  const reduce = useReducedMotion();
-  const [starting, setStarting] = useState(false);
-  const { components, chosen } = useChosenAvatar();
-  const { h: vh } = useLayoutViewportSize();
-
-  // Each installed plugin as a card: its display name + (when known) the
-  // catalog description. Names without a display label are dropped.
-  const plugins = installedPlugins
-    .map((name) => ({
-      name,
-      displayName: pluginDisplayName(name),
-      description: pluginCatalog[name]?.trim() ?? "",
-    }))
-    .filter((p) => p.displayName.length > 0);
-  const hasPlugins = plugins.length > 0;
-
-  // A single avatar starts over the heading slot and flies down to the note's
-  // landing slot — same choreography as SuggestionsStep. The note sits directly
-  // under the title now (cards render below it), so its position is stable —
-  // but we still re-measure on any layout change (not just a guessed dependency
-  // like card count) via ResizeObserver, since webfont swaps, the avatar's own
-  // async-loaded assets, or anything else that reflows the column could
-  // otherwise leave a stale anchor and land the flight in the wrong spot.
-  const columnRef = useRef<HTMLDivElement>(null);
-  const headSlotRef = useRef<HTMLDivElement>(null);
-  const noteSlotRef = useRef<HTMLDivElement>(null);
-  const [anchors, setAnchors] = useState<{
-    head: Anchor;
-    note?: Anchor;
-  } | null>(null);
-  const [flown, setFlown] = useState(false);
-  const [landed, setLanded] = useState(false);
-  // Mirrors `flown` for the measure() closure below without needing it in the
-  // effect's dependency array — the observer should stay alive across the
-  // whole step, not get torn down and recreated the moment flight starts.
-  const flownRef = useRef(false);
-  useEffect(() => {
-    flownRef.current = flown;
-  }, [flown]);
-
-  useLayoutEffect(() => {
-    const col = columnRef.current;
-    const head = headSlotRef.current;
-    if (!col || !head) {
-      return;
-    }
-
-    const measure = () => {
-      // Skip while the head slot is mid/post-collapse (`flown`): re-measuring
-      // then would capture its collapsed width-0 position instead of the
-      // pre-collapse anchor the flight already launched from.
-      if (flownRef.current) {
-        return;
-      }
-      const c = col.getBoundingClientRect();
-      const center = (r: DOMRect): Anchor => ({
-        x: r.left - c.left + r.width / 2,
-        y: r.top - c.top + r.height / 2,
-      });
-      const note = noteSlotRef.current;
-      setAnchors({
-        head: center(head.getBoundingClientRect()),
-        note: note ? center(note.getBoundingClientRect()) : undefined,
-      });
-    };
-    measure();
-
-    const observer = new ResizeObserver(measure);
-    observer.observe(col);
-    window.addEventListener("resize", measure);
-    return () => {
-      observer.disconnect();
-      window.removeEventListener("resize", measure);
-    };
-  }, []);
-
-  // Fly down the moment the note slot is measured (the note always renders).
-  const noteY = anchors?.note?.y;
-  useEffect(() => {
-    if (noteY === undefined || flown) {
-      return;
-    }
-    setFlown(true);
-  }, [noteY, flown]);
-
-  const handleStart = () => {
-    if (starting || disabled) {
-      return;
-    }
-    setStarting(true);
-    // If the handoff rejects, re-enable the button so the user can retry.
-    void Promise.resolve()
-      .then(onStart)
-      .catch(() => setStarting(false));
-  };
-
-  return (
-    <div className="absolute inset-0 z-10" style={{ color: tone.fg }}>
-      <OnboardingTopBar onBack={onBack} onNext={onForward} />
-
-      <div
-        ref={columnRef}
-        className="absolute left-1/2 top-1/2 z-10 flex w-full max-w-xl -translate-x-1/2 -translate-y-1/2 flex-col px-6"
-      >
-        <div className="flex items-center">
-          {/*
-            Empty slot the flying avatar rests over. Once the avatar departs
-            (`flown`), it collapses its width + right margin so the title slides
-            smoothly to left-aligned.
-          */}
-          <motion.div
-            ref={headSlotRef}
-            className="shrink-0"
-            style={{ height: HEADING_AVATAR }}
-            initial={false}
-            animate={
-              flown
-                ? { width: 0, marginRight: 0 }
-                : { width: HEADING_AVATAR, marginRight: 12 }
-            }
-            transition={
-              reduce ? { duration: 0 } : { duration: 0.5, ease: "easeInOut" }
-            }
-          />
-          <h1
-            className="text-[2.2rem] leading-none"
-            style={{ fontFamily: "var(--font-serif)" }}
-          >
-            {t("letsChatReadyStep.title")}
-          </h1>
-        </div>
-
-        {/* The avatar line, directly under the title. No avatar of its own — it
-            reserves a landing slot (`noteSlotRef`) for the single avatar that
-            flies down from the heading, mirroring SuggestionsStep. */}
-        <div className="mt-4 flex items-center gap-3">
-          {/* Reserves the flying avatar's landing target (measured for the
-              flight animation) until it lands, then renders the real avatar
-              as a normal flex child instead — letting flexbox center it
-              against the text natively rather than trusting the flight's
-              measured pixel coordinates to exactly match afterward. */}
-          {landed && components && chosen ? (
-            <div className="shrink-0">
-              <AnimatedAvatar
-                components={components}
-                traits={chosen}
-                size={NOTE_AVATAR}
-              />
-            </div>
-          ) : (
-            <div
-              ref={noteSlotRef}
-              className="shrink-0"
-              style={{ width: NOTE_AVATAR, height: NOTE_AVATAR }}
-            />
-          )}
-          <motion.p
-            className="text-[15px]"
-            style={{ color: tone.fg }}
-            initial={false}
-            animate={{ opacity: landed ? 1 : 0, x: landed ? 0 : -6 }}
-            transition={reduce ? { duration: 0 } : { duration: 0.35 }}
-          >
-            {t("letsChatReadyStep.setupNote")}
-          </motion.p>
-        </div>
-
-        {/* One card per installed plugin (name + description), themed to match
-            the "facts about you" cards. The margin is generous because the
-            flown 64px avatar overflows the note row above (~22px), so the
-            visual gap still matches the title→note gap. */}
-        {hasPlugins && (
-          <div
-            className="flex flex-col gap-3"
-            style={{ marginTop: Math.round(64 - vh * 0.02) }}
-          >
-            {plugins.map((p, i) => (
-              <motion.div
-                key={p.name}
-                initial={reduce ? false : { opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={
-                  reduce ? { duration: 0 } : { duration: 0.3, delay: i * 0.06 }
-                }
-                className="rounded-2xl px-5 py-4"
-                style={{
-                  backgroundColor: tone.isLight
-                    ? "rgba(0,0,0,0.06)"
-                    : "rgba(255,255,255,0.1)",
-                }}
-              >
-                <div className="text-[15px] font-medium">{p.displayName}</div>
-                {p.description && (
-                  <div
-                    className="mt-1 text-[13px] leading-snug"
-                    style={{ color: tone.fgMuted }}
-                  >
-                    {p.description}
-                  </div>
-                )}
-              </motion.div>
-            ))}
-          </div>
-        )}
-
-        <button
-          type="button"
-          onClick={handleStart}
-          disabled={starting || disabled}
-          className="mt-16 flex cursor-pointer h-11 w-[200px] items-center justify-center gap-2 rounded-[10px] text-body-medium-default transition duration-150 enabled:active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-60"
-          style={{
-            backgroundColor: tone.isLight ? "#1A1A1A" : "#FFFFFF",
-            color: tone.isLight ? "#FFFFFF" : "#1A1A1A",
-          }}
-        >
-          {starting ? t("actions.starting") : t("letsChatReadyStep.letsChat")}
-          {!starting && <ArrowRight className="h-4 w-4" />}
-        </button>
-
-        {/* Hidden the instant it lands — the note row above then renders the
-            real, flex-centered avatar in its place (see the landed branch
-            there), so this overlay only needs to own the flight itself. */}
-        {anchors && !landed && (
-          <FlyingHeadingAvatar
-            head={anchors.head}
-            note={anchors.note}
-            flyToNote={flown && anchors.note !== undefined}
             reduce={reduce}
             onLanded={() => setLanded(true)}
           />

@@ -6,7 +6,7 @@ export const bashHelp: CliCommandHelp = {
   name: "bash",
   args: "<command>",
   description:
-    "Execute a shell command through the assistant process for debugging",
+    "Execute a shell command with the same sanitized environment as the bash tool",
   options: [
     {
       flags: "-t, --timeout <ms>",
@@ -15,24 +15,20 @@ export const bashHelp: CliCommandHelp = {
     },
   ],
   helpText: `
-Sends a shell command to the running assistant for execution via the IPC
-socket. The assistant spawns the command in its own process environment and
-returns stdout, stderr, and the exit code.
-
-This is a developer debugging tool for inspecting how the assistant invokes and
-observes shell commands. The command runs with the assistant's environment, working
-directory, and process context — not the caller's shell.
-
-Requires the assistant to be running with VELLUM_DEBUG=1. When debug mode is off
-(the default), the assistant returns an error immediately.
+Spawns the command with the same sanitized environment, working directory,
+and platform shell the bash tool uses for tool-call subprocesses. CES
+bootstrap and workspace paths are forwarded so children can reach CES over
+IPC. CES HTTP credentials are also forwarded. The command does not go through
+the assistant HTTP or IPC
+API, and does not require a running assistant process.
 
 Arguments:
   command   The shell command string to execute (e.g. "echo hello", "ls -la").
-            Runs in bash via \`bash -c\` in the assistant's process environment.
+            Runs via the same platform shell invocation the bash tool uses.
 
 Examples:
   $ assistant bash "echo hello"
   $ assistant bash "which node"
   $ assistant bash "env | grep PATH" --timeout 10000
-  $ assistant bash "ls -la"`,
+  $ assistant bash "assistant oauth request --provider outlook --json https://graph.microsoft.com/v1.0/me"`,
 };

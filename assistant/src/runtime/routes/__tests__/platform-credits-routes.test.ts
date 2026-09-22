@@ -34,6 +34,8 @@ const creditsHandler = ROUTES.find(
 )!.handler;
 
 const SUMMARY_URL = "https://platform.test/v1/organizations/billing/summary/";
+const SUBSCRIPTION_URL =
+  "https://platform.test/v1/organizations/billing/subscription/";
 
 const FULL_SUMMARY = {
   settled_balance_usd: "50.00",
@@ -46,21 +48,34 @@ const FULL_SUMMARY = {
   daily_limit_snoozed: true,
   low_balance_threshold_usd: "5.00",
   low_balance_warning: true,
+  available_usage_balance: "9.10",
+  total_usage_balance: "20.00",
+  credits_expiring_soon_usd: "9.10",
+  next_credit_expiry_at: "2026-10-01T00:00:00Z",
 };
 
 const realFetch = globalThis.fetch;
 let fetchedUrls: string[] = [];
 
-/** Stub globalThis.fetch to answer every call with `body`, recording URLs. */
-function stubFetch(body: unknown, status = 200): void {
+/**
+ * Stub globalThis.fetch: the summary URL answers with `summary`, the
+ * subscription URL with `subscription` (a plan, or a 500 when "error").
+ */
+function stubFetch(
+  summary: unknown,
+  subscription: { plan_id: "base" | "pro" } | "error" = { plan_id: "pro" },
+): void {
   globalThis.fetch = (async (input: string | URL | Request) => {
-    fetchedUrls.push(
+    const url =
       typeof input === "string"
         ? input
         : input instanceof URL
           ? input.toString()
-          : input.url,
-    );
+          : input.url;
+    fetchedUrls.push(url);
+    const isSubscription = url === SUBSCRIPTION_URL;
+    const status = isSubscription && subscription === "error" ? 500 : 200;
+    const body = isSubscription ? subscription : summary;
     return new Response(JSON.stringify(body), {
       status,
       headers: { "Content-Type": "application/json" },
@@ -97,6 +112,78 @@ describe("platform_credits", () => {
       daily_limit_snoozed: true,
       low_balance_threshold: 5,
       low_balance_warning: true,
+      plan_credit_remaining: 9.1,
+      plan_credit_total: 20,
+      plan_credit_used_fraction: 0.545,
+      plan_credits_spent: false,
+      extra_credit_remaining: 33.07,
+      credits_expiring_soon: 9.1,
+      next_credit_expiry_at: "2026-10-01T00:00:00Z",
+    });
+  });
+
+  test("marks plan credit spent once the grants are used up", async () => {
+    stubFetch({ ...FULL_SUMMARY, available_usage_balance: "0.00" });
+
+    expect(await creditsHandler({})).toMatchObject({
+      plan_credit_used_fraction: 1,
+      plan_credits_spent: true,
+      extra_credit_remaining: 42.17,
+    });
+  });
+
+  test("treats a Pro plan whose grants total nothing as fully spent", async () => {
+    stubFetch(
+      {
+        ...FULL_SUMMARY,
+        available_usage_balance: "0.00",
+        total_usage_balance: "0.00",
+      },
+      { plan_id: "pro" },
+    );
+
+    expect(await creditsHandler({})).toMatchObject({
+      plan_credit_total: 0,
+      plan_credit_used_fraction: 1,
+      plan_credits_spent: true,
+      extra_credit_remaining: 42.17,
+    });
+    expect(fetchedUrls).toEqual([SUMMARY_URL, SUBSCRIPTION_URL]);
+  });
+
+  test("gives a base plan with no grants no reading, and clamps a refund overshoot", async () => {
+    stubFetch(
+      {
+        ...FULL_SUMMARY,
+        available_usage_balance: "0.00",
+        total_usage_balance: "0.00",
+      },
+      { plan_id: "base" },
+    );
+    expect(await creditsHandler({})).toMatchObject({
+      plan_credit_used_fraction: null,
+      plan_credits_spent: null,
+    });
+
+    stubFetch({ ...FULL_SUMMARY, available_usage_balance: "25.00" });
+    expect(await creditsHandler({})).toMatchObject({
+      plan_credit_used_fraction: 0,
+      plan_credits_spent: false,
+      extra_credit_remaining: 17.17,
+    });
+  });
+
+  test("still reads the ratio when the subscription fetch fails, but not the zero-grant case", async () => {
+    stubFetch(FULL_SUMMARY, "error");
+    expect(await creditsHandler({})).toMatchObject({
+      plan_credit_used_fraction: 0.545,
+      plan_credits_spent: false,
+    });
+
+    stubFetch({ ...FULL_SUMMARY, total_usage_balance: "0.00" }, "error");
+    expect(await creditsHandler({})).toMatchObject({
+      plan_credit_used_fraction: null,
+      plan_credits_spent: null,
     });
   });
 
@@ -116,6 +203,13 @@ describe("platform_credits", () => {
       daily_limit_snoozed: false,
       low_balance_threshold: null,
       low_balance_warning: false,
+      plan_credit_remaining: null,
+      plan_credit_total: null,
+      plan_credit_used_fraction: null,
+      plan_credits_spent: null,
+      extra_credit_remaining: null,
+      credits_expiring_soon: null,
+      next_credit_expiry_at: null,
     });
   });
 

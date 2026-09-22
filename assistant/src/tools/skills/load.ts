@@ -90,12 +90,13 @@ function formatToolSchemas(
   manifest: SkillToolManifest,
   context: Pick<
     ToolContext,
-    "clientOs" | "transportInterface" | "sourceActorPrincipalId"
+    "clientOs" | "transportInterface" | "sourceActorPrincipalId" | "trustClass"
   >,
   childSkillName?: string,
 ): string | undefined {
   const tools = manifest.tools.filter((tool) =>
     supportsClientOsForSkillTool(tool.supported_client_os, tool.name, {
+      trustClass: context.trustClass,
       clientOs: context.clientOs,
       transportInterface: context.transportInterface,
       sourceActorPrincipalId: context.sourceActorPrincipalId,

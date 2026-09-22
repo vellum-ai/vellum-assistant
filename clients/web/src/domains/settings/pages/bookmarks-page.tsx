@@ -9,6 +9,7 @@ import {
 import { useTranslation } from "@/i18n";
 import { useCanUseInternalThreadActions } from "@/lib/auth/internal-thread-actions";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
+import { useDisplayConversationTitle } from "@/utils/conversation-title";
 import { routes } from "@/utils/routes";
 import { navigateToConversation } from "@/utils/conversation-navigation";
 import { Button } from "@vellumai/design-library/components/button";
@@ -65,10 +66,8 @@ function BookmarkRow({
   onRemove: () => void;
   t: SettingsTranslate;
 }) {
-  const title =
-    bookmark.conversationTitle && bookmark.conversationTitle.trim().length > 0
-      ? bookmark.conversationTitle
-      : t("bookmarksPage.untitledConversation");
+  const displayTitle = useDisplayConversationTitle();
+  const title = displayTitle(bookmark.conversationTitle);
   // Accent the source: assistant replies read stronger than the user's own
   // lines, matching the legacy macOS Bookmarks tab.
   const isAssistant = bookmark.messageRole !== "user";
@@ -155,8 +154,8 @@ export function BookmarksPage() {
       <div className="w-full">
         <Card>
           <div className="flex min-h-[400px] flex-col items-center justify-center px-6 py-16 text-center">
-            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[var(--system-error-lighter)]">
-              <AlertTriangle className="h-6 w-6 text-[var(--system-error-default)]" />
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[var(--system-negative-weak)]">
+              <AlertTriangle className="h-6 w-6 text-[var(--system-negative-strong)]" />
             </div>
             <h2 className="mt-4 text-title-small text-[var(--content-default)]">
               {t("bookmarksPage.errorTitle")}

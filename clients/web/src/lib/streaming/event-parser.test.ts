@@ -175,6 +175,7 @@ describe("parseAssistantEvent", () => {
           mimeType: "image/png",
           data: "iVBORw0KGgo=",
           sourceType: "sandbox_file",
+          computerUseScreenshot: true,
         },
       ],
     });
@@ -188,6 +189,7 @@ describe("parseAssistantEvent", () => {
           mimeType: "image/png",
           data: "iVBORw0KGgo=",
           sourceType: "sandbox_file",
+          computerUseScreenshot: true,
         },
       ],
     });
@@ -1928,6 +1930,26 @@ describe("parseAssistantEvent", () => {
   });
 
   describe("user_message_echo", () => {
+    test("accepts a marked camera frame echo", () => {
+      const data = {
+        type: "user_message_echo",
+        text: "(camera frame)",
+        messageId: "frame-1",
+        cameraFrame: true,
+      } satisfies AssistantEvent;
+      expect(parseEvent(data)).toEqual(data);
+    });
+
+    test("rejects a false camera frame marker", () => {
+      expect(
+        parseEvent({
+          type: "user_message_echo",
+          text: "(camera frame)",
+          cameraFrame: false,
+        }).type,
+      ).toBe("unknown");
+    });
+
     test("parses with all fields", () => {
       // GIVEN a user_message_echo carrying the full optional set
       // WHEN parsed
@@ -2615,6 +2637,20 @@ describe("parseAssistantEvent", () => {
       type: "conversation_title_updated",
       conversationId: "conv-1",
       title: "New Title",
+    });
+  });
+
+  test("strips unknown fields from conversation_title_updated", () => {
+    const event = parseEvent({
+      type: "conversation_title_updated",
+      conversationId: "conv-1",
+      title: "Untitled",
+      titleState: "untitled",
+    });
+    expect(event).toEqual({
+      type: "conversation_title_updated",
+      conversationId: "conv-1",
+      title: "Untitled",
     });
   });
 
@@ -3599,4 +3635,9 @@ describe("ConversationMessage wire shape", () => {
     expect(msg.textSegments).toBeUndefined();
     expect(msg.contentOrder).toBeUndefined();
   });
+});
+
+test("parses desktop activity notifications for status refresh", () => {
+  const parsed = parseAssistantEvent({ type: "desktop_activity_changed" });
+  expect(parsed.message).toEqual({ type: "desktop_activity_changed" });
 });

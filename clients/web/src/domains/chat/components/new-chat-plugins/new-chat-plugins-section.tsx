@@ -33,11 +33,12 @@ export function NewChatPluginsSection({
     return (
       <div className="flex justify-center">
         <Button
+          shape="pill"
           variant="ghost"
           leftIcon={<Plug className="h-4 w-4 shrink-0" aria-hidden />}
           onClick={() => setRevealed(true)}
           tintColor="var(--content-secondary)"
-          className="h-[34px] rounded-full border border-[var(--border-disabled)] pl-2.5 pr-3"
+          className="h-[34px] border border-[var(--border-disabled)] pl-2.5 pr-3"
         >
           {t("newChatPluginsSection.managePlugins")}
         </Button>

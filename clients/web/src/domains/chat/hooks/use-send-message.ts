@@ -17,7 +17,12 @@ import { type MutableRefObject, useCallback, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router";
 import { toast } from "@vellumai/design-library/components/toast";
-import { routes } from "@/utils/routes";
+import { appIdForPath, routes } from "@/utils/routes";
+import { carriedAppEntryState } from "@/utils/app-navigation";
+import {
+  currentEntryState,
+  currentPathname,
+} from "@/utils/conversation-navigation";
 import { conversationsByIdSlashPost } from "@/generated/daemon/sdk.gen";
 import {
   isLocalMetaCommand,
@@ -75,10 +80,12 @@ import {
   newTurnId,
   resolvePostError,
   shouldCleanupSupersededInteractions,
+  shouldQueueSend,
 } from "@/domains/chat/utils/send-message-utils";
 import type { UIContext } from "@/domains/chat/turn-selectors";
 import { useComposerStore } from "@/domains/chat/composer-store";
 import { getSoundManager } from "@/lib/sounds/sound-manager";
+import { getInterruptOnSend } from "@/domains/chat/hooks/use-interrupt-on-send";
 import { useMessageQueue } from "@/domains/chat/hooks/use-message-queue";
 import { confirmQueuedMessageDeletion } from "@/domains/chat/queue-cancellation";
 import { conversationsByIdCancelPost } from "@/generated/daemon/sdk.gen";
@@ -332,7 +339,11 @@ export function useSendMessage({
       }
       const requestAssistantId = assistantId;
       const requestConversationId = activeConversationId;
+      const composerSessionGeneration =
+        useComposerStore.getState().sessionGeneration;
       const isCurrentSendScope = (resolvedConversationId?: string | null) =>
+        composerSessionGeneration ===
+          useComposerStore.getState().sessionGeneration &&
         isAsyncChatScopeCurrent({
           currentAssistantId:
             useResolvedAssistantsStore.getState().activeAssistantId,
@@ -440,6 +451,7 @@ export function useSendMessage({
                 requestAssistantId,
                 requestConversationId,
                 content,
+                composerSessionGeneration,
               );
           }
           return { status: "ignored" };
@@ -457,6 +469,12 @@ export function useSendMessage({
             ...(postResult.error.code ? { code: postResult.error.code } : {}),
           },
         };
+      }
+      if (
+        composerSessionGeneration !==
+        useComposerStore.getState().sessionGeneration
+      ) {
+        return { status: "ignored" };
       }
       // Success — drain the ref so subsequent messages omit the field.
       pendingOnboardingContextRef.current = null;
@@ -573,6 +591,15 @@ export function useSendMessage({
           status: "ok",
           resolvedConversationId: postResult.conversationId,
         };
+      }
+      // Not queued, so no `message_queued` will register this. Recorded anyway
+      // because a send the daemon accepted can still fail afterwards (an
+      // `interrupt-on-send` handover whose queue fallback is refused), and the
+      // only handle that failure event carries is the request id.
+      if (clientMessageId && postResult.requestId) {
+        useChatSessionStore
+          .getState()
+          .setRequestIdMapping(postResult.requestId, clientMessageId);
       }
       if (hasMatchingActiveStream) {
         return {
@@ -713,9 +740,13 @@ export function useSendMessage({
       // from a narrowing that a closure cannot carry. Every other caller runs
       // past that guard, where both are non-null and the extra checks stand
       // true.
+      const composerSessionGeneration =
+        useComposerStore.getState().sessionGeneration;
       const sendScopeIsCurrent = () =>
         assistantId !== null &&
         activeConversationId !== null &&
+        composerSessionGeneration ===
+          useComposerStore.getState().sessionGeneration &&
         isAsyncChatScopeCurrent({
           currentAssistantId:
             useResolvedAssistantsStore.getState().activeAssistantId,
@@ -851,7 +882,13 @@ export function useSendMessage({
         }
       }
 
-      const willQueue = isSending(useTurnStore.getState().phase);
+      const phaseAtSend = useTurnStore.getState().phase;
+      const willQueue = shouldQueueSend(phaseAtSend, getInterruptOnSend());
+      // The same read decides the other half: a send that does not queue into
+      // a busy turn is replacing it, so the `generation_cancelled` that lands
+      // behind this send's 202 is that turn's handoff and must not idle the
+      // turn this one is starting.
+      const interruptsRunningTurn = isSending(phaseAtSend) && !willQueue;
       const clientMessageId = crypto.randomUUID();
       const userMessage: DisplayMessage = {
         id: clientMessageId,
@@ -938,8 +975,19 @@ export function useSendMessage({
             if (!onScreenAtFailure && !isHidden) {
               useComposerStore
                 .getState()
-                .restoreFailedDraft(assistantId, activeConversationId, content);
+                .restoreFailedDraft(
+                  assistantId,
+                  activeConversationId,
+                  content,
+                  composerSessionGeneration,
+                );
             }
+            return;
+          }
+          if (
+            composerSessionGeneration !==
+            useComposerStore.getState().sessionGeneration
+          ) {
             return;
           }
           void surfaceConversationAfterUserSend(
@@ -1032,7 +1080,12 @@ export function useSendMessage({
           if (!onScreenAtThrow && !isHidden) {
             useComposerStore
               .getState()
-              .restoreFailedDraft(assistantId, activeConversationId, content);
+              .restoreFailedDraft(
+                assistantId,
+                activeConversationId,
+                content,
+                composerSessionGeneration,
+              );
           }
         }
         return;
@@ -1046,7 +1099,7 @@ export function useSendMessage({
       // behind it. The id still travels, so the send's own bookkeeping is
       // unchanged.
       if (sendScopeIsCurrent()) {
-        useTurnStore.getState().requestSend(turnId);
+        useTurnStore.getState().requestSend(turnId, { interruptsRunningTurn });
       }
 
       const currentConv = findConversation(
@@ -1154,6 +1207,11 @@ export function useSendMessage({
               activeConversationId,
               newConversationId,
             );
+          // Entries pushed before this send still name the draft, which the
+          // daemon has no row for; the loader redirects them onto this id.
+          useConversationStore
+            .getState()
+            .recordDraftReplacement(activeConversationId, newConversationId);
           resolveDraftKey(
             queryClient,
             assistantId,
@@ -1192,9 +1250,23 @@ export function useSendMessage({
             useConversationStore
               .getState()
               .setActiveConversationId(newConversationId);
-            void navigate(routes.conversation(newConversationId), {
-              replace: true,
-            });
+            // The same conversation under a new id, so the rewrite carries the
+            // segment the URL names and the return path recorded on this entry,
+            // re-keyed to the new id: `keptAppId()` reads the app on screen,
+            // and an overlay covering it would drop the app here.
+            void navigate(
+              routes.conversation(
+                newConversationId,
+                appIdForPath(currentPathname()),
+              ),
+              {
+                replace: true,
+                state: carriedAppEntryState(
+                  currentEntryState(),
+                  newConversationId,
+                ),
+              },
+            );
           }
         } else if (resolvedId && isDraft) {
           // Legacy (pre-0.8.6) assistants echo the client-minted draft id
@@ -1247,7 +1319,12 @@ export function useSendMessage({
         if (!onScreenAtThrow && !isHidden) {
           useComposerStore
             .getState()
-            .restoreFailedDraft(assistantId, activeConversationId, content);
+            .restoreFailedDraft(
+              assistantId,
+              activeConversationId,
+              content,
+              composerSessionGeneration,
+            );
         }
         // Multi-key processing-key cleanup: when a send is retargeted
         // (e.g. draft → new conversation), both the original active key

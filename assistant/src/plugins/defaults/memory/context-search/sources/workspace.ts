@@ -1,6 +1,8 @@
 import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import { extname, isAbsolute, join, relative, sep } from "node:path";
 
+import { safeStringSlice } from "@vellumai/plugin-api";
+
 import { isPathInsideRoot } from "../../path-containment.js";
 import type {
   RecallEvidence,
@@ -924,7 +926,7 @@ function buildExcerpt(lines: readonly string[], lineIndex: number): string {
     return focusedLine;
   }
 
-  return `${focusedLine.slice(0, EXCERPT_MAX_CHARS - 3).trimEnd()}...`;
+  return `${safeStringSlice(focusedLine, 0, EXCERPT_MAX_CHARS - 3).trimEnd()}...`;
 }
 
 function buildSectionExcerpt(
@@ -942,7 +944,7 @@ function buildSectionExcerpt(
     return excerpt;
   }
 
-  return `${excerpt.slice(0, SECTION_EXCERPT_MAX_CHARS - 3).trimEnd()}...`;
+  return `${safeStringSlice(excerpt, 0, SECTION_EXCERPT_MAX_CHARS - 3).trimEnd()}...`;
 }
 
 function buildStructuredJsonExcerpt(contents: string): string {

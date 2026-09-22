@@ -1,8 +1,9 @@
 import { getConfig } from "../config/loader.js";
-import { isV3TierActive } from "../config/memory-v3-gate.js";
+import { isSkillImprovementActive } from "../config/memory-v3-gate.js";
 import type { ExecutionContext } from "../permissions/approval-policy.js";
 import type { ChannelPermissionCoordinates } from "../permissions/channel-permission-query.js";
 import type { PolicyContext } from "../permissions/types.js";
+import { resolveExecutionTarget } from "./execution-target.js";
 import { getToolOwner } from "./registry.js";
 import type { Tool, ToolContext } from "./types.js";
 
@@ -48,6 +49,7 @@ function deriveExecutionContext(context?: ToolContext): ExecutionContext {
 export function buildPolicyContext(
   tool: Tool,
   context?: ToolContext,
+  input?: Record<string, unknown>,
 ): PolicyContext {
   const executionContext = deriveExecutionContext(context);
 
@@ -63,18 +65,17 @@ export function buildPolicyContext(
     requestOrigin: context?.requestOrigin,
     ...channelCoordinatesFromToolContext(context),
     requesterContactId: context?.requesterContactId,
-    // Precompute the proc-to-skills gate — the v3 tier being active, i.e.
-    // memory on AND v3 live — here so the permission checker, a leaf module
-    // that must not read config, can deny the memory-retrospective
-    // skill-authoring grant whenever the feature is inactive just by reading
-    // this boolean.
-    procToSkillsActive: isV3TierActive(getConfig()),
+    // Precompute the retrospective skill-improvement gate here so the
+    // permission checker, a leaf module that must not read config, can deny
+    // the memory-retrospective skill-authoring grant whenever the feature is
+    // inactive just by reading this boolean.
+    procToSkillsActive: isSkillImprovementActive(getConfig()),
   };
 
   const ownerKind = getToolOwner(tool.name)?.kind;
   if (ownerKind === "skill" || ownerKind === "plugin") {
     return {
-      executionTarget: tool.executionTarget,
+      executionTarget: resolveExecutionTarget(tool, input, context),
       executionContext,
       conversationId,
       ...originSignals,

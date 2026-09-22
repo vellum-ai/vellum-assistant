@@ -12,7 +12,8 @@ import { getSqliteFrom } from "../db-connection.js";
  *     previously left the panel blank. NULL for pre-existing rows and until the
  *     turn-end backfill stamps it.
  *   - `section_ordinal INTEGER` / `section_title TEXT` — the matched section a
- *     finder-lane selection surfaced (from `OrchestrateResult.matchedSections`).
+ *     finder-lane selection surfaced (the selection's first section in
+ *     `OrchestrateResult.selections`).
  *     NULL for pre-existing rows and for core/hot/fresh/edge selections that
  *     carry no matched section (those render full-page, as before).
  *

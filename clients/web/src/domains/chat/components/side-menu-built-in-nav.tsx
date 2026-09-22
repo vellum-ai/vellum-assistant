@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 import { SIDEBAR_STACK_GAP } from "@/components/sidebar-nav-geometry";
 import { AssistantSwitcher } from "@/domains/chat/components/assistant-switcher";
 import { PinnedAppNavItem } from "@/domains/chat/components/pinned-app-nav-item";
@@ -17,11 +19,15 @@ export interface SideMenuBuiltInNavProps {
   activeAppId?: string;
   onOpenApp?: (appId: string) => void;
   onClose?: () => void;
+  /** The assistant section's toggle, beside the assistant pill. */
+  assistantAside?: ReactNode;
+  /** The assistant's own section, opened beneath the assistant row. */
+  assistantBeneath?: ReactNode;
 }
 
 /**
  * The sidebar's built-in navigation block: the assistant cluster with the
- * New Chat row beneath it, then the pinned-apps list. On the rail this lives
+ * New Chat button on its row, then the pinned-apps list. On the rail this lives
  * in the non-scrolling header; on the overlay it renders at the top of the
  * body so the whole menu scrolls as one surface (Figma 6764:6745).
  *
@@ -41,6 +47,8 @@ export function SideMenuBuiltInNav({
   activeAppId,
   onOpenApp,
   onClose,
+  assistantAside,
+  assistantBeneath,
 }: SideMenuBuiltInNavProps) {
   const { t } = useTranslation("chat");
   const { pinnedApps, unpin, setColor } = usePinnedApps(assistantId);
@@ -54,14 +62,15 @@ export function SideMenuBuiltInNav({
   return (
     <div className={cn("flex flex-col", SIDEBAR_STACK_GAP)}>
       {/* The assistant cluster: the avatar-colored assistant row with the
-          New Chat row (avatar-tinted, plus + label; icon-only tile on the
-          collapsed rail) beneath it, so the identity leads and the action
-          hangs off it. No divider when expanded: the wrapper's gap is the
-          only thing between this cluster and the pinned apps. On the
-          rail this cluster is a column of circles like the sections below
-          it, spaced by the same gap. The
-          overlay drawer skips the New Chat row: its floating New Chat
-          pill already owns that action in the thumb zone. */}
+          New Chat button (avatar-tinted, a round plus) after the section
+          toggle on that row, so the identity leads and the action hangs
+          off it; on the collapsed rail the button is an icon-only tile
+          beneath the assistant's. No divider when expanded: the wrapper's
+          gap is the only thing between this cluster and the pinned apps.
+          On the rail this cluster is a column of circles like the sections
+          below it, spaced by the same gap. The overlay drawer skips the New
+          Chat button: its floating New Chat pill already owns that action
+          in the thumb zone. */}
       <div>
         <AssistantSwitcher
           assistantId={assistantId}
@@ -85,6 +94,8 @@ export function SideMenuBuiltInNav({
               : undefined
           }
           onSwitched={onClose}
+          aside={assistantAside}
+          beneath={assistantBeneath}
         />
       </div>
       {pinnedApps.length > 0 ? (

@@ -22,15 +22,13 @@ interface McpServerTransport {
 export interface McpServerEntry {
   id: string;
   status: string;
+  source?: "workspace" | "plugin";
+  pluginName?: string;
   transport: McpServerTransport;
-  enabled: boolean;
-  defaultRiskLevel: string;
   hasOAuth: boolean;
   hasStaticAuth: boolean;
   authType: "none" | "bearer" | "api-key";
   authHeaderName?: string;
-  allowedTools?: string[];
-  blockedTools?: string[];
 }
 
 export interface McpToolEntry {
@@ -70,7 +68,7 @@ export async function fetchMcpServers(
   if (!response?.ok) {
     throw new Error(`Failed to fetch MCP servers: ${response?.status}`);
   }
-  return data as unknown as McpListResponse;
+  return (data as unknown) as McpListResponse;
 }
 
 export async function fetchMcpToolsSummary(
@@ -83,18 +81,13 @@ export async function fetchMcpToolsSummary(
   if (!response?.ok) {
     throw new Error(`Failed to fetch MCP tools summary: ${response?.status}`);
   }
-  return data as unknown as McpToolsSummaryResponse;
+  return (data as unknown) as McpToolsSummaryResponse;
 }
 
 export async function updateMcpServer(
   assistantId: string,
   body: {
     name: string;
-    enabled?: boolean;
-    defaultRiskLevel?: string;
-    maxTools?: number;
-    allowedTools?: string[] | null;
-    blockedTools?: string[] | null;
     headers?: Record<string, string> | null;
   },
 ): Promise<void> {
@@ -116,8 +109,6 @@ export async function addMcpServer(
     url?: string;
     command?: string;
     args?: string[];
-    risk?: string;
-    disabled?: boolean;
     headers?: Record<string, string>;
   },
 ): Promise<void> {
@@ -161,7 +152,7 @@ export async function startMcpAuth(
   if (!response?.ok) {
     throw new Error(`Failed to start MCP auth: ${response?.status}`);
   }
-  return data as unknown as {
+  return (data as unknown) as {
     auth_url: string;
     state: string;
     already_authenticated?: boolean;
@@ -173,42 +164,17 @@ export async function pollMcpAuthStatus(
   serverId: string,
 ): Promise<{ status: string; auth_url?: string; error?: string }> {
   const { data, response } = await client.get({
-    url: `/v1/assistants/{assistant_id}/internal/mcp/auth/status/${encodeURIComponent(serverId)}` as "/v1/assistants/{assistant_id}/config",
+    url: `/v1/assistants/{assistant_id}/internal/mcp/auth/status/${encodeURIComponent(
+      serverId,
+    )}` as "/v1/assistants/{assistant_id}/config",
     path: { assistant_id: assistantId },
   });
   if (!response?.ok) {
     throw new Error(`Failed to poll MCP auth status: ${response?.status}`);
   }
-  return data as unknown as {
+  return (data as unknown) as {
     status: string;
     auth_url?: string;
     error?: string;
   };
-}
-
-export async function revokeMcpOAuth(
-  assistantId: string,
-  serverId: string,
-): Promise<void> {
-  const { response } = await client.post({
-    url: "/v1/assistants/{assistant_id}/internal/mcp/auth/revoke" as "/v1/assistants/{assistant_id}/config",
-    path: { assistant_id: assistantId },
-    body: { serverId } as Record<string, unknown>,
-  });
-  if (!response?.ok) {
-    throw new Error(
-      `Failed to revoke OAuth for ${serverId}: ${response?.status}`,
-    );
-  }
-}
-
-export async function reloadMcpServers(assistantId: string): Promise<void> {
-  const { response } = await client.post({
-    url: "/v1/assistants/{assistant_id}/internal/mcp/reload" as "/v1/assistants/{assistant_id}/config",
-    path: { assistant_id: assistantId },
-    body: {} as Record<string, unknown>,
-  });
-  if (!response?.ok) {
-    throw new Error(`Failed to reload MCP servers: ${response?.status}`);
-  }
 }

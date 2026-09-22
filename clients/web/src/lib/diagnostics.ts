@@ -209,6 +209,15 @@ export function getLifecycleDiagnosticsEvents(): DiagnosticsEvent[] {
   return snapshotRing(lifecycleRing);
 }
 
+/** Remove a scoped event family when its owning request identity changes. */
+export function removeLifecycleDiagnostics(kindPrefix: string): void {
+  loadRing(lifecycleRing);
+  lifecycleRing.events = lifecycleRing.events.filter(
+    (event) => !event.kind.startsWith(kindPrefix),
+  );
+  saveRing(lifecycleRing);
+}
+
 /** Build a timestamped diagnostics snapshot for support submissions. */
 export function buildDiagnosticsSnapshot(
   currentState: Record<string, unknown> | null,

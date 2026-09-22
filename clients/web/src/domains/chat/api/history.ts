@@ -28,6 +28,10 @@ import {
   type RuntimeSubagentNotification,
 } from "@/domains/chat/api/messages";
 import type { BackgroundTaskEntry } from "@/domains/chat/background-task-store";
+import {
+  ModeSessionDescriptorSchema,
+  type ModeSessionDescriptor,
+} from "@vellumai/assistant-api";
 
 export type { PaginatedHistoryResult };
 
@@ -36,7 +40,9 @@ const DEFAULT_OLDER_LIMIT = 50;
 
 type HistoryQuery = NonNullable<MessagesGetData["query"]>;
 
-function parsePaginatedResponse(
+/** Project a `/messages` response into the paginated history shape the
+ *  transcript fold advances. */
+export function parsePaginatedResponse(
   body: MessagesGetResponse | undefined,
 ): PaginatedHistoryResult {
   const rows = body?.messages ?? [];
@@ -77,6 +83,13 @@ function parsePaginatedResponse(
   const oldestMessageId = body?.oldestMessageId || null;
   const seq = body?.seq ?? null;
   const processing = body?.processing;
+  const rawModeSessions = body?.modeSessions;
+  const modeSessions = Array.isArray(rawModeSessions)
+    ? rawModeSessions.flatMap((value): ModeSessionDescriptor[] => {
+        const parsed = ModeSessionDescriptorSchema.safeParse(value);
+        return parsed.success ? [parsed.data] : [];
+      })
+    : undefined;
 
   return {
     messages,
@@ -86,6 +99,7 @@ function parsePaginatedResponse(
     seq,
     processing,
     backgroundToolCompletions,
+    ...(modeSessions?.length ? { modeSessions } : {}),
     ...(subagentNotifications.length > 0 ? { subagentNotifications } : {}),
   };
 }
@@ -155,11 +169,15 @@ export async function fetchLatestHistoryPage(
   assistantId: string,
   conversationId: string,
   limit: number = DEFAULT_LATEST_LIMIT,
+  modeSessionIds: readonly string[] = [],
 ): Promise<PaginatedHistoryResult> {
   return fetchPaginatedHistory(assistantId, {
     conversationId,
     page: "latest",
     limit,
+    ...(modeSessionIds.length > 0
+      ? { modeSessionIds: modeSessionIds.join(",") }
+      : {}),
   });
 }
 

@@ -15,6 +15,7 @@
  */
 import type {
   AuthFallbackTelemetryEvent,
+  AvatarChangedTelemetryEvent,
   ConfigSettingTelemetryEvent,
   LifecycleTelemetryEvent,
   LlmUsageTelemetryEvent,
@@ -249,6 +250,22 @@ export const onboardingResearch: OnboardingResearchTelemetryEvent = {
   installed_plugins: ["gmail", "calendar"],
 };
 
+const avatarChanged: AvatarChangedTelemetryEvent = {
+  type: "avatar_changed",
+  daemon_event_id: "evt-avatar-changed-001",
+  recorded_at: RECORDED_AT,
+  assistant_version: "1.2.3",
+  action: "set_character",
+  kind: "character",
+  previous_kind: "none",
+  body_shape: "blob",
+  eye_style: "curious",
+  color: "green",
+  accent_hex: "#4caf50",
+  accent_source: "palette",
+  client_os: "macos",
+};
+
 /** One daemon-typed, wire-valid sample per generated wire event type. */
 export const wireEventSamples = [
   llmUsage,
@@ -261,4 +278,5 @@ export const wireEventSamples = [
   watchdog,
   configSetting,
   onboardingResearch,
+  avatarChanged,
 ] as const;

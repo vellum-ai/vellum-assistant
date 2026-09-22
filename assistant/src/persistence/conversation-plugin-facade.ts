@@ -1,3 +1,4 @@
+import type { ToolDefinition } from "../providers/types.js";
 import type {
   AddMessageOptions,
   ConversationRow,
@@ -5,6 +6,7 @@ import type {
   MessageRow,
 } from "./conversation-crud.js";
 import type { ArchiveStatusFilter } from "./conversation-queries.js";
+import type { ConversationToolSurface } from "./conversation-tool-surface.js";
 import type { ConversationType } from "./conversation-types.js";
 
 /**
@@ -50,6 +52,34 @@ export async function getMessages(
 ): Promise<MessageRow[]> {
   const { getMessages: fn } = await import("./conversation-crud.js");
   return fn(conversationId);
+}
+
+/**
+ * What the conversation's most recent live turn sent to the provider that a
+ * replaying fork reproduces verbatim (its tool definitions and the
+ * delegation-section state of its system prompt), or `null` when none has
+ * been recorded.
+ */
+export async function getRecordedConversationToolSurface(
+  conversationId: string,
+): Promise<ConversationToolSurface | null> {
+  const { getConversationToolSurface: fn } =
+    await import("./conversation-tool-surface.js");
+  return fn(conversationId);
+}
+
+/**
+ * The tool definitions the conversation's most recent live turn sent to the
+ * provider, or `null` when none has been recorded. A projection of
+ * {@link getRecordedConversationToolSurface}: a fork replaying the source's
+ * request needs the whole record, whose delegation-section state the system
+ * prompt tier of the provider cache prefix depends on.
+ */
+export async function getConversationToolSurface(
+  conversationId: string,
+): Promise<ToolDefinition[] | null> {
+  const surface = await getRecordedConversationToolSurface(conversationId);
+  return surface?.tools ?? null;
 }
 
 /** Whether the conversation currently has a turn in flight. */

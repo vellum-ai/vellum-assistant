@@ -1,12 +1,34 @@
 import { z } from "zod";
 
 /**
- * Risk level an MCP server's tools start at when its config entry does not
- * name one. Callers that write or display a server entry must reference this
- * rather than repeating a literal, so the level stays code-owned: an entry
- * that omits the field picks up whatever this constant says on every load.
+ * Risk level workspace MCP tools start at. Not a config field: origin
+ * decides, and a tool's own MCP annotations then move it one step.
  */
-export const DEFAULT_MCP_RISK_LEVEL = "medium";
+export const WORKSPACE_MCP_RISK_LEVEL = "medium" as const;
+
+/**
+ * Risk level plugin-declared MCP tools start at. `mcp.json` has no risk
+ * field. The marketplace whitelist plus the install decision is the
+ * review, so these tools run without prompting under the default
+ * auto-approve threshold.
+ */
+export const PLUGIN_MCP_RISK_LEVEL = "low" as const;
+
+/** Per-server cap on tools registered from one MCP server. */
+export const MCP_MAX_TOOLS_PER_SERVER = 20;
+
+/**
+ * Cap on tools registered across every MCP server when the workspace
+ * does not set `tools.mcpGlobalMaxTools` in config.json. Selection is a
+ * deterministic round-robin by server id (see `mcp/tool-caps.ts`), so a
+ * later server is not emptied just because earlier ones filled the budget.
+ */
+export const MCP_GLOBAL_MAX_TOOLS = 50;
+
+export type McpRiskLevel =
+  | typeof WORKSPACE_MCP_RISK_LEVEL
+  | typeof PLUGIN_MCP_RISK_LEVEL
+  | "high";
 
 const McpStdioTransportSchema = z
   .object({
@@ -24,7 +46,7 @@ const McpStdioTransportSchema = z
       .describe("Environment variables set for the MCP server process"),
   })
   .describe(
-    "Stdio transport — communicates with the MCP server via stdin/stdout",
+    "Stdio transport: communicates with the MCP server via stdin/stdout",
   );
 
 const McpSseTransportSchema = z
@@ -38,9 +60,7 @@ const McpSseTransportSchema = z
       .optional()
       .describe("Custom HTTP headers sent with SSE requests"),
   })
-  .describe(
-    "SSE transport — connects to an MCP server over Server-Sent Events",
-  );
+  .describe("SSE transport: connects to an MCP server over Server-Sent Events");
 
 const McpStreamableHttpTransportSchema = z
   .object({
@@ -54,7 +74,7 @@ const McpStreamableHttpTransportSchema = z
       .describe("Custom HTTP headers sent with requests"),
   })
   .describe(
-    "Streamable HTTP transport — connects to an MCP server over HTTP with streaming",
+    "Streamable HTTP transport: connects to an MCP server over HTTP with streaming",
   );
 
 export const McpTransportSchema = z.discriminatedUnion("type", [
@@ -66,34 +86,6 @@ export const McpTransportSchema = z.discriminatedUnion("type", [
 export const McpServerConfigSchema = z
   .object({
     transport: McpTransportSchema,
-    enabled: z
-      .boolean({ error: "mcp server enabled must be a boolean" })
-      .default(true)
-      .describe("Whether this MCP server is enabled"),
-    defaultRiskLevel: z
-      .enum(["low", "medium", "high"], {
-        error: "mcp server defaultRiskLevel must be one of: low, medium, high",
-      })
-      .default(DEFAULT_MCP_RISK_LEVEL)
-      .describe(
-        "Risk level tools from this server start at (affects approval requirements). A tool's own MCP annotations move it one step from here: destructiveHint up, readOnlyHint down.",
-      ),
-    maxTools: z
-      .number({ error: "mcp server maxTools must be a number" })
-      .int()
-      .positive()
-      .default(20)
-      .describe("Maximum number of tools to register from this server"),
-    allowedTools: z
-      .array(z.string())
-      .optional()
-      .describe(
-        "Allowlist of tool names — only these tools will be registered (if set)",
-      ),
-    blockedTools: z
-      .array(z.string())
-      .optional()
-      .describe("Blocklist of tool names — these tools will not be registered"),
   })
   .describe("Configuration for an individual MCP server");
 
@@ -103,15 +95,9 @@ export const McpConfigSchema = z
       .record(z.string(), McpServerConfigSchema)
       .default({} as Record<string, never>)
       .describe("Map of MCP server names to their configurations"),
-    globalMaxTools: z
-      .number({ error: "mcp globalMaxTools must be a number" })
-      .int()
-      .positive()
-      .default(50)
-      .describe("Maximum total number of tools across all MCP servers"),
   })
   .describe(
-    "Model Context Protocol (MCP) configuration — connect external tool servers",
+    "Model Context Protocol (MCP) configuration: connect external tool servers",
   );
 
 export type McpTransport = z.infer<typeof McpTransportSchema>;
@@ -119,7 +105,7 @@ export type McpServerConfig = z.infer<typeof McpServerConfigSchema>;
 export type McpConfig = z.infer<typeof McpConfigSchema>;
 
 /**
- * Who declared a server: the workspace `config.json`, which the user owns,
+ * Who declared a server: the workspace `mcp.json`, which the user owns,
  * or a plugin's `mcp.json`, which its author owns.
  *
  * Deliberately not a schema field. It is resolved from where the entry was
@@ -131,12 +117,20 @@ export type McpConfig = z.infer<typeof McpConfigSchema>;
  */
 export type McpServerSource = "workspace" | "plugin";
 
-/** A server config with its origin resolved. */
-export interface ResolvedMcpServerConfig extends McpServerConfig {
-  readonly source: McpServerSource;
-}
+/** A server config with its runtime-only origin and credential identity. */
+export type ResolvedMcpServerConfig =
+  | (McpServerConfig & { readonly source: "workspace" })
+  | (McpServerConfig & {
+      readonly source: "plugin";
+      readonly pluginName: string;
+      readonly serverKey: string;
+    });
 
 /** The MCP config the daemon runs: both origins, every server attributed. */
-export interface ResolvedMcpConfig extends Omit<McpConfig, "servers"> {
+export interface ResolvedMcpConfig {
   readonly servers: Record<string, ResolvedMcpServerConfig>;
+}
+
+export function mcpSourceRiskLevel(source: McpServerSource): McpRiskLevel {
+  return source === "plugin" ? PLUGIN_MCP_RISK_LEVEL : WORKSPACE_MCP_RISK_LEVEL;
 }

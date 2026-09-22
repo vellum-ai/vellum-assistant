@@ -31,7 +31,7 @@ import { useChannelReferenceStore } from "@/domains/chat/channel-sidecar/channel
 import { useHasPendingQuestion } from "@/domains/chat/interaction-store";
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
 import { useComposerFocusWithin } from "@/domains/chat/hooks/use-composer-focus-within";
-import { SightToggle } from "@/domains/chat/sight/sight-toggle";
+import { useInterruptOnSend } from "@/domains/chat/hooks/use-interrupt-on-send";
 import { ComposerDraftNotices } from "@/domains/chat/components/composer-draft-notices";
 import { nativeAttachmentPickersAvailable } from "@/domains/chat/components/chat-attachments/native-attachment-pickers";
 import { AddToChatSheet } from "@/domains/chat/components/chat-composer/add-to-chat-sheet";
@@ -64,6 +64,7 @@ import {
   getLiveVoiceInputAmplitude,
   getLiveVoiceOutputAmplitude,
   isLiveVoiceSessionActive,
+  isOnToolStep,
   restoreVoiceRoom,
   setLiveVoiceEntryOrigin,
   setLiveVoiceMuted,
@@ -154,16 +155,6 @@ export interface ChatComposerProps {
    */
   onAddAttachmentFiles: (files: FileList | File[]) => File[] | void;
 
-  /**
-   * The same gate `onAddAttachmentFiles` applies, resolved by the caller: false
-   * when an image attached to this message would be rejected by the provider
-   * and take the turn down with it. Read by the Eyes toggle, which offers no
-   * camera where its frames could not be sent. Defaults to true for the
-   * surfaces that attach no images of their own (the app-editing and story
-   * composers), which is what they do today.
-   */
-  imageAttachmentsAllowed?: boolean;
-
   // voice — optional; when `voiceInputRef` is omitted the voice button is
   // skipped entirely (matches the app-editing variant which has no voice).
   voiceInputRef?: RefObject<VoiceInputButtonHandle | null>;
@@ -173,6 +164,8 @@ export interface ChatComposerProps {
   voiceInterim?: string;
   onVoiceError?: (code: string | null) => void;
   onVoiceBeforeStart?: () => boolean | Promise<boolean>;
+  /** Prepare the conversation's visible context before live voice can start a turn. */
+  onBeforeLiveVoiceStart?: () => Promise<boolean>;
 
   onStopGenerating: () => void;
   /**
@@ -287,15 +280,6 @@ function measureVoiceOriginAvatar(): { x: number; y: number } | null {
 }
 
 /**
- * The mobile send button's filled circle. Applied only while the button can
- * actually send, so a blocked draft keeps the `Button` primitive's disabled
- * fill rather than a green control nobody can press. Hover holds the fill
- * alongside active, since a mouse reaches this row too.
- */
-const MOBILE_SEND_FILL_CLASS =
-  "bg-[var(--system-positive-strong)] hover:bg-[var(--system-positive-strong)] active:bg-[var(--system-positive-strong)] [--vbtn-fg:var(--aux-white)]";
-
-/**
  * The padding the mobile text field carries on each side (`px-2`). Taken off
  * the span measured between the row's two control clusters, which is a border
  * box, to leave the width the draft itself gets on the inline row.
@@ -351,13 +335,13 @@ export function ChatComposer({
   typingDisabled,
   sendDisabled,
   onAddAttachmentFiles,
-  imageAttachmentsAllowed = true,
   voiceInputRef,
   onVoiceTranscript,
   onVoiceInterimTranscript,
   voiceInterim,
   onVoiceError,
   onVoiceBeforeStart,
+  onBeforeLiveVoiceStart,
   onStopGenerating,
   isAssistantBusy,
   assistantId,
@@ -395,6 +379,13 @@ export function ChatComposer({
   const voicePhase = useVoiceRecordingStore.use.phase();
   const isVoiceActive =
     voicePhase === "recording" || voicePhase === "processing";
+  // The recording store is window-global and shared with the bridge's hidden
+  // recorder, which a held voice key drives into whatever app is in front.
+  // That session is flagged `hold` as it starts, and it is not this
+  // composer's content: its words land at a cursor elsewhere, and its
+  // recorder is not the one the composer's target can stop.
+  const voiceHold = useVoiceRecordingStore.use.hold();
+  const ownsDictation = isVoiceActive && !voiceHold;
   // Holds the MediaStream opened by VoiceInputButton so we can reuse it for
   // amplitude analysis rather than opening a second getUserMedia request.
   const [voiceStream, setVoiceStream] = useState<MediaStream | null>(null);
@@ -430,6 +421,10 @@ export function ChatComposer({
   // declare it.
   const supportsLiveVoice = useSupportsLiveVoice(assistantId);
   const liveVoiceState = useLiveVoiceStore.use.state();
+  const liveVoiceAssistantAudioActive =
+    useLiveVoiceStore.use.assistantAudioActive();
+  const liveVoiceResponsePhase = useLiveVoiceStore.use.responsePhase();
+  const liveVoiceOnToolStep = useLiveVoiceStore(isOnToolStep);
   const liveVoiceError = useLiveVoiceStore.use.error();
   const liveVoiceErrorRecovery = useLiveVoiceStore.use.errorRecovery();
   // Whether any session is live anywhere (this thread or another). `failed`
@@ -544,6 +539,14 @@ export function ChatComposer({
     let readiness;
     try {
       readiness = await voiceReadiness(assistantId);
+      if (
+        readiness.allowed &&
+        onBeforeLiveVoiceStart &&
+        !(await onBeforeLiveVoiceStart())
+      ) {
+        starter?.cancelPrewarm();
+        return;
+      }
     } finally {
       liveVoicePreflightPendingRef.current = false;
     }
@@ -591,9 +594,10 @@ export function ChatComposer({
     // start, only a reason to open silent, so it is decided here rather than
     // in the staleness guard.
     starter?.start(assistantId, conversationId ?? null, {
+      entry: "composer",
       seedText: voiceEntryGreetingSeed(latest.conversationIsEmpty),
     });
-  }, [assistantId, conversationId]);
+  }, [assistantId, conversationId, onBeforeLiveVoiceStart]);
   /**
    * In-flight reclaim, so unmounting cancels it. The start on the far side of
    * the await reads this composer's chat identity, and a composer that has
@@ -827,6 +831,39 @@ export function ChatComposer({
   const hasStagedContext = hasStagedQuotes || hasStagedChannelReference;
   const canSendMessageContent =
     Boolean(input.trim()) || canSendAttachments || hasStagedContext;
+  // Under `interrupt-on-send` a turn in flight keeps the row in its resting
+  // shape (attach, dictation, voice, Send): the message the user types stops
+  // that turn and is answered at once, so Send stays where it is and pressing
+  // it interrupts and sends in one move. The send slot is the exception, since
+  // a Send that cannot be pressed is no such gesture: it holds Stop there
+  // (`showStopInSendSlot`), which is the only way to end a turn without
+  // sending something.
+  const interruptOnSend = useInterruptOnSend();
+  const busyRowActive = isAssistantBusy && !interruptOnSend;
+  // Words already spoken are content the composer does not hold yet, so the
+  // composer's own dictation session makes the send slot pressable on its
+  // own: Send there means "finish, then send", and `useComposerSubmit`
+  // awaits the transcript before it reads the draft (LUM-3432). Without this
+  // the send arrow stays disabled, or cedes the slot to voice mode, for the
+  // whole of an empty-composer dictation, which is most of them.
+  // Deliberately not folded into `canSendMessageContent`: the busy row's
+  // stop/send swap below is about a draft that is ready to queue right now,
+  // and a session still being spoken is not that.
+  const canSendOrFinishDictation = canSendMessageContent || ownsDictation;
+  // Whether the send arrow, wherever it stands, can be pressed. The one answer
+  // for the slot's own button and for the stop that takes the slot when there
+  // is no press to make.
+  const sendBlocked =
+    sendDisabled || attachmentsUploadingCount > 0 || !canSendOrFinishDictation;
+  // Under `interrupt-on-send` a pressable Send is the interrupt, so Stop takes
+  // the send slot exactly while there is no press to make: an empty composer,
+  // an attachment still uploading, a prompt holding the send. Without it those
+  // rows leave a running turn with no end the user can reach.
+  //
+  // A live-voice session this composer owns keeps the slot as it rests: the bar
+  // above the card owns that session and the turn it is speaking.
+  const showStopInSendSlot =
+    interruptOnSend && isAssistantBusy && !isLiveVoiceActive && sendBlocked;
   // The busy row holds exactly one control, and stop is the default: it is the
   // only escape from a turn already running. Send takes the slot only where it
   // is strictly better, which is where the keyboard cannot submit AND pressing
@@ -861,7 +898,7 @@ export function ChatComposer({
     showVoiceInput &&
     Boolean(assistantId) &&
     supportsLiveVoice &&
-    !canSendMessageContent &&
+    !canSendOrFinishDictation &&
     !isLiveVoiceActive;
 
   // Mobile lifts the access and profile triggers out of the action row into a
@@ -1048,10 +1085,10 @@ export function ChatComposer({
           ? ""
           : " animate-[fadeInUp_var(--anim-fast)_var(--anim-ease-out)_backwards] motion-reduce:animate-none"
       }`
-    // Undefined rather than the layout classes while hidden: `hidden` already
-    // takes the group out of layout, and a class arriving with the reveal is
-    // what makes the entrance animation run on each one.
-    : undefined;
+    : // Undefined rather than the layout classes while hidden: `hidden` already
+      // takes the group out of layout, and a class arriving with the reveal is
+      // what makes the entrance animation run on each one.
+      undefined;
 
   // A pill at mobile widths (half the card's 52px collapsed height), the 10px
   // panel elsewhere, both shared with the live-voice bar: it stacks on this
@@ -1171,14 +1208,37 @@ export function ChatComposer({
     />
   ) : null;
 
-  const sendBlocked =
-    sendDisabled || attachmentsUploadingCount > 0 || !canSendMessageContent;
+  // The row's one Stop, in the chrome the slot it stands in wears: the busy
+  // row's default control with the flag off, and the send slot's occupant
+  // while `interrupt-on-send` leaves no send to press.
+  const stopControl = (
+    <Button
+      variant="primary"
+      iconOnly={<Square className="h-3 w-3" />}
+      iconOnlyGlyphClassName={isMobile ? MOBILE_GLYPH_CLASS : undefined}
+      expandOnMobile={!isMobile}
+      onMouseDown={rowPressGuard}
+      onClick={onStopGenerating}
+      aria-label={t("chatComposer.stopGenerating")}
+      className={isMobile ? MOBILE_CONTROL_CLASS : undefined}
+    />
+  );
 
-  // macOS parity: the send button is hidden during recording and while
-  // transcription is being processed. Only the voice button (mic / stop /
-  // spinner) is shown. Otherwise the send slot holds voice mode until there is
-  // something to send, at which point the send arrow takes over.
-  const sendSlot = isVoiceActive ? null : showVoiceModeInSendSlot ? (
+  // The send arrow stays through a dictation session, where pressing it means
+  // "finish, then send": `useComposerSubmit` ends the session and waits for
+  // the transcript before it reads the draft (LUM-3432). It used to be hidden
+  // for the whole session (macOS parity), which left the mic button as the
+  // only control on the row and no gesture at all for ending dictation and
+  // sending in one move -- while Enter stayed live and sent whatever stale
+  // draft was in the box. The two controls now divide the job: the mic stops
+  // and leaves the words in the composer, the arrow stops and sends them.
+  // Otherwise the slot holds voice mode until there is something to send, at
+  // which point the send arrow takes over. Stop outranks both while it claims
+  // the slot: a running turn the row cannot send into leaves ending that turn
+  // as the move the user is reaching for.
+  const sendSlot = showStopInSendSlot ? (
+    stopControl
+  ) : showVoiceModeInSendSlot ? (
     // Session entry point: once a session starts here the slot gives way to
     // the send arrow and the bar above the card owns stopping. Disabled while
     // dictation is active or a live-voice session already runs elsewhere, so a
@@ -1190,8 +1250,10 @@ export function ChatComposer({
       holdComposerFocus={holdsFocusOnPress}
     />
   ) : (
+    /* The assistant's accent at every width. A send nobody can press takes
+       the variant's own disabled fill rather than a coloured control. */
     <Button
-      variant="primary"
+      variant="accent"
       iconOnly={<ArrowUp className="h-4 w-4" strokeWidth={2.5} />}
       iconOnlyGlyphClassName={isMobile ? MOBILE_GLYPH_CLASS : undefined}
       expandOnMobile={!isMobile}
@@ -1199,17 +1261,14 @@ export function ChatComposer({
       onMouseDown={rowPressGuard}
       disabled={sendBlocked}
       title={
-        sendDisabled || !canSendMessageContent
+        sendDisabled || !canSendOrFinishDictation
           ? t("chatComposer.typeToSend")
           : attachmentsUploadingCount > 0
             ? t("chatComposer.uploadingAttachments")
             : t("chatComposer.sendMessage")
       }
       aria-label={t("chatComposer.sendMessage")}
-      className={cn(
-        isMobile && MOBILE_CONTROL_CLASS,
-        isMobile && !sendBlocked && MOBILE_SEND_FILL_CLASS,
-      )}
+      className={isMobile ? MOBILE_CONTROL_CLASS : undefined}
     />
   );
 
@@ -1218,7 +1277,7 @@ export function ChatComposer({
   // to a desktop control.
   const busyRowControl = sendReplacesStop ? (
     <Button
-      variant="primary"
+      variant="accent"
       iconOnly={<ArrowUp className="h-4 w-4" strokeWidth={2.5} />}
       iconOnlyGlyphClassName={isMobile ? MOBILE_GLYPH_CLASS : undefined}
       expandOnMobile={!isMobile}
@@ -1226,24 +1285,10 @@ export function ChatComposer({
       onMouseDown={rowPressGuard}
       title={t("chatComposer.sendMessage")}
       aria-label={t("chatComposer.sendMessage")}
-      className={cn(
-        // Reachable only when the draft can actually go, so the filled tone
-        // never lands on a send nobody can press.
-        isMobile && MOBILE_CONTROL_CLASS,
-        isMobile && MOBILE_SEND_FILL_CLASS,
-      )}
-    />
-  ) : (
-    <Button
-      variant="primary"
-      iconOnly={<Square className="h-3 w-3" />}
-      iconOnlyGlyphClassName={isMobile ? MOBILE_GLYPH_CLASS : undefined}
-      expandOnMobile={!isMobile}
-      onMouseDown={rowPressGuard}
-      onClick={onStopGenerating}
-      aria-label={t("chatComposer.stopGenerating")}
       className={isMobile ? MOBILE_CONTROL_CLASS : undefined}
     />
+  ) : (
+    stopControl
   );
 
   const inlineVoicePreview = showInlineVoicePreview ? (
@@ -1495,6 +1540,7 @@ export function ChatComposer({
               attachmentsUploadingCount,
               cmdEnterMode,
               hasStagedContext,
+              dictationInFlight: ownsDictation,
             },
           );
           if (decision === "ignore") {
@@ -1622,6 +1668,9 @@ export function ChatComposer({
         <div className="mb-2">
           <VoiceComposerBar
             state={liveVoiceState}
+            assistantAudioActive={liveVoiceAssistantAudioActive}
+            responsePhase={liveVoiceResponsePhase}
+            onToolStep={liveVoiceOnToolStep}
             getAmplitude={getLiveVoiceInputAmplitude}
             getOutputAmplitude={getLiveVoiceOutputAmplitude}
             muted={liveVoiceMuted}
@@ -1744,8 +1793,8 @@ export function ChatComposer({
                               {contextWindowIndicatorSlot}
                             </div>
                           ) : null}
-                          {!isAssistantBusy && attachControl}
-                          {!isAssistantBusy && (
+                          {!busyRowActive && attachControl}
+                          {!busyRowActive && (
                             <div
                               aria-hidden="true"
                               className="-ml-0.5 mb-2 h-6 w-px shrink-0 bg-[var(--border-hover)]"
@@ -1765,7 +1814,7 @@ export function ChatComposer({
                           data-slot="composer-inline-actions-end"
                           className="ml-auto flex shrink-0 items-end gap-1.5"
                         >
-                          {isAssistantBusy ? (
+                          {busyRowActive ? (
                             busyRowControl
                           ) : (
                             <>
@@ -1787,31 +1836,8 @@ export function ChatComposer({
                       <div className="flex items-center justify-between gap-1 px-2 pb-2">
                         <div className="flex min-w-0 items-center gap-2">
                           {contextWindowIndicatorSlot}
-                          {!isAssistantBusy && attachControl}
-                          {/* Desktop only, which this row already is: the
-                              viewfinder mounts with the chat layout's desktop
-                              branch, and a control offered anywhere that branch
-                              does not render would open a camera with nothing
-                              to preview it and nothing to close it. Pop-out
-                              windows are excluded on that count, as they are
-                              from the voice room and the companion mirror, and
-                              the native mobile shells on it plus their own: a
-                              Capacitor viewfinder is the plugin preview layer
-                              rather than a `getUserMedia` `<video>` (see
-                              `voice/voice-room/voice-camera.ts`), and a roomy
-                              tablet clears the width breakpoint this row is
-                              chosen by. Renders nothing while the `vision-mode`
-                              flag is off. */}
-                          {!isAssistantBusy &&
-                            !isPopout &&
-                            !isNativeMobileShell && (
-                              <SightToggle
-                                imageAttachmentsAllowed={
-                                  imageAttachmentsAllowed
-                                }
-                              />
-                            )}
-                          {!isAssistantBusy && thresholdPickerSlot ? (
+                          {!busyRowActive && attachControl}
+                          {!busyRowActive && thresholdPickerSlot ? (
                             <div
                               aria-hidden="true"
                               className="h-4 w-px shrink-0 bg-[var(--border-hover)] touch-mobile:-mx-1"
@@ -1820,7 +1846,7 @@ export function ChatComposer({
                           {thresholdPickerSlot}
                         </div>
                         <div className="flex shrink-0 items-center gap-2">
-                          {isAssistantBusy ? (
+                          {busyRowActive ? (
                             busyRowControl
                           ) : (
                             <>

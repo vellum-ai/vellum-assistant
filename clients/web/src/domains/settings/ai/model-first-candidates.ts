@@ -20,7 +20,8 @@
  */
 
 import {
-  getVisibleModelsForProvider,
+  catalogEnabledFlags,
+  getTextGenerationModelsForProvider,
   MODELS_BY_PROVIDER,
   vendorDisplayName,
   type LlmCatalogModel,
@@ -90,8 +91,8 @@ export interface ModelFirstOption {
 
 export interface ModelFirstInput {
   readonly connections: readonly ProviderConnection[];
-  /** Whether feature-flagged catalog entries are visible. */
-  readonly developerMode: boolean;
+  /** Whether Vellum-hosted GPU catalog entries are visible. */
+  readonly hostedInference: boolean;
   readonly activeAssistantIsSelfHosted: boolean;
   /** Provider id to display name. */
   readonly labelFor: (provider: ConnectionProvider) => string;
@@ -291,7 +292,12 @@ export function resolveModelFirstOptions(
       continue;
     }
 
-    const models = getVisibleModelsForProvider(kind, input.developerMode);
+    const models = getTextGenerationModelsForProvider(
+      kind,
+      catalogEnabledFlags({
+        hostedInference: input.hostedInference,
+      }),
+    );
     if (models.length === 0) {
       continue;
     }
@@ -437,9 +443,10 @@ const SECTION_ROW_LIMIT = 3;
  * section follows behind its "see more" row, in catalog order, so revealing it
  * reads as the section carrying on.
  */
-export function collapseSectionRows(
-  options: readonly ModelFirstOption[],
-): { shown: ModelFirstOption[]; hidden: ModelFirstOption[] } {
+export function collapseSectionRows(options: readonly ModelFirstOption[]): {
+  shown: ModelFirstOption[];
+  hidden: ModelFirstOption[];
+} {
   const leads: ModelFirstOption[] = [];
   const led = new Set<string>();
   for (const option of options) {

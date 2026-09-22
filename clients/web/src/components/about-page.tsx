@@ -6,7 +6,10 @@ import {
   type AppVersionInfo,
 } from "@/runtime/app-info";
 import { isElectron } from "@/runtime/is-electron";
+import { useDesktopAppPlatform } from "@/runtime/desktop-app-platform";
 import { useTranslation } from "@/i18n";
+import { cn } from "@vellumai/design-library/utils/cn";
+import { textLinkVariants } from "@vellumai/design-library/components/text-link";
 
 /**
  * Branded About page rendered inside the Electron About BrowserWindow
@@ -22,6 +25,7 @@ import { useTranslation } from "@/i18n";
  */
 export function AboutPage() {
   const { t } = useTranslation();
+  const desktopAppPlatform = useDesktopAppPlatform();
   const [info, setInfo] = useState<AppVersionInfo | null>(null);
 
   useEffect(() => {
@@ -34,7 +38,9 @@ export function AboutPage() {
     <div className="flex h-svh w-screen flex-col items-center justify-center bg-background px-8 pt-14 pb-8 text-center text-foreground select-none">
       <h1 className="mt-4 text-2xl font-semibold">{display.appName}</h1>
       <p className="text-muted-foreground mt-1 mb-7 text-xs">
-        {t("aboutPage.tagline")}
+        {desktopAppPlatform === "windows"
+          ? t("aboutPage.taglineWindows")
+          : t("aboutPage.taglineMacOS")}
       </p>
       <dl className="mb-7 grid grid-cols-[auto_auto] gap-x-4 gap-y-1.5 text-sm">
         <dt className="text-muted-foreground text-right">
@@ -52,7 +58,7 @@ export function AboutPage() {
       </dl>
       <a
         href={display.website}
-        className="text-primary text-sm hover:underline"
+        className={cn(textLinkVariants(), "text-sm")}
         onClick={(event) => {
           // Off Electron, let the browser navigate via the `href`. In
           // Electron the renderer is sandboxed, so the only outbound

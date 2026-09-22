@@ -14,6 +14,7 @@ import {
   guardianLabelKey,
   markAllReadArgs,
   resolveFeedItemTitle,
+  resolveThreadName,
   sortFeedItems,
 } from "./utils";
 
@@ -116,6 +117,30 @@ describe("resolveFeedItemTitle", () => {
   });
 });
 
+describe("sortFeedItems", () => {
+  test("orders items of equal priority by recency", () => {
+    const older = feedItem({ id: "older", createdAt: "2024-01-01T00:00:00Z" });
+    const newer = feedItem({ id: "newer", createdAt: "2024-01-01T00:00:01Z" });
+    expect(sortFeedItems([older, newer]).map((i) => i.id)).toEqual([
+      "newer",
+      "older",
+    ]);
+  });
+
+  test("holds the given order for items the comparator cannot separate", () => {
+    const first = feedItem({ id: "first" });
+    const second = feedItem({ id: "second" });
+    expect(sortFeedItems([first, second]).map((i) => i.id)).toEqual([
+      "first",
+      "second",
+    ]);
+    expect(sortFeedItems([second, first]).map((i) => i.id)).toEqual([
+      "second",
+      "first",
+    ]);
+  });
+});
+
 function guardianItem(
   status: NonNullable<FeedItem["guardianRequest"]>["status"],
   overrides: Partial<FeedItem> = {},
@@ -183,7 +208,53 @@ describe("guardian feed item derivations", () => {
         status: "pending",
       },
     });
-    expect(guardianLabelKey(question)).toBe("category.guardianQuestion");
+    expect(guardianLabelKey(question)).toBe("category.guardianAnswer");
+    // A question that was answered asks nothing more.
+    expect(
+      guardianLabelKey({
+        ...question,
+        guardianRequest: { ...question.guardianRequest!, status: "approved" },
+      }),
+    ).toBe("category.guardianQuestion");
     expect(guardianLabelKey(feedItem())).toBeNull();
+  });
+});
+
+describe("resolveThreadName", () => {
+  const titles = new Map([["conv-1", "Weekly report"]]);
+
+  test("names the item's conversation when the lists carry its title", () => {
+    expect(
+      resolveThreadName(
+        feedItem({ conversationId: "conv-1", sourceLabel: "Heartbeat" }),
+        titles,
+      ),
+    ).toBe("Weekly report");
+  });
+
+  test("falls back to an informative source label", () => {
+    expect(
+      resolveThreadName(
+        feedItem({ conversationId: "conv-gone", sourceLabel: "Heartbeat" }),
+        titles,
+      ),
+    ).toBe("Heartbeat");
+    expect(
+      resolveThreadName(feedItem({ sourceLabel: "Heartbeat" }), titles),
+    ).toBe("Heartbeat");
+  });
+
+  test.each(["Conversation", "Other"])(
+    "leaves the line out for the generic %s source label",
+    (sourceLabel) => {
+      expect(resolveThreadName(feedItem({ sourceLabel }), titles)).toBeNull();
+    },
+  );
+
+  test("leaves the line out when nothing names the thread", () => {
+    expect(resolveThreadName(feedItem(), titles)).toBeNull();
+    expect(
+      resolveThreadName(feedItem({ conversationId: "conv-gone" }), titles),
+    ).toBeNull();
   });
 });

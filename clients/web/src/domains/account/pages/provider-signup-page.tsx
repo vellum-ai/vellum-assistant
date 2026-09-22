@@ -15,23 +15,27 @@ import {
   isConflict,
   submitProviderSignup,
 } from "@/lib/auth/allauth-client";
+import { setSignupOnboardingFirstName } from "@/lib/auth/signup-onboarding-handoff";
 import {
   resolvePostAuthDestination,
   resolvePostLoginDestination,
 } from "@/domains/account/login-flow";
 import { useAuthStore } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
+import { cn } from "@vellumai/design-library/utils/cn";
+import { textLinkVariants } from "@vellumai/design-library/components/text-link";
 
 /**
  * Provider signup completion page. Shown when allauth's provider flow needs
  * additional information before creating the account.
  *
- * Shows the OAuth-claim first/last name as read-only and collects an
- * occupation. The account is completed via `submitProviderSignup` using the
- * provider-supplied email + username (no username field — matching the standard
- * sign-up, which does not surface one to the user). If the provider didn't
- * supply email + username, it falls back to the editable form so the user can
- * still complete signup.
+ * First name is required and editable (providers sometimes omit it). Last name
+ * is display-only. Occupation is optional. The account is completed via
+ * `submitProviderSignup` using the provider-supplied email + username (no
+ * username field — matching the standard sign-up, which does not surface one to
+ * the user). The typed first name is stashed for research onboarding. If the
+ * provider didn't supply email + username, it falls back to the editable form
+ * so the user can still complete signup.
  */
 export function ProviderSignupPage() {
   const { t } = useTranslation("account");
@@ -41,8 +45,7 @@ export function ProviderSignupPage() {
   const returnTo = searchParams.get("returnTo");
 
   // Provider-supplied identity. email + username are submitted to complete the
-  // account; firstName/lastName are display-only (read-only). All come from the
-  // pending provider-signup context.
+  // account. firstName is required and editable; lastName is display-only.
   const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
   const [firstName, setFirstName] = useState("");
@@ -130,15 +133,15 @@ export function ProviderSignupPage() {
 
   const onPersonalPageSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!occupation.trim()) {
+    if (!firstName.trim()) {
       return;
     }
     setError(null);
     setIsSubmitting(true);
     try {
-      // NOTE: occupation is collected but not yet persisted. Forwarding it into
-      // the onboarding handoff requires a shared cross-domain contract (the
-      // `account` domain may not import `onboarding` directly). Deferred.
+      // NOTE: occupation is collected but not yet persisted. The first name
+      // is stashed in a shared session handoff that onboarding reads.
+      setSignupOnboardingFirstName(firstName);
       await completeSignup();
     } catch {
       setError(t("authErrors.genericFailure"));
@@ -164,7 +167,7 @@ export function ProviderSignupPage() {
   // editable form so the user can complete signup rather than hit an
   // uncorrectable validation error.
   if (email && username) {
-    const canSubmit = occupation.trim().length > 0 && !isSubmitting;
+    const canSubmit = firstName.trim().length > 0 && !isSubmitting;
     return (
       <SignupShell>
         <form
@@ -189,8 +192,10 @@ export function ProviderSignupPage() {
               type="text"
               placeholder={t("providerSignupPage.firstNamePlaceholder")}
               value={firstName}
-              readOnly
-              disabled
+              onChange={(e) => setFirstName(e.target.value)}
+              autoComplete="given-name"
+              autoFocus
+              required
             />
           </div>
 
@@ -211,8 +216,7 @@ export function ProviderSignupPage() {
 
           <div className="signup-details__step">
             <span className="signup-details__label">
-              {t("providerSignupPage.roleQuestion")}{" "}
-              <span className="signup-details__req">*</span>
+              {t("providerSignupPage.roleQuestion")}
             </span>
             <input
               className="signup-details__input"
@@ -221,7 +225,6 @@ export function ProviderSignupPage() {
               placeholder={t("providerSignupPage.rolePlaceholder")}
               value={occupation}
               onChange={(e) => setOccupation(e.target.value)}
-              autoFocus
             />
           </div>
 
@@ -257,7 +260,10 @@ export function ProviderSignupPage() {
         footer={
           <Link
             to={routes.account.login}
-            className="text-sm text-[var(--content-secondary)] hover:text-[var(--content-default)]"
+            className={cn(
+              textLinkVariants({ tone: "quiet" }),
+              "text-sm text-[var(--content-secondary)]",
+            )}
           >
             {t("providerSignupPage.backToSignIn")}
           </Link>

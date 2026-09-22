@@ -45,8 +45,12 @@ Examples:
         },
       ],
       helpText: `
-Lists all credentials in the vault. Each entry includes the same fields as
-"inspect" — scrubbed value, timestamps, policy, and metadata.
+Lists credentials from the live credential vault. Each entry includes the same
+fields as inspect: scrubbed value, timestamps, policy, and metadata.
+
+Fails immediately with an error if the credential vault is unreachable. An
+empty list means the vault answered and has no matching credentials, not that
+the store is down.
 
 The --search flag filters results by case-insensitive substring match against
 the credential's service name, field name, label, or description. For example, --search
@@ -70,9 +74,9 @@ path or connection details. Run this to diagnose credential lookup mismatches �
 for example, when the CLI and the daemon are reading from different stores.
 
 Backend types:
-  encrypted-store   Direct file read from keys.enc (standalone CLI, no daemon)
-  ces-rpc           Delegates to the running CES process via stdio RPC (daemon)
-  ces-http          Delegates to CES sidecar over HTTP (containerized/Docker mode)
+  encrypted-store   Direct file read from keys.enc (standalone CLI, no assistant)
+  ces-rpc           Delegates to the running CES process via socket RPC
+  ces-http          Managed failover when the CES socket is unavailable
 
 Also shows the CREDENTIAL_SECURITY_DIR, GATEWAY_SECURITY_DIR, and
 VELLUM_WORKSPACE_DIR env vars so you can confirm which instance directory this
@@ -290,7 +294,12 @@ web, etc.). The user enters the secret through the UI — it never passes throug
 the conversation or CLI output. On success the credential is stored in the
 encrypted vault with the specified metadata.
 
-Requires the assistant to be running with at least one connected client.
+Requires the assistant to be running. The prompt renders in the conversation
+this command runs from (the bash tool sets __CONVERSATION_ID). With no
+conversation attached (a headless shell, Doctor's run_assistant_cli), no client
+can show the card, so the command returns at once with a one-time collection
+link (exit 75) to relay to the user, or an error when no link can be minted.
+Never fall back to asking the user for the value in chat.
 
 This command BLOCKS until the user answers the prompt, so it returns only once
 the prompt has already closed. Tell the user what to paste BEFORE running it.

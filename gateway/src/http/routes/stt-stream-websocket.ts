@@ -26,8 +26,8 @@ import {
   type RuntimeAudioStreamState,
 } from "./runtime-audio-stream.js";
 import {
+  acceptsVelayAttestation,
   extractVelayAttestedContext,
-  isPlatformManaged,
 } from "./guardian-pin.js";
 import type { GatewayConfig } from "../../config.js";
 import { getLogger } from "../../logger.js";
@@ -72,12 +72,12 @@ export function createSttStreamWebsocketHandler(config: GatewayConfig) {
     // watch stream's `guardian-pin` check is exactly what this route does not
     // want.
     //
-    // The managed path first, as live voice and watch take it. A direct
+    // The velay path first, as live voice and watch take it. A direct
     // request to a reachable gateway can spoof the X-Velay-* names but cannot
     // know the bridge proof, and an attestation without the proof falls
     // through to the token gate rather than being trusted.
     let managedCaller = false;
-    if (isPlatformManaged() && config.runtimeProxyRequireAuth) {
+    if (acceptsVelayAttestation(config) && config.runtimeProxyRequireAuth) {
       const velayContext = extractVelayAttestedContext(req);
       if (velayContext) {
         if (requestHasVelayBridgeAuth(req)) {

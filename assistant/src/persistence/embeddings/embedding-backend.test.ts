@@ -3,15 +3,18 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { AssistantConfig } from "../../config/types.js";
 import {
   clearEmbeddingBackendCache,
+  customEmbeddingSpaceIdentity,
   embedWithBackend,
   isEmbeddingDimensionAvailable,
   resetLocalEmbeddingFailureState,
+  resolveBackendDimension,
   selectEmbeddingBackend,
 } from "./embedding-backend.js";
 import {
   _resetEmbeddingBillingBreaker,
   recordBillingBlock,
 } from "./embedding-billing-breaker.js";
+import { OpenAIEmbeddingBackend } from "./embedding-openai.js";
 
 const getProviderKeyAsyncMock = mock(
   async (_provider: string): Promise<string | undefined> => undefined,
@@ -359,5 +362,164 @@ describe("managed-proxy Gemini fallback to direct key", () => {
     const [directUrl] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(directUrl).toContain("generativelanguage.googleapis.com");
     expect(directUrl).toContain("key=direct-key");
+  });
+});
+
+function customConfig(overrides: {
+  baseUrl?: string;
+  customModel?: string;
+  customDimensions?: number;
+}): AssistantConfig {
+  return {
+    memory: {
+      embeddings: {
+        provider: "custom",
+        customModel: overrides.customModel ?? "text-embedding-3-small",
+        baseUrl: overrides.baseUrl,
+        customDimensions: overrides.customDimensions,
+      },
+    },
+  } as unknown as AssistantConfig;
+}
+
+describe("custom OpenAI-compatible embedding backend selection", () => {
+  afterEach(() => {
+    clearEmbeddingBackendCache();
+    getProviderKeyAsyncMock.mockReset();
+    getProviderKeyAsyncMock.mockImplementation(async () => undefined);
+  });
+
+  test("selects a custom backend with a trimmed baseUrl", async () => {
+    getProviderKeyAsyncMock.mockImplementation(async (provider) =>
+      provider === "custom" ? "gw-key" : undefined,
+    );
+    const { backend, reason } = await selectEmbeddingBackend(
+      customConfig({
+        baseUrl: "http://127.0.0.1:4000/v1/",
+        customModel: "embed-mistral",
+        customDimensions: 1024,
+      }),
+    );
+    expect(reason).toBeNull();
+    expect(backend).toBeInstanceOf(OpenAIEmbeddingBackend);
+    expect(backend?.provider).toBe("custom");
+    expect(backend?.model).toBe("embed-mistral");
+    expect((backend as OpenAIEmbeddingBackend).baseURL).toBe(
+      "http://127.0.0.1:4000/v1",
+    );
+    expect((backend as OpenAIEmbeddingBackend).dimensions).toBe(1024);
+  });
+
+  test("selects a custom backend without an API key", async () => {
+    const { backend, reason } = await selectEmbeddingBackend(
+      customConfig({ baseUrl: "http://127.0.0.1:1234/v1" }),
+    );
+    expect(reason).toBeNull();
+    expect(backend?.provider).toBe("custom");
+  });
+
+  test("is not configured when baseUrl is missing", async () => {
+    const { backend, reason } = await selectEmbeddingBackend(customConfig({}));
+    expect(backend).toBeNull();
+    expect(reason).toMatch(/baseUrl/);
+  });
+
+  test("is not configured when baseUrl is not http(s)", async () => {
+    const { backend, reason } = await selectEmbeddingBackend(
+      customConfig({ baseUrl: "not-a-url" }),
+    );
+    expect(backend).toBeNull();
+    expect(reason).toMatch(/baseUrl/);
+  });
+
+  test("is not selected by auto even when baseUrl is set", async () => {
+    const { backend } = await selectEmbeddingBackend({
+      memory: {
+        embeddings: {
+          provider: "auto",
+          localModel: "BAAI/bge-small-en-v1.5",
+          baseUrl: "http://127.0.0.1:4000/v1",
+          customModel: "embed-mistral",
+        },
+      },
+    } as unknown as AssistantConfig);
+    expect(backend?.provider).toBe("local");
+  });
+
+  test("caches custom backends by baseUrl", async () => {
+    const first = await selectEmbeddingBackend(
+      customConfig({ baseUrl: "http://127.0.0.1:4000/v1" }),
+    );
+    const second = await selectEmbeddingBackend(
+      customConfig({ baseUrl: "http://127.0.0.1:4001/v1" }),
+    );
+    const firstAgain = await selectEmbeddingBackend(
+      customConfig({ baseUrl: "http://127.0.0.1:4000/v1" }),
+    );
+    expect(first.backend).not.toBe(second.backend);
+    expect(firstAgain.backend).toBe(first.backend);
+  });
+
+  test("caches custom backends by requested dimensions", async () => {
+    const first = await selectEmbeddingBackend(
+      customConfig({
+        baseUrl: "http://127.0.0.1:4000/v1",
+        customDimensions: 1024,
+      }),
+    );
+    const second = await selectEmbeddingBackend(
+      customConfig({
+        baseUrl: "http://127.0.0.1:4000/v1",
+        customDimensions: 1536,
+      }),
+    );
+    expect(first.backend).not.toBe(second.backend);
+  });
+
+  test("dimension probes for custom backends are keyed by baseUrl", async () => {
+    const { backend: first } = await selectEmbeddingBackend(
+      customConfig({ baseUrl: "http://127.0.0.1:4000/v1" }),
+    );
+    const { backend: second } = await selectEmbeddingBackend(
+      customConfig({ baseUrl: "http://127.0.0.1:4001/v1" }),
+    );
+    if (!first || !second) {
+      throw new Error("expected custom backends");
+    }
+    (first as { embed: typeof first.embed }).embed = mock(async () => [
+      new Array(1536).fill(0),
+    ]) as unknown as typeof first.embed;
+    (second as { embed: typeof second.embed }).embed = mock(async () => [
+      new Array(1024).fill(0),
+    ]) as unknown as typeof second.embed;
+
+    expect(await resolveBackendDimension(first)).toBe(1536);
+    expect(await resolveBackendDimension(second)).toBe(1024);
+  });
+
+  test("customEmbeddingSpaceIdentity includes model, url, and dimensions", () => {
+    expect(
+      customEmbeddingSpaceIdentity(
+        customConfig({
+          baseUrl: "http://127.0.0.1:4000/v1/",
+          customModel: "embed-mistral",
+          customDimensions: 1024,
+        }),
+      ),
+    ).toBe("custom\0embed-mistral\0url=http://127.0.0.1:4000/v1\0dim=1024");
+  });
+
+  test("customEmbeddingSpaceIdentity is null when the provider is not custom", () => {
+    expect(
+      customEmbeddingSpaceIdentity({
+        memory: {
+          embeddings: {
+            provider: "openai",
+            openaiModel: "text-embedding-3-small",
+            baseUrl: "http://127.0.0.1:4000/v1",
+          },
+        },
+      } as unknown as AssistantConfig),
+    ).toBeNull();
   });
 });

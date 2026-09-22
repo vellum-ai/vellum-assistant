@@ -528,12 +528,16 @@ is relevant. When a tool only matters while one of the plugin's skills is
 active, declare it in that skill's `TOOLS.json` instead: it registers when the
 skill loads, unregisters when the skill deactivates, and is invoked through
 `skill_execute` (its schema is rendered into the `skill_load` output). Skill
-tools in plugin skills must declare `execution_target: "sandbox"` — host
-execution is reserved for first-party bundled skills — and a tool name may be
+tools in plugin skills must declare `execution_target: "sandbox"` (host
+execution is reserved for first-party bundled skills) and a tool name may be
 owned by only one skill, so share a single carrier skill via the parents'
-`includes` rather than duplicating the entry. See the `plugin-builder` skill's
-`references/skills.md` for the manifest shape; `admin-copilot` is the
-reference implementation.
+`includes` rather than duplicating the entry. A plugin-resident skill tool
+and a bash child inherit `VELLUM_PLUGIN_NAME` so `resolveCredential()` from
+`@vellumai/plugin-api` can read credentials under that plugin's service.
+Companion scripts under `skills/<skill>/{scripts,tools}/` also recover the
+plugin name from their path, so raw `bun` works. See the `plugin-builder`
+skill's `references/skills.md` for the manifest shape; `admin-copilot` is
+the reference implementation.
 
 ```ts
 // tools/my_tool.ts
@@ -695,9 +699,9 @@ The assistant connects these servers on start and registers their tools as
 is `<pluginName>__<serverKey>`, collapsed to just the name when the two match
 (the `example` plugin above yields `mcp__example__<tool>`, not
 `mcp__example__example__<tool>`). Installing, removing, upgrading, enabling, or
-disabling a plugin reconnects the set as part of that operation — its servers
-come up and go down with the plugin, no restart involved — exactly like editing
-`config.json` does.
+disabling a plugin reconnects the set as part of that operation: its servers
+come up and go down with the plugin, no restart involved, exactly like editing
+`mcp.json` does.
 
 Host behaviours worth knowing when authoring one:
 
@@ -706,11 +710,11 @@ Host behaviours worth knowing when authoring one:
   Claude-style `http` alias as MCP's current remote transport. Write
   `stdio` or `sse` explicitly.
 - **Risk defaults to `low`,** so the tools run without prompting under the
-  default auto-approve threshold. `mcp.json` has no risk field — the spec
-  defines none — and the review is the marketplace whitelist plus the user's
-  decision to install. A user who wants a different bar sets `defaultRiskLevel`
-  on a workspace `config.json` entry of the same id, which outranks the
-  plugin's declaration (and replaces it wholesale, transport included).
+  default auto-approve threshold. `mcp.json` has no risk field (the spec
+  defines none) and the review is the marketplace whitelist plus the user's
+  decision to install. A workspace entry of the same id replaces the plugin
+  server wholesale (transport included) and uses the workspace origin risk
+  (`medium`).
 - **A plugin cannot ship a credential.** The spec defines no portable OAuth or
   credential-reference fields, and any `headers` in the file are literal
   package data. A plugin server also never resolves the assistant's stored

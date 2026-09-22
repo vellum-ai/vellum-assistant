@@ -52,6 +52,8 @@ interface ImportMetaEnv {
   readonly VITE_STRIPE_PUBLISHABLE_KEY?: string;
   /** App version stamp for diagnostic reporting. */
   readonly VITE_APP_VERSION?: string;
+  /** Release channel this bundle was built as. `"preview"` or stable otherwise. */
+  readonly VITE_CHANNEL?: string;
   /** When set, the app runs in platform (cloud-hosted) mode. Unset = local mode. */
   readonly VITE_PLATFORM_MODE?: string;
   /** When truthy ("1", "true", "yes"), disables platform connectivity in local mode. */

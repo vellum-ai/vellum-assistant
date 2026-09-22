@@ -226,6 +226,22 @@ describe("createFloatingWindow", () => {
     expect(focused.focus).toHaveBeenCalledTimes(1);
   });
 
+  test("leaves a new window hidden when the caller shows it", () => {
+    const win = createFloatingWindow({
+      kind: kind("caller-shows"),
+      route: "/caller-shows",
+      width: 100,
+      height: 100,
+      callerShows: true,
+    }) as unknown as StubWindow;
+    expect(win.showInactive).not.toHaveBeenCalled();
+    expect(win.show).not.toHaveBeenCalled();
+
+    win.emit("ready-to-show");
+    expect(win.showInactive).not.toHaveBeenCalled();
+    expect(win.show).not.toHaveBeenCalled();
+  });
+
   test("reuses the existing window for a kind and repositions it before showing", () => {
     let x = 10;
     const singletonKind = kind("singleton");

@@ -16,6 +16,7 @@ import {
   MOBILE_GLYPH_CLASS,
 } from "@/domains/chat/components/chat-composer/composer-mobile-chrome";
 import { LiveVoiceButton } from "@/domains/chat/components/live-voice-button";
+import { HoverCapabilityOverride } from "@vellumai/design-library/utils/hover-capability";
 
 const onStartSpy = mock(() => {});
 
@@ -122,5 +123,54 @@ describe("LiveVoiceButton", () => {
     // WHEN the user clicks it, no session is started
     fireEvent.click(button);
     expect(onStartSpy).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The hover label. The glyph alone does not separate a spoken conversation
+ * from the dictation mic beside it, so the label carries the explanation
+ * while the control keeps its own accessible name.
+ */
+describe("LiveVoiceButton hover label", () => {
+  test("opens the tooltip on focus, where the device can hover", async () => {
+    // GIVEN a hover-capable device
+    const { getByLabelText, findAllByText } = render(
+      <HoverCapabilityOverride hoverCapable>
+        <LiveVoiceButton onStart={onStartSpy} />
+      </HoverCapabilityOverride>,
+    );
+
+    // WHEN the control takes focus
+    fireEvent.focus(getByLabelText("Start voice mode"));
+
+    // THEN the label says what the mode is for, not what the button is called
+    expect(
+      (await findAllByText("Talk out loud with voice mode")).length,
+    ).toBeGreaterThan(0);
+  });
+
+  test("carries no native title, so the OS tooltip cannot double it", () => {
+    // WHEN the button renders
+    const { getByLabelText } = render(<LiveVoiceButton onStart={onStartSpy} />);
+
+    // THEN the only label is the design library's
+    expect(getByLabelText("Start voice mode").hasAttribute("title")).toBe(
+      false,
+    );
+  });
+
+  test("stays out of the tree where the device cannot hover", () => {
+    // GIVEN a device with no hover
+    const { getByLabelText, queryByText } = render(
+      <HoverCapabilityOverride hoverCapable={false}>
+        <LiveVoiceButton onStart={onStartSpy} />
+      </HoverCapabilityOverride>,
+    );
+
+    // WHEN the control takes focus, which a tap hands out on such a device
+    fireEvent.focus(getByLabelText("Start voice mode"));
+
+    // THEN nothing is stranded over the control
+    expect(queryByText("Talk out loud with voice mode")).toBeNull();
   });
 });

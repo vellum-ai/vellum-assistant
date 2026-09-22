@@ -7,6 +7,7 @@
 
 import { getLogger } from "../../util/logger.js";
 import { truncate } from "../../util/truncate.js";
+import { safeStringSlice } from "../../util/unicode.js";
 import type {
   ExtractedCredential,
   NetworkRecordedEntry,
@@ -457,7 +458,7 @@ export class NetworkRecorder {
 
         entry.response.body =
           body.length > MAX_BODY_SIZE
-            ? body.slice(0, MAX_BODY_SIZE) + "...[truncated]"
+            ? safeStringSlice(body, 0, MAX_BODY_SIZE) + "...[truncated]"
             : body;
       }
     } catch {

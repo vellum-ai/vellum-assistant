@@ -3,9 +3,27 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // ── Module mocks (must precede imports) ───────────────────────────────────────
 
 const mockReloadMcpServers = mock(async () => {});
+let pluginServers: Array<{
+  id: string;
+  pluginName: string;
+  serverKey: string;
+  config: {
+    source: "plugin";
+    pluginName: string;
+    serverKey: string;
+    transport: {
+      type: "streamable-http";
+      url: string;
+    };
+  };
+}> = [];
 
 mock.module("../daemon/mcp-reload-service.js", () => ({
   reloadMcpServers: () => mockReloadMcpServers(),
+}));
+
+mock.module("../plugins/mcp-servers.js", () => ({
+  readPluginMcpServers: () => ({ servers: pluginServers, issues: [] }),
 }));
 
 const mockOrchestrateConnect = mock(
@@ -24,17 +42,12 @@ mock.module("../mcp/mcp-auth-state.js", () => ({
   getMcpAuthState: mockGetMcpAuthState,
 }));
 
-import { setConfig } from "./helpers/set-config.js";
+import { setWorkspaceMcp } from "./helpers/set-workspace-mcp.js";
 
-// Seed the MCP server the routes look up via `loadRawConfig()` into the
-// workspace config for real.
-setConfig("mcp", {
-  servers: {
-    "my-server": {
-      transport: { type: "sse", url: "https://mcp.example.com" },
-      enabled: true,
-      defaultRiskLevel: "high",
-    },
+// Seed the MCP server the routes look up via workspace mcp.json.
+setWorkspaceMcp({
+  "my-server": {
+    transport: { type: "sse", url: "https://mcp.example.com" },
   },
 });
 
@@ -60,6 +73,7 @@ describe("mcp-auth-routes", () => {
     mockGetMcpAuthState.mockClear();
     mockGetMcpAuthState.mockImplementation(() => null);
     mockReloadMcpServers.mockClear(); // ← add this line
+    pluginServers = [];
   });
 
   describe("POST internal/mcp/auth/start", () => {
@@ -73,6 +87,86 @@ describe("mcp-auth-routes", () => {
         auth_url: "https://provider.example.com/authorize?state=abc",
         state: "my-server",
       });
+      expect(mockOrchestrateConnect).toHaveBeenCalledWith(
+        expect.objectContaining({
+          serverId: "my-server",
+          credentialTarget: {
+            source: "workspace",
+            serverId: "my-server",
+          },
+        }),
+      );
+    });
+
+    test("resolves an installed plugin server by its public id", async () => {
+      pluginServers = [
+        {
+          id: "plugin-auth__remote",
+          pluginName: "plugin-auth",
+          serverKey: "remote",
+          config: {
+            source: "plugin",
+            pluginName: "plugin-auth",
+            serverKey: "remote",
+            transport: {
+              type: "streamable-http",
+              url: "https://mcp.example.com/plugin",
+            },
+          },
+        },
+      ];
+
+      const startRoute = findRoute("internal_mcp_auth_start");
+      await startRoute.handler({
+        body: { serverId: "plugin-auth__remote" },
+      });
+
+      expect(mockOrchestrateConnect).toHaveBeenCalledWith(
+        expect.objectContaining({
+          serverId: "plugin-auth__remote",
+          credentialTarget: {
+            source: "plugin",
+            pluginName: "plugin-auth",
+            serverKey: "remote",
+            transportType: "streamable-http",
+            url: "https://mcp.example.com/plugin",
+          },
+        }),
+      );
+    });
+
+    test("keeps workspace precedence when a plugin declares the same id", async () => {
+      pluginServers = [
+        {
+          id: "my-server",
+          pluginName: "my-server",
+          serverKey: "my-server",
+          config: {
+            source: "plugin",
+            pluginName: "my-server",
+            serverKey: "my-server",
+            transport: {
+              type: "streamable-http",
+              url: "https://loses.example.com/mcp",
+            },
+          },
+        },
+      ];
+
+      const startRoute = findRoute("internal_mcp_auth_start");
+      await startRoute.handler({ body: { serverId: "my-server" } });
+
+      expect(mockOrchestrateConnect).toHaveBeenCalledWith(
+        expect.objectContaining({
+          transport: expect.objectContaining({
+            url: "https://mcp.example.com",
+          }),
+          credentialTarget: {
+            source: "workspace",
+            serverId: "my-server",
+          },
+        }),
+      );
     });
 
     test("rejects unknown serverId with BadRequestError", async () => {

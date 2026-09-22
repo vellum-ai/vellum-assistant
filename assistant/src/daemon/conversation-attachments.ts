@@ -2,18 +2,25 @@ import type { PermissionPrompter } from "../permissions/prompter.js";
 import {
   attachInlineAttachmentToMessage,
   AttachmentUploadError,
+  getAttachmentsByIds,
   getFilePathForAttachment,
+  linkAttachmentToMessage,
   setAttachmentThumbnail,
 } from "../persistence/attachments-store.js";
-import type { ContentBlock } from "../providers/types.js";
+import { updateMessageMetadata } from "../persistence/conversation-crud.js";
+import { COMPUTER_USE_SCREENSHOT_ATTACHMENT_IDS_KEY } from "../persistence/conversation-types.js";
+import type { ContentBlock, ImageContent } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
 import {
   type ApproveHostRead,
   type AssistantAttachmentDraft,
+  type AttachmentSourceType,
   contentBlocksToDrafts,
   deduplicateDrafts,
   type DirectiveRequest,
+  estimateBase64Bytes,
   resolveDirectives,
+  toolImageFilename,
   validateDrafts,
 } from "./assistant-attachments.js";
 import type { UserMessageAttachment } from "./message-protocol.js";
@@ -63,10 +70,43 @@ export async function approveHostAttachmentRead(
   return response.decision === "allow";
 }
 
+/**
+ * A file the assistant named that survived resolution, validation, and
+ * persistence. Rejected directives (missing, oversized, denied) and drafts
+ * whose upload was skipped never appear here, so a caller pointing a user
+ * at "the files this turn produced" cannot offer a broken one.
+ */
+export interface PersistedAttachmentFile {
+  /** Absolute path the attachment was read from. */
+  sourcePath: string;
+  /** Name the attachment was persisted under. */
+  displayName: string;
+  /**
+   * Boundary the path was resolved against. A caller that surfaces the path
+   * needs it: only `sandbox_file` paths are the assistant's own workspace,
+   * and a `host_file` path is the user's machine.
+   */
+  sourceType: AttachmentSourceType;
+}
+
 export interface AttachmentResolutionResult {
   assistantAttachments: AssistantAttachmentDraft[];
   emittedAttachments: UserMessageAttachment[];
   directiveWarnings: string[];
+  persistedFiles: PersistedAttachmentFile[];
+  /** Attachment ids successfully linked to the target assistant row. */
+  linkedAttachmentIds: string[];
+  computerUseScreenshotAttachmentIds: string[];
+}
+
+export interface ComputerUseScreenshotCandidate {
+  toolName: string;
+  block: ImageContent;
+}
+
+interface ResolvedAttachmentDraft extends AssistantAttachmentDraft {
+  existingAttachmentId?: string;
+  computerUseScreenshot?: boolean;
 }
 
 /**
@@ -81,9 +121,23 @@ export async function resolveAssistantAttachments(
   approveHostRead: ApproveHostRead,
   lastAssistantMessageId: string | undefined,
   toolContentBlockToolNames?: ReadonlyMap<number, string>,
+  computerUseScreenshotCandidate?: ComputerUseScreenshotCandidate,
 ): Promise<AttachmentResolutionResult> {
-  let assistantAttachments: AssistantAttachmentDraft[] = [];
+  let assistantAttachments: ResolvedAttachmentDraft[] = [];
   const emittedAttachments: UserMessageAttachment[] = [];
+  const persistedFiles: PersistedAttachmentFile[] = [];
+  const linkedAttachmentIds: string[] = [];
+  const computerUseScreenshotAttachmentIds: string[] = [];
+
+  const recordPersistedFile = (draft: AssistantAttachmentDraft): void => {
+    if (draft.sourcePath) {
+      persistedFiles.push({
+        sourcePath: draft.sourcePath,
+        displayName: draft.filename,
+        sourceType: draft.sourceType,
+      });
+    }
+  };
 
   log.info(
     {
@@ -96,7 +150,8 @@ export async function resolveAssistantAttachments(
 
   if (
     accumulatedDirectives.length > 0 ||
-    accumulatedToolContentBlocks.length > 0
+    accumulatedToolContentBlocks.length > 0 ||
+    computerUseScreenshotCandidate !== undefined
   ) {
     const directiveDrafts =
       accumulatedDirectives.length > 0
@@ -127,10 +182,42 @@ export async function resolveAssistantAttachments(
       "Directive resolution complete",
     );
 
-    const toolDrafts = contentBlocksToDrafts(
+    const toolDrafts: ResolvedAttachmentDraft[] = contentBlocksToDrafts(
       accumulatedToolContentBlocks,
       toolContentBlockToolNames,
     );
+    if (computerUseScreenshotCandidate) {
+      const { block, toolName } = computerUseScreenshotCandidate;
+      const filename =
+        block.source.filename ??
+        toolImageFilename(block.source.media_type, toolName);
+      if (block.source.type === "workspace_ref") {
+        const stored = getAttachmentsByIds([block.source.attachmentId], {
+          hydrateFileData: true,
+        })[0];
+        if (stored?.dataBase64) {
+          toolDrafts.push({
+            sourceType: "tool_block",
+            filename,
+            mimeType: stored.mimeType,
+            dataBase64: stored.dataBase64,
+            sizeBytes: stored.sizeBytes,
+            kind: "image",
+            existingAttachmentId: stored.id,
+            computerUseScreenshot: true,
+          });
+        }
+      } else {
+        toolDrafts.push({
+          sourceType: "tool_block",
+          filename,
+          mimeType: block.source.media_type,
+          dataBase64: block.source.data,
+          sizeBytes: estimateBase64Bytes(block.source.data),
+          kind: "image",
+        });
+      }
+    }
     // Most recent tool outputs first so deduplication keeps the latest version.
     toolDrafts.reverse();
     const merged = deduplicateDrafts([
@@ -163,14 +250,27 @@ export async function resolveAssistantAttachments(
       const draft = assistantAttachments[i];
       let stored;
       try {
-        stored = await attachInlineAttachmentToMessage(
-          lastAssistantMessageId,
-          i,
-          draft.filename,
-          draft.mimeType,
-          draft.dataBase64,
-          { skipSizeLimit: true },
-        );
+        stored = draft.existingAttachmentId
+          ? getAttachmentsByIds([
+              linkAttachmentToMessage(
+                lastAssistantMessageId,
+                draft.existingAttachmentId,
+                i,
+              ),
+            ])[0]
+          : await attachInlineAttachmentToMessage(
+              lastAssistantMessageId,
+              i,
+              draft.filename,
+              draft.mimeType,
+              draft.dataBase64,
+              { skipSizeLimit: true },
+            );
+        if (!stored) {
+          throw new Error(
+            `Attachment not found: ${draft.existingAttachmentId}`,
+          );
+        }
       } catch (err) {
         if (err instanceof AttachmentUploadError) {
           log.warn(
@@ -208,6 +308,8 @@ export async function resolveAssistantAttachments(
         }
       }
 
+      recordPersistedFile(draft);
+      linkedAttachmentIds.push(stored.id);
       emittedAttachments.push({
         id: stored.id,
         filename: draft.filename,
@@ -217,9 +319,22 @@ export async function resolveAssistantAttachments(
         ...(omitData ? { sizeBytes: draft.sizeBytes } : {}),
         fileBacked: true,
         ...(thumbnailData ? { thumbnailData } : {}),
+        ...(draft.computerUseScreenshot ? { computerUseScreenshot: true } : {}),
+      });
+      if (draft.computerUseScreenshot) {
+        computerUseScreenshotAttachmentIds.push(stored.id);
+      }
+    }
+    if (computerUseScreenshotAttachmentIds.length > 0) {
+      updateMessageMetadata(lastAssistantMessageId, {
+        [COMPUTER_USE_SCREENSHOT_ATTACHMENT_IDS_KEY]:
+          computerUseScreenshotAttachmentIds,
       });
     }
   } else if (assistantAttachments.length > 0) {
+    // No assistant message to attach to: the drafts are emitted to the client
+    // for this turn only and nothing is stored, so none of them is a
+    // persisted file.
     for (const draft of assistantAttachments) {
       emittedAttachments.push({
         filename: draft.filename,
@@ -230,5 +345,12 @@ export async function resolveAssistantAttachments(
     }
   }
 
-  return { assistantAttachments, emittedAttachments, directiveWarnings };
+  return {
+    assistantAttachments,
+    emittedAttachments,
+    directiveWarnings,
+    persistedFiles,
+    linkedAttachmentIds,
+    computerUseScreenshotAttachmentIds,
+  };
 }

@@ -15,6 +15,9 @@ const STATE: CompanionSurfaceState = {
 
 const listeners = new Set<(state: CompanionSurfaceState) => void>();
 
+/** How many times the page told main the border is drawn. */
+let drawnReports = 0;
+
 const pushState = (state: CompanionSurfaceState) => {
   act(() => {
     for (const listener of listeners) {
@@ -24,6 +27,14 @@ const pushState = (state: CompanionSurfaceState) => {
 };
 
 mock.module("@/runtime/companion-surface", () => ({
+  // The drawing layer's own call. Stubbed rather than watched here: what it
+  // sends is `companion-share-annotation.test.tsx`'s subject, and this file
+  // only cares whether the layer is on the page at all.
+  annotateCompanionShare: () => undefined,
+  setCompanionFrameScrolling: () => undefined,
+  reportCompanionFrameDrawn: () => {
+    drawnReports += 1;
+  },
   getCompanionState: async () => STATE,
   subscribeCompanionState: (
     listener: (state: CompanionSurfaceState) => void,
@@ -39,10 +50,43 @@ const { CompanionWatchFramePage } =
 afterEach(() => {
   cleanup();
   listeners.clear();
+  drawnReports = 0;
 });
+
+/** Let the page's animation frames run. */
+const nextFrames = async (): Promise<void> => {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  });
+};
 
 const frameOf = (container: HTMLElement): HTMLElement | null =>
   container.querySelector<HTMLElement>(".companion-watch-frame");
+
+const inkOf = (container: HTMLElement): HTMLElement | null =>
+  container.querySelector<HTMLElement>(
+    "[data-testid='companion-share-annotation']",
+  );
+
+const labelOf = (container: HTMLElement): HTMLElement | null =>
+  container.querySelector<HTMLElement>(
+    "[data-testid='companion-watch-frame-label']",
+  );
+
+const marksOf = (container: HTMLElement): HTMLElement[] =>
+  Array.from(
+    container.querySelectorAll<HTMLElement>(
+      "[data-testid='companion-coachmark']",
+    ),
+  );
+
+const MARK = {
+  kind: "region" as const,
+  x: 0.1,
+  y: 0.2,
+  width: 0.2,
+  height: 0.1,
+};
 
 const LISTENING_CALL = {
   phase: "listening" as const,
@@ -54,6 +98,36 @@ const LISTENING_CALL = {
   approvalRequestId: "",
   assistantName: "Ziggy",
 };
+
+/**
+ * Main holds the frame's window off the screen until the page says the border
+ * is drawn, so the report has to follow the border rather than the page load.
+ */
+describe("telling main the border is drawn", () => {
+  test("says nothing while there is no border", async () => {
+    render(<CompanionWatchFramePage />);
+    pushState({ ...STATE, call: LISTENING_CALL, dialing: true });
+    await nextFrames();
+    expect(drawnReports).toBe(0);
+  });
+
+  test("reports once, after the border is on the page", async () => {
+    const { container } = render(<CompanionWatchFramePage />);
+    pushState({ ...STATE, screenShare: { kind: "display", displayId: 7 } });
+    expect(frameOf(container)).not.toBeNull();
+    await nextFrames();
+    expect(drawnReports).toBe(1);
+
+    // A later state that keeps the border up is not a second first draw.
+    pushState({
+      ...STATE,
+      accentHex: "#a78bfa",
+      screenShare: { kind: "display", displayId: 7 },
+    });
+    await nextFrames();
+    expect(drawnReports).toBe(1);
+  });
+});
 
 /**
  * The frame around what is being read. The window exists only while the shell
@@ -82,12 +156,42 @@ describe("the frame around what is read", () => {
     expect(frameOf(container)).toBeNull();
   });
 
-  test("draws in the capture colour, not the assistant's", () => {
+  /**
+   * The edge and the call pill are one light. A colour of the frame's own
+   * would leave the user to work out that two unrelated lights on the same
+   * desktop were about one session.
+   */
+  test("draws in the running call's accent", () => {
     const { container } = render(<CompanionWatchFramePage />);
     pushState({ ...STATE, call: LISTENING_CALL, watching: true });
     expect(
       frameOf(container)?.style.getPropertyValue("--companion-ring-accent"),
-    ).toBe("#ff9f45");
+    ).toBe("#5eead4");
+  });
+
+  test("falls back to the accent the app published", () => {
+    const { container } = render(<CompanionWatchFramePage />);
+    pushState({
+      ...STATE,
+      accentHex: "#a78bfa",
+      screenShare: { kind: "display", displayId: 7 },
+    });
+    expect(
+      frameOf(container)?.style.getPropertyValue("--companion-ring-accent"),
+    ).toBe("#a78bfa");
+  });
+
+  /**
+   * Handing CSS an unusable value drops the custom property and takes the
+   * border's colour with it, so an accent that does not parse is left unset
+   * and the class keeps its own.
+   */
+  test("leaves the colour to the class when no accent resolves", () => {
+    const { container } = render(<CompanionWatchFramePage />);
+    pushState({ ...STATE, accentHex: "not a colour", watching: true });
+    expect(
+      frameOf(container)?.style.getPropertyValue("--companion-ring-accent"),
+    ).toBe("");
   });
 
   test("goes once the session is over", () => {
@@ -95,6 +199,78 @@ describe("the frame around what is read", () => {
     pushState({ ...STATE, watching: true });
     pushState({ ...STATE, watching: false });
     expect(frameOf(container)).toBeNull();
+  });
+
+  /**
+   * A share is the other way a surface leaves the machine, and the shell
+   * opens and places this window for it exactly as it does for a watch.
+   */
+  test("draws for a screen a call is sharing", () => {
+    const { container } = render(<CompanionWatchFramePage />);
+    pushState({
+      ...STATE,
+      call: LISTENING_CALL,
+      screenShare: { kind: "display", displayId: 7 },
+    });
+    expect(frameOf(container)).not.toBeNull();
+  });
+
+  test("draws for a window or tab a call is sharing", () => {
+    const { container } = render(<CompanionWatchFramePage />);
+    pushState({
+      ...STATE,
+      call: LISTENING_CALL,
+      screenShare: { kind: "window", windowId: 42 },
+    });
+    expect(frameOf(container)).not.toBeNull();
+  });
+
+  test("stays while a share outlives the watch beside it", () => {
+    const { container } = render(<CompanionWatchFramePage />);
+    pushState({
+      ...STATE,
+      watching: true,
+      screenShare: { kind: "display", displayId: 7 },
+    });
+    pushState({
+      ...STATE,
+      watching: false,
+      screenShare: { kind: "display", displayId: 7 },
+    });
+    expect(frameOf(container)).not.toBeNull();
+  });
+
+  test("goes once the share is stopped", () => {
+    const { container } = render(<CompanionWatchFramePage />);
+    pushState({
+      ...STATE,
+      call: LISTENING_CALL,
+      screenShare: { kind: "display", displayId: 7 },
+    });
+    pushState({ ...STATE, call: LISTENING_CALL });
+    expect(frameOf(container)).toBeNull();
+  });
+
+  /**
+   * `captureCount` is the watch session's total and a share does not advance
+   * it. A share still holding the frame after the watch ended would otherwise
+   * sit on that session's last count and flash for a read nobody took.
+   */
+  test("does not flash for a share left holding the frame", () => {
+    const { container } = render(<CompanionWatchFramePage />);
+    pushState({
+      ...STATE,
+      watching: true,
+      captureCount: 3,
+      screenShare: { kind: "display", displayId: 7 },
+    });
+    pushState({
+      ...STATE,
+      watching: false,
+      captureCount: 4,
+      screenShare: { kind: "display", displayId: 7 },
+    });
+    expect(container.querySelector(".companion-watch-frame-flash")).toBeNull();
   });
 
   test("reads a state that says nothing about it as empty", () => {
@@ -143,5 +319,243 @@ describe("the frame around what is read", () => {
       "pointer-events-none",
     );
     expect(container.querySelectorAll("button")).toHaveLength(0);
+  });
+
+  /**
+   * The words at the top of the framed surface. The edge says a surface is
+   * leaving the machine; these say which way and to whom, and they are up
+   * exactly as long as the edge is.
+   */
+  describe("the label on the frame", () => {
+    test("is absent with nothing running", () => {
+      const { container } = render(<CompanionWatchFramePage />);
+      pushState({ ...STATE, call: LISTENING_CALL });
+      expect(labelOf(container)).toBeNull();
+    });
+
+    test("names the assistant a screen is shared with", () => {
+      const { container } = render(<CompanionWatchFramePage />);
+      pushState({
+        ...STATE,
+        call: LISTENING_CALL,
+        screenShare: { kind: "display", displayId: 7 },
+      });
+      expect(labelOf(container)?.textContent).toBe(
+        "Sharing your screen with Ziggy",
+      );
+    });
+
+    /**
+     * A shared window is one thing and a shared screen is everything on it,
+     * which is the difference the user cares about.
+     */
+    test("tells a shared window from a shared screen", () => {
+      const { container } = render(<CompanionWatchFramePage />);
+      pushState({
+        ...STATE,
+        call: LISTENING_CALL,
+        screenShare: { kind: "window", windowId: 42 },
+      });
+      expect(labelOf(container)?.textContent).toBe(
+        "Sharing a window with Ziggy",
+      );
+    });
+
+    test("says a session is being taught from the surface", () => {
+      const { container } = render(<CompanionWatchFramePage />);
+      pushState({ ...STATE, watching: true });
+      expect(labelOf(container)?.textContent).toBe("Teaching Ziggy");
+    });
+
+    /**
+     * The shell frames the watched surface while both run (`framedTarget`),
+     * so a label naming the share would be about a surface this window is
+     * not on.
+     */
+    test("describes the watch while it outranks the share", () => {
+      const { container } = render(<CompanionWatchFramePage />);
+      pushState({
+        ...STATE,
+        watching: true,
+        screenShare: { kind: "display", displayId: 7 },
+      });
+      expect(labelOf(container)?.textContent).toBe("Teaching Ziggy");
+    });
+
+    test("reads plainly before the app has said who the assistant is", () => {
+      const { container } = render(<CompanionWatchFramePage />);
+      pushState({
+        ...STATE,
+        assistantName: "",
+        screenShare: { kind: "display", displayId: 7 },
+      });
+      expect(labelOf(container)?.textContent).toBe("Sharing your screen");
+    });
+
+    test("is lit in the same accent as the edge", () => {
+      const { container } = render(<CompanionWatchFramePage />);
+      pushState({
+        ...STATE,
+        call: LISTENING_CALL,
+        screenShare: { kind: "display", displayId: 7 },
+      });
+      expect(
+        labelOf(container)?.style.getPropertyValue("--companion-ring-accent"),
+      ).toBe("#5eead4");
+    });
+
+    /**
+     * A whole display is framed to its full bounds and the menu bar draws
+     * over the top of the window, so the shell says how far down the label
+     * has to start. Read as the inset it is; a shell that says nothing
+     * leaves the label against the edge.
+     */
+    test("starts below the menu bar the shell reports", () => {
+      const { container } = render(<CompanionWatchFramePage />);
+      pushState({
+        ...STATE,
+        screenShare: { kind: "display", displayId: 7 },
+        frameInsetTop: 25,
+      });
+      expect(
+        labelOf(container)?.style.getPropertyValue("--companion-frame-inset"),
+      ).toBe("25px");
+    });
+
+    test("sits against the edge when the shell reports no inset", () => {
+      const { container } = render(<CompanionWatchFramePage />);
+      pushState({
+        ...STATE,
+        screenShare: { kind: "window", windowId: 42 },
+      });
+      expect(
+        labelOf(container)?.style.getPropertyValue("--companion-frame-inset"),
+      ).toBe("");
+    });
+
+    test("comes down with the share", () => {
+      const { container } = render(<CompanionWatchFramePage />);
+      pushState({
+        ...STATE,
+        call: LISTENING_CALL,
+        screenShare: { kind: "display", displayId: 7 },
+      });
+      pushState({ ...STATE, call: LISTENING_CALL });
+      expect(labelOf(container)).toBeNull();
+    });
+  });
+
+  /**
+   * The one exception to that, and the reason it is drawn off the pushed
+   * state rather than off the share: main is what makes the window take mouse
+   * events, so a layer mounted on any other signal would be a layer
+   * swallowing presses that the desktop is still sending through.
+   */
+  describe("the layer the user draws on", () => {
+    test("is absent while the frame is click-through", () => {
+      const { container } = render(<CompanionWatchFramePage />);
+      pushState({
+        ...STATE,
+        call: LISTENING_CALL,
+        screenShare: { kind: "display", displayId: 1 },
+      });
+      expect(inkOf(container)).toBeNull();
+    });
+
+    test("mounts once main says the frame is taking the mouse", () => {
+      const { container } = render(<CompanionWatchFramePage />);
+      pushState({
+        ...STATE,
+        call: LISTENING_CALL,
+        screenShare: { kind: "display", displayId: 1 },
+        annotating: true,
+      });
+      expect(inkOf(container)).not.toBeNull();
+    });
+
+    test("goes when the mode does", () => {
+      const { container } = render(<CompanionWatchFramePage />);
+      pushState({ ...STATE, annotating: true });
+      pushState({ ...STATE, annotating: false });
+      expect(inkOf(container)).toBeNull();
+    });
+
+    /**
+     * The pill's Clear reaches the layer as the count main steps on the
+     * pushed state, read off the same push as the mode. A shell that has no
+     * Clear names no count, which is no clears.
+     */
+    test("hands the layer the count of clears", () => {
+      const { container } = render(<CompanionWatchFramePage />);
+      pushState({ ...STATE, annotating: true, marksCleared: 2 });
+      expect(inkOf(container)?.getAttribute("data-cleared")).toBe("2");
+      pushState({ ...STATE, annotating: true });
+      expect(inkOf(container)?.getAttribute("data-cleared")).toBe("0");
+    });
+
+    /**
+     * The tool is read off the same push as the mode, so the one chosen on
+     * the pill and the one under the hand here are never two. A shell that
+     * names none has only the pencil.
+     */
+    test("draws with the tool main names, and the pencil when it names none", () => {
+      const { container } = render(<CompanionWatchFramePage />);
+      pushState({ ...STATE, annotating: true, annotationTool: "box" });
+      expect(inkOf(container)?.getAttribute("data-tool")).toBe("box");
+      pushState({ ...STATE, annotating: true });
+      expect(inkOf(container)?.getAttribute("data-tool")).toBe("freehand");
+    });
+  });
+
+  /**
+   * What the assistant points at, which is drawn off the share rather than
+   * off the mode: nothing about it takes the mouse, and what it needs is for
+   * this window to be around the surface the marks were measured against.
+   */
+  describe("what the assistant points at", () => {
+    test("draws the marks on the shared surface", () => {
+      const { container } = render(<CompanionWatchFramePage />);
+      pushState({
+        ...STATE,
+        call: LISTENING_CALL,
+        screenShare: { kind: "display", displayId: 1 },
+        coachmarks: [MARK],
+      });
+      expect(marksOf(container)).toHaveLength(1);
+    });
+
+    test("draws nothing with no share to measure against", () => {
+      const { container } = render(<CompanionWatchFramePage />);
+      pushState({ ...STATE, coachmarks: [MARK] });
+      expect(marksOf(container)).toHaveLength(0);
+    });
+
+    /**
+     * The frame is around the watched surface while both run
+     * (`framedTarget`), so the fractions describe a surface this window is no
+     * longer on.
+     */
+    test("draws nothing while a watch session outranks the share", () => {
+      const { container } = render(<CompanionWatchFramePage />);
+      pushState({
+        ...STATE,
+        watching: true,
+        screenShare: { kind: "display", displayId: 1 },
+        coachmarks: [MARK],
+      });
+      expect(marksOf(container)).toHaveLength(0);
+    });
+
+    test("takes the marks down when they are withdrawn", () => {
+      const { container } = render(<CompanionWatchFramePage />);
+      const shared = {
+        ...STATE,
+        call: LISTENING_CALL,
+        screenShare: { kind: "display" as const, displayId: 1 },
+      };
+      pushState({ ...shared, coachmarks: [MARK] });
+      pushState(shared);
+      expect(marksOf(container)).toHaveLength(0);
+    });
   });
 });

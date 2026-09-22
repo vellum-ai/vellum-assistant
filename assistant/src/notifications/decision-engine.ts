@@ -36,6 +36,10 @@ import {
   buildToolApprovalSeedContentBlocks,
 } from "./approval-card-data.js";
 import {
+  intersectChannelAllowlist,
+  readChannelAllowlist,
+} from "./channel-allowlist.js";
+import {
   buildConversationCandidates,
   type ConversationCandidateSet,
   serializeCandidatesForPrompt,
@@ -52,6 +56,7 @@ import {
   nonEmpty,
   readPayloadObject,
   readPayloadString,
+  readPayloadStringArray,
 } from "./notification-utils.js";
 import { getPreferenceSummary } from "./preference-summary.js";
 import type { NotificationSignal, RoutingIntent } from "./signal.js";
@@ -83,6 +88,20 @@ const MAX_IDENTITY_CONTEXT_CHARS = 2000;
  * to it.
  */
 const ASSISTANT_REPLY_CHANNELS = [
+  "platform",
+] as const satisfies readonly NotificationChannel[];
+
+/**
+ * Delivery scope for `schedule.result` signals. Wider than
+ * {@link ASSISTANT_REPLY_CHANNELS} by one channel, and the difference is the
+ * point: an unseen chat reply is already sitting in a conversation the user
+ * opened, so a push is the only thing it can add. A scheduled run's output has
+ * no such home — nobody is looking at the run's conversation — so `vellum`
+ * carries it into the notification center where it persists, and `platform`
+ * pushes it.
+ */
+const SCHEDULE_RESULT_CHANNELS = [
+  "vellum",
   "platform",
 ] as const satisfies readonly NotificationChannel[];
 
@@ -224,23 +243,28 @@ function buildUserPrompt(signal: NotificationSignal): string {
 // ── Tool definition ────────────────────────────────────────────────────
 
 /**
- * Spec for the per-channel notification title. Mirrors the conversation title
- * prompt (`persistence/conversation-title-service.ts`), which gets clean
- * noun-phrase headlines out of this same model profile.
+ * Spec for the per-channel notification title. The title is the one line a
+ * reader sees in the notification bell, where a row that only reports shows
+ * nothing else, so it has to say what happened on its own rather than name a
+ * topic the body then explains. Same length discipline as the conversation
+ * title prompt (`persistence/conversation-title-service.ts`), which shares
+ * this model profile and the `normalizeTitle` clamp.
  */
 const TITLE_FIELD_DESCRIPTION = [
-  "Scannable headline naming the TOPIC of this notification, not a summary of it.",
+  "Scannable headline saying WHAT HAPPENED or WHAT IS NEEDED, so it stands on its own without the body.",
   "Rules:",
-  "- 2 to 5 words. Longer titles are unacceptable, ruthlessly compress",
+  "- 2 to 6 words. Longer titles are unacceptable, ruthlessly compress",
   "- 40 characters absolute maximum, longer titles get truncated and look broken",
-  "- A noun phrase naming the topic, never a sentence, question, or greeting (e.g. 'Platform Standup', 'Nightly Backup Failure')",
-  "- Do NOT restate, summarize, or echo the body. The title and the body must carry different information",
+  "- Lead with the outcome as a short clause: a past-tense verb for something done ('Prepared a wedding schedule', 'Nightly backup failed'), a need for something waiting on the reader ('Needs an answer on the venue')",
+  "- Sentence case, never Title Case",
+  "- Do NOT restate the body word for word. The body adds the detail the title leaves out: numbers, names, what to do next",
   "- No quotes, no markdown, no trailing punctuation",
-  "- Never describe missing or thin context. Titles like 'Notification', 'Update', 'Missing Context' are forbidden. Extract a topic from the words that ARE present",
+  "- Never describe missing or thin context. Titles like 'Notification', 'Update', 'Activity complete', 'Missing context' are forbidden. Say what was done from the words that ARE present",
   "Examples:",
-  "- Body 'Your 9am standup with the platform team starts in 5 minutes' -> 'Platform Standup', NOT 'Standup Starts In 5 Minutes'",
-  "- Body 'The nightly backup job failed on db-primary at 02:14' -> 'Nightly Backup Failure', NOT 'Nightly Backup Job Failed On db-primary'",
-  "- Body 'Alice replied about the Q3 pricing deck and wants your notes' -> 'Q3 Pricing Deck', NOT 'Alice Replied About The Pricing Deck'",
+  "- Body 'Your 9am standup with the platform team starts in 5 minutes' -> 'Platform standup in 5 minutes', NOT 'Platform Standup'",
+  "- Body 'The nightly backup job failed on db-primary at 02:14' -> 'Nightly backup failed', NOT 'Nightly Backup Failure'",
+  "- Body 'Alice replied about the Q3 pricing deck and wants your notes' -> 'Alice wants notes on the Q3 deck', NOT 'Q3 Pricing Deck'",
+  "- Body 'Recapped the 12 emails that needed a reply and deleted 6 newsletters' -> 'Recapped 12 emails, deleted 6', NOT 'Inbox Recap'",
 ].join("\n");
 
 function buildDecisionTool(availableChannels: NotificationChannel[]) {
@@ -814,6 +838,19 @@ function buildPassThroughDecision(params: {
   return decision;
 }
 
+function selectDefaultChannelsByUrgency(
+  urgency: NotificationSignal["attentionHints"]["urgency"],
+  availableChannels: NotificationChannel[],
+): NotificationChannel[] {
+  const isUrgent = urgency === "critical" || urgency === "high";
+  if (isUrgent) {
+    return [...availableChannels];
+  }
+  return availableChannels.includes("vellum")
+    ? ["vellum" as NotificationChannel]
+    : [];
+}
+
 /**
  * The deterministic guards every decision passes through once the model,
  * the assistant-tool pass-through, or the fallback has rendered copy.
@@ -851,30 +888,31 @@ export async function evaluateSignal(
   );
   if (signal.sourceChannel === "assistant_tool" && requestedBody) {
     const payload = signal.contextPayload as Record<string, unknown>;
-    const isUrgent =
-      signal.attentionHints.urgency === "critical" ||
-      signal.attentionHints.urgency === "high";
-    const defaultChannels: NotificationChannel[] = isUrgent
-      ? [...availableChannels]
-      : availableChannels.includes("vellum")
-        ? ["vellum" as NotificationChannel]
-        : [];
-    // Honor `--preferred-channels` as ADDITIVE push targets on top of
-    // the default channel set. The notification center (vellum) is the
-    // always-on canonical inbox; preferred channels add push surfaces
-    // on top, they never replace vellum. Disconnected channels are
-    // filtered out so we never try to deliver on something unavailable.
-    const preferredChannelsRaw = Array.isArray(payload.preferredChannels)
-      ? (payload.preferredChannels as unknown[]).filter(
-          (c): c is string => typeof c === "string",
-        )
-      : undefined;
+    const defaultChannels = selectDefaultChannelsByUrgency(
+      signal.attentionHints.urgency,
+      availableChannels,
+    );
+    // `channelAllowlist` is exclusive: only those available channels are
+    // selected. `preferredChannels` is additive on top of the default set
+    // (vellum stays the canonical inbox) and is ignored when an allowlist
+    // is present. Disconnected names are dropped so we never deliver on
+    // something unavailable.
+    const exclusiveAllowlist = readChannelAllowlist(payload);
+    const preferredChannelsRaw = readPayloadStringArray(
+      payload,
+      "preferredChannels",
+    );
     let selectedChannels = defaultChannels;
-    if (preferredChannelsRaw && preferredChannelsRaw.length > 0) {
+    if (exclusiveAllowlist) {
+      selectedChannels = intersectChannelAllowlist(
+        exclusiveAllowlist,
+        availableChannels,
+      );
+    } else if (preferredChannelsRaw && preferredChannelsRaw.length > 0) {
       const availableSet = new Set<string>(availableChannels);
-      const preferredAvailable = preferredChannelsRaw.filter((c) =>
-        availableSet.has(c),
-      ) as NotificationChannel[];
+      const preferredAvailable = preferredChannelsRaw.filter((c) => {
+        return availableSet.has(c);
+      }) as NotificationChannel[];
       if (preferredAvailable.length > 0) {
         selectedChannels = Array.from(
           new Set<NotificationChannel>([
@@ -904,6 +942,50 @@ export async function evaluateSignal(
       ),
       body: requestedBody,
       reasoningSummary: "assistant_reply pass-through",
+    });
+  }
+
+  // Scheduler-owned requested copy: the scheduler already authored the
+  // complete message. Ownership requires both the signal source and the
+  // payload marker so schedule.result (requestedMessage, no
+  // requestedBySource) and notify-mode (message, no requestedBySource)
+  // stay on their existing paths. Urgency still chooses channels; every
+  // selected channel keeps the producer body.
+  const requestedBySource = nonEmpty(
+    readPayloadString(signal.contextPayload, "requestedBySource"),
+  );
+  if (
+    signal.sourceChannel === "scheduler" &&
+    requestedBySource === "scheduler" &&
+    requestedBody
+  ) {
+    return buildPassThroughDecision({
+      signal,
+      availableChannels,
+      selectedChannels: selectDefaultChannelsByUrgency(
+        signal.attentionHints.urgency,
+        availableChannels,
+      ),
+      body: requestedBody,
+      reasoningSummary: "scheduler requested-message pass-through",
+    });
+  }
+
+  // Schedule-result pass-through: the body is the run's own reply, which is
+  // the whole point of the notification — a briefing, a digest, a report. The
+  // classifier rewrites bodies into short alerts, which would throw away the
+  // content the user set the schedule up to receive. Routing has nothing to
+  // decide either: the user asked for this cadence, so it goes to the inbox
+  // and to push, and `enforceRoutingIntent` still narrows it afterwards.
+  if (signal.sourceEventName === "schedule.result" && requestedBody) {
+    return buildPassThroughDecision({
+      signal,
+      availableChannels,
+      selectedChannels: SCHEDULE_RESULT_CHANNELS.filter((ch) =>
+        availableChannels.includes(ch),
+      ),
+      body: requestedBody,
+      reasoningSummary: "schedule_result pass-through",
     });
   }
 

@@ -14,6 +14,11 @@ import {
   type ClassifyRiskIpcParams,
   type ClassifyRiskIpcResponse,
   ClassifyRiskIpcResponseSchema,
+  ListWebhookRoutesIpcResponseSchema,
+  type RegisterWebhookRouteIpcParams,
+  RegisterWebhookRouteIpcResponseSchema,
+  UnregisterWebhookRouteIpcResponseSchema,
+  type WebhookIngressRoute,
 } from "@vellumai/gateway-client";
 import {
   ipcCall as packageIpcCall,
@@ -23,6 +28,7 @@ import {
 
 import { getLogger } from "../util/logger.js";
 import { abortableSleep, computeRetryDelay } from "../util/retry.js";
+import { throwIfGatewayIpcConnectFailed } from "./gateway-ipc-errors.js";
 import { resolveIpcSocketPath } from "./socket-path.js";
 
 const log = getLogger("gateway-ipc-client");
@@ -52,21 +58,30 @@ export async function ipcCall(
 // ---------------------------------------------------------------------------
 
 let persistentClient: PackagePersistentIpcClient | null = null;
+let failFastPersistentClient: PackagePersistentIpcClient | null = null;
 
-/**
- * Persistent IPC call — singleton wrapper around PersistentIpcClient.
- *
- * Creates the instance on first call using the gateway socket path.
- * Unlike `ipcCall()`, this maintains a single connection across calls,
- * making it suitable for hot-path operations like risk classification.
- *
- * Throws on failure (timeout, socket error) — callers must handle errors.
- */
-export async function ipcCallPersistent(
-  method: string,
-  params?: Record<string, unknown>,
-  timeoutMs?: number,
-): Promise<unknown> {
+export type IpcCallPersistentOptions = {
+  /**
+   * When false, skip sibling-boot connect retries so the caller owns the
+   * retry budget. Default true.
+   */
+  retryConnect?: boolean;
+};
+
+function getPersistentClient(
+  retryConnect: boolean,
+): PackagePersistentIpcClient {
+  if (!retryConnect) {
+    if (!failFastPersistentClient) {
+      failFastPersistentClient = new PackagePersistentIpcClient(
+        getGatewaySocketPath(),
+        undefined,
+        log,
+        { connectRetryBackoffsMs: [] },
+      );
+    }
+    return failFastPersistentClient;
+  }
   if (!persistentClient) {
     persistentClient = new PackagePersistentIpcClient(
       getGatewaySocketPath(),
@@ -74,17 +89,47 @@ export async function ipcCallPersistent(
       log,
     );
   }
-  return persistentClient.call(method, params, timeoutMs);
+  return persistentClient;
 }
 
 /**
- * Destroy and nullify the singleton persistent client.
- * Exported for testing — ensures no leaked handles between test runs.
+ * Persistent IPC call — singleton wrapper around PersistentIpcClient.
+ *
+ * Creates the instance on first call using the gateway socket path.
+ * Unlike `ipcCall()`, this maintains a single connection across calls.
+ *
+ * Throws `ServiceUnavailableError` (503) when the gateway socket is missing
+ * or refused, and `IpcCallError` when the gateway returns a structured
+ * error. Callers that already handle `RouteError` do not need a local
+ * connect-failure try/catch.
+ */
+export async function ipcCallPersistent(
+  method: string,
+  params?: Record<string, unknown>,
+  timeoutMs?: number,
+  options?: IpcCallPersistentOptions,
+): Promise<unknown> {
+  const client = getPersistentClient(options?.retryConnect !== false);
+  try {
+    return await client.call(method, params, timeoutMs);
+  } catch (err) {
+    throwIfGatewayIpcConnectFailed(err);
+    throw err;
+  }
+}
+
+/**
+ * Destroy and nullify the singleton persistent clients.
+ * Exported for testing. Ensures no leaked handles between test runs.
  */
 export function resetPersistentClient(): void {
   if (persistentClient) {
     persistentClient.destroy();
     persistentClient = null;
+  }
+  if (failFastPersistentClient) {
+    failFastPersistentClient.destroy();
+    failFastPersistentClient = null;
   }
 }
 
@@ -145,6 +190,92 @@ export async function ipcGetVelayStatus(): Promise<VelayTunnelStatus | null> {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Webhook ingress route registry
+// ---------------------------------------------------------------------------
+
+/**
+ * Why a webhook-route call failed.
+ *
+ * `no_response` means nothing came back. The one-shot IPC transport answers a
+ * missing gateway and a gateway-side refusal the same way, with no result, so
+ * both land here. `invalid_response` means the gateway answered but the answer
+ * does not match the shared contract, so the two sides have drifted.
+ */
+export type WebhookRouteIpcFailureReason = "no_response" | "invalid_response";
+
+export type IpcRegisterWebhookRouteResult =
+  | { ok: true; disabled: true }
+  | { ok: true; disabled: false; route: WebhookIngressRoute }
+  | { ok: false; reason: WebhookRouteIpcFailureReason };
+
+export type IpcUnregisterWebhookRouteResult =
+  | { ok: true; removed: boolean }
+  | { ok: false; reason: WebhookRouteIpcFailureReason };
+
+export type IpcListWebhookRoutesResult =
+  | { ok: true; routes: WebhookIngressRoute[] }
+  | { ok: false; reason: WebhookRouteIpcFailureReason };
+
+function webhookRouteFailure(
+  method: string,
+  result: unknown,
+  detail: Record<string, unknown> = {},
+): { ok: false; reason: WebhookRouteIpcFailureReason } {
+  const reason: WebhookRouteIpcFailureReason =
+    result === undefined ? "no_response" : "invalid_response";
+  log.warn({ ...detail, result, reason }, `${method}: gateway call failed`);
+  return { ok: false, reason };
+}
+
+/**
+ * Claim a webhook subpath on the gateway.
+ *
+ * A `disabled` result is a normal answer, not a failure: the gateway is not
+ * serving its own webhooks and the caller should fall back to platform
+ * callback registration. A failure carries the reason it failed so a caller
+ * that also falls back can log the two apart.
+ */
+export async function ipcRegisterWebhookRoute(
+  input: RegisterWebhookRouteIpcParams,
+): Promise<IpcRegisterWebhookRouteResult> {
+  const result = await ipcCall("register_webhook_route", { ...input });
+  const parsed = RegisterWebhookRouteIpcResponseSchema.safeParse(result);
+  if (!parsed.success) {
+    return webhookRouteFailure("ipcRegisterWebhookRoute", result, {
+      path: input.path,
+    });
+  }
+  return parsed.data.disabled
+    ? { ok: true, disabled: true }
+    : { ok: true, disabled: false, route: parsed.data.route };
+}
+
+/**
+ * Drop a webhook subpath from the gateway registry. A successful call reports
+ * whether a route was actually removed.
+ */
+export async function ipcUnregisterWebhookRoute(
+  path: string,
+): Promise<IpcUnregisterWebhookRouteResult> {
+  const result = await ipcCall("unregister_webhook_route", { path });
+  const parsed = UnregisterWebhookRouteIpcResponseSchema.safeParse(result);
+  if (!parsed.success) {
+    return webhookRouteFailure("ipcUnregisterWebhookRoute", result, { path });
+  }
+  return { ok: true, removed: parsed.data.removed };
+}
+
+/** List every webhook subpath the gateway currently answers. */
+export async function ipcListWebhookRoutes(): Promise<IpcListWebhookRoutesResult> {
+  const result = await ipcCall("list_webhook_routes");
+  const parsed = ListWebhookRoutesIpcResponseSchema.safeParse(result);
+  if (!parsed.success) {
+    return webhookRouteFailure("ipcListWebhookRoutes", result);
+  }
+  return { ok: true, routes: parsed.data.routes };
+}
+
 // classify_risk is an idempotent, side-effect-free read, so a transient gateway
 // blip (socket dropped between calls, momentary unreachability) is safe to
 // retry — the persistent client re-establishes its socket on the next call. The
@@ -183,6 +314,7 @@ export async function ipcClassifyRisk(
         "classify_risk",
         params,
         CLASSIFY_RISK_ATTEMPT_TIMEOUT_MS,
+        { retryConnect: false },
       );
 
       // A returned-but-malformed response is deterministic, not transient:

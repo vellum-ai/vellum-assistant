@@ -15,7 +15,11 @@ import { organizationsBillingSubscriptionRetrieveOptions } from "@/generated/api
 import { useBillingBalanceStatus } from "@/hooks/use-billing-balance-status";
 import { awaitsAnswer } from "@/lib/query-awaits-answer";
 import { useByokCreditRouteVerdict } from "@/hooks/use-byok-credit-banner-gate";
-import { usePlanUsageBalance } from "@/hooks/use-plan-usage-balance";
+import {
+  usageGrantRatio,
+  usePlanUsageBalance,
+} from "@/hooks/use-plan-usage-balance";
+import { parseUsd } from "@/lib/billing/parse-usd";
 
 export interface PreferencesUsage {
   /** Used share of the granted usage credit, clamped to 0..1. */
@@ -87,13 +91,28 @@ export function usePreferencesUsage(
   // next turn spends extra credits. A null balance is unknown, not credit,
   // so the claim also waits for a summary proving the wallet holds something.
   const hasWalletCredit = balance != null && Number(balance) > 0;
+  // The same ratio the reading quotes, off the summary alone: the plan decides
+  // whether a reading is shown and which fallback covers a missing one, never
+  // what a derivable one says.
+  const grantRatio = usageGrantRatio(
+    parseUsd(totalUsageBalance),
+    parseUsd(availableUsageBalance),
+  );
   // A wallet with credit is still not proof it gets spent: a BYOK route
   // dispatches the next turn on the user's own key. The classifier's queries
   // stay idle until the claim is otherwise live, so the common healthy path
   // costs nothing.
+  //
+  // What makes it live is the summary's own ratio, which the subscription does
+  // not gate, so the classifier's reads run alongside that request and the
+  // first reading the hook produces already carries the claim. `spent` widens
+  // the same condition to the Pro sub whose grants total nothing, whose full
+  // bar is the plan's fallback rather than a ratio the summary can derive.
   const { settled: claimSettled, routeBurnsManaged } =
     useByokCreditRouteVerdict(
-      enabled && spent && hasWalletCredit,
+      enabled &&
+        (spent || (grantRatio != null && grantRatio >= 1)) &&
+        hasWalletCredit,
       opts.conversationId ?? null,
     );
 

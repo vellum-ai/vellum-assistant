@@ -12,7 +12,7 @@
 
 import { Link } from "react-router";
 
-import { cn } from "@vellumai/design-library";
+import { cn, textLinkVariants } from "@vellumai/design-library";
 
 import { Trans } from "@/i18n";
 import { routes } from "@/utils/routes";
@@ -32,7 +32,10 @@ export function VoiceProvidersNote({ className }: { className?: string }) {
           modelsLink: (
             <Link
               to={`${routes.settings.ai}#text-to-speech`}
-              className="text-[var(--content-secondary)] underline decoration-[var(--border-element)] underline-offset-2 hover:text-[var(--content-default)]"
+              className={cn(
+                textLinkVariants({ tone: "quiet" }),
+                "text-[var(--content-secondary)] decoration-[var(--border-element)] underline-offset-2",
+              )}
             />
           ),
         }}

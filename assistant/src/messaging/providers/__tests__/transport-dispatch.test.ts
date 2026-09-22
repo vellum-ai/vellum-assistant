@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { ChannelReplyPayload } from "@vellumai/gateway-client";
+import { ChannelDeliveryError } from "@vellumai/gateway-client/http-delivery";
 
 // Replace each channel's provider-API send layer with spies so the dispatcher's
 // routing and sub-operation selection can be asserted without network calls.
@@ -31,15 +32,21 @@ const telegram = {
   sendTelegramReaction: mock((..._args: unknown[]) =>
     Promise.resolve({ ok: true }),
   ),
-  sendTelegramReply: mock((..._args: unknown[]) => Promise.resolve()),
-  sendTelegramRichReply: mock((..._args: unknown[]) => Promise.resolve()),
+  sendTelegramReply: mock((..._args: unknown[]) =>
+    Promise.resolve({ lastMessageId: "tg-2", messageIds: ["tg-1", "tg-2"] }),
+  ),
+  sendTelegramRichReply: mock((..._args: unknown[]) =>
+    Promise.resolve({ lastMessageId: "tg-rich", messageIds: ["tg-rich"] }),
+  ),
   sendTelegramTypingIndicator: mock((..._args: unknown[]) => Promise.resolve()),
   sendTelegramAttachments: mock((..._args: unknown[]) =>
     Promise.resolve({ allFailed: false, failureCount: 0 }),
   ),
 };
 const whatsapp = {
-  sendWhatsAppReply: mock((..._args: unknown[]) => Promise.resolve()),
+  sendWhatsAppReply: mock((..._args: unknown[]) =>
+    Promise.resolve({ messageIds: ["wamid.1", "wamid.2"] }),
+  ),
   sendWhatsAppAttachments: mock((..._args: unknown[]) =>
     Promise.resolve({ allFailed: false, failureCount: 0 }),
   ),
@@ -49,7 +56,10 @@ const a2a = {
 };
 const discord = {
   sendDiscordReply: mock((..._args: unknown[]) =>
-    Promise.resolve({ lastMessageId: "discord-id" }),
+    Promise.resolve({
+      lastMessageId: "discord-id",
+      messageIds: ["discord-id-0", "discord-id"],
+    }),
   ),
   sendDiscordTypingIndicator: mock((..._args: unknown[]) =>
     Promise.resolve(true),
@@ -63,11 +73,15 @@ const discord = {
   ),
 };
 
-mock.module("../slack/send.js", () => slack);
+// The transports also import the adapters' pure helpers from these modules;
+// spreading the real module keeps the mock complete as that surface grows.
+const actualSlackSend = await import("../slack/send.js");
+mock.module("../slack/send.js", () => ({ ...actualSlackSend, ...slack }));
 mock.module("../telegram-bot/send.js", () => telegram);
 mock.module("../whatsapp/send.js", () => whatsapp);
 mock.module("../a2a/deliver.js", () => a2a);
-mock.module("../discord/send.js", () => discord);
+const actualDiscordSend = await import("../discord/send.js");
+mock.module("../discord/send.js", () => ({ ...actualDiscordSend, ...discord }));
 mock.module("../../../util/logger.js", () => ({
   getLogger: () => ({ debug() {}, info() {}, warn() {}, error() {} }),
 }));
@@ -491,6 +505,131 @@ describe("capability gating across channels", () => {
     expect(result).toEqual({ ok: true });
     expect(discord.sendDiscordReply).not.toHaveBeenCalled();
   });
+});
+
+describe("acknowledged provider posts", () => {
+  // Every text post a delivery creates comes back in `messageIds`, in send
+  // order, so a recorder can name each one. `ts` keeps its meaning where a
+  // channel had one; it is not widened to stand in for the list.
+  test("Slack acknowledges its single text post as ts and as the one id", async () => {
+    const result = await deliverDirect(
+      `${BASE}/deliver/slack`,
+      payload({ text: "hi" }),
+    );
+    expect(result).toEqual({
+      ok: true,
+      ts: "slack-ts",
+      messageIds: ["slack-ts"],
+    });
+  });
+
+  test("Telegram acknowledges every chunk of a plain send", async () => {
+    const result = await deliverDirect(
+      `${BASE}/deliver/telegram`,
+      payload({ text: "hi" }),
+    );
+    expect(result).toEqual({ ok: true, messageIds: ["tg-1", "tg-2"] });
+  });
+
+  test("Telegram acknowledges a rich send's message", async () => {
+    const result = await deliverDirect(
+      `${BASE}/deliver/telegram`,
+      payload({ text: "hi", renderRichly: true }),
+    );
+    expect(result).toEqual({ ok: true, messageIds: ["tg-rich"] });
+  });
+
+  test("Discord acknowledges every chunk, with the last one as ts", async () => {
+    const result = await deliverDirect(
+      `${BASE}/deliver/discord`,
+      payload({ text: "hi" }),
+    );
+    expect(result).toEqual({
+      ok: true,
+      ts: "discord-id",
+      messageIds: ["discord-id-0", "discord-id"],
+    });
+  });
+
+  test("WhatsApp acknowledges every message the text became", async () => {
+    const result = await deliverDirect(
+      `${BASE}/deliver/whatsapp`,
+      payload({ text: "hi" }),
+    );
+    expect(result).toEqual({ ok: true, messageIds: ["wamid.1", "wamid.2"] });
+  });
+
+  test("a delivery with no text acknowledges no post", async () => {
+    const attachments = [
+      {
+        id: "att-1",
+        filename: "a.txt",
+        mimeType: "text/plain",
+        sizeBytes: 1,
+        kind: "file",
+      },
+    ];
+    const result = await deliverDirect(
+      `${BASE}/deliver/telegram`,
+      payload({ attachments }),
+    );
+    expect(result).toEqual({ ok: true, messageIds: [] });
+    expect(telegram.sendTelegramReply).not.toHaveBeenCalled();
+    expect(telegram.sendTelegramAttachments).toHaveBeenCalledTimes(1);
+    expect(telegram.sendTelegramAttachments.mock.calls[0]?.slice(0, 2)).toEqual(
+      ["C1", attachments],
+    );
+  });
+});
+
+describe("attachment-only delivery failure", () => {
+  const attachments = [
+    {
+      id: "att-1",
+      filename: "a.txt",
+      mimeType: "text/plain",
+      sizeBytes: 1,
+      kind: "file",
+    },
+    {
+      id: "att-2",
+      filename: "b.txt",
+      mimeType: "text/plain",
+      sizeBytes: 1,
+      kind: "file",
+    },
+  ];
+  const allFailed = { allFailed: true, failureCount: 2, totalCount: 2 };
+
+  for (const { channel, sendAttachments } of [
+    { channel: "telegram", sendAttachments: telegram.sendTelegramAttachments },
+    { channel: "whatsapp", sendAttachments: whatsapp.sendWhatsAppAttachments },
+  ]) {
+    test(`${channel} fails with 502 when every attachment fails and there is no text`, async () => {
+      sendAttachments.mockImplementationOnce(() => Promise.resolve(allFailed));
+
+      const delivery = deliverDirect(
+        `${BASE}/deliver/${channel}`,
+        payload({ attachments }),
+      );
+
+      await expect(delivery).rejects.toBeInstanceOf(ChannelDeliveryError);
+      await expect(delivery).rejects.toMatchObject({ statusCode: 502 });
+      expect(sendAttachments).toHaveBeenCalledTimes(1);
+    });
+
+    test(`${channel} succeeds when every attachment fails but the text went out`, async () => {
+      sendAttachments.mockImplementationOnce(() => Promise.resolve(allFailed));
+
+      const result = await deliverDirect(
+        `${BASE}/deliver/${channel}`,
+        payload({ text: "hi", attachments }),
+      );
+
+      expect(result.ok).toBe(true);
+      expect(sendAttachments).toHaveBeenCalledTimes(1);
+    });
+  }
 });
 
 describe("unsupported callback", () => {

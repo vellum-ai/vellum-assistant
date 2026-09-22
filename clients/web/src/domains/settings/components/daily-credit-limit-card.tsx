@@ -1,23 +1,23 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useState, type ChangeEvent } from "react";
 
+import {
+  DailyCreditLimitInput,
+  validateDailyLimit,
+} from "@/domains/settings/components/daily-credit-limit-input";
+import { useDailyCreditLimitUpdate } from "@/domains/settings/hooks/use-daily-credit-limit-update";
 import { extractDrfFieldErrors } from "@/domains/settings/utils/drf-errors";
 import {
   organizationsBillingDailyCreditLimitRetrieveOptions,
-  organizationsBillingDailyCreditLimitRetrieveQueryKey,
-  organizationsBillingDailyCreditLimitRetrieveSetQueryData,
-  organizationsBillingDailyCreditLimitUpdateMutation,
   organizationsBillingSummaryRetrieveOptions,
-  organizationsBillingSummaryRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
 import { useAutoTopUpConfigQuery } from "@/hooks/use-auto-top-up-config";
 import { useResumeDailyLimit } from "@/hooks/use-daily-limit-skip";
 import { useScrollToAnchor } from "@/hooks/use-scroll-to-anchor";
-import { t, useTranslation } from "@/i18n";
+import { useTranslation } from "@/i18n";
 import { dailyResetTimePhrase } from "@/utils/daily-reset-time";
 import { formatUsd } from "@/utils/format-usd";
 import { Button } from "@vellumai/design-library/components/button";
-import { Input } from "@vellumai/design-library/components/input";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
@@ -29,30 +29,6 @@ import { Toggle } from "@vellumai/design-library/components/toggle";
 export const DAILY_CREDIT_LIMIT_ANCHOR_ID = "daily-credit-limit";
 
 /**
- * Validate the daily-limit input against the bounds the backend enforces
- * (decimal ≥ $1, two decimal places). Exported so unit tests can exercise it
- * without rendering the card. An empty string is invalid here — turning the
- * limit off is done via the toggle (which clears it to `null`), not by saving
- * a blank amount.
- */
-export function validateDailyLimit(raw: string): string | undefined {
-  const trimmed = raw.trim();
-  if (trimmed === "") {
-    return t("settings:dailyCreditLimitCard.errorEmpty");
-  }
-  const n = parseFloat(trimmed);
-  if (!Number.isFinite(n) || n < 1) {
-    return t("settings:dailyCreditLimitCard.errorMin");
-  }
-  // Reject more than two decimal places (backend requires exactly two; we pad
-  // on save, but can't silently round away cents the user typed).
-  if (!/^\d+(\.\d{1,2})?$/.test(trimmed)) {
-    return t("settings:dailyCreditLimitCard.errorDecimals");
-  }
-  return undefined;
-}
-
-/**
  * Settings → Billing daily credit limit control. Embedded directly inside the
  * Credit Balance card by `BillingPanel.tsx`, under its own enable toggle. When
  * on, an always-visible input caps how much Vellum credit the org can spend per
@@ -62,20 +38,18 @@ export function validateDailyLimit(raw: string): string | undefined {
  * stays locked on.
  *
  * The editable limit comes from the daily-credit-limit endpoint; today's spend
- * for the progress readout comes from the billing summary. Saving invalidates
- * both so the summary's `daily_limit_reached`/`daily_spend_usd` stay in sync.
+ * for the progress readout comes from the billing summary. Saving goes through
+ * `useDailyCreditLimitUpdate`, which refreshes both so the summary's
+ * `daily_limit_reached`/`daily_spend_usd` stay in sync.
  */
 export function DailyCreditLimitCard() {
   const { t } = useTranslation("settings");
-  const queryClient = useQueryClient();
   const limitQuery = useQuery(
     organizationsBillingDailyCreditLimitRetrieveOptions(),
   );
   const summaryQuery = useQuery(organizationsBillingSummaryRetrieveOptions());
   const autoTopUpQuery = useAutoTopUpConfigQuery();
-  const updateMutation = useMutation(
-    organizationsBillingDailyCreditLimitUpdateMutation(),
-  );
+  const updateMutation = useDailyCreditLimitUpdate();
   const resumeMutation = useResumeDailyLimit();
 
   // Deep links (`#daily-credit-limit`) land here once both queries have
@@ -148,21 +122,7 @@ export function DailyCreditLimitCard() {
     updateMutation.mutate(
       { body: { daily_credit_limit_usd: dailyCreditLimitUsd } },
       {
-        onSuccess: (data) => {
-          organizationsBillingDailyCreditLimitRetrieveSetQueryData(
-            queryClient,
-            undefined,
-            data,
-          );
-          void queryClient.invalidateQueries({
-            queryKey: organizationsBillingDailyCreditLimitRetrieveQueryKey(),
-          });
-          // The summary carries the derived `daily_limit_reached` /
-          // `daily_credit_limit_usd` fields the chat banner and this readout
-          // depend on, so refresh it too.
-          void queryClient.invalidateQueries({
-            queryKey: organizationsBillingSummaryRetrieveQueryKey(),
-          });
+        onSuccess: () => {
           setDraft(null);
           setTouched(false);
           if (dailyCreditLimitUsd === null) {
@@ -247,21 +207,12 @@ export function DailyCreditLimitCard() {
           <>
             <div className="flex flex-wrap items-start gap-2">
               <div className="w-60 max-w-full">
-                <Input
-                  type="number"
-                  step="0.01"
-                  min="1"
-                  label={t("dailyCreditLimitCard.inputLabel")}
-                  helperText={t("dailyCreditLimitCard.helperText", {
-                    time: resetPhrase,
-                  })}
-                  placeholder="0.00"
+                <DailyCreditLimitInput
                   value={value}
                   onChange={onChange}
                   onBlur={() => setTouched(true)}
                   errorText={visibleError}
                   data-testid="daily-credit-limit-input"
-                  fullWidth
                 />
               </div>
               {/*

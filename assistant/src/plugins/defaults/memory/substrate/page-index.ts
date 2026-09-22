@@ -19,7 +19,13 @@
  * concept pages or seeded skill entries change.
  */
 
+import { safeStringSlice } from "@vellumai/plugin-api";
+
 import { getLogger } from "../logging.js";
+import {
+  CLI_COMMAND_SLUG_PREFIX,
+  SKILL_SLUG_PREFIX,
+} from "./capability-slugs.js";
 import { type DanglingLink, findDanglingLinks } from "./page-links.js";
 import {
   getPageMtimeMs,
@@ -47,7 +53,11 @@ const SUMMARY_MAX_LENGTH = 200;
  * and corrupt the format the router parses.
  */
 function normalizeSummary(raw: string): string {
-  return raw.replace(/\s+/g, " ").trim().slice(0, SUMMARY_MAX_LENGTH);
+  return safeStringSlice(
+    raw.replace(/\s+/g, " ").trim(),
+    0,
+    SUMMARY_MAX_LENGTH,
+  );
 }
 
 /**
@@ -171,10 +181,7 @@ export async function getPageIndex(workspaceDir: string): Promise<PageIndex> {
     freshAt: number | null;
   }
 
-  const [
-    { listSkillEntries, SKILL_SLUG_PREFIX },
-    { listCliCommandEntries, CLI_COMMAND_SLUG_PREFIX },
-  ] = await Promise.all([
+  const [{ listSkillEntries }, { listCliCommandEntries }] = await Promise.all([
     import("./skill-store.js"),
     import("./cli-command-store.js"),
   ]);

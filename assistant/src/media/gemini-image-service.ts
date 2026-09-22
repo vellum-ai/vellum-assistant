@@ -71,6 +71,7 @@ async function generateImageViaProxy(
   model: string,
   contents: unknown[],
   config: Record<string, unknown>,
+  signal: AbortSignal | undefined,
 ): Promise<{
   images: GeneratedImage[];
   text?: string;
@@ -87,6 +88,7 @@ async function generateImageViaProxy(
       contents,
       generationConfig: config,
     }),
+    ...(signal ? { signal } : {}),
   });
 
   if (!response.ok) {
@@ -165,7 +167,13 @@ export async function generateImage(
   // the managed proxy translating to Vertex internally.
   if (credentials.type === "managed-proxy") {
     const makeSingleCall = () =>
-      generateImageViaProxy(credentials, model, contents, config);
+      generateImageViaProxy(
+        credentials,
+        model,
+        contents,
+        config,
+        request.signal,
+      );
 
     if (variants === 1) {
       const result = await makeSingleCall();
@@ -215,7 +223,9 @@ export async function generateImage(
     const response = await client.models.generateContent({
       model,
       contents,
-      config,
+      config: request.signal
+        ? { ...config, abortSignal: request.signal }
+        : config,
     });
 
     const images: GeneratedImage[] = [];

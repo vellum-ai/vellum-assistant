@@ -1,11 +1,10 @@
 /**
  * Tests for the browser live-voice WebSocket client.
  *
- * `mintVelayWsToken` is mocked at module scope so no real HTTP/SDK call
- * happens; `buildLiveVoiceWsUrl` is kept real so we exercise the genuine
- * connection.ts URL builder (no hardcoded host in the client). The WebSocket is
- * a hand-rolled fake injected via the client's `webSocketFactory` option — no
- * global patching needed.
+ * `resolveLiveVoiceWsUrl` is mocked at module scope to compose the velay URL
+ * the client would dial, so no real HTTP/SDK call happens. The WebSocket is a
+ * hand-rolled fake injected via the client's `webSocketFactory` option, so no
+ * global patching is needed.
  *
  * Coverage: start-frame on open, every server frame -> typed event, binary
  * audio passthrough, connect timeout when no `ready`, `busy` handling, mint
@@ -144,6 +143,7 @@ async function connectAndGetSocket(
     turnDetection?: "manual" | "server_vad";
     silenceThresholdMs?: number;
     bargeInMinSpeechMs?: number;
+    entry?: "companion";
   } = { assistantId: "assistant-1" },
 ): Promise<FakeWebSocket> {
   await client.connect(args);
@@ -201,6 +201,8 @@ describe("connect", () => {
         type: "start",
         client: "web",
         textInput: true,
+        sessionControls: ["end", "mute"],
+        lookFrames: true,
         audio: { mimeType: "audio/pcm", sampleRate: 16000, channels: 1 },
         conversationId: "conv-xyz",
       },
@@ -215,6 +217,8 @@ describe("connect", () => {
       type: "start",
       client: "web",
       textInput: true,
+      sessionControls: ["end", "mute"],
+      lookFrames: true,
       audio: { mimeType: "audio/pcm", sampleRate: 16000, channels: 1 },
     });
   });
@@ -228,6 +232,8 @@ describe("connect", () => {
     ws.open();
 
     expect(ws.sentJson[0]).toMatchObject({ type: "start", textInput: true });
+    // Every surface this client runs on can end and mute when asked out loud.
+    expect(ws.sentJson[0]).toMatchObject({ sessionControls: ["end", "mute"] });
   });
 
   test("reports the detected OS surface as the start frame's client", async () => {
@@ -242,6 +248,16 @@ describe("connect", () => {
     expect(ws.sentJson[0]).toMatchObject({ client: "web" });
   });
 
+  test("sends the entry point on the start frame when given", async () => {
+    const ws = await connectAndGetSocket(makeClient(), {
+      assistantId: "assistant-1",
+      entry: "companion",
+    });
+    ws.open();
+
+    expect(ws.sentJson[0]).toMatchObject({ type: "start", entry: "companion" });
+  });
+
   test("includes turnDetection in the start frame when provided", async () => {
     const ws = await connectAndGetSocket(makeClient(), {
       assistantId: "assistant-1",
@@ -253,6 +269,8 @@ describe("connect", () => {
         type: "start",
         client: "web",
         textInput: true,
+        sessionControls: ["end", "mute"],
+        lookFrames: true,
         audio: { mimeType: "audio/pcm", sampleRate: 16000, channels: 1 },
         turnDetection: "server_vad",
       },
@@ -272,6 +290,8 @@ describe("connect", () => {
         type: "start",
         client: "web",
         textInput: true,
+        sessionControls: ["end", "mute"],
+        lookFrames: true,
         audio: { mimeType: "audio/pcm", sampleRate: 16000, channels: 1 },
         turnDetection: "server_vad",
         silenceThresholdMs: 1500,
@@ -545,6 +565,110 @@ describe("server frame dispatch", () => {
     const { client, ws } = await ready();
 
     expect(client.sightFrame("att-1")).toBe(true);
+    expect(ws.sentJson.at(-1)).toEqual({
+      type: "sight_frame",
+      attachmentId: "att-1",
+    });
+  });
+
+  test("sightFrame carries the frame's timing when it has one", async () => {
+    const { client, ws } = await ready();
+    const timing = {
+      reason: "forced",
+      armToKeepMs: 40,
+      keepToEncodedMs: 30,
+      encodedToUploadedMs: 200,
+      uploadedToSentMs: 0,
+      bytes: 12345,
+    };
+
+    expect(client.sightFrame("att-1", timing)).toBe(true);
+    expect(ws.sentJson.at(-1)).toEqual({
+      type: "sight_frame",
+      attachmentId: "att-1",
+      timing,
+    });
+  });
+
+  test("negotiates and sends camera lifecycle frames", async () => {
+    const { client, ws } = await ready({ sightSessions: true });
+
+    expect(client.sightStart(7, "live")).toBe(true);
+    expect(
+      client.sightFrame("att-1", undefined, {
+        cameraEpoch: 7,
+        source: "live",
+      }),
+    ).toBe(true);
+    expect(client.sightEnd(7)).toBe(true);
+    expect(ws.sentJson.slice(-3)).toEqual([
+      { type: "sight_start", cameraEpoch: 7, source: "live" },
+      {
+        type: "sight_frame",
+        attachmentId: "att-1",
+        cameraEpoch: 7,
+        source: "live",
+      },
+      { type: "sight_end", cameraEpoch: 7 },
+    ]);
+  });
+
+  test("a refused sight_start keeps the voice session active and sends subsequent frames without lifecycle", async () => {
+    const { client, ws } = await ready({ sightSessions: true });
+    const errors: unknown[] = [];
+    client.on("error", (error) => errors.push(error));
+    expect(client.sightStart(7, "live")).toBe(true);
+    ws.receive({
+      type: "error",
+      seq: 10,
+      code: "invalid_frame",
+      message: "Could not start that camera run.",
+      frameType: "sight_start",
+      recoverable: true,
+    });
+    expect(
+      client.sightFrame("att-1", undefined, { cameraEpoch: 7, source: "live" }),
+    ).toBe(true);
+    expect(ws.sentJson.at(-1)).toEqual({
+      type: "sight_frame",
+      attachmentId: "att-1",
+    });
+    expect(client.sightStart(8, "live")).toBe(false);
+    expect(errors).toEqual([]);
+  });
+
+  test("an individual stale sight_frame does not clear lifecycle negotiation", async () => {
+    const { client, ws } = await ready({ sightSessions: true });
+    expect(client.sightStart(7, "live")).toBe(true);
+    ws.receive({
+      type: "error",
+      seq: 10,
+      code: "invalid_frame",
+      message: "That camera run is no longer active.",
+      frameType: "sight_frame",
+      attachmentId: "att-old",
+      recoverable: true,
+    });
+    expect(
+      client.sightFrame("att-1", undefined, { cameraEpoch: 7, source: "live" }),
+    ).toBe(true);
+    expect(ws.sentJson.at(-1)).toMatchObject({
+      cameraEpoch: 7,
+      source: "live",
+    });
+  });
+
+  test("keeps the legacy frame shape when lifecycle is not negotiated", async () => {
+    const { client, ws } = await ready();
+
+    expect(client.sightStart(7, "live")).toBe(false);
+    expect(
+      client.sightFrame("att-1", undefined, {
+        cameraEpoch: 7,
+        source: "live",
+      }),
+    ).toBe(true);
+    expect(client.sightEnd(7)).toBe(false);
     expect(ws.sentJson.at(-1)).toEqual({
       type: "sight_frame",
       attachmentId: "att-1",
@@ -882,6 +1006,8 @@ describe("sendAudio", () => {
         type: "start",
         client: "web",
         textInput: true,
+        sessionControls: ["end", "mute"],
+        lookFrames: true,
         audio: { mimeType: "audio/pcm", sampleRate: 16000, channels: 1 },
       },
     ]);
@@ -943,6 +1069,8 @@ describe("control frames", () => {
         type: "start",
         client: "web",
         textInput: true,
+        sessionControls: ["end", "mute"],
+        lookFrames: true,
         audio: { mimeType: "audio/pcm", sampleRate: 16000, channels: 1 },
       },
     ]);
@@ -1091,26 +1219,29 @@ describe("teardown", () => {
     expect(errors[0]!.reason).toBe("connection-failed");
   });
 
-  test("a retryable close before ready forwards the code instead of failing", async () => {
-    const client = makeClient();
-    const ws = await connectAndGetSocket(client);
-    ws.open();
+  test.each([1013, 4013])(
+    "retryable close %i before ready forwards the code",
+    async (code) => {
+      const client = makeClient();
+      const ws = await connectAndGetSocket(client);
+      ws.open();
 
-    const errors: unknown[] = [];
-    const closes: { code: number | null; reason: string }[] = [];
-    client.on("error", (e) => errors.push(e));
-    client.on("closed", (info) => closes.push(info));
+      const errors: unknown[] = [];
+      const closes: { code: number | null; reason: string }[] = [];
+      client.on("error", (e) => errors.push(e));
+      client.on("closed", (info) => closes.push(info));
 
-    // velay closes a reconnect's socket before `ready` because its tunnel is
-    // still re-registering — retryable, so the controller must see the code
-    // (and keep its reconnect budget), not a connection-failed error.
-    ws.emitClose(1013, "assistant tunnel disconnected");
+      // velay closes a reconnect's socket before `ready` because its tunnel is
+      // still re-registering. The controller must see the retryable code
+      // (and keep its reconnect budget), not a connection-failed error.
+      ws.emitClose(code, "assistant tunnel disconnected");
 
-    expect(errors).toHaveLength(0);
-    expect(closes).toEqual([
-      { code: 1013, reason: "assistant tunnel disconnected" },
-    ]);
-  });
+      expect(errors).toHaveLength(0);
+      expect(closes).toEqual([
+        { code, reason: "assistant tunnel disconnected" },
+      ]);
+    },
+  );
 
   test("forwards the far-side close code on the closed event", async () => {
     const client = makeClient();

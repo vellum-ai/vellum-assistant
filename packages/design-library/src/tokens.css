@@ -359,6 +359,7 @@
   --system-mid-weak: #FCF3DD;
   --system-info-strong: #467CC8;
   --system-info-weak: #CEDAEC;
+  --notification-attention: #E5484D;
 
   /* Feed identifier */
   --feed-nudge-strong: #DB4B77;
@@ -370,6 +371,14 @@
   --feed-thread-strong: #E9C91A;
   --feed-thread-weak: #EFE8C4;
 
+  /* Decorative accent: two hues the avatar palette carries that no semantic
+     role above already names. Same strong-on-weak shape as the feed
+     identifiers, for the same job of tinting a glyph against its own disc. */
+  --accent-orange-strong: #E9642F;
+  --accent-orange-weak: #FBE3D8;
+  --accent-purple-strong: #A665C9;
+  --accent-purple-weak: #EDE0F5;
+
   /* Aux */
   --aux-white: #FFFFFF;
 
@@ -378,6 +387,12 @@
 
   /* Derived */
   --ring: color-mix(in srgb, var(--system-positive-strong) 30%, transparent);
+  /* Link ink. Tracks the theme's positive-strong, the colour markdown and
+     external links already wear, so a link reads the same wherever it is
+     drawn. Restated per theme block for the same reason as --ring: a var()
+     alias resolves where it is declared. */
+  --content-link: var(--system-positive-strong);
+  --content-link-hover: color-mix(in srgb, var(--system-positive-strong) 80%, transparent);
   --border-overlay: var(--border-disabled);
   --ghost-hover: var(--surface-active);
   --ghost-pressed: var(--border-disabled);
@@ -448,6 +463,7 @@
   --system-mid-weak: #4B3D1E;
   --system-info-strong: #467CC8;
   --system-info-weak: #2A3A50;
+  --notification-attention: #E5484D;
 
   /* Feed identifier */
   --feed-nudge-strong: #DB4B77;
@@ -459,6 +475,13 @@
   --feed-thread-strong: #E9C91A;
   --feed-thread-weak: #464125;
 
+  /* Decorative accent. Strong holds; weak drops to the same band the feed
+     identifiers drop to on a dark ground. */
+  --accent-orange-strong: #E9642F;
+  --accent-orange-weak: #4E3226;
+  --accent-purple-strong: #A665C9;
+  --accent-purple-weak: #3B2C4A;
+
   /* Aux */
   --aux-white: #FFFFFF;
 
@@ -469,6 +492,8 @@
    * --ring tracks the dark --system-positive-strong even when data-theme is
    * applied to a non-root ancestor. */
   --ring: color-mix(in srgb, var(--system-positive-strong) 30%, transparent);
+  --content-link: var(--system-positive-strong);
+  --content-link-hover: color-mix(in srgb, var(--system-positive-strong) 80%, transparent);
   --border-overlay: var(--border-hover);
   --ghost-hover: var(--border-base);
   --ghost-pressed: var(--primary-active);
@@ -539,6 +564,7 @@
   --system-mid-weak: #42321C;
   --system-info-strong: #467CC8;
   --system-info-weak: #2A3A50;
+  --notification-attention: #E5484D;
 
   /* Feed identifier — reuses the dark palette; velvet's accent colors
    * apply at the chrome level (primary, surface) rather than swapping
@@ -552,6 +578,13 @@
   --feed-thread-strong: #E9C91A;
   --feed-thread-weak: #464125;
 
+  /* Decorative accent. Strong holds; weak drops to the same band the feed
+     identifiers drop to on a dark ground. */
+  --accent-orange-strong: #E9642F;
+  --accent-orange-weak: #4E3226;
+  --accent-purple-strong: #A665C9;
+  --accent-purple-weak: #3B2C4A;
+
   /* Aux */
   --aux-white: #FFFFFF;
 
@@ -560,6 +593,8 @@
 
   /* Derived. --ring re-declared so it tracks velvet's positive accent. */
   --ring: color-mix(in srgb, var(--system-positive-strong) 30%, transparent);
+  --content-link: var(--system-positive-strong);
+  --content-link-hover: color-mix(in srgb, var(--system-positive-strong) 80%, transparent);
   --border-overlay: var(--border-hover);
   --ghost-hover: var(--border-base);
   --ghost-pressed: var(--primary-active);
@@ -752,6 +787,59 @@
 @keyframes bottomSheetIn {
   0% { opacity: 0; transform: translateY(100%); }
   100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes detailSheetIn {
+  from { transform: translateY(var(--bottom-sheet-origin-y, 100%)); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes detailSheetOut {
+  from { transform: translateY(var(--bottom-sheet-drag-offset, 0px)); opacity: 1; }
+  to { transform: translateY(100%); opacity: 0; }
+}
+
+@keyframes detailSheetScrimIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes detailSheetScrimOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+[data-slot="bottom-sheet-content"][data-variant="detail"] {
+  animation: detailSheetIn 240ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+[data-slot="bottom-sheet-content"][data-variant="detail"][data-state="closed"] {
+  animation: detailSheetOut 200ms ease-in both;
+}
+
+[data-slot="bottom-sheet-content"][data-variant="detail"][data-state="open"]:is([data-dragging], [data-snapping]) {
+  animation: none;
+  transform: translateY(var(--bottom-sheet-drag-offset, 0px));
+}
+
+[data-slot="bottom-sheet-content"][data-snapping] {
+  transition: transform 180ms ease-out;
+}
+
+[data-slot="bottom-sheet-overlay"][data-variant="detail"] {
+  animation: detailSheetScrimIn 240ms ease-out both;
+}
+
+[data-slot="bottom-sheet-overlay"][data-variant="detail"][data-state="closed"] {
+  animation: detailSheetScrimOut 200ms ease-in both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-slot="bottom-sheet-content"][data-variant="detail"][data-state],
+  [data-slot="bottom-sheet-overlay"][data-variant="detail"][data-state] {
+    animation: none;
+    transition: none;
+  }
 }
 
 /* ---------------------------------------------------------------------------

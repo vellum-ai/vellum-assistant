@@ -1,5 +1,5 @@
 import type { ResponseArtifact } from "@/domains/chat/transcript/response-artifacts";
-import { Fragment, memo, type ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 
 import type {
   MessageItem,
@@ -7,7 +7,8 @@ import type {
 } from "@/domains/chat/transcript/types";
 
 import { TranscriptRow } from "@/domains/chat/transcript/transcript-row";
-import { useTurnStore } from "@/domains/chat/turn-store";
+import { LatestTurnResponse } from "@/domains/chat/transcript/latest-turn-response";
+import { isActivityLive, useTurnStore } from "@/domains/chat/turn-store";
 import type { ConfirmationDecision } from "@/types/event-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 
@@ -105,20 +106,16 @@ export const LatestTurnRow = memo(function LatestTurnRow({
   onStopWorkflow,
   responseArtifactsByKey,
 }: LatestTurnRowProps) {
-  // The response cluster is "streaming" whenever the turn is in flight. This
-  // keeps each response message's last tool-call group expanded for the whole
-  // turn, rather than only during the instants a tool reports `running`.
+  // The response cluster is "streaming" while response output can still
+  // append. This keeps each response message's last tool-call group expanded
+  // between tool updates and settles it while awaiting user input.
   const phase = useTurnStore.use.phase();
-  const isStreaming =
-    phase === "queued" || phase === "thinking" || phase === "streaming";
-  // The last message-kind item of the cluster collapses its hover-actions row
+  const isStreaming = isActivityLive(phase);
+  // The last message-kind item of the cluster is the latest message
   // (see `TranscriptRowProps.isLatestMessage`). Trailing non-message rows —
   // the thinking slot, pending prompts — carry no trailer of their own, so
-  // the flag skips past them; this keeps the space collapsed while the turn
-  // is still streaming, not just after it settles.
-  const lastMessageItem = responseItems.findLast(
-    (item) => item.kind === "message",
-  );
+  // Retry stays on the last assistant message while the turn is still
+  // streaming, not just after it settles.
   return (
     <div className="flex flex-col" data-latest-turn="true">
       <TranscriptRow
@@ -144,39 +141,34 @@ export const LatestTurnRow = memo(function LatestTurnRow({
         onStopSubagent={onStopSubagent}
         onWorkflowClick={onWorkflowClick}
         onStopWorkflow={onStopWorkflow}
-        isLatestMessage={!lastMessageItem}
+        isLatestMessage={!responseItems.some((item) => item.kind === "message")}
       />
-      {responseItems.map((response) => (
-        <Fragment key={response.key}>
-          <TranscriptRow
-            item={response}
-            conversationId={conversationId}
-            acpConnectInlineToolUseId={acpConnectInlineToolUseId}
-            assistantDisplayName={assistantDisplayName}
-            onSurfaceAction={onSurfaceAction}
-            onForkConversation={onForkConversation}
-            onSummarizeUpToHere={onSummarizeUpToHere}
-            onRetryLatestTurn={onRetryLatestTurn}
-            onInspectMessage={onInspectMessage}
-            renderOnboardingChoice={renderOnboardingChoice}
-            onOpenRuleEditor={onOpenRuleEditor}
-            unknownNudgeToolCallIds={unknownNudgeToolCallIds}
-            onDismissUnknownNudge={onDismissUnknownNudge}
-            onConfirmationSubmit={onConfirmationSubmit}
-            onAllowAndCreateRule={onAllowAndCreateRule}
-            onOpenApp={onOpenApp}
-            onOpenDocument={onOpenDocument}
-            assistantId={assistantId}
-            onSubagentClick={onSubagentClick}
-            onStopSubagent={onStopSubagent}
-            onWorkflowClick={onWorkflowClick}
-            onStopWorkflow={onStopWorkflow}
-            responseArtifacts={responseArtifactsByKey?.get(response.key)}
-            isStreaming={isStreaming}
-            isLatestMessage={response === lastMessageItem}
-          />
-        </Fragment>
-      ))}
+      <LatestTurnResponse
+        responseItems={responseItems}
+        conversationId={conversationId}
+        acpConnectInlineToolUseId={acpConnectInlineToolUseId}
+        assistantDisplayName={assistantDisplayName}
+        onSurfaceAction={onSurfaceAction}
+        onForkConversation={onForkConversation}
+        onSummarizeUpToHere={onSummarizeUpToHere}
+        onRetryLatestTurn={onRetryLatestTurn}
+        onInspectMessage={onInspectMessage}
+        renderOnboardingChoice={renderOnboardingChoice}
+        onOpenRuleEditor={onOpenRuleEditor}
+        unknownNudgeToolCallIds={unknownNudgeToolCallIds}
+        onDismissUnknownNudge={onDismissUnknownNudge}
+        onConfirmationSubmit={onConfirmationSubmit}
+        onAllowAndCreateRule={onAllowAndCreateRule}
+        onOpenApp={onOpenApp}
+        onOpenDocument={onOpenDocument}
+        assistantId={assistantId}
+        onSubagentClick={onSubagentClick}
+        onStopSubagent={onStopSubagent}
+        onWorkflowClick={onWorkflowClick}
+        onStopWorkflow={onStopWorkflow}
+        responseArtifactsByKey={responseArtifactsByKey}
+        isStreaming={isStreaming}
+      />
     </div>
   );
 });

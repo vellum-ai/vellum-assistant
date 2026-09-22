@@ -52,10 +52,7 @@ import { noUntranslatedStrings } from "./eslint-rules/no-untranslated-strings.mj
 const TYPOGRAPHY_VARIANTS = [
   ...readFileSync(
     fileURLToPath(
-      new URL(
-        "../../packages/design-library/src/tokens.css",
-        import.meta.url,
-      ),
+      new URL("../../packages/design-library/src/tokens.css", import.meta.url),
     ),
     "utf8",
   ).matchAll(/@utility\s+text-((?:title|body|label|chat)[a-z-]*)\s*\{/g),
@@ -291,6 +288,32 @@ const emDashEnforcedPaths = [
   // pre-existing em dashes that must not be swept retroactively.
   "src/domains/chat/components/surfaces/watch-retro-surface.tsx",
   "src/domains/chat/components/surfaces/watch-retro-surface.test.tsx",
+  // Chat Info: the panel and its rows, the tiles, the mobile host, the asset
+  // menus, the header trigger, and the hooks the three of them read.
+  "src/domains/chat/components/chat-info*.{ts,tsx}",
+  "src/domains/chat/components/mobile-chat-info-overlay*.tsx",
+  "src/domains/chat/components/conversation-asset*.{ts,tsx}",
+  "src/domains/chat/hooks/daemon-source-state.ts",
+  "src/domains/chat/hooks/use-conversation-assets*.{ts,tsx}",
+  "src/domains/chat/hooks/use-conversation-attachments*.{ts,tsx}",
+  "src/domains/chat/chat-layout-header.stories.tsx",
+  // The attachment preview a tile opens into, and the shared pieces the
+  // panel and its menus draw from, with their stories and tests.
+  "src/domains/chat/components/chat-attachments/attachment-preview-box*.{ts,tsx}",
+  "src/domains/chat/components/chat-attachments/use-attachment-object-url*.{ts,tsx}",
+  "src/components/midline-dot.tsx",
+  "src/hooks/use-share-app*.{ts,tsx}",
+  "src/utils/share-app-with-toast.ts",
+  // Tool detail: the drawer panel, the per-tool renderers it hosts, and the
+  // shared shell, primitives, and copy button they are built from.
+  "src/domains/chat/components/tool-activity/**/*.{ts,tsx}",
+  "src/domains/chat/components/web-fetch/**/*.{ts,tsx}",
+  "src/domains/chat/components/web-search/**/*.{ts,tsx}",
+  "src/domains/chat/components/tool-detail-panel*.{ts,tsx}",
+  "src/domains/chat/components/tool-detail-story-fixtures.ts",
+  "src/components/detail-primitives.tsx",
+  "src/components/copy-button*.tsx",
+  "src/components/detail-shell*.tsx",
 ];
 
 const eslintConfig = defineConfig([

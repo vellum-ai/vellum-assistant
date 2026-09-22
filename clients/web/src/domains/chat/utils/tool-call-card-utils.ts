@@ -14,12 +14,14 @@ import {
 import type {
   ToolActivityMetadata,
   WebSearchResultItem,
-} from "@/assistant/web-activity-types";
+} from "@vellumai/assistant-api";
 import {
   deriveStepLabel,
   type IconName,
 } from "@/domains/chat/components/tool-progress-card/derive-step-label";
+import type { ActionDisplayKey } from "@/domains/chat/components/tool-progress-card/action-display-label";
 import { isSubagentSpawnCall } from "@/domains/chat/transcript/message-content";
+import { readToolInputString } from "@/domains/chat/utils/tool-input";
 import { thinkingPreview } from "@/domains/chat/utils/thinking-preview";
 import {
   extractDomain,
@@ -105,8 +107,7 @@ export type ToolCallCardStep =
       /**
        * Stable key (the originating `tool_call`'s `toolUseId`) that lets the
        * subagent timeline render this search as a clickable pill opening its
-       * nested query + sources detail — matching the key
-       * `buildSubagentStepDetails` emits. Unset for main-chat builders, whose
+       * nested query + sources detail. Unset for main-chat builders, whose
        * searches aren't clickable.
        */
       detailKey?: string;
@@ -140,6 +141,7 @@ export type ToolCallCardStep =
        * fallback used when no activity sentence is present.
        */
       activity: string;
+      actionDisplayKey?: ActionDisplayKey;
       /** Daemon-assigned risk level for the call (e.g. `"low"`), when present. */
       riskLevel?: string;
       iconName: IconName;
@@ -172,6 +174,7 @@ export interface ToolCallCardData {
    * per-kind table in `deriveCurrentStepInfo`.
    */
   currentStepInfo: string;
+  currentStepActionDisplayKey?: ActionDisplayKey;
   /**
    * Kind of the latest step driving the header. `"thinking"` when the run's
    * last built step is a thinking segment (so the card can render a brain
@@ -242,6 +245,18 @@ function isWebTool(tc: ChatMessageToolCall): boolean {
  */
 function webSearchStepTitle(terminal: boolean): string {
   return terminal ? "Searched the web" : "Searching the web";
+}
+
+/**
+ * Header title for a `web_fetch` run once the transcript hides its reasoning.
+ * The default title for one is "Thinking", because a fetch is projected as a
+ * synthesized reasoning step ("Reading <page>"). With the thinking surface
+ * gone that word is the last thing standing, and it named a page read rather
+ * than a thought, so the run says what it did in the tense of its sibling
+ * `webSearchStepTitle`.
+ */
+function webFetchStepTitle(terminal: boolean): string {
+  return terminal ? "Read the web" : "Reading the web";
 }
 
 function clampResults(results: WebSearchResultItem[]): {
@@ -527,13 +542,35 @@ function computeTotalDurationLabel(
  * drawer payload construction lives in one place. Reuses the same
  * `deriveStepLabel` / status / duration derivations the card row uses, so the
  * drawer opens with identical title/activity/status/duration regardless of
- * which affordance the user clicks.
+ * which affordance the user clicks. A web search carries the query and sources
+ * of the same step the card builds for it, so its drawer shows them rather than
+ * raw input and output; a failed one keeps the generic body, where its error
+ * reads in full.
  */
 export function toolDetailPayloadFromToolCall(
   tc: ChatMessageToolCall,
 ): ToolDetailPayload {
   const { title, activity } = deriveStepLabel(tc);
+  const searchStep =
+    tc.name === "web_search" ? buildStepForToolCall(tc, {}) : null;
+  const search: Pick<
+    ToolDetailPayload,
+    "kind" | "searchQuery" | "searchResults"
+  > =
+    searchStep?.kind === "web_search"
+      ? {
+          kind: "web_search",
+          searchQuery:
+            tc.activityMetadata?.webSearch?.query ||
+            readToolInputString(tc.input ?? {}, "query"),
+          searchResults: [
+            ...searchStep.results,
+            ...(searchStep.overflowResults ?? []),
+          ],
+        }
+      : {};
   return {
+    ...search,
     toolCallId: tc.id,
     toolName: tc.name,
     title,
@@ -541,6 +578,7 @@ export function toolDetailPayloadFromToolCall(
     input: tc.input ?? {},
     result: tc.result,
     streamedOutput: tc.streamedOutput,
+    activityMetadata: tc.activityMetadata,
     status: deriveToolStepStatus(tc),
     riskLevel: tc.riskLevel,
     riskReason: tc.riskReason,
@@ -549,7 +587,8 @@ export function toolDetailPayloadFromToolCall(
 }
 
 function buildToolStep(tc: ChatMessageToolCall): ToolCallCardStep {
-  const { title, info, activity, iconName } = deriveStepLabel(tc);
+  const { title, info, activity, actionDisplayKey, iconName } =
+    deriveStepLabel(tc);
   return {
     kind: "tool",
     durationLabel: computeToolDurationLabel(tc),
@@ -557,11 +596,21 @@ function buildToolStep(tc: ChatMessageToolCall): ToolCallCardStep {
     title,
     info,
     activity,
+    actionDisplayKey,
     riskLevel: tc.riskLevel,
     iconName,
     toolCallId: tc.id,
     status: deriveToolStepStatus(tc),
   };
+}
+
+function deriveActionDisplayLabel(
+  toolCall: ChatMessageToolCall | undefined,
+): ReturnType<typeof deriveStepLabel> | undefined {
+  if (!toolCall || isWebTool(toolCall)) {
+    return undefined;
+  }
+  return deriveStepLabel(toolCall);
 }
 
 // ---------------------------------------------------------------------------
@@ -584,6 +633,7 @@ function buildToolStep(tc: ChatMessageToolCall): ToolCallCardStep {
 function deriveCurrentStepTitle(
   toolCalls: ChatMessageToolCall[],
   liveWebActivity: Record<string, ToolActivityMetadata>,
+  hideThinkingUi: boolean,
 ): string {
   for (let i = toolCalls.length - 1; i >= 0; i--) {
     const tc = toolCalls[i]!;
@@ -600,7 +650,7 @@ function deriveCurrentStepTitle(
         return webSearchStepTitle(terminal);
       }
       if (tc.name === "web_fetch") {
-        return "Thinking";
+        return hideThinkingUi ? webFetchStepTitle(terminal) : "Thinking";
       }
     } else {
       return deriveStepLabel(tc).title;
@@ -650,8 +700,7 @@ function deriveCurrentStepInfo(
 
     if (tc.name === "web_search") {
       if (!terminal) {
-        const query =
-          typeof tc.input?.query === "string" ? tc.input.query.trim() : "";
+        const query = readToolInputString(tc.input ?? {}, "query");
         return query ? `Searching ${query}` : "";
       }
       if (typeof tc.result === "string") {
@@ -666,7 +715,7 @@ function deriveCurrentStepInfo(
     }
 
     if (tc.name === "web_fetch") {
-      const url = typeof tc.input?.url === "string" ? tc.input.url : "";
+      const url = readToolInputString(tc.input ?? {}, "url");
       const host = url ? extractDomain(url) : "";
       if (host) {
         return terminal ? host : `Reading ${host}`;
@@ -765,6 +814,18 @@ function deriveCardState(
  * between tool steps (e.g. `thinking → tool → thinking`) rather than only
  * prepending a single leading-thinking step ahead of all tools.
  */
+/** Render-time choices the projection cannot read for itself. */
+export interface ToolCallCardDataOptions {
+  /**
+   * Whether the transcript hides the assistant's reasoning (see
+   * `useHideThinkingUi`). The card carries no reasoning of its own, but one
+   * header title stands in for it, and that title has to change with the rest.
+   */
+  hideThinkingUi?: boolean;
+  /** The owning transcript group is the active trailing group for this turn. */
+  active?: boolean;
+}
+
 export type ToolCallCardItem =
   | {
       kind: "thinking";
@@ -828,6 +889,7 @@ export function computeToolCallCardDataFromItems(
   items: ToolCallCardItem[],
   liveWebActivity: Record<string, ToolActivityMetadata>,
   nowMs?: number,
+  options: ToolCallCardDataOptions = {},
 ): ToolCallCardData {
   const toolCalls = items
     .filter(
@@ -876,7 +938,10 @@ export function computeToolCallCardDataFromItems(
     }
   }
 
-  const state = deriveCardState(renderableToolCalls);
+  const state = combineCardStates([
+    deriveCardState(renderableToolCalls),
+    ...(options.active ? (["loading"] as const) : []),
+  ]);
 
   // The collapsed header reflects the LATEST built step. When the run ends in
   // a genuine thinking segment (e.g. `tool → thinking`), the header carousels
@@ -886,6 +951,7 @@ export function computeToolCallCardDataFromItems(
   // synthetic web placeholders are preserved.
   let currentStepTitle: string;
   let currentStepInfo: string;
+  let currentStepActionDisplayKey: ActionDisplayKey | undefined;
   let currentStepKind: "thinking" | "tool";
   if (trailingThinkingText !== null) {
     currentStepTitle = "Thinking";
@@ -895,11 +961,16 @@ export function computeToolCallCardDataFromItems(
     currentStepTitle = deriveCurrentStepTitle(
       renderableToolCalls,
       liveWebActivity,
+      options.hideThinkingUi ?? false,
     );
     currentStepInfo = deriveCurrentStepInfo(
       renderableToolCalls,
       liveWebActivity,
     );
+    const latestLabel = deriveActionDisplayLabel(renderableToolCalls.at(-1));
+    currentStepActionDisplayKey = latestLabel?.activity
+      ? undefined
+      : latestLabel?.actionDisplayKey;
     currentStepKind = "tool";
   }
 
@@ -913,6 +984,7 @@ export function computeToolCallCardDataFromItems(
   return {
     currentStepTitle,
     currentStepInfo,
+    currentStepActionDisplayKey,
     currentStepKind,
     stepCount,
     totalDurationLabel,
@@ -939,10 +1011,16 @@ export function computeToolCallCardData(
   toolCalls: ChatMessageToolCall[],
   liveWebActivity: Record<string, ToolActivityMetadata>,
   nowMs?: number,
+  options: ToolCallCardDataOptions = {},
 ): ToolCallCardData {
   const items: ToolCallCardItem[] = toolCalls.map((tc) => ({
     kind: "toolCall",
     toolCall: tc,
   }));
-  return computeToolCallCardDataFromItems(items, liveWebActivity, nowMs);
+  return computeToolCallCardDataFromItems(
+    items,
+    liveWebActivity,
+    nowMs,
+    options,
+  );
 }

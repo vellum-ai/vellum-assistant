@@ -67,6 +67,10 @@ export function ProgressCard() {
     !isTerminal &&
     (progress?.status === "in_progress" ||
       (progress?.steps.some((step) => step.status === "in_progress") ?? false));
+  // Neither: the plan was shown and then left with no step in flight and no
+  // outcome asserted, which is how the daemon parks a plan when the turn that
+  // drove it ends. It is not finished, so the pill must not say so.
+  const isStopped = !isTerminal && !isRunning;
 
   const surfaceId = surface?.surfaceId ?? null;
   const acknowledged = useProgressAckStore((s) =>
@@ -103,11 +107,14 @@ export function ProgressCard() {
   // otherwise unmount the panel mid-interaction.
   const visible = progress != null && (isRunning || !acknowledged || open);
 
-  // The control names its own state: a running plan reads "Progress", a settled
-  // one "Finished". The glyph carries the same distinction, and while running
-  // it carries the plan's position too.
+  // The control names its own state: a running plan reads "Progress", a
+  // finished one "Finished", a parked one "Stopped". The glyph carries the same
+  // distinction: a check only once the plan is finished, and otherwise the ring,
+  // which carries the plan's position whether or not it is still moving.
   const label = isRunning
     ? t("progressRail.title")
+    : isStopped
+    ? t("progressRail.titleStopped")
     : t("progressRail.titleFinished");
   const counter = progress
     ? taskProgressCounter(progress.steps)
@@ -126,10 +133,10 @@ export function ProgressCard() {
       aria-label={label}
       data-testid="progress-card-toggle"
       leftIcon={
-        isRunning ? (
-          <StepProgressRing current={counter.current} total={counter.total} />
-        ) : (
+        isTerminal ? (
           <CircleCheck />
+        ) : (
+          <StepProgressRing current={counter.current} total={counter.total} />
         )
       }
       className="px-3"
@@ -154,9 +161,9 @@ export function ProgressCard() {
           <AdaptivePopover
             trigger={trigger}
             title={t("progressRail.title")}
-        // The body leads with the plan's own title; a second heading above it
-        // just said "Progress" over something already named.
-        hideTitle
+            // The body leads with the plan's own title; a second heading above it
+            // just said "Progress" over something already named.
+            hideTitle
             className="w-[min(600px,calc(100vw-2rem))] p-0"
             contentMaxHeightClassName="max-h-[420px]"
             open={open}

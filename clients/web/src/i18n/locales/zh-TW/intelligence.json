@@ -264,7 +264,9 @@
   },
   "pluginToast": {
     "alreadyUpToDate": "{name} 已是最新版本",
+    "cleanupWarning": "外掛程式清理已完成，但有一項警告。",
     "installed": "已安裝 {name}",
+    "mcpOAuthCredentialsUnchecked": "憑證儲存空間無法使用，因此無法檢查此外掛程式先前的 MCP OAuth 憑證。",
     "pluginFallback": "外掛程式",
     "pluginFallbackCapitalized": "外掛程式",
     "removed": "已移除 {name}",
@@ -446,5 +448,9 @@
     "system": "系統",
     "integrations": "整合",
     "other": "其他"
+  },
+  "assistantHandleLine": {
+    "edit": "編輯使用者名稱 @{handle}",
+    "editTitle": "編輯使用者名稱"
   }
 }

@@ -1,3 +1,4 @@
+import { throwIfCancelled } from "../../../../tools/shared/abort.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -60,6 +61,8 @@ export async function run(
     (requestedPlatform as SettingsPlatform | undefined) ??
     (isWindows() ? "windows" : "macos");
   const meta = PANES[pane as PaneName];
+
+  throwIfCancelled(context);
 
   if (context.sendToClient) {
     context.sendToClient({

@@ -57,10 +57,28 @@
  *    carries a flash mode across a flip, so the mode is cleared before the
  *    camera it was set on goes away, and the user's preference is re-applied to
  *    whatever camera arrives next.
+ *
+ * The lamp Live holds on is the same flash under all three rules: one more mode
+ * the probe either names or does not, and engaged state the flip and the
+ * release hand back like any other. It is asked for only where the preference
+ * already says the flash fires, so `auto` maps to no lamp: a lamp has no "when
+ * the scene is dark enough" state to honor. iOS keeps it on the device's own
+ * `torchMode`, which `off`, `on` and `auto` all clear, so the hand-back that
+ * covers the capture flash covers the lamp too; Android carries it as one more
+ * value of the single flash parameter, which `off` clears the same way. Neither
+ * platform fires it for a capture: `captureSample` never touches the flash, and
+ * a still photo uses the capture mode the lamp's path never wrote.
+ *
+ * Coming back from the background is the one moment neither the probe nor the
+ * hand-back covers. Android re-applies the flash parameter it saved; iOS
+ * restores nothing, so the mode is re-stated on the bus's foreground edge. iOS
+ * can also refuse the lamp under thermal pressure, which arrives as a failed
+ * bridge call and is not retried.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { isNativeMobile } from "@/runtime/platform-detection";
 import {
   captureNativeVoiceCameraFrame,
@@ -124,6 +142,15 @@ const VIEWFINDER_IDEAL_HEIGHT = 1080;
  * `red-eye` sits in the plugin's type union with nothing behind it on iOS.
  */
 const CYCLED_FLASH_MODES: FlashMode[] = ["off", "auto", "on"];
+
+/**
+ * The plugin's name for the lamp held on continuously: a flash mode on the
+ * wire, and a device state of its own underneath.
+ */
+const TORCH_MODE = "torch";
+
+/** A capture-flash mode or the lamp, in the vocabulary the bridge takes. */
+type AppliedFlashMode = FlashMode | typeof TORCH_MODE;
 
 /**
  * The "this camera cannot flash" answer, as one shared value.
@@ -280,6 +307,14 @@ export interface VoiceCamera {
    * whenever one that can take it arrives.
    */
   readonly flashAvailable: boolean;
+  /**
+   * True while the camera that is running can hold its lamp on.
+   *
+   * A separate answer from {@link flashAvailable}: most rear cameras report
+   * both, but a camera that can fire a capture flash and cannot hold a lamp is
+   * a camera the light has nothing to offer on.
+   */
+  readonly torchSupported: boolean;
   /** Why the last `openCamera()` failed, or null. Cleared on the next attempt. */
   readonly error: VoiceCameraError | null;
   /** Request camera access and start the viewfinder. Call directly from a tap. */
@@ -290,6 +325,15 @@ export interface VoiceCamera {
   flipCamera: () => Promise<void>;
   /** Encode the current frame, or null if there is nothing to capture. */
   captureFrame: () => Promise<File | null>;
+  /**
+   * Ask for the lamp, or give it up. Honored only where the camera reported one
+   * and the flash preference already says the flash fires.
+   *
+   * A setter rather than an option because the surface that knows the answer
+   * learns it after this hook runs: the room reads Live off a sight hook it
+   * hands this camera to.
+   */
+  setTorch: (wanted: boolean) => void;
 }
 
 export interface VoiceCameraOptions {
@@ -351,6 +395,9 @@ export function useVoiceCamera(
   const [error, setError] = useState<VoiceCameraError | null>(null);
   const [supportedFlashModes, setSupportedFlashModes] =
     useState<string[]>(NO_FLASH_MODES);
+  // Whether the surface holding this camera is asking for the lamp. What the
+  // camera and the preference then make of that is decided below.
+  const [torchWanted, setTorchWanted] = useState(false);
   const flashMode = useVoicePrefsStore.use.flashMode();
 
   /**
@@ -794,23 +841,63 @@ export function useVoiceCamera(
     native &&
     CYCLED_FLASH_MODES.every((mode) => supportedFlashModes.includes(mode));
 
-  // Put the user's preference on whatever camera can take it, and take it back
-  // off the moment one cannot.
+  // Read off the same probe result the control is offered on, so it inherits
+  // every epoch guard that answer already carries: the list is cleared on each
+  // acquire and each flip, and an answer that outlived the camera it asked
+  // about never lands here at all.
+  const torchSupported = native && supportedFlashModes.includes(TORCH_MODE);
+
+  /**
+   * The mode the running camera is holding, or null while no camera can take
+   * one.
+   *
+   * One rule for both lights. The lamp goes on only where the surface asked for
+   * it, the camera named it, and the preference already says the flash fires;
+   * everything else is the preference itself. `off` is stated as explicitly as
+   * the other two rather than assumed, because the hand-back on the way out is
+   * best effort and the mode it failed to clear is one this camera would
+   * otherwise open holding.
+   */
+  const appliedFlashMode: AppliedFlashMode | null = !flashAvailable
+    ? null
+    : torchWanted && torchSupported && flashMode === "on"
+      ? TORCH_MODE
+      : flashMode;
+
+  // Put that mode on whatever camera can take it, and take it back off the
+  // moment one cannot.
   //
-  // Keyed on the capability rather than on the open, so it covers all three
-  // moments that need it with one rule: the camera opening, the user cycling
-  // the control, and a flip landing on a camera that answered the probe
-  // differently. `off` is stated as explicitly as the other two rather than
-  // assumed, because the hand-back on the way out is best effort and the mode
-  // it failed to clear is one this camera would otherwise open holding.
+  // Keyed on the mode rather than on the open, so it covers every moment that
+  // needs it with one rule: the camera opening, the user cycling the control,
+  // the lamp being asked for or given up, and a flip landing on a camera that
+  // answered the probe differently. The lamp riding `flashEngagedRef` is what
+  // routes it through the hand-backs the flip and the release already make.
   useEffect(() => {
-    if (!flashAvailable) {
+    if (appliedFlashMode === null) {
       flashEngagedRef.current = false;
       return;
     }
-    flashEngagedRef.current = flashMode !== "off";
-    void setNativeVoiceCameraFlashMode(flashMode);
-  }, [flashAvailable, flashMode]);
+    flashEngagedRef.current = appliedFlashMode !== "off";
+    void setNativeVoiceCameraFlashMode(appliedFlashMode);
+  }, [appliedFlashMode]);
+
+  // Coming back to the front. Android re-applies the flash parameter it saved
+  // across a backgrounding, and a re-send it does not need is a no-op; iOS
+  // restores nothing, so the mode the camera is holding is stated again here.
+  // The bus's edge rather than a `visibilitychange` listener, since the mobile
+  // shells can report a background with no DOM event at all. `online` is a
+  // reachability flip rather than a foreground, and nothing about the hardware
+  // changed under it.
+  useBusSubscription("app.resume", ({ signal }) => {
+    if (
+      signal === "online" ||
+      appliedFlashMode === null ||
+      appliedFlashMode === "off"
+    ) {
+      return;
+    }
+    void setNativeVoiceCameraFlashMode(appliedFlashMode);
+  });
 
   return {
     open,
@@ -818,10 +905,12 @@ export function useVoiceCamera(
     native,
     facing,
     flashAvailable,
+    torchSupported,
     error,
     openCamera,
     closeCamera,
     flipCamera,
     captureFrame,
+    setTorch: setTorchWanted,
   };
 }

@@ -15,6 +15,7 @@ import { HeaderStepCarousel } from "@/domains/chat/components/tool-progress-card
 import { InlineCardStatusIcon } from "@/domains/chat/process-registry/inline-card-status-icon";
 import type { CardSummary } from "@/domains/chat/process-registry/types";
 import { useTranslation } from "@/i18n";
+import { openDetailSheetFromTrigger } from "@/domains/chat/utils/open-detail-sheet-from-trigger";
 
 export interface InlineProcessCardProps {
   /** Pre-projected summary driving the status icon, title, info, and count. */
@@ -86,7 +87,7 @@ export function InlineProcessCard({
         <button
           type="button"
           aria-label={openAriaLabel}
-          onClick={onOpen}
+          onClick={(event) => openDetailSheetFromTrigger(event, () => onOpen?.())}
           className="flex min-w-0 flex-1 cursor-pointer items-center gap-1 text-left"
         >
           {leadingCluster}

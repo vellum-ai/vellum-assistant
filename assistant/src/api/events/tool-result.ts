@@ -29,6 +29,7 @@
 
 import { z } from "zod";
 
+import { ModeSessionSchema } from "../mode-session.js";
 import {
   AllowlistOptionSchema,
   ConfirmationDiffSchema,
@@ -51,6 +52,8 @@ export const WebSearchProviderIdSchema = z.enum([
   "keenable",
   "firecrawl",
   "fastcrw",
+  "searxng",
+  "tinyfish",
 ]);
 
 export type WebSearchProviderId = z.infer<typeof WebSearchProviderIdSchema>;
@@ -59,18 +62,24 @@ export const WebFetchProviderIdSchema = z.enum([
   "default",
   "firecrawl",
   "fastcrw",
+  "tinyfish",
 ]);
 
 export type WebFetchProviderId = z.infer<typeof WebFetchProviderIdSchema>;
 
 export const WebSearchResultItemSchema = z.object({
+  /** 1-indexed. */
   rank: z.number(),
   title: z.string(),
   url: z.string(),
+  /** The lowercased host. */
   domain: z.string(),
   faviconUrl: z.string().optional(),
+  /** Absent for `anthropic-native`, whose content is encrypted. */
   snippet: z.string().optional(),
+  /** A freshness hint; Brave only. */
   age: z.string().optional(),
+  /** Tavily only. */
   score: z.number().optional(),
 });
 
@@ -107,9 +116,84 @@ export const WebFetchMetadataSchema = z.object({
 
 export type WebFetchMetadata = z.infer<typeof WebFetchMetadataSchema>;
 
+/** A place `recall` searches. */
+export const RecallSourceSchema = z.enum([
+  "memory",
+  "conversations",
+  "workspace",
+]);
+
+export type RecallSource = z.infer<typeof RecallSourceSchema>;
+
+/** How hard `recall` searches: more depth, more rounds across the sources. */
+export const RecallDepthSchema = z.enum(["fast", "standard", "deep"]);
+
+export type RecallDepth = z.infer<typeof RecallDepthSchema>;
+
+/** One piece of evidence a `recall` result stands on. */
+export const RecallEvidenceItemSchema = z.object({
+  source: RecallSourceSchema,
+  title: z.string(),
+  /** Where in its source: a memory page, a conversation and when, a file and line. */
+  locator: z.string(),
+  /** The excerpt, collapsed to one line and cut to a few hundred characters. */
+  excerpt: z.string(),
+  timestampMs: z.number().optional(),
+  /**
+   * The workspace-relative file the item was found in, for a workspace file or
+   * a memory page, so a client can open it.
+   */
+  path: z.string().optional(),
+  /** The conversation the item was found in, so a client can open it. */
+  conversationId: z.string().optional(),
+  /** The message in that conversation, so a client can open it there. */
+  messageId: z.string().optional(),
+});
+
+export type RecallEvidenceItem = z.infer<typeof RecallEvidenceItemSchema>;
+
+/** How one source fared: searched, or degraded with the reason. */
+export const RecallSearchedSourceSchema = z.object({
+  source: RecallSourceSchema,
+  status: z.enum(["searched", "degraded"]),
+  evidenceCount: z.number(),
+  error: z.string().optional(),
+});
+
+export type RecallSearchedSource = z.infer<typeof RecallSearchedSourceSchema>;
+
+/**
+ * A `recall` call as structured data: what it searched for and how, the answer
+ * when one was written, the evidence it stands on, and how each source fared.
+ * The same result the tool's text gives the model, for a client to lay out.
+ */
+export const RecallMetadataSchema = z.object({
+  query: z.string(),
+  depth: RecallDepthSchema,
+  sources: z.array(RecallSourceSchema),
+  /**
+   * The answer written from the evidence. Absent when recall fell back to
+   * listing what it found, or found nothing.
+   */
+  answer: z.string().optional(),
+  evidence: z.array(RecallEvidenceItemSchema),
+  searchedSources: z.array(RecallSearchedSourceSchema),
+});
+
+export type RecallMetadata = z.infer<typeof RecallMetadataSchema>;
+
+/** A `remember` call as structured data: the facts it saved, as written. */
+export const RememberMetadataSchema = z.object({
+  facts: z.array(z.string()),
+});
+
+export type RememberMetadata = z.infer<typeof RememberMetadataSchema>;
+
 export const ToolActivityMetadataSchema = z.object({
   webSearch: WebSearchMetadataSchema.optional(),
   webFetch: WebFetchMetadataSchema.optional(),
+  recall: RecallMetadataSchema.optional(),
+  remember: RememberMetadataSchema.optional(),
 });
 
 export type ToolActivityMetadata = z.infer<typeof ToolActivityMetadataSchema>;
@@ -126,6 +210,7 @@ export const ToolResultEventSchema = z.object({
   imageDataList: z.array(z.string()).optional(),
   toolUseId: z.string().optional(),
   messageId: z.string().optional(),
+  modeSession: ModeSessionSchema.optional(),
   riskLevel: z.string().optional(),
   riskReason: z.string().optional(),
   matchedTrustRuleId: z.string().optional(),

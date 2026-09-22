@@ -17,6 +17,7 @@ import {
   LS_IMAGE_GEN_PROVIDER,
 } from "@/utils/local-settings-keys";
 import {
+  DEFAULT_OPENROUTER_IMAGE_MODEL,
   IMAGE_GEN_PROVIDER_DISPLAY_NAMES,
   IMAGE_GEN_PROVIDERS,
   IMAGE_GEN_MODEL_DISPLAY_NAMES,
@@ -47,6 +48,13 @@ import { whenAssistantVersionKnown } from "@/lib/backwards-compat/utils";
 
 const DEFAULT_IMAGE_GEN_MODEL = "gemini-3.1-flash-image-preview";
 
+function apiKeyProvider(provider: string, model: string): string {
+  if (provider === "openrouter") {
+    return "openrouter";
+  }
+  return providerForImageGenModel(model);
+}
+
 export function ImageGenerationCard() {
   const { t } = useTranslation("settings");
   const assistantId = useActiveAssistantId();
@@ -70,34 +78,55 @@ export function ImageGenerationCard() {
   });
   const provisionProviderKey = useProvisionProviderKey();
 
+  const imageGenService = daemonConfig?.services?.["image-generation"] as
+    | { provider?: string; mode?: string; model?: string }
+    | undefined;
+
   // Server value derived from daemon config, falling back to localStorage.
   // Updates automatically when the cache refreshes.
   const serverProvider = useMemo((): string => {
     if (!daemonConfig) {
       return getLocalSetting(LS_IMAGE_GEN_PROVIDER, "gemini");
     }
-    const svc = daemonConfig.services?.["image-generation"] as
-      { provider?: string; mode?: string } | undefined;
     // A config written by the legacy mode toggle marks managed via `mode` —
     // the daemon routes it to Vellum, so the card renders it as Vellum too.
-    if (svc?.mode === "managed") {
+    if (imageGenService?.mode === "managed") {
       return "vellum";
     }
-    return svc?.provider || getLocalSetting(LS_IMAGE_GEN_PROVIDER, "gemini");
-  }, [daemonConfig]);
+    return (
+      imageGenService?.provider ||
+      getLocalSetting(LS_IMAGE_GEN_PROVIDER, "gemini")
+    );
+  }, [daemonConfig, imageGenService?.mode, imageGenService?.provider]);
 
   const [provider, setDraftProvider] = useDraftOverride(serverProvider);
 
   const [imageGenModel, setImageGenModel] = useState(() =>
     getLocalSetting(LS_IMAGE_GEN_MODEL, DEFAULT_IMAGE_GEN_MODEL),
   );
+  // Separate draft so a partially typed OpenRouter slug is never judged
+  // valid or invalid by whether it contains `/`.
+  const [openrouterModelDraft, setOpenrouterModelDraft] = useState<
+    string | null
+  >(null);
+  const serverOpenRouterModel =
+    serverProvider === "openrouter" && typeof imageGenService?.model === "string"
+      ? imageGenService.model
+      : undefined;
+  const openrouterModelValue =
+    openrouterModelDraft ??
+    serverOpenRouterModel ??
+    getLocalSetting(LS_IMAGE_GEN_MODEL, DEFAULT_OPENROUTER_IMAGE_MODEL);
   // Reconcile the stored model against the provider's list on every render,
   // not just on a provider change — a stale stored model (e.g. gpt-image-2
   // under a Gemini config) must never reach a save or a key provisioning.
+  const isOpenRouter = provider === "openrouter";
   const providerModels = imageGenModelsForProvider(provider);
-  const effectiveModel = providerModels.includes(imageGenModel)
-    ? imageGenModel
-    : (providerModels[0] ?? DEFAULT_IMAGE_GEN_MODEL);
+  const effectiveModel = isOpenRouter
+    ? openrouterModelValue.trim() || DEFAULT_OPENROUTER_IMAGE_MODEL
+    : providerModels.includes(imageGenModel)
+      ? imageGenModel
+      : (providerModels[0] ?? DEFAULT_IMAGE_GEN_MODEL);
   const [imageGenApiKey, setImageGenApiKey] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -115,7 +144,8 @@ export function ImageGenerationCard() {
     [provider],
   );
 
-  const requiresApiKey = provider === "gemini" || provider === "openai";
+  const requiresApiKey =
+    provider === "gemini" || provider === "openai" || provider === "openrouter";
 
   const { hasStoredCredential: imageGenHasStoredKey } =
     useStoredCredentialPresence({
@@ -125,31 +155,39 @@ export function ImageGenerationCard() {
       enabled: requiresApiKey,
     });
 
-  // Model reconciliation is derived (`effectiveModel`), so a provider change
-  // needs no imperative snap.
-  const handleProviderChange = setDraftProvider;
+  const handleProviderChange = useCallback(
+    (next: string) => {
+      setDraftProvider(next);
+      if (next === "openrouter" && openrouterModelDraft === null) {
+        setOpenrouterModelDraft(
+          serverOpenRouterModel ?? DEFAULT_OPENROUTER_IMAGE_MODEL,
+        );
+      }
+    },
+    [openrouterModelDraft, serverOpenRouterModel, setDraftProvider],
+  );
 
   const handleSave = useCallback(async () => {
     setSaving(true);
     const trimmed = imageGenApiKey.trim();
     const hasUserKey = requiresApiKey && trimmed.length > 0;
     try {
-      if (hasUserKey) {
-        await provisionProviderKey(
-          providerForImageGenModel(effectiveModel),
-          trimmed,
-        );
-      }
       // The provider is written as a pair with `mode`: a stale
       // `mode: "managed"` from the legacy toggle would win over a BYOK choice
-      // unless reset. Only the `vellum` value is unrepresentable on daemons
-      // older than its enum entry — for those a Vellum selection writes the
+      // unless reset. Only the `vellum` value is unrepresentable on assistants
+      // older than its enum entry. For those a Vellum selection writes the
       // legacy managed mode alone (the read bridge renders that pair as
       // Vellum), while BYOK providers keep their explicit provider write.
       await whenAssistantVersionKnown();
+      if (hasUserKey) {
+        await provisionProviderKey(
+          apiKeyProvider(provider, effectiveModel),
+          trimmed,
+        );
+      }
       const vellumUnsupported =
         provider === "vellum" && !supportsImageGenVellumProvider();
-      const imageGenService: {
+      const imageGenServiceBody: {
         provider?: string;
         mode: "managed" | "your-own";
       } = vellumUnsupported
@@ -161,7 +199,7 @@ export function ImageGenerationCard() {
       await configMutation
         .mutateAsync({
           path: { assistant_id: assistantId },
-          body: { services: { "image-generation": imageGenService } },
+          body: { services: { "image-generation": imageGenServiceBody } },
         })
         .catch((error) => {
           toast.error(t("imageGenerationCard.configUpdateFailedToast"));
@@ -222,9 +260,21 @@ export function ImageGenerationCard() {
 
   const handleReset = useCallback(() => {
     setImageGenApiKey("");
+    if (provider === "openrouter") {
+      setOpenrouterModelDraft(DEFAULT_OPENROUTER_IMAGE_MODEL);
+      setLocalSetting(LS_IMAGE_GEN_MODEL, DEFAULT_OPENROUTER_IMAGE_MODEL);
+      return;
+    }
     setImageGenModel(DEFAULT_IMAGE_GEN_MODEL);
     setLocalSetting(LS_IMAGE_GEN_MODEL, DEFAULT_IMAGE_GEN_MODEL);
-  }, []);
+  }, [provider]);
+
+  const apiKeyPlaceholder =
+    provider === "openai"
+      ? t("imageGenerationCard.openaiApiKeyPlaceholder")
+      : provider === "openrouter"
+        ? t("imageGenerationCard.openrouterApiKeyPlaceholder")
+        : t("imageGenerationCard.geminiApiKeyPlaceholder");
 
   return (
     <ByoServiceCard
@@ -257,9 +307,7 @@ export function ImageGenerationCard() {
             value={imageGenApiKey}
             onChange={(e) => setImageGenApiKey(e.target.value)}
             placeholder={secretPlaceholder(
-              provider === "openai"
-                ? t("imageGenerationCard.openaiApiKeyPlaceholder")
-                : t("imageGenerationCard.geminiApiKeyPlaceholder"),
+              apiKeyPlaceholder,
               imageGenHasStoredKey,
             )}
             fullWidth
@@ -270,12 +318,22 @@ export function ImageGenerationCard() {
           <label className="block text-body-small-default text-[var(--content-tertiary)]">
             {t("imageGenerationCard.activeModelLabel")}
           </label>
-          <Select
-            aria-label={t("imageGenerationCard.modelAriaLabel")}
-            value={effectiveModel}
-            onChange={setImageGenModel}
-            options={modelOptions}
-          />
+          {isOpenRouter ? (
+            <Input
+              aria-label={t("imageGenerationCard.modelAriaLabel")}
+              value={openrouterModelValue}
+              onChange={(e) => setOpenrouterModelDraft(e.target.value)}
+              placeholder={t("imageGenerationCard.openrouterModelPlaceholder")}
+              fullWidth
+            />
+          ) : (
+            <Select
+              aria-label={t("imageGenerationCard.modelAriaLabel")}
+              value={effectiveModel}
+              onChange={setImageGenModel}
+              options={modelOptions}
+            />
+          )}
         </div>
 
         <div className="flex items-center gap-2">

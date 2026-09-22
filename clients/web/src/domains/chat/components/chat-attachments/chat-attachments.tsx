@@ -15,10 +15,7 @@ import type {
   ChatAttachment,
   UploadedAttachment,
 } from "@/domains/chat/composer-store";
-import {
-  classifyAttachment,
-  middleTruncate,
-} from "@/domains/chat/components/chat-attachments/utils";
+import { classifyAttachment, middleTruncate } from "@/utils/attachment-utils";
 
 interface ChatAttachmentsStripProps {
   attachments: ChatAttachment[];
@@ -103,6 +100,7 @@ export const ChatAttachmentsStrip: FC<ChatAttachmentsStripProps> = ({
   return (
     <>
       <div
+        data-owns-horizontal-scroll=""
         className={cn(
           "flex gap-2 overflow-x-auto px-3 pb-1.5 [&::-webkit-scrollbar]:hidden [scrollbar-width:none]",
           // The card insets its content 12px on mobile, against the 8px a
@@ -165,7 +163,9 @@ export const ChatAttachmentsStrip: FC<ChatAttachmentsStripProps> = ({
                   iconOnly={<X />}
                   onMouseDown={pressGuard}
                   onClick={() => onRemove(att.localId)}
-                  aria-label={t("chatAttachments.removeAria", { filename: att.filename })}
+                  aria-label={t("chatAttachments.removeAria", {
+                    filename: att.filename,
+                  })}
                 />
               </div>
             );
@@ -186,7 +186,9 @@ export const ChatAttachmentsStrip: FC<ChatAttachmentsStripProps> = ({
                   size="compact"
                   onMouseDown={pressGuard}
                   onClick={() => onRemove(att.localId)}
-                  aria-label={t("chatAttachments.removeAria", { filename: att.filename })}
+                  aria-label={t("chatAttachments.removeAria", {
+                    filename: att.filename,
+                  })}
                   className="ml-0.5 underline"
                 >
                   {t("chatAttachments.dismiss")}

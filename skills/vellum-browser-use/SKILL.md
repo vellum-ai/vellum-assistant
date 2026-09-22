@@ -46,6 +46,8 @@ The response includes:
 - `recommendedMode` — the best available backend (use this)
 - `modes[]` — per-mode status with `available`, `summary`, and `userActions` (remediation steps)
 
+For `--virtual-desktop`, Chrome and desktop components are included in the assistant image. Browser and computer use start the existing desktop without installing dependencies. If components are missing, report the image problem; do not install packages or launch a separate Chrome process.
+
 ## Browser Modes
 
 Use `--browser-mode <mode>` on the `assistant browser` parent command to pin the browser backend:
@@ -75,6 +77,17 @@ If the status check shows the extension is **not available**, encourage the user
 2. Open the extension in Chrome and pair it with the assistant.
 
 The status response's `userActions` array for the `extension` mode provides these same steps when the extension is not connected.
+
+## When a Page Cannot Be Reached
+
+If navigate, curl, or any fetch times out, hits an auth wall, or cannot reach a host (VPN, company login, internal dashboard):
+
+1. Tell the user a connected desktop app or Chrome extension can open the page in a browser where they are already logged in.
+2. Give the install links:
+   - Desktop app: https://www.vellum.ai/downloads
+   - Chrome extension: https://chromewebstore.google.com/detail/vellum-assistant-browser/hphbdmpffeigpcdjkckleobjmhhokpne
+3. Offer those first. Only ask for a screenshot or pasted page content if they cannot install either.
+4. On iOS or Android there is no in-app browser and no extension to install on the phone. Offer the desktop app or Chrome extension on a computer. Do not describe a browser panel.
 
 ### Fallback Modes
 
@@ -165,6 +178,14 @@ The response includes a `screenshots` array with `mediaType` and `data` (base64)
 5. Use `click`, `type`, `press-key`, `scroll`, `select-option`, or `hover` to interact
 6. `assistant browser extract` or `assistant browser screenshot --output <path>` to capture results
 7. **Always** `assistant browser detach` when you are done — this releases the debugger so the user can browse freely
+
+## Human verification
+
+Treat every CAPTCHA and bot-detection challenge as a request for human help, including drag-to-verify sliders, press-and-hold checks, verification checkboxes and image puzzles. Stop before interacting with the challenge, even if its controls look easy to automate. Do not try it yourself, retry it, or script a solution.
+
+In the virtual desktop, request the desktop-help card immediately, using one short sentence for the needed action. Wait for Done or Skip. After Done, take a fresh snapshot; if verification remains, ask for help again. On other browser backends, ask the user to complete verification in their browser and wait for confirmation.
+
+For ordinary logins, use saved credentials or securely prompt for missing credentials, then fill the form yourself. A CAPTCHA on a login page still requires human help.
 
 ## Interaction Strategies
 

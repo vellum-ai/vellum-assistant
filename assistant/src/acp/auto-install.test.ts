@@ -78,7 +78,7 @@ describe("ensureAdapterInstalled", () => {
     expect(args).toEqual([
       "add",
       "--global",
-      "@agentclientprotocol/claude-agent-acp",
+      "@agentclientprotocol/claude-agent-acp@0.75.1",
     ]);
   });
 
@@ -198,8 +198,8 @@ describe("ensureAdapterInstalled", () => {
       (call) => (call[1] as string[])[2],
     );
     expect(installedPackages.sort()).toEqual([
-      "@agentclientprotocol/claude-agent-acp",
-      "@zed-industries/codex-acp",
+      "@agentclientprotocol/claude-agent-acp@0.75.1",
+      "@agentclientprotocol/codex-acp@1.10.0",
     ]);
   });
 });
@@ -232,11 +232,47 @@ describe("resolveAgentWithAutoInstall - resolution order", () => {
     // The resolved command is the REAL binary, not a `bun x` wrapper.
     expect(result.resolved.agent.command).toBe("claude-agent-acp");
     expect(result.autoInstalledPackage).toBe(
-      "@agentclientprotocol/claude-agent-acp",
+      "@agentclientprotocol/claude-agent-acp@0.75.1",
     );
     expect(result.failureMessage).toBeUndefined();
     expect(execFileMock).toHaveBeenCalledTimes(1);
     expect(execFileMock.mock.calls[0][0]).toBe(BUN_BIN);
+  });
+
+  test("missing codex installs the successor package and resolves the same command", async () => {
+    let installed = false;
+    which.setWhich((cmd) => {
+      if (cmd === "bun") {
+        return BUN_BIN;
+      }
+      if (cmd === "codex-acp" && installed) {
+        return "/usr/local/bin/codex-acp";
+      }
+      return null;
+    });
+    execScripts.set(BUN_ADD_KEY, {
+      stdout: "",
+      onCall: () => {
+        installed = true;
+      },
+    });
+
+    const result = await resolveAgentWithAutoInstall("codex");
+
+    expect(result.resolved.ok).toBe(true);
+    if (!result.resolved.ok) {
+      return;
+    }
+    expect(result.resolved.agent.command).toBe("codex-acp");
+    expect(result.autoInstalledPackage).toBe(
+      "@agentclientprotocol/codex-acp@1.10.0",
+    );
+    expect(execFileMock).toHaveBeenCalledTimes(1);
+    expect(execFileMock.mock.calls[0][1]).toEqual([
+      "add",
+      "--global",
+      "@agentclientprotocol/codex-acp@1.10.0",
+    ]);
   });
 
   test("binary missing + bun absent: no install, plain failure with the hint", async () => {
@@ -261,7 +297,7 @@ describe("resolveAgentWithAutoInstall - resolution order", () => {
     expect(result.resolved.ok).toBe(false);
     expect(result.failureMessage).toContain("claude-agent-acp is not on PATH");
     expect(result.failureMessage).toContain(
-      "bun add -g @agentclientprotocol/claude-agent-acp",
+      "bun add -g @agentclientprotocol/claude-agent-acp@0.75.1",
     );
     expect(result.failureMessage).toContain("network is down");
     for (const call of execFileMock.mock.calls) {

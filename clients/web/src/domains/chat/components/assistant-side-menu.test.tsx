@@ -170,6 +170,7 @@ import type { ConversationListFilter } from "@/utils/conversation-list-keys";
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu";
 import { CONVERSATION_LIST_VIRTUALIZE_THRESHOLD } from "@/domains/chat/components/conversation-nav-section";
 import { useSidebarLayoutStore } from "@/domains/chat/sidebar-layout-store";
+import { saveExpandedSections } from "@/domains/chat/utils/sidebar-group-collapse-storage";
 import type * as UsePinnedApps from "@/hooks/use-pinned-apps";
 import { makeAppSummary } from "@/types/app-summary.test-helper";
 import type { AppSummary } from "@/types/app-types";
@@ -227,12 +228,12 @@ function renderMenu(props: {
   collapsed?: boolean;
   variant?: "rail" | "overlay";
   includeFooterAction?: boolean;
-  includeTipCard?: boolean;
   isLoadingConversations?: boolean;
   conversationsFailed?: boolean;
   onRetryConversations?: () => void;
   onWidthChange?: (width: number) => void;
   includeNotificationsAction?: boolean;
+  includeLeadingAction?: boolean;
 }): string {
   setSectionRows(props.conversations);
   const includeFooterAction = props.includeFooterAction ?? true;
@@ -253,11 +254,11 @@ function renderMenu(props: {
       footerAction: includeFooterAction
         ? createElement("span", null, "Preferences")
         : undefined,
-      tipCard: props.includeTipCard
-        ? createElement("span", null, "TipSentinel")
-        : undefined,
       notificationsAction: props.includeNotificationsAction
         ? createElement("span", { "data-testid": "bell-stub" }, "Bell")
+        : undefined,
+      leadingAction: props.includeLeadingAction
+        ? createElement("button", { type: "button" }, "Desktop")
         : undefined,
     }),
   );
@@ -611,91 +612,32 @@ describe("AssistantSideMenu · footer slot behavior", () => {
     expect(html).not.toContain("Preferences");
     expect(html).not.toContain('data-slot="side-menu-footer"');
   });
-});
 
-describe("AssistantSideMenu · tipCard slot", () => {
-  const conversations = [
-    makeConversation({ conversationId: "a", title: "Alpha" }),
-  ];
+  test("renders the footer action on the collapsed rail", () => {
+    const conversations = [
+      makeConversation({ conversationId: "a", title: "Alpha" }),
+    ];
 
-  test("renders the rail footer as tip card, then footer action", () => {
-    const html = renderMenu({ conversations, includeTipCard: true });
+    const html = renderMenu({ conversations, collapsed: true });
 
-    const footerIndex = html.indexOf('data-slot="side-menu-footer"');
-    const tipIndex = html.indexOf("TipSentinel");
-    const actionIndex = html.indexOf("Preferences");
-    expect(footerIndex).toBeGreaterThanOrEqual(0);
-    expect(tipIndex).toBeGreaterThan(footerIndex);
-    expect(actionIndex).toBeGreaterThan(tipIndex);
+    expect(html).toContain("Preferences");
   });
 
-  /* The footer carries no rule, in either direction: not over the tip card
-     and not between it and the action. Scoped to the footer rather than the
-     whole tree so a separator elsewhere in the sidebar cannot mask a rule
-     reappearing here. */
   test("the rail footer carries no separator", () => {
-    const container = parse(
-      renderMenu({ conversations, includeTipCard: true }),
-    );
-
+    const conversations = [
+      makeConversation({ conversationId: "a", title: "Alpha" }),
+    ];
+    const container = parse(renderMenu({ conversations }));
     const footer = container.querySelector<HTMLElement>(
       '[data-slot="side-menu-footer"]',
     );
+
     if (!footer) {
       throw new Error("expected the rail footer");
     }
     expect(
       footer.querySelectorAll('[data-slot="side-menu-separator"]'),
     ).toHaveLength(0);
-  });
-
-  test("hides the tip card on the collapsed rail", () => {
-    const html = renderMenu({
-      conversations,
-      collapsed: true,
-      includeTipCard: true,
-    });
-
-    expect(html).not.toContain("TipSentinel");
-    // The footer action still renders when collapsed.
-    expect(html).toContain("Preferences");
-  });
-
-  test("renders the footer when only the tip card is provided", () => {
-    const html = renderMenu({
-      conversations,
-      includeFooterAction: false,
-      includeTipCard: true,
-    });
-
-    expect(html).toContain('data-slot="side-menu-footer"');
-    expect(html).toContain("TipSentinel");
-    expect(html).not.toContain("Preferences");
-  });
-
-  test("renders the tip card in the overlay floating container above the action pills", () => {
-    const html = renderMenu({
-      conversations,
-      variant: "overlay",
-      includeTipCard: true,
-    });
-
-    const tipIndex = html.indexOf("TipSentinel");
-    const actionIndex = html.indexOf("Preferences");
-    expect(tipIndex).toBeGreaterThanOrEqual(0);
-    expect(actionIndex).toBeGreaterThan(tipIndex);
-    // The wrapper re-enables pointer events inside the pointer-events-none
-    // container and collapses when the tip card renders null.
-    const wrapperOpen = html.lastIndexOf("<div", tipIndex);
-    const wrapper = html.slice(wrapperOpen, tipIndex);
-    expect(wrapper).toContain("pointer-events-auto");
-    expect(wrapper).toContain("empty:hidden");
-  });
-
-  test("omits the tip wrapper from the overlay when no tip card is provided", () => {
-    const html = renderMenu({ conversations, variant: "overlay" });
-
-    expect(html).not.toContain('data-slot="tip-card-wrapper"');
   });
 });
 
@@ -751,11 +693,13 @@ describe("AssistantSideMenu · overlay bottom scroll reserve", () => {
     let measuredHeight = 132;
     let resizeCallback: ResizeObserverCallback | null = null;
 
-    // Only the floating-column ref is measured by the reserve effect, so
-    // matching by tip descendant is safe — ancestors are never measured.
+    const floatingColumnSelector =
+      '[data-slot="side-menu-overlay-bottom-column"]';
+
+    // Only the floating action column is measured by the reserve effect.
     HTMLElement.prototype.getBoundingClientRect =
       function getBoundingClientRect() {
-        if (this.querySelector('[data-testid="overlay-tip"]')) {
+        if (this.matches(floatingColumnSelector)) {
           return {
             bottom: measuredHeight,
             height: measuredHeight,
@@ -779,7 +723,7 @@ describe("AssistantSideMenu · overlay bottom scroll reserve", () => {
         this.callback = callback;
       }
       observe(target: Element) {
-        if (target.querySelector('[data-testid="overlay-tip"]')) {
+        if (target.matches(floatingColumnSelector)) {
           resizeCallback = this.callback;
         }
       }
@@ -797,11 +741,6 @@ describe("AssistantSideMenu · overlay bottom scroll reserve", () => {
           onSelectConversation: () => {},
           onStartNewConversation: () => {},
           footerAction: createElement("span", null, "Preferences"),
-          tipCard: createElement(
-            "span",
-            { "data-testid": "overlay-tip" },
-            "TipSentinel",
-          ),
         }),
       );
 
@@ -820,8 +759,8 @@ describe("AssistantSideMenu · overlay bottom scroll reserve", () => {
         expect(measuredReserve()).toBe("132px");
       });
 
-      // Tip dismissal / copy-length changes resize the column; the
-      // reserve tracks the new height through the ResizeObserver.
+      // Changes to the action row resize the column; the reserve tracks the
+      // new height through the ResizeObserver.
       measuredHeight = 56;
       act(() => {
         resizeCallback?.([], {} as ResizeObserver);
@@ -847,7 +786,7 @@ describe("AssistantSideMenu · new conversation affordance", () => {
     onSelectConversation: () => {},
   };
 
-  test("renders the New Chat row (below the assistant row) when onStartNewConversation is supplied", () => {
+  test("renders the New Chat button (on the assistant row) when onStartNewConversation is supplied", () => {
     const html = renderToStaticMarkup(
       createElement(SideMenuUnderTest, {
         ...baseProps,
@@ -855,21 +794,22 @@ describe("AssistantSideMenu · new conversation affordance", () => {
       }),
     );
 
-    expect(html).toContain(">New Chat<");
-    // It is a button row, not a navigation link.
+    expect(html).toContain('aria-label="New Chat"');
+    // It is an icon button, not a labelled row and not a navigation link.
+    expect(html).not.toContain(">New Chat<");
     expect(html).not.toContain('<a aria-label="New Chat"');
     // The identity leads and the action hangs off it.
     expect(html.indexOf("Your Assistant")).toBeLessThan(
-      html.indexOf(">New Chat<"),
+      html.indexOf('aria-label="New Chat"'),
     );
   });
 
-  test("omits the New Chat row when onStartNewConversation is absent", () => {
+  test("omits the New Chat button when onStartNewConversation is absent", () => {
     const html = renderToStaticMarkup(
       createElement(SideMenuUnderTest, { ...baseProps }),
     );
 
-    expect(html).not.toContain(">New Chat<");
+    expect(html).not.toContain('aria-label="New Chat"');
   });
 
   test("the overlay drawer omits the New Chat row — its floating pill owns the action", () => {
@@ -966,17 +906,18 @@ describe("AssistantSideMenu · native mobile floating glyph row", () => {
     );
   });
 
-  test("search sits in the right cluster beside the notifications bell", () => {
+  test("the leading action sits before search and notifications", () => {
     const container = document.createElement("div");
     container.innerHTML = renderMenu({
       conversations,
       variant: "overlay",
       includeNotificationsAction: true,
+      includeLeadingAction: true,
     });
 
-    // Mirrors the chat header's right cluster: search directly left of the
-    // bell, with the close glyph alone on the other side of the row.
     const cluster = glyph(container, "Search").parentElement;
+    expect(cluster?.firstElementChild?.textContent).toBe("Desktop");
+    expect(cluster?.children[1]?.getAttribute("aria-label")).toBe("Search");
     expect(cluster?.querySelector('[data-testid="bell-stub"]')).not.toBeNull();
     expect(
       cluster?.querySelector('[aria-label="Close navigation"]'),
@@ -1456,12 +1397,12 @@ describe("AssistantSideMenu · section spacing", () => {
 });
 
 describe("AssistantSideMenu · section card surface", () => {
-  /* A conversation row rests transparent, so on touch the swipe layer wrapping
-     it is what actually paints behind the label. Left to its own default that
-     layer takes the panel surface, which is a different colour from the card,
-     and every row in the card reads as a sunken band. The card publishes its
-     own fill so the layer matches whatever the card is. */
-  test("every section card names the fill its swipeable rows sit on", () => {
+  /* A row swiped aside is an opaque cell sliding off the action behind it.
+     The swipe wrapper backs the row with the surface its host names, and the
+     card is what knows its own colour, so the card names it. Nothing paints
+     wider than an item, which is what keeps the pills standing beside these
+     cards free of a band (LUM-3518). */
+  test("every section card names the surface its rows sit on", () => {
     const container = parse(
       renderMenu({
         conversations: LAYOUT_CONVERSATIONS,
@@ -1472,9 +1413,16 @@ describe("AssistantSideMenu · section card surface", () => {
     const cards = sectionCards(container);
     expect(cards).toHaveLength(4);
     for (const card of cards) {
+      /* The same variable the card paints itself with, so a card that
+         tints itself (the assistant section's) backs its rows with the
+         tint and not the plain lift. */
       expect(card.className).toContain(
-        "[--swipe-reveal-bg:var(--surface-lift)]",
+        "[--swipe-item-surface:var(--sidebar-card-surface,var(--surface-lift))]",
       );
+      expect(card.className).toContain(
+        "bg-[var(--sidebar-card-surface,var(--surface-lift))]",
+      );
+      expect(card.className).not.toContain("--swipe-reveal-bg");
     }
   });
 });
@@ -1723,23 +1671,28 @@ describe("AssistantSideMenu · equal section treatment", () => {
 
   /*
    * The test above asks only whether a section scrolls, and every sized
-   * section does - so it passes whether the bottom-most one fills the rail or
-   * caps at 300px like the rest. That is the difference users see: capping the
-   * bottom-most section is what left the rail's lower half empty in 0.11.3,
-   * since Chats sits there and holds everything whenever channel grouping is
-   * off. These two pin the difference itself.
+   * section does - so it passes whether the bottom-most one rests at the mid
+   * height or fills the rail. That is the difference users see: a
+   * bottom-most section that fills runs a hundred threads down the rail's
+   * whole height, so it rests at the same cap the sections above it take
+   * and grows to the rail's leftover height only on request (the Expand
+   * control writes `vellum:sidebar-expanded-sections`, which the section
+   * reads on render). These pin the rest height and the growth themselves.
    */
-  test("the bottom-most section fills the rail; the ones above it cap", () => {
+  test("the bottom-most section rests at the mid height; the ones above it cap", () => {
     // Grouped: Pinned, Alpha, Chats, Slack. Slack is bottom-most.
     const scroller = renderRail(["Slack"]);
     try {
       expect(scroller("Chats").style.maxHeight).toBe(
         `${SIDEBAR_SECTION_MAX_HEIGHT}px`,
       );
-      // Fills what the flex column has left rather than committing to a
-      // height of its own, so it reaches the footer on a tall rail.
-      expect(scroller("Slack").classList.contains("flex-1")).toBe(true);
-      expect(scroller("Slack").style.maxHeight).toBe("");
+      // The same cap, but as the last section it hugs its rows and shrinks
+      // under the rail's space rather than committing to a fill.
+      expect(scroller("Slack").style.maxHeight).toBe(
+        `${SIDEBAR_SECTION_MAX_HEIGHT}px`,
+      );
+      expect(scroller("Slack").classList.contains("flex-1")).toBe(false);
+      expect(scroller("Slack").classList.contains("min-h-0")).toBe(true);
     } finally {
       cleanup();
     }
@@ -1797,36 +1750,52 @@ describe("AssistantSideMenu · equal section treatment", () => {
       }),
     );
     try {
-      const chats = sectionElements(container)[
-        sectionLabels(container).indexOf("Chats")
-      ];
+      const chats =
+        sectionElements(container)[sectionLabels(container).indexOf("Chats")];
       if (!chats) {
         throw new Error("expected the Chats section");
       }
 
       await waitFor(() => {
-        expect(chats.querySelector('[data-slot="virtual-list"]')).not.toBeNull();
+        expect(
+          chats.querySelector('[data-slot="virtual-list"]'),
+        ).not.toBeNull();
       });
       expect(chats.querySelector(".overflow-y-auto")).toBeNull();
       expect(
-        chats.querySelector('[data-slot="virtual-list"]')?.parentElement
-          ?.style.minHeight,
+        chats.querySelector('[data-slot="virtual-list"]')?.parentElement?.style
+          .minHeight,
       ).toBe("");
     } finally {
       cleanup();
     }
   });
 
-  test("ungrouped, Chats is bottom-most and fills instead of capping", () => {
-    // The reported 0.11.3 case: no channel sections, so Chats sits last and
-    // holds every conversation the curated sections didn't claim.
+  test("ungrouped, Chats is bottom-most: rests at the mid height and grows on request", () => {
+    // No channel sections, so Chats sits last and holds every conversation
+    // the curated sections didn't claim.
     localStorage.setItem("vellum:sidebar-view-mode:asst-1", "all");
     const scroller = renderRail(["Alpha"]);
     try {
-      expect(scroller("Chats").classList.contains("flex-1")).toBe(true);
+      expect(scroller("Chats").style.maxHeight).toBe(
+        `${SIDEBAR_SECTION_MAX_HEIGHT}px`,
+      );
+      expect(scroller("Chats").classList.contains("flex-1")).toBe(false);
+      // Still capped, since Chats sits under it - the mid height is
+      // positional, not "every section may grow now".
+      expect(scroller("Alpha").style.maxHeight).toBe(
+        `${SIDEBAR_SECTION_MAX_HEIGHT}px`,
+      );
+
+      // Expanded, the cap goes and the scroller takes the rail's leftover
+      // height, still hugging its rows rather than filling. Alpha is
+      // untouched: the choice is the last section's alone.
+      act(() => {
+        saveExpandedSections("asst-1", ["recents"]);
+      });
       expect(scroller("Chats").style.maxHeight).toBe("");
-      // Still capped, since Chats sits under it - the fill is positional, not
-      // "every section grows now".
+      expect(scroller("Chats").classList.contains("flex-1")).toBe(false);
+      expect(scroller("Chats").classList.contains("min-h-0")).toBe(true);
       expect(scroller("Alpha").style.maxHeight).toBe(
         `${SIDEBAR_SECTION_MAX_HEIGHT}px`,
       );
@@ -1839,13 +1808,14 @@ describe("AssistantSideMenu · equal section treatment", () => {
    * Past CONVERSATION_LIST_VIRTUALIZE_THRESHOLD the bottom-most section
    * windows its rows through virtuoso, and a windowed list renders only what
    * fits its viewport: unlike mounted rows, it has no natural height of its
-   * own. Its box therefore needs two things, and losing either blanks the
-   * whole list while the caches stay fully populated: the accordion root must
-   * forward the sidebar body's height down to the card's flex-fill, and the
-   * box itself must floor at the section cap so a squeezed (or broken) chain
-   * still yields a scrollable section rather than a zero-height one.
+   * own. At the mid height that is simply the cap as a fixed height. Expanded,
+   * its box needs two things, and losing either blanks the whole list while
+   * the caches stay fully populated: the accordion root must forward the
+   * sidebar body's height down to the card's flex-fill, and the box itself
+   * must floor at the section cap so a squeezed (or broken) chain still
+   * yields a scrollable section rather than a zero-height one.
    */
-  test("past the virtualize threshold, Chats windows into a bounded, filling box", () => {
+  function renderWindowedChats() {
     localStorage.setItem("vellum:sidebar-view-mode:asst-1", "all");
     const container = parse(
       renderMenu({
@@ -1875,8 +1845,24 @@ describe("AssistantSideMenu · equal section treatment", () => {
     if (!windowed?.parentElement) {
       throw new Error("expected the windowed row list and its sizing box");
     }
+    return { container, box: windowed.parentElement };
+  }
 
-    const box = windowed.parentElement;
+  test("past the virtualize threshold, Chats windows into a fixed box at the mid height", () => {
+    const { box } = renderWindowedChats();
+
+    expect(box.style.height).toBe(`${SIDEBAR_SECTION_MAX_HEIGHT}px`);
+    expect(box.classList.contains("flex-1")).toBe(false);
+  });
+
+  test("expanded past the virtualize threshold, Chats windows into a bounded, filling box", () => {
+    // What the Expand control writes.
+    localStorage.setItem(
+      "vellum:sidebar-expanded-sections:asst-1",
+      JSON.stringify(["recents"]),
+    );
+    const { container, box } = renderWindowedChats();
+
     expect(box.classList.contains("flex-1")).toBe(true);
     expect(box.style.minHeight).toBe(`${SIDEBAR_SECTION_MAX_HEIGHT}px`);
 

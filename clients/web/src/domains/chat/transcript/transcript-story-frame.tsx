@@ -8,16 +8,18 @@ import type { CSSProperties, ReactNode } from "react";
  */
 export function TranscriptStoryFrame({
   height = 720,
+  width = 780,
   children,
 }: {
   height?: CSSProperties["height"];
+  width?: CSSProperties["width"];
   children: ReactNode;
 }) {
   return (
     <div
       style={{
         height,
-        width: 780,
+        width,
         overflow: "hidden",
         borderRadius: 12,
         border: "1px solid var(--border-base)",

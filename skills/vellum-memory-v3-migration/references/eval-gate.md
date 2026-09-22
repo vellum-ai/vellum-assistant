@@ -17,7 +17,7 @@ assistant memory v3 eval --snapshot .mv3/snapshot/concepts --staging .mv3/stagin
 It writes `.mv3/eval/packets.json` (per turn: `{turn, context, userMessage, reply, setA, setB}`, A/B order shuffled by a seeded PRNG) and `.mv3/eval/key.json` (the unblinding map the judge never sees). Under the hood:
 
 - **Mines recent real user→assistant turns** from the message store, excluding scheduled/cron turns, capped per conversation.
-- **Retrieves both sides identically** — a BM25F section needle unioned with dense cosine over freshly-embedded section vectors (the same section grain the live engine uses), top-`k` pages per corpus, rendered as the model sees them (card + matched section). Everything is in memory; the live lanes and Qdrant are untouched.
+- **Retrieves both sides identically**: a BM25F section needle unioned with dense cosine over freshly-embedded section vectors (the same section grain the live engine uses), top-`k` pages per corpus, each rendered as the injection entry production attaches for that hit (the matched section, or the lead when the hit is on it), never the selector card, so the judge scores only text the live injector sends. Everything is in memory; the live lanes and Qdrant are untouched.
 - **No time-gating is needed.** The staged wiki is a pure reorganization of the snapshot — both corpora hold the _same knowledge_, so a page encoding post-turn information is reachable in both and can't bias either side. The eval cleanly measures retrieval **shape**, which is exactly the question.
 
 Use `--no-dense` for a fast lexical-only pass while iterating; the full run embeds every section of both corpora and can take a while on a large corpus.

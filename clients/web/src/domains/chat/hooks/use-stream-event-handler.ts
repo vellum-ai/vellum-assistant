@@ -7,6 +7,7 @@ import { tailIsAssistant } from "@/domains/chat/utils/stream-updaters/shared";
 import { useTurnStore } from "@/domains/chat/turn-store";
 import { endTurn } from "@/domains/chat/turn-coordinator";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import { useComposerStore } from "@/domains/chat/composer-store";
 import { useStreamStore } from "@/domains/chat/stream-store";
 
 import { recordDiagnostic, summarizeAssistantEvent } from "@/lib/diagnostics";
@@ -74,6 +75,7 @@ import {
   handleAcpSessionSpawned,
   handleAcpSessionUpdate,
   handleAcpSessionUsage,
+  handleAcpSessionModelUpdate,
   handleAcpSessionCompleted,
   handleAcpAuthRequired,
   handleAcpSessionError,
@@ -116,10 +118,15 @@ export interface UseStreamEventHandlerParams {
 
   // --- UI surfaces ---
   setAssetsRefreshKey: Dispatch<SetStateAction<number>>;
+  observeLiveModeSession?: (sessionId: string) => void;
 }
 
 interface UseStreamEventHandlerReturn {
-  handleStreamEvent: (event: AssistantEvent, epoch: number) => void;
+  handleStreamEvent: (
+    event: AssistantEvent,
+    epoch: number,
+    envelopeConversationId: string | undefined,
+  ) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -135,7 +142,8 @@ interface UseStreamEventHandlerReturn {
  * mutable state). Delegates to the appropriate handler based on event type
  * via an exhaustive switch.
  *
- * @returns `handleStreamEvent(event, epoch)` — call this for each SSE event.
+ * @returns `handleStreamEvent(event, epoch, envelopeConversationId)`, called
+ * for each SSE event.
  */
 export function useStreamEventHandler(
   params: UseStreamEventHandlerParams,
@@ -148,16 +156,25 @@ export function useStreamEventHandler(
     cancelReconciliation,
     startReconciliationLoop,
     setAssetsRefreshKey,
+    observeLiveModeSession,
   } = params;
 
   // --- Refs owned by this hook (only used inside handleStreamEvent) ---
   const lastActivityVersionRef = useRef<Map<string, number>>(new Map());
   const currentAssistantMessageIdRef = useRef<string | undefined>(undefined);
+  const lastCompletedToolNameRef = useRef<string | undefined>(undefined);
+  const composerSessionGenerationRef = useRef(
+    useComposerStore.getState().sessionGeneration,
+  );
 
   // --- Main event handler ---
 
   const handleStreamEvent = useCallback(
-    (event: AssistantEvent, epoch: number) => {
+    (
+      event: AssistantEvent,
+      epoch: number,
+      envelopeConversationId: string | undefined,
+    ) => {
       // Discard events from stale/previous streams
       const eventSummary = summarizeAssistantEvent(event);
       const streamState = useStreamStore.getState();
@@ -204,6 +221,10 @@ export function useStreamEventHandler(
         }
       }
 
+      if ("modeSession" in event && event.modeSession) {
+        observeLiveModeSession?.(event.modeSession.id);
+      }
+
       // Snapshot store state once per event for the context object.
       const store = useChatSessionStore.getState();
 
@@ -236,11 +257,17 @@ export function useStreamEventHandler(
 
       // Build context object for domain handlers
       const ctx: StreamHandlerContext = {
+        eventConversationId: envelopeConversationId,
         router: { push },
         isNative,
         streamContext: streamState.streamContext,
         assistantId: useResolvedAssistantsStore.getState().activeAssistantId,
+        composerSessionGeneration: composerSessionGenerationRef.current,
         setOptimisticSends: store.setOptimisticSends,
+        // Read live rather than closing over `store`: a queue ack can arrive
+        // after later sends have already changed the list.
+        getOptimisticSends: () =>
+          useChatSessionStore.getState().optimisticSends,
         turnActions: useTurnStore.getState(),
         getTurnState: () => useTurnStore.getState(),
         endTurn,
@@ -264,6 +291,7 @@ export function useStreamEventHandler(
         consumePendingLocalDeletion: store.consumePendingLocalDeletion,
         lastActivityVersionRef,
         currentAssistantMessageIdRef,
+        lastCompletedToolNameRef,
       };
 
       switch (event.type) {
@@ -422,6 +450,9 @@ export function useStreamEventHandler(
         case "acp_session_usage":
           handleAcpSessionUsage(event);
           break;
+        case "acp_session_model_update":
+          handleAcpSessionModelUpdate(event);
+          break;
         case "acp_session_completed":
           handleAcpSessionCompleted(event);
           break;
@@ -463,6 +494,7 @@ export function useStreamEventHandler(
         case "bookmark.created":
         case "bookmark.deleted":
         case "sync_changed":
+        case "desktop_activity_changed":
         case "home_feed_updated":
         case "relationship_state_updated":
         case "identity_changed":
@@ -504,7 +536,6 @@ export function useStreamEventHandler(
         case "model_info":
         case "context_compacted":
         case "schedule_conversation_created":
-        case "heartbeat_alert":
         case "heartbeat_conversation_created":
         // A watch session's retrospective finishing is drawn by the companion
         // surface rather than in the transcript, and reaches it through
@@ -590,6 +621,7 @@ export function useStreamEventHandler(
       startReconciliationLoop,
       queryClient,
       setAssetsRefreshKey,
+      observeLiveModeSession,
     ],
   );
 

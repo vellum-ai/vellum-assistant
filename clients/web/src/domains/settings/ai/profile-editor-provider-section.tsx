@@ -9,6 +9,7 @@ import { Input } from "@vellumai/design-library/components/input";
 import { Typography } from "@vellumai/design-library/components/typography";
 
 import {
+  catalogEnabledFlags,
   getModelsForProvider,
   getVisibleModelsForProvider,
   PROVIDER_DISPLAY_NAMES,
@@ -124,8 +125,11 @@ export function ProfileEditorProviderSection({
   // fixed model set.
   const { t } = useTranslation("settings");
   const [isEnteringCustomModel, setIsEnteringCustomModel] = useState(false);
-  const developerMode =
-    useAssistantFeatureFlagStore.use.settingsDeveloperNav();
+  const hostedInference =
+    useAssistantFeatureFlagStore.use.vellumHostedInference();
+  const catalogFlags = catalogEnabledFlags({
+    hostedInference,
+  });
 
   const subscriptionRestricted = restrictsToSubscriptionModels(
     provider,
@@ -177,7 +181,9 @@ export function ProfileEditorProviderSection({
   // `connections === []` is distinct: zero connections confirmed, so the
   // filter runs and yields empty — the empty-state hint fires.
   const providerOptionsSource =
-    connections === undefined ? CATALOG_PROVIDERS : visibleProviders;
+    connections === undefined
+      ? CATALOG_PROVIDERS
+      : visibleProviders;
 
   // A confirmed-empty connection list. Read-only profiles cannot act on it,
   // so they are not told to.
@@ -211,7 +217,7 @@ export function ProfileEditorProviderSection({
       }
       const catalogModels = getVisibleModelsForProvider(
         provider,
-        developerMode,
+        catalogFlags,
       );
       if (catalogModels.length > 0) {
         if (
@@ -249,7 +255,7 @@ export function ProfileEditorProviderSection({
       provider,
       providerConnection,
       availableConnectionsForProvider,
-      developerMode,
+      catalogFlags,
     ]);
 
   // The Model dropdown always offers the profile's currently-bound model, even
@@ -287,7 +293,9 @@ export function ProfileEditorProviderSection({
     switch (modelEmptyState) {
       case "no-provider":
         return {
-          placeholder: t("profileEditorProviderSection.modelEmptyNoProviderPlaceholder"),
+          placeholder: t(
+            "profileEditorProviderSection.modelEmptyNoProviderPlaceholder",
+          ),
           hint: null,
         };
       case "configure-connection":
@@ -301,7 +309,9 @@ export function ProfileEditorProviderSection({
         };
       case "unknown-to-catalog":
         return {
-          placeholder: t("profileEditorProviderSection.modelEmptyUnknownPlaceholder"),
+          placeholder: t(
+            "profileEditorProviderSection.modelEmptyUnknownPlaceholder",
+          ),
           hint: t("profileEditorProviderSection.modelEmptyUnknownHint"),
         };
       default:
@@ -325,7 +335,7 @@ export function ProfileEditorProviderSection({
     if (isEnteringCustomModel) {
       return;
     }
-    const catalogModels = getVisibleModelsForProvider(provider, developerMode);
+    const catalogModels = getVisibleModelsForProvider(provider, catalogFlags);
     // Connection-derived providers (openai-compatible) have an empty catalog.
     // An id the connection does not list is still a valid bound model.
     if (catalogModels.length === 0) {
@@ -339,6 +349,10 @@ export function ProfileEditorProviderSection({
       availableModels.length > 0 &&
       !availableModels.some((m) => m.id === model)
     ) {
+      const bound = getModelsForProvider(provider).find((m) => m.id === model);
+      if (bound && bound.supportsText === false) {
+        return;
+      }
       onModelChange("");
     }
   }, [
@@ -347,7 +361,7 @@ export function ProfileEditorProviderSection({
     onModelChange,
     provider,
     isEnteringCustomModel,
-    developerMode,
+    catalogFlags,
   ]);
 
   const defaultEntryMetaLabel = t("aiProviderPicker.defaultEntryMeta");
@@ -478,7 +492,9 @@ export function ProfileEditorProviderSection({
             }
           }}
           disabled={isReadOnly}
-          placeholder={t("profileEditorProviderSection.selectProviderPlaceholder")}
+          placeholder={t(
+            "profileEditorProviderSection.selectProviderPlaceholder",
+          )}
           options={providerOptions}
         />
       )}
@@ -511,8 +527,12 @@ export function ProfileEditorProviderSection({
               value={model}
               onChange={(e) => onModelChange(e.target.value)}
               disabled={isReadOnly}
-              placeholder={t("profileEditorProviderSection.customModelPlaceholder")}
-              aria-label={t("profileEditorProviderSection.customModelAriaLabel")}
+              placeholder={t(
+                "profileEditorProviderSection.customModelPlaceholder",
+              )}
+              aria-label={t(
+                "profileEditorProviderSection.customModelAriaLabel",
+              )}
               fullWidth
               autoFocus
             />

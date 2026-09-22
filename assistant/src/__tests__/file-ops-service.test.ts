@@ -18,6 +18,7 @@ import {
   READ_CHAR_BUDGET,
 } from "../tools/shared/filesystem/file-ops-service.js";
 import { sandboxPolicy } from "../tools/shared/filesystem/path-policy.js";
+import { createAbortReason } from "../util/abort-reasons.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -629,5 +630,67 @@ describe("FileSystemOps.editFileSafe", () => {
       return;
     }
     expect(result.error.code).toBe("PATH_OUT_OF_BOUNDS");
+  });
+});
+
+describe("FileSystemOps.writeFileSafe cancellation", () => {
+  const REASON = createAbortReason("user_cancel", "file-ops-service.test");
+
+  function abortedSignal(): AbortSignal {
+    const controller = new AbortController();
+    controller.abort(REASON);
+    return controller.signal;
+  }
+
+  /**
+   * The guard sits before `ensureDir`, so a stopped turn leaves no directory
+   * tree behind for a file it never wrote.
+   */
+  test("a cancelled write creates no parent directories", async () => {
+    const dir = makeTempDir();
+    const ops = new FileSystemOps(sandboxPolicyFor(dir));
+
+    await expect(
+      ops.writeFileSafe({
+        path: "nested/deeper/new.txt",
+        content: "hello",
+        signal: abortedSignal(),
+      }),
+    ).rejects.toThrow();
+
+    expect(existsSync(join(dir, "nested"))).toBe(false);
+    expect(existsSync(join(dir, "nested/deeper/new.txt"))).toBe(false);
+  });
+
+  /**
+   * The write path turns thrown errors into an IO_ERROR result. A cancellation
+   * must escape that: reported as an IO failure, the model reads a stop as a
+   * disk problem and retries the write.
+   */
+  test("the abort escapes rather than becoming an IO error", async () => {
+    const dir = makeTempDir();
+    const ops = new FileSystemOps(sandboxPolicyFor(dir));
+
+    await expect(
+      ops.writeFileSafe({
+        path: "new.txt",
+        content: "hello",
+        signal: abortedSignal(),
+      }),
+    ).rejects.toBe(REASON);
+  });
+
+  test("a live signal leaves a normal write alone", async () => {
+    const dir = makeTempDir();
+    const ops = new FileSystemOps(sandboxPolicyFor(dir));
+    const controller = new AbortController();
+
+    const result = await ops.writeFileSafe({
+      path: "nested/new.txt",
+      content: "hello",
+      signal: controller.signal,
+    });
+    expect(result.ok).toBe(true);
+    expect(existsSync(join(dir, "nested/new.txt"))).toBe(true);
   });
 });

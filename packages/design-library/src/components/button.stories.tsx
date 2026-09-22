@@ -1,4 +1,5 @@
-import { Download, Plus, Settings, X } from "lucide-react";
+import { ArrowUp, Download, Plus, Settings, X } from "lucide-react";
+import type { CSSProperties } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import { Button } from "./button";
@@ -9,12 +10,17 @@ const meta: Meta<typeof Button> = {
   argTypes: {
     variant: {
       control: "select",
-      options: ["primary", "outlined", "ghost", "link", "danger", "dangerOutline", "dangerGhost"],
+      options: ["primary", "accent", "outlined", "ghost", "link", "danger", "dangerOutline", "dangerGhost"],
     },
     size: {
       control: "select",
-      options: ["regular", "compact"],
+      options: ["compact", "regular", "large"],
     },
+    shape: {
+      control: "inline-radio",
+      options: ["default", "pill"],
+    },
+    loading: { control: "boolean" },
     disabled: { control: "boolean" },
     fullWidth: { control: "boolean" },
     active: { control: "boolean" },
@@ -25,8 +31,41 @@ export default meta;
 
 type Story = StoryObj<typeof Button>;
 
+/**
+ * A colour for the `accent` variant, declared the way a consumer declares it:
+ * on an ancestor (or the button itself), never inside the library.
+ */
+const ACCENT_COLOUR = {
+  "--vbtn-accent": "#E9642F",
+  "--vbtn-accent-fg": "#1A1A1A",
+  "--vbtn-accent-glyph": "#FFFFFF",
+} as CSSProperties;
+
 export const Primary: Story = {
   args: { variant: "primary", children: "Primary" },
+};
+
+/**
+ * A filled button in a colour the consumer supplies through
+ * `--vbtn-accent` / `--vbtn-accent-fg` / `--vbtn-accent-glyph`. Without
+ * them it is the primary button (the last one in the row).
+ */
+export const Accent: Story = {
+  args: { variant: "accent", children: "Accent" },
+  render: (args) => (
+    <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+      <span style={ACCENT_COLOUR}>
+        <Button {...args} />
+      </span>
+      <span style={ACCENT_COLOUR}>
+        <Button {...args} iconOnly={<ArrowUp />} aria-label="Send" />
+      </span>
+      <span style={ACCENT_COLOUR}>
+        <Button {...args} disabled />
+      </span>
+      <Button {...args} iconOnly={<ArrowUp />} aria-label="Send, no colour" />
+    </div>
+  ),
 };
 
 export const Outlined: Story = {
@@ -93,6 +132,9 @@ export const AllVariants: Story = {
   render: () => (
     <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center" }}>
       <Button variant="primary">Primary</Button>
+      <span style={ACCENT_COLOUR}>
+        <Button variant="accent">Accent</Button>
+      </span>
       <Button variant="outlined">Outlined</Button>
       <Button variant="ghost">Ghost</Button>
       <Button variant="danger">Danger</Button>
@@ -106,10 +148,72 @@ export const AllVariants: Story = {
 export const AllSizes: Story = {
   render: () => (
     <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+      <Button size="large">Large</Button>
       <Button size="regular">Regular</Button>
       <Button size="compact">Compact</Button>
     </div>
   ),
+  parameters: { controls: { disable: true } },
+};
+
+export const Large: Story = {
+  args: { variant: "primary", size: "large", children: "Continue" },
+};
+
+export const Pill: Story = {
+  args: { variant: "outlined", shape: "pill", children: "Pill" },
+};
+
+export const Loading: Story = {
+  args: { variant: "primary", loading: true, children: "Saving" },
+};
+
+/**
+ * Every place the spinner can land: in place of a leading icon, in the leading
+ * slot of a button that has none, as the icon-only glyph, and beside the
+ * greyed look a caller keeps by passing `disabled` as well.
+ */
+export const LoadingStates: Story = {
+  render: () => (
+    <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
+      <Button loading leftIcon={<Download />}>
+        Download
+      </Button>
+      <Button variant="outlined" loading>
+        Save
+      </Button>
+      <Button variant="ghost" loading iconOnly={<Settings />} aria-label="Settings" />
+      <Button variant="danger" loading disabled>
+        Deleting
+      </Button>
+      <Button size="large" loading>
+        Continue
+      </Button>
+      <Button size="compact" variant="outlined" loading>
+        Retry
+      </Button>
+    </div>
+  ),
+  parameters: { controls: { disable: true } },
+};
+
+export const Shapes: Story = {
+  render: () => (
+    <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
+      <Button shape="pill">Primary pill</Button>
+      <Button variant="outlined" shape="pill" leftIcon={<Plus />}>
+        Outlined pill
+      </Button>
+      <Button variant="ghost" active shape="pill">
+        Active ghost pill
+      </Button>
+      <Button variant="ghost" shape="pill" iconOnly={<X />} aria-label="Close" />
+      <Button size="large" shape="pill">
+        Large pill
+      </Button>
+    </div>
+  ),
+  parameters: { controls: { disable: true } },
 };
 
 export const FullWidth: Story = {

@@ -875,7 +875,9 @@ describe("always-candidate frontmatter parsing", () => {
     // drops trailing hints and the whole avoid-when list.
     const { DEFAULT_CARD_CHARS, buildSkillContent } =
       await import("../plugins/defaults/memory/substrate/skill-content.js");
-    const schedule = loadSkillCatalog().find((skill) => skill.id === "schedule");
+    const schedule = loadSkillCatalog().find(
+      (skill) => skill.id === "schedule",
+    );
     expect(schedule).toBeDefined();
 
     const card = buildSkillContent(schedule!);
@@ -886,7 +888,9 @@ describe("always-candidate frontmatter parsing", () => {
   test("the bundled schedule card carries its monitoring vocabulary", async () => {
     const { buildSkillContent } =
       await import("../plugins/defaults/memory/substrate/skill-content.js");
-    const schedule = loadSkillCatalog().find((skill) => skill.id === "schedule");
+    const schedule = loadSkillCatalog().find(
+      (skill) => skill.id === "schedule",
+    );
     const card = buildSkillContent(schedule!).toLowerCase();
 
     for (const term of ["monitor", "page", "dashboard", "status", "alert"]) {
@@ -1050,6 +1054,17 @@ describe("ingress-dependent setup skills declare public-ingress intentionally", 
     expect(includes ?? []).not.toContain("public-ingress");
   });
 
+  test("telegram-setup documents which chats are supported and how a group is addressed", () => {
+    const content = readFileSync(
+      join(FIRST_PARTY_SKILLS_DIR, "telegram-setup", "SKILL.md"),
+      "utf-8",
+    );
+    expect(content).toMatch(/private chats and in groups and supergroups/i);
+    expect(content).toMatch(/@mention of the bot's username/i);
+    expect(content).toMatch(/reply to one of its posts/i);
+    expect(content).toMatch(/Broadcast channels are not supported/i);
+  });
+
   test("twilio-setup includes public-ingress", () => {
     const includes = readSkillIncludes(FIRST_PARTY_SKILLS_DIR, "twilio-setup");
     expect(includes).toBeDefined();
@@ -1087,14 +1102,14 @@ describe("bundled computer-use skill", () => {
     expect(cuSkill!.bundled).toBe(true);
   });
 
-  test("computer-use skill has a valid tool manifest with 11 tools", () => {
+  test("computer-use skill has a valid tool manifest with 12 tools", () => {
     const catalog = loadSkillCatalog();
     const cuSkill = catalog.find((s) => s.id === "computer-use");
     expect(cuSkill).toBeDefined();
     expect(cuSkill!.toolManifest).toBeDefined();
     expect(cuSkill!.toolManifest!.present).toBe(true);
     expect(cuSkill!.toolManifest!.valid).toBe(true);
-    expect(cuSkill!.toolManifest!.toolCount).toBe(11);
+    expect(cuSkill!.toolManifest!.toolCount).toBe(12);
     expect(cuSkill!.toolManifest!.toolNames).toEqual([
       "computer_use_observe",
       "computer_use_click",
@@ -1105,6 +1120,7 @@ describe("bundled computer-use skill", () => {
       "computer_use_wait",
       "computer_use_open_app",
       "computer_use_run_applescript",
+      "computer_use_sequence",
       "computer_use_done",
       "computer_use_respond",
     ]);

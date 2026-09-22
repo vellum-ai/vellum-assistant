@@ -27,6 +27,10 @@ import {
   type InstalledPluginInfo,
   readInstalledPlugin,
 } from "./list-installed-plugins.js";
+import {
+  arePlatformFeaturesEnabled,
+  readBundledLocalPluginCatalog,
+} from "./plugin-catalog-local.js";
 import { DEFAULT_PLUGIN_REF } from "./plugin-constants.js";
 import {
   compareFingerprint,
@@ -40,6 +44,7 @@ import {
   detectPluginSurfaces,
   type PluginSurfaces,
 } from "./plugin-surfaces.js";
+import type { PluginCatalog, PluginSearchMatch } from "./search-plugins.js";
 
 /** Full commit SHA (40 hex SHA-1 or 64 hex SHA-256). */
 const FULL_SHA_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
@@ -101,6 +106,8 @@ export interface PluginLocalInfo {
 
 /** The marketplace's current pin and advertised metadata for a plugin. */
 export interface PluginRemoteInfo {
+  /** Present for a package embedded in the assistant distribution. */
+  readonly kind?: "local";
   /** `owner/repo` of the external plugin repository. */
   readonly repo: string;
   /** Repo-relative directory holding the plugin root; `""` = repo root. */
@@ -119,6 +126,8 @@ export interface PluginRemoteInfo {
   readonly category: string | null;
   /** Ref of the canonical repo the marketplace manifest was read from. */
   readonly marketplaceRef: string;
+  /** Bundled package version. Present when {@link kind} is `local`. */
+  readonly version?: string;
 }
 
 /** Resolved inspection of a single plugin. */
@@ -165,6 +174,8 @@ export interface InspectPluginDeps {
   readonly fetch: FetchLike;
   /** Override the workspace plugins directory. Falls back to the live workspace. */
   readonly workspacePluginsDir?: string;
+  /** Override the embedded local-package catalog for focused tests. */
+  readonly localCatalog?: PluginCatalog;
 }
 
 function readLocal(
@@ -177,7 +188,7 @@ function readLocal(
   // revision instead of dropping to "unknown".
   const commit =
     manifest?.commit ??
-    (manifest && FULL_SHA_RE.test(manifest.source.ref)
+    (manifest?.source.kind === "github" && FULL_SHA_RE.test(manifest.source.ref)
       ? manifest.source.ref
       : null);
   // Compare the on-disk tree against the install-time baseline, applying the
@@ -203,6 +214,21 @@ function readRemote(
   marketplaceRef: string,
   committedAt: string | null,
 ): PluginRemoteInfo {
+  if (entry.source.source === "local") {
+    return {
+      kind: "local",
+      repo: "",
+      path: entry.source.path,
+      commit: entry.source.version,
+      committedAt: null,
+      description: entry.description ?? null,
+      homepage: entry.homepage ?? null,
+      license: entry.license ?? null,
+      category: entry.category ?? null,
+      marketplaceRef,
+      version: entry.source.version,
+    };
+  }
   return {
     repo: entry.source.repo,
     path: entry.source.path ?? "",
@@ -213,6 +239,28 @@ function readRemote(
     license: entry.license ?? null,
     category: entry.category ?? null,
     marketplaceRef,
+  };
+}
+
+function readLocalPackageRemote(
+  match: PluginSearchMatch,
+  marketplaceRef: string,
+): PluginRemoteInfo | null {
+  if (match.source.kind !== "local") {
+    return null;
+  }
+  return {
+    kind: "local",
+    repo: "",
+    path: match.source.path,
+    commit: match.source.version,
+    committedAt: null,
+    description: match.description ?? null,
+    homepage: match.homepage ?? null,
+    license: match.license ?? null,
+    category: match.category,
+    marketplaceRef,
+    version: match.source.version,
   };
 }
 
@@ -292,19 +340,38 @@ export async function inspectPlugin(
 
   let remote: PluginRemoteInfo | null = null;
   let remoteError: string | null = null;
+  const installedLocalSource = local?.source?.kind === "local";
+  const useBundledLocalCatalog =
+    installedLocalSource || (!installed && !arePlatformFeaturesEnabled());
   try {
-    const entries = await fetchMarketplaceEntries(
-      { fetch: deps.fetch },
-      { ref: marketplaceRef },
-    );
-    const match = entries.find((e) => e.name === name);
-    if (match) {
-      const committedAt = await fetchCommitDate(
-        match.source.repo,
-        match.source.ref,
-        deps.fetch,
+    if (useBundledLocalCatalog) {
+      const catalog = deps.localCatalog ?? readBundledLocalPluginCatalog();
+      const match = catalog.matches.find(
+        (candidate) =>
+          candidate.name === name &&
+          candidate.source.kind === "local" &&
+          (!installedLocalSource ||
+            candidate.source.path === local.source?.path),
       );
-      remote = readRemote(match, marketplaceRef, committedAt);
+      remote = match ? readLocalPackageRemote(match, catalog.ref) : null;
+    }
+    if (!remote && !installedLocalSource) {
+      const entries = await fetchMarketplaceEntries(
+        { fetch: deps.fetch },
+        { ref: marketplaceRef },
+      );
+      const match = entries.find((entry) => entry.name === name);
+      if (match) {
+        const committedAt =
+          match.source.source === "github"
+            ? await fetchCommitDate(
+                match.source.repo,
+                match.source.ref,
+                deps.fetch,
+              )
+            : null;
+        remote = readRemote(match, marketplaceRef, committedAt);
+      }
     }
   } catch (err) {
     remoteError = err instanceof Error ? err.message : String(err);
@@ -334,6 +401,14 @@ function classify(
   }
   if (!remote) {
     return "not-in-marketplace";
+  }
+  if (remote.kind === "local") {
+    if (local?.source?.kind !== "local") {
+      return "unknown-provenance";
+    }
+    return local.source.version === remote.version
+      ? "up-to-date"
+      : "update-available";
   }
   if (!local?.commit) {
     return "unknown-provenance";

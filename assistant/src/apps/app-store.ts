@@ -34,6 +34,8 @@ import {
   resolve,
 } from "node:path";
 
+import { bridgeEmojiAppIcon } from "@vellumai/app-icons";
+
 import { resolveConversationLineage } from "../daemon/conversation-lineage.js";
 import { rawAll } from "../persistence/raw-query.js";
 import { isPluginDisabled } from "../plugins/disabled-state.js";
@@ -41,6 +43,7 @@ import type { EditEngineResult } from "../tools/shared/filesystem/edit-engine.js
 import { applyEdit } from "../tools/shared/filesystem/edit-engine.js";
 import { getLogger } from "../util/logger.js";
 import { getDataDir, getWorkspacePluginsDir } from "../util/platform.js";
+import { hasPluginManifest } from "../util/plugin-manifest.js";
 
 const log = getLogger("app-store");
 
@@ -112,7 +115,7 @@ export function resolveEffectiveAppHtmlFromDir(sourceDir: string): string {
   if (isLegacySingleFileDir(sourceDir)) {
     return UNSUPPORTED_LEGACY_APP_HTML;
   }
-  return `<p>App compilation failed. Edit a source file to trigger a rebuild.</p>`;
+  return `<p>App compilation failed. Run <code>assistant apps refresh</code> to rebuild.</p>`;
 }
 
 /**
@@ -625,6 +628,9 @@ export function getApp(id: string): AppDefinition | null {
   }
   const raw = readFileSync(filePath, "utf-8");
   const app = JSON.parse(raw) as AppDefinition;
+  /* An emoji icon reads back as the registry name it maps to, so every client
+     draws the same glyph set. */
+  app.icon = bridgeEmojiAppIcon(app.icon);
 
   // Read htmlDefinition from {dirName}/index.html on disk
   const indexPath = join(appDir, "index.html");
@@ -674,6 +680,9 @@ export function listApps(): AppDefinition[] {
     try {
       const raw = readFileSync(filePath, "utf-8");
       const app = JSON.parse(raw) as AppDefinition;
+      /* An emoji from before the icon registry reads back as its registry name
+     (see app-icons.ts), so every client draws the same glyph set. */
+      app.icon = bridgeEmojiAppIcon(app.icon);
 
       apps.push(app);
     } catch {
@@ -779,8 +788,8 @@ function listAppsForPlugin(
  * `<workspace>/plugins/<name>/apps/`.
  *
  * Plugin discovery mirrors the plugin loader's `scanPlugins`: a plugin is an
- * entry that resolves to a directory (following symlinks) and carries a
- * `package.json` manifest. Stray directories without a manifest are ignored,
+ * entry that resolves to a directory (following symlinks) and carries a root
+ * plugin manifest. Stray directories without a manifest are ignored,
  * and disabled plugins (those with a `.disabled` sentinel) contribute nothing,
  * matching how their other surfaces (tools, hooks, routes) are gated.
  */
@@ -805,7 +814,7 @@ export function listPluginApps(): EnumeratedApp[] {
     } catch {
       continue;
     }
-    if (!existsSync(join(pluginDir, "package.json"))) {
+    if (!hasPluginManifest(pluginDir)) {
       continue;
     }
     if (isPluginDisabled(name)) {
@@ -864,8 +873,9 @@ function isSafeIdSegment(segment: string): boolean {
  * Resolve an app id to its on-disk source, for both workspace apps (opaque
  * UUID, looked up via {@link getApp}) and plugin-bundled apps
  * (`plugins~<name>~<app>`, resolved by direct path build). Returns null when
- * the app does not exist, or when a plugin id fails the same installed-plugin
- * gates as discovery (directory, `package.json` manifest, not disabled).
+ * the app does not exist, when the id is not a safe path segment, or when a
+ * plugin id fails the same installed-plugin gates as discovery (directory,
+ * root manifest, not disabled).
  */
 export function resolveAppSource(id: string): ResolvedAppSource | null {
   if (id.startsWith(PLUGIN_APP_ID_PREFIX)) {
@@ -891,7 +901,7 @@ export function resolveAppSource(id: string): ResolvedAppSource | null {
     } catch {
       return null;
     }
-    if (!existsSync(join(pluginDir, "package.json"))) {
+    if (!hasPluginManifest(pluginDir)) {
       return null;
     }
     if (isPluginDisabled(pluginName)) {
@@ -912,6 +922,12 @@ export function resolveAppSource(id: string): ResolvedAppSource | null {
       sourceDir,
       origin: { kind: "plugin", pluginName },
     };
+  }
+
+  // Screened the way the plugin segments above are, so an id off the wire is
+  // unresolved rather than a throw out of `getApp`.
+  if (!isSafeIdSegment(id)) {
+    return null;
   }
 
   const app = getApp(id);

@@ -35,6 +35,7 @@ import {
 } from "@/lib/auth/user-snapshot";
 import { getElectronSessionToken } from "@/runtime/session-token";
 import { clearWidgetSnapshot } from "@/runtime/widget-snapshot";
+import { resetNotificationIdentitySession } from "@/runtime/notification-avatar";
 import {
   isGatewayAuthEnabled,
   isGatewayAuthMode,
@@ -279,10 +280,12 @@ const sessionEnded = (): Partial<AuthState> => ({
  * a revoked or expired session settles through `refreshSession`'s 401 branch,
  * and a boot that finds no session settles through `initSession`.
  *
- * The one thing that has to happen off-store is dropping the iOS widget
- * snapshot. A Home Screen widget is readable without unlocking the device, so
+ * Two user-owned caches are cleared off-store. Notification identity memory is
+ * invalidated synchronously so in-flight compositor work becomes stale before
+ * any await. A Home Screen widget is readable without unlocking the device, so
  * the previous account's conversation titles must not outlive the session that
- * produced them, whichever way it ended. No-op off Capacitor iOS.
+ * produced them, whichever way it ended. Its clear is a no-op off Capacitor
+ * iOS.
  *
  * Awaited BEFORE the state write: the write is what flips signed-in surfaces
  * to the login screen, and on the logout path that can end in a hard
@@ -330,6 +333,7 @@ async function endSession(
   options?: { keepPlatformSession?: boolean; authoritative?: boolean },
 ): Promise<void> {
   const epoch = authEpoch;
+  resetNotificationIdentitySession();
   await clearWidgetSnapshot();
   if (!options?.authoritative && epoch !== authEpoch) {
     return;
@@ -992,12 +996,13 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
 
     if (isGatewayAuthEnabled()) {
       try {
-        // Ride out the gateway's startup window: on reboot the gateway restarts
-        // concurrently with the app and answers the mint with a transient
-        // "starting" 503 for a few seconds. A single prime there would drop the
-        // session to unauthenticated and surface the recovery controls for an
-        // assistant that reconnects on its own moments later. Still no `wake` —
-        // app launch must not spawn daemon processes.
+        // Ride out the gateway's startup window: on reboot the gateway (a
+        // Login Item) restarts concurrently with the app. The mint fails to
+        // fetch while the port is unbound, then answers a transient 503 or
+        // 401 before the guardian binding lands. A single prime there would
+        // drop the session to unauthenticated and surface the recovery
+        // controls for an assistant that reconnects on its own. Still no
+        // `wake`: app launch must not spawn assistant processes.
         await primeLocalGatewayConnectionWithStartupRetry();
         set(authenticatedLocalUser());
       } catch {
@@ -1139,10 +1144,11 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
    * probe and swallows failures, this rethrows so the caller can surface the
    * reason — including the typed `GuardianTokenError` from the host seam — and
    * offer recovery instead of dead-ending. It primes through
-   * `primeLocalGatewayConnectionWithRepair`, which self-heals a stopped or
-   * mis-seeded assistant via `wake` before surfacing any error — matching the
-   * native client's re-pair-on-connect bootstrap. The boot probe deliberately
-   * stays on the plain primitive so app launch never spawns daemon processes.
+   * `primeLocalGatewayConnectionWithRepair`, which rides out a starting
+   * gateway and self-heals a stopped or mis-seeded assistant via `wake` before
+   * surfacing any error, matching the native client's re-pair-on-connect
+   * bootstrap. The boot probe deliberately stays on the startup-retry
+   * primitive so app launch never spawns assistant processes.
    */
   connectLocalAssistant: async (assistantId: string) => {
     const target = getLocalAssistants().find(

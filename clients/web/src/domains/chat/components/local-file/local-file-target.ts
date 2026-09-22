@@ -12,7 +12,7 @@ import { classifyMarkdownHref } from "@/domains/chat/utils/local-file-links";
 import {
   isWorkspaceRelativePath,
   workspaceBasenameOf,
-} from "@/domains/chat/utils/workspace-path-links";
+} from "@/utils/workspace-path-links";
 
 const VELLUM_WORKSPACE_PREFIX = "vellum://workspace/";
 

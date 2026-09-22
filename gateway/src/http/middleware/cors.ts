@@ -41,8 +41,10 @@ const ALLOWED_HEADERS = [
   "X-Session-Token",
   "Vellum-Organization-Id",
   "X-Trace-Id",
-  "X-Vellum-Client-Id",
+    "X-Vellum-Client-Id",
   "X-Vellum-Interface-Id",
+  "X-Vellum-Client-Version",
+  "X-Vellum-Sse-Watchdog",
   ...Object.values(CLIENT_METADATA_HEADERS),
 ].join(", ");
 
@@ -85,7 +87,7 @@ export function extensionCorsHeaders(origin: string): Record<string, string> {
     //   /v1/events (SSE)  → accept, x-vellum-client-id, x-vellum-interface-id
     //   /v1/host-browser-* → content-type, authorization
     "Access-Control-Allow-Headers":
-      "Accept, Authorization, Content-Type, X-Vellum-Client-Id, X-Vellum-Interface-Id",
+      "Accept, Authorization, Content-Type, X-Vellum-Client-Id, X-Vellum-Interface-Id, X-Vellum-Client-Version, X-Vellum-Sse-Watchdog",
     "Access-Control-Allow-Private-Network": "true",
     "Access-Control-Max-Age": "86400",
   };

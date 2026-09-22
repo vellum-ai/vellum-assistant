@@ -61,6 +61,16 @@ export const WorkspaceGitConfigSchema = z
       .describe(
         "Timeout for interactive git operations like status and diff (ms)",
       ),
+    stageBatchSize: z
+      .number({
+        error: "workspaceGit.stageBatchSize must be a number",
+      })
+      .int("workspaceGit.stageBatchSize must be an integer")
+      .positive("workspaceGit.stageBatchSize must be a positive integer")
+      .default(1000)
+      .describe(
+        "Maximum files per git add and git commit. Working trees larger than this are split into multiple add+commit cycles so each invocation stays within interactiveGitTimeoutMs",
+      ),
     enrichmentQueueSize: z
       .number({ error: "workspaceGit.enrichmentQueueSize must be a number" })
       .int("workspaceGit.enrichmentQueueSize must be an integer")

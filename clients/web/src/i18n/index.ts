@@ -38,6 +38,7 @@ export { Trans, useTranslation } from "react-i18next";
 export {
   changeLocale,
   currentLocale,
+  formatLocale,
   initI18n,
   resolveInitialLocale,
 } from "@/i18n/i18n";

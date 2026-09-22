@@ -82,8 +82,10 @@ await initializeDb();
 // Helpers
 // ---------------------------------------------------------------------------
 
-const TEST_TOKEN = "test-bearer-token-calls";
-const AUTH_HEADERS = { Authorization: `Bearer ${TEST_TOKEN}` };
+// This suite mocks isHttpAuthDisabled() to true, so a request carrying no
+// bearer authenticates through the dev bypass. A bearer that is present is
+// verified against the signing key, which these tests do not set up.
+const AUTH_HEADERS: Record<string, string> = {};
 
 let ensuredConvIds = new Set<string>();
 
@@ -327,6 +329,7 @@ describe("runtime call routes — HTTP layer", () => {
     ensureConversation("conv-get-1");
 
     const session = createCallSession({
+      direction: "outbound",
       conversationId: "conv-get-1",
       provider: "twilio",
       fromNumber: "+15550001111",
@@ -378,6 +381,7 @@ describe("runtime call routes — HTTP layer", () => {
     ensureConversation("conv-cancel-1");
 
     const session = createCallSession({
+      direction: "inbound",
       conversationId: "conv-cancel-1",
       provider: "twilio",
       fromNumber: "+15550001111",
@@ -407,6 +411,7 @@ describe("runtime call routes — HTTP layer", () => {
     ensureConversation("conv-cancel-2");
 
     const session = createCallSession({
+      direction: "inbound",
       conversationId: "conv-cancel-2",
       provider: "twilio",
       fromNumber: "+15550001111",
@@ -447,6 +452,7 @@ describe("runtime call routes — HTTP layer", () => {
     ensureConversation("conv-answer-badjson");
 
     const session = createCallSession({
+      direction: "inbound",
       conversationId: "conv-answer-badjson",
       provider: "twilio",
       fromNumber: "+15550001111",
@@ -469,6 +475,7 @@ describe("runtime call routes — HTTP layer", () => {
     ensureConversation("conv-answer-1");
 
     const session = createCallSession({
+      direction: "inbound",
       conversationId: "conv-answer-1",
       provider: "twilio",
       fromNumber: "+15550001111",
@@ -495,6 +502,7 @@ describe("runtime call routes — HTTP layer", () => {
     ensureConversation("conv-answer-2");
 
     const session = createCallSession({
+      direction: "inbound",
       conversationId: "conv-answer-2",
       provider: "twilio",
       fromNumber: "+15550001111",
@@ -517,6 +525,7 @@ describe("runtime call routes — HTTP layer", () => {
     ensureConversation("conv-answer-3");
 
     const session = createCallSession({
+      direction: "inbound",
       conversationId: "conv-answer-3",
       provider: "twilio",
       fromNumber: "+15550001111",
@@ -548,6 +557,7 @@ describe("runtime call routes — HTTP layer", () => {
     ensureConversation("conv-instr-badjson");
 
     const session = createCallSession({
+      direction: "inbound",
       conversationId: "conv-instr-badjson",
       provider: "twilio",
       fromNumber: "+15550001111",
@@ -570,6 +580,7 @@ describe("runtime call routes — HTTP layer", () => {
     ensureConversation("conv-instr-empty");
 
     const session = createCallSession({
+      direction: "inbound",
       conversationId: "conv-instr-empty",
       provider: "twilio",
       fromNumber: "+15550001111",
@@ -596,6 +607,7 @@ describe("runtime call routes — HTTP layer", () => {
     ensureConversation("conv-instr-missing");
 
     const session = createCallSession({
+      direction: "inbound",
       conversationId: "conv-instr-missing",
       provider: "twilio",
       fromNumber: "+15550001111",
@@ -640,6 +652,7 @@ describe("runtime call routes — HTTP layer", () => {
     ensureConversation("conv-instr-ended");
 
     const session = createCallSession({
+      direction: "inbound",
       conversationId: "conv-instr-ended",
       provider: "twilio",
       fromNumber: "+15550001111",
@@ -668,6 +681,7 @@ describe("runtime call routes — HTTP layer", () => {
     ensureConversation("conv-instr-no-orch");
 
     const session = createCallSession({
+      direction: "inbound",
       conversationId: "conv-instr-no-orch",
       provider: "twilio",
       fromNumber: "+15550001111",

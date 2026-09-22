@@ -4,8 +4,12 @@ import type { CliCommandHelp } from "../lib/cli-command-help.js";
 
 export const roadmapHelp: CliCommandHelp = {
   name: "roadmap",
-  description: "Read and file public Vellum roadmap feedback as the assistant",
+  description:
+    "Read and file public feature proposals as the assistant. For bugs and support, instruct the user to join the Discord community at https://vellum.ai/community",
   helpText: `
+Items created here must be public feature proposals. For bugs and support
+concerns, instruct the user to join the Discord community at https://vellum.ai/community.
+
 Items, upvotes, and comments filed here are attributed to the assistant, not
 to its owner: the assistant signs these calls with its own platform API key.
 The owner's own roadmap identity lives on \`vellum roadmap\`.
@@ -21,7 +25,7 @@ no verb to post one.
 Examples:
   $ assistant roadmap list --sort upvotes --limit 10
   $ assistant roadmap get scheduled-messages
-  $ assistant roadmap create --title "Add dark mode" --tag ui
+  $ assistant roadmap create --title "Add dark mode" --tag area-interface
   $ assistant roadmap upvote scheduled-messages`,
   subcommands: [
     {
@@ -75,10 +79,13 @@ Examples:
       options: [
         {
           flags: "--title <title>",
-          description: "Item title (required)",
+          description: "Item title, 1 to 200 characters (required)",
           required: true,
         },
-        { flags: "--description <desc>", description: "Item description" },
+        {
+          flags: "--description <desc>",
+          description: "Item description, up to 5000 characters",
+        },
         {
           flags: "--tag <slug>",
           description:
@@ -93,41 +100,35 @@ accepted, since status is assigned by Vellum.
 Examples:
   $ assistant roadmap create --title "Add dark mode"
   $ assistant roadmap create --title "Recurring reminders" \\
-      --description "Repeat a scheduled message weekly" --tag scheduling`,
+      --description "Repeat a scheduled message weekly" --tag area-assistant`,
     },
     {
       name: "update",
       args: "<slug>",
-      description: "Update a roadmap item",
+      description:
+        "Edit the title or description of an item the assistant filed",
       options: [
-        { flags: "--title <title>", description: "New title" },
-        { flags: "--description <desc>", description: "New description" },
         {
-          flags: "--status <status>",
-          description: "New status (e.g. open, planned, in_progress, someday)",
+          flags: "--title <title>",
+          description: "New title, 1 to 200 characters",
         },
         {
-          flags: "--tag <slug>",
-          description: "Replacement tag slug, repeatable",
-        },
-        {
-          flags: "--clear-tags",
-          description: "Remove every tag (cannot be combined with --tag)",
+          flags: "--description <desc>",
+          description: "New description, up to 5000 characters",
         },
       ],
       helpText: `
 Arguments:
   <slug>  Item slug, as printed in the URL by 'assistant roadmap list'
 
-At least one field is required. Passing --tag replaces the whole tag set
-rather than adding to it, so list every tag the item should end up with.
-Vellum decides which items an assistant may edit, so this fails for items the
-assistant does not own.
+At least one of --title or --description is required. Only items this
+assistant filed can be edited, and only while their status is still open.
+Status and tags are set by Vellum staff, so an item's tags are chosen once,
+on 'roadmap create'.
 
 Examples:
   $ assistant roadmap update dark-mode --description "Follow the OS setting"
-  $ assistant roadmap update dark-mode --tag ui --tag theming
-  $ assistant roadmap update dark-mode --clear-tags`,
+  $ assistant roadmap update dark-mode --title "Dark mode that follows the OS"`,
     },
     {
       name: "delete",

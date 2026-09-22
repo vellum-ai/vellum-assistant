@@ -13,10 +13,10 @@
     "logIn": "Log In",
     "logOut": "Log out",
     "loginToUse": "Log in to use",
-    "downloadMacApp": "Download the macOS app",
+    "downloadMacOSApp": "Download the macOS app",
+    "downloadWindowsApp": "Download the Windows app",
     "claim": "Claim",
-    "skipForNow": "Skip for now",
-    "starting": "Starting…"
+    "skipForNow": "Skip for now"
   },
   "welcome": {
     "title": "Welcome to Vellum",
@@ -135,7 +135,7 @@
     "ariaLabel": "Step {current} of {total}"
   },
   "googleCalendar": {
-    "authorizationFailed": "Failed to start Google Calendar authorization."
+    "providerLabel": "Google Calendar"
   },
   "introductionScreen": {
     "greetingNamed": "Hey, {name}!",
@@ -255,7 +255,6 @@
     "bodyLoadingWithClaims": "Still checking the rest. You can review these as they come in.",
     "bodyReadyWithClaims": "I searched the web. Feel free to remove anything that isn’t true.",
     "bodyLoadingEmpty": "Still putting this together…",
-    "bodyReadyEmpty": "I didn’t turn up much, we can fill it in as we chat.",
     "removeClaim": "Remove \"{claim}\"",
     "notMe": "This is not me",
     "stillSearching": "Still searching…"
@@ -286,10 +285,5 @@
         "prompt": "Draft something from a few rough notes I'll give you."
       }
     }
-  },
-  "letsChatReadyStep": {
-    "title": "You’re all set",
-    "setupNote": "I’ve set myself up with plugins around who you are.",
-    "letsChat": "Let's chat"
   }
 }

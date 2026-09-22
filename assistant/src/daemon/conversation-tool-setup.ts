@@ -7,24 +7,32 @@
  */
 
 import type { AssistantEvent } from "../api/index.js";
+import { shouldUseVirtualDesktopBrowser } from "../browser/virtual-desktop-target.js";
 import {
-  type ClientOs,
   type HostProxyCapability,
-  parseClientOs,
   supportsHostProxy,
 } from "../channels/types.js";
 import { getIsPlatform } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
 import { isMemoryEnabled } from "../config/memory-v3-gate.js";
+import {
+  resolveSendUserMessageActive,
+  SEND_USER_MESSAGE_TOOL_NAME,
+} from "../config/send-user-message-gate.js";
+import { canUseVirtualDesktop } from "../desktop/virtual-desktop-feature.js";
 import { supportsChannelReaction } from "../messaging/providers/index.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
+import {
+  type ConversationToolSurface,
+  hashConversationToolSurface,
+  recordConversationToolSurface,
+} from "../persistence/conversation-tool-surface.js";
 import { getBindingByConversation } from "../persistence/external-conversation-store.js";
 import { getAllDefaultPluginNames } from "../plugins/defaults/main.js";
 import { isActivationSession } from "../plugins/defaults/memory/activation-session-store.js";
 import { isPluginDisabled } from "../plugins/disabled-state.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
-import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { registerConversationSender } from "../tools/browser/browser-screencast.js";
 import { supportsClientOsForSkillTool } from "../tools/client-os.js";
 import type { ToolExecutor } from "../tools/executor.js";
@@ -41,27 +49,22 @@ import {
 import {
   ACTIVITY_SKIP_SET,
   injectActivityField,
+  stripActivityField,
 } from "../tools/schema-transforms.js";
-import {
-  augmentSkillExecuteError,
-  recoverSkillExecuteEnvelope,
-  resolveSkillExecuteInput,
-} from "../tools/skills/execute.js";
+import { augmentSkillExecuteError } from "../tools/skills/execute.js";
+import { resolveSkillExecuteInvocation } from "../tools/skills/resolve-execute-invocation.js";
 import { resolveToolInvocationAlias } from "../tools/tool-name-aliases.js";
 import type {
   ProxyApprovalCallback,
   ProxyApprovalRequest,
 } from "../tools/tool-types.js";
 import {
-  isDiskPressureCleanupToolName,
   type OwnerKind,
+  survivesDiskPressureCleanup,
   type ToolContext,
   type ToolExecutionResult,
 } from "../tools/types.js";
-import {
-  injectActivationMomentParam,
-  projectUiToolsForChannel,
-} from "../tools/ui-surface/channel-variants.js";
+import { injectActivationMomentParam } from "../tools/ui-surface/channel-variants.js";
 import { loadWorkspaceTools } from "../tools/workspace-tools/loader.js";
 import {
   resolveUsageAttribution,
@@ -73,6 +76,7 @@ import {
   conversationSupportsGuardianQuestionCards,
 } from "./channel-ui-capability.js";
 import type { Conversation } from "./conversation.js";
+import { resolveTurnClientOs } from "./conversation-client-surface.js";
 import { projectSkillTools } from "./conversation-skill-tools.js";
 import {
   restoreSurfaceStateEntry,
@@ -84,6 +88,7 @@ import {
 } from "./doordash-steps.js";
 import { runPostExecutionSideEffects } from "./tool-side-effects.js";
 import { FALLBACK_TURN_TRUST, resolveTrustClass } from "./trust-context.js";
+import { virtualDesktopContext } from "./virtual-desktop-context.js";
 
 const log = getLogger("conversation-tool-setup");
 
@@ -255,6 +260,24 @@ export function createToolExecutor(
   // see {@link SubagentToolGateMode}): rejects non-allowlisted calls BEFORE
   // any executor dispatch, so a non-allowlisted tool's executor never runs.
   // The error tool_result lets the model continue or finish.
+  const rejectUnattendedHostTool = (
+    toolName: string,
+  ): ToolExecutionResult | null => {
+    const { transportInterface } = resolveTurnClientOs(ctx);
+    const isUnattended = ctx.currentTurnIsNonInteractive ?? ctx.hasNoClient;
+    if (
+      HOST_TOOL_NAMES.has(toolName) &&
+      isUnattended &&
+      transportInterface !== "chrome-extension"
+    ) {
+      return {
+        content: `The "${toolName}" tool requires an interactive user turn and cannot run in the background.`,
+        isError: true,
+      };
+    }
+    return null;
+  };
+
   const rejectNonAllowlistedTool = (
     toolName: string,
   ): ToolExecutionResult | null => {
@@ -382,6 +405,10 @@ export function createToolExecutor(
       if (rejection) {
         return rejection;
       }
+      const unattendedRejection = rejectUnattendedHostTool(executionName);
+      if (unattendedRejection) {
+        return unattendedRejection;
+      }
     }
 
     if (isDoordashCommand(executionName, executionInput)) {
@@ -432,10 +459,12 @@ export function createToolExecutor(
       subagentAllowedTools: ctx.subagentAllowedTools,
       forcePromptSideEffects: ctx.forcePromptSideEffects,
       diskPressureCleanupModeActive: ctx.diskPressureCleanupModeActive,
+      // The approval handler's cleanup gate reads this, so a tool the wire
+      // offered on a gated cleanup turn is not refused at execution.
+      sendUserMessageActive: resolveSendUserMessageActive(ctx),
       toolUseId,
       isPlatformHosted: getIsPlatform(),
-      transportInterface: ctx.transportInterface,
-      clientOs: resolveTurnClientOs(ctx).clientOs,
+      ...resolveTurnClientOs(ctx),
       overrideProfile: ctx.currentTurnOverrideProfile,
       cronRunId: ctx.currentTurnCronRunId,
       invokingCallSite: ctx.currentCallSite ?? "mainAgent",
@@ -509,23 +538,8 @@ export function createToolExecutor(
     // risk level, permission checks, hooks, and lifecycle events all fire
     // with the real tool name.
     if (executionName === "skill_execute") {
-      // Recover an envelope the provider wrapped as unparseable when MiniMax's
-      // coercion failed to JSON-decode a bare-string `input` (see
-      // recoverSkillExecuteEnvelope), then resolve the inner tool + params.
-      const envelope = recoverSkillExecuteEnvelope(executionInput);
-      const rawToolName =
-        typeof envelope.tool === "string" ? envelope.tool : "";
-      const innerSchema = rawToolName
-        ? getTool(rawToolName)?.input_schema
-        : undefined;
-      const rawToolInput = resolveSkillExecuteInput(envelope, innerSchema);
-
-      // Clone to avoid mutating shared input objects
-      const { name: toolName, input: toolInput } = resolveToolInvocationAlias(
-        rawToolName,
-        { ...rawToolInput },
-        ctx.allowedToolNames,
-      );
+      const { name: toolName, input: toolInput } =
+        resolveSkillExecuteInvocation(executionInput, ctx.allowedToolNames);
 
       if (!toolName) {
         return {
@@ -541,6 +555,10 @@ export function createToolExecutor(
       const innerRejection = rejectNonAllowlistedTool(toolName);
       if (innerRejection) {
         return innerRejection;
+      }
+      const unattendedRejection = rejectUnattendedHostTool(toolName);
+      if (unattendedRejection) {
+        return unattendedRejection;
       }
 
       // Per-chat plugin scope: reject the resolved inner tool when it belongs
@@ -620,7 +638,6 @@ export const DEFAULT_PREACTIVATED_SKILL_IDS = ["notifications", "subagent"];
 // ── Conditional tool sets ────────────────────────────────────────────
 
 const UI_SURFACE_TOOL_NAMES = new Set(["ui_show", "ui_update", "ui_dismiss"]);
-const SLACK_TASK_PROGRESS_UI_TOOL_NAMES = new Set(["ui_show", "ui_update"]);
 /**
  * Single source of truth for which tools are host tools and the capability
  * each one requires from the connected client interface. Adding a tool here
@@ -714,30 +731,6 @@ export const ALLOWLIST_ONLY_TOOL_NAMES = new Set<string>([
 ]);
 
 /**
- * Host OS of the client driving this turn. The Electron renderer reports
- * `interface: "web"` and carries the real OS in `clientOs`, so this prefers
- * the frozen per-turn value and only falls back to a desktop transport.
- */
-function resolveTurnClientOs(ctx: Conversation): {
-  clientOs: ClientOs | undefined;
-  transportInterface: Conversation["transportInterface"];
-} {
-  const pin = ctx.toolContextPin;
-  const transportInterface = pin
-    ? pin.transportInterface
-    : ctx.transportInterface;
-  const clientOs = pin
-    ? pin.clientOs
-    : (parseClientOs(ctx.currentTurnClientOs ?? ctx.clientOs) ??
-      (transportInterface === "macos" ||
-      transportInterface === "windows" ||
-      transportInterface === "linux"
-        ? transportInterface
-        : undefined));
-  return { clientOs, transportInterface };
-}
-
-/**
  * Windows parity gate: skill tools may declare `supported_client_os`; drop
  * them when the turn's client OS (or pinned OS for wakes) is not listed.
  */
@@ -751,6 +744,7 @@ function isToolSupportedOnClientOs(name: string, ctx: Conversation): boolean {
     clientOs,
     transportInterface,
     sourceActorPrincipalId: ctx.getTurnActorPrincipalId?.(),
+    trustClass: virtualDesktopContext(ctx).trustClass,
   });
 }
 
@@ -813,7 +807,9 @@ export function isToolActiveForContext(
   }
   if (
     ctx.diskPressureCleanupModeActive === true &&
-    !isDiskPressureCleanupToolName(name)
+    !survivesDiskPressureCleanup(name, {
+      sendUserMessageActive: resolveSendUserMessageActive(ctx),
+    })
   ) {
     return false;
   }
@@ -823,6 +819,13 @@ export function isToolActiveForContext(
     } catch {
       return true;
     }
+  }
+  // The tool-gated reply surface is main-agent only: the flag must be on, and
+  // the turn must not be a subagent, worker, live-voice, or call leg. Those
+  // keep streamed assistant text, so offering them a delivery tool nothing
+  // reads would silently swallow their replies.
+  if (name === SEND_USER_MESSAGE_TOOL_NAME) {
+    return resolveSendUserMessageActive(ctx);
   }
   // The react capability follows the transport's declaration: the tool is on
   // the wire exactly when the turn's channel transport implements `react`,
@@ -839,56 +842,26 @@ export function isToolActiveForContext(
     return supportsChannelReaction(turnChannel);
   }
   if (UI_SURFACE_TOOL_NAMES.has(name)) {
-    if (
-      channelCapabilities?.channel === "slack" &&
-      SLACK_TASK_PROGRESS_UI_TOOL_NAMES.has(name)
-    ) {
-      return !hasNoClient;
-    }
-    return channelCapabilities?.supportsDynamicUi ?? !hasNoClient;
+    // Surface calls write conversation content. Background turns persist that
+    // content for the next client that opens the conversation, so presence
+    // cannot change whether the model receives these definitions.
+    return true;
   }
   if (HOST_TOOL_NAMES.has(name)) {
     const capability = HOST_TOOL_TO_CAPABILITY.get(name);
     const transport = transportInterface;
 
-    // Per-capability check is authoritative for structural support: if the
-    // transport cannot service this capability, the tool is filtered out.
+    // A transport that does not implement a capability can invoke it through
+    // an eligible same-user client. Client selection happens when the call
+    // runs, so the wire schema stays stable across live and background turns.
     if (transport && capability && !supportsHostProxy(transport, capability)) {
-      // Cross-client exception: allow host tools whose capabilities have
-      // cross-client routing infrastructure (Phases 1–3 plus host_browser
-      // via PR #27489) to be exposed for non-host-proxy transports (e.g.
-      // "web", "ios") when at least one capable client is connected via
-      // the event hub. Members of CROSS_CLIENT_EXPOSED_CAPABILITIES
-      // (host_bash, host_file, host_browser) qualify.
-      // chrome-extension transport is excluded as a security boundary
-      // (extension only gets host_browser via its own executor path);
-      // hasNoClient turns are excluded (no interactive approval UI
-      // available).
-      if (
-        capability &&
+      return (
         CROSS_CLIENT_EXPOSED_CAPABILITIES.has(capability) &&
-        transport !== "chrome-extension" &&
-        !hasNoClient &&
-        assistantEventHub.listClientsByCapability(capability).length > 0
-      ) {
-        return true;
-      }
-      return false;
+        transport !== "chrome-extension"
+      );
     }
 
-    // chrome-extension is its own executor — the extension's popup gates
-    // commands via its own UI, and the transport does not use an SSE-level
-    // interactive approval channel. hasNoClient is intentionally `true` for
-    // chrome-extension turns (chrome-extension is not in INTERACTIVE_INTERFACES)
-    // and must not gate host_browser. Trust the per-capability check.
-    if (transport === "chrome-extension") {
-      return true;
-    }
-
-    // For transports that surface approvals over SSE (macos, backwards-compat
-    // fallback), deny when no client is present so the guardian auto-approve
-    // path cannot execute host commands unattended.
-    return !hasNoClient;
+    return true;
   }
   if (CLIENT_CAPABILITY_TOOL_NAMES.has(name)) {
     if (name === "ask_question" && channelCapabilities?.clientOS === "macos") {
@@ -922,6 +895,114 @@ export function isToolActiveForContext(
     return ctx.subagentAllowedTools?.has(name) === true;
   }
   return true;
+}
+
+/**
+ * Every name a turn has to reach before it can spawn a subagent.
+ *
+ * The spawn tool ships inside the bundled `subagent` skill, so it is never
+ * called by name: `skill_load` activates the skill and `skill_execute`
+ * dispatches to `subagent_spawn` inside it, which the executor gates as the
+ * resolved inner tool. All three are therefore required: any one of them
+ * missing leaves no callable path to a subagent.
+ */
+const SUBAGENT_SPAWN_PATH_TOOL_NAMES = [
+  "skill_load",
+  "skill_execute",
+  "subagent_spawn",
+] as const;
+
+/**
+ * Whether this turn could actually spawn a subagent, read off the resolved
+ * tool surface rather than assumed.
+ *
+ * Answers yes only when the whole dispatch path is callable: the skill loader,
+ * the dispatcher, and the spawn tool the dispatcher resolves to. Each name runs
+ * through {@link isToolActiveForContext}, so a turn with tools disabled, a
+ * read-only subagent pass, or a wire-scoped background run whose `allowedTools`
+ * omits one of them all answer no, as does a workspace `tools.exclude` entry.
+ *
+ * The system prompt's delegation guidance gates on this: telling a turn to hand
+ * work to subagents it cannot spawn invites it to defer work it must do inline.
+ */
+export function canSpawnSubagentsForTurn(ctx: Conversation): boolean {
+  let excluded: ReadonlySet<string>;
+  try {
+    excluded = new Set(getConfig().tools.exclude);
+  } catch {
+    excluded = new Set<string>();
+  }
+  // A run carrying an allowlist is checked against it here whatever its gate
+  // mode. `isToolActiveForContext` skips the allowlist under
+  // `subagentToolGateMode === "execution"` by design, because that mode keeps
+  // the full surface on the wire for cache parity and rejects the call in the
+  // executor instead. That is the right answer to "is this tool on the wire"
+  // and the wrong one to "could this turn actually spawn": the memory
+  // retrospective wake runs in execution mode with an allowlist that names
+  // `skill_load` but neither the dispatcher nor the spawn tool, so a spawn is
+  // denied at execution. A wake replaying its source's recorded surface
+  // renders the source's delegation state in place of this answer
+  // (`Conversation.delegateIndependentTasksReplay`): a denied spawn attempt
+  // costs one tool error, a system prompt that differs from the source's
+  // costs the whole cached prefix behind it.
+  const allowlist = ctx.subagentAllowedTools;
+  return SUBAGENT_SPAWN_PATH_TOOL_NAMES.every(
+    (name) =>
+      !excluded.has(name) &&
+      (allowlist === undefined || allowlist.has(name)) &&
+      isToolActiveForContext(name, ctx),
+  );
+}
+
+/**
+ * Build the agent loop's `onToolsSent` observer for a conversation: record
+ * the tool array each provider call sends, with the delegation-section state
+ * the prompt build captured for the prompt that call carries
+ * (`Conversation.renderedDelegateIndependentTasks`), so a later fork wake can
+ * replay both (`recordConversationToolSurface`). Only the loop's send boundary sees the
+ * sent array. The resolver is also consulted out of band (the token count
+ * behind `/compact` and `/clean`, compaction estimates), where a read outside
+ * any turn resolves a clientless surface that would overwrite the one the
+ * conversation's turns actually send.
+ *
+ * Arrays that are not the conversation's own surface are skipped: a replaying
+ * wake sends its source's array, an empty array is a tools-disabled call (a
+ * fork replaying it could never call `remember`), and disk-pressure cleanup
+ * mode narrows the wire to cleanup tools. Best-effort: a failed write is
+ * logged and the surface still counts as recorded, so a persistent failure
+ * logs once per distinct surface rather than once per provider call.
+ */
+export function createWireToolSurfaceRecorder(
+  ctx: Conversation,
+): (tools: ToolDefinition[]) => void {
+  return (tools) => {
+    if (
+      !ctx.conversationId ||
+      ctx.wireToolReplay ||
+      tools.length === 0 ||
+      ctx.diskPressureCleanupModeActive === true
+    ) {
+      return;
+    }
+    const surface: ConversationToolSurface = {
+      tools,
+      // Unknown before the first prompt build or for a verbatim override.
+      delegateIndependentTasks: ctx.renderedDelegateIndependentTasks ?? null,
+    };
+    try {
+      ctx.recordedToolSurfaceHash = recordConversationToolSurface(
+        ctx.conversationId,
+        surface,
+        ctx.recordedToolSurfaceHash,
+      );
+    } catch (err) {
+      log.warn(
+        { err, conversationId: ctx.conversationId },
+        "failed to record the conversation's wire tool surface; continuing",
+      );
+      ctx.recordedToolSurfaceHash = hashConversationToolSurface(surface);
+    }
+  };
 }
 
 /**
@@ -1083,19 +1164,40 @@ export function createResolveToolsCallback(
         : currentWorkspaceDefs
     ).filter((d) => !readOnlyHidesFromWire(d.name));
     const excluded = new Set(getConfig().tools.exclude);
-    // Swap UI surface tools for channel-appropriate variants (e.g. Slack's
-    // task_progress-only ui_show). Mirrors the pin handling in
-    // `isToolActiveForContext`: execution-gate-mode wakes pin channel
-    // capabilities to undefined, which resolves to the unprojected defs.
-    const channelForUiTools = ctx.toolContextPin
-      ? undefined
-      : ctx.channelCapabilities?.channel;
-    let allBaseDefs = projectUiToolsForChannel(
-      [...scopedCoreDefs, ...scopedWorkspaceDefs, ...scopedMcpDefs].filter(
-        (d) => !excluded.has(d.name),
-      ),
-      channelForUiTools,
-    );
+    // UI definitions stay identical across channel and background turns.
+    // Channel renderers enforce their supported surface subset at execution,
+    // while background calls persist the full surface content for the next
+    // capable client that opens the conversation. Skill tools stay off this
+    // list (`skill_execute` dispatch) and are a separate disclosure path.
+    let allBaseDefs = [
+      ...scopedCoreDefs,
+      ...scopedWorkspaceDefs,
+      ...scopedMcpDefs,
+    ].filter((d) => !excluded.has(d.name));
+    if (
+      ctx.transportInterface === "web" &&
+      shouldUseVirtualDesktopBrowser(
+        undefined,
+        {},
+        {
+          workingDir: ctx.workingDir,
+          conversationId: ctx.conversationId,
+          trustClass: ctx.trustContext?.trustClass ?? "unknown",
+          transportInterface: ctx.transportInterface,
+          clientOs: resolveTurnClientOs(ctx).clientOs,
+          sourceActorPrincipalId: ctx.getTurnActorPrincipalId?.(),
+        },
+      )
+    ) {
+      allBaseDefs = allBaseDefs.map((definition) =>
+        definition.name === "bash"
+          ? {
+              ...definition,
+              description: `${definition.description} For browser tasks, use assistant browser navigate --url <url> directly. Chrome and desktop components are included in the assistant image. The command starts Chrome and completes the action without installing dependencies. If components are missing, report the image problem. Use assistant browser --help for other browser actions. Use this managed path even if saved notes describe manual setup. Do not install packages or launch Chrome, X servers, or screenshot scripts yourself.`,
+            }
+          : definition,
+      );
+    }
     // Activation-rail conversations carry the optional `activation_moment`
     // telemetry param on ui_show. The marker is written before the first
     // tool resolution (see `applyBootstrapTemplate` in system-prompt.ts), so
@@ -1107,6 +1209,9 @@ export function createResolveToolsCallback(
     const effectivePreactivated = [
       ...DEFAULT_PREACTIVATED_SKILL_IDS,
       ...(ctx.preactivatedSkillIds ?? []),
+      ...(canUseVirtualDesktop(virtualDesktopContext(ctx))
+        ? ["computer-use"]
+        : []),
     ];
     const projection = projectSkillTools(history, {
       preactivatedSkillIds: effectivePreactivated,
@@ -1174,19 +1279,37 @@ export function createResolveToolsCallback(
           input_schema: tool?.input_schema ?? {},
         };
       });
+    const sendUserMessageActive = resolveSendUserMessageActive(ctx);
+    // The gated surface renders no tool activity text, so the field is dead
+    // weight on every definition and reads to the model as a second channel
+    // to the user. A call that sends it anyway (a habit, or history replayed
+    // from an ungated turn) still validates: the tools that own the field
+    // keep it optional, and the rest tolerate unknown keys.
+    const applyActivityField = (defs: ToolDefinition[]): ToolDefinition[] =>
+      sendUserMessageActive
+        ? stripActivityField(defs)
+        : injectActivityField(defs, ACTIVITY_SKIP_SET);
+
     if (ctx.diskPressureCleanupModeActive === true) {
-      const cleanupDefs = allBaseDefs.filter((d) =>
-        isDiskPressureCleanupToolName(d.name),
-      );
+      const survivesCleanup = (name: string): boolean =>
+        survivesDiskPressureCleanup(name, { sendUserMessageActive });
+      const cleanupDefs = allBaseDefs.filter((d) => survivesCleanup(d.name));
       ctx.allowedToolNames = new Set(
-        Array.from(turnAllowed).filter(isDiskPressureCleanupToolName),
+        Array.from(turnAllowed).filter(survivesCleanup),
       );
-      return injectActivityField(cleanupDefs, ACTIVITY_SKIP_SET);
+      return applyActivityField(cleanupDefs);
     }
 
     ctx.allowedToolNames = turnAllowed;
-    const baseDefs = injectActivityField(allBaseDefs, ACTIVITY_SKIP_SET);
 
-    return baseDefs;
+    // A wake replaying its source's recorded surface sends that array
+    // verbatim: the wire tool block is the first tier of the provider cache
+    // prefix (tools → system → messages), so only the same bytes read the
+    // source's cached prefix instead of rewriting it. Execution is unaffected:
+    // `allowedToolNames` above and the executor's allowlist gate still decide
+    // what may run.
+    return ctx.wireToolReplay
+      ? [...ctx.wireToolReplay]
+      : applyActivityField(allBaseDefs);
   };
 }

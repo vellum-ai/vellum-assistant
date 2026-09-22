@@ -1,6 +1,10 @@
+import {
+  type RecallSource,
+  RecallSourceSchema,
+} from "../../../../api/events/tool-result.js";
 import { truncate } from "../host-utils.js";
-import { ALL_RECALL_SOURCES, normalizeRecallSources } from "./limits.js";
-import type { RecallEvidence, RecallSource } from "./types.js";
+import { normalizeRecallSources } from "./limits.js";
+import type { RecallEvidence } from "./types.js";
 
 export type RecallAgentConfidence = "high" | "medium" | "low";
 
@@ -76,7 +80,7 @@ export const SEARCH_SOURCES_TOOL_DEFINITION: RecallAgentToolDefinition = {
       sources: {
         type: "array",
         description: "Optional subset of internal sources to search.",
-        items: { type: "string", enum: [...ALL_RECALL_SOURCES] },
+        items: { type: "string", enum: [...RecallSourceSchema.options] },
         uniqueItems: true,
       },
       limit: {
@@ -176,9 +180,9 @@ export function buildRecallAgentPromptBundle(
 ): RecallAgentPromptBundle {
   const availableSources = normalizeRecallSources(options.availableSources);
   const maxSearchCalls = options.maxSearchCalls ?? DEFAULT_MAX_SEARCH_CALLS;
-  const evidence = prepareRecallAgentPromptEvidence(
+  const evidence = truncateRecallEvidenceToBudget(
     options.evidence,
-    options.evidenceBudgetChars,
+    options.evidenceBudgetChars ?? DEFAULT_RECALL_AGENT_EVIDENCE_BUDGET_CHARS,
   );
   const citationIds = evidence.map((item) => item.id);
 
@@ -214,13 +218,6 @@ export function buildRecallAgentPromptBundle(
   ].join("\n");
 
   return { prompt, evidence };
-}
-
-function prepareRecallAgentPromptEvidence(
-  evidence: readonly RecallEvidence[],
-  evidenceBudgetChars = DEFAULT_RECALL_AGENT_EVIDENCE_BUDGET_CHARS,
-): RecallEvidence[] {
-  return truncateRecallEvidenceToBudget(evidence, evidenceBudgetChars);
 }
 
 export function truncateRecallEvidenceToBudget(

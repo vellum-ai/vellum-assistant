@@ -3,8 +3,13 @@ import {
   SENTINEL_REDACTION_VERSION,
 } from "@vellumai/service-contracts/redacted-credential";
 import { v4 as uuid } from "uuid";
+import { z } from "zod";
 
 import { AnsweredQuestionSchema } from "../../api/events/question-answered.js";
+import {
+  type ToolActivityMetadata,
+  ToolActivityMetadataSchema,
+} from "../../api/events/tool-result.js";
 import type {
   ConversationContentBlock,
   ConversationMessageAttachment,
@@ -18,6 +23,10 @@ import { ipcCall as gatewayIpcCall } from "../../ipc/gateway-client.js";
 import type { ProviderMessageMetadata } from "../../messaging/provider-message-metadata.js";
 import type { SecretPromptResult } from "../../permissions/secret-prompt-types.js";
 import type { ConversationCreateType } from "../../persistence/conversation-types.js";
+import {
+  isPrivateAssistantText,
+  projectUserFacingContent,
+} from "../../persistence/user-facing-content.js";
 import { resolveMediaSourceData } from "../../providers/media-resolve.js";
 import { isPlaceholderSentinelText } from "../../providers/placeholder-sentinels.js";
 import type { MediaSource } from "../../providers/types.js";
@@ -28,6 +37,7 @@ import { unwrapExternalContentForDisplay } from "../../security/untrusted-conten
 import type { CredentialInjectionTemplate } from "../../tools/credentials/policy-types.js";
 import { getLogger } from "../../util/logger.js";
 import { joinWithSpacing } from "../../util/text-spacing.js";
+import { safeStringSlice } from "../../util/unicode.js";
 import { estimateBase64Bytes } from "../assistant-attachments.js";
 import { conversationSupportsDynamicUi } from "../channel-ui-capability.js";
 import { findConversation } from "../conversation-registry.js";
@@ -241,6 +251,33 @@ export interface ConversationCreateOptions {
   conversationType?: ConversationCreateType;
 }
 
+/** One schema per activity entry, so each entry validates on its own. */
+const ACTIVITY_ENTRY_SCHEMAS = Object.entries(
+  ToolActivityMetadataSchema.shape,
+).map(([key, schema]) => z.object({ [key]: schema }));
+
+/**
+ * Validates a persisted `_activityMetadata` rider one tool's entry at a time.
+ * Cards render these fields directly, so an entry that no longer matches its
+ * schema is dropped (its card degrades to the result text) without taking a
+ * valid sibling entry with it.
+ */
+function readPersistedActivityMetadata(
+  value: unknown,
+): ToolActivityMetadata | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const activity: ToolActivityMetadata = {};
+  for (const schema of ACTIVITY_ENTRY_SCHEMAS) {
+    const parsed = schema.safeParse(value);
+    if (parsed.success) {
+      Object.assign(activity, parsed.data);
+    }
+  }
+  return Object.keys(activity).length > 0 ? activity : undefined;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value != null;
 }
@@ -260,7 +297,7 @@ function clampAttachmentText(text: string): string {
   if (text.length <= HISTORY_ATTACHMENT_TEXT_LIMIT) {
     return text;
   }
-  return `${text.slice(0, HISTORY_ATTACHMENT_TEXT_LIMIT)}<truncated />`;
+  return `${safeStringSlice(text, 0, HISTORY_ATTACHMENT_TEXT_LIMIT)}<truncated />`;
 }
 
 interface FileBlockMetadata {
@@ -358,13 +395,30 @@ function renderFileBlockForHistory(
   )}`;
 }
 
+/**
+ * @param metadata The row's stored `messages.metadata` (raw JSON string or the
+ * parsed record). Only used to read the row's own
+ * `assistantTextVisibility` marker: a row a `send_user_message` turn wrote
+ * renders its plain text as working notes and its tool calls as the reply.
+ * Omit it for content that is not a persisted assistant row.
+ */
 export function renderHistoryContent(
-  content: unknown,
+  rawContent: unknown,
   attachmentBlocks?: ReadonlyArray<
     ConversationMessageAttachment | null | undefined
   >,
   messageId?: string,
+  metadata?: unknown,
 ): RenderedHistoryContent {
+  // A row whose turn routed its reply through `send_user_message` carries
+  // private working notes, so every consumer of this render (web history,
+  // channel delivery, the CLI) walks the projected content rather than the
+  // model-native blocks. Keyed on the row's own marker, so a row from a call,
+  // a subagent, a fallback turn, or any turn written with the flag off is
+  // untouched.
+  const content = projectUserFacingContent(rawContent, {
+    toolGated: isPrivateAssistantText(metadata),
+  });
   if (!Array.isArray(content)) {
     let text: string;
     if (content == null) {
@@ -639,12 +693,12 @@ export function renderHistoryContent(
         entry.riskDirectoryScopeOptions =
           block._riskDirectoryScopeOptions as HistoryToolCall["riskDirectoryScopeOptions"];
       }
-      // Read back tool activity (web_search / web_fetch) persisted by
-      // `annotatePersistedAssistantMessage` so the activity card survives a
-      // history reopen instead of degrading to the plain result text.
-      if (isRecord(block._activityMetadata)) {
-        entry.activityMetadata =
-          block._activityMetadata as HistoryToolCall["activityMetadata"];
+      // Read back tool activity persisted by `annotatePersistedAssistantMessage`
+      // so the activity card survives a history reopen instead of degrading to
+      // the plain result text.
+      const activity = readPersistedActivityMetadata(block._activityMetadata);
+      if (activity) {
+        entry.activityMetadata = activity;
       }
       // Read back the answered `ask_question` record so the answered card
       // rehydrates from history. Validated (rather than trusted like the
@@ -686,9 +740,9 @@ export function renderHistoryContent(
       }
       // Native server tools (Anthropic web_search) persist their activity on
       // the server_tool_use block, so read it back here too.
-      if (isRecord(block._activityMetadata)) {
-        entry.activityMetadata =
-          block._activityMetadata as HistoryToolCall["activityMetadata"];
+      const activity = readPersistedActivityMetadata(block._activityMetadata);
+      if (activity) {
+        entry.activityMetadata = activity;
       }
       toolCalls.push(entry);
       if (id) {
@@ -914,17 +968,24 @@ async function mintCollectionLinkFallback(
  *
  * Lifecycle state (resolver, timer) is registered in pendingInteractions — the
  * same tracker the in-conversation SecretPrompter uses — so `POST /v1/secret`
- * resolves the prompt generically. When a `conversationId` is supplied (the CLI
- * `credentials prompt` command forwards `__CONVERSATION_ID`), the broadcast is
- * scoped to that conversation so clients deliver it; otherwise it is
- * conversation-less. When that conversation's channel cannot render dynamic UI
- * (e.g. slack, telegram), resolves immediately with `unsupported_channel` —
- * carrying a one-time collection link when the gateway can mint one — instead
- * of broadcasting a request that can only time out.
+ * resolves the prompt generically. The broadcast is scoped to the supplied
+ * `conversationId` (the CLI `credentials prompt` command forwards
+ * `__CONVERSATION_ID`) so clients deliver it. Two cases have no surface that
+ * can render the card and resolve immediately with `unsupported_channel`,
+ * carrying a one-time collection link when the gateway can mint one, instead
+ * of broadcasting a request that can only time out:
+ *   - the conversation's channel cannot render dynamic UI (slack, telegram);
+ *   - there is no conversation at all (a headless exec such as Doctor's
+ *     `run_assistant_cli`). Clients drop conversation-scoped events without a
+ *     conversationId and `/v1/pending-interactions` is keyed by conversation,
+ *     so a conversation-less `secret_request` is invisible everywhere.
  */
 export function requestSecretStandalone(
   params: StandaloneSecretParams,
 ): Promise<SecretPromptResult> {
+  if (!params.conversationId) {
+    return mintCollectionLinkFallback(params);
+  }
   const conversation = findConversation(params.conversationId);
   if (conversation && !conversationSupportsDynamicUi(conversation)) {
     return mintCollectionLinkFallback(params);

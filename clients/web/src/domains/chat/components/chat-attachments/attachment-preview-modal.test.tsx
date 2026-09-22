@@ -1,7 +1,13 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { ReactElement } from "react";
+import type { ComponentProps, ReactElement } from "react";
 
 import * as daemonSdk from "@/generated/daemon/sdk.gen";
 import type { DisplayAttachment } from "@/types/attachment-types";
@@ -14,11 +20,28 @@ const attachmentsByIdContentGet = mock(async (): Promise<ContentResult> => ({
   data: new Blob(["content"]),
   error: null,
 }));
+const attachmentsByIdGet = mock(async () => ({
+  data: {
+    id: "att-1",
+    filename: "capture.jpeg",
+    mimeType: "image/jpeg",
+    sizeBytes: 10,
+    kind: "image",
+    data: null,
+  },
+  error: null,
+}));
 
 mock.module("@/generated/daemon/sdk.gen", () => ({
   ...daemonSdk,
   attachmentsByIdContentGet,
+  attachmentsByIdGet,
 }));
+
+const saveFile = mock(
+  async (_source: Blob | string, _filename: string): Promise<void> => undefined,
+);
+mock.module("@/runtime/native-file", () => ({ saveFile }));
 
 // happy-dom doesn't implement object URLs.
 globalThis.URL.createObjectURL = mock(
@@ -37,29 +60,54 @@ const ATTACHMENT: DisplayAttachment = {
   previewUrl: null,
 };
 
-function renderModal(
-  attachment: DisplayAttachment,
-  onClose: () => void = () => undefined,
-): void {
+type ModalProps = Omit<ComponentProps<typeof AttachmentPreviewModal>, "open">;
+
+function renderOpen(props: ModalProps): {
+  rerender: (next: ModalProps) => void;
+} {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  const ui: ReactElement = (
+  const ui = (next: ModalProps): ReactElement => (
     <QueryClientProvider client={client}>
-      <AttachmentPreviewModal
-        open
-        onClose={onClose}
-        attachment={attachment}
-        assistantId="asst-1"
-      />
+      <AttachmentPreviewModal open {...next} />
     </QueryClientProvider>
   );
-  render(ui);
+  const { rerender } = render(ui(props));
+  return { rerender: (next) => rerender(ui(next)) };
+}
+
+function renderModal(
+  attachment: DisplayAttachment,
+  onClose: () => void = () => undefined,
+  assistantId: string | null = "asst-1",
+): void {
+  renderOpen({ onClose, attachment, assistantId });
+}
+
+/** A gallery whose sibling list the caller can swap after the modal is open. */
+function renderGallery(
+  attachment: DisplayAttachment,
+  siblingAttachments: DisplayAttachment[],
+  currentIndex: number,
+): { rerender: (siblings: DisplayAttachment[]) => void } {
+  const base: ModalProps = {
+    onClose: () => undefined,
+    attachment,
+    assistantId: "asst-1",
+    currentIndex,
+  };
+  const { rerender } = renderOpen({ ...base, siblingAttachments });
+  return {
+    rerender: (siblings) => rerender({ ...base, siblingAttachments: siblings }),
+  };
 }
 
 afterEach(() => {
   cleanup();
   attachmentsByIdContentGet.mockClear();
+  attachmentsByIdGet.mockClear();
+  saveFile.mockClear();
 });
 
 describe("AttachmentPreviewModal content loading", () => {
@@ -104,9 +152,26 @@ describe("AttachmentPreviewModal content loading", () => {
 
     expect(
       screen.getByText(
-        "Preview unavailable — file content was not preserved in chat history.",
+        "Preview unavailable. The file content was not preserved in chat history.",
       ),
     ).toBeDefined();
+    expect(attachmentsByIdContentGet).not.toHaveBeenCalled();
+  });
+
+  test("names the file rather than blaming history when there is no assistant to fetch from", () => {
+    // The composer strip opens the gallery with no assistant, and an upload
+    // whose preview the browser could not decode arrives here with a null
+    // `previewUrl`. Its bytes are not lost, so it gets the neutral card.
+    renderModal(ATTACHMENT, () => undefined, null);
+
+    expect(
+      screen.queryByText(
+        "Preview unavailable. The file content was not preserved in chat history.",
+      ),
+    ).toBeNull();
+    expect(screen.queryByText("Failed to load preview.")).toBeNull();
+    expect(screen.getAllByText("photo.png").length).toBeGreaterThan(0);
+    expect(screen.getByText("Download")).toBeDefined();
     expect(attachmentsByIdContentGet).not.toHaveBeenCalled();
   });
 
@@ -116,6 +181,32 @@ describe("AttachmentPreviewModal content loading", () => {
     const img = await screen.findByAltText("photo.png");
     expect(img.getAttribute("src")).toBe("blob:preview-mock");
     expect(attachmentsByIdContentGet).toHaveBeenCalledTimes(1);
+  });
+
+  test("downloads a referenced image with its canonical metadata", async () => {
+    attachmentsByIdContentGet.mockImplementation(async () => ({
+      data: new Blob(["jpeg-bytes"], { type: "image/jpeg" }),
+      error: null,
+    }));
+    const referencedAttachment: DisplayAttachment & {
+      resolveReferenceMetadata: true;
+    } = {
+      ...ATTACHMENT,
+      filename: "computer-use-click.png",
+      resolveReferenceMetadata: true,
+    };
+    renderModal(referencedAttachment);
+
+    await screen.findByAltText("computer-use-click.png");
+    fireEvent.click(screen.getByLabelText("Download computer-use-click.png"));
+
+    await waitFor(() => expect(saveFile).toHaveBeenCalledTimes(1));
+    expect(attachmentsByIdGet).toHaveBeenCalledTimes(1);
+    const [source, filename] = saveFile.mock.calls[0]!;
+    expect(source).toBeInstanceOf(Blob);
+    expect((source as Blob).type).toBe("image/jpeg");
+    expect(await (source as Blob).text()).toBe("jpeg-bytes");
+    expect(filename).toBe("capture.jpeg");
   });
 
   test("shows the failure fallback when the daemon fetch fails", async () => {
@@ -178,6 +269,27 @@ describe("AttachmentPreviewModal content loading", () => {
     expect(video.getAttribute("src")).toBe("blob:preview-mock");
     expect(video.getAttribute("poster")).toBe("data:image/jpeg;base64,BBBB");
     expect(attachmentsByIdContentGet).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("AttachmentPreviewModal gallery position", () => {
+  const FIRST = { ...ATTACHMENT, id: "att-1", filename: "one.png" };
+  const SECOND = { ...ATTACHMENT, id: "att-2", filename: "two.png" };
+  const THIRD = { ...ATTACHMENT, id: "att-3", filename: "three.png" };
+  const PREPENDED = { ...ATTACHMENT, id: "att-0", filename: "zero.png" };
+
+  test("takes the caller's index while it still points at the open attachment", () => {
+    renderGallery(SECOND, [FIRST, SECOND, THIRD], 1);
+
+    expect(screen.getByText("2 / 3")).toBeDefined();
+  });
+
+  test("falls back to the id once the sibling list has shifted under it", () => {
+    const { rerender } = renderGallery(SECOND, [FIRST, SECOND, THIRD], 1);
+
+    rerender([PREPENDED, FIRST, SECOND, THIRD]);
+
+    expect(screen.getByText("3 / 4")).toBeDefined();
   });
 });
 

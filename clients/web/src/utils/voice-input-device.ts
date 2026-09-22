@@ -1,50 +1,94 @@
-import { getLocalSetting } from "@/utils/local-settings";
+import {
+  getLocalSetting,
+  removeLocalSetting,
+  setLocalSetting,
+  watchSetting,
+} from "@/utils/local-settings";
 
 /**
- * Microphone chosen on the Voice settings page, stored as a
- * `MediaDeviceInfo.deviceId`. Empty/absent means "follow the system default".
+ * Microphone chosen on the Voice settings page or the companion's popover,
+ * stored as a `MediaDeviceInfo.deviceId`. Empty/absent means "follow the
+ * system default".
  */
 export const LS_VOICE_INPUT_DEVICE = "vellum:voice:inputDeviceId";
 
-/** Per-call overrides for the shared voice capture constraints. */
-export interface VoiceInputConstraintOptions {
-  /**
-   * Request automatic gain control. Defaults to `true`, which is right for
-   * every half-duplex consumer (dictation, the amplitude meter, watch): the
-   * mic is the only sound in the room and normalizing a quiet talker up to a
-   * usable level makes the transcriber's job easier.
-   *
-   * Full-duplex live voice passes `false`. Its barge-in gate compares mean
-   * absolute amplitude against a threshold on the absolute 16-bit scale
-   * (`assistant/src/stt/speech-energy.ts`), and AGC is a moving gain between
-   * the room and that fixed number: in a quiet room it lifts the noise floor
-   * toward the same absolute level that speech reaches in a loud one, so the
-   * gate's real sensitivity becomes a property of the room rather than of the
-   * sound. See JARVIS-1694.
-   */
-  autoGainControl?: boolean;
-}
-
 export function getPreferredInputDeviceId(): string {
   return getLocalSetting(LS_VOICE_INPUT_DEVICE, "");
+}
+
+/** Save the microphone to capture from. Empty follows the system default. */
+export function setPreferredInputDeviceId(deviceId: string): void {
+  if (deviceId === "") {
+    removeLocalSetting(LS_VOICE_INPUT_DEVICE);
+  } else {
+    setLocalSetting(LS_VOICE_INPUT_DEVICE, deviceId);
+  }
+}
+
+/** Call `callback` whenever the saved microphone changes, in any window. */
+export function watchPreferredInputDevice(callback: () => void): () => void {
+  return watchSetting(LS_VOICE_INPUT_DEVICE, callback);
+}
+
+/** The microphones a user can pick, as the browser currently reports them. */
+export interface VoiceInputDeviceList {
+  /** Selectable inputs, without the browser's pseudo-devices. */
+  devices: MediaDeviceInfo[];
+  /**
+   * Inputs exist but none can be told apart, because mic permission has not
+   * been granted and the browser redacts ids and labels until it is.
+   */
+  needsPermission: boolean;
+  /**
+   * Whether an absent device can be read as unplugged. False while
+   * permission is withheld, since the redacted list says nothing about it.
+   */
+  known: boolean;
+}
+
+/**
+ * List the microphones a user can pick. Never throws: an environment without
+ * enumeration, or one that fails it, lists nothing and knows nothing.
+ */
+export async function listVoiceInputDevices(): Promise<VoiceInputDeviceList> {
+  if (typeof navigator === "undefined" || !navigator.mediaDevices?.enumerateDevices) {
+    return { devices: [], needsPermission: false, known: false };
+  }
+  try {
+    const all = await navigator.mediaDevices.enumerateDevices();
+    const inputs = all.filter((device) => device.kind === "audioinput");
+    return {
+      // Chromium lists "default"/"communications" pseudo-devices that mirror
+      // a physical device already in the list; a System Default option
+      // covers that case without the duplicate rows.
+      devices: inputs.filter(
+        (device) =>
+          device.deviceId !== "" &&
+          device.deviceId !== "default" &&
+          device.deviceId !== "communications",
+      ),
+      needsPermission:
+        inputs.length > 0 && inputs.every((device) => !device.label),
+      known: inputs.length === 0 || inputs.some((device) => !!device.label),
+    };
+  } catch {
+    return { devices: [], needsPermission: false, known: false };
+  }
 }
 
 /**
  * Audio constraints for voice capture, honoring the microphone chosen on the
  * Voice settings page. Uses `exact` so Chromium 130+ actually selects the
  * device (ideal constraints are silently ignored since that version).
- * Always requests echo cancellation and noise suppression so the mic stays
- * usable while TTS is playing (full-duplex capture); auto gain is on by
- * default and opt-out per {@link VoiceInputConstraintOptions.autoGainControl}.
+ * Always requests echo cancellation, noise suppression, and auto gain so the
+ * mic stays usable while TTS is playing (full-duplex capture).
  */
-export function voiceInputAudioConstraints(
-  options: VoiceInputConstraintOptions = {},
-): MediaTrackConstraints {
+export function voiceInputAudioConstraints(): MediaTrackConstraints {
   const deviceId = getPreferredInputDeviceId();
   return {
     echoCancellation: true,
     noiseSuppression: true,
-    autoGainControl: options.autoGainControl ?? true,
+    autoGainControl: true,
     ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
   };
 }
@@ -54,10 +98,8 @@ export function voiceInputAudioConstraints(
  * system default if the saved device is unavailable (unplugged, revoked, etc.)
  * rather than failing with an `OverconstrainedError`.
  */
-export async function getVoiceInputMediaStream(
-  options: VoiceInputConstraintOptions = {},
-): Promise<MediaStream> {
-  const constraints = voiceInputAudioConstraints(options);
+export async function getVoiceInputMediaStream(): Promise<MediaStream> {
+  const constraints = voiceInputAudioConstraints();
   try {
     return await navigator.mediaDevices.getUserMedia({ audio: constraints });
   } catch (err) {

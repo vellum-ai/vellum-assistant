@@ -1,0 +1,83 @@
+{
+  "assistantInboxNavItem": {
+    "label": "助手收件箱",
+    "dismiss": "隐藏助手收件箱"
+  },
+  "assistantInboxHeader": {
+    "title": "{name} 的收件箱",
+    "subtitle": "这里是我为你收到和发出的所有邮件。",
+    "usage": "今天已发送 {sent, plural, other {# 封}} · 已收到 {received, plural, other {# 封}}"
+  },
+  "addressPill": {
+    "copyAddress": "复制邮箱地址",
+    "copied": "已复制",
+    "copyFailed": "无法复制地址。"
+  },
+  "assistantInboxPage": {
+    "folderAriaLabel": "邮件文件夹",
+    "inboxTab": "已接收",
+    "sentTab": "已发送",
+    "inboxEmptyTitle": "还没有邮件",
+    "inboxEmptyBody": "把 {address} 分享出去，发到这里的邮件都会显示在这里。",
+    "sentEmptyTitle": "还没有已发送的邮件",
+    "sentEmptyBody": "让我给某人发邮件，我会在这里保留一份副本。",
+    "selectPrompt": "选择一封邮件来阅读。",
+    "backToList": "返回列表",
+    "searchPlaceholder": "搜索邮件",
+    "searchAriaLabel": "在此文件夹中搜索",
+    "searchEmptyTitle": "没有匹配项",
+    "searchEmptyBody": "此文件夹中没有与你的搜索匹配的邮件。"
+  },
+  "emailListRow": {
+    "toPrefix": "发给 {name}",
+    "attachments": "{count, plural, other {# 个附件}}",
+    "noSubject": "（无主题）"
+  },
+  "emailDetail": {
+    "from": "发件人",
+    "to": "收件人",
+    "sentBy": "由 {name} 发送",
+    "attachments": "附件",
+    "askToReply": "让 {name} 回复",
+    "loading": "正在加载邮件…",
+    "loadFailed": "无法加载这封邮件。"
+  },
+  "emailAddressFields": {
+    "prefixLabel": "前缀",
+    "prefixPlaceholder": "hi",
+    "handleLabel": "用户名（公开）",
+    "handlePlaceholder": "my-assistant"
+  },
+  "assistantInboxUpgradeState": {
+    "title": "给 {name} 一个收件箱",
+    "subtitle": "一个别人可以写信的邮箱地址，以及一个阅读所有来信的地方。",
+    "perkAddress": "在 {rootDomain} 上的真实地址",
+    "perkReads": "{name} 为你阅读、整理并回复",
+    "perkHistory": "每封邮件都保存在这里，包括收件和已发送",
+    "upgradeButton": "升级到 Super",
+    "seePlans": "查看套餐",
+    "titleNoName": "给你的助手一个收件箱",
+    "perkReadsNoName": "你的助手为你阅读、整理并回复",
+    "changeHandle": "更改用户名"
+  },
+  "assistantInboxSetupCard": {
+    "title": "助手邮箱",
+    "subtitle": "为你的助手设置一个邮箱。",
+    "getStarted": "开始使用",
+    "subtitleChooseHandle": "领取你的专属用户名，并设置助手的邮箱。",
+    "immutableNotice": "该用户名将成为你的助手的公开用户名，设置后将无法更改。"
+  },
+  "assistantInboxRoute": {
+    "loading": "正在打开收件箱…",
+    "setupFailed": "无法设置该地址。",
+    "setupSucceeded": "{address} 已就绪。",
+    "replyPrompt": "回复你收件箱中 id 为 {id} 的邮件（来自 {sender}，主题为“{subject}”）。请先用 `assistant email download {id}` 读取它，然后起草回复并在发送前给我看。",
+    "mailFailed": "无法加载邮件。",
+    "retry": "重试"
+  },
+  "inboxRailRestore": {
+    "hiddenNote": "助手收件箱已从侧边菜单中隐藏。",
+    "restoreButton": "重新添加",
+    "restoredToast": "助手收件箱已回到侧边菜单。"
+  }
+}

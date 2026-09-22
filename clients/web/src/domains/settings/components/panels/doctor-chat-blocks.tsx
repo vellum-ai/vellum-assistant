@@ -15,16 +15,13 @@ import {
   Wrench,
   XCircle,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 
 import type { MarkdownLinkComponent } from "@vellumai/design-library";
 import { MarkdownMessage } from "@vellumai/design-library";
 import { Button } from "@vellumai/design-library/components/button";
 
-import {
-  EXTERNAL_LINK_CLASS,
-  ExternalAnchor,
-} from "@/components/external-anchor";
+import { ExternalAnchor } from "@/components/external-anchor";
 import type {
   ApprovalMeta,
   BackupPromptMeta,
@@ -32,7 +29,7 @@ import type {
   ToolCallMeta,
 } from "@/domains/settings/components/panels/doctor-history";
 import { Trans, useTranslation } from "@/i18n";
-import { copyToClipboard } from "@/lib/copy-to-clipboard";
+import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 
 // ---------------------------------------------------------------------------
 // MessageCopyButton
@@ -40,32 +37,11 @@ import { copyToClipboard } from "@/lib/copy-to-clipboard";
 
 export function MessageCopyButton({ text }: { text: string }) {
   const { t } = useTranslation("settings");
-  const [copied, setCopied] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { copy, copied } = useCopyToClipboard({
+    errorMessage: t("doctorChatBlocks.copyError"),
+  });
 
-  useEffect(() => {
-    return () => {
-      if (timerRef.current) {
-        clearTimeout(timerRef.current);
-      }
-    };
-  }, []);
-
-  const handleCopy = () => {
-    copyToClipboard(text, {
-      errorMessage: t("doctorChatBlocks.copyError"),
-      onCopied: () => {
-        setCopied(true);
-        if (timerRef.current) {
-          clearTimeout(timerRef.current);
-        }
-        timerRef.current = setTimeout(() => {
-          setCopied(false);
-          timerRef.current = null;
-        }, 1500);
-      },
-    });
-  };
+  const handleCopy = () => copy(text);
 
   return (
     <button
@@ -127,6 +103,7 @@ export function ToolCallBlock({
     <div className="my-1 w-full">
       <button
         type="button"
+        aria-expanded={canExpand ? expanded : undefined}
         onClick={() => {
           if (canExpand) {
             setExpanded(!expanded);
@@ -296,6 +273,7 @@ export function ApprovalBlock({
           <button
             type="button"
             onClick={() => setShowDetails(!showDetails)}
+            aria-expanded={showDetails}
             className="flex items-center gap-1 text-body-small-default text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-default)]"
           >
             <ChevronRight
@@ -515,7 +493,7 @@ export function UserMessage({ entry }: { entry: ChatEntry }) {
  * native shells.
  */
 const DoctorLink: MarkdownLinkComponent = ({ href, children }) => (
-  <ExternalAnchor href={href} className={EXTERNAL_LINK_CLASS}>
+  <ExternalAnchor href={href} tone="default">
     {children}
   </ExternalAnchor>
 );

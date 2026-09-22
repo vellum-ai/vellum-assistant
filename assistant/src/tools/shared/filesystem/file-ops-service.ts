@@ -4,6 +4,8 @@ import { dirname, join } from "node:path";
 import { minimatch } from "minimatch";
 
 import { ensureDir, pathExists } from "../../../util/fs.js";
+import { surrogateSafeWindow } from "../../../util/unicode.js";
+import { isAbortLikeError } from "../abort.js";
 import { applyEdit } from "./edit-engine.js";
 import * as Err from "./errors.js";
 import type { PathFailureReason, PathResult } from "./path-policy.js";
@@ -101,37 +103,6 @@ function truncationNotice(
   return `\n\n[Truncated: characters ${start}-${end} of ${totalChars}. Read on with start_index=${end}.]`;
 }
 
-const isHighSurrogate = (code: number): boolean =>
-  code >= 0xd800 && code <= 0xdbff;
-const isLowSurrogate = (code: number): boolean =>
-  code >= 0xdc00 && code <= 0xdfff;
-
-/**
- * Character window that never splits a surrogate pair. A split leaves a lone
- * half at each edge, and each encodes to U+FFFD, so the character is lost from
- * both this window and the next one paged in after it.
- */
-export function surrogateSafeWindow(
-  total: number,
-  charCodeAt: (index: number) => number,
-  requestedStart: number,
-  maxChars: number,
-): { start: number; end: number } {
-  let start = Math.max(0, Math.min(requestedStart, total));
-  if (start > 0 && start < total && isLowSurrogate(charCodeAt(start))) {
-    start -= 1;
-  }
-
-  let end = Math.min(total, start + maxChars);
-  if (end > start && end < total && isHighSurrogate(charCodeAt(end - 1))) {
-    // Backing off would empty a one-character window, which stalls paging on
-    // the same offset, so take the whole pair instead.
-    end = end - 1 > start ? end - 1 : Math.min(total, end + 1);
-  }
-
-  return { start, end };
-}
-
 export class FileSystemOps {
   private policy: PathPolicy;
   private sizeLimit: number | undefined;
@@ -221,6 +192,11 @@ export class FileSystemOps {
 
     return withFileWriteLock(filePath, async (): Promise<WriteResult> => {
       try {
+        // Before `ensureDir`, which creates parent directories: a stopped turn
+        // must not leave a directory tree behind for a file it never wrote.
+        // Acquiring the write lock above is an await, so this is the first
+        // point after it.
+        input.signal?.throwIfAborted();
         ensureDir(dirname(filePath));
 
         let oldContent = "";
@@ -233,6 +209,7 @@ export class FileSystemOps {
           }
         }
 
+        input.signal?.throwIfAborted();
         await writeFile(filePath, input.content);
 
         return {
@@ -245,6 +222,11 @@ export class FileSystemOps {
           },
         };
       } catch (err) {
+        // A cancelled turn is not an IO failure. Reporting it as one would
+        // have the model treat a stop as a disk problem and retry the write.
+        if (isAbortLikeError(err)) {
+          throw err;
+        }
         const msg = err instanceof Error ? err.message : String(err);
         return { ok: false, error: Err.ioError(filePath, msg) };
       }
@@ -315,6 +297,8 @@ export class FileSystemOps {
           error: Err.matchAmbiguous(filePath, result.matchCount),
         };
       }
+
+      input.signal?.throwIfAborted();
 
       try {
         await writeFile(filePath, result.updatedContent);

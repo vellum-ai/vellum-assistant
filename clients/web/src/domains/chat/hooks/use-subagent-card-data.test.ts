@@ -42,6 +42,7 @@ function makeEntry(
     outputTokens: 0,
     spawnedAt: NOW,
     events: [],
+    history: null,
     ...overrides,
   };
 }
@@ -218,8 +219,8 @@ describe("computeSubagentCardData — step mapping", () => {
         events: [
           makeEvent({
             type: "tool_call",
-            toolName: "file_read",
-            toolUseId: "tu-file-1",
+            toolName: "some_unknown_tool",
+            toolUseId: "tu-tool-1",
             content: "src/foo.ts",
           }),
         ],
@@ -229,13 +230,13 @@ describe("computeSubagentCardData — step mapping", () => {
     const step = data.steps[0]!;
     expect(step.kind).toBe("tool");
     if (step.kind === "tool") {
-      // `file_read` isn't a known branch in `deriveStepLabelFromName`, so
-      // it falls through to the default "Running <Name>" path with the
-      // bolt icon.
-      expect(step.title).toBe("Running File Read");
+      // A tool with no branch in `deriveStepLabelFromName` falls through to
+      // the default "Running <Name>" path with the bolt icon, and the empty
+      // derived `info` falls back to the event's summary content.
+      expect(step.title).toBe("Running Some Unknown Tool");
       expect(step.info).toBe("src/foo.ts");
       expect(step.status).toBe("running");
-      expect(step.toolCallId).toBe("tu-file-1");
+      expect(step.toolCallId).toBe("tu-tool-1");
       expect(step.iconName).toBe("bolt");
     }
   });
@@ -916,6 +917,38 @@ describe("computeSubagentCardData — web tools match main-chat group labels", (
       // The payload routes to the web_fetch view (kind "tool" + toolName).
       expect(details.get(step.detailKey!)?.toolName).toBe("web_fetch");
     }
+  });
+
+  test("an anonymous result closes the same call in the timeline and the detail map", () => {
+    // A follow-up with neither a tool id nor a tool name: the timeline never
+    // tracks a web_fetch as in flight, so both projections must close the
+    // bash call, not the newer fetch.
+    const entry = makeEntry({
+      events: [
+        makeEvent(
+          {
+            type: "tool_call",
+            toolName: "bash",
+            toolUseId: "tu-bash",
+            input: { command: "ls" },
+          },
+          0,
+        ),
+        makeEvent(
+          {
+            type: "tool_call",
+            toolName: "web_fetch",
+            toolUseId: "tu-wf",
+            content: "https://example.com",
+          },
+          1,
+        ),
+        makeEvent({ type: "tool_result", result: "file-a" }, 2),
+      ],
+    });
+    const details = buildSubagentStepDetails(entry.events);
+    expect(details.get("tu-bash")?.result).toBe("file-a");
+    expect(details.get("tu-wf")?.result).toBeUndefined();
   });
 
   test("web_fetch prefers the raw input url over the content summary", () => {

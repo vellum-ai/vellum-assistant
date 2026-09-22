@@ -25,6 +25,21 @@ export function nonEmpty(value: string | null | undefined): string | undefined {
 }
 
 /**
+ * Models sometimes write the two-character sequence `\n` (or `\t`) instead of
+ * a real line break. Turn those into actual newlines so a briefing stored as
+ * a notification body still parses as markdown.
+ *
+ * Real newlines and tabs are left alone. A backslash that is not part of `\n`
+ * or `\t` is left alone too.
+ */
+export function decodeLiteralLineBreaks(text: string): string {
+  if (!text.includes("\\")) {
+    return text;
+  }
+  return text.replace(/\\n/g, "\n").replace(/\\t/g, "\t");
+}
+
+/**
  * Safely read a string property from an unknown-typed payload object.
  * Returns `undefined` when the payload is falsy, not an object, or the
  * key does not hold a string value.
@@ -54,6 +69,25 @@ export function readPayloadObject(
   }
   const value = payload[key];
   return isPlainObject(value) ? value : undefined;
+}
+
+/**
+ * Safely read a string-array property from an unknown-typed payload object.
+ * Non-string entries are dropped. Returns `undefined` when the payload is
+ * not an object or the key does not hold an array.
+ */
+export function readPayloadStringArray(
+  payload: unknown,
+  key: string,
+): string[] | undefined {
+  if (!isPlainObject(payload)) {
+    return undefined;
+  }
+  const value = payload[key];
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  return value.filter((entry): entry is string => typeof entry === "string");
 }
 
 /** Truncate `text` to `maxLength`, appending "…" when exceeded. */

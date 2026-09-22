@@ -1,9 +1,7 @@
 import { PLATFORM_PROVIDER_META } from "./platform-proxy/constants.js";
 
 export type LongContextMode =
-  | "native-model"
-  | "provider-request-option"
-  | "unsupported";
+  "native-model" | "provider-request-option" | "unsupported";
 
 export interface CatalogModelPricingTier {
   /**
@@ -75,6 +73,22 @@ export interface CatalogModel {
    */
   supportsAudioInput?: boolean;
   supportsToolUse?: boolean;
+  /**
+   * Whether the model produces free-form chat text. Omit (or true) for
+   * ordinary chat models. False for structured-decision models that return
+   * answers rather than generated text; those stay out of conversation
+   * pickers and cannot be the conversation model. They can still back a
+   * saved profile and a call-site pin.
+   */
+  supportsText?: boolean;
+  supportsEffort?: boolean;
+  /**
+   * Whether this provider/model serving surface accepts a forced OpenAI
+   * chat-completions tool choice while thinking is enabled. Omit unless the
+   * combination is known incompatible. Daemon-only: not projected into the
+   * client catalog (see scripts/sync-llm-catalog.ts).
+   */
+  supportsForcedToolChoiceWithThinking?: boolean;
   pricing?: CatalogModelPricing;
   /**
    * Upper bound for `reasoning_effort` accepted by this model's upstream API.
@@ -340,6 +354,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         maxOutputTokens: 64000,
         supportsThinking: true,
         adaptiveThinkingUnsupported: true,
+        supportsEffort: false,
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
@@ -403,6 +418,42 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       linkLabel: "Open OpenAI Platform",
     },
     models: [
+      // GPT-6 Astra. cacheRead is the 90% cached-read discount; cacheWrite
+      // is the 1.25x-input rate GPT-5.6+ bills for prompt tokens written to
+      // the cache (reported as `cache_write_tokens` in usage, tracked as
+      // `cacheCreationInputTokens`). Long-context (>272K input) is 2x input
+      // / 1.5x output / 2x cache-read+write for the whole request. Effort
+      // accepts low through max and rejects `none`.
+      {
+        id: "gpt-6-astra",
+        displayName: "GPT-6 Astra",
+        contextWindowTokens: 1050000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens:
+          OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        supportsPromptCacheBreakpoints: true,
+        maxEffort: "max",
+        supportedEfforts: ["low", "medium", "high", "xhigh", "max"],
+        pricing: {
+          inputPer1mTokens: 10.0,
+          outputPer1mTokens: 50.0,
+          cacheWritePer1mTokens: 12.5,
+          cacheReadPer1mTokens: 1.0,
+          tiers: [
+            {
+              inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+              inputPer1mTokens: 20,
+              outputPer1mTokens: 75,
+              cacheWritePer1mTokens: 25,
+              cacheReadPer1mTokens: 2,
+            },
+          ],
+        },
+      },
       // GPT-5.6 family (Sol / Terra / Luna). cacheRead is the 90% cached-read
       // discount; cacheWrite is the 1.25x-input rate GPT-5.6+ bills for
       // prompt tokens written to the cache (reported as `cache_write_tokens`
@@ -818,6 +869,9 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
           cacheReadPer1mTokens: 0.03,
         },
       },
+      // Limited to grandfathered accounts: other API keys get HTTP 404 "no
+      // longer available to new users", so this model is user-selectable
+      // only and no intent column may resolve to it.
       {
         id: "gemini-2.5-flash-lite",
         displayName: "Gemini 2.5 Flash Lite",
@@ -1309,6 +1363,72 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         },
       },
       // OpenAI
+      // GPT-6 Astra. The `*-pro` slug is the same underlying model served
+      // with `reasoning.mode: pro` at identical rates. cacheWrite is the
+      // 1.25x-input rate GPT-5.6+ bills for prompt tokens written to the
+      // cache. Long-context (>272K input) is 2x input / 1.5x output / 2x
+      // cache-read+write for the whole request. Effort accepts low through
+      // max and rejects `none`.
+      {
+        id: "openai/gpt-6-astra",
+        displayName: "GPT-6 Astra",
+        contextWindowTokens: 1050000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens:
+          OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        supportsPromptCacheBreakpoints: true,
+        maxEffort: "max",
+        supportedEfforts: ["low", "medium", "high", "xhigh", "max"],
+        pricing: {
+          inputPer1mTokens: 10.0,
+          outputPer1mTokens: 50.0,
+          cacheWritePer1mTokens: 12.5,
+          cacheReadPer1mTokens: 1.0,
+          tiers: [
+            {
+              inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+              inputPer1mTokens: 20,
+              outputPer1mTokens: 75,
+              cacheWritePer1mTokens: 25,
+              cacheReadPer1mTokens: 2,
+            },
+          ],
+        },
+      },
+      {
+        id: "openai/gpt-6-astra-pro",
+        displayName: "GPT-6 Astra Pro",
+        contextWindowTokens: 1050000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens:
+          OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        supportsPromptCacheBreakpoints: true,
+        maxEffort: "max",
+        supportedEfforts: ["low", "medium", "high", "xhigh", "max"],
+        pricing: {
+          inputPer1mTokens: 10.0,
+          outputPer1mTokens: 50.0,
+          cacheWritePer1mTokens: 12.5,
+          cacheReadPer1mTokens: 1.0,
+          tiers: [
+            {
+              inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+              inputPer1mTokens: 20,
+              outputPer1mTokens: 75,
+              cacheWritePer1mTokens: 25,
+              cacheReadPer1mTokens: 2,
+            },
+          ],
+        },
+      },
       // GPT-5.6 family (Sol / Terra / Luna). The `*-pro` slugs are the same
       // underlying models served with `reasoning.mode: pro` at identical
       // rates. cacheWrite is the 1.25x-input rate GPT-5.6+ bills for prompt
@@ -1712,6 +1832,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        supportsForcedToolChoiceWithThinking: false,
         pricing: {
           inputPer1mTokens: 0.95,
           outputPer1mTokens: 4.0,
@@ -2412,6 +2533,38 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     apiKeyPlaceholder: "Your Poolside API key",
   },
   {
+    id: "typesafe",
+    displayName: "TypeSafe",
+    subtitle:
+      "TypeSafe System One decision model. Returns structured answers, not generated text. Requires a TypeSafe API key.",
+    setupMode: "api-key",
+    setupHint: "Enter your TypeSafe API key to enable Jev.",
+    envVar: "TYPESAFE_API_KEY",
+    credentialsGuide: {
+      description: "Sign in to TypeSafe and create an API key.",
+      url: "https://typesafe.ai",
+      linkLabel: "Open TypeSafe",
+    },
+    models: [
+      {
+        id: "jev-latest",
+        displayName: "Jev",
+        // TypeSafe's published request budget is about 32,000 tokens.
+        contextWindowTokens: 32000,
+        maxOutputTokens: 4096,
+        supportsThinking: false,
+        supportsCaching: false,
+        supportsVision: false,
+        supportsToolUse: false,
+        supportsText: false,
+        pricing: { inputPer1mTokens: 0.042, outputPer1mTokens: 0 },
+      },
+    ],
+    defaultModel: "jev-latest",
+    apiKeyUrl: "https://typesafe.ai",
+    apiKeyPlaceholder: "Your TypeSafe API key",
+  },
+  {
     id: "vellum",
     displayName: "Vellum",
     subtitle:
@@ -2419,7 +2572,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     setupMode: "api-key",
     setupHint:
       "Uses the assistant API key through the Vellum managed connection. These models cannot use a bring-your-own key.",
-    featureFlag: "settings-developer-nav",
+    featureFlag: "vellum-hosted-inference",
     models: [
       {
         id: "qwen/qwen3-8b",
@@ -2431,7 +2584,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsVision: false,
         supportsToolUse: true,
         pricing: { inputPer1mTokens: 0.3, outputPer1mTokens: 0.3 },
-        featureFlag: "settings-developer-nav",
+        featureFlag: "vellum-hosted-inference",
       },
     ],
     defaultModel: "qwen/qwen3-8b",
@@ -2448,6 +2601,24 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] =
     // the Platform auth-type dropdown in the clients.
     supportsPlatformAuth: PLATFORM_PROVIDER_META[entry.id]?.managed === true,
   }));
+
+/**
+ * Whether a catalog model produces free-form chat text. Unlisted providers
+ * and model ids default to true so custom endpoints and unknown snapshots
+ * stay usable as conversation models.
+ */
+export function catalogModelSupportsText(
+  provider: string | null | undefined,
+  modelId: string | null | undefined,
+): boolean {
+  if (typeof provider !== "string" || typeof modelId !== "string") {
+    return true;
+  }
+  const model = PROVIDER_CATALOG.find((p) => p.id === provider)?.models.find(
+    (m) => m.id === modelId,
+  );
+  return model?.supportsText !== false;
+}
 
 /** Check if a model ID is in the catalog for a given provider. */
 export function isModelInCatalog(provider: string, modelId: string): boolean {
@@ -2525,6 +2696,29 @@ export function modelSupportedEfforts(
 }
 
 /**
+ * Whether a provider/model serving surface accepts a forced OpenAI
+ * chat-completions tool choice while thinking is enabled. Unknown providers
+ * and models fail open so custom routes retain their existing request shape
+ * and can rely on the bounded provider-error retry if needed.
+ */
+export function supportsForcedToolChoiceWithThinking(
+  providerId: string,
+  modelId: string,
+): boolean {
+  const provider = PROVIDER_CATALOG.find((entry) => entry.id === providerId);
+  if (!provider) {
+    return true;
+  }
+  const stripDateSuffix = (id: string): string => id.replace(/-\d{8}$/, "");
+  const normalizedModelId = stripDateSuffix(modelId);
+  return !provider.models.some(
+    (model) =>
+      model.supportsForcedToolChoiceWithThinking === false &&
+      (model.id === modelId || stripDateSuffix(model.id) === normalizedModelId),
+  );
+}
+
+/**
  * Return the catalog provider that owns a model ID, if known. When multiple
  * providers list the same ID (e.g. OpenRouter and the Vercel AI Gateway share
  * `anthropic/*` IDs), the earliest entry in PROVIDER_CATALOG order wins.
@@ -2580,6 +2774,24 @@ export function isAdaptiveThinkingUnsupportedModel(modelId: string): boolean {
       (m) =>
         m.adaptiveThinkingUnsupported === true &&
         (m.id === modelId || stripDateSuffix(m.id) === normalized),
+    ),
+  );
+}
+
+/** Whether the model accepts `output_config.effort` on the native Anthropic Messages wire (Haiku family and `supportsEffort: false` models do not; OpenRouter dotted ids normalized). */
+export function isEffortSupported(modelId: string): boolean {
+  if (modelId.includes("haiku")) {
+    return false;
+  }
+  const stripDateSuffix = (id: string): string => id.replace(/-\d{8}$/, "");
+  const normalize = (id: string): string =>
+    stripDateSuffix(id.replace(/^[^/]*\//, "").replace(/\./g, "-"));
+  const normalized = normalize(modelId);
+  return !PROVIDER_CATALOG.some((p) =>
+    p.models.some(
+      (m) =>
+        m.supportsEffort === false &&
+        (m.id === modelId || normalize(m.id) === normalized),
     ),
   );
 }

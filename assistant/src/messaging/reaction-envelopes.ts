@@ -19,9 +19,10 @@ import type { SlackMessageMetadata } from "./providers/slack/message-metadata.js
 import { writeSlackMetadata } from "./providers/slack/message-metadata.js";
 
 /**
- * The emoji's typed identity is optional on the facts because the assistant's
- * own reaction carries only the spelling it chose: it names an emoji rather
- * than reporting one a channel described.
+ * The emoji's typed identity is what the channel's adapter said the spelling
+ * means, for an inbound reaction and for the assistant's own alike. It is
+ * optional on the facts only because a persisted or replayed row may carry
+ * the spelling alone.
  */
 export interface ReactionEnvelopeFacts extends ReactionEmojiFields {
   channel: ChannelId;

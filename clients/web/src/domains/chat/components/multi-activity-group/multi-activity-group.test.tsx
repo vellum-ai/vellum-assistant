@@ -10,8 +10,8 @@
  *    expand-in-place `SingleActivity variant="web"` link.
  *  - A GROUPED (2+) purely-web group and mixed groups (web + non-web) render
  *    through the unified header.
- *  - A pending confirmation in the group short-circuits to the inline
- *    approve/deny UI rather than the progress-card chrome.
+ *  - Pending confirmations render beside the compact summary, one chip per
+ *    pending call.
  *  - A `subagent_spawn`-only group renders `null` (the inline subagent card
  *    handles spawned subagents at the transcript level).
  *  - Unknown-command nudges render beneath the header.
@@ -20,7 +20,7 @@
 import { type ComponentProps } from "react";
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
 
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { ToolCallCardItem } from "@/domains/chat/utils/tool-call-card-utils";
@@ -47,6 +47,8 @@ const { MultiActivityGroup } =
 const { useViewerStore } = await import("@/stores/viewer-store");
 const { useChatSessionStore } =
   await import("@/domains/chat/chat-session-store");
+const { useAssistantFeatureFlagStore } =
+  await import("@/stores/assistant-feature-flag-store");
 
 afterEach(() => {
   cleanup();
@@ -60,6 +62,10 @@ afterEach(() => {
   useChatSessionStore.setState({
     expandedCardIds: new Map(),
     expandedToolCallIds: new Set(),
+  });
+  useAssistantFeatureFlagStore.setState({
+    sendUserMessage: false,
+    sessionGroups: false,
   });
 });
 
@@ -99,11 +105,11 @@ describe("MultiActivityGroup — non-web tool group", () => {
       renderCard(toolCalls);
     // The unified group mounts the shared shell wrapper.
     expect(getByTestId("tool-progress-card-shell")).toBeTruthy();
-    // The header carousels the live step: the tool's "Working" title paired
-    // with the `command` input. The timeline lives in the side panel, so no
-    // step pills render inline.
+    // The phase title stays stable while the action wording follows the flag.
     expect(getByText("Working")).toBeTruthy();
     expect(getByText("git status")).toBeTruthy();
+    act(() => useAssistantFeatureFlagStore.setState({ sessionGroups: true }));
+    expect(getByText("Running a command")).toBeTruthy();
     expect(getByRole("button", { name: /view steps/i })).toBeTruthy();
     expect(queryByTestId("tool-step-pill")).toBeNull();
     // Single-step groups suppress the count pill — it would just duplicate
@@ -112,6 +118,7 @@ describe("MultiActivityGroup — non-web tool group", () => {
   });
 
   test("carousels the live step in the header while streaming", () => {
+    useAssistantFeatureFlagStore.setState({ sessionGroups: true });
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
@@ -121,11 +128,10 @@ describe("MultiActivityGroup — non-web tool group", () => {
       }),
     ];
     const { getByText, queryByTestId } = renderCard(toolCalls);
-    // While the run is in flight the header carousels the live step: the
-    // "Working" title (rendered through the streaming shimmer) paired with
-    // the running command.
+    // While the run is in flight the stable Working title shimmers beside the
+    // localized terminal action label.
     expect(getByText("Working")).toBeTruthy();
-    expect(getByText("git status")).toBeTruthy();
+    expect(getByText("Running a command")).toBeTruthy();
     // The timeline lives in the side panel — no step rows inline.
     expect(queryByTestId("tool-step-pill")).toBeNull();
   });
@@ -170,6 +176,7 @@ describe("MultiActivityGroup — header opens the activity-steps panel", () => {
     const { getByRole } = renderCard(toolCalls, {
       messageId: "m1",
       groupIndex: 2,
+      groupToolCallIds: ["tc-raw", "tc-1", "tc-2"],
     });
     fireEvent.click(getByRole("button", { name: /view steps/i }));
     const state = useViewerStore.getState();
@@ -177,6 +184,11 @@ describe("MultiActivityGroup — header opens the activity-steps panel", () => {
     expect(state.activeActivitySteps).not.toBeNull();
     expect(state.activeActivitySteps?.messageId).toBe("m1");
     expect(state.activeActivitySteps?.groupIndex).toBe(2);
+    expect(state.activeActivitySteps?.groupToolCallIds).toEqual([
+      "tc-raw",
+      "tc-1",
+      "tc-2",
+    ]);
     expect(state.activeActivitySteps?.toolCalls.map((tc) => tc.id)).toEqual([
       "tc-1",
       "tc-2",
@@ -245,6 +257,37 @@ describe("MultiActivityGroup — lone web tool group", () => {
     expect(queryByTestId("web-search-progress-card")).toBeNull();
     expect(queryByTestId("tool-progress-card-shell")).toBeNull();
   });
+
+  test("visible thinking beside one web search uses the unified header", () => {
+    const toolCall = makeToolCall({
+      id: "tc-1",
+      name: "web_search",
+      status: "completed",
+      input: { query: "tigers" },
+    });
+    const items: ToolCallCardItem[] = [
+      { kind: "thinking", text: "I should verify this." },
+      { kind: "toolCall", toolCall },
+    ];
+
+    const { getByTestId, queryByTestId } = renderCard([toolCall], { items });
+    expect(getByTestId("tool-progress-card-shell")).toBeTruthy();
+    expect(queryByTestId("inline-web-link")).toBeNull();
+  });
+
+  test("hidden thinking keeps the lone web shortcut", () => {
+    const toolCall = makeToolCall({
+      id: "tc-1",
+      name: "web_search",
+      status: "completed",
+      input: { query: "tigers" },
+    });
+    const items: ToolCallCardItem[] = [{ kind: "toolCall", toolCall }];
+
+    const { getByTestId, queryByTestId } = renderCard([toolCall], { items });
+    expect(getByTestId("inline-web-link")).toBeTruthy();
+    expect(queryByTestId("tool-progress-card-shell")).toBeNull();
+  });
 });
 
 describe("MultiActivityGroup — grouped web tool group", () => {
@@ -294,14 +337,20 @@ describe("MultiActivityGroup — mixed group", () => {
   });
 });
 
-describe("MultiActivityGroup — confirmation short-circuit", () => {
-  test("a tool call with pendingConfirmation renders the inline approve/deny UI, not the progress card", () => {
+describe("MultiActivityGroup - pending confirmations", () => {
+  test("keeps the compact summary and renders only the pending call's chip", () => {
     const toolCalls = [
       makeToolCall({
-        id: "tc-1",
+        id: "tc-complete",
+        name: "bash",
+        status: "completed",
+        input: { command: "date" },
+      }),
+      makeToolCall({
+        id: "tc-pending",
         name: "bash",
         status: "running",
-        input: { command: "rm -rf /" },
+        input: { command: "echo pending" },
         pendingConfirmation: {
           requestId: "req-1",
           title: "Allow bash command?",
@@ -311,13 +360,97 @@ describe("MultiActivityGroup — confirmation short-circuit", () => {
     const { getByText, queryByTestId } = renderCard(toolCalls, {
       onConfirmationSubmit: () => {},
     });
-    // The inline confirmation card is mounted via ToolCallChip — its title
-    // and Allow/Deny buttons should appear.
+    expect(queryByTestId("tool-progress-card-shell")).toBeTruthy();
     expect(getByText("Allow bash command?")).toBeTruthy();
     expect(getByText("Allow")).toBeTruthy();
     expect(getByText("Deny")).toBeTruthy();
-    // The unified shell is NOT mounted — confirmation has its own chrome.
-    expect(queryByTestId("tool-progress-card-shell")).toBeNull();
+    expect(getByText("2 steps")).toBeTruthy();
+  });
+
+  test("renders every pending call and forwards each decision with its call", async () => {
+    const first = makeToolCall({
+      id: "tc-first",
+      name: "bash",
+      status: "running",
+      pendingConfirmation: {
+        requestId: "req-first",
+        title: "Allow first command?",
+      },
+    });
+    const second = makeToolCall({
+      id: "tc-second",
+      name: "bash",
+      status: "running",
+      pendingConfirmation: {
+        requestId: "req-second",
+        title: "Allow second command?",
+      },
+    });
+    const onConfirmationSubmit = mock(() => {});
+    const { getAllByText, getByText } = renderCard([first, second], {
+      onConfirmationSubmit,
+    });
+
+    expect(getByText("Allow first command?")).toBeTruthy();
+    expect(getByText("Allow second command?")).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(getAllByText("Deny")[1]!);
+    });
+    expect(onConfirmationSubmit).toHaveBeenCalledWith("deny", second);
+  });
+
+  test("forwards approval and returns to the compact summary after resolution", () => {
+    const pending = makeToolCall({
+      id: "tc-pending",
+      name: "bash",
+      status: "running",
+      input: { command: "echo pending" },
+      pendingConfirmation: {
+        requestId: "req-pending",
+        title: "Allow pending command?",
+      },
+    });
+    const onConfirmationSubmit = mock(() => {});
+    const { getByText, queryByText, getByTestId, rerender } = renderCard(
+      [pending],
+      { onConfirmationSubmit },
+    );
+
+    fireEvent.click(getByText("Allow"));
+    expect(onConfirmationSubmit).toHaveBeenCalledWith("allow", pending);
+
+    const settled = { ...pending, completedAt: 2 };
+    delete settled.pendingConfirmation;
+    rerender(
+      <MultiActivityGroup
+        toolCalls={[settled]}
+        onConfirmationSubmit={onConfirmationSubmit}
+      />,
+    );
+    expect(queryByText("Allow pending command?")).toBeNull();
+    expect(queryByText("Allow")).toBeNull();
+    expect(queryByText("Deny")).toBeNull();
+    expect(getByTestId("tool-progress-card-shell")).toBeTruthy();
+  });
+
+  test("a pending lone web search keeps its summary entry point", () => {
+    const toolCall = makeToolCall({
+      id: "tc-web",
+      name: "web_search",
+      status: "running",
+      input: { query: "tigers" },
+      pendingConfirmation: {
+        requestId: "req-web",
+        title: "Allow web search?",
+      },
+    });
+
+    const { getByTestId, queryByTestId, getByText } = renderCard([toolCall], {
+      onConfirmationSubmit: () => {},
+    });
+    expect(getByTestId("tool-progress-card-shell")).toBeTruthy();
+    expect(queryByTestId("inline-web-link")).toBeNull();
+    expect(getByText("Allow web search?")).toBeTruthy();
   });
 });
 
@@ -621,12 +754,50 @@ describe("MultiActivityGroup — header reflects the latest step", () => {
       { kind: "toolCall", toolCall: toolCalls[0]! },
     ];
     const { getByText, queryByText } = renderCard(toolCalls, { items });
-    // The header carousels the live step: the "Working" title paired with
-    // the command.
+    // The disabled feature keeps the stable Working phase and command detail.
     expect(getByText("Working")).toBeTruthy();
     expect(getByText("echo hi")).toBeTruthy();
     // The leading thinking text is NOT promoted into the header (it's a
     // panel step only).
     expect(queryByText("Let me check the directory first.")).toBeNull();
+  });
+});
+
+describe("MultiActivityGroup - a web_fetch under the thinking gate", () => {
+  /**
+   * A fetch is projected as a synthesized reasoning step, so its header title
+   * is the word "Thinking" paired with the page read: "Thinking | Hacker
+   * News". With the transcript's thinking surface gone that is the last
+   * "Thinking" left on screen, and it never named a thought in the first
+   * place.
+   */
+  const fetchCall = (status: "running" | "completed") =>
+    makeToolCall({
+      id: "tc-fetch",
+      name: "web_fetch",
+      status,
+      input: { url: "https://news.ycombinator.com" },
+    });
+
+  test("says what it read, not that it thought", () => {
+    useAssistantFeatureFlagStore.setState({ sendUserMessage: true });
+    const { getByTestId, queryByText, getByText } = renderCard([
+      fetchCall("completed"),
+    ]);
+    expect(getByTestId("tool-progress-card-shell")).toBeTruthy();
+    expect(getByText("Read the web")).toBeTruthy();
+    expect(queryByText("Thinking")).toBeNull();
+  });
+
+  test("keeps the present tense while the page is still loading", () => {
+    useAssistantFeatureFlagStore.setState({ sendUserMessage: true });
+    const { getByText, queryByText } = renderCard([fetchCall("running")]);
+    expect(getByText("Reading the web")).toBeTruthy();
+    expect(queryByText("Thinking")).toBeNull();
+  });
+
+  test("is unchanged with the gate off", () => {
+    const { getByText } = renderCard([fetchCall("completed")]);
+    expect(getByText("Thinking")).toBeTruthy();
   });
 });

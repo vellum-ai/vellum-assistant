@@ -11,6 +11,8 @@
  * - Notification routing goes through emitNotificationSignal().
  */
 
+import { randomUUID } from "node:crypto";
+
 import { isGuardianRequestExpired } from "@vellumai/gateway-client";
 
 import {
@@ -151,10 +153,12 @@ export async function createOrReuseToolGrantRequest(
   }
 
   const senderLabel = requesterIdentifier || requesterExternalUserId;
-  const requestId = `tool-grant-${assistantId}-${sourceChannel}-${requesterExternalUserId}-${Date.now()}`;
 
+  // The id is the gateway row's primary key, the insert is strict, and
+  // sibling tool calls in one turn escalate concurrently, so each create
+  // mints an id unique to itself. Nothing parses its shape.
   const guardianRequest = await createGuardianRequest({
-    id: requestId,
+    id: randomUUID(),
     kind: "tool_grant_request",
     sourceChannel,
     sourceConversationId: conversationId,

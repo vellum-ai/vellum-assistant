@@ -213,7 +213,10 @@ function consumeGrantSync(params: ConsumeGrantParams): ConsumeGrantResult {
       return { ok: true, grant: reqResult.grant };
     }
 
-    log.info(
+    // Debug, not info: `consumeGrantForInvocation` and the inline grant wait
+    // poll this function, so a miss is the expected steady state while a
+    // guardian decides. Hits and the wait's outcome are logged at info.
+    log.debug(
       {
         event: "approval_primitive_consume_miss",
         mode: "request_id",
@@ -255,7 +258,7 @@ function consumeGrantSync(params: ConsumeGrantParams): ConsumeGrantResult {
     return { ok: true, grant: sigResult.grant };
   }
 
-  log.info(
+  log.debug(
     {
       event: "approval_primitive_consume_miss",
       mode: "tool_signature",

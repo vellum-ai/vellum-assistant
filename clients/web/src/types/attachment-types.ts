@@ -1,4 +1,7 @@
-import type { AttachmentsByIdGetResponse } from "@/generated/daemon/types.gen";
+import type {
+  AttachmentsByIdGetResponse,
+  AttachmentsGetResponse,
+} from "@/generated/daemon/types.gen";
 
 /**
  * Server-canonical attachment metadata, sourced from the daemon's generated
@@ -11,6 +14,14 @@ export type AttachmentMetadata = Pick<
   "id" | "filename" | "mimeType" | "sizeBytes"
 >;
 
+/**
+ * One row of the daemon's conversation attachment listing: the metadata every
+ * attachment linked to a conversation carries, camera-frame tag included.
+ * Bytes are never in it; a reader fetches those from the content endpoint.
+ */
+export type ConversationAttachmentSummary =
+  AttachmentsGetResponse["attachments"][number];
+
 /** Display metadata for a file attachment (user-uploaded or assistant-generated),
  *  used to render the chip inside a message bubble. For live sessions, populated
  *  from SSE event data via `toDisplayAttachments` (`utils/display-attachments.ts`). For
@@ -18,6 +29,8 @@ export type AttachmentMetadata = Pick<
  *  (real UUIDs that resolve against the content endpoint) or, as a fallback,
  *  reverse-parsed from `[File attachment] …` summary lines in the message text. */
 export interface DisplayAttachment extends AttachmentMetadata {
+  /** True when the assistant automatically linked this computer-use screenshot. */
+  computerUseScreenshot?: boolean;
   /** Client-only URL for the attachment's actual content — either an inline
    *  data URI (when the daemon sent `data`) or a blob URL lazily fetched from
    *  the daemon's content endpoint. When null, the preview modal fetches from

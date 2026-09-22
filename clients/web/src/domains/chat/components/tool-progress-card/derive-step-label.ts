@@ -12,7 +12,18 @@
  */
 
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
-import { titleCaseToolName } from "@/domains/chat/components/tool-call-chip/utils";
+import {
+  ACTIVITY_KEY,
+  COMMAND_KEYS,
+  FILE_PATH_KEYS,
+  readToolInputString,
+} from "@/domains/chat/utils/tool-input";
+import {
+  parseBrowserOperation,
+  titleCaseToolName,
+  type BrowserOperation,
+} from "@/domains/chat/components/tool-call-chip/utils";
+import type { ActionDisplayKey } from "@/domains/chat/components/tool-progress-card/action-display-label";
 import { truncate } from "@/domains/chat/utils/truncate";
 
 /**
@@ -42,26 +53,96 @@ export interface StepLabel {
   info: string;
   /**
    * Rich, human-readable activity sentence the daemon attaches to the tool
-   * input (`input.activity`, legacy `input.reason`), mirroring macOS
-   * `reasonDescription`. Empty string when absent. Drives pill/drawer text;
-   * `title` remains the stable phase-grouping key — do NOT fold activity into
-   * `title`.
+   * input (`input.activity`). Empty string when absent. Drives pill/drawer
+   * text; `title` remains the stable phase-grouping key: do NOT fold activity
+   * into `title`.
    */
   activity: string;
+  actionDisplayKey?: ActionDisplayKey;
   iconName: IconName;
 }
 
 const INFO_MAX_LENGTH = 80;
 
-/** Read a string property from a tool input bag, returning `""` when absent. */
-function readString(input: Record<string, unknown>, ...keys: string[]): string {
-  for (const key of keys) {
-    const value = input[key];
-    if (typeof value === "string" && value.trim().length > 0) {
-      return value.trim();
-    }
+function browserActionDisplayKey(
+  operation: BrowserOperation,
+): ActionDisplayKey | undefined {
+  switch (operation) {
+    case "click":
+      return "click";
+    case "type":
+    case "select":
+    case "fill_credential":
+      return "type";
+    case "press_key":
+      return "keyPress";
+    case "scroll":
+      return "scroll";
+    case "drag":
+      return "drag";
+    case "hover":
+      return "hover";
+    case "screenshot":
+    case "snapshot":
+    case "extract":
+      return "observe";
+    case "navigate":
+    case "back":
+    case "forward":
+    case "refresh":
+    case "close":
+    case "tab":
+      return "navigate";
+    case "wait":
+    case "wait_for":
+    case "unknown":
+      return undefined;
   }
-  return "";
+}
+
+function computerActionDisplayKey(
+  action: string,
+): ActionDisplayKey | undefined {
+  switch (action.toLowerCase()) {
+    case "click":
+    case "left_click":
+    case "right_click":
+    case "double_click":
+      return "click";
+    case "type":
+    case "insert_text":
+      return "type";
+    case "key":
+    case "keypress":
+    case "key_press":
+    case "press_key":
+      return "keyPress";
+    case "scroll":
+      return "scroll";
+    case "drag":
+      return "drag";
+    case "hover":
+    case "move":
+    case "mouse_move":
+      return "hover";
+    case "screenshot":
+    case "snapshot":
+    case "observe":
+      return "observe";
+    case "navigate":
+    case "open":
+      return "navigate";
+    default:
+      return undefined;
+  }
+}
+
+function shellActionDisplayKey(command: string): ActionDisplayKey | undefined {
+  const browserOperation = parseBrowserOperation(command);
+  if (browserOperation) {
+    return browserActionDisplayKey(browserOperation);
+  }
+  return command ? "terminal" : undefined;
 }
 
 /** Extract the trailing path segment from a file path. Returns `""` if empty. */
@@ -121,8 +202,9 @@ export function deriveStepLabelFromName(
 
   // Rich activity sentence the daemon attaches to the input. Computed once and
   // spread onto every branch so phase-grouping (`title`/`info`/`iconName`)
-  // stays untouched. `readString` trims and returns "" when neither key is set.
-  const activity = readString(inputBag, "activity", "reason");
+  // stays untouched. `readToolInputString` trims and returns "" when it is
+  // absent.
+  const activity = readToolInputString(inputBag, ACTIVITY_KEY);
 
   const mcp = parseMcpToolName(toolName);
   if (mcp) {
@@ -137,22 +219,21 @@ export function deriveStepLabelFromName(
   switch (name) {
     case "bash":
     case "host_bash": {
-      const command = readString(inputBag, "command", "cmd");
+      const command = readToolInputString(inputBag, ...COMMAND_KEYS);
       const cleaned = command.replace(/\s+/g, " ").trim();
       return {
         title: "Working",
         info: truncate(cleaned, INFO_MAX_LENGTH),
         activity,
+        actionDisplayKey: shellActionDisplayKey(command),
         iconName: "terminal",
       };
     }
 
     case "str_replace_editor":
     case "text_editor": {
-      const sub = readString(inputBag, "command").toLowerCase();
-      const file = basename(
-        readString(inputBag, "path", "file_path", "filePath"),
-      );
+      const sub = readToolInputString(inputBag, "command").toLowerCase();
+      const file = basename(readToolInputString(inputBag, ...FILE_PATH_KEYS));
       if (sub === "view") {
         return { title: "Reading", info: file, activity, iconName: "file" };
       }
@@ -161,12 +242,57 @@ export function deriveStepLabelFromName(
       return { title: "Editing", info: file, activity, iconName: "pen" };
     }
 
+    // The daemon's own file tools, each paired with its host-side twin the way
+    // `bash` is paired with `host_bash`. They reuse the `text_editor` titles
+    // rather than reading "Writing a file" beside its "Editing", because
+    // `title` is the phase-grouping key: a run touching files through both
+    // tools has to read as one phase, not two.
+    case "file_read":
+    case "host_file_read": {
+      return {
+        title: "Reading",
+        info: basename(readToolInputString(inputBag, ...FILE_PATH_KEYS)),
+        activity,
+        iconName: "file",
+      };
+    }
+
+    case "file_write":
+    case "host_file_write": {
+      return {
+        title: "Writing",
+        info: basename(readToolInputString(inputBag, ...FILE_PATH_KEYS)),
+        activity,
+        iconName: "pen",
+      };
+    }
+
+    case "file_edit":
+    case "host_file_edit": {
+      return {
+        title: "Editing",
+        info: basename(readToolInputString(inputBag, ...FILE_PATH_KEYS)),
+        activity,
+        iconName: "pen",
+      };
+    }
+
+    case "file_list": {
+      return {
+        title: "Listing",
+        info: basename(readToolInputString(inputBag, ...FILE_PATH_KEYS)),
+        activity,
+        iconName: "file",
+      };
+    }
+
     case "computer": {
-      const action = readString(inputBag, "action");
+      const action = readToolInputString(inputBag, "action");
       return {
         title: "Using computer",
         info: action,
         activity,
+        actionDisplayKey: computerActionDisplayKey(action),
         iconName: "monitor",
       };
     }
@@ -178,7 +304,7 @@ export function deriveStepLabelFromName(
       // useful label ("Working", "Spawning subagent", …) instead of
       // a generic "Using a skill" with no detail. Falls back to the legacy
       // skill label when the input shape isn't a recognisable wrapper.
-      const innerTool = readString(inputBag, "tool");
+      const innerTool = readToolInputString(inputBag, "tool");
       if (innerTool) {
         const innerInput = inputBag.input;
         const inner = deriveStepLabelFromName(innerTool, innerInput);
@@ -186,7 +312,12 @@ export function deriveStepLabelFromName(
         // let it win over any activity on the inner tool's input.
         return { ...inner, activity: activity || inner.activity };
       }
-      const skillName = readString(inputBag, "skill", "name", "skillName");
+      const skillName = readToolInputString(
+        inputBag,
+        "skill",
+        "name",
+        "skillName",
+      );
       return {
         title: "Using a skill",
         info: skillName,
@@ -198,7 +329,12 @@ export function deriveStepLabelFromName(
     case "skill":
     case "skill_invoke":
     case "skill_load": {
-      const skillName = readString(inputBag, "skill", "name", "skillName");
+      const skillName = readToolInputString(
+        inputBag,
+        "skill",
+        "name",
+        "skillName",
+      );
       return {
         title: "Using a skill",
         info: skillName,
@@ -208,7 +344,7 @@ export function deriveStepLabelFromName(
     }
 
     case "subagent_spawn": {
-      const label = readString(inputBag, "label", "objective", "task");
+      const label = readToolInputString(inputBag, "label", "objective", "task");
       return {
         title: "Spawning subagent",
         info: label,

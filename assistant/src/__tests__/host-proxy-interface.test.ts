@@ -51,6 +51,21 @@ describe("supportsHostProxy (runtime)", () => {
     expect(supportsHostProxy("macos", "host_browser")).toBe(true);
   });
 
+  /**
+   * The marks are drawn in a window the client opens for itself. Windows and
+   * Linux forward a CU request to a native helper whose action set has no
+   * such thing, so offering it there is offering a tool that cannot succeed.
+   */
+  test("capability form grants screen annotation to macOS alone", () => {
+    expect(supportsHostProxy("macos", "host_cu_annotate")).toBe(true);
+    expect(supportsHostProxy("windows", "host_cu_annotate")).toBe(false);
+    expect(supportsHostProxy("linux", "host_cu_annotate")).toBe(false);
+    expect(supportsHostProxy("web", "host_cu_annotate")).toBe(false);
+    // The transport it rides is offered to all three, which is what makes the
+    // narrower capability necessary rather than redundant.
+    expect(supportsHostProxy("windows", "host_cu")).toBe(true);
+  });
+
   test("capability form withholds unimplemented Windows app control", () => {
     expect(supportsHostProxy("windows", "host_bash")).toBe(true);
     expect(supportsHostProxy("windows", "host_file")).toBe(true);

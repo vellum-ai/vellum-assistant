@@ -358,4 +358,36 @@ describe("LLMSchema", () => {
     });
     expect(result.success).toBe(true);
   });
+
+  test("a mix profile with inputModalities is rejected", () => {
+    const result = LLMSchema.safeParse({
+      profiles: {
+        combo: {
+          mix: [
+            { profile: "fast", weight: 1 },
+            { profile: "slow", weight: 1 },
+          ],
+          inputModalities: { image: { enabled: true, supported: true } },
+        },
+        fast: { provider: "anthropic", model: "claude-haiku-4-5" },
+        slow: { provider: "anthropic", model: "claude-opus-4-6" },
+      },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test("a custom profile may persist inputModalities", () => {
+    const parsed = LLMSchema.parse({
+      profiles: {
+        gateway: {
+          provider: "openai-compatible",
+          model: "qwen2.5-vl",
+          inputModalities: { image: { enabled: true, supported: true } },
+        },
+      },
+    });
+    expect(parsed.profiles.gateway?.inputModalities).toEqual({
+      image: { enabled: true, supported: true },
+    });
+  });
 });

@@ -12,6 +12,11 @@ import { contrastForeground } from "@/utils/avatar-tone";
 
 /** Flood origin — where the eyes surface, as a percent of the row's width. */
 const FLOOD_ORIGIN_X_PERCENT = 88;
+/** A disc's eyes surface from its centre. */
+const DISC_ORIGIN_X_PERCENT = 50;
+/** How far a disc's eyes stay in from its edge on each side, so the sprite
+ *  fits the circle at whichever width its style is drawn. */
+const DISC_EYES_INSET = 2;
 /** The growth spurt before ducking, relative to the already-rest-scaled
  *  sprite this overlay renders. */
 const DUCK_GROWTH = DUCK_SCALE / REST_SCALE;
@@ -56,6 +61,11 @@ interface TourNavFloodProps {
  * The "avatar is inside this nav item" treatment: a fixed overlay exactly
  * covering the target row that floods with the avatar's color from the spot
  * the eyes surface (mirroring the assistant cluster's New Chat flood).
+ *
+ * A square target is one of the rail's round tiles (the New Chat button)
+ * rather than a pill: the overlay rounds fully to cover it, there is no room
+ * beside the eyes for a label, and the eyes surface from the centre at
+ * whatever scale fits the disc rather than at a pill's resting scale.
  */
 export function TourNavFlood({
   rect,
@@ -65,15 +75,28 @@ export function TourNavFlood({
   phase,
 }: TourNavFloodProps) {
   const fg = hex ? contrastForeground(hex) : "var(--content-strong)";
+  const disc = rect.width === rect.height;
   // Match the assistant cluster's resting eyes exactly: the per-style base
   // width grown by REST_SCALE, height following the shape's aspect ratio.
+  // On a disc the growth is capped so the sprite stays inside the circle.
   const baseWidth = eye ? eyeStyleBaseWidth(eye.id) : 0;
   const baseHeight = eye ? baseWidth * (eye.bbox.h / eye.bbox.w) : 0;
-  const eyesWidth = baseWidth * REST_SCALE;
-  const eyesHeight = baseHeight * REST_SCALE;
+  const scale =
+    disc && baseWidth > 0
+      ? Math.min(REST_SCALE, (rect.width - DISC_EYES_INSET * 2) / baseWidth)
+      : REST_SCALE;
+  const eyesWidth = baseWidth * scale;
+  const eyesHeight = baseHeight * scale;
   /** Bottom-edge sink scales with the shape's (unscaled) height so flatter
-   *  variants keep the same visible fraction above the fold. */
-  const edgeSink = EDGE_SINK * Math.min(1, baseHeight / SINK_REFERENCE_HEIGHT);
+   *  variants keep the same visible fraction above the fold, and with the
+   *  applied scale so a capped sprite keeps it too: the fraction above the
+   *  fold is then `1 - EDGE_SINK * min(1, baseHeight / SINK_REFERENCE_HEIGHT)
+   *  / (baseHeight * REST_SCALE)`, in which the scale cancels, so it holds
+   *  for every eye style at any disc size without re-measuring. */
+  const edgeSink =
+    EDGE_SINK *
+    Math.min(1, baseHeight / SINK_REFERENCE_HEIGHT) *
+    (scale / REST_SCALE);
   /** The cluster's eye slot sits at `EYES_RIGHT_OFFSET` pre-scale and grows
    *  from its center, so the rendered sprite's right inset shifts by half
    *  the growth. */
@@ -81,10 +104,11 @@ export function TourNavFlood({
   /** Fully below the row's fold even at the duck growth spurt. */
   const diveY = rect.height + eyesHeight + 8;
   const entering = phase === "enter";
+  const originX = disc ? DISC_ORIGIN_X_PERCENT : FLOOD_ORIGIN_X_PERCENT;
 
   return (
     <div
-      className="pointer-events-none fixed z-[64] overflow-hidden rounded-[8px]"
+      className={`pointer-events-none fixed z-[64] overflow-hidden ${disc ? "rounded-full" : "rounded-[8px]"}`}
       style={{
         left: rect.left,
         top: rect.top,
@@ -95,11 +119,11 @@ export function TourNavFlood({
       <motion.div
         className="absolute inset-0"
         style={{ background: hex ?? "var(--surface-active)" }}
-        initial={{ clipPath: `circle(0% at ${FLOOD_ORIGIN_X_PERCENT}% 100%)` }}
+        initial={{ clipPath: `circle(0% at ${originX}% 100%)` }}
         animate={{
           clipPath: entering
-            ? `circle(141% at ${FLOOD_ORIGIN_X_PERCENT}% 100%)`
-            : `circle(0% at ${FLOOD_ORIGIN_X_PERCENT}% 100%)`,
+            ? `circle(141% at ${originX}% 100%)`
+            : `circle(0% at ${originX}% 100%)`,
         }}
         transition={
           entering
@@ -107,21 +131,25 @@ export function TourNavFlood({
             : { duration: 0.35, ease: "easeIn", delay: 0.2 }
         }
       />
-      <motion.span
-        className="text-body-medium-default absolute inset-y-0 left-0 flex items-center truncate px-[6px]"
-        style={{ color: fg, maxWidth: rect.width - eyesRight - eyesWidth }}
-        initial={{ opacity: 0 }}
-        animate={{ opacity: entering ? 1 : 0 }}
-        transition={{ duration: 0.25, delay: entering ? 0.15 : 0.2 }}
-      >
-        {label}
-      </motion.span>
+      {disc ? null : (
+        <motion.span
+          className="text-body-medium-default absolute inset-y-0 left-0 flex items-center truncate px-[6px]"
+          style={{ color: fg, maxWidth: rect.width - eyesRight - eyesWidth }}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: entering ? 1 : 0 }}
+          transition={{ duration: 0.25, delay: entering ? 0.15 : 0.2 }}
+        >
+          {label}
+        </motion.span>
+      )}
       {eye ? (
         <motion.span
           aria-hidden
           className="absolute"
           style={{
-            right: eyesRight,
+            ...(disc
+              ? { left: (rect.width - eyesWidth) / 2 }
+              : { right: eyesRight }),
             bottom: -edgeSink,
             width: eyesWidth,
             height: eyesHeight,

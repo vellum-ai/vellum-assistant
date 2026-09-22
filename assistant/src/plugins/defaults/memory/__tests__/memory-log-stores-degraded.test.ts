@@ -99,7 +99,7 @@ describe("memory log stores without a memory database", () => {
 });
 
 describe("memory-v3 prune valve without a memory database", () => {
-  // The valve's candidate accounting (`memory_v3_ever_injected`) now lives on
+  // The valve's candidate accounting (`memory_v3_injected_sections`) lives on
   // the memory connection too, degraded by the outer beforeEach. With no
   // resident candidates the valve cannot plan a prune, so it no-ops rather than
   // throwing.
@@ -108,18 +108,14 @@ describe("memory-v3 prune valve without a memory database", () => {
     // resident entries.
     recordInjected(
       "conv-degraded-prune",
-      [{ slug: "domain-a/page-old", bytes: 600 }],
+      [{ slug: "domain-a/page-old", key: "", bytes: 600 }],
       1_000,
     );
 
     let plan: ReturnType<typeof planPrune> | undefined;
     expect(() => {
       plan = planPrune(
-        {
-          maxResidentBytes: 1_000,
-          targetResidentBytes: 500,
-          exemptSlugs: new Set(),
-        },
+        { maxResidentBytes: 1_000, targetResidentBytes: 500 },
         "conv-degraded-prune",
       );
     }).not.toThrow();

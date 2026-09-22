@@ -1,5 +1,6 @@
 import ApplicationServices
 import AppKit
+import MacHelperCore
 import os
 
 private let log = Logger(subsystem: "ai.vellum.mac-helper", category: "AXTree")
@@ -19,15 +20,8 @@ struct AXElement: Identifiable, Sendable {
     let placeholderValue: String?
 }
 
-struct WindowInfo: Sendable {
-    let elements: [AXElement]
-    let windowTitle: String
-    let appName: String
-}
-
 protocol AccessibilityTreeProviding: Sendable {
     func enumerateCurrentWindow() async -> (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)?
-    func enumerateSecondaryWindows(excludingPID: pid_t?, maxWindows: Int) async -> [WindowInfo]
     func enumerateWindow(windowId: CGWindowID) async -> (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)?
 }
 
@@ -58,6 +52,24 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
 
     /// Track total elements enumerated in current call to prevent infinite loops
     private var totalElementsEnumerated = 0
+
+    /// How deep the next focused or targeted window walk goes. Callers that do
+    /// not set it get the full depth.
+    var depthLimit = AXDepthPolicy.fullDepth
+    /// Whether the walk skips subtrees a scrolling ancestor is not showing.
+    ///
+    /// Off by default, and deliberately so. `ax.locate` needs a scrolled-away
+    /// element to be *in* the tree so it can answer "it exists, it is not on
+    /// screen". Dropping it during the walk would make that answer "not
+    /// found", which sends a coachmark somewhere else. Only the CU observation
+    /// path, whose tree is a list of things to act on right now, turns this on.
+    var skipClippedSubtrees = false
+    /// How many elements the last walk skipped as scrolled out of view.
+    private(set) var lastWalkClippedCount = 0
+    /// Whether the last window walk skipped elements below `depthLimit`.
+    private(set) var lastWalkTruncated = false
+    /// How many elements the last window walk visited.
+    private(set) var lastWalkElementCount = 0
     /// Maximum elements to enumerate before bailing out (protects against circular refs)
     private let maxElementsPerEnumeration = 10000
 
@@ -69,6 +81,9 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
     /// targets (Chrome with many tabs, Electron during GC) where individual
     /// attribute reads can momentarily take upwards of 1s.
     static let axMessagingTimeoutSeconds: Float = 3.0
+
+    /// Roles whose content is the text itself rather than a name for a thing.
+    static let textRoles: Set<String> = ["AXStaticText", "AXHeading"]
 
     static let interactiveRoles: Set<String> = [
         "AXButton", "AXTextField", "AXTextArea", "AXCheckBox", "AXRadioButton",
@@ -215,7 +230,10 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
 
         nextId = 1
         totalElementsEnumerated = 0
-        let elements = enumerateElementSafely(element: windowElement, depth: 0, maxDepth: 25)
+        lastWalkTruncated = false
+        lastWalkClippedCount = 0
+        let elements = enumerateElementSafely(element: windowElement, depth: 0, maxDepth: depthLimit)
+        lastWalkElementCount = totalElementsEnumerated
 
         let flat = AccessibilityTreeEnumerator.flattenElements(elements)
         let interactive = flat.filter { Self.interactiveRoles.contains($0.role) }
@@ -302,7 +320,10 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
 
         nextId = 1
         totalElementsEnumerated = 0
-        let elements = enumerateElementSafely(element: windowElement, depth: 0, maxDepth: 25)
+        lastWalkTruncated = false
+        lastWalkClippedCount = 0
+        let elements = enumerateElementSafely(element: windowElement, depth: 0, maxDepth: depthLimit)
+        lastWalkElementCount = totalElementsEnumerated
 
         guard !elements.isEmpty else { return nil }
         lastTargetPid = pid
@@ -359,11 +380,13 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
     }
 
     /// The one AX window of `pid` that is `window`: the single window at its
-    /// frame, or else the single window with its title. Two windows at one
-    /// frame (two maximized browser windows) or titled alike (two "Untitled"
-    /// documents) would otherwise let the wrong one be read or raised beside
-    /// the right one's screenshot, so a frame or title that fits more than
-    /// one window decides nothing. Nil when neither fits exactly one.
+    /// frame, or else the single window its title names (see
+    /// `AXWindowMatch`, which allows for an app that appends its own suffix).
+    /// Two windows at one frame (two maximized browser windows) or titled
+    /// alike (two "Untitled" documents) would otherwise let the wrong one be
+    /// read or raised beside the right one's screenshot, so a frame or title
+    /// that fits more than one window decides nothing. Nil when neither fits
+    /// exactly one.
     ///
     /// The app element is handed back with the match because a caller that
     /// wants to read the tree marks it first, and one that only wants to raise
@@ -395,10 +418,12 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
         // windows at the frame when there are any, since a title shared with
         // a window elsewhere still names one window here.
         let candidates = framed.isEmpty ? windows : framed
-        return window.name.flatMap { name in
-            let titled = candidates.filter { getStringAttribute($0, kAXTitleAttribute as CFString) == name }
-            return titled.count == 1 ? titled[0] : nil
-        }
+        let titles = candidates.map { getStringAttribute($0, kAXTitleAttribute as CFString) }
+        return AXWindowMatch.uniqueTitle(
+            serverName: window.name,
+            titles: titles,
+            candidates: framed.isEmpty ? .everyWindow : .sharingOneFrame
+        ).map { candidates[$0] }
     }
 
     private func enumerateWindowSync(windowId: CGWindowID) -> (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)? {
@@ -427,7 +452,10 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
 
         nextId = 1
         totalElementsEnumerated = 0
-        let elements = enumerateElementSafely(element: windowElement, depth: 0, maxDepth: 25)
+        lastWalkTruncated = false
+        lastWalkClippedCount = 0
+        let elements = enumerateElementSafely(element: windowElement, depth: 0, maxDepth: depthLimit)
+        lastWalkElementCount = totalElementsEnumerated
 
         let flat = AccessibilityTreeEnumerator.flattenElements(elements)
         let interactive = flat.filter { Self.interactiveRoles.contains($0.role) }
@@ -437,66 +465,9 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
         return (elements: elements, windowTitle: windowTitle, appName: appName, pid: pid)
     }
 
-    /// Enumerate the focused windows of up to `maxWindows` non-primary apps,
-    /// useful for cross-app observation. Runs off the main thread for the
-    /// same reason as `enumerateCurrentWindow()`.
-    func enumerateSecondaryWindows(excludingPID: pid_t?, maxWindows: Int = 2) async -> [WindowInfo] {
-        await Task.detached { [self] in
-            enumerateSecondaryWindowsSync(excludingPID: excludingPID, maxWindows: maxWindows)
-        }.value
-    }
-
-    private func enumerateSecondaryWindowsSync(excludingPID: pid_t?, maxWindows: Int) -> [WindowInfo] {
-        let runningApps = NSWorkspace.shared.runningApplications
-            .filter { app in
-                app.activationPolicy == .regular
-                    && !app.isTerminated
-                    && !Self.isOwnOrHostApp(app)
-                    && (excludingPID == nil || app.processIdentifier != excludingPID)
-            }
-
-        var results: [WindowInfo] = []
-        for app in runningApps {
-            guard results.count < maxWindows else { break }
-            let pid = app.processIdentifier
-            let appElement = AXUIElementCreateApplication(pid)
-            AXUIElementSetMessagingTimeout(appElement, Self.axMessagingTimeoutSeconds)
-
-            if Self.markEnhancedAXIfNeeded(pid: pid) {
-                AXUIElementSetAttributeValue(appElement, "AXEnhancedUserInterface" as CFString, true as CFTypeRef)
-            }
-
-            // Get all windows for this app and find the first visible one
-            var windowsRef: CFTypeRef?
-            guard AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsRef) == .success,
-                  let windows = windowsRef as? [AXUIElement],
-                  !windows.isEmpty else { continue }
-
-            // Find a window that is on the main display (skip external monitors)
-            let mainDisplayBounds = CGDisplayBounds(CGMainDisplayID())
-            guard let visibleWindow = windows.first(where: {
-                let frame = getFrameAttribute($0)
-                return frame.width > 50 && frame.height > 50 && frame.intersects(mainDisplayBounds)
-            }) else { continue }
-
-            let windowTitle = getStringAttribute(visibleWindow, kAXTitleAttribute as CFString) ?? "Untitled"
-            let appName = app.localizedName ?? "Unknown"
-
-            nextId = 1
-            totalElementsEnumerated = 0
-            let elements = enumerateElementSafely(element: visibleWindow, depth: 0, maxDepth: 15) // shallower for secondary
-            guard !elements.isEmpty else { continue }
-
-            results.append(WindowInfo(elements: elements, windowTitle: windowTitle, appName: appName))
-            log.info("Secondary window: \(appName, privacy: .public) — \"\(windowTitle)\"")
-        }
-
-        return results
-    }
-
     /// Safe wrapper around enumerateElement that prevents infinite loops.
     /// File save dialogs (especially with Downloads) can have corrupted AX trees or circular references.
-    private func enumerateElementSafely(element: AXUIElement, depth: Int, maxDepth: Int) -> [AXElement] {
+    private func enumerateElementSafely(element: AXUIElement, depth: Int, maxDepth: Int, clip: CGRect? = nil) -> [AXElement] {
         // Bail out if we've processed too many elements (circular reference protection)
         guard totalElementsEnumerated < maxElementsPerEnumeration else {
             log.warning("Hit max element limit (\(self.maxElementsPerEnumeration)) during enumeration — stopping to prevent infinite loop")
@@ -504,15 +475,31 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
         }
 
         totalElementsEnumerated += 1
-        return enumerateElement(element: element, depth: depth, maxDepth: maxDepth)
+        return enumerateElement(element: element, depth: depth, maxDepth: maxDepth, clip: clip)
     }
 
-    private func enumerateElement(element: AXUIElement, depth: Int, maxDepth: Int) -> [AXElement] {
-        guard depth < maxDepth else { return [] }
+    private func enumerateElement(element: AXUIElement, depth: Int, maxDepth: Int, clip: CGRect? = nil) -> [AXElement] {
+        guard depth < maxDepth else {
+            lastWalkTruncated = true
+            return []
+        }
 
         let role = getStringAttribute(element, kAXRoleAttribute as CFString) ?? ""
-        let title = getStringAttribute(element, kAXTitleAttribute as CFString)
-            ?? getStringAttribute(element, kAXDescriptionAttribute as CFString)
+        // Emptiness, not nil, is what makes an attribute worth falling past:
+        // icon-only controls routinely carry `AXTitle` as "" and keep the name
+        // a user would say in `AXDescription` or the tooltip. Chained through
+        // `??` so an element that answers on its title costs one read: each of
+        // these is synchronous IPC into the target app, run per element.
+        //
+        // Only for a control. Text on screen is read out of its value, and a
+        // description or a tooltip standing in as its title would be reported
+        // in place of the words the user is actually looking at.
+        let namesAControl = !Self.textRoles.contains(role)
+        let title = AXLabel.nonBlank(getStringAttribute(element, kAXTitleAttribute as CFString))
+            ?? (namesAControl
+                ? AXLabel.nonBlank(getStringAttribute(element, kAXDescriptionAttribute as CFString))
+                    ?? AXLabel.nonBlank(getStringAttribute(element, kAXHelpAttribute as CFString))
+                : nil)
         let value = getValueAttribute(element)
         let roleDescription = getStringAttribute(element, kAXRoleDescriptionAttribute as CFString)
         let identifier = getStringAttribute(element, kAXIdentifierAttribute as CFString)
@@ -525,7 +512,11 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
         let isInteractive = Self.interactiveRoles.contains(role)
         let isContainer = Self.containerRoles.contains(role)
         let hasTextContent = (title != nil && !title!.isEmpty) || (value != nil && !value!.isEmpty)
-        let isStaticText = role == "AXStaticText" || role == "AXHeading"
+        let isStaticText = Self.textRoles.contains(role)
+
+        // What this element leaves of everything under it: its own frame when
+        // it scrolls, otherwise whatever its ancestors already left.
+        let inner = AXClip.narrowed(clip, by: frame, clips: Self.clippingRoles.contains(role))
 
         // Enumerate children with safety checks
         var childElements: [AXElement] = []
@@ -545,8 +536,26 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
                         break
                     }
 
+                    // What this element leaves of its children. Read before
+                    // the child is walked, so a row a scroll view is not
+                    // showing costs one frame read rather than the nine
+                    // attribute reads and the whole subtree under it.
+                    // Note the test is not AXDisplayMatch's: there an element
+                    // with no area is on nothing, which is the right answer for
+                    // one being listed and the wrong one for one being walked.
+                    // Skipping here discards the entire subtree beneath the
+                    // child, so a wrapper that reports no frame - web content
+                    // does - must be descended into rather than judged.
+                    if self.skipClippedSubtrees, let childClip = inner {
+                        let childFrame = self.getFrameAttribute(child)
+                        if !childFrame.isEmpty && !childFrame.intersects(childClip) {
+                            self.lastWalkClippedCount += 1
+                            continue
+                        }
+                    }
+
                     // Recursively enumerate with the safe wrapper
-                    childElements.append(contentsOf: enumerateElementSafely(element: child, depth: depth + 1, maxDepth: maxDepth))
+                    childElements.append(contentsOf: enumerateElementSafely(element: child, depth: depth + 1, maxDepth: maxDepth, clip: inner))
                 }
             }
         }
@@ -657,14 +666,19 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
 
     // MARK: - Formatting
 
-    static func formatAXTree(elements: [AXElement], windowTitle: String, appName: String) -> String {
+    /// `clippedDuringWalk` is what the enumerator already dropped for being
+    /// scrolled away, which never reaches this list to be counted here. The two
+    /// are summed so the reported figure is what is missing from the window
+    /// rather than what this pass happened to see.
+    static func formatAXTree(elements: [AXElement], windowTitle: String, appName: String, clippedDuringWalk: Int = 0) -> String {
         var lines: [String] = []
         lines.append("Window: \"\(windowTitle)\" (\(appName))")
 
         var interactive: [String] = []
         var staticTexts: [String] = []
         var prunedCount = 0
-        collectFormatted(elements: elements, interactive: &interactive, staticTexts: &staticTexts, prunedCount: &prunedCount)
+        var clippedCount = clippedDuringWalk
+        collectFormatted(elements: elements, interactive: &interactive, staticTexts: &staticTexts, prunedCount: &prunedCount, clippedCount: &clippedCount)
 
         if !interactive.isEmpty {
             lines.append("Interactive elements:")
@@ -673,6 +687,13 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
             }
             if prunedCount > 0 {
                 lines.append("  (\(prunedCount) unlabeled elements hidden)")
+            }
+            if clippedCount > 0 {
+                // Said rather than silently dropped: the count is the
+                // difference between "this list has four rows" and "this list
+                // has four rows on screen", and only the second tells the
+                // model that scrolling is what reaches the rest.
+                lines.append("  (\(clippedCount) elements scrolled out of view: scroll to bring them on screen)")
             }
         }
 
@@ -693,10 +714,52 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
         "AXTextField", "AXTextArea", "AXComboBox"
     ]
 
-    private static func collectFormatted(elements: [AXElement], interactive: inout [String], staticTexts: inout [String], prunedCount: inout Int) {
+    /// Whether `frame` has any part of it inside what its ancestors left.
+    ///
+    /// Nil clip is nothing cropping, which is most of a tree and every tree
+    /// from an app that scrolls nothing, so everything counts. Where something
+    /// is cropping, the question is the same geometric one
+    /// {@link AXDisplayMatch} asks of a display. Any overlap counts, so a row
+    /// half out of the pane stays listed, and a frame with no area is on
+    /// nothing and cannot be pointed at either way.
+    private static func isOnScreen(_ frame: CGRect, within clip: CGRect?) -> Bool {
+        guard let clip else { return true }
+        return AXDisplayMatch.frame(frame, standsOn: clip)
+    }
+
+    /// `clip` is the rectangle this level's ancestors leave, exactly as
+    /// `flattenClipped` computes it. A row scrolled out of its pane keeps the
+    /// frame it would have on screen, so without this every row of a long list
+    /// is reported at a real-looking position that nothing is drawn at. A
+    /// Finder window of 700 files listed all 700, of which ~45 were on screen.
+    ///
+    /// A tree with nothing cropping in it (no `AXScrollArea` ancestor) keeps a
+    /// nil clip the whole way down and is reported exactly as before.
+    private static func collectFormatted(elements: [AXElement], interactive: inout [String], staticTexts: inout [String], prunedCount: inout Int, clippedCount: inout Int, clip: CGRect? = nil) {
         for element in elements {
             let isInteractiveRole = interactiveRoles.contains(element.role)
-            let isText = element.role == "AXStaticText" || element.role == "AXHeading"
+            let isText = textRoles.contains(element.role)
+            // Narrowed on entering the element, so children are measured
+            // against what this element leaves while the element itself is
+            // measured against what its own ancestors left it.
+            let inner = AXClip.narrowed(
+                clip,
+                by: element.frame,
+                clips: clippingRoles.contains(element.role)
+            )
+
+            if !isOnScreen(element.frame, within: clip) {
+                // Counted once for anything that would have been listed, so the
+                // tally matches what is missing rather than how deep the
+                // subtree under it went. Descend anyway rather than pruning:
+                // a container can report a frame that its children sit outside
+                // of, and the child is the thing being judged.
+                if isInteractiveRole || isText {
+                    clippedCount += 1
+                }
+                collectFormatted(elements: element.children, interactive: &interactive, staticTexts: &staticTexts, prunedCount: &prunedCount, clippedCount: &clippedCount, clip: inner)
+                continue
+            }
 
             if isInteractiveRole {
                 // Skip unlabeled non-text elements — the model can't meaningfully target
@@ -708,7 +771,7 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
 
                 if !hasTitle && !isTextInput && !element.isFocused && !hasPlaceholder && !hasUrl {
                     prunedCount += 1
-                    collectFormatted(elements: element.children, interactive: &interactive, staticTexts: &staticTexts, prunedCount: &prunedCount)
+                    collectFormatted(elements: element.children, interactive: &interactive, staticTexts: &staticTexts, prunedCount: &prunedCount, clippedCount: &clippedCount, clip: inner)
                     continue
                 }
 
@@ -717,30 +780,32 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
                 let centerY = Int(element.frame.midY)
                 var line = "[\(element.id)] \(cleanedRole)"
                 if let title = element.title, !title.isEmpty {
-                    line += " \"\(title)\""
+                    line += " \"\(AXLabel.singleLine(title))\""
                 }
                 line += " at (\(centerX), \(centerY))"
                 if element.isFocused { line += " FOCUSED" }
                 if !element.isEnabled { line += " disabled" }
                 if let value = element.value, !value.isEmpty {
-                    let truncated = value.count > 50 ? String(value.prefix(50)) + "..." : value
-                    line += " value: \"\(truncated)\""
+                    line += " value: \"\(AXLabel.singleLine(value, max: 50))\""
                 } else if let placeholder = element.placeholderValue, !placeholder.isEmpty {
-                    line += " placeholder: \"\(placeholder)\""
+                    line += " placeholder: \"\(AXLabel.singleLine(placeholder))\""
                 }
                 if let url = element.url, !url.isEmpty {
                     line += " → \(url)"
                 }
                 interactive.append(line)
             } else if isText {
+                // Kept whole, unlike a name: this is what the user is reading,
+                // and the tail of it can be the half of an error message that
+                // says what to do about the first half.
                 if let title = element.title, !title.isEmpty {
-                    staticTexts.append(title)
+                    staticTexts.append(AXLabel.collapsed(title))
                 } else if let value = element.value, !value.isEmpty {
-                    staticTexts.append(value)
+                    staticTexts.append(AXLabel.collapsed(value))
                 }
             }
 
-            collectFormatted(elements: element.children, interactive: &interactive, staticTexts: &staticTexts, prunedCount: &prunedCount)
+            collectFormatted(elements: element.children, interactive: &interactive, staticTexts: &staticTexts, prunedCount: &prunedCount, clippedCount: &clippedCount, clip: inner)
         }
     }
 
@@ -760,45 +825,44 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
         return result
     }
 
-    /// Format secondary windows into a compact text representation.
-    /// Uses a condensed format (interactive elements only) to minimize token cost.
-    static func formatSecondaryWindows(_ windows: [WindowInfo]) -> String? {
-        guard !windows.isEmpty else { return nil }
-
-        var lines: [String] = ["OTHER VISIBLE WINDOWS:"]
-        for window in windows {
-            lines.append("")
-            lines.append("  Window: \"\(window.windowTitle)\" (\(window.appName))")
-
-            var interactive: [String] = []
-            var staticTexts: [String] = []
-            var prunedCount = 0
-            collectFormatted(elements: window.elements, interactive: &interactive, staticTexts: &staticTexts, prunedCount: &prunedCount)
-
-            if !interactive.isEmpty {
-                for line in interactive.prefix(15) { // Cap per window to limit tokens
-                    lines.append("    \(line)")
-                }
-                if interactive.count > 15 {
-                    lines.append("    ... and \(interactive.count - 15) more elements")
-                }
-            }
-
-            if !staticTexts.isEmpty {
-                for text in staticTexts.prefix(10) {
-                    lines.append("    \(text)")
-                }
-            }
-        }
-
-        return lines.joined(separator: "\n")
-    }
-
     static func flattenElements(_ elements: [AXElement]) -> [AXElement] {
         var result: [AXElement] = []
         for element in elements {
             result.append(element)
             result.append(contentsOf: flattenElements(element.children))
+        }
+        return result
+    }
+
+    /// Roles that show a window on part of their contents and hide the rest.
+    ///
+    /// A scrolled-away row keeps the frame it would have if it were on screen,
+    /// so its position reads as real while nothing is drawn there. Anything
+    /// deciding where a thing is has to know which ancestors are cropping it.
+    static let clippingRoles: Set<String> = ["AXScrollArea"]
+
+    /// Every element in the tree, each with the rectangle its ancestors leave
+    /// it, which is what a caller pointing at one has to measure against.
+    ///
+    /// A clipping ancestor narrows the rectangle to its own frame, so a row
+    /// scrolled out of a pane comes back with a rectangle its frame does not
+    /// meet. `visible` is nil where nothing is cropping, which is most of a
+    /// tree and every tree from an app that scrolls nothing.
+    ///
+    /// See `AXClip` for what each ancestor leaves.
+    static func flattenClipped(
+        _ elements: [AXElement],
+        within clip: CGRect? = nil
+    ) -> [(element: AXElement, visible: CGRect?)] {
+        var result: [(element: AXElement, visible: CGRect?)] = []
+        for element in elements {
+            result.append((element: element, visible: clip))
+            let inner = AXClip.narrowed(
+                clip,
+                by: element.frame,
+                clips: clippingRoles.contains(element.role)
+            )
+            result.append(contentsOf: flattenClipped(element.children, within: inner))
         }
         return result
     }

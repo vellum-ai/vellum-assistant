@@ -106,7 +106,10 @@ import { markProcessed } from "../../persistence/delivery-status.js";
 import { upsertBinding } from "../../persistence/external-conversation-store.js";
 import type { ContentBlock } from "../../providers/types.js";
 import { checkIngressForSecrets } from "../../security/secret-ingress.js";
-import { canonicalizeInboundIdentity } from "../../util/canonicalize-identity.js";
+import {
+  canonicalizeInboundIdentity,
+  inboundIdentitiesMatch,
+} from "../../util/canonicalize-identity.js";
 import { safeParseRecord } from "../../util/json.js";
 import { getLogger } from "../../util/logger.js";
 import { truncate } from "../../util/truncate.js";
@@ -126,6 +129,11 @@ import {
   enforceIngressAcl,
 } from "./inbound-stages/acl-enforcement.js";
 import { enforceAdmissionPolicy } from "./inbound-stages/admission-policy.js";
+import {
+  type BackfilledSenderProvenance,
+  type BackfilledSenderProvenanceResolver,
+  createBackfilledSenderProvenanceResolver,
+} from "./inbound-stages/backfill-sender-provenance.js";
 import { processChannelMessageInBackground } from "./inbound-stages/background-dispatch.js";
 import { handleBootstrapIntercept } from "./inbound-stages/bootstrap-intercept.js";
 import { handleEditIntercept } from "./inbound-stages/edit-intercept.js";
@@ -799,6 +807,11 @@ export async function handleChannelInbound({
 
   // ── Edit path: update existing message content, no new agent loop ──
   if (isEdit && sourceMessageId) {
+    const slackEditedTs =
+      sourceChannel === "slack" &&
+      typeof sourceMetadata?.slackEditedTs === "string"
+        ? sourceMetadata.slackEditedTs
+        : undefined;
     return handleEditIntercept({
       sourceChannel,
       conversationExternalId,
@@ -808,6 +821,7 @@ export async function handleChannelInbound({
       assistantId,
       content,
       channelId: resolvedMember?.channelId,
+      slackEditedTs,
     });
   }
 
@@ -1525,8 +1539,7 @@ export async function handleChannelInbound({
         sourceMetadata.account.length > 0
           ? sourceMetadata.account
           : undefined;
-      const slackBotMentioned =
-        sourceChannel === "slack" && sourceMetadata?.slackBotMentioned === true;
+      const botMentioned = sourceMetadata?.botMentioned === true;
 
       // ── DM cold-start backfill ──
       // First time a Slack DM without thread_ts lands in a conversation that
@@ -1619,7 +1632,7 @@ export async function handleChannelInbound({
         approvalCopyGenerator,
         chatType: sourceChatType,
         clientTimezone: inboundClientTimezone,
-        slackBotMentioned,
+        botMentioned,
         slackInbound,
         channelInbound,
       });
@@ -1830,6 +1843,7 @@ async function persistBackfilledSlackMessage(params: {
   message: ProviderMessage;
   account?: string;
   guardianExternalUserId?: string;
+  resolveSenderProvenance: BackfilledSenderProvenanceResolver;
 }): Promise<boolean> {
   const { message } = params;
 
@@ -1867,10 +1881,19 @@ async function persistBackfilledSlackMessage(params: {
     message.metadata,
     "actorTimezoneLabel",
   );
-  const isGuardian = isBackfilledSlackGuardianMessage(
+  const role = (await isBackfilledSlackAssistantMessage(
     message,
-    params.guardianExternalUserId,
-  );
+    params.account,
+  ))
+    ? "assistant"
+    : "user";
+  // The assistant's own posts are replayed as assistant history, not as any
+  // person's words, so only a person's row asks who its sender is.
+  const provenance: BackfilledSenderProvenance =
+    role === "user"
+      ? await params.resolveSenderProvenance(actorExternalUserId)
+      : { provenanceTrustClass: "unknown" };
+  const isGuardian = provenance.provenanceTrustClass === "guardian";
   const slackTranscriptTimestampTimezone =
     resolveSlackTranscriptTimestampTimezone();
   const slackTimezoneFields = buildSlackTimezoneMetadata({
@@ -1893,13 +1916,6 @@ async function persistBackfilledSlackMessage(params: {
     ...slackTimezoneFields,
     ...(slackFiles.length > 0 ? { slackFiles } : {}),
   };
-
-  const role = (await isBackfilledSlackAssistantMessage(
-    message,
-    params.account,
-  ))
-    ? "assistant"
-    : "user";
 
   const rawText = message.text ?? "";
 
@@ -1939,7 +1955,7 @@ async function persistBackfilledSlackMessage(params: {
     metadata: {
       ...envelope,
       ...(sentAt !== undefined ? { sentAt } : {}),
-      provenanceTrustClass: isGuardian ? "guardian" : "unknown",
+      ...provenance,
       provenanceSourceChannel: "slack",
       ...(params.guardianExternalUserId
         ? { provenanceGuardianExternalUserId: params.guardianExternalUserId }
@@ -2058,22 +2074,6 @@ async function buildBackfilledSlackContentBlocks(
   return blocks;
 }
 
-function isBackfilledSlackGuardianMessage(
-  message: ProviderMessage,
-  guardianExternalUserId: string | undefined,
-): boolean {
-  const rawSenderId = message.sender?.id?.trim();
-  if (!rawSenderId || !guardianExternalUserId) {
-    return false;
-  }
-  const normalizedSender =
-    canonicalizeInboundIdentity("slack", rawSenderId) ?? rawSenderId;
-  const normalizedGuardian =
-    canonicalizeInboundIdentity("slack", guardianExternalUserId) ??
-    guardianExternalUserId.trim();
-  return normalizedSender === normalizedGuardian;
-}
-
 const SLACK_ASSISTANT_THREAD_PLACEHOLDER_TEXT = "New Assistant Thread";
 
 async function isSlackAssistantThreadPlaceholder(
@@ -2110,7 +2110,7 @@ async function isBackfilledSlackAssistantMessage(
     return false;
   }
 
-  if (rawSenderId && slackIdentityMatches(rawSenderId, botUserId)) {
+  if (rawSenderId && inboundIdentitiesMatch("slack", rawSenderId, botUserId)) {
     return true;
   }
 
@@ -2126,7 +2126,7 @@ async function isBackfilledSlackAssistantMessage(
     const resolvedBotUserId = await resolveSlackBotUserId(account, rawBotId);
     return (
       typeof resolvedBotUserId === "string" &&
-      slackIdentityMatches(resolvedBotUserId, botUserId)
+      inboundIdentitiesMatch("slack", resolvedBotUserId, botUserId)
     );
   } catch (err) {
     log.warn(
@@ -2135,14 +2135,6 @@ async function isBackfilledSlackAssistantMessage(
     );
     return false;
   }
-}
-
-function slackIdentityMatches(left: string, right: string): boolean {
-  const canonicalSender =
-    canonicalizeInboundIdentity("slack", left) ?? left.trim();
-  const canonicalBot =
-    canonicalizeInboundIdentity("slack", right) ?? right.trim();
-  return canonicalSender === canonicalBot;
 }
 
 /**
@@ -2285,6 +2277,10 @@ async function runBackfillSlackDmIfCold(params: {
     // and a transcript that reads correctly when the renderer joins on
     // monotonic createdAt.
     const ordered = [...fetched].reverse();
+    const resolveSenderProvenance = createBackfilledSenderProvenanceResolver(
+      params.guardianExternalUserId,
+      ordered,
+    );
     for (const message of ordered) {
       if (seen.has(message.id)) {
         continue;
@@ -2304,6 +2300,7 @@ async function runBackfillSlackDmIfCold(params: {
           ...(params.guardianExternalUserId
             ? { guardianExternalUserId: params.guardianExternalUserId }
             : {}),
+          resolveSenderProvenance,
         });
         seen.add(message.id);
         if (stored) {
@@ -2885,6 +2882,10 @@ export async function triggerSlackThreadBackfillIfNeeded(params: {
     }
 
     let persisted = 0;
+    const resolveSenderProvenance = createBackfilledSenderProvenanceResolver(
+      guardianExternalUserId,
+      fetched,
+    );
     for (const message of fetched) {
       if (!message.id) {
         continue;
@@ -2902,6 +2903,7 @@ export async function triggerSlackThreadBackfillIfNeeded(params: {
           message,
           ...(account ? { account } : {}),
           ...(guardianExternalUserId ? { guardianExternalUserId } : {}),
+          resolveSenderProvenance,
         });
         threadState.storedChannelTs.add(message.id);
         if (stored) {

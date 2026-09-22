@@ -108,12 +108,19 @@ function splitOnce(s: string, sep: string): [string, string] {
 }
 
 /** The bundled catalog entry for {@link name} — the source under test. */
-function bundledMatch(name: string): PluginSearchMatch {
+function bundledMatch(name: string): PluginSearchMatch & {
+  source: Extract<PluginSearchMatch["source"], { kind: "github" }>;
+} {
   const match = readBundledPluginCatalog().matches.find((m) => m.name === name);
   if (!match) {
     throw new Error(`bundled catalog has no entry for "${name}"`);
   }
-  return match;
+  if (match.source.kind !== "github") {
+    throw new Error(`bundled catalog entry "${name}" is not GitHub-backed`);
+  }
+  return match as PluginSearchMatch & {
+    source: Extract<PluginSearchMatch["source"], { kind: "github" }>;
+  };
 }
 
 const PNG_SIGNATURE = Buffer.from([
@@ -300,6 +307,32 @@ describe("getPluginDetails (bundled catalog, offline)", () => {
     expect(details.description).toBe(caveman.description ?? null);
     // AND a package.json without vellum.icon surfaces icon as null
     expect(details.icon).toBeNull();
+  });
+
+  test("reads metadata from an installed standard-only plugin.json", async () => {
+    const target = join(workspace, "caveman");
+    mkdirSync(target, { recursive: true });
+    writeFileSync(
+      join(target, "plugin.json"),
+      JSON.stringify({
+        $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+        name: "caveman",
+        version: "4.0.0",
+        description: "Installed standard plugin",
+        homepage: "https://example.com/plugin",
+        license: "MIT",
+      }),
+    );
+
+    const details = await getPluginDetails(
+      { name: "caveman" },
+      { fetch: makeFetch({}), workspacePluginsDir: workspace },
+    );
+
+    expect(details.version).toBe("4.0.0");
+    expect(details.description).toBe("Installed standard plugin");
+    expect(details.homepage).toBe("https://example.com/plugin");
+    expect(details.license).toBe("MIT");
   });
 
   test("surfaces the installed copy's vellum.icon", async () => {

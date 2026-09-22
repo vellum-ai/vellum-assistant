@@ -47,6 +47,7 @@ function makeRow(overrides: Partial<OAuthProviderRow> = {}): OAuthProviderRow {
     identityResponsePaths: null,
     identityFormat: null,
     identityOkField: null,
+    responseOkField: null,
     featureFlag: null,
     createdAt: now,
     updatedAt: now,
@@ -291,8 +292,42 @@ describe("serializeProviderSummary", () => {
       supports_managed_mode: true,
       managed_service_is_paid: false,
       feature_flag: null,
+      category: "productivity",
+      tenant_host: null,
       acts_as: "user",
     });
+  });
+
+  test("files the provider under its seeded category", () => {
+    // The category is catalog metadata the seed carries, not a column, so a
+    // provider a user registered by hand has none.
+    const category = (provider: string) =>
+      serializeProviderSummary(makeRow({ provider }))!.category;
+
+    expect(category("hubspot")).toBe("sales");
+    expect(category("calendly")).toBe("meetings");
+    expect(category("custom-provider")).toBeNull();
+  });
+
+  test("exposes the tenant host a per-tenant provider needs at connect", () => {
+    // Shopify's OAuth endpoints live on the merchant's own host, so a client
+    // has to collect it before the managed flow can start. The summary is the
+    // only provider metadata the web client reads, so it carries the ask.
+    const shopify = serializeProviderSummary(makeRow({ provider: "shopify" }))!;
+    expect(shopify.tenant_host).toEqual({
+      pattern: "^[a-z0-9][a-z0-9-]*\\.myshopify\\.com$",
+      label: "Shop domain",
+      placeholder: "your-store.myshopify.com",
+    });
+    expect(
+      new RegExp(shopify.tenant_host!.pattern).test("my-store.myshopify.com"),
+    ).toBe(true);
+    expect(new RegExp(shopify.tenant_host!.pattern).test("evil.com")).toBe(
+      false,
+    );
+    expect(
+      serializeProviderSummary(makeRow({ provider: "github" }))!.tenant_host,
+    ).toBeNull();
   });
 
   test("names which sense of connected a provider represents", () => {

@@ -33,9 +33,15 @@ mock.module(
 );
 
 const telegramReplies: Array<{ chatId: string; text: string }> = [];
+const { acknowledgedSend } =
+  await import("../../../messaging/providers/send-result.js");
+const actualTelegramSend =
+  await import("../../../messaging/providers/telegram-bot/send.js");
 mock.module("../../../messaging/providers/telegram-bot/send.js", () => ({
+  ...actualTelegramSend,
   sendTelegramReply: async (chatId: string, text: string) => {
     telegramReplies.push({ chatId, text });
+    return acknowledgedSend([]);
   },
 }));
 

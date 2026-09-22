@@ -1,19 +1,83 @@
+import { formatLocale } from "@/i18n";
+
+/** Short month and numeric day, the shape both month-day formatters share. */
+const MONTH_DAY_OPTIONS = {
+  day: "numeric",
+  month: "short",
+} as const;
+
 /**
  * Format a date as a short, human-readable string (e.g., "27 May" or "27 May 2025").
  * Omits the year when it matches the current year, unless `alwaysShowYear` is set.
+ *
+ * Every formatter in this file formats in {@link formatLocale}, so one label
+ * never pairs an app-locale date with a browser-locale time and a user whose
+ * region differs from their language keeps their own date order. This
+ * formatter, {@link formatMonthDay} and {@link formatCaptureTime} take a
+ * `locale` to pin the formatting; the rest have no caller that needs one.
  */
 export function formatFriendlyDate(
   date: Date,
-  opts?: { alwaysShowYear?: boolean },
+  opts?: { alwaysShowYear?: boolean; locale?: string },
 ): string {
-  return date.toLocaleDateString(undefined, {
-    day: "numeric",
-    month: "short",
+  return date.toLocaleDateString(opts?.locale ?? formatLocale(), {
+    ...MONTH_DAY_OPTIONS,
     year:
       opts?.alwaysShowYear || date.getFullYear() !== new Date().getFullYear()
         ? "numeric"
         : undefined,
   });
+}
+
+/**
+ * Month and day only, in the reader's formatting locale. The year never shows,
+ * unlike {@link formatFriendlyDate}: the billing cycle is monthly and the
+ * panel names the next turnover, so the year is noise. Null for an instant
+ * that will not parse, so a caller drops its line rather than printing an ISO
+ * string.
+ */
+export function formatMonthDay(
+  iso: string,
+  locale: string = formatLocale(),
+): string | null {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  return date.toLocaleDateString(locale, MONTH_DAY_OPTIONS);
+}
+
+/** Local time, with optional seconds for closely spaced events. */
+function formatTimeOfDay(
+  date: Date,
+  locale: string = formatLocale(),
+  includeSeconds = false,
+): string {
+  return date.toLocaleTimeString(locale, {
+    hour: "numeric",
+    minute: "2-digit",
+    ...(includeSeconds ? { second: "2-digit" as const } : {}),
+  });
+}
+
+/**
+ * Label for when something was captured: the time of day for a capture made
+ * today, the friendly date for an older one. A run of captures from a single
+ * session all fall on one date, so the date alone would label them identically.
+ */
+export function formatCaptureTime(
+  ms: number,
+  locale: string = formatLocale(),
+): string {
+  const date = new Date(ms);
+  const now = new Date();
+  const isToday =
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate();
+  return isToday
+    ? formatTimeOfDay(date, locale)
+    : formatFriendlyDate(date, { locale });
 }
 
 /**
@@ -65,7 +129,7 @@ export function formatRelativeDate(dateStr: string | null | undefined): string {
     const weeks = Math.floor(diffDays / 7);
     return `${weeks}w ago`;
   }
-  return date.toLocaleDateString();
+  return date.toLocaleDateString(formatLocale());
 }
 
 /**
@@ -75,16 +139,13 @@ export function formatRelativeDate(dateStr: string | null | undefined): string {
  */
 export function formatCompactLocalDate(
   dateStr: string | null | undefined,
+  options?: { includeSeconds?: boolean },
 ): string {
   if (!dateStr) {
     return "";
   }
   const date = new Date(dateStr);
-  const time = date.toLocaleTimeString(undefined, {
-    hour: "numeric",
-    minute: "2-digit",
-  });
-  return `${formatFriendlyDate(date)}, ${time}`;
+  return `${formatFriendlyDate(date)}, ${formatTimeOfDay(date, formatLocale(), options?.includeSeconds)}`;
 }
 
 /**
@@ -97,12 +158,25 @@ export function formatFullLocalDate(
   if (!dateStr) {
     return "";
   }
-  return new Date(dateStr).toLocaleString(undefined, {
+  return new Date(dateStr).toLocaleString(formatLocale(), {
     month: "long",
     day: "numeric",
     year: "numeric",
     hour: "numeric",
     minute: "2-digit",
     timeZoneName: "short",
+  });
+}
+
+/** Compact 24-hour labels keep seconds visible in narrow attachment tiles. */
+export function formatLocalTimeWithSeconds(
+  timestamp: number,
+  locale: string = formatLocale(),
+): string {
+  return new Date(timestamp).toLocaleTimeString(locale, {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
   });
 }

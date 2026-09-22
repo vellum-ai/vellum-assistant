@@ -17,6 +17,11 @@
  * viewBox it is drawn on, the 2-unit stroke it is drawn with, and the 20px it
  * renders at, which is the size every other glyph in the control row takes.
  *
+ * Live runs the same button on two of the three states, since what it drives
+ * there is a lamp: {@link liveFlashMode} maps the stored preference onto the
+ * pair and {@link nextLiveFlashMode} walks it, while the caller names the
+ * result as a light rather than as a flash.
+ *
  * Presentational only. The caller owns the mode, what a press does, and the
  * accessible name. Leftover props land on the button, which is what lets a
  * `Tooltip` wrap it.
@@ -29,6 +34,7 @@ import { cn } from "@vellumai/design-library";
 import type { FlashMode } from "@/stores/voice-prefs-store";
 
 import { CAMERA_FLASH_GLASS_CLASS, cameraModeStyle } from "./camera-mode-paint";
+import { VOICE_ROOM_CONTROL_SIZE_CLASS } from "./voice-room-layout";
 
 /** The order a press moves through. Off is the resting state, so it closes the loop. */
 const FLASH_CYCLE: Record<FlashMode, FlashMode> = {
@@ -40,6 +46,26 @@ const FLASH_CYCLE: Record<FlashMode, FlashMode> = {
 /** The mode a press on `current` selects. */
 export function nextFlashMode(current: FlashMode): FlashMode {
   return FLASH_CYCLE[current];
+}
+
+/** The two states a lamp has, as a subset of the modes the flash cycles. */
+export type LiveFlashMode = Extract<FlashMode, "off" | "on">;
+
+/**
+ * The mode this control stands for while Live runs.
+ *
+ * Live holds a lamp on rather than firing a flash for a photo, and a lamp has
+ * no "when the scene is dark enough" state, so a stored `auto` reads as off.
+ * The preference behind it is not rewritten: photo mode opens on whatever the
+ * user set there.
+ */
+export function liveFlashMode(current: FlashMode): LiveFlashMode {
+  return current === "on" ? "on" : "off";
+}
+
+/** The mode a press selects while Live runs: two states, no auto between them. */
+export function nextLiveFlashMode(current: FlashMode): LiveFlashMode {
+  return liveFlashMode(current) === "on" ? "off" : "on";
 }
 
 export interface CameraFlashControlProps extends Omit<
@@ -79,15 +105,13 @@ export function CameraFlashControl({
       // the vars its armed ink reads.
       style={cameraModeStyle()}
       className={cn(
+        VOICE_ROOM_CONTROL_SIZE_CLASS,
         // Border-box with a border in every state, transparent when the state
         // has no visible one, so the three states measure identically and the
         // glyph does not shift by a pixel as they cycle.
-        "relative box-border flex size-[46px] items-center justify-center rounded-full border",
+        "relative box-border flex items-center justify-center rounded-full border",
         "transition-colors duration-[250ms]",
         "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white",
-        // The visual circle is under the 48pt minimum a thumb needs, and
-        // growing it would crowd the shutter. The target grows instead.
-        "after:absolute after:-inset-1 after:content-['']",
         // Fixed colors, not theme tokens, for the same reason the chrome
         // around it uses them: what sits behind this is arbitrary camera
         // video, so there is no surface for a token to describe.
@@ -114,9 +138,11 @@ export function CameraFlashControl({
       {/* Hidden from assistive tech: the accessible name already says "auto"
           in words, and a lone letter read out after it says nothing more. */}
       {mode === "auto" ? (
+        // Anchored to the circle's centre, where the glyph is, so it holds its
+        // place on the bolt at any circle size.
         <span
           aria-hidden
-          className="absolute right-[12px] bottom-[10px] text-[8px] leading-none font-bold"
+          className="absolute right-[calc(50%-10px)] bottom-[calc(50%-12px)] text-[8px] leading-none font-bold"
         >
           {autoBadge}
         </span>

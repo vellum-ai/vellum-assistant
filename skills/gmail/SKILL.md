@@ -295,9 +295,11 @@ When a user asks to declutter, clean up, or organize their email - start scannin
 
 ### Inbox Recon (run before cleanup passes)
 
-Before starting category-specific cleanup, understand the inbox:
+Before starting category-specific cleanup, understand the inbox.
 
-1. **Broad scan**: Run `bun run scripts/gmail-scan.ts sender-digest --query "in:inbox"` with `--max-senders 75`. This surfaces the top senders across ALL categories — not just promotions.
+**Never run more than one `gmail-scan.ts` command in the same turn.** Each scan already fans out authenticated Gmail requests. Parallel bash calls multiply that. Run the broad scan, then promotions, then the general-noise scan, one after another.
+
+1. **Broad scan**: Run `bun run scripts/gmail-scan.ts sender-digest --query "in:inbox"` with `--max-senders 75`. This surfaces the top senders across ALL categories, not just promotions.
 2. **Identify cleanup buckets**: Group the results mentally:
    - Newsletters/promotions (`hasUnsubscribe: true`) → handle in promotions pass
    - Mailing lists / automated forwards (group addresses like `devops@`, `alerts@`, `noreply@`) → handle in general noise pass

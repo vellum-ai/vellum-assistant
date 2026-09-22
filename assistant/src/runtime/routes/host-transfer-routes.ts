@@ -22,6 +22,7 @@ import {
   ForbiddenError,
   NotFoundError,
 } from "./errors.js";
+import { assertHostProxyResultBinding } from "./host-proxy-result-binding.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 /**
@@ -86,6 +87,18 @@ async function handleTransferContentGet({
       op: "host_transfer",
       hubForMissingTarget: assistantEventHub,
     });
+  } else {
+    const targetActorPrincipalId =
+      match.proxy.getTargetActorPrincipalIdForTransfer(transferId);
+    if (targetActorPrincipalId) {
+      await assertHostProxyResultBinding({
+        headers: headers as Record<string, string | undefined>,
+        targetActorPrincipalId,
+        op: "host_transfer",
+        missingClientIdMessage:
+          "x-vellum-client-id header required for targeted transfer",
+      });
+    }
   }
 
   const content = match.proxy.getTransferContent(transferId);
@@ -172,6 +185,18 @@ async function handleTransferContentPut({
       op: "host_transfer",
       hubForMissingTarget: assistantEventHub,
     });
+  } else {
+    const targetActorPrincipalId =
+      match.proxy.getTargetActorPrincipalIdForTransfer(transferId);
+    if (targetActorPrincipalId) {
+      await assertHostProxyResultBinding({
+        headers: headers as Record<string, string | undefined>,
+        targetActorPrincipalId,
+        op: "host_transfer",
+        missingClientIdMessage:
+          "x-vellum-client-id header required for targeted transfer",
+      });
+    }
   }
 
   const data = rawBody ? Buffer.from(rawBody) : Buffer.alloc(0);
@@ -221,31 +246,14 @@ async function handleTransferResult({ body, headers }: RouteHandlerArgs) {
     );
   }
 
-  if (peeked.targetClientId != null) {
-    const headerMap = (headers as Record<string, string | undefined>) ?? {};
-    const rawClientId = headerMap["x-vellum-client-id"];
-    const submittingClientId = rawClientId?.trim() || undefined;
-    if (!submittingClientId) {
-      throw new BadRequestError(
-        "x-vellum-client-id header is missing for a targeted host transfer request.",
-      );
-    }
-    if (submittingClientId !== peeked.targetClientId) {
-      throw new ForbiddenError(
-        `Client "${submittingClientId}" is not the target for this request (expected "${peeked.targetClientId}").`,
-      );
-    }
-
-    enforceSameActorOrThrow({
-      sourceActorPrincipalId: await resolveActorPrincipalIdForLocalGuardian(
-        headerMap["x-vellum-actor-principal-id"]?.trim() || undefined,
-      ),
-      targetActorPrincipalId: peeked.targetActorPrincipalId,
-      targetClientId: peeked.targetClientId,
-      op: "host_transfer",
-      hubForMissingTarget: assistantEventHub,
-    });
-  }
+  await assertHostProxyResultBinding({
+    headers: headers as Record<string, string | undefined> | undefined,
+    targetClientId: peeked.targetClientId,
+    targetActorPrincipalId: peeked.targetActorPrincipalId,
+    op: "host_transfer",
+    missingClientIdMessage:
+      "x-vellum-client-id header is missing for a targeted host transfer request.",
+  });
 
   HostTransferProxy.instance.resolveTransferResult(requestId, {
     isError: isError ?? false,

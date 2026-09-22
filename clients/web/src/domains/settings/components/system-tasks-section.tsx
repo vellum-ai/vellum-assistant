@@ -7,7 +7,7 @@ import {
   formatScheduleCost,
   formatTimestamp,
   heartbeatSubtitle,
-  RETROSPECTIVE_SUBTITLE,
+  retrospectiveSubtitle,
   type ScheduleRowUsage,
 } from "@/domains/settings/utils/schedule-formatters";
 import { Trans, useTranslation } from "@/i18n";
@@ -232,7 +232,7 @@ export function SystemTasksSection({
       {showRetrospective ? (
         <SystemTaskRow
           name={t("systemTasksSection.retrospectiveName")}
-          subtitle={RETROSPECTIVE_SUBTITLE}
+          subtitle={retrospectiveSubtitle()}
           enabled={retrospectiveConfig.enabled}
           helperText={
             retrospectiveConfig.enabled

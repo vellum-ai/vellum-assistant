@@ -3,15 +3,15 @@
   "skills": {
     "acp": {
       "docsSlug": "acp",
-      "sha256": "67517f5395e67fb866c6c114bca282cbae5160a9862d25d824c7b0ca46eb01e6"
+      "sha256": "856f7eb970aec89fd8095cb58315df7c675c81903a1add2b9b8962151a4ac27e"
     },
     "app-builder": {
       "docsSlug": "app-builder",
-      "sha256": "09c28514c0187b9f94a8e97c55c062999d741016ff3e8d693357b6b5cc0a1e98"
+      "sha256": "9fff654b8f611331996267476a21d47a6eacd260ac2d800e92be92d5db373a5e"
     },
     "computer-use": {
       "docsSlug": "computer-use",
-      "sha256": "0389441d5383647e5de61798c7ed322056b7208b50bddea035ce81af1013741d"
+      "sha256": "4d24c3f821ec998a9052e0ebba1f7f675c6fe9ca948ff1ee62a02a61e29b12f5"
     },
     "contacts": {
       "docsSlug": "contacts",
@@ -27,7 +27,7 @@
     },
     "image-studio": {
       "docsSlug": "image-studio",
-      "sha256": "53a3c4669dda0ed8a2d0080c2ca52200429db0bd33a570581915cc5804feb51a"
+      "sha256": "20b556e8da2423e07114c2eac6ac20e3f770457f36ac869896a3b89293b7db61"
     },
     "media-processing": {
       "docsSlug": "media-processing",
@@ -35,7 +35,7 @@
     },
     "messaging": {
       "docsSlug": "messaging",
-      "sha256": "c6f265b9d8bdef9d84b5b5cef3ca19b5cf0a1f270fd64bf4b0f94d9172d23657"
+      "sha256": "5303770a66d0b52704ce6d7393f2c21704146b34c9f91b5d441a87479bd81cb3"
     },
     "phone-calls": {
       "docsSlug": "phone-calls",
@@ -47,15 +47,15 @@
     },
     "schedule": {
       "docsSlug": "schedule",
-      "sha256": "8a762849311b4c35c8448a399afa062fa29ba4972a1803ee114e4fabdc7da7e2"
+      "sha256": "ebfad7b3518fab2bf210721459566c0071046bab83428804c8cf8c73a9d4afe9"
     },
     "skill-management": {
       "docsSlug": "skill-management",
-      "sha256": "cc095fdb54af9ab614227aca110449b7ae6d4466e80ee4b36f0b9ce04e7aa92d"
+      "sha256": "57dac1438ed7c7587a5cff1a9140155479fc8e4df3022e9189c919bac6d12bb4"
     },
     "subagent": {
       "docsSlug": "subagent",
-      "sha256": "f178e78b1f230b565880164a8b2535f25760ac496d1aa27fdd409a9b0825f1be"
+      "sha256": "099293c722a13d35f99bb92b03ff73acdd7e7ac3c3e5e6d7c28b48aa3cc18099"
     },
     "transcribe": {
       "docsSlug": "transcribe",

@@ -2,9 +2,10 @@
  * Route handler for the POST /v1/btw SSE-streaming side-chain endpoint.
  *
  * Runs an ephemeral LLM call that reuses the conversation's provider, tool
- * definitions, and message history for prompt-cache efficiency. Uses the
- * conversation's system prompt when a conversation-specific override is active;
- * otherwise builds a fresh prompt excluding BOOTSTRAP.md so first-run
+ * definitions, and message history for prompt-cache efficiency; the
+ * empty-state greeting targets no real conversation and sends no tools. Uses
+ * the conversation's system prompt when a conversation-specific override is
+ * active; otherwise builds a fresh prompt excluding BOOTSTRAP.md so first-run
  * onboarding instructions don't leak into cosmetic UI calls like identity
  * intro generation. The response is streamed as SSE events (`btw_text_delta`,
  * `btw_complete`, `btw_error`).
@@ -145,7 +146,11 @@ async function handleBtw({
           const result = await runBtwSidechain({
             content: effectiveContent,
             conversation,
-            tools: getAllToolDefinitions(),
+            // The side-chain forces `tool_choice: none`, so tool definitions
+            // only earn their tokens as a shared cache prefix with a real
+            // conversation. The greeting runs against an ephemeral one with its
+            // own system prompt, so it shares nothing and sends no tools.
+            tools: isGreeting ? [] : getAllToolDefinitions(),
             signal: abortSignal,
             ...(isGreeting ? { callSite: "emptyStateGreeting" as const } : {}),
             onEvent: (event) => {

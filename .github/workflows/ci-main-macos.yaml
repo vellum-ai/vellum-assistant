@@ -90,9 +90,65 @@ jobs:
       - name: Run tests
         run: bun run test:ci
 
+  native:
+    name: Native Notifier (macOS)
+    runs-on: macos-26
+    defaults:
+      run:
+        working-directory: clients/macos
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: '1.3.11'
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile --filter=@vellumai/macos
+
+      - name: Build the notifier addon
+        run: bash scripts/build-notifier.sh
+
+      # Installing does not download the Electron binary, and the smoke load
+      # below runs under Electron's ABI rather than plain Node's.
+      - name: Set up Electron binary
+        run: node node_modules/electron/install.js
+
+      - name: Smoke-load the addon under Electron
+        run: |
+          cat > "$RUNNER_TEMP/smoke-notifier.js" <<'JS'
+          const addon = { exports: {} };
+          process.dlopen(addon, process.argv[2]);
+          const exported = ["isSupported", "requestAuthorization", "registerCategories", "ensureDelegate", "restoreDelegate", "show"];
+          for (const name of exported) {
+            if (typeof addon.exports[name] !== "function") {
+              console.error(`vellum-notifier: missing export ${name}`);
+              process.exit(1);
+            }
+          }
+          console.log("vellum-notifier loaded; isSupported =", addon.exports.isSupported());
+          process.exit(0);
+          JS
+          # build-notifier.sh writes one architecture and clears the rest, so
+          # the addon is whatever it left behind. Resolving it that way keeps
+          # the smoke load honest about the arch the build actually produced,
+          # and a second arch directory has to fail here rather than be smoke
+          # loaded as a two-line path.
+          ADDONS=(resources/notifier/*/vellum-notifier.node)
+          if [ "${#ADDONS[@]}" -ne 1 ] || [ ! -f "${ADDONS[0]}" ]; then
+            echo "::error::expected exactly one built notifier addon under resources/notifier, found: ${ADDONS[*]}"
+            exit 1
+          fi
+          ADDON="${ADDONS[0]}"
+          ELECTRON_RUN_AS_NODE=1 ./node_modules/.bin/electron \
+            "$RUNNER_TEMP/smoke-notifier.js" \
+            "$ADDON"
+
   checks:
     name: Type Check, Build & Test
-    needs: [typecheck, build, test]
+    needs: [typecheck, build, test, native]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -101,11 +157,13 @@ jobs:
           TYPECHECK: ${{ needs.typecheck.result }}
           BUILD: ${{ needs.build.result }}
           TEST: ${{ needs.test.result }}
+          NATIVE: ${{ needs.native.result }}
         run: |
           echo "Type Check: $TYPECHECK"
           echo "Build:      $BUILD"
           echo "Test:       $TEST"
-          for r in "$TYPECHECK" "$BUILD" "$TEST"; do
+          echo "Native:     $NATIVE"
+          for r in "$TYPECHECK" "$BUILD" "$TEST" "$NATIVE"; do
             if [ "$r" != "success" ]; then
               echo "::error::At least one macOS CI job failed."
               exit 1

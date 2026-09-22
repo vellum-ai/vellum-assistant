@@ -20,7 +20,7 @@
 import {
   toWorkspaceRelativePath,
   WORKSPACE_PATH_TAG,
-} from "@/domains/chat/utils/workspace-path-links";
+} from "@/utils/workspace-path-links";
 
 type HastText = { type: "text"; value: string };
 type HastElement = {

@@ -1,4 +1,4 @@
-import { ChevronLeft, Loader2 } from "lucide-react";
+import { ChevronLeft } from "lucide-react";
 
 import { OnboardingLayout } from "@/components/onboarding-layout";
 import { useGoogleCalendarConnect } from "@/domains/onboarding/hooks/use-google-calendar-connect";
@@ -34,10 +34,18 @@ export function CheckinConnectScreen({
 }: CheckinConnectScreenProps) {
   const { t } = useTranslation("onboarding");
   const electron = isElectron();
-  const { handleConnect, oauthInProgress } = useGoogleCalendarConnect({
-    assistantId,
-    onConnect,
-  });
+  const { handleConnect, cancelConnect, oauthInProgress } =
+    useGoogleCalendarConnect({
+      assistantId,
+      onConnect,
+    });
+
+  // The authorization window cannot be observed, so waiting only ends when the
+  // connection lands or the user leaves. Skip has to stay reachable.
+  const handleSkip = () => {
+    cancelConnect();
+    onSkip();
+  };
 
   const assistantInlineName =
     assistantName.trim() || t("checkinConnectScreen.unnamedAssistant");
@@ -104,7 +112,9 @@ export function CheckinConnectScreen({
           className="mt-8 text-center text-body-medium-lighter text-[var(--content-secondary)]"
           style={{ animation: "fadeInUp 0.3s ease-out 0.25s both" }}
         >
-          {t("checkinConnectScreen.permissionBody", { name: assistantInlineName })}
+          {t("checkinConnectScreen.permissionBody", {
+            name: assistantInlineName,
+          })}
         </p>
 
         <div
@@ -113,28 +123,23 @@ export function CheckinConnectScreen({
         >
           <Button
             variant="primary"
-            size="regular"
+            size={electron ? "regular" : "large"}
             fullWidth
             onClick={handleConnect}
+            loading={oauthInProgress}
             disabled={oauthInProgress}
-            className={`${electron ? "h-9" : "h-11 text-base"}`}
+            className={electron ? "h-9" : undefined}
           >
-            {oauthInProgress ? (
-              <span className="flex items-center justify-center gap-2">
-                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                {t("checkinConnectScreen.waitingAuthorization")}
-              </span>
-            ) : (
-              t("checkinConnectScreen.connectGoogleCalendar")
-            )}
+            {oauthInProgress
+              ? t("checkinConnectScreen.waitingAuthorization")
+              : t("checkinConnectScreen.connectGoogleCalendar")}
           </Button>
           <Button
             variant="ghost"
-            size="regular"
+            size={electron ? "regular" : "large"}
             fullWidth
-            onClick={onSkip}
-            disabled={oauthInProgress}
-            className={`${electron ? "h-9" : "h-11 text-base"}`}
+            onClick={handleSkip}
+            className={electron ? "h-9" : undefined}
           >
             {t("actions.skipForNow")}
           </Button>

@@ -21,6 +21,7 @@ import {
   resolveCapabilities as resolveWorkflowCapabilities,
 } from "../../workflows/capabilities.js";
 import { resolveGroupReference } from "../conversation-groups/group_shared.js";
+import { isAbortLikeError, throwIfCancelled } from "../shared/abort.js";
 import {
   invalidToolInputResult,
   nullAsOmitted,
@@ -92,6 +93,7 @@ export async function executeScheduleCreate(
   if (!parsedInput.success) {
     return invalidToolInputResult("schedule_create", parsedInput.error);
   }
+  throwIfCancelled(context);
   const parsed = parsedInput.data;
 
   const name = parsed.name;
@@ -252,32 +254,38 @@ export async function executeScheduleCreate(
     }
 
     try {
-      const job = await createSchedule({
-        name,
-        description,
-        cronExpression: null,
-        timezone,
-        message,
-        script,
-        enabled,
-        syntax: "cron",
-        expression: null,
-        nextRunAt: fireAtMs,
-        mode,
-        routingIntent: routingIntent as RoutingIntent | undefined,
-        routingHints,
-        quiet,
-        reuseConversation,
-        maxRetries,
-        retryBackoffMs,
-        timeoutMs,
-        workflowName,
-        workflowArgs,
-        capabilities,
-        inferenceProfile,
-        groupId,
-        createdFromConversationId: context.conversationId,
-      });
+      const job = await createSchedule(
+        {
+          name,
+          description,
+          cronExpression: null,
+          timezone,
+          message,
+          script,
+          enabled,
+          syntax: "cron",
+          expression: null,
+          nextRunAt: fireAtMs,
+          mode,
+          routingIntent: routingIntent as RoutingIntent | undefined,
+          routingHints,
+          quiet,
+          reuseConversation,
+          maxRetries,
+          retryBackoffMs,
+          timeoutMs,
+          workflowName,
+          workflowArgs,
+          capabilities,
+          inferenceProfile,
+          groupId,
+          createdFromConversationId: context.conversationId,
+        },
+        // The write retries with backoff on SQLite contention, so a cancel
+        // landing mid-retry must stop rather than sleep and then persist a
+        // schedule that would go on to run on its own.
+        context.signal ? { signal: context.signal } : undefined,
+      );
 
       const fireDate = formatLocalDate(job.nextRunAt);
       const integrations = await formatIntegrationSummary();
@@ -303,6 +311,11 @@ export async function executeScheduleCreate(
         isError: false,
       };
     } catch (err) {
+      // A cancelled turn is not a schedule failure: let it reach the executor's
+      // abort handling instead of being rendered as a tool error.
+      if (isAbortLikeError(err)) {
+        throw err;
+      }
       const msg = err instanceof Error ? err.message : String(err);
       return { content: `Error creating schedule: ${msg}`, isError: true };
     }
@@ -346,31 +359,37 @@ export async function executeScheduleCreate(
   }
 
   try {
-    const job = await createSchedule({
-      name,
-      description,
-      cronExpression: resolved.expression,
-      timezone,
-      message,
-      script,
-      enabled,
-      syntax: resolved.syntax,
-      expression: resolved.expression,
-      mode,
-      routingIntent: routingIntent as RoutingIntent | undefined,
-      routingHints,
-      quiet,
-      reuseConversation,
-      maxRetries,
-      retryBackoffMs,
-      timeoutMs,
-      workflowName,
-      workflowArgs,
-      capabilities,
-      inferenceProfile,
-      groupId,
-      createdFromConversationId: context.conversationId,
-    });
+    const job = await createSchedule(
+      {
+        name,
+        description,
+        cronExpression: resolved.expression,
+        timezone,
+        message,
+        script,
+        enabled,
+        syntax: resolved.syntax,
+        expression: resolved.expression,
+        mode,
+        routingIntent: routingIntent as RoutingIntent | undefined,
+        routingHints,
+        quiet,
+        reuseConversation,
+        maxRetries,
+        retryBackoffMs,
+        timeoutMs,
+        workflowName,
+        workflowArgs,
+        capabilities,
+        inferenceProfile,
+        groupId,
+        createdFromConversationId: context.conversationId,
+      },
+      // The write retries with backoff on SQLite contention, so a cancel landing
+      // mid-retry must stop rather than sleep and then persist a schedule that
+      // would go on to run on its own.
+      context.signal ? { signal: context.signal } : undefined,
+    );
 
     const scheduleDescription =
       job.expression == null
@@ -405,6 +424,11 @@ export async function executeScheduleCreate(
       isError: false,
     };
   } catch (err) {
+    // A cancelled turn is not a schedule failure: let it reach the executor's
+    // abort handling instead of being rendered as a tool error.
+    if (isAbortLikeError(err)) {
+      throw err;
+    }
     const msg = err instanceof Error ? err.message : String(err);
     return { content: `Error creating schedule: ${msg}`, isError: true };
   }

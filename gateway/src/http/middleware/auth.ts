@@ -2,16 +2,18 @@ import type { Server } from "bun";
 
 import { admitActorToken } from "../../auth/actor-token-revocation.js";
 import { findVellumGuardian } from "../../auth/guardian-bootstrap.js";
-import { resolveScopeProfile } from "../../auth/scopes.js";
+import {
+  isNarrowScopeProfile,
+  resolveScopeProfile,
+} from "../../auth/scopes.js";
 import { parseSub } from "../../auth/subject.js";
 import { validateEdgeToken } from "../../auth/token-exchange.js";
 import type { Scope, TokenClaims } from "../../auth/types.js";
 import { AuthFallbackCountTracker } from "../../auth-fallback-count-tracker.js";
 import { AuthFallbackLogThrottle } from "../../auth-fallback-log-throttle.js";
 import type { AuthRateLimiter } from "../../auth-rate-limiter.js";
-import { credentialKey } from "../../credential-key.js";
-import { readCredential } from "../../credential-reader.js";
 import { getLogger } from "../../logger.js";
+import { readStoredPlatformUserId } from "../../platform-user-id.js";
 import { isLoopbackPeer } from "../../util/is-loopback-address.js";
 import { requestArrivedViaEdgeProxy } from "../edge-forwarded-header.js";
 
@@ -40,10 +42,9 @@ type GetClientIp = () => string;
 // flag gets set on a non-platform deployment (e.g. a leaked dev env var on a
 // public host). When the bypass IS active, the platform vembda sidecar is
 // expected to forward `X-Vellum-User-Id`; the gateway cross-checks that
-// against the locally-stored `vellum:platform_user_id` credential. This means
-// reaching the gateway sidecar's port directly (without going through vembda)
-// still requires knowing the bound user id — the platform header alone is
-// not a free-pass.
+// against the bound platform user id. This means reaching the gateway
+// sidecar's port directly (without going through vembda) still requires
+// knowing the bound user id. The platform header alone is not a free-pass.
 
 /** True when DISABLE_HTTP_AUTH=true. */
 export function isHttpAuthDisabled(): boolean {
@@ -69,11 +70,13 @@ function isPlatformAuthBypassActive(): boolean {
  * initialized.
  */
 export function logAuthBypassState(): void {
-  if (!isHttpAuthDisabled()) return;
+  if (!isHttpAuthDisabled()) {
+    return;
+  }
   if (isPlatformManaged()) {
     log.info(
-      "DISABLE_HTTP_AUTH + IS_PLATFORM both set — JWT validation bypassed; " +
-        "X-Vellum-User-Id is cross-checked against stored platform_user_id",
+      "DISABLE_HTTP_AUTH + IS_PLATFORM both set: JWT validation bypassed; " +
+        "X-Vellum-User-Id is cross-checked against the bound platform user id",
     );
   } else {
     log.warn(
@@ -96,12 +99,16 @@ export function logAuthBypassState(): void {
  *
  *   - `requireEdgeAuth` — validates a JWT bearer token (aud=vellum-gateway)
  *     OR (when bypass is active) cross-checks X-Vellum-User-Id against the
- *     stored platform_user_id credential.
+ *     bound platform user id.
  *   - `requireEdgeAuthWithScope` — same, plus a scope-profile check on the
  *     decoded JWT. Under the platform bypass, scope is enforced upstream by
  *     vembda; the gateway only verifies the cross-checked user id.
  *   - `requireEdgeGuardianAuth` — same pattern, additionally requires the
  *     authenticated principal to match the bound guardian.
+ *
+ * All three refuse a single-route grant (see `isSingleRouteGrant`) outright,
+ * with no loopback fallback: such a grant is handed to code outside this
+ * install's trust boundary, which usually runs on the loopback host itself.
  */
 export function createAuthMiddleware(
   authRateLimiter: AuthRateLimiter,
@@ -109,9 +116,9 @@ export function createAuthMiddleware(
   trustProxy = false,
 ) {
   /**
-   * Cross-check `X-Vellum-User-Id` against the stored
-   * `vellum:platform_user_id` credential. Used by all three guards under the
-   * platform-managed bypass. Returns null on success, or a 4xx/5xx Response.
+   * Cross-check `X-Vellum-User-Id` against the bound platform user id.
+   * Used by all three guards under the platform-managed bypass. Returns
+   * null on success, or a 4xx/5xx Response.
    */
   async function requirePlatformUserHeader(
     req: Request,
@@ -125,28 +132,36 @@ export function createAuthMiddleware(
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
     let storedUserId: string | undefined;
+    let unreachable = false;
     try {
-      storedUserId = await readCredential(
-        credentialKey("vellum", "platform_user_id"),
-      );
+      const result = await readStoredPlatformUserId();
+      storedUserId = result.userId;
+      unreachable = result.unreachable;
     } catch (err) {
       log.error(
         { path: new URL(req.url).pathname, err },
-        "Edge auth: platform_user_id credential lookup failed",
+        "Edge auth: platform user id lookup failed",
+      );
+      return Response.json({ error: "Service Unavailable" }, { status: 503 });
+    }
+    if (unreachable) {
+      log.warn(
+        { path: new URL(req.url).pathname },
+        "Edge auth: platform identity prerequisites unreachable",
       );
       return Response.json({ error: "Service Unavailable" }, { status: 503 });
     }
     if (!storedUserId) {
       log.warn(
         { path: new URL(req.url).pathname },
-        "Edge auth rejected: no platform_user_id stored on this assistant",
+        "Edge auth rejected: no platform user id bound on this assistant",
       );
       return Response.json({ error: "Forbidden" }, { status: 403 });
     }
     if (storedUserId !== headerUserId) {
       log.warn(
         { path: new URL(req.url).pathname },
-        "Edge auth rejected: X-Vellum-User-Id does not match stored platform_user_id",
+        "Edge auth rejected: X-Vellum-User-Id does not match bound platform user id",
       );
       return Response.json({ error: "Forbidden" }, { status: 403 });
     }
@@ -219,8 +234,8 @@ export function createAuthMiddleware(
    * Two auth modes:
    *
    *   1. Platform-managed (DISABLE_HTTP_AUTH + IS_PLATFORM): caller's identity
-   *      is asserted via X-Vellum-User-Id cross-checked against the stored
-   *      `vellum:platform_user_id` credential.
+   *      is asserted via X-Vellum-User-Id cross-checked against the bound
+   *      platform user id.
    *   2. Default: validate the edge JWT, require an actor principal, assert it
    *      matches the bound guardian's principal id.
    *
@@ -259,6 +274,8 @@ export function createAuthMiddleware(
       );
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const contained = rejectSingleRouteGrant(req, result.claims, "Edge auth");
+    if (contained) return contained;
     return rejectIfActorTokenRevoked(req, token, result.claims);
   }
 
@@ -286,6 +303,13 @@ export function createAuthMiddleware(
       );
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const contained = rejectSingleRouteGrant(
+      req,
+      result.claims,
+      "Scoped edge auth",
+      { scope },
+    );
+    if (contained) return contained;
     const revoked = rejectIfActorTokenRevoked(req, token, result.claims);
     if (revoked) return revoked;
     const scopes = resolveScopeProfile(result.claims.scope_profile);
@@ -345,6 +369,30 @@ export function createAuthMiddleware(
     log.warn(
       { path: new URL(req.url).pathname, ...extra },
       `${label} rejected: malformed Authorization header`,
+    );
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  /**
+   * Refuse a grant minted for one route. Edge auth speaks for its caller on
+   * every route it guards, which such a grant may not do, so the refusal is
+   * unconditional: the loopback fallback would hand back what it withholds.
+   */
+  function rejectSingleRouteGrant(
+    req: Request,
+    claims: TokenClaims,
+    label: string,
+    extra?: Record<string, unknown>,
+  ): Response | null {
+    if (!isSingleRouteGrant(claims)) return null;
+    authRateLimiter.recordFailure(getClientIp());
+    log.warn(
+      {
+        path: new URL(req.url).pathname,
+        scopeProfile: claims.scope_profile,
+        ...extra,
+      },
+      `${label} rejected: grant is scoped to a single route`,
     );
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -465,6 +513,12 @@ export function createAuthMiddleware(
       );
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const contained = rejectSingleRouteGrant(
+      req,
+      result.claims,
+      "Guardian edge auth",
+    );
+    if (contained) return contained;
     const revoked = rejectIfActorTokenRevoked(req, token, result.claims);
     if (revoked) return revoked;
     const parsed = parseSub(result.claims.sub);
@@ -544,6 +598,25 @@ export function wrapWithAuthFailureTracking(
 // ---------------------------------------------------------------------------
 // Internals
 // ---------------------------------------------------------------------------
+
+/** Conversation component of an OAuth passthrough grant's subject. */
+const OAUTH_PROXY_SUBJECT_PREFIX = "oauth-proxy.";
+
+/**
+ * True when the claims name a grant minted for a single route rather than an
+ * edge credential. A narrow scope profile is the gate, since edge auth speaks
+ * for its caller on every route it guards; the subject shape is a second
+ * signal, catching a proxy grant that carries some other profile.
+ */
+function isSingleRouteGrant(claims: TokenClaims): boolean {
+  if (isNarrowScopeProfile(claims.scope_profile)) return true;
+  const parsed = parseSub(claims.sub);
+  return (
+    parsed.ok &&
+    parsed.principalType === "local" &&
+    (parsed.conversationId ?? "").startsWith(OAUTH_PROXY_SUBJECT_PREFIX)
+  );
+}
 
 /** Extract the raw token from a Bearer Authorization header, or null. */
 function extractBearerToken(req: Request): string | null {

@@ -220,21 +220,37 @@ describe("requestSecretStandalone channel gate", () => {
     await promise;
   });
 
-  test("broadcasts for a conversation-less prompt (plain CLI invocation)", async () => {
+  test("mints a collection link for a conversation-less prompt (headless exec)", async () => {
+    /**
+     * A prompt with no conversationId (Doctor's `run_assistant_cli`, a bare
+     * shell) has no surface that can render it: clients drop
+     * conversation-scoped events without a conversationId and
+     * `/v1/pending-interactions` is keyed by conversation. Broadcasting would
+     * only sit until the permission timeout, so it must fail fast into the
+     * collection-link fallback.
+     */
+    gatewayMintResult = {
+      ok: true,
+      token: "tok",
+      url: "https://x.test/assistant/credentials/enter#token=tok",
+      expiresAt: 1234,
+    };
+
     // WHEN a standalone prompt carries no conversationId
-    const promise = requestSecretStandalone({
+    const result = await requestSecretStandalone({
       service: "stripe",
       field: "api_key",
       label: "Stripe API Key",
     });
 
-    // THEN the secret_request is broadcast (desktop/web clients render it)
-    expect(broadcastMessages).toHaveLength(1);
-    expect(broadcastMessages[0]!.type).toBe("secret_request");
-
-    const entry = [..._piStore.values()][0];
-    entry?.rpcResolve?.({ value: "v", delivery: "store" });
-    await promise;
+    // THEN nothing is broadcast or registered and the link is returned
+    expect(broadcastMessages).toHaveLength(0);
+    expect(_piStore.size).toBe(0);
+    expect(result.error).toBe("unsupported_channel");
+    expect(result.collectionUrl).toBe(
+      "https://x.test/assistant/credentials/enter#token=tok",
+    );
+    expect(gatewayMintCalls).toHaveLength(1);
   });
 
   test("broadcasts when the conversation is not loaded in the registry", async () => {

@@ -1,5 +1,5 @@
 import type { DisplayMessage } from "@/domains/chat/types/types";
-import { isChannelDeleted } from "@/domains/chat/utils/is-channel-deleted";
+import { isStandaloneAssistantMessage } from "@/domains/chat/utils/is-standalone-assistant-message";
 
 export function messagesEqual(
   a: DisplayMessage[],
@@ -195,6 +195,17 @@ function canFoldAdjacentAssistant(
   if (survivor.isOptimistic || donor.isOptimistic) {
     return false;
   }
+  const survivorSession = survivor.modeSession;
+  const donorSession = donor.modeSession;
+  if (
+    (survivorSession === undefined) !== (donorSession === undefined) ||
+    (survivorSession !== undefined &&
+      donorSession !== undefined &&
+      (survivorSession.id !== donorSession.id ||
+        survivorSession.mode !== donorSession.mode))
+  ) {
+    return false;
+  }
   // Subagent / ACP notification rows are state-reconstruction metadata that
   // `build-items.ts` filters out of the rendered transcript — folding
   // them into a real assistant turn would either lose the flag or
@@ -209,22 +220,16 @@ function canFoldAdjacentAssistant(
   ) {
     return false;
   }
-  // Standalone display turns, mirroring the daemon's
-  // `isStandaloneAssistantRow` (message-consolidation.ts): system cards,
-  // provider-error notices, and rows deleted on their channel never merge
-  // with adjacent assistant rows. The fold keeps only the survivor's
-  // metadata, so merging would either drop the donor's marker (a
-  // credits-exhausted row silently loses its upsell card, a deleted row its
-  // tombstone) or stamp the survivor's marker onto a bubble holding the
-  // donor's real assistant text (the transcript substitution would then hide
-  // that text).
+  // The fold keeps only the survivor's fields, so folding a standalone row
+  // would either drop the donor's marker (a credits-exhausted row loses its
+  // upsell card, a deleted row its tombstone, a deliberate-silence row its
+  // quiet marker, a reaction row its reaction fact, leaving the stored
+  // `[reaction]` sentinel to render as speech) or stamp the survivor's marker
+  // onto a bubble holding the donor's real assistant text (the transcript
+  // substitution would then hide that text).
   if (
-    survivor.isSystemCard ||
-    donor.isSystemCard ||
-    survivor.providerError ||
-    donor.providerError ||
-    isChannelDeleted(survivor) ||
-    isChannelDeleted(donor)
+    isStandaloneAssistantMessage(survivor) ||
+    isStandaloneAssistantMessage(donor)
   ) {
     return false;
   }
@@ -294,6 +299,25 @@ function foldAdjacentAssistant(
   const merged: DisplayMessage = {
     ...survivor,
   };
+  if (survivor.modeSession && donor.modeSession) {
+    const survivorActivity = survivor.modeSessionActivity;
+    const donorActivity = donor.modeSessionActivity;
+    const firstAt = Math.min(
+      survivorActivity?.firstAt ??
+        survivor.timestamp ??
+        Number.POSITIVE_INFINITY,
+      donorActivity?.firstAt ?? donor.timestamp ?? Number.POSITIVE_INFINITY,
+    );
+    const lastAt = Math.max(
+      survivorActivity?.lastAt ??
+        survivor.timestamp ??
+        Number.NEGATIVE_INFINITY,
+      donorActivity?.lastAt ?? donor.timestamp ?? Number.NEGATIVE_INFINITY,
+    );
+    if (Number.isFinite(firstAt) && Number.isFinite(lastAt)) {
+      merged.modeSessionActivity = { firstAt, lastAt };
+    }
+  }
   if (textSegments) {
     merged.textSegments = textSegments;
   }

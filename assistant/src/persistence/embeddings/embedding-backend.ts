@@ -16,8 +16,12 @@ import {
   recordBillingSuccess,
 } from "./embedding-billing-breaker.js";
 import { GeminiEmbeddingBackend } from "./embedding-gemini.js";
+import type { LocalEmbeddingBackend } from "./embedding-local.js";
 import { OllamaEmbeddingBackend } from "./embedding-ollama.js";
-import { OpenAIEmbeddingBackend } from "./embedding-openai.js";
+import {
+  OpenAIEmbeddingBackend,
+  resolveOpenAICompatibleBaseUrl,
+} from "./embedding-openai.js";
 import { EmbeddingRuntimeManager } from "./embedding-runtime-manager.js";
 import {
   EMBEDDING_DIMENSION_PROBE_TEXT,
@@ -75,6 +79,13 @@ export const EMBEDDING_SHUTDOWN_BUDGET_MS = 8_000;
  * the failure is contained and other embedding backends can be used instead.
  */
 
+/**
+ * The local backend class, once {@link LazyLocalEmbeddingBackend} has loaded it.
+ * It lists every local backend this process owns, which process teardown needs
+ * and {@link backendCache} cannot supply.
+ */
+let localEmbeddingBackends: typeof LocalEmbeddingBackend | null = null;
+
 class LazyLocalEmbeddingBackend implements EmbeddingBackend {
   readonly provider = "local" as const;
   readonly model: string;
@@ -111,21 +122,9 @@ class LazyLocalEmbeddingBackend implements EmbeddingBackend {
     this.delegate?.dispose?.();
   }
 
-  terminateNow(): void {
-    this.delegate?.terminateNow?.();
-  }
-
-  async sweepOwnedWorkers(): Promise<void> {
-    await this.delegate?.sweepOwnedWorkers?.();
-  }
-
-  async shutdown(): Promise<void> {
-    // A delegate under construction still ends up owning a worker, so settle
-    // the in-flight import before tearing down rather than skipping it.
-    if (!this.delegate && this.initPromise) {
-      await this.initPromise.catch(() => undefined);
-    }
-    await this.delegate?.shutdown?.();
+  /** Settles once a delegate under construction has been handed out or failed. */
+  async loaded(): Promise<void> {
+    await this.initPromise?.catch(() => undefined);
   }
 
   resetForRetry(): void {
@@ -143,7 +142,8 @@ class LazyLocalEmbeddingBackend implements EmbeddingBackend {
         try {
           const { LocalEmbeddingBackend } =
             await import("./embedding-local.js");
-          this.delegate = new LocalEmbeddingBackend(this.model);
+          localEmbeddingBackends = LocalEmbeddingBackend;
+          this.delegate = LocalEmbeddingBackend.forModel(this.model);
           return this.delegate;
         } catch (err) {
           localBackendBroken = true;
@@ -267,7 +267,7 @@ export function clearEmbeddingBackendCache(): void {
 }
 
 /**
- * Tear down every cached backend's OS resources and empty the caches.
+ * Tear down every local embedding worker this process owns and empty the caches.
  *
  * Called on daemon shutdown so process-owned embedding workers exit with their
  * owner instead of being orphaned. `clearEmbeddingBackendCache()` is the
@@ -276,24 +276,18 @@ export function clearEmbeddingBackendCache(): void {
  */
 export async function shutdownEmbeddingBackends(): Promise<void> {
   embeddingBackendsShutDown = true;
-  const backends = new Set(backendCache.values());
+  const loading = [...backendCache.values()].filter(
+    (backend) => backend instanceof LazyLocalEmbeddingBackend,
+  );
   backendCache.clear();
   vectorCache.clear();
   vectorCacheBytes = 0;
   backendDimCache.clear();
 
-  const teardown = Promise.all(
-    [...backends].map(async (backend) => {
-      try {
-        await backend.shutdown?.();
-        await backend.sweepOwnedWorkers?.();
-      } catch (err) {
-        log.warn(
-          { err, provider: backend.provider, model: backend.model },
-          "Failed to shut down embedding backend",
-        );
-      }
-    }),
+  // A delegate under construction still ends up owning a worker, so let it
+  // join the class's list before tearing that list down.
+  const teardown = Promise.all(loading.map((backend) => backend.loaded())).then(
+    () => localEmbeddingBackends?.shutdownAll(),
   );
 
   const timedOut = Symbol("timeout");
@@ -310,7 +304,7 @@ export async function shutdownEmbeddingBackends(): Promise<void> {
 }
 
 /**
- * SIGKILL every cached backend's worker synchronously.
+ * SIGKILL every local embedding worker this process owns, synchronously.
  *
  * For a process that must exit immediately and cannot run the graceful
  * teardown: the memory worker on PID-file eviction, where staying alive to reap
@@ -319,16 +313,7 @@ export async function shutdownEmbeddingBackends(): Promise<void> {
  * sweep has passed, leaving two workers alive (JARVIS-1125).
  */
 export function terminateEmbeddingWorkersNow(): void {
-  for (const backend of new Set(backendCache.values())) {
-    try {
-      backend.terminateNow?.();
-    } catch (err) {
-      log.warn(
-        { err, provider: backend.provider, model: backend.model },
-        "Failed to terminate embedding worker",
-      );
-    }
-  }
+  localEmbeddingBackends?.terminateAllNow();
 }
 
 /** Reset the sticky local-backend failure flag without evicting live backends. */
@@ -428,6 +413,70 @@ export function geminiCacheExtras(config: AssistantConfig): string[] {
   return extras;
 }
 
+/**
+ * Cache-key fragments for a custom OpenAI-compatible embeddings endpoint.
+ * Base URL and requested output dimensionality both change the vectors a
+ * given model returns, so they belong in backend, in-memory, and durable
+ * cache identity.
+ */
+export function customCacheExtras(config: AssistantConfig): string[] {
+  const extras: string[] = [];
+  const baseUrl = resolveOpenAICompatibleBaseUrl(
+    config.memory.embeddings.baseUrl,
+  );
+  if (baseUrl) {
+    extras.push(`url=${baseUrl}`);
+  }
+  if (config.memory.embeddings.customDimensions != null) {
+    extras.push(`dim=${config.memory.embeddings.customDimensions}`);
+  }
+  return extras;
+}
+
+/**
+ * Provider extras that belong in durable `memory_embeddings` identity.
+ * Gemini task type / dimensions and custom endpoint URL / dimensions both
+ * change the vector for identical text, so cache readers must fold them in.
+ */
+export function durableEmbeddingCacheExtras(
+  config: AssistantConfig,
+  provider: string | null,
+): string[] {
+  if (provider === "gemini") {
+    return geminiCacheExtras(config);
+  }
+  if (provider === "custom") {
+    return customCacheExtras(config);
+  }
+  return [];
+}
+
+/**
+ * Checkpoint key for the custom embedding space last used to populate
+ * Qdrant. Compared at reconcile time so a same-dimension endpoint change
+ * still enqueues a reembed instead of mixing vector spaces.
+ */
+export const CUSTOM_EMBEDDING_SPACE_CHECKPOINT =
+  "memory:custom_embedding_space";
+
+/**
+ * Stable identity of the configured custom embeddings endpoint. Null when
+ * the provider is not `custom`. Includes model, normalized base URL, and
+ * requested dimensions.
+ */
+export function customEmbeddingSpaceIdentity(
+  config: AssistantConfig,
+): string | null {
+  if (config.memory.embeddings.provider !== "custom") {
+    return null;
+  }
+  return [
+    "custom",
+    config.memory.embeddings.customModel,
+    ...customCacheExtras(config),
+  ].join("\0");
+}
+
 /** Build (or reuse) the direct-API Gemini backend for the given key. */
 function getDirectGeminiBackend(
   config: AssistantConfig,
@@ -446,6 +495,29 @@ function getDirectGeminiBackend(
         },
       ),
     geminiCacheExtras(config),
+  );
+}
+
+/** Build (or reuse) a custom OpenAI-compatible embeddings backend. */
+function getCustomEmbeddingBackend(
+  config: AssistantConfig,
+  baseUrl: string,
+  apiKey: string | undefined,
+): EmbeddingBackend {
+  return getCachedOrCreate(
+    "custom",
+    config.memory.embeddings.customModel,
+    () =>
+      new OpenAIEmbeddingBackend(
+        apiKey ?? "",
+        config.memory.embeddings.customModel,
+        {
+          provider: "custom",
+          baseURL: baseUrl,
+          dimensions: config.memory.embeddings.customDimensions,
+        },
+      ),
+    customCacheExtras(config),
   );
 }
 
@@ -514,6 +586,23 @@ export async function selectEmbeddingBackend(
             apiKey: ollamaKey,
           }),
       ),
+      reason: null,
+    };
+  }
+  if (requested === "custom") {
+    const baseUrl = resolveOpenAICompatibleBaseUrl(
+      config.memory.embeddings.baseUrl,
+    );
+    if (!baseUrl) {
+      return {
+        backend: null,
+        reason:
+          'Embedding backend "custom" requires memory.embeddings.baseUrl to be an http(s) URL',
+      };
+    }
+    const customKey = (await getProviderKeyAsync("custom")) ?? undefined;
+    return {
+      backend: getCustomEmbeddingBackend(config, baseUrl, customKey),
       reason: null,
     };
   }
@@ -620,6 +709,9 @@ export async function selectEmbeddingBackend(
           reason: null,
         };
       }
+      case "custom":
+        // Custom is explicit-only and is handled before the auto chain.
+        continue;
     }
   }
 
@@ -666,13 +758,29 @@ export async function getMemoryBackendStatus(config: AssistantConfig): Promise<{
 }
 
 /**
- * Memoized output dimension per "provider:model". A backend's vector dimension
- * is fixed for the life of a (provider, model) pair, so a single probe answers
- * every subsequent {@link isEmbeddingDimensionAvailable} call without another
- * backend round-trip. Cleared alongside the backend cache so a credential
- * change or explicit reset re-probes the (possibly different) backend.
+ * Memoized output dimension per backend identity. A backend's vector
+ * dimension is fixed for the life of that identity (provider, model, and for
+ * custom OpenAI-compatible endpoints the base URL and requested dimensions),
+ * so a single probe answers every subsequent
+ * {@link isEmbeddingDimensionAvailable} call without another backend
+ * round-trip. Cleared alongside the backend cache so a credential change or
+ * explicit reset re-probes the (possibly different) backend.
  */
 const backendDimCache = new Map<string, number>();
+
+function backendDimCacheKey(backend: EmbeddingBackend): string {
+  if (backend instanceof OpenAIEmbeddingBackend) {
+    const extras: string[] = [];
+    if (backend.baseURL) {
+      extras.push(`url=${backend.baseURL}`);
+    }
+    if (backend.dimensions != null) {
+      extras.push(`dim=${backend.dimensions}`);
+    }
+    return cacheKey(backend.provider, backend.model, extras);
+  }
+  return `${backend.provider}:${backend.model}`;
+}
 
 /**
  * Whether the currently-reachable embedding backend can produce vectors of the
@@ -692,7 +800,7 @@ const backendDimCache = new Map<string, number>();
  *
  * The selected backend's output dimension is not statically known from
  * provider/model alone, so it is measured with a fixed-string probe and
- * memoized per (provider, model) — steady-state calls resolve from
+ * memoized per backend identity — steady-state calls resolve from
  * {@link backendDimCache} without a backend round-trip.
  */
 export async function isEmbeddingDimensionAvailable(
@@ -713,7 +821,7 @@ export async function isEmbeddingDimensionAvailable(
   // assembler, so this preflight can never be more pessimistic than the real
   // embed path. Dense recall stays available if ANY backend in the chain
   // produces the committed dimension. `resolveBackendDimension` memoizes per
-  // provider:model, so each backend is probed at most once.
+  // backend identity, so each backend is probed at most once.
   const expected = config.memory.qdrant.vectorSize;
   for (const candidate of await assembleEmbeddingBackends(config, backend)) {
     if ((await resolveBackendDimension(candidate)) === expected) {
@@ -736,7 +844,7 @@ export async function isEmbeddingDimensionAvailable(
 export async function resolveBackendDimension(
   backend: EmbeddingBackend,
 ): Promise<number | null> {
-  const key = `${backend.provider}:${backend.model}`;
+  const key = backendDimCacheKey(backend);
   const cached = backendDimCache.get(key);
   if (cached != null) {
     return cached;
@@ -849,7 +957,11 @@ export async function embedWithBackend(
 
   // ── Compute provider-specific vector cache extras ───────────────
   const vectorExtras =
-    primaryProvider === "gemini" ? geminiCacheExtras(config) : undefined;
+    primaryProvider === "gemini"
+      ? geminiCacheExtras(config)
+      : primaryProvider === "custom"
+        ? customCacheExtras(config)
+        : undefined;
 
   // ── In-memory cache check (primary provider only) ──────────────
   const cached: (number[] | null)[] = inputs.map((input) => {
@@ -918,7 +1030,11 @@ export async function embedWithBackend(
 
       // Populate cache with freshly embedded vectors
       const backendExtras =
-        backend.provider === "gemini" ? geminiCacheExtras(config) : undefined;
+        backend.provider === "gemini"
+          ? geminiCacheExtras(config)
+          : backend.provider === "custom"
+            ? customCacheExtras(config)
+            : undefined;
       for (let i = 0; i < inputsToEmbed.length; i++) {
         putInVectorCache(
           backend.provider,
@@ -1060,6 +1176,9 @@ async function selectFallbackBackends(
         }
         break;
       }
+      case "custom":
+      case "local":
+        break;
     }
   }
   return backends;

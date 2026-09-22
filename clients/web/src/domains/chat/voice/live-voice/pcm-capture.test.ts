@@ -5,6 +5,7 @@ import {
   LIVE_VOICE_AUDIO_FORMAT,
   LiveVoiceAudioCapture,
 } from "@/domains/chat/voice/live-voice/pcm-capture";
+import { setPreferredInputDeviceId } from "@/utils/voice-input-device";
 
 // ---------------------------------------------------------------------------
 // Browser audio API fakes
@@ -15,19 +16,33 @@ import {
 // math is exercised by feeding Int16 buffers through `port.onmessage`.
 // ---------------------------------------------------------------------------
 
-interface FakeTrack {
-  stopped: boolean;
-  stop: () => void;
+class FakeTrack extends EventTarget {
+  stopped = false;
+  readyState = "live";
+  muted = false;
+  enabled = true;
+  settings: MediaTrackSettings = {
+    deviceId: "test-device",
+    sampleRate: 48_000,
+    channelCount: 1,
+    echoCancellation: true,
+    noiseSuppression: false,
+    autoGainControl: true,
+  };
+  getSettings() {
+    return this.settings;
+  }
+  stop() {
+    this.stopped = true;
+  }
 }
 
 class FakeMediaStream {
-  tracks: FakeTrack[] = [{ stopped: false, stop() {} }];
-  constructor() {
-    for (const t of this.tracks) {
-      t.stop = () => (t.stopped = true);
-    }
-  }
+  tracks: FakeTrack[] = [new FakeTrack()];
   getTracks(): FakeTrack[] {
+    return this.tracks;
+  }
+  getAudioTracks(): FakeTrack[] {
     return this.tracks;
   }
 }
@@ -51,15 +66,20 @@ class FakeAudioWorkletNode {
 let lastWorklet: FakeAudioWorkletNode | null = null;
 
 class FakeSourceNode {
+  disconnected = false;
   connect(node: FakeAudioWorkletNode): void {
     node.connected = true;
   }
-  disconnect(): void {}
+  disconnect(): void {
+    this.disconnected = true;
+  }
 }
 
-class FakeAudioContext {
+class FakeAudioContext extends EventTarget {
   static lastInstance: FakeAudioContext | null = null;
   closed = false;
+  sampleRate = 48_000;
+  state = "running";
   addModuleCalls: string[] = [];
   audioWorklet = {
     addModule: (url: string) => {
@@ -68,10 +88,14 @@ class FakeAudioContext {
     },
   };
   constructor() {
+    super();
     FakeAudioContext.lastInstance = this;
   }
+  sources: FakeSourceNode[] = [];
   createMediaStreamSource(): FakeSourceNode {
-    return new FakeSourceNode();
+    const source = new FakeSourceNode();
+    this.sources.push(source);
+    return source;
   }
   close(): Promise<void> {
     this.closed = true;
@@ -81,19 +105,13 @@ class FakeAudioContext {
 
 let getUserMediaImpl: () => Promise<FakeMediaStream> = () =>
   Promise.resolve(new FakeMediaStream());
-// Constraints handed to the last getUserMedia call, so tests can assert what
-// the capture actually asked the browser for.
-let lastGetUserMediaConstraints: MediaStreamConstraints | null = null;
 
 function installAudioGlobals(): void {
   Object.defineProperty(globalThis, "navigator", {
     configurable: true,
     value: {
       mediaDevices: {
-        getUserMedia: (constraints?: MediaStreamConstraints) => {
-          lastGetUserMediaConstraints = constraints ?? null;
-          return getUserMediaImpl();
-        },
+        getUserMedia: () => getUserMediaImpl(),
       },
     },
   });
@@ -115,9 +133,62 @@ function installAudioGlobals(): void {
 beforeEach(() => {
   lastWorklet = null;
   FakeAudioContext.lastInstance = null;
-  lastGetUserMediaConstraints = null;
   getUserMediaImpl = () => Promise.resolve(new FakeMediaStream());
   installAudioGlobals();
+});
+
+describe("capture diagnostics", () => {
+  test("reports applied settings without device identifiers and removes listeners on switch and stop", async () => {
+    const first = new FakeMediaStream();
+    const second = new FakeMediaStream();
+    getUserMediaImpl = () => Promise.resolve(first);
+    const onDiagnostic = mock(
+      (_event: string, _details: Record<string, unknown>) => {},
+    );
+    const capture = new LiveVoiceAudioCapture({
+      onChunk: () => {},
+      onDiagnostic,
+    });
+    await capture.start();
+    expect(onDiagnostic.mock.calls[0]).toEqual([
+      "capture_started",
+      expect.objectContaining({
+        trackSampleRate: 48_000,
+        contextSampleRate: 48_000,
+        outputSampleRate: 16_000,
+        echoCancellation: true,
+        noiseSuppression: false,
+        autoGainControl: true,
+      }),
+    ]);
+    expect(JSON.stringify(onDiagnostic.mock.calls)).not.toContain(
+      "test-device",
+    );
+    first.tracks[0]!.dispatchEvent(new Event("mute"));
+    expect(onDiagnostic.mock.calls.at(-1)?.[0]).toBe("capture_mute");
+    getUserMediaImpl = () => Promise.resolve(second);
+    await capture.switchInput();
+    expect(onDiagnostic.mock.calls.at(-1)?.[0]).toBe("input_switched");
+    const afterSwitch = onDiagnostic.mock.calls.length;
+    first.tracks[0]!.dispatchEvent(new Event("ended"));
+    expect(onDiagnostic.mock.calls).toHaveLength(afterSwitch);
+    await capture.stop();
+    const afterStop = onDiagnostic.mock.calls.length;
+    second.tracks[0]!.dispatchEvent(new Event("mute"));
+    FakeAudioContext.lastInstance!.dispatchEvent(new Event("statechange"));
+    expect(onDiagnostic.mock.calls).toHaveLength(afterStop);
+  });
+
+  test("a diagnostic consumer failure does not fail capture", async () => {
+    const capture = new LiveVoiceAudioCapture({
+      onChunk: () => {},
+      onDiagnostic: () => {
+        throw new Error("diagnostic failure");
+      },
+    });
+    expect(await capture.start()).toEqual({ ok: true });
+    await capture.stop();
+  });
 });
 
 afterEach(() => {
@@ -223,37 +294,6 @@ describe("isSupported", () => {
       value: { mediaDevices: {} },
     });
     expect(isSupported()).toBe(false);
-  });
-});
-
-describe("gain control", () => {
-  test("requests auto gain by default (half-duplex consumers)", async () => {
-    const capture = new LiveVoiceAudioCapture({ onChunk: () => {} });
-
-    await capture.start();
-
-    expect(lastGetUserMediaConstraints).not.toBeNull();
-    const audio = lastGetUserMediaConstraints?.audio as MediaTrackConstraints;
-    expect(audio.autoGainControl).toBe(true);
-    await capture.shutdown();
-  });
-
-  test("drops auto gain when asked, keeping echo cancellation on", async () => {
-    const capture = new LiveVoiceAudioCapture({
-      onChunk: () => {},
-      autoGainControl: false,
-    });
-
-    await capture.start();
-
-    const audio = lastGetUserMediaConstraints?.audio as MediaTrackConstraints;
-    // A moving input gain in front of the daemon's fixed absolute barge-in
-    // threshold is what lets room noise cancel a reply (JARVIS-1694). Echo
-    // cancellation is unrelated and must survive the opt-out.
-    expect(audio.autoGainControl).toBe(false);
-    expect(audio.echoCancellation).toBe(true);
-    expect(audio.noiseSuppression).toBe(true);
-    await capture.shutdown();
   });
 });
 
@@ -433,5 +473,66 @@ describe("amplitude", () => {
     lastWorklet!.port.emit(new Int16Array([0, 0, 0, 0]).buffer);
 
     expect(amps[0]).toBe(0);
+  });
+});
+
+describe("switching microphones mid-session", () => {
+  afterEach(() => {
+    setPreferredInputDeviceId("");
+  });
+
+  /** Let the watcher's switch finish its getUserMedia. */
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  test("moves the running graph onto the new microphone and lets the old one go", async () => {
+    const first = new FakeMediaStream();
+    const second = new FakeMediaStream();
+    const streams = [first, second];
+    // Captures other tests left running follow the preference too, so
+    // anything past these two is theirs.
+    getUserMediaImpl = () =>
+      Promise.resolve(streams.shift() ?? new FakeMediaStream());
+    const capture = new LiveVoiceAudioCapture({ onChunk: () => {} });
+    await capture.start();
+    const ctx = FakeAudioContext.lastInstance!;
+
+    setPreferredInputDeviceId("usb-mic");
+    await settle();
+
+    expect(ctx.closed).toBe(false);
+    expect(ctx.addModuleCalls.length).toBe(1);
+    expect(ctx.sources.length).toBe(2);
+    expect(ctx.sources[0]!.disconnected).toBe(true);
+    expect(first.tracks.every((t) => t.stopped)).toBe(true);
+    expect(second.tracks.some((t) => t.stopped)).toBe(false);
+    await capture.stop();
+  });
+
+  test("keeps the current microphone when the new one will not open", async () => {
+    const first = new FakeMediaStream();
+    getUserMediaImpl = () => Promise.resolve(first);
+    const capture = new LiveVoiceAudioCapture({ onChunk: () => {} });
+    await capture.start();
+
+    getUserMediaImpl = () =>
+      Promise.reject(new DOMException("busy", "NotReadableError"));
+    setPreferredInputDeviceId("usb-mic");
+    await settle();
+
+    expect(first.tracks.some((t) => t.stopped)).toBe(false);
+    expect(FakeAudioContext.lastInstance!.sources.length).toBe(1);
+    await capture.stop();
+  });
+
+  test("a stopped capture no longer follows the saved microphone", async () => {
+    const capture = new LiveVoiceAudioCapture({ onChunk: () => {} });
+    await capture.start();
+    const ctx = FakeAudioContext.lastInstance!;
+    await capture.stop();
+
+    setPreferredInputDeviceId("usb-mic");
+    await settle();
+
+    expect(ctx.sources.length).toBe(1);
   });
 });

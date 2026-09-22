@@ -1,6 +1,6 @@
-import { ChevronRight } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
 
+import { Disclosure } from "@vellumai/design-library/components/disclosure";
 import { Select } from "@vellumai/design-library/components/select";
 import { Input, Textarea } from "@vellumai/design-library/components/input";
 import { Toggle } from "@vellumai/design-library/components/toggle";
@@ -11,6 +11,8 @@ import { OPENAI_COMPATIBLE_PROVIDER } from "@/domains/settings/ai/constants";
 import { ProfileAdvancedParams } from "@/domains/settings/ai/profile-advanced-params";
 import { ProfileCreateModelFirst } from "@/domains/settings/ai/profile-create-model-first";
 import { ProfileEditorProviderSection } from "@/domains/settings/ai/profile-editor-provider-section";
+import { ProfileModalitiesSection } from "@/domains/settings/ai/profile-modalities-section";
+import { profileUsesFreeTextModel } from "@/domains/settings/ai/profile-modalities";
 import {
   entryPickerValue,
   expandEndpointEntries,
@@ -31,6 +33,7 @@ import type {
   ProviderConnection,
 } from "@/generated/daemon/types.gen";
 import { useTranslation, Trans } from "@/i18n";
+import { useSupportsProfileInputModalities } from "@/lib/backwards-compat/profile-input-modalities";
 
 // Sentinel value for the "+ Create new provider" option in the create-mode
 // Provider dropdown. Picking it mounts the inline ProviderCreateForm instead
@@ -83,13 +86,29 @@ export function ProfileEditorFields({
   const modelFirstCreate = useModelFirstProfileCreate();
   const isCreate = editor.effectiveMode === "create";
   const flat = variant === "panel";
+  const supportsInputModalities = useSupportsProfileInputModalities();
 
   // Create-mode Advanced disclosure (modal variant only). Local state is
   // fine: hosts remount the fields on each open, matching the old reset.
   const [advancedExpanded, setAdvancedExpanded] = useState(false);
+  const [modalitiesExpanded, setModalitiesExpanded] = useState(false);
   // The Name lives under Advanced, so a Name the user has to fix cannot be
   // left hidden behind a collapsed disclosure.
   const createAdvancedOpen = advancedExpanded || Boolean(editor.nameError);
+  const showModalities =
+    supportsInputModalities &&
+    profileUsesFreeTextModel(editor.provider, editor.model);
+
+  const modalitiesNode = showModalities ? (
+    <ProfileModalitiesSection
+      value={editor.inputModalities}
+      onChange={editor.setInputModalities}
+      isReadOnly={editor.isReadOnly}
+      expanded={flat || modalitiesExpanded}
+      onExpandedChange={setModalitiesExpanded}
+      collapsible={!flat}
+    />
+  ) : null;
 
   const displayNameField = (
     <div className="space-y-1">
@@ -403,22 +422,20 @@ export function ProfileEditorFields({
     const createAdvanced = flat
       ? modelChosen && <div className="space-y-4">{advancedFields}</div>
       : modelChosen && (
-          <div>
-            <button
-              type="button"
-              aria-expanded={createAdvancedOpen}
-              onClick={() => setAdvancedExpanded((v) => !v)}
-              className="flex items-center gap-1 text-body-small-default text-[var(--content-secondary)] w-full text-left"
-            >
-              <ChevronRight
-                className={`h-4 w-4 transition-transform ${createAdvancedOpen ? "rotate-90" : ""}`}
-              />
-              <span>{t("profileEditorFields.advanced")}</span>
-            </button>
-            {createAdvancedOpen ? (
-              <div className="mt-4 space-y-4">{advancedFields}</div>
-            ) : null}
-          </div>
+          <Disclosure.Root
+            open={createAdvancedOpen}
+            // A name error holds the region open over the user's own choice,
+            // so a click flips that choice rather than adopting the state
+            // the click appears to ask for.
+            onOpenChange={() => setAdvancedExpanded((v) => !v)}
+          >
+            <Disclosure.Trigger fullWidth>
+              {t("profileEditorFields.advanced")}
+            </Disclosure.Trigger>
+            <Disclosure.Content className="mt-4 space-y-4">
+              {advancedFields}
+            </Disclosure.Content>
+          </Disclosure.Root>
         );
 
     // Create asks two questions: which provider, and which model. Everything
@@ -436,6 +453,7 @@ export function ProfileEditorFields({
         ) : (
           createProviderSection
         )}
+        {modalitiesNode}
         {createAdvanced}
         {saveErrorNode}
       </div>
@@ -463,6 +481,8 @@ export function ProfileEditorFields({
         connectionNotFound={editor.connectionNotFound}
         providerError={editor.providerError}
       />
+
+      {modalitiesNode}
 
       {advancedParamsNode}
 

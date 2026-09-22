@@ -173,10 +173,10 @@ import {
 } from "../../../daemon/conversation-registry.js";
 import type { TrustContext } from "../../../daemon/trust-context-types.js";
 import type { MessageProcessor } from "../../http-types.js";
+import { hasDeliverableAssistantText } from "../../no-response.js";
 import {
   isBoundGuardianActor,
   processChannelMessageInBackground,
-  shouldShowActivityForText,
   shouldShowActivityImmediately,
 } from "./background-dispatch.js";
 import { __resetChannelTurnAdmissionForTests } from "./channel-turn-admission.js";
@@ -259,6 +259,35 @@ describe("processChannelMessageInBackground — reply delivery", () => {
 
   const flush = (): Promise<void> =>
     new Promise((resolve) => setTimeout(resolve, 10));
+
+  test("names the inbound sender as the persisted message's author", async () => {
+    let capturedAuthor: TrustContext | undefined;
+    const processMessage: MessageProcessor = async (
+      _conversationId,
+      _content,
+      options,
+    ) => {
+      capturedAuthor = options?.author;
+      return { messageId: "user-msg-author" };
+    };
+
+    processChannelMessageInBackground({
+      processMessage,
+      conversationId: "conv-author",
+      eventId: "evt-author",
+      content: "the export endpoint needs a scoped token",
+      sourceChannel: "slack",
+      sourceInterface: "slack",
+      externalChatId: "C-AUTHOR",
+      trustCtx,
+      metadataHints: [],
+      replyCallbackUrl: "https://example.test/deliver/slack?channel=C-AUTHOR",
+    });
+
+    await flush();
+
+    expect(capturedAuthor).toBe(trustCtx);
+  });
 
   test("records callback delivery failures without failing processing", async () => {
     const conversationId = "conv-delivery-failure";
@@ -1070,14 +1099,14 @@ describe("channel activity timing", () => {
   });
 
   test("recognizes only deliverable text as a reason to show activity", () => {
-    expect(shouldShowActivityForText("")).toBe(false);
-    expect(shouldShowActivityForText("   ")).toBe(false);
-    expect(shouldShowActivityForText("<")).toBe(false);
-    expect(shouldShowActivityForText("<no_response")).toBe(false);
-    expect(shouldShowActivityForText("<no_response/>")).toBe(false);
-    expect(shouldShowActivityForText("  <no_response />  ")).toBe(false);
-    expect(shouldShowActivityForText("Real response.")).toBe(true);
-    expect(shouldShowActivityForText("<no_response/>\nReal response.")).toBe(
+    expect(hasDeliverableAssistantText("")).toBe(false);
+    expect(hasDeliverableAssistantText("   ")).toBe(false);
+    expect(hasDeliverableAssistantText("<")).toBe(false);
+    expect(hasDeliverableAssistantText("<no_response")).toBe(false);
+    expect(hasDeliverableAssistantText("<no_response/>")).toBe(false);
+    expect(hasDeliverableAssistantText("  <no_response />  ")).toBe(false);
+    expect(hasDeliverableAssistantText("Real response.")).toBe(true);
+    expect(hasDeliverableAssistantText("<no_response/>\nReal response.")).toBe(
       true,
     );
   });
@@ -1169,7 +1198,7 @@ describe("channel activity timing", () => {
       externalChatId: channelId,
       trustCtx,
       metadataHints: [],
-      slackBotMentioned: true,
+      botMentioned: true,
       replyCallbackUrl: `https://example.test/deliver/slack?channel=${channelId}&threadTs=${threadTs}`,
     });
 

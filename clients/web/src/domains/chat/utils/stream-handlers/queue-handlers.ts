@@ -34,9 +34,23 @@ export function handleMessageQueued(
   // (another tab's send or a daemon-internal enqueue must not touch local
   // rows). Events without a nonce (surface actions, older daemons) fall
   // back to the arrival-order FIFO shift.
-  const messageId = clientMessageId
+  let messageId = clientMessageId
     ? ctx.takePendingQueuedMessageId(clientMessageId)
     : ctx.shiftPendingQueuedMessageId();
+  if (!messageId && clientMessageId) {
+    // A send only registers a pending queued id when it expects to queue, and
+    // under `interrupt-on-send` none does: the daemon is meant to interrupt and
+    // run it. It can still fall back to the queue (a wedged turn, a repair it
+    // could not persist, a full-queue retry) and ack the send, so bind by the
+    // nonce against the optimistic row this client is already showing. Still
+    // identity-scoped: an ack for another tab's send matches no local row.
+    const owned = ctx
+      .getOptimisticSends?.()
+      ?.some((message) => message.id === clientMessageId);
+    if (owned) {
+      messageId = clientMessageId;
+    }
+  }
   if (!messageId) {
     // Counted but unbound: no local pending send owns this ack, so there is no
     // row to position and no mapping to record.

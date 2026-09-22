@@ -85,6 +85,39 @@ describe("GET events/tail", () => {
     expect(body.frontier).toBe(5);
   });
 
+  test("returns terminal attachment provenance without rewriting the event", () => {
+    stampAndBuffer(
+      mkEvent({
+        message: {
+          type: "message_complete",
+          conversationId: CONV,
+          messageId: "reply-1",
+          attachments: [
+            {
+              id: "screenshot-1",
+              filename: "computer-use-click.png",
+              mimeType: "image/png",
+              data: "c2NyZWVuc2hvdA==",
+              computerUseScreenshot: true,
+            },
+          ],
+        },
+      }),
+    );
+
+    const body = callTail({ conversationId: CONV, fromSeq: "0" });
+
+    expect(body.events[0]?.message).toMatchObject({
+      type: "message_complete",
+      attachments: [
+        {
+          id: "screenshot-1",
+          computerUseScreenshot: true,
+        },
+      ],
+    });
+  });
+
   test("an up-to-date anchor yields an empty but complete tail", () => {
     // GIVEN three buffered events (seq 1..3)
     for (let i = 0; i < 3; i++) {
@@ -135,6 +168,31 @@ describe("GET events/tail", () => {
     // THEN the targeted event is withheld only from its excluded client
     expect(excluded.events.map((e) => e.seq)).toEqual([1]);
     expect(other.events.map((e) => e.seq)).toEqual([1, 2]);
+  });
+
+  test("returns a principal-targeted event only to that principal's client", () => {
+    stampAndBuffer(mkEvent()); // seq 1, untargeted
+    stampAndBuffer(mkEvent(), {
+      targeting: { targetActorPrincipalId: "principal-g" },
+    }); // seq 2
+
+    const client = {
+      "x-vellum-client-id": "c",
+      "x-vellum-interface-id": "web",
+    };
+    const guardian = callTail(
+      { conversationId: CONV, fromSeq: "0" },
+      { ...client, "x-vellum-actor-principal-id": "principal-g" },
+    );
+    const other = callTail(
+      { conversationId: CONV, fromSeq: "0" },
+      { ...client, "x-vellum-actor-principal-id": "principal-x" },
+    );
+    const anonymous = callTail({ conversationId: CONV, fromSeq: "0" });
+
+    expect(guardian.events.map((e) => e.seq)).toEqual([1, 2]);
+    expect(other.events.map((e) => e.seq)).toEqual([1]);
+    expect(anonymous.events.map((e) => e.seq)).toEqual([1]);
   });
 
   test("toSeq bounds the window inclusively and moves the frontier", () => {

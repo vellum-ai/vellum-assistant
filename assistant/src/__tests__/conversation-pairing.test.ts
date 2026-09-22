@@ -901,6 +901,32 @@ describe("pairDeliveryWithConversation", () => {
   // body has to land there for that button to open something that contains
   // the notification the user tapped.
 
+  test("assistant reply keeps the source conversation without appending its preview", async () => {
+    mockExistingConversations["conv-user-chat"] = {
+      id: "conv-user-chat",
+      source: "user",
+      title: "An ordinary chat",
+    };
+    const signal = makeSignal({
+      requiresConversation: undefined,
+      sourceContextId: "conv-user-chat",
+      sourceEventName: "chat.assistant_reply",
+    });
+
+    const result = await pairDeliveryWithConversation(
+      signal,
+      "vellum" as NotificationChannel,
+      makeCopy({ body: "A short push preview…" }),
+    );
+
+    expect(result.conversationId).toBe("conv-user-chat");
+    expect(result.messageId).toBeNull();
+    expect(result.createdNewConversation).toBe(false);
+    expect(createConversationMock).not.toHaveBeenCalled();
+    expect(addMessageMock).not.toHaveBeenCalled();
+    expect(messagesInvalidated).toEqual([]);
+  });
+
   test("passive vellum signal appends the body to the producing conversation", async () => {
     mockExistingConversations["conv-producer"] = {
       id: "conv-producer",

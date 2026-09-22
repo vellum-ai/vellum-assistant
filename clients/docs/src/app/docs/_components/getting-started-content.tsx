@@ -11,7 +11,9 @@ const TOC_ITEMS = [
   { id: "what-you-need", label: "What you need", level: 2 },
   { id: "web", label: "Web", level: 2 },
   { id: "ios-app", label: "iOS app", level: 2 },
-  { id: "desktop-app", label: "Desktop app", level: 2 },
+  { id: "android-app", label: "Android app", level: 2 },
+  { id: "desktop-app", label: "Desktop app (macOS and Windows)", level: 2 },
+  { id: "linux", label: "Linux", level: 2 },
   { id: "self-hosting", label: "Self-hosting", level: 2 },
   { id: "two-ways-to-connect", label: "Two ways to connect", level: 2 },
   { id: "what-gets-installed", label: "What gets installed", level: 2 },
@@ -30,16 +32,28 @@ export function GettingStartedContent() {
           </SectionHeading>
           <ul className="mb-4 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
-              <strong>For the web app:</strong> any modern browser. No install, no setup. The
-              fastest way in. Connects to a cloud assistant.
+              <strong>For the web app:</strong> any modern browser on Mac, Windows, Linux, or
+              a phone. No install, no setup. The fastest way in. Connects to a cloud assistant.
             </li>
             <li>
               <strong>For the iOS app:</strong> an iPhone or iPad and your Vellum account.
               Connects to your cloud assistant.
             </li>
             <li>
-              <strong>For the desktop app:</strong> macOS 15 (Sequoia) or later, Apple Silicon
+              <strong>For the Android app:</strong> Android 7.0 or later and your Vellum account.
+              Connects to your cloud assistant.
+            </li>
+            <li>
+              <strong>For the Mac app:</strong> macOS 15 (Sequoia) or later, Apple Silicon
               or Intel, plus ~500 MB free disk space. Connects to a cloud or local assistant.
+            </li>
+            <li>
+              <strong>For the Windows app:</strong> Windows 10 or later. Choose the x64
+              installer for Intel or AMD PCs, or ARM64 for Windows on Arm. Connects to a
+              cloud or local assistant.
+            </li>
+            <li>
+              There is no shipped Linux desktop client.
             </li>
             <li>
               Internet connection (your assistant uses cloud AI models to think)
@@ -101,7 +115,7 @@ export function GettingStartedContent() {
             <li>
               Install Vellum Assistant from the{" "}
               <a
-                href="https://apps.apple.com/us/app/vellum-assistant/id6759934423"
+                href={routes.iosAppStore}
                 className="font-semibold text-emerald-700 underline hover:text-emerald-800"
               >
                 App Store
@@ -117,13 +131,46 @@ export function GettingStartedContent() {
           </p>
         </section>
 
-        <section id="desktop-app" className="mt-12">
-          <SectionHeading id="desktop-app" level={2}>
-            Desktop app
+        <section id="android-app" className="mt-12">
+          <SectionHeading id="android-app" level={2}>
+            Android app
           </SectionHeading>
           <p className="mb-4 text-zinc-600">
-            The desktop app gives you a menu bar presence, voice input with hold-to-talk, and
-            the ability to control your Mac through accessibility APIs. It connects to a
+            Install Vellum Assistant on your Android phone or tablet to use the same
+            assistant, conversations, memories, tools, and workspace you have on the web
+            and Mac.
+          </p>
+          <ol className="mb-4 list-decimal space-y-2 pl-6 text-zinc-600">
+            <li>
+              Install Vellum Assistant from{" "}
+              <a
+                href={routes.androidPlayStore}
+                className="font-semibold text-emerald-700 underline hover:text-emerald-800"
+              >
+                Google Play
+              </a>
+              .
+            </li>
+            <li>Open the app and sign in with your Vellum account.</li>
+            <li>Your cloud assistant appears automatically. Say hi.</li>
+          </ol>
+          <p className="mb-6 text-zinc-600">
+            The Android app is a client for your cloud assistant. It does not run a local
+            assistant on the phone. See{" "}
+            <a href={routes.downloads} className="font-semibold text-emerald-700 underline hover:text-emerald-800">
+              Downloads
+            </a>
+            .
+          </p>
+        </section>
+
+        <section id="desktop-app" className="mt-12">
+          <SectionHeading id="desktop-app" level={2}>
+            Desktop app (macOS and Windows)
+          </SectionHeading>
+          <p className="mb-4 text-zinc-600">
+            The desktop app is available on macOS and Windows, with a menu bar or system tray
+            presence, voice input, and computer control. It connects to a
             cloud assistant by default (so your conversations and memory show up in both the
             web and desktop apps), but it can also run a local assistant entirely on your
             machine. See{" "}
@@ -131,6 +178,12 @@ export function GettingStartedContent() {
               Hosting options
             </a>{" "}
             for the local-only setup.
+          </p>
+          <p className="mb-4 text-zinc-600">
+            The Windows download is currently a <strong>dev build</strong>. It connects
+            to Vellum&apos;s development environment, so your production cloud assistant
+            and its history will not appear there. The main download is x64; select
+            Other downloads for ARM64.
           </p>
           <ol className="mb-4 list-decimal space-y-2 pl-6 text-zinc-600">
             <li>
@@ -140,18 +193,73 @@ export function GettingStartedContent() {
               for Vellum if you haven&apos;t already.
             </li>
             <li>
-              Download the macOS <code>.dmg</code> from your account dashboard.
+              Download the macOS <code>.dmg</code> or Windows <code>.exe</code> from{" "}
+              <a href={routes.downloads} className="font-semibold text-emerald-700 underline hover:text-emerald-800">
+                vellum.ai/downloads
+              </a>
+              .
             </li>
             <li>
-              Open the <code>.dmg</code>, drag Vellum to Applications, and launch it.
+              On macOS, open the <code>.dmg</code>, drag Vellum to Applications, and launch it.
+              On Windows, run the <code>.exe</code> installer and open Vellum from Start.
             </li>
             <li>
-              Sign in with your Vellum account. Your cloud assistant shows up automatically.
+              Sign in with your Vellum account. Production builds connect to your existing
+              cloud assistant; the Windows dev build connects to the development environment.
             </li>
           </ol>
           <p className="mb-6 text-zinc-600">
-            That&apos;s the whole process. No terminal commands, no package managers, no YAML
-            files. Standard <code>.dmg</code>, signed and notarized.
+            The installers include everything needed to run the app. macOS downloads are signed
+            and notarized; Windows downloads are Authenticode-signed. No terminal setup is
+            needed. On Windows, the app also installs the <code>vellum</code> CLI for your
+            user account. Open a new terminal after the first launch to use it. The same page
+            also offers the{" "}
+            <a href={routes.chromeWebStore} className="font-semibold text-emerald-700 underline hover:text-emerald-800">
+              Chrome extension
+            </a>{" "}
+            for browser automation.
+          </p>
+        </section>
+
+        <section id="linux" className="mt-12">
+          <SectionHeading id="linux" level={2}>
+            Linux
+          </SectionHeading>
+          <p className="mb-4 text-zinc-600">
+            There is no shipped Linux desktop client. A Linux desktop shell is in
+            development and is not distributed.
+          </p>
+          <p className="mb-4 text-zinc-600">
+            On a Linux computer you can:
+          </p>
+          <ul className="mb-4 list-disc space-y-2 pl-6 text-zinc-600">
+            <li>
+              Use the web app in any modern browser after you{" "}
+              <a href={routes.signup} className="font-semibold text-emerald-700 underline hover:text-emerald-800">
+                sign up
+              </a>
+              .
+            </li>
+            <li>
+              Install the{" "}
+              <a href={routes.chromeWebStore} className="font-semibold text-emerald-700 underline hover:text-emerald-800">
+                Chrome extension
+              </a>{" "}
+              so the assistant can drive a logged-in Chrome session on that computer.
+            </li>
+            <li>
+              Self-host the assistant runtime on that machine. That is the server, not a
+              desktop app. See{" "}
+              <a href="/docs/hosting-options" className="font-semibold text-emerald-700 underline hover:text-emerald-800">
+                Hosting options
+              </a>
+              .
+            </li>
+          </ul>
+          <p className="mb-6 text-zinc-600">
+            Do not wait for a Linux desktop installer, and do not treat a self-hosted
+            Linux runtime as a replacement for the Mac or Windows desktop app&apos;s
+            computer-use features.
           </p>
         </section>
 
@@ -187,7 +295,7 @@ export function GettingStartedContent() {
             <li>
               <strong>Bring your own API key</strong> — Self-host the runtime and connect it to
               your own Anthropic API key. Useful if you want to run everything on your own
-              machine. Your key is stored in your macOS Keychain.
+              machine. Vellum manages your credentials separately from the assistant.
             </li>
           </ul>
         </section>
@@ -311,6 +419,14 @@ export function GettingStartedContent() {
               </tbody>
             </table>
           </div>
+          <p className="mb-4 text-zinc-600">
+            On Windows, open Settings &gt; Permissions &amp; Privacy in Vellum to check
+            microphone, screen capture, speech, and notification access. Use the settings
+            link beside a permission to open the corresponding Windows settings page.
+            Accessibility, Input Monitoring, and Automation permissions are macOS-only
+            and do not appear on Windows. Computer control cannot interact with elevated
+            or protected windows.
+          </p>
           <p className="mb-6 rounded-lg border border-zinc-200 bg-zinc-50 p-4 text-zinc-700">
             <strong>Worth knowing:</strong> The app accesses files through normal sandbox
             entitlements, not Full Disk Access. Individual file and shell actions still require

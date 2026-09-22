@@ -38,6 +38,7 @@ const telegramDeliverCalls: Array<{
 mock.module("../messaging/providers/telegram-bot/send.js", () => ({
   sendTelegramReply: async (chatId: string, text: string) => {
     telegramDeliverCalls.push({ chatId, text });
+    return { messageIds: [] };
   },
   sendTelegramAttachments: async () => ({
     allFailed: false,

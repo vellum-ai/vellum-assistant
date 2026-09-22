@@ -1,9 +1,15 @@
+import { getConfig } from "../config/loader.js";
 import type {
   ResolvedMcpConfig,
   ResolvedMcpServerConfig,
 } from "../config/schemas/mcp.js";
 import { getLogger } from "../util/logger.js";
 import { McpClient, type McpToolInfo } from "./client.js";
+import {
+  applyMcpToolCaps,
+  resolveMcpGlobalMaxTools,
+  truncatedServerIdsFromCaps,
+} from "./tool-caps.js";
 
 const log = getLogger("mcp-manager");
 
@@ -13,104 +19,208 @@ export interface McpServerToolInfo {
   tools: McpToolInfo[];
 }
 
+export interface McpStartResult {
+  servers: McpServerToolInfo[];
+  configuredServerCount: number;
+  connectedServerCount: number;
+  errorServerCount: number;
+  needsAuthServerCount: number;
+  discoveredToolCount: number;
+  keptToolCount: number;
+  droppedToolCount: number;
+  truncatedServerIds: string[];
+}
+
+export type McpConnectionState =
+  | "connecting"
+  | "connected"
+  | "needs-auth"
+  | "error";
+
+export type McpUnexpectedCloseHandler = () => void;
+
 export class McpServerManager {
   private clients = new Map<string, McpClient>();
-  private serverConfigs = new Map<string, ResolvedMcpServerConfig>();
+  private connectionStates = new Map<
+    string,
+    { source: ResolvedMcpServerConfig["source"]; state: McpConnectionState }
+  >();
 
-  async start(config: ResolvedMcpConfig): Promise<McpServerToolInfo[]> {
-    const results: McpServerToolInfo[] = [];
+  constructor(private onUnexpectedClose?: McpUnexpectedCloseHandler) {}
 
-    console.log(
-      `[MCP] Starting ${Object.keys(config.servers).length} server(s)...`,
+  setUnexpectedCloseHandler(handler: McpUnexpectedCloseHandler): void {
+    this.onUnexpectedClose = handler;
+  }
+
+  async start(config: ResolvedMcpConfig): Promise<McpStartResult> {
+    const entries = Object.entries(config.servers);
+    log.info(
+      { configuredServerCount: entries.length },
+      "Starting configured MCP servers",
     );
-    for (const [serverId, serverConfig] of Object.entries(config.servers)) {
-      if (!serverConfig.enabled) {
-        console.log(`[MCP] Server "${serverId}" is disabled, skipping`);
-        log.info({ serverId }, "MCP server disabled, skipping");
-        continue;
-      }
+    console.log(`[MCP] Starting ${entries.length} server(s)...`);
 
-      try {
-        console.log(
-          `[MCP] Starting server "${serverId}" (transport: ${serverConfig.transport.type})`,
-        );
-        if (
-          serverConfig.transport.type === "sse" ||
-          serverConfig.transport.type === "streamable-http"
-        ) {
-          log.debug(
-            { serverId },
-            "HTTP transport — OAuth provider will be available if server requires authentication",
-          );
-        }
-        // The server's own origin decides whether it may resolve
-        // `mcp:<serverId>:*` from the credential store.
-        const client = new McpClient(serverId, serverConfig.source);
-        await client.connect(serverConfig.transport);
+    const started = await Promise.all(
+      entries.map(([serverId, serverConfig]) =>
+        this.startOne(serverId, serverConfig),
+      ),
+    );
+    const connected = started.filter(
+      (result): result is McpServerToolInfo => result != null,
+    );
+    const errorServerCount = [...this.connectionStates.values()].filter(
+      (entry) => entry.state === "error",
+    ).length;
+    const needsAuthServerCount = [...this.connectionStates.values()].filter(
+      (entry) => entry.state === "needs-auth",
+    ).length;
 
-        if (!client.isConnected) {
-          // Server requires authentication — connect() logged guidance
-          continue;
-        }
+    const capped = applyMcpToolCaps(
+      connected.map((result) => ({
+        serverId: result.serverId,
+        tools: result.tools,
+      })),
+      { globalMax: resolveMcpGlobalMaxTools(getConfig().tools) },
+    );
+    const keptByServer = new Map(
+      capped.servers.map((server) => [server.serverId, server.tools]),
+    );
+    const results = connected.map((result) => ({
+      ...result,
+      tools: keptByServer.get(result.serverId) ?? [],
+    }));
+    const truncatedServerIds = truncatedServerIdsFromCaps(capped.decisions);
 
-        this.clients.set(serverId, client);
-        this.serverConfigs.set(serverId, serverConfig);
-
-        let tools = await client.listTools();
-        log.info(
-          { serverId, toolCount: tools.length },
-          "MCP server tools discovered",
-        );
-
-        // Apply tool filtering
-        tools = this.filterTools(tools, serverConfig);
-
-        // Apply per-server maxTools limit
-        if (tools.length > serverConfig.maxTools) {
-          log.warn(
-            { serverId, discovered: tools.length, max: serverConfig.maxTools },
-            "MCP server exceeded maxTools limit, truncating",
-          );
-          tools = tools.slice(0, serverConfig.maxTools);
-        }
-
-        results.push({ serverId, serverConfig, tools });
-      } catch (err) {
-        console.error(`[MCP] Failed to connect to server "${serverId}":`, err);
-        log.error({ err, serverId }, "Failed to connect to MCP server");
-        // Clean up any partially-connected client
-        const staleClient = this.clients.get(serverId);
-        if (staleClient) {
-          try {
-            await staleClient.disconnect();
-          } catch {
-            /* ignore */
-          }
-          this.clients.delete(serverId);
-          this.serverConfigs.delete(serverId);
-        }
-      }
-    }
-
-    // Apply global max tools limit
-    const totalTools = results.reduce((sum, r) => sum + r.tools.length, 0);
-    if (totalTools > config.globalMaxTools) {
+    if (capped.droppedToolCount > 0) {
       log.warn(
-        { totalTools, globalMax: config.globalMaxTools },
-        "Total MCP tools exceed globalMaxTools, truncating",
+        {
+          configuredServerCount: entries.length,
+          connectedServerCount: connected.length,
+          errorServerCount,
+          needsAuthServerCount,
+          discoveredToolCount: capped.discoveredToolCount,
+          keptToolCount: capped.keptToolCount,
+          droppedToolCount: capped.droppedToolCount,
+          globalCap: capped.globalCap,
+          perServerCap: capped.perServerCap,
+          truncatedServerIds,
+          decisions: capped.decisions.filter(
+            (decision) =>
+              decision.droppedByPerServerCap > 0 ||
+              decision.droppedByGlobalCap > 0,
+          ),
+        },
+        "MCP tool caps dropped tools using fair per-server selection",
       );
-      let remaining = config.globalMaxTools;
-      for (const result of results) {
-        if (remaining <= 0) {
-          result.tools = [];
-        } else if (result.tools.length > remaining) {
-          result.tools = result.tools.slice(0, remaining);
-        }
-        remaining -= result.tools.length;
-      }
+    } else {
+      log.info(
+        {
+          configuredServerCount: entries.length,
+          connectedServerCount: connected.length,
+          errorServerCount,
+          needsAuthServerCount,
+          discoveredToolCount: capped.discoveredToolCount,
+          keptToolCount: capped.keptToolCount,
+          globalCap: capped.globalCap,
+          perServerCap: capped.perServerCap,
+        },
+        "MCP servers connected",
+      );
     }
 
-    return results;
+    return {
+      servers: results,
+      configuredServerCount: entries.length,
+      connectedServerCount: connected.length,
+      errorServerCount,
+      needsAuthServerCount,
+      discoveredToolCount: capped.discoveredToolCount,
+      keptToolCount: capped.keptToolCount,
+      droppedToolCount: capped.droppedToolCount,
+      truncatedServerIds,
+    };
+  }
+
+  private async startOne(
+    serverId: string,
+    serverConfig: ResolvedMcpServerConfig,
+  ): Promise<McpServerToolInfo | null> {
+    this.connectionStates.set(serverId, {
+      source: serverConfig.source,
+      state: "connecting",
+    });
+    try {
+      console.log(
+        `[MCP] Starting server "${serverId}" (transport: ${serverConfig.transport.type})`,
+      );
+      if (
+        serverConfig.transport.type === "sse" ||
+        serverConfig.transport.type === "streamable-http"
+      ) {
+        log.debug(
+          { serverId },
+          "HTTP transport: OAuth provider will be available if server requires authentication",
+        );
+      }
+      const client = new McpClient(serverId, serverConfig, () => {
+        if (this.clients.get(serverId) !== client) {
+          return;
+        }
+        this.connectionStates.set(serverId, {
+          source: serverConfig.source,
+          state: "error",
+        });
+        this.onUnexpectedClose?.();
+      });
+      await client.connect(serverConfig.transport);
+
+      if (!client.isConnected) {
+        this.connectionStates.set(serverId, {
+          source: serverConfig.source,
+          state: client.lastError ? "error" : "needs-auth",
+        });
+        return null;
+      }
+
+      this.clients.set(serverId, client);
+
+      const tools = await client.listTools();
+      if (!client.isConnected || this.clients.get(serverId) !== client) {
+        this.clients.delete(serverId);
+        this.connectionStates.set(serverId, {
+          source: serverConfig.source,
+          state: "error",
+        });
+        return null;
+      }
+      log.info(
+        { serverId, toolCount: tools.length },
+        "MCP server tools discovered",
+      );
+
+      this.connectionStates.set(serverId, {
+        source: serverConfig.source,
+        state: "connected",
+      });
+      return { serverId, serverConfig, tools };
+    } catch (err) {
+      this.connectionStates.set(serverId, {
+        source: serverConfig.source,
+        state: "error",
+      });
+      console.error(`[MCP] Failed to connect to server "${serverId}":`, err);
+      log.error({ err, serverId }, "Failed to connect to MCP server");
+      const staleClient = this.clients.get(serverId);
+      if (staleClient) {
+        try {
+          await staleClient.disconnect();
+        } catch {
+          /* ignore */
+        }
+        this.clients.delete(serverId);
+      }
+      return null;
+    }
   }
 
   async stop(): Promise<void> {
@@ -124,7 +234,7 @@ export class McpServerManager {
     );
     await Promise.all(disconnects);
     this.clients.clear();
-    this.serverConfigs.clear();
+    this.connectionStates.clear();
     log.info("All MCP servers disconnected");
   }
 
@@ -145,23 +255,12 @@ export class McpServerManager {
     return this.clients.get(serverId);
   }
 
-  private filterTools(
-    tools: McpToolInfo[],
-    config: ResolvedMcpServerConfig,
-  ): McpToolInfo[] {
-    let filtered = tools;
-
-    if (config.allowedTools) {
-      const allowed = new Set(config.allowedTools);
-      filtered = filtered.filter((t) => allowed.has(t.name));
-    }
-
-    if (config.blockedTools) {
-      const blocked = new Set(config.blockedTools);
-      filtered = filtered.filter((t) => !blocked.has(t.name));
-    }
-
-    return filtered;
+  getServerState(
+    serverId: string,
+    source: ResolvedMcpServerConfig["source"],
+  ): McpConnectionState | undefined {
+    const entry = this.connectionStates.get(serverId);
+    return entry?.source === source ? entry.state : undefined;
   }
 }
 

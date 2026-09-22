@@ -16,6 +16,7 @@ import {
   getVercelConfig,
   setVercelConfig,
 } from "../../../daemon/handlers/config-vercel.js";
+import { ACTOR_PRINCIPALS } from "../../auth/route-policy.js";
 import { BadRequestError } from "../errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "../types.js";
 
@@ -70,7 +71,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "integrations_vercel_config_get",
     endpoint: "integrations/vercel/config",
     method: "GET",
-    policy: null,
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Get Vercel config",
     description: "Check if a Vercel API token is stored.",
     tags: ["integrations"],
@@ -81,7 +85,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "integrations_vercel_config_post",
     endpoint: "integrations/vercel/config",
     method: "POST",
-    policy: null,
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Set or delete Vercel config",
     description:
       "Set or delete the Vercel API token. Action is determined by the body action field.",
@@ -97,7 +104,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "integrations_vercel_config_delete",
     endpoint: "integrations/vercel/config",
     method: "DELETE",
-    policy: null,
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Delete Vercel config",
     description: "Delete the stored Vercel API token.",
     tags: ["integrations"],

@@ -16,10 +16,6 @@ export function remoteWebRefreshCookiePathForPublicBaseUrl(
   return normalizeCookiePath(`${pathPrefix}${BROWSER_REFRESH_PATH}`);
 }
 
-function encodeCookieValue(value: string): string {
-  return encodeURIComponent(value);
-}
-
 function browserAuthCookie(
   name: string,
   value: string,
@@ -27,7 +23,7 @@ function browserAuthCookie(
   path: string | undefined,
 ): string {
   return [
-    `${name}=${encodeCookieValue(value)}`,
+    `${name}=${encodeURIComponent(value)}`,
     "HttpOnly",
     "Secure",
     "SameSite=Strict",

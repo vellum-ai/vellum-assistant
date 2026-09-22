@@ -12,7 +12,12 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 import type { FlashMode } from "@/stores/voice-prefs-store";
 
-import { CameraFlashControl, nextFlashMode } from "./camera-flash-control";
+import {
+  CameraFlashControl,
+  liveFlashMode,
+  nextFlashMode,
+  nextLiveFlashMode,
+} from "./camera-flash-control";
 
 afterEach(() => {
   cleanup();
@@ -30,6 +35,30 @@ describe("nextFlashMode", () => {
     for (const start of modes) {
       expect(nextFlashMode(nextFlashMode(nextFlashMode(start)))).toBe(start);
     }
+  });
+});
+
+describe("liveFlashMode", () => {
+  test("reads a stored auto as off", () => {
+    // A lamp is on or it is not: there is no scene brightness for it to answer
+    // to. The stored preference is untouched, so the next photo still fires the
+    // mode the user chose for one.
+    expect(liveFlashMode("auto")).toBe("off");
+    expect(liveFlashMode("off")).toBe("off");
+    expect(liveFlashMode("on")).toBe("on");
+  });
+});
+
+describe("nextLiveFlashMode", () => {
+  test("cycles two states rather than three", () => {
+    expect(nextLiveFlashMode("off")).toBe("on");
+    expect(nextLiveFlashMode("on")).toBe("off");
+  });
+
+  test("takes a stored auto on, the way an off would", () => {
+    // What the control shows is what the next press has to answer, or the
+    // first press on a stored auto does nothing the user can see.
+    expect(nextLiveFlashMode("auto")).toBe("on");
   });
 });
 
@@ -121,7 +150,7 @@ describe("CameraFlashControl", () => {
     expect(badge("off")).toBe("");
   });
 
-  test("the target reaches a thumb even though the circle does not", () => {
+  test("carries the room's circle and no size class beside it", () => {
     render(
       <CameraFlashControl
         mode="off"
@@ -132,15 +161,26 @@ describe("CameraFlashControl", () => {
       />,
     );
 
-    // 46px of visible circle, because a wider one crowds the shutter beside it,
-    // and 4px of invisible margin on every side taking the pressable box to 54.
-    // The platform minimum is 44, and it is the pseudo-element that gets this
-    // control there, so a restyle that drops it breaks the one thing about this
-    // button nobody can see.
-    const className = screen.getByTestId("flash").className;
-    expect(className).toContain("size-[46px]");
-    expect(className).toContain("after:absolute");
-    expect(className).toContain("after:-inset-1");
-    expect(className).toContain("after:content-['']");
+    // happy-dom computes no layout, so the size class is the seam.
+    const sizeClasses = screen
+      .getByTestId("flash")
+      .className.split(/\s+/)
+      .filter((name) => name.startsWith("size-"));
+    expect(sizeClasses).toEqual(["size-13"]);
+  });
+
+  test("hangs the auto badge off the circle's centre, where the glyph is", () => {
+    render(
+      <CameraFlashControl
+        mode="auto"
+        ariaLabel="Flash auto"
+        autoBadge="A"
+        onClick={() => {}}
+      />,
+    );
+
+    const badge = screen.getByText("A");
+    expect(badge.className).toContain("right-[calc(50%-10px)]");
+    expect(badge.className).toContain("bottom-[calc(50%-12px)]");
   });
 });

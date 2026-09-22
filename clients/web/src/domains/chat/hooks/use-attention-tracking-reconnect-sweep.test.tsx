@@ -18,6 +18,7 @@ import * as conversationCache from "@/utils/conversation-cache";
 import * as cacheMutations from "@/utils/conversation-cache-mutations";
 import { useConversationStore } from "@/stores/conversation-store";
 import { __resetForTesting, publish } from "@/lib/event-bus";
+import { useDesktopPreviewStore } from "@/domains/chat/desktop/desktop-preview-store";
 
 // Stub the conversation-list query and the mark-seen endpoint so the
 // hook does not try to hit a real backend during renderHook.
@@ -26,6 +27,7 @@ mock.module("@/hooks/conversation-queries", () => ({
   useBackgroundConversationListQuery: () => ({ conversations: [] }),
   useScheduledConversationListQuery: () => ({ conversations: [] }),
   useArchivedConversationListQuery: () => ({ conversations: [] }),
+  useSectionConversationListQuery: () => ({ conversations: [] }),
 }));
 
 // Spread the real modules and override only what this suite drives:
@@ -78,16 +80,15 @@ mock.module("@/domains/chat/api/interactions", () => ({
   listConversationIdsWithPendingInteractions: (assistantId: string) =>
     bulkFetch.current(assistantId),
   // Other exports of the module — stubbed loudly so a stale leak surfaces.
-  getPendingInteractions: stubFromOtherTest("getPendingInteractions"),
+  getPendingInteractions: async () => ({ pendingQuestion: null }),
   submitSecretResponse: stubFromOtherTest("submitSecretResponse"),
   submitConfirmation: stubFromOtherTest("submitConfirmation"),
   submitContactPrompt: stubFromOtherTest("submitContactPrompt"),
   submitQuestionResponse: stubFromOtherTest("submitQuestionResponse"),
 }));
 
-const { useAttentionTracking } = await import(
-  "@/domains/chat/hooks/use-attention-tracking"
-);
+const { useAttentionTracking } =
+  await import("@/domains/chat/hooks/use-attention-tracking");
 
 function wrapper({ children }: { children: ReactNode }) {
   const client = new QueryClient({
@@ -119,6 +120,7 @@ beforeEach(() => {
   __resetForTesting();
   useConversationStore.getState().reset();
   bulkFetch.current = async () => new Set<string>();
+  useDesktopPreviewStore.setState({ submittedHelpRequests: {}, session: null });
 });
 
 afterEach(() => {
@@ -128,6 +130,20 @@ afterEach(() => {
 });
 
 describe("useAttentionTracking — post-reconnect sweep", () => {
+  test("resuming after a missed resolution restores the desktop to read-only preview", async () => {
+    mountHook();
+    useDesktopPreviewStore
+      .getState()
+      .markHelpSubmitted("asst-1", "req-help", "conv-help");
+    useDesktopPreviewStore.getState().openFullscreen("asst-1");
+    publishOpened("resume");
+    await waitFor(() =>
+      expect(
+        useDesktopPreviewStore.getState().submittedHelpRequests["asst-1"],
+      ).toBeUndefined(),
+    );
+    expect(useDesktopPreviewStore.getState().session?.view).toBe("preview");
+  });
   test("does NOT run when cause is 'fresh' (initial-sweep effect handles it)", async () => {
     let calls = 0;
     bulkFetch.current = async () => {

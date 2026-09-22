@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { buildSectionNeedle } from "../section-needle.js";
+import { buildSectionNeedle, findTerm } from "../section-needle.js";
 import { buildSectionIndex } from "../sections.js";
 import type { SectionIndex, Slug } from "../types.js";
 
@@ -195,5 +195,128 @@ describe("queryScored", () => {
 
     expect(needle.queryScored("zzzznomatch", 5)).toEqual([]);
     expect(needle.queryScored("apple", 0)).toEqual([]);
+  });
+
+  test("topTerms ranks a section's query terms by their BM25F contribution, capped at n", async () => {
+    const idx = await index({
+      "page-a": [
+        "## Mango",
+        "the mango tree and the common word appear here",
+      ].join("\n"),
+      "page-b": "## Notes\ncommon filler about gardens and the",
+    });
+    const needle = buildSectionNeedle(idx);
+    const [, mangoDoc] = idx.byArticle.get("page-a")!;
+
+    // "mango" sits in the head line and the body, "tree" only in the body,
+    // "common" in the body of two sections (lower IDF), "missing" nowhere.
+    expect(needle.topTerms(mangoDoc!, "mango common tree missing", 3)).toEqual([
+      "mango",
+      "tree",
+      "common",
+    ]);
+    expect(needle.topTerms(mangoDoc!, "mango common tree missing", 2)).toEqual([
+      "mango",
+      "tree",
+    ]);
+    expect(needle.topTerms(mangoDoc!, "missing absent", 3)).toEqual([]);
+    expect(needle.topTerms(mangoDoc!, "mango", 0)).toEqual([]);
+    expect(needle.topTerms(-1, "mango", 3)).toEqual([]);
+    expect(needle.topTerms(idx.sections.length, "mango", 3)).toEqual([]);
+  });
+
+  test("topTerms includes adjacent-token bigrams and breaks score ties by term", async () => {
+    const idx = await index({
+      "page-a": "## Mango\nthe mango tree grows here",
+    });
+    const needle = buildSectionNeedle(idx);
+    const [, mangoDoc] = idx.byArticle.get("page-a")!;
+
+    // "mango_tree" occurs once in the body like "tree" does, so the two tie
+    // and sort by term; "mango" outranks both from its head-line weight.
+    expect(needle.topTerms(mangoDoc!, "mango tree", 3)).toEqual([
+      "mango",
+      "mango_tree",
+      "tree",
+    ]);
+  });
+
+  test("findTerm locates a term as a whole token, case-insensitively, and a bigram across punctuation", () => {
+    expect(findTerm("The Turnip sits here", "turnip")).toEqual({
+      start: 4,
+      end: 10,
+    });
+    // A substring inside a longer token is not an occurrence.
+    expect(findTerm("turnips and turnip", "turnip")).toEqual({
+      start: 12,
+      end: 18,
+    });
+    expect(findTerm("we said: weekly, turnip", "weekly_turnip")).toEqual({
+      start: 9,
+      end: 23,
+    });
+    expect(findTerm("nothing here", "turnip")).toBeUndefined();
+    // Only tokenizer-shaped terms are searched.
+    expect(findTerm("a (b) c", "(b)")).toBeUndefined();
+  });
+});
+
+describe("df and scoreTerm", () => {
+  test("df counts the sections a unigram occurs in, head or body, and reads 0 when absent", async () => {
+    const idx = await index({
+      "page-a": "## Mango\nthe mango tree\n\n## Notes\nno fruit here",
+      "page-b": "## Notes\nmango jam",
+    });
+    const needle = buildSectionNeedle(idx);
+
+    expect(needle.df("mango")).toBe(2);
+    // Head-line occurrences count: both `## Notes` headings.
+    expect(needle.df("notes")).toBe(2);
+    expect(needle.df("fruit")).toBe(1);
+    expect(needle.df("absent")).toBe(0);
+  });
+
+  test("a bigram is never a single-term signal: df 0 and no hits", async () => {
+    const idx = await index({
+      "page-a": "## Notes\nthe mango tree grows here",
+    });
+    const needle = buildSectionNeedle(idx);
+    const [, notesDoc] = idx.byArticle.get("page-a")!;
+
+    // The bigram is indexed for the query lanes but reads as absent here.
+    expect(needle.topTerms(notesDoc!, "mango tree", 3)).toContain("mango_tree");
+    expect(needle.df("mango_tree")).toBe(0);
+    expect(needle.scoreTerm("mango_tree", 3)).toEqual([]);
+  });
+
+  test("scoreTerm ranks a unigram's sections by its own contribution, head above body, cut at k", async () => {
+    const idx = await index({
+      "page-a": "## Mango\nfiller words to balance length across the docs here",
+      "page-b":
+        "## Notes\nfiller words mango plus more padding to balance length",
+      "page-c": "## Notes\nnothing relevant",
+    });
+    const needle = buildSectionNeedle(idx);
+    const [, mangoDoc] = idx.byArticle.get("page-a")!;
+    const [, notesDoc] = idx.byArticle.get("page-b")!;
+
+    const hits = needle.scoreTerm("mango", 5);
+    expect(hits.map((h) => h.doc)).toEqual([mangoDoc, notesDoc]);
+    expect(hits[0]!.score).toBeGreaterThan(hits[1]!.score);
+    expect(needle.scoreTerm("mango", 1).map((h) => h.doc)).toEqual([mangoDoc]);
+    expect(needle.scoreTerm("mango", 0)).toEqual([]);
+    expect(needle.scoreTerm("absent", 5)).toEqual([]);
+  });
+
+  test("scoreTerm breaks score ties by (article, ordinal)", async () => {
+    const idx = await index({
+      "page-b": "## S\nidentical pineapple content",
+      "page-a": "## S\nidentical pineapple content",
+    });
+    const needle = buildSectionNeedle(idx);
+
+    expect(
+      needle.scoreTerm("pineapple", 5).map((h) => idx.sections[h.doc]!.article),
+    ).toEqual(["page-a", "page-b"]);
   });
 });

@@ -3,10 +3,14 @@
  *
  * Core, always-loaded tools registered via the host tool manifest
  * (`tools/tool-manifest.ts`), so they carry core/workspace-override precedence
- * and the `"memory"` tool category. Their implementations source from the
- * memory feature (`src/memory/*`).
+ * and the `"memory"` tool category. The host's central input check covers only
+ * tools it can import, which excludes a plugin's, so each tool here parses its
+ * own input.
  */
 
+import { invalidToolInputResult, throwIfCancelled } from "@vellumai/plugin-api";
+
+import { RememberInputSchema } from "../../../api/remember-tool.js";
 import { getConfig, getConfigReadOnly } from "../../../config/loader.js";
 import { usesConceptPageMemory } from "../../../config/memory-v3-gate.js";
 import { RiskLevel } from "../../../permissions/types.js";
@@ -17,8 +21,8 @@ import type {
   ToolExecutionResult,
 } from "../../../tools/types.js";
 import { runAgenticRecall } from "./context-search/agent-runner.js";
-import type { RecallInput } from "./context-search/types.js";
-import { handleRemember, type RememberInput } from "./graph/tool-handlers.js";
+import { RecallInputSchema } from "./context-search/recall-input.js";
+import { handleRemember } from "./graph/tool-handlers.js";
 import {
   buildRememberInputSchema,
   graphRecallDefinition,
@@ -50,16 +54,35 @@ export const rememberTool = {
     input: Record<string, unknown>,
     context: ToolContext,
   ): Promise<ToolExecutionResult> {
-    const typedInput = input as unknown as RememberInput;
+    // The append below writes the memory buffer, so a cancelled turn stops here.
+    throwIfCancelled(context);
+    if (!resolveCapabilities(context.trustClass).canAccessMemory) {
+      // No yield even when finish_turn is set: the model has to see this, so
+      // it never tells someone a fact was saved when it was not. An error, not
+      // a quiet no-op: a non-error `remember` result reads as a durable write to
+      // `memory-run-evidence`.
+      return {
+        content:
+          "Not saved: remember writes the guardian's long-term memory, which is only available on the guardian's own turns. Retrying will not help. Tell the person only if they asked you to remember this or you said you would.",
+        isError: true,
+      };
+    }
+    const parsed = RememberInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return invalidToolInputResult("remember", parsed.error);
+    }
     const result = handleRemember(
-      typedInput,
+      parsed.data,
       context.conversationId,
       getConfig(),
     );
     return {
       content: result.message,
       isError: !result.success,
-      ...(typedInput.finish_turn === true ? { yieldToUser: true } : {}),
+      ...(result.success
+        ? { activityMetadata: { remember: { facts: result.facts } } }
+        : {}),
+      ...(parsed.data.finish_turn === true ? { yieldToUser: true } : {}),
     };
   },
 } satisfies ToolDefinition;
@@ -86,15 +109,23 @@ export const recallTool = {
       };
     }
 
+    const parsed = RecallInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return invalidToolInputResult("recall", parsed.error);
+    }
     const config = getConfig();
-    const result = await runAgenticRecall(input as unknown as RecallInput, {
+    const result = await runAgenticRecall(parsed.data, {
       workingDir: context.workingDir,
       conversationId: context.conversationId,
       config,
       signal: context.signal,
     });
 
-    return { content: result.content, isError: false };
+    return {
+      content: result.content,
+      isError: false,
+      activityMetadata: { recall: result.activity },
+    };
   },
 } satisfies ToolDefinition;
 
@@ -123,7 +154,7 @@ export const recallTool = {
 export const deleteMemoryPageTool = {
   name: "delete_memory_page",
   description:
-    "Delete one concept page from your memory wiki, addressed by slug (its path under `memory/concepts/` minus `.md` — e.g. `alice`, `people/alice`, `procs/git-flow`). Use during a consolidation/maintenance pass to retire a page you merged into another, renamed (write the new page, then delete the old slug), or dropped as a dead stub. Only concept pages can be deleted — the index files (`recent.md`, `essentials.md`, `threads.md`, `buffer.md`) are rewritten with file_write/file_edit, never deleted. Idempotent: deleting a slug that is already gone is not an error. The immutable archive retains buffer history, so removing a page never loses source facts.",
+    "Delete one concept page from your memory wiki, addressed by slug (its path under `memory/concepts/` minus `.md`, e.g. `alice`, `people/alice`, `procs/git-flow`). Use during a consolidation/maintenance pass to retire a page you merged into another, renamed (write the new page, then delete the old slug), or dropped as a dead stub. Only concept pages can be deleted: the index files (`recent.md`, `essentials.md`, `threads.md`) are rewritten with file_write/file_edit, never deleted, and `buffer.md` is never written by you at all; the runtime removes the entries it handed you once the pass completes. Idempotent: deleting a slug that is already gone is not an error.",
   category: "memory",
   executionTarget: "sandbox",
   defaultRiskLevel: RiskLevel.Low,
@@ -164,10 +195,17 @@ export const deleteMemoryPageTool = {
       };
     }
 
+    throwIfCancelled(context);
+
     try {
       await deletePage(getWorkspaceDir(), slug);
       return { content: `Deleted memory page "${slug}".`, isError: false };
     } catch (err) {
+      // A cancelled turn is not a delete failure: let it reach the executor's
+      // abort handling instead of being rendered as a tool error.
+      if (context.signal?.aborted) {
+        throw err;
+      }
       return {
         content: `Error deleting memory page "${slug}": ${
           err instanceof Error ? err.message : String(err)

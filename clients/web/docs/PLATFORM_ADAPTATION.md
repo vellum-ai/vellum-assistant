@@ -39,6 +39,10 @@ matching Tailwind's `md` breakpoint. Use it for **layout**: how many columns, wh
 stacks, how many chips fit before truncating. Prefer plain `max-md:` classes when CSS can express it,
 and reach for the hook only when the difference is structural (different components, different props).
 
+Keep the ancestry of stateful route content stable when a window crosses a layout breakpoint. Change
+wrapper classes and conditional siblings around one route outlet. Moving the outlet between alternate
+parent branches remounts its subtree and discards local state such as an in-progress composer.
+
 #### Measured sizes: no new JavaScript `clamp()`
 
 The same preference, one level down. `useLayoutViewportSize()` and `useElementSize()`
@@ -196,6 +200,20 @@ reason a variant cannot cover.
 
 ---
 
+## Mobile chat detail sheets
+
+Tool calls, grouped activity, subagents, background tasks, workflows, and ACP runs share
+`MobileDetailSheet` in the chat domain. It adapts viewer data and viewport safe areas to the design
+library's `BottomSheet.Content variant="detail"`: a 90% surface with a visible conversation margin,
+handle-only drag dismissal, and reduced-motion-aware enter/exit animations. The transcript stays
+mounted, and focus returns to the originating row without scrolling it into view.
+
+The adapter uses the viewport portal host and provides its content element as the portal host for
+nested previews. Nested dialogs consume Escape before the sheet. Android Back uses the existing
+dialog dismissal path, and the sheet registers as an edge-swipe back owner for its mounted lifetime.
+The retained payload belongs to the exiting sheet so clearing viewer state can animate dismissal
+without delaying store updates or closing a subsequently opened panel.
+
 ## Navigation depth and back affordances
 
 Adaptive layout has a second failure mode beyond overlays: a route that is a detail pane beside its
@@ -305,12 +323,38 @@ the left half of a mobile viewport opens the navigation drawer. A row there keep
 on the **trailing** edge, or the two gestures resolve to the drawer and the row's leading action is
 unreachable in practice.
 
+The shared drawer/back-swipe detector yields touches inside `data-owns-horizontal-scroll` when
+the marked element's `scrollWidth` exceeds its `clientWidth` by more than 1px. Put the marker on
+the element that actually scrolls: the message Markdown table wrapper, Markdown code block's
+`pre`, structured table wrapper, and composer attachment strip. The detector checks marked
+ancestors, so a fitting inner scroller cannot hide an overflowing outer one. Ownership is decided
+at touchstart, ahead of the text-selection rule, and lasts for the full gesture, including at the
+screen edge and either scroll boundary. Fitting content keeps its existing navigation behavior.
+Use the navigation button or start outside the scroller to open the menu or go back. Drag-to-set
+controls use `data-owns-horizontal-drag` and always own their horizontal drags.
+
+Do not infer gesture ownership from computed overflow styles: `overflow-y: auto` also makes the
+default `overflow-x` compute to `auto`, so incidental horizontal overflow in a vertical page
+scroller could disable navigation across its contents. Give vertical-only scrollers explicit
+`overflow-x-hidden` when horizontal overflow should be clipped.
+
+Run the real-layout gesture regressions with `bun run test:edge-swipe:browser` from `clients/web/`
+after `bunx playwright install chromium webkit`. PR CI runs the same Chromium and WebKit checks.
+These checks use synthetic touch events, plus trusted Chromium touch input; physical iPhone and
+iPad checks remain necessary for native scrolling and navigation arbitration.
+
 Inside the open drawer the contested edge flips: a leftward drag closes it
 ([`useSwipeCloseDrawer`](../src/hooks/use-swipe-close-drawer.ts)). Rows keep both edges there,
-because that gesture stands down over anything marked `data-slot="swipe-action-row"`, which
+because that gesture stands down over anything marked `data-swipe-action-row`, which
 [`SwipeActionReveal`](../src/components/swipe-action-reveal.tsx) sets on the branch that arms its own
 handlers. A panel gesture layered over rows needs the same opt-out, or it takes drags the rows were
 built to answer.
+
+That mark is an attribute of its own rather than a `data-slot`, and it is declared after the props a
+parent injects. A row wrapped in a Radix trigger with `asChild` is handed that trigger's own
+`data-slot`, so a mark sharing that attribute is replaced on exactly the rows that carry a context
+menu as well as a swipe, and the opt-out stops applying without anything failing loudly. Write a
+marker a gesture reads where a wrapper cannot overwrite it.
 
 ---
 

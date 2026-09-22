@@ -11,6 +11,8 @@ import { ChatLayout } from "@/domains/chat/chat-layout";
 import { ChatPage } from "@/domains/chat/chat-page";
 import { ConversationRedirect } from "@/domains/chat/conversation-redirect";
 import { NotificationsBell } from "@/domains/home/components/notifications-bell";
+import { ActivationController } from "@/domains/activation/activation-controller";
+import { ActivationSuggestionsPillHost } from "@/domains/activation/components/activation-suggestions-pill";
 import { InChatOnboardingController } from "@/domains/chat/in-chat-onboarding/in-chat-onboarding-controller";
 import { NotFound } from "@/components/not-found";
 import { RouteErrorBoundary } from "@/components/route-error-boundary";
@@ -31,7 +33,7 @@ function FloatingHydrateFallback() {
 import { ActiveAssistantGate } from "@/components/layout/active-assistant-gate";
 import { remoteGatewayPublicPathPrefix } from "@/lib/auth/remote-gateway-session";
 import { isRemoteGatewayMode } from "@/lib/local-mode";
-import { routes } from "@/utils/routes";
+import { CONVERSATION_APP_SEGMENT, routes } from "@/utils/routes";
 
 /**
  * Redirects legacy `/account/oauth/desktop-complete` to the canonical
@@ -69,18 +71,34 @@ function AdvancedSettingsRedirect() {
 
 /**
  * ChatLayout with its cross-domain header chrome injected. The bell is home
- * domain (it renders the home feed) and the layout is chat domain, so the
- * composition happens here at the route level — neither domain imports the
- * other (see STYLE_GUIDE.md — Shared UI components).
+ * domain (it renders the home feed), the suggestions pill is activation
+ * domain, and the layout is chat domain, so the composition happens here at
+ * the route level and no domain imports another (see STYLE_GUIDE.md, Shared UI
+ * components).
+ *
+ * The pill is composed rather than registered through the header's slot store,
+ * which the chat page's own header registration already owns: two effects
+ * writing one slot erase each other on every conversation change. It renders
+ * null unless the activation checklist has been put off with starters left.
+ *
+ * It takes the layout's pill slot rather than riding beside the bell in the
+ * accessory one, because the accessory is restated in the mobile drawer's
+ * glyph row and a full pill has no seat there.
  */
 function ChatLayoutRoute() {
   return (
     <>
-      <ChatLayout topBarAccessory={<NotificationsBell />} />
+      <ChatLayout
+        topBarPill={<ActivationSuggestionsPillHost />}
+        topBarAccessory={<NotificationsBell />}
+      />
       {/* In-chat onboarding tour orchestrator. Renders only portals
           (stage panel, avatar tour, narration takeover) over the real
           chat; inert until the post-onboarding hand-off activates it. */}
       <InChatOnboardingController />
+      {/* Activation checklist. Renders the welcome or celebration modal when
+          the gate stack calls for one, and nothing at all otherwise. */}
+      <ActivationController />
     </>
   );
 }
@@ -385,6 +403,36 @@ export const routeTree = [
       Component: () =>
         import("@/components/companion-watch-frame-page").then(
           (m) => m.CompanionWatchFramePage,
+        ),
+    },
+  },
+  // The four edges a call's bar can be dropped on, shown over the display
+  // while the bar is being dragged mid-call. Its own click-through window the
+  // size of the work area, opened and closed by the shell with the drag;
+  // standalone for the reason the frame is.
+  {
+    path: "/assistant/floating/companion-dock-zones",
+    ErrorBoundary: RouteErrorBoundary,
+    HydrateFallback: FloatingHydrateFallback,
+    lazy: {
+      Component: () =>
+        import("@/components/companion-dock-zones-page").then(
+          (m) => m.CompanionDockZonesPage,
+        ),
+    },
+  },
+  // The popover beside the companion: an approval, a card, a link or an image
+  // the assistant needs the user to see while they are away from the app's
+  // window. Its own window sized to the card, opened and placed by the shell;
+  // standalone for the reason the surface is.
+  {
+    path: "/assistant/floating/companion-popover",
+    ErrorBoundary: RouteErrorBoundary,
+    HydrateFallback: FloatingHydrateFallback,
+    lazy: {
+      Component: () =>
+        import("@/components/companion-popover-page").then(
+          (m) => m.CompanionPopoverPage,
         ),
     },
   },
@@ -793,6 +841,15 @@ export const routeTree = [
                         ),
                     },
                   },
+                  {
+                    path: "personality",
+                    lazy: {
+                      Component: () =>
+                        import("@/domains/settings/pages/personality-page").then(
+                          (m) => m.SettingsPersonalityPage,
+                        ),
+                    },
+                  },
                   { path: "advanced", Component: AdvancedSettingsRedirect },
                   {
                     path: "danger-zone",
@@ -901,6 +958,14 @@ export const routeTree = [
                   { index: true, Component: ConversationRedirect },
                   {
                     path: "conversations/:conversationId",
+                    Component: ChatPage,
+                  },
+                  // The app the viewer shows is part of the URL so browser Back
+                  // closes it (see `useAppRouteSync`). Same component and the
+                  // same lifecycle tolerance as the conversation route above;
+                  // the extra segment only adds the `appId` param.
+                  {
+                    path: `conversations/:conversationId/${CONVERSATION_APP_SEGMENT}/:appId`,
                     Component: ChatPage,
                   },
                   {
@@ -1063,6 +1128,15 @@ export const routeTree = [
                             },
                           },
                           {
+                            path: "inbox",
+                            lazy: {
+                              Component: () =>
+                                import("@/assistant-inbox-page-route").then(
+                                  (m) => m.AssistantInboxPageRoute,
+                                ),
+                            },
+                          },
+                          {
                             // Same page, with the selected channel in the URL
                             // so a row is linkable and survives a reload.
                             // `/channels` alone still resolves, landing on the
@@ -1094,6 +1168,18 @@ export const routeTree = [
                           Component: () =>
                             import("@/domains/library/library-detail-page").then(
                               (m) => m.LibraryDetailPage,
+                            ),
+                        },
+                      },
+                      // The Inspiration List renders its own serif title and
+                      // stays outside IntelligenceLayout: it is not an About
+                      // Assistant section and must not inherit that chrome.
+                      {
+                        path: "suggestions",
+                        lazy: {
+                          Component: () =>
+                            import("@/domains/activation/pages/activation-list-route").then(
+                              (m) => m.ActivationListRoute,
                             ),
                         },
                       },

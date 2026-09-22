@@ -24,9 +24,9 @@ import { NativeAppCard } from "@/domains/settings/components/native-app-card";
 import { PairDeviceCard } from "@/domains/settings/pair-device/pair-device-card";
 import { PreferencesModal } from "@/domains/settings/components/preferences-modal";
 import { PreviewReleaseChannel } from "@/domains/settings/components/preview-release-channel";
+import { PreviewUiChannel } from "@/domains/settings/components/preview-ui-channel";
 import { ResizeCard } from "@/domains/settings/components/resize-card";
 import { RetireAssistant } from "@/domains/settings/components/retire-assistant";
-import { ShowTipsRow } from "@/domains/settings/components/show-tips-row";
 import { TimezoneSection } from "@/domains/settings/components/timezone-section";
 import { UpdateWindowModal } from "@/domains/settings/components/update-window-modal";
 import { TwoFactorSection } from "@/domains/settings/security/two-factor-section";
@@ -60,13 +60,13 @@ export function GeneralPage() {
     assistant,
     healthz,
     healthzLoading,
+    healthzFetching,
     healthzPolling,
     refetch,
     refetchUntilResized,
   } = useAssistantWithHealthz();
   const multiPlatformAssistant =
     useClientFeatureFlagStore.use.multiPlatformAssistant();
-  const teleportEnabled = useClientFeatureFlagStore.use.teleport();
   const accountMfaEnabled = useClientFeatureFlagStore.use.accountMfa();
   const settingsSleepPolicy =
     useAssistantFeatureFlagStore.use.settingsSleepPolicy();
@@ -276,6 +276,7 @@ export function GeneralPage() {
               {t("generalPage.updatesLoginNotice")}
             </PlatformLoginNotice>
           )}
+          <PreviewUiChannel />
         </div>
       </DetailCard>
       {infraGate === "full" && platformAssistant && (
@@ -291,6 +292,7 @@ export function GeneralPage() {
           assistant={assistant}
           healthz={healthz}
           healthzLoading={healthzLoading}
+          healthzFetching={healthzFetching}
           healthzPolling={healthzPolling}
           refetch={refetch}
           refetchUntilResized={refetchUntilResized}
@@ -319,7 +321,6 @@ export function GeneralPage() {
       >
         <div className="flex flex-col gap-5">
           <ThemePicker />
-          <ShowTipsRow />
           <AppIconRow />
         </div>
       </DetailCard>
@@ -328,8 +329,6 @@ export function GeneralPage() {
         open={preferencesOpen}
         onClose={() => setPreferencesOpen(false)}
       />
-
-      {teleportEnabled && isElectron() && <TeleportCard />}
 
       <NativeAppCard />
 
@@ -369,6 +368,8 @@ export function GeneralPage() {
           }
         />
       )}
+
+      {isElectron() && <TeleportCard />}
 
       {(showRetire || showDeleteAccount) && (
         <DetailCard variant="danger" title={t("generalPage.dangerZoneTitle")}>

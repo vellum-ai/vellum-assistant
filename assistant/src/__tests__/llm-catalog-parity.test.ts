@@ -2,10 +2,13 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
+import { DEFAULT_PROVIDER_CHOICES } from "../config/schemas/llm.js";
 import {
+  catalogModelSupportsText,
   getCatalogProviderForModel,
   isModelInCatalog,
   PROVIDER_CATALOG,
+  supportsForcedToolChoiceWithThinking,
 } from "../providers/model-catalog.js";
 import { PLATFORM_PROVIDER_META } from "../providers/platform-proxy/constants.js";
 import { resolvePricing, resolvePricingForUsage } from "../util/pricing.js";
@@ -55,6 +58,7 @@ interface ClientCatalogModel {
   supportsCaching?: boolean;
   supportsVision?: boolean;
   supportsToolUse?: boolean;
+  supportsText?: boolean;
   pricing?: {
     inputPer1mTokens: number;
     outputPer1mTokens: number;
@@ -203,6 +207,7 @@ describe("LLM catalog parity: daemon vs client", () => {
         expect(clientModel.supportsCaching).toBe(daemonModel.supportsCaching);
         expect(clientModel.supportsVision).toBe(daemonModel.supportsVision);
         expect(clientModel.supportsToolUse).toBe(daemonModel.supportsToolUse);
+        expect(clientModel.supportsText).toBe(daemonModel.supportsText);
         expect(clientModel.pricing).toEqual(daemonModel.pricing);
         expect(clientModel.featureFlag).toBe(daemonModel.featureFlag);
       }
@@ -228,6 +233,16 @@ describe("LLM catalog parity: daemon vs client", () => {
     }
   });
 
+  test("jev-latest opts out of chat text generation", () => {
+    expect(catalogModelSupportsText("typesafe", "jev-latest")).toBe(false);
+    expect(catalogModelSupportsText("anthropic", "claude-opus-4-8")).toBe(true);
+    expect(catalogModelSupportsText("openai-compatible", "local-model")).toBe(
+      true,
+    );
+    expect(DEFAULT_PROVIDER_CHOICES).not.toContain("typesafe");
+    expect(DEFAULT_PROVIDER_CHOICES).toContain("poolside");
+  });
+
   test("cache pricing rates are positive when defined", () => {
     for (const entry of PROVIDER_CATALOG) {
       for (const model of entry.models) {
@@ -251,7 +266,9 @@ describe("LLM catalog parity: daemon vs client", () => {
   });
 
   test("OpenRouter supportsCaching requires cache-read pricing", () => {
-    const openrouter = PROVIDER_CATALOG.find((entry) => entry.id === "openrouter");
+    const openrouter = PROVIDER_CATALOG.find(
+      (entry) => entry.id === "openrouter",
+    );
     expect(openrouter).toBeDefined();
 
     for (const model of openrouter!.models) {
@@ -265,7 +282,9 @@ describe("LLM catalog parity: daemon vs client", () => {
   });
 
   test("OpenRouter cache-read pricing implies supportsCaching except xAI", () => {
-    const openrouter = PROVIDER_CATALOG.find((entry) => entry.id === "openrouter");
+    const openrouter = PROVIDER_CATALOG.find(
+      (entry) => entry.id === "openrouter",
+    );
     expect(openrouter).toBeDefined();
 
     for (const model of openrouter!.models) {
@@ -287,7 +306,9 @@ describe("LLM catalog parity: daemon vs client", () => {
   });
 
   test("OpenRouter catalog drops ids OpenRouter no longer serves", () => {
-    const openrouter = PROVIDER_CATALOG.find((entry) => entry.id === "openrouter");
+    const openrouter = PROVIDER_CATALOG.find(
+      (entry) => entry.id === "openrouter",
+    );
     expect(openrouter).toBeDefined();
     const ids = new Set(openrouter!.models.map((model) => model.id));
     expect(ids.has("deepseek/deepseek-v3.2-speciale")).toBe(false);
@@ -549,6 +570,33 @@ describe("LLM catalog parity: daemon vs client", () => {
 
   test("getCatalogProviderForModel returns undefined for unknown IDs", () => {
     expect(getCatalogProviderForModel("unknown/model")).toBeUndefined();
+  });
+
+  test("forced tool choice with thinking is scoped to OpenRouter Kimi K2.6", () => {
+    expect(
+      supportsForcedToolChoiceWithThinking(
+        "openrouter",
+        "moonshotai/kimi-k2.6",
+      ),
+    ).toBe(false);
+    expect(
+      supportsForcedToolChoiceWithThinking(
+        "openrouter",
+        "moonshotai/kimi-k2.6-20260420",
+      ),
+    ).toBe(false);
+    expect(
+      supportsForcedToolChoiceWithThinking(
+        "vercel-ai-gateway",
+        "moonshotai/kimi-k2.6",
+      ),
+    ).toBe(true);
+    expect(
+      supportsForcedToolChoiceWithThinking("openrouter", "unknown/model"),
+    ).toBe(true);
+    expect(
+      supportsForcedToolChoiceWithThinking("unknown-provider", "unknown/model"),
+    ).toBe(true);
   });
 
   test("Gemini 2.5 Pro catalog context matches provider limits", () => {

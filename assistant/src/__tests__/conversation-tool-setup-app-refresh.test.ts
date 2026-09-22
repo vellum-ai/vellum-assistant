@@ -7,8 +7,8 @@
  * app_id from the executor's typed `resolvedAppId` side channel — and that
  * non-hooked tools (app_file_edit, app_file_write) do not trigger side effects.
  *
- * File-change detection for file_write/file_edit is handled by
- * AppSourceWatcher (see app-source-watcher.test.ts).
+ * File-change detection for file_write/file_edit is not hooked: compile with
+ * `app_refresh` or `assistant apps refresh` after a batch of edits.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -50,9 +50,7 @@ mock.module("../tools/browser/browser-screencast.js", () => ({
   registerConversationSender: mock(() => {}),
 }));
 
-// Stub app-store functions used by other modules (e.g. app-source-watcher,
-// conversation-surfaces) so tool-side-effects' hooks can run without touching
-// the real app store during tests.
+// Stub app-store functions used by other modules (e.g. conversation-surfaces)
 mock.module("../apps/app-store.js", () => ({
   getApp: mock(() => null),
   getAppDirPath: mock(() => "/tmp/test-apps/dummy"),

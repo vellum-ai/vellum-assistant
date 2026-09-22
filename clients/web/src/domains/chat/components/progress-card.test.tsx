@@ -4,7 +4,8 @@
  * The trigger names its own state, so the label, the glyph and the loading
  * sweep all have to agree with the plan: "Progress" with a step ring and a
  * shimmering label while work is outstanding, "Finished" with a check and a
- * label at rest once it is not.
+ * label at rest once the plan has an outcome, and "Stopped" with the ring at
+ * rest when the plan was parked with neither.
  */
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
@@ -148,6 +149,24 @@ describe("ProgressCard trigger", () => {
       "Finished",
     );
     expect(screen.queryByTestId("progress-label-shimmer")).toBeNull();
+  });
+
+  test("a parked plan reads Stopped, keeps the ring, and shows no check", () => {
+    // How the daemon leaves a plan when the turn that drove it ends without
+    // the model asserting an outcome: no step in flight, nothing finished.
+    // Calling that "Finished" would claim work the model never confirmed.
+    seedPlan("pending", [
+      { label: "Step 1", status: "completed" },
+      { label: "Step 2", status: "pending" },
+    ]);
+    renderCard();
+
+    const toggle = screen.getByTestId("progress-card-toggle");
+    expect(toggle.textContent).toContain("Stopped");
+    expect(toggle.textContent).not.toContain("Finished");
+    expect(screen.queryByTestId("progress-label-shimmer")).toBeNull();
+    // The ring, at the plan's position, rather than a check.
+    expect(toggle.querySelectorAll("circle")).toHaveLength(2);
   });
 
   test("a step in flight counts as running when the card says nothing", () => {

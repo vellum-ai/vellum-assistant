@@ -19,7 +19,7 @@ import {
 import { motion, useReducedMotion } from "motion/react";
 
 import { AvatarRenderer } from "@/components/avatar-renderer";
-import { DetailShell } from "@/components/detail-shell";
+import { DetailShell, DetailShellNotice } from "@/components/detail-shell";
 import {
   AnimatedMetricCard,
   formatNumber,
@@ -27,6 +27,7 @@ import {
 import { StatusBadge } from "@/domains/chat/components/subagent-status-badge";
 import { canAddressSubagentDetail } from "@/domains/chat/store-helpers/subagent-detail-addressability";
 import type { SubagentEntry } from "@/domains/chat/subagent-store";
+import { useSubagentHistory } from "@/domains/chat/hooks/use-subagent-history";
 import { subagentTraits } from "@/utils/avatar-subagent";
 import { isActiveStatus } from "@/utils/subagent-status";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
@@ -43,12 +44,21 @@ import { ICON_MAP } from "@/domains/chat/components/tool-progress-card/phase-gro
 import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/three-dot-indicator";
 import {
   ToolDetailBody,
+  ToolDetailHeaderTitle,
   toolDetailHeaderTitle,
 } from "@/domains/chat/components/tool-detail-panel";
+import {
+  findToolCall,
+  useLiveToolCall,
+  SNAPSHOT_TOOL_CALL_SOURCE,
+  type ToolCallSource,
+} from "@/domains/chat/hooks/use-live-tool-call";
 import { useSubagentSteps } from "@/domains/chat/subagent-step-projection";
 import { useSubagentStepDetails } from "@/domains/chat/subagent-detail-projection";
+import { resolveSubagentStepDetail } from "@/domains/chat/utils/subagent-step-detail";
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 import { useTranslation } from "@/i18n";
+import { useOverflows } from "@/hooks/use-overflows";
 
 /**
  * The icon name for a nested step detail — the same glyph its timeline pill
@@ -137,48 +147,60 @@ export function SubagentDetailPanel({
   // directly, so it needs only the projected `steps`.
   const { steps } = useSubagentSteps(entry.events);
 
-  // `toolCallId`-keyed map of nested tool-detail payloads, used to swap the
-  // panel body to a tool's input/output when its timeline pill is clicked —
-  // without ever touching the global viewer-store / main view.
-  //
-  // Detail payloads for clickable timeline steps, keyed by the id a pill emits.
-  // Tool steps key on their `toolUseId` (present for both live streaming events
-  // and reloaded/history subagents hydrated via `onRequestDetail` from
-  // `GET /subagents/:id`, which emits the tool id + raw input that
-  // `mapDetailEvents` carries through); thinking/text steps key on the source
-  // event id and carry the full, un-truncated reasoning. Steps with no entry
-  // here render as non-clickable pills — a graceful fallback, not an error.
-  //
-  // Built incrementally (mirrors `useSubagentSteps`): the projector replays only
-  // the events that changed since the last render through the shared
-  // `applyDetailEvent` reducer, with an O(n) full-rebuild fallback. This map is
-  // read lazily (only on pill click), so the win is avoiding the O(n) re-walk
-  // per streamed event, not re-render avoidance.
+  // Reasoning payloads for clickable thinking pills, keyed by the source text
+  // event's id and carrying the full, un-truncated reasoning. Built
+  // incrementally (mirrors `useSubagentSteps`): the projector replays only the
+  // events that changed since the last render.
   const stepDetails = useSubagentStepDetails(entry.events);
 
-  // Which step's detail (if any) is shown nested inside this panel — the key
-  // into `stepDetails` (a tool call or a thinking segment), or `null` to show
-  // the timeline. Reset on subagent switch via the render-phase block below so
-  // a detail opened for one subagent doesn't leak onto the next.
+  // Tool pills key on their tool-use id, the identity of the call in this
+  // subagent's history, where the nested detail reads it from.
+  const toolCallSource = useMemo<ToolCallSource>(
+    () => ({ kind: "subagent", subagentId: entry.subagentId }),
+    [entry.subagentId],
+  );
+
+  // The history those calls live in, kept loaded while the panel shows it.
+  const loadHistory = useSubagentHistory(entry, assistantId);
+
+  // Which step's detail (if any) is shown nested inside this panel: a tool
+  // call's id or a thinking segment's key, or `null` to show the timeline.
+  // Reset on subagent switch via the render-phase block below so a detail
+  // opened for one subagent doesn't leak onto the next.
   const [selectedDetailKey, setSelectedDetailKey] = useState<string | null>(
     null,
   );
 
-  // Read `stepDetails` through a ref so the click handler below can stay
-  // identity-stable across `entry.events` changes. `stepDetails` is rebuilt
-  // (new Map identity) on most streamed events, so closing over it directly
-  // would change the handler identity every tick — which, passed down to the
-  // now-memoized `SubagentPhaseRow`s, would re-render every row on each event.
-  // The ref is assigned during render (not in an effect) so the handler always
-  // sees the latest map without listing it as a dependency.
+  // Read the openable targets through refs so the click handler below stays
+  // identity-stable while events stream: both change on most streamed events,
+  // and a changing handler passed to the memoized `SubagentPhaseRow`s would
+  // re-render every row on each event. Synced in a layout effect, so a click
+  // after commit always reads the committed values.
   const stepDetailsRef = useRef(stepDetails);
-  // eslint-disable-next-line react-hooks/refs -- render-phase sync so the stable handler below reads the latest map
-  stepDetailsRef.current = stepDetails;
-  const handleStepDetailClick = useCallback((key: string) => {
-    if (stepDetailsRef.current.has(key)) {
-      setSelectedDetailKey(key);
-    }
-  }, []);
+  const historyRef = useRef(entry.history);
+  useLayoutEffect(() => {
+    stepDetailsRef.current = stepDetails;
+    historyRef.current = entry.history;
+  }, [stepDetails, entry.history]);
+  const handleStepDetailClick = useCallback(
+    (key: string) => {
+      // A pill always opens: the call from the subagent's history when it is
+      // there, otherwise the detail built from the timeline's own events. A
+      // missing history (a failed fetch, or one a stream gap dropped) reloads
+      // in the background, and the canonical call replaces the fallback when
+      // it lands.
+      if (historyRef.current === null) {
+        void loadHistory();
+      }
+      if (
+        stepDetailsRef.current.has(key) ||
+        findToolCall(historyRef.current?.messages ?? [], key)
+      ) {
+        setSelectedDetailKey(key);
+      }
+    },
+    [loadHistory],
+  );
 
   // Which timeline groups are expanded. Lifted out of `SubagentPhaseTimeline`
   // so the expansion survives the timeline unmounting while a nested tool
@@ -191,50 +213,32 @@ export function SubagentDetailPanel({
   // Objective collapse/expand. The toggle only appears when the clamped body
   // actually overflows, so short objectives show no affordance.
   const [objectiveExpanded, setObjectiveExpanded] = useState(false);
-  const [objectiveOverflows, setObjectiveOverflows] = useState(false);
-  const objectiveBodyRef = useRef<HTMLParagraphElement>(null);
+  // Measured against the collapsed clamp, and held while expanded so "Show
+  // less" stays. Keyed on the subagent as well as the text, so a switch
+  // between two subagents with the same objective still re-measures.
+  const { ref: objectiveBodyRef, overflows: objectiveOverflows } =
+    useOverflows<HTMLParagraphElement>({
+      contentKey: `${entry.subagentId}:${entry.objective}`,
+      paused: objectiveExpanded,
+    });
 
   // Reset objective collapse state when the subagent changes. The desktop
   // parent reuses this instance across subagent switches (no `key`), so without
-  // this an objective expanded for one subagent leaks onto the next — and since
-  // the measurement effect below early-returns while `objectiveExpanded` is
-  // true, the new (possibly short) objective would render stale-expanded with a
-  // spurious "Show less" and never re-measure. Resetting during render (React's
-  // "store previous prop" pattern) clears both flags before paint (no flash);
-  // clearing `objectiveOverflows` lets the effect re-measure from a clean state.
+  // this an objective expanded for one subagent leaks onto the next, and since
+  // the measurement holds while expanded, the new (possibly short) objective
+  // would render stale-expanded with a spurious "Show less". Resetting during
+  // render (React's "store previous prop" pattern) collapses it before paint
+  // (no flash), which resumes the measurement for the new objective.
   const [prevSubagentId, setPrevSubagentId] = useState(entry.subagentId);
   if (prevSubagentId !== entry.subagentId) {
     setPrevSubagentId(entry.subagentId);
     setObjectiveExpanded(false);
-    setObjectiveOverflows(false);
     // Switching subagents returns the panel to the timeline view and clears
     // the previous subagent's expanded groups.
     setSelectedDetailKey(null);
     setExpandedSectionKeys(new Set());
   }
 
-  // Measure overflow against the collapsed clamp. While collapsed the clamp is
-  // the source of truth, so `scrollHeight` exceeds `clientHeight` only when the
-  // body is taller than the visible 5 lines. Skip measuring while expanded
-  // (the clamp is removed, which would otherwise report no overflow) so the
-  // "Show less" affordance stays visible.
-  //
-  // Depend on `entry.subagentId` too: the render-phase reset above forces
-  // `objectiveOverflows` to `false` on a subagent switch, so the effect must
-  // re-run to recompute it. Without the id in the deps a switch between two
-  // subagents whose objective text is byte-identical changes neither
-  // `entry.objective` nor `objectiveExpanded`, the effect skips, and the
-  // toggle would stay incorrectly hidden for an overflowing objective.
-  useLayoutEffect(() => {
-    if (objectiveExpanded) {
-      return;
-    }
-    const node = objectiveBodyRef.current;
-    if (!node) {
-      return;
-    }
-    setObjectiveOverflows(node.scrollHeight > node.clientHeight);
-  }, [entry.subagentId, entry.objective, objectiveExpanded]);
 
   // The panel is where a settled subagent's timeline is fetched: the
   // conversation-load auto-fetch only covers live rows, so opening one of the
@@ -249,11 +253,16 @@ export function SubagentDetailPanel({
     }
   }, [entry.subagentId, canFetchDetail, entry.events.length, onRequestDetail]);
 
-  // The selected tool's nested payload, or `undefined` when nothing is selected
-  // or the id has no payload (defensive — fall back to the timeline view).
-  const activeDetail = selectedDetailKey
-    ? stepDetails.get(selectedDetailKey)
-    : undefined;
+  // The selected step's nested detail: the canonical call in this subagent's
+  // history merged with the payload built from the timeline's events (see
+  // `resolveSubagentStepDetail`). The merge is remade from the live call on
+  // every render, so the body reads it as a snapshot rather than re-reading
+  // the canonical copy alone.
+  const liveToolCall = useLiveToolCall(toolCallSource, selectedDetailKey);
+  const activeDetail = resolveSubagentStepDetail(
+    liveToolCall,
+    selectedDetailKey ? stepDetails.get(selectedDetailKey) : undefined,
+  );
 
   // Returns from a nested step detail to the subagent timeline. Clearing only
   // `selectedDetailKey` preserves `expandedSectionKeys` (and the objective
@@ -268,6 +277,12 @@ export function SubagentDetailPanel({
   // The header title tracks the breadcrumb's deepest crumb: the subagent at the
   // timeline, the drilled-into step once a detail is open.
   const headerTitle = activeDetail ? detailTitle : entry.label;
+  // A drilled-into tool step gets the shared tool-detail header so it is headed
+  // the same way as in the main panel; thinking steps and the timeline keep the
+  // plain string title.
+  const showToolHeader = Boolean(
+    activeDetail && activeDetail.kind !== "thinking",
+  );
 
   return (
     <DetailShell
@@ -339,7 +354,15 @@ export function SubagentDetailPanel({
           )}
         </>
       }
-      title={headerTitle}
+      title={showToolHeader ? undefined : headerTitle}
+      titleNode={
+        showToolHeader && activeDetail ? (
+          <ToolDetailHeaderTitle
+            detail={activeDetail}
+            source={SNAPSHOT_TOOL_CALL_SOURCE}
+          />
+        ) : undefined
+      }
       headerTrailing={<StatusBadge status={entry.status} />}
       headerActions={
         isRunning && onStop ? (
@@ -380,6 +403,7 @@ export function SubagentDetailPanel({
               ) : (
                 <ToolDetailBody
                   detail={activeDetail}
+                  source={SNAPSHOT_TOOL_CALL_SOURCE}
                   assistantId={assistantId}
                 />
               )}
@@ -505,12 +529,9 @@ export function SubagentDetailPanel({
                     isRunning={isRunning}
                   />
                 ) : (
-                  <Typography
-                    variant="body-small-default"
-                    className="py-4 text-center text-[var(--content-tertiary)]"
-                  >
+                  <DetailShellNotice>
                     {t("subagentDetailPanel.noEventsYet")}
-                  </Typography>
+                  </DetailShellNotice>
                 )}
               </div>
             </>

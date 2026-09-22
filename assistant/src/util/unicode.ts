@@ -68,6 +68,35 @@ export function safeStringSlice(
 }
 
 /**
+ * A `[start, end)` character window of at most `maxChars` code units that
+ * never splits a surrogate pair, for paging through text by offset. A split
+ * leaves a lone half at each edge, and each encodes to U+FFFD, so the
+ * character is lost from both this window and the next one paged in after
+ * it. `charCodeAt` reads the underlying text so a caller need not hold it as
+ * one string.
+ */
+export function surrogateSafeWindow(
+  total: number,
+  charCodeAt: (index: number) => number,
+  requestedStart: number,
+  maxChars: number,
+): { start: number; end: number } {
+  let start = Math.max(0, Math.min(requestedStart, total));
+  if (start > 0 && start < total && isLowSurrogate(charCodeAt(start))) {
+    start -= 1;
+  }
+
+  let end = Math.min(total, start + maxChars);
+  if (end > start && end < total && isHighSurrogate(charCodeAt(end - 1))) {
+    // Backing off would empty a one-character window, which stalls paging on
+    // the same offset, so take the whole pair instead.
+    end = end - 1 > start ? end - 1 : Math.min(total, end + 1);
+  }
+
+  return { start, end };
+}
+
+/**
  * Replace every orphaned UTF-16 surrogate in `str` with U+FFFD
  * (REPLACEMENT CHARACTER).
  *
@@ -126,6 +155,15 @@ export interface DeepSanitizeResult<T> {
   fixedStringCount: number;
 }
 
+export interface DeepSanitizeOptions {
+  /**
+   * Skip a plain-object property entirely: its value is neither scanned nor
+   * copied. For fields known to hold ASCII (base64 payloads), scanning is
+   * pure cost.
+   */
+  skipKey?: (key: string, parent: Record<string, unknown>) => boolean;
+}
+
 /**
  * Recursively walk arrays and plain objects, replacing orphaned surrogates in
  * every string value. Non-plain objects (class instances, Date, Buffer, Map,
@@ -136,8 +174,10 @@ export interface DeepSanitizeResult<T> {
  */
 export function stripOrphanedSurrogatesDeep<T>(
   input: T,
+  options: DeepSanitizeOptions = {},
 ): DeepSanitizeResult<T> {
   let fixedStringCount = 0;
+  const { skipKey } = options;
 
   const walk = (value: unknown): { value: unknown; changed: boolean } => {
     if (typeof value === "string") {
@@ -178,7 +218,10 @@ export function stripOrphanedSurrogatesDeep<T>(
       let next: Record<string, unknown> | null = null;
       for (let i = 0; i < keys.length; i++) {
         const key = keys[i]!;
-        const result = walk(source[key]);
+        const result =
+          skipKey?.(key, source) === true
+            ? { value: source[key], changed: false }
+            : walk(source[key]);
         if (result.changed && next === null) {
           next = {};
           for (let j = 0; j < i; j++) {

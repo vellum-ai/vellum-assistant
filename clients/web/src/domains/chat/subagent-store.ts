@@ -23,20 +23,35 @@ import { createSelectors } from "@/utils/create-selectors";
 import { recordDiagnostic } from "@/lib/diagnostics";
 import { captureError } from "@/lib/sentry/capture-error";
 import {
+  AssistantEventSchema,
   SubagentStatusSchema,
+  type AssistantEventEnvelope,
   type SubagentStatus,
   type SubagentInnerEvent,
 } from "@vellumai/assistant-api";
-import type { ToolActivityMetadata } from "@/assistant/web-activity-types";
+import {
+  applyEvent,
+  emptyHistory,
+  resolveSeed,
+} from "@/domains/chat/transcript/rolling-snapshot";
+import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types";
+import { getSseEnvelopesSince } from "@/lib/streaming/stream-debug";
+import type { ToolActivityMetadata } from "@vellumai/assistant-api";
 import { isActiveStatus, shouldApplyStatus } from "@/utils/subagent-status";
 import { supportsSubagentsReconcile } from "@/lib/backwards-compat/subagents-reconcile";
 import { fetchSubagentDetail } from "./fetch-subagent-detail";
+import { fetchSubagentHistory } from "./fetch-subagent-history";
 import { mapDetailEvents } from "./map-detail-events";
 import { setToolUseAnchor } from "./store-helpers/by-tool-use-id-index";
 import {
   canAddressSubagentDetail,
   resolveSubagentDetailConversationId,
 } from "./store-helpers/subagent-detail-addressability";
+import {
+  COMMAND_KEYS,
+  FILE_PATH_KEYS,
+  readToolInputString,
+} from "@/domains/chat/utils/tool-input";
 
 // ---------------------------------------------------------------------------
 // State
@@ -58,7 +73,7 @@ export interface SubagentTimelineEvent {
   toolUseId?: string;
   /**
    * `content` remains the ≤120-char summary that drives labels; `input`/
-   * `result` are the raw payloads used only by the nested tool-detail view.
+   * `result` are the raw payloads the timeline's richer labels read.
    */
   input?: Record<string, unknown>;
   result?: string;
@@ -85,6 +100,16 @@ export interface SubagentEntry {
   outputTokens: number;
   spawnedAt: number;
   events: SubagentTimelineEvent[];
+  /**
+   * The subagent's own conversation in the transcript's canonical form: the
+   * child's `/messages` snapshot advanced by folding its `subagent_event`
+   * inner events, exactly as the main chat folds its own stream. `null` until
+   * seeded, which `loadHistoryIfNeeded` does on demand; while unseeded, live
+   * events are not folded (the seed replays the buffered tail). A subagent
+   * whose spawn arrives live, or with no child conversation to fetch, seeds
+   * empty at spawn, since every event it will have arrives on the stream.
+   */
+  history: PaginatedHistoryResult | null;
   /** The subagent's own conversation ID, used to fetch detail data. */
   conversationId?: string;
   /**
@@ -264,6 +289,45 @@ export interface SubagentActions {
     event: SubagentInnerEvent;
     timestamp: number;
   }) => void;
+
+  /**
+   * Fold one stream envelope into its subagent's history when it is a
+   * `subagent_event` for a seeded entry. Idempotent by the envelope's `seq`,
+   * which the child's `/messages` anchor shares.
+   */
+  applySubagentEnvelope: (envelope: AssistantEventEnvelope) => void;
+
+  /**
+   * Seed (or resync) a subagent's history from its child conversation's
+   * snapshot, replaying the buffered `subagent_event` tail after the
+   * snapshot's anchor. Same merge rule as the main chat's `seedSnapshot`
+   * (`resolveSeed`).
+   */
+  seedHistory: (subagentId: string, snapshot: PaginatedHistoryResult) => void;
+
+  /** Seed an unseeded entry with an empty history so live events fold. */
+  seedLiveHistory: (subagentId: string) => void;
+
+  /**
+   * Fetch and seed a subagent's history from its child conversation when it
+   * has none. Called by the surfaces that read the history (the detail panel),
+   * so a subagent that is never opened costs no request. Concurrent calls for
+   * one subagent share a single fetch. A failed fetch leaves the history
+   * unseeded, so the next call retries rather than settling on an empty one.
+   */
+  loadHistoryIfNeeded: (
+    assistantId: string,
+    subagentId: string,
+  ) => Promise<void>;
+
+  /**
+   * Drop the fetched histories of a parent conversation's subagents after its
+   * stream proved a gap: events the histories never folded are missing, and
+   * the next `loadHistoryIfNeeded` reseeds them from the child conversations.
+   * A fetch already in flight is marked stale and refetches instead of
+   * seeding. A history no fetch can reseed (no child conversation) is kept.
+   */
+  invalidateHistories: (parentConversationId: string) => void;
 
   loadDetail: (params: {
     subagentId: string;
@@ -542,25 +606,31 @@ function mapInnerEventType(
   }
 }
 
+/**
+ * Fields that can identify a tool call, most identifying first. Not aliases of
+ * one another: this scan does not know which tool ran, so it takes whichever of
+ * these the input happens to carry.
+ */
 const TOOL_INPUT_PRIORITY_KEYS = [
-  "command",
-  "file_path",
-  "path",
+  ...COMMAND_KEYS,
+  ...FILE_PATH_KEYS,
   "query",
   "url",
   "pattern",
   "glob",
 ] as const;
 
-/** Extract a short summary string from a tool_use_start input object. */
+/**
+ * Extract a short summary string from a tool_use_start input object.
+ *
+ * Unlike the per-tool readers this does not know which tool ran, so it takes
+ * the first identifying string the input happens to carry. Blank values are
+ * skipped rather than winning: an input with an empty `command` and a real
+ * `url` summarises as the url.
+ */
 function summarizeToolInput(input: Record<string, unknown>): string {
-  for (const key of TOOL_INPUT_PRIORITY_KEYS) {
-    const value = input[key];
-    if (typeof value === "string") {
-      return value.length > 120 ? value.slice(0, 117) + "..." : value;
-    }
-  }
-  return "";
+  const value = readToolInputString(input, ...TOOL_INPUT_PRIORITY_KEYS);
+  return value.length > 120 ? value.slice(0, 117) + "..." : value;
 }
 
 /**
@@ -578,6 +648,68 @@ function extractSearchQuery(event: SubagentInnerEvent): string | undefined {
   const query = meta?.webSearch?.query;
   return typeof query === "string" && query.length > 0 ? query : undefined;
 }
+
+/**
+ * The inner event of a `subagent_event` envelope re-enveloped under the outer
+ * envelope's `seq` and `emittedAt`, so the transcript fold can apply it. `null`
+ * for any other event, or an inner event the canonical schema rejects.
+ */
+function unwrapSubagentEnvelope(
+  envelope: AssistantEventEnvelope,
+): { subagentId: string; envelope: AssistantEventEnvelope } | null {
+  const message = envelope.message;
+  if (message.type !== "subagent_event") {
+    return null;
+  }
+  const inner = AssistantEventSchema.safeParse(message.event);
+  if (!inner.success) {
+    return null;
+  }
+  return {
+    subagentId: message.subagentId,
+    envelope: { ...envelope, message: inner.data },
+  };
+}
+
+/**
+ * The buffered inner events for one subagent with `seq > sinceSeq`, or `null`
+ * when the buffer can't bridge the anchor (see `getSseEnvelopesSince`). The
+ * wrapping envelopes are scoped to the parent conversation.
+ */
+function subagentEnvelopesSince(
+  parentConversationId: string | undefined,
+  subagentId: string,
+  sinceSeq: number | null,
+): AssistantEventEnvelope[] | null {
+  if (!parentConversationId) {
+    return null;
+  }
+  const tail = getSseEnvelopesSince(parentConversationId, sinceSeq);
+  if (tail === null) {
+    return null;
+  }
+  const inner: AssistantEventEnvelope[] = [];
+  for (const envelope of tail) {
+    const unwrapped = unwrapSubagentEnvelope(envelope);
+    if (unwrapped?.subagentId === subagentId) {
+      inner.push(unwrapped.envelope);
+    }
+  }
+  return inner;
+}
+
+/**
+ * An in-flight history fetch. `stale` is set when a stream gap invalidates the
+ * subagent's history while the fetch is out: its snapshot may predate events
+ * the gap dropped, so it must not seed.
+ */
+interface HistoryLoad {
+  promise: Promise<void>;
+  stale: boolean;
+}
+
+/** In-flight history fetches by subagent id, so concurrent loads share one. */
+const historyLoads = new Map<string, HistoryLoad>();
 
 let timelineEventCounter = 0;
 
@@ -772,9 +904,8 @@ async function runReconcile(
   // died with it, and no terminal event is ever coming. Re-checked against the
   // store as it stands now, a terminal event that landed during the
   // round-trip already settled the row truthfully, and ownership is re-tested
-  // because a stub `ensureEntry` attributed to the conversation on screen can
-  // be re-parented by a later `subagent_event`. This response says nothing
-  // about a row that now belongs to a different conversation.
+  // because a later `subagent_event` can re-parent a stub. This response says
+  // nothing about a row that now belongs to a different conversation.
   const { byId, changeStatus } = get();
   for (const subagentId of candidateIds) {
     const entry = byId[subagentId];
@@ -814,6 +945,7 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
       outputTokens: params.outputTokens ?? 0,
       spawnedAt: params.timestamp,
       events: [],
+      history: null,
       conversationId: params.conversationId,
       parentConversationId: params.parentConversationId,
       parentMessageStableId: params.parentMessageStableId,
@@ -851,14 +983,10 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
     if (get().byId[params.subagentId]) {
       return;
     }
-    // An entry with no parent id at all is scoped to no conversation: the
-    // overlay shows it everywhere and reconcile's per-parent orphan pass
-    // settles it nowhere. A `subagent_status_changed` carries no ids, so fall
-    // back to the conversation on screen.
-    const parentConversationId =
-      params.parentConversationId ??
-      useConversationStore.getState().activeConversationId ??
-      undefined;
+    // An entry with no parent id is scoped to no conversation: the overlay
+    // shows it everywhere and reconcile's per-parent orphan pass settles it
+    // nowhere. Only the caller's evidence scopes the stub.
+    const { parentConversationId } = params;
     const status = params.status ?? "running";
 
     get().spawnSubagent({
@@ -878,15 +1006,18 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
       outputTokens: params.outputTokens,
     });
 
+    const addressable = canAddressSubagentDetail({
+      conversationId: params.conversationId,
+      parentConversationId,
+    });
+    // No fetch can ever seed an unaddressable row, so its history is what the
+    // stream delivers from here on.
+    if (!addressable) {
+      get().seedLiveHistory(params.subagentId);
+    }
     // Only a live row can have its backfill overtaken by streamed events, and
     // only an addressable one has a backfill coming at all.
-    if (
-      !isActiveStatus(status) ||
-      !canAddressSubagentDetail({
-        conversationId: params.conversationId,
-        parentConversationId,
-      })
-    ) {
+    if (!isActiveStatus(status) || !addressable) {
       return;
     }
     const { byId } = get();
@@ -1043,6 +1174,135 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
         },
       },
     });
+  },
+
+  applySubagentEnvelope: (envelope) => {
+    const unwrapped = unwrapSubagentEnvelope(envelope);
+    if (!unwrapped) {
+      return;
+    }
+    const { byId } = get();
+    const existing = byId[unwrapped.subagentId];
+    if (!existing?.history) {
+      return;
+    }
+    const history = applyEvent(existing.history, unwrapped.envelope);
+    // Events that change no content (usage, lifecycle) leave the entry alone
+    // rather than churn every subscriber for a watermark.
+    if (history.messages === existing.history.messages) {
+      return;
+    }
+    set({
+      byId: {
+        ...byId,
+        [unwrapped.subagentId]: { ...existing, history },
+      },
+    });
+  },
+
+  seedHistory: (subagentId, snapshot) => {
+    const { byId } = get();
+    const existing = byId[subagentId];
+    if (!existing) {
+      return;
+    }
+    const seed = resolveSeed(
+      existing.history,
+      snapshot,
+      subagentEnvelopesSince(
+        existing.parentConversationId,
+        subagentId,
+        snapshot.seq ?? null,
+      ),
+    );
+    if (seed.kind === "skip_anchorless") {
+      recordDiagnostic("subagent_history_seed_skipped_anchorless", {
+        subagentId,
+        liveSeq: seed.liveSeq,
+      });
+      return;
+    }
+    if (seed.kind === "skip_stale_anchor") {
+      recordDiagnostic("subagent_history_seed_skipped_stale_anchor", {
+        subagentId,
+        liveSeq: seed.liveSeq,
+        fetchedSeq: seed.fetchedSeq,
+      });
+      return;
+    }
+    set({
+      byId: { ...byId, [subagentId]: { ...existing, history: seed.history } },
+    });
+  },
+
+  seedLiveHistory: (subagentId) => {
+    if (get().byId[subagentId]?.history !== null) {
+      return;
+    }
+    get().seedHistory(subagentId, emptyHistory());
+  },
+
+  loadHistoryIfNeeded: (assistantId, subagentId) => {
+    const inFlight = historyLoads.get(subagentId);
+    if (inFlight) {
+      return inFlight.promise;
+    }
+    const entry = get().byId[subagentId];
+    const conversationId = entry?.conversationId;
+    if (!entry || entry.history !== null || !conversationId) {
+      return Promise.resolve();
+    }
+    const load: HistoryLoad = { promise: Promise.resolve(), stale: false };
+    load.promise = fetchSubagentHistory(assistantId, conversationId)
+      .then((snapshot) => {
+        if (load.stale) {
+          // Invalidated mid-flight, which also released this load's slot, so
+          // this starts a fresh fetch rather than seeding the old snapshot.
+          return get().loadHistoryIfNeeded(assistantId, subagentId);
+        }
+        get().seedHistory(subagentId, snapshot);
+      })
+      .catch((err: unknown) => {
+        captureError(err, { context: "loadHistoryIfNeeded", bestEffort: true });
+      })
+      .finally(() => {
+        if (historyLoads.get(subagentId) === load) {
+          historyLoads.delete(subagentId);
+        }
+      });
+    historyLoads.set(subagentId, load);
+    return load.promise;
+  },
+
+  invalidateHistories: (parentConversationId) => {
+    const { byId } = get();
+    let next: typeof byId | null = null;
+    const dropped: string[] = [];
+    for (const entry of Object.values(byId)) {
+      if (
+        entry.parentConversationId !== parentConversationId ||
+        !entry.conversationId
+      ) {
+        continue;
+      }
+      const inFlight = historyLoads.get(entry.subagentId);
+      if (inFlight) {
+        inFlight.stale = true;
+        historyLoads.delete(entry.subagentId);
+      }
+      if (entry.history !== null) {
+        next ??= { ...byId };
+        next[entry.subagentId] = { ...entry, history: null };
+        dropped.push(entry.subagentId);
+      }
+    }
+    if (next) {
+      recordDiagnostic("subagent_history_invalidated", {
+        parentConversationId,
+        subagentIds: dropped,
+      });
+      set({ byId: next });
+    }
   },
 
   loadDetail: (params) => {
@@ -1428,7 +1688,7 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
 export const useSubagentStore = createSelectors(useSubagentStoreBase);
 
 /**
- * Ask the daemon to resync this conversation's subagents, best-effort.
+ * Ask the daemon to resync `parentConversationId`'s subagents, best-effort.
  *
  * For the stream handlers, which hit this when an event names a subagent the
  * store has never seen, the client's picture of the run is incomplete. Reads
@@ -1436,22 +1696,16 @@ export const useSubagentStore = createSelectors(useSubagentStoreBase);
  * `reconcileFromDaemon` decides whether the request actually goes out, so a
  * burst of events for the same missing subagent costs a single fetch.
  *
- * `parentConversationId` names the conversation to resync. Subagent events are
- * routed globally, so an event for a background conversation must reconcile
- * ITS parent rather than whichever chat is on screen. Callers with no id at
- * hand, `subagent_status_changed` carries none, fall back to the active
- * conversation.
+ * Subagent events are routed globally, so an event for a background
+ * conversation reconciles ITS parent rather than whichever chat is on screen.
  */
-export function requestSubagentReconcile(parentConversationId?: string): void {
+export function requestSubagentReconcile(parentConversationId: string): void {
   const assistantId = useResolvedAssistantsStore.getState().activeAssistantId;
-  const targetConversationId =
-    parentConversationId ??
-    useConversationStore.getState().activeConversationId;
-  if (!assistantId || !targetConversationId) {
+  if (!assistantId) {
     return;
   }
 
   void useSubagentStoreBase
     .getState()
-    .reconcileFromDaemon(assistantId, targetConversationId, "unknown_id");
+    .reconcileFromDaemon(assistantId, parentConversationId, "unknown_id");
 }

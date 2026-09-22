@@ -86,4 +86,22 @@ describe("search-provider-catalog", () => {
     expect(getSearchProvider("brave")?.displayName).toBe("Brave");
     expect(getSearchProvider("unknown-xyz")).toBeUndefined();
   });
+
+  test("SearXNG is a keyless BYOK provider that requires an instance URL", () => {
+    const searxng = getSearchProvider("searxng");
+    expect(searxng?.kind).toBe("byok");
+    expect(searxng?.keyless).toBe(true);
+    expect(searxng?.supportsApiBase).toBe(true);
+    expect(searxng?.defaultApiBase).toBeUndefined();
+    expect(searxng?.envVar).toBe("SEARXNG_API_KEY");
+  });
+
+  test("TinyFish is a keyed BYOK provider with a cloud API base", () => {
+    const tinyfish = getSearchProvider("tinyfish");
+    expect(tinyfish?.kind).toBe("byok");
+    expect(tinyfish?.keyless).toBeUndefined();
+    expect(tinyfish?.supportsApiBase).toBe(true);
+    expect(tinyfish?.defaultApiBase).toBe("https://api.search.tinyfish.ai");
+    expect(tinyfish?.envVar).toBe("TINYFISH_API_KEY");
+  });
 });

@@ -2,6 +2,7 @@ import type {
   PlatformStatusGetResponses,
   PlatformVerifycredentialPostResponses,
 } from "@/generated/daemon/types.gen";
+import { PlatformIdentityInjectionError } from "@/lib/platform-identity-errors";
 import { buildVellumMutatingHeaders } from "@/lib/auth/request-headers";
 import { resolveSupportsCredentialVerification } from "@/lib/backwards-compat/credential-verification";
 import {
@@ -29,10 +30,11 @@ import {
   getActiveOrganizationIdForRequests,
   useOrganizationStore,
 } from "@/stores/organization-store";
+import { isUuid } from "@/utils/uuid";
 
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ELECTRON_RENDERER_ORIGIN_HEADER = "X-Vellum-Electron-Renderer-Origin";
+
+export { isUuid } from "@/utils/uuid";
 
 type LocalPlatformStatus = {
   assistantId: string | null;
@@ -510,18 +512,23 @@ async function ensureLocalAssistantPlatformIdentity(
   }
 
   const platformBaseUrl = status?.baseUrl ?? getPlatformRuntimeUrl();
-  await injectPlatformCredentials(gateway, {
-    assistantApiKey,
-    platformAssistantId,
-    platformBaseUrl,
-    organizationId,
-    webhookSecret: stringValue(registration.webhook_secret),
-  });
-  await persistPlatformRegistrationMetadata(assistant, {
-    platformAssistantId,
-    platformBaseUrl,
-    organizationId,
-  });
+  try {
+    await injectPlatformCredentials(gateway, {
+      assistantApiKey,
+      platformBaseUrl,
+      webhookSecret: stringValue(registration.webhook_secret),
+    });
+    await persistPlatformRegistrationMetadata(assistant, {
+      platformAssistantId,
+      platformBaseUrl,
+      organizationId,
+    });
+  } catch (error) {
+    // The registration is real even though the local side is not finished;
+    // hand its id to callers that only need the platform to know the
+    // assistant, and let the retrying bootstrap complete the injection.
+    throw new PlatformIdentityInjectionError(platformAssistantId, error);
+  }
 
   return platformAssistantId;
 }
@@ -736,16 +743,12 @@ async function injectPlatformCredentials(
   gateway: { gatewayUrl: string; actorToken: string },
   params: {
     assistantApiKey: string | null;
-    platformAssistantId: string;
     platformBaseUrl: string;
-    organizationId: string;
     webhookSecret: string | null;
   },
 ): Promise<void> {
   const entries: Array<[string, string | null]> = [
-    ["vellum:platform_assistant_id", params.platformAssistantId],
     ["vellum:platform_base_url", params.platformBaseUrl],
-    ["vellum:platform_organization_id", params.organizationId],
     ["vellum:webhook_secret", params.webhookSecret],
   ];
 
@@ -832,10 +835,6 @@ function gatewayUrl(baseUrl: string, path: string): string {
   const prefix = url.pathname.replace(/\/$/, "");
   url.pathname = `${prefix}${path}`;
   return url.toString();
-}
-
-export function isUuid(value: string): boolean {
-  return UUID_RE.test(value);
 }
 
 function firstString(...values: unknown[]): string | null {

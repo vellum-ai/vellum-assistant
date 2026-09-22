@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-import { deriveStepLabel } from "@/domains/chat/components/tool-progress-card/derive-step-label";
+import {
+  deriveStepLabel,
+  type IconName,
+} from "@/domains/chat/components/tool-progress-card/derive-step-label";
 
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 
@@ -32,6 +35,7 @@ describe("deriveStepLabel", () => {
       title: "Working",
       info: "echo hello world",
       activity: "",
+      actionDisplayKey: "terminal",
       iconName: "terminal",
     });
   });
@@ -121,8 +125,48 @@ describe("deriveStepLabel", () => {
       title: "Using computer",
       info: "screenshot",
       activity: "",
+      actionDisplayKey: "observe",
       iconName: "monitor",
     });
+  });
+
+  test("classifies browser shell operations without exposing typed values", () => {
+    const cases = [
+      ["click #submit", "click"],
+      ["type very-secret-value", "type"],
+      ["press_key Enter", "keyPress"],
+      ["scroll down", "scroll"],
+      ["drag 10 20", "drag"],
+      ["hover .menu", "hover"],
+      ["screenshot", "observe"],
+      ["navigate https://example.com", "navigate"],
+    ] as const;
+    for (const [operation, actionDisplayKey] of cases) {
+      const result = deriveStepLabel(
+        buildToolCall({
+          name: "host_bash",
+          input: { command: `assistant browser ${operation}` },
+        }),
+      );
+      expect(result.title).toBe("Working");
+      expect(result.actionDisplayKey).toBe(actionDisplayKey);
+    }
+  });
+
+  test("keeps malformed browser and unknown computer actions on existing labels", () => {
+    expect(
+      deriveStepLabel(
+        buildToolCall({
+          name: "host_bash",
+          input: { command: "assistant browser wait 500" },
+        }),
+      ).actionDisplayKey,
+    ).toBeUndefined();
+    expect(
+      deriveStepLabel(
+        buildToolCall({ name: "computer", input: { action: "future_action" } }),
+      ).actionDisplayKey,
+    ).toBeUndefined();
   });
 
   test("mcp__<server>__<method> → Using <server> with method as info", () => {
@@ -232,17 +276,17 @@ describe("deriveStepLabel", () => {
     );
   });
 
-  test("skill_load falls back to input.reason when activity is absent", () => {
+  test("a tool's own reason argument is not read as its status", () => {
     const result = deriveStepLabel(
       buildToolCall({
-        name: "skill_load",
-        input: { name: "deep-research", reason: "Loading research playbook" },
+        name: "app_control_stop",
+        input: { reason: "Task complete" },
       }),
     );
-    expect(result.activity).toBe("Loading research playbook");
+    expect(result.activity).toBe("");
   });
 
-  test("no activity or reason → activity is the empty string", () => {
+  test("no activity → activity is the empty string", () => {
     const result = deriveStepLabel(
       buildToolCall({
         name: "bash",
@@ -268,5 +312,44 @@ describe("deriveStepLabel", () => {
     expect(result.info).toBe("echo hi");
     expect(result.iconName).toBe("terminal");
     expect(result.activity).toBe("outer activity wins");
+  });
+  test("the file tools name the act, not the tool", () => {
+    // Left to the generic default these read "Running File Write", which is
+    // the wire name showing through rather than a description of the work.
+    const cases: [string, string, IconName][] = [
+      ["file_read", "Reading", "file"],
+      ["host_file_read", "Reading", "file"],
+      ["file_write", "Writing", "pen"],
+      ["host_file_write", "Writing", "pen"],
+      ["file_edit", "Editing", "pen"],
+      ["host_file_edit", "Editing", "pen"],
+      ["file_list", "Listing", "file"],
+    ];
+    for (const [name, title, iconName] of cases) {
+      const result = deriveStepLabel(
+        buildToolCall({ name, input: { path: "/tmp/notes/draft.md" } }),
+      );
+      expect(result.title).toBe(title);
+      // The basename alone: the full path is noise beside the verb.
+      expect(result.info).toBe("draft.md");
+      expect(result.iconName).toBe(iconName);
+    }
+  });
+
+  test("a file tool sharing a title with text_editor groups as one phase", () => {
+    // `title` is the phase-grouping key, so an edit made through either tool
+    // has to read as the same phase.
+    expect(
+      deriveStepLabel(
+        buildToolCall({ name: "file_edit", input: { path: "/a/b.ts" } }),
+      ).title,
+    ).toBe(
+      deriveStepLabel(
+        buildToolCall({
+          name: "text_editor",
+          input: { command: "str_replace", path: "/a/b.ts" },
+        }),
+      ).title,
+    );
   });
 });

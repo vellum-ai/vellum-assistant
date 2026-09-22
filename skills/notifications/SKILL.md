@@ -11,6 +11,12 @@ metadata:
 
 Call this when something happened that the user would want to know about — a completed task with a notable outcome, an interesting observation, a positive trend you noticed in monitored data, useful research worth surfacing, a workflow that got blocked, a credential or token failure, etc. Do not call it for routine task completions where nothing notable happened. When in doubt and you have a real observation to share, share it.
 
+**Exception: you are running a schedule.** The "was this notable?" test does not apply to a scheduled run. The user picked the cadence; the run happening at all is what they asked to see. A scheduled run that produces any user-facing output (a briefing, a digest, a report, or a check whose answer is "nothing changed") ends by sending that output as a notification. Writing it into the conversation and stopping does not reach the user: nobody is looking at a scheduled run's conversation.
+
+That does not license noise. Judgment moves from _whether_ to notify to _what to say_: a run with a genuinely empty result says so in one line rather than padding it, and a run that only did silent housekeeping (rotating a cache, syncing a file) with nothing to report stays quiet.
+
+Watcher ticks are not scheduled runs. A watcher stays quiet unless its action prompt says this event is worth surfacing. Unmatched events and polls with nothing new must not produce a notification.
+
 ## Sending Notifications
 
 Always pass `--title`. Skipping it triggers a fallback that just truncates `--message` to 60 chars and shows it as the title — the user sees the same text twice with no scannability gained.
@@ -29,12 +35,14 @@ assistant notifications send --title "..." --message "..." --urgent
 
 ### Command Reference
 
-| Flag                  | Required        | Description                                                                                                                                          |
-| --------------------- | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--message <message>` | Yes             | Notification body. Markdown (GFM) renders in the detail panel; the OS banner shows plain text.                                                       |
-| `--title <title>`     | Yes in practice | Short headline (≤ 8 words). Omitting it triggers a body-truncation fallback that shows up as a duplicate of `--message` — always write a real title. |
-| `--urgent`            | No              | Mark as needing attention now/soon                                                                                                                   |
-| `--json`              | No              | Output machine-readable JSON                                                                                                                         |
+| Flag                   | Required        | Description                                                                                                                                          |
+| ---------------------- | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--message <message>`  | Yes             | Notification body. Markdown (GFM) renders in the detail panel; the OS banner shows plain text.                                                       |
+| `--title <title>`      | Yes in practice | Short headline (≤ 8 words). Omitting it triggers a body-truncation fallback that shows up as a duplicate of `--message` — always write a real title. |
+| `--urgent`             | No              | Mark as needing attention now/soon                                                                                                                   |
+| `--preferred-channels` | No              | Additive channel hints. Vellum stays selected.                                                                                                       |
+| `--channels`           | No              | Exclusive allowlist (e.g. `telegram`). Replaces the default set. Urgent delivery does not add vellum or platform. Wins over `--preferred-channels`.  |
+| `--json`               | No              | Output machine-readable JSON                                                                                                                         |
 
 ### Title
 
@@ -61,6 +69,10 @@ Avoid large headings (`#`, `##`) and wide tables — they render fine in the pan
 
 Use `--urgent` for items needing attention now/soon (blocked work, broken auth, time-sensitive issues). Skip for items the user should see when they have time.
 
+### Channel routing
+
+`--preferred-channels` adds extra surfaces on top of the default set (vellum stays selected). `--channels` is exclusive: only those connected channels are selected. Use `--channels telegram` when the user asked for Telegram only. Home does not mirror an exclusive send unless `vellum` is in the list. When both flags are set, `--channels` wins.
+
 ### Examples
 
 ```bash
@@ -79,8 +91,17 @@ assistant notifications send \
 ### Response Format
 
 ```json
-{ "ok": true, "signalId": "...", "dispatched": true }
+{
+  "ok": true,
+  "signalId": "...",
+  "dispatched": true,
+  "selectedChannels": ["telegram"],
+  "deliveryResults": [],
+  "receiptClass": "unknown"
+}
 ```
+
+`dispatched` means the pipeline attempted delivery. `receiptClass` is the strongest proof the adapters reported (`provider_accepted`, `gateway_accepted`, `client_os_posted`, or `unknown`). It is not proof the user saw a banner. Check `selectedChannels` and `deliveryResults` before telling the user the alert landed.
 
 ## Reading Surfaced Notifications
 
@@ -226,5 +247,6 @@ assistant notifications edit --id notif:abc12345-... --status dismissed
 ## Important
 
 - Do **NOT** use AppleScript `display notification` or other OS-level notification commands for assistant-managed alerts. Always use `assistant notifications send`.
-- For sending rich content (digests, summaries, reports) to a specific chat or email destination, use the appropriate platform's API directly. For Gmail, use `messaging_send`. For Slack, use the Slack Web API directly (see the **slack** skill).
+- For a digest, summary, or report that should land in a specific chat or email destination, use `messaging_send`. It reaches Gmail and Outlook as a draft, and posts to a Slack, Telegram, Discord, or WhatsApp chat through that channel's own transport, where the post is recorded.
+- For the user's notification inbox and connected push channels, use `assistant notifications send` and pass the complete authored body as `--message`. The pipeline keeps that body. Do not rewrite it into a short alert first. A scheduled run should also pass `--source-channel scheduler`.
 - Send notifications that fire **immediately** with no delay capability. For one-time future alerts, use `schedule_create` with `fire_at`. For recurring alerts, use `schedule_create` with an expression (cron/RRULE).

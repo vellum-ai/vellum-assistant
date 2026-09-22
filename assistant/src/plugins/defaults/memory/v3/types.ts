@@ -2,7 +2,7 @@ export type Slug = string;
 
 /**
  * Injection-block id for the v3 live `<memory>` block. Shared between the
- * producer (the v3 injector in `shadow-plugin.ts`) and the v2-suppression
+ * producer (the v3 injector in `injector.ts`) and the v2-suppression
  * consumer (`conversation-runtime-assembly.ts`), which keys off this id to
  * detect that v3 actually produced a block this turn. Keeping it in one place
  * makes a rename a compile error on both sides instead of a silent
@@ -11,48 +11,186 @@ export type Slug = string;
 export const MEMORY_V3_BLOCK_ID = "memory-v3" as const;
 
 /**
- * `meta` key under which the v3 cards block carries its attachment-commit
- * callback. The injector defers its everInjected-store write (and the
- * prune-valve schedule) into this callback; runtime assembly invokes it only
- * when the turn's tail is a user message — the same gate as metadata capture
- * — so a block that silently fails to attach never claims its cards in the
- * dedup store. Shared between the producer (`injector.ts`) and the consumer
+ * `meta` key under which the v3 sections block carries its attachment-commit
+ * callback. The injector defers its section-store write (and the prune-valve
+ * schedule) into this callback; runtime assembly invokes it only when the
+ * turn's tail is a user message, the same gate as metadata capture, so a
+ * block that silently fails to attach never claims its sections in the dedup
+ * store. Shared between the producer (`injector.ts`) and the consumer
  * (`conversation-runtime-assembly.ts`) so a rename is a compile error on both
  * sides instead of a silent never-commit.
  */
 export const MEMORY_V3_COMMIT_META_KEY = "memoryV3Commit" as const;
 
 /**
- * Injection-block id for the v3 per-turn `<memory_spotlight>` block (the
- * current window's matched sections). Distinct from {@link MEMORY_V3_BLOCK_ID}:
- * the spotlight never participates in v2 suppression. Each turn's block stays
- * on the user message that was sent with it.
+ * Injection-block id for the v3 per-turn `<memory_pointer>` block: the list
+ * of this turn's selected sections that are already resident in history.
+ * Distinct from {@link MEMORY_V3_BLOCK_ID}: the pointer never participates in
+ * v2 suppression. Each turn's block stays on the user message that was sent
+ * with it; a fresh one is spliced only onto the new tail.
  */
-export const MEMORY_V3_SPOTLIGHT_BLOCK_ID = "memory-v3-spotlight" as const;
+export const MEMORY_V3_POINTER_BLOCK_ID = "memory-v3-pointer" as const;
 
 /**
- * Message-metadata key for the wrapped `<memory_spotlight>` block persisted
- * on the user row that received it. `loadFromDb` rehydrates from this key so
- * historical turns keep the spotlight they were sent with. Kept as a
- * literal in `messageMetadataSchema` (same pattern as
- * `memoryV3InjectedBlock`) so the storage schema does not import the
- * memory feature.
+ * Message-metadata key for the wrapped `<memory_pointer>` block persisted on
+ * the user row that received it. `loadFromDb` rehydrates from this key so
+ * historical turns keep the pointer they were sent with (the provider prefix
+ * through those messages stays byte-identical). Kept as a literal in
+ * `messageMetadataSchema` (same pattern as `memoryV3InjectedBlock`) so the
+ * storage schema does not import the memory feature.
  */
-export const MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY =
+export const MEMORY_V3_POINTER_BLOCK_METADATA_KEY =
+  "memoryV3PointerBlock" as const;
+
+/**
+ * Message-metadata key under which builds that shipped the per-turn
+ * `<memory_spotlight>` layer persisted each turn's wrapped block. No producer
+ * writes it; `loadFromDb` rehydrates a row's legacy block verbatim as inert
+ * history so a conversation that spans the upgrade keeps the prefix those
+ * turns were sent with.
+ */
+export const LEGACY_MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY =
   "memoryV3SpotlightBlock" as const;
+
+/**
+ * How a persisted memory-v3 section block was rendered, which decides the
+ * grammar a reader parses it with. `"current"`: rendered by a build that
+ * stamps `memoryV3InjectedBlockFormat` (`MEMORY_V3_INJECTED_BLOCK_FORMAT` in
+ * `ever-injected-store.ts`) beside the block, so its inner text follows the
+ * escaped grammar of `substrate/injected-block-slugs.ts` and is parsed,
+ * pruned, superseded by newer copies, and fork-seeded at section grain.
+ * `"legacy"`: persisted by a build before the stamp existed (a row carrying
+ * the block without it), rendered as compact cards, which the rehydration
+ * filter and the live strip read with that build's card grammar
+ * (`filterLegacyCards` in `substrate/injected-block-slugs.ts`) under each
+ * card's lead ref: a card whose lead is tombstoned, or re-injected by a
+ * current block after a prune, leaves. The block itself is never pruned,
+ * indexed, or fork-seeded, and is gone with the compaction that strips
+ * memory blocks and clears the section store. Provenance is explicit, never
+ * inferred from a block's content.
+ */
+export type InjectedBlockFormat = "legacy" | "current";
+
+/** A persisted section block's unwrapped inner text with its rendering
+ *  format: the per-block input of the rehydration filter, the live strip,
+ *  and the fork seeder. */
+export interface InjectedBlock {
+  inner: string;
+  format: InjectedBlockFormat;
+}
+
+/**
+ * The `<memory>` content blocks memory-v3 itself placed in live history, by
+ * object identity: the block runtime assembly attaches for the `memory-v3`
+ * injector, the block `loadFromDb` splices from persisted metadata, and the
+ * block the prune valve's strip writes back in their place. The live strip
+ * owns a block only if it is one of these. Ownership is never decided by
+ * text: a pre-cutover v2 block can be byte-identical to a v3 lead entry (v2's
+ * full-page fallback on a headingless page), and v2 blocks must never be
+ * touched. A block that lost its identity (a cloned history) is simply left
+ * alone by the strip; the next `loadFromDb` rebuilds it from metadata, where
+ * the pruned and superseded filters are authoritative. Each entry carries
+ * the block's rendering format (`InjectedBlockFormat`): current for the
+ * blocks the injector renders in this process, and whatever the row's
+ * metadata recorded for a block `loadFromDb` spliced, so the strip filters a
+ * current owned block and leaves a legacy one verbatim, by provenance rather
+ * than content. A `WeakMap`, so entries leave with the histories they
+ * belonged to.
+ */
+const v3LiveBlocks = new WeakMap<object, InjectedBlockFormat>();
+
+/** Register a block memory-v3 placed in live history, with the format it was
+ *  rendered in (current unless stated: the injector's own blocks); returns
+ *  it. */
+export function markV3LiveBlock<T extends object>(
+  block: T,
+  format: InjectedBlockFormat = "current",
+): T {
+  v3LiveBlocks.set(block, format);
+  return block;
+}
+
+/** The rendering format of a block memory-v3 placed in live history, or
+ *  `undefined` for any other block. */
+export function v3LiveBlockFormat(
+  block: object,
+): InjectedBlockFormat | undefined {
+  return v3LiveBlocks.get(block);
+}
+
+/** Whether memory-v3 placed this block in live history. */
+export function isV3LiveBlock(block: object): boolean {
+  return v3LiveBlocks.has(block);
+}
 
 /**
  * A single section of a page: the lead (text before the first `## heading`,
  * ordinal 0) or a heading-delimited block. Over-long sections are split into
  * multiple ordered `Section`s, each with its own consecutive `ordinal`, so each
  * fits a typical embedding window. `text` is prefixed with a
- * `${lastSlugSegment} — ${title}` head line for lexical/dense matching.
+ * `${lastSlugSegment} - ${title}` head line (`sectionHeadLine` in
+ * `sections.ts`, which caps the title at `SECTION_HEAD_TITLE_CHARS`) for
+ * lexical/dense matching.
+ *
+ * `occurrence` is this heading's 0-based index among the article's headings
+ * that share its title (a repeated `## Topic`); `chunk` is this section's
+ * 0-based index among the pieces its over-long heading was split into. Both
+ * are absent when 0 (the first, and usually only, section under that title).
+ * They feed {@link sectionKey}; `ordinal` alone cannot, because ordinals shift
+ * whenever consolidation adds or removes a section above, and one counter over
+ * both dimensions cannot either, because re-chunking one heading would then
+ * renumber a later repeat of it.
  */
 export interface Section {
   article: Slug;
   title: string;
   text: string;
   ordinal: number;
+  occurrence?: number;
+  chunk?: number;
+}
+
+/**
+ * The stable identity of a section within its page, used as the section
+ * store's `section_key` and carried in the injected header
+ * (`# memory/concepts/<slug>.md § <key>`): the lead is `""`, a heading
+ * section is its trimmed title, the n-th repeat of a heading appends `#<n>`,
+ * and the n-th chunk of an over-long section appends `~<n>` (`Topic`,
+ * `Topic#1`, `Topic~1`, `Topic#1~1`). Keys are stable across consolidation
+ * edits that shift ordinals, and across a re-chunking of one heading, which
+ * changes only that heading's own `~` keys.
+ *
+ * The key is injective over `(title, occurrence, chunk)`: every literal `#`
+ * and `~` in the title is doubled before the single-character suffixes are
+ * appended, so a heading that itself ends in `#<n>` (`Topic#1`, key
+ * `Topic##1`) can never collide with a repeat's key (`Topic` again, key
+ * `Topic#1`), nor one ending in `~<n>` with a chunk's.
+ */
+export function sectionKey(section: Section): string {
+  const encoded = section.title
+    .trim()
+    .replaceAll("#", "##")
+    .replaceAll("~", "~~");
+  const occurrence = section.occurrence ? `#${section.occurrence}` : "";
+  const chunk = section.chunk ? `~${section.chunk}` : "";
+  return `${encoded}${occurrence}${chunk}`;
+}
+
+/** One injected section's identity in the section store: page slug plus
+ *  {@link sectionKey} (`""` for the lead or for capability content). */
+export interface SectionRef {
+  slug: Slug;
+  key: string;
+}
+
+/**
+ * The one string encoding of a {@link SectionRef}, for keying maps and sets
+ * by section: slug and key joined on a NUL, which neither side can contain
+ * (a slug is a path, a key derives from one heading line), so the encoding
+ * is injective. A pair is never parsed back out of it.
+ */
+export function sectionRefId({ slug, key }: SectionRef): string {
+  return `${slug}\u0000${key}`;
 }
 
 /**
@@ -65,10 +203,15 @@ export interface SectionIndex {
   byArticle: Map<Slug, number[]>;
 }
 
-/** A page selected from the candidate pool, with whether the turn centers on it. */
+/**
+ * A page selected from the candidate pool, with the matched sections whose
+ * finder lines were selected, in pool order and deduped by {@link sectionKey}.
+ * Empty when only the page's stable-prefix card, or a section-less edge or
+ * learned line, was selected: the injector then injects the page's lead.
+ */
 export interface SelectedPage {
   slug: Slug;
-  pinned: boolean;
+  sections: Section[];
 }
 
 export interface MemoryRoutingTurn {
@@ -112,7 +255,9 @@ export interface MemoryRoutingTurn {
  * clause chunks as separate queries); `learned` marks candidates
  * surfaced by the co-selection NPMI association graph; `entity` marks
  * candidates surfaced because the message named an entity that titles a section
- * heading (the heading-anchored entity lane).
+ * heading (the heading-anchored entity lane); `rare` marks candidates surfaced
+ * by the rare-term lane (a query word that occurs in at most a handful of
+ * sections, whose sections surface on that word alone).
  *
  * The `memory_v3_selections.source` column is free-text, so tightening this set
  * needs no migration: any historical rows with retired labels (e.g. the old
@@ -130,6 +275,7 @@ export const SELECTION_SOURCES = [
   "span",
   "learned",
   "entity",
+  "rare",
 ] as const;
 
 export type SelectionSource = (typeof SELECTION_SOURCES)[number];

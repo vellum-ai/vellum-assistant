@@ -1,27 +1,24 @@
 /**
- * `internal_mcp_add` must not freeze a risk level into the entry it writes.
- *
- * The shipped default lives in `McpServerConfigSchema`, which parses
- * `config.json` on every load. An entry that carries no `defaultRiskLevel`
- * therefore tracks that default; one that carries an explicit level keeps it.
- * Writing a level the caller never asked for would pin every added server to
- * whatever the default happened to be on the day it was added.
+ * `internal_mcp_add` writes only the transport into workspace mcp.json.
+ * Policy fields (enabled, risk, tool caps, allow/block lists) are not
+ * persisted.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { McpServerConfigSchema } from "../../../config/schemas/mcp.js";
-import { BadRequestError } from "../errors.js";
+let stored: { servers: Record<string, { transport: Record<string, unknown> }> } =
+  { servers: {} };
+let saved:
+  | { servers: Record<string, { transport: Record<string, unknown> }> }
+  | undefined;
 
-let raw: Record<string, unknown> = {};
-let saved: Record<string, unknown> | undefined;
-
-const actualLoader = await import("../../../config/loader.js");
-mock.module("../../../config/loader.js", () => ({
-  ...actualLoader,
-  loadRawConfig: () => raw,
-  saveRawConfig: (next: Record<string, unknown>) => {
+mock.module("../../../mcp/workspace-mcp-config.js", () => ({
+  loadWorkspaceMcpConfig: () => stored,
+  saveWorkspaceMcpConfig: (next: {
+    servers: Record<string, { transport: Record<string, unknown> }>;
+  }) => {
     saved = next;
+    stored = next;
   },
 }));
 
@@ -34,17 +31,16 @@ const { ROUTES } = await import("../mcp-auth-routes.js");
 const addRoute = ROUTES.find((r) => r.operationId === "internal_mcp_add")!;
 
 function addedEntry(): Record<string, unknown> {
-  const mcp = saved?.mcp as { servers: Record<string, unknown> };
-  return mcp.servers["srv"] as Record<string, unknown>;
+  return saved!.servers["srv"] as Record<string, unknown>;
 }
 
-describe("internal_mcp_add risk level", () => {
+describe("internal_mcp_add persisted shape", () => {
   beforeEach(() => {
-    raw = {};
+    stored = { servers: {} };
     saved = undefined;
   });
 
-  test("omits defaultRiskLevel when the caller names no risk", async () => {
+  test("writes transport only", async () => {
     await addRoute.handler({
       body: {
         name: "srv",
@@ -53,35 +49,24 @@ describe("internal_mcp_add risk level", () => {
       },
     });
 
-    const entry = addedEntry();
-    expect(entry).not.toHaveProperty("defaultRiskLevel");
-    expect(McpServerConfigSchema.parse(entry).defaultRiskLevel).toBe("medium");
+    expect(addedEntry()).toEqual({
+      transport: { type: "streamable-http", url: "https://example.com/mcp" },
+    });
   });
 
-  test("persists an explicit risk level", async () => {
+  test("ignores leftover risk and disabled fields on the request", async () => {
     await addRoute.handler({
       body: {
         name: "srv",
         transportType: "streamable-http",
         url: "https://example.com/mcp",
         risk: "high",
+        disabled: true,
       },
     });
 
-    expect(addedEntry().defaultRiskLevel).toBe("high");
-  });
-
-  test("rejects an unknown risk level", async () => {
-    await expect(
-      addRoute.handler({
-        body: {
-          name: "srv",
-          transportType: "streamable-http",
-          url: "https://example.com/mcp",
-          risk: "extreme",
-        },
-      }),
-    ).rejects.toThrow(BadRequestError);
-    expect(saved).toBeUndefined();
+    expect(addedEntry()).toEqual({
+      transport: { type: "streamable-http", url: "https://example.com/mcp" },
+    });
   });
 });

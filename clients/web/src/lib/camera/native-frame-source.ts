@@ -14,7 +14,7 @@
  *
  * Every sample costs a bridge round trip, a JPEG encode on the native side and
  * a decode on this one. At video rate that is not affordable, and it is not
- * needed either: the gate's own rate floor means most frames it looks at are
+ * needed either: the gate's thresholds mean most frames it looks at are
  * discarded anyway. A cadence near a second keeps the cost proportional to what
  * a keep is worth, and a single explicit hold is what turns it on.
  *
@@ -27,8 +27,8 @@
  * {@link FrameGateOptions.motionMaxAgeMs} the gate reports no motion at all,
  * because a small difference across a whole second means the scene is static,
  * not that the hand is. A poll offering one frame per second therefore never
- * produces a motion number, the settle check never runs, and the first frame
- * past the rate floor is kept however hard the camera is being panned.
+ * produces a motion number, the settle check never runs, and a novel frame
+ * is kept however hard the camera is being panned.
  *
  * So a tick takes a PAIR, {@link NATIVE_PAIR_SPACING_MS} apart. The first is
  * handed to `FrameGate.observe`, which makes it the motion baseline and nothing
@@ -104,8 +104,8 @@ import { createFrameGridProducer, type FrameSource } from "./frame-sampler";
 /**
  * Default gap between ticks, each of which takes a pair.
  *
- * Below the gate's own rate floor, so the gate and not this cadence decides how
- * often a frame is kept, and far enough above a pair (two bridge round trips
+ * Well inside the gate's settle grace, so the gate and not this cadence decides
+ * how often a frame is kept, and far enough above a pair (two bridge round trips
  * and the spacing between them) that a tick finishes long before the next one
  * asks for another.
  */

@@ -812,7 +812,7 @@ describe("HostTransferProxy — targetClientId", () => {
       await resultPromise;
     });
 
-    test("requestToHost: auto-resolve falls through when no client matches the source user", async () => {
+    test("requestToHost: rejects when no client matches the source user", async () => {
       setup();
       mockClientRegistry.set("client-A", {
         clientId: "client-A",
@@ -824,7 +824,7 @@ describe("HostTransferProxy — targetClientId", () => {
       const srcPath = `/tmp/htp-auto-no-match-${Date.now()}.txt`;
       await globalThis.Bun.write(srcPath, "data");
 
-      const resultPromise = proxy.requestToHost(
+      const result = await proxy.requestToHost(
         {
           sourcePath: srcPath,
           destPath: "/host/dest.txt",
@@ -835,13 +835,9 @@ describe("HostTransferProxy — targetClientId", () => {
         "user-C",
       );
 
-      await waitForMessages(sentMessages, 1);
-      const sent = sentMessages[0] as Record<string, unknown>;
-      expect(sent.targetClientId).toBeUndefined();
-
-      const requestId = sent.requestId as string;
-      proxy.resolveTransferResult(requestId, { isError: false });
-      await resultPromise;
+      expect(result).toMatchObject({ isError: true });
+      expect(result.content).toContain("belongs to this user");
+      expect(sentMessages).toHaveLength(0);
     });
 
     test("requestToSandbox: targeted request from a different user is rejected", async () => {
@@ -895,6 +891,31 @@ describe("HostTransferProxy — targetClientId", () => {
 
       proxy.cancel(sent.requestId as string);
       await resultPromise;
+    });
+
+    test("requestToSandbox: rejects when no client matches the source user", async () => {
+      setup();
+      const a: MockClient = {
+        clientId: "client-A",
+        capabilities: ["host_file"],
+        actorPrincipalId: "user-A",
+      };
+      mockCapableClients = [a];
+      mockClientRegistry.set("client-A", a);
+
+      const result = await proxy.requestToSandbox(
+        {
+          sourcePath: "/host/source.txt",
+          destPath: "/sandbox/dest.txt",
+          conversationId: "conv-same-9-no-match",
+        },
+        undefined,
+        "user-C",
+      );
+
+      expect(result).toMatchObject({ isError: true });
+      expect(result.content).toContain("belongs to this user");
+      expect(sentMessages).toHaveLength(0);
     });
 
     test("requestToSandbox: auto-resolve picks the same-user client when there's exactly one", async () => {

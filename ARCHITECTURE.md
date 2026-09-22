@@ -8,13 +8,17 @@ This file is the cross-system architecture index. Detailed designs live in domai
 | ------------------------------------------- | -------------------------------------------------------------------------------------------------- |
 | Assistant runtime                           | [`assistant/ARCHITECTURE.md`](assistant/ARCHITECTURE.md)                                           |
 | Gateway ingress/webhooks                    | [`gateway/ARCHITECTURE.md`](gateway/ARCHITECTURE.md)                                               |
-| Browser extension                            | [`clients/chrome-extension/README.md`](clients/chrome-extension/README.md)                                               |
-| Clients (web, iOS, Android, macOS, Windows)  | [`clients/README.md`](clients/README.md)                                                           |
-| Public docs site (`clients/docs`)            | [`clients/docs/README.md`](clients/docs/README.md)                                                 |
+| Browser extension                           | [`clients/chrome-extension/README.md`](clients/chrome-extension/README.md)                         |
+| Clients (web, iOS, Android, macOS, Windows) | [`clients/README.md`](clients/README.md)                                                           |
+| Mobile document chat session                | [`clients/web/docs/DOCUMENT_CHAT.md`](clients/web/docs/DOCUMENT_CHAT.md)                           |
+| Conversation assets                         | [`clients/web/docs/CONVERSATION_ASSETS.md`](clients/web/docs/CONVERSATION_ASSETS.md)               |
+| Public docs site (`clients/docs`)           | [`clients/docs/README.md`](clients/docs/README.md)                                                 |
 | Assistant memory deep dive                  | [`assistant/docs/architecture/memory.md`](assistant/docs/architecture/memory.md)                   |
 | Assistant integrations deep dive            | [`assistant/docs/architecture/integrations.md`](assistant/docs/architecture/integrations.md)       |
+| Plugin marketplace and bundled packages     | [`docs/plugin-marketplace.md`](docs/plugin-marketplace.md)                                         |
 | Assistant scheduling deep dive              | [`assistant/docs/architecture/scheduling.md`](assistant/docs/architecture/scheduling.md)           |
 | Assistant security deep dive                | [`assistant/docs/architecture/security.md`](assistant/docs/architecture/security.md)               |
+| Transcript mode sessions                    | [`assistant/docs/mode-sessions.md`](assistant/docs/mode-sessions.md)                               |
 | Trusted contact access design               | [`assistant/docs/trusted-contact-access.md`](assistant/docs/trusted-contact-access.md)             |
 | Trusted contacts operator runbook           | [`assistant/docs/runbook-trusted-contacts.md`](assistant/docs/runbook-trusted-contacts.md)         |
 | Credential Execution Service (CES)          | [`assistant/docs/credential-execution-service.md`](assistant/docs/credential-execution-service.md) |
@@ -24,10 +28,11 @@ This file is the cross-system architecture index. Detailed designs live in domai
 | Web search failure normalization            | [Web Search Failure Normalization](#web-search-failure-normalization) (this file)                  |
 | Workflow orchestration engine               | [Workflow Orchestration Engine](#workflow-orchestration-engine) (this file)                        |
 | Watch sessions                              | [Watch Sessions](#watch-sessions) (this file)                                                      |
+| Screen annotation                           | [Screen Annotation](#screen-annotation) (this file)                                                |
+| Notification sender avatars                 | [Notification Sender Avatars](#notification-sender-avatars) (this file)                            |
 | Workflow authoring guide                    | [`assistant/docs/workflows.md`](assistant/docs/workflows.md)                                       |
 | Workflow manual testing runbook             | [`assistant/docs/workflows-testing.md`](assistant/docs/workflows-testing.md)                       |
-| Service communication matrix                | [`docs/service-communication-matrix.md`](docs/service-communication-matrix.md)                     |
-| Vellum Doctor                               | [`assistant/docs/vellum-doctor.md`](assistant/docs/vellum-doctor.md)                                 |
+| Vellum Doctor                               | [`assistant/docs/vellum-doctor.md`](assistant/docs/vellum-doctor.md)                               |
 
 ## Cross-Cutting Invariants
 
@@ -35,6 +40,8 @@ This file is the cross-system architecture index. Detailed designs live in domai
 - Bundled-skill outbound API calls that require credentials use the Credential Execution Service (CES) tools (`make_authenticated_request`, `run_authenticated_command`) rather than manual token plumbing or proxied shell execution. See `assistant/docs/credential-execution-service.md`.
 - Managed shared-identity channel routing runs in a separate managed-gateway service lane from the per-assistant `gateway/` lane. The deployable managed-gateway runtime is platform-owned; this repo keeps public contracts/fixtures under `gateway-managed/`.
 - Production LLM calls go through the provider abstraction, not provider SDKs in feature code.
+- Transcript mode sessions use one conversation-owned coordinator to connect guarded computer-use, browser, and camera sources to immutable message membership. Source retirement stops future claims while captured turns and accepted frame writes settle. Durable lifecycle and display-boundary writes use compare-and-swap revisions. Startup recovery interrupts leftover active records while preserving last confirmed activity and unknown end; an auxiliary recovery failure disables tracking for that boot while ordinary assistant work remains available. Tracking errors are isolated from authorized actions and accepted content. History batches session descriptors with messages, uses the existing conversation-messages invalidation path, and reconciles revisions in the client query cache. See [`assistant/docs/mode-sessions.md`](assistant/docs/mode-sessions.md).
+- Plugin-declared remote MCP servers store OAuth records under `mcp-plugin/v1/<plugin>/<server>/<endpoint-digest>/<leaf>`, where plugin and server segments are base64url encoded and the SHA-256 endpoint digest covers the transport type plus the canonical URL without its fragment. The runtime public server id is presentation and routing state, not credential identity. Workspace MCP servers keep the existing `mcp:<serverId>:<leaf>` keys. This isolates plugin credentials by installed owner, original `mcp.json` key, and endpoint while leaving persisted workspace files unchanged. Plugin uninstall deletes the exact owner prefix when credential storage is reachable. If storage is unavailable, current `mcp.json` or install-fingerprint evidence blocks removal; without that evidence, removal succeeds with a warning because older credentials cannot be verified. An upgrade that removed both the declaration and its recorded fingerprint is indistinguishable from a plugin that never declared MCP, so historical keys may remain after offline removal.
 - The macOS and Windows Electron shells share platform-neutral window security, IPC validation, origin checks, and preload capability registration through `@vellumai/electron-desktop`, plus native helper process and JSON-RPC lifecycle through `@vellumai/native-sidecar`. Each client keeps platform lifecycle and native features in its own adapter modules under `clients/<platform>/src/`. Both preloads implement the same `VellumBridge` contract (`packages/ipc-contract`); a surface only one shell can back is optional there and documented in [`clients/windows/docs/parity-matrix.md`](clients/windows/docs/parity-matrix.md), which `clients/windows/src/preload/bridge-parity.test.ts` enforces against the macOS preload.
 - Packaged Windows startup provisions a user-scoped CLI runtime from
   `resources/cli-runtime`. Versioned installs and one fallback live under
@@ -45,7 +52,7 @@ This file is the cross-system architecture index. Detailed designs live in domai
   [`clients/windows/README.md`](clients/windows/README.md#packaged-cli-provisioning).
 - Notification producers emit through `emitNotificationSignal()` to preserve decisioning and audit invariants. Reminder routing metadata (`routingIntent`, `routingHints`) flows through the signal and is enforced post-decision to control multi-channel fanout. The decision engine produces per-channel conversation actions (`start_new` / `reuse_existing`) validated against a candidate set; `notification_conversation_created` is emitted only on actual creation, not on reuse.
 - Memory extraction/recall must enforce actor-role provenance gates for untrusted actors.
-- **Credential Execution Service (CES)** is a separate top-level package (`credential-executor/`) and a separate managed container image that enforces hard process-boundary isolation for credential-bearing operations. The assistant communicates with CES exclusively via RPC (stdio JSON-RPC locally, Unix socket in managed). In Docker mode, the assistant and gateway also access credential CRUD operations via the CES HTTP API (`CES_CREDENTIAL_URL`), authenticated with `CES_SERVICE_TOKEN`. CES exposes three tools (`run_authenticated_command`, `make_authenticated_request`, `manage_secure_command_tool`) as a deliberate exception to the skill-first tool direction — these require hard isolation that skills cannot provide. Shared contract types, credential-storage abstractions, egress-proxy session management, and typed service clients live in seven private packages under `packages/` — these are the only allowed shared-code path; direct source imports between `assistant/` and `credential-executor/` remain banned:
+- **Credential Execution Service (CES)** is a separate top-level package (`credential-executor/`) and a separate managed container image that enforces hard process-boundary isolation for credential-bearing operations. The assistant communicates with CES via Unix-socket (or Windows named-pipe) RPC in every environment. In Docker mode, the gateway still accesses credential CRUD via the CES HTTP API (`CES_CREDENTIAL_URL`), authenticated with `CES_SERVICE_TOKEN`; the assistant uses that HTTP API only as failover if the RPC transport dies. CES exposes three tools (`run_authenticated_command`, `make_authenticated_request`, `manage_secure_command_tool`) as a deliberate exception to the skill-first tool direction. These require hard isolation that skills cannot provide. Shared contract types, credential-storage abstractions, egress-proxy session management, and typed service clients live in seven private packages under `packages/`. These are the only allowed shared-code path; direct source imports between `assistant/` and `credential-executor/` remain banned:
   - `@vellumai/service-contracts` — CES wire-protocol schemas (RPC methods, handshake types, Zod validators) and shared trust-rule types. Consumed via explicit domain subpaths: `@vellumai/service-contracts/credential-rpc`, `@vellumai/service-contracts/trust-rules`, `@vellumai/service-contracts/handles`, `@vellumai/service-contracts/grants`, `@vellumai/service-contracts/rpc`, `@vellumai/service-contracts/rendering`, `@vellumai/service-contracts/error`.
   - `@vellumai/credential-storage` — Credential-storage abstractions shared by assistant and CES.
   - `@vellumai/egress-proxy` — Egress-proxy session management for CES secure commands.
@@ -153,6 +160,7 @@ Each named instance gets its own directory tree. The exact location depends on e
 │       ├── protected/                                    # keys.enc, trust.json, credentials/, ...
 │       └── workspace/
 │           ├── config.json
+│           ├── mcp.json
 │           ├── data/
 │           │   ├── db/assistant.db
 │           │   ├── qdrant/
@@ -173,6 +181,7 @@ Each instance gets its own:
 
 - **`VELLUM_WORKSPACE_DIR`**: Set to `<instanceDir>/.vellum/workspace`. The daemon resolves all workspace state (DB, logs, memory indices) relative to this directory.
 - **`GATEWAY_SECURITY_DIR`** / **`CREDENTIAL_SECURITY_DIR`**: Set to `<instanceDir>/.vellum/protected`. The gateway and credential-executor resolve their security state (keys, trust rules, credentials) relative to these directories.
+- **`CES_BOOTSTRAP_SOCKET_DIR`**: Set to `<instanceDir>/.vellum/protected/credential-executor`. CES binds `ces.sock` here; the assistant and its children discover the same path. Not derived from `VELLUM_WORKSPACE_DIR`.
 - **Daemon port** (`RUNTIME_HTTP_PORT`), **Gateway port** (`GATEWAY_PORT`), **Qdrant port** (`QDRANT_HTTP_PORT`): Allocated by scanning upward from the environment's base port — see "Port allocation" below.
 - **PID file**: `<instanceDir>/.vellum/vellum.pid`
 - **SQLite database, logs, memory indices**: All under `<instanceDir>/.vellum/workspace/data/`
@@ -271,12 +280,10 @@ Each bot container receives a bind of `/workspace` sourced from the assistant's 
 
 ### Cross-Service Access Patterns
 
-For the full inventory of every assistant/gateway/CES communication direction, protocol, and callsite, see the [Service Communication Matrix](docs/service-communication-matrix.md).
-
 In Docker mode (`IS_CONTAINERIZED=true`), services that need data from another service's security domain use HTTP APIs instead of direct filesystem access:
 
 - **Trust rules**: The assistant reads/writes trust rules via the gateway's HTTP trust API. The gateway owns the filesystem copy at `/gateway-security/trust.json`.
-- **Credentials**: The assistant and gateway access credential CRUD via the CES HTTP API (`CES_CREDENTIAL_URL`), authenticated with `CES_SERVICE_TOKEN`. The CES owns the encryption keys at `/ces-security/`.
+- **Credentials**: The assistant talks to CES over the bootstrap Unix socket (`CES_BOOTSTRAP_SOCKET_DIR`). The gateway still uses the CES HTTP API (`CES_CREDENTIAL_URL`), authenticated with `CES_SERVICE_TOKEN`. The assistant may fail over to that HTTP API if the RPC transport dies. The CES owns the encryption keys at `/ces-security/`.
 - **Contacts (auth/authz)**: The gateway owns `contacts` and `contact_channels` tables in its SQLite database (`/gateway-security/gateway.sqlite`). These tables store contact authentication and authorization data — who can talk to the assistant and what their channel policies are. The assistant daemon reads contact auth/authz data via IPC (`get_contact`, `list_contacts`, `get_contact_by_channel`, `get_channels_for_contact`). The assistant retains ownership of contact **context** (conversation history, memory associations, display preferences) in its own database. This separation is in progress — the gateway tables are declared and IPC handlers are wired, but endpoint cutover and data migration are not yet complete.
 
 ### Signing Key Bootstrap Protocol
@@ -545,8 +552,15 @@ subgraph "Text Q&A Session"
     %% The gateway builds replyCallbackUrl as <gatewayInternalBaseUrl>/deliver/<channel>,
     %% but isDirectDelivery() short-circuits it: the daemon calls each provider's Web API
     %% itself via messaging/providers and never POSTs the reply back to the gateway.
+    %% A reply the gateway composes for a message it answered at ingress (a
+    %% verification code, an invite redemption) reaches the same transport over
+    %% the daemon's IPC-only deliver_gateway_reply method.
+    %% The same transport carries proactive sends: the messaging tool and
+    %% POST /v1/channels/send run sendChannelText (runtime/channel-send.ts), which
+    %% asks the transport to address a chat or person (addressFor) and records the
+    %% post after the channel acknowledges it.
     HTTP_RT --> CHANNEL_TX
-    CHANNEL_TX -->|"sendMessage / sendRichMessage<br/>+ attachments"| EXT_TELEGRAM
+    CHANNEL_TX -->|"deliver: replies, streams,<br/>proactive sends + attachments"| EXT_TELEGRAM
 
     %% Gateway flow — Twilio voice webhooks
     GW_TWILIO_VOICE -->|"HTTP"| HTTP_RT
@@ -610,6 +624,20 @@ subgraph "Text Q&A Session"
     classDef storage fill:#78909c,stroke:#37474f,color:#fff
     classDef provider fill:#ef5350,stroke:#c62828,color:#fff
 ```
+
+Computer-use screenshots are materialized as canonical attachment rows while
+their tool-result messages are finalized. Every screenshot keeps that
+tool-result link. At turn completion, only the last screenshot-bearing
+computer-use invocation also links its attachment to the actual reply row.
+That reply link is what Files and channel delivery consume. The reply row
+stores the accepted automatic attachment ID in metadata, and history plus
+terminal events project it as `computerUseScreenshot: true`. Forks retain the
+source ID and add the cloned reply attachment ID to that metadata.
+
+The web client projects computer-use images from tool results before applying
+transcript suppression. Each activity block keeps tool-call occurrence order,
+shows one captionless screenshot tile per eligible Working phase, and opens a
+single gallery containing every computer-use screenshot in that block.
 
 ## Assistant Feature Flags
 
@@ -680,7 +708,7 @@ End-to-end coverage lives in `assistant/src/__tests__/web-search-backend-failure
 
 - **Where the identity comes from.** The daemon reads `vellum:assistant_api_key` from the credential vault and spends it only on an outbound `Authorization: Api-Key` header. The plaintext key never crosses IPC into a CLI process and never appears in a response, a log, or an error body, so `runtime/routes/roadmap-routes.ts` is an allowlisted `secure-keys` importer (`credential-security-invariants`). `X-Api-Key` must not be substituted: that name collides with an unrelated internal credential under the service's case-insensitive header lookup, and a request carrying it is served as anonymous.
 - **Who may act.** Reads (`roadmap_list`, `roadmap_get`) fall back to anonymous when no key is stored, which only costs the viewer-upvoted marker. Every write requires the key and otherwise fails with a connect-first message. The gateway risk registry rates `create` and `delete` high and `update`, `upvote`, `unvote` medium: each one changes a public page attributed to the assistant.
-- **Which deployment it reaches.** The roadmap is a single public site with no per-environment deployment, so only production has a default host (`https://marketing.vellum.ai`). Any other `VELLUM_ENVIRONMENT` must name its own endpoint through `VELLUM_MARKETING_URL`, and the route refuses to run otherwise, rather than letting a staging or dev assistant file real items and hand a non-production key to a production host. Item links resolve from the environment's `webUrl` (`VELLUM_WEB_URL` overrides).
+- **Which deployment it reaches.** The roadmap is a single public site with no per-environment deployment, so only production has a default host (`https://marketing.vellum.ai`); every other deployment must name its own endpoint through `VELLUM_MARKETING_URL`, and the route refuses to run until it does. Production is judged by `getPlatformBaseUrl()` resolving to `platform.vellum.ai`, not by `VELLUM_ENVIRONMENT`: unset, that variable means dev to `getPlatformBaseUrl` and local to every launcher, so reading it would let precisely the unlabelled assistant file real items and hand a key production never issued to a production host. The platform URL also accounts for the config file and `VELLUM_PLATFORM_URL`, and it names the deployment that issued the key these calls are signed with. Both endpoints resolve together from that one deployment, so a link can never name a different deployment than the call that fetched it, and a platform the seed table does not know (a self-hosted one) must name its web origin through `VELLUM_WEB_URL` as well. The whole resolution runs before the request rather than while rendering the reply, so a half-configured assistant fails before it publishes rather than after.
 - **Bounded calls.** Each upstream request carries a 30s deadline, below the CLI's 60s IPC timeout, and honors the caller's abort signal. Closing the IPC socket does not abort a daemon handler, so an unbounded slow `create` could otherwise publish an item after its caller had already been told the request failed, and the retry would file a second one.
 
 ## Workflow Orchestration Engine
@@ -691,9 +719,9 @@ The workflow engine lets the assistant author a short JS/TS script that runs in 
 
 - **`run-manager.ts`** (`WorkflowRunManager`) — the lifecycle surface the tool, scheduler, and routes drive. Gates on the feature flag and the concurrent-run cap, resolves the capability manifest, creates the journal run row, launches `executeWorkflow` **without awaiting it** (returns the `runId` immediately), and republishes engine progress/completion as `workflow_progress` / `workflow_completed` events. On completion it wakes the originating conversation with a human-readable summary via the same `wakeAgentForOpportunity` path scheduled tasks and background shell jobs use.
 - **`engine.ts`** (`executeWorkflow`) — runs the script in the sandbox and owns the host API (`agent`, `leaf`, `parallel`, `map`, `pipeline`, `phase`, `log`, `usage`, `workflow`, `args`), the deterministic `seq` assignment, the agent cap, and journaled resume. `map`/`pipeline` are JS-prelude helpers over the `parallel` host function (the single-threaded VM cannot re-enter itself mid-call); `pipeline` has a per-stage barrier.
-- **`sandbox.ts`** (`createWorkflowSandbox`) — a fresh QuickJS-WASM VM per run with **no** `fetch`/`process`/`Bun`/`require`/network/filesystem and a banned `Date.now`/`Math.random`/argless `new Date()`. Host functions are *asyncified*: a host call suspends the whole VM until its promise settles, so from the script's view host calls are **synchronous** (authors write `const r = agent(...)`, never `await`). An interrupt handler enforces a CPU deadline and cooperative abort.
+- **`sandbox.ts`** (`createWorkflowSandbox`) — a fresh QuickJS-WASM VM per run with **no** `fetch`/`process`/`Bun`/`require`/network/filesystem and a banned `Date.now`/`Math.random`/argless `new Date()`. Host functions are _asyncified_: a host call suspends the whole VM until its promise settles, so from the script's view host calls are **synchronous** (authors write `const r = agent(...)`, never `await`). An interrupt handler enforces a CPU deadline and cooperative abort.
 - **`capabilities.ts`** (`resolveCapabilities`) — resolves the per-run manifest into the concrete allow-set: a read-only baseline (`file_read`, `file_list`, `recall`, `web_search`) unioned with declared `tools`, with a forbidden set always denied. `web_fetch` is **not** in the baseline (its URL can exfiltrate read data), so a run that fetches must declare it. This is the single consent point; the leaf runner hard-denies anything outside it. Declaring any side-effecting tool/host function arms the **threshold-aware launch approval** (`isFullAccessThreshold` in `permissions/threshold.ts`): full-access posture bypasses the prompt, normal posture prompts once. The same gate guards resume of a side-effecting run (re-prompt conversationally, 403 over the HTTP route in normal posture).
-- **`leaf-runner.ts`** (`runLeaf`) — the single-leaf primitive. A *schema* leaf makes one forced-`tool_choice` provider call returning structured output (no tools); a *tool* leaf runs a restricted agent loop. Leaves are anonymous by default (minimal task prompt, no identity, no memory); `persona: true` injects the assistant identity + memory pipeline. No leaf ever creates a conversation row, jsonl mirror, title job, or turn broadcast. Every leaf call resolves through the `workflowLeaf` call site (cost-optimized profile by default).
+- **`leaf-runner.ts`** (`runLeaf`) — the single-leaf primitive. A _schema_ leaf makes one forced-`tool_choice` provider call returning structured output (no tools); a _tool_ leaf runs a restricted agent loop. Leaves are anonymous by default (minimal task prompt, no identity, no memory); `persona: true` injects the assistant identity + memory pipeline. No leaf ever creates a conversation row, jsonl mirror, title job, or turn broadcast. Every leaf call resolves through the `workflowLeaf` call site (cost-optimized profile by default).
 - **`journal-store.ts`** — typed persistence over the `workflow_runs` and `workflow_journal` tables (migration 284). The journal is an append-only `(run_id, seq)` log; on resume the engine replays cached results for the unchanged call prefix instead of re-spawning agents.
 - **`library.ts`** — saved workflows at `<workspace>/workflows/*.workflow.ts`, resolvable by name (by `meta.name`, then filename base) for `run_workflow({ name })`, `workflow(name)`, and the scheduler's `workflow` mode.
 
@@ -741,6 +769,41 @@ graph TB
 - **CLI**: `vellum workflows list | runs | show <id> | abort <id> | resume <id>`.
 - **Config** (`workflows.*`): `maxAgentsPerRun` (500), `maxConcurrentLeaves` (6), `maxConcurrentRuns` (3), `journalRetentionDays` (30).
 
+## Live Voice Task Outcomes
+
+Subagent updates for a conversation with an active live-voice call are claimed by
+the session manager before generic parent-turn injection. The voice session queues
+both explicit worker updates and completed interrupted-turn continuations per task.
+Hidden voice turns deliver them once user speech, the current response and queued
+playback have yielded the floor. Reading a result as user-turn context does not
+acknowledge it. Interrupted announcements stay pending across replacement updates;
+prompts use completed-playback receipts to distinguish heard replies from generated
+history. Hang-up returns undelivered outcomes to the conversation.
+See [live voice task outcomes](assistant/docs/live-voice-task-outcomes.md) for routing,
+attribution and playback semantics.
+
+```mermaid
+flowchart LR
+    Worker[Subagent update] --> Router[Parent notification router]
+    Router -->|Matching live call| Queue[Per-task voice queue]
+    Router -->|No matching call| Parent[Parent conversation queue]
+    Continuation[Interrupted-turn result] --> Queue
+    Queue -->|Floor available| Voice[Hidden voice turn]
+    Voice -->|Useful new outcome| Speech[Paced TTS]
+    Speech -->|Playback completes| Done[Update consumed]
+    Speech -->|Interrupted| Queue
+    Voice -->|Silent acknowledgement| Done
+    Queue -->|Hang-up after teardown| Parent
+```
+
+## Live Voice Input Diagnostics
+
+Hands-free voice records applied browser microphone settings and playback transitions through the client diagnostics ring and Electron renderer logs. The live-voice session records bounded signal summaries, barge-in decisions, and transcription outcomes in the assistant log, linked by session, speech generation, and input-turn identifiers. These observations do not alter speech classification or cancellation and add no raw audio or transcript content.
+
+See [Voice input diagnostics](assistant/docs/voice-input-diagnostics.md) for the event fields, companion reproduction procedure, and support export locations.
+
+With Flux turn detection enabled, microphone audio passes through for one second after locally detected speech, then room audio becomes digital silence. A bounded 200 ms buffer preserves the lead-in to resumed speech without replaying already-submitted audio. Confirmed playback echo becomes silence before buffering. Flux retains an elapsed-audio timeline through pauses. In hands-free Flux sessions, provider `StartOfTurn` owns interruption: local energy alone cannot emit `speech_started` or cancel a reply, even when provider end-of-turn handling is disabled. Other providers retain the local sustained-speech guard, and manual sessions retain client-owned interruption. Gate transitions, submission cadence, interruption source, and provider turn-end confidence, trigger, and audio position are logged for correlation with the input measurements.
+
 ## Watch Sessions
 
 A watch session records what the user narrates while they work and reads their screen around it. The microphone and the socket live in the browser (`clients/web/src/domains/chat/watch/watch-controller.ts`); the cadence, the observations, and the timeline live in the daemon (`assistant/src/watch/watch-session-manager.ts`). The client draws nothing during a session: frames going the other way are lifecycle only, and the retrospective is a conversational turn after the socket is gone.
@@ -749,11 +812,11 @@ One session at a time, on both sides. The client holds a single module-level slo
 
 **Transport.** The browser opens `wss://<ingress>/v1/watch/stream?token=<edge JWT>&mimeType=audio/pcm&sampleRate=16000` and streams 16 kHz mono PCM16LE as binary frames, the same capture pipeline live voice and streaming dictation use. The token rides the query string because browser WebSockets cannot set an `Authorization` header.
 
-Which ingress it dials depends on the deployment, chosen by `resolveWatchStreamWsUrl` the way `resolveLiveVoiceWsUrl` chooses for live voice. A self-hosted assistant is dialled straight at the user's own gateway with the actor edge JWT. A managed one has no ingress of its own, so the browser mints a short-lived velay token and dials velay, which validates it, consumes it, and injects the authenticated caller downstream; `/v1/watch/stream` is in the gateway's velay allowlist for that reason. A paired assistant is the one deployment with no transport at all: its proxy is HTTP-only and there is no loopback to fall back to, so the client refuses the start.
+Which ingress it dials depends on the deployment, chosen by `resolveWatchStreamWsUrl` the way `resolveLiveVoiceWsUrl` chooses for live voice. A self-hosted assistant with an ingress of its own is dialled straight at the user's gateway with the actor edge JWT. A managed one, and a locally hosted assistant that a mobile client reaches only through its velay tunnel, have no ingress the client can dial, so the browser mints a short-lived velay token and dials velay, which validates it, consumes it, and injects the authenticated caller downstream; `/v1/watch/stream` is in the gateway's velay allowlist for that reason. A paired assistant is the one deployment with no transport at all: its proxy is HTTP-only and there is no loopback to fall back to, so the client refuses the start.
 
 **A socket is not a session.** The gateway accepts the downstream upgrade before it dials the runtime, so a local `open` proves only that a proxy answered. The runtime's `ready` frame (carrying `sessionId` and `conversationId`) is the first word that a session exists, and it is what starts both the microphone and the `watching` flag the companion draws its capture indicator from. Until then the session is pending and the surface shows nothing. A bounded wait covers a gateway that accepts and then never hears from the runtime; a close, an `error`, or that timeout before `ready` is a failed start rather than a stopped session, so it tears down and the flag never moves.
 
-**Auth posture.** The gateway (`gateway/src/http/routes/watch-stream-websocket.ts`) validates the edge JWT, rejects a revoked actor token, and requires an actor principal, refusing service tokens on this client-facing path. It then **pins the upgrade to the bound guardian**, as live voice does and for a sharper reason: the daemon resolves whose screen to observe from the guardian binding rather than from the request, and the proxy replaces the caller's identity with a service token upstream, so a non-guardian actor admitted here would open a session bound to the guardian and observing the guardian's screen with the daemon unable to tell. Both arrival paths are pinned (`gateway/src/http/routes/guardian-pin.ts`, shared with live voice): a velay-attested managed caller is cross-checked against the stored `platform_user_id`, and an actor edge JWT against the guardian binding. It then dials a *fresh* upstream socket to the daemon bearing only a short-lived gateway service token, never anything the client supplied, and pumps frames between the two. The daemon resolves the acting principal from its own guardian binding, restricts the upgrade to private-network peers and origins, and picks the host client to observe from that actor's own `host_cu` clients. The token gate and the frame pump are shared with `/v1/stt/stream` (`gateway/src/http/routes/runtime-audio-stream.ts`) so the two client-facing audio proxies cannot drift apart on who may open one. The guardian pin is deliberately not part of that shared gate: dictation is the user's own words going to a transcriber and back, is not a guardian-only surface, and keeps accepting any valid actor.
+**Auth posture.** The gateway (`gateway/src/http/routes/watch-stream-websocket.ts`) validates the edge JWT, rejects a revoked actor token, and requires an actor principal, refusing service tokens on this client-facing path. It then **pins the upgrade to the bound guardian**, as live voice does and for a sharper reason: the daemon resolves whose screen to observe from the guardian binding rather than from the request, and the proxy replaces the caller's identity with a service token upstream, so a non-guardian actor admitted here would open a session bound to the guardian and observing the guardian's screen with the daemon unable to tell. Both arrival paths are pinned (`gateway/src/http/routes/guardian-pin.ts`, shared with live voice): a velay-attested caller is cross-checked against the stored `platform_user_id`, and an actor edge JWT against the guardian binding. The gateway takes the velay path whenever it has a velay tunnel at all (`acceptsVelayAttestation`: a managed pod, or any gateway started with `VELAY_BASE_URL`), and only alongside the process-local bridge proof that says the upgrade came through its own loopback bridge; a gateway with no tunnel goes straight to the token path. It then dials a _fresh_ upstream socket to the daemon bearing only a short-lived gateway service token, never anything the client supplied, and pumps frames between the two. The daemon resolves the acting principal from its own guardian binding, restricts the upgrade to private-network peers and origins, and picks the host client to observe from that actor's own `host_cu` clients. The token gate and the frame pump are shared with `/v1/stt/stream` (`gateway/src/http/routes/runtime-audio-stream.ts`) so the two client-facing audio proxies cannot drift apart on who may open one. The guardian pin is deliberately not part of that shared gate: dictation is the user's own words going to a transcriber and back, is not a guardian-only surface, and keeps accepting any valid actor.
 
 **The retrospective.** The session records and says nothing; the retrospective is where the assistant speaks. The socket's teardown hands `WatchSessionManager.stop()`'s summary to `runWatchRetro` (`assistant/src/watch/watch-retro.ts`), which renders the timeline, asks the model for the task, the trigger phrase in the user's own words, the ordered steps, and the open questions, and directs it into the bundled `skill-management` flow. It reports and asks: it never scaffolds a skill, because the trigger phrase is not recoverable from watching someone work and `skill-management`'s first step is the alignment pass that confirms all four points with the user. A session that recorded nothing runs no retrospective.
 
@@ -797,6 +860,214 @@ graph LR
     TL -->|"rendered timeline (fenced)"| RETRO
     RETRO -->|"prompt as a wake hint"| WAKE
     WAKE -->|"assistant report only"| CONV
+```
+
+## Assistant Desktop Stream
+
+Human help requests use `ask_question({ desktopHelp })` and the existing question interaction lifecycle. The assistant releases held browser input while retaining an exclusive human-help reservation. A compact row in the scrolling web transcript hosts the shared virtual desktop preview with Step In, Done and Skip. The viewer connects when the user selects Show live preview or Step In, or reuses a picture-in-picture viewer already open on that client. Receiving the request on another device does not claim its viewer slot. Resolving the request closes its interactive viewer or restores a preexisting read-only PiP session. The optional question presentation survives pending-interaction recovery; older clients render ordinary question options. Done resumes automation under the same reservation and requests a fresh browser observation. Skip, closure, timeout and cancellation release the reservation; Skip leaves the obstacle unresolved.
+
+An enabled platform-hosted assistant serves an interactive desktop on demand. Chrome and all desktop system components are baked into the assistant image. Opening the picture-in-picture viewer or invoking browser/computer use checks readiness and starts the desktop directly, without downloading or installing dependencies. Missing components require an image update. Browser CLI requests support cancellation on disconnect so timed-out commands cannot act later. `GET /v1/desktop/setup` reads readiness; the legacy POST route returns the same status for released clients and performs no installation. Both flat and assistant-scoped gateway paths require guardian authentication. Current clients have no install button, automatic install mutation or installation progress UI. Readiness also reports optional `automationActive`; lease acquisition and abort publish `desktop_activity_changed` so the desktop icon reflects active automation.
+
+The assistant Dockerfile installs the X server, window manager, dock, compositor, clipboard bridge, wallpaper setter, fonts, Chrome libraries and pinned WezTerm. A separate cached layer extracts pinned Google Chrome to `/opt/google/chrome` without package scripts or repository registration. Architecture-specific SHA-256 checksums verify WezTerm and Chrome. Both layers precede Bun and application source. `desktop-dependencies.ts` only checks binaries and system assets. The browser profile remains at `data/desktop-profile` on persistent storage, so container replacement preserves browser sessions. Existing browser-tool and PDF installations retain their own Playwright behavior.
+
+`DesktopSessionManager` owns `Xtigervnc` on display `:99` with VNC on `localhost:5999`, `openbox`, `xcompmgr`, `plank`, `tigervncconfig` and Google Chrome. A Python standard-library helper supervises Openbox and handles native title-bar move requests by restoring maximized windows before continuing the drag. The helper uses the installed X11 library and shares the window manager process group for shutdown. Chrome starts directly with a loopback-only CDP port, using the existing `data/desktop-profile` directory. The assistant verifies that the listener belongs to its managed Chrome process before connecting. The dock configuration and launcher paths remain under `data/desktop-panel`. The session bus shares that directory as `XDG_DATA_HOME` with Plank so its activated window matcher can read the managed launchers. Chrome and WezTerm use explicit window classes for dock grouping. WezTerm keeps an editable seeded configuration with visible tabs and split-pane shortcuts.
+
+Openbox loads a generated `data/desktop-panel/openbox.xml` with one workspace and no workspace-switching bindings or menus. Native window decorations use a plain dark title bar with minimize, maximize and close controls. The generator adapts the existing user config or the installed system config, preserving window controls, shortcuts and application menus in managed copies. Nested XML includes are adapted into managed copies with their original lookup bases and XPointer selections preserved. Source files remain unchanged. If a custom XML configuration cannot be adapted, Openbox loads the existing source config and a warning is logged, preserving desktop availability. Restored windows are assigned to the sole workspace, and session-manager restoration is disabled. Each process tree owns a fresh X display; viewer reconnects retain its existing windows. The config is regenerated at desktop start, so existing installations adopt it without changing browser profiles or dock preferences.
+
+Children receive only an allowlisted environment. One viewer holds the slot at a time; the tree lingers for 24 hours after both the viewer and browser automation release their slots. Chrome launches once when the desktop starts. Closing or crashing Chrome leaves the desktop running, and viewer reconnects keep it closed; the dock launcher or an explicit browser CLI action can reopen it. Required child failures tear down the tree, while cosmetic dock/compositor failures leave the desktop running. Dock startup failures and exits receive up to three restart attempts per desktop session, one second apart. Shutdown uses SIGTERM followed by SIGKILL after a two-second grace, and a subsequent start waits for teardown. The `assistant-desktop` flag, `IS_PLATFORM` and `IS_CONTAINERIZED` gate both setup and streaming. Self-hosted Docker assistants cannot use the virtual desktop. The stream rechecks the gate after asynchronous startup and before forwarding either direction of traffic; revocation closes the viewer with `4008` and releases its slot. The companion platform PR adds authenticated desktop routing through velay; it does not change pod memory or shared-memory provisioning.
+
+Plank runs on the managed desktop D-Bus session with private XDG configuration/data paths and the keyfile settings backend; its BAMF matcher is activated on that shared bus. The manager retains each exited dock group during recovery so its applications keep running, then clears all surviving groups at teardown. Shutdown cancels pending dock restarts. Chrome and Terminal launchers use their real X11 identities, with Chrome's official packaged icon and stable window class. Pinned launchers represent running applications, with Plank providing focus, minimize/restore, window selection, and explicit new-window gestures. Default pins and preferences are published atomically on first use; subsequent starts refresh managed launcher paths while preserving user customization. The Files launcher opens Thunar in the assistant workspace. Thunar, GVfs (Trash), Tumbler (thumbnails), and the Adwaita icon theme are included in the assistant image. All desktop children, including D-Bus-activated services, share the dock's private XDG configuration/data paths so file preferences and Trash agree across processes. Workspace migration 157 adds the Files pin to existing docks while preserving other pins and preferences; subsequent starts respect unpinning. An image missing required desktop components fails setup.
+
+Before launching Chrome or exposing its dock launcher, the Linux container session writes `CommandLineFlagSecurityWarningsEnabled=false` and `PasswordManagerEnabled=false` to `/etc/opt/chrome/policies/managed/vellum-desktop.json`. The extracted Google Chrome binary reads this system policy directory independently of its install location. This idempotent startup step covers fresh and previously installed desktops, preserves other policy files and unrelated values, and logs policy write failures without blocking the desktop. The policy hides command-line security warnings after Chrome restarts; it does not re-enable the sandbox or change launch flags. Password saving is disabled to suppress save-password prompts during automation; previously saved passwords remain usable. Chrome does not silently save new passwords with this policy. Host Chrome policies are untouched.
+
+`desktop-wallpaper.ts` runs `desktop-wallpaper-renderer.ts` in a short-lived worker process. The renderer reads the current avatar manifest and reuses the notification avatar renderer for character and uploaded images. It composites the avatar over a dark, accent-tinted background with subtle rings and raised lettering reading `[assistant name] OS`. The wordmark reads the existing identity name, falls back to `Vellum OS` for unset identities, escapes XML, and measures text to fit long names using the desktop setup fonts. The session manager refreshes `data/desktop-panel/wallpaper.png` on desktop start and viewer reconnect, then runs `feh --no-fehbg --bg-fill` on the existing display. Identity and avatar reads, rendering, and PNG encoding all run in that worker. Missing character rasters are generated in memory; the worker never writes avatar manifests, images, or sidecars. It has a 30-second timeout and returns its PNG through a private temporary directory that is removed after completion or failure. Rendering and application are cosmetic and do not delay Chrome or fail the stream. A missing or unreadable avatar leaves the gradient and rings; unavailable native rendering leaves the X background unchanged. Reconnects during a render queue one fresh render of the latest avatar and discard the superseded result. Generation checks discard renders and queued refreshes after teardown. Wallpaper generation runs on demand under the existing flag.
+
+**Transport.** `/v1/desktop/stream` is a pure RFB byte pipe: after the upgrade, every frame in both directions is binary and `DesktopStreamBridge` (`desktop-stream-bridge.ts`) pumps it to and from the VNC port, buffering client bytes that arrive before that socket is up. Nothing is signaled in-band; outcomes are close codes in the application range so they can neither collide with velay's own `1013` nor be remapped by the gateway's velay bridge. The manager decides them and the bridge only relays (`DesktopLoss`, through the viewer-slot result, `onDesktopLost`, or the `DesktopStartError` a start rejects with): `4008` desktop disabled or unsupported on this daemon, `4013` another viewer holds the slot, `4011` the desktop failed to start, died under the viewer, or the viewer fell too far behind (a dropped `ws.send`), and the standard `1001` when the runtime is shutting down, whether the socket arrived after shutdown began or a live viewer is cut off by it. On the managed path velay's bridge carries the runtime's `1001` as `4001` and the gateway's `1011` as `4011`, both of which the panel treats as retryable endings. The daemon upgrade is gated exactly as `/v1/watch/stream` (private-network peer and origin, gateway service token, one shared `upgradeRuntimeStream` path); the feature gate runs after the upgrade because the gateway relays close codes, not HTTP statuses, to the browser. VNC needs no password: only same-pod processes can reach the loopback port, and the authenticated upgrade is the only bridge to it.
+
+The managed desktop tunnel negotiates raw binary messages per connection. The gateway advertises `X-Vellum-Velay-Binary-WebSocket: 1` at registration; Velay confirms with `binary_messages: true` on desktop `websocket_open` frames. Confirmed streams use a binary envelope containing version byte 1, 32 lowercase ASCII hex connection-ID bytes, and the unchanged RFB payload. Other routes, text messages, and control messages retain JSON framing. Missing confirmation keeps JSON/base64 compatibility with older relays and gateways. Guardian checks remain on the existing desktop upgrade path.
+
+### Virtual desktop computer use
+
+Eligible guardian turns preactivate the existing `computer-use` skill. Platform-hosted web turns default to the X11 executor on the streamed display. Native desktop turns, including Mac clients connected to a platform-hosted assistant, keep the host proxy default and use the virtual desktop only with explicit `target: "assistant-desktop"`. Non-platform assistants keep the host path. Explicit `target: "connected-computer"` and `target_client_id` override the web default. The frozen turn's client OS distinguishes native renderers from web clients. Availability is checked after selecting the target, so feature revocation cannot switch an invocation to another computer. One target selector drives dispatch and invocation-specific permission routing for the bundled skill, with no fallback between computers. Shared `HostCuProxy` action history, step budget, observation formatting and transcript image handling apply to both backends. The executor uses `xdotool` and `scrot`, included in the assistant image, and feeds JPEG observations into the existing formatter. Desktop applications share one managed D-Bus session. A bounded AT-SPI query supplies accessibility elements and observation-scoped IDs; each ID is resolved to current screen bounds before the existing input driver acts. Missing accessibility data falls back to screenshots, while stale or unavailable IDs fail without sending input. Unsupported native-only operations fail before input is sent.
+
+Computer use and browser automation share `DesktopAutomationLease`, including readiness checks, guardian ownership, serialization, cancellation, human-help reservations, idle cleanup and activity notifications. The lease issues single-use observation IDs and invalidates them before each operation, including browser actions and human handoff. Native input requires the latest ID; screenshot-only observations refresh it. Terminal CU tools release the selected session. Sequence input is validated before any action runs, and a cancelled drag releases its mouse button.
+
+### Virtual desktop browser use
+
+`assistant browser --virtual-desktop` controls the managed Chrome window. Web conversations select it automatically when available; native desktop clients retain their existing browser behavior and require an explicit choice to use streamed Chrome. The shared browser target resolver honors explicit modes, client targets and existing personal-browser sessions. It distinguishes Electron from plain web using the frozen turn client OS while retaining the original transport identity. Usage guidance lives in `assistant browser --help`. Platform hosting, the default-off `assistant-desktop` flag, image-provided desktop components and identified guardian conversation gate automation. No connected host desktop client is needed. Existing host computer-use tools keep their connected-client routing.
+
+`DesktopAutomationLease` serializes browser automation and binds ownership to one conversation and actor. Turn release cancels that conversation's desktop lease, clears the activity indicator and serializes input and cursor cleanup before the next session. The browser CLI borrows a scoped direct CDP client and dispatches through the existing browser operation handlers. Snapshot references use a separate desktop namespace and are invalidated on navigation, tab changes and release. A page overlay animates the CDP pointer in the stream. Page screenshots come directly from Chrome as color JPEGs. Native application control and whole-desktop screenshots are outside this browser interface. See [desktop browser CLI](assistant/docs/desktop-browser-cli.md).
+
+An automation slot keeps the desktop alive independently of the viewer. The picture-in-picture preview is view-only; opening the desktop allows direct mouse, keyboard and clipboard input without a handoff step. Viewer interaction does not pause browser automation. Cancellation, desktop loss, inactivity and `detach` release the automation slot and clean up held browser input. No control state or screenshots are persisted outside normal tool history.
+
+## Screen Annotation
+
+The assistant points at things on the screen the user is sharing with a call, so they can go and do the thing themselves. It is the opposite errand from computer use and shares none of its actions: nothing here clicks, types or takes the mouse. The bundled `screen-annotation` skill (`assistant/src/config/bundled-skills/screen-annotation/`) offers two tools, `screen_point_at` and `screen_clear_marks`, and a request replaces whatever is currently drawn. Clearing is its own tool because it is a thing the model decides to do rather than an argument shape it has to remember; on the wire it is the same request carrying no marks.
+
+For live-voice clients that advertise `lookFrames`, a `LOOK:SCREEN` control obtains a fresh view and starts sharing if necessary. The pending look retains the original caller request and any caller turns committed while it waits. Once its frame arrives, the hidden follow-up uses the combined request for front-door routing and carries it into the tool-capable leg if it escalates. Speculative caller turns contribute only after committing, including when their frame has already arrived. A caller turn launched after the frame suppresses the follow-up because it can already see that frame. The vision-capable front door decides whether the request needs annotation or only a spoken answer; hidden follow-ups skip the text-only escalation judge because it cannot assess the captured view. Capturing a frame does not complete a request to point at a control.
+
+**Offered on a negotiated capability, not on an interface.** The marks are drawn in a window the client opens for itself, so a client without one cannot answer the request at all. `host_cu_annotate` is therefore claimed by the client on its SSE connection (`X-Vellum-Cu-Annotate`, read in `assistant/src/runtime/routes/events-routes.ts`) rather than inferred from the interface, and `host-proxy-preactivation.ts` attaches the skill only when a connected client claims it. Offered from the `host_cu` transport alone the skill would reach Windows and Linux turns, whose executors forward it to a native helper that has no such action.
+
+**Routing.** The tools forward under the wire name `computer_use_point_at` (`assistant/src/tools/computer-use/skill-proxy-bridge.ts`), because that prefix is what `surfaceProxyResolver` routes to a desktop client. `hostCuCapabilityFor` maps that one name to `host_cu_annotate`, so the same-actor gate and the audit line name the capability that actually gated the request, and the call is exempt from the computer-use step budget.
+
+**Answered in Electron main, not in the helper.** `PointAtExecutor` (`clients/macos/src/main/executors/host-cu-executor.ts`) intercepts the pointing tool and forwards every other tool to the shared native helper. The frame the marks land on belongs to this client, and the shared executor is the transport every desktop client uses. The painter itself is handed in by `host-proxy-adapter.ts` rather than imported, since an executor reaching into the window layer would be the transport depending on what it transports to.
+
+**A name is resolved, not estimated.** A mark either names a control (`{target}`) or gives bounds. Naming is the path that works: `showCompanionCoachmarks` asks the helper's `ax.locate` for the frame the accessibility tree already holds (`AXTargetMatch`, exact match or nothing, with candidates clipped to what can actually be seen on the shared surface), then converts screen points to fractions of that surface. Bounds are for what has no label to find it by, and are the model's guess at where the thing is. `AXTargetMatch` refuses anything it fits more than once: a ring drawn confidently around the wrong control is worse than one not drawn, because the person following it cannot tell.
+
+**Failure boundaries.** Every way a request can fail to draw is an `executionError` rather than a result, so the turn cannot go on describing a ring that is not there. A refusal says the surface is not this turn's to draw on: nothing shared, the share belongs to another conversation, the coordinates were measured against a surface the user has since left, or a later request has taken the screen. An unresolved name says the surface is fine and the name is not on it, and carries the names that are, so the next attempt can pick one. That list is bounded in the helper that reads the tree (`AXLabel.shortlist`) rather than at the far end that only sees what already crossed, since a web page is ten thousand elements and any of them can be carrying a paragraph of `aria-label`; the count of how many there were travels beside it.
+
+**Lifetime.** Marks are drawn in the companion's watch frame (`clients/web/src/components/companion-coachmarks.tsx`, placed by `companion-window.ts`) and come down on their own when the share ends or moves to another surface, since a mark that outlives the surface it was measured against rings whatever has moved under it. Drawing also drops the frame's own annotating mode: a mark says go and press that, and the press has to reach the app underneath.
+
+**The press is heard.** A control found by name keeps the frame the tree reported for it beside the mark, as fractions of the surface the way the mark's centre is, and measures it out in screen points again whenever the watch frame follows the shared window. Main asks the mac helper to watch for a left mouse down inside those frames (`clients/macos/src/main/coachmark-press-watch.ts`, the helper's `input.setPressWatch`); the helper hit-tests in its own process (`PressWatch` in `MacHelperCore`) and reports only which rectangle was hit, once, then takes its monitor down. Main takes the marks down and sends the main window a `coachmarkPressed` command carrying the control's label, and the root layout puts it to the running live-voice session as the user's own visible turn (`coachmark-press-turn.ts`), so the assistant hears the step is done and speaks the next one. A press usually lands while the assistant is still saying the step, and a person who saw the step done would stop explaining it, so the turn cuts the reply off first (`bargeIn` on the starter's `sendText`: the hands-free interrupt, then the text). The daemon can still refuse the turn while its microphone takes the user to be mid-word, so the hook keeps a turn that asked to be kept and puts it again on a short cadence until a turn starts, this one or one the user spoke after it (`retryWhenBusy`). A ring drawn from bounds the model gave is an extent, not a button, and is never watched.
+
+```mermaid
+graph LR
+    SKILL["screen-annotation skill<br/>screen_point_at · screen_clear_marks"]
+    BRIDGE["skill-proxy-bridge<br/>computer_use_point_at"]
+    ROUTE["host-cu-target<br/>host_cu_annotate · same actor"]
+    SSE["Host proxy SSE<br/>X-Vellum-Cu-Annotate"]
+    EXEC["PointAtExecutor<br/>Electron main"]
+    HELPER["Shared CU helper<br/>every other tool"]
+    PAINT["showCompanionCoachmarks<br/>owns the surface"]
+    LOCATE["ax.locate<br/>AXTargetMatch · clipped"]
+    FRAME["Watch frame<br/>companion-coachmarks.tsx"]
+
+    SKILL --> BRIDGE
+    BRIDGE --> ROUTE
+    ROUTE -->|"dispatch to the claiming client"| SSE
+    SSE --> EXEC
+    EXEC -->|"every other tool"| HELPER
+    EXEC -->|"marks + conversation id"| PAINT
+    PAINT -->|"named target"| LOCATE
+    LOCATE -->|"frame in screen points"| PAINT
+    LOCATE -->|"bounded candidate labels"| PAINT
+    PAINT -->|"fractions of the surface"| FRAME
+    PAINT -->|"placed · refused · unresolved"| EXEC
+    PAINT -->|"hit rects · input.setPressWatch"| PRESS["mac helper<br/>PressWatch · one hit"]
+    PRESS -->|"input.pressed · index"| PAINT
+    PAINT -->|"coachmarkPressed · label"| TURN["root layout<br/>coachmark-press-turn · sendText"]
+```
+
+## Notification Sender Avatars
+
+A native notification from an assistant is drawn as a message from that assistant: the assistant's avatar is the icon, its name is the first line, the conversation title drops to the second, and the body is unchanged. One drawing reaches remote APNs and FCM, app-originated mobile notifications, browser notifications, and the three Electron shells. Two client-scoped flags are independent and default off. `push-avatar-sender` gates sender metadata in platform pushes and Electron sender presentation. `local-notification-avatar` gates the iOS app-local native owner, Android app-local assistant presentation, and the prepared browser notification icon. Android coordinator ownership negotiation is independent of both presentation flags, so turning sender presentation off does not reopen an unshared delivery route. Neither flag advertises Android token capability or live foreground ownership. The platform companion is tracked in `meta/feature-flags/PENDING_PLATFORM_PRS.md`.
+
+**One disc, one spec.** `packages/avatar-manifest/src/notification-avatar.ts` (the `@vellumai/avatar-manifest/notification-avatar` subpath) owns the drawing: a 256px square holding a disc inscribed in it, filled with the assistant's accent mixed 14% into white (`#ECEFEA` when there is no accent), with the avatar cover-cropped into the inner square 11% in from each side and clipped to the same circle the fill uses. The corners stay transparent deliberately, because iOS, Android, and the Windows toast logo slot all circle-crop what they are handed and a square of colour would show through as a ring anywhere that does not. The module is arithmetic and string building with no decoder and no node builtins, so both rasterizers call it: the daemon feeds `notificationAvatarSvg()` to resvg, and the web renderer draws the same geometry on a canvas. `NOTIFICATION_AVATAR_SPEC_VERSION` rides the sync's dedupe key so a change to the drawing re-uploads a disc whose source avatar never moved. Two caps live here and differ on purpose: `NOTIFICATION_AVATAR_MAX_BYTES` (128 KB) bounds the PNG that crosses a push transport, `NOTIFICATION_AVATAR_MAX_LOCAL_BYTES` (512 KB) the one that only crosses local IPC.
+
+**The daemon renders it and syncs it.** `assistant/src/avatar/notification-avatar.ts` builds the SVG and rasterizes it with resvg, loaded lazily through `assistant/src/avatar/resvg-lazy.ts` because the platform-specific native addon is absent from `bun --compile` binaries and a top-level import would take the daemon down at startup. A WebP source is transcoded to PNG first (resvg has no WebP decoder and renders such an `<image>` href blank), and an over-cap render is quantised to a palette PNG and dropped if that still misses. Every failure returns `null` rather than throwing, because the point is to leave the platform holding whatever it already has. `assistant/src/platform/sync-avatar.ts` folds the result into the avatar PATCH the daemon already sends to `/v1/assistants/{id}/`: `notification_avatar_base64` beside `avatar_base64`, both `null` when the avatar is removed, and the field omitted rather than nulled when no disc could be drawn. Its dedupe key is `<kind>:<raster digest>:<spec version>:<accent>:<disc|none>`, whose last segment is answered by `canRenderNotificationAvatar()`, a probe rather than a render. Folding render availability into the key is what keeps a sync that shipped only `avatar_base64` (no native rasterizer, no codec for the source) from latching for the key's whole 7-day life: the key moves the moment the cause clears. A platform that 400s the field gets exactly one reduced re-send without it, and `assistant/src/platform/platform-patch-queue.ts` persists the key the request actually shipped rather than the optimistic one the body was enqueued under.
+
+**Ownership is bounded process state.** The renderer prepares an exact scope, assistant, and native-sender identity rather than treating a display name as identity. The iOS local plugin and Android shared coordinator retain bounded prepared generations and terminal delivery results in native process RAM. A bridge timeout, malformed result, blocked post, or other ambiguous completion does not permit JavaScript to schedule a second banner. Android local notifications and data-only FCM normalize correlation, delivery, and request candidates into the same full string key while keeping the numeric notification id separate. WebView reload clears live page ownership but not native coordinator results; native process restart clears those results. Hash-addressed avatar files can outlive either process, but they are presentation caches rather than ownership or delivery ledgers. The canonical status and rollout gates live in [`docs/notification-avatar-local-qa.md`](docs/notification-avatar-local-qa.md).
+
+**The push carries a sender, not a picture.** The platform owns both payload shapes and gates them on `push-avatar-sender`. APNs pushes gain a top-level `sender` block (`id`, `name`, `avatar_url`, `avatar_hash`) beside `aps`, plus `aps.mutable-content: 1` so the extension is allowed to run; the conversation title stays in `aps.alert.title`. FCM pushes to a capable Android shell go data-only, with flat `sender_id`, `sender_name`, `sender_avatar_url`, and `sender_avatar_hash` keys in `data` alongside `title`, `body`, and `channel_id`. A data-only message only reaches a token whose registration claimed the `native-notification-render` capability, which `clients/web/src/runtime/push-registration.ts` sends on the Android upsert from `AndroidPushRegistration.getCapabilities()`. That is a plugin-method presence check rather than a version comparison, so an older shell claims nothing and keeps receiving notification-block pushes. The claim is deliberately not gated on the flag: it says what a shell could render, not what the platform chooses to send.
+
+**iOS has separate remote and local owners.** `clients/ios/App/NotificationService/` is a `UNNotificationServiceExtension` embedded by all three app targets. It handles only APNs delivery: `SenderPayload.parse` requires a non-empty `id`, `name`, and `avatar_hash`; anything less and the push is delivered untouched. With a sender and an avatar in hand, `CommunicationContent.swift` donates an `INSendMessageIntent` whose `sender` is the assistant and whose `conversationIdentifier` is the assistant id (the same grouping macOS uses), makes it a two-recipient group whose `speakableGroupName` is the push title so the title lands on line two, and returns `content.updating(from:)`. `AvatarCache.swift` keeps the picture at `<App Group container>/Library/Caches/notification-avatars/<sha256>.png`: HTTPS only, 512 KB, eight entries evicted oldest-first by mtime, a 6-second monotonic download budget checked between bytes, and the bytes re-hashed before they are drawn, with symlinked or non-regular entries deleted rather than followed. Every failure path delivers the original content through the same one-shot handler, so a rewrite is never partial. App-originated notifications never pass through the extension. Under `local-notification-avatar` and a supported capability, the app-local `SenderNotification` plugin accepts the full-key post and owns submission. An exact prepared identity gates the Communication Notification sender rewrite, not ownership; a missing or stale identity makes the same native owner submit plain content once. The app targets carry `com.apple.developer.usernotifications.communication` and `NSUserActivityTypes = [INSendMessageIntent]`, the extension restates the App Group id in its own `Info.plist` because an entitlement is not Swift-readable, and `release-ios.yaml` asserts the App Group on every profile and the communication entitlement on the app's own before it archives. See [`clients/ios/README.md`](clients/ios/README.md#signing-four-profiles-per-environment).
+
+**Android shares one native coordinator.** `SafeMessagingService` is Firebase's message entry point in place of Capacitor's. Notification-block FCM retains the existing Capacitor route. Data-only FCM and app-local requests after the ownership handshake both claim the process-wide `NotificationDeliveryCoordinator`, so FCM-first, SSE-first, simultaneous, slow, and late arrivals converge on one terminal result. The versioned `AndroidPushRegistration` handshake binds live ownership to a page generation and stays separate from the token's `native-notification-render` capability and both presentation flags. `local-notification-avatar` decides whether a qualifying app-local post asks for assistant presentation; it does not select the coordinator owner. Page start, renderer loss, activity destruction, and bridge destruction clear live ownership through the serialized bridge lane without resetting coordinator memory. Negotiated foreground FCM visits the same visible active-conversation policy as SSE; a notification that survives that policy returns to the native coordinator for its only display and sound. `NativePushRenderer` posts a `MessagingStyle` conversation notification on the `vellum-alerts` channel with the assistant as the `Person`, the conversation title as the conversation title, and a long-lived conversation shortcut (at most two, and none for a self-hosted assistant). `AvatarCache.java` keeps the same file shape in the app's own cache directory, `<cacheDir>/notification-avatars/<sha256>.png`, under the same 512 KB and eight-file limits and the same re-hash-before-drawing rule, bounded by a 3-second connect, a 3-second response budget that starts before the response head, and a 2-second read timeout, with the bitmap sampled down to 512px before allocation. Permission or channel blocking is decided before avatar work. After the coordinator claims a key, failures remain native-owned and complete the retained result rather than falling back to a second renderer. See [`clients/android/README.md`](clients/android/README.md#native-notifications).
+
+**Renderer preparation has scoped and legacy holders.** `clients/web/src/hooks/use-notification-avatar-sync.ts` runs across renderer surfaces when either sender flag needs preparation. It draws the disc with `rasterizeNotificationAvatar` and publishes an exact scoped identity snapshot for the mobile local bridges, browser notification path, and desktop sender adapter. It is keyed on the assistant, the spec version, the accent, and the avatar's manifest identity rather than its blob URL, which the query mints fresh on every refetch; an over-cap render is a settled answer that keeps the key, while a transient one buys exactly one redraw. The older module-level avatar singleton at `clients/web/src/runtime/notification-avatar.ts` remains a backward-compatible main-Electron-only publication outside pop-outs, but it does not feed notification delivery. `senderPayload()` in `clients/web/src/runtime/notifications.ts` reads the scoped `getNotificationIdentitySnapshot()` result and attaches `sender` to the `vellum:notifications:show` payload only when `push-avatar-sender` is on and the prepared identity names the active scope and assistant. `packages/ipc-contract` adds `NotificationSender` to `ShowNotificationPayload` with `avatarHash` constrained to 64 lowercase hex characters and `avatarBase64` bounded by the local cap, and the field is `.catch(undefined)` so a malformed decoration costs the avatar rather than the notification. `packages/electron-desktop/src/notifications.ts` decodes the base64 once at the IPC boundary and hands the verified bytes to the client's `create` factory. The macOS and Windows native paths require a file, so `packages/electron-desktop/src/notification-avatar-file.ts` stages those bytes at `<userData>/notification-avatars/<sha256>.png`: it recomputes the digest rather than trusting the name, counts a cache entry as a hit only while its length matches, stamps mtime on every hit, and prunes past the 16 newest while sparing any file younger than ten minutes. `notification-avatar-path.ts` wraps native-path staging so a throw is logged and reported as "no avatar", and `helper-toast-request.ts` derives the helper request. Linux does not read a staged sender file. Its Electron fallback builds a `nativeImage` directly from the verified bytes and passes that image as `icon`.
+
+**macOS posts through a native addon.** Electron exposes no intent API, so `clients/macos/native/notifier/notifier.mm` posts through `UNUserNotificationCenter` and donates an `INSendMessageIntent` itself. The renderer attaches a sender only under `push-avatar-sender` and only when the process-local prepared identity exactly matches the active scope, assistant, and native sender id. The addon handles only notifications that carry that sender; everything else goes through the shared `createElectronNotification`, which makes the flag a kill switch for the native sender path without a new build. After the user grants notification permission, the same flag gates a single native confirmation whose sender identity and prepared avatar are revalidated from memory after the prompt. Denied or unknown permission creates no confirmation, and missing or stale sender data falls back to a plain confirmation. A confirmation failure does not change the granted permission result. Electron's `NotificationPresenterMac` claims the notification center's delegate the moment it is constructed and discards responses for identifiers it does not own, so the addon installs its own delegate in front of it, holds a strong reference to the one it displaced, and forwards everything it does not own there; `src/main/index.ts` builds Electron's presenter deliberately at startup with nothing on screen and then puts the proxy back, and every later post re-asserts it. Action categories are registered up front because `setNotificationCategories:` applies asynchronously and a category first registered in the runloop turn its notification is posted can miss it. `com.apple.developer.usernotifications.communication` is a restricted entitlement that kills an unauthorized app at launch, so it is added at pack time by `scripts/entitlements/derive-communication-entitlements.js` only when a provisioning profile granting it is present, and the intent path fails closed everywhere else. See [`clients/macos/README.md`](clients/macos/README.md#native-notifier).
+
+**Windows and Linux go through the shared seams.** Windows delivers through its native helper, which is already the only path with per-category action buttons: `buildHelperToastRequest` puts the assistant's name in the title, the conversation title in the subtitle, and the staged file path in `avatarPath`, and `NotificationService.cs` emits it as `<image placement="appLogoOverride" hint-crop="circle">` pointing at a `file://` URI built from escaped path segments, with the app name left in the attribution line. Linux has the same helper seam but ships no helper binary, so delivery falls to the shared module's `electron.Notification` path, which passes the disc as `icon` on Linux alone: libnotify draws it as the notification's image and takes the app icon from the desktop entry, while macOS would draw it as a right-side thumbnail and a Windows toast has no icon slot there at all. See [`clients/windows/docs/parity-matrix.md`](clients/windows/docs/parity-matrix.md).
+
+```mermaid
+graph TB
+    SPEC["packages/avatar-manifest<br/>notification-avatar.ts<br/>256px disc · 11% inset<br/>accent mixed 14% into white"]
+
+    subgraph "Daemon"
+        REND["avatar/notification-avatar.ts<br/>resvg (lazy) · quantise · cap 128 KB"]
+        SYNC["platform/sync-avatar.ts<br/>notification_avatar_base64<br/>key: kind:digest:spec:accent:disc"]
+        QUEUE["platform-patch-queue.ts<br/>PATCH /v1/assistants/{id}/<br/>one reduced re-send on 400"]
+    end
+
+    PUSHFLAG["push-avatar-sender<br/>remote push + Electron sender"]
+    LOCALFLAG["local-notification-avatar<br/>iOS local owner<br/>Android sender + browser icon"]
+    PLAT["Platform record<br/>notification_avatar + hash"]
+
+    subgraph "Push"
+        APNS["APNs<br/>sender block + mutable-content"]
+        FCM["FCM data-only<br/>flat sender_* keys<br/>tokens claiming native-notification-render"]
+    end
+
+    NSE["iOS NotificationService<br/>APNs rewrite owner<br/>App Group avatar cache"]
+    IOSLOCAL["iOS SenderNotification<br/>app-local one-shot owner<br/>bounded process RAM"]
+    HANDSHAKE["Android page-bound handshake<br/>ownership independent of flags"]
+    ANDLOCAL["AndroidSenderNotification<br/>app-local native route"]
+    AND["Android delivery coordinator<br/>data-only FCM + app-local<br/>bounded process RAM"]
+    BROWSER["Browser Notification<br/>prepared icon + plain retry"]
+
+    subgraph "Electron"
+        LEGACY["legacy avatar singleton<br/>main Electron only"]
+        IPCC["vellum:notifications:show<br/>sender { id, name, base64, hash }"]
+        FILE["notification-avatar-file.ts<br/>userData/notification-avatars/&lt;sha256&gt;.png"]
+        MACN["macOS notifier addon<br/>delegate proxy in front of Electron"]
+        WIN["Windows helper toast<br/>appLogoOverride"]
+        LIN["Linux electron.Notification<br/>icon"]
+    end
+
+    PREP["use-notification-avatar-sync<br/>scoped preparation<br/>renderer surfaces"]
+
+    SPEC --> REND
+    SPEC --> PREP
+    REND --> SYNC --> QUEUE --> PLAT
+    PUSHFLAG --> PLAT
+    PUSHFLAG --> PREP
+    LOCALFLAG --> PREP
+    PLAT --> APNS --> NSE
+    PLAT --> FCM --> AND
+    LOCALFLAG --> IOSLOCAL
+    HANDSHAKE --> ANDLOCAL --> AND
+    LOCALFLAG -->|"assistant presentation"| ANDLOCAL
+    LOCALFLAG --> BROWSER
+    PREP -->|"sender rewrite input"| IOSLOCAL
+    PREP -->|"sender presentation input"| ANDLOCAL
+    PREP -->|"icon"| BROWSER
+    PREP -->|"legacy publication"| LEGACY
+    PREP -->|"scoped snapshot"| IPCC
+    PUSHFLAG --> IPCC
+    IPCC --> FILE
+    FILE --> MACN
+    FILE --> WIN
+    IPCC --> LIN
+```
+
+## Activation Progress
+
+The activation checklist is a first-run nudge: a short list of starter tasks the client offers, and a record of how far each one got. The catalog (copy, icons, ordering) lives in `clients/web`; the daemon stores only opaque task and list identifiers, so the list can change without a migration. State lives in one file, `<workspace>/data/activation-progress.json`, owned by `assistant/src/activation/progress-store.ts`.
+
+Launching a task is three writes in a fixed order: create a **background conversation**, call `POST /v1/activation/tasks/:taskId/start` to link the task to it, then send the task's prompt. The link is recorded before the prompt is sent because a turn that finishes before the link exists would complete against a conversation the daemon has no task for, and the row would sit on Working forever. A conversation belongs to at most one task: starting a second task into a conversation another `started` task points at unlinks the first in the same write, so the lookups that follow always resolve exactly one record.
+
+While the conversation works, every `tool_use` bumps that task's `stepCount` (throttled, with a trailing flush, so a burst of tool calls is one write and one broadcast). Which conversations carry a task is mirrored in memory, so a tool call in any other conversation costs a map lookup and never reads the progress file; because the schedule and memory workers hold their own copy of that index, a lookup that finds no link re-checks the file's size and mtime before believing it, so a link another process wrote is picked up on the next tool call. At the turn boundary a completed turn marks the task `done` unless it ended waiting on the user (an open question or confirmation prompt, or an interactive surface still awaiting an action), in which case the answer's turn finishes it. Those signals are structural, so a clarifying question asked in prose alone still completes the task: telling that apart is a judgement call, and the fix is an assistant-judged turn outcome rather than a heuristic. The files it attached are recorded from the attachments that actually resolved and persisted rather than from the raw directives, capped and de-duplicated by path, and narrowed to the assistant's own workspace: a host file the user approved a read of is dropped, and what is kept is stored workspace-relative, so no absolute host path reaches a client. The completion fires ahead of the turn-boundary Git commit, so a commit that fails or is deferred cannot leave a finished task showing as still running.
+
+Reads degrade: a missing or corrupt file is "nothing started yet". A file stamped with a newer schema version is the one read that does not degrade to a rewrite: its fields are served as far as they still parse, each through the same validator an ordinary read applies, and the store turns read-only so a rollback cannot erase a document a later build wrote. Writes do not degrade: a write that cannot land rejects, so `POST` answers 500 rather than echoing state the next `GET` would contradict, and a write against a newer document answers 409 rather than reporting a persistence that never happened. The turn hooks are the exception by design; they are fire-and-forget and log instead. Every write that changes visible state publishes the `activation:progress` sync tag, carrying the client that made it so that client can suppress its own echo, and sibling clients refetch `GET /v1/activation/progress`. A turn running in a sidecar worker hands the publish to the daemon, where the SSE subscribers live.
+
+```mermaid
+graph LR
+    CLIENT["Web client<br/>task catalog + pill"]
+    CONV["Background conversation<br/>(task prompt)"]
+    START["POST /v1/activation/tasks/:id/start<br/>links task to conversation"]
+    LOOP["Agent loop"]
+    TOOL["onActivationToolCall<br/>throttled stepCount bump"]
+    DONE["onActivationTurnComplete<br/>status=done + artifacts<br/>(unless the turn ended awaiting the user)"]
+    ATT["resolveAssistantAttachments<br/>persisted workspace files only"]
+    STORE["activation-progress.json<br/>serialized atomic writes"]
+    SYNC["sync_changed<br/>activation:progress"]
+    GET["GET /v1/activation/progress"]
+
+    CLIENT -->|"1. create"| CONV
+    CLIENT -->|"2. link"| START
+    CLIENT -->|"3. send prompt"| CONV
+    CONV --> LOOP
+    START --> STORE
+    LOOP -->|"tool_use"| TOOL
+    LOOP -->|"turn completed"| DONE
+    ATT --> DONE
+    TOOL --> STORE
+    DONE --> STORE
+    STORE --> SYNC
+    SYNC -->|"invalidate"| CLIENT
+    CLIENT --> GET
+    GET --> STORE
 ```
 
 ## Maintenance Rule

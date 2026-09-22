@@ -33,9 +33,11 @@
  * - {@link assistantEventHub} — the assistant's pub/sub hub for runtime events
  * - {@link getModelProfiles} — list the workspace inference profiles a plugin
  *   can route to (e.g. a model router building its category → profile map)
- * - {@link getConfiguredProvider} — resolve a {@link Provider} for a call site
+ * - {@link getConfiguredProvider}: resolve a {@link Provider} for a call site
  *   (optionally overriding the profile) and run inference through the
- *   workspace's configured profiles and credentials — no plugin-supplied API key
+ *   workspace's configured profiles and credentials, with no plugin-supplied API key
+ * - {@link getEffectiveContextWindow}: resolve that call site's provider,
+ *   model, and effective maximum input size
  *
  * - {@link InitContext} — passed to `init` hook at bootstrap
  * - {@link ShutdownContext} — passed to `shutdown` hook at teardown
@@ -110,6 +112,7 @@ export type {
   HookBroadcast,
   HookFunction,
   InitContext,
+  MessageDeletedContext,
   ModelProfileInfo,
   PluginLogger,
   PostCompactContext,
@@ -164,13 +167,16 @@ export { publishEvent } from "./publish-event.js";
 // model id, a profile key, or a `ModelProfileInfo`; a bare string is resolved
 // as a model id first and then as a profile key. Profile resolution merges over
 // the workspace default and infers the provider for model-only profiles, then
-// looks up the model catalog's `supportsVision` flag (mix profiles are
+// looks up the model catalog's `supportsVision` flag, with a profile
+// `inputModalities.image` override winning when set (mix profiles are
 // vision-capable if any arm is). Returns false when nothing resolves.
 export { doesSupportVision } from "./vision-support.js";
-// Resolve a stored credential to its plaintext value — the same value
-// `assistant credentials reveal` prints — from a UUID or a "service/field"
+// Resolve a stored credential to its plaintext value (the same value
+// `assistant credentials reveal` prints) from a UUID or a "service/field"
 // reference. When a plugin is in context, resolution is scoped to credentials
-// whose service matches the plugin's manifest name; outside any plugin it is
+// whose service matches the plugin's runtime name. A plugin-resident skill
+// script or skill-tool child presents a daemon-issued invocation grant and is
+// scoped the same way. Outside any plugin context or grant the resolver is
 // unscoped. Throws CredentialResolutionError when the ref does not resolve, the
 // store is unreachable, or the credential is out of the plugin's scope.
 export {
@@ -216,6 +222,11 @@ export { resolveOauthCallbackUrl } from "../inbound/oauth-callback-url.js";
 // float the chosen profile above the call-site layers when the plugin must
 // run on a specific profile regardless of workspace tuning.
 export { getConfiguredProvider } from "../providers/provider-send-message.js";
+export type {
+  EffectiveContextWindowInfo,
+  EffectiveContextWindowOptions,
+} from "./effective-context-window.js";
+export { getEffectiveContextWindow } from "./effective-context-window.js";
 // Resolve an image/file block's media `source` to its bytes as inline base64,
 // whether the source is inline base64 or a persisted workspace reference
 // (attachment-store row or a file on disk). Returns null when a reference can no
@@ -253,6 +264,12 @@ export { isVisionNotSupportedError } from "../util/provider-error-patterns.js";
 // avoid touching stale tool-result media the sanitizer will replace with its
 // removed-media marker.
 export { lastToolResultUserMessageIndex } from "../context/outbound-sanitize.js";
+// The `surfaceId` a successful `ui_show` tool result reports, read from the
+// envelope the host writes (which may also carry advisory `note`/`status`
+// fields). A `post-model-call` hook correlates a progress surface's `ui_show`
+// with its later `ui_update`/`ui_dismiss` through this id to see whether the
+// model left the surface open.
+export { parseSurfaceShowResultId } from "../api/surface-show-result.js";
 // Refusal quarantine — the canned apology a refusal turn is rewritten into
 // (`REFUSAL_FALLBACK_TEXT`, which doubles as the persisted per-exchange
 // "refused" marker), the tool-result-only user-message classifier the producer
@@ -278,6 +295,11 @@ export {
 // writes files under the workspace (e.g. its own `plugins/<name>/data/`
 // directory) resolves them against this instead of hardcoding a base path.
 export { getWorkspaceDir } from "../util/platform.js";
+// `String.prototype.slice` that never cuts a UTF-16 surrogate pair in half.
+// Any text a plugin truncates by character budget and hands to a model must
+// go through this: an orphaned half is invalid UTF-16 that strict provider
+// parsers reject.
+export { safeStringSlice } from "../util/unicode.js";
 // Declarative help for the top-level `assistant` CLI commands that have adopted
 // the static-help split. Plugins (e.g. the memory capability indexer) read this
 // to embed CLI command capabilities without importing the CLI action graph.
@@ -351,7 +373,8 @@ export {
   stringifyMessageContent,
 } from "../persistence/message-content.js";
 // Conversation history — reads and writes on the host conversation store
-// (rows, message history, processing state, disk-view paths) plus the lexical
+// (rows, message history, processing state, the recorded wire tool surface,
+// disk-view paths) plus the lexical
 // message-search surface. Every operation takes explicit parameters; nothing
 // is resolved from config. Async because the facade loads the DB store graph
 // lazily on first call.
@@ -363,7 +386,9 @@ export {
   getConversation,
   getConversationDirPath,
   getConversationProcessingStartedAt,
+  getConversationToolSurface,
   getMessages,
+  getRecordedConversationToolSurface,
   hasLexicalTokens,
   isConversationProcessing,
   listConversations,
@@ -372,12 +397,29 @@ export {
   syncMessageToDisk,
   updateMessageMetadata,
 } from "../persistence/conversation-plugin-facade.js";
+export type { ConversationToolSurface } from "../persistence/conversation-tool-surface.js";
 // System cards: a transcript notice authored by the daemon rather than the
 // assistant persona, for telling the user something a turn did to their input
 // that the model's reply cannot explain (e.g. an attachment that could not be
 // sent). Persisted and pushed to clients; not seated in the turn's working
 // history.
 export { persistSystemCard } from "./system-card.js";
+// Turn cancellation: the guard a side-effecting tool calls immediately before
+// it acts, so a tool does not land work on a turn the user already stopped.
+// The agent loop tells the model an aborted batch was cancelled, and this is
+// what makes that true. Host tools and plugin tools share this one guard.
+export type { CancellableToolContext } from "./tool-cancellation.js";
+export { throwIfCancelled } from "./tool-cancellation.js";
+// Tool input from a Zod schema: derive the advertised `input_schema` from the
+// schema the tool parses its input with, so what the model is told and what
+// the tool accepts share one source. The host validates built-in tools'
+// input centrally; a plugin tool parses its own, and answers a failed parse
+// with `invalidToolInputResult` so its message reads the same as the host's.
+export {
+  invalidToolInputResult,
+  nullAsOmitted,
+  toToolInputSchema,
+} from "../tools/shared/zod-tool-schema.js";
 // Synthesize text to speech through the assistant's globally configured TTS
 // provider (ElevenLabs, Fish Audio, etc.). Plugins that need voice output —
 // e.g. a meeting bot speaking into a live call — use this instead of managing
@@ -424,6 +466,7 @@ export type {
   RunConversationTurnResult,
 } from "./conversation-turn.js";
 export { runConversationTurn } from "./conversation-turn.js";
+export { PluginTurnNotAdmittedError } from "./plugin-channel-turn-trust.js";
 // Live voice — drive a single client's real-time voice session (STT → agent
 // turn → TTS, with server-VAD turn-taking, pauses, and barge-in) over a
 // transport the plugin owns. The plugin brings only a `send` callback (e.g.

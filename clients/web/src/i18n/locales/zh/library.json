@@ -1,10 +1,8 @@
 {
   "libraryEmptyState": {
     "heading": "您的库为空",
-    "body": "让您的助手构建一些内容，或导入共享应用",
-    "newConversation": "新建对话",
-    "separator": "或",
-    "importFile": "导入 .vellum 文件"
+    "body": "让您的助手构建一些内容",
+    "newConversation": "新建对话"
   },
   "libraryView": {
     "importFailed": "导入应用失败",
@@ -12,6 +10,8 @@
     "loadingAria": "正在加载应用",
     "retry": "重试",
     "import": "导入",
+    "newDocument": "新建文档",
+    "newDocumentFailed": "无法创建文档。请重试。",
     "searchPlaceholder": "搜索您的库",
     "noMatches": "没有应用或文档与“{query}”匹配",
     "pinned": "已置顶",

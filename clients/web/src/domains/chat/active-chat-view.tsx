@@ -9,7 +9,12 @@ import { useTranslation } from "@/i18n";
  */
 
 import { lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useParams, useSearchParams } from "react-router";
+import {
+  useLocation,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router";
 
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useAutoGreetGate } from "@/domains/chat/hooks/use-auto-greet-gate";
@@ -19,6 +24,10 @@ import { useConversationStore } from "@/stores/conversation-store";
 import { useActiveConversation } from "@/domains/chat/hooks/use-active-conversation";
 import { useViewerStore } from "@/stores/viewer-store";
 import { useDeployStore } from "@/stores/deploy-store";
+import {
+  closeAppRoute,
+  dropAppFromRoute,
+} from "@/utils/conversation-navigation";
 
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
@@ -58,6 +67,7 @@ import { useShareInboxSend } from "@/domains/chat/hooks/use-share-inbox-send";
 import { ACP_CONNECT_CONTINUE_PROMPT } from "@/domains/chat/utils/acp-connect";
 
 import { useChatDebugRegistration } from "@/domains/chat/hooks/use-chat-debug-registration";
+import { useAppRouteSync } from "@/domains/chat/hooks/use-app-route-sync";
 import { useDeepLinkApp } from "@/domains/chat/hooks/use-deep-link-app";
 import { useScrollToMessageParam } from "@/domains/chat/hooks/use-scroll-to-message";
 import { lifecycleService } from "@/assistant/lifecycle-service";
@@ -80,9 +90,25 @@ import { useSubagentReconcile } from "@/domains/chat/hooks/use-subagent-reconcil
 import { useComposerKeyboard } from "@/domains/chat/hooks/use-composer-keyboard";
 import { useAutoSendEffects } from "@/domains/chat/hooks/use-auto-send-effects";
 import { useOnboardingAttribution } from "@/hooks/use-onboarding-attribution";
+import { requestComposerFocus } from "@/domains/chat/composer-focus";
+import { usePendingDeepLinkStore } from "@/stores/pending-deep-link-store";
 
 import { ChatContentLayout } from "@/domains/chat/components/chat-content-layout";
 import type { ChatMainPanelProps } from "@/domains/chat/components/chat-route-content";
+import { useSessionDisclosureState } from "@/domains/chat/transcript/use-session-disclosure-state";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
+
+/**
+ * Stage a `?prompt=` that arrived without in-app provenance (a clicked link)
+ * for the user to send. Goes through the deep-link inbox rather than straight
+ * into the composer store so `useDeepLinkConsumer` applies its rules: a
+ * cold-load restored draft yields to the link, live typing is never
+ * overwritten.
+ */
+function prefillComposerFromUrl(content: string): void {
+  usePendingDeepLinkStore.getState().setPendingComposerMessage(content);
+  requestComposerFocus();
+}
 
 // ---------------------------------------------------------------------------
 // Component
@@ -92,8 +118,11 @@ export function ActiveChatView() {
   const { t } = useTranslation("chat");
   const canUseInternalActions = useCanUseInternalThreadActions();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { conversationId: urlConversationId } = useParams<{
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { conversationId: urlConversationId, appId: urlAppId } = useParams<{
     conversationId?: string;
+    appId?: string;
   }>();
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const assistantState = useAssistantLifecycleStore.use.assistantState();
@@ -113,6 +142,11 @@ export function ActiveChatView() {
   // Zustand store selectors
   // -------------------------------------------------------------------------
   const activeConversationId = useConversationStore.use.activeConversationId();
+  const sessionGroupsEnabled = useAssistantFeatureFlagStore.use.sessionGroups();
+  const sessionDisclosureState = useSessionDisclosureState(
+    activeConversationId,
+    sessionGroupsEnabled,
+  );
   const isTokenDialogOpen = useDeployStore.use.isTokenDialogOpen();
   const complexDeployApp = useDeployStore.use.complexDeployApp();
 
@@ -129,12 +163,22 @@ export function ActiveChatView() {
   // -------------------------------------------------------------------------
   useActiveAppPinSync(
     assistantId,
-    useCallback((appId: string) => {
-      const didClose = useViewerStore.getState().handleAppUnpinned(appId);
-      if (didClose) {
-        useConversationStore.getState().setEditingConversationId(null);
-      }
-    }, []),
+    useCallback(
+      (appId: string) => {
+        if (useViewerStore.getState().handleAppUnpinned(appId)) {
+          // The unpin already closed the viewer, so the route sync sees nothing
+          // left to close: the app segment leaves the URL from here.
+          closeAppRoute(navigate, { replace: true });
+          return;
+        }
+        // An overlay hides the app, so only the URL is stale. Dropping the
+        // segment leaves the release to the route sync, which keeps the
+        // overlay in front. An unpin has no gesture behind it, so the entry is
+        // replaced rather than popped.
+        dropAppFromRoute(navigate, appId, { evenIfHeld: true, replace: true });
+      },
+      [navigate],
+    ),
   );
 
   // -------------------------------------------------------------------------
@@ -282,6 +326,7 @@ export function ActiveChatView() {
       historyResult.pagination.latestPageOldestTimestamp,
     reachability,
     setAssetsRefreshKey,
+    observeLiveModeSession: sessionDisclosureState.observeLiveSession,
   });
 
   // -------------------------------------------------------------------------
@@ -332,7 +377,9 @@ export function ActiveChatView() {
     activeConversationId,
     searchParams,
     setSearchParams,
+    navigationState: location.state,
     sendMessage,
+    prefillComposer: prefillComposerFromUrl,
     reachabilityPhase: reachability.state.phase,
     reachabilityProbe: reachability.probe,
     getPendingInitialMessage: () =>
@@ -410,8 +457,11 @@ export function ActiveChatView() {
     void sendMessage(message);
   }, [sendMessage]);
 
-  // Deep-link: ?app=<id> auto-opens the app viewer on initial load.
-  useDeepLinkApp(assistantId, searchParams);
+  // Legacy deep-link: ?app=<id> redirects onto the app route.
+  useDeepLinkApp(urlConversationId ?? null, searchParams);
+
+  // The app segment of the URL names an app for the viewer to show.
+  useAppRouteSync(assistantId, urlConversationId ?? null, urlAppId ?? null);
 
   // Conversation-change side effects (dismiss prompts, reset subagent state,
   // auto-fetch subagent details for entries reconstructed from history)
@@ -614,6 +664,7 @@ export function ActiveChatView() {
 
     // History pagination
     historyPagination: historyResult.pagination,
+    sessionDisclosureState,
 
     // Disk pressure (single instance — avoids duplicate polling/subscriptions)
     diskPressure,

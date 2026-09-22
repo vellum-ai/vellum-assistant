@@ -31,8 +31,14 @@
  * agree on cluster boundaries without duplicating the merge code.
  */
 
+import type { ModeSessionActivity } from "../api/mode-session.js";
 import type { MessageRow } from "../persistence/conversation-crud.js";
 import { isStandaloneAssistantMessage } from "../persistence/conversation-crud.js";
+import {
+  readMessageSentAt,
+  readModeSessionMetadata,
+} from "../persistence/message-metadata.js";
+import { assistantTextVisibilityOf } from "../persistence/user-facing-content.js";
 import type { ContentBlock } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
 
@@ -48,6 +54,33 @@ const log = getLogger("message-consolidation");
  */
 function isStandaloneAssistantRow(msg: MessageRow): boolean {
   return isStandaloneAssistantMessage(msg.role, msg.metadata);
+}
+
+/**
+ * Whether two adjacent assistant rows agree about what their plain text is.
+ *
+ * A merged run keeps the anchor's metadata, and the user-facing projection
+ * keys on that metadata, so folding rows that disagree would apply one row's
+ * answer to the other's text. The case that matters: a `send_user_message`
+ * turn's private row followed by the fallback row that surfaced its raw text.
+ * Merged under the anchor's `"private"` marker, the fallback answer would
+ * project to working notes and vanish from the transcript on reload. They are
+ * two display turns because they were two different things.
+ */
+function sameAssistantTextVisibility(a: MessageRow, b: MessageRow): boolean {
+  return (
+    assistantTextVisibilityOf(a.metadata) ===
+    assistantTextVisibilityOf(b.metadata)
+  );
+}
+
+function sameModeSessionOwnership(a: MessageRow, b: MessageRow): boolean {
+  const aOwner = readModeSessionMetadata(a.metadata);
+  const bOwner = readModeSessionMetadata(b.metadata);
+  if (!aOwner || !bOwner) {
+    return aOwner === undefined && bOwner === undefined;
+  }
+  return aOwner.id === bOwner.id && aOwner.mode === bOwner.mode;
 }
 
 // ── Block predicates ────────────────────────────────────────────────
@@ -71,6 +104,10 @@ function isSystemNoticeText(block: ContentBlock): boolean {
  * tool_use ↔ tool_result pairing requirement but are never displayed
  * to the user. Any write-path that walks DB rows in display order
  * must treat them as part of the surrounding assistant turn.
+ *
+ * `excludesToolResultRows()` in `persistence/conversation-crud.ts` mirrors
+ * this predicate in SQL for the attachment listing; the two must change
+ * together.
  */
 export function isToolResultOnlyUserMessage(msg: MessageRow): boolean {
   if (msg.role !== "user") {
@@ -101,7 +138,8 @@ export function isToolResultOnlyUserMessage(msg: MessageRow): boolean {
  *
  * For assistant rows, advances past any consecutive rows that the
  * read-path collapse would fold into the same display turn:
- *   - another assistant row → part of the consecutive-assistant run, OR
+ *   - another assistant row carrying the anchor's text visibility → part
+ *     of the consecutive-assistant run, OR
  *   - a tool-result-only user row → suppressed at display time, sits
  *     between two halves of the same assistant turn.
  *
@@ -134,11 +172,20 @@ export function findDisplayTurnEndIndex(
     if (!next) {
       break;
     }
-    if (next.role === "assistant" && !isStandaloneAssistantRow(next)) {
+    if (
+      next.role === "assistant" &&
+      !isStandaloneAssistantRow(next) &&
+      sameAssistantTextVisibility(messages[startIdx]!, next) &&
+      sameModeSessionOwnership(messages[startIdx]!, next)
+    ) {
       endIdx += 1;
       continue;
     }
-    if (next.role === "user" && isToolResultOnlyUserMessage(next)) {
+    if (
+      next.role === "user" &&
+      isToolResultOnlyUserMessage(next) &&
+      sameModeSessionOwnership(messages[startIdx]!, next)
+    ) {
       endIdx += 1;
       continue;
     }
@@ -160,6 +207,7 @@ export function findDisplayTurnEndIndex(
  */
 export function mergeToolResultsIntoAssistantMessages(
   messages: MessageRow[],
+  mergedIdsByAssistant?: Map<string, string[]>,
 ): MessageRow[] {
   // Index of the most recent assistant message in the output array.
   let lastAssistantIdx = -1;
@@ -204,14 +252,20 @@ export function mergeToolResultsIntoAssistantMessages(
     // Append tool_result blocks to the preceding assistant message's content.
     // No-op at pagination boundaries (lastAssistantIdx < 0); orphan tool_results
     // are silently dropped by renderHistoryContent downstream either way.
-    if (lastAssistantIdx >= 0) {
-      const assistant = result[lastAssistantIdx];
+    const assistant =
+      lastAssistantIdx >= 0 ? result[lastAssistantIdx] : undefined;
+    const canMerge =
+      assistant !== undefined && sameModeSessionOwnership(assistant, msg);
+    if (canMerge) {
       let assistantContent = parsedAssistantContent.get(lastAssistantIdx);
       if (!assistantContent) {
         assistantContent = [...assistant.content];
         parsedAssistantContent.set(lastAssistantIdx, assistantContent);
       }
       assistantContent.push(...toolResultBlocks);
+      const mergedIds = mergedIdsByAssistant?.get(assistant.id) ?? [];
+      mergedIds.push(msg.id);
+      mergedIdsByAssistant?.set(assistant.id, mergedIds);
     }
 
     // If the user message had only tool_result (+ system_notice) blocks,
@@ -221,6 +275,9 @@ export function mergeToolResultsIntoAssistantMessages(
     const realUserContent = otherBlocks.filter((b) => !isSystemNoticeText(b));
     if (realUserContent.length > 0) {
       result.push({ ...msg, content: otherBlocks });
+    }
+    if (!canMerge) {
+      lastAssistantIdx = -1;
     }
     // else: tool-result-only → suppressed
   }
@@ -308,7 +365,9 @@ export function mergeConsecutiveAssistantMessages(messages: MessageRow[]): {
       !isStandaloneAssistantRow(msg) &&
       lastIdx >= 0 &&
       result[lastIdx].role === "assistant" &&
-      !isStandaloneAssistantRow(result[lastIdx]);
+      !isStandaloneAssistantRow(result[lastIdx]) &&
+      sameAssistantTextVisibility(result[lastIdx], msg) &&
+      sameModeSessionOwnership(result[lastIdx], msg);
 
     if (!isConsecutiveAssistant) {
       result.push(msg);
@@ -346,4 +405,71 @@ export function mergeConsecutiveAssistantMessages(messages: MessageRow[]): {
   }
 
   return { messages: result, mergedIdMap };
+}
+
+export function consolidateMessageRows(messages: MessageRow[]): {
+  messages: MessageRow[];
+  mergedIdMap: Map<string, string[]>;
+  modeSessionActivityMap: Map<string, ModeSessionActivity>;
+} {
+  const rowsById = new Map(messages.map((message) => [message.id, message]));
+  const toolMergedIds = new Map<string, string[]>();
+  const toolMerged = mergeToolResultsIntoAssistantMessages(
+    messages,
+    toolMergedIds,
+  );
+  const consolidated = mergeConsecutiveAssistantMessages(toolMerged);
+  const mergedIdMap = new Map<string, string[]>();
+  const modeSessionActivityMap = new Map<string, ModeSessionActivity>();
+
+  for (const message of consolidated.messages) {
+    const assistantDonors = consolidated.mergedIdMap.get(message.id) ?? [];
+    const aliases = [
+      ...(toolMergedIds.get(message.id) ?? []),
+      ...assistantDonors.flatMap((id) => [
+        id,
+        ...(toolMergedIds.get(id) ?? []),
+      ]),
+    ];
+    if (aliases.length > 0) {
+      mergedIdMap.set(message.id, aliases);
+    }
+
+    const owner = readModeSessionMetadata(message.metadata);
+    if (!owner) {
+      continue;
+    }
+    const representedRows = [message.id, ...aliases]
+      .map((id) => rowsById.get(id))
+      .filter((row): row is MessageRow => row !== undefined);
+    if (
+      representedRows.some((row) => {
+        const rowOwner = readModeSessionMetadata(row.metadata);
+        return rowOwner?.id !== owner.id || rowOwner.mode !== owner.mode;
+      })
+    ) {
+      continue;
+    }
+    const activityTimes = representedRows
+      .map((row) => readMessageSentAt(row.metadata) ?? row.createdAt)
+      .filter(
+        (at) =>
+          Number.isInteger(at) &&
+          at >= 0 &&
+          Number.isFinite(new Date(at).getTime()),
+      );
+    if (activityTimes.length !== representedRows.length) {
+      continue;
+    }
+    modeSessionActivityMap.set(message.id, {
+      firstAt: Math.min(...activityTimes),
+      lastAt: Math.max(...activityTimes),
+    });
+  }
+
+  return {
+    messages: consolidated.messages,
+    mergedIdMap,
+    modeSessionActivityMap,
+  };
 }

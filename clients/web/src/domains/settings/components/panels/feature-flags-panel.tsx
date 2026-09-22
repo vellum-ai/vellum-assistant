@@ -181,7 +181,7 @@ export function FeatureFlagsPanel() {
             placeholder={t("featureFlagsPanel.searchPlaceholder")}
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
-            className="w-full rounded-lg border border-[var(--border-base)] bg-[var(--surface-default)] py-2 pl-9 pr-3 text-body-medium-default text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] focus:border-[var(--border-focus)] focus:outline-none"
+            className="w-full rounded-lg border border-[var(--border-base)] bg-[var(--field-bg)] py-2 pl-9 pr-3 text-body-medium-default text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] focus:border-[var(--border-active)] focus:outline-none"
           />
         </div>
 
@@ -376,10 +376,10 @@ function StringFlagRow({
               onBlur={handleBlur}
               onKeyDown={handleKeyDown}
               className={cn(
-                "w-full rounded-lg border bg-[var(--surface-default)] px-3 py-1.5 text-body-small-default text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] focus:outline-none",
+                "w-full rounded-lg border bg-[var(--field-bg)] px-3 py-1.5 text-body-small-default text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] focus:outline-none",
                 isInvalid
                   ? "border-[var(--system-negative-strong)]"
-                  : "border-[var(--border-base)] focus:border-[var(--border-focus)]",
+                  : "border-[var(--border-base)] focus:border-[var(--border-active)]",
               )}
               placeholder={
                 flag.defaultValue || t("featureFlagsPanel.enterValue")

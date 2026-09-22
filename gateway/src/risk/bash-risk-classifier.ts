@@ -1083,15 +1083,13 @@ export class BashRiskClassifier implements RiskClassifier<BashClassifierInput> {
       parsed,
     );
 
-    const assessment: RiskAssessment = {
+    return {
       riskLevel: maxRiskLevel,
       reason: maxReason,
       scopeOptions,
       matchType,
       allowlistOptions,
     };
-
-    return assessment;
   }
 }
 

@@ -1,17 +1,20 @@
 /**
  * Shared MCP reload business logic.
  *
- * Called by the ConfigWatcher when config.json changes or a reload signal
+ * Called by the ConfigWatcher when mcp.json changes or a reload signal
  * file is detected, so the daemon automatically reconnects MCP servers.
  */
 
-import { getConfig, invalidateConfigCache } from "../config/loader.js";
+import { invalidateConfigCache } from "../config/loader.js";
 import {
   buildEffectiveMcpConfig,
   pluginMcpServersChangedSinceLastBuild,
 } from "../mcp/effective-config.js";
 import { getMcpServerManager } from "../mcp/manager.js";
 import { migrateLegacyMcpHeaders } from "../mcp/mcp-header-store.js";
+import { signalMcpReloaded } from "../mcp/reload-signal.js";
+import { loadWorkspaceMcpConfig } from "../mcp/workspace-mcp-config.js";
+import { publishMcpChanged } from "../runtime/sync/resource-sync-events.js";
 import { createMcpToolsFromServer } from "../tools/mcp/mcp-tool-factory.js";
 import { registerMcpTools, unregisterAllMcpTools } from "../tools/registry.js";
 import { getLogger } from "../util/logger.js";
@@ -22,8 +25,6 @@ const log = getLogger("mcp-reload-service");
 export interface McpReloadServerResult {
   id: string;
   connected: boolean;
-  /** True when the server is explicitly disabled in config. */
-  disabled?: boolean;
   toolCount: number;
   tools: string[];
 }
@@ -80,6 +81,7 @@ export async function reconcilePluginMcpServers(): Promise<void> {
 }
 
 async function doReload(): Promise<McpReloadResult> {
+  let teardownStarted = false;
   try {
     const manager = getMcpServerManager();
 
@@ -96,16 +98,16 @@ async function doReload(): Promise<McpReloadResult> {
     //    If the config is broken we abort early, preserving the current
     //    working MCP setup instead of leaving zero servers.
     invalidateConfigCache();
-    const config = getConfig();
 
     // 2. Stop existing MCP servers + unregister their tools
+    teardownStarted = true;
     await manager.stop();
     unregisterAllMcpTools();
 
     // Plugins are re-read here too: installing or removing one changes the
-    // server set exactly like editing config.json does, and both arrive
+    // server set exactly like editing mcp.json does, and both arrive
     // through this same reload.
-    const mcpConfig = buildEffectiveMcpConfig(config.mcp);
+    const mcpConfig = buildEffectiveMcpConfig(loadWorkspaceMcpConfig());
     const serverIds = Object.keys(mcpConfig.servers);
 
     // 3. Restart MCP servers
@@ -114,7 +116,7 @@ async function doReload(): Promise<McpReloadResult> {
     const servers: McpReloadServerResult[] = [];
 
     if (serverIds.length > 0) {
-      const serverToolInfos = await manager.start(mcpConfig);
+      const { servers: serverToolInfos } = await manager.start(mcpConfig);
       for (const { serverId, serverConfig, tools } of serverToolInfos) {
         const mcpTools = createMcpToolsFromServer(
           tools,
@@ -132,15 +134,12 @@ async function doReload(): Promise<McpReloadResult> {
           tools: acceptedNames,
         });
       }
-      // Include servers that were configured but failed to connect or are disabled
+      // Include servers that were configured but failed to connect
       for (const id of serverIds) {
         if (!servers.some((s) => s.id === id)) {
-          const serverConfig = mcpConfig.servers[id];
-          const isDisabled = serverConfig?.enabled === false;
           servers.push({
             id,
             connected: false,
-            disabled: isDisabled || undefined,
             toolCount: 0,
             tools: [],
           });
@@ -154,10 +153,19 @@ async function doReload(): Promise<McpReloadResult> {
     // to evict sessions.
 
     log.info({ serverCount, toolCount }, "MCP servers reloaded");
+    // Other processes hold their own connections to the same servers and have
+    // no watcher of their own; this is how they learn the set moved. Only on
+    // success: a reload that failed before the teardown left this process on
+    // its existing servers, so there is nothing for anyone to mirror.
+    signalMcpReloaded();
     return { success: true, serverCount, toolCount, servers };
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
     log.error({ err }, "MCP reload failed");
     return { success: false, error };
+  } finally {
+    if (teardownStarted) {
+      publishMcpChanged();
+    }
   }
 }

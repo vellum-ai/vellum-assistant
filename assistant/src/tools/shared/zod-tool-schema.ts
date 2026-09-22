@@ -1,5 +1,9 @@
 import { z } from "zod";
 
+import {
+  ACTIVITY_FIELD,
+  declareDaemonActivityField,
+} from "../schema-transforms.js";
 import type { ToolExecutionResult } from "../types.js";
 
 /**
@@ -25,7 +29,9 @@ import type { ToolExecutionResult } from "../types.js";
  * sanctioned divergence, and only in the tolerant direction: the model is told
  * to always send the field (e.g. `activity`, which drives status UX), but a
  * call that omits it still executes rather than failing on a field the tool
- * doesn't need.
+ * doesn't need. Naming `activity` there also records the schema as carrying
+ * the daemon's own status field (`declareDaemonActivityField`), so a surface
+ * that renders no activity text can drop it from the advertised copy.
  */
 export function toToolInputSchema(
   schema: z.ZodType,
@@ -42,6 +48,9 @@ export function toToolInputSchema(
     const required = Array.isArray(json.required) ? json.required : [];
     if (!required.includes(field)) {
       json.required = [...required, field];
+    }
+    if (field === ACTIVITY_FIELD) {
+      declareDaemonActivityField(json);
     }
   }
   return json;

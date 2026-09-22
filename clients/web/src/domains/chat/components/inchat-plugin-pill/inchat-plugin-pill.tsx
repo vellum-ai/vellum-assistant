@@ -26,9 +26,10 @@ export interface InChatPluginPillProps {
 /**
  * Top-right chat pill summarizing the conversation's active plugins. Clicking it
  * opens a read-only list of those plugins plus a "Manage" shortcut to the
- * plugins page — editing the set happens there, not in this menu. Mirrors
- * `ConversationAssetsPill`'s top-right placement and desktop-popover /
- * touch-bottom-sheet split.
+ * plugins page: editing the set happens there, not in this menu. Sits in the
+ * header's top-right cluster, and branches its disclosure between a desktop
+ * popover and a touch bottom sheet here rather than through `AdaptivePopover`,
+ * which is where the other chat panels get that split.
  */
 export function InChatPluginPill({
   assistantId,
@@ -107,10 +108,10 @@ export function InChatPluginPill({
     />
   ) : (
     <Button
+      shape="pill"
       variant="ghost"
       active
       leftIcon={<Plug />}
-      className="rounded-full"
       tintColor="var(--content-default)"
       aria-label={ariaLabel}
     >

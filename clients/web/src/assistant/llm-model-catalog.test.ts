@@ -26,8 +26,12 @@ import {
   PROVIDER_DISPLAY_NAMES,
   PROVIDER_SUPPORTS_PLATFORM_AUTH,
   getModelsForProvider,
+  catalogEnabledFlags,
+  catalogModelSupportsText,
   getVisibleModelsForProvider,
+  getTextGenerationModelsForProvider,
   getManagedUpstreamForModel,
+  providerOffersTextGeneration,
   VELLUM_SERVED_PROVIDERS,
   type LlmProviderId,
 } from "./llm-model-catalog";
@@ -46,6 +50,7 @@ interface MetaCatalogModel {
   supportsThinking?: boolean;
   adaptiveThinkingOnly?: boolean;
   thinkingFloor?: "minimal" | "low";
+  supportsText?: boolean;
 }
 
 interface MetaCatalogProvider {
@@ -74,6 +79,8 @@ const META_CATALOG_PATH = join(
  * so only the shared subset is compared. `supportsThinking` and
  * `adaptiveThinkingOnly` are normalized to booleans because the web mirror
  * omits them when false while the meta JSON may carry an explicit `false`.
+ * `supportsText` is the inverse: omitted means true, and only an explicit
+ * `false` is compared.
  */
 function comparableModel(model: MetaCatalogModel) {
   return {
@@ -86,6 +93,7 @@ function comparableModel(model: MetaCatalogModel) {
     supportsThinking: model.supportsThinking === true,
     adaptiveThinkingOnly: model.adaptiveThinkingOnly === true,
     thinkingFloor: model.thinkingFloor,
+    supportsText: model.supportsText !== false,
   };
 }
 
@@ -99,6 +107,8 @@ describe("chatgpt identity catalog", () => {
       expect(CODEX_SUBSCRIPTION_MODEL_IDS.has(m.id)).toBe(true);
     }
     expect(models.some((m) => m.id === "gpt-5.4-nano")).toBe(false);
+    expect(models.some((m) => m.id === "gpt-5.4")).toBe(false);
+    expect(models.some((m) => m.id === "gpt-5.4-mini")).toBe(false);
   });
 
   test("defaults to the Balanced profile's model on the chatgpt column", () => {
@@ -160,18 +170,38 @@ describe("parity with meta/llm-provider-catalog.json", () => {
     expect(getManagedUpstreamForModel("not-a-real-model")).toBeUndefined();
   });
 
-  test("vellum GPU models stay out of pickers and hide without developer mode", () => {
+  test("vellum GPU models stay out of pickers and hide without hosted inference", () => {
     expect(Object.keys(MODELS_BY_PROVIDER)).toContain("vellum");
     expect(INFERENCE_PROVIDERS).not.toContain("vellum");
     expect(CONNECTION_PROVIDERS).not.toContain("vellum");
     expect(
-      getVisibleModelsForProvider("vellum", false).some(
-        (model) => model.id === "qwen/qwen3-8b",
-      ),
+      getVisibleModelsForProvider(
+        "vellum",
+        catalogEnabledFlags({ hostedInference: false }),
+      ).some((model) => model.id === "qwen/qwen3-8b"),
     ).toBe(false);
     expect(
-      getVisibleModelsForProvider("vellum", true).some(
-        (model) => model.id === "qwen/qwen3-8b",
+      getVisibleModelsForProvider(
+        "vellum",
+        catalogEnabledFlags({ hostedInference: true }),
+      ).some((model) => model.id === "qwen/qwen3-8b"),
+    ).toBe(true);
+  });
+
+  test("structured-decision models stay visible on the provider row but not in text pickers", () => {
+    expect(
+      getModelsForProvider("typesafe").some((model) => model.id === "jev-latest"),
+    ).toBe(true);
+    expect(catalogModelSupportsText("typesafe", "jev-latest")).toBe(false);
+    expect(providerOffersTextGeneration("typesafe")).toBe(false);
+    expect(providerOffersTextGeneration("anthropic")).toBe(true);
+    expect(providerOffersTextGeneration("openai-compatible")).toBe(true);
+    expect(
+      getTextGenerationModelsForProvider("typesafe", catalogEnabledFlags({})),
+    ).toEqual([]);
+    expect(
+      getVisibleModelsForProvider("typesafe", catalogEnabledFlags({})).some(
+        (model) => model.id === "jev-latest",
       ),
     ).toBe(true);
   });

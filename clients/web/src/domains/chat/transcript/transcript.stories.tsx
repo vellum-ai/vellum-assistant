@@ -3,16 +3,24 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import { useTurnStore } from "@/domains/chat/turn-store";
+import type { DisplayMessage } from "@/domains/chat/types/types";
+import type {
+  ModeSessionDescriptor,
+  ModeSession,
+} from "@vellumai/assistant-api";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 
 import {
   Transcript,
   type TranscriptHandle,
   type TranscriptProps,
 } from "./transcript";
-import { message } from "./transcript-story-fixtures";
+import { cameraFrame, message } from "./transcript-story-fixtures";
 import { TranscriptStoryFrame } from "./transcript-story-frame";
 import type { TranscriptItem } from "./types";
+import { useSessionDisclosureState } from "./use-session-disclosure-state";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -103,8 +111,8 @@ const meta: Meta<typeof Transcript> = {
     renderAvatar,
   },
   decorators: [
-    (Story) => (
-      <TranscriptStoryFrame>
+    (Story, context) => (
+      <TranscriptStoryFrame width={context.parameters.transcriptWidth}>
         <Story />
       </TranscriptStoryFrame>
     ),
@@ -117,6 +125,45 @@ type Story = StoryObj<typeof Transcript>;
 export const Conversation: Story = {
   args: { items: CONVERSATION },
   render: (args) => <TranscriptAtLatest {...args} />,
+};
+
+const CAMERA_FRAMES = Array.from({ length: 5 }, (_, index) =>
+  cameraFrame(`frame-${index}`, {
+    timestamp: Date.UTC(2026, 0, 2, 12, 34, index * 5),
+    previewUrl: index % 2 === 0 ? AVATAR_URL : undefined,
+  }),
+);
+
+export const CameraFramesWithUtterance: Story = {
+  args: {
+    items: [
+      {
+        ...user("camera-question", "What is this?"),
+        cameraFrames: CAMERA_FRAMES,
+      },
+    ],
+  },
+};
+
+export const StandaloneCameraFrames: Story = {
+  parameters: {
+    docs: {
+      description: {
+        story:
+          "Every saved frame remains addressable. When speech arrives, the utterance hosts the group and any open frame preview closes.",
+      },
+    },
+  },
+  args: {
+    items: [
+      {
+        kind: "message",
+        key: CAMERA_FRAMES[0]!.id,
+        message: CAMERA_FRAMES[0]!,
+        cameraFrames: CAMERA_FRAMES,
+      },
+    ],
+  },
 };
 
 // Messages exercising the block-level markdown the transcript renders beyond
@@ -227,4 +274,415 @@ export const Streaming: Story = {
 
     return <Transcript ref={ref} {...args} items={items} />;
   },
+};
+
+const SESSION_NOW = Date.UTC(2026, 8, 15, 14, 5);
+const COMPLETED_SESSION_ID = "browser-session-recorded";
+const ACTIVE_SESSION_ID = "computer-session-live";
+const LIVE_SESSION_ID = "live-vision-session";
+
+function withSession(
+  item: TranscriptItem,
+  modeSession: ModeSession,
+  timestamp: number,
+): TranscriptItem {
+  if (item.kind !== "message") {
+    return item;
+  }
+  const message: DisplayMessage = {
+    ...item.message,
+    timestamp,
+    modeSession,
+    modeSessionActivity: { firstAt: timestamp, lastAt: timestamp },
+  };
+  const cameraFrames = item.cameraFrames?.map((frame) => {
+    const frameTimestamp = frame.timestamp ?? timestamp;
+    return {
+      ...frame,
+      modeSession,
+      modeSessionActivity: {
+        firstAt: frameTimestamp,
+        lastAt: frameTimestamp,
+      },
+    };
+  });
+  return { ...item, message, cameraFrames };
+}
+
+const SESSION_ITEMS: TranscriptItem[] = [
+  user(
+    "session-request",
+    "Open the release dashboard and check the latest run.",
+  ),
+  withSession(
+    assistant(
+      "session-recorded-1",
+      "I opened the dashboard and inspected the latest workflow.",
+    ),
+    { mode: "browser", id: COMPLETED_SESSION_ID },
+    SESSION_NOW - 300_000,
+  ),
+  withSession(
+    assistant(
+      "session-recorded-2",
+      "The workflow completed successfully and all required jobs passed.",
+    ),
+    { mode: "browser", id: COMPLETED_SESSION_ID },
+    SESSION_NOW - 240_000,
+  ),
+  {
+    kind: "surface",
+    key: "session-learned-skill",
+    surface: {
+      surfaceId: "session-learned-skill",
+      surfaceType: "skill_card",
+      display: "inline",
+      data: {
+        skills: [
+          {
+            skillId: "release-status-check",
+            name: "Release Status Check",
+            description: "Check the latest workflow on the release dashboard.",
+          },
+        ],
+      },
+    },
+  },
+  user("session-latest-request", "Please capture the final artifact details."),
+  withSession(
+    assistant(
+      "session-live-response",
+      "I am opening the artifact list and checking the signed packages.",
+    ),
+    { mode: "computer_use", id: ACTIVE_SESSION_ID },
+    SESSION_NOW - 30_000,
+  ),
+  {
+    kind: "surface",
+    key: "session-artifact-choice",
+    surface: {
+      surfaceId: "session-artifact-choice",
+      surfaceType: "choice",
+      title: "Which package should I inspect?",
+      display: "inline",
+      data: {
+        options: [
+          { id: "desktop", title: "Desktop package" },
+          { id: "mobile", title: "Mobile package" },
+        ],
+      },
+    },
+  },
+];
+
+const SESSION_DESCRIPTORS: ModeSessionDescriptor[] = [
+  {
+    summary: {
+      id: COMPLETED_SESSION_ID,
+      conversationId: "session-story",
+      mode: "browser",
+      sourceStartedAt: SESSION_NOW - 330_000,
+      firstIncludedAt: SESSION_NOW - 300_000,
+      firstIncludedMessageId: "session-recorded-1",
+      lastActivityAt: SESSION_NOW - 240_000,
+      lastOwnedMessageId: "session-recorded-2",
+      revision: 2,
+      status: "completed",
+      endedAt: SESSION_NOW - 235_000,
+      endReason: "completed",
+    },
+  },
+  {
+    summary: {
+      id: ACTIVE_SESSION_ID,
+      conversationId: "session-story",
+      mode: "computer_use",
+      sourceStartedAt: SESSION_NOW - 45_000,
+      firstIncludedAt: SESSION_NOW - 30_000,
+      firstIncludedMessageId: "session-live-response",
+      lastActivityAt: SESSION_NOW - 15_000,
+      lastOwnedMessageId: "session-live-response",
+      revision: 1,
+      status: "active",
+      endedAt: null,
+      endReason: null,
+    },
+    runtimeState: "waiting",
+  },
+];
+
+function setSessionGroupsStoryFlag(enabled: boolean) {
+  useAssistantFeatureFlagStore.setState({ sessionGroups: enabled });
+  return () => {
+    useAssistantFeatureFlagStore.setState({ sessionGroups: false });
+  };
+}
+
+function SessionGroupingStory() {
+  const sessionGroupsEnabled = useAssistantFeatureFlagStore.use.sessionGroups();
+  const disclosure = useSessionDisclosureState(
+    "session-story",
+    sessionGroupsEnabled,
+  );
+  const { observeLiveSession } = disclosure;
+  useEffect(() => {
+    observeLiveSession(ACTIVE_SESSION_ID);
+  }, [observeLiveSession]);
+
+  return (
+    <TranscriptAtLatest
+      items={SESSION_ITEMS}
+      conversationId="session-story"
+      modeSessionDescriptors={SESSION_DESCRIPTORS}
+      sessionDisclosureState={disclosure}
+      sessionClockConnected
+      sessionClockNow={SESSION_NOW}
+      onSurfaceAction={() => {}}
+      renderAvatar={renderAvatar}
+    />
+  );
+}
+
+/** Recorded history is closed while the session observed live in this visit is open. */
+export const SessionHistoryAndLatestTurn: Story = {
+  beforeEach: () => setSessionGroupsStoryFlag(true),
+  parameters: { controls: { disable: true } },
+  render: () => <SessionGroupingStory />,
+};
+
+/** The same canonical rows remain flat when the presentation flag is disabled. */
+export const SessionGroupingFlagOff: Story = {
+  beforeEach: () => setSessionGroupsStoryFlag(false),
+  parameters: { controls: { disable: true } },
+  render: () => <SessionGroupingStory />,
+};
+
+const ADJACENT_SESSION_ITEMS = SESSION_ITEMS.filter(
+  (item) => item.kind === "message" && item.key !== "session-latest-request",
+);
+
+export const AdjacentSessionGroups: Story = {
+  args: {
+    items: ADJACENT_SESSION_ITEMS,
+    conversationId: "session-story",
+    modeSessionDescriptors: SESSION_DESCRIPTORS,
+    sessionGroupsEnabled: true,
+    sessionClockNow: SESSION_NOW,
+  },
+};
+
+export const AdjacentSessionGroupsInHistory: Story = {
+  args: {
+    ...AdjacentSessionGroups.args,
+    items: [
+      ...ADJACENT_SESSION_ITEMS,
+      user("next-request", "Thanks. What should I check next?"),
+    ],
+  },
+};
+
+/** The composed session transcript fits the real mobile viewport width. */
+export const SessionHistoryAndLatestTurnMobile: Story = {
+  beforeEach: () => setSessionGroupsStoryFlag(true),
+  globals: { viewport: { value: "sbMobile", isRotated: false } },
+  parameters: {
+    controls: { disable: true },
+    transcriptWidth: "100%",
+  },
+  render: () => <SessionGroupingStory />,
+};
+
+const REPEATED_SESSION_RUNS = [
+  {
+    mode: "browser",
+    request: "Find a lightweight laptop under $1,200.",
+    thinking: "I will compare price and weight across the available models.",
+    activity: "Checking laptop specifications",
+    response:
+      "I found two options under budget: a 13-inch model at $999 and a 14-inch model at $1,149.",
+    duration: 42_000,
+  },
+  {
+    mode: "browser",
+    request: "Compare the two best options.",
+    thinking: "I will check battery life and ports before recommending one.",
+    activity: "Comparing battery life and ports",
+    response:
+      "The 13-inch model is lighter. The 14-inch model has more ports and a larger battery.",
+    duration: 60_000,
+  },
+  {
+    mode: "computer_use",
+    request: "Put the comparison in a spreadsheet.",
+    thinking:
+      "I will enter price, weight, battery life, and ports in separate columns.",
+    activity: "Entering the laptop comparison",
+    response:
+      "The comparison is in the spreadsheet, with one row for each laptop.",
+    duration: 18_000,
+  },
+] as const;
+
+const REPEATED_SESSION_ITEMS: TranscriptItem[] = [];
+const REPEATED_SESSION_DESCRIPTORS: ModeSessionDescriptor[] = [];
+for (const [index, run] of REPEATED_SESSION_RUNS.entries()) {
+  const id = `compact-session-${index}`;
+  const responseId = `${id}-response`;
+  const startedAt = SESSION_NOW - (3 - index) * 120_000;
+  const endedAt = startedAt + run.duration;
+  const toolCall: ChatMessageToolCall = {
+    id: `${id}-tool`,
+    name: run.mode === "browser" ? "bash" : "computer_use_type_text",
+    input:
+      run.mode === "browser"
+        ? { command: "assistant browser snapshot", activity: run.activity }
+        : {
+            text: "Model\tPrice\tWeight\tBattery life\tPorts",
+            reasoning: run.activity,
+          },
+    startedAt,
+    completedAt: endedAt,
+  };
+  const response: TranscriptItem = {
+    kind: "message",
+    key: responseId,
+    message: {
+      id: responseId,
+      role: "assistant",
+      contentBlocks: [
+        { type: "thinking", thinking: run.thinking },
+        { type: "tool_use", toolCall },
+        { type: "text", text: run.response },
+      ],
+      toolCalls: [toolCall],
+    },
+  };
+  const request = user(`${id}-request`, run.request);
+  request.message.timestamp = startedAt - 1_000;
+  REPEATED_SESSION_ITEMS.push(
+    request,
+    withSession(response, { mode: run.mode, id }, startedAt),
+  );
+  REPEATED_SESSION_DESCRIPTORS.push({
+    summary: {
+      id,
+      conversationId: "compact-session-story",
+      mode: run.mode,
+      sourceStartedAt: startedAt,
+      firstIncludedAt: startedAt,
+      firstIncludedMessageId: responseId,
+      lastActivityAt: endedAt,
+      lastOwnedMessageId: responseId,
+      revision: 2,
+      status: "completed",
+      endedAt,
+      endReason: "completed",
+    },
+  });
+}
+
+export const RepeatedBrowserAndComputerSessions: Story = {
+  globals: { theme: "dark" },
+  beforeEach: () => setSessionGroupsStoryFlag(true),
+  args: {
+    items: REPEATED_SESSION_ITEMS,
+    conversationId: "compact-session-story",
+    modeSessionDescriptors: REPEATED_SESSION_DESCRIPTORS,
+    sessionGroupsEnabled: true,
+    sessionClockNow: SESSION_NOW,
+  },
+};
+
+export const RepeatedBrowserAndComputerSessionsMobile: Story = {
+  ...RepeatedBrowserAndComputerSessions,
+  globals: {
+    theme: "dark",
+    viewport: { value: "sbMobile", isRotated: false },
+  },
+  parameters: { transcriptWidth: "100%" },
+};
+
+const LIVE_ITEMS: TranscriptItem[] = [
+  withSession(
+    {
+      ...user(
+        "live-request",
+        "Can you identify the item in front of the camera?",
+      ),
+      cameraFrames: [
+        cameraFrame("live-frame", {
+          timestamp: SESSION_NOW - 20_000,
+          previewUrl: AVATAR_URL,
+        }),
+      ],
+    },
+    { mode: "live_vision", id: LIVE_SESSION_ID },
+    SESSION_NOW - 20_000,
+  ),
+  withSession(
+    assistant(
+      "live-response",
+      "It appears to be a small notebook with a green fabric cover.",
+    ),
+    { mode: "live_vision", id: LIVE_SESSION_ID },
+    SESSION_NOW - 5_000,
+  ),
+];
+
+const LIVE_DESCRIPTOR: ModeSessionDescriptor = {
+  summary: {
+    id: LIVE_SESSION_ID,
+    conversationId: "live-session-story",
+    mode: "live_vision",
+    sourceStartedAt: SESSION_NOW - 25_000,
+    firstIncludedAt: SESSION_NOW - 20_000,
+    firstIncludedMessageId: "live-request",
+    lastActivityAt: SESSION_NOW - 5_000,
+    lastOwnedMessageId: "live-response",
+    revision: 1,
+    status: "active",
+    endedAt: null,
+    endReason: null,
+  },
+};
+
+function LiveSessionStory() {
+  const sessionGroupsEnabled = useAssistantFeatureFlagStore.use.sessionGroups();
+  const disclosure = useSessionDisclosureState(
+    "live-session-story",
+    sessionGroupsEnabled,
+  );
+  const { observeLiveSession } = disclosure;
+  useEffect(() => {
+    observeLiveSession(LIVE_SESSION_ID);
+  }, [observeLiveSession]);
+
+  return (
+    <TranscriptAtLatest
+      items={LIVE_ITEMS}
+      conversationId="live-session-story"
+      modeSessionDescriptors={[LIVE_DESCRIPTOR]}
+      sessionDisclosureState={disclosure}
+      sessionClockConnected
+      sessionClockNow={SESSION_NOW}
+      onSurfaceAction={() => {}}
+      renderAvatar={renderAvatar}
+    />
+  );
+}
+
+/** Live vision includes its stamped camera/user prefix in the active group. */
+export const LiveSessionLatestTurn: Story = {
+  beforeEach: () => setSessionGroupsStoryFlag(true),
+  parameters: { controls: { disable: true } },
+  render: () => <LiveSessionStory />,
+};
+
+export const LiveSessionLatestTurnMobile: Story = {
+  ...LiveSessionLatestTurn,
+  globals: {
+    theme: "dark",
+    viewport: { value: "sbMobile", isRotated: false },
+  },
+  parameters: { controls: { disable: true }, transcriptWidth: "100%" },
 };

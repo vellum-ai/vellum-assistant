@@ -10,6 +10,7 @@ import type { ContentBlock, ImageContent } from "@vellumai/plugin-api";
 import {
   getConfiguredProvider,
   resolveMediaSourceData,
+  safeStringSlice,
 } from "@vellumai/plugin-api";
 import { selectedBackendSupportsMultimodal } from "@vellumai/plugin-api";
 
@@ -491,7 +492,9 @@ export async function loadContextMemory(
     try {
       const queryText = opts.recentSummaries.join("\n\n");
       const truncated =
-        queryText.length > 3000 ? queryText.slice(0, 3000) : queryText;
+        queryText.length > 3000
+          ? safeStringSlice(queryText, 0, 3000)
+          : queryText;
       contextQueryText = truncated;
       const result = await embedWithRetry(opts.config, [truncated], {
         signal: opts.signal,

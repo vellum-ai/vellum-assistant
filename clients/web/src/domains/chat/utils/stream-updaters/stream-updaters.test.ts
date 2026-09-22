@@ -21,7 +21,8 @@ import {
   applyToolResult,
   upsertToolCall,
 } from "@/domains/chat/utils/stream-updaters/tool-call-updaters";
-import type { ToolActivityMetadata } from "@/assistant/web-activity-types";
+import type { MessageCompleteEvent } from "@vellumai/assistant-api";
+import type { ToolActivityMetadata } from "@vellumai/assistant-api";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import {
   isToolCallCompleted,
@@ -396,6 +397,61 @@ describe("finalizeMessageComplete", () => {
     expect(text(result[1]!)).toBe("hello world");
   });
 
+  it("stamps the assistant-text visibility marker onto the live row", () => {
+    // The live row carries the same marker its persisted twin does, so the
+    // transcript renders it the same way with no refetch in between.
+    const msg = makeAssistantMsg({ id: "live-row", ...seg("Here you go.") });
+
+    const result = finalizeMessageComplete([userMsg, msg], {
+      type: "message_complete",
+      conversationId: "c-1",
+      messageId: "row-A",
+      assistantTextVisibility: "private",
+    } as MessageCompleteEvent);
+
+    expect(result[1]!.assistantTextVisibility).toBe("private");
+  });
+
+  it("leaves the row unmarked when the event carries no marker", () => {
+    const msg = makeAssistantMsg({ id: "live-row", ...seg("Here you go.") });
+
+    const result = finalizeMessageComplete([userMsg, msg], {
+      type: "message_complete",
+      conversationId: "c-1",
+      messageId: "row-A",
+    });
+
+    expect(result[1]!.assistantTextVisibility).toBeUndefined();
+  });
+
+  it("keeps a tool-gated reply, whose only text came from send_user_message", () => {
+    // The daemon streams the tool's `message` as an ordinary text delta just
+    // before `message_complete`, so the row reaching here looks like any other
+    // reply. It must not be read as deliberate silence.
+    const msg = makeAssistantMsg({
+      id: "tool-gated",
+      ...seg("Here you go."),
+      toolCalls: [
+        {
+          id: "tc-send",
+          name: "send_user_message",
+          input: { message: "Here you go." },
+          completedAt: 1,
+        },
+      ],
+    });
+
+    const result = finalizeMessageComplete([userMsg, msg], {
+      type: "message_complete",
+      conversationId: "c-1",
+      messageId: "row-A",
+    });
+
+    expect(result).toHaveLength(2);
+    expect(text(result[1]!)).toBe("Here you go.");
+    expect(result[1]!.isNoResponse).toBeUndefined();
+  });
+
   it("finalizes running tool calls when finalizing", () => {
     const toolCall: ChatMessageToolCall = {
       id: "t-1",
@@ -514,6 +570,62 @@ describe("handleConversationError", () => {
 });
 
 // ---------------------------------------------------------------------------
+// upsertToolCall: the assistant-text visibility a send_user_message implies
+// ---------------------------------------------------------------------------
+
+describe("upsertToolCall and the visibility marker", () => {
+  const sendCall = (id: string): ChatMessageToolCall => ({
+    id,
+    name: "send_user_message",
+    input: { message: "Here you go." },
+  });
+
+  it("marks the row private the moment the reply tool is announced", () => {
+    // The daemon announces the call while its input is still streaming, so the
+    // row knows it is private before its first reply delta and long before
+    // `message_complete` carries the authoritative marker.
+    const msg = makeAssistantMsg({ id: "live-row", ...seg("") });
+
+    const result = upsertToolCall([userMsg, msg], sendCall("tc-send"));
+
+    expect(result[1]!.assistantTextVisibility).toBe("private");
+  });
+
+  it("leaves the row unmarked for an ordinary tool call", () => {
+    const msg = makeAssistantMsg({ id: "live-row", ...seg("") });
+
+    const result = upsertToolCall([userMsg, msg], {
+      id: "tc-fetch",
+      name: "web_fetch",
+      input: {},
+    });
+
+    expect(result[1]!.assistantTextVisibility).toBeUndefined();
+  });
+
+  it("does not overwrite a marker message_complete already set", () => {
+    // `message_complete` is authoritative in both directions: a row it marks
+    // visible carries its own text as the reply and keeps the standard
+    // rendering, whatever tool calls follow.
+    const msg = makeAssistantMsg({
+      id: "fallback-row",
+      ...seg("Here you go."),
+      assistantTextVisibility: "visible",
+    });
+
+    const result = upsertToolCall([userMsg, msg], sendCall("tc-send"));
+
+    expect(result[1]!.assistantTextVisibility).toBe("visible");
+  });
+
+  it("marks a bubble it opens for the reply tool", () => {
+    const result = upsertToolCall([userMsg], sendCall("tc-send"), "row-A");
+
+    expect(result[1]!.assistantTextVisibility).toBe("private");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // upsertToolCall
 // ---------------------------------------------------------------------------
 
@@ -524,6 +636,27 @@ describe("upsertToolCall", () => {
     input: {} as Record<string, unknown>,
     status: "running" as const,
   };
+
+  it("stamps the first owned tool boundary on an existing or new row", () => {
+    const modeSession = { mode: "browser" as const, id: "session-1" };
+    const existing = upsertToolCall(
+      [userMsg, makeAssistantMsg({ toolCalls: undefined })],
+      toolCall,
+      undefined,
+      undefined,
+      modeSession,
+    );
+    const created = upsertToolCall(
+      [userMsg],
+      toolCall,
+      "assistant-1",
+      undefined,
+      modeSession,
+    );
+
+    expect(existing.at(-1)?.modeSession).toEqual(modeSession);
+    expect(created.at(-1)?.modeSession).toEqual(modeSession);
+  });
 
   it("appends tool call to existing streaming assistant tail", () => {
     const msg = makeAssistantMsg({ toolCalls: undefined });
@@ -1100,6 +1233,66 @@ describe("applyToolResult — cross-message matching", () => {
 });
 
 describe("applyUserMessageEcho", () => {
+  it.each([undefined, "client-1"])(
+    "appends a camera frame without confirming an optimistic send with nonce %s",
+    (clientMessageId) => {
+      const optimistic: DisplayMessage = {
+        id: "optimistic-1",
+        role: "user",
+        isOptimistic: true,
+        clientMessageId,
+        queueStatus: "queued",
+        queuePosition: 1,
+        ...seg("My next question"),
+      };
+      const previous = [optimistic];
+
+      const result = applyUserMessageEcho(
+        previous,
+        {
+          text: "(camera frame)",
+          messageId: "frame-1",
+          cameraFrame: true,
+        },
+        1000,
+      );
+
+      expect(result).toHaveLength(2);
+      expect(result[0]).toBe(optimistic);
+      expect(result[1]).toMatchObject({
+        id: "frame-1",
+        role: "user",
+        isCameraFrame: true,
+        timestamp: 1000,
+      });
+      expect(optimistic).toMatchObject({
+        id: "optimistic-1",
+        isOptimistic: true,
+        queueStatus: "queued",
+        queuePosition: 1,
+      });
+    },
+  );
+
+  it("ignores a camera frame echo already represented by id or merged alias", () => {
+    const frame: DisplayMessage = {
+      id: "frame-1",
+      role: "user",
+      isCameraFrame: true,
+      mergedMessageIds: ["frame-alias"],
+    };
+    const previous = [frame];
+    for (const messageId of ["frame-1", "frame-alias"]) {
+      expect(
+        applyUserMessageEcho(previous, {
+          text: "(camera frame)",
+          messageId,
+          cameraFrame: true,
+        }),
+      ).toBe(previous);
+    }
+  });
+
   it("appends a new id-keyed user row on a passive client", () => {
     /**
      * A client that did not originate the send has no optimistic row, so

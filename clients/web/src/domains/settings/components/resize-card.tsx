@@ -24,6 +24,8 @@ import {
 import { Trans, useTranslation } from "@/i18n";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
+import { textLinkVariants } from "@vellumai/design-library/components/text-link";
+import { cn } from "@vellumai/design-library/utils/cn";
 import { Select } from "@vellumai/design-library/components/select";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { Notice } from "@vellumai/design-library/components/notice";
@@ -34,6 +36,8 @@ export interface ResizeCardProps {
   assistant: Assistant;
   healthz: HealthzGetResponse | null;
   healthzLoading: boolean;
+  /** True while a request is in flight, including a refresh over existing values. */
+  healthzFetching: boolean;
   /** True while a post-resize poll is waiting for the new allocation to appear. */
   healthzPolling: boolean;
   refetch: () => Promise<void> | void;
@@ -47,6 +51,7 @@ export function ResizeCard({
   assistant,
   healthz,
   healthzLoading,
+  healthzFetching,
   healthzPolling,
   refetch,
   refetchUntilResized,
@@ -275,20 +280,15 @@ export function ResizeCard({
           <Button
             variant="ghost"
             size="compact"
-            iconOnly={
-              healthzLoading || healthzPolling ? (
-                <Loader2 className="animate-spin" />
-              ) : (
-                <RefreshCw />
-              )
-            }
+            loading={healthzFetching || healthzPolling}
+            iconOnly={<RefreshCw />}
             tooltip={
               healthzPolling
                 ? t("resizeCard.applyingResize")
                 : t("resizeCard.refreshMetrics")
             }
             aria-label={t("resizeCard.refreshMetrics")}
-            disabled={healthzLoading || healthzPolling}
+            disabled={healthzFetching || healthzPolling}
             onClick={() => void refetch()}
           />
         }
@@ -493,7 +493,10 @@ export function ResizeCard({
                   upgradeLink: (
                     <Link
                       to={routes.plans}
-                      className="text-[var(--content-secondary)] underline decoration-[var(--border-element)] underline-offset-2 transition-colors hover:text-[var(--content-default)]"
+                      className={cn(
+                        textLinkVariants({ tone: "quiet" }),
+                        "text-[var(--content-secondary)] decoration-[var(--border-element)] underline-offset-2",
+                      )}
                       onClick={() => setResizeModalOpen(false)}
                     />
                   ),
@@ -516,9 +519,7 @@ export function ResizeCard({
                   (effectiveSelectedSize == null && !canGrowStorage) ||
                   isLoading
                 }
-                leftIcon={
-                  isLoading ? <Loader2 className="animate-spin" /> : undefined
-                }
+                loading={isLoading}
                 onClick={() => {
                   setResizeError(null);
                   const body: {

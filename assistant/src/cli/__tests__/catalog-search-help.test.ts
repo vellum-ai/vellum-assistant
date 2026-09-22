@@ -13,9 +13,9 @@ import { channelsHelp } from "../commands/channels/index.help.js";
 import { pluginsHelp } from "../commands/plugins.help.js";
 import { skillsHelp } from "../commands/skills.help.js";
 
-function searchHelp(
-  help: { subcommands?: Array<{ name: string; helpText?: string }> },
-): { name: string; helpText?: string } {
+function searchHelp(help: {
+  subcommands?: Array<{ name: string; helpText?: string }>;
+}): { name: string; helpText?: string } {
   const search = help.subcommands?.find((sub) => sub.name === "search");
   if (!search) {
     throw new Error("expected a search subcommand");
@@ -33,6 +33,7 @@ describe("catalog search help for setup-intent retrieval", () => {
     expect(indexed).toContain("Setup <app> for me");
     expect(indexed.toLowerCase()).toContain("before searching the web");
     expect(indexed).toContain("assistant plugins search");
+    expect(indexed).toContain("assistant plugins install <name>");
     expect(indexed).toContain("assistant skills search");
     expect(indexed.toLowerCase()).toContain("channels");
     expect(pluginsHelp.description).toContain("channels");
@@ -58,8 +59,10 @@ describe("catalog search help for setup-intent retrieval", () => {
     expect(list?.helpText).toBeDefined();
     expect(indexed).toContain("assistant plugins search <name>");
     expect(indexed).toContain("not listed");
-    expect(channelsHelp.description).toBe(
-      "Inspect and repair messaging channels",
+    // The description names the surface generically; a provider name in it
+    // would present the built-in set as the whole catalog.
+    expect(channelsHelp.description.toLowerCase()).toContain(
+      "messaging channels",
     );
     expect(channelsHelp.description.toLowerCase()).not.toContain("slack");
     expect(channelsHelp.description.toLowerCase()).not.toContain("telegram");

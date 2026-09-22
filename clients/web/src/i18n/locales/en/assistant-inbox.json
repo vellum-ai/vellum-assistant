@@ -1,0 +1,83 @@
+{
+  "assistantInboxNavItem": {
+    "label": "Assistant Inbox",
+    "dismiss": "Hide Assistant Inbox"
+  },
+  "assistantInboxHeader": {
+    "title": "{name}'s Inbox",
+    "subtitle": "Here are all the emails I've received and sent for you.",
+    "usage": "{sent, plural, one {# sent} other {# sent}} today · {received, plural, one {# received} other {# received}} today"
+  },
+  "addressPill": {
+    "copyAddress": "Copy email address",
+    "copied": "Copied",
+    "copyFailed": "Couldn't copy the address."
+  },
+  "assistantInboxPage": {
+    "folderAriaLabel": "Mail folder",
+    "inboxTab": "Received",
+    "sentTab": "Sent",
+    "inboxEmptyTitle": "Nothing here yet",
+    "inboxEmptyBody": "Share {address} and anything sent there shows up here.",
+    "sentEmptyTitle": "No sent mail yet",
+    "sentEmptyBody": "Ask me to email someone and I'll keep a copy here.",
+    "selectPrompt": "Pick an email to read it.",
+    "backToList": "Back to list",
+    "searchPlaceholder": "Search mail",
+    "searchAriaLabel": "Search this folder",
+    "searchEmptyTitle": "No matches",
+    "searchEmptyBody": "Nothing in this folder matches your search."
+  },
+  "emailListRow": {
+    "toPrefix": "To {name}",
+    "attachments": "{count, plural, one {# attachment} other {# attachments}}",
+    "noSubject": "(no subject)"
+  },
+  "emailDetail": {
+    "from": "From",
+    "to": "To",
+    "sentBy": "Sent by {name}",
+    "attachments": "Attachments",
+    "askToReply": "Ask {name} to reply",
+    "loading": "Loading the message…",
+    "loadFailed": "Couldn't load this message."
+  },
+  "emailAddressFields": {
+    "prefixLabel": "Prefix",
+    "prefixPlaceholder": "hi",
+    "handleLabel": "Handle (public)",
+    "handlePlaceholder": "my-assistant"
+  },
+  "assistantInboxUpgradeState": {
+    "title": "Give {name} an inbox",
+    "subtitle": "An email address people can write to, and one place to read everything that arrives.",
+    "perkAddress": "A real address on {rootDomain}",
+    "perkReads": "{name} reads, sorts, and replies for you",
+    "perkHistory": "Every message kept here, inbox and sent",
+    "upgradeButton": "Upgrade to Super",
+    "seePlans": "See plans",
+    "titleNoName": "Give your assistant an inbox",
+    "perkReadsNoName": "Your assistant reads, sorts, and replies for you",
+    "changeHandle": "Change handle"
+  },
+  "assistantInboxSetupCard": {
+    "title": "Assistant Email",
+    "subtitle": "Set up an email for your assistant.",
+    "getStarted": "Get started",
+    "subtitleChooseHandle": "Claim your unique handle and set up your assistant's email.",
+    "immutableNotice": "The handle becomes your assistant's public handle. You won't be able to change it once set."
+  },
+  "assistantInboxRoute": {
+    "loading": "Opening the inbox…",
+    "setupFailed": "Couldn't set up the address.",
+    "setupSucceeded": "{address} is ready.",
+    "replyPrompt": "Reply to the email with id {id} in your inbox (from {sender}, subject \"{subject}\"). Read it with `assistant email download {id}` first, then draft a reply and show it to me before sending.",
+    "mailFailed": "Couldn't load the mail.",
+    "retry": "Try again"
+  },
+  "inboxRailRestore": {
+    "hiddenNote": "Assistant Inbox is hidden from your side menu.",
+    "restoreButton": "Add it back",
+    "restoredToast": "Assistant Inbox is back in your side menu."
+  }
+}
