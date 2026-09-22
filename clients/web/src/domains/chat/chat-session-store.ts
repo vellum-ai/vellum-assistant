@@ -10,8 +10,7 @@
  * All mutations go through store actions that call `set()`, producing new
  * collection instances. Reactive state (snapshot, optimisticSends, error,
  * isLoadingHistory, …) drives UI via `.use.*` selectors. Non-reactive state
- * (streamingMessageIds,
- * pendingLocalDeletions, …) is read via `getState()` in async callbacks and
+ * (streamingMessageIds, requestIdToMessageId, …) is read via `getState()` in async callbacks and
  * stream handlers — it never triggers re-renders directly but still uses
  * actions for consistency and correctness.
  *
@@ -100,9 +99,7 @@ export interface ChatSessionState {
   // handlers — they are not subscribed to reactively (no .use.*()).
   dismissedSurfaceIds: Set<string>;
   streamingMessageIds: Set<string>;
-  pendingQueuedMessageIds: string[];
   requestIdToMessageId: Map<string, string>;
-  pendingLocalDeletions: Set<string>;
 
   // --- Expansion state (subscribed reactively by leaf components) ---
   expandedToolCallIds: Set<string>;
@@ -151,7 +148,7 @@ export interface ChatSessionActions {
   applyEnvelopeToSnapshot: (envelope: AssistantEventEnvelope) => void;
   /** Add an optimistic user send; retired by its echo or the reseed prune. */
   addOptimisticSend: (message: DisplayMessage) => void;
-  /** Mutate the optimistic-send list (queue status, id swap, removal). */
+  /** Mutate the optimistic-send list (id swap, removal). */
   setOptimisticSends: (
     updater: DisplayMessage[] | ((prev: DisplayMessage[]) => DisplayMessage[]),
   ) => void;
@@ -215,17 +212,9 @@ export interface ChatSessionActions {
   // --- Streaming message tracking ---
   batchUpdateStreamingMessageIds: (toAdd: string[], toRemove: string[]) => void;
 
-  // --- Queue management ---
-  pushPendingQueuedMessageId: (messageId: string) => void;
-  shiftPendingQueuedMessageId: () => string | undefined;
-  /** Remove and return the given pending id, or undefined if not tracked.
-   *  Identity-keyed counterpart to the arrival-order shift, for queued
-   *  acks that carry the send's `clientMessageId`. */
-  takePendingQueuedMessageId: (messageId: string) => string | undefined;
+  // --- Request id mapping ---
   setRequestIdMapping: (requestId: string, messageId: string) => void;
   popRequestIdMapping: (requestId: string) => string | undefined;
-  addPendingLocalDeletion: (messageId: string) => void;
-  consumePendingLocalDeletion: (messageId: string) => boolean;
 
   // --- Expansion state (tool calls, progress cards) ---
   setExpandedToolCallId: (toolCallId: string, expanded: boolean) => void;
@@ -271,9 +260,7 @@ function initialState(): ChatSessionState {
     compactionCircuitOpenUntil: null,
     dismissedSurfaceIds: new Set(),
     streamingMessageIds: new Set(),
-    pendingQueuedMessageIds: [],
     requestIdToMessageId: new Map(),
-    pendingLocalDeletions: new Set(),
     confirmationToolCallMap: new Map(),
     expandedToolCallIds: new Set(),
     expandedCardIds: new Map(),
@@ -297,11 +284,11 @@ function applyUpdater<T>(current: T, updater: T | ((prev: T) => T)): T {
 /**
  * Drop optimistic sends the (re)seeded snapshot already represents.
  *
- * On a reconnect / replay-gap path the `user_message_echo` (or dequeue) that
+ * On a reconnect / replay-gap path the `user_message_echo` that
  * would normally clear an optimistic send can be missed, while the authoritative
  * server snapshot — pulled in by the reseed — does carry the persisted row. The
  * overlay lets optimistic rows win by identity, so a confirmed send would
- * otherwise stay rendered as optimistic/queued indefinitely. Pruning by the same
+ * otherwise stay rendered as optimistic indefinitely. Pruning by the same
  * match keys `selectTranscriptMessages` overlays on keeps the two in lockstep.
  *
  * An attachment-carrying send is only pruned once its snapshot twin also
@@ -540,9 +527,7 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
         activeConversationId,
       ),
       streamingMessageIds: new Set(),
-      pendingQueuedMessageIds: [],
       requestIdToMessageId: new Map(),
-      pendingLocalDeletions: new Set(),
       confirmationToolCallMap: new Map(),
       expandedToolCallIds: new Set(),
       expandedCardIds: new Map(),
@@ -613,33 +598,7 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
       return { streamingMessageIds: next };
     }),
 
-  // --- Queue management ---
-  pushPendingQueuedMessageId: (messageId) =>
-    set((s) => ({
-      pendingQueuedMessageIds: [...s.pendingQueuedMessageIds, messageId],
-    })),
-
-  shiftPendingQueuedMessageId: () => {
-    const current = get().pendingQueuedMessageIds;
-    if (current.length === 0) {
-      return undefined;
-    }
-    const [first, ...rest] = current;
-    set({ pendingQueuedMessageIds: rest });
-    return first;
-  },
-
-  takePendingQueuedMessageId: (messageId) => {
-    const current = get().pendingQueuedMessageIds;
-    if (!current.includes(messageId)) {
-      return undefined;
-    }
-    set({
-      pendingQueuedMessageIds: current.filter((id) => id !== messageId),
-    });
-    return messageId;
-  },
-
+  // --- Request id mapping ---
   setRequestIdMapping: (requestId, messageId) =>
     set((s) => {
       const next = new Map(s.requestIdToMessageId);
@@ -656,24 +615,6 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
       set({ requestIdToMessageId: next });
     }
     return value;
-  },
-
-  addPendingLocalDeletion: (messageId) =>
-    set((s) => {
-      const next = new Set(s.pendingLocalDeletions);
-      next.add(messageId);
-      return { pendingLocalDeletions: next };
-    }),
-
-  consumePendingLocalDeletion: (messageId) => {
-    const current = get().pendingLocalDeletions;
-    if (!current.has(messageId)) {
-      return false;
-    }
-    const next = new Set(current);
-    next.delete(messageId);
-    set({ pendingLocalDeletions: next });
-    return true;
   },
 
   // --- Expansion state (tool calls, progress cards, thinking blocks) ---

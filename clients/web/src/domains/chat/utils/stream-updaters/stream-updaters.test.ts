@@ -923,23 +923,6 @@ describe("attachSurface", () => {
     expect(result[3]!.surfaces![0]!.surfaceId).toBe("surf-1");
   });
 
-  it("still folds into the current turn's assistant row across a queued user message", () => {
-    // A message queued mid-turn must not sever the in-flight assistant row
-    // from the surface its own turn is emitting.
-    const liveRow = makeAssistantMsg({ id: "live-1" });
-    const queued = {
-      id: "u-queued",
-      role: "user" as const,
-      queueStatus: "queued" as const,
-    };
-
-    const result = attachSurface([userMsg, liveRow, queued], surface);
-
-    expect(result).toHaveLength(3);
-    expect(result[1]!.id).toBe("live-1");
-    expect(result[1]!.surfaces![0]!.surfaceId).toBe("surf-1");
-  });
-
   it("is a no-op when the surface is already attached to the target message", () => {
     const target = makeAssistantMsg({
       id: "anchor-1",
@@ -1241,8 +1224,6 @@ describe("applyUserMessageEcho", () => {
         role: "user",
         isOptimistic: true,
         clientMessageId,
-        queueStatus: "queued",
-        queuePosition: 1,
         ...seg("My next question"),
       };
       const previous = [optimistic];
@@ -1268,8 +1249,6 @@ describe("applyUserMessageEcho", () => {
       expect(optimistic).toMatchObject({
         id: "optimistic-1",
         isOptimistic: true,
-        queueStatus: "queued",
-        queuePosition: 1,
       });
     },
   );
@@ -1496,46 +1475,6 @@ describe("applyUserMessageEcho", () => {
     expect(result).toHaveLength(1);
     expect(result[0]!.id).toBe("msg-server-legacy");
     expect(result[0]!.isOptimistic).toBe(false);
-  });
-
-  it("clears optimistic queue status when upgrading the originating row", () => {
-    /**
-     * Regression: the client optimistically marks a send `queued` when it
-     * believes a turn is in flight, but the daemon had just gone idle and
-     * processes the message directly — emitting only `user_message_echo`,
-     * never the `message_queued` / `message_dequeued` pair that would clear
-     * the badge. Because the echo swaps the row id, the POST-resolve path's
-     * `clearQueueStatus(originalId)` can no longer find the row, so the echo
-     * must clear the stale queue status itself or the Queue drawer never
-     * closes.
-     */
-    // GIVEN an optimistic row the client marked queued
-    const prev: DisplayMessage[] = [
-      {
-        id: "client-uuid",
-        clientMessageId: "client-uuid",
-        role: "user",
-        ...seg("queue me"),
-        isOptimistic: true,
-        queueStatus: "queued",
-        queuePosition: 0,
-        timestamp: 1,
-      },
-    ];
-
-    // WHEN the echo for that send arrives (daemon processed it directly)
-    const result = applyUserMessageEcho(prev, {
-      text: "queue me",
-      messageId: "msg-server-q",
-      clientMessageId: "client-uuid",
-    });
-
-    // THEN the row is upgraded and no longer reads as queued
-    expect(result).toHaveLength(1);
-    expect(result[0]!.id).toBe("msg-server-q");
-    expect(result[0]!.isOptimistic).toBe(false);
-    expect(result[0]!.queueStatus).toBeUndefined();
-    expect(result[0]!.queuePosition).toBeUndefined();
   });
 
   it("is a no-op when a row already carries the server id", () => {

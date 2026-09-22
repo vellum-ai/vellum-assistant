@@ -2033,7 +2033,7 @@ function ChatApp({
           );
           clearTimeout(timeoutId);
           if (sendResult.accepted) {
-            h.addStatus("Sent", "gray");
+            h.addStatus("Message sent", "gray");
           } else {
             h.showError("Message was not accepted by the assistant");
           }

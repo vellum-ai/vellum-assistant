@@ -1563,15 +1563,6 @@
     "typeDifferentAnswerAria": "Type a different answer",
     "typeSomethingElsePlaceholder": "Something else"
   },
-  "queuedMessagesDrawer": {
-    "cancelAll": "Cancel all",
-    "cancelAllAria": "Cancel all queued messages",
-    "cancelAria": "Cancel queued message",
-    "editAria": "Edit queued message",
-    "pushToAgentAria": "Push to agent",
-    "queueHeading": "Queue · {count}",
-    "showActionsAria": "Show queued message actions"
-  },
   "quoteReplyBubble": {
     "addToChat": "Add to Chat",
     "ariaLabel": "Quote and reply",

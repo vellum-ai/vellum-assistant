@@ -10,7 +10,6 @@ import {
   handleAssistantActivityState,
   handleMessageComplete,
   handleUserMessageEcho,
-  handleGenerationHandoff,
   handleGenerationCancelled,
 } from "@/domains/chat/utils/stream-handlers/message-handlers";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
@@ -577,8 +576,6 @@ describe("handleUserMessageEcho", () => {
           clientMessageId: "client-1",
           role: "user",
           isOptimistic: true,
-          queueStatus: "queued",
-          queuePosition: 1,
           attachments: [
             {
               id: "att-1",
@@ -597,8 +594,6 @@ describe("handleUserMessageEcho", () => {
       clientMessageId: "client-1",
       isOptimistic: false,
     });
-    expect(next[0]!.queueStatus).toBeUndefined();
-    expect(next[0]!.queuePosition).toBeUndefined();
     expect(next[0]!.attachments?.[0]?.previewUrl).toBe("blob:preview");
   });
 
@@ -659,18 +654,6 @@ describe("handleUserMessageEcho", () => {
       ],
     );
     expect(next.map((m) => m.id)).toEqual(["keep"]);
-  });
-});
-
-describe("handleGenerationHandoff", () => {
-  it("cancels reconciliation and hands off generation", () => {
-    const ctx = makeCtx();
-    handleGenerationHandoff(
-      { type: "generation_handoff", messageId: "msg-1", queuedCount: 0 },
-      ctx,
-    );
-    expect(ctx.cancelReconciliation).toHaveBeenCalled();
-    expect(ctx.turnActions.handoffGeneration).toHaveBeenCalled();
   });
 });
 

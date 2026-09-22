@@ -3,7 +3,6 @@ import { ERROR_MESSAGES } from "@/domains/chat/utils/chat";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
 import { patchConversation } from "@/utils/conversation-cache";
 import { messageMatchesKey } from "@/domains/chat/utils/message-identity";
-import { removeQueuedMessage } from "@/domains/chat/utils/stream-updaters/shared";
 import { useComposerStore } from "@/domains/chat/composer-store";
 import type {
   ConversationErrorEvent,
@@ -42,7 +41,7 @@ export function handleStreamError(
               ctx.composerSessionGeneration,
             );
         }
-        return removeQueuedMessage(prev, messageId);
+        return prev.filter((message) => !messageMatchesKey(message, messageId));
       });
     }
     ctx.setError({

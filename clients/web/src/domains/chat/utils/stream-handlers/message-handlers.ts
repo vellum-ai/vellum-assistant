@@ -11,7 +11,6 @@ import type {
   AssistantThinkingDeltaEvent,
   AssistantTurnStartEvent,
   GenerationCancelledEvent,
-  GenerationHandoffEvent,
   MessageCompleteEvent,
   UserMessageEchoEvent,
 } from "@vellumai/assistant-api";
@@ -344,7 +343,7 @@ export function handleMessageComplete(
  * the only copy of the user's previews (blob URLs for pasted images) until
  * the turn-end reseed pulls the hydrated server row. The kept row is upgraded
  * to the server id (so id-keyed actions resolve and the overlay collapses it
- * onto the folded snapshot row) and its queue fields are cleared; the reseed's
+ * onto the folded snapshot row); the reseed's
  * `pruneConfirmedOptimisticSends` retires it once the authoritative snapshot
  * carries the persisted row with attachment data.
  *
@@ -398,8 +397,6 @@ export function handleUserMessageEcho(
         ...row,
         id: serverId,
         isOptimistic: false,
-        queueStatus: undefined,
-        queuePosition: undefined,
       };
       return next;
     });
@@ -414,14 +411,6 @@ export function handleUserMessageEcho(
     }
     return prev;
   });
-}
-
-export function handleGenerationHandoff(
-  _event: GenerationHandoffEvent,
-  ctx: StreamHandlerContext,
-): void {
-  ctx.cancelReconciliation();
-  ctx.turnActions.handoffGeneration();
 }
 
 export function handleGenerationCancelled(

@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
+import { endTurn } from "@/domains/chat/turn-coordinator";
+
 import {
   shouldShowThinkingIndicator,
   isAssistantBusy,
@@ -44,7 +46,6 @@ const defaultCtx: UIContext = {
 describe("INITIAL_TURN_STATE", () => {
   test("starts idle with no active turn", () => {
     expect(INITIAL_TURN_STATE.phase).toBe("idle");
-    expect(INITIAL_TURN_STATE.pendingQueuedCount).toBe(0);
     expect(INITIAL_TURN_STATE.activeToolCallCount).toBe(0);
     expect(INITIAL_TURN_STATE.activeTurnId).toBeNull();
     expect(INITIAL_TURN_STATE.lastTerminalReason).toBeNull();
@@ -57,7 +58,6 @@ describe("INITIAL_TURN_STATE", () => {
   });
 
   test("activity is live only while response output can append", () => {
-    expect(isActivityLive("queued")).toBe(true);
     expect(isActivityLive("thinking")).toBe(true);
     expect(isActivityLive("streaming")).toBe(true);
     expect(isActivityLive("awaiting_user_input")).toBe(false);
@@ -392,17 +392,6 @@ describe("TOOL_ACTIVITY_METADATA", () => {
     });
     expect(state.liveWebActivity).toEqual({});
   });
-
-  test("GENERATION_HANDOFF does NOT clear liveWebActivity", () => {
-    const withActivity: TurnState = {
-      ...INITIAL_TURN_STATE,
-      phase: "streaming",
-      activeTurnId: "t-1",
-      liveWebActivity: { "tc-1": sampleMetadata },
-    };
-    const state = turnReducer(withActivity, { type: "GENERATION_HANDOFF" });
-    expect(state.liveWebActivity).toEqual({ "tc-1": sampleMetadata });
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -547,16 +536,6 @@ describe("ACTIVITY_STATE_THINKING", () => {
       turnId: "t-2",
     });
     expect(state.statusText).toBeNull();
-  });
-
-  test("statusText is cleared on GENERATION_HANDOFF", () => {
-    const withStatus = applyEvents(INITIAL_TURN_STATE, [
-      { type: "USER_SEND_REQUESTED", turnId: "t-1" },
-      { type: "ACTIVITY_STATE_THINKING", statusText: "Processing" },
-    ]);
-    const state = turnReducer(withStatus, { type: "GENERATION_HANDOFF" });
-    expect(state.statusText).toBeNull();
-    expect(state.phase).toBe("thinking");
   });
 
   test("statusText updates when a new thinking event arrives", () => {
@@ -732,25 +711,6 @@ describe("MESSAGE_COMPLETE", () => {
     expect(state.activeToolCallCount).toBe(0);
     expect(state.lastTerminalReason).toBe("complete");
     expect(isSending(state.phase)).toBe(false);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// GENERATION_HANDOFF
-// ---------------------------------------------------------------------------
-
-describe("GENERATION_HANDOFF", () => {
-  test("re-enters thinking and clears tool count", () => {
-    const streaming: TurnState = {
-      ...INITIAL_TURN_STATE,
-      phase: "streaming",
-      activeTurnId: "turn-1",
-      activeToolCallCount: 2,
-    };
-    const state = turnReducer(streaming, { type: "GENERATION_HANDOFF" });
-    expect(state.phase).toBe("thinking");
-    expect(state.activeTurnId).toBe("turn-1");
-    expect(state.activeToolCallCount).toBe(0);
   });
 });
 
@@ -993,7 +953,6 @@ describe("TURN_RESET", () => {
   test("returns to initial state", () => {
     const dirty: TurnState = {
       phase: "streaming",
-      pendingQueuedCount: 5,
       activeToolCallCount: 3,
       activeTurnId: "turn-99",
       interruptingTurnId: "turn-99",
@@ -1090,19 +1049,6 @@ describe("multi-event sequences", () => {
     ]);
     expect(state.phase).toBe("idle");
     expect(state.activeToolCallCount).toBe(0);
-  });
-
-  test("multi-message handoff flow", () => {
-    const state = applyEvents(INITIAL_TURN_STATE, [
-      { type: "USER_SEND_REQUESTED", turnId: "t-1" },
-      { type: "ASSISTANT_TEXT_DELTA" },
-      { type: "GENERATION_HANDOFF" },
-      // Now re-enter thinking for next chunk
-      { type: "ASSISTANT_TEXT_DELTA" },
-      { type: "MESSAGE_COMPLETE" },
-    ]);
-    expect(state.phase).toBe("idle");
-    expect(state.lastTerminalReason).toBe("complete");
   });
 
   test("secret request interruption and resumption", () => {
@@ -1570,7 +1516,7 @@ describe("shouldShowThinkingIndicator", () => {
 });
 
 describe("isSendDisabled", () => {
-  test("enabled when sending (daemon queues messages)", () => {
+  test("enabled when sending (a send interrupts the turn)", () => {
     expect(isSendDisabled(defaultCtx)).toBe(false);
   });
 
@@ -1647,82 +1593,140 @@ describe("isAssistantBusy", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Queue management
+// Interrupting send
 // ---------------------------------------------------------------------------
 
-describe("queue management", () => {
-  test("MESSAGE_QUEUED increments pendingQueuedCount", () => {
-    const s = turnReducer(INITIAL_TURN_STATE, { type: "MESSAGE_QUEUED" });
-    expect(s.pendingQueuedCount).toBe(1);
-    const s2 = turnReducer(s, { type: "MESSAGE_QUEUED" });
-    expect(s2.pendingQueuedCount).toBe(2);
-  });
-
-  test("MESSAGE_DEQUEUED decrements pendingQueuedCount and sets phase to thinking", () => {
-    const queued = applyEvents(INITIAL_TURN_STATE, [
-      { type: "USER_SEND_REQUESTED" },
-      { type: "MESSAGE_QUEUED" },
-      { type: "MESSAGE_QUEUED" },
+describe("an interrupting send", () => {
+  test("the cancel settles the old turn and the new turn's thinking picks straight back up", () => {
+    // What the daemon puts on the wire for an interrupt: the aborted turn's
+    // `generation_cancelled`, then the interrupt's own thinking signal ahead
+    // of the new turn.
+    const afterSend = applyEvents(INITIAL_TURN_STATE, [
+      { type: "USER_SEND_REQUESTED", turnId: "turn-1" },
+      { type: "USER_SEND_ACCEPTED", turnId: "turn-1" },
+      { type: "ASSISTANT_TEXT_DELTA" },
     ]);
-    const dequeued = turnReducer(queued, { type: "MESSAGE_DEQUEUED" });
-    expect(dequeued.pendingQueuedCount).toBe(1);
-    expect(dequeued.phase).toBe("thinking");
-  });
+    expect(afterSend.phase).toBe("streaming");
 
-  test("MESSAGE_QUEUED_DELETED decrements pendingQueuedCount", () => {
-    const queued = applyEvents(INITIAL_TURN_STATE, [
-      { type: "USER_SEND_REQUESTED" },
-      { type: "MESSAGE_QUEUED" },
-      { type: "MESSAGE_QUEUED" },
+    const afterInterrupt = applyEvents(afterSend, [
+      { type: "GENERATION_CANCELLED" },
+      { type: "ACTIVITY_STATE_THINKING", canStartFromIdle: true },
+      { type: "ASSISTANT_TEXT_DELTA" },
     ]);
-    const deleted = turnReducer(queued, { type: "MESSAGE_QUEUED_DELETED" });
-    expect(deleted.pendingQueuedCount).toBe(1);
+
+    expect(afterInterrupt.phase).toBe("streaming");
   });
 
-  test("MESSAGE_COMPLETE transitions to 'queued' when pendingQueuedCount > 0", () => {
-    const s = applyEvents(INITIAL_TURN_STATE, [
-      { type: "USER_SEND_REQUESTED" },
-      { type: "MESSAGE_QUEUED" },
+  test("a second interrupt inside the new turn folds the same way", () => {
+    const afterSecond = applyEvents(INITIAL_TURN_STATE, [
+      { type: "USER_SEND_REQUESTED", turnId: "turn-1" },
+      { type: "USER_SEND_ACCEPTED", turnId: "turn-1" },
+      { type: "GENERATION_CANCELLED" },
+      { type: "ACTIVITY_STATE_THINKING", canStartFromIdle: true },
+      { type: "GENERATION_CANCELLED" },
+      { type: "ACTIVITY_STATE_THINKING", canStartFromIdle: true },
+    ]);
+
+    expect(afterSecond.phase).toBe("thinking");
+  });
+
+  test("the replacement turn runs to an idle composer", () => {
+    const turn = applyEvents(INITIAL_TURN_STATE, [
+      { type: "USER_SEND_REQUESTED", turnId: "turn-a" },
+      { type: "USER_SEND_ACCEPTED", turnId: "turn-a" },
+      { type: "ASSISTANT_TEXT_DELTA" },
+      { type: "TOOL_USE_START" },
+      // The send is answered before the abort, so this client claims the
+      // replacement turn first and the cancel for turn A lands behind it.
+      {
+        type: "USER_SEND_REQUESTED",
+        turnId: "turn-b",
+        interruptsRunningTurn: true,
+      },
+      { type: "USER_SEND_ACCEPTED", turnId: "turn-b" },
+      { type: "GENERATION_CANCELLED" },
+      { type: "ACTIVITY_STATE_THINKING", canStartFromIdle: true },
+      { type: "ASSISTANT_TEXT_DELTA" },
       { type: "MESSAGE_COMPLETE" },
     ]);
-    expect(s.phase).toBe("queued");
-    expect(s.pendingQueuedCount).toBe(1);
+
+    expect(turn.phase).toBe("idle");
+    expect(turn.lastTerminalReason).toBe("complete");
   });
 
-  test("MESSAGE_QUEUED_DELETED returns to idle when last queued message deleted in 'queued' phase", () => {
-    const queued = applyEvents(INITIAL_TURN_STATE, [
-      { type: "USER_SEND_REQUESTED" },
-      { type: "MESSAGE_QUEUED" },
-      { type: "MESSAGE_COMPLETE" },
+  test("the replacement turn keeps its identity, so the stall rescue can reach it", () => {
+    // The cancel of the turn this send replaced is a handoff, not this turn's
+    // terminal. Idling on it would drop `activeTurnId`, and both backstops
+    // that recover a turn whose terminal event never arrived (the poll rescue
+    // and the turn timeout) refuse to act on a turn they cannot name.
+    const mid = applyEvents(INITIAL_TURN_STATE, [
+      { type: "USER_SEND_REQUESTED", turnId: "turn-a" },
+      { type: "USER_SEND_ACCEPTED", turnId: "turn-a" },
+      { type: "ASSISTANT_TEXT_DELTA" },
+      {
+        type: "USER_SEND_REQUESTED",
+        turnId: "turn-b",
+        interruptsRunningTurn: true,
+      },
+      { type: "USER_SEND_ACCEPTED", turnId: "turn-b" },
+      { type: "GENERATION_CANCELLED" },
     ]);
-    expect(queued.phase).toBe("queued");
-    const deleted = turnReducer(queued, { type: "MESSAGE_QUEUED_DELETED" });
-    expect(deleted.phase).toBe("idle");
-    expect(deleted.pendingQueuedCount).toBe(0);
-    expect(deleted.activeTurnId).toBeNull();
+
+    expect(mid.phase).toBe("thinking");
+    expect(mid.activeTurnId).toBe("turn-b");
+    // Consumed by the cancel it explains, so a later Stop on this turn is
+    // terminal in the ordinary way.
+    expect(mid.interruptingTurnId).toBeNull();
+
+    useTurnStore.setState(mid);
+    endTurn({
+      conversationId: "conv-interrupt",
+      reason: "rescued",
+      rescuedTurnId: "turn-b",
+    });
+    expect(useTurnStore.getState().phase).toBe("idle");
   });
 
-  test("MESSAGE_QUEUED_DELETED stays in 'queued' when more messages remain", () => {
-    const queued = applyEvents(INITIAL_TURN_STATE, [
-      { type: "USER_SEND_REQUESTED" },
-      { type: "MESSAGE_QUEUED" },
-      { type: "MESSAGE_QUEUED" },
-      { type: "MESSAGE_COMPLETE" },
+  test("a queued send drops its handoff marker, so a later Stop is terminal", () => {
+    // An assistant that queues the send aborts nothing, so the cancel the
+    // marker is waiting for never comes.
+    useTurnStore.setState({ ...INITIAL_TURN_STATE });
+    useTurnStore.getState().requestSend("turn-b", {
+      interruptsRunningTurn: true,
+    });
+    useTurnStore.getState().clearInterruptHandoff();
+    expect(useTurnStore.getState().interruptingTurnId).toBeNull();
+
+    useTurnStore.getState().cancelGeneration();
+    expect(useTurnStore.getState().phase).toBe("idle");
+    expect(useTurnStore.getState().activeTurnId).toBeNull();
+    expect(useTurnStore.getState().lastTerminalReason).toBe("cancelled");
+  });
+
+  test("a Stop with no send behind it is terminal", () => {
+    const stopped = applyEvents(INITIAL_TURN_STATE, [
+      { type: "USER_SEND_REQUESTED", turnId: "turn-a" },
+      { type: "USER_SEND_ACCEPTED", turnId: "turn-a" },
+      { type: "ASSISTANT_TEXT_DELTA" },
+      { type: "GENERATION_CANCELLED" },
     ]);
-    expect(queued.phase).toBe("queued");
-    const deleted = turnReducer(queued, { type: "MESSAGE_QUEUED_DELETED" });
-    expect(deleted.phase).toBe("queued");
-    expect(deleted.pendingQueuedCount).toBe(1);
+
+    expect(stopped.phase).toBe("idle");
+    expect(stopped.activeTurnId).toBeNull();
+    expect(stopped.lastTerminalReason).toBe("cancelled");
   });
 
-  test("stale MESSAGE_DEQUEUED in idle does not re-activate thinking", () => {
-    const idle: TurnState = {
-      ...INITIAL_TURN_STATE,
-      pendingQueuedCount: 1,
-    };
-    const result = turnReducer(idle, { type: "MESSAGE_DEQUEUED" });
-    expect(result.phase).toBe("idle");
-    expect(result.pendingQueuedCount).toBe(0);
+  test("a passive viewer's cancel is terminal, since it started no send", () => {
+    // The same `generation_cancelled` reaches every client. Only the one whose
+    // send caused it holds the marker, so a viewer idles.
+    const viewer = applyEvents(INITIAL_TURN_STATE, [
+      { type: "ACTIVITY_STATE_THINKING", canStartFromIdle: true },
+      { type: "ASSISTANT_TEXT_DELTA" },
+      { type: "GENERATION_CANCELLED" },
+    ]);
+
+    expect(viewer.phase).toBe("idle");
+    expect(viewer.lastTerminalReason).toBe("cancelled");
   });
 });
 
@@ -1747,7 +1751,6 @@ describe("recoverFromAwaitingUserInput", () => {
       "idle",
       "thinking",
       "streaming",
-      "queued",
       "errored",
     ];
     for (const phase of otherPhases) {

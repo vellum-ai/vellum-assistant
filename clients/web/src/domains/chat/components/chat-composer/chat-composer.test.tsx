@@ -42,7 +42,6 @@ import {
 } from "@/domains/chat/components/chat-composer/chat-composer-utils";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 
 // The two device-side axes are driven by stubbing `window.matchMedia`, not by
 // mocking `use-is-mobile`, so a test says which signal the composer actually
@@ -1063,132 +1062,6 @@ describe("ChatComposer — send/stop button visibility", () => {
     expect(html).not.toContain('aria-label="Stop generating"');
   });
 
-  test("isAssistantBusy=true on desktop renders only the Stop button (send/attach/voice hidden)", () => {
-    viewport.set({ narrow: false, coarsePointer: false });
-    const html = renderComposer({ isAssistantBusy: true });
-    expect(html).toContain('aria-label="Stop generating"');
-    expect(html).not.toContain('aria-label="Send message"');
-  });
-
-  test("isAssistantBusy=true on a phone with no input renders only Stop button", () => {
-    viewport.set({ narrow: true, coarsePointer: true });
-    const html = renderComposer({ input: "", isAssistantBusy: true });
-    expect(html).toContain('aria-label="Stop generating"');
-    expect(html).not.toContain('aria-label="Send message"');
-  });
-
-  test("isAssistantBusy=true on a phone with user input renders only Send button", () => {
-    viewport.set({ narrow: true, coarsePointer: true });
-    const html = renderComposer({ input: "hello", isAssistantBusy: true });
-    expect(html).not.toContain('aria-label="Stop generating"');
-    expect(html).toContain('aria-label="Send message"');
-  });
-
-  // The two shapes where the axes come apart. The busy row's send button
-  // substitutes for Enter-to-submit, which `shouldSubmitOnEnter` refuses under a
-  // coarse pointer, so both halves read the pointer and each case pins the pair
-  // together: whichever way Enter goes, exactly one of the two controls is in
-  // the slot. LUM-3224.
-  test("a roomy touch device (tablet) with user input gets Send, since Enter cannot submit there", () => {
-    viewport.set({ narrow: false, coarsePointer: true });
-    const html = renderComposer({ input: "hello", isAssistantBusy: true });
-    expect(html).toContain('aria-label="Send message"');
-    expect(html).not.toContain('aria-label="Stop generating"');
-    expect(shouldSubmitOnEnter(ENTER, true, READY_POLICY)).toBe("ignore");
-  });
-
-  test("a narrow mouse-driven window keeps Stop, since Enter already submits there", () => {
-    viewport.set({ narrow: true, coarsePointer: false });
-    const html = renderComposer({ input: "hello", isAssistantBusy: true });
-    expect(html).toContain('aria-label="Stop generating"');
-    expect(html).not.toContain('aria-label="Send message"');
-    expect(shouldSubmitOnEnter(ENTER, false, READY_POLICY)).toBe("submit");
-  });
-
-  // The whole adaptation matrix in one assertion, since the named cases above
-  // are instances of a single invariant: the busy row offers exactly one
-  // control, and never a disabled one. Counted rather than probed for presence,
-  // so a row that grows a second control, loses its only one, or keeps a send
-  // nobody can press reads as BROKEN here instead of quietly passing.
-  //
-  // The blocked-draft rows are the ones that invariant is load-bearing for. A
-  // send disabled by an in-flight upload or a prompt holding the send, in a row
-  // that has already given up stop, leaves a running turn with no usable
-  // control at all. Both are reachable on a phone as much as a tablet: the
-  // attachment drop zone is not gated on `isAssistantBusy`, so an upload can
-  // start mid-turn. `shouldSubmitOnEnter` refuses both above, and pinning the
-  // row to the same three conditions is what keeps the two in agreement.
-  test("the busy row always offers exactly one usable control", () => {
-    const AXES = [
-      { name: "desktop", narrow: false, coarsePointer: false },
-      { name: "narrow mouse window", narrow: true, coarsePointer: false },
-      { name: "phone", narrow: true, coarsePointer: true },
-      { name: "tablet", narrow: false, coarsePointer: true },
-    ];
-    const DRAFTS = [
-      { name: "no draft", props: { input: "" } },
-      { name: "draft", props: { input: "hello" } },
-      {
-        name: "draft, attachment uploading",
-        props: { input: "hello", attachmentsUploadingCount: 1 },
-      },
-      {
-        name: "draft, send blocked",
-        props: { input: "hello", sendDisabled: true },
-      },
-      {
-        name: "attachment only",
-        props: { input: "", canSendAttachments: true },
-      },
-    ];
-
-    const offered: Record<string, string> = {};
-    for (const axis of AXES) {
-      for (const draft of DRAFTS) {
-        cleanup();
-        viewport.set({
-          narrow: axis.narrow,
-          coarsePointer: axis.coarsePointer,
-        });
-        const html = renderComposer({ isAssistantBusy: true, ...draft.props });
-        const controls = [
-          ...html.matchAll(/aria-label="(Stop generating|Send message)"/g),
-        ].map((match) => match[1]!);
-        const usable =
-          controls.length === 1 && !sendButtonHasDisabledAttr(html);
-        offered[`${axis.name} / ${draft.name}`] = usable
-          ? controls[0]!
-          : `BROKEN: [${controls.join(", ")}]`;
-      }
-    }
-
-    // A fine pointer submits from the keyboard, so stop keeps the slot
-    // throughout. A coarse pointer hands it to send exactly when pressing send
-    // would queue the draft, which is never true for the two blocked rows.
-    expect(offered).toEqual({
-      "desktop / no draft": "Stop generating",
-      "desktop / draft": "Stop generating",
-      "desktop / draft, attachment uploading": "Stop generating",
-      "desktop / draft, send blocked": "Stop generating",
-      "desktop / attachment only": "Stop generating",
-      "narrow mouse window / no draft": "Stop generating",
-      "narrow mouse window / draft": "Stop generating",
-      "narrow mouse window / draft, attachment uploading": "Stop generating",
-      "narrow mouse window / draft, send blocked": "Stop generating",
-      "narrow mouse window / attachment only": "Stop generating",
-      "phone / no draft": "Stop generating",
-      "phone / draft": "Send message",
-      "phone / draft, attachment uploading": "Stop generating",
-      "phone / draft, send blocked": "Stop generating",
-      "phone / attachment only": "Send message",
-      "tablet / no draft": "Stop generating",
-      "tablet / draft": "Send message",
-      "tablet / draft, attachment uploading": "Stop generating",
-      "tablet / draft, send blocked": "Stop generating",
-      "tablet / attachment only": "Send message",
-    });
-  });
-
   test("isAssistantBusy=false keeps the Send button even during awaiting_user_input", () => {
     useTurnStore.setState({
       ...INITIAL_TURN_STATE,
@@ -1207,41 +1080,31 @@ describe("ChatComposer — send/stop button visibility", () => {
 });
 
 /**
- * Under `interrupt-on-send` a turn in flight is not a reason to take Send
- * away: the message the user types stops that turn and is answered at once, so
- * the row keeps its resting shape for the whole turn. The send slot is the one
- * control that changes, holding Stop wherever Send cannot be pressed, which is
- * the only way to end a turn without sending something.
+ * A turn in flight is not a reason to take Send away: the message the user
+ * types stops that turn and is answered at once, so the row keeps its resting
+ * shape for the whole turn. The send slot is the one control that changes,
+ * holding Stop wherever Send cannot be pressed, which is the only way to end a
+ * turn without sending something.
  */
-describe("ChatComposer: send/stop under interrupt-on-send", () => {
-  function setInterruptOnSend(value: boolean) {
-    act(() => {
-      useAssistantFeatureFlagStore.getState().setFlags({
-        interruptOnSend: value,
-      });
-    });
-  }
-
-  afterEach(() => {
-    setInterruptOnSend(false);
-  });
-
+describe("ChatComposer: send/stop during a turn", () => {
   test("a busy composer with a draft offers Send, never Stop", () => {
-    setInterruptOnSend(true);
     viewport.set({ narrow: false, coarsePointer: false });
     const html = renderComposer({ input: "hello", isAssistantBusy: true });
     expect(html).toContain('aria-label="Send message"');
     expect(html).not.toContain('aria-label="Stop generating"');
   });
 
-  test("a draft holds Send on desktop too, where the keyboard can submit", () => {
-    // The flag-off row hands the slot to Send only under a coarse pointer.
-    // Here the draft's own send is the interrupt, so it keeps the slot at
-    // every width.
-    setInterruptOnSend(true);
-    for (const coarsePointer of [true, false]) {
+  test("a draft holds Send under every pointer and width", () => {
+    // The draft's own send is the interrupt, so it keeps the slot whether or
+    // not the keyboard can submit.
+    for (const [narrow, coarsePointer] of [
+      [false, false],
+      [false, true],
+      [true, false],
+      [true, true],
+    ] as const) {
       cleanup();
-      viewport.set({ narrow: false, coarsePointer });
+      viewport.set({ narrow, coarsePointer });
       const html = renderComposer({ input: "hello", isAssistantBusy: true });
       expect(html).toContain('aria-label="Send message"');
       expect(html).not.toContain('aria-label="Stop generating"');
@@ -1249,7 +1112,6 @@ describe("ChatComposer: send/stop under interrupt-on-send", () => {
   });
 
   test("a busy composer with nothing to send offers Stop in the send slot", () => {
-    setInterruptOnSend(true);
     viewport.set({ narrow: false, coarsePointer: false });
     const html = renderComposer({ input: "", isAssistantBusy: true });
     expect(html).toContain('aria-label="Stop generating"');
@@ -1257,7 +1119,6 @@ describe("ChatComposer: send/stop under interrupt-on-send", () => {
   });
 
   test("Stop in the send slot stops the turn", () => {
-    setInterruptOnSend(true);
     viewport.set({ narrow: false, coarsePointer: false });
     const onStopGenerating = mock(() => {});
     const { getByLabelText } = renderComposerView({
@@ -1270,7 +1131,6 @@ describe("ChatComposer: send/stop under interrupt-on-send", () => {
   });
 
   test("an attachment alone is something to send, so Send keeps the slot", () => {
-    setInterruptOnSend(true);
     viewport.set({ narrow: false, coarsePointer: false });
     const html = renderComposer({
       input: "",
@@ -1282,7 +1142,6 @@ describe("ChatComposer: send/stop under interrupt-on-send", () => {
   });
 
   test("a dictation session this composer owns keeps Send, since it holds words", () => {
-    setInterruptOnSend(true);
     viewport.set({ narrow: false, coarsePointer: false });
     mockVoicePhase = "recording";
     const html = renderComposer({ input: "", isAssistantBusy: true });
@@ -1293,7 +1152,6 @@ describe("ChatComposer: send/stop under interrupt-on-send", () => {
   test("a draft the composer refuses to send hands the slot to Stop", () => {
     // A send nobody can press is no interrupt, so the turn would have no end
     // the user can reach.
-    setInterruptOnSend(true);
     viewport.set({ narrow: false, coarsePointer: false });
     const html = renderComposer({
       input: "hello",
@@ -1305,7 +1163,6 @@ describe("ChatComposer: send/stop under interrupt-on-send", () => {
   });
 
   test("a draft held by an uploading attachment hands the slot to Stop", () => {
-    setInterruptOnSend(true);
     viewport.set({ narrow: false, coarsePointer: false });
     const html = renderComposer({
       input: "hello",
@@ -1317,7 +1174,6 @@ describe("ChatComposer: send/stop under interrupt-on-send", () => {
   });
 
   test("an idle composer with nothing to send offers no Stop", () => {
-    setInterruptOnSend(true);
     viewport.set({ narrow: false, coarsePointer: false });
     const html = renderComposer({ input: "", isAssistantBusy: false });
     expect(html).not.toContain('aria-label="Stop generating"');
@@ -1326,7 +1182,6 @@ describe("ChatComposer: send/stop under interrupt-on-send", () => {
   test("a live-voice session this composer owns leaves the slot as it rests", () => {
     // The bar above the card owns that session and the turn it is speaking,
     // so the slot gains no second control over it.
-    setInterruptOnSend(true);
     viewport.set({ narrow: false, coarsePointer: false });
     useTurnStore.setState(INITIAL_TURN_STATE);
     seedLiveVoiceSession("listening");
@@ -1338,19 +1193,40 @@ describe("ChatComposer: send/stop under interrupt-on-send", () => {
     expect(queryByLabelText("Send message")).not.toBeNull();
   });
 
-  test("the attach control stays on the busy row", () => {
-    setInterruptOnSend(true);
+  test("the busy row keeps attach, dictation, and Send during a turn", () => {
     viewport.set({ narrow: false, coarsePointer: false });
-    const html = renderComposer({ input: "hello", isAssistantBusy: true });
-    expect(html).toContain('aria-label="Attach file"');
+    const { queryByLabelText } = renderVoiceComposer({
+      input: "hello",
+      isAssistantBusy: true,
+    });
+    expect(queryByLabelText("Attach file")).not.toBeNull();
+    expect(queryByLabelText("Start voice input")).not.toBeNull();
+    expect(queryByLabelText("Send message")).not.toBeNull();
+    expect(queryByLabelText("Stop generating")).toBeNull();
   });
 
-  test("the flag off leaves the busy row exactly as it was", () => {
-    setInterruptOnSend(false);
+  test("the busy row on a phone keeps the plus and Send", () => {
+    const { container, queryByLabelText } = renderPhoneComposer({
+      input: "hello",
+      isAssistantBusy: true,
+    });
+    expect(control(container, PLUS_LABEL)).not.toBeNull();
+    expect(queryByLabelText("Send message")).not.toBeNull();
+  });
+
+  test("Send during a turn submits the draft rather than stopping", () => {
     viewport.set({ narrow: false, coarsePointer: false });
-    const html = renderComposer({ input: "hello", isAssistantBusy: true });
-    expect(html).toContain('aria-label="Stop generating"');
-    expect(html).not.toContain('aria-label="Send message"');
+    const onSubmit = mock((event: FormEvent) => event.preventDefault());
+    const onStopGenerating = mock(() => {});
+    const { getByLabelText } = renderComposerView({
+      input: "actually, do this",
+      isAssistantBusy: true,
+      onSubmit,
+      onStopGenerating,
+    });
+    fireEvent.click(getByLabelText("Send message"));
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(onStopGenerating).not.toHaveBeenCalled();
   });
 });
 
@@ -2060,12 +1936,12 @@ describe("ChatComposer: single-row mobile composer", () => {
     expect(addSheet(container)).not.toBeNull();
   });
 
-  test("a busy assistant takes the plus away, as it does the paperclip", () => {
+  test("a busy assistant keeps the plus, so a turn can be interrupted with a file", () => {
     // GIVEN a phone composer while the assistant is working
     const { container } = renderPhoneComposer({ isAssistantBusy: true });
 
-    // THEN nothing offers to attach
-    expect(control(container, PLUS_LABEL)).toBeNull();
+    // THEN the row still offers to attach, and only the plus does
+    expect(control(container, PLUS_LABEL)).not.toBeNull();
     expect(control(container, "Attach file")).toBeNull();
   });
 

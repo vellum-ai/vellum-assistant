@@ -59,9 +59,6 @@ import {
   handleCompactionCircuitClosed,
 } from "@/domains/chat/utils/stream-handlers/metadata-handlers";
 import {
-  handleMessageRequestComplete,
-} from "@/domains/chat/utils/stream-handlers/queue-handlers";
-import {
   handleSubagentSpawned,
   handleSubagentStatusChanged,
   handleSubagentEvent,
@@ -259,10 +256,6 @@ export function useStreamEventHandler(
         assistantId: useResolvedAssistantsStore.getState().activeAssistantId,
         composerSessionGeneration: composerSessionGenerationRef.current,
         setOptimisticSends: store.setOptimisticSends,
-        // Read live rather than closing over `store`: a queue ack can arrive
-        // after later sends have already changed the list.
-        getOptimisticSends: () =>
-          useChatSessionStore.getState().optimisticSends,
         turnActions: useTurnStore.getState(),
         getTurnState: () => useTurnStore.getState(),
         endTurn,
@@ -279,11 +272,7 @@ export function useStreamEventHandler(
         setContextWindowUsage: store.setContextWindowUsage,
         queryClient,
         setCompactionCircuitOpenUntil: store.setCompactionCircuitOpenUntil,
-        shiftPendingQueuedMessageId: store.shiftPendingQueuedMessageId,
-        takePendingQueuedMessageId: store.takePendingQueuedMessageId,
-        setRequestIdMapping: store.setRequestIdMapping,
         popRequestIdMapping: store.popRequestIdMapping,
-        consumePendingLocalDeletion: store.consumePendingLocalDeletion,
         lastActivityVersionRef,
         currentAssistantMessageIdRef,
         lastCompletedToolNameRef,
@@ -407,10 +396,6 @@ export function useStreamEventHandler(
           handleCompactionCircuitClosed(event, ctx);
           break;
 
-        case "message_request_complete":
-          handleMessageRequestComplete(event, ctx);
-          break;
-
         case "subagent_spawned":
           handleSubagentSpawned(event, ctx);
           break;
@@ -507,6 +492,10 @@ export function useStreamEventHandler(
         case "tool_input_delta":
         case "confirmation_state_changed":
         case "conversation_inference_profile_updated":
+          break;
+        // A send's request finishing. Its turn and its row arrive through the
+        // ordinary turn events and `user_message_echo`.
+        case "message_request_complete":
           break;
         // Daemon status / model-catalog / compaction / schedule- and
         // heartbeat-created signals. The web chat handler is a no-op — these are

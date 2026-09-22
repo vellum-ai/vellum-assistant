@@ -36,8 +36,6 @@ export function summarizeDisplayMessage(
     role: message.role,
     contentBlocksKb: contentBlocksSizeKb(message.contentBlocks),
     timestamp: message.timestamp ?? null,
-    queueStatus: message.queueStatus ?? null,
-    queuePosition: message.queuePosition ?? null,
     toolCallCount: message.toolCalls?.length ?? 0,
     surfaceCount: message.surfaces?.length ?? 0,
     attachmentCount: message.attachments?.length ?? 0,
@@ -69,11 +67,6 @@ export function summarizeDisplayMessages(
   return {
     count: messages.length,
     roleCounts: roleCounts(messages),
-    queuedCount: messages.filter((message) => message.queueStatus === "queued")
-      .length,
-    processingCount: messages.filter(
-      (message) => message.queueStatus === "processing",
-    ).length,
     first: messages[0] ? summarizeDisplayMessage(messages[0]) : null,
     last:
       messages.length > 0

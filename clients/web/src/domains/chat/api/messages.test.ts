@@ -12,14 +12,12 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { client as daemonClient } from "@/generated/daemon/client.gen";
 import {
   fetchConversationMessages,
-  deleteQueuedMessage,
   getChatHistory,
   mapRuntimeToolCalls,
   normalizeContentBlocks,
   normalizeContentOrder,
   postChatMessage,
   RECONCILE_LATEST_PAGE_LIMIT,
-  steerToMessage,
 } from "@/domains/chat/api/messages";
 import { messageText } from "@/domains/chat/utils/message-test-helpers";
 import type {
@@ -45,17 +43,12 @@ function wireMessage(
 // ---------------------------------------------------------------------------
 
 let capturedBody: Record<string, unknown> | null = null;
-let capturedPostOptions: Record<string, unknown> | null = null;
-let capturedDeleteOptions: Record<string, unknown> | null = null;
 let nextPostResult: { data: unknown; error: unknown; response: Response };
 const originalPost = daemonClient.post;
 const originalGet = daemonClient.get;
-const originalDelete = daemonClient.delete;
 
 beforeEach(() => {
   capturedBody = null;
-  capturedPostOptions = null;
-  capturedDeleteOptions = null;
   nextPostResult = {
     data: { accepted: true, messageId: "msg-1" },
     error: null,
@@ -63,25 +56,15 @@ beforeEach(() => {
   };
   daemonClient.post = mock(
     async (options: { body?: Record<string, unknown> }) => {
-      capturedPostOptions = options;
       capturedBody = options.body ?? null;
       return nextPostResult;
     },
   ) as typeof daemonClient.post;
-  daemonClient.delete = mock(async (options: Record<string, unknown>) => {
-    capturedDeleteOptions = options;
-    return {
-      data: { ok: true },
-      error: null,
-      response: new Response(null, { status: 200 }),
-    };
-  }) as typeof daemonClient.delete;
 });
 
 afterEach(() => {
   daemonClient.post = originalPost;
   daemonClient.get = originalGet;
-  daemonClient.delete = originalDelete;
 });
 
 // ---------------------------------------------------------------------------
@@ -224,63 +207,30 @@ describe("postChatMessage — bypassSecretCheck wire format", () => {
   });
 });
 
-describe("queued message request context", () => {
-  test("sends conversation context in both the query and header when deleting", async () => {
-    expect(
-      await deleteQueuedMessage("assistant-1", "conv-1", "request-1"),
-    ).toBe(true);
+describe("postChatMessage — an older assistant's queued acceptance", () => {
+  test("accepts a queued answer that carries no message id", async () => {
+    // An assistant with a message queue answers a busy send with
+    // `{ accepted, queued: true }` and no `messageId`.
+    nextPostResult = {
+      data: {
+        accepted: true,
+        queued: true,
+        conversationId: "conv-key",
+        requestId: "request-1",
+      },
+      error: null,
+      response: new Response(null, { status: 202 }),
+    };
 
-    expect(capturedDeleteOptions?.query).toEqual({ conversationId: "conv-1" });
-    expect(capturedDeleteOptions?.headers).toEqual({
-      "X-Vellum-Conversation-Id": "conv-1",
+    const result = await postChatMessage("assistant-1", "conv-key", "Hello");
+
+    expect(result).toEqual({
+      ok: true,
+      queued: true,
+      assistantId: "assistant-1",
+      conversationId: "conv-key",
+      requestId: "request-1",
     });
-  });
-
-  test("sends conversation context in both the query and header when steering", async () => {
-    expect(await steerToMessage("assistant-1", "conv-1", "request-1")).toBe(
-      "steered",
-    );
-
-    expect(capturedPostOptions?.query).toEqual({ conversationId: "conv-1" });
-    expect(capturedPostOptions?.headers).toEqual({
-      "X-Vellum-Conversation-Id": "conv-1",
-    });
-  });
-
-  test("classifies a missing queued message as not steerable", async () => {
-    nextPostResult = {
-      data: null,
-      error: { detail: "Queued message not found" },
-      response: new Response(null, { status: 404 }),
-    };
-
-    expect(await steerToMessage("assistant-1", "conv-1", "request-1")).toBe(
-      "not_steerable",
-    );
-  });
-
-  test("restores queue state when the conversation stopped processing", async () => {
-    nextPostResult = {
-      data: null,
-      error: { detail: "Conversation is not currently processing" },
-      response: new Response(null, { status: 400 }),
-    };
-
-    expect(await steerToMessage("assistant-1", "conv-1", "request-1")).toBe(
-      "request_failed",
-    );
-  });
-
-  test("classifies server steer failures as retryable request failures", async () => {
-    nextPostResult = {
-      data: null,
-      error: { detail: "Internal error" },
-      response: new Response(null, { status: 500 }),
-    };
-
-    expect(await steerToMessage("assistant-1", "conv-1", "request-1")).toBe(
-      "request_failed",
-    );
   });
 });
 
