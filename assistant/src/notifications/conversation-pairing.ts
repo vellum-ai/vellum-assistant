@@ -767,7 +767,9 @@ async function resolveChannelDeliveryHome(params: {
  * Indexing is skipped for parity with the other notification write paths:
  * notification copy is delivery audit, not conversational memory.
  */
-function resolveSourceConversationId(signal: NotificationSignal): string | null {
+function resolveSourceConversationId(
+  signal: NotificationSignal,
+): string | null {
   if (!signal.sourceContextId) {
     return null;
   }
@@ -788,9 +790,18 @@ async function appendBodyToSourceConversation(
     return null;
   }
 
-  const message = await addMessage(conversationId, "assistant", messageContent, {
-    skipIndexing: true,
-  });
+  const message = await addMessage(
+    conversationId,
+    "assistant",
+    messageContent,
+    {
+      skipIndexing: true,
+      // The body is bookkeeping about the conversation, not activity in it: a
+      // passive notice about work the conversation already saw must not bounce
+      // a chat the user just marked Done back into the sidebar.
+      skipResurface: true,
+    },
+  );
   // `addMessage` projects attention metadata alone, so a client with this
   // conversation open needs the messages tag to refetch the transcript. A
   // notification the user taps through to has every chance of landing on an

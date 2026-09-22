@@ -1017,8 +1017,12 @@ describe("pairDeliveryWithConversation", () => {
 
     const options = addMessageMock.mock.calls[0]![3] as {
       skipIndexing?: boolean;
+      skipResurface?: boolean;
     };
     expect(options.skipIndexing).toBe(true);
+    // Bookkeeping about the conversation, so it never resurfaces a chat the
+    // user marked Done.
+    expect(options.skipResurface).toBe(true);
   });
 
   test("passive vellum signal appends regardless of the producing conversation's source", async () => {
