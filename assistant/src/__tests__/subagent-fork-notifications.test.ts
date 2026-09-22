@@ -3,8 +3,8 @@ import { describe, expect, mock, test } from "bun:test";
 // ── Module mocks ──────────────────────────────────────────────────
 
 /**
- * Captured messages from injectMessageIntoParent → findConversation → enqueueMessage.
- * Each test clears this before use.
+ * Captured messages from injectMessageIntoParent → findConversation →
+ * persistUserMessage. Each test clears this before use.
  */
 const capturedNotifications: {
   parentConversationId: string;
@@ -15,14 +15,16 @@ mock.module("../daemon/conversation-registry.js", () => ({
   findConversation: (id: string) => ({
     isStale: () => false,
     hasInFlightWork: () => false,
-    enqueueMessage: (options: { content: string }) => {
+    isProcessing: () => false,
+    waitForIdle: async () => true,
+    persistUserMessage: async (options: { content: string }) => {
       capturedNotifications.push({
         parentConversationId: id,
         message: options.content,
       });
-      return { queued: true };
+      return { id: `msg-${capturedNotifications.length}` };
     },
-    kickDrainQueue: async () => {},
+    runAgentLoop: async () => {},
   }),
 }));
 
@@ -31,6 +33,7 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
 }));
 
 import type { AssistantEvent } from "../api/index.js";
+import { __resetConversationAdmissionForTests } from "../daemon/conversation-admission.js";
 import { SubagentManager } from "../subagent/manager.js";
 import type { SubagentState } from "../subagent/types.js";
 
@@ -151,8 +154,17 @@ function makeForkState(
 }
 
 function clearCaptured(): void {
+  __resetConversationAdmissionForTests();
   capturedNotifications.length = 0;
 }
+
+/**
+ * Let registered notifications reach their persist. Delivery waits for the
+ * parent to be idle, so a notification injected synchronously lands a few
+ * microtasks later.
+ */
+const settleNotifications = (): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, 0));
 
 describe("Fork completion notifications", () => {
   test("fork completion notification includes last_n: 1 guidance", async () => {
@@ -171,6 +183,7 @@ describe("Fork completion notifications", () => {
 
     await asInternals(manager).runSubagent(subagentId, "Analyze data");
 
+    await settleNotifications();
     expect(capturedNotifications).toHaveLength(1);
     expect(capturedNotifications[0].message).toContain("last_n: 1");
 
@@ -201,14 +214,18 @@ describe("Fork completion notifications", () => {
 
     await asInternals(manager).runSubagent(subagentId, "Analyze data");
 
+    await settleNotifications();
     expect(capturedNotifications).toHaveLength(1);
     // The synthesis is inlined, and a silent fork is flagged for internal use.
+    await settleNotifications();
     expect(capturedNotifications[0].message).toContain(
       "Internal analysis: revenue up 20%.",
     );
+    await settleNotifications();
     expect(capturedNotifications[0].message).toContain(
       "do not relay the raw fork output to the user",
     );
+    await settleNotifications();
     expect(capturedNotifications[0].message).toContain(
       '[Fork "Analysis fork" completed — result below]',
     );
@@ -234,10 +251,12 @@ describe("Fork completion notifications", () => {
 
     await asInternals(manager).runSubagent(subagentId, "Analyze data");
 
+    await settleNotifications();
     expect(capturedNotifications).toHaveLength(1);
     expect(capturedNotifications[0].message).toContain(
       '[Fork "Analysis fork" failed]',
     );
+    await settleNotifications();
     expect(capturedNotifications[0].message).toContain("Context too large");
     expect(capturedNotifications[0].message).not.toContain("[Subagent");
 
@@ -300,10 +319,12 @@ describe("Regular sub-agent notifications are unchanged", () => {
 
     await asInternals(manager).runSubagent(subagentId, "Do something");
 
+    await settleNotifications();
     expect(capturedNotifications).toHaveLength(1);
     expect(capturedNotifications[0].message).toContain(
       '[Subagent "Test subagent" completed]',
     );
+    await settleNotifications();
     expect(capturedNotifications[0].message).not.toContain("[Fork");
     expect(capturedNotifications[0].message).not.toContain("last_n: 1");
 
@@ -328,10 +349,12 @@ describe("Regular sub-agent notifications are unchanged", () => {
 
     await asInternals(manager).runSubagent(subagentId, "Do something");
 
+    await settleNotifications();
     expect(capturedNotifications).toHaveLength(1);
     expect(capturedNotifications[0].message).toContain(
       '[Subagent "Test subagent" failed]',
     );
+    await settleNotifications();
     expect(capturedNotifications[0].message).not.toContain("[Fork");
 
     asInternals(manager).stopSweep();

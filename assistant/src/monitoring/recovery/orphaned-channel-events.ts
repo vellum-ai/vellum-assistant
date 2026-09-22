@@ -3,7 +3,7 @@
  * retry sweep after a crash.
  *
  * A channel turn that arrives while its conversation is mid-turn is deferred
- * in-memory (`withChannelTurnAdmission` in `runtime/routes/inbound-stages/`)
+ * in-memory (`runWhenConversationIdle` in `daemon/conversation-admission.ts`)
  * with the inbound row still `processing_status = 'pending'`, and a turn that is
  * actively processing stays `pending` until it finalizes. A daemon that dies
  * during either window loses the in-memory task, and neither existing path

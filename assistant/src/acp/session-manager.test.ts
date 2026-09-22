@@ -3,6 +3,7 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 import { RequestError } from "@agentclientprotocol/sdk";
 
 import type { Conversation } from "../daemon/conversation.js";
+import { __resetConversationAdmissionForTests } from "../daemon/conversation-admission.js";
 import {
   deleteConversation,
   setConversation,
@@ -50,23 +51,20 @@ import { AcpSessionManager } from "./session-manager.js";
 const registered: string[] = [];
 
 afterEach(() => {
+  __resetConversationAdmissionForTests();
   for (const id of registered.splice(0)) {
     deleteConversation(id);
   }
 });
 
 /**
- * A duck-typed parent conversation exposing only the three methods
- * `notifyParent` touches. `enqueueMessage` returns not-queued by default so the
- * persist + runAgentLoop branch runs and the metadata can be asserted; pass
- * `enqueueQueued: true` to exercise the enqueue branch instead.
+ * A duck-typed parent conversation exposing only what `notifyParent` and the
+ * admission gate touch. It reads idle, so a notification runs as soon as it is
+ * registered and the persist metadata can be asserted.
  */
-function mockConversation(opts?: { enqueueQueued?: boolean }) {
-  const enqueueMessage = mock(() => ({
-    queued: opts?.enqueueQueued ?? false,
-    requestId: "req-1",
-    rejected: false,
-  }));
+function mockConversation(opts?: { processing?: boolean }) {
+  const isProcessing = mock(() => opts?.processing ?? false);
+  const waitForIdle = mock(async () => true);
   const persistUserMessage = mock(async () => ({
     id: "msg-1",
     deduplicated: false,
@@ -79,18 +77,25 @@ function mockConversation(opts?: { enqueueQueued?: boolean }) {
     resolveLoop();
   });
   const conversation = {
-    enqueueMessage,
+    isProcessing,
+    waitForIdle,
     persistUserMessage,
     runAgentLoop,
   } as unknown as Conversation;
   return {
     conversation,
-    enqueueMessage,
     persistUserMessage,
     runAgentLoop,
     loopRan,
   };
 }
+
+/**
+ * Let a registered notification reach its persist. Admission waits for idle
+ * before it runs, so the call lands a few microtasks after `notifyParent`.
+ */
+const settleNotification = (): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, 0));
 
 /** Fake AcpAgentProcess covering only the calls firePromptInBackground makes. */
 function fakeProcess(prompt: () => Promise<unknown>, stderr = "") {
@@ -154,13 +159,8 @@ function fire(
 describe("AcpSessionManager parent notification", () => {
   test("prompt failure notifies the parent once with the failed message + acpNotification metadata", async () => {
     const manager = new AcpSessionManager(1);
-    const {
-      conversation,
-      enqueueMessage,
-      persistUserMessage,
-      runAgentLoop,
-      loopRan,
-    } = mockConversation();
+    const { conversation, persistUserMessage, runAgentLoop, loopRan } =
+      mockConversation();
     setConversation("parent-fail", conversation);
     registered.push("parent-fail");
 
@@ -170,8 +170,7 @@ describe("AcpSessionManager parent notification", () => {
     await fire(manager, "sess-fail", entry);
     await loopRan;
 
-    // Exactly one notification (enqueue returned not-queued, so persist+loop).
-    expect(enqueueMessage).toHaveBeenCalledTimes(1);
+    // Exactly one notification.
     expect(persistUserMessage).toHaveBeenCalledTimes(1);
     expect(runAgentLoop).toHaveBeenCalledTimes(1);
 
@@ -192,13 +191,8 @@ describe("AcpSessionManager parent notification", () => {
 
   test("prompt success still notifies the parent exactly once", async () => {
     const manager = new AcpSessionManager(1);
-    const {
-      conversation,
-      enqueueMessage,
-      persistUserMessage,
-      runAgentLoop,
-      loopRan,
-    } = mockConversation();
+    const { conversation, persistUserMessage, runAgentLoop, loopRan } =
+      mockConversation();
     setConversation("parent-ok", conversation);
     registered.push("parent-ok");
 
@@ -208,7 +202,6 @@ describe("AcpSessionManager parent notification", () => {
     await fire(manager, "sess-ok", entry);
     await loopRan;
 
-    expect(enqueueMessage).toHaveBeenCalledTimes(1);
     expect(persistUserMessage).toHaveBeenCalledTimes(1);
     expect(runAgentLoop).toHaveBeenCalledTimes(1);
 
@@ -227,7 +220,7 @@ describe("AcpSessionManager parent notification", () => {
 
   test("a cancelled session does not notify the parent on failure", async () => {
     const manager = new AcpSessionManager(1);
-    const { conversation, enqueueMessage } = mockConversation();
+    const { conversation, persistUserMessage } = mockConversation();
     setConversation("parent-cancel", conversation);
     registered.push("parent-cancel");
 
@@ -237,15 +230,15 @@ describe("AcpSessionManager parent notification", () => {
     entry.state.status = "cancelled";
 
     await fire(manager, "sess-cancel", entry);
-    // Any notification would have called enqueue synchronously inside the catch.
-    expect(enqueueMessage).not.toHaveBeenCalled();
+    await settleNotification();
+    expect(persistUserMessage).not.toHaveBeenCalled();
   });
 
   test("a cancelled session does not notify the parent on success", async () => {
     // A prompt can win the cancel race by resolving normally; a user stop must
     // still not wake the parent with a completion.
     const manager = new AcpSessionManager(1);
-    const { conversation, enqueueMessage } = mockConversation();
+    const { conversation, persistUserMessage } = mockConversation();
     setConversation("parent-cancel-ok", conversation);
     registered.push("parent-cancel-ok");
 
@@ -259,7 +252,8 @@ describe("AcpSessionManager parent notification", () => {
     entry.state.status = "cancelled";
 
     await fire(manager, "sess-cancel-ok", entry);
-    expect(enqueueMessage).not.toHaveBeenCalled();
+    await settleNotification();
+    expect(persistUserMessage).not.toHaveBeenCalled();
   });
 
   test("cancel marks the session cancelled before the protocol cancel resolves", async () => {
@@ -324,7 +318,7 @@ describe("AcpSessionManager parent notification", () => {
 
   test("a superseded prompt does not notify the parent", async () => {
     const manager = new AcpSessionManager(1);
-    const { conversation, enqueueMessage } = mockConversation();
+    const { conversation, persistUserMessage } = mockConversation();
     setConversation("parent-stale", conversation);
     registered.push("parent-stale");
 
@@ -342,7 +336,8 @@ describe("AcpSessionManager parent notification", () => {
     entry.currentPrompt = null;
     await bg;
 
-    expect(enqueueMessage).not.toHaveBeenCalled();
+    await settleNotification();
+    expect(persistUserMessage).not.toHaveBeenCalled();
     // The stale catch left the session in place (no teardown).
     expect((manager.getStatus() as unknown[]).length).toBe(1);
   });

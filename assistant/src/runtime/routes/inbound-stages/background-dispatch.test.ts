@@ -166,6 +166,7 @@ mock.module("../../channel-reply-delivery.js", () => ({
 }));
 
 import type { Conversation } from "../../../daemon/conversation.js";
+import { __resetConversationAdmissionForTests } from "../../../daemon/conversation-admission.js";
 import { CONVERSATION_BUSY_MESSAGE } from "../../../daemon/conversation-messaging.js";
 import {
   clearConversations,
@@ -179,10 +180,9 @@ import {
   processChannelMessageInBackground,
   shouldShowActivityImmediately,
 } from "./background-dispatch.js";
-import { __resetChannelTurnAdmissionForTests } from "./channel-turn-admission.js";
 
 beforeEach(() => {
-  __resetChannelTurnAdmissionForTests();
+  __resetConversationAdmissionForTests();
   clearConversations();
   deliveredChannelReplies.length = 0;
   sentStreamOps.length = 0;

@@ -1032,12 +1032,13 @@ export async function startVoiceTurn(
   //   after every barge-in.
   // - The prior turn's teardown. Its `finally { cleanup() }` runs after
   //   `setProcessing(false)` (see `pendingTurnTeardowns`).
-  // - A queued-message drain. The `finally` that releases the lock (waking
-  //   this turn) then calls `drainQueue`, which retakes the lock for any
-  //   queued messages. When queued work is visible after a successful idle
-  //   wait, loop back and wait the drained turn out instead of racing its
-  //   persist; a drain that takes the lock without visible queued work is
-  //   covered by the persist retry below.
+  // - A successor send. The `finally` that releases the lock (waking this turn)
+  //   then calls `drainQueue`, which retakes the lock for any queued messages,
+  //   and a send deferred through `runWhenConversationIdle` is admitted on the
+  //   same transition. When either is visible after a successful idle wait,
+  //   loop back and wait that turn out instead of racing its persist; a
+  //   successor that takes the lock without being visible yet is covered by the
+  //   persist retry below.
   //
   // Hence the re-check loop, bounded by one shared budget. In practice
   // each leg settles within a few microtasks; the bound only guards a
@@ -1083,7 +1084,10 @@ export async function startVoiceTurn(
   for (;;) {
     if (conversation.isProcessing()) {
       await waitOutProcessingLock();
-      if (conversation.hasQueuedMessages?.()) {
+      if (
+        conversation.hasQueuedMessages?.() ||
+        conversation.hasPendingDeferredSends?.()
+      ) {
         continue;
       }
     }

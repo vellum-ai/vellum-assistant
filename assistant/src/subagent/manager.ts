@@ -14,6 +14,7 @@ import type { AssistantEvent } from "../api/index.js";
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import { Conversation } from "../daemon/conversation.js";
+import { runWhenConversationIdle } from "../daemon/conversation-admission.js";
 import {
   findConversation,
   removeSubagentConversation,
@@ -378,21 +379,19 @@ interface ManagedSubagent {
    */
   rehydrated?: boolean;
   /**
-   * Sticky monotonic flag: set to true when sendMessage enqueues a follow-up
-   * message while a run is in progress, and never cleared. Needed because the
-   * drain dispatch is racy against the observation window around runAgentLoop's
-   * `finally`: drainQueue is async — it awaits buildPassthroughBatch (which
-   * awaits resolveSlash) before shifting anything — and runAgentLoop fires it
-   * without awaiting. So between the moment `finally` schedules drainQueue and
-   * the moment a queued item is actually dispatched by drainBatch /
-   * drainSingleMessage, `hasQueuedMessages()` and `isProcessing()` can each
-   * flip in either direction (queue empties mid-await, or `processing` flips
-   * false while items are still pending). Checking this sticky flag lets the
-   * finally block in runSubagent reason about "any queued work existed for
-   * this subagent during the run" without racing drain dispatch, and defer
-   * the release to the TTL sweep rather than tearing down mid-drain.
+   * Sticky monotonic flag: set to true when sendMessage registers a follow-up
+   * message for this subagent, and never cleared. Needed because admission is
+   * racy against the observation window around runAgentLoop's `finally`: a
+   * registered send waits for idle and then persists before it takes the lock,
+   * so between the moment `finally` releases the conversation and the moment
+   * the deferred turn is under way, `hasPendingDeferredSends()` and
+   * `isProcessing()` can each read false while the follow-up is still pending.
+   * Checking this sticky flag lets the finally block in runSubagent reason
+   * about "any follow-up work existed for this subagent during the run"
+   * without racing admission, and defer the release to the TTL sweep rather
+   * than tearing down mid-turn.
    */
-  hadEnqueuedMessages?: boolean;
+  hadDeferredMessages?: boolean;
   /**
    * Set on the synchronous `spawnAndAwait` path. When true, `runSubagent`
    * skips the terminal parent-injection (`notifyParentTerminal`) — the awaiting
@@ -1162,21 +1161,18 @@ export class SubagentManager {
       // where the loop has unwound and the final flush is on disk, so the
       // guidance it inlines is the guidance a `subagent_read` would find.
       this.notifyParentBudgetStop(managed, finalText);
-      // Release the heavyweight Conversation — output is already persisted in DB.
-      // drainQueue is async: it awaits buildPassthroughBatch (which awaits
-      // resolveSlash) before shifting anything, and runAgentLoop fires it
-      // without awaiting. That means by the time this finally runs, a drain
-      // may already be scheduled but not yet dispatched — so checking
-      // hasQueuedMessages() / isProcessing() here races the dispatch and can
-      // observe an empty queue (or `processing === false`) while queued work
-      // is still pending. The hadEnqueuedMessages flag (set in sendMessage)
-      // is a sticky monotonic marker that any queued work existed during this
-      // run, letting us defer the release to the TTL sweep rather than
-      // tearing down mid-drain.
-      if (managed.hadEnqueuedMessages) {
+      // Release the heavyweight Conversation: output is already persisted in DB.
+      // A follow-up registered with `runWhenConversationIdle` waits for idle
+      // and then persists before it takes the lock, so by the time this finally
+      // runs, checking `hasPendingDeferredSends()` / `isProcessing()` races
+      // admission and can observe neither while the follow-up is still pending.
+      // The hadDeferredMessages flag (set in sendMessage) is a sticky monotonic
+      // marker that follow-up work existed during this run, letting us defer
+      // the release to the TTL sweep rather than tearing down mid-turn.
+      if (managed.hadDeferredMessages) {
         log.debug(
           { subagentId },
-          "Deferring conversation release — messages were enqueued during run",
+          "Deferring conversation release: messages were sent during run",
         );
         managed.retainedUntil = Date.now() + TERMINAL_RETENTION_MS;
         this.ensureSweepRunning();
@@ -1585,23 +1581,17 @@ export class SubagentManager {
       return "terminal";
     }
 
-    // If the conversation is busy, queue the message; otherwise process immediately.
-    const result = managed.conversation.enqueueMessage({ content: trimmed });
-    if (result.rejected) {
-      return "sent"; // error event already delivered via sendToClient
-    }
-    if (result.queued) {
-      managed.hadEnqueuedMessages = true;
-    }
-    if (!result.queued) {
-      // Capture conversation before the await — managed.conversation may be
-      // nulled by an external dispose() while persistUserMessage is awaited.
-      const conversation = managed.conversation;
-      const { id: messageId } = await conversation.persistUserMessage({
-        content: trimmed,
-      });
-      conversation
-        .runAgentLoop(trimmed, messageId, {
+    // Capture conversation before the deferral registers: `managed.conversation`
+    // may be nulled by an external dispose() while the send waits.
+    const conversation = managed.conversation;
+    managed.hadDeferredMessages = true;
+    void runWhenConversationIdle(
+      managed.state.conversationId,
+      async () => {
+        const { id: messageId } = await conversation.persistUserMessage({
+          content: trimmed,
+        });
+        await conversation.runAgentLoop(trimmed, messageId, {
           callSite: "subagentSpawn",
           ...(managed.state.config.overrideProfile
             ? { overrideProfile: managed.state.config.overrideProfile }
@@ -1610,11 +1600,12 @@ export class SubagentManager {
             ? { forceOverrideProfile: true }
             : {}),
           ...(opts?.cronRunId ? { cronRunId: opts.cronRunId } : {}),
-        })
-        .catch((err) => {
-          log.error({ subagentId, err }, "Subagent message processing failed");
         });
-    }
+      },
+      { origin: "subagent_guidance" },
+    ).catch((err: unknown) => {
+      log.error({ subagentId, err }, "Subagent message processing failed");
+    });
     return "sent";
   }
 
@@ -1687,7 +1678,7 @@ export class SubagentManager {
   ): Promise<boolean> {
     const managed = this.subagents.get(subagentId);
     const conversation = managed?.conversation;
-    if (!managed || !conversation || managed.hadEnqueuedMessages !== true) {
+    if (!managed || !conversation || managed.hadDeferredMessages !== true) {
       return true;
     }
     const deadline = Date.now() + timeoutMs;
@@ -1707,7 +1698,10 @@ export class SubagentManager {
         await conversation.waitForIdle({ timeoutMs: remainingMs });
         continue;
       }
-      if (conversation.hasQueuedMessages()) {
+      if (
+        conversation.hasQueuedMessages() ||
+        conversation.hasPendingDeferredSends()
+      ) {
         idleObservations = 0;
         await sleep(Math.min(QUEUED_TURN_POLL_MS, remainingMs));
         continue;
@@ -2155,7 +2149,7 @@ export class SubagentManager {
 
     // A queued follow-up turn means the snapshot we hold is stale; defer to a
     // read pointer so the parent picks up the queued turn's output instead.
-    const deferred = managed.hadEnqueuedMessages === true;
+    const deferred = managed.hadDeferredMessages === true;
 
     const message = buildSubagentTerminalMessage({
       label: config.label,

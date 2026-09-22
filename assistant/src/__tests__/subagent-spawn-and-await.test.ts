@@ -323,7 +323,7 @@ function broadcastStatuses(events: AssistantEvent[]): string[] {
     .map((m) => (m as { status: string }).status);
 }
 
-/** A fake parent conversation that records injected (enqueued) messages. */
+/** A fake parent conversation that records injected messages. */
 function registerFakeParent(parentConversationId: string): {
   enqueuedCount: () => number;
   messages: () => string[];
@@ -347,14 +347,17 @@ function registerFakeParent(parentConversationId: string): {
       trustContext: undefined,
       getAuthContext: () => undefined,
       assistantId: undefined,
-      enqueueMessage: (options: { content: string }) => {
+      isProcessing: () => false,
+      waitForIdle: async () => true,
+      persistUserMessage: async (options: { content: string }) => {
         enqueued.push(options.content);
         if (watched) {
           inFlight.push(watched.hasActiveChildren(parentConversationId));
         }
         teardownOrder.push("notify");
-        return { rejected: false, queued: true, requestId: "req-fake" };
+        return { id: `msg-${enqueued.length}`, deduplicated: false };
       },
+      runAgentLoop: async () => {},
     }),
   );
   return {

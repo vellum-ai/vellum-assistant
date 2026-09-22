@@ -17,6 +17,7 @@ import {
   getGuardianDelivery,
   guardianForChannel,
 } from "../../../contacts/guardian-delivery-reader.js";
+import { runWhenConversationIdle } from "../../../daemon/conversation-admission.js";
 import { isConversationBusyError } from "../../../daemon/conversation-messaging.js";
 import type { TrustContext } from "../../../daemon/trust-context-types.js";
 import type { ProviderMessageMetadata } from "../../../messaging/provider-message-metadata.js";
@@ -60,7 +61,6 @@ import { isContactTrustClass } from "../../trust-class.js";
 import { resolveRoutingState } from "../../trust-context-resolver.js";
 import { finalizeEventDelivery } from "../channel-delivery-routes.js";
 import { deliverGeneratedApprovalPrompt } from "../guardian-approval-prompt.js";
-import { withChannelTurnAdmission } from "./channel-turn-admission.js";
 
 const log = getLogger("runtime-http");
 
@@ -196,10 +196,10 @@ export function processChannelMessageInBackground(
   // free, serialized per conversation so same-conversation replies stay ordered.
   // A channel message routed to a busy conversation (e.g. a Slack
   // thread-participant reply arriving mid-session) is thereby processed when the
-  // in-flight turn completes instead of being dropped. See
-  // `channel-turn-admission.ts` for why channel turns defer rather than route
-  // through the SSE-oriented conversation queue.
-  void withChannelTurnAdmission(conversationId, async () => {
+  // in-flight turn completes instead of being dropped. The admission slot covers
+  // turn and delivery together, so the reply orchestration below stays in one
+  // place. See `daemon/conversation-admission.ts`.
+  const runChannelTurn = async (): Promise<void> => {
     const channelActivity = startChannelActivity({
       replyCallbackUrl,
       conversationId,
@@ -429,6 +429,9 @@ export function processChannelMessageInBackground(
       stopApprovalWatcher?.();
       stopTcApprovalNotifier?.();
     }
+  };
+  void runWhenConversationIdle(conversationId, runChannelTurn, {
+    origin: "channel",
   }).catch((err) => {
     log.error(
       { err, conversationId, eventId },

@@ -14,13 +14,11 @@
  * the injected turn uses the current provider, prompt, and credentials.
  */
 
-import { getConfig } from "../config/loader.js";
-import { resolveTurnCommitWaitMs } from "../daemon/abort-watchdog.js";
+import { runWhenConversationIdle } from "../daemon/conversation-admission.js";
 import {
   findConversation,
   findConversationOrSubagent,
 } from "../daemon/conversation-registry.js";
-import { startAfterTurnFinalization } from "../daemon/turn-finalization.js";
 import { deliverSubagentNotificationToLiveVoice } from "../live-voice/live-voice-manager.js";
 import { getSubagentRecordByConversationId } from "../persistence/subagent-store.js";
 import { getLogger } from "../util/logger.js";
@@ -30,8 +28,8 @@ const log = getLogger("subagent-notify");
 
 /**
  * Deliver task updates through the parent's live voice session when present,
- * otherwise enqueue a parent turn. No-op with a warning
- * when neither the session nor the parent conversation is live here.
+ * otherwise run a parent turn once the parent is free to take one. No-op with
+ * a warning when neither the session nor the parent conversation is live here.
  *
  * Shared by the child-triggered {@link notifyParentFromChild} and the
  * manager's terminal/abort injections so every subagent → parent turn lands
@@ -96,17 +94,21 @@ export function injectMessageIntoParent(
   deliverToParent(existing, parentConversationId, message, metadata, opts);
 }
 
+/** The slice of the parent `Conversation` a notification turn drives. */
+interface NotificationTarget {
+  persistUserMessage: (options: {
+    content: string;
+    metadata?: Record<string, unknown>;
+  }) => Promise<{ id: string }>;
+  runAgentLoop: (
+    content: string,
+    userMessageId: string,
+    options?: { isInteractive?: boolean; cronRunId?: string | null },
+  ) => Promise<unknown>;
+}
+
 function deliverToParent(
-  parentConversation: {
-    enqueueMessage: (options: {
-      content: string;
-      metadata?: Record<string, unknown>;
-      isInteractive: boolean;
-      queueWhenIdle: boolean;
-      cronRunId?: string | null;
-    }) => { queued: boolean; rejected?: boolean };
-    kickDrainQueue: (reason: "loop_complete", origin: string) => Promise<void>;
-  },
+  parentConversation: NotificationTarget,
   parentConversationId: string,
   message: string,
   metadata?: Record<string, unknown>,
@@ -114,35 +116,32 @@ function deliverToParent(
 ): void {
   // The continuation this notification starts is still the scheduled firing's
   // work, so it carries the same run id as the child whose result triggered it.
-  // The queue drains after the enqueuing turn, so the id travels on the message.
   const cronRunId = opts?.cronRunId ?? null;
-  // Machine-injected with no human asserted present, so the notification
-  // turn runs non-interactive; it still streams to whoever is watching
-  // through the parent's sink.
-  const enqueueResult = parentConversation.enqueueMessage({
-    content: message,
-    metadata: { ...metadata, scripted: true },
-    isInteractive: false,
-    queueWhenIdle: true,
-    ...(cronRunId ? { cronRunId } : {}),
-  });
-  if (enqueueResult.queued) {
-    startAfterTurnFinalization(
-      parentConversationId,
-      resolveTurnCommitWaitMs(getConfig().workspaceGit?.turnCommitMaxWaitMs),
-      () => {
-        void parentConversation.kickDrainQueue(
-          "loop_complete",
-          "subagent_notification",
-        );
-      },
-    );
-  } else {
+  void runWhenConversationIdle(
+    parentConversationId,
+    async () => {
+      const { id: userMessageId } = await parentConversation.persistUserMessage(
+        {
+          content: message,
+          metadata: { ...metadata, scripted: true },
+        },
+      );
+      // Machine-injected with no human asserted present, so the notification
+      // turn runs non-interactive; it still streams to whoever is watching
+      // through the parent's sink. Awaited so the admission slot covers the
+      // whole turn and the next notification lands after it.
+      await parentConversation.runAgentLoop(message, userMessageId, {
+        isInteractive: false,
+        ...(cronRunId ? { cronRunId } : {}),
+      });
+    },
+    { origin: "subagent_notification" },
+  ).catch((err: unknown) => {
     log.error(
-      { parentConversationId },
-      "Parent queue rejected subagent notification",
+      { parentConversationId, err },
+      "Failed to deliver subagent notification to parent",
     );
-  }
+  });
 }
 
 /**

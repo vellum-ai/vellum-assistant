@@ -59,6 +59,11 @@ function register(
     liveVoiceResidencyLeases: 0,
     isProcessing: () => state.processing,
     hasQueuedMessages: () => state.queued,
+    hasPendingDeferredSends() {
+      return Conversation.prototype.hasPendingDeferredSends.call(
+        fake as unknown as Conversation,
+      );
+    },
     modeSessions: {
       hasResidentWork: () => state.modeSessionWork === true,
     },

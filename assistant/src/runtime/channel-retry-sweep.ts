@@ -477,7 +477,7 @@ export async function sweepFailedEvents(
     // retry attempt (`deferRetryUntilIdle`) so a long in-flight turn can never
     // exhaust the budget and drop the reply; a later sweep reprocesses once the
     // lock frees. This is the sweep-side counterpart to the inbound
-    // defer-until-idle admission in `channel-turn-admission.ts`.
+    // defer-until-idle admission in `daemon/conversation-admission.ts`.
     if (findConversation(event.conversationId)?.isProcessing()) {
       log.info(
         { eventId: event.id, conversationId: event.conversationId },

@@ -16,8 +16,15 @@
 import type { AssistantEvent } from "../api/index.js";
 import type { ChannelId } from "../channels/types.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
+import {
+  canDeferSend,
+  runWhenConversationIdle,
+} from "../daemon/conversation-admission.js";
 import type { UserMessageAttachment } from "../daemon/message-types/shared.js";
 import type { ContentBlock, MediaSource } from "../providers/types.js";
+import { getLogger } from "../util/logger.js";
+
+const log = getLogger("plugin-api-conversation-turn");
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -114,7 +121,10 @@ export interface RunConversationTurnResult {
   userMessageId: string;
   /** The conversation this turn ran in. */
   conversationId: string;
-  /** True when the message was queued because the conversation was busy. */
+  /**
+   * True when the conversation was busy, so the turn is deferred: it runs on
+   * its own once the conversation is free, and `content` is empty here.
+   */
   queued?: boolean;
 }
 
@@ -262,9 +272,9 @@ async function resolveChannelConversation(
  * host event hub (`assistantEventHub`).
  *
  * If the conversation is currently processing another turn, the message is
- * queued via `enqueueMessage` and the result carries `queued: true` with
- * empty content -- the queued turn will execute automatically when the
- * current turn finishes.
+ * registered with `runWhenConversationIdle` and the result carries
+ * `queued: true` with empty content: the turn runs on its own once the
+ * conversation is free, behind any send deferred before it.
  */
 export async function runConversationTurn(
   options: RunConversationTurnOptions,
@@ -396,10 +406,10 @@ export async function runConversationTurn(
       ),
     );
   }
-  // Carried on the metadata as well, because a queued turn is drained after
-  // this call returns and reads its channel from there. Without it the drain
-  // inherits whichever turn was in flight, which on a shared conversation is
-  // some other channel entirely.
+  // Carried on the metadata as well, because a deferred turn runs after this
+  // call returns and reads its channel from there. Without it the turn inherits
+  // whichever turn was in flight, which on a shared conversation is some other
+  // channel entirely.
   const metadata = {
     ...PLUGIN_TURN_MESSAGE_METADATA,
     ...(turnChannelContext ?? {}),
@@ -418,25 +428,39 @@ export async function runConversationTurn(
     }
   };
 
-  // When the conversation is busy, enqueue the message instead of rejecting.
-  // The queue is drained automatically when the current turn finishes.
+  // When the conversation is busy, defer the turn instead of rejecting. It
+  // runs once the conversation is free, behind anything deferred before it.
   if (conversation.isProcessing()) {
-    const requestId = uuidv7();
-    const enqueueResult = conversation.enqueueMessage({
-      content: text,
-      attachments,
-      onEvent,
-      requestId,
-      isInteractive: false,
-      metadata,
-      trustContext,
-      ...(displayContent ? { displayContent } : {}),
-    });
-    if (enqueueResult.rejected) {
+    if (!canDeferSend(conversationId)) {
       throw new Error(
-        "Conversation is busy and its message queue is full. Try again later.",
+        "Conversation is busy and too many messages are already waiting. Try again later.",
       );
     }
+    const requestId = uuidv7();
+    void runWhenConversationIdle(
+      conversationId,
+      async () => {
+        conversation.setTurnChannelContext(turnChannelContext);
+        conversation.setTurnInterfaceContext(turnInterfaceContext);
+        await conversation.processMessage({
+          content: text,
+          attachments,
+          onEvent,
+          requestId,
+          isInteractive: false,
+          metadata,
+          trustContext,
+          ...(displayContent ? { displayContent } : {}),
+          ...(options.callSite ? { callSite: options.callSite } : {}),
+        });
+      },
+      { origin: "plugin_api", onEvent, requestId },
+    ).catch((err: unknown) => {
+      log.error(
+        { err, conversationId },
+        "Deferred plugin-driven conversation turn failed",
+      );
+    });
     return {
       content: [],
       userMessageId: requestId,

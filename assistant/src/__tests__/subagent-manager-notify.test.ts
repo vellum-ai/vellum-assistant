@@ -3,8 +3,8 @@ import { describe, expect, mock, test } from "bun:test";
 // ── Module mocks ──────────────────────────────────────────────────
 
 /**
- * Captured messages from injectMessageIntoParent → findConversation → enqueueMessage.
- * Each test clears this before use.
+ * Captured messages from injectMessageIntoParent → findConversation →
+ * persistUserMessage. Each test clears this before use.
  */
 const capturedNotifications: {
   parentConversationId: string;
@@ -16,18 +16,25 @@ mock.module("../daemon/conversation-registry.js", () => ({
   findConversation: (id: string) => ({
     isStale: () => false,
     hasInFlightWork: () => false,
-    enqueueMessage: (options: {
-      content: string;
-      cronRunId?: string | null;
-    }) => {
+    isProcessing: () => false,
+    waitForIdle: async () => true,
+    persistUserMessage: async (options: { content: string }) => {
       capturedNotifications.push({
         parentConversationId: id,
         message: options.content,
-        cronRunId: options.cronRunId,
       });
-      return { queued: true };
+      return { id: `msg-${capturedNotifications.length}` };
     },
-    kickDrainQueue: async () => {},
+    runAgentLoop: async (
+      _content: string,
+      _userMessageId: string,
+      options?: { cronRunId?: string | null },
+    ) => {
+      const last = capturedNotifications[capturedNotifications.length - 1];
+      if (last) {
+        last.cronRunId = options?.cronRunId;
+      }
+    },
   }),
 }));
 
@@ -36,6 +43,7 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
 }));
 
 import type { AssistantEvent } from "../api/index.js";
+import { __resetConversationAdmissionForTests } from "../daemon/conversation-admission.js";
 import { SubagentManager } from "../subagent/manager.js";
 import type { SubagentState } from "../subagent/types.js";
 
@@ -67,7 +75,7 @@ interface FakeManagedSubagent {
   state: SubagentState;
   parentSendToClient: (msg: AssistantEvent) => void;
   /** Sticky marker that a follow-up turn was queued during the run. */
-  hadEnqueuedMessages?: boolean;
+  hadDeferredMessages?: boolean;
 }
 
 /** Type-safe accessor for SubagentManager's private internals via bracket notation. */
@@ -145,11 +153,20 @@ function makeState(
 }
 
 function clearCaptured(): void {
+  __resetConversationAdmissionForTests();
   capturedNotifications.length = 0;
 }
 
+/**
+ * Let registered notifications reach their persist. Delivery waits for the
+ * parent to be idle and past its turn boundary, so a notification injected
+ * synchronously lands a few microtasks later.
+ */
+const settleNotifications = (): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, 0));
+
 describe("SubagentManager abort notification", () => {
-  test("abort notifies parent with do-not-respawn message", () => {
+  test("abort notifies parent with do-not-respawn message", async () => {
     clearCaptured();
     const manager = new SubagentManager();
     const subagentId = "sub-1";
@@ -163,12 +180,13 @@ describe("SubagentManager abort notification", () => {
 
     expect(result).toBe(true);
     expect(state.status).toBe("aborted");
+    await settleNotifications();
     expect(capturedNotifications).toHaveLength(1);
     expect(capturedNotifications[0].message).toContain("explicitly aborted");
     expect(capturedNotifications[0].message).toContain("Do NOT re-spawn");
   });
 
-  test("abort notification goes to parent conversation via findConversation", () => {
+  test("abort notification goes to parent conversation via findConversation", async () => {
     clearCaptured();
     const manager = new SubagentManager();
     const subagentId = "sub-1";
@@ -186,6 +204,7 @@ describe("SubagentManager abort notification", () => {
     manager.abort(subagentId, abortingSender);
 
     // Notification should be routed to the parent conversation via findConversation.
+    await settleNotifications();
     expect(capturedNotifications).toHaveLength(1);
     expect(capturedNotifications[0].parentConversationId).toBe("parent-sess-1");
   });
@@ -259,7 +278,7 @@ describe("SubagentManager abort notification", () => {
     expect(result).toBe(false);
   });
 
-  test("abort without sendToClient sets status but does not notify", () => {
+  test("abort without sendToClient sets status but does not notify", async () => {
     clearCaptured();
     const manager = new SubagentManager();
     const subagentId = "sub-1";
@@ -271,6 +290,7 @@ describe("SubagentManager abort notification", () => {
     expect(result).toBe(true);
     expect(state.status).toBe("aborted");
     // Without parentSendToClient, abort skips both the status update and notification.
+    await settleNotifications();
     expect(capturedNotifications).toHaveLength(0);
   });
 
@@ -311,7 +331,7 @@ describe("SubagentManager abort notification", () => {
     expect(state.status).toBe("aborted");
   });
 
-  test("abort with suppressNotification skips parent notification", () => {
+  test("abort with suppressNotification skips parent notification", async () => {
     clearCaptured();
     const manager = new SubagentManager();
     const subagentId = "sub-1";
@@ -324,6 +344,7 @@ describe("SubagentManager abort notification", () => {
 
     expect(result).toBe(true);
     expect(state.status).toBe("aborted");
+    await settleNotifications();
     expect(capturedNotifications).toHaveLength(0);
   });
 });
@@ -352,11 +373,13 @@ describe("SubagentManager notifyParent (via runSubagent)", () => {
       outputTokens: 50,
       estimatedCost: 0.005,
     });
+    await settleNotifications();
     expect(capturedNotifications).toHaveLength(1);
     expect(capturedNotifications[0].parentConversationId).toBe("parent-sess-1");
     expect(capturedNotifications[0].message).toContain(
       '[Subagent "Test subagent" completed]',
     );
+    await settleNotifications();
     expect(capturedNotifications[0].message).toContain("subagent_read");
 
     asInternals(manager).stopSweep();
@@ -382,6 +405,7 @@ describe("SubagentManager notifyParent (via runSubagent)", () => {
 
     await asInternals(manager).runSubagent(subagentId, "Do something");
 
+    await settleNotifications();
     expect(capturedNotifications).toHaveLength(1);
     expect(capturedNotifications[0].cronRunId).toBe("cron-run-42");
 
@@ -405,6 +429,7 @@ describe("SubagentManager notifyParent (via runSubagent)", () => {
 
     await asInternals(manager).runSubagent(subagentId, "Do something");
 
+    await settleNotifications();
     expect(capturedNotifications).toHaveLength(1);
     expect(capturedNotifications[0].cronRunId).toBeUndefined();
 
@@ -438,11 +463,13 @@ describe("SubagentManager notifyParent (via runSubagent)", () => {
       outputTokens: 50,
       estimatedCost: 0.005,
     });
+    await settleNotifications();
     expect(capturedNotifications).toHaveLength(1);
     expect(capturedNotifications[0].message).toContain("failed");
     expect(capturedNotifications[0].message).toContain(
       "API rate limit exceeded",
     );
+    await settleNotifications();
     expect(capturedNotifications[0].message).toContain("Do NOT re-spawn");
 
     asInternals(manager).stopSweep();
@@ -469,6 +496,7 @@ describe("SubagentManager notifyParent (via runSubagent)", () => {
 
     await asInternals(manager).runSubagent(subagentId, "Do something");
 
+    await settleNotifications();
     expect(capturedNotifications[0].message).toContain(
       "[stats: 2 tool calls, 2 succeeded, files written via file_write/file_edit: 1]",
     );
@@ -495,7 +523,7 @@ describe("SubagentManager notifyParent (via runSubagent)", () => {
     };
     // Guidance arrived while the run was processing: the conversation is
     // retained past the run so it can drain that turn afterwards.
-    managed.hadEnqueuedMessages = true;
+    managed.hadDeferredMessages = true;
 
     await asInternals(manager).runSubagent(subagentId, "Do something");
 
@@ -504,9 +532,11 @@ describe("SubagentManager notifyParent (via runSubagent)", () => {
     // Quoting it in a message that is never rewritten would under-report the
     // queued turn permanently, so the deferred notification quotes nothing and
     // sends the parent to subagent_read instead.
+    await settleNotifications();
     expect(capturedNotifications[0].message).toContain(
       "Queued follow-up guidance is still being processed",
     );
+    await settleNotifications();
     expect(capturedNotifications[0].message).not.toContain("[stats:");
 
     // The queued turn now drains, into the same retained conversation.
@@ -539,7 +569,7 @@ describe("SubagentManager notifyParent (via runSubagent)", () => {
       managed.conversation!.subagentToolStats.calls += 1;
       managed.conversation!.subagentToolStats.succeeded += 1;
     };
-    managed.hadEnqueuedMessages = true;
+    managed.hadDeferredMessages = true;
 
     await asInternals(manager).runSubagent(subagentId, "Do something");
 
@@ -603,6 +633,7 @@ describe("SubagentManager notifyParent (via runSubagent)", () => {
     await asInternals(manager).runSubagent(subagentId, "Do something");
 
     // Should NOT notify — status was already terminal (aborted).
+    await settleNotifications();
     expect(capturedNotifications).toHaveLength(0);
 
     asInternals(manager).stopSweep();
@@ -648,7 +679,7 @@ describe("SubagentManager hasActiveChildren", () => {
 });
 
 describe("SubagentManager abortAllForParent", () => {
-  test("aborts active children but keeps every child's state readable", () => {
+  test("aborts active children but keeps every child's state readable", async () => {
     clearCaptured();
     const manager = new SubagentManager();
     injectFakeSubagent(manager, "sub-1", makeState("sub-1"));
@@ -662,6 +693,7 @@ describe("SubagentManager abortAllForParent", () => {
     const count = manager.abortAllForParent("parent-sess-1", () => {});
 
     expect(count).toBe(2); // sub-1 and sub-2, not sub-3 (already completed)
+    await settleNotifications();
     expect(capturedNotifications).toHaveLength(2);
 
     // The parent conversation lives on (stop/eviction/rebuild), so every
@@ -778,6 +810,7 @@ describe("SubagentManager abort race guard", () => {
     await asInternals(manager).runSubagent(subagentId, "Do something");
 
     // Should NOT notify — status was already terminal (aborted) when loop finished.
+    await settleNotifications();
     expect(capturedNotifications).toHaveLength(0);
     // Status should remain aborted, not overwritten to completed.
     expect(state.status).toBe("aborted");

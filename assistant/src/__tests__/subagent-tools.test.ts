@@ -195,16 +195,21 @@ function injectSubagent(
         ),
       ),
     },
-    // Drain state, as the queued-turn settle wait observes it. Idle here, so
-    // an injected subagent reads as having nothing left to run; a test that
-    // wants a follow-up turn in flight drives it through `queuedFollowUpTurn`.
+    // Follow-up state, as the settle wait observes it. Idle here, so an
+    // injected subagent reads as having nothing left to run; a test that wants
+    // a follow-up turn in flight drives it through `queuedFollowUpTurn`.
     processing: false,
-    queueDepth: 0,
+    pendingDeferredSends: 0,
     isProcessing(): boolean {
       return this.processing;
     },
+    // A child conversation's only successor is parent guidance, which registers
+    // a deferred send rather than queueing.
     hasQueuedMessages(): boolean {
-      return this.queueDepth > 0;
+      return false;
+    },
+    hasPendingDeferredSends(): boolean {
+      return this.pendingDeferredSends > 0;
     },
     async waitForIdle({ timeoutMs }: { timeoutMs: number }): Promise<boolean> {
       // Resolve in slices rather than sitting on the caller's whole budget, so
@@ -265,22 +270,22 @@ function liveToolStats(
   return internals.subagents.get(subagentId)!.conversation!.subagentToolStats;
 }
 
-/** The drain state a test drives to stand in for a queued follow-up turn. */
+/** The follow-up state a test drives to stand in for a pending guidance turn. */
 interface QueuedTurnDrainState {
-  /** Messages waiting in the child's queue. */
-  queueDepth: number;
+  /** Guidance sends registered for the child and not yet finished. */
+  pendingDeferredSends: number;
   /** Whether the child is mid-turn. */
   processing: boolean;
 }
 
 /**
- * Put an injected subagent into the window that opens when guidance is queued
+ * Put an injected subagent into the window that opens when guidance is sent
  * during its run: the subagent is terminal because its own run returned, but
- * the queued turn is still ahead of it on a conversation the manager retains.
+ * the guidance turn is still ahead of it on a conversation the manager retains.
  *
- * Returns the drain state so the test can move the turn through it. Queued and
- * not yet dispatched to start with, which is where the drain sits at the
- * moment the parent is told to read.
+ * Returns the follow-up state so the test can move the turn through it.
+ * Registered and not yet started to begin with, which is where the send sits
+ * at the moment the parent is told to read.
  */
 function queuedFollowUpTurn(
   manager: SubagentManager,
@@ -291,14 +296,14 @@ function queuedFollowUpTurn(
       string,
       {
         conversation: QueuedTurnDrainState | null;
-        hadEnqueuedMessages?: boolean;
+        hadDeferredMessages?: boolean;
       }
     >;
   };
   const managed = internals.subagents.get(subagentId)!;
-  managed.hadEnqueuedMessages = true;
+  managed.hadDeferredMessages = true;
   const drain = managed.conversation!;
-  drain.queueDepth = 1;
+  drain.pendingDeferredSends = 1;
   return drain;
 }
 
@@ -2332,7 +2337,7 @@ describe("Subagent read while a queued follow-up turn is still in flight", () =>
     // The drain picks the message up, runs the turn, and only then does the
     // transcript and the counters cover it.
     setTimeout(() => {
-      drain.queueDepth = 0;
+      drain.pendingDeferredSends = 0;
       drain.processing = true;
     }, 10);
     setTimeout(() => {
@@ -2373,7 +2378,7 @@ describe("Subagent read while a queued follow-up turn is still in flight", () =>
     // The gap between the drain shifting the message off the queue and the
     // turn taking the processing lock: nothing is queued and nothing is
     // running, yet the turn is on its way.
-    drain.queueDepth = 0;
+    drain.pendingDeferredSends = 0;
     drain.processing = false;
     setTimeout(() => {
       drain.processing = true;
@@ -2403,7 +2408,7 @@ describe("Subagent read while a queued follow-up turn is still in flight", () =>
     });
     const drain = queuedFollowUpTurn(manager, subagentId);
     // The guidance turn outlives the read's patience, as a real one does.
-    drain.queueDepth = 0;
+    drain.pendingDeferredSends = 0;
     drain.processing = true;
     stubOutput(subagentId, () => ["Initial run output."]);
 

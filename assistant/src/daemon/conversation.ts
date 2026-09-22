@@ -121,6 +121,7 @@ import type { commitTurnChanges } from "../workspace/turn-commit.js";
 import type { AssistantAttachmentDraft } from "./assistant-attachments.js";
 import { BrowserModeSessionProducer } from "./browser-mode-session.js";
 import { ComputerUseModeSessionProducer } from "./computer-use-mode-session.js";
+import { pendingAdmissionCount } from "./conversation-admission.js";
 import type { AssistantSurface } from "./conversation-agent-loop.js";
 import {
   applyCompactionResult,
@@ -2580,6 +2581,19 @@ export class Conversation {
     return !this.queue.isEmpty;
   }
 
+  /**
+   * True while a send registered with `runWhenConversationIdle` is waiting for
+   * this conversation, or running against it.
+   *
+   * Deferred sends live outside the conversation, so anything that decides
+   * whether dropping this instance would lose work (the evictor, the voice
+   * bridge's re-wait, the subagent manager's settle) has to ask here rather
+   * than read a field.
+   */
+  hasPendingDeferredSends(): boolean {
+    return pendingAdmissionCount(this.conversationId) > 0;
+  }
+
   acquireLiveVoiceResidency(): () => void {
     this.liveVoiceResidencyLeases += 1;
     let released = false;
@@ -2597,12 +2611,14 @@ export class Conversation {
 
   /**
    * True when dropping this instance would lose work that is still in flight:
-   * a live turn, queued successor, child subagent, or mode-session lifecycle.
+   * a live turn, queued or deferred successor, child subagent, or mode-session
+   * lifecycle.
    */
   hasInFlightWork(): boolean {
     return (
       this.isProcessing() ||
       this.hasQueuedMessages() ||
+      this.hasPendingDeferredSends() ||
       this.liveVoiceResidencyLeases > 0 ||
       this.modeSessions.hasResidentWork() ||
       getSubagentManager().hasActiveChildren(this.conversationId)

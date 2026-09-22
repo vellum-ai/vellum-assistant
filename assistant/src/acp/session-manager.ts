@@ -11,6 +11,7 @@ import { eq, inArray } from "drizzle-orm";
 
 import type { AcpSessionUpdateEvent } from "../api/events/acp-session-update.js";
 import type { AssistantEvent } from "../api/index.js";
+import { runWhenConversationIdle } from "../daemon/conversation-admission.js";
 import { findConversation } from "../daemon/conversation-registry.js";
 import { SYNC_TAGS } from "../daemon/message-types/sync.js";
 import { getDb } from "../persistence/db-connection.js";
@@ -1809,27 +1810,24 @@ export class AcpSessionManager {
     // its client hub), but it is machine-injected with no human asserted to be
     // present, so it runs non-interactive: a tool that would need approval is
     // denied rather than left waiting on a prompt nobody may answer.
-    const enqueueResult = parentConversation.enqueueMessage({
-      content: message,
-      metadata: { acpNotification },
-      isInteractive: false,
-    });
-    if (enqueueResult.queued || enqueueResult.rejected) {
-      return;
-    }
-    parentConversation
-      .persistUserMessage({ content: message, metadata: { acpNotification } })
-      .then(({ id: messageId }) =>
-        parentConversation.runAgentLoop(message, messageId, {
+    void runWhenConversationIdle(
+      entry.parentConversationId,
+      async () => {
+        const { id: messageId } = await parentConversation.persistUserMessage({
+          content: message,
+          metadata: { acpNotification },
+        });
+        await parentConversation.runAgentLoop(message, messageId, {
           isInteractive: false,
-        }),
-      )
-      .catch((err) => {
-        log.error(
-          { parentConversationId: entry.parentConversationId, err },
-          "Failed to process ACP notification in parent",
-        );
-      });
+        });
+      },
+      { origin: "acp_notification" },
+    ).catch((err: unknown) => {
+      log.error(
+        { parentConversationId: entry.parentConversationId, err },
+        "Failed to process ACP notification in parent",
+      );
+    });
   }
 
   /**

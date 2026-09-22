@@ -14,6 +14,7 @@
 
 import { describe, expect, mock, test } from "bun:test";
 
+import { __resetConversationAdmissionForTests } from "../daemon/conversation-admission.js";
 import type { ToolContext } from "../tools/types.js";
 import { setConfig } from "./helpers/set-config.js";
 
@@ -25,6 +26,13 @@ interface CapturedRunAgentLoopOptions {
 }
 
 const capturedRunAgentLoopOptions: CapturedRunAgentLoopOptions[] = [];
+
+/**
+ * Let a follow-up send reach the child's agent loop. `sendMessage` registers
+ * the turn and returns; the turn itself starts once the child is free.
+ */
+const settleDeferredSend = (): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, 0));
 
 // When set, `runAgentLoop` never settles, so the spawned subagent stays in a
 // non-terminal state and can accept a follow-up `sendMessage`.
@@ -203,6 +211,7 @@ describe("executeSubagentSpawn: cronRunId forwarding", () => {
 describe("SubagentManager: cronRunId reaches the child's agent loop", () => {
   test("passes the config's cronRunId into the spawned subagent's runAgentLoop", async () => {
     capturedRunAgentLoopOptions.length = 0;
+    __resetConversationAdmissionForTests();
 
     const manager = new SubagentManager();
     await manager.spawn(
@@ -223,6 +232,7 @@ describe("SubagentManager: cronRunId reaches the child's agent loop", () => {
 
   test("omits cronRunId when the SubagentConfig does not carry one", async () => {
     capturedRunAgentLoopOptions.length = 0;
+    __resetConversationAdmissionForTests();
 
     const manager = new SubagentManager();
     await manager.spawn(
@@ -240,6 +250,7 @@ describe("SubagentManager: cronRunId reaches the child's agent loop", () => {
 
   test("a continuation turn carries the messaging turn's cronRunId, not the spawn's", async () => {
     capturedRunAgentLoopOptions.length = 0;
+    __resetConversationAdmissionForTests();
     holdRunAgentLoop = true;
 
     try {
@@ -261,6 +272,7 @@ describe("SubagentManager: cronRunId reaches the child's agent loop", () => {
         cronRunId: "cron-run-message",
       });
       expect(result).toBe("sent");
+      await settleDeferredSend();
 
       expect(capturedRunAgentLoopOptions).toHaveLength(2);
       expect(capturedRunAgentLoopOptions[0]!.cronRunId).toBe("cron-run-spawn");
@@ -274,6 +286,7 @@ describe("SubagentManager: cronRunId reaches the child's agent loop", () => {
 
   test("omits cronRunId on a continuation turn no schedule triggered", async () => {
     capturedRunAgentLoopOptions.length = 0;
+    __resetConversationAdmissionForTests();
     holdRunAgentLoop = true;
 
     try {
@@ -291,6 +304,7 @@ describe("SubagentManager: cronRunId reaches the child's agent loop", () => {
       await Promise.resolve();
 
       await manager.sendMessage(subagentId, "keep going", { cronRunId: null });
+      await settleDeferredSend();
 
       expect(capturedRunAgentLoopOptions).toHaveLength(2);
       expect("cronRunId" in capturedRunAgentLoopOptions[1]!).toBe(false);

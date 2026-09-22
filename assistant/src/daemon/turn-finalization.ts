@@ -48,6 +48,11 @@ export function beginTurnFinalization(conversationId: string): () => void {
   };
 }
 
+/** True while a turn on this conversation has a barrier open. */
+export function hasOpenTurnFinalization(conversationId: string): boolean {
+  return pendingFinalizations.has(conversationId);
+}
+
 /**
  * Wait for the conversation's open barrier to close.
  *

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 
 import type { AssistantEvent } from "../api/index.js";
 import {
@@ -9,6 +9,13 @@ import {
 import type { Message } from "../providers/types.js";
 import { SubagentManager } from "../subagent/manager.js";
 import type { SubagentConfig, SubagentState } from "../subagent/types.js";
+
+// The registry is process-wide and shared with every other test file in the
+// run, so a parent stub left behind here is found by an unrelated file's
+// lookup and fails it on a method the stub does not have.
+afterEach(() => {
+  clearConversations();
+});
 
 /** Minimal shape matching the private ManagedSubagent interface for test injection. */
 interface FakeManagedSubagent {
@@ -38,7 +45,7 @@ interface FakeManagedSubagent {
   state: SubagentState;
   parentSendToClient: (msg: AssistantEvent) => void;
   retainedUntil?: number;
-  hadEnqueuedMessages?: boolean;
+  hadDeferredMessages?: boolean;
 }
 
 /** Type-safe accessor for SubagentManager's private internals via bracket notation. */

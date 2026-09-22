@@ -43,7 +43,7 @@ interface FakeManagedSubagent {
   state: SubagentState;
   parentSendToClient: (msg: AssistantEvent) => void;
   retainedUntil?: number;
-  hadEnqueuedMessages?: boolean;
+  hadDeferredMessages?: boolean;
 }
 
 /** Type-safe accessor for SubagentManager's private internals via bracket notation. */
@@ -365,7 +365,7 @@ describe("SubagentManager terminal disposal", () => {
     });
     managed.conversation!.runAgentLoop = async () => {};
     // Simulate that a message was enqueued during the run.
-    managed.hadEnqueuedMessages = true;
+    managed.hadDeferredMessages = true;
 
     await asInternals(manager).runSubagent(subagentId, "Do something");
 
