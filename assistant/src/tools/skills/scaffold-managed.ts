@@ -1,6 +1,8 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
+import { v4 as uuid } from "uuid";
+
 import type { SkillSource } from "../../config/skills.js";
 import { loadSkillCatalog } from "../../config/skills.js";
 import { refreshSkillCapabilityMemories } from "../../daemon/skill-memory-refresh.js";
@@ -123,9 +125,10 @@ const SKILL_UPDATE_RECEIPT_RECORD_FAILED_CHECK_NAME =
  * id so the link resolves rather than falling through to an unrelated
  * target (the client validates it by id and drops it once the fork is
  * garbage collected). `entryId` is the producing tool call's id, so
- * a re-executed call records nothing new; a context with no tool call id
- * (a direct caller) falls back to the run and skill, which still records a
- * second rewrite of the same skill in the same run once.
+ * a re-executed call records nothing new. A context with no tool call id
+ * (a direct caller) has no re-execution to guard against, so it gets a
+ * fresh id: a stable key on the run and skill would drop a second rewrite
+ * of the same skill in the same run.
  *
  * Best-effort and non-blocking: the skill is already written, and a receipt
  * that cannot be recorded is a receipt the user will not get, not a reason
@@ -141,9 +144,7 @@ function recordBackgroundSkillUpdate(args: {
   sourceConversationId: string;
   toolUseId: string | undefined;
 }): void {
-  const entryId = args.toolUseId
-    ? `${args.runConversationId}:${args.toolUseId}`
-    : `${args.runConversationId}:${args.skillId}`;
+  const entryId = `${args.runConversationId}:${args.toolUseId ?? uuid()}`;
   const result = recordSkillUpdate({
     entryId,
     skillId: args.skillId,

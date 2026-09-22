@@ -1827,25 +1827,29 @@ describe("background skill update notification", () => {
     expect(receiptTicks).toBe(1);
   });
 
-  test("an entry without a tool call id is keyed by run and skill", async () => {
+  test("an entry without a tool call id gets a fresh key, so a second rewrite of the same skill is still recorded", async () => {
     await seedAssistantSkill("weekly-export", "Old body.");
 
-    await executeScaffoldManagedSkill(
-      {
-        skill_id: "weekly-export",
-        name: "Weekly Report Export",
-        description: "export the weekly usage report",
-        body_markdown: "1. Refined steps.",
-        activation_hints: HINTS,
-        overwrite: true,
-        change_summary: "Refined the steps.",
-      },
-      makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
-    );
+    for (const body of ["1. Refined steps.", "1. Refined again."]) {
+      await executeScaffoldManagedSkill(
+        {
+          skill_id: "weekly-export",
+          name: "Weekly Report Export",
+          description: "export the weekly usage report",
+          body_markdown: body,
+          activation_hints: HINTS,
+          overwrite: true,
+          change_summary: `Refined: ${body}`,
+        },
+        makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
+      );
+    }
 
-    expect(recordedUpdates).toMatchObject([
-      { entryId: "retro-run-conv:weekly-export" },
-    ]);
+    expect(recordedUpdates).toHaveLength(2);
+    const [first, second] = recordedUpdates;
+    expect(first?.entryId.startsWith("retro-run-conv:")).toBe(true);
+    expect(second?.entryId.startsWith("retro-run-conv:")).toBe(true);
+    expect(first?.entryId).not.toBe(second?.entryId);
   });
 
   test("a receipt that cannot be recorded is logged and counted, and the skill write stands", async () => {
