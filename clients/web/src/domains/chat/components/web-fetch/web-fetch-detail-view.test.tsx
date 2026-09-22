@@ -306,6 +306,28 @@ describe("WebFetchDetailView", () => {
       expect(getByText("The page was served from cache.")).toBeDefined();
     });
 
+    test("a malformed web url the daemon refused reads as text, not a link", () => {
+      const { container } = renderView(
+        payload({
+          status: "error",
+          result: "Error: url is required and must be a valid HTTP(S) URL",
+          input: { url: "https://[" },
+        }),
+        {
+          ...META,
+          url: "https://[",
+          finalUrl: "https://[",
+          status: 0,
+          title: undefined,
+          domain: "",
+          faviconUrl: undefined,
+          errorMessage:
+            "Error: url is required and must be a valid HTTP(S) URL",
+        },
+      );
+      expect(container.querySelector("a")).toBeNull();
+    });
+
     test("an empty title leaves the card named by its domain", () => {
       const { getByText } = renderView(payload({}), { ...META, title: "" });
       expect(getByText("www.cnbc.com")).toBeDefined();

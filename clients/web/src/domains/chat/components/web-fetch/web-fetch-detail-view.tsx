@@ -132,9 +132,10 @@ function sourceFromMetadata(meta: WebFetchMetadata): WebFetchSource | null {
 }
 
 /**
- * The page a fetch read or tried. A link only to a url the app follows out to
- * the web: the url can be one the daemon refused (`file:`, `mailto:`, a bare
- * word the model passed), and that reads as text, never as a target.
+ * The page a fetch read or tried. A link only to an `http(s)` url that parses
+ * to a host: the url can be one the daemon refused (`file:`, `mailto:`, a bare
+ * word, or a malformed `https://[` the model passed), and that reads as text,
+ * never as a target.
  */
 function SourceCard({ source }: { source: WebFetchSource }) {
   const { url, status, title, domain, faviconUrl } = source;
@@ -172,7 +173,7 @@ function SourceCard({ source }: { source: WebFetchSource }) {
       )}
     </>
   );
-  if (!isWebUrl(url)) {
+  if (!isWebUrl(url) || !extractDomain(url)) {
     return (
       <CardRoot
         surface="overlay"
