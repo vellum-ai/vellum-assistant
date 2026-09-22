@@ -279,9 +279,7 @@ describe("BillingTab on native Android", () => {
 
     expect(getByTestId("plan-card-tier-upgraded")).toBeTruthy();
     expect(getByTestId("onboarding-modal")).toBeTruthy();
-    expect(
-      queryByText("Manage your subscription on our website."),
-    ).toBeNull();
+    expect(queryByText("Manage your subscription on our website.")).toBeNull();
   });
 });
 
@@ -391,24 +389,15 @@ describe("BillingTab tier-upgrade resize takeover", () => {
 });
 
 describe("Finish Pro setup nudge", () => {
-  test("with the Assistant Inbox on, opens the inbox instead of the wizard", async () => {
+  test("with the Assistant Inbox on, the nudge is retired in favour of the inbox's rail entry", async () => {
+    // The nudge reports the primary assistant's missing domain, while the
+    // inbox is the active assistant's; sending one to the other could bind a
+    // handle to the wrong assistant in a multi-assistant organisation.
     useClientFeatureFlagStore.setState({ assistantInbox: true });
-    const { getByTestId } = renderPage();
+    const { getByTestId, queryByTestId } = renderPage();
 
-    await waitFor(() =>
-      expect(getByTestId("finish-pro-setup-notice")).toBeTruthy(),
-    );
-
-    fireEvent.click(getByTestId("finish-pro-setup-button"));
-
-    // The page stays mounted under this router with no route table, so its
-    // own `?tab=` sync survives the navigation; the app unmounts it.
-    await waitFor(() =>
-      expect(getByTestId("loc").textContent).toMatch(/^\/assistant\/inbox/),
-    );
-    expect(getByTestId("onboarding-modal").getAttribute("data-open")).toBe(
-      "false",
-    );
+    await waitFor(() => expect(getByTestId("onboarding-modal")).toBeTruthy());
+    expect(queryByTestId("finish-pro-setup-notice")).toBeNull();
   });
 
   test("stays hidden and skips the query chain until the org is ready", async () => {

@@ -371,6 +371,7 @@ export const takeoverFrameDecorator: Decorator =
 function TakeoverFrame({ children }: { children: ReactNode }) {
   return (
     <div
+      data-theme="light"
       className="flex h-screen w-full flex-col overflow-y-auto"
       style={{ backgroundColor: PROVISIONING_SURFACE }}
     >

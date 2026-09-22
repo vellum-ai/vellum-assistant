@@ -769,12 +769,14 @@ describe("escape hatch", () => {
 });
 
 describe("takeover surface", () => {
-  test("paints white, whatever the theme, and mounts the stream", () => {
+  test("paints white, whatever the theme, under light tokens, and mounts the stream", () => {
     const { getByTestId } = renderState({ state: "WAITING" });
 
-    expect(getByTestId("provisioning-takeover").style.backgroundColor).toBe(
-      PROVISIONING_SURFACE,
-    );
+    const root = getByTestId("provisioning-takeover");
+    expect(root.style.backgroundColor).toBe(PROVISIONING_SURFACE);
+    // Dark and velvet set the content colours near white, so the text and
+    // hairlines on this ground read the light theme's tokens instead.
+    expect(root.getAttribute("data-theme")).toBe("light");
     expect(getByTestId("upgrade-stream")).toBeTruthy();
   });
 

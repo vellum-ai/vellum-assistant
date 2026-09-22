@@ -39,7 +39,9 @@ import {
  * The takeover's ground: white, whatever the app's theme, so the character
  * stream reads the way it does on the welcome screen. The modal's exit
  * sheet paints the same value, so leaving the takeover never cross-fades a
- * second colour.
+ * second colour. The takeover scopes itself to the light theme's tokens for
+ * the same reason: dark and velvet set the content colours near white,
+ * which on this ground would be pale text on paper.
  */
 export const PROVISIONING_SURFACE = "#ffffff";
 
@@ -401,6 +403,7 @@ export function ProvisioningState({
     return (
       <div
         data-testid="provisioning-takeover"
+        data-theme="light"
         className="relative flex h-full min-h-[420px] w-full flex-col overflow-hidden text-center"
         style={{ backgroundColor: PROVISIONING_SURFACE }}
       >
@@ -419,6 +422,7 @@ export function ProvisioningState({
   return (
     <div
       data-testid="provisioning-takeover"
+      data-theme="light"
       className="relative flex h-full min-h-[420px] w-full flex-col items-center justify-center overflow-hidden px-6 py-10 text-center"
       style={{ backgroundColor: PROVISIONING_SURFACE }}
     >

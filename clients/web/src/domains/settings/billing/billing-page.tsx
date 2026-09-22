@@ -156,7 +156,6 @@ function BillingTabContent() {
   const isLifecycleLoading = useActiveAssistantLifecycleIsLoading();
 
   const [searchParams, setSearchParams] = useSearchParams();
-  const navigate = useNavigate();
   const [planModalOpen, setPlanModalOpen] = useState(false);
   const openPlanModal = useCallback(() => setPlanModalOpen(true), []);
   const closePlanModal = useCallback(() => setPlanModalOpen(false), []);
@@ -241,12 +240,12 @@ function BillingTabContent() {
     );
   }, [setSearchParams]);
   // With the Assistant Inbox on, email setup lives in the inbox's own card,
-  // and the wizard no longer carries a domain step to reopen on, so the nudge
-  // takes the user there instead.
+  // and the wizard no longer carries a domain step to reopen on. The nudge
+  // is retired there rather than redirected: it reports the organisation's
+  // primary assistant, while the inbox belongs to the active one, and in a
+  // multi-assistant organisation the two can differ. The inbox's own rail
+  // entry is the nudge for whichever assistant is active.
   const inboxEnabled = useClientFeatureFlagStore.use.assistantInbox();
-  const openInboxSetup = useCallback(() => {
-    navigate(routes.assistantInbox);
-  }, [navigate]);
 
   if (billingGate === "disabled") {
     return (
@@ -296,10 +295,8 @@ function BillingTabContent() {
         <BillingPortalReturnHandler />
       </Suspense>
       {showPlanManagement && <GracePeriodBanner />}
-      {showPlanManagement && (
-        <FinishProSetupNotice
-          onFinishSetup={inboxEnabled ? openInboxSetup : openProOnboarding}
-        />
+      {showPlanManagement && !inboxEnabled && (
+        <FinishProSetupNotice onFinishSetup={openProOnboarding} />
       )}
       {showPlanManagement && (
         <PlanCard onManage={openPlanModal} onTierUpgraded={onTierUpgraded} />
