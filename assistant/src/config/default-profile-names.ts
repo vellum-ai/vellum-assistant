@@ -68,6 +68,41 @@ export function isBackupProfileKey(value: string): value is BackupProfileKey {
 }
 
 /**
+ * Managed profile for the TypeSafe decision model (Jev). Deliberately NOT
+ * part of `DEFAULT_PROFILE_KEYS`: it has no BYOK column, because the
+ * platform serves Jev only through the managed route, and its model returns
+ * structured answers rather than chat text, so it can never be the active
+ * or conversation profile. It exists as a pin target for the call sites
+ * that consume a yes/no verdict (the voice judges, the memory selector).
+ */
+export const JEV_MANAGED_PROFILE_KEY = "jev-managed";
+
+/**
+ * The call sites that consume a structured verdict and so may be pinned to
+ * the Jev profile. Every other site expects chat text or a tool call, which
+ * the decision model never produces.
+ */
+export const JEV_MANAGED_PROFILE_CALL_SITES = [
+  "voiceEscalationJudge",
+  "voiceContinuationJudge",
+  "memoryV3SelectL2",
+] as const;
+
+/**
+ * Keys whose profile exists on the managed (`vellum`) column only: the
+ * backups and the Jev profile. Under a BYOK or ChatGPT default provider
+ * these names have no body to resolve to.
+ */
+export const MANAGED_ONLY_PROFILE_KEYS = [
+  ...BACKUP_PROFILE_KEYS,
+  JEV_MANAGED_PROFILE_KEY,
+] as const;
+
+export function isManagedOnlyProfileKey(value: string): boolean {
+  return (MANAGED_ONLY_PROFILE_KEYS as readonly string[]).includes(value);
+}
+
+/**
  * Flag-gated default profile: only available while the `os-beta` feature
  * flag has reconciled it into the workspace (see `sync-gated-profiles.ts`).
  * Deliberately NOT part of `DEFAULT_PROFILE_KEYS`: it is never
