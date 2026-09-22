@@ -368,4 +368,75 @@ describe("reconcileFlagGatedProfiles", () => {
     expect(reconcileFlagGatedProfiles()).toBe(false);
     expect(readFileSync(CONFIG_PATH, "utf-8")).toBe(before);
   });
+
+  test("auto-profile flag on materializes the managed auto profile at the head of the order", () => {
+    process.env.IS_PLATFORM = "true";
+    seedBalancedConfig();
+    setOverridesForTesting({ "auto-profile": true });
+
+    expect(reconcileFlagGatedProfiles()).toBe(true);
+
+    const raw = readConfig();
+    expect(raw.llm.profiles.auto).toEqual({ source: "managed" });
+    expect(raw.llm.profileOrder[0]).toBe("auto");
+    const effective = getEffectiveProfile(raw.llm.profiles, "auto")!;
+    expect(effective.label).toBe("Auto");
+    expect(effective.model).toBe(
+      getEffectiveProfile(raw.llm.profiles, "balanced")!.model,
+    );
+    expect(LLMSchema.safeParse(raw.llm).success).toBe(true);
+  });
+
+  test("auto-profile flag on in BYOK mode writes a plain stub that the effective view hides", () => {
+    seedBalancedConfig();
+    setOverridesForTesting({ "auto-profile": true });
+
+    expect(reconcileFlagGatedProfiles()).toBe(true);
+
+    const raw = readConfig();
+    expect(raw.llm.profiles.auto).toEqual({ source: "managed" });
+    expect(getEffectiveProfile(raw.llm.profiles, "auto")).toBeDefined();
+  });
+
+  test("auto-profile flag off removes the managed auto profile and repoints its references", () => {
+    process.env.IS_PLATFORM = "true";
+    seedBalancedConfig();
+    setOverridesForTesting({ "auto-profile": true });
+    reconcileFlagGatedProfiles();
+
+    const raw = readConfig();
+    raw.llm.activeProfile = "auto";
+    (raw.llm as Record<string, unknown>).callSites = {
+      subagentSpawn: { profile: "auto" },
+    };
+    writeConfig(raw);
+    invalidateConfigCache();
+
+    setOverridesForTesting({ "auto-profile": false });
+    expect(reconcileFlagGatedProfiles()).toBe(true);
+
+    const after = readConfig();
+    expect(after.llm.profiles.auto).toBeUndefined();
+    expect(after.llm.profileOrder.includes("auto")).toBe(false);
+    expect(after.llm.activeProfile).toBe("balanced");
+    expect((after.llm as Record<string, unknown>).callSites).toEqual({
+      subagentSpawn: {},
+    });
+  });
+
+  test("os-beta and auto-profile reconcile independently in one pass", () => {
+    process.env.IS_PLATFORM = "true";
+    seedBalancedConfig();
+    setOverridesForTesting({ "os-beta": true, "auto-profile": true });
+    expect(reconcileFlagGatedProfiles()).toBe(true);
+    let order = readConfig().llm.profileOrder;
+    expect(order[0]).toBe("auto");
+    expect(order.indexOf("os-beta")).toBe(order.indexOf("balanced") + 1);
+
+    setOverridesForTesting({ "os-beta": false, "auto-profile": true });
+    expect(reconcileFlagGatedProfiles()).toBe(true);
+    order = readConfig().llm.profileOrder;
+    expect(order[0]).toBe("auto");
+    expect(order.includes("os-beta")).toBe(false);
+  });
 });

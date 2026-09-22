@@ -83,11 +83,14 @@ export const JEV_MANAGED_PROFILE_KEY = "jev-managed";
  * the turn on that profile (`daemon/auto-profile-router.ts`). Its own body
  * is the managed Balanced body, so any path that dispatches the name
  * directly, or a turn on which the router is unavailable, runs Balanced.
- * Managed column only, because the router depends on the managed Jev route.
+ * Managed column only, because the router depends on the managed Jev route,
+ * and flag-gated: it exists only while the `auto-profile` feature flag has
+ * reconciled it into the workspace (see `sync-gated-profiles.ts`).
  * Deliberately NOT part of `DEFAULT_PROFILE_KEYS`: it is a selection over
  * those keys, not a fifth intent.
  */
 export const AUTO_PROFILE_KEY = "auto";
+export const AUTO_PROFILE_FEATURE_FLAG_KEY = "auto-profile";
 
 /** The call site the automatic profile router asks Jev through. */
 export const AUTO_PROFILE_ROUTER_CALL_SITE = "autoProfileRouter";
@@ -127,6 +130,20 @@ export function isManagedOnlyProfileKey(value: string): boolean {
  * reference target.
  */
 export const OS_BETA_PROFILE_KEY = "os-beta";
+
+/**
+ * Managed profiles that resolve only while a workspace entry exists, because
+ * a feature flag reconciles that entry in and out. Never always-valid
+ * reference targets: a reference to one is valid only with the entry present.
+ */
+export const FLAG_GATED_PROFILE_KEYS = [
+  OS_BETA_PROFILE_KEY,
+  AUTO_PROFILE_KEY,
+] as const;
+
+export function isFlagGatedProfileKey(value: string): boolean {
+  return (FLAG_GATED_PROFILE_KEYS as readonly string[]).includes(value);
+}
 
 /**
  * The named columns of the intent × provider matrix. `vellum` is the

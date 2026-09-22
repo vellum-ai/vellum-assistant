@@ -347,6 +347,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "auto-profile",
+      "scope": "assistant",
+      "key": "auto-profile",
+      "label": "Auto Profile",
+      "description": "Enable the Auto model profile, which asks Jev which default profile should answer each message.",
+      "defaultEnabled": false
+    },
+    {
       "id": "new-thread-suggestions",
       "scope": "client",
       "key": "new-thread-suggestions",

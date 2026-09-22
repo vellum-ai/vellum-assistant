@@ -66,7 +66,6 @@ describe("getModelProfiles", () => {
     expect(result.map((p) => p.key)).toEqual([
       "balanced",
       "quality-optimized",
-      "auto",
       "cost-optimized",
       "latency-optimized",
     ]);
@@ -84,7 +83,6 @@ describe("getModelProfiles", () => {
 
     const result = listProfiles();
     expect(result.map((p) => p.key).sort()).toEqual([
-      "auto",
       "balanced",
       "cost-optimized",
       "disabled",
@@ -124,7 +122,6 @@ describe("getModelProfiles", () => {
       "model-only",
       "provider-only",
       "mix",
-      "auto",
       "balanced",
       "cost-optimized",
       "latency-optimized",
@@ -135,7 +132,6 @@ describe("getModelProfiles", () => {
   test("lists the code-catalog defaults when the workspace has no profiles", () => {
     const result = listProfiles();
     expect(result.map((p) => p.key).sort()).toEqual([
-      "auto",
       "balanced",
       "cost-optimized",
       "latency-optimized",

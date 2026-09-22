@@ -111,10 +111,9 @@ describe("managed-column-only scoping", () => {
       expect(effective[key]?.source).toBe("managed");
     }
     // The seeder inserts missing managed keys in MANAGED_PROFILE_TEMPLATES
-    // order, which is what places Auto first and backups after the primaries
-    // in `profileOrder` presentation.
+    // order, which is what places backups after the primaries in
+    // `profileOrder` presentation.
     expect(Object.keys(MANAGED_PROFILE_TEMPLATES)).toEqual([
-      "auto",
       ...DEFAULT_PROFILE_KEYS,
       ...BACKUP_PROFILE_KEYS,
       "jev-managed",

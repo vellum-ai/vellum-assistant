@@ -199,10 +199,8 @@ export function seedInferenceProfiles(
   // A managed key absent from a workspace's order is placed next to the
   // sibling that precedes it in the catalog rather than appended, so the
   // managed profiles stay grouped in catalog order even on a workspace whose
-  // order already lists custom profiles. The catalog's first key has no
-  // preceding sibling and leads the order, so it heads the picker on
-  // existing workspaces too. Entries already in the order keep their
-  // relative positions, so a user arrangement survives.
+  // order already lists custom profiles. Entries already in the order keep
+  // their relative positions, so a user arrangement survives.
   const profileOrder = Array.isArray(llm.profileOrder)
     ? (llm.profileOrder as string[])
     : [];
@@ -216,9 +214,7 @@ export function seedInferenceProfiles(
       .reverse()
       .map((sibling) => profileOrder.indexOf(sibling))
       .find((position) => position >= 0);
-    if (index === 0) {
-      profileOrder.unshift(name);
-    } else if (anchor === undefined) {
+    if (anchor === undefined) {
       profileOrder.push(name);
     } else {
       profileOrder.splice(anchor + 1, 0, name);

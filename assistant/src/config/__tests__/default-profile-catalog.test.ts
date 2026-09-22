@@ -80,26 +80,31 @@ describe("getEffectiveProfiles", () => {
     ).toBeUndefined();
   });
 
-  test("the Auto profile is the managed Balanced body relabeled, managed-only, and offered to conversations", () => {
+  test("the Auto profile is the managed Balanced body relabeled, managed-only, and flag-gated", () => {
     const auto = CODE_DEFAULT_PROFILE_ENTRIES.auto;
     const balanced = CODE_DEFAULT_PROFILE_ENTRIES.balanced;
     expect(auto.label).toBe("Auto");
     expect(auto.model).toBe(balanced.model);
     expect(auto.provider).toBe(balanced.provider);
     expect(auto.fallbackProfile).toBeUndefined();
+    // Not seeded unconditionally: the flag reconcile writes the stub.
+    expect(Object.keys(MANAGED_PROFILE_TEMPLATES)).not.toContain("auto");
     expect(
       resolveDefaultProfileForProvider(undefined, "auto", null),
-    ).toBeDefined();
+    ).toBeUndefined();
+    const stub: Record<string, ProfileEntry> = { auto: { source: "managed" } };
+    expect(resolveDefaultProfileForProvider(stub, "auto", null)?.model).toBe(
+      balanced.model,
+    );
     expect(
-      resolveDefaultProfileForProvider(undefined, "auto", {
+      resolveDefaultProfileForProvider(stub, "auto", {
         provider: "anthropic",
         connectionName: "anthropic-personal",
       }),
     ).toBeUndefined();
     expect(
-      Object.keys(getConversationProfilesForProvider(undefined, null)),
+      Object.keys(getConversationProfilesForProvider(stub, null)),
     ).toContain("auto");
-    expect(Object.keys(MANAGED_PROFILE_TEMPLATES)[0]).toBe("auto");
   });
 
   test("the conversation view drops the managed Jev profile but keeps it selectable for call sites", () => {
@@ -135,12 +140,7 @@ describe("getEffectiveProfiles", () => {
   test("defaults absent from the workspace resolve from the catalog; os-beta stays flag-gated", () => {
     const effective = getEffectiveProfiles(undefined);
     expect(Object.keys(effective).sort()).toEqual(
-      [
-        ...DEFAULT_PROFILE_KEYS,
-        ...BACKUP_PROFILE_KEYS,
-        "jev-managed",
-        "auto",
-      ].sort(),
+      [...DEFAULT_PROFILE_KEYS, ...BACKUP_PROFILE_KEYS, "jev-managed"].sort(),
     );
     expect(getEffectiveProfile({}, "balanced")?.model).toBe(
       CODE_DEFAULT_PROFILE_ENTRIES.balanced.model as string,

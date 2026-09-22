@@ -18,6 +18,7 @@ import {
   FALLBACK_PROFILE_BY_KEY,
   isDefaultProfileKey,
   isDefaultProfileProvider,
+  isFlagGatedProfileKey,
   isManagedOnlyProfileKey,
   JEV_MANAGED_PROFILE_KEY,
   OS_BETA_PROFILE_KEY,
@@ -414,7 +415,10 @@ export const JEV_MANAGED_PROFILE_TEMPLATE: DefaultProfileTemplate = {
  * choice among the defaults happens in the agent loop, not here (see
  * `AUTO_PROFILE_KEY`). No `fallbackProfile`: the code-owned fallback mapping
  * is keyed by default profile, and a direct dispatch of this name is already
- * the fallback path.
+ * the fallback path. Flag-gated like `os-beta`: NOT in
+ * `MANAGED_PROFILE_TEMPLATES`, so the unconditional boot seed never creates
+ * it; the flag-gated profile reconcile materializes it while the
+ * `auto-profile` feature flag is on.
  */
 export const AUTO_PROFILE_TEMPLATE: DefaultProfileTemplate = (() => {
   const { fallbackProfile: _fallbackProfile, ...balanced } =
@@ -428,15 +432,14 @@ export const AUTO_PROFILE_TEMPLATE: DefaultProfileTemplate = (() => {
 
 /**
  * Managed profiles, i.e. the `vellum` column keyed by profile name, plus the
- * Auto profile, the managed backup profiles and the managed Jev profile.
- * The seeder inserts missing managed keys into `profileOrder` in this
- * record's order, so Auto comes first (it leads the picker) and the backups
- * follow the primaries. Keyed by the user-facing defaults only: an internal
- * profile is code-resolved and never listed or ordered.
+ * managed backup profiles and the managed Jev profile. Backups come after the
+ * primaries, which is what places them after the primaries in the seeded
+ * `profileOrder`: the seeder inserts missing managed keys in this record's
+ * order. Keyed by the user-facing defaults only: an internal profile is
+ * code-resolved and never listed or ordered.
  */
 export const MANAGED_PROFILE_TEMPLATES: Record<string, DefaultProfileTemplate> =
   Object.fromEntries([
-    [AUTO_PROFILE_KEY, AUTO_PROFILE_TEMPLATE],
     ...DEFAULT_PROFILE_KEYS.map((key) => [key, PROFILE_IMPLS[key].vellum]),
     ...BACKUP_PROFILE_KEYS.map((key) => [key, BACKUP_PROFILE_IMPLS[key]]),
     [JEV_MANAGED_PROFILE_KEY, JEV_MANAGED_PROFILE_TEMPLATE],
@@ -783,7 +786,7 @@ function resolveAgainstBody(
     return { ...body };
   }
   if (workspace == null) {
-    return name === OS_BETA_PROFILE_KEY ? undefined : { ...body };
+    return isFlagGatedProfileKey(name) ? undefined : { ...body };
   }
   if (workspace.source !== "managed") {
     return workspace;
