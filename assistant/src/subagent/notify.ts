@@ -14,7 +14,10 @@
  * the injected turn uses the current provider, prompt, and credentials.
  */
 
-import { runWhenConversationIdle } from "../daemon/conversation-admission.js";
+import {
+  isAdmissionCancelledError,
+  runWhenConversationIdle,
+} from "../daemon/conversation-admission.js";
 import {
   findConversation,
   findConversationOrSubagent,
@@ -137,6 +140,13 @@ function deliverToParent(
     },
     { origin: "subagent_notification" },
   ).catch((err: unknown) => {
+    if (isAdmissionCancelledError(err)) {
+      log.info(
+        { parentConversationId, reason: err.reason },
+        "Subagent notification dropped: the parent conversation went away",
+      );
+      return;
+    }
     log.error(
       { parentConversationId, err },
       "Failed to deliver subagent notification to parent",

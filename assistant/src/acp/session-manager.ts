@@ -11,7 +11,10 @@ import { eq, inArray } from "drizzle-orm";
 
 import type { AcpSessionUpdateEvent } from "../api/events/acp-session-update.js";
 import type { AssistantEvent } from "../api/index.js";
-import { runWhenConversationIdle } from "../daemon/conversation-admission.js";
+import {
+  isAdmissionCancelledError,
+  runWhenConversationIdle,
+} from "../daemon/conversation-admission.js";
 import { findConversation } from "../daemon/conversation-registry.js";
 import { SYNC_TAGS } from "../daemon/message-types/sync.js";
 import { getDb } from "../persistence/db-connection.js";
@@ -1823,6 +1826,16 @@ export class AcpSessionManager {
       },
       { origin: "acp_notification" },
     ).catch((err: unknown) => {
+      if (isAdmissionCancelledError(err)) {
+        log.info(
+          {
+            parentConversationId: entry.parentConversationId,
+            reason: err.reason,
+          },
+          "ACP notification dropped: the parent conversation went away",
+        );
+        return;
+      }
       log.error(
         { parentConversationId: entry.parentConversationId, err },
         "Failed to process ACP notification in parent",

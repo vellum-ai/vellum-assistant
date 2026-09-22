@@ -30,6 +30,10 @@ import { listProviders } from "../providers/registry.js";
 import { getSubagentManager } from "../subagent/index.js";
 import { getSandboxWorkingDir } from "../util/platform.js";
 import { Conversation } from "./conversation.js";
+import {
+  cancelAllPendingAdmissions,
+  cancelPendingAdmissions,
+} from "./conversation-admission.js";
 import { conversationEventSink } from "./conversation-event-sink.js";
 import {
   removeFromEvictor,
@@ -495,6 +499,12 @@ export function destroyActiveConversation(
   conversationId: string,
   opts?: { keepSubagentRecords?: boolean },
 ): void {
+  // Deferred sends live outside the conversation instance and survive its
+  // teardown, so drop them before it: the caller deletes the durable row next,
+  // and a send admitted after that persists a message onto the deleted id and
+  // recreates the row. Runs ahead of the residency check because a conversation
+  // evicted while a send waited is deletable too.
+  cancelPendingAdmissions(conversationId, "conversation_deleted");
   // Subagent teardown is keyed by parent id, not the live instance — an
   // evicted parent still retains its terminal children, and deleting the
   // conversation must take their records with it.
@@ -530,6 +540,9 @@ export function stopConversations(): void {
  */
 export function clearAllActiveConversations(): number {
   const count = conversationCount();
+  // Every conversation is about to be deleted, resident or not, so no
+  // per-conversation teardown below reaches all the waiters this has to drop.
+  cancelAllPendingAdmissions("conversations_cleared");
   // Tear down subagents across ALL parents, not just the in-memory ones: an
   // evicted parent still retains its terminal children, and clear-all must
   // reach them. Pass `keepRecords` so the rows themselves are deleted by the
