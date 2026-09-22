@@ -60,7 +60,50 @@ try {
           (key) => window.notificationDeliveryTest.deliver(key), key,
         ), "posted");
       }
-      console.log(`${engine.name()}: two-page coordination, failed-post retry, session cancellation, and identity isolation passed`);
+
+      const conversationKey = '["account-1","assistant-1","conversation-1"]';
+      await pages[0].evaluate(() => window.notificationDeliveryTest.setAttention(true));
+      await pages[1].evaluate(() => window.notificationDeliveryTest.setAttention(false));
+      await pages[0].evaluate((key) => window.notificationDeliveryTest.watchConversation(key), conversationKey);
+      assert.equal(await pages[0].evaluate(() => document.hasFocus()), true);
+      assert.equal(await pages[1].evaluate(() => document.hasFocus()), false);
+      for (const order of [[0, 1], [1, 0]]) {
+        for (const index of order) {
+          assert.equal(await pages[index].evaluate(
+            ({ key, signal }) => window.notificationDeliveryTest.deliver(signal, false, true, key),
+            { key: conversationKey, signal: `attended-${order.join("-")}` },
+          ), "suppressed");
+        }
+      }
+      for (const key of [
+        '["account-2","assistant-1","conversation-1"]',
+        '["account-1","assistant-2","conversation-1"]',
+        '["account-1","assistant-1","conversation-2"]',
+      ]) {
+        assert.equal(await pages[1].evaluate(
+          (key) => window.notificationDeliveryTest.deliver(`scoped-${key}`, false, true, key), key,
+        ), "posted");
+      }
+      await pages[0].evaluate(() => window.notificationDeliveryTest.setAttention(false));
+      await pages[1].evaluate(() => window.notificationDeliveryTest.setAttention(true));
+      await pages[0].waitForFunction(() => !document.hasFocus());
+      assert.equal(await pages[1].evaluate(
+        (key) => window.notificationDeliveryTest.deliver("after-blur", false, true, key), conversationKey,
+      ), "posted");
+      await pages[0].evaluate(() => window.notificationDeliveryTest.setAttention(true));
+      await pages[1].evaluate(() => window.notificationDeliveryTest.setAttention(false));
+      await pages[1].waitForFunction((key) => window.notificationDeliveryTest.isAttended(key), conversationKey);
+      await pages[0].evaluate(() => window.notificationDeliveryTest.watchConversation(null));
+      assert.equal(await pages[1].evaluate(
+        (key) => window.notificationDeliveryTest.deliver("after-logout", false, true, key), conversationKey,
+      ), "posted");
+      await pages[0].evaluate((key) => {
+        localStorage.setItem("vellum:browser-notification-attention:v1:abandoned", JSON.stringify([key, Date.now() - 1]));
+      }, conversationKey);
+      assert.equal(await pages[1].evaluate(
+        (key) => window.notificationDeliveryTest.deliver("after-expiry", false, true, key), conversationKey,
+      ), "posted");
+      console.log(`${engine.name()}: two-page coordination, focused conversation in both arrival orders, blur/logout/expiry, failed-post retry, session cancellation, and identity isolation passed`);
     } finally {
       await browser.close();
     }

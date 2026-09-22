@@ -21,6 +21,7 @@ import type { AndroidSenderNotificationPostRequest } from "@/runtime/android-sen
 import * as daemonSdk from "@/generated/daemon/sdk.gen";
 import * as i18nRuntime from "@/i18n";
 import * as androidNotificationChannels from "@/runtime/android-notification-channels";
+import { browserNotificationConversationKey, BrowserNotificationDelivery } from "@/runtime/browser-notification-delivery";
 import * as nativeAuthRuntime from "@/runtime/native-auth";
 import * as platformDetection from "@/runtime/platform-detection";
 import * as pushRegistration from "@/runtime/push-registration";
@@ -2040,6 +2041,43 @@ describe("notification tap listener adapters", () => {
 });
 
 describe("browser delivery receipts", () => {
+  test("another tab watching the conversation suppresses banner and chime without a post receipt", async () => {
+    nativePlatform = false;
+    const identity = testIdentity();
+    const focusedTab = new BrowserNotificationDelivery();
+    const stop = focusedTab.trackAttention(() => browserNotificationConversationKey(identity, "conv-1"));
+    try {
+      await withBrowserNotificationMock(async (calls) => {
+        expect(await postLocalNotification({
+          ...baseArgs, identity, deepLinkMetadata: { conversationId: "conv-1" },
+        })).toBe("silent");
+        expect(calls).toHaveLength(0);
+        expect(ackArgs).toEqual([expect.objectContaining({ body: { deliveryId: "delivery-1", success: true } })]);
+        expect(localStorage.getItem("vellum:browser-notification-deliveries:v1")).toBeNull();
+      });
+    } finally {
+      stop();
+    }
+  });
+
+  test("shared attention suppresses fallback sound with browser notifications denied", async () => {
+    nativePlatform = false;
+    const identity = testIdentity();
+    const focusedTab = new BrowserNotificationDelivery();
+    const stop = focusedTab.trackAttention(() => browserNotificationConversationKey(identity, "conv-1"));
+    try {
+      await withBrowserNotificationMock(async (calls) => {
+        Object.defineProperty(Notification, "permission", { configurable: true, value: "denied" });
+        expect(await postLocalNotification({
+          ...baseArgs, identity, deepLinkMetadata: { conversationId: "conv-1" },
+        })).toBe("silent");
+        expect(calls).toHaveLength(0);
+      });
+    } finally {
+      stop();
+    }
+  });
+
   test("a duplicate signal neither posts, chimes, nor overwrites the owner's acknowledgement", async () => {
     nativePlatform = false;
     await withBrowserNotificationMock(async (calls) => {

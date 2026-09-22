@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, mock, test } from "bun:test";
 
 import { BrowserNotificationDelivery } from "@/runtime/browser-notification-delivery";
+import { publish } from "@/lib/event-bus";
 
 const originalLocks = Object.getOwnPropertyDescriptor(navigator, "locks");
 let queue: Promise<unknown>;
@@ -92,4 +93,54 @@ test("delivery remains available when Web Locks is absent", async () => {
   expect(await tab.post("fallback", post)).toBe("posted");
   expect(await tab.post("fallback", post)).toBe("duplicate");
   expect(post).toHaveBeenCalledTimes(1);
+});
+
+test("attended conversation suppresses a hidden tab before either tab receives its intent", async () => {
+  const focusedTab = new BrowserNotificationDelivery();
+  const hiddenTab = new BrowserNotificationDelivery();
+  let conversationKey: string | null = '["account-1","assistant-1","conversation-1"]';
+  const stop = focusedTab.trackAttention(() => conversationKey);
+  const post = mock(() => undefined);
+  try {
+    expect(await hiddenTab.post("signal-1", post, undefined, conversationKey)).toBe("suppressed");
+    expect(await focusedTab.post("signal-1", post, undefined, conversationKey)).toBe("suppressed");
+    expect(post).not.toHaveBeenCalled();
+    expect(localStorage.getItem("vellum:browser-notification-deliveries:v1")).toBeNull();
+    const previousKey = conversationKey;
+    conversationKey = null;
+    publish("app.attention", { attended: false });
+    expect(await hiddenTab.post("signal-2", post, undefined, previousKey)).toBe("posted");
+  } finally {
+    stop();
+  }
+});
+
+test("attention respects account, assistant, and conversation scope and cleanup", () => {
+  const focusedTab = new BrowserNotificationDelivery();
+  const hiddenTab = new BrowserNotificationDelivery();
+  const key = '["account-1","assistant-1","conversation-1"]';
+  const stop = focusedTab.trackAttention(() => key);
+  expect(hiddenTab.isConversationAttended(key)).toBe(true);
+  for (const otherKey of [
+    '["account-2","assistant-1","conversation-1"]',
+    '["account-1","assistant-2","conversation-1"]',
+    '["account-1","assistant-1","conversation-2"]',
+  ]) {
+    expect(hiddenTab.isConversationAttended(otherKey)).toBe(false);
+  }
+  stop();
+  expect(hiddenTab.isConversationAttended(key)).toBe(false);
+});
+
+test("expired, corrupt, and impossible future attention leases cannot suppress delivery", async () => {
+  const prefix = "vellum:browser-notification-attention:v1:";
+  const key = '["account-1","assistant-1","conversation-1"]';
+  localStorage.setItem(`${prefix}expired`, JSON.stringify([key, Date.now() - 1]));
+  localStorage.setItem(`${prefix}future`, JSON.stringify([key, Date.now() + 60_000]));
+  localStorage.setItem(`${prefix}corrupt`, "{");
+  const tab = new BrowserNotificationDelivery();
+  expect(await tab.post("signal", () => undefined, undefined, key)).toBe("posted");
+  expect(localStorage.getItem(`${prefix}expired`)).toBeNull();
+  expect(localStorage.getItem(`${prefix}future`)).toBeNull();
+  expect(localStorage.getItem(`${prefix}corrupt`)).toBeNull();
 });

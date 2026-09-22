@@ -424,6 +424,14 @@ its main-process attention bridge. All other `app.hidden` consumers still pause
 foreground work, and hidden or blurred browsers report conversation presence as
 away. A long background still triggers connection recovery on resume.
 
+Each browser page publishes its attended account/assistant/conversation scope
+before notification intents arrive. Other tabs check that shared attention at
+delivery time, so a hidden tab stays quiet even if it receives the intent first.
+The existing attention and lifecycle bus signals refresh or clear the lease;
+route, conversation, identity changes, and unmount also clear it. Attended pages
+renew their lease every five seconds and abandoned leases expire after fifteen
+seconds. Suppression acknowledges a handled intent and records no accepted post.
+
 Settings exposes an explicit browser notification permission action. Notification
 arrival never opens a browser permission prompt. Browser delivery uses the
 captured account/connection and assistant identity with the signal correlation ID

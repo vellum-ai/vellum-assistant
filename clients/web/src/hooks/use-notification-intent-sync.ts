@@ -39,13 +39,19 @@ import { getSoundManager } from "@/lib/sounds/sound-manager";
 import { getSelfHostedIngressUrl } from "@/lib/self-hosted/connection";
 import { createNotificationIdentity } from "@/runtime/notification-avatar";
 import {
+  browserNotificationConversationKey,
+  browserNotificationDelivery,
+} from "@/runtime/browser-notification-delivery";
+import {
   extractConversationId,
   isFocusedNotificationConversation,
+  isBrowserNotificationHost,
   postLocalNotification,
   sendNotificationIntentAck,
   shouldSuppressFocusedNotificationDelivery,
 } from "@/runtime/notifications";
 import { useAuthStore } from "@/stores/auth-store";
+import { useConversationStore } from "@/stores/conversation-store";
 import { useRequestOrganizationId } from "@/stores/organization-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import type { IdentityGetResponse } from "@/generated/daemon/types.gen";
@@ -60,6 +66,7 @@ export function useNotificationIntentSync(assistantId: string | null): void {
   // Basename-relative, unlike `window.location.pathname`, which carries the
   // public ingress prefix in remote-gateway mode.
   const { pathname } = useLocation();
+  const activeConversationId = useConversationStore.use.activeConversationId();
   const queryClient = useQueryClient();
   const sessionStatus = useAuthStore.use.sessionStatus();
   const authUser = useAuthStore.use.user();
@@ -99,6 +106,22 @@ export function useNotificationIntentSync(assistantId: string | null): void {
       deliveryOwner.current = null;
     };
   }, [notificationIdentity]);
+
+  useEffect(() => {
+    if (!notificationIdentity || !isBrowserNotificationHost()) {
+      return;
+    }
+    return browserNotificationDelivery.trackAttention(() =>
+      activeConversationId &&
+      deliveryOwner.current === notificationIdentity &&
+      isFocusedNotificationConversation(activeConversationId, pathname)
+        ? browserNotificationConversationKey(
+            notificationIdentity,
+            activeConversationId,
+          )
+        : null,
+    );
+  }, [activeConversationId, notificationIdentity, pathname]);
 
   useBusSubscription("sse.event", (envelope) => {
     const event = envelope.message;

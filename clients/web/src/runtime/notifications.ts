@@ -45,7 +45,10 @@ import {
   allowsLegacyAndroidNotificationFallback,
   postAndroidSenderNotification,
 } from "@/runtime/android-sender-notification";
-import { browserNotificationDelivery } from "@/runtime/browser-notification-delivery";
+import {
+  browserNotificationConversationKey,
+  browserNotificationDelivery,
+} from "@/runtime/browser-notification-delivery";
 import { isElectron } from "@/runtime/is-electron";
 import { isNativePlatform } from "@/runtime/native-auth";
 import { getNotificationIdentitySnapshot } from "@/runtime/notification-avatar";
@@ -587,6 +590,15 @@ export type NotificationSoundDisposition =
   | "native-owned"
   | "silent";
 
+async function acknowledgeSuppressedNotification(
+  args: PostLocalNotificationArgs,
+): Promise<"silent"> {
+  if (args.assistantId && args.deliveryId) {
+    await sendNotificationIntentAck(args.assistantId, args.deliveryId, true);
+  }
+  return "silent";
+}
+
 /**
  * POST `notification_intent_result` to the daemon via the cloud platform's
  * runtime proxy. Mirrors the macOS client's
@@ -698,6 +710,23 @@ export async function postLocalNotification(
   const senderResolution = resolveSenderAtIntent(args, electronHost);
   const presentationPayload = senderPayload(senderResolution);
   const { sender: _sender, ...tapPresentationPayload } = presentationPayload;
+  const browserHost = !electronHost && !isNativePlatform();
+  const browserConversationKey = browserHost
+    ? browserNotificationConversationKey(
+        args.identity,
+        extractConversationId(args.deepLinkMetadata),
+      )
+    : null;
+
+  if (browserHost && args.canDeliver && !args.canDeliver()) {
+    return "silent";
+  }
+  // Suppress the fallback chime too when permission is absent or unsupported.
+  if (
+    browserNotificationDelivery.isConversationAttended(browserConversationKey)
+  ) {
+    return acknowledgeSuppressedNotification(args);
+  }
 
   if (!isNotificationsSupported()) {
     if (args.assistantId && args.deliveryId) {
@@ -754,6 +783,11 @@ export async function postLocalNotification(
     : await (browserPermissionRequest ?? refreshNotificationPermission());
   if (args.canDeliver && !args.canDeliver()) {
     return "silent";
+  }
+  if (
+    browserNotificationDelivery.isConversationAttended(browserConversationKey)
+  ) {
+    return acknowledgeSuppressedNotification(args);
   }
   if (permission !== "granted") {
     if (args.assistantId && args.deliveryId) {
@@ -998,8 +1032,12 @@ export async function postLocalNotification(
           };
         },
         args.canDeliver,
+        browserConversationKey,
       );
       if (result !== "posted") {
+        if (result === "suppressed") {
+          return acknowledgeSuppressedNotification(args);
+        }
         // Only the posting tab owns the receipt and sound. A cancelled
         // session must not send an acknowledgement using another account.
         return "silent";

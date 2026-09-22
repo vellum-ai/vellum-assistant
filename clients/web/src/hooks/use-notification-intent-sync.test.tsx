@@ -24,6 +24,10 @@ import { MemoryRouter } from "react-router";
 import { identityGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import { resolveAssistantAvatarOwnerScopeId } from "@/hooks/use-assistant-avatar";
 import { __resetForTesting, publish } from "@/lib/event-bus";
+import {
+  browserNotificationConversationKey,
+  BrowserNotificationDelivery,
+} from "@/runtime/browser-notification-delivery";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useAuthStore } from "@/stores/auth-store";
 import { useConversationStore } from "@/stores/conversation-store";
@@ -74,6 +78,7 @@ const shouldSuppressFocusedNotificationDeliveryMock = mock(
 );
 mock.module("@/runtime/notifications", () => ({
   postLocalNotification: postLocalNotificationMock,
+  isBrowserNotificationHost: () => !window.vellum,
   sendNotificationIntentAck: sendAckMock,
   extractConversationId: (metadata?: Record<string, unknown>) =>
     typeof metadata?.conversationId === "string"
@@ -591,6 +596,50 @@ describe("useNotificationIntentSync already-watching skip", () => {
     publishForActiveConversation();
 
     expectSuppressed();
+  });
+
+  test("shares attended conversation before an intent and clears it on logout", () => {
+    const mounted = mountAt(routes.conversation(CONVERSATION_ID));
+    publishNotificationIntent({ deepLinkMetadata: { conversationId: "another-conversation" } });
+    const key = browserNotificationConversationKey(postedArgs[0]?.identity, CONVERSATION_ID);
+    const otherTab = new BrowserNotificationDelivery();
+    expect(otherTab.isConversationAttended(key)).toBe(true);
+
+    act(() => {
+      document.hasFocus = () => false;
+      publish("app.attention", { attended: false });
+    });
+    expect(otherTab.isConversationAttended(key)).toBe(false);
+
+    act(() => {
+      document.hasFocus = () => true;
+      publish("app.attention", { attended: true });
+    });
+    expect(otherTab.isConversationAttended(key)).toBe(true);
+    act(() => {
+      useAuthStore.setState({ sessionStatus: "unauthenticated", user: null });
+    });
+    expect(otherTab.isConversationAttended(key)).toBe(false);
+    mounted.unmount();
+  });
+
+  test("clears shared attention when switching assistant or conversation", () => {
+    const mounted = mountAt(routes.conversation(CONVERSATION_ID));
+    publishNotificationIntent({ deepLinkMetadata: { conversationId: "another-conversation" } });
+    const key = browserNotificationConversationKey(postedArgs[0]?.identity, CONVERSATION_ID);
+    const otherTab = new BrowserNotificationDelivery();
+    expect(otherTab.isConversationAttended(key)).toBe(true);
+    act(() => {
+      useConversationStore.getState().setActiveConversationId("another-conversation");
+    });
+    expect(otherTab.isConversationAttended(key)).toBe(false);
+    act(() => {
+      useConversationStore.getState().setActiveConversationId(CONVERSATION_ID);
+    });
+    expect(otherTab.isConversationAttended(key)).toBe(true);
+    act(() => mounted.rerender({ assistantId: "assistant-2" }));
+    expect(otherTab.isConversationAttended(key)).toBe(false);
+    mounted.unmount();
   });
 
   test("retained FCM focus suppression keeps the original SSE ack id", () => {
