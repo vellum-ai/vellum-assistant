@@ -32,6 +32,8 @@
 
 import { useEffect } from "react";
 
+import { subscribeToInputMonitoringGranted } from "@/runtime/system-permissions";
+
 import {
   callChords,
   handleCallChord,
@@ -97,10 +99,15 @@ export function useCallChords(): void {
         countIntroCallChord(introControl, event.key);
       }
     });
-    void setChordBinding(binding);
+    const register = () => {
+      void setChordBinding(binding);
+    };
+    const unsubscribePermission = subscribeToInputMonitoringGranted(register);
+    register();
 
     return () => {
       unsubscribe();
+      unsubscribePermission();
       // Cleared on the way out rather than left to the next binding to
       // overwrite: between the two, a press of these keys is the user's own.
       //

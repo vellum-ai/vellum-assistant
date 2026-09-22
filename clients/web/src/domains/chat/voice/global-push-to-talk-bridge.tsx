@@ -42,6 +42,7 @@ import { mintVoiceDraftConversation } from "@/domains/chat/voice/voice-draft-con
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
 import type { DictationPostResponse } from "@/generated/daemon/types.gen";
 import { supportsSelectionRewrite } from "@/lib/backwards-compat/selection-rewrite";
+import { advanceCompanionIntro } from "@/runtime/companion-surface";
 import { companionIntroStaged } from "@/runtime/companion-intro-stage";
 import { subscribeToDictationOverlayStop } from "@/runtime/dictation-overlay";
 import { insertTextIntoFrontApp } from "@/runtime/text-insertion";
@@ -351,6 +352,9 @@ export function GlobalPushToTalkBridge({
     key: voiceKey,
     onRegistered: setVoiceKeyRegistered,
     onHoldStart: ({ selection }) => {
+      if (companionIntroStaged()) {
+        return;
+      }
       if (useVoiceRecordingStore.getState().phase === "recording") {
         return;
       }
@@ -392,6 +396,10 @@ export function GlobalPushToTalkBridge({
       }
     },
     onDoubleTap: () => {
+      if (companionIntroStaged()) {
+        advanceCompanionIntro("try");
+        return;
+      }
       toggleVoiceFromSurface(
         (to, options) => navigateRef.current(to, options),
         "voice_key",

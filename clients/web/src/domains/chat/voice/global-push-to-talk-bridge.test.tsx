@@ -85,6 +85,10 @@ mock.module("@/domains/chat/voice/use-voice-key", () => ({
  * Whether the companion's introduction is staged, which is main's answer and
  * the only thing that decides whether a tap is worth counting.
  */
+const advanceIntro = mock((_action: string) => {});
+mock.module("@/runtime/companion-surface", () => ({
+  advanceCompanionIntro: advanceIntro,
+}));
 let introStaged = false;
 mock.module("@/runtime/companion-intro-stage", () => ({
   companionIntroStaged: () => introStaged,
@@ -236,6 +240,7 @@ afterEach(() => {
   nextAskTaken = true;
   announceAskRefusedMock.mockClear();
   toggleVoiceMock.mockClear();
+  advanceIntro.mockClear();
   toastErrorMock.mockClear();
   runningClaimant = null;
   clearDictationOffer();
@@ -979,4 +984,19 @@ describe("a hold over an editable selection", () => {
     );
     expect(useComposerStore.getState().input).toBe("Send the files.");
   });
+});
+
+test("routes tutorial double taps through the companion permission guard", () => {
+  introStaged = true;
+  renderBridge("a1");
+  act(() => holdHandlers?.onDoubleTap());
+  expect(advanceIntro).toHaveBeenCalledWith("try");
+  expect(toggleVoiceMock).not.toHaveBeenCalled();
+});
+
+test("a tutorial hold does not start dictation", () => {
+  introStaged = true;
+  renderBridge("a1");
+  act(() => holdHandlers?.onHoldStart({ selection: null }));
+  expect(voiceStartMock).not.toHaveBeenCalled();
 });

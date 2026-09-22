@@ -156,7 +156,8 @@
       "titleNamed": "嘿，我是 {name}"
     },
     "key": {
-      "scolded": "不是这个，是键盘上的那个键"
+      "scolded": "不是这个，是键盘上的那个键",
+      "title": "让我更方便地和你交谈"
     },
     "meet": {
       "body": "我会在您的桌面上，即使 Vellum 不可见。"
@@ -174,13 +175,25 @@
       "body": "点击我就能开始对话。",
       "gesture": "或者连按两次这个键：",
       "greeted": "成功了！就这么简单。",
-      "prompt": "我会请求使用您的麦克风",
       "title": "和我说话"
     },
     "try": {
       "body": "跟我打个招呼，我会说出声来回答。",
       "how": "点击我，或连按两次这个键",
       "title": "试一试"
+    },
+    "permission": {
+      "microphoneAction": "启用麦克风",
+      "microphoneBody": "允许我使用你的麦克风进行语音对话。",
+      "shortcutBody": "允许我在你使用其他应用时识别快捷键。",
+      "screenAction": "启用屏幕共享",
+      "screenBody": "设置屏幕共享。使用时再选择要共享的内容。",
+      "openSettings": "打开设置",
+      "settingsHint": "在系统设置中允许访问，然后返回这里。",
+      "restricted": "你的 Mac 限制了此权限。你可以跳过此步骤。",
+      "error": "无法检查访问权限。请重试。",
+      "waiting": "正在检查访问权限…",
+      "skip": "暂时跳过"
     }
   },
   "companionPopover": {

@@ -66,7 +66,10 @@ mock.module("electron", () => ({
   },
   systemPreferences: {
     isTrustedAccessibilityClient: () => true,
-    askForMediaAccess: async () => true,
+    askForMediaAccess: async () => {
+      helperCalls.push("request microphone");
+      return true;
+    },
     // The app's own grant, which says nothing about the helper's: granted
     // here so a screen status that followed it would be caught.
     getMediaAccessStatus: () => "granted",
@@ -100,8 +103,10 @@ mock.module("./appleScriptExecutor", () => ({
 
 mock.module("./hotkey-helper", () => ({
   queryFreshMacHelperPermission: async () => "granted",
-  queryMacHelperPermission: async () => "granted",
-  requestMacHelperInputMonitoringPermission: async () => undefined,
+  queryMacHelperPermission: async () => "denied",
+  requestMacHelperInputMonitoringPermission: async () => {
+    helperCalls.push("request inputMonitoring");
+  },
   requestMacHelperScreenRecordingPermission: async () => {
     helperCalls.push("request screen");
   },
@@ -136,8 +141,11 @@ mock.module("./notifier", () => ({
   requestNotifierAuthorization: () => authorizationRequest(),
 }));
 
-const { PermissionsService, installPermissionsService } =
-  await import("./permissions-service");
+const {
+  PermissionsService,
+  installPermissionsService,
+  onPermissionPresentation,
+} = await import("./permissions-service");
 
 const nativeNotifier = (isSupported = true): Notifier => ({
   isSupported: () => isSupported,
@@ -434,7 +442,7 @@ describe("notification permission requests", () => {
   });
 });
 
-describe("screen recording", () => {
+describe("permission setup", () => {
   beforeEach(() => {
     helperCalls.length = 0;
     helperScreenStatus = "denied";
@@ -447,13 +455,42 @@ describe("screen recording", () => {
     expect(state.screen.requiresRestart).toBe(false);
   });
 
-  test("asks the helper before opening Settings, so its row is there", async () => {
-    await new PermissionsService().openSettings("screen");
+  test.each([
+    ["screen", "ScreenCapture"],
+    ["inputMonitoring", "ListenEvent"],
+  ] as const)(
+    "yields for %s's native alert and a separate Settings visit",
+    async (kind, pane) => {
+      const stop = onPermissionPresentation(() => {
+        helperCalls.push("yield tour");
+      });
+      try {
+        const service = new PermissionsService();
+        const initial = await service.state();
+        expect(helperCalls).toEqual([]);
+        expect(initial[kind].canRequest).toBe(true);
+        const requested = await service.openSettings(kind);
+        expect(helperCalls).toEqual(["yield tour", `request ${kind}`]);
+        if (kind === "screen") {
+          expect(requested.canRequest).toBe(false);
+        }
+        await service.openSettings(kind);
+        expect(helperCalls).toEqual([
+          "yield tour",
+          `request ${kind}`,
+          "yield tour",
+          `open x-apple.systempreferences:com.apple.preference.security?Privacy_${pane}`,
+        ]);
+      } finally {
+        stop();
+      }
+    },
+  );
 
-    expect(helperCalls).toEqual([
-      "request screen",
-      "open x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
-    ]);
+  test("does not open Settings for a helper grant that already arrived", async () => {
+    helperScreenStatus = "granted";
+    await new PermissionsService().openSettings("screen");
+    expect(helperCalls).toEqual([]);
   });
 
   test("a request asks the helper", async () => {
@@ -463,5 +500,19 @@ describe("screen recording", () => {
 
     expect(helperCalls).toEqual(["request screen"]);
     expect(item.status).toBe("granted");
+  });
+  test("yields before a native microphone prompt and unsubscribes", async () => {
+    const stop = onPermissionPresentation(() => {
+      helperCalls.push("yield tour");
+    });
+    try {
+      await new PermissionsService().request("microphone");
+      expect(helperCalls).toEqual(["yield tour", "request microphone"]);
+    } finally {
+      stop();
+    }
+    helperCalls.length = 0;
+    await new PermissionsService().request("microphone");
+    expect(helperCalls).toEqual(["request microphone"]);
   });
 });

@@ -28,12 +28,15 @@ mock.module("@/runtime/hotkey", () => ({
   },
 }));
 
-let inputMonitoringStatus = "granted";
+let onPermissionGranted: (() => void) | null = null;
 const requestSystemPermission = mock(async (_kind: string) => null);
 mock.module("@/runtime/system-permissions", () => ({
-  getSystemPermissionsState: async () => ({
-    inputMonitoring: { status: inputMonitoringStatus },
-  }),
+  subscribeToInputMonitoringGranted: (callback: () => void) => {
+    onPermissionGranted = callback;
+    return () => {
+      onPermissionGranted = null;
+    };
+  },
   requestSystemPermission,
 }));
 
@@ -105,7 +108,6 @@ describe("the voice key", () => {
     holdSupported = true;
     registrationSucceeds = true;
     frontSelection = null;
-    inputMonitoringStatus = "granted";
     setModifierHold.mockClear();
     readFrontSelection.mockClear();
     requestSystemPermission.mockClear();
@@ -277,23 +279,23 @@ describe("the voice key", () => {
     expect(onRegistered).toHaveBeenLastCalledWith(false);
   });
 
-  /**
-   * Arming the key is what asks for Input Monitoring, once per launch: the
-   * grant is for noticing the press, so the press itself can never be the
-   * moment to ask.
-   */
-  test("asks for Input Monitoring when the key is armed without it", async () => {
-    inputMonitoringStatus = "not-determined";
-    const { view } = renderKey();
+  test("does not prompt when the key is registered", async () => {
+    renderKey();
     await settle(0);
-    expect(requestSystemPermission).toHaveBeenCalledWith("inputMonitoring");
+    expect(requestSystemPermission).not.toHaveBeenCalled();
+  });
 
-    // Once. A second registration in the same launch asks nothing more.
-    view.rerender({
-      key: { kind: "modifierOnly", modifiers: ["control", "option"] },
-    });
+  test("registers a refused key again when permission is granted", async () => {
+    registrationSucceeds = false;
+    const { onRegistered, view } = renderKey();
     await settle(0);
-    expect(requestSystemPermission).toHaveBeenCalledTimes(1);
+    expect(onRegistered).toHaveBeenLastCalledWith(false);
+    registrationSucceeds = true;
+    act(() => onPermissionGranted?.());
+    await settle(0);
+    expect(onRegistered).toHaveBeenLastCalledWith(true);
+    view.unmount();
+    expect(onPermissionGranted).toBeNull();
   });
 
   /** Edges from the other bindings are other features' business. */

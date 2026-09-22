@@ -132,6 +132,21 @@ export function subscribeToSystemPermissions(
   return window.vellum!.permissions!.onState(callback);
 }
 
+/** Re-arm keyboard bindings when a Settings grant reaches this renderer. */
+export function subscribeToInputMonitoringGranted(
+  callback: () => void,
+): () => void {
+  let granted = false;
+  return subscribeToSystemPermissions((state) => {
+    const next = state.inputMonitoring.status === "granted";
+    const newlyGranted = next && !granted;
+    granted = next;
+    if (newlyGranted) {
+      callback();
+    }
+  });
+}
+
 export function useSystemPermissionsState() {
   const [state, setState] = useState<SystemPermissionsState | null>(null);
   const [loading, setLoading] = useState(() => supportsSystemPermissions());

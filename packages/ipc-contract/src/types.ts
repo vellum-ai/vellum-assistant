@@ -1341,6 +1341,12 @@ export const COMPANION_BASE_CANVAS_PAD = 24;
  */
 export const COMPANION_BASE_CARD_HEIGHT = 290;
 
+/** Fixed tour geometry, shared by the native canvas and its renderer. */
+export const COMPANION_INTRO_CARD_WIDTH = 320;
+export const COMPANION_INTRO_CARD_HEIGHT = 224;
+export const COMPANION_INTRO_PERCH_GAP = 6;
+export const COMPANION_PERCH_HOP = 22;
+
 /**
  * The widest the pill draws at the base size, measured from its avatar-facing
  * edge.
@@ -1551,6 +1557,12 @@ export const companionCardSideFor = (
       COMPANION_BASE_CARD_HEIGHT * scale - baseline,
       (COMPANION_BASE_CARD_HEIGHT - COMPANION_BASE_AVATAR_BOX) * scale +
         baseline,
+      (COMPANION_INTRO_CARD_HEIGHT +
+        COMPANION_PERCH_HOP +
+        COMPANION_INTRO_PERCH_GAP) *
+        scale +
+        avatarBox +
+        companionGapFor(avatarBox, optionsBox),
       avatarBox / 2,
     ) + companionPadFor(avatarBox, optionsBox)
   );

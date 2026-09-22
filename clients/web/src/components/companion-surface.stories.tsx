@@ -1370,9 +1370,6 @@ function IntroWalkthrough({
           beat === null ? null : (
             <CompanionIntro
               beat={beat}
-              // Ungranted, so the Talk beat's line about the real thing asking
-              // for the microphone is reviewable without a desktop.
-              micGranted={false}
               greeted={greeted}
               voiceKeyTaps={taps}
               chordPresses={chordPresses}

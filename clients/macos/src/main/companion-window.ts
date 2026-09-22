@@ -126,7 +126,10 @@ import {
 import { unwatchFrameScroll, watchFrameScroll } from "./frame-scroll-watch";
 import { handle, on } from "./ipc";
 import log from "./logger";
-import { getPermissionsService } from "./permissions-service";
+import {
+  getPermissionsService,
+  onPermissionPresentation,
+} from "./permissions-service";
 import {
   answerScreenRecordingRefusal,
   isScreenRecordingRefusal,
@@ -482,6 +485,16 @@ let introStaged = false;
  */
 let introScrim = false;
 
+let introPermissionLowered = false;
+
+const restoreIntroWindowLevel = (): void => {
+  if (!introPermissionLowered) {
+    return;
+  }
+  introPermissionLowered = false;
+  getFloatingWindow(COMPANION_KIND)?.setAlwaysOnTop(true, "floating");
+};
+
 /**
  * How long the surface stays put after landing before the ordinary
  * frontmost rule takes it off the screen again.
@@ -730,6 +743,7 @@ let introChordAsked: CompanionIntroCallControl | null = null;
  * up is a card asking for a key that answers nothing.
  */
 const setIntroBeat = (next: CompanionIntroBeat | null): void => {
+  restoreIntroWindowLevel();
   intro = next;
   const control = introChordFor(next);
   if (control === introChordAsked) {
@@ -749,6 +763,7 @@ const setIntroBeat = (next: CompanionIntroBeat | null): void => {
  * way, so nothing is left dimmed.
  */
 const unstageIntro = (): void => {
+  restoreIntroWindowLevel();
   cancelIntroLanding();
   if (!introStaged && !introScrim) {
     return;
@@ -1526,7 +1541,13 @@ const landIntroHome = (): void => {
   // holds it there for.
   setIntroScrim(false);
   const { workArea } = displayUnder(avatarCentre(win));
-  glideAvatarTo(win, defaultAvatarCentre(workArea, geometry), workArea);
+  const home = defaultAvatarCentre(workArea, geometry);
+  if (callHome !== null) {
+    // The final offer can already have borrowed the tour's centered position.
+    callHome = home;
+  } else {
+    glideAvatarTo(win, home, workArea);
+  }
   introLanding = setTimeout(() => {
     introLanding = null;
     introStaged = false;
@@ -4157,6 +4178,15 @@ export const installCompanionWindow = (): void => {
       if (intro === null) {
         return;
       }
+      // Rehearsal keys never open a call. Both the avatar and the voice key
+      // reach this guard, including grants revoked since the card last read.
+      if (
+        action === "try" &&
+        (intro !== "try" ||
+          systemPreferences.getMediaAccessStatus("microphone") !== "granted")
+      ) {
+        return;
+      }
       // Resolved against the beat main is on when it runs, not the one this
       // press arrived on, which is the same rule the handler itself follows:
       // the hand-off below can put a window build in between, and anything the
@@ -4169,10 +4199,6 @@ export const installCompanionWindow = (): void => {
           return;
         }
         const next = introOnAdvance(from, action);
-        // **The offer is counted where it is taken, not where it lands.** A
-        // `try` on the last beat ends the run and a `try` before it does not,
-        // so the beat it was taken on is the only place the two are told
-        // apart, and that beat is gone a line later.
         if (action === "try") {
           reportIntro("offer_taken", from);
         }
@@ -4180,8 +4206,6 @@ export const installCompanionWindow = (): void => {
           finishIntro(introEndingFor(action));
         } else {
           setIntroBeat(next);
-          // `try` mid-run holds the beat, and a beat held is not a beat
-          // reached.
           if (next !== from) {
             reportIntro("advanced", next);
           }
@@ -4411,9 +4435,22 @@ export const installCompanionWindow = (): void => {
     pushState();
   });
 
+  onPermissionPresentation(() => {
+    if (intro === null || introPermissionLowered) {
+      return;
+    }
+    const win = getFloatingWindow(COMPANION_KIND);
+    if (win === null) {
+      return;
+    }
+    // A floating panel otherwise covers Settings and native permission alerts.
+    introPermissionLowered = true;
+    win.setAlwaysOnTop(false);
+  });
   // The app coming forward and going back, which is what decides whether the
   // surface is on the screen at all while it is open. See `appActive`.
   app.on("did-become-active", () => {
+    restoreIntroWindowLevel();
     appActive = true;
     syncFrontmost();
   });
@@ -4425,6 +4462,7 @@ export const installCompanionWindow = (): void => {
     if (win !== currentMainWindow()) {
       return;
     }
+    restoreIntroWindowLevel();
     appActive = true;
     syncFrontmost();
   });

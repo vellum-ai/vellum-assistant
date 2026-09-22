@@ -2,7 +2,9 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import {
   requestSystemPermission,
+  subscribeToInputMonitoringGranted,
   supportsSystemPermissions,
+  type SystemPermissionsState,
 } from "@/runtime/system-permissions";
 
 const permissionItem = {
@@ -44,6 +46,39 @@ const installBridge = (
 
 afterEach(() => {
   delete window.vellum;
+});
+
+describe("Input Monitoring grants", () => {
+  test("notifies once per grant and unsubscribes with its caller", () => {
+    let listener: (state: SystemPermissionsState) => void = () => {};
+    const unsubscribe = mock(() => {});
+    installBridge(
+      "macos",
+      mock(async () => permissionItem),
+    );
+    window.vellum!.permissions!.onState = (callback) => {
+      listener = callback;
+      return unsubscribe;
+    };
+    const state = {
+      inputMonitoring: { ...permissionItem, kind: "inputMonitoring" },
+    } as SystemPermissionsState;
+    const granted = mock(() => {
+      listener(state);
+    });
+    const stop = subscribeToInputMonitoringGranted(granted);
+    listener(state);
+    listener(state);
+    expect(granted).toHaveBeenCalledTimes(1);
+    listener({
+      ...state,
+      inputMonitoring: { ...state.inputMonitoring, status: "denied" },
+    });
+    listener(state);
+    expect(granted).toHaveBeenCalledTimes(2);
+    stop();
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("requestSystemPermission", () => {
