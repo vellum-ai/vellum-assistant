@@ -243,6 +243,15 @@ export function toAnsweredQuestion(
   };
 }
 
+/**
+ * Model-facing note prepended when the user answered by typing in the chat
+ * instead of using the card. The text lands as free text on the first
+ * question and every other question reads as skipped, so the model is told
+ * plainly what happened and left to map the reply onto the batch itself.
+ */
+const CHAT_REPLY_PREAMBLE =
+  "The user replied in the chat instead of using the question card, so their message is recorded as free text on the first question below and the remaining questions are unanswered. Read their reply as the answer to whichever questions it covers, and ask again only for what it genuinely leaves open.";
+
 // ── Tool ────────────────────────────────────────────────────────────
 
 /**
@@ -389,7 +398,9 @@ export const askQuestionTool = {
 
     switch (result.overall) {
       case "completed": {
-        let content = lines.join("\n");
+        let content = result.answeredInChat
+          ? [CHAT_REPLY_PREAMBLE, ...lines].join("\n")
+          : lines.join("\n");
         if (desktopHelp) {
           const entry = result.entries[0];
           if (entry?.decision === "free_text") {

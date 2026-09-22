@@ -957,6 +957,46 @@ export const webSearchErrorDetail: ToolDetailPayload = payload({
   status: "error",
 });
 
+/** A search still in flight: the query, and no sources yet. */
+export const webSearchRunningDetail: ToolDetailPayload = payload({
+  toolCallId: "tc-web-search-3",
+  toolName: "web_search",
+  title: "Searching the web",
+  activity: "Searching for Storybook autodocs configuration",
+  kind: "web_search",
+  input: { activity: "Searching the web", query: "storybook autodocs tag" },
+  searchQuery: "storybook autodocs tag",
+  searchResults: [],
+  status: "running",
+});
+
+/** A search the user did not approve. Its result is the note to the model. */
+export const webSearchDeniedDetail: ToolDetailPayload = payload({
+  toolCallId: "tc-web-search-4",
+  toolName: "web_search",
+  title: "Searching the web",
+  activity: "Searching for Storybook autodocs configuration",
+  kind: "web_search",
+  input: { activity: "Searching the web", query: "storybook autodocs tag" },
+  searchQuery: "storybook autodocs tag",
+  searchResults: [],
+  result:
+    'Permission denied. The "web_search" tool was not allowed. Do NOT retry this tool call immediately.',
+  status: "denied",
+});
+
+/** A search that finished and found nothing. */
+export const webSearchNoSourcesDetail: ToolDetailPayload = payload({
+  toolCallId: "tc-web-search-5",
+  toolName: "web_search",
+  title: "Searching the web",
+  activity: "Searching for an obscure configuration flag",
+  kind: "web_search",
+  input: { activity: "Searching the web", query: "storybook autodocs zz-flag" },
+  searchQuery: "storybook autodocs zz-flag",
+  searchResults: [],
+});
+
 /**
  * The `web_search` variant: the query and the sources it found, in place of the
  * input and output blocks.

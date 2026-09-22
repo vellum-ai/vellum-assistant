@@ -17,9 +17,9 @@
  * the card's edges.
  */
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { assistantsRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen";
+import { withQueryCache } from "@/lib/story-query-cache";
 import { preloadBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 
 import { CompleteState } from "./complete-state";
@@ -38,15 +38,6 @@ const ASSISTANT_IDS = {
   resolved: RESOLVED_ASSISTANT_ID,
   unresolved: UNRESOLVED_ASSISTANT_ID,
 } satisfies Record<string, string>;
-
-const queryClient = new QueryClient({
-  defaultOptions: { queries: { retry: false, staleTime: Infinity } },
-});
-
-queryClient.setQueryData(
-  assistantsRetrieveQueryKey({ path: { id: RESOLVED_ASSISTANT_ID } }),
-  makeStoryAssistant(RESOLVED_ASSISTANT_ID),
-);
 
 /** Story-local controls; `assistant` names a seeded id the render looks up. */
 interface CompleteStoryArgs {
@@ -90,12 +81,16 @@ const meta: Meta<CompleteStoryArgs> = {
   render: renderComplete,
   decorators: [
     (Story) => (
-      <QueryClientProvider client={queryClient}>
-        <WizardStepBox>
-          <Story />
-        </WizardStepBox>
-      </QueryClientProvider>
+      <WizardStepBox>
+        <Story />
+      </WizardStepBox>
     ),
+    withQueryCache((client) => {
+      client.setQueryData(
+        assistantsRetrieveQueryKey({ path: { id: RESOLVED_ASSISTANT_ID } }),
+        makeStoryAssistant(RESOLVED_ASSISTANT_ID),
+      );
+    }),
   ],
 };
 

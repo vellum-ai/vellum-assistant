@@ -4,8 +4,9 @@
  * raw data of every tool is in the same place under the same names.
  */
 
-import { CodeBlock } from "@/components/detail-primitives";
-import { DetailDisclosure } from "@/domains/chat/components/tool-activity/detail-disclosure";
+import { Disclosure } from "@vellumai/design-library/components/disclosure";
+
+import { CodeBlock, SectionLabel } from "@/components/detail-primitives";
 import { useTranslation } from "@/i18n";
 
 /**
@@ -28,15 +29,20 @@ export function RawDisclosure({
 }) {
   const { t } = useTranslation("chat");
   return (
-    <DetailDisclosure
-      label={
-        side === "input" ? t("rawDisclosure.input") : t("rawDisclosure.output")
-      }
-    >
+    <Disclosure.Root>
+      <Disclosure.Trigger className="py-1 text-[var(--content-tertiary)] hover:text-[var(--content-secondary)]">
+        <SectionLabel as="span" className="">
+          {side === "input"
+            ? t("rawDisclosure.input")
+            : t("rawDisclosure.output")}
+        </SectionLabel>
+      </Disclosure.Trigger>
       {/* No name passed to the fold inside: the disclosure is a Radix
           accordion, whose content is already a region named by this label, and
           a second region of the same name nested in it names it twice. */}
-      <RawText text={text} />
-    </DetailDisclosure>
+      <Disclosure.Content className="pt-2">
+        <RawText text={text} />
+      </Disclosure.Content>
+    </Disclosure.Root>
   );
 }

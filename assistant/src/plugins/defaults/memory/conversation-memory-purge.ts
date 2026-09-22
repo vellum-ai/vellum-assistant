@@ -1,5 +1,9 @@
 import { getLogger } from "./logging.js";
 import { memorySqliteOrNull } from "./memory-db.js";
+import {
+  clearAllSkillUpdateReceipts,
+  purgeSkillUpdateReceiptEntriesForConversation,
+} from "./skill-update-receipt-store.js";
 
 const log = getLogger("conversation-memory-purge");
 
@@ -59,6 +63,16 @@ export function purgeConversationMemoryTables(conversationId: string): void {
       );
     }
   }
+  // Receipt entries key on two conversation columns, so the store owns
+  // their purge rather than joining the `conversation_id` loop above.
+  try {
+    purgeSkillUpdateReceiptEntriesForConversation(conversationId);
+  } catch (err) {
+    log.warn(
+      { err, conversationId },
+      "Failed to purge skill-update receipt entries for deleted conversation; continuing",
+    );
+  }
 }
 
 /**
@@ -83,5 +97,13 @@ export function clearAllConversationMemoryTables(): void {
         "Failed to clear memory table during clear-all; continuing",
       );
     }
+  }
+  try {
+    clearAllSkillUpdateReceipts();
+  } catch (err) {
+    log.warn(
+      { err },
+      "Failed to clear skill-update receipts during clear-all; continuing",
+    );
   }
 }

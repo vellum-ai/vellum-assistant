@@ -2,10 +2,10 @@
 // Skill-update receipts: the durable store.
 // ---------------------------------------------------------------------------
 //
-// A background pass that rewrites several managed skills within minutes used
-// to announce each rewrite as its own notification. A receipt collapses one
-// burst into one announcement: every rewrite lands here as an entry, the
-// entries accumulate on the one open receipt, and the tick job
+// A background pass can rewrite several managed skills within minutes. A
+// receipt collapses one such burst into one announcement: every rewrite
+// lands here as an entry, the entries accumulate on the one open receipt,
+// and the tick job
 // (`skill-update-receipt-job.ts`) seals the receipt once the burst has
 // settled and announces it once.
 //
@@ -243,6 +243,18 @@ export function recordSkillUpdate(
   }
   const append = raw.transaction(
     (): { receiptId: string; inserted: boolean } => {
+      // A replayed call whose entry already sits on a sealed receipt must
+      // not open a fresh receipt just to discover the insert is a no-op: an
+      // empty open receipt would carry the replay's stamp into the next
+      // real burst.
+      const existing = raw
+        .query(
+          /*sql*/ `SELECT receipt_id FROM ${ENTRIES_TABLE} WHERE entry_id = ?`,
+        )
+        .get(input.entryId) as { receipt_id: string } | null;
+      if (existing) {
+        return { receiptId: existing.receipt_id, inserted: false };
+      }
       let receipt = raw
         .query(/*sql*/ `SELECT id FROM ${RECEIPTS_TABLE} WHERE status = 'open'`)
         .get() as { id: string } | null;
@@ -440,6 +452,48 @@ export function countSkillUpdateReceiptEmitAttempt(id: string): number {
     .query(/*sql*/ `SELECT emit_attempts FROM ${RECEIPTS_TABLE} WHERE id = ?`)
     .get(id) as { emit_attempts: number } | null;
   return row?.emit_attempts ?? 0;
+}
+
+/**
+ * Drop every entry a deleted conversation produced or was the source of,
+ * and any receipt left with no entries. Called from the memory plugin's
+ * `conversation-deleted` hook: the entries carry that conversation's id and
+ * a summary distilled from it, and SQLite foreign keys cannot reach across
+ * database files, so nothing cascades here on its own. A sealed receipt
+ * emptied this way settles as `settled_no_row` on its next tick.
+ */
+export function purgeSkillUpdateReceiptEntriesForConversation(
+  conversationId: string,
+): void {
+  const raw = receiptSqlite("purgeSkillUpdateReceiptEntriesForConversation");
+  if (!raw) {
+    return;
+  }
+  raw
+    .query(
+      /*sql*/ `DELETE FROM ${ENTRIES_TABLE}
+        WHERE source_conversation_id = ? OR run_conversation_id = ?`,
+    )
+    .run(conversationId, conversationId);
+  raw
+    .query(
+      /*sql*/ `DELETE FROM ${RECEIPTS_TABLE}
+        WHERE NOT EXISTS (
+          SELECT 1 FROM ${ENTRIES_TABLE} WHERE receipt_id = ${RECEIPTS_TABLE}.id
+        )`,
+    )
+    .run();
+}
+
+/** Drop every receipt and entry; the clear-all reset orphans them all. */
+export function clearAllSkillUpdateReceipts(): void {
+  const raw = receiptSqlite("clearAllSkillUpdateReceipts");
+  if (!raw) {
+    return;
+  }
+  raw.exec(
+    /*sql*/ `DELETE FROM ${ENTRIES_TABLE}; DELETE FROM ${RECEIPTS_TABLE};`,
+  );
 }
 
 /** Move a sealed receipt to its terminal state. */

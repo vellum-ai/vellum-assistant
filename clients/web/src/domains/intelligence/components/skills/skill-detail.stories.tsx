@@ -1,4 +1,3 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useArgs } from "storybook/preview-api";
 
@@ -8,6 +7,7 @@ import {
   skillsByIdFilesGetQueryKey,
   skillsByIdHistoryGetQueryKey,
 } from "@/generated/daemon/@tanstack/react-query.gen";
+import { type SeedQueryCache, withQueryCache } from "@/lib/story-query-cache";
 
 import { SkillDetail } from "./skill-detail";
 
@@ -120,46 +120,44 @@ const FILES = [
 ];
 
 /**
- * Build a cache seeded for one story. `historySupported: false` leaves the
+ * Seeds the cache for one story. `historySupported: false` leaves the
  * history query resolved to `null`, which is what an assistant without the
  * route produces and what hides the tab strip.
  */
-function seededClient(options: {
+function seedSkill(options: {
   historySupported: boolean;
   revisions?: typeof REVISIONS;
   truncatedByCompaction?: boolean;
-}): QueryClient {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false, staleTime: Infinity } },
-  });
-  const path = { assistant_id: ASSISTANT_ID, id: SKILL_ID };
+}): SeedQueryCache {
+  return (client) => {
+    const path = { assistant_id: ASSISTANT_ID, id: SKILL_ID };
 
-  client.setQueryData(skillsByIdFilesGetQueryKey({ path }), {
-    skill: SKILL,
-    files: FILES,
-  });
-  client.setQueryData(
-    skillsByIdFilesContentGetQueryKey({ path, query: { path: "SKILL.md" } }),
-    {
-      path: "SKILL.md",
-      name: "SKILL.md",
-      size: SKILL_MD.length,
-      mimeType: "text/markdown",
-      isBinary: false,
-      content: SKILL_MD,
-    },
-  );
-  client.setQueryData(
-    skillsByIdHistoryGetQueryKey({ path }),
-    options.historySupported
-      ? {
-          skillId: SKILL_ID,
-          revisions: options.revisions ?? REVISIONS,
-          truncatedByCompaction: options.truncatedByCompaction ?? false,
-        }
-      : null,
-  );
-  return client;
+    client.setQueryData(skillsByIdFilesGetQueryKey({ path }), {
+      skill: SKILL,
+      files: FILES,
+    });
+    client.setQueryData(
+      skillsByIdFilesContentGetQueryKey({ path, query: { path: "SKILL.md" } }),
+      {
+        path: "SKILL.md",
+        name: "SKILL.md",
+        size: SKILL_MD.length,
+        mimeType: "text/markdown",
+        isBinary: false,
+        content: SKILL_MD,
+      },
+    );
+    client.setQueryData(
+      skillsByIdHistoryGetQueryKey({ path }),
+      options.historySupported
+        ? {
+            skillId: SKILL_ID,
+            revisions: options.revisions ?? REVISIONS,
+            truncatedByCompaction: options.truncatedByCompaction ?? false,
+          }
+        : null,
+    );
+  };
 }
 
 const meta: Meta<typeof SkillDetail> = {
@@ -196,16 +194,12 @@ type Story = StoryObj<typeof SkillDetail>;
  * Decorator giving the page its usual viewport height. The router comes from
  * Storybook's own preview wrapper, so this must not add another one.
  */
-function withShell(client: QueryClient) {
-  return function Decorator(Story: () => React.ReactElement) {
-    return (
-      <QueryClientProvider client={client}>
-        <div className="h-screen p-6">
-          <Story />
-        </div>
-      </QueryClientProvider>
-    );
-  };
+function withShell(Story: () => React.ReactElement) {
+  return (
+    <div className="h-screen p-6">
+      <Story />
+    </div>
+  );
 }
 
 /**
@@ -214,7 +208,10 @@ function withShell(client: QueryClient) {
  * story below both open on Files.
  */
 export const Default: Story = {
-  decorators: [withShell(seededClient({ historySupported: true }))],
+  decorators: [
+    withShell,
+    withQueryCache(seedSkill({ historySupported: true })),
+  ],
 };
 
 /**
@@ -223,15 +220,19 @@ export const Default: Story = {
  * the revision list.
  */
 export const HistoryDeepLink: Story = {
-  decorators: [withShell(seededClient({ historySupported: true }))],
+  decorators: [
+    withShell,
+    withQueryCache(seedSkill({ historySupported: true })),
+  ],
   args: { tab: "history" },
 };
 
 /** Workspace history was squashed, so the list carries its caveat. */
 export const HistoryTruncated: Story = {
   decorators: [
-    withShell(
-      seededClient({ historySupported: true, truncatedByCompaction: true }),
+    withShell,
+    withQueryCache(
+      seedSkill({ historySupported: true, truncatedByCompaction: true }),
     ),
   ],
 };
@@ -243,7 +244,8 @@ export const HistoryTruncated: Story = {
  */
 export const NoHistoryYet: Story = {
   decorators: [
-    withShell(seededClient({ historySupported: true, revisions: [] })),
+    withShell,
+    withQueryCache(seedSkill({ historySupported: true, revisions: [] })),
   ],
 };
 
@@ -253,5 +255,8 @@ export const NoHistoryYet: Story = {
  * report as far as the page is concerned.
  */
 export const HistoryUnsupported: Story = {
-  decorators: [withShell(seededClient({ historySupported: false }))],
+  decorators: [
+    withShell,
+    withQueryCache(seedSkill({ historySupported: false })),
+  ],
 };

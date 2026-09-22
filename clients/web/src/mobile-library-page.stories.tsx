@@ -25,13 +25,11 @@ import type {
   DocumentsGetResponse,
 } from "@/generated/daemon/types.gen";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { createStoryQueryClient } from "@/lib/story-query-cache";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import type { AppSummary } from "@/types/app-types";
-import {
-  clearAppHtmlCache,
-  primeAppHtmlCache,
-} from "@/utils/app-html-cache";
+import { clearAppHtmlCache, primeAppHtmlCache } from "@/utils/app-html-cache";
 
 const ASSISTANT_ID = "assistant-library-story";
 
@@ -84,22 +82,20 @@ const CALCULATOR_PREVIEW = `<!doctype html>
 </html>`;
 
 function createStoryClient(): QueryClient {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+  return createStoryQueryClient((client) => {
+    client.setQueryData<AppsGetResponse>(
+      appsGetQueryKey({ path: { assistant_id: ASSISTANT_ID } }),
+      { apps: STORY_APPS },
+    );
+    client.setQueryData<DocumentsGetResponse>(
+      documentsGetQueryKey({ path: { assistant_id: ASSISTANT_ID } }),
+      { documents: [] },
+    );
+    client.setQueryData(
+      ["assistant-capability", "appPins", ASSISTANT_ID],
+      true,
+    );
   });
-  client.setQueryData<AppsGetResponse>(
-    appsGetQueryKey({ path: { assistant_id: ASSISTANT_ID } }),
-    { apps: STORY_APPS },
-  );
-  client.setQueryData<DocumentsGetResponse>(
-    documentsGetQueryKey({ path: { assistant_id: ASSISTANT_ID } }),
-    { documents: [] },
-  );
-  client.setQueryData(
-    ["assistant-capability", "appPins", ASSISTANT_ID],
-    true,
-  );
-  return client;
 }
 
 /**
@@ -149,11 +145,13 @@ const withLibraryFixture: Decorator = function WithLibraryFixture(Story) {
       useResolvedAssistantsStore.setState({
         activeAssistantId: previousState.assistantId,
       });
-      useAssistantIdentityStore.getState().setIdentity(
-        previousState.identity.name,
-        previousState.identity.version,
-        previousState.identity.assistantId,
-      );
+      useAssistantIdentityStore
+        .getState()
+        .setIdentity(
+          previousState.identity.name,
+          previousState.identity.version,
+          previousState.identity.assistantId,
+        );
       useChatLayoutSlotsStore.getState().setTopBarCenter(null);
       useChatLayoutSlotsStore.getState().setMobileTopBar(null);
       useIntelligenceLayoutSlotsStore.getState().setHeaderTrailing(null);

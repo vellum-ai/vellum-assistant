@@ -191,6 +191,7 @@ const MANAGED_FALLBACK_PROVIDERS: string[] = [
   "openai",
   "fireworks",
   "together",
+  "typesafe",
 ];
 
 function enableManagedProxy() {
@@ -314,26 +315,55 @@ describe("managed proxy integration — credential precedence", () => {
       },
     );
 
-    test("managed bootstrap registers anthropic, openai, gemini, fireworks, and together", async () => {
+    test("managed bootstrap registers every managed-routable catalog provider", async () => {
       enableManagedProxy();
       mockProviderKeys = {};
       await initializeProviders(makeProvidersConfig("anthropic", "test-model"));
-      expect(listProviders()).toEqual(
-        expect.arrayContaining([
-          "anthropic",
-          "openai",
-          "gemini",
-          "fireworks",
-          "together",
-        ]),
+      expect([...listProviders()].sort()).toEqual(
+        [...MANAGED_FALLBACK_PROVIDERS].sort(),
       );
-      expect(listProviders()).toHaveLength(5);
-      expect(getProviderRoutingSource("anthropic")).toBe("managed-proxy");
-      expect(getProviderRoutingSource("openai")).toBe("managed-proxy");
-      expect(getProviderRoutingSource("gemini")).toBe("managed-proxy");
-      expect(getProviderRoutingSource("fireworks")).toBe("managed-proxy");
-      expect(getProviderRoutingSource("together")).toBe("managed-proxy");
+      for (const provider of MANAGED_FALLBACK_PROVIDERS) {
+        expect(getProviderRoutingSource(provider)).toBe("managed-proxy");
+      }
       expect(getProviderRoutingSource("openrouter")).toBeUndefined();
+    });
+
+    test("managed typesafe sends System One through the typesafe proxy path with the assistant key", async () => {
+      enableManagedProxy();
+      mockProviderKeys = {};
+      await initializeProviders(makeProvidersConfig("anthropic", "test-model"));
+
+      const provider = getProvider("typesafe");
+      const originalFetch = globalThis.fetch;
+      let capturedUrl = "";
+      let capturedHeaders: Record<string, string> = {};
+      globalThis.fetch = (async (
+        input: string | URL | Request,
+        init?: RequestInit,
+      ) => {
+        capturedUrl = String(input);
+        capturedHeaders = (init?.headers ?? {}) as Record<string, string>;
+        return new Response(
+          JSON.stringify({
+            model: "jev-latest",
+            answers: {},
+            usage: { input_tokens: 1, output_tokens: 0 },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }) as typeof fetch;
+      try {
+        await provider.sendMessage([userMsg("hello")], {
+          config: { model: "jev-latest" },
+        });
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+
+      expect(capturedUrl).toBe(
+        `${PLATFORM_BASE}/v1/runtime-proxy/typesafe/v1/systemone`,
+      );
+      expect(capturedHeaders.Authorization).toBe(`Bearer ${MANAGED_API_KEY}`);
     });
 
     test("managed anthropic uses anthropic proxy path", async () => {

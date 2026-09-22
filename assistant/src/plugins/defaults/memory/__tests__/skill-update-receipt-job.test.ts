@@ -506,6 +506,20 @@ describe("skillUpdateReceiptTickJob: delivery outcomes", () => {
     expect(receiptStatus(id)).toBe("delivered");
   });
 
+  test("a dispatched announcement whose feed write failed is undelivered, not a declined verdict", async () => {
+    const id = sealedReceipt();
+    emitOutcomes = [{ dispatched: true, reason: "ok" }];
+
+    await skillUpdateReceiptTickJob(JOB);
+    await skillUpdateReceiptTickJob(JOB);
+
+    expect(emits).toHaveLength(1);
+    expect(receiptStatus(id)).toBe("undelivered");
+    expect(watchdogEvents[0]).toMatchObject({
+      detail: { terminal_state: "undelivered" },
+    });
+  });
+
   test("a verdict that declined the row settles without one, and is never re-announced", async () => {
     const id = sealedReceipt();
     emitOutcomes = [

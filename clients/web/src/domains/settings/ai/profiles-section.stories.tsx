@@ -1,4 +1,3 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import { ProfilesSection } from "@/domains/settings/ai/profiles-section";
@@ -10,6 +9,7 @@ import type {
   ConfigGetResponse,
   InferenceProfileSummary,
 } from "@/generated/daemon/types.gen";
+import { withQueryCache } from "@/lib/story-query-cache";
 
 const ASSISTANT_ID = "story-assistant";
 
@@ -87,27 +87,6 @@ const CONFIG: ConfigGetResponse = {
   },
 };
 
-// Storybook has no daemon, so both queries the section reads are seeded
-// through the generated factories; HeyAPI bakes path params into the key, so
-// a hand-written key would miss and the section would render its loader.
-function seededClient() {
-  const client = new QueryClient({
-    defaultOptions: {
-      queries: {
-        retry: false,
-        refetchOnWindowFocus: false,
-        staleTime: Infinity,
-      },
-    },
-  });
-  const path = { assistant_id: ASSISTANT_ID };
-  client.setQueryData(inferenceProfilesGetOptions({ path }).queryKey, {
-    profiles: PROFILES,
-  });
-  client.setQueryData(configGetOptions({ path }).queryKey, CONFIG);
-  return client;
-}
-
 const meta: Meta<typeof ProfilesSection> = {
   title: "Settings/AI/ProfilesSection",
   component: ProfilesSection,
@@ -121,12 +100,21 @@ const meta: Meta<typeof ProfilesSection> = {
   },
   decorators: [
     (Story) => (
-      <QueryClientProvider client={seededClient()}>
-        <div style={{ maxWidth: 640, padding: 24 }}>
-          <Story />
-        </div>
-      </QueryClientProvider>
+      <div style={{ maxWidth: 640, padding: 24 }}>
+        <Story />
+      </div>
     ),
+    // Storybook has no daemon, so both queries the section reads are seeded
+    // through the generated factories; HeyAPI bakes path params into the key,
+    // so a hand-written key would miss and the section would render its
+    // loader.
+    withQueryCache((client) => {
+      const path = { assistant_id: ASSISTANT_ID };
+      client.setQueryData(inferenceProfilesGetOptions({ path }).queryKey, {
+        profiles: PROFILES,
+      });
+      client.setQueryData(configGetOptions({ path }).queryKey, CONFIG);
+    }),
   ],
 };
 

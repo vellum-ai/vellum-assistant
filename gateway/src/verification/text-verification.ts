@@ -26,7 +26,7 @@ import {
 import { getLogger } from "../logger.js";
 
 import {
-  getExistingGuardianBinding,
+  activeGuardianAddresses,
   resolveCanonicalPrincipal,
   revokeExistingChannelGuardian,
 } from "./binding-helpers.js";
@@ -37,7 +37,7 @@ import {
 } from "./code-parsing.js";
 import {
   findContactChannelByAddress,
-  gatewayChannelStatus,
+  gatewayChannelRow,
   upsertVerifiedContactChannel,
 } from "./contact-helpers.js";
 import { canonicalizeInboundIdentity } from "./identity.js";
@@ -252,7 +252,9 @@ export async function tryTextVerificationIntercept(
       : "guardian";
 
   // 7. Apply side effects. A blocked/revoked authoritative gateway row rejects
-  //    the verification: the actor must not regain trusted status nor see a
+  //    the verification, and so does a guardian code from an identity other
+  //    than the one linked on the channel: the actor must not gain trusted
+  //    status nor see a
   //    success reply, even though the code matched and the session consumed.
   const sideEffectsVerified =
     trustClass === "guardian"
@@ -274,7 +276,7 @@ export async function tryTextVerificationIntercept(
   if (!sideEffectsVerified) {
     log.warn(
       { sourceChannel, actorExternalUserId: canonicalUserId, trustClass },
-      "Verification rejected: authoritative gateway channel is blocked/revoked",
+      "Verification rejected: the consumed code granted nothing",
     );
     const pendingReplyText = await replyWithFailure(
       replyCallbackUrl,
@@ -341,27 +343,50 @@ async function applyGuardianSideEffects(params: {
     actorUsername,
   } = params;
 
-  // Check for binding conflict — another user already holds guardian
-  const existing = getExistingGuardianBinding(sourceChannel);
-  if (existing?.address && existing.address !== canonicalUserId) {
+  // The only await before the binding is written, so it runs first. From the
+  // refusal check below to the gateway writes inside createGuardianBinding
+  // (a synchronous transaction, ahead of that function's own first await)
+  // nothing yields, so two codes redeemed at once cannot both pass the check.
+  // A sender verifying again keeps the name their contact already has. The
+  // read is for that name only: a daemon that cannot answer falls back to the
+  // name the channel gave, so no outcome below depends on the daemon.
+  let existingContact: Awaited<ReturnType<typeof findContactChannelByAddress>> =
+    null;
+  try {
+    existingContact = await findContactChannelByAddress(
+      sourceChannel,
+      canonicalUserId,
+    );
+  } catch (err) {
+    log.warn(
+      { err, sourceChannel },
+      "Guardian display name lookup failed; using the name the channel gave",
+    );
+  }
+  const displayName = existingContact?.displayName?.trim().length
+    ? existingContact.displayName
+    : (actorDisplayName ?? actorUsername ?? canonicalUserId);
+
+  // The guardian is one person, and a channel holds at most one linked
+  // identity for them. A guardian code links an identity where none is linked,
+  // or links the same one again. It never swaps one identity for another, and
+  // grants nothing in its place: swapping is two explicit acts, remove the
+  // link and then connect again. Every active row is read, so a second one is
+  // weighed and not hidden behind a LIMIT 1. This is the text-channel rule; an
+  // outbound phone code replaces the bound number (session-service.ts).
+  const otherLinkedIdentities = activeGuardianAddresses(sourceChannel).filter(
+    (address) => address !== canonicalUserId,
+  );
+  if (otherLinkedIdentities.length > 0) {
     log.warn(
       {
         sourceChannel,
-        existingGuardian: existing.address,
+        linkedIdentities: otherLinkedIdentities,
         newActor: canonicalUserId,
       },
-      "Guardian binding conflict: another user already holds this channel",
+      "Guardian code refused: a different identity is linked as the guardian on this channel",
     );
-    // Still upsert the contact channel so the sender is a known contact,
-    // but skip guardian binding creation.
-    const { verified } = await upsertVerifiedContactChannel({
-      sourceChannel,
-      externalUserId: canonicalUserId,
-      externalChatId: actorChatId,
-      displayName: actorDisplayName,
-      username: actorUsername,
-    });
-    return verified;
+    return false;
   }
 
   // The gateway is the source of truth: a blocked/revoked gateway row rejects
@@ -369,13 +394,27 @@ async function applyGuardianSideEffects(params: {
   // re-verifying guardian (whose current row is active) isn't blocked by their
   // own about-to-be-revoked row. createGuardianBinding writes "active"
   // unconditionally, so this guard is the only thing stopping a blocked actor.
-  const gwStatus = gatewayChannelStatus(sourceChannel, canonicalUserId);
+  //
+  // One revoked row gets past it: the guardian's own, on a channel with no
+  // other linked identity. That is the guardian linking again the identity
+  // they removed. The row has to belong to the guardian contact: a contact the
+  // guardian revoked stays revoked whatever code they hold. A blocked row
+  // never gets past it.
+  const gwRow = gatewayChannelRow(sourceChannel, canonicalUserId);
+  const gwStatus = gwRow?.status ?? null;
   if (gwStatus === "blocked" || gwStatus === "revoked") {
-    log.warn(
-      { sourceChannel, address: canonicalUserId, status: gwStatus },
-      "Skipping guardian binding: authoritative gateway channel is blocked or revoked",
-    );
-    return false;
+    const reconnectsOwnRevokedRow =
+      gwStatus === "revoked" &&
+      gwRow?.contactRole === "guardian" &&
+      gwRow?.address === canonicalUserId &&
+      otherLinkedIdentities.length === 0;
+    if (!reconnectsOwnRevokedRow) {
+      log.warn(
+        { sourceChannel, address: canonicalUserId, status: gwStatus },
+        "Skipping guardian binding: authoritative gateway channel is blocked or revoked",
+      );
+      return false;
+    }
   }
 
   // Revoke existing binding (same-user re-verification)
@@ -383,15 +422,6 @@ async function applyGuardianSideEffects(params: {
 
   // Resolve canonical principal — unify all channel bindings
   const canonicalPrincipal = resolveCanonicalPrincipal(canonicalUserId);
-
-  // Determine display name — preserve existing if user is re-verifying
-  const existingContact = await findContactChannelByAddress(
-    sourceChannel,
-    canonicalUserId,
-  );
-  const displayName = existingContact?.displayName?.trim().length
-    ? existingContact.displayName
-    : (actorDisplayName ?? actorUsername ?? canonicalUserId);
 
   // Create guardian binding (dual-writes to both DBs)
   await createGuardianBinding({

@@ -1,7 +1,7 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import { heartbeatRunsGetInfiniteQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
+import { type SeedQueryCache, withQueryCache } from "@/lib/story-query-cache";
 
 import { SystemTaskDetailPanel } from "./system-task-detail-panel";
 
@@ -53,10 +53,7 @@ function makeSystemTasks() {
   } as any;
 }
 
-function seededClient() {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false, staleTime: Infinity } },
-  });
+const seedCache: SeedQueryCache = (client) => {
   const opts = {
     path: { assistant_id: ASSISTANT_ID },
     query: { limit: 20 },
@@ -65,19 +62,14 @@ function seededClient() {
     pages: [{ runs: [] }],
     pageParams: [{ path: opts.path, query: {} }],
   });
-  return client;
-}
+};
 
-function withClient(client: QueryClient) {
-  return function Decorator(Story: () => React.ReactElement) {
-    return (
-      <QueryClientProvider client={client}>
-        <div className="h-[640px] w-[420px]">
-          <Story />
-        </div>
-      </QueryClientProvider>
-    );
-  };
+function withPanelBox(Story: () => React.ReactElement) {
+  return (
+    <div className="h-[640px] w-[420px]">
+      <Story />
+    </div>
+  );
 }
 
 const meta: Meta<typeof SystemTaskDetailPanel> = {
@@ -97,7 +89,7 @@ export default meta;
 type Story = StoryObj<typeof SystemTaskDetailPanel>;
 
 export const Heartbeat: Story = {
-  decorators: [withClient(seededClient())],
+  decorators: [withPanelBox, withQueryCache(seedCache)],
 };
 
 export const HeartbeatDisabled: Story = {
@@ -112,5 +104,5 @@ export const HeartbeatDisabled: Story = {
       },
     },
   },
-  decorators: [withClient(seededClient())],
+  decorators: [withPanelBox, withQueryCache(seedCache)],
 };

@@ -70,16 +70,16 @@ bun run src/index.ts                # interactive CLI session
 
 ### CLI commands
 
-| Command                                            | Description                                      |
-| -------------------------------------------------- | ------------------------------------------------ |
-| `vellum wake`                                      | Start assistant + gateway from current checkout  |
-| `vellum sleep`                                     | Stop assistant + gateway processes               |
-| `vellum ps`                                        | List assistants and per-assistant process status |
-| `assistant`                                        | Launch interactive CLI session                   |
+| Command                                                    | Description                                      |
+| ---------------------------------------------------------- | ------------------------------------------------ |
+| `vellum wake`                                              | Start assistant + gateway from current checkout  |
+| `vellum sleep`                                             | Stop assistant + gateway processes               |
+| `vellum ps`                                                | List assistants and per-assistant process status |
+| `assistant`                                                | Launch interactive CLI session                   |
 | `assistant conversations list\|search\|new\|export\|clear` | Manage conversations                             |
-| `assistant config set\|get\|list`                  | Manage configuration                             |
-| `assistant keys set\|list\|delete`                 | Manage API keys in secure storage                |
-| `assistant trust list\|add\|update\|remove`        | Manage trust rules                               |
+| `assistant config set\|get\|list`                          | Manage configuration                             |
+| `assistant keys set\|list\|delete`                         | Manage API keys in secure storage                |
+| `assistant trust list\|add\|update\|remove`                | Manage trust rules                               |
 
 ## Project Structure
 
@@ -183,7 +183,7 @@ Internal forwarding routes (`/v1/internal/twilio/*`) are unaffected — these ac
 The `/channels/inbound` endpoint requires a JWT with the `svc_gateway` principal type and `ingress.write` scope to prove the request originated from the gateway. This ensures channel messages can only arrive via the gateway (which performs webhook-level verification) and not via direct HTTP calls that bypass signature checks.
 
 - **JWT-based enforcement:** The route policy in `route-policy.ts` restricts `/channels/inbound` to the `svc_gateway` principal type with `ingress.write` scope. Actor and local principals are rejected with 403.
-- **Auth bypass:** When `DISABLE_HTTP_AUTH=true` is set (platform-managed deployments), JWT verification is skipped and a synthetic context is used.
+- **Auth bypass:** When `DISABLE_HTTP_AUTH=true` is set (platform-managed deployments), a request that supplies no `Authorization` header gets a synthetic context. A request that supplies one is verified normally, and a token that fails verification is rejected.
 
 ## Twilio Setup Primitive
 
@@ -244,8 +244,8 @@ The channel guardian service generates verification challenge instructions with 
 ### Operator Notes
 
 - **Verification input format:** Channel verification accepts a bare code reply only (6-digit numeric for identity-bound sessions; 64-char hex for unbound inbound/bootstrap compatibility).
-- **Rebind requirement:** Creating a new guardian challenge when a binding already exists requires `rebind: true` in the HTTP request. Without it, the assistant returns `already_bound`. This prevents accidental guardian replacement.
-- **Takeover prevention:** Verification is rejected when an active binding exists for a different external user. Same-user re-verification is allowed.
+- **Rebind requirement:** Creating a new guardian challenge when a binding already exists requires `rebind: true` in the HTTP request. Without it, the assistant returns `already_bound`. On text channels the resulting code can only be redeemed by the account already bound, which is how the same guardian verifies again; to move the guardian to a different account, revoke the binding first and verify again. An outbound phone verification is the exception: its code replaces the bound number.
+- **Takeover prevention:** On text channels, verification is rejected when an active binding exists for a different external user: the code is spent, the reply is the generic "invalid or expired", and the sender is made neither guardian nor contact. Same-user re-verification is allowed, including for a guardian who revoked their binding and is verifying the same account again. Phone differs: an outbound verification with `rebind: true` replaces the bound number once its code is entered, and an inbound call from a different number is not bound.
 
 ### Vellum Guardian Identity (Actor Tokens)
 

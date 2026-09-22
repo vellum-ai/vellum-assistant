@@ -31,6 +31,10 @@ import { SB_DESKTOP_VIEWPORT, SB_VIEWPORTS } from "./viewports";
 // Some surfaces (e.g. OAuthConnectSurface) call `useQueryClient()`, which throws
 // without a provider. Give every story a shared client so Storybook/Chromatic
 // renders don't break; retries off keeps failed queries from looping in stories.
+// This is the fallback for stories with no cache of their own, and it keeps the
+// default staleness on purpose: stories that answer requests through
+// `stubClientFetch` rely on each mount refetching from their own stub. A story
+// that seeds data uses `lib/story-query-cache` instead.
 const storybookQueryClient = new QueryClient({
   defaultOptions: { queries: { retry: false } },
 });

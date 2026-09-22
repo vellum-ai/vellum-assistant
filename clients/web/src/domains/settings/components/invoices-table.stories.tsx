@@ -9,16 +9,13 @@
  * invoices.
  */
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import {
-  type InfiniteData,
-  QueryClient,
-  QueryClientProvider,
-} from "@tanstack/react-query";
+import type { InfiniteData } from "@tanstack/react-query";
 import { userEvent, within } from "storybook/test";
 
 import { InvoicesTable } from "@/domains/settings/components/invoices-table";
 import { organizationsBillingInvoicesRetrieveInfiniteQueryKey } from "@/generated/api/@tanstack/react-query.gen";
 import type { Invoice, InvoiceListResponse } from "@/generated/api/types.gen";
+import { withQueryCache } from "@/lib/story-query-cache";
 
 function unixSeconds(year: number, monthIndex: number, day: number): number {
   return Date.UTC(year, monthIndex, day, 12) / 1000;
@@ -99,31 +96,18 @@ const INVOICES: Invoice[] = [
   },
 ];
 
-/** A client holding one fully loaded page of invoices under the list's key. */
-function seededClient(page: InvoiceListResponse): QueryClient {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false, staleTime: Infinity } },
-  });
-  const data: InfiniteData<InvoiceListResponse, string | undefined> = {
-    pages: [page],
-    pageParams: [undefined],
-  };
-  client.setQueryData(
-    organizationsBillingInvoicesRetrieveInfiniteQueryKey(),
-    data,
-  );
-  return client;
-}
-
+/** A cache holding one fully loaded page of invoices under the list's key. */
 function withInvoices(page: InvoiceListResponse) {
-  const client = seededClient(page);
-  return function Decorator(Story: () => React.ReactElement) {
-    return (
-      <QueryClientProvider client={client}>
-        <Story />
-      </QueryClientProvider>
+  return withQueryCache((client) => {
+    const data: InfiniteData<InvoiceListResponse, string | undefined> = {
+      pages: [page],
+      pageParams: [undefined],
+    };
+    client.setQueryData(
+      organizationsBillingInvoicesRetrieveInfiniteQueryKey(),
+      data,
     );
-  };
+  });
 }
 
 const meta = {
