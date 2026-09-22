@@ -24,6 +24,7 @@ import {
   companionNearEdgeFor,
   companionScaleFor,
   type CompanionDock,
+  type CompanionIntroBeat,
   type CompanionIntroReport,
   type CompanionSize,
   type CompanionSizeAxis,
@@ -115,6 +116,7 @@ let origin = { x: 0, y: 0 };
 
 /** Every bounds main has asked the window server for, most recent last. */
 const boundsSet: { x: number; y: number; width: number; height: number }[] = [];
+const surfaceLevels: { floating: boolean; level?: string }[] = [];
 
 const surface = {
   webContents: {
@@ -135,6 +137,9 @@ const surface = {
     surfaceListeners.push({ event, listener });
   },
   isDestroyed: () => false,
+  setAlwaysOnTop: (floating: boolean, level?: string) => {
+    surfaceLevels.push({ floating, level });
+  },
   /** Whether it may become key, which a form on the bar lends it. */
   focusable: false,
   setFocusable: (focusable: boolean) => {
@@ -424,6 +429,12 @@ let frameError: unknown = null;
 const SCREEN_REFUSAL = new Error("Screen Recording permission denied");
 /** Every permission main sent the user to Settings for. */
 const settingsOpened: string[] = [];
+const permissionPresentationListeners: (() => void)[] = [];
+const presentPermission = (): void => {
+  for (const listener of permissionPresentationListeners) {
+    listener();
+  }
+};
 
 mock.module("./screen-recording-permission", () => ({
   screenRecordingGranted: async () => screenGranted,
@@ -434,6 +445,10 @@ mock.module("./screen-recording-permission", () => ({
 }));
 
 mock.module("./permissions-service", () => ({
+  onPermissionPresentation: (listener: () => void) => {
+    permissionPresentationListeners.push(listener);
+    return () => {};
+  },
   getPermissionsService: () => ({
     openSettings: async (kind: string) => {
       settingsOpened.push(kind);
@@ -776,6 +791,7 @@ beforeEach(() => {
   origin = { x: 0, y: 0 };
   nearestDisplay = NEAREST_DISPLAY;
   boundsSet.length = 0;
+  surfaceLevels.length = 0;
   glow = null;
   others.clear();
   glowPushes.length = 0;
@@ -2580,21 +2596,27 @@ describe("introOnAdvance", () => {
  * the whole run was building to.
  */
 describe("taking the introduction's last offer", () => {
-  /** Open a surface with a run due, and walk it to the beat that offers one. */
-  const runToLastBeat = (): void => {
-    openStagedRun();
-    for (let i = 1; i < COMPANION_INTRO_BEATS.length; i++) {
-      send("vellum:companion:advanceIntro", "next");
-    }
-    expect(state().intro).toBe("try");
-    mainTimeline.length = 0;
-  };
+  const centre = (): { x: number; y: number } => ({
+    x: origin.x + GEOMETRY.canvasWidth / 2,
+    y: origin.y + avatarOffsetFor(state().cardGrowth, GEOMETRY),
+  });
 
-  /** A surface opened with a run due, which stages it on the app's window. */
-  const openStagedRun = (): void => {
+  beforeEach(() => {
+    reducedMotion = true;
+  });
+  const openStagedRun = (beat: CompanionIntroBeat = "idle"): void => {
     companionOpen = false;
     introSeen = 0;
     openCompanionWindow();
+    for (
+      let index = 0;
+      index < COMPANION_INTRO_BEATS.indexOf(beat);
+      index += 1
+    ) {
+      send("vellum:companion:advanceIntro", "next");
+    }
+    expect(state().intro).toBe(beat);
+    mainTimeline.length = 0;
   };
 
   // A run is main's own state, and the `try` that ends one leaves the surface
@@ -2602,10 +2624,11 @@ describe("taking the introduction's last offer", () => {
   // every case here leaves through it rather than into the next one.
   afterEach(() => {
     closeSurface();
+    reducedMotion = true;
   });
 
   test("asks for the session before it says the run is over", async () => {
-    runToLastBeat();
+    openStagedRun("try");
 
     send("vellum:companion:advanceIntro", "try");
     await settleHandoff();
@@ -2624,7 +2647,7 @@ describe("taking the introduction's last offer", () => {
    * over, and the first-run card takes the press.
    */
   test("holds the run open while a renderer is built for the press", async () => {
-    runToLastBeat();
+    openStagedRun("try");
     mainWindowOpen = false;
 
     send("vellum:companion:advanceIntro", "try");
@@ -2654,7 +2677,7 @@ describe("taking the introduction's last offer", () => {
    * did nothing.
    */
   test("leaves the run alone when the press reaches nothing", async () => {
-    runToLastBeat();
+    openStagedRun("try");
     mainWindowOpen = false;
     windowClosesMidLoad = true;
 
@@ -2668,7 +2691,7 @@ describe("taking the introduction's last offer", () => {
   });
 
   test("and the run is over, so no card waits for the call to end", async () => {
-    runToLastBeat();
+    openStagedRun("try");
 
     send("vellum:companion:advanceIntro", "try");
     await settleHandoff();
@@ -2676,25 +2699,81 @@ describe("taking the introduction's last offer", () => {
     expect(state().intro).toBe(null);
   });
 
-  /**
-   * Only the last beat. A session started from an earlier one is the run being
-   * interrupted by the user's own business, so the beat is held and the staging
-   * with it.
-   */
-  test("an earlier beat's offer leaves the run staged", async () => {
-    openStagedRun();
-    send("vellum:companion:advanceIntro", "next");
-    send("vellum:companion:advanceIntro", "next");
-    expect(state().intro).toBe("talk");
-    mainTimeline.length = 0;
+  test.each([
+    ["call", true],
+    ["call", false],
+    ["declined", true],
+    ["skipped", true],
+    ["external call", true],
+  ] as const)(
+    "returns to the bottom after %s (reduced motion: %s)",
+    async (ending, reduceMotion) => {
+      reducedMotion = reduceMotion;
+      openStagedRun("try");
+      if (ending === "skipped") {
+        send("vellum:companion:advanceIntro", "next");
+      } else {
+        if (ending !== "external call") {
+          send("vellum:companion:advanceIntro", "try");
+          await settleHandoff();
+        }
+        if (ending !== "declined") {
+          send("vellum:voiceActivity:start", START);
+        }
+        send("vellum:voiceActivity:end");
+      }
+      if (!reduceMotion) {
+        await Bun.sleep(COMPANION_GLIDE_MS + 80);
+      }
+      expect(centre()).toEqual(
+        defaultAvatarCentre(NEAREST_DISPLAY.workArea, GEOMETRY),
+      );
+    },
+  );
 
-    send("vellum:companion:advanceIntro", "try");
-    await settleHandoff();
+  test.each(["app focus", "window focus", "tour end"] as const)(
+    "lets permission UI cover the tour and restores its level on %s",
+    (restore) => {
+      openStagedRun();
+      presentPermission();
+      presentPermission();
+      fireAppEvent("did-resign-active");
+      fireAppEvent("browser-window-focus", surface);
+      expect(surfaceLevels).toEqual([{ floating: false, level: undefined }]);
+      expect(state().intro).toBe("idle");
+      if (restore === "tour end") {
+        send("vellum:companion:advanceIntro", "dismiss");
+      } else if (restore === "window focus") {
+        fireAppEvent("browser-window-focus", mainWindow);
+      } else {
+        fireAppEvent("did-become-active");
+      }
+      expect(surfaceLevels.at(-1)).toEqual({
+        floating: true,
+        level: "floating",
+      });
+      expect(state().intro).toBe(restore === "tour end" ? null : "idle");
+    },
+  );
 
-    expect(mainTimeline).toEqual(["command:startVoice"]);
-    expect(state().intro).toBe("talk");
-    expect(introStage()).toBe(true);
+  test("does not lower the companion outside the tour", () => {
+    presentPermission();
+    expect(surfaceLevels).toEqual([]);
   });
+
+  test.each(["talk", "key"] as const)(
+    "a rehearsal on %s never starts a call",
+    async (beat) => {
+      openStagedRun(beat);
+
+      send("vellum:companion:advanceIntro", "try");
+      await settleHandoff();
+
+      expect(mainTimeline).toEqual([]);
+      expect(state().intro).toBe(beat);
+      expect(introStage()).toBe(true);
+    },
+  );
 });
 
 /**
@@ -2773,11 +2852,11 @@ describe("geometryFor", () => {
       CompanionSize,
       { maxReach: number; canvasWidth: number; canvasHeight: number }
     > = {
-      small: { maxReach: 322, canvasWidth: 692, canvasHeight: 267 },
-      medium: { maxReach: 445, canvasWidth: 962, canvasHeight: 374 },
-      large: { maxReach: 662, canvasWidth: 1420, canvasHeight: 547 },
-      huge: { maxReach: 879, canvasWidth: 1878, canvasHeight: 720 },
-      ridiculous: { maxReach: 1140, canvasWidth: 2520, canvasHeight: 1035 },
+      small: { maxReach: 322, canvasWidth: 692, canvasHeight: 306 },
+      medium: { maxReach: 445, canvasWidth: 962, canvasHeight: 435 },
+      large: { maxReach: 662, canvasWidth: 1420, canvasHeight: 624 },
+      huge: { maxReach: 879, canvasWidth: 1878, canvasHeight: 813 },
+      ridiculous: { maxReach: 1140, canvasWidth: 2520, canvasHeight: 1230 },
     };
     for (const size of COMPANION_SIZES) {
       const { maxReach, canvasWidth, canvasHeight } = geometryFor(size, size);
@@ -2833,16 +2912,16 @@ describe("geometryFor", () => {
         COMPANION_BASE_AVATAR_BOX,
         COMPANION_BASE_AVATAR_BOX,
       ),
-    ).toBe(300);
+    ).toBe(332);
     const sides: Record<
       CompanionSize,
       { riseAbove: number; dropBelow: number }
     > = {
-      small: { riseAbove: 221, dropBelow: 46 },
-      medium: { riseAbove: 305, dropBelow: 69 },
-      large: { riseAbove: 455, dropBelow: 92 },
-      huge: { riseAbove: 605, dropBelow: 115 },
-      ridiculous: { riseAbove: 805, dropBelow: 230 },
+      small: { riseAbove: 260, dropBelow: 46 },
+      medium: { riseAbove: 366, dropBelow: 69 },
+      large: { riseAbove: 532, dropBelow: 92 },
+      huge: { riseAbove: 698, dropBelow: 115 },
+      ridiculous: { riseAbove: 1000, dropBelow: 230 },
     };
     for (const size of COMPANION_SIZES) {
       const { riseAbove, dropBelow } = geometryFor(size, size);
@@ -2937,9 +3016,9 @@ describe("geometryFor with the two axes apart", () => {
       optionsBox: 32,
       maxReach: 355,
       canvasWidth: 830,
-      riseAbove: 274,
+      riseAbove: 362,
       dropBelow: 115,
-      canvasHeight: 389,
+      canvasHeight: 477,
     });
     // A base half box, the base gap, and a pill twice as wide.
     expect(BIG_OPTIONS).toEqual({
@@ -6059,7 +6138,9 @@ describe("the chord the introduction asks for", () => {
   const introChord = (): string | null => {
     const pull = invocable.get("vellum:companion:getIntroChord");
     if (!pull) {
-      throw new Error("No handler registered for vellum:companion:getIntroChord");
+      throw new Error(
+        "No handler registered for vellum:companion:getIntroChord",
+      );
     }
     return pull([]) as string | null;
   };
@@ -6312,6 +6393,24 @@ describe("the introduction's reports", () => {
       ["dismissed", "idle"],
     ]);
   });
+
+  test.each(["denied", "not-determined", "restricted", "unknown"])(
+    "keeps the final step open when microphone access is %s",
+    async (status) => {
+      startIntro();
+      for (const _beat of COMPANION_INTRO_BEATS.slice(1)) {
+        send("vellum:companion:advanceIntro", "next");
+      }
+      micStatus = status;
+      dispatched.length = 0;
+      mainSends.length = 0;
+      send("vellum:companion:advanceIntro", "try");
+      await settleHandoff();
+      expect(dispatched).toEqual([]);
+      expect(state().intro).toBe("try");
+      expect(reports()).toEqual([]);
+    },
+  );
 
   /**
    * The last beat's press is the one thing in the run that does what it

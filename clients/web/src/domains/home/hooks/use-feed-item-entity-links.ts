@@ -85,6 +85,20 @@ const ENTITY_LINKS = [
 }>;
 
 /**
+ * The list a skill link is validated against. Installed skills only:
+ * `include: "catalog"` would pull the whole remote skills.sh catalog to
+ * answer a local existence check, and a managed skill (the only kind a
+ * skill-update notification names) is always `installed`. Same key as the
+ * identity stats card's read, so every reader shares one entry.
+ */
+export function installedSkillsQueryOptions(assistantId: string) {
+  return skillsGetOptions({
+    path: { assistant_id: assistantId },
+    query: { kind: "installed" },
+  });
+}
+
+/**
  * Resolve the entity links for `item`, validated against the lists that own
  * each entity.
  *
@@ -107,15 +121,8 @@ export function useFeedItemEntityLinks(
     ...schedulesListQueryOptions(assistantId ?? undefined),
     enabled,
   });
-  // Installed skills only. `include: "catalog"` would pull the whole remote
-  // skills.sh catalog to answer a local existence check, and a managed skill
-  // (the only kind a skill-update notification names) is always `installed`.
-  // Same key as the identity stats card's read, so the two share one entry.
   const skillQuery = useQuery({
-    ...skillsGetOptions({
-      path: { assistant_id: assistantId ?? "" },
-      query: { kind: "installed" },
-    }),
+    ...installedSkillsQueryOptions(assistantId ?? ""),
     enabled: enabled && Boolean(assistantId),
   });
 

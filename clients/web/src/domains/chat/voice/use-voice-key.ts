@@ -8,10 +8,7 @@ import {
   subscribeToHotkeyEvents,
   supportsModifierHold,
 } from "@/runtime/hotkey";
-import {
-  getSystemPermissionsState,
-  requestSystemPermission,
-} from "@/runtime/system-permissions";
+import { subscribeToInputMonitoringGranted } from "@/runtime/system-permissions";
 import { createVoiceKeyGestureClassifier } from "@/domains/chat/voice/voice-key-gestures";
 import type { VoiceKey } from "@/utils/voice-key";
 
@@ -58,27 +55,6 @@ export interface VoiceKeyHandlers {
    * Input Monitoring ungranted), which is the settings card's cue to say so.
    */
   onRegistered?: (registered: boolean) => void;
-}
-
-/**
- * Whether this launch has asked for Input Monitoring on the key's behalf.
- *
- * The grant is asked for when the key is armed and not yet granted, which on a
- * fresh install is the first launch. Once per launch: a refusal is the user's
- * answer for the session, and the settings card offers the question again.
- */
-let inputMonitoringAskedThisLaunch = false;
-
-async function askForInputMonitoringOnce(): Promise<void> {
-  if (inputMonitoringAskedThisLaunch) {
-    return;
-  }
-  const state = await getSystemPermissionsState();
-  if (state?.inputMonitoring.status === "granted") {
-    return;
-  }
-  inputMonitoringAskedThisLaunch = true;
-  await requestSystemPermission("inputMonitoring");
 }
 
 /**
@@ -162,26 +138,30 @@ export function useVoiceKey({
     });
 
     let disposed = false;
-    void setModifierHold({
-      kind: "modifierOnly",
-      modifiers: modifiers.split("+") as KeyboardModifier[],
-    }).then(
-      (result) => {
-        if (!disposed) {
-          handlers.current.onRegistered?.(result.ok && result.enabled);
-        }
-      },
-      () => {
-        if (!disposed) {
-          handlers.current.onRegistered?.(false);
-        }
-      },
-    );
-    void askForInputMonitoringOnce();
+    const register = () => {
+      void setModifierHold({
+        kind: "modifierOnly",
+        modifiers: modifiers.split("+") as KeyboardModifier[],
+      }).then(
+        (result) => {
+          if (!disposed) {
+            handlers.current.onRegistered?.(result.ok && result.enabled);
+          }
+        },
+        () => {
+          if (!disposed) {
+            handlers.current.onRegistered?.(false);
+          }
+        },
+      );
+    };
+    const unsubscribePermission = subscribeToInputMonitoringGranted(register);
+    register();
 
     return () => {
       disposed = true;
       unsubscribe();
+      unsubscribePermission();
       classifier.cancel();
       void setModifierHold({ kind: "off" });
     };

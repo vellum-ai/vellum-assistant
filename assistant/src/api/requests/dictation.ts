@@ -1,8 +1,8 @@
 /**
  * Wire contract for the dictation REST endpoint (`POST /dictation`).
  *
- * The body web/macOS sends when asking the daemon to clean up a raw voice
- * transcript and classify it as dictation vs. action. `context` is its own
+ * The body web/macOS sends to apply explicit dictation replacements, classify
+ * voice input, or edit selected text. `context` is its own
  * named schema/type so consumers (web client) can import `DictationContext`
  * directly instead of inferring it from the generated client.
  *

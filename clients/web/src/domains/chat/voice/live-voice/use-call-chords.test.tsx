@@ -16,6 +16,16 @@ import type {
   HotkeyEvent,
 } from "@vellumai/ipc-contract";
 
+let permissionGranted: (() => void) | null = null;
+mock.module("@/runtime/system-permissions", () => ({
+  subscribeToInputMonitoringGranted: (callback: () => void) => {
+    permissionGranted = callback;
+    return () => {
+      permissionGranted = null;
+    };
+  },
+}));
+
 let chordsSupported = true;
 let emitHotkeyEvent: ((event: HotkeyEvent) => void) | null = null;
 const setChordBinding = mock(async (_binding: ChordBinding) => ({
@@ -402,5 +412,19 @@ describe("the introduction's chord", () => {
     setIntro(view, "share");
 
     expect(setChordBinding).not.toHaveBeenCalled();
+  });
+
+  test("re-arms the tutorial chord when Input Monitoring is granted", () => {
+    introControl = "share";
+    const view = renderHook(() => useCallChords());
+    setChordBinding.mockClear();
+    act(() => permissionGranted?.());
+    expect(setChordBinding).toHaveBeenCalledWith({
+      kind: "chord",
+      modifiers: ["option"],
+      keys: [INTRO_CALL_CHORD_KEYS.share],
+    });
+    view.unmount();
+    expect(permissionGranted).toBeNull();
   });
 });

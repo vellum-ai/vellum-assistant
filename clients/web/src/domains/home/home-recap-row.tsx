@@ -27,6 +27,7 @@ import {
   swipeActionsFor,
   type HomeRecapRowTrailingAction,
 } from "./home-recap-actions";
+import { useFeedItemReceiptTitle } from "./hooks/use-feed-item-receipt-title";
 import { guardianLabelKey, resolveFeedItemTitle } from "./utils";
 
 /**
@@ -151,6 +152,9 @@ export function HomeRecapRow({
      title is the generic name of the kind of request, and the ask itself
      (which lives in the body) reads underneath. */
   const attentionLabelKey = needsAttention ? guardianLabelKey(item) : null;
+  // A skill-update receipt is named by what it lists, in the reader's
+  // language; null for every other item.
+  const receiptTitle = useFeedItemReceiptTitle(item);
 
   // Both memoized: each parses the summary as markdown, and the bell re-renders
   // every row whenever the feed changes.
@@ -158,8 +162,9 @@ export function HomeRecapRow({
     () =>
       attentionLabelKey
         ? t(attentionLabelKey)
-        : resolveFeedItemTitle({ title: item.title, summary: item.summary }),
-    [attentionLabelKey, t, item.title, item.summary],
+        : (receiptTitle ??
+          resolveFeedItemTitle({ title: item.title, summary: item.summary })),
+    [attentionLabelKey, receiptTitle, t, item.title, item.summary],
   );
 
   const hasOffers = (item.actions?.length ?? 0) > 0;

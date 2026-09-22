@@ -10,7 +10,7 @@
  * A 404 drops the link. Any other failure keeps it: the feed already named
  * the conversation, and the chat route handles a dead id.
  */
-import { useQuery } from "@tanstack/react-query";
+import { queryOptions, useQuery } from "@tanstack/react-query";
 
 import { conversationsByIdGet } from "@/generated/daemon/sdk.gen";
 import {
@@ -18,6 +18,43 @@ import {
   assertHasResponse,
   extractErrorMessage,
 } from "@/utils/api-errors";
+
+/**
+ * Whether one conversation a feed item names still exists, as a by-id read.
+ * Shared by the single "Go to Conversation" link and a receipt's per-update
+ * source links, so both validate the same way against the same cache entry.
+ *
+ * Own cache, not the conversation-detail key: a 404 here is `false`, and
+ * other readers of `conversationsByIdGet` expect a row.
+ */
+export function feedItemConversationExistsQueryOptions(
+  assistantId: string,
+  conversationId: string,
+) {
+  return queryOptions({
+    queryKey: ["feedItemConversationLink", assistantId, conversationId],
+    staleTime: 30_000,
+    retry: false,
+    queryFn: async ({ signal }) => {
+      const { data, error, response } = await conversationsByIdGet({
+        path: { assistant_id: assistantId, id: conversationId },
+        throwOnError: false,
+        signal,
+      });
+      if (response?.status === 404) {
+        return false;
+      }
+      assertHasResponse(response, error, "Failed to fetch conversation.");
+      if (!response.ok) {
+        throw new ApiError(
+          response.status,
+          extractErrorMessage(error, response, "Failed to fetch conversation."),
+        );
+      }
+      return data?.conversation != null;
+    },
+  });
+}
 
 export interface FeedItemConversationLinkResult {
   /**
@@ -68,41 +105,14 @@ export function useFeedItemConversationLink(
   enabled: boolean,
 ): FeedItemConversationLinkResult {
   const conversationId = itemConversationId;
-  const canFetch =
-    enabled && Boolean(assistantId) && Boolean(conversationId);
+  const canFetch = enabled && Boolean(assistantId) && Boolean(conversationId);
 
-  // Own cache, not the conversation-detail key: a 404 here is `false`, and
-  // other readers of `conversationsByIdGet` expect a row.
   const query = useQuery({
-    queryKey: [
-      "feedItemConversationLink",
+    ...feedItemConversationExistsQueryOptions(
       assistantId ?? "",
       conversationId ?? "",
-    ],
+    ),
     enabled: canFetch,
-    staleTime: 30_000,
-    retry: false,
-    queryFn: async ({ signal }) => {
-      const { data, error, response } = await conversationsByIdGet({
-        path: {
-          assistant_id: assistantId ?? "",
-          id: conversationId ?? "",
-        },
-        throwOnError: false,
-        signal,
-      });
-      if (response?.status === 404) {
-        return false;
-      }
-      assertHasResponse(response, error, "Failed to fetch conversation.");
-      if (!response.ok) {
-        throw new ApiError(
-          response.status,
-          extractErrorMessage(error, response, "Failed to fetch conversation."),
-        );
-      }
-      return data?.conversation != null;
-    },
   });
 
   return resolveConversationLink({

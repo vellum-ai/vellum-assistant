@@ -97,16 +97,16 @@ afterEach(() => {
 });
 
 describe("useVoiceInput", () => {
-  test("inserts the cleaned final transcript into the front app", async () => {
+  test("inserts explicit dictation replacements into the front app", async () => {
     nextTextInsertionStatus = "inserted";
-    nextDictationResult = { mode: "dictation", text: "cleaned text" };
+    nextDictationResult = { mode: "dictation", text: "Hello Example User" };
     const { hook, getInput, getFocusCount } = renderVoiceInput("assistant-1");
 
     await act(async () => {
-      await hook.result.current.handleVoiceTranscript("raw text");
+      await hook.result.current.handleVoiceTranscript("Hello user one");
     });
 
-    expect(insertedTexts).toEqual(["cleaned text"]);
+    expect(insertedTexts).toEqual(["Hello Example User"]);
     expect(getInput()).toBe("");
     expect(getFocusCount()).toBe(0);
     expect(hook.result.current.voiceError).toBeNull();

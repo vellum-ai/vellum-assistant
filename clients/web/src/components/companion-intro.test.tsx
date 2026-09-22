@@ -1,10 +1,15 @@
-import { act, cleanup, render } from "@testing-library/react";
-import { afterEach, describe, expect, test } from "bun:test";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import {
   COMPANION_BASE_AVATAR_BOX,
   COMPANION_INTRO_BEATS,
   COMPANION_INTRO_CALL_CONTROLS,
+  COMPANION_SIZES,
+  companionBoxFor,
+  companionCardSideFor,
+  companionPadFor,
+  companionScaleFor,
   companionIntroCallControlFor,
   type CompanionIntroBeat,
 } from "@vellumai/ipc-contract";
@@ -17,6 +22,7 @@ import {
   introSpotlight,
 } from "./companion-intro";
 import { CompanionSurface } from "./companion-surface";
+import { introPermission } from "./companion-intro-fixtures";
 
 afterEach(cleanup);
 
@@ -48,6 +54,36 @@ const offCanvasBottom = (top: string): number => {
  * the two.
  */
 describe("the companion introduction's clearance", () => {
+  test("fits the larger card above the perched creature at every size pairing", () => {
+    for (const avatarSize of COMPANION_SIZES) {
+      for (const optionsSize of COMPANION_SIZES) {
+        const avatarBox = companionBoxFor("avatar", avatarSize);
+        const optionsBox = companionBoxFor("options", optionsSize);
+        const view = render(
+          <CompanionIntro
+            beat="share"
+            avatarBox={avatarBox}
+            optionsBox={optionsBox}
+          />,
+        );
+        const card = cardOf(view.container);
+        const step = /^translateY\(calc\(-100% - ([\d.]+)px\)\)$/.exec(
+          card.style.transform,
+        );
+        expect(step).not.toBeNull();
+        const reach =
+          (Number.parseFloat(card.style.height) + Number(step![1])) *
+          companionScaleFor(optionsBox);
+        expect(
+          companionCardSideFor(avatarBox, optionsBox) + 0.001,
+        ).toBeGreaterThanOrEqual(
+          reach + companionPadFor(avatarBox, optionsBox),
+        );
+        view.unmount();
+      }
+    }
+  });
+
   /**
    * A small creature under a large pill, which is the pair that separates the
    * two rules: the creature's box reaches 22 points above its centre and the
@@ -529,5 +565,72 @@ describe("the introduction's card box", () => {
     back.click();
 
     expect(asked).toEqual(["back"]);
+  });
+});
+
+describe("permission setup in the coachmark", () => {
+  test("keeps the card mounted during its initial permission check", () => {
+    const view = render(
+      <CompanionIntro
+        beat="talk"
+        permission={{
+          kind: "microphone",
+          state: { phase: "checking" },
+          enable: () => {},
+        }}
+      />,
+    );
+    const card = view.getByRole("group");
+    expect(view.getByText("Talk to me")).toBeTruthy();
+    expect(view.getByRole("button", { name: "Next" })).toBeTruthy();
+    expect(view.queryByText("Enable microphone")).toBeNull();
+    view.rerender(
+      <CompanionIntro
+        beat="talk"
+        permission={introPermission("microphone", "granted")}
+      />,
+    );
+    expect(view.getByText("Click me to start a conversation.")).toBeTruthy();
+    expect(view.getByRole("group")).toBe(card);
+    expect(view.queryByText("Enable microphone")).toBeNull();
+  });
+
+  test.each([
+    ["talk", "microphone", "Enable microphone"],
+    ["key", "inputMonitoring", "Open Settings"],
+    ["share", "screen", "Enable screen sharing"],
+  ] as const)(
+    "offers explicit setup and skipping on %s",
+    (beat, kind, label) => {
+      const enable = mock(() => {});
+      const advance = mock((_action: string) => {});
+      const view = render(
+        <CompanionIntro
+          beat={beat}
+          onAdvance={advance}
+          permission={{ ...introPermission(kind), enable }}
+        />,
+      );
+      expect(enable).not.toHaveBeenCalled();
+      fireEvent.click(view.getByRole("button", { name: label }));
+      expect(enable).toHaveBeenCalledTimes(1);
+      expect(advance).not.toHaveBeenCalled();
+      fireEvent.click(view.getByRole("button", { name: "Skip for now" }));
+      expect(advance).toHaveBeenCalledWith("next");
+    },
+  );
+  test("keeps the final step dismissible when the microphone is denied", () => {
+    const advance = mock((_action: string) => {});
+    const view = render(
+      <CompanionIntro
+        beat="try"
+        onAdvance={advance}
+        permission={introPermission("microphone", "denied")}
+      />,
+    );
+    expect(view.getByRole("button", { name: "Open Settings" })).toBeTruthy();
+    expect(view.queryByText("Say hello and I’ll answer out loud.")).toBeNull();
+    fireEvent.click(view.getByRole("button", { name: "Got it" }));
+    expect(advance).toHaveBeenCalledWith("next");
   });
 });
