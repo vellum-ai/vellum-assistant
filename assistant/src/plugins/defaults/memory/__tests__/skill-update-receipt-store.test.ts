@@ -32,7 +32,9 @@ mock.module("../../../../persistence/db-connection.js", () => ({
 
 const {
   countSkillUpdateReceiptEmitAttempt,
+  clearAllSkillUpdateReceipts,
   hasUnsettledSkillUpdateReceipt,
+  purgeSkillUpdateReceiptEntriesForConversation,
   listSealedSkillUpdateReceipts,
   listSkillUpdateReceiptEntries,
   readOpenSkillUpdateReceipt,
@@ -130,6 +132,21 @@ describe("recordSkillUpdate", () => {
     expect(second.id).not.toBe(first.id);
     expect(listSkillUpdateReceiptEntries(first.id)).toHaveLength(1);
     expect(listSkillUpdateReceiptEntries(second.id)).toHaveLength(1);
+  });
+
+  test("a call replayed after its receipt was sealed opens nothing", () => {
+    recordSkillUpdate(entry("e1"));
+    const first = readOpenSkillUpdateReceipt()!;
+    sealSkillUpdateReceipt({ id: first.id, rev: first.rev, sealedBy: "quiet" });
+
+    const replay = recordSkillUpdate(entry("e1"), 9_000);
+
+    expect(replay).toEqual({
+      recorded: true,
+      receiptId: first.id,
+      inserted: false,
+    });
+    expect(readOpenSkillUpdateReceipt()).toBeNull();
   });
 
   test("reports rather than throws when the memory database is unavailable", () => {
@@ -247,5 +264,45 @@ describe("lifecycle", () => {
       .query(`SELECT status FROM skill_update_receipts WHERE id = ?`)
       .get(open.id) as { status: string };
     expect(row.status).toBe("delivered");
+  });
+});
+
+describe("conversation purge", () => {
+  test("drops a deleted conversation's entries, as source or as run, and any receipt left empty", () => {
+    recordSkillUpdate({
+      ...entry("e1", "skill-a", "run-1"),
+      sourceConversationId: "conv-gone",
+    });
+    recordSkillUpdate(entry("e2", "skill-b", "run-gone"));
+    recordSkillUpdate({
+      ...entry("e3", "skill-c", "run-2"),
+      sourceConversationId: "conv-kept",
+    });
+    const open = readOpenSkillUpdateReceipt()!;
+
+    purgeSkillUpdateReceiptEntriesForConversation("conv-gone");
+    purgeSkillUpdateReceiptEntriesForConversation("run-gone");
+
+    expect(
+      listSkillUpdateReceiptEntries(open.id).map((e) => e.entryId),
+    ).toEqual(["e3"]);
+    expect(readOpenSkillUpdateReceipt()?.id).toBe(open.id);
+
+    purgeSkillUpdateReceiptEntriesForConversation("conv-kept");
+
+    expect(readOpenSkillUpdateReceipt()).toBeNull();
+    expect(hasUnsettledSkillUpdateReceipt()).toBe(false);
+  });
+
+  test("clear-all drops every receipt and entry", () => {
+    recordSkillUpdate(entry("e1"));
+    const open = readOpenSkillUpdateReceipt()!;
+    sealSkillUpdateReceipt({ id: open.id, rev: open.rev, sealedBy: "quiet" });
+    recordSkillUpdate(entry("e2"));
+
+    clearAllSkillUpdateReceipts();
+
+    expect(hasUnsettledSkillUpdateReceipt()).toBe(false);
+    expect(listSkillUpdateReceiptEntries(open.id)).toEqual([]);
   });
 });

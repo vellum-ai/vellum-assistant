@@ -483,6 +483,7 @@ export async function runMemoryJobsOnce(
   }
   maybeEnqueueGraphMaintenanceJobs(config);
   maybeEnqueueRetrospectiveSweepJob(config);
+  maybeEnqueueSkillUpdateReceiptTick();
   await maybeRunDbMaintenance();
   await maybeRunPassiveWalCheckpoint();
   return slowProcessed + fastProcessed + embedProcessed;

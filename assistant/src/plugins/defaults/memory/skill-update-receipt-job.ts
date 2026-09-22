@@ -19,7 +19,8 @@
 //   the home feed and never releases the key. The receipt's terminal state
 //   is read off what the pipeline did: a row in the home feed means it was
 //   delivered, a normal return with no row means the pipeline declined
-//   (`settled_no_row`), a failed pipeline is retried on the next tick within
+//   (`settled_no_row`) unless it dispatched and its own feed write failed
+//   (`undelivered`), a failed pipeline is retried on the next tick within
 //   a bounded number of attempts, and a `deduplicated` return with no row
 //   (a crash after the event row landed, before the feed write) is
 //   `undelivered`, because nothing this job can read distinguishes a crash
@@ -346,6 +347,14 @@ async function deliverSealedReceipt(
   if (hasFeedRow(result.signalId)) {
     settle(receipt, entries, "delivered");
     return "delivered";
+  }
+  // The feed writer swallows its own write errors, so a dispatched
+  // announcement with no row is a failed feed write, not a verdict. A retry
+  // would only meet the dedupe key, so it settles as undelivered and is
+  // counted. A pipeline that never dispatched declined the row on purpose.
+  if (result.dispatched) {
+    settle(receipt, entries, "undelivered", "feed write failed");
+    return "undelivered";
   }
   settle(receipt, entries, "settled_no_row", result.reason);
   return "settled_no_row";
