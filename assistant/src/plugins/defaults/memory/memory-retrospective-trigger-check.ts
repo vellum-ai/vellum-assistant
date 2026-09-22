@@ -74,12 +74,16 @@ export function shouldEnqueueRetrospective(args: {
 
 /**
  * Post-turn hook entry point. Looks up state, counts new messages, evaluates
- * thresholds, and enqueues if appropriate. Best-effort — any thrown error is
- * caught and logged so the agent turn cleanup path doesn't fail.
+ * thresholds, and enqueues if appropriate. `actorTrustClass` is the indexed
+ * message's provenance, which the funnel classifies: the trust gate lives
+ * there so the event path, the sweep, and the per-turn guidance cannot
+ * disagree about it. Best-effort: any thrown error is caught and logged so
+ * the agent turn cleanup path doesn't fail.
  */
 export function maybeEnqueueRetrospective(
   conversationId: string,
   config: AssistantConfig,
+  actorTrustClass: string | undefined,
 ): void {
   try {
     const state = getRetrospectiveState(conversationId);
@@ -103,7 +107,11 @@ export function maybeEnqueueRetrospective(
       return;
     }
 
-    enqueueMemoryRetrospectiveIfEnabled({ conversationId, trigger });
+    enqueueMemoryRetrospectiveIfEnabled({
+      conversationId,
+      trigger,
+      actorTrustClass,
+    });
   } catch (err) {
     log.warn({ err, conversationId }, "trigger-check failed; skipping enqueue");
   }

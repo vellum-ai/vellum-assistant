@@ -123,18 +123,38 @@ describe("memory-capture-guidance injector", () => {
     expect(text).toContain("`remember` now");
   });
 
-  test("a trusted contact on a standard conversation with memory on: cannot write, conditional", async () => {
-    const text = await produceText({
-      trust: { sourceChannel: "telegram", trustClass: "trusted_contact" },
-    });
+  test.each(["trusted_contact", "unverified_contact", "unknown"] as const)(
+    "a %s turn on a standard conversation: cannot write, triggers no pass",
+    async (trustClass) => {
+      // Every trigger path gates on the same trust, so the copy may not
+      // promise a pass this turn cannot cause. It stays turn-scoped: the
+      // guardian may still speak in this conversation and be reviewed.
+      const text = await produceText({
+        trust: { sourceChannel: "telegram", trustClass },
+      });
+      expect(text).toContain(
+        "You cannot save memory on this turn, and this turn does not trigger a later memory pass.",
+      );
+      expect(text).not.toContain("remember");
+    },
+  );
+
+  test("a guardian turn whose surface omits `remember`: cannot write", async () => {
+    // Memory consolidation and the researcher and advisor subagent roles run
+    // guardian-trust with allowlists that leave the tool out.
+    const text = await produceText({ canUseRememberTool: false });
     expect(text).toContain("You cannot save memory on this turn");
-    expect(text).toContain(
-      "may review this conversation but is not guaranteed",
-    );
-    expect(text).not.toContain("remember");
+    expect(text).not.toContain("remember`");
+  });
+
+  test("a guardian turn with the tool present is told to save now", async () => {
+    const text = await produceText({ canUseRememberTool: true });
+    expect(text).toContain("`remember` now");
   });
 
   test("a trusted contact on a scheduled conversation: cannot write, no later pass", async () => {
+    // The conversation reason outranks the actor reason: a scheduled
+    // conversation is never reviewed, whoever is speaking.
     const text = await produceText({
       conversationType: "scheduled",
       trust: { sourceChannel: "telegram", trustClass: "trusted_contact" },

@@ -955,6 +955,42 @@ export function canSpawnSubagentsForTurn(ctx: Conversation): boolean {
 }
 
 /**
+ * Whether this turn could actually call `remember`, read off the resolved
+ * tool surface rather than assumed from trust.
+ *
+ * Memory capability is one gate among several: a wire-scoped background run
+ * or a subagent role allowlist that omits the tool, a read-only pass, tools
+ * disabled, disk-pressure cleanup, and a workspace `tools.exclude` entry all
+ * take it away from a guardian-trust turn. Memory consolidation
+ * (`CONSOLIDATION_ALLOWED_TOOLS`) and the researcher and advisor subagent
+ * roles are live examples.
+ *
+ * The allowlist is checked here as well as inside
+ * {@link isToolActiveForContext}, for the reason
+ * {@link canSpawnSubagentsForTurn} gives: under
+ * `subagentToolGateMode === "execution"` the full surface stays on the wire
+ * and the executor rejects the call instead, which is the right answer to "is
+ * this tool on the wire" and the wrong one to "could this turn actually save".
+ *
+ * The memory capture guidance gates its `remember` wording on this, so a turn
+ * is never told to save with a tool it cannot reach.
+ */
+export function isRememberToolActiveForTurn(ctx: Conversation): boolean {
+  let excluded: ReadonlySet<string>;
+  try {
+    excluded = new Set(getConfig().tools.exclude);
+  } catch {
+    excluded = new Set<string>();
+  }
+  const allowlist = ctx.subagentAllowedTools;
+  return (
+    !excluded.has("remember") &&
+    (allowlist === undefined || allowlist.has("remember")) &&
+    isToolActiveForContext("remember", ctx)
+  );
+}
+
+/**
  * Build the agent loop's `onToolsSent` observer for a conversation: record
  * the tool array each provider call sends, with the delegation-section state
  * the prompt build captured for the prompt that call carries

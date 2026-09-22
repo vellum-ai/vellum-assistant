@@ -293,13 +293,20 @@ export async function indexMessageNow(
     // `maybeEnqueueRetrospective`, which also enforces the per-conversation
     // cooldown gate against retry storms. Recursion guards skip auto-analysis
     // conversations and the memory-retrospective background conversation
-    // itself.
+    // itself. The message's provenance rides along: the funnel's classifier
+    // applies the same `guardian || undefined` trust gate `isTrustedActor`
+    // spells out above, and is the one authority the per-turn capture
+    // guidance reads too.
     if (
       !isAutoAnalysisSource &&
       triggerConfig != null &&
       !isMemoryRetrospectiveConversation(input.conversationId)
     ) {
-      maybeEnqueueRetrospective(input.conversationId, triggerConfig);
+      maybeEnqueueRetrospective(
+        input.conversationId,
+        triggerConfig,
+        input.provenanceTrustClass,
+      );
     }
   }
 

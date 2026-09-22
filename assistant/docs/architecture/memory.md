@@ -256,15 +256,24 @@ bit and its explanation are derived from one gate.
   guarantee. It runs only over conversations
   `classifyRetrospectiveEligibility` (`memory-retrospective-eligibility.ts`)
   admits: never over `scheduled` conversations, memory-consolidation runs,
-  its own retrospective conversations, or retired auto-analysis rows, and
-  never when memory or `memory.retrospective.enabled` is off. Even an
-  eligible conversation is reviewed only when a trigger fires (message
-  count, interval, compaction, or the sweep) past the per-conversation
-  cooldown and, by default, only when the unprocessed tail carries user
-  activity. Heartbeat (`background`) conversations are eligible on the same
-  conditional terms as standard ones. The `memory-capture-guidance` injector
-  tells the model the same verdict on every turn, so anything that must
-  survive a scheduled or otherwise ineligible conversation is saved inline.
+  its own retrospective conversations, or retired auto-analysis rows, never
+  when memory or `memory.retrospective.enabled` is off, and never on behalf
+  of an actor that is not memory-trusted. That last gate is the guardian, or
+  a legacy row with no recorded provenance; a `trusted_contact`,
+  `unverified_contact`, or `unknown` turn triggers no pass, because the
+  retrospective runs under guardian trust with `remember` and would otherwise
+  write contact content across the memory trust boundary. Each trigger names
+  the actor it is acting for (the post-turn indexer the message's provenance,
+  the sweep the conversation's recent provenance, the compaction site the
+  turn's trust context) and the classifier decides. Even an eligible
+  conversation is reviewed only when a trigger fires (message count,
+  interval, compaction, or the sweep) past the per-conversation cooldown and,
+  by default, only when the unprocessed tail carries user activity. Heartbeat
+  (`background`) conversations are eligible on the same conditional terms as
+  standard ones. The `memory-capture-guidance` injector tells the model the
+  same verdict on every turn, paired with whether that turn can reach
+  `remember` at all, so anything that must survive an ineligible conversation
+  is saved inline and no turn is pointed at a tool it does not have.
 - **Sweep** (`substrate/sweep-job.ts`, `sweep_enabled` substrate tunable,
   default off): idle-debounced extraction of recent messages into the buffer.
 

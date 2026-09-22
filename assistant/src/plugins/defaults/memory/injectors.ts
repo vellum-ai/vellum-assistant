@@ -143,10 +143,11 @@ const pkbContextInjector: Injector = {
  * Tells the model, on every turn, what a later memory pass will and will not
  * do for this conversation and whether this turn can write memory at all. The
  * verdict is `resolveMemoryCaptureGuidance` over the conversation's type and
- * source, the actor's trust class, and the memory config: the same
- * classification the retrospective enqueue funnel applies, so the prompt and
- * the funnel cannot disagree, and the same capability authority `remember`
- * refuses under, so a turn is never pointed at a tool it does not have.
+ * source, the actor's trust class, the turn's resolved tool surface, and the
+ * memory config: the same classification the retrospective enqueue funnel
+ * applies (trust included, which every trigger path gates on), so the prompt
+ * and the funnel cannot disagree, and the same gates a `remember` call has to
+ * clear, so a turn is never pointed at a tool it does not have.
  *
  * Not gated on injection mode: `minimal` sheds high-token optional blocks,
  * and this is a one-line honesty warning. A context without the conversation
@@ -183,6 +184,7 @@ const memoryCaptureGuidanceInjector: Injector = {
       memoryEnabled,
       retrospectiveEnabled,
       trustClass: ctx.trust.trustClass,
+      rememberToolAvailable: ctx.canUseRememberTool !== false,
     });
     return {
       id: "memory-capture-guidance",

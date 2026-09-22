@@ -9,6 +9,11 @@ import type { MessagesAfterRef } from "../../../../persistence/message-cursor.js
 let sourceTag: string | null = null;
 let convType = "standard";
 let convSource = "user";
+/** Actor trust each funnel call names; the guardian is the ordinary case. */
+let actorTrust: string | undefined = "guardian";
+/** What the conversation's recorded provenance reads as, for the compaction
+ *  site's fallback when the turn carries no trust context. */
+let convProvenance: string | undefined = undefined;
 const upsertCalls: Array<{
   payload: { conversationId: string };
   runAfter: number;
@@ -32,6 +37,7 @@ let gateProbeCalls: Array<{
 
 mock.module("../../../../persistence/conversation-crud.js", () => ({
   getConversationSource: (_id: string) => sourceTag,
+  getConversationRecentProvenanceTrustClass: (_id: string) => convProvenance,
   getConversation: (_id: string) => ({
     conversationType: convType,
     source: convSource,
@@ -92,6 +98,8 @@ describe("enqueueMemoryRetrospectiveIfEnabled", () => {
     sourceTag = null;
     convType = "standard";
     convSource = "user";
+    actorTrust = "guardian";
+    convProvenance = undefined;
     upsertCalls.length = 0;
     cfgRequireUserActivity = true;
     cfgRetrospectiveEnabled = true;
@@ -107,6 +115,7 @@ describe("enqueueMemoryRetrospectiveIfEnabled", () => {
     const result = enqueueMemoryRetrospectiveIfEnabled({
       conversationId: "c1",
       trigger: "interval",
+      actorTrustClass: actorTrust,
     });
     const after = Date.now();
 
@@ -128,7 +137,11 @@ describe("enqueueMemoryRetrospectiveIfEnabled", () => {
       "sweep",
     ] as const) {
       expect(
-        enqueueMemoryRetrospectiveIfEnabled({ conversationId: "c1", trigger }),
+        enqueueMemoryRetrospectiveIfEnabled({
+          conversationId: "c1",
+          trigger,
+          actorTrustClass: actorTrust,
+        }),
       ).toBe(false);
     }
 
@@ -143,6 +156,7 @@ describe("enqueueMemoryRetrospectiveIfEnabled", () => {
     const result = enqueueMemoryRetrospectiveIfEnabled({
       conversationId: "c1",
       trigger: "interval",
+      actorTrustClass: actorTrust,
     });
 
     expect(result).toBe(false);
@@ -154,6 +168,7 @@ describe("enqueueMemoryRetrospectiveIfEnabled", () => {
     const result = enqueueMemoryRetrospectiveIfEnabled({
       conversationId: "c1",
       trigger: "interval",
+      actorTrustClass: actorTrust,
     });
 
     expect(result).toBe(false);
@@ -166,6 +181,7 @@ describe("enqueueMemoryRetrospectiveIfEnabled", () => {
     const result = enqueueMemoryRetrospectiveIfEnabled({
       conversationId: "c1",
       trigger: "interval",
+      actorTrustClass: actorTrust,
     });
 
     expect(result).toBe(true);
@@ -184,6 +200,7 @@ describe("enqueueMemoryRetrospectiveIfEnabled", () => {
     enqueueMemoryRetrospectiveIfEnabled({
       conversationId: "c1",
       trigger: "sweep",
+      actorTrustClass: actorTrust,
     });
 
     expect(gateProbeCalls).toEqual([
@@ -196,6 +213,7 @@ describe("enqueueMemoryRetrospectiveIfEnabled", () => {
     const result = enqueueMemoryRetrospectiveIfEnabled({
       conversationId: "c1",
       trigger: "interval",
+      actorTrustClass: actorTrust,
     });
 
     expect(result).toBe(true);
@@ -207,6 +225,7 @@ describe("enqueueMemoryRetrospectiveIfEnabled", () => {
     enqueueMemoryRetrospectiveIfEnabled({
       conversationId: "c1",
       trigger: "compaction",
+      actorTrustClass: actorTrust,
     });
 
     expect(upsertCalls).toHaveLength(1);
@@ -219,6 +238,7 @@ describe("enqueueMemoryRetrospectiveIfEnabled", () => {
     enqueueMemoryRetrospectiveIfEnabled({
       conversationId: "c1",
       trigger: "interval",
+      actorTrustClass: actorTrust,
     });
     expect(upsertCalls).toHaveLength(0);
   });
@@ -228,6 +248,7 @@ describe("enqueueMemoryRetrospectiveIfEnabled", () => {
     enqueueMemoryRetrospectiveIfEnabled({
       conversationId: "c1",
       trigger: "interval",
+      actorTrustClass: actorTrust,
     });
     expect(upsertCalls).toHaveLength(0);
   });
@@ -238,16 +259,42 @@ describe("enqueueMemoryRetrospectiveIfEnabled", () => {
     enqueueMemoryRetrospectiveIfEnabled({
       conversationId: "c1",
       trigger: "interval",
+      actorTrustClass: actorTrust,
     });
     expect(upsertCalls).toHaveLength(0);
   });
 
-  test("auto-analysis source — skips enqueue", () => {
+  test.each(["trusted_contact", "unverified_contact", "unknown"])(
+    "%s actor: skips enqueue",
+    (trustClass) => {
+      actorTrust = trustClass;
+      const result = enqueueMemoryRetrospectiveIfEnabled({
+        conversationId: "c-contact",
+        trigger: "interval",
+        actorTrustClass: trustClass,
+      });
+      expect(result).toBe(false);
+      expect(upsertCalls).toHaveLength(0);
+    },
+  );
+
+  test("legacy undefined provenance is trusted and enqueues", () => {
+    const result = enqueueMemoryRetrospectiveIfEnabled({
+      conversationId: "c-legacy",
+      trigger: "interval",
+      actorTrustClass: undefined,
+    });
+    expect(result).toBe(true);
+    expect(upsertCalls).toHaveLength(1);
+  });
+
+  test("auto-analysis source: skips enqueue", () => {
     convType = "standard";
     convSource = "auto-analysis";
     const result = enqueueMemoryRetrospectiveIfEnabled({
       conversationId: "c-auto",
       trigger: "interval",
+      actorTrustClass: actorTrust,
     });
     expect(result).toBe(false);
     expect(upsertCalls).toHaveLength(0);
@@ -259,6 +306,7 @@ describe("enqueueMemoryRetrospectiveIfEnabled", () => {
     enqueueMemoryRetrospectiveIfEnabled({
       conversationId: "c1",
       trigger: "interval",
+      actorTrustClass: actorTrust,
     });
     expect(upsertCalls).toHaveLength(1);
   });
@@ -294,14 +342,31 @@ describe("enqueueMemoryRetrospectiveOnCompaction", () => {
     gateProbeThrows = false;
   });
 
-  test("untrusted trust class — no enqueue", () => {
+  test("untrusted trust class: no enqueue", () => {
     enqueueMemoryRetrospectiveOnCompaction("c1", "unknown");
     enqueueMemoryRetrospectiveOnCompaction("c1", "trusted_contact");
+    enqueueMemoryRetrospectiveOnCompaction("c1", "unverified_contact");
+    expect(upsertCalls).toHaveLength(0);
+  });
+
+  test("no turn trust falls back to the conversation's provenance", () => {
+    // A legacy or desktop guardian conversation never stamped provenance, so
+    // both reads are `undefined` and it stays eligible, matching the event
+    // and sweep paths.
+    convProvenance = undefined;
+    enqueueMemoryRetrospectiveOnCompaction("c1", undefined);
+    expect(upsertCalls).toHaveLength(1);
+  });
+
+  test("no turn trust on a contact conversation stays skipped", () => {
+    // The fallback cannot admit contact content: the recorded provenance is
+    // what decides when the turn carries no trust context.
+    convProvenance = "trusted_contact";
     enqueueMemoryRetrospectiveOnCompaction("c1", undefined);
     expect(upsertCalls).toHaveLength(0);
   });
 
-  test("guardian trust — enqueues with compaction debounce", () => {
+  test("guardian trust: enqueues with compaction debounce", () => {
     const before = Date.now();
     enqueueMemoryRetrospectiveOnCompaction("c1", "guardian");
     expect(upsertCalls).toHaveLength(1);

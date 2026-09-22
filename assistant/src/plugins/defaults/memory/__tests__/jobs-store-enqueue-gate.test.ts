@@ -167,6 +167,7 @@ describe("enqueueMemoryRetrospectiveIfEnabled (call-site gate)", () => {
     enqueueMemoryRetrospectiveIfEnabled({
       conversationId: "conv-1",
       trigger: "interval",
+      actorTrustClass: "guardian",
     });
     expect(dbInserts.length).toBe(0);
   });
@@ -176,6 +177,7 @@ describe("enqueueMemoryRetrospectiveIfEnabled (call-site gate)", () => {
     enqueueMemoryRetrospectiveIfEnabled({
       conversationId: "conv-1",
       trigger: "interval",
+      actorTrustClass: "guardian",
     });
     expect(dbInserts.length).toBeGreaterThan(0);
   });
@@ -185,6 +187,7 @@ describe("enqueueMemoryRetrospectiveIfEnabled (call-site gate)", () => {
     enqueueMemoryRetrospectiveIfEnabled({
       conversationId: "conv-1",
       trigger: "interval",
+      actorTrustClass: "guardian",
     });
     expect(dbInserts.length).toBeGreaterThan(0);
   });

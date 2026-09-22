@@ -13,10 +13,17 @@
 // make. The retrospective sweep's SQL filter mirrors the type and source
 // reasons here and is pinned to them by a parity test.
 //
-// Pure: takes the conversation row's type and source plus the two config
-// switches as values, so the funnel (config singleton, DB row) and the
-// injector (plugin config accessor, `TurnContext`) can each supply them from
-// the seam they already have.
+// Four dimensions decide it, and all four live here:
+//   - the memory master switch and the retrospective switch;
+//   - the conversation's identity (its type and source);
+//   - the actor's trust, which every trigger path gates on;
+//   - nothing else. The tail-dependent gates (user activity, cooldown,
+//     thresholds) are the funnel's own, and are what makes an eligible
+//     conversation's review conditional rather than promised.
+//
+// Pure: takes every input as a value, so the funnel (config singleton, DB
+// row, caller-supplied trust) and the injector (plugin config accessor,
+// `TurnContext`) can each supply them from the seam they already have.
 
 import { AUTO_ANALYSIS_SOURCE } from "../../../persistence/auto-analysis-constants.js";
 import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../../persistence/conversation-types.js";
@@ -24,9 +31,31 @@ import { resolveCapabilities } from "../../../runtime/capabilities.js";
 import { isMemoryRetrospectiveSource } from "./memory-retrospective-constants.js";
 
 /**
+ * The trust semantic every retrospective trigger shares: the guardian, plus
+ * legacy rows that never recorded provenance.
+ *
+ * Deliberately NOT `resolveCapabilities(...).canAccessMemory`, which reads
+ * `undefined` as the `unknown` class and would drop the legacy/desktop
+ * guardian conversations whose messages predate provenance stamping. The two
+ * agree on every named class: the guardian writes memory and triggers a pass,
+ * and `trusted_contact` / `unverified_contact` / `unknown` do neither. The
+ * retrospective job runs under guardian trust with `remember`, so admitting a
+ * contact-audience conversation would write its content across the memory
+ * trust boundary.
+ */
+export function isRetrospectiveTrustedActor(
+  trustClass: string | undefined,
+): boolean {
+  return trustClass === "guardian" || trustClass === undefined;
+}
+
+/**
  * Why a later pass never reviews a conversation, in precedence order: the
  * memory master switch first (nothing memory-shaped runs), the retrospective
- * switch second, then the conversation's own identity.
+ * switch second, then the conversation's own identity, then the actor. The
+ * conversation reasons are reported ahead of `untrusted_actor` because they
+ * are permanent facts about the conversation, while the actor reason is
+ * scoped to the turn in hand.
  */
 export type RetrospectiveIneligibilityReason =
   | "memory_disabled"
@@ -34,7 +63,8 @@ export type RetrospectiveIneligibilityReason =
   | "retrospective_conversation"
   | "consolidation"
   | "auto_analysis"
-  | "scheduled";
+  | "scheduled"
+  | "untrusted_actor";
 
 /**
  * `ineligible`: no later pass reviews this conversation, for `reason`.
@@ -53,6 +83,16 @@ export interface RetrospectiveEligibilityInput {
   memoryEnabled: boolean;
   /** `memory.retrospective.enabled`. */
   retrospectiveEnabled: boolean;
+  /**
+   * Trust of the actor this decision is about, read through
+   * {@link isRetrospectiveTrustedActor}. Each caller supplies the actor its
+   * own trigger gates on: the post-turn indexer the message's provenance, the
+   * sweep the conversation's recent provenance, the compaction site the
+   * turn's trust context (falling back to the conversation's provenance), and
+   * the injector the live turn's trust class. `undefined` is the legacy
+   * no-provenance case and counts as trusted.
+   */
+  actorTrustClass: string | undefined;
 }
 
 /**
@@ -84,16 +124,25 @@ export function classifyRetrospectiveEligibility(
   if (input.conversationType === "scheduled") {
     return { status: "ineligible", reason: "scheduled" };
   }
+  if (!isRetrospectiveTrustedActor(input.actorTrustClass)) {
+    return { status: "ineligible", reason: "untrusted_actor" };
+  }
   return { status: "conditional" };
 }
 
 /**
  * What the model should be told about memory capture on one turn: whether a
  * later pass may review the conversation, and whether this turn can write
- * memory at all. `canWriteMemory` is derived from the two authorities
- * `remember` itself answers to: the tool is absent from the surface when
- * memory is off, and its executor refuses when the actor's trust class has
- * no memory capability (`resolveCapabilities(trustClass).canAccessMemory`).
+ * memory at all.
+ *
+ * `canWriteMemory` is every gate a `remember` call has to clear, in the same
+ * order the runtime applies them: the memory master switch (which hides the
+ * tool), the actor's memory capability (which its executor refuses under),
+ * and the turn's resolved tool surface (a wire-scoped background run or a
+ * subagent allowlist that omits it, read-only mode, disk-pressure cleanup, a
+ * workspace `tools.exclude` entry). Consolidation and the researcher and
+ * advisor subagent roles all run guardian-trust with allowlists that omit
+ * `remember`, so trust alone would advertise a tool they cannot call.
  */
 export interface MemoryCaptureGuidance {
   laterPass: RetrospectiveEligibility;
@@ -101,13 +150,25 @@ export interface MemoryCaptureGuidance {
 }
 
 export function resolveMemoryCaptureGuidance(
-  input: RetrospectiveEligibilityInput & { trustClass: string | undefined },
+  input: Omit<RetrospectiveEligibilityInput, "actorTrustClass"> & {
+    trustClass: string | undefined;
+    /**
+     * Whether `remember` resolves onto this turn's tool surface. Omitted
+     * means "not known to be absent": a caller with no live conversation to
+     * resolve the surface from makes no claim about it.
+     */
+    rememberToolAvailable?: boolean;
+  },
 ): MemoryCaptureGuidance {
   return {
-    laterPass: classifyRetrospectiveEligibility(input),
+    laterPass: classifyRetrospectiveEligibility({
+      ...input,
+      actorTrustClass: input.trustClass,
+    }),
     canWriteMemory:
       input.memoryEnabled &&
-      resolveCapabilities(input.trustClass).canAccessMemory,
+      resolveCapabilities(input.trustClass).canAccessMemory &&
+      input.rememberToolAvailable !== false,
   };
 }
 
@@ -116,6 +177,11 @@ export function resolveMemoryCaptureGuidance(
  * cannot write memory is told so and never pointed at `remember`; a turn
  * that can write is told whether a later pass is coming and that anything
  * which must survive is saved now either way.
+ *
+ * The `untrusted_actor` copy is deliberately turn-scoped. A conversation the
+ * guardian also speaks in stays reviewable, and that review covers the whole
+ * window including this turn, so "no later pass reviews this conversation"
+ * would overclaim; what is certainly true is that this turn triggers none.
  */
 export function renderMemoryCaptureGuidance(
   guidance: MemoryCaptureGuidance,
@@ -123,9 +189,14 @@ export function renderMemoryCaptureGuidance(
   const { laterPass, canWriteMemory } = guidance;
   if (!canWriteMemory) {
     if (laterPass.status === "ineligible") {
-      return laterPass.reason === "memory_disabled"
-        ? "Memory is off for this assistant: nothing from this conversation is saved, now or later."
-        : "You cannot save memory on this turn, and no later memory pass reviews this conversation.";
+      switch (laterPass.reason) {
+        case "memory_disabled":
+          return "Memory is off for this assistant: nothing from this conversation is saved, now or later.";
+        case "untrusted_actor":
+          return "You cannot save memory on this turn, and this turn does not trigger a later memory pass.";
+        default:
+          return "You cannot save memory on this turn, and no later memory pass reviews this conversation.";
+      }
     }
     return "You cannot save memory on this turn. A later memory pass may review this conversation but is not guaranteed.";
   }

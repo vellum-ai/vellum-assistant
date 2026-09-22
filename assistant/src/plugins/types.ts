@@ -250,6 +250,15 @@ export interface TurnContext {
   readonly conversationType?: string;
   readonly conversationSource?: string;
   /**
+   * Whether `remember` resolves onto this turn's tool surface
+   * (`isRememberToolActiveForTurn`). Read by the `memory-capture-guidance`
+   * injector so a turn whose allowlist, read-only pass, or workspace
+   * exclusion takes the tool away is never told to save with it. Absent when
+   * no live conversation backs the turn, which is read as no claim rather
+   * than as absence.
+   */
+  readonly canUseRememberTool?: boolean;
+  /**
    * Active documents open in this conversation — surfaced by the
    * `active-documents` injector so the assistant can target existing docs
    * with `document_update` instead of creating duplicates.

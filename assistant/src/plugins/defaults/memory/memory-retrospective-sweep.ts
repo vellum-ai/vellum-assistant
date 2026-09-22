@@ -21,10 +21,11 @@
 //
 // Eligibility mirrors the event-driven path's gates so the sweep enqueues
 // exactly what a completed turn would have: memory-trusted actor only
-// (`isMemoryTrustedConversation`, matching `indexer.ts`'s `isTrustedActor` —
-// the retrospective runs under guardian trust with `remember`, so untrusted
-// contact content must never reach it) and no recursion/low-yield sources
-// (filtered in `EXCLUDED_SOURCES`).
+// (`isRetrospectiveTrustedActor` over the conversation's recent provenance,
+// the same predicate `indexer.ts` applies per message and the funnel
+// re-applies; the retrospective runs under guardian trust with `remember`, so
+// untrusted contact content must never reach it) and no recursion/low-yield
+// sources (filtered in `EXCLUDED_SOURCES`).
 //
 // Cost discipline:
 //   - The scan is bounded to conversations whose last message falls inside
@@ -79,6 +80,7 @@ import { getLogger } from "./logging.js";
 import { countRetrospectiveMessagesAfter } from "./memory-retrospective-accounting.js";
 import { MEMORY_RETROSPECTIVE_SOURCES } from "./memory-retrospective-constants.js";
 import { retrospectiveCursor } from "./memory-retrospective-cursor.js";
+import { isRetrospectiveTrustedActor } from "./memory-retrospective-eligibility.js";
 import { enqueueMemoryRetrospectiveIfEnabled } from "./memory-retrospective-enqueue.js";
 import { getRetrospectiveState } from "./memory-retrospective-state.js";
 
@@ -113,28 +115,6 @@ const EXCLUDED_SOURCES: string[] = [
   MEMORY_V2_CONSOLIDATION_SOURCE,
   AUTO_ANALYSIS_SOURCE,
 ];
-
-/**
- * Whether a conversation's actor is trusted to write into long-term memory.
- * Mirrors the `isTrustedActor` gate in `indexer.ts`: only guardian-authored
- * conversations and legacy conversations with no recorded provenance
- * (predominantly desktop-origin guardian threads, which don't stamp
- * provenance) are trusted. Contact-audience conversations (trusted_contact /
- * unverified_contact / unknown) are excluded — the retrospective job runs
- * under guardian trust with `remember`, so sweeping an untrusted conversation
- * would write its content into memory across the memory trust boundary.
- *
- * This is the timer-path equivalent of the trust gate the event triggers
- * apply per message (`isTrustedActor`) and the disposal net applied via
- * `resolveCapabilities(...).canAccessMemory`; it must match the event triggers'
- * `guardian || undefined` semantic rather than `canAccessMemory` so the sweep
- * still backs up legacy/desktop guardian conversations (whose provenance is
- * `undefined`), which `resolveCapabilities(undefined)` would wrongly exclude.
- */
-export function isMemoryTrustedConversation(conversationId: string): boolean {
-  const trustClass = getConversationRecentProvenanceTrustClass(conversationId);
-  return trustClass === "guardian" || trustClass === undefined;
-}
 
 /** Yield to the event loop so a large backlog never blocks it. */
 function breathe(): Promise<void> {
@@ -259,7 +239,9 @@ export async function runRetrospectiveSweep(
       // `isTrustedActor` gate the event triggers apply and the disposal net's
       // capability check — without it the timer path would write untrusted
       // contact content into long-term memory.
-      if (!isMemoryTrustedConversation(conversationId)) {
+      const actorTrustClass =
+        getConversationRecentProvenanceTrustClass(conversationId);
+      if (!isRetrospectiveTrustedActor(actorTrustClass)) {
         continue;
       }
 
@@ -284,6 +266,7 @@ export async function runRetrospectiveSweep(
         !enqueueMemoryRetrospectiveIfEnabled({
           conversationId,
           trigger: "sweep",
+          actorTrustClass,
         })
       ) {
         continue;

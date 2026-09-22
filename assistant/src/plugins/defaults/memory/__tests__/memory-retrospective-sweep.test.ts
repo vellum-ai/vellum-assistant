@@ -6,13 +6,21 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // memory-retrospective-enqueue tests; `enqueueDeclines` scripts a declined
 // conversation so the cap accounting can be asserted.
 let enqueueCalls: Array<{ conversationId: string; trigger: string }> = [];
+// The actor each enqueue named, captured apart from the call shape so the
+// scan/gate assertions stay about which conversations were reached.
+let enqueueActors: Array<string | undefined> = [];
 let enqueueDeclines = new Set<string>();
 mock.module("../memory-retrospective-enqueue.js", () => ({
   enqueueMemoryRetrospectiveIfEnabled: (args: {
     conversationId: string;
     trigger: string;
+    actorTrustClass: string | undefined;
   }) => {
-    enqueueCalls.push(args);
+    enqueueCalls.push({
+      conversationId: args.conversationId,
+      trigger: args.trigger,
+    });
+    enqueueActors.push(args.actorTrustClass);
     return !enqueueDeclines.has(args.conversationId);
   },
 }));
@@ -113,7 +121,54 @@ describe("runRetrospectiveSweep", () => {
   beforeEach(() => {
     resetTables();
     enqueueCalls = [];
+    enqueueActors = [];
     enqueueDeclines = new Set();
+  });
+
+  test.each(["trusted_contact", "unverified_contact", "unknown"])(
+    "a conversation whose recent provenance is %s is never swept",
+    async (trustClass) => {
+      // The timer path must not reach contact content: the retrospective runs
+      // under guardian trust with `remember`.
+      const conv = createConversation({ id: "conv-contact" });
+      insertMessage(conv.id, {
+        createdAt: 1_000,
+        metadata: { provenanceTrustClass: trustClass },
+      });
+
+      await runRetrospectiveSweep(makeConfig());
+
+      expect(enqueueCalls).toEqual([]);
+    },
+  );
+
+  test("a guardian conversation is swept and names its actor", async () => {
+    const conv = createConversation({ id: "conv-guardian" });
+    insertMessage(conv.id, {
+      createdAt: 1_000,
+      metadata: { provenanceTrustClass: "guardian" },
+    });
+
+    await runRetrospectiveSweep(makeConfig());
+
+    expect(enqueueCalls).toEqual([
+      { conversationId: conv.id, trigger: "sweep" },
+    ]);
+    expect(enqueueActors).toEqual(["guardian"]);
+  });
+
+  test("a legacy conversation with no recorded provenance is still swept", async () => {
+    // Desktop-origin guardian threads never stamped provenance; reading that
+    // as untrusted would silently drop them from the backstop.
+    const conv = createConversation({ id: "conv-legacy" });
+    insertMessage(conv.id, { createdAt: 1_000 });
+
+    await runRetrospectiveSweep(makeConfig());
+
+    expect(enqueueCalls).toEqual([
+      { conversationId: conv.id, trigger: "sweep" },
+    ]);
+    expect(enqueueActors).toEqual([undefined]);
   });
 
   test("never-run conversation with unprocessed messages is swept", async () => {
@@ -365,7 +420,8 @@ describe("listSweepCandidateConversationIds", () => {
   test("admits exactly the rows the eligibility classifier calls conditional", () => {
     // The sweep's SQL filter and `classifyRetrospectiveEligibility` are two
     // spellings of one rule over the row's type and source. Both switches are
-    // on here: the config reasons are the funnel's, not the query's.
+    // on here, and every row's provenance is unrecorded (the legacy trusted
+    // case), so the config and actor reasons are out of the query's scope.
     const rows: Array<{
       id: string;
       conversationType?: ConversationCreateType;
@@ -400,6 +456,9 @@ describe("listSweepCandidateConversationIds", () => {
         source: row.source ?? "user",
         memoryEnabled: true,
         retrospectiveEnabled: true,
+        // These rows carry no provenance, which is what the sweep's own
+        // trust read returns for them: the legacy trusted case.
+        actorTrustClass: undefined,
       });
       expect([row.id, admitted.has(row.id)]).toEqual([
         row.id,
@@ -468,6 +527,7 @@ describe("runRetrospectiveSweep: cursor survives a regenerated reply", () => {
   beforeEach(() => {
     resetTables();
     enqueueCalls = [];
+    enqueueActors = [];
     enqueueDeclines = new Set();
   });
 

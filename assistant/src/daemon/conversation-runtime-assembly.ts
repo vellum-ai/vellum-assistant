@@ -97,6 +97,7 @@ import {
   stripAgedSightFrames,
 } from "./conversation-sight-frames.js";
 import type { SurfaceShowPair } from "./conversation-surfaces.js";
+import { isRememberToolActiveForTurn } from "./conversation-tool-setup.js";
 import { canonicalizeTimeZone, formatTurnTimestamp } from "./date-context.js";
 import type {} from "./message-protocol.js";
 import { filterMessagesForUntrustedActor } from "./message-provenance.js";
@@ -2516,6 +2517,9 @@ export async function applyRuntimeInjections(
     isBackgroundConversation,
     conversationType: liveConversation?.conversationType,
     conversationSource: liveConversation?.source,
+    canUseRememberTool: liveConversation
+      ? isRememberToolActiveForTurn(liveConversation)
+      : undefined,
     activeDocuments,
     timestamp,
     interfaceName,

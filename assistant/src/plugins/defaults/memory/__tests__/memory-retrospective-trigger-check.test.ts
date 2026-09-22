@@ -3,12 +3,20 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // Record enqueues instead of writing job rows — the trigger decision is the
 // unit under test here, not the jobs store's gating.
 let enqueueCalls: Array<{ conversationId: string; trigger: string }> = [];
+// The actor each enqueue named, captured apart from the call shape so the
+// trigger assertions stay about the threshold decision.
+let enqueueActors: Array<string | undefined> = [];
 mock.module("../memory-retrospective-enqueue.js", () => ({
   enqueueMemoryRetrospectiveIfEnabled: (args: {
     conversationId: string;
     trigger: string;
+    actorTrustClass: string | undefined;
   }) => {
-    enqueueCalls.push(args);
+    enqueueCalls.push({
+      conversationId: args.conversationId,
+      trigger: args.trigger,
+    });
+    enqueueActors.push(args.actorTrustClass);
   },
 }));
 
@@ -215,6 +223,7 @@ describe("maybeEnqueueRetrospective — kind-aware accounting", () => {
   beforeEach(() => {
     resetTables();
     enqueueCalls = [];
+    enqueueActors = [];
   });
 
   test("card-only tail past the cursor: no enqueue, even when the interval threshold has long elapsed", async () => {
@@ -229,7 +238,7 @@ describe("maybeEnqueueRetrospective — kind-aware accounting", () => {
     });
     insertSkillCardMessage(conv.id, 2_000);
 
-    maybeEnqueueRetrospective(conv.id, makeConfig());
+    maybeEnqueueRetrospective(conv.id, makeConfig(), "guardian");
 
     expect(enqueueCalls).toEqual([]);
   });
@@ -244,11 +253,14 @@ describe("maybeEnqueueRetrospective — kind-aware accounting", () => {
     });
     insertMessage(conv.id, { createdAt: 2_000 });
 
-    maybeEnqueueRetrospective(conv.id, makeConfig());
+    maybeEnqueueRetrospective(conv.id, makeConfig(), "guardian");
 
     expect(enqueueCalls).toEqual([
       { conversationId: conv.id, trigger: "interval" },
     ]);
+    // The actor rides along: this helper forwards it, and the funnel's
+    // classifier is what decides whether an untrusted one enqueues.
+    expect(enqueueActors).toEqual(["guardian"]);
   });
 
   test("message_count trigger counts only real messages, not interleaved cards", async () => {
@@ -264,12 +276,20 @@ describe("maybeEnqueueRetrospective — kind-aware accounting", () => {
     insertMessage(conv.id, { createdAt: 3_000 });
 
     // Card + 1 real = raw count 2 (at threshold), kind-aware count 1 → quiet.
-    maybeEnqueueRetrospective(conv.id, makeConfig({ messageThreshold: 2 }));
+    maybeEnqueueRetrospective(
+      conv.id,
+      makeConfig({ messageThreshold: 2 }),
+      "guardian",
+    );
     expect(enqueueCalls).toEqual([]);
 
     // A second real message tips the kind-aware count to the threshold.
     insertMessage(conv.id, { createdAt: 4_000 });
-    maybeEnqueueRetrospective(conv.id, makeConfig({ messageThreshold: 2 }));
+    maybeEnqueueRetrospective(
+      conv.id,
+      makeConfig({ messageThreshold: 2 }),
+      "guardian",
+    );
     expect(enqueueCalls).toEqual([
       { conversationId: conv.id, trigger: "message_count" },
     ]);
@@ -279,11 +299,11 @@ describe("maybeEnqueueRetrospective — kind-aware accounting", () => {
     const conv = createConversation("conv");
     insertSkillCardMessage(conv.id, 1_000);
 
-    maybeEnqueueRetrospective(conv.id, makeConfig());
+    maybeEnqueueRetrospective(conv.id, makeConfig(), "guardian");
     expect(enqueueCalls).toEqual([]);
 
     insertMessage(conv.id, { createdAt: 2_000 });
-    maybeEnqueueRetrospective(conv.id, makeConfig());
+    maybeEnqueueRetrospective(conv.id, makeConfig(), "guardian");
     expect(enqueueCalls).toEqual([
       { conversationId: conv.id, trigger: "interval" },
     ]);
@@ -299,11 +319,11 @@ describe("maybeEnqueueRetrospective — kind-aware accounting", () => {
     });
     insertSkillCardMessage(conv.id, 1_000);
 
-    maybeEnqueueRetrospective(conv.id, makeConfig());
+    maybeEnqueueRetrospective(conv.id, makeConfig(), "guardian");
     expect(enqueueCalls).toEqual([]);
 
     insertMessage(conv.id, { createdAt: 2_000 });
-    maybeEnqueueRetrospective(conv.id, makeConfig());
+    maybeEnqueueRetrospective(conv.id, makeConfig(), "guardian");
     expect(enqueueCalls).toEqual([
       { conversationId: conv.id, trigger: "interval" },
     ]);
@@ -322,6 +342,7 @@ describe("maybeEnqueueRetrospective: cursor survives a regenerated reply", () =>
   beforeEach(() => {
     resetTables();
     enqueueCalls = [];
+    enqueueActors = [];
   });
 
   test("a regenerate that deletes the cursor's row does not stall the conversation", async () => {
@@ -343,7 +364,7 @@ describe("maybeEnqueueRetrospective: cursor survives a regenerated reply", () =>
     insertMessage(conv.id, { role: "assistant", createdAt: 3_000 });
     insertMessage(conv.id, { createdAt: 4_000 });
 
-    maybeEnqueueRetrospective(conv.id, makeConfig());
+    maybeEnqueueRetrospective(conv.id, makeConfig(), "guardian");
 
     expect(enqueueCalls).toEqual([
       { conversationId: conv.id, trigger: "interval" },
@@ -365,7 +386,7 @@ describe("maybeEnqueueRetrospective: cursor survives a regenerated reply", () =>
     getDb().delete(messages).where(eq(messages.id, reply)).run();
     insertMessage(conv.id, { createdAt: 4_000 });
 
-    maybeEnqueueRetrospective(conv.id, makeConfig());
+    maybeEnqueueRetrospective(conv.id, makeConfig(), "guardian");
 
     expect(enqueueCalls).toEqual([]);
   });

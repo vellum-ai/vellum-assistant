@@ -88,15 +88,23 @@ Everything else under the plugin root is **spine**:
   once it settles), whose upstream producers only fire when
   `isV3TierActive()` holds (memory on and v3 live).
   `memory-retrospective-eligibility.ts` is the one statement of which
-  conversations a later pass can review (`classifyRetrospectiveEligibility`)
-  and of what a turn can do about it (`resolveMemoryCaptureGuidance`, which
-  folds in `resolveCapabilities(trustClass).canAccessMemory`, the authority
-  `remember` refuses under). The enqueue funnel reads the first; the
-  `memory-capture-guidance` injector in `injectors.ts` renders the second on
-  every turn. Do not add a second copy of either rule: a prompt line that
-  re-checks `conversationType` or a trust class on its own is how the funnel
-  and the prompt drift apart. The sweep's SQL filter mirrors the type and
-  source reasons and is pinned to the classifier by a parity test.
+  conversations a later pass can review (`classifyRetrospectiveEligibility`,
+  over the two config switches, the conversation's type and source, and the
+  actor's trust) and of what a turn can do about it
+  (`resolveMemoryCaptureGuidance`, which folds in
+  `resolveCapabilities(trustClass).canAccessMemory` and the turn's resolved
+  tool surface, the gates a `remember` call actually clears). The trust
+  dimension is `isRetrospectiveTrustedActor` (`guardian` or a legacy
+  `undefined` provenance), deliberately NOT `canAccessMemory`, which would
+  drop legacy desktop guardian rows. **Every enqueue path names its actor and
+  lets the funnel decide**: the post-turn indexer passes the message's
+  provenance, the sweep the conversation's recent provenance, the compaction
+  site the turn's trust context (falling back to the conversation's). Do not
+  re-add a trust check at a call site, and do not add a second copy of either
+  rule: a prompt line that re-checks `conversationType` or a trust class on
+  its own is how the funnel and the prompt drift apart. The sweep's SQL
+  filter mirrors the type and source reasons and is pinned to the classifier
+  by a parity test.
 - The rest of the spine: `startup.ts`, `jobs-worker.ts`, `job-handlers.ts`,
   `job-handler-registration.ts`, `indexer.ts`, `injectors.ts`, `tools.ts`,
   `hooks/`, `src/` (HTTP routes), `context-search/`.

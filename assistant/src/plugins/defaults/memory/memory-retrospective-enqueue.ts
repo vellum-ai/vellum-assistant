@@ -10,7 +10,12 @@
 //     conversation (recursion guard: we never run a retrospective over
 //     reflective musings from the retrospective agent's own writes), not a
 //     `scheduled` thread, not a memory-consolidation background, and not a
-//     retired auto-analysis row (all low yield). The same classification is
+//     retired auto-analysis row (all low yield), AND the actor the caller
+//     names is memory-trusted. Every caller supplies the actor its own
+//     trigger gates on, so the trust condition is applied here rather than
+//     in three places: the post-turn indexer passes the message's
+//     provenance, the sweep the conversation's recent provenance, and the
+//     compaction site the turn's trust context. The same classification is
 //     what the per-turn capture guidance tells the model, so the funnel and
 //     the prompt cannot disagree.
 //   - The unprocessed tail contains user activity, when
@@ -38,6 +43,7 @@
 import { getConfig } from "../../../config/loader.js";
 import {
   getConversation,
+  getConversationRecentProvenanceTrustClass,
   getConversationSource,
 } from "../../../persistence/conversation-crud.js";
 import {
@@ -45,7 +51,6 @@ import {
   upsertMemoryRetrospectiveJob,
 } from "../../../persistence/jobs-store.js";
 import { type TrustClass } from "../../../runtime/actor-trust-resolver.js";
-import { resolveCapabilities } from "../../../runtime/capabilities.js";
 import { getLogger } from "./logging.js";
 import { hasQualifyingUserMessageAfter } from "./memory-retrospective-accounting.js";
 import { isMemoryRetrospectiveSource } from "./memory-retrospective-constants.js";
@@ -71,8 +76,14 @@ const COMPACTION_DEBOUNCE_MS = 500;
 export function enqueueMemoryRetrospectiveIfEnabled(args: {
   conversationId: string;
   trigger: MemoryRetrospectiveTrigger;
+  /**
+   * Trust of the actor this enqueue is on behalf of. `undefined` is the
+   * legacy no-provenance case and counts as trusted, matching the semantic
+   * every trigger path already used.
+   */
+  actorTrustClass: string | undefined;
 }): boolean {
-  const { conversationId, trigger } = args;
+  const { conversationId, trigger, actorTrustClass } = args;
 
   const memoryEnabled = isMemoryEnabled();
   // A missing row classifies as an ordinary conversation, matching the
@@ -83,6 +94,7 @@ export function enqueueMemoryRetrospectiveIfEnabled(args: {
     source: conversation?.source ?? "user",
     memoryEnabled,
     retrospectiveEnabled: memoryEnabled && isRetrospectiveEnabled(),
+    actorTrustClass,
   });
   if (eligibility.status === "ineligible") {
     switch (eligibility.reason) {
@@ -111,6 +123,12 @@ export function enqueueMemoryRetrospectiveIfEnabled(args: {
         log.debug(
           { conversationId, trigger },
           "Skipping memory-retrospective enqueue: auto-analysis source",
+        );
+        break;
+      case "untrusted_actor":
+        log.debug(
+          { conversationId, trigger, actorTrustClass },
+          "Skipping memory-retrospective enqueue: actor is not memory-trusted",
         );
         break;
     }
@@ -205,24 +223,30 @@ export function isMemoryRetrospectiveConversation(
 }
 
 /**
- * Fire a memory-retrospective enqueue from the compaction site. Trust-class
- * gated (don't run a guardian-trust background loop over untrusted-actor
- * conversations) with best-effort error swallowing (never block compaction
- * on enqueue failures).
+ * Fire a memory-retrospective enqueue from the compaction site, with
+ * best-effort error swallowing (never block compaction on enqueue failures).
+ * The trust decision belongs to the funnel; what this site owns is naming the
+ * actor.
+ *
+ * The compacting turn's own trust class is that actor. A compaction carrying
+ * no trust context falls back to the conversation's recorded provenance,
+ * which is what keeps a legacy or desktop guardian conversation (provenance
+ * never stamped, so `undefined`) eligible here exactly as it is on the event
+ * and sweep paths, without admitting a contact conversation whose turn merely
+ * arrived without a trust context.
  */
 export function enqueueMemoryRetrospectiveOnCompaction(
   conversationId: string,
   trustClass: TrustClass | undefined,
 ): void {
-  if (!resolveCapabilities(trustClass).canAccessMemory) {
-    return;
-  }
   try {
     enqueueMemoryRetrospectiveIfEnabled({
       conversationId,
       trigger: "compaction",
+      actorTrustClass:
+        trustClass ?? getConversationRecentProvenanceTrustClass(conversationId),
     });
   } catch {
-    // Best-effort — never block compaction on enqueue failures.
+    // Best-effort: never block compaction on enqueue failures.
   }
 }

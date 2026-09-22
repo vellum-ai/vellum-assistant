@@ -1513,7 +1513,7 @@ describe("loadFromDb metadata injection rehydration", () => {
     // Live assembly lands them at:
     //   - `<background_turn>` — prepend-user-tail injector order 15, between
     //     `<workspace>` (10) and `<turn_context>` (20).
-    //   - `<memory_capture>` — prepend-user-tail injector order 16, between
+    //   - `<memory_capture>`: prepend-user-tail injector order 16, between
     //     `<background_turn>` (15) and `<turn_context>` (20).
     //   - `<channel_capabilities>` — Step-3 prepend, just below `<turn_context>`
     //     and above the after-memory region.
