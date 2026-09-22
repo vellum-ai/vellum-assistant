@@ -538,8 +538,6 @@ describe("fetch diagnostics", () => {
       messages: {
         count: 0,
         roleCounts: {},
-        queuedCount: 0,
-        processingCount: 0,
         first: null,
         last: null,
         tail: [],
