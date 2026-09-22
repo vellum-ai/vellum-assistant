@@ -213,7 +213,7 @@ export function SystemTaskDetailPanel({
       />
 
       {/* Scrollable body */}
-      <div className="flex-1 space-y-6 overflow-y-auto px-[var(--app-spacing-lg)] py-[var(--app-spacing-lg)]">
+      <div className="flex flex-1 flex-col gap-5 overflow-y-auto px-5 py-5">
         <div>
           <InsetDetailCard title={t("scheduleDetail.details")}>
             <div className="space-y-2 text-body-medium-lighter">

@@ -324,6 +324,7 @@ export function SubagentDetailPanel({
       {/* Body: swaps to a step's nested detail when one is selected, keeping
           the header above mounted in both views. */}
       <motion.div
+          className="flex flex-col gap-5"
           key={activeDetail ? "detail" : "list"}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -356,7 +357,7 @@ export function SubagentDetailPanel({
           ) : (
             <>
               {/* Metrics row */}
-              <div className="mb-5 grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-3">
                 <AnimatedMetricCard
                   icon={
                     <ArrowDownToLine
@@ -383,7 +384,7 @@ export function SubagentDetailPanel({
 
               {/* Objective section */}
               {entry.objective && (
-                <div className="mb-5">
+                <div>
                   <SectionLabel as="h3">
                     {t("subagentDetailPanel.objective")}
                   </SectionLabel>
@@ -403,6 +404,8 @@ export function SubagentDetailPanel({
                       {entry.objective}
                     </Typography>
                   </ClampedContent>
+                  {/* The rule closes the objective, so it sits inside the
+                      section rather than between two of them. */}
                   <div className="mt-5 h-px w-full bg-[var(--border-hover)]" />
                 </div>
               )}

@@ -42,7 +42,7 @@ export function WakeDetailPanel({ payload, onClose }: WakeDetailPanelProps) {
       closeVariant="outlined"
       onClose={onClose}
     >
-      <dl className="flex flex-col gap-6">
+      <dl className="flex flex-col gap-5">
         {sections.workflow && (
           <DetailField label={t("wakeDetailPanel.workflow")}>
             {sections.workflow}
@@ -74,7 +74,7 @@ export function WakeDetailPanel({ payload, onClose }: WakeDetailPanelProps) {
         )}
 
         {payload.metadata.length > 0 && (
-          <div className="flex flex-col gap-6">
+          <div className="flex flex-col gap-5">
             {payload.metadata.map((item) => (
               <DetailField key={item.label} label={item.label}>
                 {item.value}

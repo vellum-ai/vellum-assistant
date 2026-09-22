@@ -596,7 +596,7 @@ export function ScheduleDetailPanel({
         />
 
         {/* Scrollable body */}
-        <div className="flex-1 space-y-6 overflow-y-auto px-[var(--app-spacing-lg)] py-[var(--app-spacing-lg)]">
+        <div className="flex flex-1 flex-col gap-5 overflow-y-auto px-5 py-5">
           {schedule.description ? (
             <p className="text-body-medium-lighter text-[var(--content-secondary)]">
               {schedule.description}

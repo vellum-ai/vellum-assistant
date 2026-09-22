@@ -192,6 +192,7 @@ export function WorkflowDetailPanel({
       {/* Body: swaps to a leaf's nested detail when one is open, keeping the
           header above mounted in both views. */}
       <motion.div
+          className="flex flex-col gap-5"
           key={selectedLeaf ? String(selectedLeaf.seq) : "list"}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -206,7 +207,7 @@ export function WorkflowDetailPanel({
           ) : (
             <>
               {/* Metrics row */}
-              <div className="mb-5 grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-3 gap-3">
                 <AnimatedMetricCard
                   icon={
                     <ArrowDownToLine

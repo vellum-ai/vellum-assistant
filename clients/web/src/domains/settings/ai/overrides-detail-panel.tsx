@@ -427,16 +427,17 @@ export function OverridesDetailPanel({
       onClose={onClose}
       footer={footer}
     >
-      <p className="mb-4 text-body-medium-lighter text-[var(--content-tertiary)]">
+      <div className="flex flex-col gap-5">
+      <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
         {t("overridesDetailPanel.description")}
       </p>
 
-      <div>
+      <div className="flex flex-col gap-5">
         {/* Search + bulk change. The swap acts on persisted overrides, so it
             stays disabled while the editor holds unsaved drafts: applying it
             under a dirty draft would show stale rows and let a later Save
             silently undo the swap. */}
-        <div className="mb-4 flex items-center gap-2">
+        <div className="flex items-center gap-2">
           <div className="min-w-0 flex-1">
             <Input
               type="search"
@@ -469,7 +470,7 @@ export function OverridesDetailPanel({
             renders off `daemonConfig` alone and stays put if the call-site
             catalog fails to load. */}
         {daemonConfigLoaded && advisorMatchesSearch && (
-          <div className="mb-4">
+          <div>
             <SectionLabel>{t("overridesDetailPanel.advisorSection")}</SectionLabel>
             <AdvisorProfileRow
               value={advisorProfile}
@@ -511,6 +512,7 @@ export function OverridesDetailPanel({
             onToggle={handleToggle}
           />
         )}
+      </div>
       </div>
 
       {/* Mounted per open so source/target/selection state resets. Clears

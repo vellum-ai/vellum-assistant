@@ -73,27 +73,32 @@ export function BackgroundTaskDetailPanel({
       closeLabel={t("backgroundTaskDetailPanel.closeDetail")}
       onClose={onClose}
     >
-      <div>
-        <SectionLabel>{t("backgroundTaskDetailPanel.command")}</SectionLabel>
-        <CodeBlock text={entry.command} />
-      </div>
-
-      {showOutput && (
-        <div className="mt-5">
-          <SectionLabel>{t("backgroundTaskDetailPanel.output")}</SectionLabel>
-          <CodeBlock text={entry.output as string} />
+      <div className="flex flex-col gap-5">
+        <div>
+          <SectionLabel>{t("backgroundTaskDetailPanel.command")}</SectionLabel>
+          <CodeBlock text={entry.command} />
         </div>
-      )}
 
-      {showExitCode && (
-        <Typography
-          variant="body-small-default"
-          as="p"
-          className="mt-2 text-[var(--content-tertiary)]"
-        >
-          {t("backgroundTaskDetailPanel.exitCode", { code: entry.exitCode })}
-        </Typography>
-      )}
+        {showOutput && (
+          <div>
+            <SectionLabel>{t("backgroundTaskDetailPanel.output")}</SectionLabel>
+            <CodeBlock text={entry.output as string} />
+            {/* The exit code reads the output it belongs to, so it sits with
+                it rather than as a section of its own. */}
+            {showExitCode && (
+              <Typography
+                variant="body-small-default"
+                as="p"
+                className="mt-2 text-[var(--content-tertiary)]"
+              >
+                {t("backgroundTaskDetailPanel.exitCode", {
+                  code: entry.exitCode,
+                })}
+              </Typography>
+            )}
+          </div>
+        )}
+      </div>
     </DetailShell>
   );
 }

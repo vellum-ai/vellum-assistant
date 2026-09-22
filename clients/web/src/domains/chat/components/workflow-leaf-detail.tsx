@@ -22,7 +22,7 @@ function DetailSection({
   emptyText: string;
 }) {
   return (
-    <div className="mb-5">
+    <div>
       <SectionLabel as="h3">{title}</SectionLabel>
       {body ? (
         <Typography
@@ -53,8 +53,8 @@ export function WorkflowLeafDetail({ leaf }: { leaf: WorkflowLeaf }) {
       : t("workflowLeafDetail.noResultSummary");
 
   return (
-    <div>
-      <div className="mb-5 grid grid-cols-2 gap-3">
+    <div className="flex flex-col gap-5">
+      <div className="grid grid-cols-2 gap-3">
         <AnimatedMetricCard
           icon={
             <ArrowDownToLine
