@@ -224,7 +224,7 @@ function buildSwipeActions(
 
 /**
  * The two halves of a row leaving once it is marked done. The row's content
- * slides out toward the check and fades, then the row's box closes so the
+ * slides out to the left and fades, then the row's box closes so the
  * rows around it slide together over the space it held. The close starts
  * before the slide ends, so the two read as one motion rather than as a
  * slide followed by a snap. Short enough to read as the row leaving rather
@@ -349,7 +349,7 @@ export function ConversationRow({
 
   /* The row leaves in two moves, then hands over to the archive, so the list
      closes the space once rather than snapping shut under the pointer. The
-     row slides out toward the check and fades; its box then closes, height
+     row slides out to the left and fades; its box then closes, height
      and the list's gap together, and the rows around it slide together over
      the space it held. The box clips the slide, so a row sliding out never
      widens the scroller it sits in.
@@ -378,7 +378,7 @@ export function ConversationRow({
     box.style.overflow = "hidden";
     const slide = animate(
       row,
-      { x: "100%", opacity: 0 },
+      { x: "-100%", opacity: 0 },
       { duration: DONE_SLIDE_S, ease: [0.4, 0, 1, 1] },
     );
     const close = animate(
