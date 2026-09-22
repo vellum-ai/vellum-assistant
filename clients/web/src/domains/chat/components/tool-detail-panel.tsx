@@ -133,8 +133,10 @@ export function ToolDetailBody({
       ? result
       : null;
 
+  // One root owns the spacing between sections, so a host that lays the body
+  // out in a flex column of its own cannot add its gap to the body's.
   return (
-    <>
+    <div className="flex flex-col gap-5">
       {/* Tool-specific body when the tool has one, else the call's parameters
           with its raw input behind a disclosure. The header names the tool and
           shows its risk, so neither is repeated here. */}
@@ -150,33 +152,29 @@ export function ToolDetailBody({
           assistantId={assistantId}
         />
       ) : (
-        <div className="flex flex-col gap-5">
-          <ToolInputParameters params={toolCallParams(detail.input)} />
-        </div>
+        <ToolInputParameters params={toolCallParams(detail.input)} />
       )}
 
       {/* Output, laid out like the input when the result is structured.
           Suppressed for tools whose renderer already presents the result. */}
       {output === "shared" && (
-        <div className="mt-5 flex flex-col gap-5">
-          <ToolOutputSection
-            result={result}
-            layout={layout}
-            streamedOutput={streamedOutput}
-            isDenied={isDenied}
-            isRunning={isRunning}
-            isError={isError}
-          />
-        </div>
+        <ToolOutputSection
+          result={result}
+          layout={layout}
+          streamedOutput={streamedOutput}
+          isDenied={isDenied}
+          isRunning={isRunning}
+          isError={isError}
+        />
       )}
 
       {/* Every call's raw data, in one place under the same names whatever
           renders the call above, so no renderer can leave it out. */}
-      <div className="mt-5 flex flex-col gap-1">
+      <div className="flex flex-col gap-1">
         <RawDisclosure side="input" text={() => jsonText(detail.input)} />
         {rawOutput && <RawDisclosure side="output" text={() => rawOutput} />}
       </div>
-    </>
+    </div>
   );
 }
 

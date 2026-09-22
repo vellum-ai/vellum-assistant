@@ -11,6 +11,7 @@
 import { z } from "zod";
 
 import { getConfig } from "../../config/loader.js";
+import { isSidebarDoneEnabled } from "../../config/sidebar-done-gate.js";
 import { searchContacts } from "../../contacts/contact-store.js";
 import { searchConversations } from "../../persistence/conversation-queries.js";
 import { getMemorySqlite } from "../../persistence/db-connection.js";
@@ -123,23 +124,32 @@ function parseCategories(raw: string | undefined): Set<Category> {
  * cleaned term as a literal query, so unknown filters are visible to lexical
  * matching rather than silently dropped.
  *
- * Examples:
+ * `defaultArchived` is what an unfiltered query means. It is `false` by
+ * default and `true` under the `sidebar-done` flag, where a done chat is a
+ * filed chat rather than a hidden one and search is how the user reaches it.
+ * Either way both filters still say exactly what they say, so `is:unarchived`
+ * is the opt-out whenever the default is on.
+ *
+ * Examples (with `defaultArchived: false`):
  *   "foo bar"            -> { term: "foo bar",        archived: false }
  *   "is:archived foo"    -> { term: "foo",            archived: true  }
  *   "foo is:archived"    -> { term: "foo",            archived: true  }
  *   "is:archived"        -> { term: "",               archived: true  }
  *   "is:starred foo"     -> { term: "is:starred foo", archived: false }
  */
-function parseSearchQuery(rawQ: string | undefined): {
+function parseSearchQuery(
+  rawQ: string | undefined,
+  defaultArchived: boolean,
+): {
   term: string;
   archived: boolean;
 } {
   if (!rawQ) {
-    return { term: "", archived: false };
+    return { term: "", archived: defaultArchived };
   }
   const tokens = rawQ.split(/\s+/).filter((t) => t.length > 0);
   const termTokens: string[] = [];
-  let archived = false;
+  let archived = defaultArchived;
   for (const tok of tokens) {
     const lower = tok.toLowerCase();
     if (
@@ -291,11 +301,16 @@ async function handleGlobalSearch({
     throw new BadRequestError("q query parameter is required");
   }
 
-  // Pull the archive opt-in out of the query string itself (`is:archived` /
+  // Pull the archive filter out of the query string itself (`is:archived` /
   // `archive:yes` / etc.) so the user controls it the same way they control
   // every other modifier: by typing it into the search box. The cleaned term
-  // is what the backends actually search on.
-  const { term, archived: includeArchived } = parseSearchQuery(rawQ);
+  // is what the backends actually search on. Under `sidebar-done` the
+  // unfiltered default flips to including done chats, and `is:unarchived`
+  // becomes the token that narrows back to the live set.
+  const { term, archived: includeArchived } = parseSearchQuery(
+    rawQ,
+    isSidebarDoneEnabled(),
+  );
 
   const limit = Math.max(1, Math.min(Number(queryParams.limit ?? 20), 100));
   const categories = parseCategories(queryParams.categories);

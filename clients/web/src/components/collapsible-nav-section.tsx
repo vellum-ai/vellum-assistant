@@ -220,6 +220,13 @@ interface CollapsibleNavSectionSectionProps extends Omit<
    * indicators, so a header dot would be redundant.
    */
   collapsedIndicator?: ReactNode;
+  /**
+   * Holds the header's trailing controls painted regardless of hover, for the
+   * moment a section has something to say about them (a row leaving for the
+   * destination the "View all chats" icon names). The shared reveal rules own
+   * the condition; this states it.
+   */
+  revealHold?: boolean;
   /** Drag-to-reorder wiring; omit to leave the section fixed in place. */
   drag?: CollapsibleNavSectionDrag;
   children?: ReactNode;
@@ -267,6 +274,7 @@ function CollapsibleNavSectionSection({
   contextMenuContent,
   touchMenuContent,
   collapsedIndicator,
+  revealHold = false,
   drag,
   children,
   className,
@@ -362,6 +370,7 @@ function CollapsibleNavSectionSection({
          trigger's own unnamed `group` (the icon/chevron swap) cannot answer to
          it and this cannot answer to the trigger's. */
       data-reveal-row=""
+      data-reveal-hold={revealHold ? "" : undefined}
       className={cn(
         "flex shrink-0 items-center justify-between",
         // The title trigger's Accordion.Header wrapper must grow to fill

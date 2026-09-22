@@ -300,5 +300,9 @@
   },
   "quickInputPage": {
     "send": "Отправить сообщение"
+  },
+  "detailShell": {
+    "close": "Закрыть",
+    "closePanel": "Закрыть панель"
   }
 }

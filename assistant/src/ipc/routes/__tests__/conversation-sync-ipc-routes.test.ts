@@ -16,6 +16,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 const recordCalls: Array<[string, number]> = [];
 const publishCalls: string[] = [];
+const listPublishCalls: Array<[string, string | string[]]> = [];
 
 mock.module("../../../persistence/conversation-crud.js", () => ({
   recordConversationPersistedSeq: (id: string, seq: number) => {
@@ -26,6 +27,12 @@ mock.module("../../../persistence/conversation-crud.js", () => ({
 mock.module("../../../runtime/sync/resource-sync-events.js", () => ({
   publishConversationMessagesChanged: (id: string) => {
     publishCalls.push(id);
+  },
+  publishConversationListAndMetadataChanged: (
+    reason: string,
+    ids: string | string[],
+  ) => {
+    listPublishCalls.push([reason, ids]);
   },
 }));
 
@@ -40,9 +47,13 @@ import {
   _resetStreamStateForTesting,
   stampAndBuffer,
 } from "../../../runtime/assistant-stream-state.js";
-import { NOTIFY_CONVERSATION_PERSISTED_IPC_METHOD } from "../../../runtime/sync/worker-daemon-notify.js";
+import {
+  NOTIFY_CONVERSATION_LIST_CHANGED_IPC_METHOD,
+  NOTIFY_CONVERSATION_PERSISTED_IPC_METHOD,
+} from "../../../runtime/sync/worker-daemon-notify.js";
 import {
   CONVERSATION_SYNC_IPC_METHODS,
+  handleNotifyConversationListChanged,
   handleNotifyConversationPersisted,
 } from "../conversation-sync-ipc-routes.js";
 
@@ -174,5 +185,42 @@ describe("conversation-sync IPC route", () => {
         NOTIFY_CONVERSATION_PERSISTED_IPC_METHOD,
       ),
     ).toBe(false);
+  });
+});
+
+describe("conversation-list-changed IPC route", () => {
+  beforeEach(() => {
+    listPublishCalls.length = 0;
+  });
+
+  test("republishes the worker's list invalidation on the daemon's hub", () => {
+    const result = handleNotifyConversationListChanged({
+      body: { reason: "reordered", conversationIds: ["conv-1"] },
+    });
+
+    expect(result).toEqual({ ok: true });
+    expect(listPublishCalls).toEqual([["reordered", ["conv-1"]]]);
+  });
+
+  test("rejects an unknown reason and an empty id list", () => {
+    expect(() =>
+      handleNotifyConversationListChanged({
+        body: { reason: "resurfaced", conversationIds: ["conv-1"] },
+      }),
+    ).toThrow();
+    expect(() =>
+      handleNotifyConversationListChanged({
+        body: { reason: "reordered", conversationIds: [] },
+      }),
+    ).toThrow();
+    expect(listPublishCalls).toEqual([]);
+  });
+
+  test("is reachable on the IPC surface under the shared method name", () => {
+    expect(
+      typeof CONVERSATION_SYNC_IPC_METHODS[
+        NOTIFY_CONVERSATION_LIST_CHANGED_IPC_METHOD
+      ],
+    ).toBe("function");
   });
 });

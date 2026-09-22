@@ -13,6 +13,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MemoryRouter } from "react-router";
 
 import type * as SectionConversations from "@/domains/chat/use-section-conversations";
 import type { SidebarSection } from "@/domains/chat/use-sidebar-state";
@@ -76,28 +77,32 @@ function renderSection(section: SidebarSection, overlayCards = false) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
+  /* The header's "View all chats" is a route link, so the section needs the
+     router it always has in the app. */
   return render(
-    <QueryClientProvider client={queryClient}>
-      <ConversationListProvider
-        value={{
-          overlayCards,
-          processingConversationIds: new Set<string>(),
-          attentionConversationIds: new Set<string>(),
-          onSelect: () => {},
-        }}
-      >
-        <CollapsibleNavSection.Root
-          type="multiple"
-          defaultValue={[section.key]}
+    <MemoryRouter>
+      <QueryClientProvider client={queryClient}>
+        <ConversationListProvider
+          value={{
+            overlayCards,
+            processingConversationIds: new Set<string>(),
+            attentionConversationIds: new Set<string>(),
+            onSelect: () => {},
+          }}
         >
-          <SidebarSectionItem
-            section={section}
-            assistantId="asst-1"
-            groupMenu={() => ({})}
-          />
-        </CollapsibleNavSection.Root>
-      </ConversationListProvider>
-    </QueryClientProvider>,
+          <CollapsibleNavSection.Root
+            type="multiple"
+            defaultValue={[section.key]}
+          >
+            <SidebarSectionItem
+              section={section}
+              assistantId="asst-1"
+              groupMenu={() => ({})}
+            />
+          </CollapsibleNavSection.Root>
+        </ConversationListProvider>
+      </QueryClientProvider>
+    </MemoryRouter>,
   );
 }
 

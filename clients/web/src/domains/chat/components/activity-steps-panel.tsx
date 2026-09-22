@@ -515,17 +515,13 @@ function StepDetailLevel({
   detail: ToolDetailPayload;
   assistantId?: string | null;
 }) {
-  return (
-    <div className="flex flex-col gap-4">
-      {detail.kind === "thinking" ? (
-        <ThinkingDetailMarkdown detail={detail} assistantId={assistantId} />
-      ) : (
-        <ToolDetailBody
-          detail={detail}
-          source={TRANSCRIPT_TOOL_CALL_SOURCE}
-          assistantId={assistantId}
-        />
-      )}
-    </div>
+  return detail.kind === "thinking" ? (
+    <ThinkingDetailMarkdown detail={detail} assistantId={assistantId} />
+  ) : (
+    <ToolDetailBody
+      detail={detail}
+      source={TRANSCRIPT_TOOL_CALL_SOURCE}
+      assistantId={assistantId}
+    />
   );
 }

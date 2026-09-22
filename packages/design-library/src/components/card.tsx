@@ -9,6 +9,19 @@ import { Typography } from "./typography";
 
 type CardPadding = "sm" | "md" | "lg";
 
+/**
+ * The card's resting fill. `lift` rises off the page and the other surfaces a
+ * card usually sits on. `overlay` is for a card that sits on `--surface-lift`
+ * itself, such as a side drawer's body, where a lift fill would be the drawer's
+ * own color and the card would read only by its border.
+ */
+type CardSurface = "lift" | "overlay";
+
+const SURFACE_CLASSES: Record<CardSurface, string> = {
+  lift: "bg-[var(--surface-lift)]",
+  overlay: "bg-[var(--surface-overlay)]",
+};
+
 const PADDING_CLASSES: Record<CardPadding, string> = {
   sm: "p-3",
   md: "p-4",
@@ -17,6 +30,8 @@ const PADDING_CLASSES: Record<CardPadding, string> = {
 
 export interface CardRootProps extends ComponentProps<"div"> {
   padding?: CardPadding;
+  /** The resting fill; see {@link CardSurface}. */
+  surface?: CardSurface;
   bordered?: boolean;
   elevated?: boolean;
   noPadding?: boolean;
@@ -79,6 +94,7 @@ const CARD_INTERACTIVE_FILL_CLASSES = [
 
 function rootClasses({
   padding,
+  surface,
   bordered,
   elevated,
   hasSections,
@@ -88,6 +104,7 @@ function rootClasses({
   selected,
 }: {
   padding: CardPadding;
+  surface: CardSurface;
   bordered: boolean;
   elevated: boolean;
   hasSections: boolean;
@@ -102,7 +119,7 @@ function rootClasses({
     selected
       ? CARD_SELECTED_CLASSES
       : [
-          "bg-[var(--surface-lift)]",
+          SURFACE_CLASSES[surface],
           bordered ? "border-[var(--border-subtle)]" : "border-transparent",
         ],
     interactive ? CARD_INTERACTIVE_CLASSES : null,
@@ -134,6 +151,7 @@ function childrenContainSections(children: ReactNode): boolean {
 
 function CardRoot({
   padding = "md",
+  surface = "lift",
   bordered = true,
   elevated = false,
   noPadding = false,
@@ -157,6 +175,7 @@ function CardRoot({
       className={cn(
         rootClasses({
           padding,
+          surface,
           bordered,
           elevated,
           hasSections,

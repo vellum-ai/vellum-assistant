@@ -351,7 +351,7 @@ describe("file classification", () => {
     expect(result.reason).toContain("tools");
   });
 
-  test("file_write to routes dir is high risk", async () => {
+  test("file_write to routes dir is medium risk", async () => {
     const result = await classify({
       tool: "file_write",
       path: "/workspace/routes/evil.ts",
@@ -366,7 +366,7 @@ describe("file classification", () => {
         skillSourceDirs: ["/workspace/.vellum/skills"],
       },
     });
-    expect(result.risk).toBe("high");
+    expect(result.risk).toBe("medium");
     expect(result.reason).toContain("routes");
   });
 

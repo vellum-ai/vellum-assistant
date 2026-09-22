@@ -1,5 +1,7 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import type { Meta, StoryObj } from "@storybook/react-vite";
+
+import { createStoryQueryClient } from "@/lib/story-query-cache";
 
 import type { LLMRequestLogEntry } from "@vellumai/assistant-api";
 
@@ -13,9 +15,7 @@ import { PromptTab } from "./prompt-tab";
  * `/v1/conversations/llm-context` route returns — to verify the integrated
  * layout, the collapse-all affordance, and the tool-definitions breakdown.
  */
-const queryClient = new QueryClient({
-  defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-});
+const queryClient = createStoryQueryClient();
 
 function marker(ttl: string) {
   return { type: "ephemeral", ttl };

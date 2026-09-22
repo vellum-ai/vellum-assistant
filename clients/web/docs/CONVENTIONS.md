@@ -1561,6 +1561,16 @@ renders correctly given the data it actually receives in production.
   regression in the thing it claims to document. If a story needs a
   layout the shipped primitives can't express, that's the signal a
   primitive is missing, not a licence to hand-roll one in the story.
+- **A story's seeded query cache comes from `lib/story-query-cache`.** A
+  story, or a story-support module, that seeds query data does it with
+  `withQueryCache((client) => client.setQueryData(...))`, or
+  `createStoryQueryClient(seed)` where it needs the client itself. Never
+  build a `QueryClient` by hand for it: the helper is the one statement of
+  what a seeded story cache does (no retries, no refetches of a seeded
+  entry, nothing collected), and a hand-built copy drifts from it. The one
+  other story client is `.storybook/preview.tsx`'s shared fallback, which
+  keeps default staleness because stories that answer requests through
+  `stubClientFetch` rely on each mount refetching from their own stub.
 - **Wrappers go in decorators, styling goes in the component.** A story
   may frame its subject (a width, a backdrop, a provider); it may not
   restyle it. When a story and a call site need the same treatment,

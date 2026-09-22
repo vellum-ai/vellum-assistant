@@ -12,6 +12,7 @@ import { isStreamSeqStampingDisabled } from "../assistant-stream-state.js";
 import { publishSyncInvalidation } from "./sync-publisher.js";
 import {
   notifyDaemonActivationProgressChanged,
+  notifyDaemonConversationListChanged,
   notifyDaemonConversationPersisted,
   notifyDaemonDocumentsChanged,
 } from "./worker-daemon-notify.js";
@@ -235,6 +236,16 @@ export function publishConversationListAndMetadataChanged(
   const ids = Array.isArray(conversationIds)
     ? conversationIds
     : [conversationIds];
+
+  // In a sidecar worker the local hub has no SSE subscribers, so a publish
+  // here reaches nobody and the sidebar keeps showing a list the worker has
+  // already changed. Hand off to the daemon, which republishes on the hub
+  // clients actually subscribe to. A background worker turn has no
+  // originating client, so no `originClientId` is forwarded.
+  if (isStreamSeqStampingDisabled()) {
+    void notifyDaemonConversationListChanged(reason, ids);
+    return;
+  }
 
   // Shape-changing reasons (`created`, `deleted`, `reordered`) add or
   // remove rows or change the order of the paginated window — web must
