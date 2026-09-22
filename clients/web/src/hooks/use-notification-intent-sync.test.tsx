@@ -516,6 +516,22 @@ describe("useNotificationIntentSync guardian-scoped intents", () => {
 
     expect(postedArgs).toHaveLength(0);
   });
+
+  for (const version of [undefined, "0.12.3-local.202609221200"]) {
+    test.each(["chat.assistant_reply", "schedule.result", "activity.complete"])(
+      `delivers %s without the guardian-card marker when the assistant version is ${version}`,
+      (sourceEventName) => {
+        if (version) {
+          useAssistantIdentityStore.getState().setIdentity("Test", version, "assistant-1");
+        }
+        mountAt(routes.assistant);
+
+        publishNotificationIntent({ sourceEventName, silent: false });
+
+        expectNotified();
+      },
+    );
+  }
 });
 
 describe("useNotificationIntentSync silent intents", () => {

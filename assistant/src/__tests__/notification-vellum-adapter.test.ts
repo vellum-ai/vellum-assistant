@@ -368,22 +368,28 @@ describe("VellumAdapter guardian scoping", () => {
   function captureOptions(): {
     adapter: VellumAdapter;
     options: Array<BroadcastMessageOptions | undefined>;
+    intents: AssistantEvent[];
   } {
     const options: Array<BroadcastMessageOptions | undefined> = [];
-    const adapter = new VellumAdapter((_msg, _conversationId, opts) => {
+    const intents: AssistantEvent[] = [];
+    const adapter = new VellumAdapter((msg, _conversationId, opts) => {
       options.push(opts);
+      intents.push(msg);
     });
-    return { adapter, options };
+    return { adapter, options, intents };
   }
 
   test("a guardian-sensitive intent is delivered only to the guardian's connections", async () => {
-    const { adapter, options } = captureOptions();
+    const { adapter, options, intents } = captureOptions();
     await adapter.send(
       makePayload({ sourceEventName: "guardian.question", urgency: "high" }),
       makeDestination({ metadata: { guardianPrincipalId: "principal-g" } }),
     );
 
     expect(options).toEqual([{ targetActorPrincipalId: "principal-g" }]);
+    expect(intents[0]).toMatchObject({
+      targetGuardianPrincipalId: "principal-g",
+    });
   });
 
   test("an ordinary intent is broadcast to every connection", async () => {
@@ -396,8 +402,8 @@ describe("VellumAdapter guardian scoping", () => {
     expect(options).toEqual([{ targetActorPrincipalId: undefined }]);
   });
 
-  test.each(["chat.assistant_reply", "schedule.result"])(
-    "%s reaches only the bound recipient and can banner at medium urgency",
+  test.each(["chat.assistant_reply", "schedule.result", "activity.complete"])(
+    "%s remains recipient-scoped without the legacy guardian-card marker",
     async (sourceEventName) => {
       const intents: AssistantEvent[] = [];
       const scopes: Array<BroadcastMessageOptions | undefined> = [];
@@ -406,7 +412,18 @@ describe("VellumAdapter guardian scoping", () => {
         scopes.push(options);
       });
       const result = await adapter.send(
-        makePayload({ sourceEventName, urgency: "medium" }),
+        makePayload({
+          sourceEventName,
+          urgency: "medium",
+          contextPayload: {
+            completion: {
+              workId: "task-1",
+              conversationId: "conv-result",
+              recipientPrincipalId: "principal-g",
+              owner: "parent_continuation",
+            },
+          },
+        }),
         makeDestination({ metadata: { guardianPrincipalId: "principal-g" } }),
       );
 
@@ -414,7 +431,7 @@ describe("VellumAdapter guardian scoping", () => {
       expect(scopes).toEqual([{ targetActorPrincipalId: "principal-g" }]);
       expect(intents[0]).toMatchObject({
         silent: false,
-        targetGuardianPrincipalId: "principal-g",
+        targetGuardianPrincipalId: undefined,
       });
     },
   );

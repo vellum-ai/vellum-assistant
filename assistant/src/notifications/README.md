@@ -17,8 +17,11 @@ Local completion delivery requires the active Vellum guardian principal from
 the resolved destination. The broadcaster checks that identity before pairing,
 and the adapter targets the event hub's `targetActorPrincipalId` before sending
 title or body. Missing identity, or a background completion naming a different
-recipient, fails closed without an unrestricted broadcast. The existing
-`targetGuardianPrincipalId` field records the same scope for clients.
+recipient, fails closed without an unrestricted broadcast. The
+`targetGuardianPrincipalId` payload marker is reserved for guardian-sensitive
+cards, whose legacy client gate rejects unknown and local assistant versions.
+Completion intents use the authenticated event-hub scope without that marker,
+so self-hosted assistants can deliver alerts before version hydration.
 
 Background completions opt in with typed `contextPayload.completion` provenance:
 the stable work ID, result conversation ID, recipient principal ID, and owning

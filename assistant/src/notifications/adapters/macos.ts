@@ -12,7 +12,8 @@
  * are delivered only to connections authenticated as the guardian: the hub
  * matches `targetActorPrincipalId` against each connection's verified
  * principal, so no other connection ever receives the title and body. The
- * payload's `targetGuardianPrincipalId` records that scoping for clients.
+ * payload's `targetGuardianPrincipalId` marks guardian-sensitive content for
+ * clients that enforce the legacy guardian compatibility gate.
  * Completion previews require the same recipient scoping; an unresolved
  * recipient fails delivery before any preview is broadcast.
  */
@@ -87,13 +88,13 @@ export class VellumAdapter implements ChannelAdapter {
           ? destination.metadata.guardianPrincipalId
           : undefined;
 
-      const completion = isCompletionNotification(payload);
-      const targetGuardianPrincipalId = completion
-        ? resolveCompletionRecipient(payload, destination)
-        : guardianPrincipalId &&
-            isGuardianSensitiveEvent(payload.sourceEventName)
+      const targetGuardianPrincipalId =
+        guardianPrincipalId && isGuardianSensitiveEvent(payload.sourceEventName)
           ? guardianPrincipalId
           : undefined;
+      const targetActorPrincipalId = isCompletionNotification(payload)
+        ? resolveCompletionRecipient(payload, destination)
+        : targetGuardianPrincipalId;
 
       if (isCompletionRecipientUnavailable(payload, destination)) {
         return { success: false, error: "completion recipient unavailable" };
@@ -118,14 +119,14 @@ export class VellumAdapter implements ChannelAdapter {
           remotePushPlatforms: payload.remotePushPlatforms,
         },
         undefined,
-        { targetActorPrincipalId: targetGuardianPrincipalId },
+        { targetActorPrincipalId },
       );
 
       log.info(
         {
           sourceEventName: payload.sourceEventName,
           title: payload.copy.title,
-          guardianScoped: targetGuardianPrincipalId != null,
+          recipientScoped: targetActorPrincipalId != null,
           silent,
         },
         "Vellum notification intent broadcast",
