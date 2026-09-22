@@ -87,7 +87,7 @@ function RegisteredMobileTopBar() {
   }
   return (
     <div
-      className="grid shrink-0 grid-cols-[1fr_auto_1fr] items-center px-4"
+      className="grid shrink-0 grid-cols-[1fr_auto_1fr] items-center px-4 max-md:px-3"
       style={{ minHeight: 40 }}
     >
       <div className="flex justify-start">{mobileTopBar.leading}</div>
