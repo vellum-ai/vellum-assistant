@@ -35,16 +35,10 @@ describe("useEditMessage", () => {
     expect(result.current.editingMessageId).toBe("3");
   });
 
-  test("startEditing skips queued and optimistic messages", () => {
+  test("startEditing skips optimistic messages", () => {
     const messages: DisplayMessage[] = [
       makeMsg({ id: "1", role: "user", content: "confirmed" }),
       makeMsg({ id: "2", role: "assistant", content: "reply" }),
-      makeMsg({
-        id: "3",
-        role: "user",
-        content: "queued",
-        queueStatus: "queued",
-      }),
       makeMsg({
         id: "4",
         role: "user",

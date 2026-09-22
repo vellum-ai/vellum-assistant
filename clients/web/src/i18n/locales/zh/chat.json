@@ -1540,15 +1540,6 @@
     "typeDifferentAnswerAria": "输入不同的答案",
     "typeSomethingElsePlaceholder": "输入其他内容"
   },
-  "queuedMessagesDrawer": {
-    "cancelAll": "取消全部",
-    "cancelAllAria": "取消所有排队消息",
-    "cancelAria": "取消排队消息",
-    "editAria": "编辑排队消息",
-    "pushToAgentAria": "推送给助手",
-    "queueHeading": "队列 · {count}",
-    "showActionsAria": "显示排队消息操作"
-  },
   "quoteReplyBubble": {
     "addToChat": "添加到聊天",
     "ariaLabel": "引用并回复",

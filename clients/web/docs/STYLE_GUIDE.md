@@ -440,12 +440,12 @@ positional tuple. Named fields are self-documenting and refactor-safe.
 ```ts
 // Good
 function useSendMessage() {
-  return { sendMessage, queuedMessages, handleStopGenerating };
+  return { sendMessage, handleStopGenerating };
 }
 
 // Avoid — positional meaning is fragile
 function useSendMessage() {
-  return [sendMessage, queuedMessages, handleStopGenerating];
+  return [sendMessage, handleStopGenerating];
 }
 ```
 
@@ -488,7 +488,7 @@ explaining its purpose and any important constraints.
 ```ts
 /**
  * Manages the lifecycle of sending a message — optimistic append,
- * attachment resolution, queue management, and stop-generation.
+ * attachment resolution, and stop-generation.
  *
  * Must be called within a ChatProvider context.
  */

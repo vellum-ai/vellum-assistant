@@ -29,19 +29,6 @@ const SEED: PaginatedHistoryResult = {
   seq: 0,
 };
 
-const queuedSnapshot = (): PaginatedHistoryResult => ({
-  ...SEED,
-  messages: [
-    {
-      id: "req-1",
-      role: "user",
-      queueStatus: "queued",
-      queuePosition: 1,
-    },
-  ],
-  seq: 1,
-});
-
 // `emittedAt` is derived from `seq` so the deterministic creation stamp is
 // `1000 + seq` — the reducer parses it back to that epoch ms.
 function env(seq: number, message: AssistantEvent): AssistantEventEnvelope {
@@ -53,6 +40,12 @@ function env(seq: number, message: AssistantEvent): AssistantEventEnvelope {
   } as AssistantEventEnvelope;
 }
 const stampOf = (seq: number) => 1000 + seq;
+
+const userRowSnapshot = (): PaginatedHistoryResult => ({
+  ...SEED,
+  messages: [{ id: "req-1", role: "user" }],
+  seq: 1,
+});
 
 const userEcho = (seq: number, id: string, text: string) =>
   env(seq, {
@@ -362,96 +355,6 @@ describe("rolling-snapshot reducer", () => {
       expect(
         resolved.messages.find((m) => m.id === "a1")?.textSegments,
       ).toEqual(["x"]);
-    });
-
-    test("reconciles a nonce-less placeholder after an optimistic steer", () => {
-      const dequeued = env(2, {
-        type: "message_dequeued",
-        conversationId: "conv-1",
-        requestId: "req-1",
-      } as AssistantEvent);
-      const snapshot = queuedSnapshot();
-      snapshot.messages[0] = {
-        ...snapshot.messages[0]!,
-        attachments: [
-          {
-            id: "attachment-1",
-            filename: "report.pdf",
-            mimeType: "application/pdf",
-            sizeBytes: 1,
-            previewUrl: null,
-          },
-        ],
-        queueStatus: undefined,
-        queuePosition: undefined,
-      };
-      snapshot.messages.push({
-        id: "nonce-2",
-        clientMessageId: "nonce-2",
-        role: "user",
-        isOptimistic: true,
-        queueStatus: "queued",
-        queuePosition: 2,
-      });
-      const resolved = resolveSnapshot(snapshot, [
-        dequeued,
-        userEcho(3, "persisted-1", "queued message"),
-      ]);
-
-      expect(resolved.messages).toHaveLength(2);
-      expect(resolved.messages[0]?.id).toBe("persisted-1");
-      expect(resolved.messages[0]?.isOptimistic).toBe(false);
-      expect(resolved.messages[0]?.attachments?.[0]?.id).toBe("attachment-1");
-      expect(resolved.messages[1]?.id).toBe("nonce-2");
-    });
-
-    test("retains a correlated queued row when replaying a dequeue", () => {
-      const snapshot = queuedSnapshot();
-      snapshot.messages[0]!.clientMessageId = "nonce-1";
-      const resolved = resolveSnapshot(snapshot, [
-        env(2, {
-          type: "message_dequeued",
-          conversationId: "conv-1",
-          requestId: "req-1",
-        } as AssistantEvent),
-      ]);
-
-      expect(resolved.messages[0]?.queueStatus).toBeUndefined();
-      expect(resolved.messages[0]?.queuePosition).toBeUndefined();
-    });
-
-    test("replays a corrective requeue back onto a dequeued row", () => {
-      const snapshot = queuedSnapshot();
-      const resolved = resolveSnapshot(snapshot, [
-        env(2, {
-          type: "message_dequeued",
-          conversationId: "conv-1",
-          requestId: "req-1",
-        } as AssistantEvent),
-        env(3, {
-          type: "message_requeued",
-          conversationId: "conv-1",
-          requestId: "req-1",
-          position: 1,
-        } as AssistantEvent),
-      ]);
-
-      // The drain gave the message back to the queue, so the row it cleared
-      // has to come back rather than vanish until the next drain.
-      expect(resolved.messages[0]?.queueStatus).toBe("queued");
-      expect(resolved.messages[0]?.queuePosition).toBe(1);
-    });
-
-    test("replays a queued deletion onto a queued snapshot row", () => {
-      const resolved = resolveSnapshot(queuedSnapshot(), [
-        env(2, {
-          type: "message_queued_deleted",
-          conversationId: "conv-1",
-          requestId: "req-1",
-        } as AssistantEvent),
-      ]);
-
-      expect(resolved.messages).toEqual([]);
     });
   });
 
@@ -847,8 +750,6 @@ describe("camera-frame echoes", () => {
       role: "user",
       clientMessageId: "client-1",
       isOptimistic: true,
-      queueStatus: "queued",
-      queuePosition: 1,
       ...textBody("What is on the table?"),
     });
     const snapshot = applyEventsToHistory(SEED, [
@@ -877,8 +778,6 @@ describe("camera-frame echoes", () => {
     expect(optimistic).toMatchObject({
       clientMessageId: "client-1",
       isOptimistic: true,
-      queueStatus: "queued",
-      queuePosition: 1,
     });
 
     const confirmed = applyEventsToHistory(snapshot, [
@@ -925,7 +824,7 @@ describe("resolveSeed", () => {
   const liveAt = (seq: number): PaginatedHistoryResult => ({ ...SEED, seq });
 
   test("seeds when there is no live view to protect", () => {
-    const snapshot = { ...queuedSnapshot(), seq: null };
+    const snapshot = { ...userRowSnapshot(), seq: null };
     expect(resolveSeed(null, snapshot, null)).toEqual({
       kind: "seed",
       history: resolveSnapshot(snapshot, null),
@@ -935,12 +834,12 @@ describe("resolveSeed", () => {
 
   test("drops an anchor-less snapshot over a live view that folded events", () => {
     expect(
-      resolveSeed(liveAt(7), { ...queuedSnapshot(), seq: null }, null),
+      resolveSeed(liveAt(7), { ...userRowSnapshot(), seq: null }, null),
     ).toEqual({ kind: "skip_anchorless", liveSeq: 7 });
   });
 
   test("drops a stale-anchored snapshot the buffer cannot bridge", () => {
-    expect(resolveSeed(liveAt(7), queuedSnapshot(), null)).toEqual({
+    expect(resolveSeed(liveAt(7), userRowSnapshot(), null)).toEqual({
       kind: "skip_stale_anchor",
       liveSeq: 7,
       fetchedSeq: 1,
@@ -949,9 +848,60 @@ describe("resolveSeed", () => {
 
   test("seeds a stale-anchored snapshot when the buffered tail bridges it", () => {
     const tail = [userEcho(2, "u-2", "hello")];
-    expect(resolveSeed(liveAt(7), queuedSnapshot(), tail)).toEqual({
+    expect(resolveSeed(liveAt(7), userRowSnapshot(), tail)).toEqual({
       kind: "seed",
-      history: resolveSnapshot(queuedSnapshot(), tail),
+      history: resolveSnapshot(userRowSnapshot(), tail),
     });
+  });
+});
+
+describe("an interrupting send on the wire", () => {
+  test("the replacement turn's reply opens its own row after the interrupted one", () => {
+    const interrupted: PaginatedHistoryResult = {
+      ...SEED,
+      messages: [
+        {
+          id: "u1",
+          role: "user",
+          textSegments: ["run the long job"],
+          contentOrder: [{ type: "text", id: "0" }],
+        },
+        {
+          id: "msg-a",
+          role: "assistant",
+          textSegments: ["on it"],
+          contentOrder: [{ type: "text", id: "0" }],
+        },
+      ],
+      seq: 10,
+    };
+    // The aborted turn's cancel, the interrupt's thinking signal, the
+    // interrupting user row, then the replacement turn.
+    const wire = [
+      env(11, { type: "generation_cancelled" } as AssistantEvent),
+      env(12, {
+        type: "assistant_activity_state",
+        phase: "thinking",
+        reason: "message_interrupted",
+        activityVersion: 5,
+      } as AssistantEvent),
+      userEcho(13, "u2", "What is 17 times 23?"),
+      env(14, {
+        type: "assistant_turn_start",
+        messageId: "msg-b",
+      } as AssistantEvent),
+      textDelta(15, "msg-b", "391."),
+      complete(16, "msg-b"),
+    ];
+
+    const history = wire.reduce(applyEvent, interrupted);
+
+    expect(history.messages.map((m) => m.id)).toEqual([
+      "u1",
+      "msg-a",
+      "u2",
+      "msg-b",
+    ]);
+    expect(history.messages[3]?.textSegments).toEqual(["391."]);
   });
 });

@@ -3,7 +3,7 @@
  * state: any active nudge flag yields a slot node, none yields null, and the
  * resolved mobile promotion is what picks the native banner over the desktop one.
  *
- * The banner components and queued drawer are stubbed via `mock.module` so
+ * The banner components are stubbed via `mock.module` so
  * the test stays focused on the slot construction logic.
  */
 
@@ -25,9 +25,6 @@ mock.module("@/components/nudges/desktop-app-banner", () => ({
   DesktopAppBanner: ({ platform }: { platform: string }) => (
     <div data-testid="desktop-app-banner" data-platform={platform} />
   ),
-}));
-mock.module("@/domains/chat/components/queued-messages-drawer", () => ({
-  QueuedMessagesDrawer: () => null,
 }));
 
 import { useChatBannerSlots } from "@/domains/chat/hooks/use-chat-banner-slots";
@@ -71,14 +68,7 @@ function makeNudges(overrides: Partial<Nudges> = {}): Nudges {
 }
 
 function makeParams(nudges: Nudges): UseChatBannerSlotsParams {
-  return {
-    nudges,
-    queuedMessages: [],
-    onCancelQueuedMessage: noop,
-    onCancelAllQueued: noop,
-    onSteerMessage: noop,
-    onEditQueueTail: noop,
-  };
+  return { nudges };
 }
 
 afterEach(() => {

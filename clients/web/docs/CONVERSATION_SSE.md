@@ -26,8 +26,7 @@ transcript = selectTranscriptMessages(snapshot ⊕ optimisticSends)
   assistant text/reasoning, tool calls and results, surfaces, the inline
   confirmation marker, echoed user rows, and optional mode-session membership.
 - **`optimisticSends`** (chat-session store, `DisplayMessage[]`) — user messages
-  the client has sent but the server hasn't echoed back yet (including queued
-  sends). Held apart from the snapshot so it's explicit they're unconfirmed.
+  the client has sent but the server hasn't echoed back yet. Held apart from the snapshot so it's explicit they're unconfirmed.
 - **`useTranscriptMessages`** — the single read seam. `selectTranscriptMessages`
   overlays the optimistic rows onto the snapshot by message identity (server id,
   a `mergedMessageIds` alias, or the client-minted `clientMessageId` nonce the
@@ -42,7 +41,7 @@ transcript = selectTranscriptMessages(snapshot ⊕ optimisticSends)
   fold; every row it opens is stamped from the event's `emittedAt` (`at`), so a
   row is identical whether built live or rebuilt from a snapshot.
 - **total** — events that don't change transcript content (turn lifecycle,
-  queue, subagent/workflow, sync, unknowns) return the list unchanged.
+  subagent/workflow, sync, unknowns) return the list unchanged.
 - **idempotent by `seq`** — an event whose `seq` is at or below the snapshot's
   `seq` is already folded and is dropped. `seq` is a global per-assistant
   monotonic watermark, sparse per conversation — used only for idempotency, never
@@ -59,7 +58,7 @@ is what makes that equal to a commit per envelope.
 
 Stream handlers (`utils/stream-handlers/*`) own only the **control plane** —
 turn/interaction stores, reconciliation triggers, conversation-cache
-`isProcessing` patches, queue bookkeeping, dismissed-surface persistence,
+`isProcessing` patches, dismissed-surface persistence,
 subagent re-anchoring — and never write transcript rows. To render content for a
 new event, add a reducer case rather than mutating from a handler; that's what
 keeps replay, resync, and rebuild equivalent.
@@ -82,16 +81,12 @@ the instant they hit send; the overlay renders it immediately. There is **no**
 id-swap against the server id on POST resolve — the assistant echoes the
 `clientMessageId` back on the persisted row and the overlay collapses the two on
 that nonce. `user_message_echo` retires the optimistic copy of a text-only send;
-a send that carries attachments is kept (upgraded to the server id, queue fields
-cleared) because the echo has no attachment payload — the optimistic row holds
+a send that carries attachments is kept (upgraded to the server id) because the echo has no attachment payload — the optimistic row holds
 the only copy of the user's previews (blob URLs for pasted images) until the
 turn-end reseed pulls the hydrated server row and
 `pruneConfirmedOptimisticSends` retires it. While the snapshot is unseeded (the
 first message of a freshly minted conversation) the echo retires nothing — the
 paired fold has nowhere to land, so the reseed prune owns retirement there too.
-Queued sends live here too, with `queueStatus`/`queuePosition` maintained by
-the queue handlers via `setOptimisticSends`.
-
 Nonce-less echoes (the field is optional; pre-idempotency assistants omit it)
 have no shared key for the overlay to collapse on, so `handleUserMessageEcho`
 falls back to retiring the most recent optimistic user send.
@@ -120,8 +115,8 @@ later can't be ring-replayed. The recovery path is a refetch:
   user row whose echo already retired the optimistic copy (the send flicker).
 - The reseed also **prunes** any optimistic send the snapshot now represents
   (`pruneConfirmedOptimisticSends`), keyed by the same identity
-  `selectTranscriptMessages` overlays on. Without this, a send whose echo/dequeue
-  was missed on a flaky connection would stay rendered as optimistic/queued
+  `selectTranscriptMessages` overlays on. Without this, a send whose echo
+  was missed on a flaky connection would stay rendered as optimistic
   forever even though the server snapshot already contains it.
 - When a turn returns to idle, history is invalidated; the committed-snapshot
   effect then reseeds from the authoritative server copy (canonical ids/ordering,
@@ -187,7 +182,7 @@ produces the same history as a clean one. Keep new reducer cases pure and
 | Snapshot + optimistic sends store | `chat-session-store.ts` |
 | Event-stream wiring (feeds reducer + handlers) | `hooks/use-event-stream.ts` |
 | Control-plane handlers | `utils/stream-handlers/*` |
-| Send / optimistic / queue | `hooks/use-send-message.ts`, `hooks/use-message-queue.ts` |
+| Send / optimistic rows | `hooks/use-send-message.ts` |
 | Reseed + reconnect refetch | `hooks/use-conversation-history.ts`, `hooks/use-message-reconciliation.ts` |
 | Event buffer (resync tail) | `lib/streaming/stream-debug.ts` |
 | Subagent histories (fold, seed, invalidate) | `subagent-store.ts` |

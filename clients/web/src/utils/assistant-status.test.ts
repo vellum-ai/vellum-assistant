@@ -65,8 +65,8 @@ describe("deriveAssistantStatus", () => {
     );
   });
 
-  test("thinking while a turn is queued, thinking, or streaming", () => {
-    for (const turnPhase of ["queued", "thinking", "streaming"] as const) {
+  test("thinking while a turn is thinking or streaming", () => {
+    for (const turnPhase of ["thinking", "streaming"] as const) {
       expect(deriveAssistantStatus({ ...working, turnPhase })).toBe("thinking");
     }
   });

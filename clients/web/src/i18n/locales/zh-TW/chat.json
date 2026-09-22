@@ -1540,15 +1540,6 @@
     "typeDifferentAnswerAria": "輸入不同的答案",
     "typeSomethingElsePlaceholder": "輸入其他內容"
   },
-  "queuedMessagesDrawer": {
-    "cancelAll": "全部取消",
-    "cancelAllAria": "取消所有佇列訊息",
-    "cancelAria": "取消佇列訊息",
-    "editAria": "編輯佇列訊息",
-    "pushToAgentAria": "推送給助理",
-    "queueHeading": "佇列 · {count}",
-    "showActionsAria": "顯示佇列訊息動作"
-  },
   "quoteReplyBubble": {
     "addToChat": "新增至聊天",
     "ariaLabel": "引用並回覆",

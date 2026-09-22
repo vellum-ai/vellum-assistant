@@ -334,8 +334,8 @@ export function useComposerSubmit({
                 : undefined,
             );
           } finally {
-            // Keep the saved context locked through the queue wait, until chat
-            // takes ownership of this message. Delivery completion does not hold it.
+            // Keep the saved context locked through the delivery wait, until
+            // chat takes ownership of this message. Delivery completion does not hold it.
             releasePreparation();
           }
           await delivery;
@@ -346,9 +346,8 @@ export function useComposerSubmit({
         // The composer is cleared and re-enabled above, ahead of the send
         // `deliver` runs, so a second message can be written and sent while the
         // first is still in flight. Whichever send settles first would otherwise
-        // reach the assistant first, and the send treats a message arriving while
-        // a turn is starting as one to queue behind it: the two land in the
-        // assistant's history the wrong way round.
+        // reach the assistant first, and the two land in the assistant's history
+        // the wrong way round.
         //
         // The link runs whether the previous one resolved or rejected, and the
         // chain is advanced with a continuation that cannot reject, so one failed

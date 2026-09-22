@@ -323,11 +323,11 @@ describe("createChatDebugApi.getPhase", () => {
   });
 
   test("reads through to getTurnState on every call (no caching)", () => {
-    let phase: TurnState["phase"] = "queued";
+    let phase: TurnState["phase"] = "streaming";
     const api = createChatDebugApi(
       makeRefs({ getTurnState: () => ({ ...INITIAL_TURN_STATE, phase }) }),
     );
-    expect(api.getPhase()).toBe("queued");
+    expect(api.getPhase()).toBe("streaming");
     phase = "thinking";
     expect(api.getPhase()).toBe("thinking");
   });
@@ -485,23 +485,6 @@ describe("createChatDebugApi.thinkingIndicator", () => {
     expect(snapshot.failingConditions).toEqual([]);
     // Phase is still idle locally — but `restoredProcessing` overrides.
     expect(snapshot.done.terminal).toBe(true);
-  });
-
-  test("queued phase is visible and reported as non-terminal", () => {
-    const refs = makeRefs({
-      turn: {
-        ...INITIAL_TURN_STATE,
-        phase: "queued",
-        pendingQueuedCount: 2,
-      },
-    });
-    const api = createChatDebugApi(refs);
-
-    const snapshot = api.thinkingIndicator();
-
-    expect(snapshot.visible).toBe(true);
-    expect(snapshot.done.phase).toBe("queued");
-    expect(snapshot.done.terminal).toBe(false);
   });
 
   test("returns the same UIContext reference shape getUIContext provided", () => {

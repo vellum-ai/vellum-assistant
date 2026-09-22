@@ -1502,15 +1502,6 @@
     "typeDifferentAnswerAria": "Escribe una respuesta diferente",
     "typeSomethingElsePlaceholder": "Algo más"
   },
-  "queuedMessagesDrawer": {
-    "cancelAll": "Cancelar todos",
-    "cancelAllAria": "Cancelar todos los mensajes en cola",
-    "cancelAria": "Cancelar mensaje en cola",
-    "editAria": "Editar mensaje en cola",
-    "pushToAgentAria": "Enviar al agente",
-    "queueHeading": "Cola · {count}",
-    "showActionsAria": "Mostrar acciones del mensaje en cola"
-  },
   "quoteReplyBubble": {
     "addToChat": "Añadir al chat",
     "ariaLabel": "Citar y responder",

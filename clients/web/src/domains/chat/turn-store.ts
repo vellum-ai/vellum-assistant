@@ -1,8 +1,7 @@
 /**
  * Zustand store for the turn-level state machine.
  *
- * Owns sending/thinking/streaming lifecycle, queue depth, active tool-call
- * count, and current turn identity. Direct named actions call `set()` to
+ * Owns sending/thinking/streaming lifecycle, active tool-call count, and current turn identity. Direct named actions call `set()` to
  * apply pure transitions so render decisions can be derived deterministically.
  *
  * Wrapped with `createSelectors` for auto-generated per-field hooks.
@@ -27,7 +26,6 @@ import { createSelectors } from "@/utils/create-selectors";
 
 export type TurnPhase =
   | "idle"
-  | "queued"
   | "thinking"
   | "streaming"
   | "awaiting_user_input"
@@ -43,14 +41,13 @@ export type TerminalReason =
 
 export interface TurnState {
   phase: TurnPhase;
-  pendingQueuedCount: number;
   activeToolCallCount: number;
   activeTurnId: string | null;
   /**
    * The turn this client started by interrupting one already running, held
    * until the daemon's `generation_cancelled` for the turn it replaced lands.
    *
-   * Under `interrupt-on-send` the send is answered before the abort, so the
+   * The send is answered before the abort, so the
    * client claims the new turn first and the cancel for the old one arrives
    * behind it. Read as an ordinary terminal that cancel would idle the phase
    * and drop `activeTurnId`, leaving the replacement turn running with no
@@ -78,7 +75,6 @@ export interface TurnState {
 
 export const INITIAL_TURN_STATE: TurnState = {
   phase: "idle",
-  pendingQueuedCount: 0,
   activeToolCallCount: 0,
   activeTurnId: null,
   interruptingTurnId: null,
@@ -94,7 +90,6 @@ export const INITIAL_TURN_STATE: TurnState = {
 /** True when the turn is actively processing (not idle/errored). */
 export function isSending(phase: TurnPhase): boolean {
   return (
-    phase === "queued" ||
     phase === "thinking" ||
     phase === "streaming" ||
     phase === "awaiting_user_input"
@@ -103,7 +98,7 @@ export function isSending(phase: TurnPhase): boolean {
 
 /** True while activity output can still append to the current response. */
 export function isActivityLive(phase: TurnPhase): boolean {
-  return phase === "queued" || phase === "thinking" || phase === "streaming";
+  return phase === "thinking" || phase === "streaming";
 }
 
 /** True when we are waiting for the first assistant text delta. */
@@ -119,8 +114,8 @@ export interface UserSendRequested {
   type: "USER_SEND_REQUESTED";
   turnId?: string;
   /**
-   * This send is replacing a turn already in flight (`interrupt-on-send`),
-   * so the cancel that follows belongs to the turn it replaced. See
+   * This send is replacing a turn already in flight, so the cancel that
+   * follows belongs to the turn it replaced. See
    * {@link TurnState.interruptingTurnId}.
    */
   interruptsRunningTurn?: boolean;
@@ -193,10 +188,6 @@ export interface MessageComplete {
   type: "MESSAGE_COMPLETE";
 }
 
-export interface GenerationHandoff {
-  type: "GENERATION_HANDOFF";
-}
-
 export interface GenerationCancelled {
   type: "GENERATION_CANCELLED";
 }
@@ -226,18 +217,6 @@ export interface TurnReset {
   type: "TURN_RESET";
 }
 
-export interface MessageQueued {
-  type: "MESSAGE_QUEUED";
-}
-
-export interface MessageDequeued {
-  type: "MESSAGE_DEQUEUED";
-}
-
-export interface MessageQueuedDeleted {
-  type: "MESSAGE_QUEUED_DELETED";
-}
-
 export type DomainEvent =
   | UserSendRequested
   | UserSendAccepted
@@ -255,17 +234,13 @@ export type DomainEvent =
   | QuestionRequest
   | ContactRequest
   | MessageComplete
-  | GenerationHandoff
   | GenerationCancelled
   | StreamError
   | SessionError
   | PollReconciled
   | TurnTimeout
   | TurnReset
-  | StaleTurnCleared
-  | MessageQueued
-  | MessageDequeued
-  | MessageQueuedDeleted;
+  | StaleTurnCleared;
 
 // ---------------------------------------------------------------------------
 // Actions
@@ -309,7 +284,6 @@ export interface TurnActions {
   onQuestionRequest: () => void;
   onContactRequest: () => void;
   completeTurn: () => void;
-  handoffGeneration: () => void;
   cancelGeneration: () => void;
   onStreamError: () => void;
   onSessionError: () => void;
@@ -317,9 +291,6 @@ export interface TurnActions {
   onTurnTimeout: () => void;
   resetTurn: () => void;
   clearStaleTurn: () => void;
-  enqueueMessage: () => void;
-  dequeueMessage: () => void;
-  deleteQueuedMessage: () => void;
 }
 
 export type TurnStore = TurnState & TurnActions;
@@ -361,7 +332,7 @@ function cancelledTurnState(s: TurnState): Partial<TurnState> {
     };
   }
   return {
-    phase: s.pendingQueuedCount > 0 ? "queued" : "idle",
+    phase: "idle",
     activeTurnId: null,
     interruptingTurnId: null,
     activeToolCallCount: 0,
@@ -426,7 +397,7 @@ const useTurnStoreBase = create<TurnStore>()((set, get) => ({
       set({ phase: "streaming" });
       return;
     }
-    if (s.phase === "thinking" || s.phase === "queued") {
+    if (s.phase === "thinking") {
       set({ phase: "streaming" });
     }
   },
@@ -439,10 +410,7 @@ const useTurnStoreBase = create<TurnStore>()((set, get) => ({
       return;
     }
     set({
-      phase:
-        s.phase === "idle" || s.phase === "errored" || s.phase === "queued"
-          ? "thinking"
-          : s.phase,
+      phase: s.phase === "idle" || s.phase === "errored" ? "thinking" : s.phase,
       activeToolCallCount: s.activeToolCallCount + 1,
     });
   },
@@ -587,25 +555,14 @@ const useTurnStoreBase = create<TurnStore>()((set, get) => ({
   // ----- Turn completion -----
 
   completeTurn: () => {
-    const s = get();
-    // When queued messages remain, transition to "queued" instead of
-    // idle so the UI knows the assistant will continue processing.
     set({
-      phase: s.pendingQueuedCount > 0 ? "queued" : "idle",
+      phase: "idle",
       activeTurnId: null,
       activeToolCallCount: 0,
       lastTerminalReason: "complete",
       statusText: null,
       liveWebActivity: {},
     });
-  },
-
-  handoffGeneration: () => {
-    if (isStale(get())) {
-      return;
-    }
-    // Current assistant chunk is finalized; more chunks expected.
-    set({ phase: "thinking", activeToolCallCount: 0, statusText: null });
   },
 
   // ----- Terminal / error states -----
@@ -619,7 +576,6 @@ const useTurnStoreBase = create<TurnStore>()((set, get) => ({
       phase: "idle",
       activeTurnId: null,
       activeToolCallCount: 0,
-      pendingQueuedCount: 0,
       lastTerminalReason: "error",
       statusText: null,
       liveWebActivity: {},
@@ -630,7 +586,6 @@ const useTurnStoreBase = create<TurnStore>()((set, get) => ({
       phase: "idle",
       activeTurnId: null,
       activeToolCallCount: 0,
-      pendingQueuedCount: 0,
       lastTerminalReason: "session_error",
       statusText: null,
       liveWebActivity: {},
@@ -641,7 +596,6 @@ const useTurnStoreBase = create<TurnStore>()((set, get) => ({
       phase: "idle",
       activeTurnId: null,
       activeToolCallCount: 0,
-      pendingQueuedCount: 0,
       lastTerminalReason: "timeout",
       statusText: null,
       liveWebActivity: {},
@@ -693,40 +647,6 @@ const useTurnStoreBase = create<TurnStore>()((set, get) => ({
     }
     set({ ...INITIAL_TURN_STATE });
   },
-
-  // ----- Queue management -----
-
-  enqueueMessage: () =>
-    set((s) => ({ pendingQueuedCount: s.pendingQueuedCount + 1 })),
-
-  dequeueMessage: () => {
-    const s = get();
-    const nextCount = Math.max(0, s.pendingQueuedCount - 1);
-    // Guard: if idle/errored with no activeTurnId this is a stale
-    // event — decrement the count but don't re-activate.
-    if (isStale(s)) {
-      set({ pendingQueuedCount: nextCount });
-      return;
-    }
-    set({ phase: "thinking", pendingQueuedCount: nextCount });
-  },
-
-  deleteQueuedMessage: () => {
-    const s = get();
-    const nextCount = Math.max(0, s.pendingQueuedCount - 1);
-    if (nextCount === 0 && s.phase === "queued") {
-      set({
-        phase: "idle",
-        pendingQueuedCount: 0,
-        activeTurnId: null,
-        lastTerminalReason: "complete",
-        statusText: null,
-        liveWebActivity: {},
-      });
-      return;
-    }
-    set({ pendingQueuedCount: nextCount });
-  },
 }));
 
 export const useTurnStore = createSelectors(useTurnStoreBase);
@@ -773,7 +693,7 @@ export function turnReducer(state: TurnState, event: DomainEvent): TurnState {
         }
         return { ...state, phase: "streaming" };
       }
-      if (state.phase === "thinking" || state.phase === "queued") {
+      if (state.phase === "thinking") {
         return { ...state, phase: "streaming" };
       }
       return state;
@@ -787,9 +707,7 @@ export function turnReducer(state: TurnState, event: DomainEvent): TurnState {
         phase:
           state.phase === "idle" || state.phase === "errored"
             ? "thinking"
-            : state.phase === "queued"
-              ? "thinking"
-              : state.phase,
+            : state.phase,
         activeToolCallCount: state.activeToolCallCount + 1,
       };
 
@@ -873,53 +791,7 @@ export function turnReducer(state: TurnState, event: DomainEvent): TurnState {
       }
       return { ...state, phase: "awaiting_user_input" };
 
-    case "MESSAGE_QUEUED":
-      return {
-        ...state,
-        pendingQueuedCount: state.pendingQueuedCount + 1,
-      };
-
-    case "MESSAGE_DEQUEUED":
-      if (isStale(state)) {
-        return {
-          ...state,
-          pendingQueuedCount: Math.max(0, state.pendingQueuedCount - 1),
-        };
-      }
-      return {
-        ...state,
-        phase: "thinking",
-        pendingQueuedCount: Math.max(0, state.pendingQueuedCount - 1),
-      };
-
-    case "MESSAGE_QUEUED_DELETED": {
-      const nextCount = Math.max(0, state.pendingQueuedCount - 1);
-      if (nextCount === 0 && state.phase === "queued") {
-        return {
-          ...state,
-          phase: "idle",
-          pendingQueuedCount: 0,
-          activeTurnId: null,
-          lastTerminalReason: "complete",
-          statusText: null,
-          liveWebActivity: {},
-        };
-      }
-      return { ...state, pendingQueuedCount: nextCount };
-    }
-
     case "MESSAGE_COMPLETE":
-      if (state.pendingQueuedCount > 0) {
-        return {
-          ...state,
-          phase: "queued",
-          activeTurnId: null,
-          activeToolCallCount: 0,
-          lastTerminalReason: "complete",
-          statusText: null,
-          liveWebActivity: {},
-        };
-      }
       return {
         ...state,
         phase: "idle",
@@ -928,14 +800,6 @@ export function turnReducer(state: TurnState, event: DomainEvent): TurnState {
         lastTerminalReason: "complete",
         statusText: null,
         liveWebActivity: {},
-      };
-
-    case "GENERATION_HANDOFF":
-      return {
-        ...state,
-        phase: "thinking",
-        activeToolCallCount: 0,
-        statusText: null,
       };
 
     case "GENERATION_CANCELLED":
@@ -947,7 +811,6 @@ export function turnReducer(state: TurnState, event: DomainEvent): TurnState {
         phase: "idle",
         activeTurnId: null,
         activeToolCallCount: 0,
-        pendingQueuedCount: 0,
         lastTerminalReason: "error",
         statusText: null,
         liveWebActivity: {},
@@ -959,7 +822,6 @@ export function turnReducer(state: TurnState, event: DomainEvent): TurnState {
         phase: "idle",
         activeTurnId: null,
         activeToolCallCount: 0,
-        pendingQueuedCount: 0,
         lastTerminalReason: "session_error",
         statusText: null,
         liveWebActivity: {},
@@ -975,17 +837,6 @@ export function turnReducer(state: TurnState, event: DomainEvent): TurnState {
         event.turnId !== state.activeTurnId
       ) {
         return state;
-      }
-      if (state.pendingQueuedCount > 0) {
-        return {
-          ...state,
-          phase: "queued",
-          activeTurnId: null,
-          activeToolCallCount: 0,
-          lastTerminalReason: "complete",
-          statusText: null,
-          liveWebActivity: {},
-        };
       }
       return {
         ...state,
@@ -1004,7 +855,6 @@ export function turnReducer(state: TurnState, event: DomainEvent): TurnState {
         phase: "idle",
         activeTurnId: null,
         activeToolCallCount: 0,
-        pendingQueuedCount: 0,
         lastTerminalReason: "timeout",
         statusText: null,
         liveWebActivity: {},

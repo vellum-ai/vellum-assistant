@@ -43,9 +43,6 @@ mock.module("@/domains/chat/utils/stream-handlers/message-handlers", () => ({
       conversationId: event.conversationId,
     });
   },
-  handleGenerationHandoff: () => {
-    handlerCalls.push({ kind: "generation_handoff" });
-  },
   handleGenerationCancelled: () => {
     handlerCalls.push({ kind: "generation_cancelled" });
   },
