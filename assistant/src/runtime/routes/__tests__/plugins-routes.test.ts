@@ -1101,6 +1101,7 @@ describe("GET /v1/plugins/search", () => {
               instructions: "Connect your Fathom account.",
             },
             logo: "fathom.png",
+            versionedLogo: "fathom-1.0.0.png",
           },
           source: {
             kind: "local",
@@ -1130,6 +1131,7 @@ describe("GET /v1/plugins/search", () => {
             instructions: "Connect your Fathom account.",
           },
           logo: "fathom.png",
+          versionedLogo: "fathom-1.0.0.png",
         },
         source: {
           kind: "local",

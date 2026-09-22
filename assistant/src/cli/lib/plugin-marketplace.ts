@@ -127,6 +127,11 @@ export const mcpIntegrationSchema = z.object({
   }),
   /** Filename under the web client's bundled integration-image directory. */
   logo: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.-]*$/),
+  /** Cache-safe filename preferred by clients that support image fallbacks. */
+  versionedLogo: z
+    .string()
+    .regex(/^[A-Za-z0-9][A-Za-z0-9_.-]*$/)
+    .optional(),
   /**
    * Where the integrations catalog files the entry. Any string at this
    * boundary: a catalog newer than this build can name a category it does not

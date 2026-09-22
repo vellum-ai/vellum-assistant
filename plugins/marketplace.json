@@ -660,7 +660,8 @@
           "mode": "manual",
           "instructions": "Ask Ramp to allowlist this client or gateway's exact OAuth redirect URI before connecting."
         },
-        "logo": "ramp-mcp-1.0.3.png",
+        "logo": "ramp-mcp.png",
+        "versionedLogo": "ramp-mcp-1.0.3.png",
         "category": "finance"
       }
     },
@@ -1287,7 +1288,8 @@
           "mode": "oauth",
           "instructions": "A Navan admin must enable MCP for your organization."
         },
-        "logo": "navan-mcp-1.0.3.png",
+        "logo": "navan-mcp.png",
+        "versionedLogo": "navan-mcp-1.0.3.png",
         "category": "finance"
       }
     },

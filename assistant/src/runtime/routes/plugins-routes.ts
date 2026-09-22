@@ -225,6 +225,7 @@ const mcpPluginIntegrationSchema = z.object({
     instructions: z.string(),
   }),
   logo: z.string(),
+  versionedLogo: z.string().optional(),
   oauthProvider: z.string().optional(),
   category: z
     .string()

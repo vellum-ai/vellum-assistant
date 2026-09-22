@@ -31,6 +31,7 @@ function writeLocalPlugin({
   sourceVersion = "1.0.1",
   packageVersion = "1.0.1",
   logo = `${name}-mcp.png`,
+  versionedLogo,
 } = {}) {
   const packageRoot = join(repoRoot, "plugins/mcp-catalog", name);
   mkdirSync(packageRoot, { recursive: true });
@@ -51,7 +52,7 @@ function writeLocalPlugin({
             path: `plugins/mcp-catalog/${name}`,
             version: sourceVersion,
           },
-          integration: { kind: "mcp", logo },
+          integration: { kind: "mcp", logo, versionedLogo },
         },
       ],
     }),
@@ -97,8 +98,10 @@ describe("syncLocalPluginIcons", () => {
     });
   });
 
-  test("supports versioned logo filenames", () => {
-    const icon = writeLocalPlugin({ logo: "example-mcp-1.0.1.png" });
+  test("supports versioned logo filenames with a stable legacy name", () => {
+    const icon = writeLocalPlugin({
+      versionedLogo: "example-mcp-1.0.1.png",
+    });
     mkdirSync(webAssetsDir, { recursive: true });
     writeFileSync(join(webAssetsDir, "example-mcp.png"), makePng(16, 16));
     writeFileSync(join(webAssetsDir, "example-mcp-1.0.0.png"), makePng(16, 16));
@@ -126,7 +129,7 @@ describe("syncLocalPluginIcons", () => {
   });
 
   test("requires a versioned logo filename to match the package version", () => {
-    writeLocalPlugin({ logo: "example-mcp-1.0.0.png" });
+    writeLocalPlugin({ versionedLogo: "example-mcp-1.0.0.png" });
 
     const result = run();
 

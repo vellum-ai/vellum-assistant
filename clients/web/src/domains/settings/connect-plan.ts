@@ -8,7 +8,7 @@ import {
   type McpPluginMethod,
 } from "./integration-items";
 import type { McpServerEntry } from "./mcp/mcp-api";
-import { pluginLogoUrl } from "./mcp/plugin-logo";
+import { pluginLogoFallbackUrl, pluginLogoUrl } from "./mcp/plugin-logo";
 
 /**
  * Every way a user can connect an integration, collapsed to the four shapes
@@ -81,6 +81,7 @@ export interface ConnectPlan {
   description: string | null;
   iconKey: string;
   logoUrl: string | null;
+  fallbackLogoUrl?: string;
   /** The recommended path. Rendered as the one obvious action. */
   primary: ConnectMethod;
   /** Every other path, behind the chevron on the connect button. */
@@ -230,6 +231,7 @@ export function buildConnectPlan(
   const methods: ConnectMethod[] = [];
   let iconKey: string;
   let logoUrl: string | null = null;
+  let fallbackLogoUrl: string | null = null;
   let description: string | null;
 
   if (item.kind === "oauth") {
@@ -262,6 +264,7 @@ export function buildConnectPlan(
     const { definition } = item.method;
     iconKey = definition.pluginName;
     logoUrl = pluginLogoUrl(definition);
+    fallbackLogoUrl = pluginLogoFallbackUrl(definition);
     description = definition.description;
     methods.push(pluginMethod(item.method, context.mcpServersLoaded));
   }
@@ -275,6 +278,7 @@ export function buildConnectPlan(
     description,
     iconKey,
     logoUrl,
+    ...(fallbackLogoUrl ? { fallbackLogoUrl } : {}),
     primary,
     alternatives,
   };

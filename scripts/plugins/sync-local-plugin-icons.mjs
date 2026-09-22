@@ -105,13 +105,18 @@ function inspectLocalMcpIcons({ repoRoot, marketplacePath }) {
       );
     }
     const logo = entry.integration.logo;
-    if (logo !== unversionedLogo && logo !== versionedLogo) {
-      const allowedLogos = [unversionedLogo, versionedLogo]
-        .filter(Boolean)
-        .map((value) => `"${value}"`)
-        .join(" or ");
+    if (logo !== unversionedLogo) {
       errors.push(
-        `local MCP plugin "${name}" must use integration.logo ${allowedLogos}`,
+        `local MCP plugin "${name}" must use integration.logo "${unversionedLogo}"`,
+      );
+    }
+    const advertisedVersionedLogo = entry.integration.versionedLogo;
+    if (
+      advertisedVersionedLogo !== undefined &&
+      advertisedVersionedLogo !== versionedLogo
+    ) {
+      errors.push(
+        `local MCP plugin "${name}" must use integration.versionedLogo "${versionedLogo}"`,
       );
     }
 
@@ -129,7 +134,9 @@ function inspectLocalMcpIcons({ repoRoot, marketplacePath }) {
       continue;
     }
 
-    const logos = logo === versionedLogo ? [logo, unversionedLogo] : [logo];
+    const logos = advertisedVersionedLogo
+      ? [logo, advertisedVersionedLogo]
+      : [logo];
     icons.push({ name, bytes, logos });
   }
 

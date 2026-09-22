@@ -146,6 +146,7 @@ function ConnectModalHeader({
           providerKey={plan.iconKey}
           displayName={plan.name}
           logoUrl={plan.logoUrl}
+          fallbackLogoUrl={plan.fallbackLogoUrl}
           size={40}
         />
         <div className="flex min-w-0 flex-col">

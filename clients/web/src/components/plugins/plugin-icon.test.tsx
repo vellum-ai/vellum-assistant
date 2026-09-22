@@ -97,6 +97,22 @@ describe("PluginIcon", () => {
     expect(container.textContent).toBe(PACKAGE);
   });
 
+  test("falls back from a versioned catalog URL to its stable alias", () => {
+    const { container } = render(
+      <PluginIcon
+        iconUrl="/images/integrations/example-mcp-1.0.1.png"
+        fallbackIconUrl="/images/integrations/example-mcp.png"
+        external
+      />,
+    );
+
+    fireEvent.error(container.querySelector("img")!);
+
+    expect(container.querySelector("img")!.getAttribute("src")).toBe(
+      "/images/integrations/example-mcp.png",
+    );
+  });
+
   test("never renders a URL-shaped icon as an image", () => {
     // `icon` is untrusted author text; only `iconUrl` may become an <img>.
     const { container } = render(<PluginIcon icon="http://127.0.0.1" />);
