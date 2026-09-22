@@ -63,9 +63,10 @@ let availableChannelsOverride: ChannelInfo[] | null = null;
 let isMobile = false;
 let hasRoomForList = true;
 let lastSwipeArgs: UseEdgeSwipeBackArgs | null = null;
-/** Holds a delete request open so the detail's pending state is observable. */
+/** Holds delete requests open so the detail's pending state is observable. */
 let holdDelete = false;
-let releaseDelete: (() => void) | null = null;
+/** One resolver per held contact id, so two deletes can overlap. */
+const heldDeletes = new Map<string, () => void>();
 const linkAndVerifyCalls: Array<{ type: string; address: string }> = [];
 const mergeRequests: Array<{ keepId: string; mergeId: string }> = [];
 const unhandledRejections: unknown[] = [];
@@ -221,12 +222,12 @@ mock.module("@/domains/contacts/contacts-gateway", () => ({
     }
     return { ...GUARDIAN, ...body };
   },
-  deleteContact: async () => {
+  deleteContact: async (_assistantId: string, contactId: string) => {
     if (!holdDelete) {
       return;
     }
     await new Promise<void>((resolve) => {
-      releaseDelete = resolve;
+      heldDeletes.set(contactId, resolve);
     });
   },
   verifyContactChannel: async () => {},
@@ -439,6 +440,30 @@ function getButton(label: string): HTMLButtonElement {
   return match;
 }
 
+/** Lets one held delete finish and settles the renders it causes. */
+async function releaseDelete(contactId: string): Promise<void> {
+  const resolve = heldDeletes.get(contactId);
+  if (!resolve) {
+    throw new Error(`expected a held delete for "${contactId}"`);
+  }
+  heldDeletes.delete(contactId);
+  await act(async () => {
+    resolve();
+    await new Promise((settle) => setTimeout(settle, 0));
+  });
+}
+
+/** The auto-approve threshold picker, standing in for the design-library Select. */
+function getPermissionsSelect(): HTMLSelectElement {
+  const node = document.querySelector(
+    '[data-testid="contact-permissions-select"]',
+  );
+  if (!(node instanceof HTMLSelectElement)) {
+    throw new Error("expected the permissions picker");
+  }
+  return node;
+}
+
 function getModalButton(label: string): HTMLButtonElement {
   const match = Array.from(
     document.querySelectorAll<HTMLButtonElement>(
@@ -479,7 +504,7 @@ beforeEach(() => {
   mergeRequests.length = 0;
   unhandledRejections.length = 0;
   holdDelete = false;
-  releaseDelete = null;
+  heldDeletes.clear();
   useIntelligenceLayoutSlotsStore.getState().setHeaderTrailing(null);
   useIntelligenceLayoutSlotsStore.getState().setDetailIsScreen(false);
   process.on("unhandledRejection", onUnhandled);
@@ -645,14 +670,96 @@ describe("ContactsPage list and detail", () => {
     // Staying on screen means the channel actions are reachable, and they act
     // on the id the server is deleting.
     expect(getButton("Verify").disabled).toBe(true);
+    // The threshold picker upserts that same id, so it is blocked too.
+    expect(getPermissionsSelect().disabled).toBe(true);
 
-    await act(async () => {
-      releaseDelete!();
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
+    await releaseDelete(ALICE.id);
 
     await waitFor(() => getInputByPlaceholder("Your name"));
     expect(currentLocation().pathname).toBe("/assistant/contacts");
+  });
+
+  test("a delete in flight leaves every other contact interactive", async () => {
+    holdDelete = true;
+    renderContactsPage();
+
+    await waitFor(() => getInputByPlaceholder("Your name"));
+    fireEvent.click(getButtonByText("Alice"));
+    await waitFor(() => getInputByPlaceholder("Give this human a name"));
+
+    fireEvent.click(getButton("Delete Contact"));
+    fireEvent.click(await waitFor(() => getModalButton("Delete")));
+    await waitFor(() => getButton("Deleting…"));
+
+    // Alice drops out of the list while the request is open, but the rest of
+    // it stays reachable, so another contact can be opened mid-delete.
+    fireEvent.click(getButtonByText("Peer Assistant"));
+    await waitFor(() => {
+      expect(currentLocation().pathname).toBe(`/assistant/contacts/${PEER.id}`);
+    });
+
+    expect(getButton("Delete Contact").disabled).toBe(false);
+    expect(getInputByPlaceholder("Give this human a name").disabled).toBe(
+      false,
+    );
+
+    await releaseDelete(ALICE.id);
+  });
+
+  test("an earlier delete landing leaves the contact opened since alone", async () => {
+    holdDelete = true;
+    renderContactsPage();
+
+    await waitFor(() => getInputByPlaceholder("Your name"));
+    fireEvent.click(getButtonByText("Alice"));
+    await waitFor(() => getInputByPlaceholder("Give this human a name"));
+
+    fireEvent.click(getButton("Delete Contact"));
+    fireEvent.click(await waitFor(() => getModalButton("Delete")));
+    await waitFor(() => getButton("Deleting…"));
+
+    fireEvent.click(getButtonByText("Peer Assistant"));
+    await waitFor(() => {
+      expect(currentLocation().pathname).toBe(`/assistant/contacts/${PEER.id}`);
+    });
+    const nameInput = getInputByPlaceholder("Give this human a name");
+    fireEvent.change(nameInput, { target: { value: "Renamed Peer" } });
+
+    await releaseDelete(ALICE.id);
+
+    // Alice's delete must not walk the user off an unsaved edit to Peer.
+    expect(currentLocation().pathname).toBe(`/assistant/contacts/${PEER.id}`);
+    expect(getInputByPlaceholder("Give this human a name").value).toBe(
+      "Renamed Peer",
+    );
+  });
+
+  test("a second delete does not let the first contact back into the list", async () => {
+    holdDelete = true;
+    renderContactsPage();
+
+    await waitFor(() => getInputByPlaceholder("Your name"));
+    fireEvent.click(getButtonByText("Alice"));
+    await waitFor(() => getInputByPlaceholder("Give this human a name"));
+
+    fireEvent.click(getButton("Delete Contact"));
+    fireEvent.click(await waitFor(() => getModalButton("Delete")));
+    await waitFor(() => getButton("Deleting…"));
+
+    fireEvent.click(getButtonByText("Peer Assistant"));
+    await waitFor(() => {
+      expect(currentLocation().pathname).toBe(`/assistant/contacts/${PEER.id}`);
+    });
+    fireEvent.click(getButton("Delete Contact"));
+    fireEvent.click(await waitFor(() => getModalButton("Delete")));
+    await waitFor(() => getButton("Deleting…"));
+
+    // One mutation observer reports only the newest delete, so Alice would
+    // otherwise reappear and be editable while her request is still open.
+    expect(() => getButtonByText("Alice")).toThrow();
+
+    await releaseDelete(ALICE.id);
+    await releaseDelete(PEER.id);
   });
 });
 
@@ -843,15 +950,7 @@ describe("ContactsPage contact permissions", () => {
     await waitFor(() => getInputByPlaceholder("Your name"));
     fireEvent.click(getButtonByText("Alice"));
 
-    const select = await waitFor(() => {
-      const node = document.querySelector(
-        '[data-testid="contact-permissions-select"]',
-      );
-      if (!(node instanceof HTMLSelectElement)) {
-        throw new Error("expected the permissions picker");
-      }
-      return node;
-    });
+    const select = await waitFor(getPermissionsSelect);
     expect(document.body.textContent).toContain("Permissions");
     expect(select.value).toBe("");
 
@@ -872,15 +971,7 @@ describe("ContactsPage contact permissions", () => {
 
     await waitFor(() => getInputByPlaceholder("Your name"));
     fireEvent.click(getButtonByText("Alice"));
-    const select = await waitFor(() => {
-      const node = document.querySelector(
-        '[data-testid="contact-permissions-select"]',
-      );
-      if (!(node instanceof HTMLSelectElement)) {
-        throw new Error("expected the permissions picker");
-      }
-      return node;
-    });
+    const select = await waitFor(getPermissionsSelect);
     fireEvent.change(select, { target: { value: "fullAccess" } });
 
     await waitFor(() => {
