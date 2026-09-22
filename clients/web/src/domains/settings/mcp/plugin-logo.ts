@@ -14,8 +14,5 @@ export function pluginLogoUrl(definition: McpPluginDefinition): string | null {
   if (!definition.logo) {
     return null;
   }
-  const url = publicAsset(`/images/integrations/${definition.logo}`);
-  return definition.logoRevision
-    ? `${url}?v=${encodeURIComponent(definition.logoRevision)}`
-    : url;
+  return publicAsset(`/images/integrations/${definition.logo}`);
 }

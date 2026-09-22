@@ -32,10 +32,6 @@ export function buildMcpPluginDefinitions(
         description: match.description ?? integration.displayName,
         documentationUrl: integration.documentationUrl,
         logo: integration.logo,
-        logoRevision:
-          match.source.kind === "local"
-            ? match.source.version
-            : match.source.ref,
         oauthProvider: integration.oauthProvider,
         category: integrationCategory(integration.category) ?? undefined,
         setup: integration.setup,

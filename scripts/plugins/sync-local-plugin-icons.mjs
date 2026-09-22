@@ -24,6 +24,7 @@ import { validatePluginIconBytes } from "./generate-plugin-icons.mjs";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, "../..");
 const PLUGIN_NAME_RE = /^[a-z0-9][a-z0-9_-]*$/;
+const FILENAME_VERSION_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/;
 const LOCAL_MCP_ROOT = "plugins/mcp-catalog";
 const DERIVED_SUFFIX = "-mcp.png";
 
@@ -73,13 +74,6 @@ function inspectLocalMcpIcons({ repoRoot, marketplacePath }) {
       continue;
     }
 
-    const expectedLogo = `${name}${DERIVED_SUFFIX}`;
-    if (entry.integration.logo !== expectedLogo) {
-      errors.push(
-        `local MCP plugin "${name}" must use integration.logo "${expectedLogo}"`,
-      );
-    }
-
     const packageRoot = join(repoRoot, expectedSourcePath);
     const pluginManifestPath = join(packageRoot, "plugin.json");
     const pluginManifest = readJson(
@@ -99,6 +93,27 @@ function inspectLocalMcpIcons({ repoRoot, marketplacePath }) {
       );
     }
 
+    const packageVersion = pluginManifest?.version;
+    const unversionedLogo = `${name}${DERIVED_SUFFIX}`;
+    const versionedLogo = FILENAME_VERSION_RE.test(packageVersion ?? "")
+      ? `${name}-mcp-${packageVersion}.png`
+      : undefined;
+    if (typeof packageVersion === "string" && !versionedLogo) {
+      errors.push(
+        `local MCP plugin "${name}" version must be safe for a logo filename`,
+      );
+    }
+    const logo = entry.integration.logo;
+    if (logo !== unversionedLogo && logo !== versionedLogo) {
+      const allowedLogos = [unversionedLogo, versionedLogo]
+        .filter(Boolean)
+        .map((value) => `"${value}"`)
+        .join(" or ");
+      errors.push(
+        `local MCP plugin "${name}" must use integration.logo ${allowedLogos}`,
+      );
+    }
+
     const iconPath = join(packageRoot, "icon.png");
     if (!isFile(iconPath)) {
       errors.push(`local MCP plugin "${name}" has no package-owned icon.png`);
@@ -113,18 +128,24 @@ function inspectLocalMcpIcons({ repoRoot, marketplacePath }) {
       continue;
     }
 
-    icons.push({ name, bytes, logo: expectedLogo });
+    icons.push({ name, bytes, logo });
   }
 
   return { errors, icons };
 }
 
-function listDerivedLogos(webAssetsDir) {
+function listDerivedLogos(webAssetsDir, pluginNames) {
   if (!statSync(webAssetsDir, { throwIfNoEntry: false })?.isDirectory()) {
     return [];
   }
   return readdirSync(webAssetsDir)
-    .filter((name) => name.endsWith(DERIVED_SUFFIX))
+    .filter((filename) =>
+      pluginNames.some(
+        (name) =>
+          filename === `${name}${DERIVED_SUFFIX}` ||
+          (filename.startsWith(`${name}-mcp-`) && filename.endsWith(".png")),
+      ),
+    )
     .sort();
 }
 
@@ -141,15 +162,18 @@ export function syncLocalPluginIcons({
 } = {}) {
   const { errors, icons } = inspectLocalMcpIcons({ repoRoot, marketplacePath });
   const expectedLogos = new Set(icons.map(({ logo }) => logo));
-  const stale = listDerivedLogos(webAssetsDir).filter(
-    (name) => !expectedLogos.has(name),
-  );
+  const stale = listDerivedLogos(
+    webAssetsDir,
+    icons.map(({ name }) => name),
+  ).filter((name) => !expectedLogos.has(name));
 
   if (check && errors.length === 0) {
     for (const { name, bytes, logo } of icons) {
       const webPath = join(webAssetsDir, logo);
       if (!isFile(webPath)) {
-        errors.push(`local MCP plugin "${name}" has no derived web logo ${logo}`);
+        errors.push(
+          `local MCP plugin "${name}" has no derived web logo ${logo}`,
+        );
         continue;
       }
       if (!readFileSync(webPath).equals(bytes)) {
