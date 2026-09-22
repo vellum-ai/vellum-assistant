@@ -2,20 +2,27 @@
  * The body for an `ask_question` call: what the assistant asked, and what the
  * user chose.
  *
- * It reads the structured records the rest of the app reads, never the input
- * bag the model wrote. A settled prompt is the `answeredQuestion` the daemon
- * persists on the call, paired with its options by `resolveAnswers`, the same
- * projection the transcript's answered card renders. An outstanding prompt is
- * the live entry in the interaction store, the same one the card above the
- * composer is drawn from, matched to this call by its tool-use id.
+ * Every question reads the same way, whatever came back: the options it
+ * offered, the ones passed over drawn quietly, and the answer under them with
+ * its own mark, whether that is an option, typed text, or a skip.
  *
- * A prompt that timed out or was aborted records no user decision and, once
- * the card is gone, has nothing to show here; its result says what happened
- * and the raw input is offered below, as for every tool.
+ * It prefers the structured records the rest of the app reads. A settled
+ * prompt is the `answeredQuestion` the daemon persists on the call, paired
+ * with its options by `resolveAnswers`, the projection the transcript's card
+ * renders. An outstanding prompt is the live entry in the interaction store,
+ * the one the card above the composer draws, matched to this call by its
+ * tool-use id.
+ *
+ * A call with neither still has to show what was asked, so it falls back to
+ * the recorded input, read with `AskQuestionInputSchema` rather than by hand.
+ * Three supported cases land there: a prompt recorded before the answered
+ * record existed, one that timed out or was aborted (which record no
+ * decision), and an outstanding prompt whose restored entries carry no
+ * tool-use id to tie them back to this call.
  */
 
-import type { QuestionEntry } from "@vellumai/assistant-api";
-import { cn, Typography } from "@vellumai/design-library";
+import { AskQuestionInputSchema } from "@vellumai/assistant-api";
+import { Typography } from "@vellumai/design-library";
 
 import { CodeBlock, SectionLabel } from "@/components/detail-primitives";
 import {
@@ -24,10 +31,55 @@ import {
 } from "@/domains/chat/answered-question";
 import { AnsweredQuestionRow } from "@/domains/chat/components/answered-question-row";
 import { QuestionRowContents } from "@/domains/chat/components/question-row-contents";
-import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { ToolOutputBody } from "@/domains/chat/components/tool-activity/tool-output-body";
+import { useInteractionStore } from "@/domains/chat/interaction-store";
 import type { ToolActivityRendererProps } from "@/domains/chat/components/tool-activity/types";
 import { useTranslation } from "@/i18n";
+
+/** One option as it was offered. An old recorded call may name no id. */
+interface OfferedOption {
+  id?: string;
+  label: string;
+  description?: string;
+}
+
+/** A question this view can draw, from a record or from the recorded input. */
+interface DrawnQuestion {
+  key: string;
+  question: string;
+  description?: string;
+  options: OfferedOption[];
+}
+
+/** The questions a recorded input carries, for a call with no record. */
+function questionsFromInput(input: Record<string, unknown>): DrawnQuestion[] {
+  const parsed = AskQuestionInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return [];
+  }
+  const { questions, desktopHelp } = parsed.data;
+  if (questions?.length) {
+    return questions.map((entry, index) => ({
+      key: `q${index}`,
+      question: entry.question,
+      description: entry.description,
+      options: entry.options ?? [],
+    }));
+  }
+  if (desktopHelp) {
+    // The daemon asks this as a one-question prompt, so it reads as one here.
+    return [
+      {
+        key: "desktop-help",
+        question: desktopHelp.message,
+        options: [desktopHelp.doneLabel, desktopHelp.skipLabel]
+          .filter((label): label is string => Boolean(label))
+          .map((label) => ({ label })),
+      },
+    ];
+  }
+  return [];
+}
 
 /** One question's text and, under it, whatever this view has to say about it. */
 function QuestionBlock({
@@ -74,30 +126,31 @@ function QuestionBlock({
 function QuestionOptions({
   options,
   chosenOptionId,
+  settled,
 }: {
-  options: QuestionEntry["options"];
-  /** The option the user took, when they took one. */
+  options: OfferedOption[];
+  /** The option the user took, when they took one of them. */
   chosenOptionId?: string;
+  /** Whether the question has an answer, of any kind. */
+  settled: boolean;
 }) {
   return (
     <ul className="flex flex-col gap-1">
       {options.map((option, index) => {
-        const chosen = option.id === chosenOptionId;
+        const chosen =
+          chosenOptionId !== undefined && option.id === chosenOptionId;
         return (
-          <li
-            key={option.id}
-            className={cn(
-              "rounded-md p-1.5",
-              chosen && "bg-[var(--surface-base)]",
-            )}
-          >
+          <li key={option.id ?? option.label} className="rounded-md p-1.5">
             <QuestionRowContents
               badgeNumber={index + 1}
               showBadge={false}
               label={option.label}
               description={option.description}
-              showCheck={chosen}
-              muted={chosenOptionId !== undefined && !chosen}
+              showCheck={false}
+              // Once a question is answered the answer leads, so every option
+              // reads quietly: the one taken is repeated under them with its
+              // own mark, and typing or skipping takes none of them.
+              muted={settled && !chosen}
             />
           </li>
         );
@@ -116,11 +169,28 @@ export function AskQuestionDetail({
 }: ToolActivityRendererProps) {
   const { t } = useTranslation("chat");
   const pending = useInteractionStore.use.pendingQuestion();
-  // The store holds at most one outstanding prompt, which is this call's only
+  // The store holds at most one outstanding prompt, and it is this call's only
   // when it names it: a drawer opened on an earlier question must not draw the
-  // one the composer is asking now.
+  // one the composer is asking now. A restored prompt carries no tool-use id,
+  // and falls through to the recorded input below.
   const outstanding =
     pending?.toolUseId === detail.toolCallId ? pending.entries : undefined;
+
+  const settled = hasRenderableAnswer(answeredQuestion);
+  const answers = settled ? resolveAnswers(answeredQuestion) : [];
+  const questions: DrawnQuestion[] = settled
+    ? answeredQuestion.questions.map((entry) => ({
+        key: entry.id,
+        question: entry.question,
+        description: entry.description,
+        options: entry.options,
+      }))
+    : (outstanding?.map((entry) => ({
+        key: entry.id,
+        question: entry.question,
+        description: entry.description,
+        options: entry.options,
+      })) ?? questionsFromInput(detail.input));
 
   // A refused prompt never reached the user: its result is the daemon's note
   // to the model, so the refusal is what it says.
@@ -130,91 +200,73 @@ export function AskQuestionDetail({
     );
   }
 
-  if (hasRenderableAnswer(answeredQuestion)) {
-    const answers = resolveAnswers(answeredQuestion);
-    return (
+  const text = typeof result === "string" ? result : "";
+  const state =
+    isError && text ? (
+      <CodeBlock text={text} tone="error" />
+    ) : settled ? null : (
+      <div>
+        <SectionLabel>{t("toolDetailPanel.output")}</SectionLabel>
+        <ToolOutputBody
+          text={settled ? "" : text}
+          isRunning={isRunning}
+          isDenied={false}
+          isError={false}
+        />
+      </div>
+    );
+
+  if (questions.length === 0) {
+    return state;
+  }
+
+  return (
+    <div className="flex flex-col gap-5">
       <div>
         <SectionLabel>
-          {answers.length === 1
-            ? t("askQuestionDetail.question")
-            : t("askQuestionDetail.questions")}
+          {t("askQuestionDetail.heading", { count: questions.length })}
         </SectionLabel>
         <div className="flex flex-col gap-4">
-          {answers.map((item, index) => {
-            const asked = answeredQuestion.questions[index];
-            const response = answeredQuestion.responses.find(
-              (candidate) => candidate.questionId === item.questionId,
-            );
+          {questions.map((question, index) => {
+            const answer = answers[index];
+            // Only an id that names one of the options offered marks a row. An
+            // unmatched id means the record and the options disagree, and
+            // `resolveAnswers` already reads it as the answer instead.
+            const recordedOptionId = settled
+              ? answeredQuestion.responses.find(
+                  (response) => response.questionId === question.key,
+                )?.optionId
+              : undefined;
+            const chosenOptionId = question.options.some(
+              (option) => option.id === recordedOptionId,
+            )
+              ? recordedOptionId
+              : undefined;
             return (
               <QuestionBlock
-                key={item.questionId}
-                question={item.question}
-                description={item.description}
+                key={question.key}
+                question={question.question}
+                description={question.description}
               >
-                {asked && asked.options.length > 0 && (
+                {question.options.length > 0 && (
                   <QuestionOptions
-                    options={asked.options}
-                    chosenOptionId={
-                      item.kind === "option" ? response?.optionId : undefined
-                    }
+                    options={question.options}
+                    chosenOptionId={chosenOptionId}
+                    settled={settled}
                   />
                 )}
-                {/* A typed answer or a skip matched no option, so it reads as
-                    its own row, the one the transcript's card draws. */}
-                {item.kind !== "option" && <AnsweredQuestionRow item={item} />}
+                {/* The answer, whatever kind it is: the option taken, the text
+                    typed, or the skip. It carries its own mark, so it reads
+                    the same way in all three cases. */}
+                {answer && (
+                  <AnsweredQuestionRow item={answer} mutedWhenSkipped={false} />
+                )}
               </QuestionBlock>
             );
           })}
         </div>
       </div>
-    );
-  }
-
-  if (outstanding && outstanding.length > 0) {
-    return (
-      <div className="flex flex-col gap-5">
-        <div>
-          <SectionLabel>
-            {outstanding.length === 1
-              ? t("askQuestionDetail.question")
-              : t("askQuestionDetail.questions")}
-          </SectionLabel>
-          <div className="flex flex-col gap-4">
-            {outstanding.map((entry) => (
-              <QuestionBlock
-                key={entry.id}
-                question={entry.question}
-                description={entry.description}
-              >
-                <QuestionOptions options={entry.options} />
-              </QuestionBlock>
-            ))}
-          </div>
-        </div>
-        <div>
-          <SectionLabel>{t("toolDetailPanel.output")}</SectionLabel>
-          <ToolOutputBody text="" isRunning isDenied={false} isError={false} />
-        </div>
-      </div>
-    );
-  }
-
-  // Nothing structured to show: a prompt that timed out or was aborted records
-  // no decision, and its card is gone. The result says what happened, and the
-  // raw input is offered below, as for every tool.
-  const text = typeof result === "string" ? result : "";
-  if (isError && text) {
-    return <CodeBlock text={text} tone="error" />;
-  }
-  return (
-    <div>
-      <SectionLabel>{t("toolDetailPanel.output")}</SectionLabel>
-      <ToolOutputBody
-        text={text}
-        isRunning={isRunning}
-        isDenied={false}
-        isError={false}
-      />
+      {state}
     </div>
   );
 }

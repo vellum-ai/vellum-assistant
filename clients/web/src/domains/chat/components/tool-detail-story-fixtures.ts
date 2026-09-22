@@ -1189,6 +1189,41 @@ export const askQuestionBatchDetail: ToolDetailPayload = payload({
   riskLevel: "low",
 });
 
+/**
+ * A question answered before the daemon persisted answered records, so the
+ * call carries the questions it asked and the model-facing result, and no
+ * structured answer. The detail reads the input rather than showing nothing.
+ */
+export const askQuestionLegacyDetail: ToolDetailPayload = payload({
+  toolCallId: "tc-ask-4",
+  toolName: "ask_question",
+  title: "Asking a question",
+  activity: "Checking which release to triage",
+  input: {
+    activity: "Checking which release to triage",
+    questions: [
+      {
+        question: "Which release should I triage first?",
+        description: "Both have failures waiting.",
+        options: [
+          {
+            id: "latest",
+            label: "The latest release",
+            description: "Cut this morning.",
+          },
+          {
+            id: "blocked",
+            label: "The blocked release",
+            description: "Held for two days.",
+          },
+        ],
+      },
+    ],
+  },
+  result: "The user chose: The blocked release.",
+  riskLevel: "low",
+});
+
 /** A question still waiting on the user. */
 export const askQuestionRunningDetail: ToolDetailPayload = payload({
   toolCallId: "tc-ask-3",

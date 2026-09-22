@@ -1,7 +1,6 @@
 {
   "askQuestionDetail": {
-    "question": "Pregunta",
-    "questions": "Preguntas"
+    "heading": "{count, plural, one {Pregunta} other {Preguntas}}"
   },
   "conversationDoneToast": {
     "message": "Hecho",

@@ -1,4 +1,7 @@
 {
+  "askQuestionDetail": {
+    "heading": "{count, plural, one {Вопрос} few {Вопроса} many {Вопросов} other {Вопроса}}"
+  },
   "secretPromptCard": {
     "showValue": "Показать значение",
     "hideValue": "Скрыть значение"

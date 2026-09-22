@@ -1,7 +1,6 @@
 {
   "askQuestionDetail": {
-    "question": "问题",
-    "questions": "问题"
+    "heading": "{count, plural, other {问题}}"
   },
   "conversationDoneToast": {
     "message": "已完成",

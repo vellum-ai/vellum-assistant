@@ -1,7 +1,6 @@
 {
   "askQuestionDetail": {
-    "question": "Question",
-    "questions": "Questions"
+    "heading": "{count, plural, one {Question} other {Questions}}"
   },
   "conversationDoneToast": {
     "message": "Done",
