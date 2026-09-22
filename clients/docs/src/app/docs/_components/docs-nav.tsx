@@ -213,6 +213,11 @@ const NAV_ITEMS: DocsNavItem[] = [
             href: "/docs/key-concepts/web-search/firecrawl",
             icon: icon(Search),
           },
+          {
+            label: "Exa",
+            href: "/docs/key-concepts/web-search/exa",
+            icon: icon(Search),
+          },
         ],
       },
       {

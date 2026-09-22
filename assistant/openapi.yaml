@@ -21278,6 +21278,7 @@ paths:
                                           - fastcrw
                                           - searxng
                                           - tinyfish
+                                          - exa
                                       resultCount:
                                         type: number
                                       durationMs:
@@ -21892,6 +21893,7 @@ paths:
                                                   - fastcrw
                                                   - searxng
                                                   - tinyfish
+                                                  - exa
                                               resultCount:
                                                 type: number
                                               durationMs:
