@@ -34,27 +34,29 @@ import {
  * copy's right shoulder, drops down its right-hand side, and comes back
  * under it as the crowd, leaving through the bottom edge on the left. Both
  * ends sit well off screen so a character's jump from tail to head is never
- * seen. `fs` is the size ramp, tenfold head to tail, which reads as depth.
+ * seen. `fs` is the size ramp, elevenfold head to tail, which reads as
+ * depth; it runs large so the crowd is a few big characters rather than
+ * many small ones.
  */
 const STREAM: StreamPoint[] = [
-  { fx: 0.2, fy: -0.14, fs: 0.013 },
-  { fx: 0.23, fy: 0.0, fs: 0.016 },
-  { fx: 0.34, fy: 0.12, fs: 0.02 },
-  { fx: 0.52, fy: 0.19, fs: 0.025 },
-  { fx: 0.7, fy: 0.26, fs: 0.031 },
-  { fx: 0.82, fy: 0.4, fs: 0.039 },
-  { fx: 0.84, fy: 0.56, fs: 0.049 },
-  { fx: 0.74, fy: 0.71, fs: 0.062 },
-  { fx: 0.56, fy: 0.82, fs: 0.078 },
-  { fx: 0.4, fy: 0.93, fs: 0.096 },
-  { fx: 0.3, fy: 1.06, fs: 0.114 },
-  { fx: 0.24, fy: 1.22, fs: 0.13 },
+  { fx: 0.2, fy: -0.16, fs: 0.02 },
+  { fx: 0.23, fy: 0.0, fs: 0.024 },
+  { fx: 0.34, fy: 0.12, fs: 0.03 },
+  { fx: 0.52, fy: 0.19, fs: 0.037 },
+  { fx: 0.7, fy: 0.26, fs: 0.046 },
+  { fx: 0.85, fy: 0.4, fs: 0.058 },
+  { fx: 0.88, fy: 0.56, fs: 0.074 },
+  { fx: 0.76, fy: 0.71, fs: 0.095 },
+  { fx: 0.56, fy: 0.82, fs: 0.12 },
+  { fx: 0.4, fy: 0.93, fs: 0.15 },
+  { fx: 0.3, fy: 1.08, fs: 0.185 },
+  { fx: 0.24, fy: 1.28, fs: 0.22 },
 ];
 
 /** Keeps the widening tail from producing one absurdly large character. */
-const MAX_SIZE_FRACTION = 0.135;
+const MAX_SIZE_FRACTION = 0.24;
 /** A row every this many local sizes along the stream. */
-const ROW_GAP = 0.85;
+const ROW_GAP = 0.95;
 /** Lane pitch across the stream, in local sizes. */
 const LANE_PITCH = 0.95;
 /** Sizes a character advances per second at `speed` 1. */

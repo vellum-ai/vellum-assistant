@@ -40,6 +40,22 @@ describe("buildStreamPath", () => {
     }
   });
 
+  test("turns the tangent gradually, so a lateral seat never steps sideways", () => {
+    const path = buildStreamPath(POINTS, 1440, 900);
+    const turn = (from: number, to: number) => {
+      const a = path.at(from);
+      const b = path.at(to);
+      return Math.hypot(b.tx - a.tx, b.ty - a.ty);
+    };
+    // The turn over one pixel never spikes past the turn the surrounding
+    // stretch averages per pixel: bends are allowed, corners are not.
+    for (let d = 20; d < path.length - 20; d += 1) {
+      const local = turn(d - 1, d);
+      const around = turn(d - 20, d + 20) / 40;
+      expect(local).toBeLessThan(around * 2.5 + 0.0015);
+    }
+  });
+
   test("clamps distances past either end", () => {
     const path = buildStreamPath(POINTS, 500, 500);
     expect(path.at(-50)).toEqual(path.at(0));

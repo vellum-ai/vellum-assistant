@@ -4,8 +4,9 @@
  * new "Assistant Inbox" entry is seen where it will live: directly above
  * Preferences at the foot of the rail.
  *
- * 0. The upgrade itself: the takeover's status copy with the character
- *    stream flowing around it, the test bed for that animation.
+ * 0. The upgrade itself: the status copy on white with the character
+ *    stream flowing around it and the metrics of the change on a beat
+ *    beneath, the test bed for that animation.
  * 0b. An upgrade that has just landed: the provisioning takeover finishes its
  *    celebration and hands off to the setup card, which is where the wizard
  *    now goes instead of its own domain step.
@@ -21,7 +22,7 @@
  */
 import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { fn } from "storybook/test";
 
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu";
@@ -29,10 +30,7 @@ import { PreferencesMenu } from "@/domains/chat/components/preferences-menu";
 import { useSidebarLayoutStore } from "@/domains/chat/sidebar-layout-store";
 import { saveViewMode } from "@/domains/chat/utils/sidebar-view-mode";
 import { SERIF_HEADING_STYLE } from "@/domains/settings/billing/pro-onboarding/primitives";
-import {
-  ProvisioningState,
-  TAKEOVER_SURFACE,
-} from "@/domains/settings/billing/pro-onboarding/provisioning-state";
+import { ProvisioningState } from "@/domains/settings/billing/pro-onboarding/provisioning-state";
 import { takeoverCopy } from "@/domains/settings/billing/pro-onboarding/takeover-copy";
 import {
   TAKEOVER_AVATARS,
@@ -40,6 +38,10 @@ import {
   TAKEOVER_SCENARIOS,
   TakeoverStage,
 } from "@/domains/settings/billing/pro-onboarding/takeover-story-support";
+import {
+  UpgradeMetrics,
+  type UpgradeMetric,
+} from "@/domains/settings/billing/pro-onboarding/upgrade-metrics";
 import {
   UpgradeStream,
   type StreamFlow,
@@ -136,6 +138,8 @@ interface InboxStoryArgs {
   streamLanes?: number;
   /** "0 · Upgrading" only: hold the stream where it is. */
   streamPaused?: boolean;
+  /** "0 · Upgrading" only: when the metrics row shows beneath the status. */
+  metrics?: "periodic" | "shown" | "hidden";
 }
 
 /**
@@ -209,48 +213,74 @@ const meta: Meta<InboxStoryArgs> = {
 export default meta;
 type Story = StoryObj<InboxStoryArgs>;
 
+/** What the upgrade is changing, as the metrics row states it. */
+const UPGRADE_METRICS: UpgradeMetric[] = [
+  { label: "Machine", from: "Small", to: "Medium", landed: true },
+  { label: "Storage", from: "10 GB", to: "30 GB" },
+  { label: "Usage", from: "No extra usage", to: "Super Usage" },
+];
+
+/** The metrics row shows for this long, then rests for as long again. */
+const METRICS_BEAT_MS = 6000;
+
 /**
  * The upgrade in progress, as the takeover will draw it: the WAITING status
- * on the takeover's surface with the character stream flowing around it. A
- * test bed for the stream, so its pace, direction, and width are controls;
- * nothing else from the takeover is on this screen.
+ * on white with the character stream flowing around it, and now and then
+ * the metrics of the change beneath it. A test bed for the stream and the
+ * row, so their pace, direction, width, and cadence are controls; nothing
+ * else from the takeover is on this screen.
  */
 function UpgradingScreen({
   streamFlow,
   streamSpeed,
   streamLanes,
   streamPaused,
+  metrics = "periodic",
 }: InboxStoryArgs) {
+  const [beat, setBeat] = useState(false);
+  useEffect(() => {
+    if (metrics !== "periodic") {
+      return;
+    }
+    const timer = setInterval(
+      () => setBeat((shown) => !shown),
+      METRICS_BEAT_MS,
+    );
+    return () => clearInterval(timer);
+  }, [metrics]);
+  const metricsVisible =
+    metrics === "shown" || (metrics === "periodic" && beat);
+
   return (
-    <div className="fixed inset-0 z-50">
-      <TakeoverStage assistantId={TAKEOVER_AVATARS.creature}>
-        <div
-          className="relative flex h-full min-h-[420px] w-full flex-col items-center justify-center overflow-hidden"
-          style={{ backgroundColor: TAKEOVER_SURFACE }}
+    <div
+      className="fixed inset-0 z-50 flex flex-col items-center justify-center overflow-hidden"
+      style={{ backgroundColor: "#ffffff" }}
+    >
+      <UpgradeStream
+        className="absolute inset-0"
+        flow={streamFlow}
+        speed={streamSpeed}
+        lanes={streamLanes}
+        paused={streamPaused}
+      />
+      <div className="relative z-10 flex flex-col items-center gap-8">
+        <h1
+          className="text-center text-[var(--content-emphasised)]"
+          style={SERIF_HEADING_STYLE}
         >
-          <UpgradeStream
-            className="absolute inset-0"
-            flow={streamFlow}
-            speed={streamSpeed}
-            lanes={streamLanes}
-            paused={streamPaused}
-          />
-          <h1
-            className="relative z-10 text-center text-[var(--content-emphasised)]"
-            style={SERIF_HEADING_STYLE}
-          >
-            {takeoverCopy("upgrade").waitingStatus}
-          </h1>
-        </div>
-      </TakeoverStage>
+          {takeoverCopy("upgrade").waitingStatus}
+        </h1>
+        <UpgradeMetrics items={UPGRADE_METRICS} visible={metricsVisible} />
+      </div>
     </div>
   );
 }
 
 /**
  * The upgrade animation's test bed. The stream drops in through the top,
- * sweeps around the copy, and pours off the bottom; the controls set its
- * direction, pace, and how many characters sit across it.
+ * sweeps around the copy, and pours off the bottom, and the metrics row
+ * comes and goes beneath the status; the controls set the stream's
+ * direction, pace, and width, and the row's cadence.
  */
 export const Upgrading: Story = {
   name: "0 · Upgrading",
@@ -276,6 +306,12 @@ export const Upgrading: Story = {
       description: "Hold every character where it is.",
       control: "boolean",
     },
+    metrics: {
+      description:
+        "When the metrics row shows beneath the status: on a beat, always, or never.",
+      control: "radio",
+      options: ["periodic", "shown", "hidden"],
+    },
     collapsed: { table: { disable: true } },
   },
   args: {
@@ -283,6 +319,7 @@ export const Upgrading: Story = {
     streamSpeed: 1,
     streamLanes: 3,
     streamPaused: false,
+    metrics: "periodic",
   },
   render: (args) => <UpgradingScreen {...args} />,
 };

@@ -24,7 +24,11 @@ export interface StreamPoint {
 export interface StreamSample {
   x: number;
   y: number;
-  /** Unit tangent, pointing the way the path is authored (head to tail). */
+  /**
+   * Unit tangent, pointing the way the path is authored (head to tail),
+   * and continuous along it, so an offset taken along the normal does not
+   * step as the path is walked.
+   */
   tx: number;
   ty: number;
   /** Character size here. */
@@ -42,7 +46,7 @@ export interface StreamPath {
 }
 
 /** Samples per control-point span. Enough that the bends read as curves. */
-const SAMPLES_PER_SPAN = 24;
+const SAMPLES_PER_SPAN = 48;
 
 /** Catmull-Rom between p1 and p2, with p0 and p3 as the neighbours. */
 function catmullRom(
@@ -82,6 +86,9 @@ export function buildStreamPath(
   const ys: number[] = [];
   const sizes: number[] = [];
   const cum: number[] = [];
+  /** Unit tangent at each sample, smoothed across the sample's neighbours. */
+  const txs: number[] = [];
+  const tys: number[] = [];
 
   let total = 0;
   for (let i = 0; i < px.length - 1; i++) {
@@ -105,6 +112,21 @@ export function buildStreamPath(
     }
   }
 
+  // A character sits off the centerline by a lateral offset along the
+  // normal, so a normal that turned at every sample would step it sideways
+  // each time it crossed one: the tick of a polyline. Averaging each
+  // sample's tangent over its neighbours, and interpolating between samples
+  // below, turns the normal continuously.
+  for (let i = 0; i < xs.length; i++) {
+    const prev = Math.max(0, i - 1);
+    const next = Math.min(xs.length - 1, i + 1);
+    const dx = xs[next]! - xs[prev]!;
+    const dy = ys[next]! - ys[prev]!;
+    const len = Math.hypot(dx, dy) || 1;
+    txs.push(dx / len);
+    tys.push(dy / len);
+  }
+
   const at = (distance: number): StreamSample => {
     const d = Math.min(total, Math.max(0, distance));
     // Binary search for the sample just past `d`.
@@ -122,14 +144,14 @@ export function buildStreamPath(
     const i = j - 1;
     const span = cum[j]! - cum[i]! || 1;
     const t = (d - cum[i]!) / span;
-    const dx = xs[j]! - xs[i]!;
-    const dy = ys[j]! - ys[i]!;
-    const len = Math.hypot(dx, dy) || 1;
+    const tx = txs[i]! + (txs[j]! - txs[i]!) * t;
+    const ty = tys[i]! + (tys[j]! - tys[i]!) * t;
+    const tlen = Math.hypot(tx, ty) || 1;
     return {
-      x: xs[i]! + dx * t,
-      y: ys[i]! + dy * t,
-      tx: dx / len,
-      ty: dy / len,
+      x: xs[i]! + (xs[j]! - xs[i]!) * t,
+      y: ys[i]! + (ys[j]! - ys[i]!) * t,
+      tx: tx / tlen,
+      ty: ty / tlen,
       size: sizes[i]! + (sizes[j]! - sizes[i]!) * t,
     };
   };
