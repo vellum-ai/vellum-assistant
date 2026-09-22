@@ -45,13 +45,14 @@ export type DetailShellPlacement = "section" | "panel";
  */
 export function DetailShellNotice({
   placement,
-  className,
   children,
   ...props
 }: {
   placement: DetailShellPlacement;
   children: ReactNode;
-} & Omit<TypographyProps, "as" | "variant" | "children">) {
+  // No `className`: this is the one look for the state, so a panel places it
+  // but does not restyle it.
+} & Omit<TypographyProps, "as" | "variant" | "children" | "className">) {
   return (
     <Typography
       {...props}
@@ -60,7 +61,6 @@ export function DetailShellNotice({
       className={cn(
         "text-[var(--content-tertiary)]",
         placement === "panel" && "py-4 text-center",
-        className,
       )}
     >
       {children}
