@@ -33,6 +33,7 @@ import {
 } from "../conversation-store.js";
 import type { ConfirmationResponse } from "../message-protocol.js";
 import { normalizeConversationType } from "../message-protocol.js";
+import { announceQueuedMessageDeleted } from "../shared-sender-queue-gate.js";
 import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../trust-context.js";
 import { log } from "./shared.js";
 
@@ -350,16 +351,7 @@ function consumeQueuedMessage(
   queued: QueuedMessage,
 ): void {
   conversation.removeQueuedMessage(queued.requestId);
-  if (!isSuppressedQueuedMessage(queued.metadata)) {
-    queued.onEvent({
-      type: "message_queued_deleted",
-      conversationId,
-      requestId: queued.requestId,
-      ...(queued.clientMessageId
-        ? { clientMessageId: queued.clientMessageId }
-        : {}),
-    });
-  }
+  announceQueuedMessageDeleted(conversationId, queued);
 }
 
 /**

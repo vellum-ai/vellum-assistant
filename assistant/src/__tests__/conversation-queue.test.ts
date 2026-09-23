@@ -54,6 +54,9 @@ let aliceIsParticipant = true;
 let aliceStatus = "active";
 /** How many upcoming trust reads fail as the gateway being unreachable. */
 let aliceFailingReads = 0;
+/** The contact record and policy the gateway currently reports for Alice. */
+let aliceContactId = "contact-alice";
+let alicePolicy = "allow";
 let aliceTrustReads = 0;
 const actualParticipants =
   await import("../persistence/conversation-participants.js");
@@ -81,10 +84,10 @@ function aliceVerdict() {
     verdict: {
       trustClass: "trusted_contact",
       canonicalSenderId: "principal-alice",
-      contactId: "contact-alice",
+      contactId: aliceContactId,
       channelId: "channel-alice",
       status: aliceStatus,
-      policy: "allow",
+      policy: alicePolicy,
     },
     admissionPolicy: "trusted_contacts",
   };
@@ -1235,6 +1238,108 @@ describe("Conversation message queue", () => {
       await resolveRun(0);
       await run;
     });
+  });
+
+  test("a contact's queued message runs as the contact is now, not as when it was queued", async () => {
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: () => {},
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    const queuedAs = {
+      trustClass: "trusted_contact" as const,
+      sourceChannel: "vellum-shared" as const,
+      requesterExternalUserId: "principal-alice",
+      requesterContactId: "contact-old",
+      memberPolicy: "deny",
+    };
+    conversation.enqueueMessage({
+      content: "<external_content>Still on for noon?</external_content>",
+      displayContent: "Still on for noon?",
+      requestId: "req-contact",
+      trustContext: queuedAs,
+      author: queuedAs,
+      sourceActorPrincipalId: "principal-alice",
+    });
+    aliceContactId = "contact-new";
+    alicePolicy = "allow";
+
+    try {
+      capturedAddMessages.length = 0;
+      await resolveRun(0);
+      await p1;
+      await waitForPendingRun(2);
+
+      expect(conversation.currentTurnTrustContext).toMatchObject({
+        requesterContactId: "contact-new",
+        memberPolicy: "allow",
+      });
+      const row = capturedAddMessages.find((m) => m.role === "user");
+      expect(row?.metadata?.provenanceContactId).toBe("contact-new");
+      await resolveRun(1);
+    } finally {
+      aliceContactId = "contact-alice";
+      alicePolicy = "allow";
+    }
+  });
+
+  test("disposing the conversation closes out a queued contact message for its sender", async () => {
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: () => {},
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    const alice = {
+      trustClass: "trusted_contact" as const,
+      sourceChannel: "vellum-shared" as const,
+      requesterExternalUserId: "principal-alice",
+    };
+    const contactEvents: AssistantEvent[] = [];
+    const guardianEvents: AssistantEvent[] = [];
+    conversation.enqueueMessage({
+      content: "from Alice",
+      requestId: "req-contact",
+      clientMessageId: "nonce-alice",
+      trustContext: alice,
+      author: alice,
+      sourceActorPrincipalId: "principal-alice",
+      onEvent: (e) => contactEvents.push(e),
+    });
+    conversation.enqueueMessage({
+      content: "from the guardian",
+      requestId: "req-guardian",
+      onEvent: (e) => guardianEvents.push(e),
+    });
+    droppedOwnMessages.length = 0;
+
+    conversation.dispose();
+
+    expect(contactEvents).toContainEqual(
+      expect.objectContaining({
+        type: "message_queued_deleted",
+        requestId: "req-contact",
+        clientMessageId: "nonce-alice",
+      }),
+    );
+    expect(guardianEvents.map((e) => e.type)).toContain(
+      "message_queued_deleted",
+    );
+    expect(droppedOwnMessages).toEqual([
+      expect.objectContaining({
+        requestId: "req-contact",
+        principalId: "principal-alice",
+      }),
+    ]);
   });
 
   describe("a queued message whose persist fails", () => {

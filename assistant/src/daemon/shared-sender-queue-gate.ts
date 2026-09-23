@@ -23,6 +23,7 @@
 
 import { isSuppressedQueuedMessage } from "../persistence/conversation-types.js";
 import { noteDroppedOwnMessage } from "../runtime/contact-event-projection.js";
+import type { SharedSenderAdmission } from "../runtime/shared-sender-admission.js";
 import { getLogger } from "../util/logger.js";
 import type { Conversation } from "./conversation.js";
 import type { QueuedMessage } from "./conversation-queue-manager.js";
@@ -72,25 +73,28 @@ function sharedSenderPrincipal(queued: QueuedMessage): string | undefined {
 }
 
 /**
- * Close out a shared-conversation contact's queued message that will never
- * run, whether the drain refused it or failed to persist it. The terminal
- * `message_queued_deleted` goes to every client, and the note lets the
- * sender's own stream forward it, so the contact's optimistic row ends too.
- * Does nothing for any other sender's message.
+ * Announce that a queued message will never run: the terminal
+ * `message_queued_deleted` its queued ack owes. When a shared-conversation
+ * contact sent it, the sender is noted first so their own event stream
+ * forwards the close-out and their optimistic row ends too. A message that
+ * got no queued ack gets nothing. Every path that discards a queued message
+ * announces it here.
  */
-export function closeOutSharedSenderMessage(
+export function announceQueuedMessageDeleted(
   conversationId: string,
   queued: QueuedMessage,
 ): void {
-  const principalId = sharedSenderPrincipal(queued);
-  if (principalId === undefined || isSuppressedQueuedMessage(queued.metadata)) {
+  if (isSuppressedQueuedMessage(queued.metadata)) {
     return;
   }
-  noteDroppedOwnMessage({
-    requestId: queued.requestId,
-    principalId,
-    conversationId,
-  });
+  const principalId = sharedSenderPrincipal(queued);
+  if (principalId !== undefined) {
+    noteDroppedOwnMessage({
+      requestId: queued.requestId,
+      principalId,
+      conversationId,
+    });
+  }
   queued.onEvent({
     type: "message_queued_deleted",
     conversationId,
@@ -99,6 +103,20 @@ export function closeOutSharedSenderMessage(
       ? { clientMessageId: queued.clientMessageId }
       : {}),
   });
+}
+
+/**
+ * Close out a shared-conversation contact's queued message that failed to
+ * persist. Other senders learn of that failure from its `error` event, which
+ * a contact's stream does not carry, so this does nothing for them.
+ */
+export function closeOutSharedSenderMessage(
+  conversationId: string,
+  queued: QueuedMessage,
+): void {
+  if (sharedSenderPrincipal(queued) !== undefined) {
+    announceQueuedMessageDeleted(conversationId, queued);
+  }
 }
 
 function drop(
@@ -125,7 +143,7 @@ function drop(
       "Dropped a queued message: its sender could not be verified before it expired",
     );
   }
-  closeOutSharedSenderMessage(conversation.conversationId, queued);
+  announceQueuedMessageDeleted(conversation.conversationId, queued);
 }
 
 function scheduleRetry(conversation: GatedConversation, attempt: number) {
@@ -170,27 +188,40 @@ export async function gateSharedSenderHead(
       return true;
     }
 
-    let outcome: "admitted" | "denied" | "unverifiable";
+    let admission: SharedSenderAdmission;
     try {
       const { checkSharedSender } =
         await import("../runtime/shared-sender-admission.js");
-      outcome = (
-        await checkSharedSender(conversation.conversationId, principalId)
-      ).outcome;
+      admission = await checkSharedSender(
+        conversation.conversationId,
+        principalId,
+      );
     } catch (err) {
       log.warn(
         { err, conversationId: conversation.conversationId, principalId },
         "Shared sender admission check failed",
       );
-      outcome = "unverifiable";
+      admission = { outcome: "unverifiable" };
     }
+    const { outcome } = admission;
     // The check awaited; a message removed meanwhile is not ours to settle.
     if (conversation.queue.findByRequestId(next.requestId) !== next) {
       continue;
     }
 
-    if (outcome === "admitted") {
+    if (admission.outcome === "admitted") {
       unverifiable.delete(next);
+      // The turn runs as the contact is now, not as they were when the
+      // message was queued: their contact record, policy and routing
+      // identity can all have changed while it waited. Every queued message
+      // of theirs takes the same answer, so a batch of them still runs as
+      // one sender.
+      for (const queued of conversation.queue.snapshot()) {
+        if (sharedSenderPrincipal(queued) === principalId) {
+          queued.trustContext = admission.trust;
+          queued.author = admission.trust;
+        }
+      }
       conversation.queue.promoteToHead(next.requestId);
       return true;
     }
