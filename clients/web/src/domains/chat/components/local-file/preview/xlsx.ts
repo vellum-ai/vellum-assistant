@@ -483,14 +483,6 @@ const MAX_PART_CHARS = 64 * 1024 * 1024;
  */
 export const MAX_SHEET_CELLS = 250_000;
 
-/**
- * How many shared strings are read. A preview showing at most
- * {@link MAX_SHEET_CELLS} cells can point at no more strings than that, so a
- * sheet naming an index past this one is reaching past anything it could show,
- * and the entries before it are never inflated for its sake.
- */
-export const MAX_SHARED_STRINGS = MAX_SHEET_CELLS;
-
 interface BoundedPart {
   xml: string;
   /** True when the read stopped before the end of the part. */
@@ -657,6 +649,237 @@ function skipNonTag(buffer: string, at: number): number {
     return -1;
   }
   return match.kind === "skip" ? match.to : buffer.length;
+}
+
+/**
+ * Where the element holding the `<` at `at` closes, or the end of `xml` when
+ * it never does. The elements scanned for this way never nest inside
+ * themselves, so the first end tag of that name is the one that closes them.
+ */
+function findEndTag(xml: string, at: number, localName: string): number {
+  let scan = xml.indexOf("<", at);
+  while (scan >= 0) {
+    const pastConstruct = skipNonTag(xml, scan);
+    if (pastConstruct >= 0) {
+      scan = xml.indexOf("<", pastConstruct);
+      continue;
+    }
+    if (matchEndTag(xml, scan, localName)) {
+      return scan;
+    }
+    scan = xml.indexOf("<", scan + 1);
+  }
+  return xml.length;
+}
+
+/**
+ * Where the tag opened at `at` ends. XML allows an unescaped `>` inside an
+ * attribute value, so the scan runs past whatever a quoted value holds.
+ */
+function tagEndsAt(xml: string, at: number): number {
+  let quote = "";
+  for (let index = at + 1; index < xml.length; index += 1) {
+    const character = xml.charAt(index);
+    if (quote !== "") {
+      if (character === quote) {
+        quote = "";
+      }
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      continue;
+    }
+    if (character === ">") {
+      return index;
+    }
+  }
+  return -1;
+}
+
+/** The qualified name a start tag opens, spelled the way the tag spells it. */
+function tagName(tag: string): string {
+  let scan = 1;
+  while (scan < tag.length && !endsTagName(tag.charAt(scan))) {
+    scan += 1;
+  }
+  return tag.slice(1, scan);
+}
+
+/** A part's root element: its start tag, and the name that closes it. */
+function firstStartTag(xml: string): { tag: string; name: string } | null {
+  let at = xml.indexOf("<");
+  while (at >= 0) {
+    const pastConstruct = skipNonTag(xml, at);
+    if (pastConstruct >= 0) {
+      at = xml.indexOf("<", pastConstruct);
+      continue;
+    }
+    if (xml.charAt(at + 1) === "/") {
+      return null;
+    }
+    const end = tagEndsAt(xml, at);
+    if (end < 0) {
+      return null;
+    }
+    const tag = xml.slice(at, end + 1);
+    return { tag, name: tagName(tag) };
+  }
+  return null;
+}
+
+const ATTRIBUTE_PATTERNS = new Map<string, RegExp>();
+
+/**
+ * An attribute's value inside a start tag's own text. The attributes read this
+ * way (`state`, `Id`, `Type`) spell no entity, so the value stands as it is
+ * written.
+ */
+function attributeInTag(tag: string, name: string): string | null {
+  let pattern = ATTRIBUTE_PATTERNS.get(name);
+  if (pattern === undefined) {
+    pattern = new RegExp(`\\s${name}\\s*=\\s*("[^"]*"|'[^']*')`);
+    ATTRIBUTE_PATTERNS.set(name, pattern);
+  }
+  const match = pattern.exec(tag);
+  return match === null ? null : match[1]!.slice(1, -1);
+}
+
+/** The elements one capture takes out of a part. */
+interface CaptureSpec {
+  /** Local name of the elements to take. */
+  localName: string;
+  /** Local name of the element they sit inside, when they sit in one. */
+  container?: string;
+  /** Whether the element whose start tag is `tag` is one the reader wants. */
+  keep?: (tag: string) => boolean;
+  /** How many to take at most. Counting carries on past it. */
+  limit: number;
+}
+
+/** What one capture found. */
+interface CaptureResult {
+  /** How many elements sit in its scope. */
+  seen: number;
+  /** How many of them `keep` wants. */
+  matched: number;
+  /** How many of those the document holds, which the limit caps. */
+  kept: number;
+}
+
+interface CapturedPart {
+  /** A document holding the kept elements, or `null` for a rootless part. */
+  xml: string | null;
+  /** One result per capture, in the order they were asked for. */
+  results: CaptureResult[];
+}
+
+/** The elements one capture keeps, and what its scope holds. */
+interface CapturedElements extends CaptureResult {
+  /** The container start tag, the kept elements, and the container end tag. */
+  body: string;
+}
+
+function captureOne(xml: string, spec: CaptureSpec): CapturedElements {
+  const spans: string[] = [];
+  let containerTag = "";
+  let containerName = "";
+  let inScope = spec.container === undefined;
+  let seen = 0;
+  let matched = 0;
+  let kept = 0;
+  let at = xml.indexOf("<");
+  while (at >= 0) {
+    const pastConstruct = skipNonTag(xml, at);
+    if (pastConstruct >= 0) {
+      at = xml.indexOf("<", pastConstruct);
+      continue;
+    }
+    if (spec.container !== undefined && !inScope) {
+      const opened = matchStartTag(xml, at, spec.container);
+      if (opened.kind === "match") {
+        const end = tagEndsAt(xml, at);
+        if (end < 0) {
+          break;
+        }
+        containerTag = xml.slice(at, end + 1);
+        // A container spelled shut holds nothing, and closes itself.
+        if (xml.charAt(end - 1) === "/") {
+          break;
+        }
+        containerName = `${opened.prefix}${spec.container}`;
+        inScope = true;
+        at = xml.indexOf("<", end + 1);
+        continue;
+      }
+    } else if (
+      spec.container !== undefined &&
+      matchEndTag(xml, at, spec.container)
+    ) {
+      break;
+    }
+    if (inScope && matchStartTag(xml, at, spec.localName).kind === "match") {
+      const end = tagEndsAt(xml, at);
+      if (end < 0) {
+        break;
+      }
+      const tag = xml.slice(at, end + 1);
+      // A span runs through the tag that closes the element, or through the
+      // end of the part when nothing does.
+      let spansTo = end + 1;
+      if (xml.charAt(end - 1) !== "/") {
+        const closesAt = findEndTag(xml, end + 1, spec.localName);
+        const closeEnds =
+          closesAt >= xml.length ? -1 : tagEndsAt(xml, closesAt);
+        spansTo = closeEnds < 0 ? xml.length : closeEnds + 1;
+      }
+      seen += 1;
+      if (spec.keep === undefined || spec.keep(tag)) {
+        matched += 1;
+        if (kept < spec.limit) {
+          spans.push(xml.slice(at, spansTo));
+          kept += 1;
+        }
+      }
+      at = xml.indexOf("<", spansTo);
+      continue;
+    }
+    at = xml.indexOf("<", at + 1);
+  }
+  const body =
+    containerTag === ""
+      ? spans.join("")
+      : `${containerTag}${spans.join("")}${
+          containerName === "" ? "" : `</${containerName}>`
+        }`;
+  return { body, seen, matched, kept };
+}
+
+/**
+ * A small document holding only the elements `specs` ask for, spelled the way
+ * the part spells them: its root start tag, each capture's container and the
+ * elements it kept, and the closing tags. A metadata part can declare hundreds
+ * of thousands of elements inside the character cap, and a DOM that size costs
+ * the browser before the preview shows anything, so the reader parses what it
+ * reads rather than the part around it.
+ */
+function captureElements(xml: string, specs: CaptureSpec[]): CapturedPart {
+  const root = firstStartTag(xml);
+  const captured = specs.map((spec) => captureOne(xml, spec));
+  const results = captured.map(({ seen, matched, kept }) => ({
+    seen,
+    matched,
+    kept,
+  }));
+  if (root === null) {
+    return { xml: null, results };
+  }
+  // A root spelled shut holds none of them.
+  if (root.tag.endsWith("/>")) {
+    return { xml: root.tag, results };
+  }
+  const body = captured.map((capture) => capture.body).join("");
+  return { xml: `${root.tag}${body}</${root.name}>`, results };
 }
 
 /** How a chunk handler ends a streamed read before the part runs out. */
@@ -903,32 +1126,66 @@ function closeBoundedPart(part: BoundedPart): string {
 interface SheetRef {
   name: string;
   relationshipId: string | null;
-  hidden: boolean;
 }
 
 interface WorkbookStructure {
+  /** The sheets the preview shows, capped at {@link MAX_WORKBOOK_SHEETS}. */
   sheets: SheetRef[];
+  /** How many sheets it would show, which `sheets` holds the start of. */
+  sheetCount: number;
   date1904: boolean;
+}
+
+/** Whether a sheet declaration's own tag says the workbook hides it. */
+function declaresHidden(tag: string): boolean {
+  const state = attributeInTag(tag, "state");
+  return state === "hidden" || state === "veryHidden";
+}
+
+/** The captures that hold a workbook part's date mode and its sheet list. */
+function workbookCaptures(keep?: (tag: string) => boolean): CaptureSpec[] {
+  return [
+    { localName: "workbookPr", limit: 1 },
+    {
+      localName: "sheet",
+      container: "sheets",
+      keep,
+      limit: MAX_WORKBOOK_SHEETS,
+    },
+  ];
 }
 
 function readWorkbookStructure(
   xml: string,
   partPath: string,
 ): WorkbookStructure {
-  const root = parseXml(xml, partPath);
-  const dateMode = findNamed(root, "workbookPr")?.getAttribute("date1904");
-  const sheetList = findNamed(root, "sheets");
+  const shown = captureElements(
+    xml,
+    workbookCaptures((tag) => !declaresHidden(tag)),
+  );
+  // A workbook whose sheets are every one hidden still has something to show.
+  const captured =
+    shown.results[1]!.matched > 0
+      ? shown
+      : captureElements(xml, workbookCaptures());
+  const sheetCount = captured.results[1]!.matched;
+  const root = captured.xml === null ? null : parseXml(captured.xml, partPath);
+  const sheetList = root === null ? undefined : findNamed(root, "sheets");
   const listed =
     sheetList === undefined ? [] : directChildrenNamed(sheetList, "sheet");
-  const sheets = listed.map((sheet) => {
-    const state = sheet.getAttribute("state");
-    return {
-      name: sheet.getAttribute("name") ?? "",
-      relationshipId: attributeNamed(sheet, "id", RELATIONSHIP_NS),
-      hidden: state === "hidden" || state === "veryHidden",
-    };
-  });
-  return { sheets, date1904: dateMode === "1" || dateMode === "true" };
+  const sheets = listed.map((sheet) => ({
+    name: sheet.getAttribute("name") ?? "",
+    relationshipId: attributeNamed(sheet, "id", RELATIONSHIP_NS),
+  }));
+  const dateMode =
+    root === null
+      ? null
+      : (findNamed(root, "workbookPr")?.getAttribute("date1904") ?? null);
+  return {
+    sheets,
+    sheetCount,
+    date1904: dateMode === "1" || dateMode === "true",
+  };
 }
 
 /**
@@ -981,15 +1238,23 @@ function readPackageWorkbookPart(xml: string | null): string {
   if (xml === null) {
     return DEFAULT_WORKBOOK_PART;
   }
-  const root = parseXml(xml, PACKAGE_RELATIONSHIPS_PART);
+  const captured = captureElements(xml, [
+    {
+      localName: "Relationship",
+      keep: (tag) => {
+        const type = attributeInTag(tag, "Type");
+        return type !== null && type.endsWith(OFFICE_DOCUMENT_TYPE);
+      },
+      limit: 1,
+    },
+  ]);
+  if (captured.xml === null) {
+    return DEFAULT_WORKBOOK_PART;
+  }
+  const root = parseXml(captured.xml, PACKAGE_RELATIONSHIPS_PART);
   for (const relationship of directChildrenNamed(root, "Relationship")) {
     const target = relationship.getAttribute("Target");
-    const type = relationship.getAttribute("Type");
-    if (
-      target !== null &&
-      type !== null &&
-      type.endsWith(OFFICE_DOCUMENT_TYPE)
-    ) {
+    if (target !== null) {
       return resolveRelationshipTarget("", target);
     }
   }
@@ -1028,14 +1293,16 @@ interface WorkbookRelationships {
 }
 
 /**
- * The parts a workbook's relationship part points at. Targets are relative to
- * `base`, the directory the workbook itself sits in, and so are the parts it
- * points at by convention.
+ * The parts a workbook's relationship part points at: the sheets `sheetIds`
+ * names, and the parts it holds beside them. Targets are relative to `base`,
+ * the directory the workbook itself sits in, and so are the parts it points at
+ * by convention.
  */
 function readWorkbookRelationships(
   xml: string | null,
   base: string,
   partPath: string,
+  sheetIds: ReadonlySet<string>,
 ): WorkbookRelationships {
   const targets = new Map<string, string>();
   const related: Record<RelatedPart, string> = {
@@ -1045,7 +1312,27 @@ function readWorkbookRelationships(
   if (xml === null) {
     return { targets, ...related };
   }
-  const root = parseXml(xml, partPath);
+  const captured = captureElements(xml, [
+    {
+      localName: "Relationship",
+      keep: (tag) => {
+        const id = attributeInTag(tag, "Id");
+        if (id !== null && sheetIds.has(id)) {
+          return true;
+        }
+        const type = attributeInTag(tag, "Type");
+        return (
+          type !== null &&
+          RELATED_PART_NAMES.some((name) => type.endsWith(`/${name}`))
+        );
+      },
+      limit: sheetIds.size + RELATED_PART_NAMES.length,
+    },
+  ]);
+  if (captured.xml === null) {
+    return { targets, ...related };
+  }
+  const root = parseXml(captured.xml, partPath);
   for (const relationship of directChildrenNamed(root, "Relationship")) {
     const id = relationship.getAttribute("Id");
     const target = relationship.getAttribute("Target");
@@ -1067,12 +1354,26 @@ function readWorkbookRelationships(
   return { targets, ...related };
 }
 
+/**
+ * How many cell formats a style table is read for, which is the limit Excel
+ * itself puts on a workbook. A part can declare far more inside the character
+ * cap, and a cell whose style sits past this one renders as a plain number.
+ */
+export const MAX_CELL_FORMATS = 64_000;
+
 /** Per `cellXfs` index, what cells carrying that style render as. */
 function readStyleFormats(xml: string | null, partPath: string): StyleFormat[] {
   if (xml === null) {
     return [];
   }
-  const root = parseXml(xml, partPath);
+  const captured = captureElements(xml, [
+    { localName: "numFmt", container: "numFmts", limit: MAX_CELL_FORMATS },
+    { localName: "xf", container: "cellXfs", limit: MAX_CELL_FORMATS },
+  ]);
+  if (captured.xml === null) {
+    return [];
+  }
+  const root = parseXml(captured.xml, partPath);
   const customCodes = new Map<number, string>();
   // Scoped to the `numFmts` block because a `dxf` carries `numFmt` entries of
   // its own in the same id range, which would otherwise win on document order.
@@ -1306,8 +1607,8 @@ interface SheetRows {
   rows: RawCell[][];
   /** True when the column cap or the row cap cut something out. */
   truncated: boolean;
-  /** Highest shared string index referenced, or -1 when none were. */
-  highestSharedIndex: number;
+  /** Every shared string index the kept cells point at. */
+  sharedIndices: Set<number>;
 }
 
 function readSheetRows(
@@ -1316,12 +1617,12 @@ function readSheetRows(
   date1904: boolean,
 ): SheetRows {
   const rows: RawCell[][] = [];
+  const sharedIndices = new Set<number>();
   let truncated = false;
-  let highestSharedIndex = -1;
 
   const sheetData = findNamed(root, "sheetData");
   if (sheetData === undefined) {
-    return { rows, truncated, highestSharedIndex };
+    return { rows, truncated, sharedIndices };
   }
   for (const row of directChildrenNamed(sheetData, "row")) {
     if (rows.length >= MAX_CSV_ROWS) {
@@ -1355,90 +1656,186 @@ function readSheetRows(
       }
       const parsed = readCell(cell, styleFormats, date1904);
       if (typeof parsed === "number") {
-        highestSharedIndex = Math.max(highestSharedIndex, parsed);
+        sharedIndices.add(parsed);
       }
       cells[column] = parsed;
     }
     rows.push(cells);
   }
-  return { rows, truncated, highestSharedIndex };
+  return { rows, truncated, sharedIndices };
 }
 
-interface SharedStringTable {
-  strings: string[];
-  /** Highest index this read was asked to cover. */
-  readUpTo: number;
-  /** True when the read took the whole part, so no later read can add to it. */
-  exhausted: boolean;
+/** What one read of the shared string part took out of it. */
+interface SparseStrings {
+  /** A document holding the wanted items, or `null` when it holds none. */
+  xml: string | null;
+  /** The index of each item the document holds, in order. */
+  indices: number[];
+  /**
+   * The first index the part cannot answer for, which is where it ran out or
+   * where the character cap stopped the read, and `null` when the read had
+   * everything it was after before either.
+   */
+  absentFrom: number | null;
 }
 
-/** The highest index a read covers, which the budget caps. */
-function cappedStringIndex(highestIndex: number): number {
-  return Math.min(highestIndex, MAX_SHARED_STRINGS - 1);
-}
-
-/** The shared string table, read only as far as a sheet reaches into it. */
-async function readSharedStringTable(
-  zip: JSZip,
-  partPath: string,
-  highestIndex: number,
-  maxPartChars: number,
-): Promise<SharedStringTable> {
-  const readUpTo = cappedStringIndex(highestIndex);
-  const entry = zip.file(partPath);
-  if (entry === null) {
-    return { strings: [], readUpTo, exhausted: true };
+/**
+ * Stream the shared string part for the items `wanted` names, keeping each
+ * one's own text and nothing else. A table holds every string a workbook
+ * spells, so a sheet pointing at one entry near the end of a million would
+ * otherwise cost a DOM of everything before it. An item runs to the next one,
+ * or to the end of the table for the last, and the read stops at the highest
+ * index it was after rather than at the end of the part.
+ */
+function readSharedStringSpans(
+  entry: JSZip.JSZipObject,
+  wanted: ReadonlySet<number>,
+  maxChars: number,
+): Promise<SparseStrings> {
+  let highest = -1;
+  for (const index of wanted) {
+    highest = Math.max(highest, index);
   }
-  const part = await readMarkedPart(
-    entry,
-    { localName: "si", limit: readUpTo + 1 },
-    ["sst"],
-    maxPartChars,
-  );
-  const root = parseXml(closeBoundedPart(part), partPath);
-  const table = findNamed(root, "sst");
-  return {
-    strings:
-      table === undefined
-        ? []
-        : directChildrenNamed(table, "si").map((item) => joinTextRuns(item)),
-    readUpTo,
-    exhausted: !part.truncated,
-  };
+  const spans: string[] = [];
+  const indices: number[] = [];
+  let searchFrom = 0;
+  let count = 0;
+  let head: string | null = null;
+  let closing = "";
+  let openAt = -1;
+  let openIndex = -1;
+
+  const taken = (absentFrom: number | null): SparseStrings => ({
+    xml:
+      head === null || closing === "" || spans.length === 0
+        ? null
+        : `${head}${spans.join("")}${closing}`,
+    indices,
+    absentFrom,
+  });
+
+  return streamPart(entry, {
+    onChunk: (buffer, settle) => {
+      for (;;) {
+        const at = buffer.indexOf("<", searchFrom);
+        if (at === -1) {
+          searchFrom = buffer.length;
+          break;
+        }
+        const construct = matchNonTag(buffer, at);
+        if (construct.kind === "pending") {
+          searchFrom = at;
+          break;
+        }
+        if (construct.kind === "skip") {
+          searchFrom = construct.to;
+          continue;
+        }
+        const match = matchStartTag(buffer, at, "si");
+        if (match.kind === "pending") {
+          searchFrom = at;
+          break;
+        }
+        searchFrom = at + 1;
+        if (match.kind === "other") {
+          continue;
+        }
+        if (head === null) {
+          // Everything before the first item, which carries the declaration
+          // and the table's own start tag with its namespaces.
+          head = buffer.slice(0, at);
+          const root = firstStartTag(head);
+          closing = root === null ? "" : `</${root.name}>`;
+        }
+        if (openAt >= 0) {
+          spans.push(buffer.slice(openAt, at));
+          indices.push(openIndex);
+          openAt = -1;
+        }
+        if (wanted.has(count)) {
+          openAt = at;
+          openIndex = count;
+        }
+        count += 1;
+        if (openAt < 0 && count > highest) {
+          settle.resolve(taken(null));
+          return;
+        }
+      }
+      if (buffer.length > maxChars) {
+        // The items past the cap are out of reach, and the item open at it is
+        // half read, so the cells pointing at them read as blank.
+        settle.resolve(taken(openAt >= 0 ? count - 1 : count));
+      }
+    },
+    onEnd: (buffer) => {
+      if (openAt >= 0) {
+        spans.push(buffer.slice(openAt, findEndTag(buffer, openAt, "sst")));
+        indices.push(openIndex);
+      }
+      return taken(count);
+    },
+  });
 }
 
-type SharedStringReader = (highestIndex: number) => Promise<string[]>;
+/** The strings a sheet points at, by the index each one carries. */
+type SharedStringReader = (
+  wanted: ReadonlySet<number>,
+) => Promise<ReadonlyMap<number, string>>;
 
 /**
  * Reader over the one shared string table the whole workbook points into. It
- * keeps what it has read, so a sheet reaching no further than an earlier one
- * costs nothing, and a sheet reaching further re-reads the part to its own
- * maximum. Reads are chained because two sheets resolving at once would
- * otherwise inflate the same part twice. The chain is this reader's own, so a
- * shared string read nested inside a sheet's turn on the sheet queue never
- * waits on that queue.
+ * keeps every string it has found and the index the part runs out at, so a
+ * sheet asking only for strings already in hand, or only for indices the part
+ * cannot answer for, reads nothing. Reads are chained because two sheets
+ * resolving at once would otherwise inflate the same part twice. The chain is
+ * this reader's own, so a shared string read nested inside a sheet's turn on
+ * the sheet queue never waits on that queue.
  */
 function createSharedStringReader(
   zip: JSZip,
   partPath: string,
   maxPartChars: number,
 ): SharedStringReader {
-  let table: SharedStringTable | null = null;
+  const found = new Map<number, string>();
+  let absentFrom = Number.POSITIVE_INFINITY;
   let queue: Promise<void> = Promise.resolve();
-  return (highestIndex) => {
-    // Against the capped request, so a sheet reaching past the budget asks for
-    // no more than the table already holds.
-    const wanted = cappedStringIndex(highestIndex);
+  return (wanted) => {
     const read = queue.then(async () => {
-      if (table === null || (!table.exhausted && table.readUpTo < wanted)) {
-        table = await readSharedStringTable(
-          zip,
-          partPath,
-          wanted,
-          maxPartChars,
-        );
+      const missing = new Set<number>();
+      for (const index of wanted) {
+        if (!found.has(index) && index < absentFrom) {
+          missing.add(index);
+        }
       }
-      return table.strings;
+      const entry = missing.size === 0 ? null : zip.file(partPath);
+      if (entry === null) {
+        absentFrom = missing.size === 0 ? absentFrom : 0;
+      } else {
+        const taken = await readSharedStringSpans(entry, missing, maxPartChars);
+        if (taken.xml !== null) {
+          const table = findNamed(parseXml(taken.xml, partPath), "sst");
+          const items =
+            table === undefined ? [] : directChildrenNamed(table, "si");
+          items.forEach((item, position) => {
+            const index = taken.indices[position];
+            if (index !== undefined) {
+              found.set(index, joinTextRuns(item));
+            }
+          });
+        }
+        if (taken.absentFrom !== null) {
+          absentFrom = Math.min(absentFrom, taken.absentFrom);
+        }
+      }
+      const answer = new Map<number, string>();
+      for (const index of wanted) {
+        const text = found.get(index);
+        if (text !== undefined) {
+          answer.set(index, text);
+        }
+      }
+      return answer;
     });
     // A rejected read must not wedge the sheet that asks next.
     queue = read.then(
@@ -1456,23 +1853,6 @@ interface WorkbookContext {
   date1904: boolean;
   maxPartChars: number;
   sharedStrings: SharedStringReader;
-}
-
-/** Where the row holding the `<` at `at` closes, or the end of `xml`. */
-function findRowEnd(xml: string, at: number): number {
-  let scan = xml.indexOf("<", at);
-  while (scan >= 0) {
-    const pastConstruct = skipNonTag(xml, scan);
-    if (pastConstruct >= 0) {
-      scan = xml.indexOf("<", pastConstruct);
-      continue;
-    }
-    if (matchEndTag(xml, scan, "row")) {
-      return scan;
-    }
-    scan = xml.indexOf("<", scan + 1);
-  }
-  return xml.length;
 }
 
 /**
@@ -1500,7 +1880,7 @@ function dropCellsPastCap(xml: string): { xml: string; dropped: boolean } {
     } else if (matchStartTag(xml, at, "c").kind === "match") {
       cells += 1;
       if (cells > MAX_CSV_COLUMNS) {
-        const rowEnd = findRowEnd(xml, at);
+        const rowEnd = findEndTag(xml, at, "row");
         kept.push(xml.slice(copiedTo, at));
         copiedTo = rowEnd;
         at = rowEnd;
@@ -1514,6 +1894,9 @@ function dropCellsPastCap(xml: string): { xml: string; dropped: boolean } {
   kept.push(xml.slice(copiedTo));
   return { xml: kept.join(""), dropped: true };
 }
+
+/** What a sheet pointing at no shared string reads its cells from. */
+const NO_SHARED_STRINGS: ReadonlyMap<number, string> = new Map();
 
 async function readSheetGrid(
   context: WorkbookContext,
@@ -1541,9 +1924,9 @@ async function readSheetGrid(
     context.date1904,
   );
   const strings =
-    read.highestSharedIndex < 0
-      ? []
-      : await context.sharedStrings(read.highestSharedIndex);
+    read.sharedIndices.size === 0
+      ? NO_SHARED_STRINGS
+      : await context.sharedStrings(read.sharedIndices);
   // A shared string past a cut table reads as blank, which the sheet that
   // pointed at it has to own up to.
   let lostSharedString = false;
@@ -1552,7 +1935,7 @@ async function readSheetGrid(
       if (typeof cell !== "number") {
         return cell;
       }
-      const text = strings[cell];
+      const text = strings.get(cell);
       if (text === undefined) {
         lostSharedString = true;
         return "";
@@ -1757,12 +2140,20 @@ export async function parseWorkbook(
     throw new Error(`Not a workbook: ${workbookPart} is missing`);
   }
 
-  const { sheets, date1904 } = readWorkbookStructure(workbookXml, workbookPart);
+  const { sheets, sheetCount, date1904 } = readWorkbookStructure(
+    workbookXml,
+    workbookPart,
+  );
   const relationshipsPart = relationshipsPartFor(workbookPart);
   const relationships = readWorkbookRelationships(
     await readPart(zip, relationshipsPart, maxPartChars),
     partDirectory(workbookPart),
     relationshipsPart,
+    new Set(
+      sheets
+        .map((sheet) => sheet.relationshipId)
+        .filter((id): id is string => id !== null),
+    ),
   );
   const context: WorkbookContext = {
     zip,
@@ -1779,15 +2170,11 @@ export async function parseWorkbook(
     ),
   };
 
-  // A workbook whose sheets are every one hidden still has something to show.
-  const visible = sheets.filter((sheet) => !sheet.hidden);
-  const kept = visible.length > 0 ? visible : sheets;
-
   const grids = createGridCache();
   const reads = createReadQueue();
   return {
-    sheetCount: kept.length,
-    sheets: kept.slice(0, MAX_WORKBOOK_SHEETS).map((sheet, index) => ({
+    sheetCount,
+    sheets: sheets.map((sheet, index) => ({
       name: sheet.name,
       read: createSheetReader(
         grids,

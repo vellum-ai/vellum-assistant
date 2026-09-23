@@ -8,7 +8,7 @@ import {
 } from "@/domains/chat/components/local-file/preview/csv";
 import {
   MAX_CACHED_SHEETS,
-  MAX_SHARED_STRINGS,
+  MAX_CELL_FORMATS,
   MAX_SHEET_CELLS,
   MAX_WORKBOOK_SHEETS,
   parseWorkbook,
@@ -304,6 +304,52 @@ describe("parseWorkbook", () => {
     expect(parsed.sheets.length).toBe(MAX_WORKBOOK_SHEETS);
     expect(parsed.sheetCount).toBe(MAX_WORKBOOK_SHEETS + 25);
     expect((await parsed.sheets[0]!.read()).rows).toEqual([["cell 1"]]);
+  });
+
+  test("counts sheet declarations without building them", async () => {
+    const declarations = Array.from(
+      { length: 20_000 },
+      (_, index) =>
+        `<sheet name="Sheet ${index + 1}" sheetId="${index + 1}" r:id="rId1"${
+          index === 2 ? ' state="hidden"' : ""
+        }/>`,
+    ).join("");
+
+    const parsed = await parseWorkbook(
+      await workbookBlob({
+        sheets: [{ name: "Sheet 1", rows: [["alpha"]] }],
+        parts: {
+          // The sections after the sheet list never reach the DOM, which an
+          // element left open inside one of them is what proves.
+          "xl/workbook.xml": `<workbook xmlns="${MAIN_NS}" xmlns:r="${RELATIONSHIP_NS}"><sheets>${declarations}</sheets><definedNames><definedName name="x"></definedNames></workbook>`,
+        },
+      }),
+    );
+
+    expect(parsed.sheets.length).toBe(MAX_WORKBOOK_SHEETS);
+    expect(parsed.sheetCount).toBe(19_999);
+    expect(parsed.sheets[0]!.name).toBe("Sheet 1");
+    expect((await parsed.sheets[0]!.read()).rows).toEqual([["alpha"]]);
+  });
+
+  test("reads only the relationships the workbook needs", async () => {
+    const filler = Array.from(
+      { length: 20_000 },
+      (_, index) =>
+        `<Relationship Id="rFiller${index}" Type="${RELATIONSHIP_NS}/theme" Target="theme/theme${index}.xml"/>`,
+    ).join("");
+
+    const parsed = await parseWorkbook(
+      await workbookBlob({
+        sheets: [{ name: "Sheet1", rows: [[{ t: "s", v: 0 }]] }],
+        sharedStrings: ["shared"],
+        parts: {
+          "xl/_rels/workbook.xml.rels": `<Relationships xmlns="${PACKAGE_RELATIONSHIP_NS}">${filler}<unread><Relationship Id="rId1" Type="${RELATIONSHIP_NS}/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="${RELATIONSHIP_NS}/sharedStrings" Target="sharedStrings.xml"/></Relationships>`,
+        },
+      }),
+    );
+
+    expect((await parsed.sheets[0]!.read()).rows).toEqual([["shared"]]);
   });
 
   test("keeps every sheet when they are all hidden", async () => {
@@ -716,27 +762,46 @@ describe("parseWorkbook", () => {
     expect(grid.truncated).toBe(false);
   });
 
-  test("caps the shared string table at the budget", async () => {
+  test("reads only the shared strings a sheet references", async () => {
+    const filler = "<si><t>s</t></si>";
+    const items = [
+      "<si><t>first</t></si>",
+      filler.repeat(149_999),
+      "<si><t>middle</t></si>",
+      filler.repeat(149_998),
+      "<si><t>last</t></si>",
+    ].join("");
+
     const grid = await readOneSheet(
       [
         [
           { t: "s", v: 0 },
-          { t: "s", v: MAX_SHARED_STRINGS + 2 },
+          { t: "s", v: 150_000 },
+          { t: "s", v: 299_999 },
         ],
       ],
       {
         parts: {
-          "xl/sharedStrings.xml": `<sst xmlns="${MAIN_NS}"><si><t>first</t></si>${"<si><t>s</t></si>".repeat(
-            MAX_SHARED_STRINGS + 5,
-          )}</sst>`,
+          "xl/sharedStrings.xml": `<sst xmlns="${MAIN_NS}">${items}</sst>`,
         },
       },
     );
 
-    // A cell reaching past the budget reads as blank, which is the same path
-    // a cell past a cut table takes.
-    expect(grid.rows).toEqual([["first", ""]]);
-    expect(grid.truncated).toBe(true);
+    expect(grid.rows).toEqual([["first", "middle", "last"]]);
+    expect(grid.truncated).toBe(false);
+  });
+
+  test("settles a shared string read without parsing the items around it", async () => {
+    const grid = await readOneSheet([[{ t: "s", v: 1 }]], {
+      parts: {
+        // Neither the item before the wanted one nor the one after it is well
+        // formed, so this reads back only by keeping the one it is after.
+        "xl/sharedStrings.xml": `<sst xmlns="${MAIN_NS}"><si><t>alpha<si><t>beta</t></si><si><t>gamma</sst>`,
+      },
+    });
+
+    expect(grid.rows).toEqual([["beta"]]);
+    expect(grid.truncated).toBe(false);
   });
 
   test("reads a shared-string cell with no index as blank", async () => {
@@ -1026,6 +1091,36 @@ describe("parseWorkbook", () => {
     );
 
     expect(grid.rows).toEqual([["50"], ["2023-01-01"], ["5"], ["0"]]);
+  });
+
+  test("bounds the style table at Excel's cell format limit", async () => {
+    const formats = Array.from(
+      { length: MAX_CELL_FORMATS + 5 },
+      (_, index) =>
+        `<xf numFmtId="${index >= MAX_CELL_FORMATS - 1 ? 14 : 0}"/>`,
+    ).join("");
+
+    const grid = await readOneSheet(
+      [
+        [
+          { v: 44927, s: MAX_CELL_FORMATS - 1 },
+          { v: 44927, s: MAX_CELL_FORMATS + 4 },
+        ],
+      ],
+      {
+        parts: {
+          // The blocks the reader has no use for never reach the DOM, which
+          // an element left open inside one of them is what proves.
+          "xl/styles.xml": `<styleSheet xmlns="${MAIN_NS}"><fonts count="1"><font><sz val="11"></fonts><numFmts count="0"/><cellXfs count="${
+            MAX_CELL_FORMATS + 5
+          }">${formats}</cellXfs></styleSheet>`,
+        },
+      },
+    );
+
+    // The style inside the cap renders its date, and the one past it falls
+    // back to a plain number.
+    expect(grid.rows).toEqual([["2023-01-01", "44927"]]);
   });
 
   test("ignores a numFmt a dxf declares under a real format's id", async () => {
