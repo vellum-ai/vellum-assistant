@@ -385,6 +385,9 @@ answers nothing here.
       desktop app, on any camera.
 - [ ] The pill is present. It renders in the panel variant and the fullscreen
       variant, top centre, on the minimize control's line.
+- [ ] The panel's edges are clean. Once the feed is up, zoom into all four
+      corners of the desktop panel at the pixel level (and along the straight
+      edges on a non-Retina display): no avatar-tone pixels anywhere on them.
 - [ ] Reduced motion. Turn on Reduce Motion (macOS: Settings, Accessibility,
       Display), reload, open the camera. The status dot holds still and fully
       lit. The shutter's capture pulse still fires and is shorter. The core's

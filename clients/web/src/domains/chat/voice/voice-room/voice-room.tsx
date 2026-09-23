@@ -221,6 +221,7 @@ import {
   type VoiceRoomControlSurface,
 } from "./voice-room-control";
 import {
+  VOICE_SURFACE_DARK,
   VoiceRoomColorLook,
   VoiceRoomVoiceBands,
   VoiceStateCaption,
@@ -1117,46 +1118,66 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           state caption, and the eyes when the avatar has any). A custom-image
           avatar takes the same path with its sampled field color and no eyes,
           so nothing about the bands or the caption depends on avatar type; the
-          centered avatar below fills the middle in its place. */}
-      {!camera.native && look ? (
-        // Held back until the box is measured. That is one pre-paint commit, so the
-        // entrance still plays from the room's first painted frame, but it
-        // grows inside a real rectangle rather than a zero-sized one.
-        box ? (
-          <VoiceRoomColorLook
-            look={look}
-            visual={visual}
-            getAmplitude={getLiveVoiceInputAmplitude}
-            getResponseAmplitude={getLiveVoiceOutputAmplitude}
-            // While assistant captions are on, the transcript's lower zone
-            // already narrates the turn from the caption's own baseline, so the
-            // caption stands down rather than doubling it. The user-only caption
-            // pref leaves it up (a user pill alone doesn't name the assistant's
-            // state).
-            showStateCaption={!showAssistantTranscript}
-            entryOrigin={localEntryOrigin}
-            entrance={choreography.entrance}
-            viewport={box}
-          />
-        ) : null
-      ) : !camera.native ? (
-        <>
-          {/* No avatar resolved yet, so there is no field to paint. The bands
-              are the same component at the same edge; only the ink changes,
-              because the dark voice ink cannot be seen on the void. */}
-          <VoiceRoomAmbientBackground />
-          <VoiceRoomVoiceBands
-            visual={visual}
-            getAmplitude={getLiveVoiceInputAmplitude}
-            getResponseAmplitude={getLiveVoiceOutputAmplitude}
-            ink="accent"
-            viewport={box ?? undefined}
-          />
-          {!showAssistantTranscript ? (
-            <VoiceStateCaption visual={visual} />
-          ) : null}
-        </>
-      ) : null}
+          centered avatar below fills the middle in its place.
+
+          Held out of the paint while the browser viewfinder covers it. The
+          room's rounded clip is anti-aliased once per painted layer, so a tone
+          field still painting under the feed bleeds through the corner arc as a
+          fringe (and, where the box lands on fractional device pixels, along the
+          straight edges too). `visibility` rather than an unmount, because
+          mounting is what plays the entrance and the look has to come back
+          without replaying it when the camera closes. The wrapper carries no
+          z-index, so it opens no stacking context and the look's own `z-0` /
+          `z-[1]` layers keep resolving against the room box, under the feed at
+          `z-[2]`; `absolute inset-0` hands it the room box's own rect, so the
+          geometry the look lays itself out against is the same rectangle. */}
+      <div
+        data-testid="voice-room-look"
+        className={cn(
+          "absolute inset-0",
+          cameraOpen && !camera.native && "invisible",
+        )}
+      >
+        {!camera.native && look ? (
+          // Held back until the box is measured. That is one pre-paint commit, so the
+          // entrance still plays from the room's first painted frame, but it
+          // grows inside a real rectangle rather than a zero-sized one.
+          box ? (
+            <VoiceRoomColorLook
+              look={look}
+              visual={visual}
+              getAmplitude={getLiveVoiceInputAmplitude}
+              getResponseAmplitude={getLiveVoiceOutputAmplitude}
+              // While assistant captions are on, the transcript's lower zone
+              // already narrates the turn from the caption's own baseline, so the
+              // caption stands down rather than doubling it. The user-only caption
+              // pref leaves it up (a user pill alone doesn't name the assistant's
+              // state).
+              showStateCaption={!showAssistantTranscript}
+              entryOrigin={localEntryOrigin}
+              entrance={choreography.entrance}
+              viewport={box}
+            />
+          ) : null
+        ) : !camera.native ? (
+          <>
+            {/* No avatar resolved yet, so there is no field to paint. The bands
+                are the same component at the same edge; only the ink changes,
+                because the dark voice ink cannot be seen on the void. */}
+            <VoiceRoomAmbientBackground />
+            <VoiceRoomVoiceBands
+              visual={visual}
+              getAmplitude={getLiveVoiceInputAmplitude}
+              getResponseAmplitude={getLiveVoiceOutputAmplitude}
+              ink="accent"
+              viewport={box ?? undefined}
+            />
+            {!showAssistantTranscript ? (
+              <VoiceStateCaption visual={visual} />
+            ) : null}
+          </>
+        ) : null}
+      </div>
 
       {/* The browser-fallback viewfinder, when the camera is open.
 
@@ -1179,7 +1200,12 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
 
           Muted + playsInline + autoPlay lets the fallback stream start inline;
           `aria-hidden` because a live camera feed has nothing to announce and
-          the controls below carry the accessible names. */}
+          the controls below carry the accessible names.
+
+          Its own dark surface, because the element mounts on the commit that
+          opens the camera and the stream is attached in an effect after it: with
+          the look already held back, those frames would otherwise show the chat
+          straight through the panel. */}
       {cameraOpen && !camera.native ? (
         <video
           ref={viewfinderRef}
@@ -1192,6 +1218,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
             "absolute inset-0 z-[2] size-full object-cover",
             camera.facing === "user" && "-scale-x-100",
           )}
+          style={{ backgroundColor: VOICE_SURFACE_DARK }}
         />
       ) : null}
 
