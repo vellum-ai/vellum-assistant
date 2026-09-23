@@ -24,6 +24,7 @@ describe("isChannelId", () => {
     // so these must remain canonical for that assertion to mean anything.
     expect(isChannelId("platform")).toBe(true);
     expect(isChannelId("vellum")).toBe(true);
+    expect(isChannelId("vellum-shared")).toBe(true);
   });
 
   test("includes discord", () => {
@@ -58,6 +59,7 @@ describe("botProviderForChannel and channelForBotProvider", () => {
   test("answer nothing for a channel without a bot, a person's grant, or an unknown key", () => {
     expect(botProviderForChannel("phone")).toBeUndefined();
     expect(botProviderForChannel("vellum")).toBeUndefined();
+    expect(botProviderForChannel("vellum-shared")).toBeUndefined();
     expect(botProviderForChannel("not-a-channel")).toBeUndefined();
     // `slack` is the person's integration standing beside the bot's key.
     expect(channelForBotProvider("slack")).toBeUndefined();
