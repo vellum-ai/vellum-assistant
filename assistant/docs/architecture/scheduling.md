@@ -88,11 +88,13 @@ sequenceDiagram
 
 The `enforceRoutingIntent()` step runs after the LLM produces a channel selection but before deterministic checks. It acts as a post-decision guard:
 
-| Intent           | Enforcement Rule                                                                                  |
-| ---------------- | ------------------------------------------------------------------------------------------------- |
-| `single_channel` | No override. The LLM's channel selection stands.                                                  |
-| `multi_channel`  | If the LLM selected < 2 channels and 2+ are connected, expand to at least two connected channels. |
-| `all_channels`   | Replace the LLM's selection with all connected channels.                                          |
+| Intent           | Enforcement Rule                                                                                                             |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `single_channel` | Cap delivery to one channel: the signal's source channel when it is connected, otherwise the first channel the LLM selected. |
+| `multi_channel`  | If the LLM selected < 2 channels and 2+ are connected, expand to at least two connected channels.                            |
+| `all_channels`   | Replace the LLM's selection with all connected channels.                                                                     |
+
+A decision the LLM suppressed (`shouldNotify: false`) is left alone under every intent. A signal with no routing intent keeps the LLM's selection.
 
 When enforcement changes the decision, the updated `selectedChannels` and annotated `reasoningSummary` are re-persisted to `notification_decisions` so the audit trail reflects what was actually dispatched.
 
