@@ -1956,10 +1956,9 @@ interface SparseStrings {
  * spells, so a sheet pointing at one entry near the end of a million would
  * otherwise cost a DOM of everything before it. An item runs to its own close,
  * and the read stops at the highest index it was after rather than at the end
- * of the part. Every `si` in the
- * part counts, and a table spells its extension list after its items, so an
- * item of another origin there takes an index past every string the table
- * holds, which no cell of a workbook points at.
+ * of the part. Every `si` in the part counts, and a table spells its extension
+ * list after its items, so an item of another origin there takes an index past
+ * every string the table holds, which no cell of a workbook points at.
  */
 function readSharedStringSpans(
   entry: JSZip.JSZipObject,
