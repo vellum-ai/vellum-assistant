@@ -364,7 +364,12 @@ interface DecisionVars {
 
 interface DecisionCallbacks {
   onSuccess?: (
-    data: { applied: boolean; reason?: string; committed?: boolean },
+    data: {
+      applied: boolean;
+      reason?: string;
+      committed?: boolean;
+      replyText?: string;
+    },
     variables: DecisionVars,
   ) => void;
   onError?: (error: Error, variables: DecisionVars) => void;
@@ -388,6 +393,8 @@ const decisionRef: {
   reason?: string;
   /** The daemon's `committed` field; absent on daemons that predate it. */
   committed?: boolean;
+  /** What an applied decision replies to the guardian, e.g. a code. */
+  replyText?: string;
 } = { outcome: "pending" };
 
 /** Feed refreshes the bell asked for, one per decision outcome. */
@@ -405,7 +412,15 @@ mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
     mutate: (vars: DecisionVars) => {
       decisionCalls.push(vars);
       if (decisionRef.outcome === "applied") {
-        options?.onSuccess?.({ applied: true }, vars);
+        options?.onSuccess?.(
+          {
+            applied: true,
+            ...(decisionRef.replyText
+              ? { replyText: decisionRef.replyText }
+              : {}),
+          },
+          vars,
+        );
       } else if (decisionRef.outcome === "not-applied") {
         options?.onSuccess?.(
           {
@@ -613,6 +628,7 @@ beforeEach(() => {
   decisionRef.outcome = "pending";
   decisionRef.reason = undefined;
   decisionRef.committed = undefined;
+  decisionRef.replyText = undefined;
   useGuardianDecisionStore.getState().reset();
   feedInvalidateCalls.length = 0;
   toastCalls.length = 0;
@@ -1105,6 +1121,37 @@ describe("NotificationsBell guardian rows", () => {
     const marked = document.querySelectorAll("[data-needs-attention]");
     expect(marked.length).toBe(1);
     expect(marked[0]?.textContent).toContain("Alice asked the assistant");
+  });
+
+  test("a decision's code stays in the unread list after the feed marks it read", async () => {
+    decisionRef.outcome = "applied";
+    decisionRef.replyText =
+      "Access approved for Alice. Give them this verification code: `424242`.";
+    feedRef.items = [guardianBellItem()];
+
+    const { rerender } = render(<NotificationsBell />);
+    await clickTrigger();
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    await act(async () => {});
+
+    // The feed's refresh after the decision projects the receipt, read.
+    feedRef.items = [
+      guardianBellItem({
+        status: "seen",
+        guardianRequest: {
+          requestId: "req-1",
+          kind: "tool_approval",
+          intent: "approval",
+          status: "approved",
+        },
+      }),
+    ];
+    rerender(<NotificationsBell />);
+    await act(async () => {});
+
+    expect(
+      screen.getByTestId("home-recap-row-decision-reply").textContent,
+    ).toContain("424242");
   });
 
   test("a settled request keeps no attention treatment", async () => {

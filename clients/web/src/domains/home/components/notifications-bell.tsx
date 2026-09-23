@@ -113,6 +113,20 @@ export function NotificationsBell() {
   // Memoized: the bell lives in the persistent top bar and re-renders with
   // every layout update, so the filter + sort must only re-run when the feed
   // data itself changes.
+  // A pending approval can be decided from its row, through the same hook
+  // the detail card decides with, so every outcome (applied, declined for a
+  // reason, gone) is handled the same whichever surface the click came from.
+  // One decision serves every row, so all of their buttons go inert together
+  // while one is in flight.
+  const decision = useGuardianDecision();
+  // Requests decided from a row since the bell last opened. A decision's
+  // reply can carry a verification code shown nowhere else, and deciding
+  // marks the item read, so the unread view keeps such a row until the bell
+  // closes rather than dropping it on the feed's next refresh.
+  const [decidedWhileOpen, setDecidedWhileOpen] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+
   const items = feedQuery.data?.items;
   const visibleItems = useMemo(
     () => sortFeedItems(getVisibleFeedItems(items ?? [])),
@@ -121,9 +135,19 @@ export function NotificationsBell() {
   const displayedItems = useMemo(
     () =>
       unreadOnly
-        ? visibleItems.filter((item) => item.status === "new")
+        ? visibleItems.filter((item) => {
+            if (item.status === "new") {
+              return true;
+            }
+            const requestId = item.guardianRequest?.requestId;
+            return (
+              requestId !== undefined &&
+              decidedWhileOpen.has(requestId) &&
+              Boolean(decision.outcomes.get(requestId)?.replyText)
+            );
+          })
         : visibleItems,
-    [unreadOnly, visibleItems],
+    [unreadOnly, visibleItems, decidedWhileOpen, decision.outcomes],
   );
   const hasUnread = visibleItems.some((item) => item.status === "new");
   const markAllReadPayload = useMemo(
@@ -217,15 +241,10 @@ export function NotificationsBell() {
     return ids;
   }, [conversationLink.conversationId]);
 
-  // A pending approval can be decided from its row, through the same hook
-  // the detail card decides with, so every outcome (applied, declined for a
-  // reason, gone) is handled the same whichever surface the click came from.
-  // One decision serves every row, so all of their buttons go inert together
-  // while one is in flight.
-  const decision = useGuardianDecision();
   const handleDecide = (item: FeedItem, action: GuardianDecisionActionId) => {
     const requestId = item.guardianRequest?.requestId;
     if (requestId) {
+      setDecidedWhileOpen((ids) => new Set(ids).add(requestId));
       decision.decide(requestId, action);
     }
   };
@@ -287,6 +306,7 @@ export function NotificationsBell() {
       // Reopening always lands on the list, at the top.
       setSelectedItemId(null);
       listScrollTopRef.current = 0;
+      setDecidedWhileOpen(new Set());
     }
   };
 

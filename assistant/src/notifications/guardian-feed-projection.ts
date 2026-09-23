@@ -42,8 +42,11 @@ import {
   type RequesterIdentitySignals,
 } from "../runtime/introduction-policy.js";
 import { getLogger } from "../util/logger.js";
-import { AccessRequestPayloadSchema } from "./access-request-copy.js";
 import { DEFAULT_APPROVAL_CARD_ACTIONS } from "./approval-card-builder.js";
+import {
+  type ApprovalCardData,
+  resolveApprovalCardData,
+} from "./approval-card-data.js";
 import {
   buildToolApprovalSourceView,
   describeSlackChatLabel,
@@ -83,16 +86,18 @@ export function requestIdFromGuardianFeedItemId(itemId: string): string | null {
 }
 
 /**
- * Build the pending `guardianRequest` projection for a `guardian.question`
+ * Build the pending `guardianRequest` projection for a guardian-request
  * signal's feed item. Returns null when the payload does not carry the
  * request id the projection is keyed by.
  */
 export function buildPendingGuardianProjection(
-  contextPayload: unknown,
-  fallbackKind?: GuardianQuestionRequestKind,
+  sourceEventName: string,
+  contextPayload: Record<string, unknown> | undefined,
 ): FeedItemGuardianRequest | null {
   // Access-request payloads predate the kind registry and carry no
   // `requestKind`; the producer's event name supplies it instead.
+  const fallbackKind: GuardianQuestionRequestKind | undefined =
+    sourceEventName === "ingress.access_request" ? "access_request" : undefined;
   const normalizedPayload =
     contextPayload &&
     typeof contextPayload === "object" &&
@@ -116,17 +121,8 @@ export function buildPendingGuardianProjection(
   );
 
   const sourceView = buildToolApprovalSourceView(payload);
-  const accessRequest = AccessRequestPayloadSchema.safeParse(contextPayload);
-  const requester = accessRequest.success ? accessRequest.data : undefined;
-  const decisionActions = decisionActionsFor(
-    payload.requestKind,
-    intent,
-    requester?.sourceChannel,
-    {
-      isBot: requester?.isBot,
-      isStranger: requester?.isStranger,
-      isRestricted: requester?.isRestricted,
-    },
+  const decisionActions = decisionActionsFromCard(
+    resolveApprovalCardData(sourceEventName, contextPayload),
   );
   // Access-request payloads name their requester differently.
   const requesterLabel =
@@ -151,12 +147,29 @@ export function buildPendingGuardianProjection(
 }
 
 /**
- * The decisions a pending request's card offers, as the feed carries them:
- * the introduction actions for an access request, the in-app card's generic
- * pair for any other approval, and none for a question, which is answered in
- * its conversation.
+ * The decisions the request's in-app card offers, read off the card the
+ * pipeline resolves for the same signal, so the bell cannot offer a decision
+ * the card does not. A question offers none: it is answered in its
+ * conversation.
  */
-function decisionActionsFor(
+function decisionActionsFromCard(
+  card: ApprovalCardData | null,
+): FeedItemGuardianDecisionAction[] | undefined {
+  if (!card || card.kind === "question") {
+    return undefined;
+  }
+  return (card.card.actions ?? DEFAULT_APPROVAL_CARD_ACTIONS).map(
+    ({ id, style }) => ({ id, ...(style ? { emphasis: style } : {}) }),
+  );
+}
+
+/**
+ * The decisions for a request known only from its canonical row, with no
+ * signal payload to resolve a card from (reconciliation backfill): the same
+ * builders the card resolver uses, the introduction actions for an access
+ * request and the in-app card's generic pair for any other approval.
+ */
+function decisionActionsForRequestRow(
   kind: string,
   intent: FeedItemGuardianIntent,
   sourceChannel: string | undefined,
@@ -549,7 +562,7 @@ function buildBackfillGuardianFeedItem(request: GuardianRequestWire): FeedItem {
       request.toolName ?? undefined,
     )?.mode,
   );
-  const decisionActions = decisionActionsFor(
+  const decisionActions = decisionActionsForRequestRow(
     request.kind,
     intent,
     request.sourceChannel ?? undefined,
