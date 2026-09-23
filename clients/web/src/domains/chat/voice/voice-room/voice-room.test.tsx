@@ -3193,11 +3193,11 @@ describe("VoiceRoom: camera", () => {
         expect(flip.className).toContain("size-13");
 
         // The row is what publishes the value, so both flanks have to sit
-        // inside it or their own side resolves to `auto`. 30px is the floor,
-        // which the side safe-area insets only ever deepen.
+        // inside it or their own side resolves to `auto`. The room's corner
+        // gap is the floor, which the side safe-area insets only ever deepen.
         const row = flash.closest("[style*='--camera-flank-inset']");
         expect(row?.getAttribute("style")).toContain(
-          "--camera-flank-inset: max(30px,",
+          "--camera-flank-inset: max(1.25rem,",
         );
         expect(row?.contains(flip)).toBe(true);
       });
