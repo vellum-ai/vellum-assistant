@@ -12,6 +12,7 @@ import { eq, inArray } from "drizzle-orm";
 import type { AcpSessionUpdateEvent } from "../api/events/acp-session-update.js";
 import type { AssistantEvent } from "../api/index.js";
 import {
+  isContactInvolved,
   isContactTrust,
   restoreActorBeforeContact,
   scopeHistoryToActor,
@@ -1832,8 +1833,11 @@ export class AcpSessionManager {
     // its client hub), but it is machine-injected with no human asserted to be
     // present, so it runs non-interactive: a tool that would need approval is
     // denied rather than left waiting on a prompt nobody may answer. It runs as
-    // the turn that gave the instruction it reports on.
-    const startedBy = entry.startedBy;
+    // the turn that gave the instruction it reports on when a
+    // shared-conversation contact is involved, and as before otherwise.
+    const startedBy = isContactInvolved(parentConversation, entry.startedBy)
+      ? entry.startedBy
+      : undefined;
     const enqueue = (queueWhenIdle: boolean) =>
       parentConversation.enqueueMessage({
         content: message,

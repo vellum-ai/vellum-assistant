@@ -16,6 +16,7 @@
 
 import { getConfig } from "../config/loader.js";
 import { resolveTurnCommitWaitMs } from "../daemon/abort-watchdog.js";
+import { isContactInvolved } from "../daemon/actor-scoped-history.js";
 import {
   findConversation,
   findConversationOrSubagent,
@@ -112,6 +113,8 @@ function deliverToParent(
       cronRunId?: string | null;
       trustContext?: TrustContext;
     }) => { queued: boolean; rejected?: boolean };
+    trustContext?: TrustContext;
+    currentTurnTrustContext?: TrustContext;
     kickDrainQueue: (reason: "loop_complete", origin: string) => Promise<void>;
   },
   parentConversationId: string,
@@ -123,6 +126,12 @@ function deliverToParent(
   // work, so it carries the same run id as the child whose result triggered it.
   // The queue drains after the enqueuing turn, so the id travels on the message.
   const cronRunId = opts?.cronRunId ?? null;
+  // The notification runs as the turn that spawned the child when a
+  // shared-conversation contact is involved, so a contact's work never
+  // finishes with anyone else's trust and nobody else's finishes with theirs.
+  const startedBy = isContactInvolved(parentConversation, opts?.startedBy)
+    ? opts?.startedBy
+    : undefined;
   // Machine-injected with no human asserted present, so the notification
   // turn runs non-interactive; it still streams to whoever is watching
   // through the parent's sink.
@@ -132,9 +141,7 @@ function deliverToParent(
     isInteractive: false,
     queueWhenIdle: true,
     ...(cronRunId ? { cronRunId } : {}),
-    // The notification runs as the turn that spawned the child, so work a
-    // contact's turn started never finishes with anyone else's trust.
-    ...(opts?.startedBy ? { trustContext: opts.startedBy } : {}),
+    ...(startedBy ? { trustContext: startedBy } : {}),
   });
   if (enqueueResult.queued) {
     startAfterTurnFinalization(

@@ -393,6 +393,56 @@ describe("AcpSessionManager parent notification", () => {
       expect(persistUserMessage).not.toHaveBeenCalled();
     });
 
+    test("a Slack contact's instruction in a conversation no shared contact touched resolves as before", async () => {
+      const slackGuardian = {
+        sourceChannel: "slack",
+        trustClass: "guardian",
+      } as TrustContext;
+      const slackContact = {
+        sourceChannel: "slack",
+        trustClass: "trusted_contact",
+        requesterExternalUserId: "U-bob",
+      } as TrustContext;
+      const manager = new AcpSessionManager(1);
+      const { conversation, enqueueMessage, persistUserMessage, loopRan } =
+        mockConversation();
+      const parent = conversation as unknown as {
+        trustContext?: TrustContext;
+        setTrustContext: (ctx: TrustContext | null) => void;
+        ensureActorScopedHistory: () => Promise<void>;
+      };
+      const trustWrites: Array<TrustContext | null> = [];
+      let reloads = 0;
+      parent.trustContext = slackGuardian;
+      parent.setTrustContext = (ctx) => {
+        trustWrites.push(ctx);
+        parent.trustContext = ctx ?? undefined;
+      };
+      parent.ensureActorScopedHistory = async () => {
+        reloads += 1;
+      };
+      setConversation("parent-slack", conversation);
+      registered.push("parent-slack");
+      const proc = fakeProcess(() =>
+        Promise.resolve({ stopReason: "end_turn" }),
+      );
+      const entry = injectSession(manager, "sess-slack", "parent-slack", proc);
+      (entry as { startedBy?: TrustContext }).startedBy = slackContact;
+
+      await fire(manager, "sess-slack", entry);
+      await loopRan;
+
+      const calls = enqueueMessage.mock.calls as unknown as Array<
+        [{ trustContext?: TrustContext }]
+      >;
+      expect(calls).toHaveLength(1);
+      expect(calls[0][0].trustContext).toBeUndefined();
+      expect(persistUserMessage).toHaveBeenCalledTimes(1);
+      expect(trustWrites).toEqual([]);
+      expect(reloads).toBe(0);
+      expect(parent.trustContext).toBe(slackGuardian);
+    });
+
     test("a steer records the steering turn for the notification it leads to", async () => {
       const manager = new AcpSessionManager(1);
       await parentAfterContactTurn("parent-steer");

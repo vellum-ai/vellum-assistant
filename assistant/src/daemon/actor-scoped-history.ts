@@ -1,6 +1,6 @@
 import type { Conversation } from "./conversation.js";
 import { findConversationOrSubagent } from "./conversation-registry.js";
-import type { TrustContext } from "./trust-context-types.js";
+import type { TrustCarrier, TrustContext } from "./trust-context-types.js";
 
 type ScopedConversation = Pick<
   Conversation,
@@ -22,10 +22,28 @@ export function isContactTrust(
 }
 
 /**
+ * Whether a shared-conversation contact is involved in work reporting back to
+ * a conversation: its starter, the actor the conversation rests on, or the
+ * turn it last ran is a contact's. Only then does the work run as the turn
+ * that started it; otherwise it resolves its actor as it always has.
+ */
+export function isContactInvolved(
+  conversation: TrustCarrier,
+  startedBy: TrustContext | undefined,
+): boolean {
+  return (
+    isContactTrust(startedBy) ||
+    isContactTrust(conversation.trustContext) ||
+    isContactTrust(conversation.currentTurnTrustContext)
+  );
+}
+
+/**
  * The trust of the turn running on a conversation, captured by work that turn
  * starts and that reports back after it (a subagent, an ACP session, a
- * background command). The report runs as this actor, not as whoever the
- * conversation rests on by the time it arrives.
+ * background command). When a contact is involved (see `isContactInvolved`),
+ * the report runs as this actor, not as whoever the conversation rests on by
+ * the time it arrives.
  */
 export function trustOfStartingTurn(
   conversationId: string,

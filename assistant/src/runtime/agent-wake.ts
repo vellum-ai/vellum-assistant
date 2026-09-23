@@ -86,6 +86,7 @@ import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { isSidebarDoneEnabled } from "../config/sidebar-done-gate.js";
 import {
+  isContactInvolved,
   isContactTrust,
   restoreActorBeforeContact,
   scopeHistoryToActor,
@@ -674,11 +675,7 @@ async function scopeWakeToStarter(
   conversationId: string,
   source: string,
 ): Promise<boolean> {
-  const contactInvolved =
-    isContactTrust(starter) ||
-    isContactTrust(conversation.trustContext) ||
-    isContactTrust(conversation.currentTurnTrustContext);
-  if (!contactInvolved) {
+  if (!isContactInvolved(conversation, starter)) {
     return true;
   }
   try {

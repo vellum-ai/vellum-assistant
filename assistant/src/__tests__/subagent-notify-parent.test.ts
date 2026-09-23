@@ -469,6 +469,20 @@ describe("notifyParentFromChild", () => {
     expect(capturedQueueOptions.at(-1)?.trustContext).toBe(alice);
   });
 
+  test("an update from a Slack contact's child resolves as before", () => {
+    clearCaptured();
+    const conversationId = "conv-slack-started";
+    seedSubagent(conversationId);
+    liveSubagents.get(conversationId)!.trustContext = {
+      sourceChannel: "slack",
+      trustClass: "trusted_contact",
+      requesterExternalUserId: "U-bob",
+    };
+
+    expect(notifyParentFromChild(conversationId, "Halfway", "info")).toBe(true);
+    expect(capturedQueueOptions.at(-1)?.trustContext).toBeUndefined();
+  });
+
   test("an update from a child with no spawning turn carries no trust", () => {
     clearCaptured();
     const conversationId = "conv-no-starter";

@@ -475,7 +475,12 @@ mock.module("../agent/loop.js", () => ({
 import type { QueueDrainReason, QueuePolicy } from "../daemon/conversation.js";
 import { Conversation } from "../daemon/conversation.js";
 import { MessageQueue } from "../daemon/conversation-queue-manager.js";
+import {
+  deleteConversation,
+  setConversation,
+} from "../daemon/conversation-registry.js";
 import { __setSharedSenderRetryForTest } from "../daemon/shared-sender-queue-gate.js";
+import { injectMessageIntoParent } from "../subagent/notify.js";
 
 type ConversationWithWorkspaceDeps = Conversation & {
   getWorkspaceGitService?: (_workspaceDir: string) => {
@@ -1749,6 +1754,58 @@ describe("Conversation message queue", () => {
         ).toBe(false);
       } finally {
         aliceIsParticipant = true;
+      }
+    });
+
+    test("a Slack contact's subagent completion in a conversation no shared contact touched resolves as before", async () => {
+      const slackGuardian = {
+        trustClass: "guardian" as const,
+        sourceChannel: "slack" as const,
+      };
+      const slackContact = {
+        trustClass: "trusted_contact" as const,
+        sourceChannel: "slack" as const,
+        requesterExternalUserId: "U-bob",
+      };
+      storedRows = guardianAndContactRows();
+      capturedAddMessages.length = 0;
+      const conversation = makeConversation();
+      conversation.setTrustContext(slackGuardian);
+      await conversation.loadFromDb();
+      setConversation("conv-1", conversation);
+      try {
+        const p1 = conversation.processMessage({
+          content: "msg-1",
+          attachments: [],
+          onEvent: () => {},
+          requestId: "req-1",
+        });
+        await waitForPendingRun(1);
+        injectMessageIntoParent(
+          "conv-1",
+          "[Subagent research completed]",
+          {
+            subagentNotification: {
+              subagentId: "sub-1",
+              label: "research",
+              status: "completed",
+            },
+          },
+          { startedBy: slackContact },
+        );
+
+        await resolveRun(0);
+        await p1;
+        await waitForPendingRun(2);
+        expect(conversation.currentTurnTrustContext).toBe(slackGuardian);
+        const completionRow = capturedAddMessages.find((m) =>
+          m.content.includes("Subagent research completed"),
+        );
+        expect(completionRow?.metadata?.provenanceTrustClass).toBe("guardian");
+        await resolveRun(1);
+        await new Promise((r) => setTimeout(r, 10));
+      } finally {
+        deleteConversation("conv-1");
       }
     });
 
