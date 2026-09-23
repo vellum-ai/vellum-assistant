@@ -31,9 +31,6 @@ export function AcpModelStatCard({
     <StatSquare
       icon={<Sparkles />}
       value={value}
-      // A model id is longer than the tile, which cuts it; the tooltip is how
-      // the rest of it is still readable.
-      title={value}
       label={t("acpRunChatView.modelLabel")}
     />
   );

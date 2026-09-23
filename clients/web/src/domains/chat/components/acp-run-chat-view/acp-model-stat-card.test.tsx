@@ -27,13 +27,13 @@ describe("AcpModelStatCard", () => {
     expect(screen.getByText("Model")).toBeTruthy();
   });
 
-  // A model id is longer than the tile, which cuts it. The tooltip is how the
-  // rest stays readable; where the cut happens is the tile's own business.
+  // A model id is longer than the tile, which cuts it. The value carries its
+  // own text as a tooltip, so the rest stays readable.
   test("keeps the whole id readable when the tile cuts it", () => {
     render(<AcpModelStatCard model="claude-opus-4-1-20250805" />);
 
-    const tile = document.querySelector('[data-slot="stat-square"]');
-    expect(tile?.getAttribute("title")).toBe("claude-opus-4-1-20250805");
+    const value = screen.getByText("claude-opus-4-1-20250805");
+    expect(value.getAttribute("title")).toBe("claude-opus-4-1-20250805");
   });
 
   // The adapter's own vocabulary: `best` is an alias it names for the reader,

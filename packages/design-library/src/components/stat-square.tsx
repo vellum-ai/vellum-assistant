@@ -39,31 +39,39 @@ export function StatSquare({
     >
       {icon ? (
         // The chip sizes and colours its own glyph, so a caller passes a bare
-        // icon. 32px with a 14px glyph is `Button`'s regular icon box.
+        // icon. 32px with a 14px glyph is `Button`'s regular icon box. The
+        // glyph is decoration, so it takes a supporting step on the content
+        // ramp and the value stays the strongest thing in the tile.
         <span
           aria-hidden
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--surface-lift)] text-[var(--content-emphasised)] [&_svg]:size-3.5"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--surface-lift)] text-[var(--content-secondary)] [&_svg]:size-3.5"
         >
           {icon}
         </span>
       ) : null}
       <div className="flex min-w-0 flex-col">
         {/* A value can outrun the tile (a model id), so it is cut rather than
-            left to spill, and a caller whose value can run long passes
-            `title`. `body-large-default` is the 16/500 step with leading: the
-            cut needs a line box its descenders fit inside. */}
+            left to spill, and carries its own text as a tooltip so the cut
+            part stays readable, the way `Select` pairs the two on its
+            trigger. `body-large-default` is the 16/500 step with leading:
+            the cut needs a line box its descenders fit inside. */}
         <Typography
           variant="body-large-default"
+          title={
+            typeof value === "string" || typeof value === "number"
+              ? String(value)
+              : undefined
+          }
           className={cn("block truncate", VALUE_TONE_CLASSES[tone])}
         >
           {value}
         </Typography>
-        {/* A label, on the label step: one line, never cut. Cutting a
-            `line-height: 1` step clips its descenders, and a label is short
-            copy the tile is laid out to fit. */}
+        {/* A label wraps rather than being cut or spilling past the tile,
+            so a long translation stays whole and inside it. Text that can
+            run to a second line needs the 12px step with leading. */}
         <Typography
-          variant="body-small-default"
-          className="mt-1 whitespace-nowrap text-[var(--content-tertiary)]"
+          variant="body-small-lighter"
+          className="mt-1 text-[var(--content-secondary)]"
         >
           {label}
         </Typography>
