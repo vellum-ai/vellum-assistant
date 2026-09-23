@@ -52,6 +52,7 @@ export const NoIcon: Story = {
 
 /** The three tones applied to the value text. */
 export const Tones: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
     <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
       <StatSquare
@@ -78,6 +79,7 @@ export const Tones: Story = {
 
 /** Squares share a row, each flexing to equal width. */
 export const Row: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
     <div style={{ display: "flex", gap: "0.75rem" }}>
       <StatSquare icon={<MessageSquare />} value="1,284" label="Messages" />
