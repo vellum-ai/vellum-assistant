@@ -927,6 +927,12 @@ interface CapturedElements extends CaptureResult {
 
 function captureOne(xml: string, spec: CaptureSpec): CapturedElements {
   const spans: string[] = [];
+  // A container sits directly under the root, and the elements it holds
+  // directly under itself.
+  const itemDepth = spec.container === undefined ? 1 : 2;
+  // Qualified name of each element open around the scan, so an element left
+  // open inside a block the reader skips cannot carry that depth onwards.
+  const open: string[] = [];
   let containerTag = "";
   let containerName = "";
   let inScope = spec.container === undefined;
@@ -940,39 +946,49 @@ function captureOne(xml: string, spec: CaptureSpec): CapturedElements {
       at = xml.indexOf("<", pastConstruct);
       continue;
     }
-    if (spec.container !== undefined && !inScope) {
+    const end = tagEndsAt(xml, at);
+    if (end < 0) {
+      break;
+    }
+    if (xml.charAt(at + 1) === "/") {
+      // An end tag closes the element it names and everything left open
+      // inside it.
+      const closed = open.lastIndexOf(xml.slice(at + 2, end).trim());
+      if (closed >= 0) {
+        open.length = closed;
+      }
+      if (inScope && spec.container !== undefined && open.length < itemDepth) {
+        break;
+      }
+      at = xml.indexOf("<", end + 1);
+      continue;
+    }
+    const opensLevel = xml.charAt(end - 1) !== "/";
+    if (spec.container !== undefined && !inScope && open.length === 1) {
       const opened = matchStartTag(xml, at, spec.container);
       if (opened.kind === "match") {
-        const end = tagEndsAt(xml, at);
-        if (end < 0) {
-          break;
-        }
         containerTag = xml.slice(at, end + 1);
         // A container spelled shut holds nothing, and closes itself.
-        if (xml.charAt(end - 1) === "/") {
+        if (!opensLevel) {
           break;
         }
         containerName = `${opened.prefix}${spec.container}`;
         inScope = true;
+        open.push(containerName);
         at = xml.indexOf("<", end + 1);
         continue;
       }
-    } else if (
-      spec.container !== undefined &&
-      matchEndTag(xml, at, spec.container)
-    ) {
-      break;
     }
-    if (inScope && matchStartTag(xml, at, spec.localName).kind === "match") {
-      const end = tagEndsAt(xml, at);
-      if (end < 0) {
-        break;
-      }
+    if (
+      inScope &&
+      open.length === itemDepth &&
+      matchStartTag(xml, at, spec.localName).kind === "match"
+    ) {
       const tag = xml.slice(at, end + 1);
       // A span runs through the tag that closes the element, or through the
       // end of the part when nothing does.
       let spansTo = end + 1;
-      if (xml.charAt(end - 1) !== "/") {
+      if (opensLevel) {
         const closesAt = findEndTag(xml, end + 1, spec.localName);
         const closeEnds =
           closesAt >= xml.length ? -1 : tagEndsAt(xml, closesAt);
@@ -986,10 +1002,14 @@ function captureOne(xml: string, spec: CaptureSpec): CapturedElements {
           kept += 1;
         }
       }
+      // The span holds the element whole, so it leaves nothing open.
       at = xml.indexOf("<", spansTo);
       continue;
     }
-    at = xml.indexOf("<", at + 1);
+    if (opensLevel) {
+      open.push(tagName(xml.slice(at, end + 1)));
+    }
+    at = xml.indexOf("<", end + 1);
   }
   const body =
     containerTag === ""
@@ -1006,7 +1026,9 @@ function captureOne(xml: string, spec: CaptureSpec): CapturedElements {
  * elements it kept, and the closing tags. A metadata part can declare hundreds
  * of thousands of elements inside the character cap, and a DOM that size costs
  * the browser before the preview shows anything, so the reader parses what it
- * reads rather than the part around it.
+ * reads rather than the part around it. What it takes are direct children of
+ * the root, or of a container that is one, because an extension list carries
+ * elements of any origin spelled with the same local names.
  */
 function captureElements(xml: string, specs: CaptureSpec[]): CapturedPart {
   const root = firstStartTag(xml);
@@ -1864,7 +1886,10 @@ interface SparseStrings {
  * spells, so a sheet pointing at one entry near the end of a million would
  * otherwise cost a DOM of everything before it. An item runs to the next one,
  * or to the end of the table for the last, and the read stops at the highest
- * index it was after rather than at the end of the part.
+ * index it was after rather than at the end of the part. Every `si` in the
+ * part counts, and a table spells its extension list after its items, so an
+ * item of another origin there takes an index past every string the table
+ * holds, which no cell of a workbook points at.
  */
 function readSharedStringSpans(
   entry: JSZip.JSZipObject,

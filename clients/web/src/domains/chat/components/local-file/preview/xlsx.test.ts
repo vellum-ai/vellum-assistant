@@ -268,6 +268,14 @@ async function withTrailingRecord(blob: Blob, count: number): Promise<Blob> {
   return new Blob([bytes]);
 }
 
+/** The namespace an extension list's own elements carry. */
+const EXTENSION_NS = "http://example.com/extension";
+
+/** A one-sheet workbook part holding `sections` after its sheet list. */
+function workbookWithExtensionXml(sections: string): string {
+  return `<workbook xmlns="${MAIN_NS}" xmlns:r="${RELATIONSHIP_NS}" xmlns:ext="${EXTENSION_NS}"><sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets>${sections}</workbook>`;
+}
+
 /** A one-sheet workbook part, as raw XML. */
 function workbookPartXml(): string {
   return `<workbook xmlns="${MAIN_NS}" xmlns:r="${RELATIONSHIP_NS}"><sheets><sheet name="Data" sheetId="1" r:id="rId1"/></sheets></workbook>`;
@@ -349,6 +357,51 @@ describe("parseWorkbook", () => {
     expect((await parsed.sheets[0]!.read()).rows).toEqual([["cell 1"]]);
   });
 
+  test("reads the date mode only from the workbook's own properties", async () => {
+    const parsed = await parseWorkbook(
+      await workbookBlob({
+        sheets: [{ name: "Sheet1", rows: [[{ v: 44927, s: 0 }]] }],
+        styles: [{ numFmtId: 14 }],
+        parts: {
+          // An extension list carries elements of any origin, which spell
+          // whatever local name they like.
+          "xl/workbook.xml": workbookWithExtensionXml(
+            `<extLst><ext uri="${EXTENSION_NS}"><ext:workbookPr date1904="1"/></ext></extLst>`,
+          ),
+        },
+      }),
+    );
+
+    // The 1904 epoch would put this serial 1462 days later.
+    expect((await parsed.sheets[0]!.read()).rows).toEqual([["2023-01-01"]]);
+  });
+
+  test("ignores a sheet list inside an extension list", async () => {
+    const parsed = await parseWorkbook(
+      await workbookBlob({
+        sheets: [{ name: "Sheet1", rows: [["alpha"]] }],
+        parts: {
+          "xl/workbook.xml": `<workbook xmlns="${MAIN_NS}" xmlns:r="${RELATIONSHIP_NS}"><extLst><ext uri="${EXTENSION_NS}"><sheets><sheet name="Ghost" sheetId="1" r:id="rId1"/></sheets></ext></extLst></workbook>`,
+        },
+      }),
+    );
+
+    expect(parsed.sheets).toEqual([]);
+    expect(parsed.sheetCount).toBe(0);
+  });
+
+  test("ignores number formats an extension list declares", async () => {
+    const grid = await readOneSheet([[{ v: 44927, s: 0 }]], {
+      parts: {
+        "xl/styles.xml": `<styleSheet xmlns="${MAIN_NS}"><cellXfs count="1"><xf numFmtId="164" applyNumberFormat="1"/></cellXfs><extLst><ext uri="${EXTENSION_NS}"><numFmts count="1"><numFmt numFmtId="164" formatCode="dd/mm/yyyy"/></numFmts></ext></extLst></styleSheet>`,
+      },
+    });
+
+    // The style names a format the workbook itself declares nowhere, so the
+    // cell keeps its number.
+    expect(grid.rows).toEqual([["44927"]]);
+  });
+
   test("counts sheet declarations without building them", async () => {
     const declarations = Array.from(
       { length: 20_000 },
@@ -387,7 +440,9 @@ describe("parseWorkbook", () => {
         sheets: [{ name: "Sheet1", rows: [[{ t: "s", v: 0 }]] }],
         sharedStrings: ["shared"],
         parts: {
-          "xl/_rels/workbook.xml.rels": `<Relationships xmlns="${PACKAGE_RELATIONSHIP_NS}">${filler}<unread><Relationship Id="rId1" Type="${RELATIONSHIP_NS}/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="${RELATIONSHIP_NS}/sharedStrings" Target="sharedStrings.xml"/></Relationships>`,
+          // The element left open after them never reaches the DOM, which is
+          // what keeps the part from being parsed whole.
+          "xl/_rels/workbook.xml.rels": `<Relationships xmlns="${PACKAGE_RELATIONSHIP_NS}">${filler}<Relationship Id="rId1" Type="${RELATIONSHIP_NS}/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="${RELATIONSHIP_NS}/sharedStrings" Target="sharedStrings.xml"/><unread></Relationships>`,
         },
       }),
     );
