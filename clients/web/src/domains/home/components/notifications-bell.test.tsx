@@ -64,9 +64,10 @@ mock.module("@/hooks/use-touch-mobile", () => ({
   TOUCH_MOBILE_MEDIA_QUERY: "(width < 48rem) and (pointer: coarse)",
 }));
 
-const feedRef: { items: FeedItem[]; isError: boolean } = {
+const feedRef: { items: FeedItem[]; isError: boolean; isLoading: boolean } = {
   items: [],
   isError: false,
+  isLoading: false,
 };
 
 interface UpdateStatusVars {
@@ -110,9 +111,10 @@ const triggerActionRef: {
 
 mock.module("@/domains/home/hooks/use-home-feed-query", () => ({
   useHomeFeedQuery: () => ({
-    data: { items: feedRef.items },
-    isLoading: false,
+    data: feedRef.isLoading ? undefined : { items: feedRef.items },
+    isLoading: feedRef.isLoading,
     isError: feedRef.isError,
+    isSuccess: !feedRef.isLoading && !feedRef.isError,
     updateStatus: {
       mutate: (vars: UpdateStatusVars) => {
         updateStatusCalls.push(vars);
@@ -582,6 +584,7 @@ beforeEach(() => {
   setTouchSurface(false);
   feedRef.items = [];
   feedRef.isError = false;
+  feedRef.isLoading = false;
   conversationListsRef.foreground = [];
   conversationListsRef.background = [];
   conversationListsRef.scheduled = [];
@@ -1412,13 +1415,33 @@ describe("NotificationsBell empty state", () => {
     expect(screen.getByRole("button", { name: RECIPE_LABEL })).toBeTruthy();
   });
 
-  test("carries no second call to action beside the recipe", async () => {
-    // The bell trigger and the recipe. Nothing else: a second call to action
-    // would compete with the one thing this scene is asking for.
+  test("offers phone reminders alongside the recipe", async () => {
     await openBell();
 
-    expect(screen.getAllByRole("button")).toHaveLength(2);
     expect(screen.getByRole("button", { name: RECIPE_LABEL })).toBeTruthy();
+    expect(screen.getByText("Get schedule reminders on your phone.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Download iOS app" })).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: /^Download / })).toHaveLength(2);
+  });
+
+  test("waits for the feed to load before offering phone reminders", async () => {
+    feedRef.isLoading = true;
+    const view = render(<NotificationsBell />);
+    await clickTrigger();
+
+    expect(screen.queryByText("Get schedule reminders on your phone.")).toBeNull();
+
+    feedRef.isLoading = false;
+    view.rerender(<NotificationsBell />);
+
+    expect(screen.getByText("Get schedule reminders on your phone.")).toBeTruthy();
+  });
+
+  test("hides phone reminders without an active assistant", async () => {
+    activeAssistantIdRef.value = null;
+    await openBell();
+
+    expect(screen.queryByText("Get schedule reminders on your phone.")).toBeNull();
   });
 
   test("the recipe closes the panel and seeds a conversation", async () => {
@@ -1448,6 +1471,7 @@ describe("NotificationsBell empty state", () => {
     await openBell();
 
     expect(screen.getByText("Couldn't load notifications.")).toBeTruthy();
+    expect(screen.queryByText("Get schedule reminders on your phone.")).toBeNull();
     expect(screen.queryByText("Nothing yet.")).toBeNull();
     expect(screen.queryByRole("button", { name: RECIPE_LABEL })).toBeNull();
   });

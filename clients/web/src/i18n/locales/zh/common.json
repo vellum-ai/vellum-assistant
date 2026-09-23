@@ -479,6 +479,9 @@
     "titleWindows": "获取 Windows 应用"
   },
   "nativeAppBanner": {
+    "appStore": "App Store",
+    "googlePlay": "Google Play",
+    "reminderSubtitle": "在手机上接收定时任务提醒。",
     "bannerAria": "下载 {appName} 应用",
     "bannerAriaGeneric": "下载 Vellum 移动应用",
     "download": "下载",
