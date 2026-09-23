@@ -96,6 +96,33 @@ describe("TabularGrid", () => {
     expect(cell?.getAttribute("title")).toBe("a very long cell value indeed");
   });
 
+  test("an empty cell keeps its row at text height", async () => {
+    render(
+      <TabularGrid
+        headers={["name", "count"]}
+        rows={[
+          ["alpha", "1"],
+          ["", ""],
+          ["beta", "2"],
+        ]}
+        truncated={false}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByText("beta")).toBeTruthy());
+
+    const blank = screen
+      .getAllByRole("row")
+      .find((row) => row.getAttribute("data-index") === "1");
+    const cells = [...(blank?.querySelectorAll("td") ?? [])];
+
+    expect(cells.length).toBe(2);
+    for (const cell of cells) {
+      expect(cell.textContent).toBe("\u00a0");
+      expect(cell.getAttribute("title")).toBe("");
+    }
+  });
+
   test("an empty grid shows the caller's empty label instead of a table", async () => {
     render(
       <TabularGrid

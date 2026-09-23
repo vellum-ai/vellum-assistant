@@ -62,6 +62,14 @@ export function columnCountOf(grid: ParsedCsv): number {
   return grid.headers?.length ?? grid.rows[0]?.length ?? 0;
 }
 
+/**
+ * What a cell draws. An empty span builds no line box, so a row of empty
+ * cells would sit shorter than the rows around it.
+ */
+function cellText(cell: string): string {
+  return cell === "" ? "\u00a0" : cell;
+}
+
 export function TabularGrid({
   summary,
   emptyLabel,
@@ -85,7 +93,9 @@ export function TabularGrid({
             title={cell}
             className={`${CELL_CLASSES} bg-[var(--surface-sunken)] text-left text-body-small-emphasised`}
           >
-            <span className="block max-w-[20rem] truncate">{cell}</span>
+            <span className="block max-w-[20rem] truncate">
+              {cellText(cell)}
+            </span>
           </th>
         ))}
       </tr>
@@ -109,7 +119,9 @@ export function TabularGrid({
         itemContent={(_index, row) =>
           row.map((cell, columnIndex) => (
             <td key={columnIndex} title={cell} className={CELL_CLASSES}>
-              <span className="block max-w-[20rem] truncate">{cell}</span>
+              <span className="block max-w-[20rem] truncate">
+                {cellText(cell)}
+              </span>
             </td>
           ))
         }
