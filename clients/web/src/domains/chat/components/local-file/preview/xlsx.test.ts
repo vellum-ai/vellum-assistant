@@ -194,6 +194,29 @@ function straddledAncestorSheetXml(count: number): string {
   return `${open}<!--${padding}--><y:sheetData>${prefixedRowsXml(count)}</y:sheetData></worksheet>`;
 }
 
+/** A comment spelling `count` row markers, which open no row of their own. */
+function rowMarkerComment(count: number): string {
+  return `<!--${"<row/>".repeat(count)}-->`;
+}
+
+/** Rows behind such a comment, whose `<!--` opens at `commentAt`. */
+function straddledCommentSheetXml(commentAt: number, markers: number): string {
+  const open = `<worksheet xmlns="${MAIN_NS}"><sheetData>`;
+  const first = rowXml(1, "alpha");
+  const padding = "p".repeat(
+    commentAt - open.length - first.length - "<!---->".length,
+  );
+  return `${open}${first}<!--${padding}-->${rowMarkerComment(markers)}${rowXml(
+    2,
+    "beta",
+  )}</sheetData></worksheet>`;
+}
+
+/** A one-sheet workbook part, as raw XML. */
+function workbookPartXml(): string {
+  return `<workbook xmlns="${MAIN_NS}" xmlns:r="${RELATIONSHIP_NS}"><sheets><sheet name="Data" sheetId="1" r:id="rId1"/></sheets></workbook>`;
+}
+
 /** The mirror of that for the shared string table: prefixed items, plain `sst`. */
 function mixedPrefixSharedStringsXml(long: string): string {
   return `<sst xmlns="${MAIN_NS}" xmlns:x="${MAIN_NS}"><x:si><x:t>alpha</x:t></x:si><x:si><x:t>${long}</x:t></x:si><x:si><x:t>gamma</x:t></x:si></sst>`;
@@ -650,6 +673,17 @@ describe("parseWorkbook", () => {
     expect(far.truncated).toBe(false);
   });
 
+  test("leaves shared string markers inside a comment out of the string count", async () => {
+    const grid = await readOneSheet([[{ t: "s", v: 1 }]], {
+      parts: {
+        "xl/sharedStrings.xml": `<sst xmlns="${MAIN_NS}" count="2" uniqueCount="2"><!--<si/><si/><si/>--><si><t>alpha</t></si><si><t>beta</t></si></sst>`,
+      },
+    });
+
+    expect(grid.rows).toEqual([["beta"]]);
+    expect(grid.truncated).toBe(false);
+  });
+
   test("reads a shared-string cell with no index as blank", async () => {
     const grid = await readOneSheet([[{ t: "s" }, { t: "s", v: "" }]]);
 
@@ -732,8 +766,17 @@ describe("parseWorkbook", () => {
 
     expect(grid.rows).toEqual([
       ["2023-01-01", "44927"],
-      ["2023-03-15 12:00", "1"],
+      ["2023-03-15", "1"],
     ]);
+  });
+
+  test("hides the clock of a date-only format", async () => {
+    const grid = await readOneSheet(
+      [[{ v: 44927.5, s: 0 }], [{ v: 44927.5, s: 1 }]],
+      { styles: [{ numFmtId: 14 }, { numFmtId: 22 }] },
+    );
+
+    expect(grid.rows).toEqual([["2023-01-01"], ["2023-01-01 12:00"]]);
   });
 
   test("renders time-only and date-time number formats", async () => {
@@ -897,6 +940,19 @@ describe("parseWorkbook", () => {
     ]);
   });
 
+  test("selects the zero section of a custom format code", async () => {
+    const grid = await readOneSheet(
+      [[{ v: 0, s: 0 }], [{ v: 0.5, s: 0 }], [{ v: 0, s: 1 }]],
+      {
+        // Excel reads a zero value from the third section, which a code of
+        // fewer sections leaves to the first.
+        styles: [{ formatCode: "h:mm;h:mm;0" }, { formatCode: "h:mm;h:mm" }],
+      },
+    );
+
+    expect(grid.rows).toEqual([["0"], ["12:00"], ["00:00"]]);
+  });
+
   test("ignores a numFmt a dxf declares under a real format's id", async () => {
     const grid = await readOneSheet([[{ v: 44927, s: 0 }]], {
       parts: { "xl/styles.xml": COLLIDING_DXF_STYLES },
@@ -938,10 +994,12 @@ describe("parseWorkbook", () => {
       [
         [{ v: 59, s: 0 }],
         [{ v: 60, s: 0 }],
-        [{ v: 60.5, s: 0 }],
+        [{ v: 60.5, s: 1 }],
         [{ v: 61, s: 0 }],
       ],
-      { styles: [{ numFmtId: 14 }] },
+      // The phantom day holds a clock reading too, which only a date and time
+      // format shows.
+      { styles: [{ numFmtId: 14 }, { numFmtId: 22 }] },
     );
 
     expect(grid.rows).toEqual([
@@ -1396,6 +1454,51 @@ describe("parseWorkbook", () => {
     expect(grid.truncated).toBe(true);
   });
 
+  test("leaves row markers inside a comment out of the row count", async () => {
+    // A comment rather than CDATA, which happy-dom parses no more than it
+    // parses a processing instruction.
+    const parsed = await parseWorkbook(
+      await workbookBlob({
+        sheets: [{ name: "Sheet1" }],
+        parts: {
+          "xl/worksheets/sheet1.xml": sheetXml(
+            `${rowXml(1, "alpha")}${rowMarkerComment(
+              MAX_CSV_ROWS + 1_000,
+            )}${rowXml(2, "beta")}${rowXml(3, "gamma")}`,
+          ),
+        },
+      }),
+    );
+
+    const grid = await parsed.sheets[0]!.read();
+
+    expect(grid.rows).toEqual([["alpha"], ["beta"], ["gamma"]]);
+    expect(grid.truncated).toBe(false);
+  });
+
+  test("keeps a comment that straddles a chunk boundary", async () => {
+    const markers = 3;
+    const opener = `<!--${"<row/>".repeat(markers)}`;
+    for (const commentAt of [
+      INFLATE_CHUNK_CHARS - 2,
+      INFLATE_CHUNK_CHARS - 1 - opener.length,
+    ]) {
+      const xml = straddledCommentSheetXml(commentAt, markers);
+      expect(xml.indexOf(opener)).toBe(commentAt);
+
+      const parsed = await parseWorkbook(
+        await workbookBlob({
+          sheets: [{ name: "Sheet1" }],
+          parts: { "xl/worksheets/sheet1.xml": xml },
+        }),
+      );
+      const grid = await parsed.sheets[0]!.read();
+
+      expect(grid.rows).toEqual([["alpha"], ["beta"]]);
+      expect(grid.truncated).toBe(false);
+    }
+  });
+
   test("keeps an ancestor whose start tag straddles a chunk boundary", async () => {
     const xml = straddledAncestorSheetXml(400);
     expect(xml.indexOf("<y:sheetData>")).toBe(
@@ -1461,6 +1564,40 @@ describe("parseWorkbook", () => {
 
     expect(grid.rows).toEqual([["alpha", "", ""]]);
     expect(grid.truncated).toBe(true);
+  });
+
+  test("resolves the workbook part through the package relationship", async () => {
+    for (const type of [
+      `${RELATIONSHIP_NS}/officeDocument`,
+      `${STRICT_RELATIONSHIP_NS}/officeDocument`,
+    ]) {
+      const parsed = await parseWorkbook(
+        await partsBlob({
+          "_rels/.rels": `<Relationships xmlns="${PACKAGE_RELATIONSHIP_NS}"><Relationship Id="rId1" Type="${type}" Target="book/wb.xml"/></Relationships>`,
+          "book/wb.xml": workbookPartXml(),
+          "book/_rels/wb.xml.rels": `<Relationships xmlns="${PACKAGE_RELATIONSHIP_NS}"><Relationship Id="rId1" Type="${RELATIONSHIP_NS}/worksheet" Target="sheets/s1.xml"/><Relationship Id="rId2" Type="${RELATIONSHIP_NS}/sharedStrings" Target="sst.xml"/></Relationships>`,
+          "book/sheets/s1.xml": sheetXml(
+            '<row r="1"><c r="A1" t="s"><v>0</v></c></row>',
+          ),
+          "book/sst.xml": oneSharedStringXml("shared"),
+        }),
+      );
+
+      expect(parsed.sheets.map((sheet) => sheet.name)).toEqual(["Data"]);
+      expect((await parsed.sheets[0]!.read()).rows).toEqual([["shared"]]);
+    }
+  });
+
+  test("reads the conventional workbook part when the package names none", async () => {
+    const parsed = await parseWorkbook(
+      await partsBlob({
+        "xl/workbook.xml": workbookPartXml(),
+        "xl/_rels/workbook.xml.rels": relationshipsXml("worksheets/sheet1.xml"),
+        "xl/worksheets/sheet1.xml": sheetXml(rowXml(1, "alpha")),
+      }),
+    );
+
+    expect((await parsed.sheets[0]!.read()).rows).toEqual([["alpha"]]);
   });
 
   test("rejects a blob that is not a zip", async () => {

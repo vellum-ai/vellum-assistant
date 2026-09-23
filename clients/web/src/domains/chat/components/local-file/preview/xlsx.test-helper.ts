@@ -174,6 +174,11 @@ function relationshipsXml(spec: WorkbookSpec): string {
   return `${DECLARATION}<Relationships xmlns="${PACKAGE_RELATIONSHIP_NS}">${relationships.join("")}</Relationships>`;
 }
 
+/** The package relationship part, which points at the workbook. */
+function packageRelationshipsXml(): string {
+  return `${DECLARATION}<Relationships xmlns="${PACKAGE_RELATIONSHIP_NS}"><Relationship Id="rId1" Type="${RELATIONSHIP_NS}/officeDocument" Target="xl/workbook.xml"/></Relationships>`;
+}
+
 function sharedStringsXml(strings: TextSpec[]): string {
   const items = strings.map((entry) => `<si>${textXml(entry)}</si>`).join("");
   return `${DECLARATION}<sst xmlns="${MAIN_NS}" count="${strings.length}" uniqueCount="${strings.length}">${items}</sst>`;
@@ -217,6 +222,7 @@ export async function partsBlob(parts: Record<string, string>): Promise<Blob> {
 /** An `.xlsx` container holding `spec`, ready to hand to `parseWorkbook`. */
 export async function workbookBlob(spec: WorkbookSpec): Promise<Blob> {
   const parts: Record<string, string> = {
+    "_rels/.rels": packageRelationshipsXml(),
     "xl/workbook.xml": workbookXml(spec),
     "xl/_rels/workbook.xml.rels": relationshipsXml(spec),
   };

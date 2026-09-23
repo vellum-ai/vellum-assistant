@@ -85,6 +85,20 @@ type NumberFormatKind =
 const PLAIN_NUMBER: NumberFormatKind = { kind: "none" };
 
 /**
+ * What a style renders, per the section of its format code a value selects.
+ * The sections run positive, negative, zero, text, and a negative serial never
+ * reaches the date branch, so only the two a rendered serial can pick are
+ * kept.
+ */
+interface StyleFormat {
+  positive: NumberFormatKind;
+  zero: NumberFormatKind;
+}
+
+/** What a cell carrying no style, or one that spells no format, renders as. */
+const PLAIN_STYLE: StyleFormat = { positive: PLAIN_NUMBER, zero: PLAIN_NUMBER };
+
+/**
  * What a built-in `numFmtId` renders. The date ids spell a calendar day, the
  * time ids a clock reading, 22 is the one built-in that spells both, and 46
  * (`[h]:mm:ss`) is the one that counts elapsed hours. Ids 45 (`mm:ss`) and 47
@@ -173,15 +187,15 @@ function smallestElapsedUnit(units: ReadonlySet<ElapsedUnit>): ElapsedUnit {
 }
 
 /**
- * The section of `code` that applies to the values this reader renders. A code
- * holds one section per sign, in the order positive, negative, zero, text, and
- * a serial read as a date, a time, or elapsed time is positive. A quoted
- * literal, a bracket, and a backslash escape can each hold a `;` that
- * separates nothing.
+ * The sections of `code`, which a cell picks one of by value. A quoted
+ * literal, a bracket, and a backslash escape can each hold a `;` that separates
+ * nothing.
  */
-function firstFormatSection(code: string): string {
+function formatSections(code: string): string[] {
+  const sections: string[] = [];
   let quoted = false;
   let bracketed = false;
+  let from = 0;
   let index = 0;
   while (index < code.length) {
     const character = code.charAt(index);
@@ -196,25 +210,27 @@ function firstFormatSection(code: string): string {
     } else if (character === "[") {
       bracketed = true;
     } else if (character === ";") {
-      return code.slice(0, index);
+      sections.push(code.slice(from, index));
+      from = index + 1;
     }
     index += 1;
   }
-  return code;
+  sections.push(code.slice(from));
+  return sections;
 }
 
 /**
- * What a custom format code renders, read from the section that applies.
- * Quoted literals, bracketed sections, the meridiem tokens, and backslash
- * escapes can each hold a letter that spells no placeholder, so they come out
+ * What one section of a format code renders. Quoted literals, bracketed
+ * sections, the meridiem tokens, and backslash escapes can each hold a letter
+ * that spells no placeholder, so they come out
  * before the placeholders are read: a meridiem leaves a clock reading behind
  * it, a colour or locale bracket leaves nothing, and a bracket spelling
- * nothing but `h`, `m`, or `s` makes the code elapsed time, counted from its
- * largest bracketed unit down to the smallest unit the code spells.
+ * nothing but `h`, `m`, or `s` makes the section elapsed time, counted from
+ * its largest bracketed unit down to the smallest unit it spells.
  */
 function formatCodeKind(code: string): NumberFormatKind {
   const bracketed = new Set<ElapsedUnit>();
-  const placeholders = firstFormatSection(code)
+  const placeholders = code
     .replace(/"[^"]*"/g, "")
     .replace(/\[[^\]]*\]/g, (section) => {
       const elapsed = ELAPSED_BRACKET.exec(section);
@@ -260,6 +276,18 @@ function formatCodeKind(code: string): NumberFormatKind {
     return hasTime ? { kind: "datetime" } : { kind: "date" };
   }
   return hasTime ? { kind: "time" } : PLAIN_NUMBER;
+}
+
+/** What a custom format code renders, by the section a value selects. */
+function formatCodeStyle(code: string): StyleFormat {
+  const sections = formatSections(code);
+  const positive = formatCodeKind(sections[0] ?? "");
+  // Excel holds the zero rendering in the third section, so a code of one or
+  // two sections renders zero the way it renders a positive value.
+  return {
+    positive,
+    zero: sections.length > 2 ? formatCodeKind(sections[2]!) : positive,
+  };
 }
 
 /** Local part of a qualified name, so `rel:id` and `id` both read as `id`. */
@@ -490,20 +518,52 @@ const NON_TAG_CONSTRUCTS = [
   { opens: "<?", closes: "?>" },
 ];
 
+/** How a `<` reads against those constructs. */
+type NonTagMatch =
+  | { kind: "none" }
+  | { kind: "pending" }
+  | { kind: "skip"; to: number };
+
+const NO_CONSTRUCT: NonTagMatch = { kind: "none" };
+const PENDING_CONSTRUCT: NonTagMatch = { kind: "pending" };
+
 /**
- * Where the construct opened by the `<` at `at` ends, or -1 when that `<`
- * opens an ordinary tag. A scan over markup steps past one of these whole,
- * since the `<c>` an inline string holds inside CDATA opens no cell. An
- * unterminated construct runs to the end of the buffer.
+ * Whether the `<` at `at` opens one of those constructs, and where it ends. A
+ * scan over markup steps past one whole, since the `<c>` an inline string
+ * holds inside CDATA opens no cell. `pending` means the buffer runs out before
+ * the opener or its closer settles, so the next chunk decides it rather than
+ * this one guessing.
  */
-function skipNonTag(buffer: string, at: number): number {
+function matchNonTag(buffer: string, at: number): NonTagMatch {
   for (const { opens, closes } of NON_TAG_CONSTRUCTS) {
+    const available = buffer.length - at;
+    if (available < opens.length) {
+      if (buffer.startsWith(opens.slice(0, available), at)) {
+        return PENDING_CONSTRUCT;
+      }
+      continue;
+    }
     if (buffer.startsWith(opens, at)) {
       const ends = buffer.indexOf(closes, at + opens.length);
-      return ends < 0 ? buffer.length : ends + closes.length;
+      return ends < 0
+        ? PENDING_CONSTRUCT
+        : { kind: "skip", to: ends + closes.length };
     }
   }
-  return -1;
+  return NO_CONSTRUCT;
+}
+
+/**
+ * The same reading over a complete string: where the construct opened by the
+ * `<` at `at` ends, or -1 when that `<` opens an ordinary tag. Nothing is left
+ * to arrive, so a construct that never closes runs to the end of the string.
+ */
+function skipNonTag(buffer: string, at: number): number {
+  const match = matchNonTag(buffer, at);
+  if (match.kind === "none") {
+    return -1;
+  }
+  return match.kind === "skip" ? match.to : buffer.length;
 }
 
 /** How a chunk handler ends a streamed read before the part runs out. */
@@ -623,6 +683,18 @@ function readMarkedPart(
           searchFrom = buffer.length;
           break;
         }
+        const construct = matchNonTag(buffer, at);
+        if (construct.kind === "pending") {
+          // The characters that would close this construct have not arrived,
+          // so the next chunk reads it rather than this one counting the
+          // markers its text spells.
+          searchFrom = at;
+          break;
+        }
+        if (construct.kind === "skip") {
+          searchFrom = construct.to;
+          continue;
+        }
         const match = matchStartTag(buffer, at, marker.localName);
         if (match.kind === "pending") {
           // The characters that would settle this match have not arrived, so
@@ -722,8 +794,11 @@ interface WorkbookStructure {
   date1904: boolean;
 }
 
-function readWorkbookStructure(xml: string): WorkbookStructure {
-  const root = parseXml(xml, "xl/workbook.xml");
+function readWorkbookStructure(
+  xml: string,
+  partPath: string,
+): WorkbookStructure {
+  const root = parseXml(xml, partPath);
   const dateMode = findNamed(root, "workbookPr")?.getAttribute("date1904");
   const sheetList = findNamed(root, "sheets");
   const listed =
@@ -760,6 +835,61 @@ function resolveZipPath(base: string, target: string): string {
   return segments.join("/");
 }
 
+/** The part a relationship target names, rooted at the zip. */
+function resolveRelationshipTarget(base: string, target: string): string {
+  // A part whose name holds a space is spelled `sheet%201.xml` here.
+  let decoded = target;
+  try {
+    decoded = decodeURIComponent(target);
+  } catch {
+    // Not valid percent-encoding, so the target is a literal name.
+  }
+  // A relative target is relative to the part that declares it.
+  return decoded.startsWith("/")
+    ? resolveZipPath("", decoded.slice(1))
+    : resolveZipPath(base, decoded);
+}
+
+/** The relationship part a package opens with, which names its workbook. */
+const PACKAGE_RELATIONSHIPS_PART = "_rels/.rels";
+
+/** Last segment of the relationship type a package names its workbook by. */
+const OFFICE_DOCUMENT_TYPE = "/officeDocument";
+
+/** Where a package holds its workbook by convention. */
+const DEFAULT_WORKBOOK_PART = "xl/workbook.xml";
+
+/** The workbook part the package points at, rooted at the zip. */
+function readPackageWorkbookPart(xml: string | null): string {
+  if (xml === null) {
+    return DEFAULT_WORKBOOK_PART;
+  }
+  const root = parseXml(xml, PACKAGE_RELATIONSHIPS_PART);
+  for (const relationship of directChildrenNamed(root, "Relationship")) {
+    const target = relationship.getAttribute("Target");
+    const type = relationship.getAttribute("Type");
+    if (
+      target !== null &&
+      type !== null &&
+      type.endsWith(OFFICE_DOCUMENT_TYPE)
+    ) {
+      return resolveRelationshipTarget("", target);
+    }
+  }
+  return DEFAULT_WORKBOOK_PART;
+}
+
+/** The directory `path` sits in, up to and including its last `/`. */
+function partDirectory(path: string): string {
+  return path.slice(0, path.lastIndexOf("/") + 1);
+}
+
+/** The relationship part that belongs to the part at `path`. */
+function relationshipsPartFor(path: string): string {
+  const directory = partDirectory(path);
+  return `${directory}_rels/${path.slice(directory.length)}.rels`;
+}
+
 /**
  * The parts a workbook holds beside its sheets, named by the last segment of
  * the relationship type pointing at each. Strict and transitional OOXML root
@@ -769,12 +899,6 @@ function resolveZipPath(base: string, target: string): string {
 const RELATED_PART_NAMES = ["sharedStrings", "styles"] as const;
 
 type RelatedPart = (typeof RELATED_PART_NAMES)[number];
-
-/** Where each of those parts sits by convention. */
-const DEFAULT_RELATED_PARTS: Record<RelatedPart, string> = {
-  sharedStrings: "xl/sharedStrings.xml",
-  styles: "xl/styles.xml",
-};
 
 /** What a workbook's relationship part names, rooted at the zip. */
 interface WorkbookRelationships {
@@ -786,31 +910,32 @@ interface WorkbookRelationships {
   styles: string;
 }
 
-/** The parts a workbook's relationship part points at. */
-function readWorkbookRelationships(xml: string | null): WorkbookRelationships {
+/**
+ * The parts a workbook's relationship part points at. Targets are relative to
+ * `base`, the directory the workbook itself sits in, and so are the parts it
+ * points at by convention.
+ */
+function readWorkbookRelationships(
+  xml: string | null,
+  base: string,
+  partPath: string,
+): WorkbookRelationships {
   const targets = new Map<string, string>();
-  const related = { ...DEFAULT_RELATED_PARTS };
+  const related: Record<RelatedPart, string> = {
+    sharedStrings: `${base}sharedStrings.xml`,
+    styles: `${base}styles.xml`,
+  };
   if (xml === null) {
     return { targets, ...related };
   }
-  const root = parseXml(xml, "xl/_rels/workbook.xml.rels");
+  const root = parseXml(xml, partPath);
   for (const relationship of directChildrenNamed(root, "Relationship")) {
     const id = relationship.getAttribute("Id");
     const target = relationship.getAttribute("Target");
     if (id === null || target === null) {
       continue;
     }
-    // A part whose name holds a space is spelled `sheet%201.xml` here.
-    let decoded = target;
-    try {
-      decoded = decodeURIComponent(target);
-    } catch {
-      // Not valid percent-encoding, so the target is a literal name.
-    }
-    // A relative target is relative to the part that declares it.
-    const resolved = decoded.startsWith("/")
-      ? resolveZipPath("", decoded.slice(1))
-      : resolveZipPath("xl/", decoded);
+    const resolved = resolveRelationshipTarget(base, target);
     targets.set(id, resolved);
     const type = relationship.getAttribute("Type");
     if (type === null) {
@@ -826,10 +951,7 @@ function readWorkbookRelationships(xml: string | null): WorkbookRelationships {
 }
 
 /** Per `cellXfs` index, what cells carrying that style render as. */
-function readNumberFormatKinds(
-  xml: string | null,
-  partPath: string,
-): NumberFormatKind[] {
+function readStyleFormats(xml: string | null, partPath: string): StyleFormat[] {
   if (xml === null) {
     return [];
   }
@@ -854,7 +976,12 @@ function readNumberFormatKinds(
   return directChildrenNamed(cellXfs, "xf").map((xf) => {
     const id = Number(xf.getAttribute("numFmtId") ?? "0");
     const code = customCodes.get(id);
-    return code === undefined ? builtInFormatKind(id) : formatCodeKind(code);
+    if (code !== undefined) {
+      return formatCodeStyle(code);
+    }
+    // A built-in id spells one rendering, which every value takes.
+    const kind = builtInFormatKind(id);
+    return { positive: kind, zero: kind };
   });
 }
 
@@ -875,11 +1002,12 @@ function isDateSerial(serial: number, date1904: boolean): boolean {
 
 /**
  * Render a serial the way its number format reads it: a calendar day, a clock
- * reading, or both. The 1900 workbook counts a 29 February 1900 that never
- * existed, so serials below 60 sit one day behind the real calendar, and
- * serial 60 is that phantom day itself. Excel shows it as 1900-02-29, so it is
- * written out: no `Date` can hold it, and computing it would collapse it onto
- * serial 59.
+ * reading, or both. A date format spells the day alone however much of a day
+ * the serial carries, which is what Excel shows for one. The 1900 workbook
+ * counts a 29 February 1900 that never existed, so serials below 60 sit one day
+ * behind the real calendar, and serial 60 is that phantom day itself. Excel
+ * shows it as 1900-02-29, so it is written out: no `Date` can hold it, and
+ * computing it would collapse it onto serial 59.
  */
 function formatSerial(
   serial: number,
@@ -904,7 +1032,7 @@ function formatSerial(
       ? `${day} ${clock}`
       : `${day} ${clock}:${pad(seconds)}`;
   }
-  return at % MS_PER_DAY === 0 ? day : `${day} ${clock}`;
+  return day;
 }
 
 const SECONDS_PER_DAY = 86_400;
@@ -980,7 +1108,7 @@ function joinTextRuns(element: Element | undefined): string {
 
 function readCell(
   cell: Element,
-  formatKinds: NumberFormatKind[],
+  styleFormats: StyleFormat[],
   date1904: boolean,
 ): RawCell {
   const type = cell.getAttribute("t");
@@ -1026,8 +1154,9 @@ function readCell(
   if (Number.isNaN(asNumber)) {
     return value;
   }
-  const format =
-    formatKinds[Number(cell.getAttribute("s") ?? "0")] ?? PLAIN_NUMBER;
+  const style =
+    styleFormats[Number(cell.getAttribute("s") ?? "0")] ?? PLAIN_STYLE;
+  const format = asNumber === 0 ? style.zero : style.positive;
   if (isDateSerial(asNumber, date1904)) {
     if (format.kind === "elapsed") {
       return formatElapsed(asNumber, format.from, format.to);
@@ -1067,7 +1196,7 @@ interface SheetRows {
 
 function readSheetRows(
   root: Element,
-  formatKinds: NumberFormatKind[],
+  styleFormats: StyleFormat[],
   date1904: boolean,
 ): SheetRows {
   const rows: RawCell[][] = [];
@@ -1108,7 +1237,7 @@ function readSheetRows(
       while (cells.length < column) {
         cells.push("");
       }
-      const parsed = readCell(cell, formatKinds, date1904);
+      const parsed = readCell(cell, styleFormats, date1904);
       if (typeof parsed === "number") {
         highestSharedIndex = Math.max(highestSharedIndex, parsed);
       }
@@ -1201,7 +1330,7 @@ function createSharedStringReader(
 /** What every sheet of one workbook shares while it reads its own part. */
 interface WorkbookContext {
   zip: JSZip;
-  formatKinds: NumberFormatKind[];
+  styleFormats: StyleFormat[];
   date1904: boolean;
   maxPartChars: number;
   sharedStrings: SharedStringReader;
@@ -1282,7 +1411,7 @@ async function readSheetGrid(
   const trimmed = dropCellsPastCap(closeBoundedPart(part));
   const read = readSheetRows(
     parseXml(trimmed.xml, entry.name),
-    context.formatKinds,
+    context.styleFormats,
     context.date1904,
   );
   const strings =
@@ -1471,9 +1600,11 @@ export interface ParseWorkbookOptions {
 
 /**
  * Read a workbook container's metadata into one lazily read sheet per visible
- * sheet. Rejects when the blob is not a zip or carries no `xl/workbook.xml`,
- * which the preview shows as an unreadable file. A sheet whose own part is
- * missing or malformed rejects from its `read`, leaving the rest readable.
+ * sheet. The package relationship part names the workbook, which the sheets,
+ * the shared strings, and the styles are all read relative to. Rejects when
+ * the blob is not a zip or holds no workbook part, which the preview shows as
+ * an unreadable file. A sheet whose own part is missing or malformed rejects
+ * from its `read`, leaving the rest readable.
  */
 export async function parseWorkbook(
   blob: Blob,
@@ -1483,18 +1614,24 @@ export async function parseWorkbook(
   // An ArrayBuffer rather than the Blob, so one call covers the browser and
   // the test runner.
   const zip = await JSZip.loadAsync(await blob.arrayBuffer());
-  const workbookXml = await readPart(zip, "xl/workbook.xml", maxPartChars);
+  const workbookPart = readPackageWorkbookPart(
+    await readPart(zip, PACKAGE_RELATIONSHIPS_PART, maxPartChars),
+  );
+  const workbookXml = await readPart(zip, workbookPart, maxPartChars);
   if (workbookXml === null) {
-    throw new Error("Not a workbook: xl/workbook.xml is missing");
+    throw new Error(`Not a workbook: ${workbookPart} is missing`);
   }
 
-  const { sheets, date1904 } = readWorkbookStructure(workbookXml);
+  const { sheets, date1904 } = readWorkbookStructure(workbookXml, workbookPart);
+  const relationshipsPart = relationshipsPartFor(workbookPart);
   const relationships = readWorkbookRelationships(
-    await readPart(zip, "xl/_rels/workbook.xml.rels", maxPartChars),
+    await readPart(zip, relationshipsPart, maxPartChars),
+    partDirectory(workbookPart),
+    relationshipsPart,
   );
   const context: WorkbookContext = {
     zip,
-    formatKinds: readNumberFormatKinds(
+    styleFormats: readStyleFormats(
       await readPart(zip, relationships.styles, maxPartChars),
       relationships.styles,
     ),
