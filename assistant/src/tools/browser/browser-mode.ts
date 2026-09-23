@@ -5,7 +5,7 @@
  *   - `auto`        -- let the factory pick the best backend (default)
  *   - `extension`   -- force the Chrome extension transport
  *   - `cdp-inspect` -- force the CDP inspect/debugger transport
- *   - `local`       -- force the Playwright-managed local browser
+ *   - `local`       -- retired mode; returns virtual desktop guidance
  *
  * Aliases are accepted and normalized to their canonical form:
  *   - `cdp-debugger` -> `cdp-inspect`

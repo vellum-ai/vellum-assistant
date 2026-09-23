@@ -95,15 +95,6 @@ mock.module("../../../daemon/host-browser-proxy.js", () => ({
   },
 }));
 
-mock.module("../runtime-check.js", () => ({
-  checkBrowserRuntime: async () => ({
-    playwrightAvailable: true,
-    chromiumInstalled: true,
-    chromiumPath: "/tmp/chromium",
-    error: null,
-  }),
-}));
-
 mock.module("../../../util/logger.js", () => createMockLoggerModule());
 
 // Import under test after all mock.module calls.

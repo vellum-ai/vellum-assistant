@@ -148,16 +148,6 @@ mock.module("../calls/call-store.js", () => ({
   finalizeCallbackClaim: () => true,
 }));
 
-mock.module("../tools/browser/browser-screencast.js", () => ({
-  registerConversationSender: () => {},
-  unregisterConversationSender: () => {},
-  ensureScreencast: () => Promise.resolve(),
-  stopBrowserScreencast: () => Promise.resolve(),
-  stopAllScreencasts: () => Promise.resolve(),
-  isScreencastActive: () => false,
-  getSender: () => undefined,
-}));
-
 mock.module("../services/published-app-updater.js", () => ({
   updatePublishedAppDeployment: () => Promise.resolve(),
 }));

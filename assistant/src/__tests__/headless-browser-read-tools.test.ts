@@ -2,22 +2,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Mocks ────────────────────────────────────────────────────────────
 
-/**
- * Fake CDP session used by the screenshot/extract/wait_for tests in
- * this file. The tests configure `sendHandler` before invoking a
- * tool; each `session.send(method, params)` call is recorded in
- * `sendCalls` and routed to the handler. The handler returns either
- * a CDP response object (e.g. `{ result: { value: ... } }` for
- * `Runtime.evaluate`, or `{ data }` for `Page.captureScreenshot`) or
- * an `Error` to simulate a CDP failure.
- *
- * The fake session is exposed via `mockPage.context().newCDPSession(page)`
- * which is what the real `LocalCdpClient` calls internally. Going
- * through the real `LocalCdpClient` (instead of mocking the factory
- * or the cdp-client submodules) avoids polluting the global module
- * cache that the `factory.test.ts` and LocalCdpClient/
- * ExtensionCdpClient unit tests rely on.
- */
+// CDP responses and disposal are controlled per test.
 interface SendCall {
   method: string;
   params: Record<string, unknown> | undefined;
@@ -48,38 +33,12 @@ const fakeCdpSession = {
   detach: async () => {},
 };
 
-// The mock page is served by `browserManager.getOrCreateSessionPage`
-// and is consumed indirectly: LocalCdpClient calls
-// `page.context().newCDPSession(page)` to obtain a CDP session and
-// then dispatches raw CDP methods against it. The page's
-// `context().newCDPSession` is wired to return `fakeCdpSession` above.
-let mockPage: {
-  click: ReturnType<typeof mock>;
-  fill: ReturnType<typeof mock>;
-  press: ReturnType<typeof mock>;
-  evaluate: ReturnType<typeof mock>;
-  title: ReturnType<typeof mock>;
-  url: ReturnType<typeof mock>;
-  goto: ReturnType<typeof mock>;
-  close: () => Promise<void>;
-  isClosed: () => boolean;
-  waitForSelector: ReturnType<typeof mock>;
-  waitForFunction: ReturnType<typeof mock>;
-  keyboard: { press: ReturnType<typeof mock> };
-  context: () => {
-    newCDPSession: (page: unknown) => Promise<typeof fakeCdpSession>;
-  };
-};
-
 const preferredBackendKinds = new Map<string, string>();
 
 mock.module("../tools/browser/browser-manager.js", () => {
   preferredBackendKinds.clear();
   return {
     browserManager: {
-      getOrCreateSessionPage: async () => mockPage,
-      closeSessionPage: async () => {},
-      closeAllPages: async () => {},
       getPreferredBackendKind: (conversationId: string) =>
         preferredBackendKinds.get(conversationId) ?? null,
       setPreferredBackendKind: (conversationId: string, kind: string) => {
@@ -106,6 +65,19 @@ import {
   executeBrowserWaitFor,
   EXTRACT_LINKS_EXPRESSION,
 } from "../tools/browser/browser-execution.js";
+
+mock.module("../tools/browser/cdp-client/factory.js", () => ({
+  getCdpClient: (context: { conversationId: string }) => ({
+    kind: "cdp-inspect",
+    conversationId: context.conversationId,
+    send: (method: string, params?: Record<string, unknown>) =>
+      fakeCdpSession.send(method, params),
+    dispose: () => {
+      void fakeCdpSession.detach();
+    },
+  }),
+}));
+
 import type { ToolContext } from "../tools/types.js";
 
 const ctx: ToolContext = {
@@ -113,34 +85,6 @@ const ctx: ToolContext = {
   workingDir: "/tmp",
   trustClass: "guardian",
 };
-
-function resetMockPage() {
-  mockPage = {
-    click: mock(async () => {}),
-    fill: mock(async () => {}),
-    press: mock(async () => {}),
-    evaluate: mock(async () => ""),
-    title: mock(async () => "Test Page"),
-    url: mock(() => "https://example.com/"),
-    goto: mock(async () => ({
-      status: () => 200,
-      url: () => "https://example.com/",
-    })),
-    close: async () => {},
-    isClosed: () => false,
-    waitForSelector: mock(async () => null),
-    waitForFunction: mock(async () => null),
-    keyboard: { press: mock(async () => {}) },
-    // `LocalCdpClient.ensureSession()` calls `page.context().newCDPSession(
-    // page)` to create a Playwright CDPSession. For these tests we
-    // return the in-file `fakeCdpSession` which records every send()
-    // into `sendCalls` and lets each test set `sendHandler` to shape
-    // the responses.
-    context: () => ({
-      newCDPSession: async (_page: unknown) => fakeCdpSession,
-    }),
-  };
-}
 
 // executeBrowserPressKey tests live in
 // `headless-browser-interactions.test.ts` alongside the other
@@ -150,7 +94,6 @@ function resetMockPage() {
 
 describe("executeBrowserScreenshot", () => {
   beforeEach(() => {
-    resetMockPage();
     resetCdpMock();
   });
 
@@ -208,7 +151,6 @@ describe("executeBrowserScreenshot", () => {
 
 describe("executeBrowserWaitFor", () => {
   beforeEach(() => {
-    resetMockPage();
     resetCdpMock();
   });
 
@@ -321,7 +263,6 @@ describe("executeBrowserWaitFor", () => {
 
 describe("executeBrowserExtract", () => {
   beforeEach(() => {
-    resetMockPage();
     resetCdpMock();
   });
 

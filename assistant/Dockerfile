@@ -39,7 +39,7 @@ FROM debian:trixie-slim@sha256:4ffb3a1511099754cddc70eb1b12e50ffdb67619aa0ab6c13
 
 WORKDIR /app/assistant
 
-# Install runtime dependencies for Playwright and tree-sitter
+# Install runtime dependencies for Chrome and tree-sitter
 RUN apt-get update && apt-get install -y \
     bubblewrap \
     ca-certificates \

@@ -22,7 +22,10 @@ let cdpSendHandler: (
 let cdpDisposed = false;
 let cdpSetSessionIdCalls: Array<string | undefined> = [];
 
-function makeFakeCdp(kind: "local" | "extension", conversationId: string) {
+function makeFakeCdp(
+  kind: "cdp-inspect" | "extension",
+  conversationId: string,
+) {
   return {
     kind,
     conversationId,
@@ -66,45 +69,20 @@ mock.module("../daemon/host-browser-proxy.js", () => ({
 mock.module("../tools/browser/cdp-client/factory.js", () => ({
   getCdpClient: (context: { conversationId: string }) =>
     makeFakeCdp(
-      mockExtensionAvailable ? "extension" : "local",
+      mockExtensionAvailable ? "extension" : "cdp-inspect",
       context.conversationId,
     ),
 }));
-
-// ── Minimal browserManager stub ──────────────────────────────────────
-//
-// The local path still installs a Playwright route handler via
-// browserManager.getOrCreateSessionPage() → page.route(...). We keep
-// a tiny stub so the happy path doesn't blow up when the route handler
-// is installed/uninstalled; the route logic itself is only exercised
-// by the SSRF redirect test below.
-
-let mockPage: {
-  url: () => string;
-  route: ReturnType<typeof mock>;
-  unroute: ReturnType<typeof mock>;
-  close: () => Promise<void>;
-  isClosed: () => boolean;
-};
-
-let getOrCreateSessionPageMock: ReturnType<typeof mock>;
 let clearSnapshotBackendNodeMapMock: ReturnType<typeof mock>;
-let positionWindowSidebarMock: ReturnType<typeof mock>;
 
 const preferredBackendKinds = new Map<string, string>();
 
 mock.module("../tools/browser/browser-manager.js", () => {
-  getOrCreateSessionPageMock = mock(async () => mockPage);
   clearSnapshotBackendNodeMapMock = mock(() => {});
-  positionWindowSidebarMock = mock(async () => {});
   preferredBackendKinds.clear();
   return {
     browserManager: {
-      getOrCreateSessionPage: getOrCreateSessionPageMock,
       clearSnapshotBackendNodeMap: clearSnapshotBackendNodeMapMock,
-      supportsRouteInterception: true,
-      isInteractive: () => false,
-      positionWindowSidebar: positionWindowSidebarMock,
       getPreferredBackendKind: (conversationId: string) =>
         preferredBackendKinds.get(conversationId) ?? null,
       setPreferredBackendKind: (conversationId: string, kind: string) => {
@@ -116,13 +94,6 @@ mock.module("../tools/browser/browser-manager.js", () => {
     },
   };
 });
-
-mock.module("../tools/browser/browser-screencast.js", () => ({
-  ensureScreencast: async () => {},
-  getSender: () => null,
-  stopAllScreencasts: async () => {},
-  stopBrowserScreencast: async () => {},
-}));
 
 // Default url-safety: allow everything
 let parseUrlResult: URL | null = null;
@@ -148,16 +119,6 @@ const ctx: ToolContext = {
   workingDir: "/tmp",
   trustClass: "guardian",
 };
-
-function resetMockPage() {
-  mockPage = {
-    url: () => "https://example.com/",
-    route: mock(async () => {}),
-    unroute: mock(async () => {}),
-    close: async () => {},
-    isClosed: () => false,
-  };
-}
 
 /**
  * Default CDP handler. Returns values in the CDP response shape
@@ -230,7 +191,6 @@ describe("executeBrowserNavigate", () => {
     isPrivateResult = false;
     isPrivateHostMock = () => isPrivateResult;
     resolveResult = {};
-    resetMockPage();
     resetCdp();
     __resetPinnedTabsForTests();
   });
@@ -537,90 +497,6 @@ describe("executeBrowserNavigate", () => {
     expect(readyStateCalls).toHaveLength(0);
   });
 
-  // ── SSRF route interception (local path only) ─────────────────
-
-  test("returns security message when route handler blocks a redirect", async () => {
-    parseUrlResult = new URL("https://public.example.com");
-    isPrivateResult = false;
-
-    // Capture the installed route handler.
-    let capturedHandler:
-      | ((route: unknown, request: unknown) => Promise<void>)
-      | null = null;
-    mockPage.route = mock(
-      async (
-        _pattern: string,
-        handler: (route: unknown, request: unknown) => Promise<void>,
-      ) => {
-        capturedHandler = handler;
-      },
-    );
-
-    // When Page.navigate is called, simulate a private redirect by
-    // invoking the captured route handler, then throw to mirror how
-    // the Playwright route interceptor signals blockage to the caller.
-    cdpSendHandler = (method) => {
-      if (method === "Page.navigate") {
-        if (capturedHandler) {
-          const origPrivate = isPrivateResult;
-          isPrivateResult = true;
-          const mockRoute = {
-            abort: mock(async () => {}),
-            continue: mock(async () => {}),
-          };
-          const mockRequest = { url: () => "http://169.254.169.254/metadata" };
-          // Invoke the captured handler. Intentionally fire-and-forget
-          // because Page.navigate is synchronous from the test's
-          // perspective — the handler only mutates `blockedUrl` in the
-          // closed-over scope.
-          void capturedHandler(mockRoute, mockRequest);
-          isPrivateResult = origPrivate;
-        }
-        throw new Error("net::ERR_BLOCKED_BY_CLIENT");
-      }
-      if (method === "Runtime.evaluate") {
-        return { result: { value: "https://public.example.com/" } };
-      }
-      return {};
-    };
-
-    const result = await executeBrowserNavigate(
-      { url: "https://public.example.com" },
-      ctx,
-    );
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain("Navigation blocked");
-    expect(result.content).toContain("allow_private_network=true");
-    // Should NOT contain the raw underlying error
-    expect(result.content).not.toContain("ERR_BLOCKED_BY_CLIENT");
-    expect(cdpDisposed).toBe(true);
-  });
-
-  // ── Extension path (no Playwright route interception) ──────────
-
-  test("extension path skips Playwright route interception", async () => {
-    parseUrlResult = new URL("https://example.com/page");
-    mockExtensionAvailable = true;
-    const extensionCtx: ToolContext = { ...ctx };
-    // Reset page call trackers to verify they are not touched.
-    const routeCallsBefore = mockPage.route.mock.calls.length;
-    const unrouteCallsBefore = mockPage.unroute.mock.calls.length;
-
-    const result = await executeBrowserNavigate(
-      { url: "https://example.com/page" },
-      extensionCtx,
-    );
-
-    expect(result.isError).toBe(false);
-    // Extension path never installs or removes a Playwright route
-    // (route interception only works on the local Playwright path).
-    expect(mockPage.route.mock.calls.length).toBe(routeCallsBefore);
-    expect(mockPage.unroute.mock.calls.length).toBe(unrouteCallsBefore);
-    // Page.navigate still goes through the CdpClient.
-    expect(cdpSendCalls.some((c) => c.method === "Page.navigate")).toBe(true);
-    expect(cdpDisposed).toBe(true);
-  });
-
   test("extension path blocks redirects via post-navigation final URL check", async () => {
     // The initial URL is public and passes pre-flight checks. The
     // extension path has no Playwright route interception, but the
@@ -814,7 +690,7 @@ describe("executeBrowserNavigate", () => {
     expect(cdpSetSessionIdCalls).toEqual([undefined]);
   });
 
-  test("new_tab: true on LOCAL path is a no-op (Playwright manages its own isolated browser)", async () => {
+  test("new_tab: true on cdp-inspect path is a no-op", async () => {
     parseUrlResult = new URL("https://example.com/page");
     mockExtensionAvailable = false; // local path
 
@@ -825,7 +701,7 @@ describe("executeBrowserNavigate", () => {
 
     expect(result.isError).toBe(false);
     // No Vellum.createTab was issued on the local path — the flag is
-    // silently ignored because Playwright opens its own browser and
+    // ignored because cdp-inspect attaches to an existing target and
     // there's no user-tab to disturb.
     expect(cdpSendCalls.some((c) => c.method === "Vellum.createTab")).toBe(
       false,

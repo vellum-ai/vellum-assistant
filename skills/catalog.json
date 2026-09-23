@@ -1056,7 +1056,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-21T19:48:23.000Z"
+      "updatedAt": "2026-09-23T18:01:20.000Z"
     },
     {
       "id": "vellum-client-capabilities",
@@ -1190,7 +1190,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-22T23:29:22.000Z"
+      "updatedAt": "2026-09-22T23:46:21.000Z"
     },
     {
       "id": "vellum-self-knowledge",

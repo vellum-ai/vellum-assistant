@@ -46,9 +46,6 @@ mock.module("../services/published-app-updater.js", () => ({
 }));
 
 // Mock browser-screencast registration (no-op)
-mock.module("../tools/browser/browser-screencast.js", () => ({
-  registerConversationSender: mock(() => {}),
-}));
 
 // Stub app-store functions used by other modules (e.g. conversation-surfaces)
 mock.module("../apps/app-store.js", () => ({

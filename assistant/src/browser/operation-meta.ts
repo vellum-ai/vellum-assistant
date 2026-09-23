@@ -1,6 +1,6 @@
 /**
  * Kept free of execution imports so CLI command registration does not load
- * the Playwright-backed browser stack.
+ * the CDP browser backends.
  */
 
 import type { BrowserOperationMeta } from "./types.js";
@@ -408,8 +408,8 @@ Examples:
   },
   {
     operation: "wait_for_download",
-    description: "Wait for a file download to complete on the current page.",
-    allowedModes: ["auto", "local"],
+    description:
+      "Deprecated download waiter. Inspect the virtual desktop Downloads folder.",
     fields: [
       {
         name: "timeout",
@@ -419,8 +419,8 @@ Examples:
         required: false,
       },
     ],
-    helpText: `Waits for an in-progress file download to complete and returns the
-filename and path. Only supported in "auto" and "local" browser modes.
+    helpText: `This command is unavailable because the local browser runtime is retired.
+Use the virtual desktop browser and inspect its Downloads folder.
 
 Examples:
   $ assistant browser wait-for-download
@@ -478,17 +478,16 @@ Examples:
         name: "check_local_launch",
         type: "boolean",
         description:
-          "Run an active local Playwright launch probe. Default: false.",
+          "Deprecated compatibility option. The local browser runtime is unavailable.",
         required: false,
       },
     ],
-    helpText: `Reports the readiness of available browser backends (local Playwright,
-Chrome extension). Includes remediation steps if a backend is not ready.
-Use --check-local-launch for an active Playwright launch probe (slower).
+    helpText: `Reports the readiness of connected Chrome backends.
+Use --virtual-desktop status to check the managed desktop browser.
+Local mode is unavailable.
 
 Examples:
   $ assistant browser status
-  $ assistant browser status --check-local-launch
   $ assistant browser --json status`,
   },
 ];

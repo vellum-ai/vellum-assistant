@@ -33,7 +33,6 @@ import { getAllDefaultPluginNames } from "../plugins/defaults/main.js";
 import { isActivationSession } from "../plugins/defaults/memory/activation-session-store.js";
 import { isPluginDisabled } from "../plugins/disabled-state.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
-import { registerConversationSender } from "../tools/browser/browser-screencast.js";
 import { supportsClientOsForSkillTool } from "../tools/client-os.js";
 import type { ToolExecutor } from "../tools/executor.js";
 import {
@@ -253,9 +252,6 @@ export function createToolExecutor(
   onOutput?: (chunk: string) => void,
   toolUseId?: string,
 ) => Promise<ToolExecutionResult> {
-  // Register the conversation's sendToClient for browser screencast surface messages
-  registerConversationSender(ctx.conversationId, (msg) => ctx.emit(msg));
-
   // Execution-layer allowlist gate (`subagentToolGateMode === "execution"`,
   // see {@link SubagentToolGateMode}): rejects non-allowlisted calls BEFORE
   // any executor dispatch, so a non-allowlisted tool's executor never runs.

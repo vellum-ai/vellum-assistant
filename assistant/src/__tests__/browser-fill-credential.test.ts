@@ -2,13 +2,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Mocks ────────────────────────────────────────────────────────────
 
-/**
- * Fake CDP session driven by the real `LocalCdpClient` via the mocked
- * `browserManager.getOrCreateSessionPage` below. `sendCalls` records
- * every `session.send(method, params)` so tests can assert the exact
- * sequence of CDP commands issued by `executeBrowserFillCredential`.
- * `sendHandler` is replaced per test to shape responses or throw.
- */
+// CDP responses and disposal are controlled per test.
 interface SendCall {
   method: string;
   params: Record<string, unknown> | undefined;
@@ -41,19 +35,6 @@ const fakeCdpSession = {
   },
 };
 
-/**
- * Fake Playwright page that LocalCdpClient drives. Only the
- * `context().newCDPSession()` surface is needed — all credential-fill
- * work now flows through CDP.
- */
-let mockPage: {
-  close: () => Promise<void>;
-  isClosed: () => boolean;
-  context: () => {
-    newCDPSession: (page: unknown) => Promise<typeof fakeCdpSession>;
-  };
-};
-
 let snapshotBackendNodeMaps: Map<string, Map<string, number>>;
 
 const preferredBackendKinds = new Map<string, string>();
@@ -63,9 +44,6 @@ mock.module("../tools/browser/browser-manager.js", () => {
   preferredBackendKinds.clear();
   return {
     browserManager: {
-      getOrCreateSessionPage: async () => mockPage,
-      closeSessionPage: async () => {},
-      closeAllPages: async () => {},
       storeSnapshotBackendNodeMap: (
         conversationId: string,
         map: Map<string, number>,
@@ -127,6 +105,19 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
 
 import { credentialKey } from "../security/credential-key.js";
 import { executeBrowserFillCredential } from "../tools/browser/browser-execution.js";
+
+mock.module("../tools/browser/cdp-client/factory.js", () => ({
+  getCdpClient: (context: { conversationId: string }) => ({
+    kind: "cdp-inspect",
+    conversationId: context.conversationId,
+    send: (method: string, params?: Record<string, unknown>) =>
+      fakeCdpSession.send(method, params),
+    dispose: () => {
+      void fakeCdpSession.detach();
+    },
+  }),
+}));
+
 import type { ToolContext } from "../tools/types.js";
 
 const ctx: ToolContext = {
@@ -134,16 +125,6 @@ const ctx: ToolContext = {
   workingDir: "/tmp",
   trustClass: "guardian",
 };
-
-function resetMockPage() {
-  mockPage = {
-    close: async () => {},
-    isClosed: () => false,
-    context: () => ({
-      newCDPSession: async (_page: unknown) => fakeCdpSession,
-    }),
-  };
-}
 
 /**
  * Default CDP handler used by every test unless overridden. Returns
@@ -197,7 +178,6 @@ function defaultMetadata(service: string, field: string) {
 
 describe("executeBrowserFillCredential", () => {
   beforeEach(() => {
-    resetMockPage();
     resetCdpMock();
     snapshotBackendNodeMaps.clear();
     mockGetSecureKey = mock(() => "super-secret-password");
