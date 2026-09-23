@@ -617,7 +617,7 @@ export function handleSubscribeAssistantEvents(
 }
 
 /** Concurrent shared event streams one contact may hold. */
-export const SHARED_STREAMS_PER_PRINCIPAL = 3;
+export const SHARED_STREAMS_PER_PRINCIPAL = 10;
 
 /**
  * A trusted contact's event stream: every event of the conversations shared
