@@ -1179,7 +1179,7 @@ describe("parseWorkbook", () => {
     );
 
     expect(grid.rows).toEqual([
-      ["12:00"],
+      ["12:00 PM"],
       ["12:00:01"],
       ["2023-03-15 12:00"],
       ["12:00:00"],
@@ -1215,7 +1215,7 @@ describe("parseWorkbook", () => {
     ]);
   });
 
-  test("renders a 12-hour format code as a clock reading", async () => {
+  test("renders a 12-hour format code on a 12-hour clock", async () => {
     const grid = await readOneSheet(
       [
         [{ v: 0.5, s: 0 }],
@@ -1234,11 +1234,84 @@ describe("parseWorkbook", () => {
     );
 
     expect(grid.rows).toEqual([
-      ["12:00"],
-      ["12:00:00"],
-      ["12:00:00"],
-      ["12:00"],
+      ["12:00 PM"],
+      ["12:00:00 PM"],
+      ["12:00:00 PM"],
+      ["12:00 P"],
     ]);
+  });
+
+  test("closes a 12-hour format with its meridiem", async () => {
+    const grid = await readOneSheet(
+      [
+        [
+          { v: 0.75, s: 0 },
+          { v: 0.75, s: 1 },
+          { v: 0.75, s: 2 },
+        ],
+        [
+          { v: 0, s: 0 },
+          { v: 0, s: 1 },
+          { v: 0, s: 2 },
+        ],
+        [
+          { v: 0.5, s: 0 },
+          { v: 0.5, s: 1 },
+          { v: 0.5, s: 2 },
+        ],
+      ],
+      {
+        // 18 and 19 spell a meridiem, 20 is the same reading without one.
+        styles: [{ numFmtId: 18 }, { numFmtId: 19 }, { numFmtId: 20 }],
+      },
+    );
+
+    expect(grid.rows).toEqual([
+      ["6:00 PM", "6:00:00 PM", "18:00"],
+      ["12:00 AM", "12:00:00 AM", "00:00"],
+      ["12:00 PM", "12:00:00 PM", "12:00"],
+    ]);
+  });
+
+  test("spells a custom meridiem token the way the code does", async () => {
+    const grid = await readOneSheet(
+      [
+        [{ v: 0.75, s: 0 }],
+        [{ v: 0.75, s: 1 }],
+        [{ v: 0.75, s: 2 }],
+        [{ v: 0.75, s: 3 }],
+        [{ v: 0.75, s: 4 }],
+      ],
+      {
+        styles: [
+          { formatCode: "h:mm AM/PM" },
+          { formatCode: "hh:mm A/P" },
+          { formatCode: "h:mm:ss am/pm" },
+          { formatCode: "[$-409]h:mm:ss AM/PM" },
+          { formatCode: "m/d/yy h:mm AM/PM" },
+        ],
+      },
+    );
+
+    expect(grid.rows).toEqual([
+      ["6:00 PM"],
+      ["6:00 P"],
+      ["6:00:00 PM"],
+      ["6:00:00 PM"],
+      ["1899-12-31 6:00 PM"],
+    ]);
+  });
+
+  test("keeps the 1904 epoch on a 12-hour format", async () => {
+    const grid = await readOneSheet(
+      [[{ v: 0.75, s: 0 }], [{ v: 1462.75, s: 1 }]],
+      {
+        date1904: true,
+        styles: [{ numFmtId: 18 }, { formatCode: "yyyy-mm-dd h:mm AM/PM" }],
+      },
+    );
+
+    expect(grid.rows).toEqual([["6:00 PM"], ["1908-01-02 6:00 PM"]]);
   });
 
   test("renders date-styled numbers from a custom format code", async () => {

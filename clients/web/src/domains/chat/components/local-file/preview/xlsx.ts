@@ -75,6 +75,13 @@ const ELAPSED_UNIT_BY_LETTER: Record<string, ElapsedUnit> = {
 };
 
 /**
+ * The meridiem token a 12-hour format spells, which decides both that the
+ * reading runs on a 12-hour clock and what closes it: `AM/PM` spells `AM` or
+ * `PM`, `A/P` the single letter.
+ */
+type Meridiem = "AM/PM" | "A/P";
+
+/**
  * What a cell's number format renders its value as. A clock reading carries
  * whether its format spells a seconds field, since that is what decides the
  * reading's precision rather than the value behind it. An `elapsed` format
@@ -85,8 +92,8 @@ const ELAPSED_UNIT_BY_LETTER: Record<string, ElapsedUnit> = {
 type NumberFormatKind =
   | { kind: "none" }
   | { kind: "date" }
-  | { kind: "time"; seconds: boolean }
-  | { kind: "datetime"; seconds: boolean }
+  | { kind: "time"; seconds: boolean; meridiem: Meridiem | null }
+  | { kind: "datetime"; seconds: boolean; meridiem: Meridiem | null }
   | { kind: "elapsed"; from: ElapsedUnit; to: ElapsedUnit };
 
 /** A format that reads a serial as a moment rather than as a number. */
@@ -100,6 +107,9 @@ const PLAIN_NUMBER: NumberFormatKind = { kind: "none" };
 
 /** The built-in ids whose own code spells a seconds field. */
 const SECONDS_IN_BUILT_IN = new Set([19, 21, 33, 45, 47]);
+
+/** The built-in ids whose own code spells a meridiem, which is `AM/PM`. */
+const MERIDIEM_IN_BUILT_IN = new Set([18, 19]);
 
 /** How a section's condition compares the value against its own number. */
 interface FormatCondition {
@@ -151,9 +161,15 @@ function builtInFormatKind(id: number): NumberFormatKind {
     id === 45 ||
     id === 47
   ) {
-    return { kind: "time", seconds: SECONDS_IN_BUILT_IN.has(id) };
+    return {
+      kind: "time",
+      seconds: SECONDS_IN_BUILT_IN.has(id),
+      meridiem: MERIDIEM_IN_BUILT_IN.has(id) ? "AM/PM" : null,
+    };
   }
-  return id === 22 ? { kind: "datetime", seconds: false } : PLAIN_NUMBER;
+  return id === 22
+    ? { kind: "datetime", seconds: false, meridiem: null }
+    : PLAIN_NUMBER;
 }
 
 /** Characters that separate format tokens without spelling one. */
@@ -270,7 +286,6 @@ function formatCodeKind(code: string): NumberFormatKind {
     .replace(/[\\_*]./g, "")
     .toLowerCase();
   const tokens = placeholders.replace(MERIDIEM, "");
-  const hasMeridiem = tokens.length !== placeholders.length;
   if (bracketed.size > 0) {
     const spelled = new Set(bracketed);
     for (const [letter, unit] of Object.entries(ELAPSED_UNIT_BY_LETTER)) {
@@ -284,8 +299,11 @@ function formatCodeKind(code: string): NumberFormatKind {
       to: smallestElapsedUnit(spelled),
     };
   }
+  const meridiemToken = placeholders.match(MERIDIEM)?.[0] ?? null;
+  const meridiem: Meridiem | null =
+    meridiemToken === null ? null : meridiemToken === "a/p" ? "A/P" : "AM/PM";
   let hasDate = /[yd]/.test(tokens);
-  let hasTime = hasMeridiem || /[hs]/.test(tokens);
+  let hasTime = meridiem !== null || /[hs]/.test(tokens);
   for (const run of tokens.matchAll(/m+/g)) {
     const start = run.index;
     const end = start + run[0].length;
@@ -300,9 +318,9 @@ function formatCodeKind(code: string): NumberFormatKind {
   }
   const seconds = /s/.test(tokens);
   if (hasDate) {
-    return hasTime ? { kind: "datetime", seconds } : { kind: "date" };
+    return hasTime ? { kind: "datetime", seconds, meridiem } : { kind: "date" };
   }
-  return hasTime ? { kind: "time", seconds } : PLAIN_NUMBER;
+  return hasTime ? { kind: "time", seconds, meridiem } : PLAIN_NUMBER;
 }
 
 /**
@@ -1635,6 +1653,24 @@ function pad(value: number): string {
 }
 
 /**
+ * The hour field a clock reading spells: two digits on a 24-hour clock, and
+ * the unpadded 1 to 12 a meridiem format counts in, where midnight and noon
+ * are both 12.
+ */
+function clockHour(hours: number, meridiem: Meridiem | null): string {
+  if (meridiem === null) {
+    return pad(hours);
+  }
+  return String(hours % 12 === 0 ? 12 : hours % 12);
+}
+
+/** What closes a 12-hour reading, which `A/P` spells as its one letter. */
+function meridiemSuffix(hours: number, meridiem: Meridiem): string {
+  const half = hours < 12 ? "A" : "P";
+  return meridiem === "A/P" ? half : `${half}M`;
+}
+
+/**
  * Whether a serial sits inside the calendar Excel's date systems can spell.
  * A column of unix milliseconds that inherited a date style, or a negative
  * serial, is past every `Date` this could build and renders as its number.
@@ -1649,7 +1685,8 @@ function isDateSerial(serial: number, date1904: boolean): boolean {
  * Render a serial the way its number format reads it: a calendar day, a clock
  * reading, or both. A date format spells the day alone however much of a day
  * the serial carries, and a clock reading runs to the second only for a format
- * that spells one, truncating the fields it has no room for. The 1900 workbook
+ * that spells one, truncating the fields it has no room for. A 12-hour format
+ * counts the hour from 1 to 12 and closes with its meridiem. The 1900 workbook
  * counts a 29 February 1900 that never existed, so serials below 60 sit one day
  * behind the real calendar, and serial 60 is that phantom day itself. Excel
  * shows it as 1900-02-29, so it is written out: no `Date` can hold it, and
@@ -1664,11 +1701,15 @@ function formatSerial(
   const days = !date1904 && serial < 60 ? serial + 1 : serial;
   const at = epoch + Math.round(days * MS_PER_DAY);
   const moment = new Date(at);
-  const clock = `${pad(moment.getUTCHours())}:${pad(moment.getUTCMinutes())}`;
-  const reading =
+  const hours = moment.getUTCHours();
+  const meridiem = format.kind === "date" ? null : format.meridiem;
+  const clock = `${clockHour(hours, meridiem)}:${pad(moment.getUTCMinutes())}`;
+  const fields =
     format.kind === "date" || !format.seconds
       ? clock
       : `${clock}:${pad(moment.getUTCSeconds())}`;
+  const reading =
+    meridiem === null ? fields : `${fields} ${meridiemSuffix(hours, meridiem)}`;
   if (format.kind === "time") {
     return reading;
   }
