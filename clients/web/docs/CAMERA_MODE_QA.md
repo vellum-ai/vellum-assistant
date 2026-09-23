@@ -387,7 +387,13 @@ answers nothing here.
       variant, top centre, on the minimize control's line.
 - [ ] The panel's edges are clean. Once the feed is up, zoom into all four
       corners of the desktop panel at the pixel level (and along the straight
-      edges on a non-Retina display): no avatar-tone pixels anywhere on them.
+      edges on a non-Retina display): no avatar-tone pixels and no dark
+      hairline on any of them.
+- [ ] The look stands behind the feed until it has a frame. Open the camera and
+      watch the moment it comes up: the look is what shows through the
+      viewfinder until the first frame lands, never the chat behind the panel.
+      Flip the camera and the look returns for the swap rather than going
+      black.
 - [ ] Reduced motion. Turn on Reduce Motion (macOS: Settings, Accessibility,
       Display), reload, open the camera. The status dot holds still and fully
       lit. The shutter's capture pulse still fires and is shorter. The core's

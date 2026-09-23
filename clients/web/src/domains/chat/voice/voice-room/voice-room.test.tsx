@@ -346,7 +346,7 @@ const { VoiceRoom } =
 type VoiceRoomVariant = Parameters<typeof VoiceRoom>[0]["variant"];
 // The caption is exercised directly as well as through the room: the room
 // hides it, so its emphasis contract is only observable component-side.
-const { VOICE_SURFACE_DARK, VoiceStateCaption } =
+const { VoiceStateCaption } =
   await import("@/domains/chat/voice/voice-room/voice-room-eyes");
 const { useChatSessionStore } =
   await import("@/domains/chat/chat-session-store");
@@ -2349,50 +2349,85 @@ describe("VoiceRoom: camera", () => {
     expect(viewfinder()?.className).toContain("z-[2]");
   });
 
-  test("the look stands down under the viewfinder, which carries its own surface", async () => {
-    stubMediaDevices(async () => fakeStream());
-    seedCameraCapableAssistant();
-    startOwnedSession("listening");
-    render(<VoiceRoom variant="content" />);
+  /**
+   * The room keeps exactly one opaque layer under its rounded clip, which is
+   * anti-aliased per painted layer: a second one blends into the first along
+   * the corner arc and draws a fringe around the feed. So the look comes down
+   * only while a decoded frame is on screen, and the feed carries no surface of
+   * its own to take its place.
+   */
+  describe("the look under the viewfinder", () => {
+    async function openRoomCamera(): Promise<void> {
+      stubMediaDevices(async () => fakeStream());
+      seedCameraCapableAssistant();
+      startOwnedSession("listening");
+      render(<VoiceRoom variant="content" />);
+      await act(async () => {
+        fireEvent.click(cameraToggle()!);
+      });
+    }
 
-    await act(async () => {
-      fireEvent.click(cameraToggle()!);
+    test("stands down once the feed has a frame", async () => {
+      await openRoomCamera();
+
+      // The element is up before the stream reaches it, and it is transparent
+      // until then, so the look is still the one thing being seen.
+      expect(look()?.className).not.toContain("invisible");
+      expect(viewfinder()?.style.backgroundColor).toBe("");
+
+      await act(async () => {
+        fireEvent.loadedData(viewfinder()!);
+      });
+
+      expect(look()?.className).toContain("invisible");
     });
 
-    // The panel keeps its radius with the camera up, and the clip is
-    // anti-aliased once per painted layer, so a tone field still painting under
-    // the feed shows through the corner arc as a fringe around it.
-    expect(look()?.className).toContain("invisible");
-    // The element mounts a commit before the stream reaches it, so its own dark
-    // surface is what stands where the look would otherwise be.
-    expect(viewfinder()?.style.backgroundColor).toBe(VOICE_SURFACE_DARK);
-  });
+    test("comes back when the feed loses its stream", async () => {
+      // What a flip does: the capture is released before the other camera is
+      // acquired, so the feed is transparent again in between.
+      await openRoomCamera();
+      await act(async () => {
+        fireEvent.loadedData(viewfinder()!);
+      });
 
-  test("the look is painted with the camera closed", () => {
-    stubMediaDevices(async () => fakeStream());
-    seedCameraCapableAssistant();
-    startOwnedSession("listening");
-    render(<VoiceRoom variant="content" />);
+      await act(async () => {
+        fireEvent.emptied(viewfinder()!);
+      });
 
-    expect(look()?.className).not.toContain("invisible");
-  });
-
-  test("the look is left alone over a native preview", async () => {
-    // Nothing of the look is mounted on the native path, and the preview sits
-    // BEHIND the transparent web view, so hiding this wrapper there would only
-    // take the chrome's own surface down with it.
-    nativeShell = true;
-    stubMediaDevices(async () => fakeStream());
-    seedCameraCapableAssistant();
-    startOwnedSession("listening");
-    render(<VoiceRoom variant="content" />);
-
-    await act(async () => {
-      fireEvent.click(cameraToggle()!);
+      expect(look()?.className).not.toContain("invisible");
     });
 
-    expect(viewfinder()).toBeNull();
-    expect(look()?.className).not.toContain("invisible");
+    test("is painted again after the camera closes and reopens", async () => {
+      // Closing unmounts the element, so no event reports the frame going away.
+      await openRoomCamera();
+      await act(async () => {
+        fireEvent.loadedData(viewfinder()!);
+      });
+
+      await act(async () => {
+        fireEvent.click(cameraToggle()!);
+      });
+      expect(viewfinder()).toBeNull();
+      expect(look()?.className).not.toContain("invisible");
+
+      await act(async () => {
+        fireEvent.click(cameraToggle()!);
+      });
+
+      expect(viewfinder()).not.toBeNull();
+      expect(look()?.className).not.toContain("invisible");
+    });
+
+    test("is left alone over a native preview", async () => {
+      // Nothing of the look is mounted on the native path, and the preview sits
+      // BEHIND the transparent web view, so hiding this wrapper there would
+      // only take the chrome's own surface down with it.
+      nativeShell = true;
+      await openRoomCamera();
+
+      expect(viewfinder()).toBeNull();
+      expect(look()?.className).not.toContain("invisible");
+    });
   });
 
   test("the status pill and the scrims come up with the camera and go with it", async () => {

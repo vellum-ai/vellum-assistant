@@ -221,7 +221,6 @@ import {
   type VoiceRoomControlSurface,
 } from "./voice-room-control";
 import {
-  VOICE_SURFACE_DARK,
   VoiceRoomColorLook,
   VoiceRoomVoiceBands,
   VoiceStateCaption,
@@ -713,6 +712,19 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   // as the status pill's word below.
   const errorMessage = errorKey ? t(errorKey) : null;
   const cameraOpen = camera.open;
+  // Whether the viewfinder has a decoded frame on screen. The feed is
+  // transparent until it does, so this is what tells the look whether it is
+  // still the thing being seen. The `<video>` raises it on `loadeddata` and
+  // drops it on `emptied`, which is what a flip's release of the stream fires
+  // (`stopCapture` clears `srcObject`) before the replacement stream decodes
+  // its own first frame.
+  const [feedHasFrame, setFeedHasFrame] = useState(false);
+  // Closing unmounts the element, so nothing fires `emptied` on the way out.
+  useEffect(() => {
+    if (!cameraOpen) {
+      setFeedHasFrame(false);
+    }
+  }, [cameraOpen]);
   // Sight rides the viewfinder the shutter already put on screen: while Live is
   // running the gate keeps the frames worth keeping and sends each one as it
   // lands, and the daemon persists it as its own message, so the call can be
@@ -1120,22 +1132,27 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           so nothing about the bands or the caption depends on avatar type; the
           centered avatar below fills the middle in its place.
 
-          Held out of the paint while the browser viewfinder covers it. The
-          room's rounded clip is anti-aliased once per painted layer, so a tone
-          field still painting under the feed bleeds through the corner arc as a
-          fringe (and, where the box lands on fractional device pixels, along the
-          straight edges too). `visibility` rather than an unmount, because
-          mounting is what plays the entrance and the look has to come back
-          without replaying it when the camera closes. The wrapper carries no
-          z-index, so it opens no stacking context and the look's own `z-0` /
-          `z-[1]` layers keep resolving against the room box, under the feed at
-          `z-[2]`; `absolute inset-0` hands it the room box's own rect, so the
-          geometry the look lays itself out against is the same rectangle. */}
+          Held out of the paint while a decoded frame is on screen, so the room
+          keeps exactly one opaque layer under its rounded clip. That clip is
+          anti-aliased once per painted layer, so a second layer blends into the
+          first along the corner arc (and, where the box lands on fractional
+          device pixels, along the straight edges too) and draws a fringe around
+          the feed. Until the first frame decodes the viewfinder is transparent,
+          and a flip's release makes it transparent again, so the look is the
+          one layer there and stays up.
+
+          `visibility` rather than an unmount, because mounting is what plays the
+          entrance and the look has to come back without replaying it. The
+          wrapper carries no z-index, so it opens no stacking context and the
+          look's own `z-0` / `z-[1]` layers keep resolving against the room box,
+          under the feed at `z-[2]`; `absolute inset-0` hands it the room box's
+          own rect, so the geometry the look lays itself out against is the same
+          rectangle. */}
       <div
         data-testid="voice-room-look"
         className={cn(
           "absolute inset-0",
-          cameraOpen && !camera.native && "invisible",
+          cameraOpen && !camera.native && feedHasFrame && "invisible",
         )}
       >
         {!camera.native && look ? (
@@ -1202,10 +1219,16 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           `aria-hidden` because a live camera feed has nothing to announce and
           the controls below carry the accessible names.
 
-          Its own dark surface, because the element mounts on the commit that
-          opens the camera and the stream is attached in an effect after it: with
-          the look already held back, those frames would otherwise show the chat
-          straight through the panel. */}
+          No surface of its own. A background here is a second opaque layer
+          under the room's rounded clip and fringes its corners exactly the way
+          the look does, in the room's dark instead of the avatar's tone. The
+          feed is left transparent and the look stands behind it until a frame
+          decodes, which is what covers the window between this element mounting
+          and the stream reaching it.
+
+          `loadeddata` is the first decoded frame; `emptied` is the stream being
+          taken away, which a flip does before it acquires the other camera. See
+          {@link feedHasFrame}. */}
       {cameraOpen && !camera.native ? (
         <video
           ref={viewfinderRef}
@@ -1214,11 +1237,12 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           autoPlay
           muted
           playsInline
+          onLoadedData={() => setFeedHasFrame(true)}
+          onEmptied={() => setFeedHasFrame(false)}
           className={cn(
             "absolute inset-0 z-[2] size-full object-cover",
             camera.facing === "user" && "-scale-x-100",
           )}
-          style={{ backgroundColor: VOICE_SURFACE_DARK }}
         />
       ) : null}
 
