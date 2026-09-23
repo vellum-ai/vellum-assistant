@@ -108,6 +108,17 @@ const ROUTE_SCHEMA = [
       allowedTrustClasses: ["trusted_contact"],
     },
   },
+  // A parameterized route that admits contacts and not the guardian.
+  {
+    operationId: "contact_only_item",
+    endpoint: "contact-only/:id",
+    method: "GET",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ["actor"],
+      allowedTrustClasses: ["trusted_contact"],
+    },
+  },
   // A route that opts into contacts.
   {
     operationId: "contact_probe",
@@ -299,6 +310,7 @@ describe("matchRoute", () => {
   test("reports a matched route whose param cannot be decoded", () => {
     expect(matchRoute("POST", "acp/a%zz/steer")).toEqual({
       malformedPath: true,
+      operationId: "acp_steer",
     });
   });
 });
@@ -1046,6 +1058,39 @@ describe("trust class on the IPC fast path", () => {
     const [opId] = ipcCallAssistantMock.mock.calls[0] as [string];
     expect(opId).toBe("messages_post");
     expect(resolveTrustVerdictMock).not.toHaveBeenCalled();
+  });
+
+  test("a guardian gets 404, not 400, for a malformed path on a contact-only route", async () => {
+    mockClaims("actor_client_v1");
+    const req = makeRequest("/v1/contact-only/a%zz", {
+      headers: { authorization: "Bearer valid" },
+    });
+    const result = await tryIpcProxy(req, AUTHED_CONFIG());
+
+    expect(result!.status).toBe(404);
+    expect(ipcCallAssistantMock).not.toHaveBeenCalled();
+    expect(resolveTrustVerdictMock).not.toHaveBeenCalled();
+  });
+
+  test("with auth disabled, a malformed path on a contact-only route is a 404", async () => {
+    const req = makeRequest("/v1/contact-only/a%zz");
+    const result = await tryIpcProxy(
+      req,
+      makeConfig({ runtimeProxyRequireAuth: false }),
+    );
+    expect(result!.status).toBe(404);
+  });
+
+  test("a guardian still gets 400 for a malformed path on a default route", async () => {
+    mockClaims("actor_client_v1");
+    const req = makeRequest("/v1/oauth/proxy/gh/a%zz", {
+      headers: { authorization: "Bearer valid" },
+    });
+    const result = await tryIpcProxy(req, AUTHED_CONFIG());
+
+    expect(result!.status).toBe(400);
+    const body = (await result!.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("BAD_REQUEST");
   });
 
   test("a guardian token is unaffected and never looked up", async () => {

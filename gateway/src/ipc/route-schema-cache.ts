@@ -64,6 +64,7 @@ export interface RouteMatch {
 /** A route matched, but a path param carries malformed percent-encoding. */
 export interface MalformedPathMatch {
   malformedPath: true;
+  operationId: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -195,8 +196,10 @@ export async function refreshRouteSchema(): Promise<boolean> {
  *
  * Returns the operationId and extracted path params on match, `undefined` if
  * no cached route matches, or {@link MalformedPathMatch} when a matched
- * route's param cannot be percent-decoded. The caller answers that with a 400,
- * matching the daemon's own router (`assistant/src/runtime/http-router.ts`).
+ * route's param cannot be percent-decoded. It still names the route, so the
+ * caller can apply its trust class first and answer with a 400 only when the
+ * route admits the caller, matching the daemon's own router
+ * (`assistant/src/runtime/http-router.ts`).
  */
 export function matchRoute(
   method: string,
@@ -214,7 +217,7 @@ export function matchRoute(
       try {
         decoded = decodeURIComponent(match[i + 1]);
       } catch {
-        return { malformedPath: true };
+        return { malformedPath: true, operationId: compiled.entry.operationId };
       }
       pathParams[compiled.paramNames[i]] = decoded;
     }

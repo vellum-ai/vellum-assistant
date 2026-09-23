@@ -13,7 +13,6 @@
  */
 
 import {
-  isTrustCheckedScopeProfile,
   routeAdmitsTrustClass,
   tokenMayReachRoute,
 } from "@vellumai/gateway-client";
@@ -119,25 +118,6 @@ export async function tryIpcProxy(
   if (!match) {
     return notFound();
   }
-  // A passthrough forwards caller-authored paths, so undecodable ones arrive
-  // here routinely. Same answer the daemon's own router gives them, except
-  // for a trust-checked profile: the match carries no policy to check its
-  // trust class against, so it gets the 404 an unadmitted route would.
-  if ("malformedPath" in match) {
-    if (claims && isTrustCheckedScopeProfile(claims.scope_profile)) {
-      return notFound();
-    }
-    return Response.json(
-      {
-        error: {
-          code: "BAD_REQUEST",
-          message: "Malformed percent-encoding in URL path parameter",
-        },
-      },
-      { status: 400 },
-    );
-  }
-
   // --- Policy enforcement --------------------------------------------------
   // The policy comes straight from the daemon's route schema (see
   // `assistant/src/ipc/routes/route-adapter.ts`). The daemon is the single
@@ -161,7 +141,25 @@ export async function tryIpcProxy(
       { status: 403 },
     );
   }
-  const policyDenied = await enforceRoutePolicy(policy, claims, pathname);
+  const trustDenied = await enforceRouteTrust(policy, claims, pathname);
+  if (trustDenied) return trustDenied;
+
+  // A passthrough forwards caller-authored paths, so undecodable ones arrive
+  // here routinely. Same answer the daemon's own router gives them, once the
+  // route has admitted the caller's trust class.
+  if ("malformedPath" in match) {
+    return Response.json(
+      {
+        error: {
+          code: "BAD_REQUEST",
+          message: "Malformed percent-encoding in URL path parameter",
+        },
+      },
+      { status: 400 },
+    );
+  }
+
+  const policyDenied = enforceRoutePolicy(policy, claims, pathname);
   if (policyDenied) return policyDenied;
 
   const start = performance.now();
@@ -340,12 +338,40 @@ async function resolveContactTrustClass(
 }
 
 /**
- * Enforce the route's trust-class/scope/principal policy against the
- * caller's token. Returns a 404 when the route does not admit the caller's
- * trust class, a 403 for any other denial, and null when allowed. The trust
- * check runs first so the caller learns nothing about which routes exist. A
- * trust-exempt profile (see {@link isTrustCheckedScopeProfile}) counts as the
- * guardian with no lookup; only a trust-checked one is resolved.
+ * Refuse a caller whose trust class the route does not admit, with the same
+ * 404 an unmatched path gets so the caller learns nothing about which routes
+ * exist. Runs before path decoding and the scope checks for that reason.
+ *
+ * A trust-exempt profile (see `isTrustCheckedScopeProfile`) counts as the
+ * guardian with no lookup, and so does a request carrying no claims because
+ * client auth is off, matching the HTTP path's service token. Only a
+ * trust-checked token is resolved.
+ */
+async function enforceRouteTrust(
+  policy: RouteSchemaPolicy | null,
+  claims: TokenClaims | undefined,
+  path: string,
+): Promise<Response | null> {
+  const admitted = claims
+    ? await tokenMayReachRoute(
+        claims.scope_profile,
+        policy?.allowedTrustClasses,
+        () => resolveContactTrustClass(claims),
+      )
+    : routeAdmitsTrustClass(policy?.allowedTrustClasses, "guardian");
+  if (admitted) {
+    return null;
+  }
+  log.warn(
+    { path, sub: claims?.sub, scopeProfile: claims?.scope_profile },
+    "IPC proxy policy denied: trust class not admitted",
+  );
+  return notFound();
+}
+
+/**
+ * Enforce the route's scope/principal policy against the caller's token.
+ * Returns a 403 Response when denied, null when allowed.
  *
  * A route naming no scope (`policy` null, or empty `requiredScopes`) is
  * unprotected (e.g. health, debug) for a broad profile, and closed to a narrow
@@ -353,35 +379,13 @@ async function resolveContactTrustClass(
  * policy check of its own, so this fast path is the only place that rule
  * applies to IPC-served requests.
  */
-async function enforceRoutePolicy(
+function enforceRoutePolicy(
   policy: RouteSchemaPolicy | null,
   claims: TokenClaims | undefined,
   path: string,
-): Promise<Response | null> {
-  // When auth is disabled (dev mode) there are no claims. The caller counts
-  // as the guardian, as the HTTP path's service token does, so a route that
-  // omits `guardian` still refuses it; nothing else is enforced.
-  if (!claims) {
-    if (routeAdmitsTrustClass(policy?.allowedTrustClasses, "guardian")) {
-      return null;
-    }
-    log.warn({ path }, "IPC proxy policy denied: trust class not admitted");
-    return notFound();
-  }
-
-  if (
-    !(await tokenMayReachRoute(
-      claims.scope_profile,
-      policy?.allowedTrustClasses,
-      () => resolveContactTrustClass(claims),
-    ))
-  ) {
-    log.warn(
-      { path, sub: claims.sub, scopeProfile: claims.scope_profile },
-      "IPC proxy policy denied: trust class not admitted",
-    );
-    return notFound();
-  }
+): Response | null {
+  // When auth is disabled (dev mode), no claims → skip enforcement.
+  if (!claims) return null;
 
   // A single-route grant reaches only a route that names its scope, so an
   // unprotected one refuses it rather than admitting any valid token.

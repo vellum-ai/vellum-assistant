@@ -136,6 +136,7 @@ describe("refreshRouteSchema — happy path", () => {
 
     expect(matchRoute("GET", "oauth/proxy/gh/a%zz")).toEqual({
       malformedPath: true,
+      operationId: "oauth_proxy_get",
     });
     expect(matchRoute("GET", "oauth/proxy/gh/a%20b")).toEqual({
       operationId: "oauth_proxy_get",
