@@ -37,6 +37,7 @@ import {
   GUARDIAN_ONLY,
   type RoutePolicy,
   trustClassAllowed,
+  TRUSTED_CONTACT_ONLY,
 } from "../route-policy.js";
 import { resolveScopeProfile } from "../scopes.js";
 import type { AuthContext, Scope } from "../types.js";
@@ -616,6 +617,18 @@ describe("trustClassAllowed", () => {
       if (isContactTrustClass(trustClass)) {
         expect(CONTACT_ALLOWED).toContain(trustClass);
       }
+    }
+  });
+
+  test("TRUSTED_CONTACT_ONLY admits a trusted contact and nothing else", () => {
+    const policy: RoutePolicy = {
+      ...basePolicy,
+      allowedTrustClasses: TRUSTED_CONTACT_ONLY,
+    };
+    for (const trustClass of TRUST_CLASS_VALUES) {
+      expect(trustClassAllowed(policy, trustClass)).toBe(
+        trustClass === "trusted_contact",
+      );
     }
   });
 

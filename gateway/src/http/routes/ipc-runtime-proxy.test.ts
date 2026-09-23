@@ -119,6 +119,17 @@ const ROUTE_SCHEMA = [
       allowedTrustClasses: ["trusted_contact"],
     },
   },
+  // A shared-conversation read route as the daemon ships it.
+  {
+    operationId: "getSharedConversation",
+    endpoint: "shared/conversations/:id",
+    method: "GET",
+    policy: {
+      requiredScopes: ["shared.read"],
+      allowedPrincipalTypes: ["actor"],
+      allowedTrustClasses: ["trusted_contact"],
+    },
+  },
   // A route that opts into contacts.
   {
     operationId: "contact_probe",
@@ -1041,6 +1052,38 @@ describe("trust class on the IPC fast path", () => {
     expect(result!.status).toBe(200);
     const [opId] = ipcCallAssistantMock.mock.calls[0] as [string];
     expect(opId).toBe("contact_only_probe");
+  });
+
+  test("a contact token reaches a shared-conversation read as itself", async () => {
+    mockClaims("contact_client_v1");
+    const result = await tryIpcProxy(
+      makeRequest("/v1/shared/conversations/conv-xyz", {
+        headers: { authorization: "Bearer valid" },
+      }),
+      AUTHED_CONFIG(),
+    );
+
+    expect(result!.status).toBe(200);
+    const [opId, params] = ipcCallAssistantMock.mock.calls[0] as [
+      string,
+      Record<string, unknown>,
+    ];
+    expect(opId).toBe("getSharedConversation");
+    const headers = params.headers as Record<string, string>;
+    expect(headers["x-vellum-actor-principal-id"]).toBe("contact_1");
+  });
+
+  test("a guardian token gets 404 from a shared-conversation read", async () => {
+    mockClaims("actor_client_v1");
+    const result = await tryIpcProxy(
+      makeRequest("/v1/shared/conversations/conv-xyz", {
+        headers: { authorization: "Bearer valid" },
+      }),
+      AUTHED_CONFIG(),
+    );
+
+    expect(result!.status).toBe(404);
+    expect(ipcCallAssistantMock).not.toHaveBeenCalled();
   });
 
   test("with auth disabled, a contact-only route is a 404 and others proxy", async () => {

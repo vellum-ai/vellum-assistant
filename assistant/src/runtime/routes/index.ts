@@ -145,6 +145,7 @@ import { ROUTES as SCHEDULE_WORKER_ROUTES } from "./schedule-worker-routes.js";
 import { ROUTES as SECRET_ROUTES } from "./secret-routes.js";
 import { ROUTES as SEQUENCE_ROUTES } from "./sequence-routes.js";
 import { ROUTES as SETTINGS_ROUTES } from "./settings-routes.js";
+import { ROUTES as SHARED_CONVERSATION_ROUTES } from "./shared-conversation-routes.js";
 import { ROUTES as SKILL_ROUTES } from "./skills-routes.js";
 import { ROUTES as SLACK_CHANNEL_RESOLVE_ROUTES } from "./slack-channel-routes.js";
 import { ROUTES as SOUNDS_CONFIG_ROUTES } from "./sounds-config-routes.js";
@@ -299,6 +300,7 @@ export const ROUTES: RouteDefinition[] = [
   ...SANITY_ROUTES,
   ...SECRET_ROUTES,
   ...SETTINGS_ROUTES,
+  ...SHARED_CONVERSATION_ROUTES,
   ...SOUNDS_CONFIG_ROUTES,
   ...SKILL_ROUTES,
   ...A2A_ROUTES,

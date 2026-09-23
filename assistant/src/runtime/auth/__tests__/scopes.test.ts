@@ -123,6 +123,14 @@ describe("resolveScopeProfile", () => {
       expect(resolveScopeProfile(profile).has("oauth.proxy")).toBe(false);
     }
   });
+
+  test("only contact_client_v1 grants shared.read", () => {
+    for (const profile of KNOWN_PROFILES) {
+      expect(resolveScopeProfile(profile).has("shared.read")).toBe(
+        profile === "contact_client_v1",
+      );
+    }
+  });
 });
 
 describe("isNarrowScopeProfile", () => {

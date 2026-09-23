@@ -93,6 +93,13 @@ export const CONTACT_ALLOWED: TrustClass[] = TRUST_CLASS_VALUES.filter(
 );
 
 /**
+ * A verified contact's turn and nothing else, for routes that serve a
+ * contact's own view of data the guardian reads through their own routes.
+ * An unverified contact is left out, as it is when a conversation is shared.
+ */
+export const TRUSTED_CONTACT_ONLY: TrustClass[] = ["trusted_contact"];
+
+/**
  * Whether an actor of `trustClass` may call a route carrying `policy`.
  *
  * A null policy and an absent `allowedTrustClasses` both resolve to
