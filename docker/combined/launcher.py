@@ -21,6 +21,7 @@ RUN = Path("/run/vellum-combined")
 READY = RUN / "ready"
 KEYS = DATA / "supervisor/keys.json"
 PORTS = (8090, 8000, 7830)
+LOCAL_HTTP = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
 def log(message):
@@ -44,9 +45,9 @@ def write_private_json(path, value):
 
 def http_ready(port):
     try:
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/readyz", timeout=2) as response:
+        with LOCAL_HTTP.open(f"http://127.0.0.1:{port}/readyz", timeout=2) as response:
             body = json.load(response)
-            return response.status == 200 and body.get("ready") is not False
+            return response.status == 200 and isinstance(body, dict) and body.get("ready") is not False
     except (OSError, ValueError):
         return False
 

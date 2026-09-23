@@ -10,7 +10,7 @@ import urllib.error
 import urllib.request
 import uuid
 
-from launcher import DATA, KEYS, write_private_json
+from launcher import DATA, KEYS, LOCAL_HTTP, write_private_json
 
 AUTH = DATA / "supervisor/guardian.json"
 DEVICE = "combined-image-smoke"
@@ -25,7 +25,7 @@ def request(port, path, body=None, token=None, headers=None):
         data=json.dumps(body).encode() if body is not None else None,
         headers=request_headers,
     )
-    with urllib.request.urlopen(req, timeout=30) as response:
+    with LOCAL_HTTP.open(req, timeout=30) as response:
         return json.load(response)
 
 
