@@ -24,6 +24,7 @@ import { extractPreferences } from "../notifications/preference-extractor.js";
 import { createPreference } from "../notifications/preferences-store.js";
 import {
   addMessage,
+  getMessageById,
   isEchoSuppressedUserMessage,
   isHiddenMessageMetadata,
   isSuppressedQueuedMessage,
@@ -44,6 +45,7 @@ import { stampTurnOutcome } from "../telemetry/turn-outcome.js";
 import { getLogger } from "../util/logger.js";
 import type { CleanResult, Conversation } from "./conversation.js";
 import { repairInterruptedToolUseBlocks } from "./conversation-interrupt-repair.js";
+import { discardQueueOnAbort } from "./conversation-lifecycle.js";
 import {
   CONVERSATION_BUSY_MESSAGE,
   persistQueuedMessageBody,
@@ -566,6 +568,30 @@ async function dispatchDrainWithRestore(
   const queuedDispatch = { controller, messages };
   pending.add(queuedDispatch);
   conversation.pendingQueuedDispatches.set(runId, pending);
+  const cancelDispatch = () => {
+    const unpersisted: QueuedMessage[] = [];
+    for (const message of messages) {
+      if (getMessageById(message.requestId, conversation.conversationId)) {
+        message.onEvent({
+          type: "generation_cancelled",
+          conversationId: conversation.conversationId,
+        });
+      } else {
+        unpersisted.push(message);
+      }
+    }
+    if (unpersisted.length === 0) {
+      return;
+    }
+    requeueDrainedMessages(
+      conversation,
+      unpersisted,
+      steered,
+      "Restoring cancelled dispatch for queue teardown",
+    );
+    discardQueueOnAbort(conversation, (queued) => unpersisted.includes(queued));
+  };
+  controller.signal.addEventListener("abort", cancelDispatch, { once: true });
   try {
     return await dispatch(controller.signal);
   } catch (err) {
@@ -587,6 +613,7 @@ async function dispatchDrainWithRestore(
     }
     throw err;
   } finally {
+    controller.signal.removeEventListener("abort", cancelDispatch);
     pending.delete(queuedDispatch);
     if (pending.size === 0) {
       conversation.pendingQueuedDispatches.delete(runId);
@@ -1112,6 +1139,7 @@ async function drainSingleMessage(
       content: resolvedContent,
       cronRunId: next.cronRunId,
       signal,
+      insertPrecondition: () => !signal?.aborted,
       attachments: next.attachments,
       requestId: next.requestId,
       activeSurfaceId: next.activeSurfaceId,
@@ -1505,6 +1533,7 @@ async function drainBatch(
         content: qmContent,
         cronRunId: qm.cronRunId,
         signal,
+        insertPrecondition: () => !signal?.aborted,
         attachments: qm.attachments,
         requestId: qm.requestId,
         activeSurfaceId: qm.activeSurfaceId,

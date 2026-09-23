@@ -274,7 +274,7 @@ function preserveQueueAcrossInterrupt(
  * suppressed for the same reason they get no queued ack: they have no client
  * row to close.
  */
-function discardQueueOnAbort(
+export function discardQueueOnAbort(
   ctx: AbortContext,
   shouldDiscard?: (queued: QueuedMessage) => boolean,
 ): void {
