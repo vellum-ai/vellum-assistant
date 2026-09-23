@@ -1031,6 +1031,23 @@ describe("trust class on the IPC fast path", () => {
     expect(opId).toBe("contact_only_probe");
   });
 
+  test("with auth disabled, a contact-only route is a 404 and others proxy", async () => {
+    const config = makeConfig({ runtimeProxyRequireAuth: false });
+
+    const refused = await tryIpcProxy(
+      postJson("/v1/contact-only-probe"),
+      config,
+    );
+    expect(refused!.status).toBe(404);
+    expect(ipcCallAssistantMock).not.toHaveBeenCalled();
+
+    const served = await tryIpcProxy(postJson("/v1/messages"), config);
+    expect(served!.status).toBe(200);
+    const [opId] = ipcCallAssistantMock.mock.calls[0] as [string];
+    expect(opId).toBe("messages_post");
+    expect(resolveTrustVerdictMock).not.toHaveBeenCalled();
+  });
+
   test("a guardian token is unaffected and never looked up", async () => {
     mockClaims("actor_client_v1");
     const result = await tryIpcProxy(postJson("/v1/messages"), AUTHED_CONFIG());

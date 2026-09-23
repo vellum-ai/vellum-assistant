@@ -14,6 +14,7 @@
 
 import {
   isTrustCheckedScopeProfile,
+  routeAdmitsTrustClass,
   tokenMayReachRoute,
 } from "@vellumai/gateway-client";
 
@@ -357,8 +358,16 @@ async function enforceRoutePolicy(
   claims: TokenClaims | undefined,
   path: string,
 ): Promise<Response | null> {
-  // When auth is disabled (dev mode), no claims → skip enforcement.
-  if (!claims) return null;
+  // When auth is disabled (dev mode) there are no claims. The caller counts
+  // as the guardian, as the HTTP path's service token does, so a route that
+  // omits `guardian` still refuses it; nothing else is enforced.
+  if (!claims) {
+    if (routeAdmitsTrustClass(policy?.allowedTrustClasses, "guardian")) {
+      return null;
+    }
+    log.warn({ path }, "IPC proxy policy denied: trust class not admitted");
+    return notFound();
+  }
 
   if (
     !(await tokenMayReachRoute(
