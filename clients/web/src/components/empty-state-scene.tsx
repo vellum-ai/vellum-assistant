@@ -20,16 +20,26 @@ export interface EmptyStateSceneProps {
   /** Icon well shown above the headline. */
   hero?: ReactNode;
   title: string;
+  /** One line under the headline, for a surface whose name does not say what fills it. */
+  description?: ReactNode;
   recipes?: ReactNode;
+  className?: string;
 }
 
 export function EmptyStateScene({
   hero,
   title,
+  description,
   recipes,
+  className,
 }: EmptyStateSceneProps) {
   return (
-    <div className="flex h-full w-full flex-col items-center gap-4 px-4 py-6 text-center">
+    <div
+      className={cn(
+        "flex h-full w-full flex-col items-center gap-4 px-4 py-6 text-center",
+        className,
+      )}
+    >
       <div className="flex flex-col items-center gap-3">
         {hero}
         <h2
@@ -38,6 +48,11 @@ export function EmptyStateScene({
         >
           {title}
         </h2>
+        {description ? (
+          <p className="max-w-md text-body-medium-lighter text-[var(--content-tertiary)]">
+            {description}
+          </p>
+        ) : null}
       </div>
 
       {recipes ? <div className="w-full max-w-2xl">{recipes}</div> : null}
@@ -109,5 +124,39 @@ export function EmptyStateRecipeCard({
         className="mt-2 shrink-0 text-[var(--content-faint)] transition-transform group-hover:translate-x-0.5 group-hover:text-[var(--content-secondary)]"
       />
     </button>
+  );
+}
+
+/**
+ * A tip in the recipe grid: the same card as a recipe, minus the arrow and
+ * the hover, for advice the user carries out somewhere else (their own mail
+ * client, a form on another site). Kept as a plain block so a screen reader
+ * does not announce a control that does nothing.
+ */
+export interface EmptyStateTipCardProps {
+  icon: LucideIcon;
+  title: string;
+  description: string;
+}
+
+export function EmptyStateTipCard({
+  icon: Icon,
+  title,
+  description,
+}: EmptyStateTipCardProps) {
+  return (
+    <div className="flex w-full items-start gap-3 rounded-xl border border-[var(--border-base)] bg-[var(--surface-lift)] p-3.5 text-left">
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--surface-base)]">
+        <Icon size={18} className="text-[var(--content-secondary)]" />
+      </div>
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
+        <span className="text-body-medium-default text-[var(--content-default)]">
+          {title}
+        </span>
+        <span className="text-body-small-lighter text-[var(--content-tertiary)]">
+          {description}
+        </span>
+      </div>
+    </div>
   );
 }

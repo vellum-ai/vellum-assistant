@@ -94,6 +94,13 @@ function Mailbox({
     [navigate, t],
   );
 
+  const launchPrompt = useCallback(
+    (prompt: string) => {
+      navigateToNewConversation(navigate, { prompt });
+    },
+    [navigate],
+  );
+
   if (mail.isLoading) {
     return <InboxLoading label={t("assistantInboxRoute.loading")} />;
   }
@@ -130,6 +137,7 @@ function Mailbox({
       usage={mail.usage}
       loadDetail={mail.loadDetail}
       onAskToReply={askToReply}
+      onLaunchPrompt={launchPrompt}
     />
   );
 }

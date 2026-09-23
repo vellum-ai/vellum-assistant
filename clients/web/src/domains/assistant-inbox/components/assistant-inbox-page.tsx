@@ -17,48 +17,32 @@ import { AssistantInboxHeader } from "./assistant-inbox-header";
 import { AssistantInboxShell } from "./assistant-inbox-shell";
 import { EmailDetail, type EmailDetailState } from "./email-detail";
 import { EmailList } from "./email-list";
+import { InboxEmptyState } from "./inbox-empty-state";
 
 /** The same rounded, unbordered surface the sidebar's section cards use. */
 const CARD_CLASSES =
   "flex min-h-0 flex-col overflow-hidden rounded-[16px] bg-[var(--surface-lift)]";
 
-interface FolderEmptyStateProps {
-  folder: InboxFolder;
-  address: string;
-  /** A search is active, so the folder is not empty, just filtered to nothing. */
-  searching: boolean;
-}
-
-function FolderEmptyState({
-  folder,
-  address,
-  searching,
-}: FolderEmptyStateProps) {
+/**
+ * A search that matched nothing. The folder itself is not empty, so this is
+ * the list's own quiet placeholder rather than the first-run scene an empty
+ * folder gets from `InboxEmptyState`.
+ */
+function SearchEmptyState() {
   const { t } = useTranslation("assistant-inbox");
-  const Icon = searching ? Search : folder === "inbox" ? Inbox : Send;
-  const title = searching
-    ? t("assistantInboxPage.searchEmptyTitle")
-    : folder === "inbox"
-      ? t("assistantInboxPage.inboxEmptyTitle")
-      : t("assistantInboxPage.sentEmptyTitle");
-  const body = searching
-    ? t("assistantInboxPage.searchEmptyBody")
-    : folder === "inbox"
-      ? t("assistantInboxPage.inboxEmptyBody", { address })
-      : t("assistantInboxPage.sentEmptyBody");
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 py-16 text-center">
       <span className="flex size-12 items-center justify-center rounded-full bg-[var(--surface-active)]">
-        <Icon
+        <Search
           className="size-5 text-[var(--content-tertiary)]"
           aria-hidden="true"
         />
       </span>
       <p className="text-body-medium-default text-[var(--content-default)]">
-        {title}
+        {t("assistantInboxPage.searchEmptyTitle")}
       </p>
       <p className="max-w-xs text-body-small-lighter text-[var(--content-tertiary)]">
-        {body}
+        {t("assistantInboxPage.searchEmptyBody")}
       </p>
     </div>
   );
@@ -98,6 +82,8 @@ export interface AssistantInboxPageProps {
    */
   loadDetail?: EmailDetailLoader;
   onAskToReply?: (email: InboxEmail) => void;
+  /** Hands an empty folder's recipe to chat. Without it the recipes are not offered. */
+  onLaunchPrompt?: (prompt: string) => void;
 }
 
 /**
@@ -122,6 +108,7 @@ export function AssistantInboxPage({
   initialSelectedId = null,
   loadDetail,
   onAskToReply,
+  onLaunchPrompt,
 }: AssistantInboxPageProps) {
   const { t } = useTranslation("assistant-inbox");
   const [folder, setFolder] = useState<InboxFolder>(initialFolder);
@@ -208,62 +195,75 @@ export function AssistantInboxPage({
       </div>
 
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 px-2 pb-2 md:grid-cols-[minmax(280px,360px)_1fr]">
-        {/* The list card owns the search: it filters this folder and
-            nothing else, so it sits at the head of the rows it narrows. */}
-        <Card
-          bordered={false}
-          noPadding
-          className={cn(CARD_CLASSES, selected && "max-md:hidden")}
-        >
-          {folderEmails.length > 0 ? (
-            <div className="px-3 pt-3 pb-1">
-              <Input
-                type="text"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder={t("assistantInboxPage.searchPlaceholder")}
-                aria-label={t("assistantInboxPage.searchAriaLabel")}
-                leftIcon={<Search className="h-3.5 w-3.5" aria-hidden />}
-                fullWidth
-              />
-            </div>
-          ) : null}
-          {emails.length === 0 ? (
-            <FolderEmptyState
+        {folderEmails.length === 0 ? (
+          /* A folder with nothing in it has no list to search and nothing
+             to read, so the two cards give way to one across the page: what
+             fills this folder, and what to do before anything has. */
+          <Card
+            bordered={false}
+            noPadding
+            className={cn(CARD_CLASSES, "overflow-y-auto md:col-span-2")}
+          >
+            <InboxEmptyState
               folder={folder}
               address={address}
-              searching={trimmedQuery.length > 0}
+              onLaunchPrompt={onLaunchPrompt}
             />
-          ) : (
-            <EmailList
-              emails={emails}
-              selectedId={selectedId}
-              now={clock}
-              onSelect={setSelectedId}
-            />
-          )}
-        </Card>
+          </Card>
+        ) : (
+          <>
+            {/* The list card owns the search: it filters this folder and
+                nothing else, so it sits at the head of the rows it narrows. */}
+            <Card
+              bordered={false}
+              noPadding
+              className={cn(CARD_CLASSES, selected && "max-md:hidden")}
+            >
+              <div className="px-3 pt-3 pb-1">
+                <Input
+                  type="text"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder={t("assistantInboxPage.searchPlaceholder")}
+                  aria-label={t("assistantInboxPage.searchAriaLabel")}
+                  leftIcon={<Search className="h-3.5 w-3.5" aria-hidden />}
+                  fullWidth
+                />
+              </div>
+              {emails.length === 0 ? (
+                <SearchEmptyState />
+              ) : (
+                <EmailList
+                  emails={emails}
+                  selectedId={selectedId}
+                  now={clock}
+                  onSelect={setSelectedId}
+                />
+              )}
+            </Card>
 
-        <Card
-          bordered={false}
-          noPadding
-          className={cn(CARD_CLASSES, !selected && "max-md:hidden")}
-        >
-          {selected && detail ? (
-            <EmailDetail
-              key={selected.id}
-              email={selected}
-              detail={detail}
-              assistantName={assistantName}
-              onBack={() => setSelectedId(null)}
-              onAskToReply={onAskToReply}
-            />
-          ) : (
-            <div className="flex flex-1 items-center justify-center p-8 text-body-small-lighter text-[var(--content-tertiary)]">
-              {t("assistantInboxPage.selectPrompt")}
-            </div>
-          )}
-        </Card>
+            <Card
+              bordered={false}
+              noPadding
+              className={cn(CARD_CLASSES, !selected && "max-md:hidden")}
+            >
+              {selected && detail ? (
+                <EmailDetail
+                  key={selected.id}
+                  email={selected}
+                  detail={detail}
+                  assistantName={assistantName}
+                  onBack={() => setSelectedId(null)}
+                  onAskToReply={onAskToReply}
+                />
+              ) : (
+                <div className="flex flex-1 items-center justify-center p-8 text-body-small-lighter text-[var(--content-tertiary)]">
+                  {t("assistantInboxPage.selectPrompt")}
+                </div>
+              )}
+            </Card>
+          </>
+        )}
       </div>
     </AssistantInboxShell>
   );
