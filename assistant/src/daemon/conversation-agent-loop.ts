@@ -166,6 +166,7 @@ import {
   persistReactionRecords,
   type QueuedReactionRecord,
 } from "./reaction-record.js";
+import { sharedTranscriptReader } from "./shared-conversation-history.js";
 import type { TrustContext } from "./trust-context-types.js";
 import { turnOrRestingTrust } from "./trust-context-types.js";
 import { resolveTurnCallSite } from "./turn-call-site.js";
@@ -2646,9 +2647,9 @@ export interface CompactionApplyContext {
 
 /**
  * Applies a successful `ContextWindowResult` to a conversation: updates the
- * in-memory message buffer and, for a turn with memory access, the persisted
- * compaction state, notifies the graph memory and conversation-summary store,
- * emits the
+ * in-memory message buffer and, except on a shared-conversation participant's
+ * turn, the persisted compaction state, notifies the graph memory and
+ * conversation-summary store, emits the
  * `context_compacted` event, and records a `context_compactor` usage event.
  *
  * The emitted `usage_update` intentionally omits `contextWindow` — the
@@ -2696,14 +2697,24 @@ export async function applyCompactionResult(
   } = {},
 ): Promise<void> {
   ctx.messages = result.messages;
-  // The persisted summary, compacted-row count and Slack watermark describe
-  // the full history, the one a turn with memory access loads. Any other turn
-  // compacts a filtered or projected view whose row count indexes nothing in
-  // the full history and whose summary leaves out rows it never saw, so its
-  // compaction stays in this resident history and the persisted state is left
-  // as it was.
-  if (resolveCapabilities(ctx.trustContext?.trustClass).canAccessMemory) {
-    ctx.contextCompactedMessageCount += result.compactedPersistedMessages;
+  // A shared-conversation participant compacts the projected transcript, whose
+  // row count indexes nothing in the guardian's rows and whose summary leaves
+  // out what the projection drops, so that compaction stays in this resident
+  // history and the persisted state is left as it was.
+  if (sharedTranscriptReader(ctx.conversationId, ctx.trustContext) === null) {
+    // Compaction operates on the in-context history. Untrusted actor views
+    // render that history unsliced (boundary 0); trusted views start past the
+    // already-compacted prefix (the mirrored DB count). Advance from that
+    // in-context boundary rather than the raw mirror so the persisted count
+    // stays consistent with what the new summary represents and never
+    // double-counts an unsliced untrusted view.
+    const inContextCompactedCount = !resolveCapabilities(
+      ctx.trustContext?.trustClass,
+    ).canAccessMemory
+      ? 0
+      : ctx.contextCompactedMessageCount;
+    ctx.contextCompactedMessageCount =
+      inContextCompactedCount + result.compactedPersistedMessages;
     ctx.contextSummary = result.summaryText;
     const compactedAt = Date.now();
     ctx.contextCompactedAt = compactedAt;

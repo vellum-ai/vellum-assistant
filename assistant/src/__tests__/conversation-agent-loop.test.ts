@@ -1066,7 +1066,6 @@ beforeEach(() => {
   updateMessageMetadataMock.mockClear();
   updateMessageMetadataMock.mockImplementation(() => {});
   updateConversationSlackContextWatermarkMock.mockClear();
-  updateConversationContextWindowMock.mockClear();
   updateConversationSlackContextWatermarkMock.mockImplementation(() => {});
   mockConversationRow = {
     id: "conv-1",
@@ -5310,11 +5309,7 @@ describe("session-agent-loop", () => {
     });
 
     test("applyCompactionResult records Slack timestamp watermark when provided", async () => {
-      const ctx = makeCtx({
-        trustContext: {
-          trustClass: "guardian",
-        } as Conversation["trustContext"],
-      });
+      const ctx = makeCtx();
       const events: AssistantEvent[] = [];
 
       await applyCompactionResult(
@@ -5516,51 +5511,32 @@ describe("session-agent-loop", () => {
       expect(ctx.contextCompactedMessageCount).toBe(9);
     });
 
-    test("applyCompactionResult keeps a compaction without memory access in memory", async () => {
-      // A turn without memory access compacts a filtered or projected view:
-      // its row count does not index the full history and its summary leaves
-      // out rows it never saw, so persisting either would corrupt the state a
-      // guardian load reads back.
+    test("applyCompactionResult resets the persisted count to the unsliced boundary for untrusted views", async () => {
+      // Untrusted views render history unsliced (boundary 0), so a compaction
+      // must record only the new summary's prefix instead of adding to the raw
+      // mirror — otherwise future loads slice past unsummarized rows.
 
-      // GIVEN a contact's view of a conversation whose persisted state holds a
-      // guardian summary over a 5-row compacted prefix
+      // GIVEN an untrusted view of a conversation whose raw DB count mirrors a
+      // 5-message compacted prefix — but untrusted views render that history
+      // unsliced (boundary 0), so the compactor operates on the full list
       const ctx = makeCtx({
         contextCompactedMessageCount: 5,
-        contextSummary: "guardian summary",
-        contextCompactedAt: 1000,
         trustContext: {
-          sourceChannel: "vellum-shared",
-          trustClass: "trusted_contact",
+          trustClass: "unknown",
         } as Conversation["trustContext"],
       });
-      const events: AssistantEvent[] = [];
-      const result = makeCompactionResult({
-        compactedPersistedMessages: 4,
-        summaryText: "contact summary",
-      });
 
-      // WHEN that turn compacts 4 rows of its view
+      // WHEN that turn compacts 4 in-context messages
       await applyCompactionResult(
         ctx,
-        result,
-        (event) => events.push(event),
+        makeCompactionResult({ compactedPersistedMessages: 4 }),
+        () => {},
         "req-1",
-        { slackContextCompactionWatermarkTs: "1700000020.000000" },
       );
 
-      // THEN the turn continues on the compacted history
-      expect(ctx.messages).toBe(result.messages);
-      expect(events.some((event) => event.type === "context_compacted")).toBe(
-        true,
-      );
-      // AND neither the persisted state nor its in-memory mirror moved
-      expect(updateConversationContextWindowMock).not.toHaveBeenCalled();
-      expect(
-        updateConversationSlackContextWatermarkMock,
-      ).not.toHaveBeenCalled();
-      expect(ctx.contextCompactedMessageCount).toBe(5);
-      expect(ctx.contextSummary).toBe("guardian summary");
-      expect(ctx.contextCompactedAt).toBe(1000);
+      // THEN the persisted count reflects only the new summary's prefix (0 + 4)
+      // rather than double-counting the raw mirror (which would yield 9)
+      expect(ctx.contextCompactedMessageCount).toBe(4);
     });
   });
 
@@ -6202,9 +6178,6 @@ describe("session-agent-loop", () => {
       const onCompacted = mock(async (_count: number) => true);
       const ctx = makeCtx({
         graphMemory: { onCompacted } as unknown as Conversation["graphMemory"],
-        trustContext: {
-          trustClass: "guardian",
-        } as Conversation["trustContext"],
       });
 
       await expect(
