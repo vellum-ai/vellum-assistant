@@ -367,25 +367,6 @@ export async function startCli(): Promise<void> {
         break;
       }
 
-      case "generation_handoff": {
-        spinner.stop();
-        generating = false;
-        if (lastUsage) {
-          const cost =
-            lastUsage.estimatedCost > 0
-              ? ` ~$${lastUsage.estimatedCost.toFixed(4)}`
-              : "";
-          process.stdout.write(
-            `\n\n\x1B[2m[${lastUsage.inputTokens.toLocaleString()} in / ${lastUsage.outputTokens.toLocaleString()} out${cost}]\x1B[0m\n\n`,
-          );
-          lastUsage = null;
-        } else {
-          process.stdout.write("\n\n");
-        }
-        prompt();
-        break;
-      }
-
       case "generation_cancelled":
         spinner.stop();
         generating = false;
