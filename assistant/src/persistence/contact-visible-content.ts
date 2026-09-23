@@ -16,12 +16,14 @@
 
 import { MessageAudienceSchema } from "@vellumai/gateway-client";
 
-import { textBlockMatchesInjection } from "../context/strip-injections.js";
+import {
+  PER_TURN_INJECTION_MATCHERS,
+  textBlockMatchesInjection,
+} from "../context/strip-injections.js";
 import {
   readChannelDeletedAt,
   readProviderMetadata,
 } from "../messaging/read-provider-metadata.js";
-import { PER_TURN_INJECTION_MATCHERS } from "../plugins/defaults/memory/tail-reinjection-strip.js";
 import type {
   ContentBlock,
   TextContent,
