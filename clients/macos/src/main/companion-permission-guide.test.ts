@@ -25,13 +25,20 @@ let granted = false;
 let restricted = false;
 let settingsOpenFails = false;
 let iconWait: Promise<void> | undefined;
-let settingsPresenter: (kind: "screen") => Promise<boolean>;
 let iconEmpty = false;
-let settingsBounds = { x: 100, y: 50, width: 700, height: 700 };
+const settingsBounds = { x: 100, y: 50, width: 700, height: 700 };
+const mainSettings = {
+  windowId: 1,
+  bundleId: "com.apple.systempreferences",
+  bounds: settingsBounds,
+};
+let settingsWindows = [mainSettings];
+let windowsWait: Promise<void> | undefined;
 const workArea = { x: 0, y: 25, width: 1440, height: 875 };
 const windows = new Map<string, FakeWindow>();
 class FakeWindow {
   destroyed = false;
+  alwaysOnTop = true;
   bounds = { x: 100, y: 100, width: 660, height: 780 };
   callbacks = new Map<string, () => void>();
   webContents = {
@@ -51,9 +58,11 @@ class FakeWindow {
   getBounds() {
     return this.bounds;
   }
-  setAlwaysOnTop() {}
-  showInactive() {}
-  show() {}
+  setAlwaysOnTop(value: boolean) {
+    this.alwaysOnTop = value;
+  }
+  showInactive = mock(() => undefined);
+  show = mock(() => undefined);
   center() {}
   once(event: string, fn: () => void) {
     this.callbacks.set(event, fn);
@@ -106,26 +115,30 @@ mock.module("@vellumai/electron-desktop/floating-window", () => ({
     windows.set(kind, win);
     return win;
   },
-  getFloatingWindow: (kind: string) => windows.get(kind) ?? null,
 }));
 mock.module("./ipc", () => ({
-  handle: (channel: string, _schema: unknown, fn: Function) =>
-    handles.set(channel, fn),
+  handle: (channel: string, schema: { parse: Function }, fn: Function) =>
+    handles.set(channel, (args: unknown[], event: unknown) =>
+      fn(schema.parse(args), event),
+    ),
   on: (channel: string, _schema: unknown, fn: Function) =>
     listeners.set(channel, fn),
 }));
 mock.module("./companion-capture-sources", () => ({
   defaultCaptureSourceDeps: {
-    listWindows: async () => [
-      { bundleId: "com.apple.systempreferences", bounds: settingsBounds },
-    ],
+    listWindows: async () => {
+      await windowsWait;
+      return settingsWindows;
+    },
   },
 }));
 mock.module("./sidecar/mac-helper-path", () => ({
   getMacHelperAppPath: () =>
     "/Applications/Vellum.app/Contents/Resources/bin/Vellum Helper.app",
 }));
+const preparePresentation = mock(() => undefined);
 mock.module("./permissions-service", () => ({
+  preparePermissionPresentation: preparePresentation,
   openPermissionSettingsPane: async () => {
     if (settingsOpenFails) {
       throw new Error("Settings failed");
@@ -133,25 +146,25 @@ mock.module("./permissions-service", () => ({
   },
 }));
 mock.module("./logger", () => ({ default: { warn: () => undefined } }));
-const { installPermissionSetup } = await import("./permission-setup-window");
+const { installCompanionPermissionGuide } =
+  await import("./companion-permission-guide");
 const state = () =>
   Object.fromEntries(
-    ["accessibility", "screen", "inputMonitoring"].map((kind) => [
+    ["screen", "inputMonitoring"].map((kind) => [
       kind,
       { status: restricted ? "restricted" : granted ? "granted" : "denied" },
     ]),
   );
-installPermissionSetup({
+installCompanionPermissionGuide({
   state: async () => state(),
   refresh: async () => state(),
-  setSettingsPresenter: (presenter: typeof settingsPresenter) => {
-    settingsPresenter = presenter;
-  },
 } as unknown as PermissionsService);
 const get = (): PermissionGuideState | null =>
   handles.get("vellum:permissions:guide:get")!([]);
-const begin = (kind = "screen") =>
-  handles.get("vellum:permissions:setup:begin")!([kind], { sender: {} });
+const begin = (
+  kind = "screen",
+  sender: unknown = new FakeWindow().webContents,
+) => handles.get("vellum:permissions:setup:begin")!([kind], { sender });
 const flush = async () => {
   await new Promise((resolve) => setImmediate(resolve));
 };
@@ -173,16 +186,22 @@ afterEach(() => {
   settingsOpenFails = false;
   iconWait = undefined;
   iconEmpty = false;
+  settingsWindows = [mainSettings];
+  windowsWait = undefined;
+  preparePresentation.mockClear();
 });
 
 describe("native permission guide", () => {
-  test("keeps ordinary Settings available for granted permissions or missing drag assets", async () => {
-    granted = true;
-    expect(await settingsPresenter("screen")).toBe(false);
-    granted = false;
-    iconEmpty = true;
-    expect(await settingsPresenter("screen")).toBe(false);
+  test.each([
+    "accessibility",
+    "microphone",
+    "speechRecognition",
+    "automation",
+    "notifications",
+  ])("rejects %s outside the companion helper permissions", (kind) => {
+    expect(() => begin(kind)).toThrow();
     expect(get()).toBeNull();
+    expect(windows.has("permission-guide")).toBe(false);
   });
 
   test("cancels a pending app lookup when another permission is selected", async () => {
@@ -193,10 +212,10 @@ describe("native permission guide", () => {
     const pending = begin();
     await flush();
     iconWait = undefined;
-    await begin("accessibility");
+    await begin("inputMonitoring");
     resolve();
     await pending;
-    expect(get()!.kind).toBe("accessibility");
+    expect(get()!.kind).toBe("inputMonitoring");
   });
 
   test("drags the helper bundle only from its live guide sender", async () => {
@@ -234,9 +253,9 @@ describe("native permission guide", () => {
     await begin();
     const previous = get()!;
     const previousWindow = windows.get("permission-guide")!;
-    await begin("accessibility");
+    await begin("inputMonitoring");
     expect(previousWindow.destroyed).toBe(true);
-    expect(get()!.appName).toBe("Vellum");
+    expect(get()!.kind).toBe("inputMonitoring");
     listeners.get("vellum:permissions:guide:drag")!([previous.id], {
       sender: previousWindow.webContents,
     });
@@ -264,5 +283,112 @@ describe("native permission guide", () => {
     iconEmpty = true;
     await expect(begin()).rejects.toThrow("unavailable");
     expect(get()).toBeNull();
+  });
+  test("keeps following the main Settings window when authentication comes forward", async () => {
+    const dialog = {
+      ...mainSettings,
+      windowId: 2,
+      bounds: { x: 200, y: 150, width: 260, height: 300 },
+    };
+    settingsWindows = [dialog, mainSettings];
+    await begin();
+    const win = windows.get("permission-guide")!;
+    listeners.get("vellum:permissions:guide:ready")!([get()!.id, 148], {
+      sender: win.webContents,
+    });
+    await flush();
+    expect(win.bounds).toEqual({ x: 224, y: 586, width: 560, height: 148 });
+    settingsWindows = [
+      { ...dialog, bounds: { x: 0, y: 0, width: 1300, height: 850 } },
+      mainSettings,
+    ];
+    intervals[1]!();
+    await flush();
+    expect(win.bounds).toEqual({ x: 224, y: 586, width: 560, height: 148 });
+  });
+
+  test("yields before native drag and ignores pending positioning or renderer resize", async () => {
+    await begin();
+    const win = windows.get("permission-guide")!;
+    const ready = listeners.get("vellum:permissions:guide:ready")!;
+    ready([get()!.id, 148], { sender: win.webContents });
+    await flush();
+    const previous = { ...win.bounds };
+    let resolve!: () => void;
+    windowsWait = new Promise<void>((done) => {
+      resolve = done;
+    });
+    intervals[1]!();
+    win.webContents.startDrag.mockImplementation(() => {
+      expect(win.alwaysOnTop).toBe(false);
+      expect(preparePresentation).toHaveBeenCalledTimes(1);
+    });
+    listeners.get("vellum:permissions:guide:drag")!([get()!.id], {
+      sender: win.webContents,
+    });
+    const shows = win.showInactive.mock.calls.length;
+    ready([get()!.id, 190], { sender: win.webContents });
+    settingsWindows = [
+      { ...mainSettings, bounds: { x: 500, y: 200, width: 300, height: 400 } },
+    ];
+    resolve();
+    await flush();
+    expect(win.alwaysOnTop).toBe(false);
+    expect(win.bounds).toEqual(previous);
+    expect(win.showInactive).toHaveBeenCalledTimes(shows);
+    granted = true;
+    intervals[0]!();
+    await flush();
+    expect(win.destroyed).toBe(true);
+  });
+
+  test("restores the guide if native dragging fails", async () => {
+    await begin();
+    const win = windows.get("permission-guide")!;
+    win.webContents.startDrag.mockImplementation(() => {
+      throw new Error("drag failed");
+    });
+    listeners.get("vellum:permissions:guide:drag")!([get()!.id], {
+      sender: win.webContents,
+    });
+    expect(win.alwaysOnTop).toBe(true);
+    expect(get()!.error).toBe(true);
+  });
+
+  test("yields to Finder and only returns to the originating coachmark on Back", async () => {
+    const owner = new FakeWindow();
+    windows.set("companion", owner);
+    await begin("screen", owner.webContents);
+    const win = windows.get("permission-guide")!;
+    handles.get("vellum:permissions:guide:reveal")!([get()!.id], {
+      sender: win.webContents,
+    });
+    expect(win.alwaysOnTop).toBe(false);
+    dismiss();
+    expect(owner.show).toHaveBeenCalledTimes(1);
+  });
+
+  test("only the originating tour can cancel a guide or pending lookup", async () => {
+    const owner = new FakeWindow();
+    let resolve!: () => void;
+    iconWait = new Promise<void>((done) => {
+      resolve = done;
+    });
+    const pending = begin("screen", owner.webContents);
+    await flush();
+    const cancel = listeners.get("vellum:permissions:guide:cancel")!;
+    cancel([], { sender: {} });
+    cancel([], { sender: owner.webContents });
+    resolve();
+    await pending;
+    expect(get()).toBeNull();
+    expect(windows.has("permission-guide")).toBe(false);
+    iconWait = undefined;
+    await begin("screen", owner.webContents);
+    cancel([], { sender: {} });
+    expect(get()).not.toBeNull();
+    cancel([], { sender: owner.webContents });
+    expect(get()).toBeNull();
+    expect(owner.show).not.toHaveBeenCalled();
   });
 });

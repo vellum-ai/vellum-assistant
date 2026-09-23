@@ -19,7 +19,7 @@ export const TEXT_UNDO = "vellum:text:undoInFrontApp";
 export const TEXT_OPEN_SETTINGS = "vellum:text:openAutomationSettings";
 
 // System permissions
-export const PERMISSION_SETUP_OPEN = "vellum:permissions:setup:open";
+export const PERMISSION_GUIDE_CANCEL = "vellum:permissions:guide:cancel";
 export const PERMISSION_SETUP_BEGIN = "vellum:permissions:setup:begin";
 export const PERMISSION_GUIDE_GET = "vellum:permissions:guide:get";
 export const PERMISSION_GUIDE_STATE = "vellum:permissions:guide:state";

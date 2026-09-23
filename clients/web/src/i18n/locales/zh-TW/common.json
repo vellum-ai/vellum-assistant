@@ -1040,35 +1040,13 @@
     "closePanel": "關閉面板",
     "loading": "載入中…"
   },
-  "permissionSetup": {
-    "eyebrow": "VELLUM 桌面夥伴",
-    "title": "讓 Vellum 助你一臂之力",
-    "description": "授予桌面夥伴所需權限，以便與你交談、查看你分享的內容並在 App 中提供協助。",
-    "accessibilityDescription": "操作 App 介面並插入你口述的文字。",
-    "screenDescription": "查看你選擇分享的螢幕或視窗。",
-    "microphoneDescription": "與桌面夥伴交談並口述文字。",
-    "speechDescription": "使用 macOS 語音辨識將語音轉換為文字。",
-    "inputLabel": "輸入監控",
-    "inputDescription": "在任何 App 中使用語音快捷鍵。",
-    "automationLabel": "自動化",
-    "automationDescription": "允許 Vellum 透過 Apple 事件操作 App。",
-    "notificationsDescription": "助理需要你時即時收到通知。",
-    "close": "關閉權限設定",
-    "allowed": "已允許",
-    "managed": "受管理",
-    "allow": "允許",
-    "allowPermission": "允許{permission}",
-    "completeInSettings": "在系統設定中完成{permission}設定",
-    "error": "無法完成設定。請重試；若輔助程式無法使用，請重新開啟 Vellum。",
-    "retry": "重試",
-    "control": "由你掌控。僅啟用你想使用的功能。",
-    "done": "完成",
-    "back": "返回權限設定",
+  "permissionGuide": {
+    "back": "返回導覽",
     "dragInstruction": "將 {app} 拖入列表以允許{permission}。",
     "dragApp": "將 {app} 拖到系統設定，或按一下以在 Finder 中顯示",
     "thenEnable": "然後在系統設定中開啟其開關。",
     "dragError": "無法拖移。請嘗試從 Finder 中拖移。",
     "showInFinder": "在 Finder 中顯示",
-    "open": "設定桌面夥伴權限"
+    "inputLabel": "輸入監控"
   }
 }

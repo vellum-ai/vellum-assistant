@@ -47,11 +47,6 @@ mock.module("./about.client", () => ({
   openAboutWindow: () => undefined,
 }));
 
-const openPermissionSetupMock = mock(() => undefined);
-mock.module("./permission-setup-window", () => ({
-  openPermissionSetup: openPermissionSetupMock,
-}));
-
 mock.module("./auto-update.client", () => ({
   checkForUpdates: () => undefined,
 }));
@@ -470,11 +465,4 @@ describe("Window menu companion toggle", () => {
     expect(setApplicationMenuMock).toHaveBeenCalledTimes(1);
     expect(companionItem()?.checked).toBe(false);
   });
-});
-
-
-test("opens companion permissions from the application menu", async () => {
-  await refreshCliPathMenuState();
-  appMenuItem("Companion Permissions…")?.click?.();
-  expect(openPermissionSetupMock).toHaveBeenCalledTimes(1);
 });

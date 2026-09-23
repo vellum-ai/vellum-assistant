@@ -1040,35 +1040,13 @@
     "closePanel": "关闭面板",
     "loading": "加载中…"
   },
-  "permissionSetup": {
-    "eyebrow": "VELLUM 桌面伙伴",
-    "title": "让 Vellum 助你一臂之力",
-    "description": "授予桌面伙伴所需权限，以便与你交谈、查看你共享的内容并在应用中提供帮助。",
-    "accessibilityDescription": "操作应用界面并插入你口述的文字。",
-    "screenDescription": "查看你选择共享的屏幕或窗口。",
-    "microphoneDescription": "与桌面伙伴交谈并口述文字。",
-    "speechDescription": "使用 macOS 语音识别将语音转换为文字。",
-    "inputLabel": "输入监控",
-    "inputDescription": "在任意应用中使用语音快捷键。",
-    "automationLabel": "自动化",
-    "automationDescription": "允许 Vellum 通过 Apple 事件操作应用。",
-    "notificationsDescription": "助手需要你时及时收到通知。",
-    "close": "关闭权限设置",
-    "allowed": "已允许",
-    "managed": "受管理",
-    "allow": "允许",
-    "allowPermission": "允许{permission}",
-    "completeInSettings": "在系统设置中完成{permission}设置",
-    "error": "无法完成设置。请重试；如果辅助程序不可用，请重新打开 Vellum。",
-    "retry": "重试",
-    "control": "由你掌控。仅启用你想使用的功能。",
-    "done": "完成",
-    "back": "返回权限设置",
+  "permissionGuide": {
+    "back": "返回引导",
     "dragInstruction": "将 {app} 拖入列表以允许{permission}。",
     "dragApp": "将 {app} 拖到系统设置，或点击以在访达中显示",
     "thenEnable": "然后在系统设置中打开其开关。",
     "dragError": "无法拖动。请尝试从访达中拖动。",
     "showInFinder": "在访达中显示",
-    "open": "设置桌面伙伴权限"
+    "inputLabel": "输入监控"
   }
 }

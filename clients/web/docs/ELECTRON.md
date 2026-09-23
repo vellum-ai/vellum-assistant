@@ -140,7 +140,9 @@ latest result across steps and background checks. An initial check keeps the
 card shell visible without showing a permission action before it is needed. Its
 size and the perched avatar's clearance share constants with the native canvas,
 so larger cards fit at every companion size. Shells with `permissions.setup`
-open the detachable drag guide for Input Monitoring and Screen Recording.
+open the detachable drag guide from the permission coachmark bounds for Input
+Monitoring and Screen Recording. Back returns to that coachmark; changing the
+permission lesson or closing the tour cancels its active or pending guide.
 Older shells request the native alert first; Settings opens through that alert
 or a separate explicit action, so the two windows do not compete for attention.
 
@@ -155,16 +157,18 @@ alone is reset.
 - [`CAPACITOR.md`](./CAPACITOR.md) — Capacitor / iOS patterns (parallel host).
 - [`clients/macos/README.md`](../../../clients/macos/README.md) — Electron shell setup, dev scripts, main-process source layout.
 
-## macOS companion permission windows
+## macOS companion permission guide
 
-The optional `permissions.setup` bridge opens the companion setup window from
-Privacy settings. Its two standalone floating routes render the setup and the
-System Settings guide outside authentication middleware. `usePermissionGuide`
-mirrors main's guide state; existing `useSystemPermissionsState` supplies grants.
-A detached row is a placeholder until main closes the guide or observes a grant.
+The optional `permissions.setup` bridge lets the existing companion tour detach
+its permission coachmark into the internal `/assistant/floating/permission-guide`
+route outside authentication middleware. `usePermissionGuide` mirrors main's
+guide state. The tour stays on its current lesson and observes actual OS grants
+through the existing system-permissions subscription.
 
 The guide reports its measured height for translated copy, honors reduced motion,
 and sends its guide id for native dragging or Finder reveal. Main resolves the
-app bundle and validates the originating guide window. Older shells omit this
-bridge and keep the existing permissions card. The shared preload factory is
-installed only by the macOS shell.
+helper bundle and validates the originating guide window. It stops moving and
+yields its floating level before either action so it cannot follow an
+authentication dialog or stay above it. Cancellation is scoped to the requesting
+tour renderer. Older shells omit this bridge and keep the existing coachmark
+permission actions. The shared preload factory is installed only by macOS.

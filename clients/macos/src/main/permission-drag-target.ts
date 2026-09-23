@@ -1,21 +1,5 @@
-import path from "node:path";
-
 import type { Rectangle } from "electron";
-import {
-  PERMISSION_GUIDE_MIN_HEIGHT,
-  type DraggablePermissionKind,
-} from "@vellumai/ipc-contract";
-
-/** TCC lists the capturing/input helper separately from its Electron host. */
-export function permissionAppPath(
-  kind: DraggablePermissionKind,
-  executable: string,
-  helperApp: string,
-): string {
-  return kind === "accessibility"
-    ? path.resolve(executable, "../../..")
-    : helperApp;
-}
+import { PERMISSION_GUIDE_MIN_HEIGHT } from "@vellumai/ipc-contract";
 
 export const GUIDE_WIDTH = 560;
 export const GUIDE_HEIGHT = PERMISSION_GUIDE_MIN_HEIGHT;

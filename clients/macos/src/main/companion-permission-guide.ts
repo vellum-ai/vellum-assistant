@@ -15,8 +15,7 @@ import { z } from "zod";
 import {
   DRAGGABLE_PERMISSION_KINDS,
   PERMISSION_GUIDE_MAX_HEIGHT,
-  isDraggablePermission,
-  PERMISSION_SETUP_OPEN,
+  PERMISSION_GUIDE_CANCEL,
   PERMISSION_SETUP_BEGIN,
   PERMISSION_GUIDE_GET,
   PERMISSION_GUIDE_STATE,
@@ -28,10 +27,7 @@ import {
   type PermissionGuideState,
   type PermissionSourceRect,
 } from "@vellumai/ipc-contract";
-import {
-  createFloatingWindow,
-  getFloatingWindow,
-} from "@vellumai/electron-desktop/floating-window";
+import { createFloatingWindow } from "@vellumai/electron-desktop/floating-window";
 
 import { defaultCaptureSourceDeps } from "./companion-capture-sources";
 import { handle, on } from "./ipc";
@@ -39,16 +35,15 @@ import log from "./logger";
 import {
   GUIDE_HEIGHT,
   GUIDE_WIDTH,
-  permissionAppPath,
   permissionGuideBounds,
 } from "./permission-drag-target";
 import {
   openPermissionSettingsPane,
+  preparePermissionPresentation,
   type PermissionsService,
 } from "./permissions-service";
 import { getMacHelperAppPath } from "./sidecar/mac-helper-path";
 
-const SETUP = "permission-setup";
 const GUIDE = "permission-guide";
 const kindSchema = z.enum(DRAGGABLE_PERMISSION_KINDS);
 const idSchema = z.number().int().positive();
@@ -67,12 +62,15 @@ interface GuideSession {
   workArea: Rectangle;
   timers: ReturnType<typeof setInterval>[];
   ready: boolean;
+  yieldedToSettings: boolean;
+  settingsWindowId?: number;
   height: number;
   startedAt: number;
 }
 
 let guide: GuideSession | null = null;
 let generation = 0;
+let guideOwner: WebContents | undefined;
 
 function publishGuide(): void {
   for (const win of BrowserWindow.getAllWindows()) {
@@ -82,7 +80,12 @@ function publishGuide(): void {
   }
 }
 
-function dismissGuide(): void {
+function dismissGuide(returnToOwner?: "active" | "inactive"): void {
+  const owner =
+    returnToOwner && guideOwner && !guideOwner.isDestroyed()
+      ? BrowserWindow.fromWebContents(guideOwner)
+      : null;
+  guideOwner = undefined;
   generation += 1;
   const previous = guide;
   guide = null;
@@ -93,30 +96,12 @@ function dismissGuide(): void {
     previous.window.destroy();
   }
   publishGuide();
-}
-
-export function openPermissionSetup(): void {
-  const { workArea } = screen.getDisplayNearestPoint(
-    screen.getCursorScreenPoint(),
-  );
-  const win = createFloatingWindow({
-    kind: SETUP,
-    route: "/floating/permission-setup",
-    width: Math.min(660, workArea.width - 32),
-    height: Math.min(780, workArea.height - 32),
-    focusOnShow: true,
-    callerShows: true,
-    visibleOnAllWorkspaces: false,
-    browserWindow: {
-      hasShadow: true,
-      movable: true,
-      backgroundColor: "#00000000",
-    },
-  });
-  win.setAlwaysOnTop(false);
-  if (!win.isVisible()) {
-    win.center();
-    win.once("ready-to-show", () => win.show());
+  if (owner && !owner.isDestroyed()) {
+    if (returnToOwner === "active") {
+      owner.show();
+    } else {
+      owner.showInactive();
+    }
   }
 }
 
@@ -128,15 +113,26 @@ function guideSender(id: number, sender: WebContents): GuideSession | null {
 
 async function followSettings(session: GuideSession): Promise<void> {
   const windows = await defaultCaptureSourceDeps.listWindows();
-  if (guide !== session || !session.ready) {
+  if (guide !== session || !session.ready || session.yieldedToSettings) {
     return;
   }
-  const settings = windows.find(
+  const settingsWindows = windows.filter(
     (win) => win.bundleId === "com.apple.systempreferences",
   );
+  // Authentication dialogs can precede the main window in the window list.
+  const settings =
+    session.settingsWindowId === undefined
+      ? settingsWindows.sort(
+          (a, b) =>
+            b.bounds.width * b.bounds.height - a.bounds.width * a.bounds.height,
+        )[0]
+      : settingsWindows.find(
+          (win) => win.windowId === session.settingsWindowId,
+        );
   if (!settings) {
     return;
   }
+  session.settingsWindowId = settings.windowId;
   session.workArea = screen.getDisplayMatching(settings.bounds).workArea;
   const next = permissionGuideBounds(
     session.workArea,
@@ -156,26 +152,30 @@ async function followSettings(session: GuideSession): Promise<void> {
   }
 }
 
+function yieldToSettings(session: GuideSession): void {
+  preparePermissionPresentation();
+  session.yieldedToSettings = true;
+  session.window.setAlwaysOnTop(false);
+}
+
 async function beginGuide(
   service: PermissionsService,
   kind: DraggablePermissionKind,
   sender?: WebContents,
   source?: PermissionSourceRect,
-): Promise<boolean> {
+): Promise<void> {
   dismissGuide();
   const id = generation;
+  guideOwner = sender;
   const state = await service.state(sender);
   if (id !== generation) {
-    return true;
+    return;
   }
   if (state[kind].status === "granted" || state[kind].status === "restricted") {
-    return false;
+    guideOwner = undefined;
+    return;
   }
-  const file = permissionAppPath(
-    kind,
-    app.getPath("exe"),
-    getMacHelperAppPath(),
-  );
+  const file = getMacHelperAppPath();
   // Resolve only app-owned paths in main; a renderer cannot choose a drag payload.
   const [fileStat, icon] = await Promise.all([
     stat(file),
@@ -187,7 +187,7 @@ async function beginGuide(
     );
   }
   if (id !== generation) {
-    return true;
+    return;
   }
   const owner = sender ? BrowserWindow.fromWebContents(sender) : null;
   const ownerBounds = owner?.getBounds();
@@ -232,6 +232,7 @@ async function beginGuide(
     workArea,
     timers: [],
     ready: false,
+    yieldedToSettings: false,
     height: GUIDE_HEIGHT,
     startedAt: Date.now(),
   };
@@ -251,7 +252,7 @@ async function beginGuide(
     throw error;
   }
   if (guide !== session) {
-    return true;
+    return;
   }
   let checking = false;
   session.timers.push(
@@ -268,8 +269,7 @@ async function beginGuide(
         .refresh()
         .then((next) => {
           if (guide === session && next[kind].status === "granted") {
-            dismissGuide();
-            getFloatingWindow(SETUP)?.showInactive();
+            dismissGuide("inactive");
           }
         })
         .catch((error: unknown) =>
@@ -283,7 +283,7 @@ async function beginGuide(
   let positioning = false;
   session.timers.push(
     setInterval(() => {
-      if (positioning || !session.ready) {
+      if (positioning || !session.ready || session.yieldedToSettings) {
         return;
       }
       positioning = true;
@@ -294,22 +294,16 @@ async function beginGuide(
         });
     }, 500),
   );
-  return true;
 }
 
-export function installPermissionSetup(service: PermissionsService): void {
-  service.setSettingsPresenter(async (kind, sender) => {
-    if (!isDraggablePermission(kind)) {
-      return false;
-    }
-    try {
-      return await beginGuide(service, kind, sender);
-    } catch (error) {
-      log.warn("[permissions] guide unavailable:", error);
-      return false;
+export function installCompanionPermissionGuide(
+  service: PermissionsService,
+): void {
+  on(PERMISSION_GUIDE_CANCEL, z.tuple([]), (_args, event) => {
+    if (guideOwner === event.sender) {
+      dismissGuide();
     }
   });
-  handle(PERMISSION_SETUP_OPEN, z.tuple([]), () => openPermissionSetup());
   handle(
     PERMISSION_SETUP_BEGIN,
     z.tuple([kindSchema, sourceSchema.optional()]),
@@ -327,7 +321,11 @@ export function installPermissionSetup(service: PermissionsService): void {
     ]),
     ([id, height], event) => {
       const session = guideSender(id, event.sender);
-      if (!session || (session.ready && session.height === height)) {
+      if (
+        !session ||
+        session.yieldedToSettings ||
+        (session.ready && session.height === height)
+      ) {
         return;
       }
       session.ready = true;
@@ -342,8 +340,7 @@ export function installPermissionSetup(service: PermissionsService): void {
   );
   on(PERMISSION_GUIDE_DISMISS, z.tuple([idSchema]), ([id], event) => {
     if (guideSender(id, event.sender)) {
-      dismissGuide();
-      getFloatingWindow(SETUP)?.show();
+      dismissGuide("active");
     }
   });
   on(PERMISSION_GUIDE_DRAG, z.tuple([idSchema]), ([id], event) => {
@@ -352,12 +349,19 @@ export function installPermissionSetup(service: PermissionsService): void {
       return;
     }
     try {
+      // The native drop can open authentication before startDrag returns.
+      yieldToSettings(session);
       event.sender.startDrag({
         file: session.file,
         icon: session.icon.resize({ width: 64, height: 64 }),
       });
     } catch (error) {
       log.warn("[permissions] native drag failed:", error);
+      if (guide !== session) {
+        return;
+      }
+      session.yieldedToSettings = false;
+      session.window.setAlwaysOnTop(true, "floating");
       session.state = { ...session.state, error: true };
       publishGuide();
     }
@@ -365,8 +369,9 @@ export function installPermissionSetup(service: PermissionsService): void {
   handle(PERMISSION_GUIDE_REVEAL, z.tuple([idSchema]), ([id], event) => {
     const session = guideSender(id, event.sender);
     if (session) {
+      yieldToSettings(session);
       shell.showItemInFolder(session.file);
     }
   });
-  app.on("before-quit", dismissGuide);
+  app.on("before-quit", () => dismissGuide());
 }

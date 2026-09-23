@@ -376,17 +376,6 @@ export const routeTree = [
   },
 
   {
-    path: "/assistant/floating/permission-setup",
-    ErrorBoundary: RouteErrorBoundary,
-    HydrateFallback: FloatingHydrateFallback,
-    lazy: {
-      Component: () =>
-        import("@/components/permission-setup-page").then(
-          (m) => m.PermissionSetupPage,
-        ),
-    },
-  },
-  {
     path: "/assistant/floating/permission-guide",
     ErrorBoundary: RouteErrorBoundary,
     HydrateFallback: FloatingHydrateFallback,

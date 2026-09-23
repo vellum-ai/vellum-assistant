@@ -1004,35 +1004,13 @@
     "closePanel": "Cerrar panel",
     "loading": "Cargando…"
   },
-  "permissionSetup": {
-    "eyebrow": "COMPAÑERO VELLUM",
-    "title": "Deja que Vellum te ayude",
-    "description": "Dale a tu compañero acceso para hablar, ver lo que compartes y ayudarte en tus apps.",
-    "accessibilityDescription": "Usa las interfaces de las apps e inserta el texto que dictas.",
-    "screenDescription": "Ve la pantalla o ventana que elijas compartir.",
-    "microphoneDescription": "Habla con tu compañero y dicta texto.",
-    "speechDescription": "Convierte tu voz en texto con el reconocimiento de voz de macOS.",
-    "inputLabel": "Monitorización de entrada",
-    "inputDescription": "Usa tu tecla de voz desde cualquier app.",
-    "automationLabel": "Automatización",
-    "automationDescription": "Permite que Vellum use las apps mediante eventos de Apple.",
-    "notificationsDescription": "Recibe un aviso cuando tu asistente te necesite.",
-    "close": "Cerrar la configuración de permisos",
-    "allowed": "Permitido",
-    "managed": "Gestionado",
-    "allow": "Permitir",
-    "allowPermission": "Permitir {permission}",
-    "completeInSettings": "Completa {permission} en Ajustes del Sistema",
-    "error": "No se pudo completar la configuración. Inténtalo de nuevo o abre Vellum otra vez si su auxiliar no está disponible.",
-    "retry": "Reintentar",
-    "control": "Tú decides. Activa solo lo que quieras usar.",
-    "done": "Listo",
-    "back": "Volver a los permisos",
+  "permissionGuide": {
+    "back": "Volver al recorrido",
     "dragInstruction": "Arrastra {app} a la lista para permitir {permission}.",
     "dragApp": "Arrastra {app} a Ajustes del Sistema o pulsa para mostrar en Finder",
     "thenEnable": "Después activa su interruptor en Ajustes del Sistema.",
     "dragError": "No se puede arrastrar. Inténtalo desde Finder.",
     "showInFinder": "Mostrar en Finder",
-    "open": "Configurar permisos del compañero"
+    "inputLabel": "Monitorización de entrada"
   }
 }

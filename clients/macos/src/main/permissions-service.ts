@@ -83,7 +83,7 @@ export const onPermissionPresentation = (
   };
 };
 
-const preparePermissionPresentation = (): void => {
+export const preparePermissionPresentation = (): void => {
   for (const listener of presentationListeners) {
     listener();
   }
@@ -298,21 +298,11 @@ const initialNotificationStatus = (): PermissionStatus =>
 
 export class PermissionsService {
   private lastStateJson: string | null = null;
-  private settingsPresenter?: (
-    kind: PermissionKind,
-    sender?: WebContents,
-  ) => Promise<boolean>;
 
   private helperRequests = new Set<PermissionKind>();
   private pollTimers = new Map<PermissionKind, ReturnType<typeof setInterval>>();
   private automationStatus: PermissionStatus = "unknown";
   private notificationStatus: PermissionStatus = initialNotificationStatus();
-
-  setSettingsPresenter(
-    presenter: NonNullable<PermissionsService["settingsPresenter"]>,
-  ): void {
-    this.settingsPresenter = presenter;
-  }
 
   async state(sender?: WebContents): Promise<PermissionsState> {
     const entries = await Promise.all(
@@ -391,9 +381,6 @@ export class PermissionsService {
       if (canShowNativeAlert && !this.helperRequests.has(kind)) {
         return this.request(kind, sender);
       }
-    }
-    if (await this.settingsPresenter?.(kind, sender)) {
-      return this.item(kind, sender);
     }
     await openPermissionSettingsPane(kind);
     this.startPolling(kind, sender);

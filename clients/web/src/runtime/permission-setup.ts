@@ -12,8 +12,8 @@ const setup = () =>
   isElectron() ? window.vellum?.permissions?.setup : undefined;
 
 export const supportsPermissionSetup = (): boolean => setup() !== undefined;
-export const openPermissionSetup = async (): Promise<void> => {
-  await setup()?.open();
+export const cancelPermissionGuide = (): void => {
+  setup()?.cancel?.();
 };
 export const beginPermissionGuide = async (
   kind: DraggablePermissionKind,

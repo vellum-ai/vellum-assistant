@@ -404,8 +404,7 @@ export type ChordRegistrationResult = HotkeyRegistrationResult;
 // System permissions
 // ---------------------------------------------------------------------------
 
-export type DraggablePermissionKind =
-  "accessibility" | "screen" | "inputMonitoring";
+export type DraggablePermissionKind = "screen" | "inputMonitoring";
 
 export interface PermissionGuideState {
   id: number;

@@ -1,9 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 
-import type { CompanionIntroBeat } from "@vellumai/ipc-contract";
+import type {
+  CompanionIntroBeat,
+  PermissionSourceRect,
+} from "@vellumai/ipc-contract";
 
 import {
   beginPermissionGuide,
+  cancelPermissionGuide,
   supportsPermissionSetup,
 } from "@/runtime/permission-setup";
 import { captureError } from "@/lib/sentry/capture-error";
@@ -25,7 +29,7 @@ type CompanionIntroPermissionState =
 export interface CompanionIntroPermission {
   kind: CompanionIntroPermissionKind;
   state: CompanionIntroPermissionState;
-  enable: () => void;
+  enable: (source?: PermissionSourceRect) => void;
 }
 
 export function companionIntroOpensSettings(
@@ -70,7 +74,7 @@ export function useCompanionIntroPermission(
     kind: CompanionIntroPermissionKind;
     phase: "requesting" | "error";
   } | null>(null);
-  const enableRef = useRef<() => void>(() => {});
+  const enableRef = useRef<(source?: PermissionSourceRect) => void>(() => {});
 
   useEffect(() => {
     setAction(null);
@@ -139,7 +143,7 @@ export function useCompanionIntroPermission(
       record(state, pending);
     });
     void read();
-    enableRef.current = () => {
+    enableRef.current = (source) => {
       if (!active || pending || kind === null) {
         return;
       }
@@ -157,17 +161,14 @@ export function useCompanionIntroPermission(
             return;
           }
           const item = permissions[kind];
-          if (
-            item.status === "granted" ||
-            item.status === "restricted"
-          ) {
+          if (item.status === "granted" || item.status === "restricted") {
             record(permissions);
             return;
           }
           const requesting = revision;
           const result =
             kind !== "microphone" && supportsPermissionSetup()
-              ? await beginPermissionGuide(kind)
+              ? await beginPermissionGuide(kind, source)
               : companionIntroOpensSettings(kind, item)
                 ? await openSystemPermissionSettings(kind)
                 : await requestSystemPermission(kind);
@@ -187,6 +188,7 @@ export function useCompanionIntroPermission(
     };
     return () => {
       active = false;
+      cancelPermissionGuide();
       clearInterval(timer);
       unsubscribe();
     };
@@ -203,6 +205,6 @@ export function useCompanionIntroPermission(
         : permissions
           ? { phase: "known", item: permissions[kind] }
           : { phase: "checking" },
-    enable: () => enableRef.current(),
+    enable: (source) => enableRef.current(source),
   };
 }

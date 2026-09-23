@@ -14,9 +14,8 @@ import {
   permissionGuideReady,
   revealPermissionApp,
 } from "@/runtime/permission-setup";
-import { permissionSetupCopy } from "./permission-setup-copy";
 import { usePermissionGuide } from "./use-permission-guide";
-import "./permission-setup.css";
+import "./permission-guide.css";
 
 export function PermissionGuidePage() {
   const { t } = useTranslation();
@@ -48,7 +47,11 @@ export function PermissionGuidePage() {
   if (!guide) {
     return null;
   }
-  const { label } = permissionSetupCopy(guide.kind, t);
+  const label = t(
+    guide.kind === "screen"
+      ? "systemPermissionsCard.screenLabel"
+      : "permissionGuide.inputLabel",
+  );
   const reveal = () => {
     void revealPermissionApp(guide.id).catch(() => setFailed(true));
   };
@@ -60,7 +63,7 @@ export function PermissionGuidePage() {
         shape="pill"
         size="regular"
         iconOnly={<ChevronLeft />}
-        aria-label={t("permissionSetup.back")}
+        aria-label={t("permissionGuide.back")}
         onClick={() => dismissPermissionGuide(guide.id)}
       />
       <div ref={contentRef} className="permission-guide-content">
@@ -72,7 +75,7 @@ export function PermissionGuidePage() {
             aria-hidden="true"
           />
           <Typography as="h1" variant="body-medium-default">
-            {t("permissionSetup.dragInstruction", {
+            {t("permissionGuide.dragInstruction", {
               app: guide.appName,
               permission: label,
             })}
@@ -81,7 +84,7 @@ export function PermissionGuidePage() {
         <button
           className="permission-drag-app"
           draggable
-          aria-label={t("permissionSetup.dragApp", { app: guide.appName })}
+          aria-label={t("permissionGuide.dragApp", { app: guide.appName })}
           onDragStart={(event) => {
             event.preventDefault();
             dragPermissionApp(guide.id);
@@ -99,12 +102,12 @@ export function PermissionGuidePage() {
           >
             {t(
               guide.error || failed
-                ? "permissionSetup.dragError"
-                : "permissionSetup.thenEnable",
+                ? "permissionGuide.dragError"
+                : "permissionGuide.thenEnable",
             )}
           </Typography>
           <Button variant="ghost" size="compact" onClick={reveal}>
-            {t("permissionSetup.showInFinder")}
+            {t("permissionGuide.showInFinder")}
           </Button>
         </div>
       </div>

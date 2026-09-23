@@ -11,7 +11,7 @@ import type {
   WindowAttentionPayload,
 } from "@vellumai/ipc-contract";
 import {
-  PERMISSION_SETUP_OPEN,
+  PERMISSION_GUIDE_CANCEL,
   PERMISSION_SETUP_BEGIN,
   PERMISSION_GUIDE_GET,
   PERMISSION_GUIDE_STATE,
@@ -213,7 +213,7 @@ export function createWindowAttentionSubscriber(
 export const createPermissionSetupBridge = (
   ipc: RendererIpc,
 ): NonNullable<VellumBridge["permissions"]["setup"]> => ({
-  open: () => ipc.invoke(PERMISSION_SETUP_OPEN),
+  cancel: () => ipc.send(PERMISSION_GUIDE_CANCEL),
   begin: (kind, source) => ipc.invoke(PERMISSION_SETUP_BEGIN, kind, source),
   getGuide: () => ipc.invoke(PERMISSION_GUIDE_GET),
   onGuide: subscribe(ipc, PERMISSION_GUIDE_STATE),

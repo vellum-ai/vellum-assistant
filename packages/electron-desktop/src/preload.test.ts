@@ -322,6 +322,8 @@ test("permission guide drag sends only its id and releases state subscriptions",
     off,
   } as unknown as IpcRenderer;
   const bridge = createPermissionSetupBridge(ipc);
+  bridge.cancel();
+  expect(send).toHaveBeenCalledWith("vellum:permissions:guide:cancel");
   bridge.startDrag(7);
   expect(send).toHaveBeenCalledWith("vellum:permissions:guide:drag", 7);
   const unsubscribe = bridge.onGuide(() => undefined);

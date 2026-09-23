@@ -45,10 +45,12 @@ const read = mock(async (): Promise<SystemPermissionsState | null> => current);
 const request = mock(async (kind: SystemPermissionKind) => current[kind]);
 const settings = mock(async (kind: SystemPermissionKind) => current[kind]);
 let setupSupported = false;
+const cancelGuide = mock(() => undefined);
 const beginGuide = mock(async (kind: SystemPermissionKind) => current[kind]);
 mock.module("@/runtime/permission-setup", () => ({
   supportsPermissionSetup: () => setupSupported,
   beginPermissionGuide: beginGuide,
+  cancelPermissionGuide: cancelGuide,
 }));
 const reportError = mock(() => {});
 mock.module("@/lib/sentry/capture-error", () => ({
@@ -71,6 +73,7 @@ const { useCompanionIntroPermission, companionIntroNeedsPermission } =
 beforeEach(() => {
   setupSupported = false;
   beginGuide.mockClear();
+  cancelGuide.mockClear();
   current = permissions("not-determined");
   read.mockReset();
   read.mockImplementation(async () => current);
@@ -94,7 +97,10 @@ async function known(view: ReturnType<typeof setup>) {
 }
 
 describe("companion tour permission setup", () => {
-  test.each([["key", "inputMonitoring"], ["share", "screen"]] as const)(
+  test.each([
+    ["key", "inputMonitoring"],
+    ["share", "screen"],
+  ] as const)(
     "%s opens the drag guide when the shell supports it",
     async (beat, kind) => {
       setupSupported = true;
@@ -102,7 +108,7 @@ describe("companion tour permission setup", () => {
       await known(view);
       act(() => view.result.current?.enable());
       await known(view);
-      expect(beginGuide).toHaveBeenCalledWith(kind);
+      expect(beginGuide).toHaveBeenCalledWith(kind, undefined);
       expect(request).not.toHaveBeenCalled();
       expect(settings).not.toHaveBeenCalled();
       current = permissions("granted");
@@ -110,6 +116,40 @@ describe("companion tour permission setup", () => {
       expect(companionIntroNeedsPermission(view.result.current)).toBe(false);
     },
   );
+
+  test("detaches from the coachmark and cancels when its step is left", async () => {
+    setupSupported = true;
+    const view = setup("key");
+    await known(view);
+    const source = { x: 20, y: 40, width: 260, height: 120 };
+    act(() => view.result.current?.enable(source));
+    await known(view);
+    expect(beginGuide).toHaveBeenCalledWith("inputMonitoring", source);
+    view.rerender({ beat: "share" });
+    expect(cancelGuide).toHaveBeenCalledTimes(1);
+    view.unmount();
+    expect(cancelGuide).toHaveBeenCalledTimes(2);
+  });
+
+  test("only requests the three permissions used by companion controls", async () => {
+    setupSupported = true;
+    const view = setup("idle");
+    for (const beat of ["talk", "key", "share", "try"] as const) {
+      view.rerender({ beat });
+      await known(view);
+      act(() => view.result.current?.enable());
+      await known(view);
+    }
+    expect(request.mock.calls.map(([kind]) => kind)).toEqual([
+      "microphone",
+      "microphone",
+    ]);
+    expect(beginGuide.mock.calls.map(([kind]) => kind)).toEqual([
+      "inputMonitoring",
+      "screen",
+    ]);
+    expect(settings).not.toHaveBeenCalled();
+  });
 
   test.each([
     ["talk", "microphone", "not-determined", true, "request"],

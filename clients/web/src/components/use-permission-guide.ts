@@ -6,7 +6,7 @@ import {
   subscribePermissionGuide,
 } from "@/runtime/permission-setup";
 
-/** Mirror the native guide, including changes made by another permission window. */
+/** Mirror the active tour guide owned by main. */
 export function usePermissionGuide() {
   const [guide, setGuide] = useState<PermissionGuideState | null>(null);
   useEffect(() => {

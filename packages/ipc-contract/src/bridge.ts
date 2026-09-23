@@ -344,7 +344,7 @@ export interface VellumBridge {
   permissions: {
     /** macOS companion setup; absent on older shells and other platforms. */
     setup?: {
-      open(): Promise<void>;
+      cancel(): void;
       begin(
         kind: DraggablePermissionKind,
         source?: PermissionSourceRect,

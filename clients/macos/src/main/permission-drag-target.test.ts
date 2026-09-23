@@ -1,27 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { isDraggablePermission } from "@vellumai/ipc-contract";
-import {
-  permissionAppPath,
-  permissionGuideBounds,
-} from "./permission-drag-target";
+import { permissionGuideBounds } from "./permission-drag-target";
 
 describe("permission drag targets", () => {
-  test("uses the correct TCC owner for each draggable pane", () => {
-    const executable = "/Applications/Vellum Dev.app/Contents/MacOS/Vellum Dev";
-    const helper =
-      "/Applications/Vellum Dev.app/Contents/Resources/bin/Vellum Helper Dev.app";
-    expect(permissionAppPath("accessibility", executable, helper)).toBe(
-      "/Applications/Vellum Dev.app",
-    );
-    expect(permissionAppPath("screen", executable, helper)).toBe(helper);
-    expect(permissionAppPath("inputMonitoring", executable, helper)).toBe(
-      helper,
-    );
-    expect(isDraggablePermission("microphone")).toBe(false);
-    expect(isDraggablePermission("automation")).toBe(false);
-    expect(isDraggablePermission("speechRecognition")).toBe(false);
-  });
-
   test("anchors inside Settings while leaving the app list above it", () => {
     expect(
       permissionGuideBounds(

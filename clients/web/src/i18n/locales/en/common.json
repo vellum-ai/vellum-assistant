@@ -1042,35 +1042,13 @@
     "closePanel": "Close panel",
     "loading": "Loading…"
   },
-  "permissionSetup": {
-    "eyebrow": "VELLUM COMPANION",
-    "title": "Let Vellum lend a hand",
-    "description": "Give your companion the access it needs to talk, see what you share, and help in your apps.",
-    "accessibilityDescription": "Work with app interfaces and insert your dictated text.",
-    "screenDescription": "See the screen or window you choose to share.",
-    "microphoneDescription": "Talk with your companion and dictate text.",
-    "speechDescription": "Turn your voice into text with macOS speech recognition.",
-    "inputLabel": "Input Monitoring",
-    "inputDescription": "Use your voice key from any app.",
-    "automationLabel": "Automation",
-    "automationDescription": "Let Vellum work with apps through Apple Events.",
-    "notificationsDescription": "Get a heads-up when your assistant needs you.",
-    "close": "Close permissions setup",
-    "allowed": "Allowed",
-    "managed": "Managed",
-    "allow": "Allow",
-    "allowPermission": "Allow {permission}",
-    "completeInSettings": "Finish {permission} in System Settings",
-    "error": "Could not complete setup. Try again, or reopen Vellum if its helper is unavailable.",
-    "retry": "Try again",
-    "control": "You’re in control. Enable only what you want to use.",
-    "done": "Done",
-    "back": "Back to permissions",
+  "permissionGuide": {
+    "back": "Back to the tour",
     "dragInstruction": "Drag {app} into the list to allow {permission}.",
     "dragApp": "Drag {app} to System Settings, or press to show in Finder",
     "thenEnable": "Then turn on its switch in System Settings.",
     "dragError": "Drag unavailable. Try dragging from Finder.",
     "showInFinder": "Show in Finder",
-    "open": "Set up companion permissions"
+    "inputLabel": "Input Monitoring"
   }
 }
