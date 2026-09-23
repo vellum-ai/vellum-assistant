@@ -410,6 +410,16 @@ function parseXml(xml: string, part: string): Element {
  */
 const MAX_PART_CHARS = 64 * 1024 * 1024;
 
+/**
+ * How many cells of one sheet are read. A cell costs three nodes in the DOM a
+ * part is parsed into (the cell, its value, and the text inside it), and the
+ * grid it becomes is held for as many as {@link MAX_CACHED_SHEETS} sheets, so
+ * the row and column caps alone would let one sheet build a million of them
+ * for a preview that shows a screenful. The rows past the budget are never
+ * inflated.
+ */
+export const MAX_SHEET_CELLS = 250_000;
+
 interface BoundedPart {
   xml: string;
   /** True when the read stopped before the end of the part. */
@@ -425,6 +435,12 @@ interface BoundedPart {
 interface PartMarker {
   localName: string;
   limit: number;
+  /**
+   * A second element counted across the markers. Passing its limit cuts the
+   * read at the marker it was passed under, so what is kept holds no more of
+   * them than the limit.
+   */
+  budget?: { localName: string; limit: number };
 }
 
 /**
@@ -437,9 +453,15 @@ function endsTagName(character: string): boolean {
   return character === ">" || character === "/" || /\s/.test(character);
 }
 
-/** A character XML allows inside an element name after its first. */
+/**
+ * Whether `character` carries an element's name on. A name runs until
+ * something ends it, splits it, or opens the next tag, which is what carries
+ * the scan across a prefix spelled in any script: XML allows name characters
+ * far outside ASCII, and all this scan needs from a prefix is the `:` that
+ * closes it.
+ */
 function isNameCharacter(character: string): boolean {
-  return /[\w.-]/.test(character);
+  return !endsTagName(character) && character !== ":" && character !== "<";
 }
 
 /** How a `<` reads against the marker a bounded read is counting. */
@@ -648,8 +670,9 @@ function readWholePart(
 }
 
 /**
- * Inflate `entry` only until `marker` has been seen past its limit or the text
- * passes `maxChars`, then cut it there and abandon the rest of the stream.
+ * Inflate `entry` only until `marker` has been seen past its limit, its budget
+ * has been counted past its own, or the text passes `maxChars`, then cut it
+ * there and abandon the rest of the stream.
  * Either cut lands on the `<` of a marker, so the text ends on a complete
  * element and only `ancestors`, innermost first, are left open around it. This
  * is what keeps a sheet with a million rows from being decompressed whole for
@@ -665,6 +688,7 @@ function readMarkedPart(
 ): Promise<BoundedPart> {
   let searchFrom = 0;
   let seen = 0;
+  let budgetSeen = 0;
   let lastMarkerAt = -1;
   let lastMarkerPrefix = "";
   // Every ancestor opens before the first marker, so the scan has each one's
@@ -726,6 +750,28 @@ function readMarkedPart(
           if (pendingAncestor) {
             searchFrom = at;
             break;
+          }
+          if (marker.budget !== undefined) {
+            const counted = matchStartTag(buffer, at, marker.budget.localName);
+            if (counted.kind === "pending") {
+              searchFrom = at;
+              break;
+            }
+            if (counted.kind === "match") {
+              budgetSeen += 1;
+              // The cut lands on the marker this one was counted under, so the
+              // row that passes the budget is left out whole. Under two
+              // markers there is nothing whole to keep, which the character
+              // cap answers for instead.
+              if (budgetSeen > marker.budget.limit && seen >= 2) {
+                settle.resolve({
+                  xml: buffer.slice(0, lastMarkerAt),
+                  truncated: true,
+                  stillOpen: stillOpen(),
+                });
+                return;
+              }
+            }
           }
           continue;
         }
@@ -1404,7 +1450,11 @@ async function readSheetGrid(
   }
   const part = await readMarkedPart(
     entry,
-    { localName: "row", limit: MAX_CSV_ROWS },
+    {
+      localName: "row",
+      limit: MAX_CSV_ROWS,
+      budget: { localName: "c", limit: MAX_SHEET_CELLS },
+    },
     ["sheetData", "worksheet"],
     context.maxPartChars,
   );
@@ -1444,7 +1494,7 @@ async function readSheetGrid(
 /**
  * How many sheet grids one workbook holds. The panel shows one sheet at a
  * time, so a few recent grids cover tabbing back and forth while a grid of up
- * to 5000 by 200 cells per visited sheet never piles up.
+ * to {@link MAX_SHEET_CELLS} cells per visited sheet never piles up.
  */
 export const MAX_CACHED_SHEETS = 3;
 

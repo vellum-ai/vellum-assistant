@@ -8,6 +8,7 @@ import {
 } from "@/domains/chat/components/local-file/preview/csv";
 import {
   MAX_CACHED_SHEETS,
+  MAX_SHEET_CELLS,
   parseWorkbook,
   type ParsedWorkbook,
   type ParseWorkbookOptions,
@@ -96,8 +97,10 @@ const DATE_STYLES = `<styleSheet xmlns="${MAIN_NS}"><numFmts count="0"/><cellSty
 /** A cell that never closes, which a DOM built over it rejects. */
 const UNCLOSED_CELL = "<c><v>1</v>";
 
-/** The same cell, spelled with a prefix. */
-const PREFIXED_UNCLOSED_CELL = "<x:c><x:v>1</x:v>";
+/** The same cell, spelled with `prefix`. */
+function prefixedUnclosedCell(prefix = "x"): string {
+  return `<${prefix}:c><${prefix}:v>1</${prefix}:v>`;
+}
 
 /** An inline-string cell holding `text` raw, for CDATA and comment content. */
 function rawInlineCellXml(text: string): string {
@@ -114,8 +117,11 @@ function prefixedWideRowXml(
   position: number,
   count: number,
   trailing = "",
+  prefix = "x",
 ): string {
-  return `<x:row r="${position}">${"<x:c><x:v>1</x:v></x:c>".repeat(count)}${trailing}</x:row>`;
+  return `<${prefix}:row r="${position}">${`<${prefix}:c><${prefix}:v>1</${prefix}:v></${prefix}:c>`.repeat(
+    count,
+  )}${trailing}</${prefix}:row>`;
 }
 
 /**
@@ -151,16 +157,21 @@ function prefixedWorkbookParts(): Record<string, string> {
 }
 
 /** `count` prefixed rows of one inline string each. */
-function prefixedRowsXml(count: number): string {
+function prefixedRowsXml(count: number, prefix = "x"): string {
   return Array.from({ length: count }, (_, index) => {
     const position = index + 1;
-    return `<x:row r="${position}"><x:c r="A${position}" t="inlineStr"><x:is><x:t>row ${index}</x:t></x:is></x:c></x:row>`;
+    return `<${prefix}:row r="${position}"><${prefix}:c r="A${position}" t="inlineStr"><${prefix}:is><${prefix}:t>row ${index}</${prefix}:t></${prefix}:is></${prefix}:c></${prefix}:row>`;
   }).join("");
 }
 
+/** A prefixed worksheet part holding the raw `rows`. */
+function prefixedSheetPartXml(rows: string, prefix = "x"): string {
+  return `<${prefix}:worksheet xmlns:${prefix}="${MAIN_NS}"><${prefix}:sheetData>${rows}</${prefix}:sheetData></${prefix}:worksheet>`;
+}
+
 /** A prefixed worksheet part holding `count` rows of one inline string each. */
-function prefixedSheetXml(count: number): string {
-  return `<x:worksheet xmlns:x="${MAIN_NS}"><x:sheetData>${prefixedRowsXml(count)}</x:sheetData></x:worksheet>`;
+function prefixedSheetXml(count: number, prefix = "x"): string {
+  return prefixedSheetPartXml(prefixedRowsXml(count, prefix), prefix);
 }
 
 /**
@@ -231,14 +242,15 @@ const SLOW_SHEET_ROWS: CellInput[][] = Array.from(
   (_, index) => [`row ${index + 1}`],
 );
 
-/** The widest and longest grid the caps keep, as a raw worksheet part. */
-function fullCapSheetXml(): string {
-  const cells = "<c><v>1</v></c>".repeat(MAX_CSV_COLUMNS);
-  const rows = Array.from(
-    { length: MAX_CSV_ROWS },
-    (_, index) => `<row r="${index + 1}">${cells}</row>`,
-  ).join("");
-  return sheetXml(rows);
+/** `rows` rows that each fill the column cap, as a raw worksheet part. */
+function wideSheetXml(rows: number): string {
+  const cells = "<c/>".repeat(MAX_CSV_COLUMNS);
+  return sheetXml(
+    Array.from(
+      { length: rows },
+      (_, index) => `<row r="${index + 1}">${cells}</row>`,
+    ).join(""),
+  );
 }
 
 describe("parseWorkbook", () => {
@@ -1183,11 +1195,9 @@ describe("parseWorkbook", () => {
       await workbookBlob({
         sheets: [{ name: "Sheet1" }],
         parts: {
-          "xl/worksheets/sheet1.xml": `<x:worksheet xmlns:x="${MAIN_NS}"><x:sheetData>${prefixedWideRowXml(
-            1,
-            MAX_CSV_COLUMNS,
-            PREFIXED_UNCLOSED_CELL,
-          )}</x:sheetData></x:worksheet>`,
+          "xl/worksheets/sheet1.xml": prefixedSheetPartXml(
+            prefixedWideRowXml(1, MAX_CSV_COLUMNS, prefixedUnclosedCell()),
+          ),
         },
       }),
     );
@@ -1308,22 +1318,37 @@ describe("parseWorkbook", () => {
     expect(grid.truncated).toBe(true);
   }, 60_000);
 
-  test("reads a sheet filling both caps without stalling the tab", async () => {
+  test("cuts a sheet at the cell budget", async () => {
     const parsed = await parseWorkbook(
       await workbookBlob({
         sheets: [{ name: "Wide" }],
-        parts: { "xl/worksheets/sheet1.xml": fullCapSheetXml() },
+        parts: { "xl/worksheets/sheet1.xml": wideSheetXml(2_000) },
       }),
     );
 
     const grid = await parsed.sheets[0]!.read();
 
-    // The widest and longest grid the caps keep is the reader's worst case,
-    // and these assertions say both caps held at that size. The timeout is
-    // the stall guard.
-    expect(grid.rows.length).toBe(MAX_CSV_ROWS);
+    // The budget runs out inside a row, and that row is left out whole, so
+    // what the grid holds is the budget to the cell.
+    expect(grid.rows.length).toBe(MAX_SHEET_CELLS / MAX_CSV_COLUMNS);
     expect(grid.rows[0]!.length).toBe(MAX_CSV_COLUMNS);
-  }, 60_000);
+    expect(grid.truncated).toBe(true);
+  });
+
+  test("keeps a sheet under the cell budget whole", async () => {
+    const parsed = await parseWorkbook(
+      await workbookBlob({
+        sheets: [{ name: "Wide" }],
+        parts: { "xl/worksheets/sheet1.xml": wideSheetXml(300) },
+      }),
+    );
+
+    const grid = await parsed.sheets[0]!.read();
+
+    expect(grid.rows.length).toBe(300);
+    expect(grid.rows[0]!.length).toBe(MAX_CSV_COLUMNS);
+    expect(grid.truncated).toBe(false);
+  });
 
   test("drops a row that runs past the character cap and says so", async () => {
     const grid = await readOneSheet(
@@ -1436,6 +1461,22 @@ describe("parseWorkbook", () => {
     expect(grid.rows.length).toBe(MAX_CSV_ROWS);
     expect(grid.rows[MAX_CSV_ROWS - 1]).toEqual([`row ${MAX_CSV_ROWS - 1}`]);
     expect(grid.truncated).toBe(true);
+  });
+
+  test("counts rows spelled with a non-ASCII prefix", async () => {
+    const parts = prefixedWorkbookParts();
+    parts["xl/worksheets/sheet1.xml"] = prefixedSheetXml(200, "λ");
+
+    const parsed = await parseWorkbook(await partsBlob(parts), {
+      maxPartChars: 2_000,
+    });
+
+    // happy-dom parses no prefix outside ASCII, which a browser and a
+    // WKWebView both do, so what the scan made of the part is read from how it
+    // ends: a part cut at its last row is handed to the DOM and rejected
+    // there, where a scan that counted no row at all rejects the part as
+    // unreadable before any DOM is built.
+    await expect(parsed.sheets[0]!.read()).rejects.toThrow("Malformed XML");
   });
 
   test("closes a cut sheet with the tags its own part opened", async () => {
