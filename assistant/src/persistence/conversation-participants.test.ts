@@ -7,6 +7,7 @@ import {
   addParticipant,
   isParticipant,
   listConversationIdsForPrincipal,
+  listParticipants,
   removeParticipant,
 } from "./conversation-participants.js";
 import { migrateCreateConversationParticipants } from "./migrations/384-create-conversation-participants.js";
@@ -194,6 +195,68 @@ describe("conversation participants store", () => {
     expect(rows("conv-1")).toEqual([
       { principal_id: "principal-a", role: "creator", removed_at: null },
     ]);
+  });
+
+  test("lists a conversation's live participants in the order they were added", () => {
+    const { options } = createStore();
+    addParticipant(
+      {
+        conversationId: "conv-1",
+        principalId: "principal-b",
+        role: "participant",
+        addedBy: "principal-a",
+        addedAt: 300,
+      },
+      options,
+    );
+    addParticipant(
+      {
+        conversationId: "conv-1",
+        principalId: "principal-a",
+        role: "creator",
+        addedAt: 100,
+      },
+      options,
+    );
+    addParticipant(
+      {
+        conversationId: "conv-1",
+        principalId: "principal-c",
+        role: "participant",
+        addedAt: 200,
+      },
+      options,
+    );
+    addParticipant(
+      {
+        conversationId: "conv-2",
+        principalId: "principal-d",
+        role: "creator",
+        addedAt: 50,
+      },
+      options,
+    );
+    removeParticipant("conv-1", "principal-c", options);
+
+    expect(listParticipants("conv-1", options)).toEqual([
+      {
+        conversationId: "conv-1",
+        principalId: "principal-a",
+        role: "creator",
+        addedBy: null,
+        addedAt: 100,
+        removedAt: null,
+      },
+      {
+        conversationId: "conv-1",
+        principalId: "principal-b",
+        role: "participant",
+        addedBy: "principal-a",
+        addedAt: 300,
+        removedAt: null,
+      },
+    ]);
+    expect(listParticipants("conv-missing", options)).toEqual([]);
   });
 
   test("lists only the conversations a principal is still in", () => {
