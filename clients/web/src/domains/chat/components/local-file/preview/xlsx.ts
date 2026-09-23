@@ -232,8 +232,9 @@ function formatSections(code: string): string[] {
 
 /**
  * What one section of a format code renders. Quoted literals, bracketed
- * sections, the meridiem tokens, and backslash escapes can each hold a letter
- * that spells no placeholder, so they come out
+ * sections, the meridiem tokens, and the directives that carry the character
+ * after them (`\` escapes it, `_` spaces the width of it, `*` fills with it)
+ * can each hold a letter that spells no placeholder, so they come out
  * before the placeholders are read: a meridiem leaves a clock reading behind
  * it, a colour or locale bracket leaves nothing, and a bracket spelling
  * nothing but `h`, `m`, or `s` makes the section elapsed time, counted from
@@ -252,7 +253,7 @@ function formatCodeKind(code: string): NumberFormatKind {
       }
       return "";
     })
-    .replace(/\\./g, "")
+    .replace(/[\\_*]./g, "")
     .toLowerCase();
   const tokens = placeholders.replace(MERIDIEM, "");
   const hasMeridiem = tokens.length !== placeholders.length;
@@ -482,6 +483,22 @@ const MAX_PART_CHARS = 64 * 1024 * 1024;
  * inflated.
  */
 export const MAX_SHEET_CELLS = 250_000;
+
+/**
+ * How much inflated text a streamed read takes in before it looks at it.
+ * Reading is linear in the size of a part, and a batch this size keeps the
+ * cost of handing it over linear too, while a read that stops early still
+ * abandons the rest of the stream within a batch of doing so.
+ */
+const STREAM_BATCH_CHARS = 4 * 1024 * 1024;
+
+/**
+ * How many shared strings a workbook holds on to between sheet reads. One
+ * grid can point at as many as {@link MAX_SHEET_CELLS} of them, so a sheet's
+ * worth is what makes tabbing back and forth free: past that the strings read
+ * longest ago go, and a sheet that wants them again reads them again.
+ */
+const MAX_CACHED_STRINGS = MAX_SHEET_CELLS;
 
 interface BoundedPart {
   xml: string;
@@ -896,18 +913,33 @@ interface StreamedRead<T> {
 }
 
 /**
- * Inflate `entry` as a stream, handing each chunk to `read`. Settling from a
- * chunk abandons the rest of the stream, which is what lets a caller stop at
- * a cap instead of decompressing a part whole.
+ * Inflate `entry` as a stream, handing `read` what has arrived once it reaches
+ * `batchChars` and again at the end. Settling from a batch abandons the rest
+ * of the stream, which is what lets a caller stop at a cap instead of
+ * decompressing a part whole. Batching is what keeps that linear: a reader
+ * scans what it is handed from where it left off, so appending every inflate
+ * chunk to the buffer and handing it over flattens the whole of it per chunk,
+ * which a part of any size pays for many times over.
  */
 function streamPart<T>(
   entry: JSZip.JSZipObject,
   read: StreamedRead<T>,
+  batchChars: number,
 ): Promise<T> {
   return new Promise((resolve, reject) => {
     const stream = (entry as StreamingEntry).internalStream("string");
     let buffer = "";
+    let pending: string[] = [];
+    let pendingChars = 0;
     let settled = false;
+    const flush = (): void => {
+      if (pendingChars === 0) {
+        return;
+      }
+      buffer += pending.join("");
+      pending = [];
+      pendingChars = 0;
+    };
     const settle: Settle<T> = {
       resolve: (value) => {
         settled = true;
@@ -925,7 +957,12 @@ function streamPart<T>(
       if (settled) {
         return;
       }
-      buffer += chunk;
+      pending.push(chunk);
+      pendingChars += chunk.length;
+      if (pendingChars < batchChars) {
+        return;
+      }
+      flush();
       read.onChunk(buffer, settle);
     });
     stream.on("error", (error) => {
@@ -935,6 +972,13 @@ function streamPart<T>(
       }
     });
     stream.on("end", () => {
+      if (settled) {
+        return;
+      }
+      // The last batch reaches the reader before the end does, so a reader
+      // that settles on what it holds has seen all of it.
+      flush();
+      read.onChunk(buffer, settle);
       if (!settled) {
         settled = true;
         resolve(read.onEnd(buffer));
@@ -952,15 +996,17 @@ function streamPart<T>(
 function readWholePart(
   entry: JSZip.JSZipObject,
   maxChars: number,
+  batchChars: number,
 ): Promise<string> {
-  return streamPart(entry, {
+  const read: StreamedRead<string> = {
     onChunk: (buffer, settle) => {
       if (buffer.length > maxChars) {
         settle.reject(new Error(`${entry.name} is too large to read`));
       }
     },
     onEnd: (buffer) => buffer,
-  });
+  };
+  return streamPart(entry, read, batchChars);
 }
 
 /**
@@ -979,6 +1025,7 @@ function readMarkedPart(
   marker: PartMarker,
   ancestors: string[],
   maxChars: number,
+  batchChars: number,
 ): Promise<BoundedPart> {
   let searchFrom = 0;
   let seen = 0;
@@ -993,7 +1040,7 @@ function readMarkedPart(
   const stillOpen = (): string[] =>
     ancestors.map((name) => openedAs.get(name) ?? `${lastMarkerPrefix}${name}`);
 
-  return streamPart(entry, {
+  const read: StreamedRead<BoundedPart> = {
     onChunk: (buffer, settle) => {
       for (;;) {
         const at = buffer.indexOf("<", searchFrom);
@@ -1097,7 +1144,8 @@ function readMarkedPart(
       });
     },
     onEnd: (buffer) => ({ xml: buffer, truncated: false, stillOpen: [] }),
-  });
+  };
+  return streamPart(entry, read, batchChars);
 }
 
 /** A metadata part read whole, or `null` when the workbook leaves it out. */
@@ -1105,9 +1153,10 @@ async function readPart(
   zip: JSZip,
   path: string,
   maxChars: number,
+  batchChars: number,
 ): Promise<string | null> {
   const entry = zip.file(path);
-  return entry === null ? null : readWholePart(entry, maxChars);
+  return entry === null ? null : readWholePart(entry, maxChars, batchChars);
 }
 
 /**
@@ -1691,6 +1740,7 @@ function readSharedStringSpans(
   entry: JSZip.JSZipObject,
   wanted: ReadonlySet<number>,
   maxChars: number,
+  batchChars: number,
 ): Promise<SparseStrings> {
   let highest = -1;
   for (const index of wanted) {
@@ -1714,7 +1764,7 @@ function readSharedStringSpans(
     absentFrom,
   });
 
-  return streamPart(entry, {
+  const read: StreamedRead<SparseStrings> = {
     onChunk: (buffer, settle) => {
       for (;;) {
         const at = buffer.indexOf("<", searchFrom);
@@ -1775,7 +1825,18 @@ function readSharedStringSpans(
       }
       return taken(count);
     },
-  });
+  };
+  return streamPart(entry, read, batchChars);
+}
+
+/** Drop the entries added longest ago until `map` holds `limit` of them. */
+function evictOldest<K, V>(map: Map<K, V>, limit: number): void {
+  for (const key of map.keys()) {
+    if (map.size <= limit) {
+      return;
+    }
+    map.delete(key);
+  }
 }
 
 /** The strings a sheet points at, by the index each one carries. */
@@ -1795,7 +1856,7 @@ type SharedStringReader = (
 function createSharedStringReader(
   zip: JSZip,
   partPath: string,
-  maxPartChars: number,
+  limits: PartLimits,
 ): SharedStringReader {
   const found = new Map<number, string>();
   let absentFrom = Number.POSITIVE_INFINITY;
@@ -1812,7 +1873,12 @@ function createSharedStringReader(
       if (entry === null) {
         absentFrom = missing.size === 0 ? absentFrom : 0;
       } else {
-        const taken = await readSharedStringSpans(entry, missing, maxPartChars);
+        const taken = await readSharedStringSpans(
+          entry,
+          missing,
+          limits.maxPartChars,
+          limits.streamBatchChars,
+        );
         if (taken.xml !== null) {
           const table = findNamed(parseXml(taken.xml, partPath), "sst");
           const items =
@@ -1835,6 +1901,9 @@ function createSharedStringReader(
           answer.set(index, text);
         }
       }
+      // After the answer, so a sheet reading more strings than the cache
+      // holds still gets every one of them.
+      evictOldest(found, limits.maxCachedStrings);
       return answer;
     });
     // A rejected read must not wedge the sheet that asks next.
@@ -1846,12 +1915,19 @@ function createSharedStringReader(
   };
 }
 
+/** The sizes one workbook is read under, which tests lower. */
+interface PartLimits {
+  maxPartChars: number;
+  streamBatchChars: number;
+  maxCachedStrings: number;
+}
+
 /** What every sheet of one workbook shares while it reads its own part. */
 interface WorkbookContext {
   zip: JSZip;
   styleFormats: StyleFormat[];
   date1904: boolean;
-  maxPartChars: number;
+  limits: PartLimits;
   sharedStrings: SharedStringReader;
 }
 
@@ -1915,7 +1991,8 @@ async function readSheetGrid(
       budget: { localName: "c", limit: MAX_SHEET_CELLS },
     },
     ["sheetData", "worksheet"],
-    context.maxPartChars,
+    context.limits.maxPartChars,
+    context.limits.streamBatchChars,
   );
   const trimmed = dropCellsPastCap(closeBoundedPart(part));
   const read = readSheetRows(
@@ -2114,6 +2191,10 @@ function createSheetReader(
 export interface ParseWorkbookOptions {
   /** Character cap per inflated part, which tests lower to a readable size. */
   maxPartChars?: number;
+  /** Inflated text per streamed batch, which tests lower to a chunk. */
+  streamBatchChars?: number;
+  /** Shared strings held between sheet reads, which tests lower to a few. */
+  maxCachedStrings?: number;
 }
 
 /**
@@ -2129,13 +2210,33 @@ export async function parseWorkbook(
   options: ParseWorkbookOptions = {},
 ): Promise<ParsedWorkbook> {
   const maxPartChars = options.maxPartChars ?? MAX_PART_CHARS;
+  const limits: PartLimits = {
+    maxPartChars,
+    // A batch never outruns the character cap, so a read that has to stop at
+    // the cap stops within a batch of it.
+    streamBatchChars: Math.min(
+      options.streamBatchChars ?? STREAM_BATCH_CHARS,
+      maxPartChars,
+    ),
+    maxCachedStrings: options.maxCachedStrings ?? MAX_CACHED_STRINGS,
+  };
   // An ArrayBuffer rather than the Blob, so one call covers the browser and
   // the test runner.
   const zip = await JSZip.loadAsync(await blob.arrayBuffer());
   const workbookPart = readPackageWorkbookPart(
-    await readPart(zip, PACKAGE_RELATIONSHIPS_PART, maxPartChars),
+    await readPart(
+      zip,
+      PACKAGE_RELATIONSHIPS_PART,
+      limits.maxPartChars,
+      limits.streamBatchChars,
+    ),
   );
-  const workbookXml = await readPart(zip, workbookPart, maxPartChars);
+  const workbookXml = await readPart(
+    zip,
+    workbookPart,
+    limits.maxPartChars,
+    limits.streamBatchChars,
+  );
   if (workbookXml === null) {
     throw new Error(`Not a workbook: ${workbookPart} is missing`);
   }
@@ -2146,7 +2247,12 @@ export async function parseWorkbook(
   );
   const relationshipsPart = relationshipsPartFor(workbookPart);
   const relationships = readWorkbookRelationships(
-    await readPart(zip, relationshipsPart, maxPartChars),
+    await readPart(
+      zip,
+      relationshipsPart,
+      limits.maxPartChars,
+      limits.streamBatchChars,
+    ),
     partDirectory(workbookPart),
     relationshipsPart,
     new Set(
@@ -2158,15 +2264,20 @@ export async function parseWorkbook(
   const context: WorkbookContext = {
     zip,
     styleFormats: readStyleFormats(
-      await readPart(zip, relationships.styles, maxPartChars),
+      await readPart(
+        zip,
+        relationships.styles,
+        limits.maxPartChars,
+        limits.streamBatchChars,
+      ),
       relationships.styles,
     ),
     date1904,
-    maxPartChars,
+    limits,
     sharedStrings: createSharedStringReader(
       zip,
       relationships.sharedStrings,
-      maxPartChars,
+      limits,
     ),
   };
 

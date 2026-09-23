@@ -1,4 +1,5 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
+import JSZip from "jszip";
 
 import {
   MAX_CSV_COLUMNS,
@@ -185,8 +186,8 @@ function mixedPrefixSheetXml(count: number): string {
   return `<worksheet xmlns="${MAIN_NS}" xmlns:x="${MAIN_NS}"><sheetData>${prefixedRowsXml(count)}</sheetData></worksheet>`;
 }
 
-/** Characters JSZip's inflate stream hands the reader per chunk. */
-const INFLATE_CHUNK_CHARS = 16_384;
+/** The batch these tests ask a streamed read for, so a tag can straddle one. */
+const STREAM_BATCH_CHARS = 16_384;
 
 /**
  * How far before a chunk boundary `<y:sheetData` starts. The scan reads the
@@ -202,7 +203,7 @@ const ANCESTOR_STRADDLE_CHARS = 10;
  */
 function straddledAncestorSheetXml(count: number): string {
   const open = `<worksheet xmlns="${MAIN_NS}" xmlns:x="${MAIN_NS}" xmlns:y="${MAIN_NS}">`;
-  const opensAt = INFLATE_CHUNK_CHARS - ANCESTOR_STRADDLE_CHARS;
+  const opensAt = STREAM_BATCH_CHARS - ANCESTOR_STRADDLE_CHARS;
   const padding = "p".repeat(opensAt - open.length - "<!---->".length);
   return `${open}<!--${padding}--><y:sheetData>${prefixedRowsXml(count)}</y:sheetData></worksheet>`;
 }
@@ -791,6 +792,26 @@ describe("parseWorkbook", () => {
     expect(grid.truncated).toBe(false);
   });
 
+  test("reads a shared string past many batches of the table", async () => {
+    const items = [
+      "<si><t>s</t></si>".repeat(199_999),
+      "<si><t>last</t></si>",
+    ].join("");
+
+    const grid = await readOneSheet(
+      [[{ t: "s", v: 199_999 }]],
+      {
+        parts: {
+          "xl/sharedStrings.xml": `<sst xmlns="${MAIN_NS}">${items}</sst>`,
+        },
+      },
+      { streamBatchChars: 64 * 1024 },
+    );
+
+    expect(grid.rows).toEqual([["last"]]);
+    expect(grid.truncated).toBe(false);
+  });
+
   test("settles a shared string read without parsing the items around it", async () => {
     const grid = await readOneSheet([[{ t: "s", v: 1 }]], {
       parts: {
@@ -802,6 +823,63 @@ describe("parseWorkbook", () => {
 
     expect(grid.rows).toEqual([["beta"]]);
     expect(grid.truncated).toBe(false);
+  });
+
+  test("bounds the shared strings it keeps across sheets", async () => {
+    const blob = await workbookBlob({
+      sheets: [
+        {
+          name: "A",
+          rows: [
+            [
+              { t: "s", v: 0 },
+              { t: "s", v: 1 },
+              { t: "s", v: 2 },
+            ],
+          ],
+        },
+        {
+          name: "B",
+          rows: [
+            [
+              { t: "s", v: 3 },
+              { t: "s", v: 4 },
+              { t: "s", v: 5 },
+            ],
+          ],
+        },
+        { name: "C", rows: [["c"]] },
+        { name: "D", rows: [["d"]] },
+      ],
+      sharedStrings: ["alpha", "beta", "gamma", "delta", "epsilon", "zeta"],
+    });
+
+    /** Every sheet in turn, then the first one once its grid is evicted. */
+    const readAround = async (
+      options: ParseWorkbookOptions,
+    ): Promise<{ reads: number; rows: string[][] }> => {
+      const parsed = await parseWorkbook(blob, options);
+      const lookups = spyOn(JSZip.prototype, "file");
+      for (const sheet of parsed.sheets) {
+        await sheet.read();
+      }
+      const again = await parsed.sheets[0]!.read();
+      const reads = lookups.mock.calls.filter(
+        (args) => args[0] === "xl/sharedStrings.xml",
+      ).length;
+      lookups.mockRestore();
+      return { reads, rows: again.rows };
+    };
+
+    const bounded = await readAround({ maxCachedStrings: 4 });
+    const whole = await readAround({});
+
+    // The last read finds two of its three strings dropped and reads the
+    // table again, where a workbook holding every string it has seen does not.
+    expect(bounded.reads).toBe(3);
+    expect(whole.reads).toBe(2);
+    expect(bounded.rows).toEqual([["alpha", "beta", "gamma"]]);
+    expect(whole.rows).toEqual(bounded.rows);
   });
 
   test("reads a shared-string cell with no index as blank", async () => {
@@ -1121,6 +1199,34 @@ describe("parseWorkbook", () => {
     // The style inside the cap renders its date, and the one past it falls
     // back to a plain number.
     expect(grid.rows).toEqual([["2023-01-01", "44927"]]);
+  });
+
+  test("keeps a number whose format spaces or fills with a date letter", async () => {
+    const grid = await readOneSheet(
+      [
+        [{ v: 44927, s: 0 }],
+        [{ v: 44927, s: 1 }],
+        [{ v: 44927, s: 2 }],
+        [{ v: 44927, s: 3 }],
+      ],
+      {
+        styles: [
+          { formatCode: "0_m" },
+          { formatCode: "0*d" },
+          { formatCode: "#,##0_);(#,##0)" },
+          { formatCode: "yyyy-mm-dd_)" },
+        ],
+      },
+    );
+
+    // `_` and `*` each carry the character after them, so the letter spells a
+    // width or a fill rather than a date.
+    expect(grid.rows).toEqual([
+      ["44927"],
+      ["44927"],
+      ["44927"],
+      ["2023-01-01"],
+    ]);
   });
 
   test("ignores a numFmt a dxf declares under a real format's id", async () => {
@@ -1679,8 +1785,8 @@ describe("parseWorkbook", () => {
     const markers = 3;
     const opener = `<!--${"<row/>".repeat(markers)}`;
     for (const commentAt of [
-      INFLATE_CHUNK_CHARS - 2,
-      INFLATE_CHUNK_CHARS - 1 - opener.length,
+      STREAM_BATCH_CHARS - 2,
+      STREAM_BATCH_CHARS - 1 - opener.length,
     ]) {
       const xml = straddledCommentSheetXml(commentAt, markers);
       expect(xml.indexOf(opener)).toBe(commentAt);
@@ -1690,6 +1796,7 @@ describe("parseWorkbook", () => {
           sheets: [{ name: "Sheet1" }],
           parts: { "xl/worksheets/sheet1.xml": xml },
         }),
+        { streamBatchChars: STREAM_BATCH_CHARS },
       );
       const grid = await parsed.sheets[0]!.read();
 
@@ -1701,7 +1808,7 @@ describe("parseWorkbook", () => {
   test("keeps an ancestor whose start tag straddles a chunk boundary", async () => {
     const xml = straddledAncestorSheetXml(400);
     expect(xml.indexOf("<y:sheetData>")).toBe(
-      INFLATE_CHUNK_CHARS - ANCESTOR_STRADDLE_CHARS,
+      STREAM_BATCH_CHARS - ANCESTOR_STRADDLE_CHARS,
     );
 
     const parsed = await parseWorkbook(
@@ -1709,7 +1816,10 @@ describe("parseWorkbook", () => {
         sheets: [{ name: "Sheet1" }],
         parts: { "xl/worksheets/sheet1.xml": xml },
       }),
-      { maxPartChars: INFLATE_CHUNK_CHARS + 1_000 },
+      {
+        maxPartChars: STREAM_BATCH_CHARS + 1_000,
+        streamBatchChars: STREAM_BATCH_CHARS,
+      },
     );
     const grid = await parsed.sheets[0]!.read();
 
