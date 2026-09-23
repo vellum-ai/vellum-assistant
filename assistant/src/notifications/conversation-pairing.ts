@@ -57,10 +57,15 @@ import {
 import { getLogger } from "../util/logger.js";
 import { withSqliteRetry } from "../util/sqlite-retry.js";
 import {
+  hasPersistedCompletionResult,
+  notificationConversationId,
+} from "./completion-policy.js";
+import {
   composeConversationSeed,
   isConversationSeedSane,
 } from "./conversation-seed-composer.js";
 import { isGuardianRequestSignalEvent } from "./guardian-feed-projection.js";
+import { signalMirrorsToHomeFeed } from "./home-feed-mirror.js";
 import type { NotificationSignal } from "./signal.js";
 import type {
   ConversationAction,
@@ -130,7 +135,6 @@ export interface PairingOptions {
  * transactional request or a system alert.
  */
 const ASSISTANT_SHARE_EVENT = "assistant.share";
-const ASSISTANT_REPLY_EVENT = "chat.assistant_reply";
 
 /**
  * Promote a background share into an assistant-initiated thread, under the
@@ -264,17 +268,17 @@ export async function pairDeliveryWithConversation(
     // notification can appear. The home feed aims its "Go to Conversation"
     // button at the same row whenever it mirrors the signal.
     //
-    // `chat.assistant_reply` already has its complete reply in that transcript.
-    // Its notification body is a lock-screen preview, so appending it would
+    // Reply and explicit background completions have their result persisted.
+    // Their notification body is a lock-screen preview, so appending it would
     // create a second, truncated assistant row. Keep the conversation target
     // for deep links without writing the preview into the transcript.
     if (
       strategy === "start_new_conversation" &&
       !signal.requiresConversation &&
-      signal.sourceEventName === ASSISTANT_REPLY_EVENT
+      hasPersistedCompletionResult(signal)
     ) {
       return {
-        conversationId: resolveSourceConversationId(signal),
+        conversationId: resolveSourceConversation(signal)?.id ?? null,
         messageId: null,
         strategy,
         createdNewConversation: false,
@@ -767,12 +771,16 @@ async function resolveChannelDeliveryHome(params: {
  * Indexing is skipped for parity with the other notification write paths:
  * notification copy is delivery audit, not conversational memory.
  */
-function resolveSourceConversationId(signal: NotificationSignal): string | null {
-  if (!signal.sourceContextId) {
+function resolveSourceConversation(
+  signal: NotificationSignal,
+): { id: string; conversationType?: string } | null {
+  const conversationId = notificationConversationId(signal);
+  if (!conversationId) {
     return null;
   }
   try {
-    return getConversation(signal.sourceContextId)?.id ?? null;
+    const row = getConversation(conversationId);
+    return row ? { id: row.id, conversationType: row.conversationType } : null;
   } catch {
     return null;
   }
@@ -783,14 +791,25 @@ async function appendBodyToSourceConversation(
   channel: NotificationChannel,
   messageContent: string,
 ): Promise<{ conversationId: string; messageId: string } | null> {
-  const conversationId = resolveSourceConversationId(signal);
-  if (!conversationId) {
+  const source = resolveSourceConversation(signal);
+  if (!source) {
     return null;
   }
+  const conversationId = source.id;
 
-  const message = await addMessage(conversationId, "assistant", messageContent, {
-    skipIndexing: true,
-  });
+  const message = await addMessage(
+    conversationId,
+    "assistant",
+    messageContent,
+    {
+      skipIndexing: true,
+      // A notification the bell carries is bookkeeping about the
+      // conversation, not activity in it, so it must not bounce a chat the
+      // user just marked Done back into the sidebar. One the bell does not
+      // carry has this transcript as its only home, and the chat resurfaces.
+      skipResurface: signalMirrorsToHomeFeed(signal, source.conversationType),
+    },
+  );
   // `addMessage` projects attention metadata alone, so a client with this
   // conversation open needs the messages tag to refetch the transcript. A
   // notification the user taps through to has every chance of landing on an

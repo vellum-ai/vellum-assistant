@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { WakeOptions } from "../runtime/agent-wake.js";
 import type { BackgroundTool } from "../tools/background-tool-registry.js";
+import type { ToolContext } from "../tools/types.js";
 
 // ── Mock modules ────────────────────────────────────────────────────────────
 
@@ -239,4 +240,37 @@ describe("bash tool background mode", () => {
     expect(mockRegisterBackgroundTool).not.toHaveBeenCalled();
     expect(mockWakeAgentForOpportunity).not.toHaveBeenCalled();
   });
+
+  for (const cronRunId of [undefined, null, "cron-run-123"]) {
+    for (const outcome of ["completed", "failed", "cancelled"] as const) {
+      test(`preserves originating schedule ${String(cronRunId)} on ${outcome}`, async () => {
+        const context: ToolContext = {
+          ...baseContext,
+          cronRunId,
+        };
+        await shellTool.execute(
+          {
+            command:
+              outcome === "cancelled"
+                ? "sleep 30"
+                : `sleep 0.1; exit ${outcome === "failed" ? "1" : "0"}`,
+            activity: "test",
+            background: true,
+          },
+          context,
+        );
+        context.cronRunId = "cron-run-later";
+        expect(registeredTools[0]!.cronRunId).toBe(cronRunId ?? undefined);
+        if (outcome === "cancelled") {
+          registeredTools[0]!.cancel();
+        }
+        await waitForWake(mockWakeAgentForOpportunity);
+
+        expect(mockWakeAgentForOpportunity).toHaveBeenCalledTimes(1);
+        const wake = mockWakeAgentForOpportunity.mock.calls[0]![0];
+        expect(wake.cronRunId).toBe(cronRunId ?? undefined);
+        expect(wake.backgroundToolCompletion?.status).toBe(outcome);
+      });
+    }
+  }
 });

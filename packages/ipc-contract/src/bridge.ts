@@ -72,6 +72,9 @@ import type {
   ResolvedHotkey,
   ShowNotificationPayload,
   ResetNotificationIdentitiesPayload,
+  DraggablePermissionKind,
+  PermissionGuideState,
+  PermissionSourceRect,
   SystemPermissionKind,
   SystemPermissionStateItem,
   SystemPermissionsState,
@@ -339,6 +342,22 @@ export interface VellumBridge {
     };
   };
   permissions: {
+    /** macOS companion setup; absent on older shells and other platforms. */
+    setup?: {
+      cancel(): void;
+      begin(
+        kind: DraggablePermissionKind,
+        source?: PermissionSourceRect,
+      ): Promise<SystemPermissionStateItem>;
+      getGuide(): Promise<PermissionGuideState | null>;
+      onGuide(
+        callback: (state: PermissionGuideState | null) => void,
+      ): () => void;
+      ready(id: number, height: number): void;
+      dismiss(id: number): void;
+      startDrag(id: number): void;
+      revealApp(id: number): Promise<void>;
+    };
     getState(): Promise<SystemPermissionsState>;
     request(
       kind: SystemPermissionKind,

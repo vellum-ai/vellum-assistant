@@ -187,6 +187,16 @@ export const SEARCH_PROVIDER_CATALOG: readonly SearchProviderCatalogEntry[] = [
     supportsApiBase: true,
     defaultApiBase: "https://api.search.tinyfish.ai",
   },
+  {
+    id: "exa",
+    displayName: "Exa",
+    kind: "byok",
+    apiKeyPrefix: "Exa API key...",
+    envVar: "EXA_API_KEY",
+    secretKey: "exa",
+    fallbackOrder: 9,
+    privacyPolicyUrl: "https://exa.ai/privacy-policy",
+  },
 ];
 
 /** Provider ids accepted by the web-search config schema. */

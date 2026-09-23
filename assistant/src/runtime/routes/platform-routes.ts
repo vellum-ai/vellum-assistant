@@ -90,7 +90,12 @@ const PlatformStatusResponseSchema = z.object({
   isPlatform: z.boolean(),
   baseUrl: z.string(),
   assistantId: z.string(),
-  hasAssistantApiKey: z.boolean(),
+  hasAssistantApiKey: z
+    .boolean()
+    .nullable()
+    .describe(
+      "Whether a managed assistant API key is stored. Null when the credential store could not be read, which is not evidence that no key is stored.",
+    ),
   hasWebhookSecret: z.boolean(),
   clientInstallationId: z.string().nullable(),
   available: z.boolean(),

@@ -164,6 +164,103 @@ describe("PlatformPushAdapter", () => {
     );
   });
 
+  test.each(["chat.assistant_reply", "schedule.result", "activity.complete"])(
+    "%s targets the resolved completion recipient",
+    async (sourceEventName) => {
+      const adapter = new PlatformPushAdapter();
+      const result = await adapter.send(
+        makePayload({
+          sourceEventName,
+          contextPayload: {
+            completion: {
+              workId: "task-1",
+              conversationId: "conv-1",
+              recipientPrincipalId: "principal-1",
+              owner: "parent_continuation",
+            },
+          },
+        }),
+        makeDestination({ metadata: { guardianPrincipalId: "principal-1" } }),
+      );
+
+      expect(result.success).toBe(true);
+      expect(fetchCalls[0]?.body.target_guardian_principal_id).toBe(
+        "principal-1",
+      );
+    },
+  );
+
+  test.each([undefined, "  ", "other-principal"])(
+    "does not send typed completion preview with unavailable recipient %s",
+    async (guardianPrincipalId) => {
+      const adapter = new PlatformPushAdapter();
+      const result = await adapter.send(
+        makePayload({
+          sourceEventName: "activity.complete",
+          contextPayload: {
+            completion: {
+              workId: "task-1",
+              conversationId: "conv-1",
+              recipientPrincipalId: "principal-1",
+              owner: "parent_continuation",
+            },
+          },
+        }),
+        makeDestination({ metadata: { guardianPrincipalId } }),
+      );
+
+      expect(result).toEqual({
+        success: false,
+        error: "completion recipient unavailable",
+      });
+      expect(fetchCalls).toEqual([]);
+    },
+  );
+
+  test.each(["chat.assistant_reply", "schedule.result"])(
+    "%s preserves owner-scoped push when recipient lookup is unavailable",
+    async (sourceEventName) => {
+      const result = await new PlatformPushAdapter().send(
+        makePayload({ sourceEventName }),
+        makeDestination(),
+      );
+
+      expect(result.success).toBe(true);
+      expect(fetchCalls).toHaveLength(1);
+      expect(fetchCalls[0]?.body.target_guardian_principal_id).toBeUndefined();
+    },
+  );
+
+  test.each([
+    null,
+    {},
+    {
+      workId: "task-1",
+      conversationId: "conv-private",
+      recipientPrincipalId: "principal-1",
+      owner: "unknown",
+    },
+  ])(
+    "malformed ownership %j never dispatches a mobile preview",
+    async (completion) => {
+      const result = await new PlatformPushAdapter().send(
+        makePayload({
+          sourceEventName: "activity.complete",
+          urgency: "high",
+          copy: { title: "Private result", body: "Sensitive result preview." },
+          contextPayload: { completion },
+        }),
+        makeDestination({ metadata: { guardianPrincipalId: "principal-1" } }),
+      );
+
+      expect(result).toEqual({
+        success: false,
+        error: "completion recipient unavailable",
+      });
+      expect(fetchCalls).toEqual([]);
+    },
+  );
+
   test("omits target_guardian_principal_id for non-guardian events even with principalId in metadata", async () => {
     const adapter = new PlatformPushAdapter();
     const payload = makePayload({ sourceEventName: "schedule.notify" });

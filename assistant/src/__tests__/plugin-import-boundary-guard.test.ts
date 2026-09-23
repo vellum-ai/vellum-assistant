@@ -196,6 +196,9 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../daemon/trust-context.js",
     "../../../home/job-handlers/conversation-starters.js",
     "../../../media/job-handlers/media-processing.js",
+    // The skill-update receipt job announces a burst through the
+    // notification pipeline's single entry point. No plugin-api equivalent.
+    "../../../notifications/emit-signal.js",
     "../../../permissions/types.js",
     "../../../persistence/auto-analysis-constants.js",
     "../../../persistence/checkpoints.js",

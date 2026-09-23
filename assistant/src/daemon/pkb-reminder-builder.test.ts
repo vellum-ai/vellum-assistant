@@ -6,7 +6,7 @@ import { buildPkbReminder } from "./pkb-reminder-builder.js";
 // future edit to the BODY text is caught by tests.
 const BASE_REMINDER =
   "<system_reminder>" +
-  "\nStay present in this conversation. Use `remember` when something feels worth pausing to mark — corrections (highest priority), plans, decisions, felt moments. You don't have to capture everything in the moment — a retrospective pass reviews this conversation in the background and saves what you didn't capture." +
+  "\nStay present in this conversation. Use `remember` when something feels worth pausing to mark: corrections (highest priority), plans, decisions, felt moments. A later pass may review this conversation and save what you did not capture, but it is not guaranteed and never runs over scheduled work, so save now anything that must survive." +
   "\nIf you're unsure about something that may live in the workspace — past decisions, prior conversations, files — use `recall` before asking or guessing." +
   "\n</system_reminder>";
 
@@ -19,7 +19,7 @@ describe("buildPkbReminder", () => {
     const out = buildPkbReminder(["projects/alpha.md"]);
     const expected =
       "<system_reminder>" +
-      "\nStay present in this conversation. Use `remember` when something feels worth pausing to mark — corrections (highest priority), plans, decisions, felt moments. You don't have to capture everything in the moment — a retrospective pass reviews this conversation in the background and saves what you didn't capture." +
+      "\nStay present in this conversation. Use `remember` when something feels worth pausing to mark: corrections (highest priority), plans, decisions, felt moments. A later pass may review this conversation and save what you did not capture, but it is not guaranteed and never runs over scheduled work, so save now anything that must survive." +
       "\nIf you're unsure about something that may live in the workspace — past decisions, prior conversations, files — use `recall` before asking or guessing." +
       "\nBased on the current context, these files look especially relevant:" +
       "\n- projects/alpha.md" +
@@ -39,7 +39,7 @@ describe("buildPkbReminder", () => {
     const out = buildPkbReminder(hints);
     const expected =
       "<system_reminder>" +
-      "\nStay present in this conversation. Use `remember` when something feels worth pausing to mark — corrections (highest priority), plans, decisions, felt moments. You don't have to capture everything in the moment — a retrospective pass reviews this conversation in the background and saves what you didn't capture." +
+      "\nStay present in this conversation. Use `remember` when something feels worth pausing to mark: corrections (highest priority), plans, decisions, felt moments. A later pass may review this conversation and save what you did not capture, but it is not guaranteed and never runs over scheduled work, so save now anything that must survive." +
       "\nIf you're unsure about something that may live in the workspace — past decisions, prior conversations, files — use `recall` before asking or guessing." +
       "\nBased on the current context, these files look especially relevant:" +
       "\n- a.md" +
@@ -55,6 +55,13 @@ describe("buildPkbReminder", () => {
     expect(idxA).toBeGreaterThan(-1);
     expect(idxB).toBeGreaterThan(idxA);
     expect(idxC).toBeGreaterThan(idxB);
+  });
+
+  test("says later capture is conditional and never covers scheduled work", () => {
+    const out = buildPkbReminder([]);
+    expect(out).toContain("not guaranteed");
+    expect(out).toContain("never runs over scheduled work");
+    expect(out).not.toContain("reviews this conversation in the background");
   });
 
   test("hints with special chars (< and &) are emitted verbatim (no escaping)", () => {

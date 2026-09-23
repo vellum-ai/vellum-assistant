@@ -22,6 +22,8 @@ import type { ReactNode } from "react";
 import { createSelectors } from "@/utils/create-selectors";
 
 interface IntelligenceLayoutSlotsState {
+  /** Replaces the section title, for a page-owned title control. */
+  headerTitle: ReactNode;
   /** Rendered on the right of the section heading row; null leaves it empty. */
   headerTrailing: ReactNode;
   /**
@@ -35,6 +37,7 @@ interface IntelligenceLayoutSlotsState {
 }
 
 interface IntelligenceLayoutSlotsActions {
+  setHeaderTitle: (node: ReactNode) => void;
   setHeaderTrailing: (node: ReactNode) => void;
   setDetailIsScreen: (value: boolean) => void;
 }
@@ -44,8 +47,10 @@ type IntelligenceLayoutSlotsStore = IntelligenceLayoutSlotsState &
 
 const useIntelligenceLayoutSlotsStoreBase =
   create<IntelligenceLayoutSlotsStore>((set) => ({
+    headerTitle: null,
     headerTrailing: null,
     detailIsScreen: false,
+    setHeaderTitle: (headerTitle) => set({ headerTitle }),
     setHeaderTrailing: (headerTrailing) => set({ headerTrailing }),
     setDetailIsScreen: (detailIsScreen) => set({ detailIsScreen }),
   }));

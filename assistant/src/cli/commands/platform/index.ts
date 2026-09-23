@@ -24,7 +24,7 @@ interface PlatformStatusResult {
   isPlatform: boolean;
   baseUrl: string;
   assistantId: string;
-  hasAssistantApiKey: boolean;
+  hasAssistantApiKey: boolean | null;
   hasWebhookSecret: boolean;
   available: boolean;
   organizationId: string | null;
@@ -95,7 +95,13 @@ export function registerPlatformCommand(program: Command): void {
             log.info(`Base URL: ${result.baseUrl || "(not set)"}`);
             log.info(`Assistant ID: ${result.assistantId || "(not set)"}`);
             log.info(
-              `Assistant API key: ${result.hasAssistantApiKey ? "set" : "not set"}`,
+              `Assistant API key: ${
+                result.hasAssistantApiKey === null
+                  ? "unknown (credential store unreachable)"
+                  : result.hasAssistantApiKey
+                    ? "set"
+                    : "not set"
+              }`,
             );
             log.info(
               `Webhook secret: ${result.hasWebhookSecret ? "set" : "not set (run ensure-registration to provision)"}`,

@@ -172,6 +172,17 @@ describe("plugins install by name — disable-platform mode", () => {
     expect(message).toContain("not in the bundled marketplace catalog");
   });
 
+  test("does not install a feature-gated bundled integration", async () => {
+    process.env.VELLUM_DISABLE_PLATFORM = "true";
+    delete process.env.IS_PLATFORM;
+
+    await runInstall("gamma");
+
+    expect(installPluginCalls).toHaveLength(0);
+    expect(platformInstallCalls).toHaveLength(0);
+    expect(process.exitCode).toBe(1);
+  });
+
   test("uses the platform install endpoint when platform features are enabled", async () => {
     delete process.env.VELLUM_DISABLE_PLATFORM;
     delete process.env.IS_PLATFORM;
@@ -182,6 +193,21 @@ describe("plugins install by name — disable-platform mode", () => {
     expect(platformInstallCalls.length).toBe(1);
     expect(platformInstallCalls[0]!.name).toBe(BUNDLED_PLUGIN);
     expect(process.exitCode).not.toBe(1);
+  });
+
+  test("does not install a name absent from a successful platform catalog", async () => {
+    delete process.env.VELLUM_DISABLE_PLATFORM;
+    delete process.env.IS_PLATFORM;
+    const errSpy = spyOn(console, "error").mockImplementation(() => {});
+
+    await runInstall("gamma");
+
+    expect(installPluginCalls).toHaveLength(0);
+    expect(platformInstallCalls).toHaveLength(0);
+    expect(process.exitCode).toBe(1);
+    expect(String(errSpy.mock.calls[0]?.[0])).toContain(
+      "not in the marketplace catalog",
+    );
   });
 
   test("installs a platform-visible local package without the platform tar endpoint", async () => {

@@ -813,6 +813,50 @@ export const skillLoadDetail: ToolDetailPayload = payload({
  * A skill body past the Output clamp threshold, so the story shows the
  * "Show more" control in the default Clean view rather than only in Raw.
  */
+/**
+ * A skill advertising many tools, each with a full description. The list is
+ * what runs the panel on, so it folds as one value rather than per row.
+ */
+export const skillLoadManyToolsDetail: ToolDetailPayload = {
+  ...skillLoadDetail,
+  toolCallId: "tc-skill-load-many-tools",
+  result: skillLoadResult.replace(
+    [
+      "### app_refresh",
+      "Rebuild an existing app and refresh any open preview.",
+      "Parameters:",
+      "- app_id (string, required): Id returned by app_create.",
+    ].join("\n"),
+    [
+      "### app_refresh",
+      "Rebuild an existing app and refresh any open preview. Use it after",
+      "writing source into the app's folder; the preview reloads in place.",
+      "Parameters:",
+      "- app_id (string, required): Id returned by app_create.",
+      "",
+      "### app_list",
+      "List the apps in the user's Library, most recently updated first, with",
+      "each app's id, name, description and timestamps.",
+      "",
+      "### app_open",
+      "Open an app for the user. Pass the id returned by app_create, or a",
+      "name to resolve first with app_list.",
+      "",
+      "### app_rename",
+      "Rename an app in the Library. The folder keeps its id, so links and",
+      "open previews survive the rename.",
+      "",
+      "### app_delete",
+      "Remove an app from the Library. The folder is kept for a grace period",
+      "so an accidental delete can be undone from the Library.",
+      "",
+      "### app_share",
+      "Publish an app to a link the user can send on. The link stays private",
+      "until they share it, and revoking it takes the app offline.",
+    ].join("\n"),
+  ),
+};
+
 export const skillLoadLongDetail: ToolDetailPayload = {
   ...skillLoadDetail,
   toolCallId: "tc-skill-load-long",
@@ -963,6 +1007,64 @@ export const webFetchDetail: ToolDetailPayload = payload({
   riskLevel: "low",
 });
 
+/** A fetched page long enough to run the panel on, so it folds. */
+export const webFetchLongPageDetail: ToolDetailPayload = payload({
+  toolCallId: "tc-web-fetch-6",
+  toolName: "web_fetch",
+  title: "Fetching a webpage",
+  activity: "Reading the autodocs page",
+  input: { activity: "Reading the autodocs page", url: AUTODOCS_URL },
+  result: [
+    `Requested URL: ${AUTODOCS_URL}`,
+    `Final URL: ${AUTODOCS_URL}`,
+    "Status: 200 OK",
+    "Content:",
+    "# Autodocs",
+    "",
+    "Storybook can generate a documentation page from a set of stories by",
+    "adding the `autodocs` tag to a component's meta.",
+    "",
+    "## Setting it up",
+    "",
+    "Tag the meta and every story inherits the page. A story can opt out with",
+    "the `!autodocs` tag, which is the escape hatch for a case the generated",
+    "page reads badly for.",
+    "",
+    "## What lands on the page",
+    "",
+    "The component's props table, each story rendered with its source, and",
+    "whatever the component's own docs block adds. The order follows the file.",
+    "",
+    "## Writing the description",
+    "",
+    "The description comes from the component's docstring, so it is written",
+    "once and read in two places: the editor and the docs page.",
+    "",
+    "## Customising",
+    "",
+    "A docs page is itself a story, so it takes parameters like any other, and",
+    "a project can replace the template wholesale where the default does not",
+    "suit the component.",
+  ].join("\n"),
+  activityMetadata: {
+    webFetch: {
+      url: AUTODOCS_URL,
+      finalUrl: AUTODOCS_URL,
+      provider: "default",
+      status: 200,
+      byteCount: 91422,
+      charCount: 1120,
+      truncated: false,
+      title: "Autodocs | Storybook docs",
+      domain: "storybook.js.org",
+      redirectCount: 0,
+      durationMs: 700,
+      startIndexPastEnd: false,
+    },
+  },
+  riskLevel: "low",
+});
+
 /**
  * A fetch recorded before the daemon sent metadata. The source card comes from
  * the result's header lines instead, so old history reads as it always has.
@@ -1085,6 +1187,152 @@ export const webFetchRunningDetail: ToolDetailPayload = payload({
   title: "Fetching a webpage",
   activity: "Reading the autodocs page",
   input: { activity: "Reading the autodocs page", url: AUTODOCS_URL },
+  status: "running",
+  riskLevel: "low",
+});
+
+/**
+ * `ask_question`, answered. The record the daemon persists carries the
+ * questions as asked and the user's decision for each, which is what the
+ * drawer reads: an option, typed text, and one left unanswered.
+ */
+export const askQuestionDetail: ToolDetailPayload = payload({
+  toolCallId: "tc-ask-1",
+  toolName: "ask_question",
+  title: "Asking a question",
+  activity: "Checking which release to triage",
+  input: {
+    activity: "Checking which release to triage",
+    questions: [
+      {
+        question: "Which release should I triage first?",
+        options: [
+          { id: "latest", label: "The latest release" },
+          { id: "blocked", label: "The blocked release" },
+        ],
+      },
+    ],
+  },
+  result: "The user chose: The blocked release.",
+  answeredQuestion: {
+    requestId: "req-1",
+    overall: "completed",
+    questions: [
+      {
+        id: "q1",
+        question: "Which release should I triage first?",
+        description: "Both have failures waiting.",
+        options: [
+          {
+            id: "latest",
+            label: "The latest release",
+            description: "Cut this morning.",
+          },
+          {
+            id: "blocked",
+            label: "The blocked release",
+            description: "Held for two days.",
+          },
+        ],
+      },
+    ],
+    responses: [{ questionId: "q1", decision: "option", optionId: "blocked" }],
+  },
+  riskLevel: "low",
+});
+
+/** A batch, showing each way a question can be answered. */
+export const askQuestionBatchDetail: ToolDetailPayload = payload({
+  toolCallId: "tc-ask-2",
+  toolName: "ask_question",
+  title: "Asking a question",
+  activity: "Confirming how to group the failures",
+  input: { activity: "Confirming how to group the failures" },
+  result: "The user answered 2 of 3 questions.",
+  answeredQuestion: {
+    requestId: "req-2",
+    overall: "completed",
+    questions: [
+      {
+        id: "q1",
+        question: "Group the failures by owning team or by file?",
+        options: [
+          { id: "team", label: "By owning team" },
+          { id: "file", label: "By file" },
+        ],
+      },
+      {
+        id: "q2",
+        question: "Where should the summary go?",
+        options: [
+          { id: "thread", label: "The release thread" },
+          { id: "issue", label: "A new issue" },
+        ],
+      },
+      {
+        id: "q3",
+        question: "Should I include the drafts?",
+        options: [
+          { id: "yes", label: "Include them" },
+          { id: "no", label: "Leave them out" },
+        ],
+      },
+    ],
+    responses: [
+      { questionId: "q1", decision: "option", optionId: "team" },
+      {
+        questionId: "q2",
+        decision: "free_text",
+        text: "Post it in the release thread and link the issue.",
+      },
+      { questionId: "q3", decision: "skipped" },
+    ],
+  },
+  riskLevel: "low",
+});
+
+/**
+ * A question answered before the daemon persisted answered records, so the
+ * call carries the questions it asked and the model-facing result, and no
+ * structured answer. The detail reads the input rather than showing nothing.
+ */
+export const askQuestionLegacyDetail: ToolDetailPayload = payload({
+  toolCallId: "tc-ask-4",
+  toolName: "ask_question",
+  title: "Asking a question",
+  activity: "Checking which release to triage",
+  input: {
+    activity: "Checking which release to triage",
+    questions: [
+      {
+        question: "Which release should I triage first?",
+        description: "Both have failures waiting.",
+        options: [
+          {
+            id: "latest",
+            label: "The latest release",
+            description: "Cut this morning.",
+          },
+          {
+            id: "blocked",
+            label: "The blocked release",
+            description: "Held for two days.",
+          },
+        ],
+      },
+    ],
+  },
+  result: "The user chose: The blocked release.",
+  riskLevel: "low",
+});
+
+/** A question still waiting on the user. */
+export const askQuestionRunningDetail: ToolDetailPayload = payload({
+  toolCallId: "tc-ask-3",
+  toolName: "ask_question",
+  title: "Asking a question",
+  activity: "Checking which release to triage",
+  input: { activity: "Checking which release to triage" },
   status: "running",
   riskLevel: "low",
 });

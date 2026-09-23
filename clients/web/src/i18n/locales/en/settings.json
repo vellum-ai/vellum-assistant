@@ -1237,7 +1237,7 @@
     "titleGeneric": "Get the Vellum Mobile App"
   },
   "notificationsPage": {
-    "description": "Manage how Vellum notifies you on this Android device.",
+    "description": "Manage how Vellum notifies you on this device.",
     "title": "Notifications"
   },
   "overridesCallSiteList": {
@@ -2568,5 +2568,15 @@
     "percentValue": "{percent}%",
     "centsValue": "{cents} ¢",
     "playEnd": "Play end tone"
+  },
+  "browserNotificationSettingsCard": {
+    "title": "Browser notifications",
+    "grantedDescription": "Notifications are allowed in this browser.",
+    "deniedDescription": "Notifications are blocked. Allow notifications for this site in your browser settings.",
+    "unsupportedDescription": "This browser does not support system notifications.",
+    "promptDescription": "Enable notifications to know when an answer or requested task is ready.",
+    "checkingDescription": "Checking notification permission…",
+    "openTabDescription": "Keep a Vellum tab open to receive alerts. Closing or suspending the tab, or going offline, pauses delivery.",
+    "enable": "Enable notifications"
   }
 }

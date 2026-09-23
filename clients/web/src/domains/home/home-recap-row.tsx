@@ -17,6 +17,7 @@ import {
   CrossfadeStack,
   Typography,
 } from "@vellumai/design-library";
+import type { GuardianDecisionActionId } from "@vellumai/service-contracts/guardian-requests";
 
 import { flattenSummary, resolvePreview } from "./feed-preview";
 import {
@@ -45,13 +46,6 @@ const skipRowControls = (target: Element | null) => {
 };
 
 /**
- * The decision a row's inline buttons submit for a pending approval. Mirrors
- * the canonical decision route's `action` field, so the bell can hand it to
- * the mutation unchanged.
- */
-export type HomeRecapRowDecision = "approve_once" | "reject";
-
-/**
  * The line under the title, in the indented column: a description where the
  * title alone does not say what the row needs, and the thread it came from.
  * The dot's gutter (8px) plus the gap beside it (8px) is what this indent
@@ -77,7 +71,7 @@ export interface HomeRecapRowProps {
    * Submits a decision on a pending approval from the row itself. Without it
    * the row offers no buttons and the request is decided from its detail.
    */
-  onDecide?: (item: FeedItem, decision: HomeRecapRowDecision) => void;
+  onDecide?: (item: FeedItem, decision: GuardianDecisionActionId) => void;
   /** True while a decision is in flight, holding every row's buttons inert. */
   isDecisionPending?: boolean;
   /**

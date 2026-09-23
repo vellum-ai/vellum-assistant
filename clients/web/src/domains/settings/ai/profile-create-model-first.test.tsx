@@ -452,7 +452,7 @@ describe("the model list", () => {
     renderCreate([makeConnection("anthropic-personal")]);
 
     const rows = modelRows();
-    const opus = rows.filter((row) => row.label === "Claude Opus 5");
+    const opus = rows.filter((row) => row.label === "Claude Opus 5.5");
     expect(opus).toHaveLength(1);
     expect(opus[0].meta).toBe("");
 
@@ -502,7 +502,7 @@ describe("the model list", () => {
     expect(sectionRowLabels("Anthropic")).toEqual([
       "See more",
       "Claude Fable 5.1",
-      "Claude Opus 5",
+      "Claude Opus 5.5",
       "Claude Sonnet 5",
     ]);
     expect(sectionAction("Anthropic").getAttribute("aria-expanded")).toBe(
@@ -526,7 +526,7 @@ describe("the model list", () => {
     expect(sectionRowLabels("Anthropic")).toEqual([
       "See more",
       "Claude Fable 5.1",
-      "Claude Opus 5",
+      "Claude Opus 5.5",
       "Claude Sonnet 5",
     ]);
   });

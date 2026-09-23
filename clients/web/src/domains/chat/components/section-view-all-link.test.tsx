@@ -15,7 +15,7 @@ import { MemoryRouter } from "react-router";
 import { SectionViewAllLink } from "@/domains/chat/components/section-view-all-link";
 import { viewAllHrefFor } from "@/domains/chat/components/sidebar-section-item";
 import type { SidebarSection } from "@/domains/chat/use-sidebar-state";
-import { oldChatsSearchFor } from "@/domains/chat/utils/old-chats-filters";
+import { allChatsSearchFor } from "@/domains/chat/utils/all-chats-filters";
 import { routes } from "@/utils/routes";
 
 function section(overrides: Partial<SidebarSection>): SidebarSection {
@@ -33,7 +33,7 @@ describe("viewAllHrefFor", () => {
   test("Chats points at the page's default view", () => {
     expect(
       viewAllHrefFor(section({ type: "recents", holdsChannels: false })),
-    ).toBe(routes.oldChats);
+    ).toBe(routes.allChats);
   });
 
   test("a channel section preselects its channel", () => {
@@ -41,7 +41,7 @@ describe("viewAllHrefFor", () => {
       section({ type: "channel", channelId: "slack" }),
     );
     expect(href).toBe(
-      `${routes.oldChats}${oldChatsSearchFor({ kind: "channel", channelId: "slack" })}`,
+      `${routes.allChats}${allChatsSearchFor({ kind: "channel", channelId: "slack" })}`,
     );
     expect(href).toContain("slack");
   });
@@ -59,7 +59,7 @@ describe("viewAllHrefFor", () => {
       }),
     );
     expect(href).toBe(
-      `${routes.oldChats}${oldChatsSearchFor({ kind: "group", groupId: "grp-reviews" })}`,
+      `${routes.allChats}${allChatsSearchFor({ kind: "group", groupId: "grp-reviews" })}`,
     );
     expect(href).toContain("grp-reviews");
   });

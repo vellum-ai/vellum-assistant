@@ -19,9 +19,12 @@ import {
 } from "@vellumai/assistant-api";
 import { Button, Tag, Typography } from "@vellumai/design-library";
 import type { TagTone } from "@vellumai/design-library/components/tag";
+import {
+  type GuardianDecisionActionId,
+  isDenyingGuardianAction,
+} from "@vellumai/service-contracts/guardian-requests";
 
 import {
-  type GuardianDecisionAction,
   isCommittedDecision,
   isRetiredDecisionReason,
   useGuardianDecision,
@@ -76,7 +79,7 @@ export function HomeGuardianRequestCard({
     return <HomeMarkdownContent content={item.summary} />;
   }
 
-  const decide = (action: GuardianDecisionAction) => {
+  const decide = (action: GuardianDecisionActionId) => {
     decision.decide(guardianRequest.requestId, action);
   };
 
@@ -92,9 +95,9 @@ export function HomeGuardianRequestCard({
   // only come back already resolved.
   const decidedLocally =
     outcome !== null && isCommittedDecision(outcome)
-      ? outcome.action === "approve_once"
-        ? ("approved" as const)
-        : ("denied" as const)
+      ? isDenyingGuardianAction(outcome.action)
+        ? ("denied" as const)
+        : ("approved" as const)
       : null;
   // A declined decision retires the request only when the reason says it is
   // settled or gone; a decision this actor may not make, or that could not

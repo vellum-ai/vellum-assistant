@@ -291,18 +291,15 @@
     "backToConversationAriaLabel": "Volver a la conversación",
     "backToSkillsAriaLabel": "Volver a las habilidades",
     "filesTab": "Archivos",
-    "fileViewModeAriaLabel": "Modo de vista de archivo",
     "historyTab": "Historial",
     "install": "Instalar",
     "noFilesAvailable": "No hay archivos disponibles.",
     "openInWorkspaceAriaLabel": "Abrir en el espacio de trabajo",
     "pendingAriaLabel": "Pendiente",
-    "preview": "Vista previa",
     "remove": "Quitar",
     "saveFailed": "Error al guardar",
     "selectAFile": "Selecciona un archivo",
-    "selectFilePrompt": "Selecciona un archivo para ver su contenido.",
-    "source": "Código"
+    "selectFilePrompt": "Selecciona un archivo para ver su contenido."
   },
   "skillDetailPage": {
     "backToConversation": "Volver a la conversación",

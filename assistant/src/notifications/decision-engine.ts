@@ -39,6 +39,7 @@ import {
   intersectChannelAllowlist,
   readChannelAllowlist,
 } from "./channel-allowlist.js";
+import { readCompletionContext } from "./completion-policy.js";
 import {
   buildConversationCandidates,
   type ConversationCandidateSet,
@@ -81,26 +82,8 @@ const PROMPT_VERSION = "v4";
  */
 const MAX_IDENTITY_CONTEXT_CHARS = 2000;
 
-/**
- * Delivery scope for `chat.assistant_reply` signals: the platform channel is a
- * push_only relay that never materializes a conversation, so these signals
- * reach the user exclusively as a push. Adding a channel here widens delivery
- * to it.
- */
-const ASSISTANT_REPLY_CHANNELS = [
-  "platform",
-] as const satisfies readonly NotificationChannel[];
-
-/**
- * Delivery scope for `schedule.result` signals. Wider than
- * {@link ASSISTANT_REPLY_CHANNELS} by one channel, and the difference is the
- * point: an unseen chat reply is already sitting in a conversation the user
- * opened, so a push is the only thing it can add. A scheduled run's output has
- * no such home — nobody is looking at the run's conversation — so `vellum`
- * carries it into the notification center where it persists, and `platform`
- * pushes it.
- */
-const SCHEDULE_RESULT_CHANNELS = [
+/** Completion alerts reach connected clients and registered mobile devices. */
+const COMPLETION_CHANNELS = [
   "vellum",
   "platform",
 ] as const satisfies readonly NotificationChannel[];
@@ -886,6 +869,17 @@ export async function evaluateSignal(
   const requestedBody = nonEmpty(
     readPayloadString(signal.contextPayload, "requestedMessage"),
   );
+  if (readCompletionContext(signal) && requestedBody) {
+    return buildPassThroughDecision({
+      signal,
+      availableChannels,
+      selectedChannels: COMPLETION_CHANNELS.filter((channel) =>
+        availableChannels.includes(channel),
+      ),
+      body: requestedBody,
+      reasoningSummary: "background_result pass-through",
+    });
+  }
   if (signal.sourceChannel === "assistant_tool" && requestedBody) {
     const payload = signal.contextPayload as Record<string, unknown>;
     const defaultChannels = selectDefaultChannelsByUrgency(
@@ -932,12 +926,12 @@ export async function evaluateSignal(
   }
 
   // Assistant-reply pass-through: the delivery scope is fixed
-  // (ASSISTANT_REPLY_CHANNELS), so the LLM classifier has nothing to decide.
+  // (COMPLETION_CHANNELS), so the LLM classifier has nothing to decide.
   if (signal.sourceEventName === "chat.assistant_reply" && requestedBody) {
     return buildPassThroughDecision({
       signal,
       availableChannels,
-      selectedChannels: ASSISTANT_REPLY_CHANNELS.filter((ch) =>
+      selectedChannels: COMPLETION_CHANNELS.filter((ch) =>
         availableChannels.includes(ch),
       ),
       body: requestedBody,
@@ -972,7 +966,7 @@ export async function evaluateSignal(
   }
 
   // Schedule-result pass-through: the body is the run's own reply, which is
-  // the whole point of the notification — a briefing, a digest, a report. The
+  // the whole point of the notification: a briefing, a digest, a report. The
   // classifier rewrites bodies into short alerts, which would throw away the
   // content the user set the schedule up to receive. Routing has nothing to
   // decide either: the user asked for this cadence, so it goes to the inbox
@@ -981,7 +975,7 @@ export async function evaluateSignal(
     return buildPassThroughDecision({
       signal,
       availableChannels,
-      selectedChannels: SCHEDULE_RESULT_CHANNELS.filter((ch) =>
+      selectedChannels: COMPLETION_CHANNELS.filter((ch) =>
         availableChannels.includes(ch),
       ),
       body: requestedBody,

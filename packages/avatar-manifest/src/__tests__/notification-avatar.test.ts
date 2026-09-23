@@ -67,8 +67,31 @@ describe("notificationAvatarDiscHex", () => {
 });
 
 describe("notificationAvatarSvg", () => {
+  test("fills the entire circular crop with a custom image", () => {
+    const svg = notificationAvatarSvg({
+      kind: "image",
+      innerPngBase64: PNG_BASE64,
+      accentHex: "#E9642F",
+    });
+
+    expect(attributes("image", svg)).toMatchObject({
+      x: "0",
+      y: "0",
+      width: "256",
+      height: "256",
+      preserveAspectRatio: "xMidYMid slice",
+      "clip-path": "url(#notification-avatar-disc)",
+    });
+    expect(allAttributes("circle", svg)[1]).toEqual({
+      cx: "128",
+      cy: "128",
+      r: "128",
+    });
+  });
+
   test("draws one disc and one inset avatar at the default size", () => {
     const svg = notificationAvatarSvg({
+      kind: "character",
       innerPngBase64: PNG_BASE64,
       accentHex: "#E9642F",
     });
@@ -100,6 +123,7 @@ describe("notificationAvatarSvg", () => {
     // upload fill the square instead of letterboxing is the pair of attributes
     // asserted here.
     const svg = notificationAvatarSvg({
+      kind: "character",
       innerPngBase64: PNG_BASE64,
       accentHex: "#E9642F",
     });
@@ -121,6 +145,7 @@ describe("notificationAvatarSvg", () => {
 
   test("scales the geometry to a custom size", () => {
     const svg = notificationAvatarSvg({
+      kind: "character",
       innerPngBase64: PNG_BASE64,
       accentHex: "#E9642F",
       size: 100,
@@ -142,6 +167,7 @@ describe("notificationAvatarSvg", () => {
 
   test("carries a non-PNG inner raster with its own media type", () => {
     const svg = notificationAvatarSvg({
+      kind: "character",
       innerPngBase64: PNG_BASE64,
       innerMediaType: "image/jpeg",
       accentHex: "#E9642F",
@@ -154,6 +180,7 @@ describe("notificationAvatarSvg", () => {
 
   test("paints the fallback disc when there is no accent", () => {
     const svg = notificationAvatarSvg({
+      kind: "character",
       innerPngBase64: PNG_BASE64,
       accentHex: null,
     });
@@ -164,8 +191,21 @@ describe("notificationAvatarSvg", () => {
 });
 
 describe("notificationAvatarGeometry", () => {
+  test("custom images reach the disc edge at any output size", () => {
+    expect(notificationAvatarGeometry("image")).toEqual({
+      radius: 128,
+      offset: 0,
+      inner: 256,
+    });
+    expect(notificationAvatarGeometry("image", 100)).toEqual({
+      radius: 50,
+      offset: 0,
+      inner: 100,
+    });
+  });
+
   test("derives the disc, the border and the avatar edge from the size", () => {
-    expect(notificationAvatarGeometry(100)).toEqual({
+    expect(notificationAvatarGeometry("character", 100)).toEqual({
       radius: 50,
       offset: 11,
       inner: 78,
@@ -173,15 +213,19 @@ describe("notificationAvatarGeometry", () => {
   });
 
   test("measures the default size when given none", () => {
-    expect(notificationAvatarGeometry()).toEqual(
-      notificationAvatarGeometry(NOTIFICATION_AVATAR_SIZE),
+    expect(notificationAvatarGeometry("character")).toEqual(
+      notificationAvatarGeometry("character", NOTIFICATION_AVATAR_SIZE),
     );
   });
 
   test("is the geometry the SVG is drawn with", () => {
     const size = 100;
-    const { radius, offset, inner } = notificationAvatarGeometry(size);
+    const { radius, offset, inner } = notificationAvatarGeometry(
+      "character",
+      size,
+    );
     const svg = notificationAvatarSvg({
+      kind: "character",
       innerPngBase64: PNG_BASE64,
       accentHex: null,
       size,

@@ -20,9 +20,9 @@ import { ClampedContent, SectionLabel } from "@/components/detail-primitives";
 import { AvatarRenderer } from "@/components/avatar-renderer";
 import { DetailShell, DetailShellNotice } from "@/components/detail-shell";
 import {
-  AnimatedMetricCard,
+  AnimatedStatSquare,
   formatNumber,
-} from "@/domains/chat/components/metric-card";
+} from "@/domains/chat/components/animated-stat-square";
 import { StatusBadge } from "@/domains/chat/components/subagent-status-badge";
 import { canAddressSubagentDetail } from "@/domains/chat/store-helpers/subagent-detail-addressability";
 import type { SubagentEntry } from "@/domains/chat/subagent-store";
@@ -324,6 +324,7 @@ export function SubagentDetailPanel({
       {/* Body: swaps to a step's nested detail when one is selected, keeping
           the header above mounted in both views. */}
       <motion.div
+          className="flex flex-col gap-5"
           key={activeDetail ? "detail" : "list"}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -356,25 +357,15 @@ export function SubagentDetailPanel({
           ) : (
             <>
               {/* Metrics row */}
-              <div className="mb-5 grid grid-cols-2 gap-3">
-                <AnimatedMetricCard
-                  icon={
-                    <ArrowDownToLine
-                      className="h-4 w-4 shrink-0"
-                      style={{ color: "var(--content-secondary)" }}
-                    />
-                  }
+              <div className="grid grid-cols-2 gap-3">
+                <AnimatedStatSquare
+                  icon={<ArrowDownToLine />}
                   target={entry.inputTokens}
                   format={(n) => formatNumber(Math.round(n))}
                   label={t("subagentDetailPanel.input")}
                 />
-                <AnimatedMetricCard
-                  icon={
-                    <ArrowUpFromLine
-                      className="h-4 w-4 shrink-0"
-                      style={{ color: "var(--content-secondary)" }}
-                    />
-                  }
+                <AnimatedStatSquare
+                  icon={<ArrowUpFromLine />}
                   target={entry.outputTokens}
                   format={(n) => formatNumber(Math.round(n))}
                   label={t("subagentDetailPanel.output")}
@@ -383,7 +374,7 @@ export function SubagentDetailPanel({
 
               {/* Objective section */}
               {entry.objective && (
-                <div className="mb-5">
+                <div>
                   <SectionLabel as="h3">
                     {t("subagentDetailPanel.objective")}
                   </SectionLabel>
@@ -403,6 +394,8 @@ export function SubagentDetailPanel({
                       {entry.objective}
                     </Typography>
                   </ClampedContent>
+                  {/* The rule closes the objective, so it sits inside the
+                      section rather than between two of them. */}
                   <div className="mt-5 h-px w-full bg-[var(--border-hover)]" />
                 </div>
               )}

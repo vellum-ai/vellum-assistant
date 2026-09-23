@@ -20,7 +20,7 @@ const messageAppends: Array<{
   conversationId: string;
   role: string;
   content: string;
-  options?: { skipIndexing?: boolean };
+  options?: { skipIndexing?: boolean; skipResurface?: boolean };
 }> = [];
 const messageRewrites: Array<{ messageId: string; content: string }> = [];
 /** messageId -> the conversation it belongs to, for the scoped lookup. */
@@ -86,7 +86,7 @@ mock.module("../../persistence/conversation-crud.js", () => ({
     conversationId: string,
     role: string,
     content: string,
-    options?: { skipIndexing?: boolean },
+    options?: { skipIndexing?: boolean; skipResurface?: boolean },
   ) => {
     if (messageAppendShouldThrow) {
       throw new Error("simulated message write failure");
@@ -183,6 +183,80 @@ beforeEach(() => {
 });
 
 describe("writeHomeFeedItemForSignal", () => {
+  test.each([undefined, "sent", "failed", "skipped"] as const)(
+    "recipient-owned completion stays out of the shared feed with delivery %s",
+    async (status) => {
+      conversationRowsById.set("conv-source", { conversationType: "standard" });
+      conversationRowsById.set("conv-result", {
+        conversationType: "background",
+      });
+      const item = await writeHomeFeedItemForSignal(
+        makeSignal({
+          sourceChannel: "assistant_tool",
+          sourceContextId: "conv-source",
+          sourceEventName: "activity.complete",
+          contextPayload: {
+            title: "Result ready",
+            body: "Private result preview.",
+            completion: {
+              workId: "task-1",
+              conversationId: "conv-result",
+              recipientPrincipalId: "principal-1",
+              owner: "parent_continuation",
+            },
+          },
+          attentionHints: {
+            requiresAction: false,
+            urgency: "medium",
+            isAsyncBackground: true,
+            visibleInSourceNow: false,
+          },
+        }),
+        makeDecision({
+          selectedChannels: ["platform"],
+          renderedCopy: {
+            platform: { title: "Result ready", body: "The report is ready." },
+          },
+        }),
+        status === undefined
+          ? undefined
+          : makeVellumDelivery({
+              status,
+              ...(status === "failed"
+                ? { errorMessage: "completion recipient unavailable" }
+                : {}),
+            }),
+      );
+
+      expect(item).toBeNull();
+      expect(appendCalls).toEqual([]);
+      expect(messageAppends).toEqual([]);
+      expect(messagesInvalidated).toEqual([]);
+    },
+  );
+
+  test.each([null, {}, { recipientPrincipalId: "principal-1" }])(
+    "malformed completion ownership cannot fall back to the assistant-wide feed (%j)",
+    async (completion) => {
+      conversationRow = { conversationType: "background" };
+      const item = await writeHomeFeedItemForSignal(
+        makeSignal({
+          sourceChannel: "assistant_tool",
+          sourceEventName: "activity.complete",
+          contextPayload: {
+            title: "Result ready",
+            body: "Private result preview.",
+            completion,
+          },
+        }),
+        makeDecision(),
+      );
+      expect(item).toBeNull();
+      expect(appendCalls).toEqual([]);
+      expect(messageAppends).toEqual([]);
+    },
+  );
+
   test("background conversation signal writes a feed item with payload title + rendered body", async () => {
     conversationRow = { conversationType: "background" };
     const signal = makeSignal({
@@ -1039,6 +1113,88 @@ describe("writeHomeFeedItemForSignal", () => {
     expect(appendCalls).toHaveLength(1);
   });
 
+  // ── skill-update receipts ───────────────────────────────────────────
+
+  const RECEIPT_UPDATES = [
+    {
+      skillId: "skill-a",
+      name: "Skill A",
+      summary: "Changed a step.",
+      conversationId: "conv-source-1",
+    },
+    { skillId: "skill-b", name: "Skill B", summary: "Changed another." },
+  ];
+
+  test("a receipt's entries land as the typed updates, out of metadata, under the list panel", async () => {
+    conversationRow = { conversationType: "background" };
+    const signal = makeSignal({
+      sourceChannel: "assistant_tool",
+      sourceEventName: "activity.complete",
+      contextPayload: {
+        title: "2 skills updated",
+        body: "- Skill A: Changed a step.\n- Skill B: Changed another.",
+        updates: RECEIPT_UPDATES,
+        skillId: "skill-a",
+      },
+    });
+
+    const item = await writeHomeFeedItemForSignal(signal, makeDecision());
+
+    expect(item?.updates).toEqual(RECEIPT_UPDATES);
+    expect(item?.detailPanel).toEqual({ kind: "updatesList" });
+    expect(item?.metadata).not.toHaveProperty("updates");
+    expect(item?.metadata?.skillId).toBe("skill-a");
+  });
+
+  test("a receipt's summary is the payload body, never model copy", async () => {
+    // The pipeline's seed message and body win for every other item; a
+    // paraphrase of a receipt can drop an entry, so the list is kept.
+    conversationRow = { conversationType: "background" };
+    const signal = makeSignal({
+      sourceChannel: "assistant_tool",
+      sourceEventName: "activity.complete",
+      contextPayload: {
+        title: "2 skills updated",
+        body: "- Skill A: Changed a step.\n- Skill B: Changed another.",
+        updates: RECEIPT_UPDATES,
+      },
+    });
+    const decision = makeDecision({
+      selectedChannels: ["vellum"],
+      renderedCopy: {
+        vellum: {
+          title: "Skills refreshed",
+          body: "Two skills were refreshed.",
+          conversationSeedMessage:
+            "The assistant refreshed two of your skills after reviewing recent work.",
+        },
+      },
+    });
+
+    const item = await writeHomeFeedItemForSignal(signal, decision);
+
+    expect(item?.summary).toBe(
+      "- Skill A: Changed a step.\n- Skill B: Changed another.",
+    );
+  });
+
+  test("a malformed or empty updates list leaves the item an ordinary notification", async () => {
+    conversationRow = { conversationType: "background" };
+    for (const updates of [[], [{ name: "no id" }], "not a list"]) {
+      appendCalls.length = 0;
+      const signal = makeSignal({
+        sourceChannel: "assistant_tool",
+        sourceEventName: "activity.complete",
+        contextPayload: { title: "Skill updated", body: "Body", updates },
+      });
+
+      const item = await writeHomeFeedItemForSignal(signal, makeDecision());
+
+      expect(item?.updates).toBeUndefined();
+      expect(item?.detailPanel).toBeUndefined();
+    }
+  });
+
   // ── noteworthy derivation ────────────────────────────────────────────
 
   test("assistant_tool source marks the feed item noteworthy", async () => {
@@ -1264,7 +1420,9 @@ describe("writeHomeFeedItemForSignal", () => {
         conversationId: "conv-source-1",
         role: "assistant",
         content: "Three things today.",
-        options: { skipIndexing: true },
+        // Bookkeeping about the conversation, so it never resurfaces a
+        // chat the user marked Done.
+        options: { skipIndexing: true, skipResurface: true },
       });
       expect(item?.metadata?.notificationConversationMessageId).toBe("msg-1");
       // A client with the conversation open refetches only on the messages

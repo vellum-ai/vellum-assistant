@@ -118,7 +118,14 @@ window retains the full transcript in its saved draft.
 
 ## Companion introduction permissions
 
-The macOS companion tour offers microphone setup on Talk, Input Monitoring on
+The tour announcement previews the same active-assistant avatar source as the
+Dock and main app, including character traits, uploaded images, and accent color.
+It remains the entry point before the coachmarks, with an explicit start button
+and immediate dismissal. The announcement and native identity publication wait
+for session initialization and active assistant selection. Losing readiness clears
+an interrupted native tour without marking it complete.
+
+The macOS companion tour offers microphone setup on its final call step, Input Monitoring on
 its voice-key lesson, and Screen Recording on Share. Setup is explicit and
 skippable. The permission bridge reads the capturing helper's Screen Recording
 grant; the Electron app's grant is not interchangeable with it.
@@ -126,9 +133,10 @@ grant; the Electron app's grant is not interchangeable with it.
 The tour stays on its current step while Settings is open and observes permission
 updates before restoring the rehearsal controls. Global keyboard registration
 never requests access. Permission updates re-arm the voice key and call chords.
-During the tour, holds do not dictate and double taps reach the same native
-microphone guard as the final avatar click. Only the final step with microphone
-access can start the tour's real call.
+During the tour, holds do not dictate and double taps do not start calls. The
+voice-key bridge checks native tour state before starting a call even if its
+staging notification is stale. Only the explicit final-step action with microphone
+access can start the tour's real call. Talk practice needs no microphone grant.
 
 Before a native permission prompt or Settings opens, the tour lowers its window
 below system UI. Returning to Vellum or advancing the tour restores its floating
@@ -139,9 +147,12 @@ The tour prefetches permission status during its opening cards and retains the
 latest result across steps and background checks. An initial check keeps the
 card shell visible without showing a permission action before it is needed. Its
 size and the perched avatar's clearance share constants with the native canvas,
-so larger cards fit at every companion size. Helper permission setup first requests
-the native alert; Settings opens through that alert or a separate explicit action,
-so the two windows do not compete for attention.
+so larger cards fit at every companion size. Shells with `permissions.setup`
+open the detachable drag guide from the permission coachmark bounds for Input
+Monitoring and Screen Recording. Back returns to that coachmark; changing the
+permission lesson or closing the tour cancels its active or pending guide.
+Older shells request the native alert first; Settings opens through that alert
+or a separate explicit action, so the two windows do not compete for attention.
 
 When resetting local development grants, reset `PostEvent` as well as
 `ListenEvent` and `Accessibility` for the helper bundle. A cached denial of the
@@ -153,3 +164,19 @@ alone is reset.
 - [`CONVENTIONS.md`](./CONVENTIONS.md) — architecture, code organization, component patterns.
 - [`CAPACITOR.md`](./CAPACITOR.md) — Capacitor / iOS patterns (parallel host).
 - [`clients/macos/README.md`](../../../clients/macos/README.md) — Electron shell setup, dev scripts, main-process source layout.
+
+## macOS companion permission guide
+
+The optional `permissions.setup` bridge lets the existing companion tour detach
+its permission coachmark into the internal `/assistant/floating/permission-guide`
+route outside authentication middleware. `usePermissionGuide` mirrors main's
+guide state. The tour stays on its current lesson and observes actual OS grants
+through the existing system-permissions subscription.
+
+The guide reports its measured height for translated copy, honors reduced motion,
+and sends its guide id for native dragging or Finder reveal. Main resolves the
+helper bundle and validates the originating guide window. It stops moving and
+yields its floating level before either action so it cannot follow an
+authentication dialog or stay above it. Cancellation is scoped to the requesting
+tour renderer. Older shells omit this bridge and keep the existing coachmark
+permission actions. The shared preload factory is installed only by macOS.

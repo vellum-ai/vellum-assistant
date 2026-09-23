@@ -45,6 +45,7 @@ const TAVILY_API_URL = "https://api.tavily.com/search";
 const FIRECRAWL_API_URL = "https://api.firecrawl.dev/v2/search";
 const FASTCRW_SEARCH_PATH = "/v1/search";
 const TINYFISH_DEFAULT_SEARCH_API_BASE = "https://api.search.tinyfish.ai";
+const EXA_API_URL = "https://api.exa.ai/search";
 // Keenable is keyless by default: the public path needs no key (rate-limited);
 // a key switches to the authenticated path and lifts the cap.
 const KEENABLE_API_BASE_URL = "https://api.keenable.ai";
@@ -59,7 +60,8 @@ type WebSearchProvider =
   | "keenable"
   | "fastcrw"
   | "searxng"
-  | "tinyfish";
+  | "tinyfish"
+  | "exa";
 
 /**
  * Arguments passed to every {@link WebSearchAdapter}. The full superset is
@@ -195,6 +197,20 @@ interface TinyfishSearchResponse {
   results?: TinyfishSearchResult[];
   total_results?: number;
   page?: number;
+}
+
+interface ExaSearchResult {
+  id?: string;
+  title?: string | null;
+  url?: string;
+  publishedDate?: string | null;
+  author?: string | null;
+  highlights?: string[];
+}
+
+interface ExaSearchResponse {
+  requestId?: string;
+  results?: ExaSearchResult[];
 }
 
 const SEARXNG_MISSING_INSTANCE_MESSAGE =
@@ -714,6 +730,84 @@ function buildTinyfishMetadata(
     durationMs,
     results: items,
   };
+}
+
+function formatExaResults(data: ExaSearchResponse, query: string): string {
+  const results = data.results ?? [];
+  if (results.length === 0) {
+    return `No results found for "${query}".`;
+  }
+
+  const lines: string[] = [`Web search results for "${query}":\n`];
+  for (let i = 0; i < results.length; i++) {
+    const result = results[i];
+    const title =
+      result.title?.trim() || result.url?.trim() || "Untitled result";
+    lines.push(`${i + 1}. ${title}`);
+    if (result.url) {
+      lines.push(`   URL: ${result.url}`);
+    }
+    const snippet = result.highlights?.join(" ").trim();
+    if (snippet) {
+      lines.push(`   ${snippet}`);
+    }
+    if (result.publishedDate) {
+      lines.push(`   Published: ${result.publishedDate}`);
+    }
+    lines.push("");
+  }
+  return lines.join("\n");
+}
+
+function buildExaMetadata(
+  data: ExaSearchResponse,
+  query: string,
+  durationMs: number,
+): WebSearchMetadata {
+  const results = data.results ?? [];
+  const items: WebSearchResultItem[] = results.map((result, index) => {
+    const url = result.url ?? "";
+    const domain = extractDomain(url);
+    return {
+      rank: index + 1,
+      title: result.title?.trim() || url.trim() || "Untitled result",
+      url,
+      domain,
+      faviconUrl: faviconUrlForDomain(domain),
+      snippet: result.highlights?.join(" ").trim() || undefined,
+    };
+  });
+  return {
+    query,
+    provider: "exa",
+    resultCount: items.length,
+    durationMs,
+    results: items,
+  };
+}
+
+function exaStartPublishedDateForFreshness(
+  freshness: string | undefined,
+  now: number = Date.now(),
+): string | undefined {
+  let days: number;
+  switch (freshness) {
+    case "pd":
+      days = 1;
+      break;
+    case "pw":
+      days = 7;
+      break;
+    case "pm":
+      days = 30;
+      break;
+    case "py":
+      days = 365;
+      break;
+    default:
+      return undefined;
+  }
+  return new Date(now - days * 24 * 60 * 60 * 1000).toISOString();
 }
 
 function tinyfishRecencyMinutesForFreshness(
@@ -1801,6 +1895,134 @@ async function executeTinyfishSearch(
   );
 }
 
+async function executeExaSearch(
+  query: string,
+  count: number,
+  freshness: string | undefined,
+  apiKey: string,
+  signal?: AbortSignal,
+): Promise<ToolExecutionResult> {
+  const startedAt = Date.now();
+  const requestBody: Record<string, unknown> = {
+    query,
+    type: "auto",
+    numResults: count,
+    contents: { highlights: true },
+  };
+  const startPublishedDate = exaStartPublishedDateForFreshness(freshness);
+  if (startPublishedDate !== undefined) {
+    requestBody.startPublishedDate = startPublishedDate;
+  }
+
+  const headers = {
+    "Content-Type": "application/json",
+    Accept: "application/json",
+    "x-api-key": apiKey.trim(),
+  };
+
+  for (let attempt = 0; attempt <= DEFAULT_MAX_RETRIES; attempt++) {
+    let response: Response;
+    try {
+      response = await fetch(EXA_API_URL, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(requestBody),
+        signal,
+      });
+    } catch (err) {
+      return networkFailureResult(query, "exa", startedAt, err, signal);
+    }
+
+    const bodyText = await response.text();
+    if (response.ok) {
+      let data: ExaSearchResponse;
+      try {
+        data = JSON.parse(bodyText) as ExaSearchResponse;
+      } catch {
+        return errorResult(
+          query,
+          "exa",
+          startedAt,
+          "Exa Search returned an invalid JSON payload.",
+        );
+      }
+      if (data.results && data.results.length > count) {
+        data.results = data.results.slice(0, count);
+      }
+      const durationMs = Date.now() - startedAt;
+      return {
+        content:
+          wrapUntrustedContent(formatExaResults(data, query), {
+            source: "search",
+            sourceDetail: "exa",
+          }) + CITATION_INSTRUCTION,
+        isError: false,
+        activityMetadata: {
+          webSearch: buildExaMetadata(data, query, durationMs),
+        },
+      };
+    }
+
+    if (response.status === 401) {
+      return errorResult(
+        query,
+        "exa",
+        startedAt,
+        "Invalid or expired Exa API key",
+      );
+    }
+    if (response.status === 402) {
+      return errorResult(
+        query,
+        "exa",
+        startedAt,
+        "Exa account has no remaining credits.",
+      );
+    }
+    if (response.status === 403) {
+      return errorResult(
+        query,
+        "exa",
+        startedAt,
+        "Exa Search request was forbidden by the upstream service.",
+      );
+    }
+
+    if (response.status === 429 && attempt < DEFAULT_MAX_RETRIES) {
+      const delayMs = getHttpRetryDelay(
+        response,
+        attempt,
+        DEFAULT_BASE_DELAY_MS,
+      );
+      log.warn(
+        { attempt: attempt + 1, delayMs },
+        "Exa Search rate limited, retrying",
+      );
+      await sleep(delayMs);
+      continue;
+    }
+
+    log.warn({ status: response.status }, "Exa Search API error");
+    return backendFailureResult(
+      query,
+      "exa",
+      startedAt,
+      { statusCode: response.status, error: rawBodyDetail(bodyText) },
+      response.status === 429
+        ? "Exa Search rate limit exceeded after retries. Try again shortly."
+        : `Exa Search API returned status ${response.status}`,
+    );
+  }
+
+  return backendFailureResult(
+    query,
+    "exa",
+    startedAt,
+    { statusCode: 429 },
+    "Exa Search rate limit exceeded after retries. Try again shortly.",
+  );
+}
+
 // ----------------------------------------------------------------------------
 // Adapter registry
 //
@@ -1884,6 +2106,14 @@ const tinyfishSearchAdapter: WebSearchAdapter = {
     executeTinyfishSearch(query, count, freshness, apiKey, signal),
 };
 
+const exaSearchAdapter: WebSearchAdapter = {
+  id: "exa",
+  providerKeyName: "exa",
+  fallbackOrder: 9,
+  execute: ({ query, count, freshness, apiKey, signal }) =>
+    executeExaSearch(query, count, freshness, apiKey, signal),
+};
+
 /**
  * All built-in web-search adapters keyed by provider id. The
  * `Record<WebSearchProvider, ...>` shape forces TypeScript to flag any
@@ -1898,6 +2128,7 @@ const WEB_SEARCH_ADAPTERS: Record<WebSearchProvider, WebSearchAdapter> = {
   fastcrw: fastcrwSearchAdapter,
   searxng: searxngSearchAdapter,
   tinyfish: tinyfishSearchAdapter,
+  exa: exaSearchAdapter,
 };
 
 /**
@@ -1929,7 +2160,7 @@ export const webSearchTool = {
       count: {
         type: "number",
         description:
-          "Number of results to return (1-20, default 10). Used with Brave, Tavily, Firecrawl, Keenable, fastCRW, SearXNG, and TinyFish providers.",
+          "Number of results to return (1-20, default 10). Used with Brave, Tavily, Firecrawl, Keenable, fastCRW, SearXNG, TinyFish, and Exa providers.",
       },
       offset: {
         type: "number",
@@ -1939,7 +2170,7 @@ export const webSearchTool = {
       freshness: {
         type: "string",
         description:
-          'Filter by recency: "pd" (past day), "pw" (past week), "pm" (past month), "py" (past year). Used with Brave, Tavily, Firecrawl, Keenable, fastCRW, SearXNG, and TinyFish providers. SearXNG maps day/month/year and omits week.',
+          'Filter by recency: "pd" (past day), "pw" (past week), "pm" (past month), "py" (past year). Used with Brave, Tavily, Firecrawl, Keenable, fastCRW, SearXNG, TinyFish, and Exa providers. SearXNG maps day/month/year and omits week.',
       },
     },
     required: ["query"],
@@ -2055,7 +2286,7 @@ export const webSearchTool = {
           query,
           provider,
           startedAt,
-          "No web search API key configured. Set it via `keys set perplexity <key>`, `keys set brave <key>`, `keys set tavily <key>`, `keys set firecrawl <key>`, or `keys set fastcrw <key>`, or `keys set tinyfish <key>`, or configure it from the Settings page under API Keys. Or switch the web-search provider to Keenable, which works without a key, or SearXNG with your instance URL.",
+          "No web search API key configured. Set it via `keys set perplexity <key>`, `keys set brave <key>`, `keys set tavily <key>`, `keys set firecrawl <key>`, or `keys set fastcrw <key>`, or `keys set tinyfish <key>`, or `keys set exa <key>`, or configure it from the Settings page under API Keys. Or switch the web-search provider to Keenable, which works without a key, or SearXNG with your instance URL.",
         );
       }
     }

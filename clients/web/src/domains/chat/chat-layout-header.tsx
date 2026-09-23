@@ -175,7 +175,9 @@ export function ChatLayoutHeader({
   return (
     <header
       data-slot={CHAT_LAYOUT_HEADER_SLOT}
-      className={`flex w-full shrink-0 items-center gap-4 px-4 pt-4${isMobile && !electron ? " pb-4" : ""}${
+      // `max-md:px-3` puts the mobile bar, in either mode, on the same 12px
+      // gutter the page shell below it uses.
+      className={`flex w-full shrink-0 items-center gap-4 px-4 pt-4 max-md:px-3${isMobile && !electron ? " pb-4" : ""}${
         usesCustomTitleBar
           ? " select-none [-webkit-app-region:drag] [&_a]:[-webkit-app-region:no-drag] [&_button]:[-webkit-app-region:no-drag]"
           : ""

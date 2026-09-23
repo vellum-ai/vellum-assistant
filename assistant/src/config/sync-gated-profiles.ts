@@ -2,8 +2,16 @@ import { isDeepStrictEqual } from "node:util";
 
 import { getLogger } from "../util/logger.js";
 import { isAssistantFeatureFlagEnabled } from "./assistant-feature-flags.js";
-import { OS_BETA_PROFILE_TEMPLATE } from "./default-profile-catalog.js";
-import { OS_BETA_PROFILE_KEY } from "./default-profile-names.js";
+import {
+  AUTO_PROFILE_TEMPLATE,
+  type DefaultProfileTemplate,
+  OS_BETA_PROFILE_TEMPLATE,
+} from "./default-profile-catalog.js";
+import {
+  AUTO_PROFILE_FEATURE_FLAG_KEY,
+  AUTO_PROFILE_KEY,
+  OS_BETA_PROFILE_KEY,
+} from "./default-profile-names.js";
 import {
   getConfigReadOnly,
   invalidateConfigCache,
@@ -18,16 +26,56 @@ import {
 
 const log = getLogger("sync-gated-profiles");
 
+interface GatedProfile {
+  key: string;
+  flag: string;
+  template: DefaultProfileTemplate;
+  /** Insert the key into a `profileOrder` that does not yet list it. */
+  place: (profileOrder: string[]) => void;
+  /**
+   * Whether a BYOK install first materializes the stub disabled. True for a
+   * profile whose managed route exists but is unusable until the user enables
+   * the managed connection; false for a managed-only profile, whose stub has
+   * no body on a BYOK column and so is never offered there anyway.
+   */
+  byokStartsDisabled: boolean;
+}
+
+const GATED_PROFILES: readonly GatedProfile[] = [
+  {
+    key: OS_BETA_PROFILE_KEY,
+    flag: OS_BETA_FEATURE_FLAG_KEY,
+    template: OS_BETA_PROFILE_TEMPLATE,
+    place: (profileOrder) => {
+      const balancedIndex = profileOrder.indexOf("balanced");
+      if (balancedIndex >= 0) {
+        profileOrder.splice(balancedIndex + 1, 0, OS_BETA_PROFILE_KEY);
+      } else {
+        profileOrder.push(OS_BETA_PROFILE_KEY);
+      }
+    },
+    byokStartsDisabled: true,
+  },
+  {
+    key: AUTO_PROFILE_KEY,
+    flag: AUTO_PROFILE_FEATURE_FLAG_KEY,
+    template: AUTO_PROFILE_TEMPLATE,
+    // Auto leads the picker.
+    place: (profileOrder) => profileOrder.unshift(AUTO_PROFILE_KEY),
+    byokStartsDisabled: false,
+  },
+];
+
 /**
  * Reconcile flag-gated managed profiles against the current feature-flag state.
  *
  * `seedInferenceProfiles()` runs synchronously at boot before feature flags are
- * available, so the OS Beta profile (MiniMax M3 / together-managed) is
- * materialized here once flags have loaded. When the `os-beta` flag is on, the
- * managed profile is created (ordered right after `balanced`); when it is off, a
- * previously managed entry is removed with `profileOrder` / `activeProfile` /
- * `advisorProfile` fallbacks. The reconcile is idempotent and never touches a
- * user-owned profile of the same name.
+ * available, so the gated profiles (OS Beta, Auto) are materialized here once
+ * flags have loaded. When a profile's flag is on, its managed stub is created
+ * and placed in `profileOrder`; when it is off, a previously managed entry is
+ * removed with `profileOrder` / `activeProfile` / `advisorProfile` / call-site
+ * fallbacks. The reconcile is idempotent and never touches a user-owned
+ * profile of the same name.
  *
  * Returns whether the on-disk config changed.
  */
@@ -49,44 +97,52 @@ export function reconcileFlagGatedProfiles(): boolean {
     : [];
   llm.profileOrder = profileOrder;
 
-  // The resolver reads flag state from the gateway-populated override cache and
-  // ignores the config argument; pass the read-only config for signature parity
-  // without mutating disk before the reconcile decision is made.
-  const enabled = isAssistantFeatureFlagEnabled(
-    OS_BETA_FEATURE_FLAG_KEY,
-    getConfigReadOnly(),
-  );
-
   const isPlatform =
     process.env.IS_PLATFORM === "true" || process.env.IS_PLATFORM === "1";
   const isByokMode = !isPlatform;
 
-  const previous = readObject(profiles[OS_BETA_PROFILE_KEY]);
+  let changed = false;
+  for (const gated of GATED_PROFILES) {
+    // The resolver reads flag state from the gateway-populated override cache
+    // and ignores the config argument; pass the read-only config for signature
+    // parity without mutating disk before the reconcile decision is made.
+    const enabled = isAssistantFeatureFlagEnabled(
+      gated.flag,
+      getConfigReadOnly(),
+    );
 
-  // Never clobber a user-owned profile that happens to be named `os-beta`. The
-  // entry is ours to manage only when it is absent or already managed; a
-  // user-sourced entry of the same name is left untouched on every path.
-  const isOursToManage = previous == null || previous.source === "managed";
-  if (!isOursToManage) {
-    return false;
+    const previous = readObject(profiles[gated.key]);
+
+    // Never clobber a user-owned profile that happens to share the name. The
+    // entry is ours to manage only when it is absent or already managed; a
+    // user-sourced entry of the same name is left untouched on every path.
+    const isOursToManage = previous == null || previous.source === "managed";
+    if (!isOursToManage) {
+      continue;
+    }
+
+    const order = llm.profileOrder as string[];
+    const profileChanged = enabled
+      ? enableProfile(gated, profiles, order, previous, isByokMode)
+      : disableProfile(gated.key, llm, profiles, order, previous);
+    if (profileChanged) {
+      changed = true;
+      log.info(
+        { profile: gated.key, enabled },
+        "Reconciled flag-gated profile",
+      );
+    }
   }
-
-  const changed = enabled
-    ? enableProfile(profiles, profileOrder, previous, isByokMode)
-    : disableProfile(llm, profiles, profileOrder, previous);
 
   if (changed) {
     saveRawConfig(config);
     invalidateConfigCache();
-    log.info(
-      { profile: OS_BETA_PROFILE_KEY, enabled },
-      "Reconciled flag-gated profile",
-    );
   }
   return changed;
 }
 
 function enableProfile(
+  gated: GatedProfile,
   profiles: Record<string, Record<string, unknown>>,
   profileOrder: string[],
   previous: Record<string, unknown> | null,
@@ -100,13 +156,13 @@ function enableProfile(
 
   // BYOK installs create the stub disabled: the managed inference connection
   // backing this profile isn't usable until the user enables it, so a fresh
-  // OS Beta entry starts disabled to avoid offering an unusable route. The
+  // entry starts disabled to avoid offering an unusable route. The
   // " (Managed)" label suffix disambiguates it from personal profiles in
   // pickers. A user's own overrides (preserved below) win on later
   // reconciles.
-  if (isByokMode && !previous) {
+  if (gated.byokStartsDisabled && isByokMode && !previous) {
     next.status = "disabled";
-    next.label = `${OS_BETA_PROFILE_TEMPLATE.label} (Managed)`;
+    next.label = `${gated.template.label} (Managed)`;
   }
 
   if (previous) {
@@ -124,17 +180,12 @@ function enableProfile(
 
   let changed = false;
   if (!previous || !isDeepStrictEqual(previous, next)) {
-    profiles[OS_BETA_PROFILE_KEY] = next as ProfileEntry;
+    profiles[gated.key] = next as ProfileEntry;
     changed = true;
   }
 
-  if (!profileOrder.includes(OS_BETA_PROFILE_KEY)) {
-    const balancedIndex = profileOrder.indexOf("balanced");
-    if (balancedIndex >= 0) {
-      profileOrder.splice(balancedIndex + 1, 0, OS_BETA_PROFILE_KEY);
-    } else {
-      profileOrder.push(OS_BETA_PROFILE_KEY);
-    }
+  if (!profileOrder.includes(gated.key)) {
+    gated.place(profileOrder);
     changed = true;
   }
 
@@ -146,6 +197,7 @@ function enableProfile(
 const MIX_MIN_ARMS = 2;
 
 function disableProfile(
+  key: string,
   llm: Record<string, unknown>,
   profiles: Record<string, Record<string, unknown>>,
   profileOrder: string[],
@@ -155,13 +207,13 @@ function disableProfile(
     return false;
   }
 
-  delete profiles[OS_BETA_PROFILE_KEY];
+  delete profiles[key];
 
   // The removal closure: every name here is absent from `profiles` once the
   // closure settles, so the written config can never reference one. A mix that
   // loses arms below the >= 2 minimum is itself invalid, so it joins the set
   // and the loop runs to a fixpoint to resolve any references that cascade.
-  const removed = new Set<string>([OS_BETA_PROFILE_KEY]);
+  const removed = new Set<string>([key]);
   let cascading = true;
   while (cascading) {
     cascading = false;

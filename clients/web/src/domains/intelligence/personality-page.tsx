@@ -26,6 +26,7 @@ import {
 } from "@/assistant/personality-sliders";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useTranslation } from "@/i18n";
 import { routes } from "@/utils/routes";
 
@@ -136,6 +137,7 @@ function PersonalityBody({
   onBack: () => void;
 }) {
   const { t } = useTranslation("intelligence");
+  const isMobile = useIsMobile();
   const { tone, bottomReserve } = useAssistantStage();
   const washClasses = tone.isLight
     ? "bg-black/10 hover:bg-black/20"
@@ -143,15 +145,20 @@ function PersonalityBody({
 
   return (
     <>
-      <button
-        type="button"
-        onClick={onBack}
-        className={`absolute top-4 left-4 z-20 flex cursor-pointer items-center gap-1.5 rounded-full py-2 pr-4 pl-3 text-body-medium-default backdrop-blur-sm transition-all duration-150 active:scale-[0.97] ${washClasses}`}
-        style={{ color: tone.fg }}
-      >
-        <ArrowLeft className="h-4 w-4" aria-hidden />
-        {t("personalityPage.back")}
-      </button>
+      {/* On a phone `IntelligenceLayout` publishes the back pill into the
+          header, which is the one owner of the back affordance there, so the
+          stage carries this control only where no bar is published. */}
+      {isMobile ? null : (
+        <button
+          type="button"
+          onClick={onBack}
+          className={`absolute top-4 left-4 z-20 flex cursor-pointer items-center gap-1.5 rounded-full py-2 pr-4 pl-3 text-body-medium-default backdrop-blur-sm transition-all duration-150 active:scale-[0.97] ${washClasses}`}
+          style={{ color: tone.fg }}
+        >
+          <ArrowLeft className="h-4 w-4" aria-hidden />
+          {t("personalityPage.back")}
+        </button>
+      )}
 
       <div
         className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-6"

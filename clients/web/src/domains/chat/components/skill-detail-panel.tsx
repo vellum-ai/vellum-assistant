@@ -169,25 +169,28 @@ export function SkillDetailPanel({ skillId, onClose }: SkillDetailPanelProps) {
         ) : isLoading ? (
           <DetailShellLoading placement="panel" />
         ) : (
-          <>
+          <div className="flex flex-col gap-5">
             {skill?.description && (
               <Typography
                 variant="body-medium-lighter"
                 as="p"
-                className="mb-4 text-[var(--content-secondary)]"
+                className="text-[var(--content-secondary)]"
               >
                 {skill.description}
               </Typography>
             )}
             {skill && (
-              <SkillLineageLink
-                skill={skill}
-                className="mb-4"
-                onNavigate={onClose}
-              />
+              <SkillLineageLink skill={skill} onNavigate={onClose} />
             )}
-            {skillMdContent && <FileMarkdown content={skillMdContent} />}
-          </>
+            {/* `FileMarkdown` renders its blocks with no wrapper of its own, so
+                the skill's body is boxed here: as bare children of the root
+                above, every heading and paragraph would space as a section. */}
+            {skillMdContent && (
+              <div>
+                <FileMarkdown content={skillMdContent} />
+              </div>
+            )}
+          </div>
         )}
       </DetailShell>
 

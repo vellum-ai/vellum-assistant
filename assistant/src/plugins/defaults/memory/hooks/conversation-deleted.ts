@@ -25,6 +25,7 @@ import type {
   HookFunction,
 } from "@vellumai/plugin-api";
 
+import { removeSkillUpdateReceiptEntriesForConversation } from "../../../../persistence/jobs-store.js";
 import { purgeConversationMemoryTables } from "../conversation-memory-purge.js";
 import { memoryJobHandlers } from "../job-handlers.js";
 import { cancelPendingJobsForConversation } from "../task-memory-cleanup.js";
@@ -38,6 +39,9 @@ const conversationDeleted: HookFunction<ConversationDeletedContext> = async (
 ) => {
   cancelPendingJobsForConversation(ctx.conversationId, MEMORY_JOB_TYPES);
   purgeConversationMemoryTables(ctx.conversationId);
+  // The pending receipt is keyed to a burst, not a conversation, so the
+  // cancel above never matches it; its entries name their source.
+  removeSkillUpdateReceiptEntriesForConversation(ctx.conversationId);
 };
 
 export default conversationDeleted;

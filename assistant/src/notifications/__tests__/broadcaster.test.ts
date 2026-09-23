@@ -52,9 +52,11 @@ function defaultPairing(): PairingResult {
 
 let pairingByChannel: Record<string, PairingResult> = {};
 let pairingErrorByChannel: Record<string, Error> = {};
+let pairedChannels: string[] = [];
 
 mock.module("../conversation-pairing.js", () => ({
   pairDeliveryWithConversation: async (_signal: unknown, channel: string) => {
+    pairedChannels.push(channel);
     const error = pairingErrorByChannel[channel];
     if (error) {
       throw error;
@@ -112,6 +114,7 @@ mock.module("../../persistence/conversation-crud.js", () => ({
 // `destinationBindingContexts` gets that binding context, as a resolved
 // external chat would.
 let destinationBindingContexts: Record<string, DestinationBindingContext> = {};
+let destinationGuardianPrincipalId: string | undefined;
 mock.module("../destination-resolver.js", () => ({
   resolveDestinations: (channels: readonly string[], _guardians: unknown) => {
     const map = new Map();
@@ -120,7 +123,7 @@ mock.module("../destination-resolver.js", () => ({
       map.set(ch, {
         channel: ch,
         endpoint: bindingContext?.externalChatId ?? ch,
-        metadata: {},
+        metadata: { guardianPrincipalId: destinationGuardianPrincipalId },
         ...(bindingContext ? { bindingContext } : {}),
       });
     }
@@ -199,13 +202,301 @@ beforeEach(() => {
   knownConversations = new Set();
   pairingByChannel = {};
   pairingErrorByChannel = {};
+  pairedChannels = [];
   updateDeliveryStatusImpl = () => {};
   destinationBindingContexts = {};
+  destinationGuardianPrincipalId = undefined;
   recordedPosts = [];
   recordDeliveredChannelPostImpl = async () => ({ messageId: "row-1" });
 });
 
 // ── Tests ───────────────────────────────────────────────────────────────
+
+describe("NotificationBroadcaster completion delivery", () => {
+  test.each([
+    undefined,
+    null,
+    {},
+    { recipientPrincipalId: "principal-1" },
+    {
+      workId: "task-1",
+      conversationId: "conv-private",
+      recipientPrincipalId: "principal-1",
+      owner: "unknown",
+    },
+  ])(
+    "rejects malformed ownership %j before any pairing or transport send",
+    async (completion) => {
+      destinationGuardianPrincipalId = "principal-1";
+      const channels = [
+        "vellum",
+        "platform",
+        "slack",
+        "telegram",
+        "discord",
+      ] as const;
+      const transports = channels.map((channel) =>
+        makeCapturingAdapter(channel),
+      );
+      const broadcaster = new NotificationBroadcaster(
+        transports.map(({ adapter }) => adapter),
+      );
+      const renderedCopy = Object.fromEntries(
+        channels.map((channel) => [
+          channel,
+          { title: "Private result", body: "Sensitive result preview." },
+        ]),
+      );
+      const result = await broadcaster.broadcastDecision(
+        makeSignal({
+          sourceEventName: "activity.complete",
+          sourceContextId: "conv-private",
+          requiresConversation: true,
+          contextPayload: { completion, body: "Sensitive result preview." },
+          attentionHints: {
+            requiresAction: false,
+            urgency: "high",
+            isAsyncBackground: true,
+            visibleInSourceNow: false,
+          },
+        }),
+        makeDecision({ selectedChannels: [...channels], renderedCopy }),
+      );
+
+      expect(result).toEqual(
+        channels.map((channel) =>
+          expect.objectContaining({
+            channel,
+            status: "failed",
+            errorMessage: "completion recipient unavailable",
+          }),
+        ),
+      );
+      expect(pairedChannels).toEqual([]);
+      expect(recordedPosts).toEqual([]);
+      for (const { sends } of transports) {
+        expect(sends).toEqual([]);
+      }
+    },
+  );
+
+  test.each(["vellum", "platform"] as const)(
+    "%s links a typed completion to its persisted result conversation",
+    async (channel) => {
+      destinationGuardianPrincipalId = "principal-1";
+      knownConversations.add("conv-result");
+      knownConversations.add("conv-source");
+      const { adapter, sends } = makeCapturingAdapter(channel);
+      const broadcaster = new NotificationBroadcaster([adapter]);
+      const result = await broadcaster.broadcastDecision(
+        makeSignal({
+          sourceContextId: "conv-source",
+          sourceEventName: "activity.complete",
+          contextPayload: {
+            completion: {
+              workId: "task-1",
+              conversationId: "conv-result",
+              recipientPrincipalId: "principal-1",
+              owner: "parent_continuation",
+            },
+          },
+        }),
+        makeDecision({
+          selectedChannels: [channel],
+          renderedCopy: {
+            [channel]: { title: "Result ready", body: "The report is ready." },
+          },
+        }),
+      );
+
+      expect(result[0]?.status).toBe("sent");
+      expect(sends[0]?.payload.deepLinkTarget?.conversationId).toBe(
+        "conv-result",
+      );
+    },
+  );
+
+  test.each([undefined, "other-principal", "principal-1"])(
+    "owned completion cannot reach an external destination with principal %s",
+    async (guardianPrincipalId) => {
+      destinationGuardianPrincipalId = guardianPrincipalId;
+      const channels = ["slack", "telegram", "discord"] as const;
+      const transports = channels.map((channel) =>
+        makeCapturingAdapter(channel),
+      );
+      const broadcaster = new NotificationBroadcaster(
+        transports.map(({ adapter }) => adapter),
+      );
+      const result = await broadcaster.broadcastDecision(
+        makeSignal({
+          sourceEventName: "activity.complete",
+          contextPayload: {
+            completion: {
+              workId: "task-1",
+              conversationId: "conv-private",
+              recipientPrincipalId: "principal-1",
+              owner: "parent_continuation",
+            },
+            channelAllowlist: [...channels],
+          },
+        }),
+        makeDecision({
+          selectedChannels: [...channels],
+          renderedCopy: Object.fromEntries(
+            channels.map((channel) => [
+              channel,
+              { title: "Private result", body: "Sensitive result preview." },
+            ]),
+          ),
+        }),
+      );
+
+      expect(result).toEqual(
+        channels.map((channel) =>
+          expect.objectContaining({
+            channel,
+            status: "failed",
+            errorMessage: "completion recipient unavailable",
+          }),
+        ),
+      );
+      expect(pairedChannels).toEqual([]);
+      expect(recordedPosts).toEqual([]);
+      for (const { sends } of transports) {
+        expect(sends).toEqual([]);
+      }
+    },
+  );
+
+  test.each([undefined, "other-principal"])(
+    "rejects a typed completion before either channel is paired or sent with recipient %s",
+    async (guardianPrincipalId) => {
+      destinationGuardianPrincipalId = guardianPrincipalId;
+      pairingErrorByChannel.vellum = new Error("must not pair locally");
+      pairingErrorByChannel.platform = new Error("must not pair for push");
+      const local = makeCapturingAdapter("vellum");
+      const mobile = makeCapturingAdapter("platform");
+      const broadcaster = new NotificationBroadcaster([
+        local.adapter,
+        mobile.adapter,
+      ]);
+      const result = await broadcaster.broadcastDecision(
+        makeSignal({
+          sourceEventName: "activity.complete",
+          contextPayload: {
+            completion: {
+              workId: "task-1",
+              conversationId: "conv-1",
+              recipientPrincipalId: "principal-1",
+              owner: "parent_continuation",
+            },
+          },
+        }),
+        makeDecision({
+          selectedChannels: ["vellum", "platform"],
+          renderedCopy: {
+            vellum: { title: "Answer ready", body: "The result is ready." },
+            platform: { title: "Answer ready", body: "The result is ready." },
+          },
+        }),
+      );
+
+      expect(result).toEqual([
+        expect.objectContaining({
+          channel: "vellum",
+          status: "failed",
+          errorMessage: "completion recipient unavailable",
+        }),
+        expect.objectContaining({
+          channel: "platform",
+          status: "failed",
+          errorMessage: "completion recipient unavailable",
+        }),
+      ]);
+      expect(local.sends).toEqual([]);
+      expect(mobile.sends).toEqual([]);
+    },
+  );
+
+  test.each(["chat.assistant_reply", "schedule.result"])(
+    "%s preserves mobile delivery when local recipient resolution fails",
+    async (sourceEventName) => {
+      const local = makeCapturingAdapter("vellum");
+      const mobile = makeCapturingAdapter("platform");
+      const broadcaster = new NotificationBroadcaster([
+        local.adapter,
+        mobile.adapter,
+      ]);
+      const result = await broadcaster.broadcastDecision(
+        makeSignal({ sourceEventName }),
+        makeDecision({
+          selectedChannels: ["vellum", "platform"],
+          renderedCopy: {
+            vellum: { title: "Answer ready", body: "The result is ready." },
+            platform: { title: "Answer ready", body: "The result is ready." },
+          },
+        }),
+      );
+
+      expect(result).toEqual([
+        expect.objectContaining({ channel: "vellum", status: "failed" }),
+        expect.objectContaining({ channel: "platform", status: "sent" }),
+      ]);
+      expect(local.sends).toEqual([]);
+      expect(mobile.sends).toHaveLength(1);
+    },
+  );
+
+  test("requires a recipient before pairing or sending a completion locally", async () => {
+    pairingErrorByChannel.vellum = new Error("must not pair");
+    const { adapter, sends } = makeCapturingAdapter("vellum");
+    const broadcaster = new NotificationBroadcaster([adapter]);
+    const result = await broadcaster.broadcastDecision(
+      makeSignal({ sourceEventName: "chat.assistant_reply" }),
+      makeDecision({
+        renderedCopy: {
+          vellum: { title: "Answer ready", body: "The result is ready." },
+        },
+      }),
+    );
+
+    expect(result[0]).toMatchObject({
+      status: "failed",
+      errorMessage: "completion recipient unavailable",
+    });
+    expect(sends).toEqual([]);
+  });
+
+  test("resolves one completion presentation for both the intent and conversation event", async () => {
+    destinationGuardianPrincipalId = "principal-1";
+    pairingByChannel.vellum = { ...defaultPairing(), conversationId: "conv-1" };
+    const { adapter, sends } = makeCapturingAdapter("vellum");
+    const broadcaster = new NotificationBroadcaster([adapter]);
+    const paired = mock(() => {});
+    const result = await broadcaster.broadcastDecision(
+      makeSignal({ sourceEventName: "chat.assistant_reply" }),
+      makeDecision({
+        renderedCopy: {
+          vellum: { title: "Answer ready", body: "The result is ready." },
+        },
+      }),
+      { onConversationCreated: paired },
+    );
+
+    expect(result[0]?.status).toBe("sent");
+    expect(sends[0]?.payload).toMatchObject({
+      urgency: "medium",
+      silent: false,
+      deepLinkTarget: { conversationId: "conv-1" },
+    });
+    expect(paired).toHaveBeenCalledWith(
+      expect.objectContaining({
+        silent: false,
+        targetGuardianPrincipalId: "principal-1",
+      }),
+    );
+  });
+});
 
 describe("NotificationBroadcaster last-resort copy resolution", () => {
   test(

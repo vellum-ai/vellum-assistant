@@ -1,6 +1,11 @@
 import { z } from "zod";
 
 export {
+  type AskQuestionInput,
+  AskQuestionInputSchema,
+  type RecordedQuestion,
+} from "./ask-question-tool.js";
+export {
   isComputerUseToolCall,
   resolveComputerUseToolName,
 } from "./computer-use-tool.js";
@@ -766,6 +771,10 @@ export {
   type DictationRequest,
   DictationRequestSchema,
 } from "./requests/dictation.js";
+export {
+  type GuardianActionDecisionRequest,
+  GuardianActionDecisionRequestSchema,
+} from "./requests/guardian-actions.js";
 export {
   type BackgroundToolCompletion,
   type ConversationAttachmentBlock,

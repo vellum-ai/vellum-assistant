@@ -109,6 +109,7 @@ import {
   scopeWakeAllowedTools,
 } from "../daemon/wake-conversation-ops.js";
 import { desktopAutomationLease } from "../desktop/desktop-automation-lease.js";
+import { emitBackgroundResultNotification } from "../notifications/background-result-producer.js";
 import {
   recordCompactionEndBestEffort,
   recordCompactionStartBestEffort,
@@ -121,14 +122,22 @@ import {
 } from "../persistence/llm-request-log-store.js";
 import type { SystemPromptPersonaOverride } from "../prompts/system-prompt.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
+import { getScheduleRunStatus } from "../schedule/schedule-store.js";
 import {
   type UntrustedContentSource,
   wrapUntrustedContent,
 } from "../security/untrusted-content.js";
+import { stampTurnOutcome } from "../telemetry/turn-outcome.js";
 import type { CompletedBackgroundTool } from "../tools/background-tool-registry.js";
 import { getLogger } from "../util/logger.js";
-import { createKeyedSingleFlight } from "../util/single-flight.js";
 import { safeStringSlice } from "../util/unicode.js";
+import {
+  resetAgentWakeQueueForTests,
+  runWakeSingleFlight,
+  trackAgentWake,
+} from "./agent-wake-queue.js";
+
+export { hasPendingAgentWake } from "./agent-wake-queue.js";
 
 const log = getLogger("agent-wake");
 
@@ -620,20 +629,10 @@ async function kickWakeDrainQueue(
   }
 }
 
-// ── Per-conversation single-flight lock ───────────────────────────────
-//
-// When a wake arrives and another run is in flight for the same
-// conversation, we chain onto its tail so the wake runs *after* the current
-// work completes. `createKeyedSingleFlight` owns the tail-chaining and
-// bounded-map bookkeeping; wakes serialize on their own chain, independent of
-// any other single-flight consumer.
-
-const runWakeSingleFlight = createKeyedSingleFlight();
-
 /**
  * How long a wake waits for an in-flight turn to release the conversation's
  * processing lock before skipping with reason "timeout". We rely primarily
- * on the single-flight chain above to serialize *wakes*; the pre-run
+ * on the single-flight chain to serialize *wakes*; the pre-run
  * `waitForIdle` gate catches the case where a user turn started
  * independently while our wake was queued.
  */
@@ -762,8 +761,17 @@ export async function wakeAgentForOpportunity(
   const resolveTarget = deps?.resolveTarget ?? defaultResolveTarget;
   const nowFn = deps?.now ?? Date.now;
   const startedAt = nowFn();
+  const scheduledRunFailed = (): boolean =>
+    opts.cronRunId !== undefined &&
+    getScheduleRunStatus(opts.cronRunId) === "error";
+  let wakeTriggerMessageId: string | undefined;
+  let completionAssistantMessageId: string | undefined;
 
-  return runWakeSingleFlight(conversationId, async () => {
+  const finishWake = trackAgentWake(conversationId, {
+    cronRunId: opts.cronRunId,
+    startedAt: opts.backgroundToolCompletion?.startedAt,
+  });
+  return runWakeSingleFlight<WakeResult>(conversationId, async () => {
     // Snapshot the conversation's resting trust before the resolver runs, so
     // it can be restored after. The resolver leaves the wake's trust on the
     // conversation, and a following no-trust wake would otherwise pick it up
@@ -860,6 +868,10 @@ export async function wakeAgentForOpportunity(
       restorePersistentWakeTrust();
       return { invoked: false, producedToolCalls: false, reason: "timeout" };
     }
+    if (scheduledRunFailed()) {
+      restorePersistentWakeTrust();
+      return { invoked: false, producedToolCalls: false, reason: "timeout" };
+    }
 
     // Trust elevation is applied per-turn via `currentTurnTrustContext` right
     // before the run (see below) — not on the persistent conversation trust.
@@ -928,6 +940,27 @@ export async function wakeAgentForOpportunity(
     // observed the lock free, and nothing between its final `isProcessing()`
     // check and this acquisition awaits — keep that stretch await-free so
     // the lock cannot change hands in between.
+    const scheduleAbortController = opts.cronRunId
+      ? new AbortController()
+      : undefined;
+    const priorScheduledRunId = conversation.currentTurnCronRunId;
+    const priorWorkOrigins = conversation.currentTurnWorkOrigins;
+    const wakeWorkOrigins = opts.backgroundToolCompletion
+      ? [
+          {
+            sentAt: opts.backgroundToolCompletion.startedAt,
+            metadata: {
+              backgroundEventSource: "background-tool",
+              backgroundToolCompletion: opts.backgroundToolCompletion,
+            },
+          },
+        ]
+      : [];
+    conversation.currentTurnWorkOrigins = wakeWorkOrigins;
+    if (scheduleAbortController) {
+      conversation.abortController = scheduleAbortController;
+      conversation.currentTurnCronRunId = opts.cronRunId;
+    }
     conversation.setProcessing(true);
 
     // ── Pre-run auto-compaction gate ──────────────────────────────────
@@ -983,7 +1016,7 @@ export async function wakeAgentForOpportunity(
       };
       conversation.messages.push(triggerMessage);
       try {
-        await persistWakeTriggerMessage(
+        wakeTriggerMessageId = await persistWakeTriggerMessage(
           conversation,
           triggerMessage,
           source,
@@ -1288,6 +1321,8 @@ export async function wakeAgentForOpportunity(
     const wakeSurfaceId = `wake-${conversationId}-${nowFn()}`;
     let surfaceInjected = false;
     let persistedTailIndex = 0;
+    let lastPersistedAssistantMessageId: string | undefined;
+    let tailPersistenceFailed = false;
 
     // Transition from buffered to live emission. Idempotent — only the
     // first call has an effect. Mutates the first assistant message in
@@ -1371,12 +1406,16 @@ export async function wakeAgentForOpportunity(
       }
       for (const msg of newMessages) {
         try {
-          await persistWakeTailMessage(conversation, msg);
+          const persistedId = await persistWakeTailMessage(conversation, msg);
+          if (msg.role === "assistant") {
+            lastPersistedAssistantMessageId = persistedId;
+          }
         } catch (err) {
           log.warn(
             { conversationId, source, err, role: msg.role },
             "agent-wake: failed to persist wake-tail message",
           );
+          tailPersistenceFailed = true;
         }
       }
       persistedTailIndex += newMessages.length;
@@ -1439,6 +1478,16 @@ export async function wakeAgentForOpportunity(
      * is one function rather than a rebuild bolted onto either half.
      */
     const restoreWakeTurnScope = (): void => {
+      if (conversation.currentTurnWorkOrigins === wakeWorkOrigins) {
+        conversation.currentTurnWorkOrigins = priorWorkOrigins;
+      }
+      if (
+        scheduleAbortController &&
+        conversation.abortController === scheduleAbortController
+      ) {
+        conversation.abortController = null;
+        conversation.currentTurnCronRunId = priorScheduledRunId;
+      }
       desktopAutomationLease.releaseForConversation(conversationId);
       restoreWakeAllowedTools();
       clearWakePersonaOverride();
@@ -1523,7 +1572,12 @@ export async function wakeAgentForOpportunity(
         reason: "context_overflow" as const,
       };
     };
+    let cancelledBeforeRun = false;
     try {
+      if (scheduleAbortController?.signal.aborted || scheduledRunFailed()) {
+        cancelledBeforeRun = true;
+        return { invoked: false, producedToolCalls: false, reason: "timeout" };
+      }
       // ── Over-window policy under suppressed auto-compaction ─────────
       // The pre-run gate above is the wake's only compaction path (the
       // loop's in-loop budget gate stays disabled), so when the caller
@@ -1620,6 +1674,7 @@ export async function wakeAgentForOpportunity(
       try {
         ({ history: updatedHistory } = await conversation.agentLoop.run({
           messages: runInput,
+          signal: scheduleAbortController?.signal,
           onEvent,
           requestId: `wake:${source}`,
           onCheckpoint,
@@ -1827,6 +1882,15 @@ export async function wakeAgentForOpportunity(
           "agent-wake: setProcessing(false) threw; continuing",
         );
       }
+      if (
+        !tailPersistenceFailed &&
+        lastPersistedAssistantMessageId &&
+        opts.backgroundToolCompletion &&
+        (terminalExitReason === "no_tool_calls" ||
+          terminalExitReason === "yield_to_user")
+      ) {
+        completionAssistantMessageId = lastPersistedAssistantMessageId;
+      }
       await kickWakeDrainQueue(conversation, "agent_wake_tail", {
         conversationId,
         source,
@@ -1835,6 +1899,24 @@ export async function wakeAgentForOpportunity(
 
       return { invoked: true, producedToolCalls, ...exitReasonField() };
     } finally {
+      if (
+        opts.backgroundToolCompletion &&
+        wakeTriggerMessageId &&
+        (cancelledBeforeRun ||
+          runError ||
+          (terminalExitReason !== null &&
+            terminalExitReason !== "no_tool_calls" &&
+            terminalExitReason !== "yield_to_user"))
+      ) {
+        stampTurnOutcome(
+          wakeTriggerMessageId,
+          cancelledBeforeRun ||
+            String(terminalExitReason).startsWith("aborted_") ||
+            terminalExitReason === "checkpoint_handoff"
+            ? "cancelled"
+            : "failed",
+        );
+      }
       // Put the conversation's resting trust back on every exit path.
       restorePersistentWakeTrust();
       // The success path (above) already called setProcessing(false) and
@@ -1910,6 +1992,18 @@ export async function wakeAgentForOpportunity(
         );
       }
     }
+  }).finally(() => {
+    finishWake();
+    if (opts.backgroundToolCompletion && wakeTriggerMessageId) {
+      void emitBackgroundResultNotification({
+        conversationId,
+        assistantMessageId: completionAssistantMessageId,
+        recoverOnly: completionAssistantMessageId === undefined,
+        userMessageId: wakeTriggerMessageId,
+        cronRunId: opts.cronRunId,
+        rlog: log,
+      });
+    }
   });
 }
 
@@ -1923,5 +2017,5 @@ export async function wakeAgentForOpportunity(
  * @internal
  */
 export function __resetWakeChainForTests(): void {
-  runWakeSingleFlight.reset();
+  resetAgentWakeQueueForTests();
 }

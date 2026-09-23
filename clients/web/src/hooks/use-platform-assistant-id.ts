@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { resolveLocalAssistantPlatformIdentity } from "@/lib/local-platform-identity";
+import { PlatformIdentityInjectionError } from "@/lib/platform-identity-errors";
 
 type PlatformAssistantIdState = {
   platformAssistantId: string | null;
@@ -48,6 +49,16 @@ export function usePlatformAssistantId(
       })
       .catch((error: unknown) => {
         if (!active) {
+          return;
+        }
+        // The registration exists even when the local side did not finish,
+        // and a path param needs only the id.
+        if (error instanceof PlatformIdentityInjectionError) {
+          setState({
+            platformAssistantId: error.platformAssistantId,
+            isLoading: false,
+            error: null,
+          });
           return;
         }
         setState({

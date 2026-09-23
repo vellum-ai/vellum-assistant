@@ -100,7 +100,7 @@ export const KitchenSink: Story = {
       "```ts",
       "const answer: number = 42;",
       "export function greet(name: string): string {",
-      '  return `hello ${name}`;',
+      "  return `hello ${name}`;",
       "}",
       "```",
       "",
@@ -168,7 +168,7 @@ export const CurrencyAndMath: Story = {
 export const CurrencyInCodeAndLinks: Story = {
   args: {
     content: [
-      "Anthropic raised $65B — set `price=\"$5\"` in the config.",
+      'Anthropic raised $65B, so set `price="$5"` in the config.',
       "",
       "```sh",
       'echo "$5 and $1,000"',
@@ -230,5 +230,54 @@ export const IncrementalStreaming: Story = {
       return () => clearInterval(timer);
     }, [args.content, args.incremental]);
     return <MarkdownMessage {...args} content={args.content.slice(0, shown)} />;
+  },
+};
+
+/**
+ * File content: a README with the HTML a project uses for layout, a
+ * frontmatter block the reader should never see, and a `$` that is a shell
+ * variable rather than maths.
+ */
+export const Document: Story = {
+  args: {
+    parseHtml: true,
+    remoteImages: true,
+    math: false,
+    frontmatter: "metadata",
+    content: [
+      "---",
+      "title: Caveman",
+      "sidebar_position: 3",
+      "---",
+      "",
+      '<p align="center">',
+      '  <img src="https://example.invalid/logo.png" width="120" alt="Logo" />',
+      "</p>",
+      "",
+      "# Caveman",
+      "",
+      "A plugin that answers in as few words as it can.",
+      "",
+      "## Install",
+      "",
+      "Set `$CAVEMAN_HOME` and run the installer:",
+      "",
+      "```bash",
+      "caveman install --prefix $CAVEMAN_HOME",
+      "```",
+      "",
+      "## Options",
+      "",
+      "| Option | Default | What it does |",
+      "| --- | --- | --- |",
+      "| `grunts` | `2` | How many grunts per answer. |",
+      "| `fire` | `off` | Whether to mention fire. |",
+      "",
+      "> Caveman does not explain. Caveman answers.",
+      "",
+      "1. Install it",
+      "2. Ask it something",
+      "3. Receive two words",
+    ].join("\n"),
   },
 };

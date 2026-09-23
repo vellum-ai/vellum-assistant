@@ -161,12 +161,76 @@ describe("fetchPluginCatalogFromPlatform", () => {
     await expect(promise).rejects.toMatchObject({ status: 502 });
   });
 
-  test("throws on a schema violation", async () => {
+  test.each([
+    ["a missing plugins array", {}],
+    ["a non-array plugins field", { plugins: "nope" }],
+    ["a non-object body", []],
+  ])("throws on an invalid envelope (%s)", async (_label, body) => {
     const promise = fetchPluginCatalogFromPlatform({
-      fetch: platformFetch({ plugins: [{ repo: "acme/x", ref: SHA_A }] }),
+      fetch: platformFetch(body),
     });
     await expect(promise).rejects.toBeInstanceOf(PluginCatalogUnavailableError);
     await expect(promise).rejects.toMatchObject({ status: 502 });
+  });
+
+  test("skips rows that fail the base row schema and keeps the rest", async () => {
+    const catalog = await fetchPluginCatalogFromPlatform({
+      fetch: platformFetch({
+        plugins: [
+          { repo: "acme/nameless", ref: SHA_A },
+          { name: 42, repo: "acme/numeric", ref: SHA_A },
+          "not-a-row",
+          { name: "good", repo: "acme/good", ref: SHA_B },
+        ],
+      }),
+    });
+    expect(catalog.matches.map((m) => m.name)).toEqual(["good"]);
+  });
+
+  test("keeps a row whose integration is invalid, without the integration", async () => {
+    const catalog = await fetchPluginCatalogFromPlatform({
+      fetch: platformFetch({
+        plugins: [
+          {
+            name: "snake-case",
+            repo: "acme/snake-case",
+            ref: SHA_A,
+            description: "kept",
+            integration: {
+              kind: "mcp",
+              display_name: "Snake Case",
+              documentation_url: "https://example.com/docs",
+              verified_at: "2026-09-10",
+              verification: "documentation-only",
+              setup: { mode: "oauth", instructions: "Sign in." },
+              logo: "snake-case.png",
+            },
+          },
+          {
+            name: "valid",
+            repo: "acme/valid",
+            ref: SHA_B,
+            integration: {
+              kind: "mcp",
+              displayName: "Valid",
+              documentationUrl: "https://example.com/docs",
+              verifiedAt: "2026-09-10",
+              verification: "documentation-only",
+              setup: { mode: "manual", instructions: "Paste a key." },
+              logo: "valid.png",
+            },
+          },
+        ],
+      }),
+    });
+
+    expect(catalog.matches.map((m) => m.name)).toEqual(["snake-case", "valid"]);
+    expect(catalog.matches[0]).toMatchObject({
+      name: "snake-case",
+      description: "kept",
+    });
+    expect(catalog.matches[0]?.integration).toBeUndefined();
+    expect(catalog.matches[1]?.integration?.displayName).toBe("Valid");
   });
 
   test("throws when fetch rejects (network error / abort)", async () => {

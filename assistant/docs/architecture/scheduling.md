@@ -2,6 +2,12 @@
 
 Recurring schedules, watchers, and queued task execution architecture.
 
+## Execute-mode completion and time limits
+
+An execute-mode run owns its automatic result notification, including results from background commands and subagents. The scheduler waits for the firing's own active turns, queued continuations, commands, child tasks, and command wakes to settle before marking the run successful and emitting `schedule.result`. Unrelated work in a reused conversation does not extend the wait. Ownership is recorded before asynchronous turn setup, covers dequeued messages while their processing claim and persistence are pending, and follows wakes through queueing, hydration, and execution. Dequeued dispatches retain a cancellation signal for teardown until the active turn takes over. User interrupts preserve accepted user prompts during that handoff; started turns remain cancellable. Background work retains its original timing through queueing, dispatch, active processing, and command wakes. The reply-notification gate and persisted-history check apply that timing to suppress stale kickoff alerts without hiding replies to newer user requests. Quiet runs skip this fallback, and explicit successful delivery suppresses duplicates.
+
+The wait shares the run's `timeouts.scheduleTurnTimeoutSec` budget. If delegated work exceeds that budget, the scheduler records an error, cancels only commands, child tasks, queued continuations, and the active turn owned by that run. User work and other runs in the same conversation remain intact. The attempt follows the existing retry and exhaustion-alert policy; partial output never emits a success notification. Scheduled command wakes carry `cronRunId`, check the persisted run status before starting, and observe cancellation while running, so a late callback cannot restart a failed attempt.
+
 ## Recurrence Schedules — Cron and RRULE Dual-Syntax Engine
 
 The scheduler supports two recurrence syntaxes for recurring tasks:

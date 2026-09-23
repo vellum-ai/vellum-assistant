@@ -8,6 +8,7 @@ import { isCodexSubscriptionModel } from "../providers/openai/codex-models.js";
 import type { ModelIntent } from "../providers/types.js";
 import { getManagedUpstream } from "../providers/vellum-model-routing.js";
 import {
+  AUTO_PROFILE_KEY,
   BACKUP_PROFILE_KEYS,
   type BackupProfileKey,
   DEFAULT_PROFILE_KEYS,
@@ -17,6 +18,7 @@ import {
   FALLBACK_PROFILE_BY_KEY,
   isDefaultProfileKey,
   isDefaultProfileProvider,
+  isFlagGatedProfileKey,
   isManagedOnlyProfileKey,
   JEV_MANAGED_PROFILE_KEY,
   OS_BETA_PROFILE_KEY,
@@ -408,6 +410,27 @@ export const JEV_MANAGED_PROFILE_TEMPLATE: DefaultProfileTemplate = {
 };
 
 /**
+ * The Auto profile: the managed Balanced body under its own label, so that
+ * anything dispatching the name directly runs Balanced. The per-message
+ * choice among the defaults happens in the agent loop, not here (see
+ * `AUTO_PROFILE_KEY`). No `fallbackProfile`: the code-owned fallback mapping
+ * is keyed by default profile, and a direct dispatch of this name is already
+ * the fallback path. Flag-gated like `os-beta`: NOT in
+ * `MANAGED_PROFILE_TEMPLATES`, so the unconditional boot seed never creates
+ * it; the flag-gated profile reconcile materializes it while the
+ * `auto-profile` feature flag is on.
+ */
+export const AUTO_PROFILE_TEMPLATE: DefaultProfileTemplate = (() => {
+  const { fallbackProfile: _fallbackProfile, ...balanced } =
+    VELLUM_PROFILE_IMPLS.balanced;
+  return {
+    ...balanced,
+    label: "Auto",
+    description: "Picks the profile that fits each message, in beta",
+  };
+})();
+
+/**
  * Managed profiles, i.e. the `vellum` column keyed by profile name, plus the
  * managed backup profiles and the managed Jev profile. Backups come after the
  * primaries, which is what places them after the primaries in the seeded
@@ -521,6 +544,7 @@ export const INVARIANT_PROFILE_NAMES = new Set<string>([
   ...DEFAULT_PROFILE_KEYS,
   ...BACKUP_PROFILE_KEYS,
   JEV_MANAGED_PROFILE_KEY,
+  AUTO_PROFILE_KEY,
   OS_BETA_PROFILE_KEY,
 ]);
 
@@ -535,6 +559,7 @@ export const MANAGED_PROFILE_NAMES = new Set<string>([
   ...DEFAULT_PROFILE_KEYS,
   ...BACKUP_PROFILE_KEYS,
   JEV_MANAGED_PROFILE_KEY,
+  AUTO_PROFILE_KEY,
   OS_BETA_PROFILE_KEY,
 ]);
 
@@ -666,6 +691,10 @@ function buildDefaultProfileEntries(): Record<string, ProfileEntry> {
     JEV_MANAGED_PROFILE_TEMPLATE,
     JEV_MANAGED_PROFILE_TEMPLATE.provider,
   );
+  entries[AUTO_PROFILE_KEY] = materializeProfile(
+    AUTO_PROFILE_TEMPLATE,
+    AUTO_PROFILE_TEMPLATE.provider,
+  );
   entries[OS_BETA_PROFILE_KEY] = materializeProfile(
     OS_BETA_PROFILE_TEMPLATE,
     OS_BETA_PROFILE_TEMPLATE.provider,
@@ -757,7 +786,7 @@ function resolveAgainstBody(
     return { ...body };
   }
   if (workspace == null) {
-    return name === OS_BETA_PROFILE_KEY ? undefined : { ...body };
+    return isFlagGatedProfileKey(name) ? undefined : { ...body };
   }
   if (workspace.source !== "managed") {
     return workspace;

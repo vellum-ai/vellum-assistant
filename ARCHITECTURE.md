@@ -29,6 +29,7 @@ This file is the cross-system architecture index. Detailed designs live in domai
 | Workflow orchestration engine               | [Workflow Orchestration Engine](#workflow-orchestration-engine) (this file)                        |
 | Watch sessions                              | [Watch Sessions](#watch-sessions) (this file)                                                      |
 | Screen annotation                           | [Screen Annotation](#screen-annotation) (this file)                                                |
+| Completion notifications                    | [Completion Notifications](#completion-notifications) (this file)                                 |
 | Notification sender avatars                 | [Notification Sender Avatars](#notification-sender-avatars) (this file)                            |
 | Workflow authoring guide                    | [`assistant/docs/workflows.md`](assistant/docs/workflows.md)                                       |
 | Workflow manual testing runbook             | [`assistant/docs/workflows-testing.md`](assistant/docs/workflows-testing.md)                       |
@@ -812,6 +813,45 @@ See [Voice input diagnostics](assistant/docs/voice-input-diagnostics.md) for the
 
 With Flux turn detection enabled, microphone audio passes through for one second after locally detected speech, then room audio becomes digital silence. A bounded 200 ms buffer preserves the lead-in to resumed speech without replaying already-submitted audio. Confirmed playback echo becomes silence before buffering. Flux retains an elapsed-audio timeline through pauses. In hands-free Flux sessions, provider `StartOfTurn` owns interruption: local energy alone cannot emit `speech_started` or cancel a reply, even when provider end-of-turn handling is disabled. Other providers retain the local sustained-speech guard, and manual sessions retain client-owned interruption. Gate transitions, submission cadence, interruption source, and provider turn-end confidence, trigger, and audio position are logged for correlation with the input measurements.
 
+## macOS Companion Tour Permissions
+
+The existing companion coachmarks request Microphone for calls, Input Monitoring
+for the voice key, and Screen Recording for sharing, only when their lesson needs
+access. Microphone uses its native prompt. Input Monitoring and Screen Recording
+can detach from the coachmark into a guide beside System Settings, with a native
+file drag of the capturing Vellum Helper application. Other app permissions stay
+outside the companion tour.
+
+The informational introduction waits for an active assistant before offering the
+coachmarks. Losing assistant readiness clears an interrupted tour and its dimming
+without completing it. Talk and voice-key practice cannot start a call; microphone
+setup belongs to the final, explicit call action.
+
+Main resolves the app-owned drag path and accepts drag and Finder actions only
+from the current guide's WebContents. The guide follows the main Settings window
+by its pinned window id. Before dragging or revealing in Finder it stops following
+and yields its floating level so authentication dialogs remain accessible. The
+same coachmark resumes on an actual permission grant or Back; leaving the lesson
+cancels its guide, including pending app lookups.
+
+```mermaid
+flowchart LR
+    TOUR["Companion permission coachmark"] --> GUIDE["Native drag guide"]
+    TOUR --> SERVICE["PermissionsService"]
+    GUIDE --> SETTINGS["System Settings helper app list"]
+    HELPER["Native helper window inventory"] --> GUIDE
+    SERVICE -->|actual OS grant| STATE["Permission state broadcast"]
+    STATE --> TOUR
+    STATE -->|dismiss guide| GUIDE
+```
+
+The helper's existing window inventory provides Settings bounds without taking
+a screenshot or requesting Accessibility. The guide polls actual permission
+state, follows Settings across displays, and tears down its timers when dismissed,
+replaced, granted, or expired. Native prompt permissions retain their existing
+request path. The optional setup bridge preserves older-shell and other-platform
+behavior. See [the macOS client](clients/macos/README.md).
+
 ## Watch Sessions
 
 A watch session records what the user narrates while they work and reads their screen around it. The microphone and the socket live in the browser (`clients/web/src/domains/chat/watch/watch-controller.ts`); the cadence, the observations, and the timeline live in the daemon (`assistant/src/watch/watch-session-manager.ts`). The client draws nothing during a session: frames going the other way are lifecycle only, and the retrospective is a conversational turn after the socket is gone.
@@ -910,6 +950,8 @@ An automation slot keeps the desktop alive independently of the viewer. The pict
 
 ## Screen Annotation
 
+Voice escalation normally starts with `[ESCALATE]` before a holding phrase. During screen sharing, the front door can choose `[ESCALATE_SCREEN]` for an annotation or immediate screen action requiring only the visible screen and conversation. With an active share, that verdict skips fresh memory retrieval on the escalated leg while retaining resident history and static context. Ordinary escalations keep retrieval enabled. The shared parser also recovers either explicit verdict at the end of a completed front-door reply, using already streamed speech as its acknowledgement without repeating it or delaying answer streaming. The numeric `[1]` verdict remains supported only at the start of a reply. Interior or incomplete markers do not trigger terminal recovery, and cancelled turns cannot hand off.
+
 The assistant points at things on the screen the user is sharing with a call, so they can go and do the thing themselves. It is the opposite errand from computer use and shares none of its actions: nothing here clicks, types or takes the mouse. The bundled `screen-annotation` skill (`assistant/src/config/bundled-skills/screen-annotation/`) offers two tools, `screen_point_at` and `screen_clear_marks`, and a request replaces whatever is currently drawn. Clearing is its own tool because it is a thing the model decides to do rather than an argument shape it has to remember; on the wire it is the same request carrying no marks.
 
 For live-voice clients that advertise `lookFrames`, a `LOOK:SCREEN` control obtains a fresh view and starts sharing if necessary. The pending look retains the original caller request and any caller turns committed while it waits. Once its frame arrives, the hidden follow-up uses the combined request for front-door routing and carries it into the tool-capable leg if it escalates. Speculative caller turns contribute only after committing, including when their frame has already arrived. A caller turn launched after the frame suppresses the follow-up because it can already see that frame. The vision-capable front door decides whether the request needs annotation or only a spoken answer; hidden follow-ups skip the text-only escalation judge because it cannot assess the captured view. Capturing a frame does not complete a request to point at a control.
@@ -918,9 +960,13 @@ For live-voice clients that advertise `lookFrames`, a `LOOK:SCREEN` control obta
 
 **Routing.** The tools forward under the wire name `computer_use_point_at` (`assistant/src/tools/computer-use/skill-proxy-bridge.ts`), because that prefix is what `surfaceProxyResolver` routes to a desktop client. `hostCuCapabilityFor` maps that one name to `host_cu_annotate`, so the same-actor gate and the audit line name the capability that actually gated the request, and the call is exempt from the computer-use step budget.
 
+**Voice discovery.** The screen-share client sends `update_config.screenSharing` at share start, stop, and reconnect. Tool-capable macOS voice turns with a shared screen load the current `screen-annotation` instructions and tool schemas through the read-only skill loader into their turn context. Preactivation registers executable tools; this load also tells the model how to call them through `skill_execute`, independently of memory skill-card selection. The connected same-actor annotation capability still gates the load. Front-door turns remain toolless, and older clients that omit the optional field retain ordinary skill discovery.
+
 **Answered in Electron main, not in the helper.** `PointAtExecutor` (`clients/macos/src/main/executors/host-cu-executor.ts`) intercepts the pointing tool and forwards every other tool to the shared native helper. The frame the marks land on belongs to this client, and the shared executor is the transport every desktop client uses. The painter itself is handed in by `host-proxy-adapter.ts` rather than imported, since an executor reaching into the window layer would be the transport depending on what it transports to.
 
 **A name is resolved, not estimated.** A mark either names a control (`{target}`) or gives bounds. Naming is the path that works: `showCompanionCoachmarks` asks the helper's `ax.locate` for the frame the accessibility tree already holds (`AXTargetMatch`, exact match or nothing, with candidates clipped to what can actually be seen on the shared surface), then converts screen points to fractions of that surface. Bounds are for what has no label to find it by, and are the model's guess at where the thing is. `AXTargetMatch` refuses anything it fits more than once: a ring drawn confidently around the wrong control is worse than one not drawn, because the person following it cannot tell.
+
+Some apps expose a custom control as static text with an accessibility description but no title or value. The macOS helper retains these descriptions separately from visible text and includes them as annotation names with their native bounds. A failed lookup returns those names so the assistant can select an exact candidate using the shared image. Matching does not infer a visible label from an internal name; ambiguous candidates remain unresolved.
 
 **Failure boundaries.** Every way a request can fail to draw is an `executionError` rather than a result, so the turn cannot go on describing a ring that is not there. A refusal says the surface is not this turn's to draw on: nothing shared, the share belongs to another conversation, the coordinates were measured against a surface the user has since left, or a later request has taken the screen. An unresolved name says the surface is fine and the name is not on it, and carries the names that are, so the next attempt can pick one. That list is bounded in the helper that reads the tree (`AXLabel.shortlist`) rather than at the far end that only sees what already crossed, since a web page is ten thousand elements and any of them can be carrying a paragraph of `aria-label`; the count of how many there were travels beside it.
 
@@ -956,11 +1002,33 @@ graph LR
     PAINT -->|"coachmarkPressed · label"| TURN["root layout<br/>coachmark-press-turn · sendText"]
 ```
 
+## Completion Notifications
+
+Unseen replies, non-quiet scheduled results, and explicitly identified background results enter the existing `emitNotificationSignal()` pipeline. Completion presentation is resolved independently of urgency: ordinary completions can produce a local banner without becoming high-priority alerts. Local previews require the canonical recipient principal and use targeted `notification_intent` delivery. The existing platform route retains mobile push ownership and acknowledgement handling.
+
+Completion suppression uses the intended recipient's fresh presence in the result conversation. Browser presence requires a visible, focused window; Electron supplies its authoritative window attention. Activity elsewhere on the computer does not count as attending the result. Parent continuations own delegated task and background-tool completion alerts after the user-facing result is persisted. Scheduled runs retain their existing owner, while private output, silent work, and pending child work do not announce completion.
+
+Open desktop-browser tabs keep their existing event stream connected while hidden. Notification permission is requested through an explicit settings action. Same-origin browser tabs coordinate posting through Web Locks and a bounded receipt ledger scoped to account, assistant, and delivery identity. Where those APIs are unavailable, page-local deduplication and a stable OS tag provide best-effort delivery. Closing, freezing, or discarding the tab stops the live-delivery guarantee; reconnect restores normal conversation and feed state.
+
+```mermaid
+flowchart LR
+    Reply[Final unseen reply] --> Signal[Notification signal]
+    Schedule[Scheduled result] --> Signal
+    Parent[Persisted parent continuation] --> Signal
+    Signal --> Policy[Presence and completion policy]
+    Policy --> Local[Recipient-targeted local intent]
+    Policy --> Platform[Existing mobile push route]
+    Local --> Desktop[Electron notification owner]
+    Local --> Browser[Browser tab delivery owner]
+```
+
+See [notification delivery](assistant/src/notifications/README.md) and [web lifecycle events](clients/web/docs/EVENT_BUS.md).
+
 ## Notification Sender Avatars
 
 A native notification from an assistant is drawn as a message from that assistant: the assistant's avatar is the icon, its name is the first line, the conversation title drops to the second, and the body is unchanged. One drawing reaches remote APNs and FCM, app-originated mobile notifications, browser notifications, and the three Electron shells. Two client-scoped flags are independent and default off. `push-avatar-sender` gates sender metadata in platform pushes and Electron sender presentation. `local-notification-avatar` gates the iOS app-local native owner, Android app-local assistant presentation, and the prepared browser notification icon. Android coordinator ownership negotiation is independent of both presentation flags, so turning sender presentation off does not reopen an unshared delivery route. Neither flag advertises Android token capability or live foreground ownership. The platform companion is tracked in `meta/feature-flags/PENDING_PLATFORM_PRS.md`.
 
-**One disc, one spec.** `packages/avatar-manifest/src/notification-avatar.ts` (the `@vellumai/avatar-manifest/notification-avatar` subpath) owns the drawing: a 256px square holding a disc inscribed in it, filled with the assistant's accent mixed 14% into white (`#ECEFEA` when there is no accent), with the avatar cover-cropped into the inner square 11% in from each side and clipped to the same circle the fill uses. The corners stay transparent deliberately, because iOS, Android, and the Windows toast logo slot all circle-crop what they are handed and a square of colour would show through as a ring anywhere that does not. The module is arithmetic and string building with no decoder and no node builtins, so both rasterizers call it: the daemon feeds `notificationAvatarSvg()` to resvg, and the web renderer draws the same geometry on a canvas. `NOTIFICATION_AVATAR_SPEC_VERSION` rides the sync's dedupe key so a change to the drawing re-uploads a disc whose source avatar never moved. Two caps live here and differ on purpose: `NOTIFICATION_AVATAR_MAX_BYTES` (128 KB) bounds the PNG that crosses a push transport, `NOTIFICATION_AVATAR_MAX_LOCAL_BYTES` (512 KB) the one that only crosses local IPC.
+**One disc, one spec.** `packages/avatar-manifest/src/notification-avatar.ts` (the `@vellumai/avatar-manifest/notification-avatar` subpath) owns the drawing: a 256px square holding a disc inscribed in it, filled with the assistant's accent mixed 14% into white (`#ECEFEA` when there is no accent), with custom images center-cover-cropped to fill the circle and character avatars inset 11% from each side. Both are clipped to the same circle the fill uses. The corners stay transparent deliberately, because iOS, Android, and the Windows toast logo slot all circle-crop what they are handed and a square of colour would show through as a ring anywhere that does not. The module is arithmetic and string building with no decoder and no node builtins, so both rasterizers call it: the daemon feeds `notificationAvatarSvg()` to resvg, and the web renderer draws the same geometry on a canvas. `NOTIFICATION_AVATAR_SPEC_VERSION` rides the sync's dedupe key so a change to the drawing re-uploads a disc whose source avatar never moved. Two caps live here and differ on purpose: `NOTIFICATION_AVATAR_MAX_BYTES` (128 KB) bounds the PNG that crosses a push transport, `NOTIFICATION_AVATAR_MAX_LOCAL_BYTES` (512 KB) the one that only crosses local IPC.
 
 **The daemon renders it and syncs it.** `assistant/src/avatar/notification-avatar.ts` builds the SVG and rasterizes it with resvg, loaded lazily through `assistant/src/avatar/resvg-lazy.ts` because the platform-specific native addon is absent from `bun --compile` binaries and a top-level import would take the daemon down at startup. A WebP source is transcoded to PNG first (resvg has no WebP decoder and renders such an `<image>` href blank), and an over-cap render is quantised to a palette PNG and dropped if that still misses. Every failure returns `null` rather than throwing, because the point is to leave the platform holding whatever it already has. `assistant/src/platform/sync-avatar.ts` folds the result into the avatar PATCH the daemon already sends to `/v1/assistants/{id}/`: `notification_avatar_base64` beside `avatar_base64`, both `null` when the avatar is removed, and the field omitted rather than nulled when no disc could be drawn. Its dedupe key is `<kind>:<raster digest>:<spec version>:<accent>:<disc|none>`, whose last segment is answered by `canRenderNotificationAvatar()`, a probe rather than a render. Folding render availability into the key is what keeps a sync that shipped only `avatar_base64` (no native rasterizer, no codec for the source) from latching for the key's whole 7-day life: the key moves the moment the cause clears. A platform that 400s the field gets exactly one reduced re-send without it, and `assistant/src/platform/platform-patch-queue.ts` persists the key the request actually shipped rather than the optimistic one the body was enqueued under.
 
@@ -980,7 +1048,7 @@ A native notification from an assistant is drawn as a message from that assistan
 
 ```mermaid
 graph TB
-    SPEC["packages/avatar-manifest<br/>notification-avatar.ts<br/>256px disc · 11% inset<br/>accent mixed 14% into white"]
+    SPEC["packages/avatar-manifest<br/>notification-avatar.ts<br/>256px disc · custom images fill circle<br/>characters inset 11% · accent mixed 14% into white"]
 
     subgraph "Daemon"
         REND["avatar/notification-avatar.ts<br/>resvg (lazy) · quantise · cap 128 KB"]

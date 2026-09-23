@@ -3702,12 +3702,13 @@ describe("LiveVoiceSession server VAD", () => {
     // thread instead of being dropped.
     await session.close("client_end");
     expect(injectMessageIntoParentMock).toHaveBeenCalledTimes(1);
-    const [conversationId, message] =
+    const [conversationId, message, metadata] =
       injectMessageIntoParentMock.mock.calls[0] ?? [];
     expect(conversationId).toBe("conversation-123");
     expect(message).toContain("THE_RESULT");
     expect(message).toContain("[Background work finished]");
     expect(message).toContain("first question");
+    expect(metadata).toEqual({ hidden: true, voiceContinuationResult: true });
   });
 
   test("closing during an active announcement delivers the result into the conversation", async () => {
@@ -3739,12 +3740,43 @@ describe("LiveVoiceSession server VAD", () => {
 
     await session.close("client_end");
     expect(injectMessageIntoParentMock).toHaveBeenCalledTimes(1);
-    const [conversationId, message] =
+    const [conversationId, message, metadata] =
       injectMessageIntoParentMock.mock.calls[0] ?? [];
     expect(conversationId).toBe("conversation-123");
     expect(message).toContain("THE_RESULT");
     expect(message).toContain("[Background work finished]");
     expect(message).toContain("first question");
+    expect(metadata).toEqual({ hidden: true, voiceContinuationResult: true });
+  });
+
+  test("a continuation finishing after the room closes stays hidden in the conversation", async () => {
+    injectMessageIntoParentMock.mockClear();
+    const continuation = makeControlledContinuation();
+    const { startVoiceTurn } = makeResurfaceTurnStarter();
+    const { frames, session } = createHarness({
+      finals: ["first question", ""],
+      startVoiceTurn,
+      streamTtsAudio: makeImmediateTts(),
+      spawnBackgroundContinuation: continuation.spawnBackgroundContinuation,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => frames.some((frame) => frame.type === "thinking"));
+    await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+    await waitFor(
+      () => continuation.spawnBackgroundContinuation.mock.calls.length === 1,
+    );
+    await session.close("client_end");
+    expect(injectMessageIntoParentMock).not.toHaveBeenCalled();
+
+    continuation.finish("THE_RESULT");
+    await waitFor(() => injectMessageIntoParentMock.mock.calls.length === 1);
+    const [conversationId, message, metadata] =
+      injectMessageIntoParentMock.mock.calls[0] ?? [];
+    expect(conversationId).toBe("conversation-123");
+    expect(message).toContain("THE_RESULT");
+    expect(metadata).toEqual({ hidden: true, voiceContinuationResult: true });
   });
 
   test("a speculative user reply preserves the pending announcement", async () => {

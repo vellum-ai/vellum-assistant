@@ -104,4 +104,12 @@ describe("search-provider-catalog", () => {
     expect(tinyfish?.defaultApiBase).toBe("https://api.search.tinyfish.ai");
     expect(tinyfish?.envVar).toBe("TINYFISH_API_KEY");
   });
+
+  test("Exa is a keyed BYOK provider without a custom API base", () => {
+    const exa = getSearchProvider("exa");
+    expect(exa?.kind).toBe("byok");
+    expect(exa?.keyless).toBeUndefined();
+    expect(exa?.supportsApiBase).toBeUndefined();
+    expect(exa?.envVar).toBe("EXA_API_KEY");
+  });
 });

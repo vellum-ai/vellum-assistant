@@ -25,10 +25,9 @@
  * handling.
  */
 
-import {
-  isParkAction,
-  resolveDecisionStatusWord,
-} from "../../../runtime/channel-approval-types.js";
+import { isParkGuardianAction } from "@vellumai/service-contracts/guardian-requests";
+
+import { resolveDecisionStatusWord } from "../../../runtime/channel-approval-types.js";
 import { getLogger } from "../../../util/logger.js";
 import { callTelegramBotApi } from "./api.js";
 
@@ -73,7 +72,7 @@ export interface WithdrawTelegramApprovalCardParams {
 
 /** Build the plain-text outcome line for the quoted status reply. */
 function buildStatusText(status: string, decidedAction?: string): string {
-  const park = status === "denied" && isParkAction(decidedAction);
+  const park = status === "denied" && isParkGuardianAction(decidedAction);
   const glyph = park ? PARK_STATUS_GLYPH : (STATUS_GLYPH[status] ?? "");
   const word = resolveDecisionStatusWord(status, decidedAction);
   return glyph ? `${glyph} ${word}` : word;

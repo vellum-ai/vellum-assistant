@@ -1444,6 +1444,16 @@ export async function createScheduleRun(
   return id;
 }
 
+export function getScheduleRunStatus(
+  runId: string,
+): ScheduleRun["status"] | undefined {
+  return getDb()
+    .select({ status: scheduleRuns.status })
+    .from(scheduleRuns)
+    .where(eq(scheduleRuns.id, runId))
+    .get()?.status;
+}
+
 /** Currently-running schedule runs with their job names, oldest first. */
 export function listRunningScheduleRuns(): Array<{
   runId: string;

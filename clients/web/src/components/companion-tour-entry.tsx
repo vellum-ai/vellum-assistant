@@ -6,145 +6,131 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 
 import { Button, Modal } from "@vellumai/design-library";
-import {
-  DEFAULT_COMPANION_SIZE,
-  companionBoxFor,
-} from "@vellumai/ipc-contract";
+import { companionBoxFor } from "@vellumai/ipc-contract";
 
+import { introDemoCall } from "@/components/companion-intro";
 import { CompanionSurface } from "@/components/companion-surface";
+import { scopedAvatarAccentVars } from "@/hooks/use-avatar-accent-var";
 import { useTranslation } from "@/i18n";
+import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
+import { resolveAvatarRender } from "@/utils/avatar-render";
 
-const AVATAR_BOX = companionBoxFor("avatar", DEFAULT_COMPANION_SIZE);
-const OPTIONS_BOX = companionBoxFor("options", DEFAULT_COMPANION_SIZE);
+const AVATAR_BOX = companionBoxFor("avatar", "small");
+const OPTIONS_BOX = companionBoxFor("options", "small");
 
 export interface CompanionTourEntryModalProps {
+  avatar?: {
+    customImageUrl: string | null;
+    components: CharacterComponents | null;
+    traits: CharacterTraits | null;
+    accentHex: string | null;
+  };
+  assistantName?: string;
   open: boolean;
   onStart: () => void;
   onDismiss: () => void;
 }
 
 export function CompanionTourEntryModal({
+  avatar,
+  assistantName,
   open,
   onStart,
   onDismiss,
 }: CompanionTourEntryModalProps): ReactNode {
   const { t } = useTranslation();
-  const [confirmingDismissal, setConfirmingDismissal] = useState(false);
-
-  useEffect(() => {
-    if (!open) {
-      setConfirmingDismissal(false);
-    }
-  }, [open]);
-
-  const startTour = (): void => {
-    setConfirmingDismissal(false);
-    onStart();
-  };
-
-  const dismissTour = (): void => {
-    setConfirmingDismissal(false);
-    onDismiss();
-  };
+  const contentRef = useRef<HTMLDivElement>(null);
+  const renderedAvatar = avatar
+    ? resolveAvatarRender(
+        avatar.customImageUrl,
+        avatar.components,
+        avatar.traits,
+        AVATAR_BOX,
+      )
+    : null;
 
   return (
     <Modal.Root
       open={open}
       onOpenChange={(nextOpen) => {
         if (!nextOpen) {
-          setConfirmingDismissal(true);
+          onDismiss();
         }
       }}
     >
       <Modal.Content
+        ref={contentRef}
         size="lg"
         hideCloseButton
         dismissOnOverlayClick={false}
+        // **The card takes the opening focus, not the first control in it.**
+        // Radix focuses the first tabbable node on open, and this card draws
+        // its own close button above the copy, so that node is the one control
+        // that throws the tour away. Nobody asked for this dialog: it opens by
+        // itself when the surface first appears, so the ring lands on the exit
+        // before the user has touched anything, and reads as a pointer already
+        // resting on the X. Focusing the card keeps the trap and Escape intact
+        // while leaving the ring off a control the user never aimed at; the
+        // first Tab still reaches the close button.
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          contentRef.current?.focus();
+        }}
         onEscapeKeyDown={(event) => {
           event.preventDefault();
-          setConfirmingDismissal(true);
+          onDismiss();
         }}
         className="max-w-[820px] overflow-hidden"
+        style={scopedAvatarAccentVars(avatar?.accentHex)}
       >
         <div className="relative grid min-h-[500px] md:grid-cols-[1.18fr_0.82fr]">
-          {!confirmingDismissal ? (
-            <button
-              type="button"
-              aria-label={t("companionIntro.announcement.close")}
-              className="absolute top-4 right-4 z-10 flex size-8 items-center justify-center rounded-full text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-active)] hover:text-[var(--content-default)] md:text-white/60 md:hover:bg-white/10 md:hover:text-white"
-              onClick={() => setConfirmingDismissal(true)}
-            >
-              <X className="size-4" />
-            </button>
-          ) : null}
+          <button
+            type="button"
+            aria-label={t("companionIntro.announcement.close")}
+            className="absolute top-4 right-4 z-10 flex size-8 items-center justify-center rounded-full text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-active)] hover:text-[var(--content-default)] md:text-white/60 md:hover:bg-white/10 md:hover:text-white"
+            onClick={onDismiss}
+          >
+            <X className="size-4" />
+          </button>
 
           <div className="relative flex min-w-0 flex-col p-8 sm:p-10">
-            {confirmingDismissal ? (
-              <>
-                <div className="flex flex-1 flex-col justify-center">
-                  <Modal.Title className="[&>span]:whitespace-normal text-[32px] leading-[1.08] tracking-[0.01em]">
-                    {t("companionIntro.announcement.confirm.title")}
-                  </Modal.Title>
-                  <Modal.Description className="mt-4 max-w-[390px] text-body-medium-lighter leading-6 text-[var(--content-secondary)]">
-                    {t("companionIntro.announcement.confirm.body")}
-                  </Modal.Description>
-                </div>
-                <div className="flex flex-wrap items-center justify-end gap-2 pt-8">
-                  <Button variant="ghost" onClick={dismissTour}>
-                    {t("companionIntro.announcement.confirm.skip")}
-                  </Button>
-                  <Button
-                    variant="primary"
-                    rightIcon={<ArrowRight className="size-4" />}
-                    onClick={startTour}
-                  >
-                    {t("companionIntro.announcement.confirm.keep")}
-                  </Button>
-                </div>
-              </>
-            ) : (
-              <>
-                <Modal.Title className="[&>span]:whitespace-normal pr-8 text-[32px] leading-[1.08] tracking-[0.01em]">
-                  {t("companionIntro.announcement.title")}
-                </Modal.Title>
-                <Modal.Description className="mt-3 max-w-[420px] text-body-medium-lighter leading-6 text-[var(--content-secondary)]">
-                  {t("companionIntro.announcement.body")}
-                </Modal.Description>
+            <Modal.Title className="[&>span]:whitespace-normal pr-8 text-[32px] leading-[1.08] tracking-[0.01em]">
+              {t("companionIntro.announcement.title")}
+            </Modal.Title>
+            <Modal.Description className="mt-3 max-w-[420px] text-body-medium-lighter leading-6 text-[var(--content-secondary)]">
+              {t("companionIntro.announcement.body")}
+            </Modal.Description>
 
-                <div className="mt-6 flex flex-col gap-2">
-                  <TourValueCard
-                    icon={MessageCircle}
-                    title={t("companionIntro.announcement.cards.flow.title")}
-                    body={t("companionIntro.announcement.cards.flow.body")}
-                  />
-                  <TourValueCard
-                    icon={MonitorUp}
-                    title={t("companionIntro.announcement.cards.context.title")}
-                    body={t("companionIntro.announcement.cards.context.body")}
-                  />
-                  <TourValueCard
-                    icon={MousePointer2}
-                    title={t(
-                      "companionIntro.announcement.cards.together.title",
-                    )}
-                    body={t("companionIntro.announcement.cards.together.body")}
-                  />
-                </div>
+            <div className="mt-6 flex flex-col gap-2">
+              <TourValueCard
+                icon={MessageCircle}
+                title={t("companionIntro.announcement.cards.flow.title")}
+                body={t("companionIntro.announcement.cards.flow.body")}
+              />
+              <TourValueCard
+                icon={MonitorUp}
+                title={t("companionIntro.announcement.cards.context.title")}
+                body={t("companionIntro.announcement.cards.context.body")}
+              />
+              <TourValueCard
+                icon={MousePointer2}
+                title={t("companionIntro.announcement.cards.together.title")}
+                body={t("companionIntro.announcement.cards.together.body")}
+              />
+            </div>
 
-                <div className="mt-auto flex justify-end pt-8">
-                  <Button
-                    variant="primary"
-                    rightIcon={<ArrowRight className="size-4" />}
-                    onClick={startTour}
-                  >
-                    {t("companionIntro.announcement.start")}
-                  </Button>
-                </div>
-              </>
-            )}
+            <div className="mt-auto flex justify-end pt-8">
+              <Button
+                variant="primary"
+                rightIcon={<ArrowRight className="size-4" />}
+                onClick={onStart}
+              >
+                {t("companionIntro.announcement.start")}
+              </Button>
+            </div>
           </div>
 
           <div
@@ -154,8 +140,7 @@ export function CompanionTourEntryModal({
             <div
               className="absolute inset-0 opacity-80"
               style={{
-                background:
-                  "radial-gradient(circle at 68% 22%, rgba(94,234,212,.2), transparent 34%), linear-gradient(145deg, #252a32 0%, #15171b 72%)",
+                background: `radial-gradient(circle at 68% 22%, color-mix(in srgb, ${avatar?.accentHex ?? "var(--content-tertiary)"} 20%, transparent), transparent 34%), linear-gradient(145deg, #252a32 0%, #15171b 72%)`,
               }}
             />
             <div className="absolute top-10 right-8 left-8 h-60 overflow-hidden rounded-xl border border-white/10 bg-white/8 shadow-2xl shadow-black/30">
@@ -171,20 +156,27 @@ export function CompanionTourEntryModal({
                 <span className="mt-3 h-20 rounded-lg bg-white/6" />
               </div>
             </div>
-            <div className="absolute inset-x-0 bottom-0 h-48">
+            <div className="absolute inset-x-0 bottom-0 h-48" inert>
               <CompanionSurface
-                phase="hover"
-                hovered
-                spotlight="talk"
-                assistantName={t(
-                  "companionIntro.announcement.previewAssistantName",
-                )}
-                accentHex="#5eead4"
-                character={{
-                  bodyShape: "burst",
-                  eyeStyle: "curious",
-                  color: "teal",
-                }}
+                phase="call"
+                call={introDemoCall(t("companionIntro.call.line"))}
+                shareEnabled
+                sharing
+                assistantName={
+                  assistantName ??
+                  t("companionIntro.announcement.previewAssistantName")
+                }
+                accentHex={avatar?.accentHex ?? undefined}
+                character={
+                  renderedAvatar?.kind === "character"
+                    ? renderedAvatar.traits
+                    : undefined
+                }
+                avatarSrc={
+                  renderedAvatar?.kind === "image"
+                    ? renderedAvatar.url
+                    : undefined
+                }
                 avatarBox={AVATAR_BOX}
                 optionsBox={OPTIONS_BOX}
               />
@@ -207,7 +199,7 @@ function TourValueCard({
 }): ReactNode {
   return (
     <div className="flex items-center gap-3 rounded-xl border border-[var(--border-base)] bg-[var(--surface-base)] p-3">
-      <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-[var(--feed-digest-weak)] text-[var(--feed-digest-strong)]">
+      <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--avatar-accent,var(--surface-lift))_28%,var(--surface-base))] text-[var(--content-default)]">
         <Icon className="size-4" />
       </span>
       <span className="flex min-w-0 flex-col">

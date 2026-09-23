@@ -95,6 +95,7 @@ export default function PrivacyPolicyPage() {
                     <li>Brave Search: <a href="https://search.brave.com/help/privacy-policy" target="_blank" rel="noreferrer">search.brave.com/help/privacy-policy</a></li>
                     <li>Tavily: <a href="https://tavily.com/privacy" target="_blank" rel="noreferrer">tavily.com/privacy</a></li>
                     <li>Firecrawl: <a href="https://www.firecrawl.dev/privacy-policy" target="_blank" rel="noreferrer">firecrawl.dev/privacy-policy</a></li>
+                    <li>Exa: <a href="https://exa.ai/privacy-policy" target="_blank" rel="noreferrer">exa.ai/privacy-policy</a></li>
                   </ul>
 
                   <h2>Use of Information</h2>

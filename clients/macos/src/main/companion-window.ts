@@ -791,6 +791,12 @@ const unstageIntro = (): void => {
   setIntroScrim(false);
 };
 
+const clearIntro = (): void => {
+  setIntroAnnouncement(false);
+  setIntroBeat(null);
+  unstageIntro();
+};
+
 const cancelIntroLanding = (): void => {
   if (introLanding === null) {
     return;
@@ -858,13 +864,6 @@ export const introEndsOnSession = (beat: CompanionIntroBeat | null): boolean =>
  * A real conversation has started, so finish a run whose last beat was the
  * offer of one.
  *
- * **The last card advertises two ways in, and only one of them is a press on
- * it.** A double tap on the key reaches the window that owns the voice key and
- * starts a session directly: nothing about it comes back through the run, so
- * without this the beat survives the call, the card returns when it ends, and
- * the install is never recorded as introduced. Either gesture is the user doing
- * the thing the run exists to teach, so either one finishes it.
- *
  * Only the last beat. A session started from an earlier one is the run being
  * interrupted by the user's own business, and main holds the beat so the card
  * picks up where it left off once the call is over.
@@ -873,10 +872,6 @@ const finishIntroOnSession = (): void => {
   if (!introEndsOnSession(intro)) {
     return;
   }
-  // **The offer taken the other way.** The press on the last beat is counted
-  // where the press lands; this is the same offer accepted by a double tap on
-  // the key, and the beat it names is the same one, so the two read as one
-  // number that the path is not lost from.
   if (intro !== null) {
     reportIntro("offer_taken", intro);
   }
@@ -2370,11 +2365,9 @@ const sameCaptureTarget = (
 /**
  * A pointed-at control the user can press, and what to call it when they do.
  *
- * Only a control found by name has one. Its rectangle is the frame the tree
- * reported for it, in screen points, which is the one description of where
- * a press would land that does not go through the picture. A ring drawn from
- * bounds the model gave is an extent someone means, not a button, and a
- * press inside it says nothing about a step.
+ * Only a control found by name has one. Its rectangle comes from the
+ * accessibility tree. Bounds measured from an image do not establish a
+ * control's hit area, so rings do not emit press acknowledgements.
  */
 interface CoachmarkPress {
   /**
@@ -2612,9 +2605,7 @@ export const showCompanionCoachmarks = async (
   const presses: CoachmarkPress[] = [];
   for (const request of requests) {
     if (!namesATarget(request)) {
-      // Bounds given outright are an extent someone means, so they keep the
-      // ring. The kind is added here rather than asked for: what the caller
-      // sends is a rectangle, and how a rectangle is drawn is this side's.
+      // Bounds draw a ring around a region or a visually identified control.
       marks.push({ kind: "region", ...request });
       continue;
     }
@@ -3665,6 +3656,9 @@ export const installCompanionWindow = (): void => {
    * some other app entirely, so "focused" would name the wrong target.
    */
   on("vellum:companion:startVoice", z.tuple([]), () => {
+    if (introAnnouncement || intro !== null) {
+      return;
+    }
     // Drawn before the press is delivered, so the pill answers the hand in
     // the same beat: the session it asks for opens after a network round trip
     // in a window the user cannot see.
@@ -4256,8 +4250,7 @@ export const installCompanionWindow = (): void => {
       if (intro === null) {
         return;
       }
-      // Rehearsal keys never open a call. Both the avatar and the voice key
-      // reach this guard, including grants revoked since the card last read.
+      // Only the final offer can open a call, with a current microphone grant.
       if (
         action === "try" &&
         (intro !== "try" ||
@@ -4696,11 +4689,8 @@ export const openCompanionWindow = (): void => {
     if (getFloatingWindow(COMPANION_KIND) !== null) {
       return;
     }
+    clearIntro();
     cancelGlide();
-    // A landing owed to a window that no longer exists is one nothing can
-    // land, and the staging it was going to lift must not outlive it: the
-    // app's window would be left dimmed with nothing staged over it.
-    unstageIntro();
     callHome = null;
     // A drag on a window that no longer exists has nothing left to drop.
     docking = null;
@@ -4724,6 +4714,7 @@ export const openCompanionWindow = (): void => {
 };
 
 const closeCompanionWindow = (): void => {
+  clearIntro();
   getFloatingWindow(COMPANION_KIND)?.close();
 };
 
@@ -4768,10 +4759,7 @@ export const setCompanionSurfaceVisible = (visible: boolean): void => {
  */
 export const replayCompanionIntro = (): void => {
   clearCompanionIntroSeen();
-  setIntroAnnouncement(false);
-  // A replay during a run is a run ending: the window it was staged over stops
-  // being dimmed for it, and the one opened below dims it for the new run.
-  unstageIntro();
+  clearIntro();
   const bringBack = (): void => {
     // A surface the user has hidden comes back through the tray's own path, so
     // the preference is cleared as well as the window opened; anything else

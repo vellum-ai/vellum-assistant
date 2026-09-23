@@ -1,0 +1,185 @@
+.workspace-file-title:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+[data-slot="chat-layout-header"]:has(.workspace-file-title) {
+  padding: 6px 14px 18px;
+}
+
+[data-slot="chat-layout-header"]:has(.workspace-file-title) a {
+  width: 44px;
+  height: 44px;
+  background: var(--surface-hover);
+}
+
+[data-slot="chat-layout-header"]:has(.workspace-file-title) a svg {
+  width: 18px;
+  height: 18px;
+}
+
+.workspace-file-title {
+  min-width: 0;
+  max-width: 100%;
+  min-height: 34px;
+  height: auto;
+  padding: 6px 12px 6px 14px;
+  border-radius: 16px;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 20px;
+  transition:
+    background-color 200ms,
+    color 200ms;
+}
+
+.workspace-viewer-card[data-compact="true"] {
+  border-radius: 18px;
+}
+
+.workspace-viewer-card[data-compact="true"]
+  [data-slot="workspace-file-header"] {
+  flex-shrink: 0;
+  padding: 12px 12px 12px 14px;
+}
+
+.workspace-viewer-card[data-compact="true"] [data-slot="workspace-file-icon"] {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+}
+
+.workspace-viewer-card[data-compact="true"] [data-slot="workspace-file-name"] {
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.workspace-viewer-card[data-compact="true"]
+  [data-slot="workspace-file-preview"] {
+  padding: 18px 20px;
+}
+
+.workspace-viewer-card[data-compact="true"] [data-slot="markdown-message"] {
+  font-size: 14.5px;
+  line-height: 1.5;
+}
+
+.workspace-viewer-card[data-compact="true"] [data-slot="markdown-message"] h1 {
+  font-size: 24px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+.workspace-viewer-card[data-compact="true"] [data-slot="markdown-message"] h2 {
+  font-size: 18px;
+  font-weight: 500;
+}
+
+.workspace-viewer-card[data-compact="true"] [data-slot="markdown-message"] hr {
+  margin-block: 18px;
+}
+
+.workspace-viewer-card[data-compact="true"]
+  [data-slot="markdown-message"]
+  :not(pre)
+  > code {
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--content-default) 7%, transparent);
+  padding: 1px 5px;
+  font-size: 12.5px;
+}
+
+.workspace-viewer-card[data-compact="true"] [data-slot="source-pre"] {
+  padding: 16px 18px;
+  font-size: 12.5px;
+  line-height: 1.65;
+}
+
+.workspace-file-picker[data-slot="bottom-sheet-content"][data-variant="detail"] {
+  animation-duration: 380ms;
+  animation-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.workspace-file-picker-overlay[data-slot="bottom-sheet-overlay"][data-variant="detail"] {
+  background: rgb(0 0 0 / 55%);
+  animation-duration: 300ms;
+  animation-timing-function: ease;
+}
+
+.workspace-file-picker > [data-slot="bottom-sheet-content-inner"] {
+  height: calc(78% + var(--bottom-sheet-bottom-inset, 0px));
+  padding-inline: 14px;
+  box-shadow: 0 -12px 40px rgb(0 0 0 / 50%);
+}
+
+.workspace-file-picker [data-slot="bottom-sheet-drag-handle"] {
+  height: 30px;
+  margin-inline: -14px;
+}
+
+.workspace-file-picker [data-slot="bottom-sheet-drag-handle"] > div {
+  width: 38px;
+  height: 5px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--content-default) 25%, transparent);
+}
+
+.workspace-file-picker [data-slot="workspace-tree-header"] {
+  border: 0;
+  padding: 2px 4px 10px;
+}
+
+.workspace-file-picker [data-slot="workspace-tree-header"] button {
+  width: 40px;
+  height: 40px;
+}
+
+.workspace-file-picker [data-slot="workspace-tree-header"] button svg {
+  width: 18px;
+  height: 18px;
+}
+
+.workspace-file-picker [data-slot="workspace-tree-search"] {
+  padding: 0 0 8px;
+}
+
+.workspace-file-picker [data-slot="input"] {
+  height: 42px;
+  border-radius: 12px;
+  border-color: transparent;
+  background: color-mix(in srgb, var(--content-default) 6%, transparent);
+  padding-left: 41px;
+  padding-right: 44px;
+  font-size: 15px;
+}
+
+.workspace-file-picker [data-testid="input-left-icon"] {
+  left: 14px;
+}
+
+.workspace-file-picker [data-slot="input"]:focus-visible {
+  border-color: var(--border-active);
+}
+
+.workspace-file-picker [data-testid="input-left-icon"] svg {
+  width: 17px;
+  height: 17px;
+}
+
+.workspace-file-picker [data-slot="workspace-tree-list"] {
+  overscroll-behavior: contain;
+  padding: 0 0 24px;
+}
+
+.workspace-file-picker [data-slot="workspace-tree-row"] {
+  min-height: 44px;
+  gap: 12px;
+  border-radius: 10px;
+  font-size: 15px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace-file-title {
+    transition: none;
+  }
+}

@@ -504,6 +504,34 @@ describe("BYOOAuthConnection", () => {
       expect(headers.get("Content-Type")).toBe("application/pdf");
     });
 
+    test("joins a Gmail media upload onto the host-only Google API base", async () => {
+      await setupCredential("google");
+      const conn = new BYOOAuthConnection({
+        id: "conn-google",
+        provider: "google",
+        baseUrl: "https://www.googleapis.com",
+        accountInfo: null,
+      });
+      const rfc822 =
+        "From: user@example.com\r\nTo: user@example.com\r\nSubject: Draft\r\n\r\nHello\r\n";
+
+      await conn.request({
+        method: "POST",
+        path: "/upload/gmail/v1/users/me/drafts",
+        query: { uploadType: "media" },
+        headers: { "Content-Type": "message/rfc822" },
+        body: rfc822,
+      });
+
+      expect(mockFetch.mock.calls[0][0]).toBe(
+        "https://www.googleapis.com/upload/gmail/v1/users/me/drafts?uploadType=media",
+      );
+      const [, init] = mockFetch.mock.calls[0];
+      expect((init as RequestInit).body).toBe(rfc822);
+      const headers = (init as RequestInit).headers as Headers;
+      expect(headers.get("Content-Type")).toBe("message/rfc822");
+    });
+
     test("sends a string body verbatim under the caller's Content-Type", async () => {
       await setupCredential("google");
       const conn = createConnection();

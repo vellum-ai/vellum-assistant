@@ -343,7 +343,7 @@ export function ChatInfoPanel({
     );
   } else {
     body = (
-      <div className="flex flex-col gap-8">
+      <div className="flex flex-col gap-5">
         {status === "ready" && count === 0 && (
           <DetailShellNotice placement="panel">
             {t("chatInfoPanel.empty")}

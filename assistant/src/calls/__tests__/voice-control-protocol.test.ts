@@ -17,10 +17,13 @@ import {
 describe("front-door verdict tokens", () => {
   test("token constants are the expected bracketed forms", () => {
     expect(HOLD_VERDICT_TOKEN).toBe("[0]");
-    expect(ESCALATE_VERDICT_TOKEN).toBe("[1]");
+    expect(ESCALATE_VERDICT_TOKEN).toBe("[ESCALATE]");
   });
 
   test("stripInternalSpeechMarkers removes both tokens so they are never spoken", () => {
+    expect(stripInternalSpeechMarkers("[ESCALATE] Let me check.").trim()).toBe(
+      "Let me check.",
+    );
     expect(
       stripInternalSpeechMarkers("[1] Let me think about that.").trim(),
     ).toBe("Let me think about that.");
@@ -59,6 +62,7 @@ describe("isIncompleteControlMarkerTail", () => {
       "[-",
       "[-1",
       "[END_CAL",
+      "[ESCALAT",
       "[TASK:ST",
       "[ASK_GUARDIAN_APPRO",
     ]) {
@@ -70,6 +74,7 @@ describe("isIncompleteControlMarkerTail", () => {
     for (const tail of [
       "[-1]",
       "[END_CALL]",
+      "[ESCALATE]",
       TASK_STOP_MARKER,
       "[0] answer",
       "[-1] look here",

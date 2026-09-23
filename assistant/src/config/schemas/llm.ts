@@ -14,16 +14,27 @@ import {
   parseVellumModel,
 } from "../../providers/vellum-model-routing.js";
 import {
+  AUTO_PROFILE_KEY,
   DEFAULT_PROFILE_KEYS,
   DEFAULT_PROFILE_PROVIDERS,
   FALLBACK_PROFILE_BY_KEY,
   isDefaultProfileKey,
+  isFlagGatedProfileKey,
   isManagedOnlyProfileKey,
   JEV_MANAGED_PROFILE_CALL_SITES,
   JEV_MANAGED_PROFILE_KEY,
   MANAGED_ONLY_PROFILE_KEYS,
 } from "../default-profile-names.js";
 import { InputModalitiesSchema } from "../input-modalities.js";
+
+/**
+ * Managed-only keys that are valid reference targets on the managed column
+ * whether or not a workspace stub exists. The flag-gated ones (`os-beta`,
+ * `auto`) are excluded: they resolve only while their reconciled stub is
+ * present, so they enter the reference set through `llm.profiles` alone.
+ */
+const ALWAYS_RESOLVING_MANAGED_ONLY_PROFILE_KEYS =
+  MANAGED_ONLY_PROFILE_KEYS.filter((key) => !isFlagGatedProfileKey(key));
 
 /**
  * Unified LLM configuration schema.
@@ -234,6 +245,7 @@ export const LLMCallSiteEnum = z.enum([
   "voiceEscalationJudge",
   "voiceContinuationJudge",
   "voiceContinuationLabel",
+  "autoProfileRouter",
   "trustRuleSuggestion",
   "homeGreeting",
   "homeSuggestedPrompts",
@@ -771,9 +783,13 @@ function unresolvableProfileReason(
   if (backupsResolve || !isManagedOnlyProfileKey(name)) {
     return "is not defined in llm.profiles";
   }
-  return name === JEV_MANAGED_PROFILE_KEY
-    ? "is the managed Jev profile, which resolves only while llm.defaultProvider is the managed provider"
-    : "is a managed backup profile, which resolves only while llm.defaultProvider is the managed provider";
+  if (name === JEV_MANAGED_PROFILE_KEY) {
+    return "is the managed Jev profile, which resolves only while llm.defaultProvider is the managed provider";
+  }
+  if (name === AUTO_PROFILE_KEY) {
+    return "is the managed Auto profile, which resolves only while llm.defaultProvider is the managed provider";
+  }
+  return "is a managed backup profile, which resolves only while llm.defaultProvider is the managed provider";
 }
 
 /**
@@ -858,7 +874,7 @@ export function collectFallbackProfileIssues(
   const profileNames = new Set([
     ...referenceableProfileKeys(profiles, backupsResolve),
     ...DEFAULT_PROFILE_KEYS,
-    ...(backupsResolve ? MANAGED_ONLY_PROFILE_KEYS : []),
+    ...(backupsResolve ? ALWAYS_RESOLVING_MANAGED_ONLY_PROFILE_KEYS : []),
   ]);
   const mixProfileNames = new Set(
     entries
@@ -1024,7 +1040,7 @@ export const LLMSchema = z
         backupsResolve,
       ),
       ...DEFAULT_PROFILE_KEYS,
-      ...(backupsResolve ? MANAGED_ONLY_PROFILE_KEYS : []),
+      ...(backupsResolve ? ALWAYS_RESOLVING_MANAGED_ONLY_PROFILE_KEYS : []),
     ]);
     for (const [siteId, siteConfig] of Object.entries(config.callSites ?? {})) {
       // The Jev profile answers with structured verdicts, so only the sites

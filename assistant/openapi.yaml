@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Vellum Assistant API
-  version: 0.12.3
+  version: 0.12.4
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -2596,6 +2596,58 @@ paths:
                   - organizationId
                   - userId
                   - authenticated
+                additionalProperties: false
+  /v1/auto-profile/preview:
+    post:
+      operationId: autoprofile_preview_post
+      summary: Preview the Auto profile's pick for a draft
+      description:
+        Ask the Auto profile which default profile a draft message would run on, using the conversation's recent
+        history when one is given. The pick is kept briefly so the turn that sends the same text reuses it. Spends one
+        Jev call per request.
+      tags:
+        - conversations
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                text:
+                  type: string
+                  minLength: 1
+                  maxLength: 20000
+                conversationId:
+                  type: string
+                  description: Conversation the draft belongs to, for recent history. Omit for a new chat.
+              required:
+                - text
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  profile:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  outcome:
+                    type: string
+                    enum:
+                      - routed
+                      - unavailable
+                      - timeout
+                      - error
+                      - fallback
+                  confidence:
+                    type: number
+                required:
+                  - profile
+                  - outcome
                 additionalProperties: false
   /v1/avatar/accent:
     post:
@@ -14054,7 +14106,7 @@ paths:
     post:
       operationId: guardianactions_decision_post
       summary: Submit guardian decision
-      description: Submit a guardian action decision (approve/reject).
+      description: Submit a guardian decision on a pending request.
       tags:
         - guardian
       requestBody:
@@ -14066,9 +14118,17 @@ paths:
               properties:
                 requestId:
                   type: string
+                  minLength: 1
                   description: Guardian request ID
                 action:
                   type: string
+                  enum:
+                    - approve_once
+                    - reject
+                    - trust
+                    - verify_code
+                    - leave_unverified
+                    - block
                   description: Decision action
                 conversationId:
                   type: string
@@ -21334,6 +21394,7 @@ paths:
                                           - fastcrw
                                           - searxng
                                           - tinyfish
+                                          - exa
                                       resultCount:
                                         type: number
                                       durationMs:
@@ -21952,6 +22013,7 @@ paths:
                                                   - fastcrw
                                                   - searxng
                                                   - tinyfish
+                                                  - exa
                                               resultCount:
                                                 type: number
                                               durationMs:
@@ -22516,6 +22578,8 @@ paths:
                           type: boolean
                         noResponse:
                           type: boolean
+                        autoRoutedProfile:
+                          type: string
                         cameraFrame:
                           type: boolean
                           const: true
@@ -26971,7 +27035,12 @@ paths:
                   assistantId:
                     type: string
                   hasAssistantApiKey:
-                    type: boolean
+                    anyOf:
+                      - type: boolean
+                      - type: "null"
+                    description:
+                      Whether a managed assistant API key is stored. Null when the credential store could not be read, which is
+                      not evidence that no key is stored.
                   hasWebhookSecret:
                     type: boolean
                   clientInstallationId:

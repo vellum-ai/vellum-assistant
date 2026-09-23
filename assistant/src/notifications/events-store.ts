@@ -174,6 +174,7 @@ export function listEvents(
 export function hasNotifiedSourceContextSince(
   sourceContextId: string,
   sinceMs: number,
+  sourceEventNames?: readonly string[],
 ): boolean {
   const db = getDb();
   const row = db
@@ -194,6 +195,9 @@ export function hasNotifiedSourceContextSince(
       and(
         eq(notificationEvents.sourceContextId, sourceContextId),
         gte(notificationEvents.createdAt, sinceMs),
+        sourceEventNames
+          ? inArray(notificationEvents.sourceEventName, [...sourceEventNames])
+          : undefined,
         or(
           eq(notificationDecisions.shouldNotify, 0),
           inArray(notificationDeliveries.status, ["pending", "sent"]),

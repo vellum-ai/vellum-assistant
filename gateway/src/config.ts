@@ -134,14 +134,15 @@ export function loadConfig(): GatewayConfig {
   const wsConfig = readWorkspaceConfig();
   const gw = (wsConfig.gateway ?? {}) as Record<string, unknown>;
 
-  // Env vars take precedence over workspace config values. This allows the
-  // CLI to pass gateway settings directly via the process environment instead
-  // of writing to the workspace config file.
+  // Client-facing auth on the runtime proxy is on unless this process was
+  // launched with RUNTIME_PROXY_REQUIRE_AUTH=false. Workspace config is not
+  // consulted, so the setting cannot persist across restarts.
   const runtimeProxyRequireAuth =
-    process.env.RUNTIME_PROXY_REQUIRE_AUTH !== undefined
-      ? process.env.RUNTIME_PROXY_REQUIRE_AUTH !== "false"
-      : gw.runtimeProxyRequireAuth !== false &&
-        gw.runtimeProxyRequireAuth !== "false";
+    process.env.RUNTIME_PROXY_REQUIRE_AUTH !== "false";
+
+  // For the settings below, env vars take precedence over workspace config
+  // values. This allows the CLI to pass gateway settings directly via the
+  // process environment instead of writing to the workspace config file.
 
   // When the gateway is fronted by a trusted reverse proxy (e.g. the
   // self-hosted nginx edge), enable this so the real client IP is resolved

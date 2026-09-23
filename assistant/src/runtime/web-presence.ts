@@ -3,8 +3,8 @@
  *
  * Answers exactly one question for notification producers: is the user
  * demonstrably looking at this specific conversation in a browser tab or a
- * desktop app window right now? Producers use the answer to skip an APNs
- * push the user would see on screen anyway.
+ * desktop app window right now? Producers use the answer to suppress a
+ * notification for a result the user can already see.
  *
  * Fails open by design, the same posture as desktop presence
  * (`runtime/desktop-presence.ts`): presence is in-memory, best-effort, and
@@ -16,8 +16,7 @@
  * Deliberately separate from desktop presence: a web report is scoped to one
  * conversation (the client's focused thread), not the whole app, and it is
  * consulted for every turn rather than only a desktop-originated one.
- * `notifications/assistant-reply-producer.ts` calls this unconditionally,
- * while the `isDesktopAttended()` read beside it is `clientOs`-gated. The
+ * Completion producers scope the read to their intended recipient. The
  * Electron desktop renderer registers as a `web` client and reports here too
  * (`hooks/use-web-presence-report.ts` in the web client), which is what lets
  * a desktop window already showing the conversation suppress a push for a

@@ -1,7 +1,7 @@
 import { refreshBackgroundWakeIntent } from "../background-wake/publisher.js";
 import { resolveSingleRouteProfileKey } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
-import { findConversation } from "../daemon/conversation-registry.js";
+import { findConversationOrSubagent } from "../daemon/conversation-registry.js";
 import {
   checkDiskPressureBackgroundGate,
   diskPressureBackgroundSkipLogFields,
@@ -16,7 +16,10 @@ import { getConversation } from "../persistence/conversation-crud.js";
 import { isLifecycleQuiesced } from "../persistence/lifecycle-quiesce.js";
 import { invalidateAssistantInferredItemsForConversation } from "../plugins/defaults/memory/task-memory-cleanup.js";
 import { dispatchProviderResolvable } from "../providers/provider-resolvability.js";
-import { wakeAgentForOpportunity } from "../runtime/agent-wake.js";
+import {
+  hasPendingAgentWake,
+  wakeAgentForOpportunity,
+} from "../runtime/agent-wake.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import {
   type BackgroundJobErrorKind,
@@ -27,6 +30,10 @@ import { runSequencesOnce } from "../sequence/engine.js";
 import { getSubagentManager } from "../subagent/index.js";
 import type { TurnFailure } from "../telemetry/turn-outcome.js";
 import { recordWatchdogEvent } from "../telemetry/watchdog-events-store.js";
+import {
+  cancelBackgroundTools,
+  hasBackgroundToolWork,
+} from "../tools/background-tool-registry.js";
 import { getLogger } from "../util/logger.js";
 import { describeScheduleSource } from "../util/schedule-source-key.js";
 import {
@@ -89,6 +96,28 @@ const DELEGATED_WORK_POLL_MS = 100;
  */
 const DELEGATED_WORK_QUIET_POLLS = 2;
 
+function hasPendingScheduledWork(
+  conversationId: string,
+  runId: string,
+): boolean {
+  const conversation = findConversationOrSubagent(conversationId);
+  const manager = getSubagentManager();
+  return (
+    (conversation?.pendingQueuedDispatches?.get(runId)?.size ?? 0) > 0 ||
+    (conversation?.isProcessing() === true &&
+      conversation.currentTurnCronRunId === runId) ||
+    conversation
+      ?.snapshotQueuedMessages()
+      .some((message) => message.cronRunId === runId) === true ||
+    hasBackgroundToolWork(conversationId, { cronRunId: runId }) ||
+    hasPendingAgentWake(conversationId, runId) ||
+    manager.hasActiveChildren(conversationId, runId) ||
+    manager
+      .getChildrenOf(conversationId)
+      .some((child) => hasPendingScheduledWork(child.conversationId, runId))
+  );
+}
+
 /**
  * Wait for work a scheduled turn delegated before the run is called done.
  *
@@ -99,51 +128,72 @@ const DELEGATED_WORK_QUIET_POLLS = 2;
  * latest assistant row, so completing at the first resolve ships the
  * pre-consult reply and drops the informed one for good.
  *
- * Returns immediately for a conversation that never delegated anything, which
- * is the ordinary case, so no scheduled run pays for this unless it spawned.
+ * Background commands and their queued wakes are included, even while a wake
+ * is resolving its conversation before acquiring the processing lock.
  *
  * Bounded by what is left of the schedule turn timeout, so the whole run (its
  * turn plus the work it delegated) stays inside the one ceiling that stops a
- * wedged schedule from blocking the next tick. Exhausting the ceiling is not a
- * failure: the run still completes and still produces a result, just from
- * whatever had been written by then.
+ * wedged schedule from blocking the next tick. Unsettled work at the ceiling
+ * fails the attempt, so partial output cannot consume its completion alert.
  */
 async function awaitDelegatedWork(
   conversationId: string,
   runStartedAt: number,
+  runId: string,
   rlog: typeof log,
-): Promise<void> {
+): Promise<boolean> {
   if (!conversationId || conversationId.startsWith("bootstrap-error:")) {
-    return;
+    return true;
   }
-  const conversation = findConversation(conversationId);
-  if (!conversation) {
-    return;
-  }
-  // Terminal children stay readable for their retention window, so this asks
-  // "did this conversation ever delegate?" and skips the polling entirely for
-  // the schedules that never do.
-  if (getSubagentManager().getChildrenOf(conversationId).length === 0) {
-    return;
+  if (
+    !getSubagentManager()
+      .getChildrenOf(conversationId)
+      .some((child) => child.config.cronRunId === runId) &&
+    !hasPendingScheduledWork(conversationId, runId)
+  ) {
+    return true;
   }
 
   const deadline =
     runStartedAt + getConfig().timeouts.scheduleTurnTimeoutSec * 1000;
   let quiet = 0;
   while (Date.now() < deadline) {
-    if (conversation.hasInFlightWork()) {
+    if (hasPendingScheduledWork(conversationId, runId)) {
       quiet = 0;
     } else {
       quiet += 1;
       if (quiet >= DELEGATED_WORK_QUIET_POLLS) {
-        return;
+        return true;
       }
     }
     await new Promise((resolve) => setTimeout(resolve, DELEGATED_WORK_POLL_MS));
   }
   rlog.warn(
     { conversationId },
-    "Delegated work still in flight at the schedule turn ceiling; producing the result from what is written",
+    "Delegated work did not settle before the schedule turn ceiling",
+  );
+  return false;
+}
+
+function cancelTimedOutScheduleWork(
+  conversationId: string,
+  runId: string,
+): void {
+  const manager = getSubagentManager();
+  for (const child of manager.getChildrenOf(conversationId)) {
+    cancelTimedOutScheduleWork(child.conversationId, runId);
+    if (child.config.cronRunId !== runId) {
+      continue;
+    }
+    manager.abort(child.config.id, undefined, conversationId, {
+      cronRunId: runId,
+    });
+  }
+  findConversationOrSubagent(conversationId)?.abortScheduledRun(runId);
+  cancelBackgroundTools(
+    (tool) =>
+      tool.conversationId === conversationId && tool.cronRunId === runId,
+    "schedule_timeout",
   );
 }
 
@@ -1177,10 +1227,16 @@ export async function runDueSchedulesOnce(
       failedTurn = result.turnFailure;
     }
 
+    if (
+      ok &&
+      !(await awaitDelegatedWork(conversationId, runStartedAt, runId, log))
+    ) {
+      ok = false;
+      errorKind = "timeout";
+      errorMsg = "Scheduled work did not finish before its time limit";
+    }
+
     if (ok) {
-      // The turn resolved, but work it delegated may still be running. Settle
-      // that before the run is called done and its one result is produced.
-      await awaitDelegatedWork(conversationId, runStartedAt, log);
       await completeScheduleRun(runId, { status: "ok" });
       // Automatic completion notification for successful execute-mode runs.
       // Quiet schedules skip this fallback so a clean tick stays silent.
@@ -1218,6 +1274,9 @@ export async function runDueSchedulesOnce(
           : "Schedule execution failed",
       );
       await completeScheduleRun(runId, { status: "error", error: errorMsg });
+      if (errorKind === "timeout") {
+        cancelTimedOutScheduleWork(conversationId, runId);
+      }
       await handleExecutionFailure({
         job,
         errorMsg: errorMsg ?? "Schedule run failed",

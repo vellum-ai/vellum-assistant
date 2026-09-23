@@ -31,6 +31,9 @@ describe("renderInjectionBlockInner", () => {
     expect(inner).toContain("assistant plugins search <name>");
     expect(inner).toContain("assistant skills search <name>");
     expect(inner).toContain("currently in the workspace");
+    expect(inner).toContain("When skill_load is available, use it");
+    expect(inner).toContain("before calling its tools");
+    expect(inner).toContain("over remembered arguments");
     expect(inner.indexOf("# Skills")).toBeLessThan(inner.indexOf("# Skill:"));
     expect(inner.startsWith(`${V3_INJECTION_HEADER}\n\n# Skills\n`)).toBe(true);
   });

@@ -63,8 +63,12 @@ describe("rasterizeNotificationAvatar", () => {
   let canvas: { width: number; height: number };
   let realCreateElement: typeof document.createElement;
   let realImage: typeof Image;
+  let sourceWidth: number;
+  let sourceHeight: number;
 
   beforeEach(() => {
+    sourceWidth = 512;
+    sourceHeight = 512;
     ops = [];
     arcs = [];
     drawn = [];
@@ -115,8 +119,8 @@ describe("rasterizeNotificationAvatar", () => {
 
     realImage = globalThis.Image;
     globalThis.Image = class {
-      naturalWidth = 512;
-      naturalHeight = 512;
+      naturalWidth = sourceWidth;
+      naturalHeight = sourceHeight;
       onload: (() => void) | null = null;
       set src(_value: string) {
         queueMicrotask(() => this.onload?.());
@@ -130,7 +134,11 @@ describe("rasterizeNotificationAvatar", () => {
   });
 
   test("draws the accent disc and the inset avatar through a full-circle clip", async () => {
-    const bytes = await rasterizeNotificationAvatar(SOURCE, "#E9642F");
+    const bytes = await rasterizeNotificationAvatar(
+      SOURCE,
+      "#E9642F",
+      "character",
+    );
 
     expect(canvas.width).toBe(NOTIFICATION_AVATAR_SIZE);
     expect(canvas.height).toBe(NOTIFICATION_AVATAR_SIZE);
@@ -161,8 +169,28 @@ describe("rasterizeNotificationAvatar", () => {
   });
 
   test("falls back to the neutral disc for an assistant with no accent", async () => {
-    await rasterizeNotificationAvatar(SOURCE, null);
+    await rasterizeNotificationAvatar(SOURCE, null, "character");
 
     expect(fills).toEqual([notificationAvatarDiscHex(null)]);
   });
+
+  test.each([
+    ["square", 512, 512, 0, 0, 512],
+    ["landscape", 512, 128, 192, 0, 128],
+    ["portrait", 128, 512, 0, 192, 128],
+  ])(
+    "a %s custom image covers the whole circle with a centered crop",
+    async (_shape, width, height, sx, sy, side) => {
+      sourceWidth = width;
+      sourceHeight = height;
+      await rasterizeNotificationAvatar(SOURCE, "#E9642F", "image");
+
+      expect(drawn).toEqual([[sx, sy, side, side, 0, 0, 256, 256]]);
+      expect(arcs).toEqual([
+        { x: 128, y: 128, radius: 128 },
+        { x: 128, y: 128, radius: 128 },
+      ]);
+      expect(ops.indexOf("clip")).toBeLessThan(ops.indexOf("drawImage"));
+    },
+  );
 });

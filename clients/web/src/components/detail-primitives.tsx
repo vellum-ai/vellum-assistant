@@ -145,6 +145,11 @@ function Fold({
     <>
       <div
         ref={ref}
+        // Focus reaching a link below the cut opens the fold rather than
+        // scrolling the clipped box to content the reader cannot see. The
+        // alternative, making the folded subtree inert, would also stop the
+        // part that IS visible from being selected.
+        onFocusCapture={clamped ? () => setExpanded(true) : undefined}
         // A keyboard scrolls the expanded value only once it can focus it,
         // and anything focusable needs a role and a name (WCAG 2.1.1, 4.1.2).
         // The ring is inset: the box clips anything drawn outside it.

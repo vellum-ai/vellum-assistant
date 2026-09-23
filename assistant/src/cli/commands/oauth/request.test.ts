@@ -309,6 +309,38 @@ describe("oauth request body encoding", () => {
       },
     ]);
   });
+
+  test("forwards a Gmail rfc822 draft upload URL and body", async () => {
+    const rfc822 =
+      "From: user@example.com\r\nTo: user@example.com\r\nSubject: Draft\r\n\r\nHello\r\n";
+    const { exitCode } = await runRequestCommand([
+      "--provider",
+      "google",
+      "-s",
+      "-X",
+      "POST",
+      "-H",
+      "Content-Type: message/rfc822",
+      "-d",
+      rfc822,
+      "https://www.googleapis.com/upload/gmail/v1/users/me/drafts?uploadType=media",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(handleRequestCalls).toEqual([
+      {
+        body: {
+          provider: "google",
+          url: "https://www.googleapis.com/upload/gmail/v1/users/me/drafts?uploadType=media",
+          method: "POST",
+          headers: {
+            "Content-Type": "message/rfc822",
+          },
+          parsed_data: rfc822,
+        },
+      },
+    ]);
+  });
 });
 
 describe("oauth request body output", () => {

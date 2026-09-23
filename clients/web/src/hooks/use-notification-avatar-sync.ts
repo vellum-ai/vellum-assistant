@@ -70,10 +70,10 @@ function ownerMatches(
 ): boolean {
   return Boolean(
     owner &&
-      scopeId &&
-      assistantId &&
-      owner.scopeId === scopeId &&
-      owner.assistantId === assistantId,
+    scopeId &&
+    assistantId &&
+    owner.scopeId === scopeId &&
+    owner.assistantId === assistantId,
   );
 }
 
@@ -150,9 +150,10 @@ export function useNotificationAvatarSync(
       : render.kind === "image"
         ? render.url
         : null;
-  const imageId = avatarOwnerMatches && imageMeta
-    ? JSON.stringify([imageMeta.updatedAt, imageMeta.etag])
-    : null;
+  const imageId =
+    avatarOwnerMatches && imageMeta
+      ? JSON.stringify([imageMeta.updatedAt, imageMeta.etag])
+      : null;
   const picture =
     render.kind === "none"
       ? avatarReady
@@ -163,6 +164,7 @@ export function useNotificationAvatarSync(
         : renderSource;
   const pictureKey = JSON.stringify([
     NOTIFICATION_AVATAR_SPEC_VERSION,
+    render.kind,
     avatarOwnerMatches ? accentHex : null,
     picture,
   ]);
@@ -175,8 +177,9 @@ export function useNotificationAvatarSync(
     legacyEnabled,
   ]);
 
-  const currentPublication =
-    useRef<NotificationIdentityPublication | null>(null);
+  const currentPublication = useRef<NotificationIdentityPublication | null>(
+    null,
+  );
   const lastUpdateKey = useRef<string | null>(null);
   const inFlightPictureKey = useRef<string | null>(null);
   const cachedAvatar = useRef<CachedPreparedAvatar | null>(null);
@@ -299,7 +302,11 @@ export function useNotificationAvatarSync(
       return;
     }
 
-    if (!renderSource || inFlightPictureKey.current === pictureKey) {
+    if (
+      render.kind === "none" ||
+      !renderSource ||
+      inFlightPictureKey.current === pictureKey
+    ) {
       if (!legacyEnabled) {
         clearNotificationAvatar();
       }
@@ -320,7 +327,7 @@ export function useNotificationAvatarSync(
       setRedraws((count) => count + 1);
     };
 
-    void rasterizeNotificationAvatar(renderSource, accentHex)
+    void rasterizeNotificationAvatar(renderSource, accentHex, render.kind)
       .then(async (png) => {
         if (currentPublication.current !== publication) {
           return;

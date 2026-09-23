@@ -32,25 +32,24 @@ mock.module("../daemon/skill-memory-refresh.js", () => ({
   refreshSkillCapabilityMemories: mockRefreshSkillCapabilityMemories,
 }));
 
-// Background skill updates route through the notification pipeline; record
-// the signals rather than standing up delivery.
-let emittedSignals: Array<{
-  sourceEventName: string;
-  sourceContextId: string;
-  dedupeKey?: string;
-  contextPayload?: Record<string, unknown>;
-}> = [];
-mock.module("../notifications/emit-signal.js", () => ({
-  emitNotificationSignal: async (params: {
-    sourceEventName: string;
-    sourceContextId: string;
-    dedupeKey?: string;
-    contextPayload?: Record<string, unknown>;
-  }) => {
-    emittedSignals.push(params);
-    return { signalId: "test-signal" };
-  },
-}));
+// Receipt recorder: the executor's one side effect for a background
+// overwrite, captured at the job module's boundary so the tests read what
+// was recorded rather than standing up the memory job queue.
+import type * as ReceiptJob from "../plugins/defaults/memory/skill-update-receipt-job.js";
+
+let recordedUpdates: Parameters<typeof ReceiptJob.recordSkillUpdate>[0][] = [];
+let recordUpdateFails = false;
+mock.module(
+  "../plugins/defaults/memory/skill-update-receipt-job.js",
+  (): Partial<typeof ReceiptJob> => ({
+    recordSkillUpdate: (input) => {
+      recordedUpdates.push(input);
+      if (recordUpdateFails) {
+        throw new Error("memory database unavailable");
+      }
+    },
+  }),
+);
 
 // Skill-card enqueue recorder. Snapshot + override (rather than a full module
 // replacement) because other modules in this import graph (e.g. the managed
@@ -152,7 +151,7 @@ beforeEach(() => {
   skillCardJobUpserts = [];
   skillCardUpsertThrows = false;
   watchdogEvents.length = 0;
-  emittedSignals = [];
+  recordedUpdates = [];
 });
 
 afterEach(() => {
@@ -1771,7 +1770,8 @@ describe("background skill update notification", () => {
     });
     watchdogEvents.length = 0;
     skillCardJobUpserts = [];
-    emittedSignals = [];
+    recordedUpdates = [];
+    recordUpdateFails = false;
   }
 
   const lineage = () => ({
@@ -1781,8 +1781,72 @@ describe("background skill update notification", () => {
         : null,
   });
 
-  test("a background overwrite of an existing skill notifies, keyed to the source conversation", async () => {
+  test("a background overwrite of an existing skill records a receipt entry keyed to the tool call", async () => {
     await seedAssistantSkill("weekly-export", "Old body.");
+
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "weekly-export",
+        name: "Weekly Report Export",
+        description: "export the weekly usage report",
+        body_markdown: "1. Refined steps.",
+        activation_hints: HINTS,
+        overwrite: true,
+        change_summary: "Refined the steps.",
+      },
+      makeRetrospectiveContext({
+        conversationId: "retro-run-conv",
+        toolUseId: "toolu_1",
+      }),
+      lineage(),
+    );
+
+    expect(result.isError).toBe(false);
+    // Nothing is announced here: the entry joins the pending receipt job,
+    // which announces the burst once it has settled.
+    expect(recordedUpdates).toEqual([
+      {
+        // The producing tool call, so a re-executed call records nothing new.
+        entryId: "retro-run-conv:toolu_1",
+        skillId: "weekly-export",
+        name: "Weekly Report Export",
+        changeSummary: "Refined the steps.",
+        runConversationId: "retro-run-conv",
+        // The receipt's link for this entry resolves through this id, so it
+        // must be the conversation the work came from, not the hidden fork.
+        sourceConversationId: "source-conv",
+      },
+    ]);
+  });
+
+  test("an entry without a tool call id gets a fresh key, so a second rewrite of the same skill is still recorded", async () => {
+    await seedAssistantSkill("weekly-export", "Old body.");
+
+    for (const body of ["1. Refined steps.", "1. Refined again."]) {
+      await executeScaffoldManagedSkill(
+        {
+          skill_id: "weekly-export",
+          name: "Weekly Report Export",
+          description: "export the weekly usage report",
+          body_markdown: body,
+          activation_hints: HINTS,
+          overwrite: true,
+          change_summary: `Refined: ${body}`,
+        },
+        makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
+      );
+    }
+
+    expect(recordedUpdates).toHaveLength(2);
+    const [first, second] = recordedUpdates;
+    expect(first?.entryId.startsWith("retro-run-conv:")).toBe(true);
+    expect(second?.entryId.startsWith("retro-run-conv:")).toBe(true);
+    expect(first?.entryId).not.toBe(second?.entryId);
+  });
+
+  test("a receipt that cannot be recorded is logged and counted, and the skill write stands", async () => {
+    await seedAssistantSkill("weekly-export", "Old body.");
+    recordUpdateFails = true;
 
     const result = await executeScaffoldManagedSkill(
       {
@@ -1799,29 +1863,20 @@ describe("background skill update notification", () => {
     );
 
     expect(result.isError).toBe(false);
-    expect(emittedSignals).toHaveLength(1);
-    const signal = emittedSignals[0]!;
-    expect(signal.sourceEventName).toBe("activity.complete");
-    // The feed item's "Go to Convo" target resolves through this id, so it
-    // must be the conversation the work came from, not the hidden fork.
-    expect(signal.sourceContextId).toBe("source-conv");
-    expect(signal.contextPayload?.skillId).toBe("weekly-export");
-    expect(signal.contextPayload?.summary).toBe("Refined the steps.");
-    // The home feed falls back to `title`/`body` when no channel copy was
-    // rendered, which is the intended quiet shape for this signal. Without
-    // them a suppressed delivery would leave the feed item unwritten.
-    // Named so the row is scannable in a feed several entries deep.
-    expect(signal.contextPayload?.title).toBe(
-      "Skill updated: Weekly Report Export",
-    );
-    expect(signal.contextPayload?.body).toBe("Refined the steps.");
-    // Deduped per skill per day so repeated refinements cannot flood the feed.
-    expect(signal.dedupeKey).toBe(
-      `skill-updated:weekly-export:${new Date().toISOString().slice(0, 10)}`,
+    expect(
+      readFileSync(
+        join(TEST_DIR, "skills", "weekly-export", "SKILL.md"),
+        "utf-8",
+      ),
+    ).toContain("Refined steps.");
+    expect(watchdogEvents).toContainEqual(
+      expect.objectContaining({
+        checkName: "skill_update_receipt_record_failed",
+      }),
     );
   });
 
-  test("the notice body is the pass's change_summary, so the feed says what changed", async () => {
+  test("the entry body is the pass's change_summary, so the receipt says what changed", async () => {
     await seedAssistantSkill("weekly-export", "Old body.");
 
     const result = await executeScaffoldManagedSkill(
@@ -1840,14 +1895,9 @@ describe("background skill update notification", () => {
     );
 
     expect(result.isError).toBe(false);
-    expect(emittedSignals).toHaveLength(1);
-    const payload = emittedSignals[0]!.contextPayload;
-    // The title still names the skill; the body is the change itself.
-    expect(payload?.title).toBe("Skill updated: Weekly Report Export");
-    expect(payload?.body).toBe(
+    expect(recordedUpdates[0]?.changeSummary).toBe(
       "Added the retry after an expired session and the export endpoint that held steady.",
     );
-    expect(payload?.summary).toBe(payload?.body);
   });
 
   test("a background overwrite without a change_summary is refused before the write", async () => {
@@ -1881,7 +1931,7 @@ describe("background skill update notification", () => {
         'Error: change_summary is required when updating an existing skill: pass one or two short sentences (under 200 characters) for the person who reads the "Skill updated" notice, naming what you changed and what in the trace prompted it (for example "Added the retry after an expired session and the export endpoint that held steady.").',
       );
       expect(readFileSync(skillFile, "utf-8")).toBe(before);
-      expect(emittedSignals).toHaveLength(0);
+      expect(recordedUpdates).toHaveLength(0);
     }
   });
 
@@ -1905,7 +1955,7 @@ describe("background skill update notification", () => {
     expect(result.isError).toBe(true);
     expect(result.content).toContain("Set overwrite=true to replace it.");
     expect(result.content).not.toContain("change_summary");
-    expect(emittedSignals).toHaveLength(0);
+    expect(recordedUpdates).toHaveLength(0);
   });
 
   test("the ownership backstop speaks before the change_summary requirement", async () => {
@@ -1937,7 +1987,7 @@ describe("background skill update notification", () => {
     expect(result.content).toContain("not verifiably assistant-authored");
   });
 
-  test("a user-directed overwrite needs no change_summary: it never notifies", async () => {
+  test("a user-directed overwrite needs no change_summary: it records no entry", async () => {
     await executeScaffoldManagedSkill(
       {
         skill_id: "user-skill",
@@ -1964,7 +2014,7 @@ describe("background skill update notification", () => {
     expect(result.isError).toBe(false);
   });
 
-  test("change_summary is sanitized like any other notification body", async () => {
+  test("change_summary is sanitized like any notification body", async () => {
     await seedAssistantSkill("weekly-export", "Old body.");
 
     await executeScaffoldManagedSkill(
@@ -1981,7 +2031,7 @@ describe("background skill update notification", () => {
       lineage(),
     );
 
-    const body = String(emittedSignals[0]!.contextPayload?.body);
+    const body = String(recordedUpdates[0]?.changeSummary);
     // Control characters go, horizontal whitespace collapses, blank-line runs
     // collapse to one paragraph break, and the whole thing is clamped to the
     // shared notification preview budget.
@@ -2012,7 +2062,7 @@ describe("background skill update notification", () => {
 
     expect(result.isError).toBe(true);
     expect(result.content).toBe("Error: change_summary must be a string");
-    expect(emittedSignals).toHaveLength(0);
+    expect(recordedUpdates).toHaveLength(0);
   });
 
   test("the registered tool's schema declares change_summary as an optional string", () => {
@@ -2044,7 +2094,7 @@ describe("background skill update notification", () => {
     expect(result.ok).toBe(true);
   });
 
-  test("it falls back to the run conversation when fork lineage does not resolve", async () => {
+  test("an entry whose fork lineage does not resolve carries no source, never the run", async () => {
     await seedAssistantSkill("weekly-export", "Old body.");
 
     await executeScaffoldManagedSkill(
@@ -2061,10 +2111,10 @@ describe("background skill update notification", () => {
       { getConversation: () => null },
     );
 
-    // Still a real conversation id, so the deep link resolves rather than
-    // falling through to an unrelated target.
-    expect(emittedSignals).toHaveLength(1);
-    expect(emittedSignals[0]!.sourceContextId).toBe("retro-run-conv");
+    // The run is an ephemeral fork; naming it as the source would have the
+    // receipt job drop the entry once the fork is garbage collected.
+    expect(recordedUpdates).toHaveLength(1);
+    expect(recordedUpdates[0]).not.toHaveProperty("sourceConversationId");
   });
 
   test("a background CREATE gets the skill card instead, with no duplicate signal", async () => {
@@ -2082,10 +2132,10 @@ describe("background skill update notification", () => {
 
     expect(result.isError).toBe(false);
     expect(skillCardJobUpserts).toHaveLength(1);
-    expect(emittedSignals).toHaveLength(0);
+    expect(recordedUpdates).toHaveLength(0);
   });
 
-  test("a user-directed overwrite does not notify: it is not unattended work", async () => {
+  test("a user-directed overwrite records no receipt entry: it is not unattended work", async () => {
     await executeScaffoldManagedSkill(
       {
         skill_id: "user-skill",
@@ -2096,7 +2146,7 @@ describe("background skill update notification", () => {
       },
       makeContext(),
     );
-    emittedSignals = [];
+    recordedUpdates = [];
 
     await executeScaffoldManagedSkill(
       {
@@ -2113,6 +2163,6 @@ describe("background skill update notification", () => {
     expect(
       readFileSync(join(TEST_DIR, "skills", "user-skill", "SKILL.md"), "utf-8"),
     ).toContain("V2.");
-    expect(emittedSignals).toHaveLength(0);
+    expect(recordedUpdates).toHaveLength(0);
   });
 });

@@ -4,6 +4,11 @@
  * The leading glyph distinguishes the three answer shapes at a glance and
  * mirrors the interactive card's iconography: a check for a chosen option, a
  * pencil for typed text, a skip arrow for a question left unanswered.
+ *
+ * A skip reads quietly by default: in the transcript the row stands alone, so
+ * the absence of an answer is the point. Where the row leads a question's
+ * options, as in the tool drawer, the caller turns that off, since there a
+ * skip is the recorded answer and the options are what reads quietly.
  */
 
 import { Check, Pencil, SkipForward } from "lucide-react";
@@ -13,6 +18,12 @@ import { Typography } from "@vellumai/design-library";
 
 export interface AnsweredQuestionRowProps {
   item: ResolvedAnswer;
+  /**
+   * Whether a skipped answer draws quietly. Defaults to true, which is the
+   * transcript's reading; pass false where the row is the answer beside the
+   * options it was chosen from.
+   */
+  mutedWhenSkipped?: boolean;
 }
 
 const GLYPH_BY_KIND = {
@@ -21,9 +32,12 @@ const GLYPH_BY_KIND = {
   skipped: SkipForward,
 } as const;
 
-export function AnsweredQuestionRow({ item }: AnsweredQuestionRowProps) {
+export function AnsweredQuestionRow({
+  item,
+  mutedWhenSkipped = true,
+}: AnsweredQuestionRowProps) {
   const Glyph = GLYPH_BY_KIND[item.kind];
-  const isSkipped = item.kind === "skipped";
+  const isSkipped = item.kind === "skipped" && mutedWhenSkipped;
   const textColor = isSkipped
     ? "text-[color:var(--content-tertiary)]"
     : "text-[color:var(--content-default)]";

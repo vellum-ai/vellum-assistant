@@ -291,18 +291,15 @@
     "backToConversationAriaLabel": "Назад к диалогу",
     "backToSkillsAriaLabel": "Назад к навыкам",
     "filesTab": "Файлы",
-    "fileViewModeAriaLabel": "Режим просмотра файла",
     "historyTab": "История",
     "install": "Установить",
     "noFilesAvailable": "Файлов нет.",
     "openInWorkspaceAriaLabel": "Открыть в рабочей области",
     "pendingAriaLabel": "Ожидание",
-    "preview": "Предпросмотр",
     "remove": "Удалить",
     "saveFailed": "Не удалось сохранить",
     "selectAFile": "Выбор файла",
-    "selectFilePrompt": "Выбор файла, чтобы посмотреть содержимое.",
-    "source": "Код"
+    "selectFilePrompt": "Выбор файла, чтобы посмотреть содержимое."
   },
   "skillDetailPage": {
     "backToConversation": "Назад к диалогу",

@@ -31,6 +31,7 @@ function renderRemember(overrides: Partial<Props> = {}) {
         remember: { facts: ["Prefers window seats.", "Flies out of SFO."] },
       }}
       streamedOutput={undefined}
+      answeredQuestion={undefined}
       isRunning={false}
       isError={false}
       isDenied={false}

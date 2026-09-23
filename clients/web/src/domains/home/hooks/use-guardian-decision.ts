@@ -6,18 +6,15 @@ import { captureError } from "@/lib/sentry/capture-error";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { ApiError } from "@/utils/api-errors";
 import { toast } from "@vellumai/design-library/components/toast";
+import type { GuardianDecisionActionId } from "@vellumai/service-contracts/guardian-requests";
 
 import {
-  type GuardianDecisionAction,
   type GuardianDecisionOutcome,
   useGuardianDecisionStore,
 } from "../guardian-decision-store";
 import { useInvalidateHomeFeed } from "./use-home-feed-query";
 
-export type {
-  GuardianDecisionAction,
-  GuardianDecisionOutcome,
-} from "../guardian-decision-store";
+export type { GuardianDecisionOutcome } from "../guardian-decision-store";
 
 /**
  * Reasons that mean the request is no longer anyone's to decide: settled on
@@ -127,7 +124,7 @@ function wasCommitted(data: {
  */
 export function useGuardianDecision(): {
   /** Submit a decision. Ignored until the active assistant has resolved. */
-  decide: (requestId: string, action: GuardianDecisionAction) => void;
+  decide: (requestId: string, action: GuardianDecisionActionId) => void;
   /** True while a decision from this surface is in flight. */
   isPending: boolean;
   /** Whether a decision can be submitted at all. */
@@ -148,9 +145,7 @@ export function useGuardianDecision(): {
     onSuccess: (data, variables) => {
       const settled: GuardianDecisionOutcome = {
         requestId: variables.body.requestId,
-        // The wire type is an open string; `decide` below only ever sends
-        // one of the two actions.
-        action: variables.body.action as GuardianDecisionAction,
+        action: variables.body.action,
         committed: wasCommitted(data),
         applied: data.applied,
         reason: data.reason,
@@ -165,7 +160,7 @@ export function useGuardianDecision(): {
       if (error instanceof ApiError && error.status === 404) {
         const gone: GuardianDecisionOutcome = {
           requestId: variables.body.requestId,
-          action: variables.body.action as GuardianDecisionAction,
+          action: variables.body.action,
           committed: false,
           applied: false,
           reason: "not_found",
@@ -187,7 +182,7 @@ export function useGuardianDecision(): {
 
   const { mutate } = decision;
   const decide = useCallback(
-    (requestId: string, action: GuardianDecisionAction) => {
+    (requestId: string, action: GuardianDecisionActionId) => {
       if (!assistantId) {
         return;
       }

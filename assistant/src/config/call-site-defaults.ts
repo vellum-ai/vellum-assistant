@@ -159,6 +159,12 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
   voiceEscalationJudge: {
     profile: JEV_MANAGED_PROFILE_KEY,
   },
+  // Picks the default profile for a turn pinned to the Auto profile. On a
+  // BYOK install the managed-only Jev profile has no body, so the router is
+  // unavailable and the turn runs on Balanced.
+  autoProfileRouter: {
+    profile: JEV_MANAGED_PROFILE_KEY,
+  },
   // The barge-in continuation judge remains off until a TypeSafe profile is
   // pinned here (see live-voice/continuation-judge.ts).
   voiceContinuationJudge: { profile: "cost-optimized" },

@@ -1,8 +1,18 @@
 import { useEffect, useRef, useState } from "react";
 
-import type { CompanionIntroBeat } from "@vellumai/ipc-contract";
+import type {
+  CompanionIntroBeat,
+  PermissionSourceRect,
+} from "@vellumai/ipc-contract";
 
+import {
+  beginPermissionGuide,
+  cancelPermissionGuide,
+  supportsPermissionSetup,
+} from "@/runtime/permission-setup";
 import { captureError } from "@/lib/sentry/capture-error";
+import { ensureMainWindowVisible } from "@/runtime/main-window";
+import { frontmostApp } from "@/runtime/running-apps";
 import {
   getSystemPermissionsState,
   openSystemPermissionSettings,
@@ -21,7 +31,7 @@ type CompanionIntroPermissionState =
 export interface CompanionIntroPermission {
   kind: CompanionIntroPermissionKind;
   state: CompanionIntroPermissionState;
-  enable: () => void;
+  enable: (source?: PermissionSourceRect) => void;
 }
 
 export function companionIntroOpensSettings(
@@ -38,7 +48,6 @@ export function companionIntroOpensSettings(
 const PERMISSION_FOR_BEAT: Partial<
   Record<CompanionIntroBeat, CompanionIntroPermissionKind>
 > = {
-  talk: "microphone",
   try: "microphone",
   key: "inputMonitoring",
   share: "screen",
@@ -66,7 +75,7 @@ export function useCompanionIntroPermission(
     kind: CompanionIntroPermissionKind;
     phase: "requesting" | "error";
   } | null>(null);
-  const enableRef = useRef<() => void>(() => {});
+  const enableRef = useRef<(source?: PermissionSourceRect) => void>(() => {});
 
   useEffect(() => {
     setAction(null);
@@ -77,6 +86,35 @@ export function useCompanionIntroPermission(
     let pending = false;
     let revision = 0;
     let reading = false;
+    let checkingReturn = false;
+    let returnToApp: "waiting" | "ready" | null = null;
+    const resumeTour = async () => {
+      if (!active || pending || checkingReturn || returnToApp !== "ready") {
+        return;
+      }
+      checkingReturn = true;
+      try {
+        // The grant can precede Settings' Quit & Reopen confirmation.
+        const frontmost = await frontmostApp();
+        if (
+          !active ||
+          pending ||
+          returnToApp !== "ready" ||
+          frontmost === null ||
+          frontmost === "com.apple.systempreferences" ||
+          frontmost === "com.apple.SecurityAgent"
+        ) {
+          return;
+        }
+        returnToApp = null;
+        cancelPermissionGuide();
+        await ensureMainWindowVisible();
+      } catch (error) {
+        captureError(error, { context: "companionIntro.resumeAfterPermission" });
+      } finally {
+        checkingReturn = false;
+      }
+    };
     const record = (
       state: SystemPermissionsState | null,
       keepRequestPending = false,
@@ -92,6 +130,14 @@ export function useCompanionIntroPermission(
       });
       if (!keepRequestPending) {
         setAction(null);
+      }
+      if (returnToApp !== null && kind !== null) {
+        returnToApp = state
+          ? state[kind].status === "granted"
+            ? "ready"
+            : "waiting"
+          : null;
+        void resumeTour();
       }
     };
     const failed = (error: unknown) => {
@@ -135,7 +181,7 @@ export function useCompanionIntroPermission(
       record(state, pending);
     });
     void read();
-    enableRef.current = () => {
+    enableRef.current = (source) => {
       if (!active || pending || kind === null) {
         return;
       }
@@ -153,17 +199,18 @@ export function useCompanionIntroPermission(
             return;
           }
           const item = permissions[kind];
-          if (
-            item.status === "granted" ||
-            item.status === "restricted"
-          ) {
+          if (item.status === "granted" || item.status === "restricted") {
             record(permissions);
             return;
           }
           const requesting = revision;
-          const result = companionIntroOpensSettings(kind, item)
-            ? await openSystemPermissionSettings(kind)
-            : await requestSystemPermission(kind);
+          returnToApp = "waiting";
+          const result =
+            kind !== "microphone" && supportsPermissionSetup()
+              ? await beginPermissionGuide(kind, source)
+              : companionIntroOpensSettings(kind, item)
+                ? await openSystemPermissionSettings(kind)
+                : await requestSystemPermission(kind);
           if (active) {
             if (requesting === revision) {
               record(result ? { ...permissions, [kind]: result } : null);
@@ -172,14 +219,17 @@ export function useCompanionIntroPermission(
             }
           }
         } catch (error) {
+          returnToApp = null;
           failed(error);
         } finally {
           pending = false;
+          void resumeTour();
         }
       })();
     };
     return () => {
       active = false;
+      cancelPermissionGuide();
       clearInterval(timer);
       unsubscribe();
     };
@@ -196,6 +246,6 @@ export function useCompanionIntroPermission(
         : permissions
           ? { phase: "known", item: permissions[kind] }
           : { phase: "checking" },
-    enable: () => enableRef.current(),
+    enable: (source) => enableRef.current(source),
   };
 }

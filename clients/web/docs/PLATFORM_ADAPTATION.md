@@ -200,13 +200,28 @@ reason a variant cannot cover.
 
 ---
 
+## Workspace file picker
+
+Workspace uses the measured pane width from `useSideListRoom()` to keep its
+tree beside the file when there is room. Compact panes put the tree in a
+78%-height `BottomSheet` opened by the filename title pill. The page registers
+that control in `intelligence-layout-slots-store.headerTitle`; the layout
+keeps ownership of Back and the mobile header. Search and folder expansion
+live above the two tree surfaces, and file selection clears search and closes
+the sheet. The sheet uses the existing row highlight tokens, viewport keyboard
+insets, and detail-sheet drag dismissal.
+
 ## Mobile chat detail sheets
 
-Tool calls, grouped activity, subagents, background tasks, workflows, and ACP runs share
-`MobileDetailSheet` in the chat domain. It adapts viewer data and viewport safe areas to the design
-library's `BottomSheet.Content variant="detail"`: a 90% surface with a visible conversation margin,
-handle-only drag dismissal, and reduced-motion-aware enter/exit animations. The transcript stays
-mounted, and focus returns to the originating row without scrolling it into view.
+Tool calls, grouped activity, subagents, background tasks, workflows, ACP runs, and wake details
+share `MobileDetailSheet` in the chat domain. It adapts viewer data and viewport safe areas to the
+design library's `BottomSheet.Content variant="detail"`: a 90% surface with a visible conversation
+margin, handle-only drag dismissal, and reduced-motion-aware enter/exit animations. The transcript
+stays mounted, and focus returns to the originating row without scrolling it into view.
+
+A control that opens a sheet calls `openDetailSheetFromTrigger`, which marks it as the trigger. The
+sheet rises from the marked control and hands focus back to it on close; a control that opens the
+sheet any other way leaves focus to fall back to the conversation.
 
 The adapter uses the viewport portal host and provides its content element as the portal host for
 nested previews. Nested dialogs consume Escape before the sheet. Android Back uses the existing
@@ -235,6 +250,12 @@ The rule:
   while iOS expects an in-bar back button plus an edge swipe
   ([HIG: Navigation bars](https://developer.apple.com/design/human-interface-guidelines/navigation-bars)).
   That is an idiom difference at rung 1 or 2, not a reason for a page to render its own header.
+
+About Assistant applies this wholesale. On a phone `IntelligenceLayout` publishes one top bar for
+every destination below the assistant overview: each section, plus the personality stage, which is
+full-bleed and no section but still one drill-down down. The desktop heading row and its back
+chevron render only on a roomy window, and no page under the layout paints a back control of its own.
+The overview is the root and takes no bar.
 
 Contacts is the worked example. The list is `/assistant/contacts` and a contact is
 `/assistant/contacts/:contactId`, two sibling routes rather than a selection held in page state, so

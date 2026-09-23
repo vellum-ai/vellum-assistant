@@ -23,7 +23,7 @@ import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
  * process.
  */
 export type AvatarRender =
-  | { kind: "character"; svg: string; dataUri: string }
+  | { kind: "character"; svg: string; dataUri: string; traits: CharacterTraits }
   | { kind: "image"; url: string }
   | { kind: "none" };
 
@@ -79,6 +79,7 @@ function composeCharacter(
   }
   return {
     kind: "character",
+    traits,
     svg,
     dataUri: `data:image/svg+xml,${encodeURIComponent(svg)}`,
   };

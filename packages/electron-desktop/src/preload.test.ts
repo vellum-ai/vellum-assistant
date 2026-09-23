@@ -309,3 +309,25 @@ test("skips a window-attention subscriber that unsubscribes mid-broadcast", () =
 
   expect(second).toEqual([]);
 });
+
+test("permission guide drag sends only its id and releases state subscriptions", async () => {
+  const { createPermissionSetupBridge } = await import("./preload");
+  const send = mock(() => undefined);
+  const on = mock(() => undefined);
+  const off = mock(() => undefined);
+  const ipc = {
+    invoke: mock(async () => null),
+    send,
+    on,
+    off,
+  } as unknown as IpcRenderer;
+  const bridge = createPermissionSetupBridge(ipc);
+  bridge.cancel();
+  expect(send).toHaveBeenCalledWith("vellum:permissions:guide:cancel");
+  bridge.startDrag(7);
+  expect(send).toHaveBeenCalledWith("vellum:permissions:guide:drag", 7);
+  const unsubscribe = bridge.onGuide(() => undefined);
+  expect(on).toHaveBeenCalledTimes(1);
+  unsubscribe();
+  expect(off).toHaveBeenCalledTimes(1);
+});

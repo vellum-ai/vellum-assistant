@@ -238,6 +238,33 @@ function assistantDeltaTexts(frames: LiveVoiceServerFrame[]): string[] {
 }
 
 describe("LiveVoiceSession assistant turn", () => {
+  test.each([true, false])(
+    "passes current screen sharing state %p to the desktop voice bridge",
+    async (screenSharing) => {
+      const startVoiceTurn = mock(async (_options: VoiceTurnOptions) => ({
+        turnId: "bridge-turn-1",
+        abort: mock(),
+      }));
+      const { session, transcriber } = createSessionHarness({
+        startFrame: { ...START_FRAME, client: "macos" },
+        startVoiceTurn,
+      });
+      await session.start();
+      await session.handleClientFrame({
+        type: "update_config",
+        screenSharing: true,
+      });
+      await session.handleClientFrame({ type: "update_config", screenSharing });
+      transcriber.emit({ type: "final", text: "Show me the speed control" });
+      await session.handleClientFrame({ type: "ptt_release" });
+      expect(startVoiceTurn.mock.calls[0]?.[0]).toMatchObject({
+        macosDesktopSession: true,
+        screenSharing,
+      });
+      await session.close("client_end");
+    },
+  );
+
   test("runs final transcripts through the voice bridge and forwards ordered assistant events", async () => {
     const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
       options.callbacks?.assistant_text_delta?.({

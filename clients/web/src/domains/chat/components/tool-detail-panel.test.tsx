@@ -686,6 +686,36 @@ describe("ToolDetailPanel", () => {
     });
   });
 
+  test("a fold opened on one call is folded again on the next", () => {
+    // The drawer swaps `detail` without unmounting, so what a renderer holds
+    // about what it is showing has to belong to the call, not to the drawer.
+    const long = "Toronto is in Ontario, Canada. ".repeat(40);
+    restoreLayout = stubOverflow(
+      (el) => el.textContent?.includes("Ontario") ?? false,
+    );
+    const { getByText, queryByText, rerender } = render(
+      <ToolDetailBody
+        detail={makeDetail({ toolCallId: "tc-1", result: long })}
+        source={SNAPSHOT_TOOL_CALL_SOURCE}
+      />,
+    );
+
+    act(() => {
+      fireEvent.click(getByText("Show more"));
+    });
+    expect(getByText("Show less")).toBeDefined();
+
+    rerender(
+      <ToolDetailBody
+        detail={makeDetail({ toolCallId: "tc-2", result: long })}
+        source={SNAPSHOT_TOOL_CALL_SOURCE}
+      />,
+    );
+
+    expect(getByText("Show more")).toBeDefined();
+    expect(queryByText("Show less")).toBeNull();
+  });
+
   test("the body is one element, so a host's own gap cannot add to its spacing", () => {
     const { getByTestId } = render(
       <div data-testid="host" className="flex flex-col gap-4">

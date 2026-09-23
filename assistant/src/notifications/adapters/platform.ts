@@ -6,9 +6,11 @@
  * notification out to registered device tokens for the bound user. Provider
  * feature gates return 202 with `{ skipped: "flag_off" }` when no provider runs.
  *
- * Guardian-sensitive notifications (approval requests, access requests)
- * are annotated with `targetGuardianPrincipalId` so the platform can
- * scope native fan-out to guardian-bound devices, mirroring the macOS adapter.
+ * Guardian-sensitive notifications and completion previews include the
+ * resolved guardian principal so the platform can scope native fan-out.
+ * Explicitly owned background completions require that principal to match.
+ * Ordinary replies and scheduled results retain platform-owner delivery
+ * when the guardian lookup is unavailable.
  */
 
 import { VellumPlatformClient } from "../../platform/client.js";
@@ -18,6 +20,11 @@ import {
   isRetryableStatus,
   sleep,
 } from "../../util/retry.js";
+import {
+  isCompletionNotification,
+  isCompletionRecipientUnavailable,
+  resolveCompletionRecipient,
+} from "../completion-policy.js";
 import {
   describeMedia,
   mediaEmbeds,
@@ -107,6 +114,9 @@ export class PlatformPushAdapter implements ChannelAdapter {
     destination: ChannelDestination,
     observer?: ChannelDeliveryObserver,
   ): Promise<DeliveryResult> {
+    if (isCompletionRecipientUnavailable(payload, destination)) {
+      return { success: false, error: "completion recipient unavailable" };
+    }
     const client = await VellumPlatformClient.create();
     if (!client) {
       log.warn(
@@ -129,8 +139,9 @@ export class PlatformPushAdapter implements ChannelAdapter {
         ? destination.metadata.guardianPrincipalId
         : undefined;
 
-    const targetGuardianPrincipalId =
-      guardianPrincipalId && isGuardianSensitiveEvent(payload.sourceEventName)
+    const targetGuardianPrincipalId = isCompletionNotification(payload)
+      ? resolveCompletionRecipient(payload, destination)
+      : guardianPrincipalId && isGuardianSensitiveEvent(payload.sourceEventName)
         ? guardianPrincipalId
         : undefined;
 
