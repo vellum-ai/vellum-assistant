@@ -240,12 +240,12 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("upsertVerifiedContactChannel: reserved channel types", () => {
-  test("refuses the vellum channel type and writes nothing", async () => {
+  test("refuses the vellum-shared channel type and writes nothing", async () => {
     queryRows = [];
 
     await expect(
       upsertVerifiedContactChannel({
-        sourceChannel: "vellum",
+        sourceChannel: "vellum-shared",
         externalUserId: "prin-fake-001",
         externalChatId: "local",
       }),
@@ -254,14 +254,14 @@ describe("upsertVerifiedContactChannel: reserved channel types", () => {
     expect(mirrorUpserts()).toHaveLength(0);
   });
 
-  test("refuses the vellum channel type on the direct write-core path", () => {
+  test("refuses the vellum-shared channel type on the direct write-core path", () => {
     // Guardian-request outcomes call the write core directly, so the refusal
     // has to hold there and not just in the wrapper above.
     queryRows = [];
 
     expect(() =>
       applyVerifiedChannelGatewayWrites({
-        sourceChannel: "vellum",
+        sourceChannel: "vellum-shared",
         externalUserId: "prin-fake-001",
         externalChatId: "local",
         verifiedVia: "invite",

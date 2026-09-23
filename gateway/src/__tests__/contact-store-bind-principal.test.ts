@@ -5,7 +5,7 @@
  * `upsertContact` refuses `role` and `principalId` outright, so binding a
  * principal has its own narrow write. These pin that the write reaches only
  * contact-role rows and never retargets one, and that the generic writes
- * refuse the reserved `vellum` type.
+ * refuse the reserved `vellum-shared` type.
  */
 
 import {
@@ -145,11 +145,13 @@ describe("ContactStore.bindContactPrincipal", () => {
 });
 
 describe("reserved channel types", () => {
-  test("upsertContact refuses a vellum channel", async () => {
+  test("upsertContact refuses a vellum-shared channel", async () => {
     await expect(
       new ContactStore().upsertContact({
         displayName: "Someone",
-        channels: [{ type: "vellum", address: "prin_1", isPrimary: true }],
+        channels: [
+          { type: "vellum-shared", address: "prin_1", isPrimary: true },
+        ],
       }),
     ).rejects.toThrow(ReservedChannelTypeError);
 
@@ -159,17 +161,17 @@ describe("reserved channel types", () => {
   test("the refusal is case-insensitive", async () => {
     await expect(
       new ContactStore().upsertContact({
-        channels: [{ type: "Vellum", address: "prin_1" }],
+        channels: [{ type: "Vellum-Shared", address: "prin_1" }],
       }),
     ).rejects.toThrow(ReservedChannelTypeError);
   });
 
-  test("a vellum channel alongside another type refuses the whole write", async () => {
+  test("a vellum-shared channel alongside another type refuses the whole write", async () => {
     await expect(
       new ContactStore().upsertContact({
         channels: [
           { type: "slack", address: "U123" },
-          { type: "vellum", address: "prin_1" },
+          { type: "vellum-shared", address: "prin_1" },
         ],
       }),
     ).rejects.toThrow(ReservedChannelTypeError);
@@ -186,5 +188,14 @@ describe("reserved channel types", () => {
     expect(contact.id).toBeTruthy();
     const channels = new ContactStore().getChannelsForContact(contact.id);
     expect(channels.map((ch) => ch.type)).toEqual(["slack"]);
+  });
+
+  test("the plain vellum channel type is not reserved", async () => {
+    const { contact } = await new ContactStore().upsertContact({
+      channels: [{ type: "vellum", address: "prin_1", isPrimary: true }],
+    });
+
+    const channels = new ContactStore().getChannelsForContact(contact.id);
+    expect(channels.map((ch) => ch.type)).toEqual(["vellum"]);
   });
 });

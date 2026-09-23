@@ -596,7 +596,6 @@ describe("ContactStore.upsertContact binding-strength guard (LUM-2505)", () => {
     seedChannel({
       id: "ch1",
       contactId: "c1",
-      type: "slack",
       status: "active",
       verifiedAt: 500,
       verifiedVia: "challenge",
@@ -607,7 +606,7 @@ describe("ContactStore.upsertContact binding-strength guard (LUM-2505)", () => {
       id: "c1",
       channels: [
         {
-          type: "slack",
+          type: "vellum",
           address: "addr-ch1",
           status: "active",
           verifiedVia: "manual_channel_claim",
@@ -631,7 +630,6 @@ describe("ContactStore.upsertContact binding-strength guard (LUM-2505)", () => {
     seedChannel({
       id: "ch1",
       contactId: "c1",
-      type: "slack",
       status: "active",
       verifiedAt: 500,
       verifiedVia: "manual_channel_claim",
@@ -642,7 +640,7 @@ describe("ContactStore.upsertContact binding-strength guard (LUM-2505)", () => {
       id: "c1",
       channels: [
         {
-          type: "slack",
+          type: "vellum",
           address: "addr-ch1",
           status: "active",
           verifiedVia: "challenge",

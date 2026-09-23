@@ -45,7 +45,7 @@ export const GUARDIAN_BINDING_REVOKE_REASON = "guardian_binding_revoked";
  * Channel types the generic contact writes refuse. Rows under one of these
  * types are written only by the dedicated path that owns the type.
  */
-const RESERVED_CHANNEL_TYPES: ReadonlySet<string> = new Set(["vellum"]);
+const RESERVED_CHANNEL_TYPES: ReadonlySet<string> = new Set(["vellum-shared"]);
 
 /** Throws when a generic write supplies a reserved channel type. */
 export function assertChannelTypeWritable(type: string): void {
