@@ -5,9 +5,9 @@
  * fenced in `<external_content>` boundaries (via {@link wrapUntrustedContent})
  * before it enters model context — the model is instructed never to follow
  * instructions found inside those boundaries. Guardian messages are trusted and
- * pass through unwrapped. Slack and shared conversations keep the raw text as
+ * pass through unwrapped. Slack additionally keeps the raw text as
  * `displayContent` so the UI shows the message the sender actually typed, and
- * Slack prepends a `<slack_app_context>` block when the event reported what the
+ * prepends a `<slack_app_context>` block when the event reported what the
  * sender had open in Slack.
  *
  * Shared by the live ingress path (`inbound-message-handler.ts`) and the retry
@@ -134,10 +134,10 @@ export interface PreparedChannelInboundContent {
   /**
    * User-facing display copy (the raw, unwrapped text) persisted alongside the
    * model content so the UI renders what the sender typed rather than the
-   * boundary-wrapped form. Set on any Slack or shared-conversation turn whose
-   * `content` diverges from the raw text: non-guardian turns (which are
-   * fenced) and turns carrying a `<slack_app_context>` block. Absent otherwise
-   * (persistence falls back to `content`).
+   * boundary-wrapped form. Set on any Slack turn whose `content` diverges from
+   * the raw text — non-guardian turns (which are fenced) and turns carrying a
+   * `<slack_app_context>` block. Absent otherwise (persistence falls back to
+   * `content`).
    */
   displayContent?: string;
 }
@@ -186,13 +186,10 @@ export function prepareChannelInboundContent(params: {
     ? `${appContextBlock}\n\n${messageContent}`
     : messageContent;
 
-  // Slack and shared conversations persist the raw text as display copy
-  // whenever the model content diverges from it, so the transcript shows the
-  // sender's words rather than the wrapped form or the prepended context block.
-  if (
-    (sourceChannel === "slack" || sourceChannel === "vellum-shared") &&
-    (!isGuardian || appContextBlock)
-  ) {
+  // Slack persists the raw text as display copy whenever the model content
+  // diverges from it, so the transcript shows the sender's words rather than
+  // the wrapped form or the prepended context block.
+  if (sourceChannel === "slack" && (!isGuardian || appContextBlock)) {
     return { content, displayContent: trimmedContent };
   }
   return { content };

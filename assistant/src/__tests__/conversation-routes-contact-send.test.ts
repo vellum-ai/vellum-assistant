@@ -346,7 +346,7 @@ describe("a contact's send into a busy conversation", () => {
     expect(enqueued.trustContext).toBe(ALICE);
     expect(enqueued.author).toBe(ALICE);
     expect(enqueued.sourceActorPrincipalId).toBe("principal-alice");
-    expect(enqueued.displayContent).toBe("Can we meet at noon?");
+    expect(enqueued.displayContent).toBeUndefined();
     expect(enqueued.content).toContain("<external_content");
     expect(enqueued.content).toContain("Can we meet at noon?");
     expect(spies.denyAllCount()).toBe(0);
@@ -451,10 +451,10 @@ describe("a contact's send into an idle conversation", () => {
       accepted: true,
       messageId: "persisted-user-id",
     });
-    expect(spies.persisted()).toMatchObject({
-      author: ALICE,
-      displayContent: "Can we meet at noon?",
-    });
+    // Stored fenced, so the fence survives a reload of the conversation.
+    expect(spies.persisted()).toMatchObject({ author: ALICE });
+    expect(spies.persisted()?.displayContent).toBeUndefined();
+    expect(spies.persisted()?.content).toContain("<external_content");
     const loop = spies.loop()!;
     expect(loop.content).toContain("<external_content");
     expect(loop.options?.turnTrustContext).toBe(ALICE);
@@ -482,7 +482,35 @@ describe("a contact's send into an idle conversation", () => {
     const res = await sendAsContact(spies, "/model fast");
 
     expect(res.status).toBe(202);
-    expect(spies.persisted()?.displayContent).toBe("/model fast");
+    expect(spies.persisted()?.content).toContain("/model fast");
     expect(spies.loop()?.content).toContain("<external_content");
+  });
+
+  test("the row is stored as the contact even when the guardian takes the slot meanwhile", async () => {
+    const spies = makeConversation({ processing: false });
+    const conversation = spies.conversation as unknown as {
+      trustContext?: TrustContext;
+      persistUserMessage: (
+        options: Record<string, unknown>,
+      ) => Promise<{ id: string; deduplicated: boolean }>;
+    };
+    let storedTrustClass: string | undefined;
+    conversation.persistUserMessage = async (options) => {
+      // An overlapping guardian send stamps the slot before this row lands.
+      conversation.trustContext = {
+        trustClass: "guardian",
+        sourceChannel: "vellum",
+      };
+      // The row's provenance, resolved the way the persist resolves it.
+      storedTrustClass = (
+        (options.trustContext as TrustContext | undefined) ??
+        conversation.trustContext
+      ).trustClass;
+      return { id: "persisted-user-id", deduplicated: false };
+    };
+
+    await sendAsContact(spies, "Hello");
+
+    expect(storedTrustClass).toBe("trusted_contact");
   });
 });

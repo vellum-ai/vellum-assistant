@@ -12,6 +12,7 @@ import type {
 import type { AssistantEvent } from "../api/index.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 import { stampAndBuffer } from "../runtime/assistant-stream-state.js";
+import { wrapUntrustedContent } from "../security/untrusted-content.js";
 import { createAbortReason } from "../util/abort-reasons.js";
 import { setConfig } from "./helpers/set-config.js";
 
@@ -816,7 +817,8 @@ describe("Conversation message queue", () => {
   test("a contact's queued message runs after the current turn and names its author", async () => {
     // A shared-conversation contact's send that lands mid-turn waits in the
     // queue like any other. When it drains, the row it persists names the
-    // contact as author and keeps the raw text the contact typed.
+    // contact as author and keeps the fence around their text, so a reload
+    // restores it fenced, while the live echo shows the text they typed.
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
@@ -836,8 +838,7 @@ describe("Conversation message queue", () => {
       requesterContactId: "contact-alice",
     };
     const queued = conversation.enqueueMessage({
-      content: "<external_content>Is noon fine?</external_content>",
-      displayContent: "Is noon fine?",
+      content: wrapUntrustedContent("Is noon fine?", { source: "webhook" }),
       requestId: "req-contact",
       trustContext: contact,
       author: contact,
@@ -856,7 +857,7 @@ describe("Conversation message queue", () => {
 
     const row = capturedAddMessages.find((m) => m.role === "user");
     expect(row?.content).toContain("Is noon fine?");
-    expect(row?.content).not.toContain("external_content");
+    expect(row?.content).toContain("external_content");
     expect(row?.metadata?.provenanceContactId).toBe("contact-alice");
     expect(row?.metadata?.provenanceTrustClass).toBe("trusted_contact");
     expect(conversation.currentTurnTrustContext?.requesterExternalUserId).toBe(

@@ -27,6 +27,7 @@ import {
   containsNoResponseMarker,
   stripNoResponseMarkers,
 } from "../runtime/no-response.js";
+import { unwrapExternalContentForDisplay } from "../security/untrusted-content.js";
 import { isPlainObject } from "../util/object.js";
 import {
   isEchoSuppressedUserMessage,
@@ -169,10 +170,13 @@ function contactVisibleBlock(
       if (typeof block.text !== "string" || extra._surfaceFallback === true) {
         return null;
       }
-      const text =
+      // A contact's own message is stored fenced as untrusted input; the
+      // reader sees the text inside the fence.
+      const text = unwrapExternalContentForDisplay(
         isAssistant && containsNoResponseMarker(block.text)
           ? stripNoResponseMarkers(block.text)
-          : block.text;
+          : block.text,
+      );
       if (text.length === 0) {
         return null;
       }

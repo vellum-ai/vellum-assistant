@@ -40,6 +40,7 @@ import {
   routeGuardianReply,
 } from "../runtime/guardian-reply-router.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
+import { unwrapExternalContentForDisplay } from "../security/untrusted-content.js";
 import { stampTurnOutcome } from "../telemetry/turn-outcome.js";
 import { getLogger } from "../util/logger.js";
 import type { CleanResult, Conversation } from "./conversation.js";
@@ -1249,7 +1250,9 @@ async function drainSingleMessage(
     next.onEvent({
       type: "user_message_echo",
       // The persisted text, so the live row matches what a reload shows.
-      text: next.displayContent ?? resolvedContent,
+      text: unwrapExternalContentForDisplay(
+        next.displayContent ?? resolvedContent,
+      ),
       conversationId: conversation.conversationId,
       messageId: userMessageId,
       requestId: next.requestId,
@@ -1650,7 +1653,7 @@ async function drainBatch(
     if (!isEchoSuppressedUserMessage(qm.metadata)) {
       qm.onEvent({
         type: "user_message_echo",
-        text: qm.displayContent ?? qmContent,
+        text: unwrapExternalContentForDisplay(qm.displayContent ?? qmContent),
         conversationId: conversation.conversationId,
         messageId: lastUserMessageId,
         requestId: qm.requestId,

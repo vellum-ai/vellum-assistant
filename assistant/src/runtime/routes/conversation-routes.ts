@@ -162,6 +162,7 @@ import { writeOnboardingSection } from "../../prompts/persona-resolver.js";
 import { getConfiguredProvider } from "../../providers/provider-send-message.js";
 import type { Provider } from "../../providers/types.js";
 import { checkIngressForSecrets } from "../../security/secret-ingress.js";
+import { unwrapExternalContentForDisplay } from "../../security/untrusted-content.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import {
   isHeicFilename,
@@ -820,7 +821,9 @@ function buildQueuedMessagePayloads(
     .snapshotQueuedMessages()
     .filter((item) => !isSuppressedQueuedMessage(item.metadata))
     .map((item, index) => {
-      const text = item.displayContent ?? item.content;
+      const text = unwrapExternalContentForDisplay(
+        item.displayContent ?? item.content,
+      );
       const attachments: RuntimeAttachmentMetadata[] = item.attachments.map(
         (a, idx) => ({
           id: a.id ?? `${item.requestId}:attachment:${idx}`,
@@ -2369,22 +2372,21 @@ export async function handleSendMessage(
     }
   }
 
-  // A contact's text is untrusted input, fenced for the model the way every
-  // other contact channel fences it, with the raw text kept for display.
+  // A contact's text is untrusted input, fenced the way every other contact
+  // channel fences it. The fenced text is what is stored, so the fence
+  // survives a reload; display surfaces unwrap it.
   const contactContent = contact
     ? prepareChannelInboundContent({
         trimmedContent,
         trustClass: contact.trustContext.trustClass,
         sourceChannel,
         requesterIdentifier: contact.trustContext.requesterIdentifier,
-      })
+      }).content
     : undefined;
   // When the scan path rewrote the first message, prefer the rewritten
   // content for all downstream consumers (guardian reply, enqueue, agent
   // loop) so they see the scan instruction rather than the wake-up greeting.
-  const contentAfterScan =
-    contactContent?.content ?? effectiveContent ?? content ?? "";
-  const displayContent = contactContent?.displayContent;
+  const contentAfterScan = contactContent ?? effectiveContent ?? content ?? "";
 
   const attachments = hasAttachments
     ? smDeps.resolveAttachments(attachmentIds)
@@ -2531,7 +2533,6 @@ export async function handleSendMessage(
       // queue is worked.
       trustContext: resolvedTrustCtx,
       ...(contact ? { author: contact.trustContext } : {}),
-      ...(displayContent !== undefined ? { displayContent } : {}),
       // This helper's whole contract is that the message is queued, and it
       // answers `queued: true`, so it must never take the enqueue's idle fast
       // path, which stores nothing. Every route into here has already decided
@@ -3161,8 +3162,10 @@ export async function handleSendMessage(
           ),
           scripted: body.scripted,
           clientMessageId: storedClientMessageId,
+          // The sender this request resolved, not whoever holds the
+          // conversation's slot by the time the row is written.
+          trustContext: resolvedTrustCtx,
           ...(contact ? { author: contact.trustContext } : {}),
-          ...(displayContent !== undefined ? { displayContent } : {}),
           ...(clientOs ? { requestClientOs: clientOs } : {}),
         });
       } catch (err) {
@@ -3191,7 +3194,7 @@ export async function handleSendMessage(
       if (body.hidden !== true) {
         broadcastMessage({
           type: "user_message_echo",
-          text: displayContent ?? resolvedContent,
+          text: unwrapExternalContentForDisplay(resolvedContent),
           conversationId: mapping.conversationId,
           messageId,
           requestId,
