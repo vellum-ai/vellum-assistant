@@ -32,6 +32,14 @@ export interface GuardianDecisionState {
   outcomes: ReadonlyMap<string, GuardianDecisionOutcome>;
   /** Requests with a decision in flight, from any surface. */
   pendingRequestIds: ReadonlySet<string>;
+  /**
+   * How many outcomes have settled this session. Each outcome's position in
+   * that count is in `settledAt`, so a surface can tell which outcomes
+   * settled after a moment it marked by reading this count.
+   */
+  settledCount: number;
+  /** The `settledCount` each request's latest outcome settled at. */
+  settledAt: ReadonlyMap<string, number>;
 }
 
 export interface GuardianDecisionActions {
@@ -60,6 +68,8 @@ export type GuardianDecisionStore = GuardianDecisionState &
 const useGuardianDecisionStoreBase = create<GuardianDecisionStore>()((set) => ({
   outcomes: new Map(),
   pendingRequestIds: new Set(),
+  settledCount: 0,
+  settledAt: new Map(),
   markPending: (requestId) =>
     set((state) => {
       const pendingRequestIds = new Set(state.pendingRequestIds);
@@ -76,9 +86,18 @@ const useGuardianDecisionStoreBase = create<GuardianDecisionStore>()((set) => ({
     set((state) => {
       const outcomes = new Map(state.outcomes);
       outcomes.set(outcome.requestId, outcome);
-      return { outcomes };
+      const settledCount = state.settledCount + 1;
+      const settledAt = new Map(state.settledAt);
+      settledAt.set(outcome.requestId, settledCount);
+      return { outcomes, settledCount, settledAt };
     }),
-  reset: () => set({ outcomes: new Map(), pendingRequestIds: new Set() }),
+  reset: () =>
+    set({
+      outcomes: new Map(),
+      pendingRequestIds: new Set(),
+      settledCount: 0,
+      settledAt: new Map(),
+    }),
 }));
 
 export const useGuardianDecisionStore = createSelectors(

@@ -119,15 +119,12 @@ export function NotificationsBell() {
   // One decision serves every row, so all of their buttons go inert together
   // while one is in flight.
   const decision = useGuardianDecision();
-  // Requests decided from a row whose reply the bell has yet to show through
-  // a close. A decision's reply can carry a verification code shown nowhere
-  // else, and deciding marks the item read, so the unread view keeps such a
-  // row rather than dropping it on the feed's next refresh. A close releases
-  // only the settled ones, whose reply was on screen; one still in flight
-  // stays, so its reply is there when the bell next opens.
-  const [decidedFromRow, setDecidedFromRow] = useState<ReadonlySet<string>>(
-    () => new Set(),
-  );
+  // A decision's reply can carry a verification code shown nowhere else,
+  // and deciding marks the item read, so the unread view keeps an item whose
+  // reply settled since the bell last closed, from whichever surface it was
+  // decided. A close releases what settled before it, whose reply was on
+  // screen; one settling after the close is there when the bell next opens.
+  const [releasedThrough, setReleasedThrough] = useState(0);
 
   const items = feedQuery.data?.items;
   const visibleItems = useMemo(
@@ -144,12 +141,18 @@ export function NotificationsBell() {
             const requestId = item.guardianRequest?.requestId;
             return (
               requestId !== undefined &&
-              decidedFromRow.has(requestId) &&
-              Boolean(decision.outcomes.get(requestId)?.replyText)
+              Boolean(decision.outcomes.get(requestId)?.replyText) &&
+              (decision.settledAt.get(requestId) ?? 0) > releasedThrough
             );
           })
         : visibleItems,
-    [unreadOnly, visibleItems, decidedFromRow, decision.outcomes],
+    [
+      unreadOnly,
+      visibleItems,
+      decision.outcomes,
+      decision.settledAt,
+      releasedThrough,
+    ],
   );
   const hasUnread = visibleItems.some((item) => item.status === "new");
   const markAllReadPayload = useMemo(
@@ -246,7 +249,6 @@ export function NotificationsBell() {
   const handleDecide = (item: FeedItem, action: GuardianDecisionActionId) => {
     const requestId = item.guardianRequest?.requestId;
     if (requestId) {
-      setDecidedFromRow((ids) => new Set(ids).add(requestId));
       decision.decide(requestId, action);
     }
   };
@@ -308,10 +310,7 @@ export function NotificationsBell() {
       // Reopening always lands on the list, at the top.
       setSelectedItemId(null);
       listScrollTopRef.current = 0;
-      setDecidedFromRow(
-        (ids) =>
-          new Set([...ids].filter((id) => decision.pendingRequestIds.has(id))),
-      );
+      setReleasedThrough(decision.settledCount);
     }
   };
 

@@ -1088,6 +1088,23 @@ describe("NotificationsBell guardian rows", () => {
     });
   }
 
+  /**
+   * The item the daemon's receipt write leaves once `req-1` is approved: read,
+   * and patched down to medium urgency on the pending-to-terminal edge.
+   */
+  function guardianBellReceipt(): FeedItem {
+    return guardianBellItem({
+      status: "seen",
+      urgency: "medium",
+      guardianRequest: {
+        requestId: "req-1",
+        kind: "tool_approval",
+        intent: "approval",
+        status: "approved",
+      },
+    });
+  }
+
   test("a waiting request sorts above the notifications that only report", async () => {
     feedRef.items = [
       bellItem({ id: "update-1", title: "Watcher job failed" }),
@@ -1143,17 +1160,39 @@ describe("NotificationsBell guardian rows", () => {
     await act(async () => {});
 
     // The feed's refresh after the decision projects the receipt, read.
-    feedRef.items = [
-      guardianBellItem({
-        status: "seen",
-        guardianRequest: {
-          requestId: "req-1",
-          kind: "tool_approval",
-          intent: "approval",
-          status: "approved",
-        },
-      }),
-    ];
+    feedRef.items = [guardianBellReceipt()];
+    rerender(<NotificationsBell />);
+    await act(async () => {});
+
+    expect(
+      screen.getByTestId("home-recap-row-decision-reply").textContent,
+    ).toContain("424242");
+
+    // Closing with the code on screen releases it: the read receipt leaves
+    // the unread view on the next open.
+    await clickTrigger();
+    await clickTrigger();
+    expect(screen.queryByTestId("home-recap-row-decision-reply")).toBeNull();
+  });
+
+  test("a code decided from the detail card stays in the unread list", async () => {
+    decisionRef.outcome = "applied";
+    decisionRef.replyText =
+      "Access approved for Alice. Give them this verification code: `424242`.";
+    feedRef.items = [guardianBellItem()];
+
+    const { rerender } = render(<NotificationsBell />);
+    await clickTrigger();
+    fireEvent.click(screen.getByRole("button", { name: "Guardian Question" }));
+    await act(async () => {});
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    await act(async () => {});
+    fireEvent.click(
+      screen.getByRole("button", { name: "Back to notifications" }),
+    );
+    await act(async () => {});
+
+    feedRef.items = [guardianBellReceipt()];
     rerender(<NotificationsBell />);
     await act(async () => {});
 
@@ -1185,17 +1224,7 @@ describe("NotificationsBell guardian rows", () => {
       );
       held?.options?.onSettled?.(undefined, null, held.vars);
     });
-    feedRef.items = [
-      guardianBellItem({
-        status: "seen",
-        guardianRequest: {
-          requestId: "req-1",
-          kind: "tool_approval",
-          intent: "approval",
-          status: "approved",
-        },
-      }),
-    ];
+    feedRef.items = [guardianBellReceipt()];
     rerender(<NotificationsBell />);
     await clickTrigger();
 
