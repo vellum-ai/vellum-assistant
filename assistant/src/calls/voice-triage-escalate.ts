@@ -35,6 +35,7 @@ import {
   localizedOrDefault,
 } from "../util/language-subtag.js";
 import {
+  createControlMarkerHoldback,
   ESCALATE_VERDICT_TOKEN,
   ESCALATE_VERDICT_TOKENS,
   HOLD_VERDICT_TOKEN,
@@ -442,14 +443,25 @@ export interface FrontDoorStreamGate {
  *   `usesFallbackBridge` in `live-voice-session.ts`) and deletes the row
  *   rather than persisting a phrase the model never really produced, so
  *   there is no displayed text for the gate to agree with.
- * - `answer`: the leg's output IS the reply, so every delta passes through,
- *   including the leading text held back while the verdict was pending.
+ * - `answer`: speech streams immediately, with control markers held back
+ *   and stripped using the same filter as the audio drivers.
  */
 export function createFrontDoorStreamGate(
   holdEnabled: boolean,
 ): FrontDoorStreamGate {
   const machine = createFrontDoorVerdictMachine(holdEnabled);
   let answering = false;
+  let rawSpeech = "";
+  let releasedSpeech = "";
+  const flushSpeech = createControlMarkerHoldback((text) => {
+    releasedSpeech += text;
+  });
+  const filterSpeech = (text: string, force = false): string => {
+    rawSpeech += text;
+    releasedSpeech = "";
+    flushSpeech(rawSpeech, { force });
+    return releasedSpeech;
+  };
   const releasable = (bridge: string): string =>
     bridge.length < MIN_SPOKEN_BRIDGE_CHARS ? "" : bridge;
   const release = (step: FrontDoorStep): string => {
@@ -466,8 +478,8 @@ export function createFrontDoorStreamGate(
     }
   };
   return {
-    push: (deltaText) => release(machine.push(deltaText)),
-    finish: () => release(machine.finish()),
+    push: (deltaText) => filterSpeech(release(machine.push(deltaText))),
+    finish: () => filterSpeech(release(machine.finish()), true),
     get answering() {
       return answering;
     },

@@ -666,18 +666,34 @@ describe("createFrontDoorStreamGate", () => {
 
   test("recovering a terminal verdict never releases the answer twice", () => {
     const deltas = ["I will highlight it.", " [", "ESCALATE", "]"];
-    expect(release(deltas)).toEqual(deltas);
+    expect(release(deltas)).toEqual(["I will highlight it.", " "]);
+  });
+
+  test("terminal verdict fragments never escape at any delta boundary", () => {
+    const text = "I will highlight it. [ESCALATE]";
+    for (let split = 1; split < text.length; split++) {
+      expect(release([text.slice(0, split), text.slice(split)]).join("")).toBe(
+        "I will highlight it. ",
+      );
+    }
+  });
+
+  test("an incomplete marker is flushed only on normal completion", () => {
+    expect(release(["An opening bracket ["], { finish: false })).toEqual([
+      "An opening bracket ",
+    ]);
+    expect(release(["An opening bracket ["]).join("")).toBe(
+      "An opening bracket [",
+    );
   });
 
   test("a hold verdict releases nothing", () => {
     expect(release([HOLD_VERDICT_TOKEN], { holdEnabled: true })).toEqual([]);
   });
 
-  test("the hold token is ordinary text on a leg that was never taught it", () => {
-    // A non-speculative leg's prompt has no hold branch, so its output must
-    // not be swallowed by a token it could only have parroted.
+  test("the hold token is stripped without discarding a non-speculative answer", () => {
     expect(release([`${HOLD_VERDICT_TOKEN} is the index.`])).toEqual([
-      `${HOLD_VERDICT_TOKEN} is the index.`,
+      " is the index.",
     ]);
   });
 
