@@ -143,7 +143,7 @@ export function CompanionTourEntryModal({
                 background: `radial-gradient(circle at 68% 22%, color-mix(in srgb, ${avatar?.accentHex ?? "var(--content-tertiary)"} 20%, transparent), transparent 34%), linear-gradient(145deg, #252a32 0%, #15171b 72%)`,
               }}
             />
-            <div className="absolute top-10 right-8 left-8 h-60 overflow-hidden rounded-xl border border-white/10 bg-white/8 shadow-2xl shadow-black/30">
+            <div className="absolute top-20 right-8 left-8 h-60 overflow-hidden rounded-xl border border-white/10 bg-white/8 shadow-2xl shadow-black/30">
               <div className="flex h-8 items-center gap-1.5 border-b border-white/8 px-3">
                 <span className="size-2 rounded-full bg-white/20" />
                 <span className="size-2 rounded-full bg-white/15" />
@@ -156,7 +156,7 @@ export function CompanionTourEntryModal({
                 <span className="mt-3 h-20 rounded-lg bg-white/6" />
               </div>
             </div>
-            <div className="absolute inset-x-0 bottom-0 h-48" inert>
+            <div className="absolute inset-x-0 bottom-16 h-48" inert>
               <CompanionSurface
                 phase="call"
                 call={introDemoCall(t("companionIntro.call.line"))}
