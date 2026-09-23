@@ -14,6 +14,7 @@ import {
   buildRetainedImageBlocks,
   collectImageManifest,
 } from "../context/compactor.js";
+import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../daemon/trust-context.js";
 import { attachInlineAttachmentToMessage } from "../persistence/attachments-store.js";
 import {
   addMessage,
@@ -71,7 +72,10 @@ describe("buildRetainedImageBlocks corrupt-bytes gate", () => {
   test("valid image bytes are retained", async () => {
     const conv = createConversation();
     await addImageMessage(conv.id, "good.png", PNG_1X1_BASE64);
-    const manifest = collectImageManifest(conv.id, "guardian");
+    const manifest = collectImageManifest(
+      conv.id,
+      INTERNAL_GUARDIAN_TRUST_CONTEXT,
+    );
 
     const { blocks, resolved, missing } = await buildRetainedImageBlocks(
       ["good.png"],
@@ -88,7 +92,10 @@ describe("buildRetainedImageBlocks corrupt-bytes gate", () => {
     const conv = createConversation();
     await addImageMessage(conv.id, "corrupt.png", GARBAGE_BASE64);
     await addImageMessage(conv.id, "good.png", PNG_1X1_BASE64);
-    const manifest = collectImageManifest(conv.id, "guardian");
+    const manifest = collectImageManifest(
+      conv.id,
+      INTERNAL_GUARDIAN_TRUST_CONTEXT,
+    );
 
     const { blocks, resolved, missing } = await buildRetainedImageBlocks(
       ["corrupt.png", "good.png"],
@@ -113,7 +120,10 @@ describe("buildRetainedImageBlocks corrupt-bytes gate", () => {
     ]).toString("base64");
     const conv = createConversation();
     await addImageMessage(conv.id, "torn.jpg", tornJpeg);
-    const manifest = collectImageManifest(conv.id, "guardian");
+    const manifest = collectImageManifest(
+      conv.id,
+      INTERNAL_GUARDIAN_TRUST_CONTEXT,
+    );
 
     const { blocks, resolved, missing } = await buildRetainedImageBlocks(
       ["torn.jpg"],
@@ -131,7 +141,10 @@ describe("buildRetainedImageBlocks corrupt-bytes gate", () => {
     // frame compaction chose to keep would be invisible to every later pass.
     const conv = createConversation();
     await addImageMessage(conv.id, "good.png", PNG_1X1_BASE64);
-    const manifest = collectImageManifest(conv.id, "guardian");
+    const manifest = collectImageManifest(
+      conv.id,
+      INTERNAL_GUARDIAN_TRUST_CONTEXT,
+    );
 
     const { blocks } = await buildRetainedImageBlocks(["good.png"], manifest);
 
@@ -143,7 +156,10 @@ describe("buildRetainedImageBlocks corrupt-bytes gate", () => {
   test("unresolvable filenames still land in missing", async () => {
     const conv = createConversation();
     await addImageMessage(conv.id, "good.png", PNG_1X1_BASE64);
-    const manifest = collectImageManifest(conv.id, "guardian");
+    const manifest = collectImageManifest(
+      conv.id,
+      INTERNAL_GUARDIAN_TRUST_CONTEXT,
+    );
 
     const { blocks, resolved, missing } = await buildRetainedImageBlocks(
       ["never-uploaded.png", "good.png"],

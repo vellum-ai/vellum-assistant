@@ -12,7 +12,7 @@
 
 import type { Message } from "@vellumai/plugin-api";
 
-import type { TrustClass } from "../../../runtime/actor-trust-resolver.js";
+import type { TrustContext } from "../../../daemon/trust-context-types.js";
 import { PluginExecutionError } from "../../types.js";
 import { getContextWindowManager } from "./manager-store.js";
 import type {
@@ -48,8 +48,8 @@ export interface CompactionContext {
   precomputedEstimate?: number;
   /** Legacy keep-boundary hint forwarded to the compactor. */
   minKeepRecentUserTurns?: number;
-  /** Trust class of the actor whose turn triggered compaction. */
-  actorTrustClass?: TrustClass;
+  /** Trust of the actor whose turn triggered compaction. */
+  actorTrust?: TrustContext;
   /**
    * Summarize everything before this in-memory history index ("summarize up
    * to here"). Single-attempt; bypasses the auto-threshold gate and the
@@ -108,7 +108,7 @@ export async function defaultCompact(
         actualTokens: overflowSignal.actualTokens,
         isInteractive: overflowSignal.isInteractive,
         overrideProfile: options.overrideProfile,
-        actorTrustClass: options.actorTrustClass,
+        actorTrust: options.actorTrust,
       },
       signal,
     );

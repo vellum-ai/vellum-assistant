@@ -40,8 +40,8 @@ import {
 } from "../../../context/token-estimator.js";
 import { findConversationOrSubagent } from "../../../daemon/conversation-registry.js";
 import type { InjectionMode } from "../../../daemon/conversation-runtime-assembly.js";
+import type { TrustContext } from "../../../daemon/trust-context-types.js";
 import type { ToolDefinition } from "../../../providers/types.js";
-import type { TrustClass } from "../../../runtime/actor-trust-resolver.js";
 import { getLogger } from "../../../util/logger.js";
 import {
   createInitialReducerState,
@@ -163,11 +163,10 @@ export interface ContextWindowCompactOptions {
    */
   minKeepRecentUserTurns?: number;
   /**
-   * Trust class of the actor whose turn triggered compaction. Forwarded to
-   * the compactor so the image manifest excludes guardian-only attachments
-   * for untrusted actors.
+   * Trust of the actor whose turn triggered compaction. Forwarded to the
+   * compactor so the image manifest offers only images that actor can see.
    */
-  actorTrustClass?: TrustClass;
+  actorTrust?: TrustContext;
   /**
    * Summarize everything before this in-memory history index ("summarize up
    * to here"). Single-attempt: bypasses the auto-threshold gate, the retry
@@ -223,8 +222,8 @@ export interface OverflowRecoveryRungOptions {
   allowAutoCompressLatestTurn: boolean;
   /** Per-conversation inference-profile override for the summary call. */
   overrideProfile?: string | null;
-  /** Trust class of the actor whose turn triggered overflow recovery. */
-  actorTrustClass?: TrustClass;
+  /** Trust of the actor whose turn triggered overflow recovery. */
+  actorTrust?: TrustContext;
 }
 
 export interface OverflowRecoveryOptions {
@@ -242,8 +241,8 @@ export interface OverflowRecoveryOptions {
   isInteractive: boolean;
   /** Per-conversation inference-profile override for the summary call. */
   overrideProfile?: string | null;
-  /** Trust class of the actor whose turn triggered overflow recovery. */
-  actorTrustClass?: TrustClass;
+  /** Trust of the actor whose turn triggered overflow recovery. */
+  actorTrust?: TrustContext;
 }
 
 export interface ContextWindowManagerOptions {
@@ -553,7 +552,7 @@ export class ContextWindowManager {
         actualTokens: options.actualTokens,
         allowAutoCompressLatestTurn,
         overrideProfile: options.overrideProfile,
-        actorTrustClass: options.actorTrustClass,
+        actorTrust: options.actorTrust,
       },
       signal,
     );
@@ -625,7 +624,7 @@ export class ContextWindowManager {
       toolTokenBudget: this.resolveTurnToolTokenBudget(),
       conversationId: this.conversationId,
       overrideProfile: options.overrideProfile ?? null,
-      actorTrustClass: options.actorTrustClass,
+      actorTrust: options.actorTrust,
       previousEstimatedInputTokens: estimatedInputTokens,
       maxMiddleTierAttempts: this.config.overflowRecovery.maxAttempts,
       allowAutoCompressLatestTurn: options.allowAutoCompressLatestTurn,
@@ -784,7 +783,7 @@ export class ContextWindowManager {
       force: options?.force,
       signal,
       overrideProfile: options?.overrideProfile ?? null,
-      actorTrustClass: options?.actorTrustClass,
+      actorTrust: options?.actorTrust,
       nonPersistedPrefixCount: this.resolveNonPersistedPrefixCount(messages),
     });
 

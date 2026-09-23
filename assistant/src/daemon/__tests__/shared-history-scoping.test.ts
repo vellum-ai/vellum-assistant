@@ -32,7 +32,17 @@ const loadedConversationIds: string[] = [];
 mock.module("../../persistence/conversation-crud.js", () => ({
   setConversationProcessingStartedAt: () => {},
   isConversationProcessing: () => false,
-  updateConversationContextWindow: () => {},
+  updateConversationContextWindow: (
+    _conversationId: string,
+    contextSummary: string,
+    contextCompactedMessageCount: number,
+  ) => {
+    mockConversation = {
+      ...mockConversation,
+      contextSummary,
+      contextCompactedMessageCount,
+    };
+  },
   deleteMessageById: () => {},
   updateConversationTitle: () => {},
   updateConversationUsage: () => {},
@@ -72,6 +82,7 @@ mock.module("../../persistence/conversation-participants.js", () => ({
 }));
 
 import { Conversation } from "../conversation.js";
+import { applyCompactionResult } from "../conversation-agent-loop.js";
 import type { TrustContext } from "../trust-context-types.js";
 
 const CONVERSATION_ID = "conv-shared";
@@ -592,5 +603,88 @@ describe("another contact's turns in a shared conversation", () => {
       expect(history).toContain(material);
     }
     expect(history).toContain("guardian reasoning");
+  });
+});
+
+describe("compaction on a contact's turn", () => {
+  beforeEach(() => {
+    participants.add(`${CONVERSATION_ID}:${ALICE}`);
+    seedSharedTranscript();
+  });
+
+  /** A compaction of the resident history that summarizes its first rows. */
+  function compactionOf(
+    conversation: Conversation,
+    compactedRows: number,
+    summaryText: string,
+  ): Parameters<typeof applyCompactionResult>[1] {
+    return {
+      messages: [
+        { role: "user", content: [{ type: "text", text: summaryText }] },
+        ...conversation.getMessages().slice(compactedRows),
+      ],
+      compactedPersistedMessages: compactedRows,
+      previousEstimatedInputTokens: 12000,
+      estimatedInputTokens: 3000,
+      maxInputTokens: 100000,
+      thresholdTokens: 80000,
+      compactedMessages: compactedRows,
+      summaryCalls: 1,
+      summaryInputTokens: 100,
+      summaryOutputTokens: 20,
+      summaryModel: "mock-model",
+      summaryText,
+    };
+  }
+
+  test("stays in memory and leaves the guardian's next load unchanged", async () => {
+    // GIVEN the guardian's history and persisted compaction state
+    const guardianHistory = historyText(await loadAs(GUARDIAN));
+    const persisted = { ...mockConversation };
+
+    // WHEN Alice's turn compacts her projected view
+    const conversation = await loadAs(sharedContact(ALICE));
+    await applyCompactionResult(
+      conversation,
+      compactionOf(conversation, 2, "Summary of Alice's view"),
+      () => {},
+      null,
+    );
+
+    // THEN her resident history is compacted
+    expect(texts(conversation)).toEqual([
+      "Summary of Alice's view",
+      FENCED_CONTACT_TEXT,
+    ]);
+    // AND nothing persisted changed, so the guardian's next turn loads the
+    // same history it had before
+    expect(mockConversation).toEqual(persisted);
+    conversation.setTrustContext(GUARDIAN);
+    await conversation.ensureActorScopedHistory();
+    expect(historyText(conversation)).toBe(guardianHistory);
+  });
+
+  test("a guardian compaction still advances the persisted state", async () => {
+    // GIVEN the guardian's history, one row already compacted
+    const conversation = await loadAs(GUARDIAN);
+
+    // WHEN the guardian's turn compacts two more rows
+    await applyCompactionResult(
+      conversation,
+      compactionOf(conversation, 2, "Newer guardian summary"),
+      () => {},
+      null,
+    );
+
+    // THEN the persisted state records the new summary and boundary
+    expect(mockConversation).toMatchObject({
+      contextSummary: "Newer guardian summary",
+      contextCompactedMessageCount: 3,
+    });
+    // AND the next guardian load starts from them
+    const reloaded = await loadAs(GUARDIAN);
+    const history = historyText(reloaded);
+    expect(history).toContain("Newer guardian summary");
+    expect(history).not.toContain("guardian reasoning");
   });
 });

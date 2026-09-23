@@ -193,7 +193,6 @@ import { HostAppControlProxy } from "./host-app-control-proxy.js";
 import { HostCuProxy } from "./host-cu-proxy.js";
 import { shouldAttachHostProxyForCapability } from "./host-proxy-preactivation.js";
 import type { SurfaceType, UsageStats } from "./message-protocol.js";
-import { filterMessagesForUntrustedActor } from "./message-provenance.js";
 import type { ConversationTransportMetadata } from "./message-types/conversations.js";
 import { isHostProxyTransport } from "./message-types/conversations.js";
 import { conversationMetadataSyncTag } from "./message-types/sync.js";
@@ -201,7 +200,7 @@ import { bestEffortModeSessionTracking } from "./mode-session-tracking.js";
 import { renderReactionHistoryText } from "./reaction-history-render.js";
 import type { QueuedReactionRecord } from "./reaction-record.js";
 import {
-  scopeRowsForSharedReader,
+  scopeRowsForTurn,
   sharedTranscriptReader,
 } from "./shared-conversation-history.js";
 import {
@@ -1366,16 +1365,12 @@ export class Conversation {
     this.loadedHistoryStale = false;
     const trustClass = this.trustContext?.trustClass;
     const canAccessMemory = resolveCapabilities(trustClass).canAccessMemory;
-    const sharedReader = sharedTranscriptReader(
+    const allDbMessages = getMessages(this.conversationId);
+    const { rows: dbMessages, sharedReader } = scopeRowsForTurn(
       this.conversationId,
+      allDbMessages,
       this.trustContext,
     );
-    const allDbMessages = getMessages(this.conversationId);
-    const dbMessages = canAccessMemory
-      ? allDbMessages
-      : sharedReader
-        ? scopeRowsForSharedReader(allDbMessages, sharedReader)
-        : filterMessagesForUntrustedActor(allDbMessages);
 
     // Rehydrate the in-memory turn counter from persisted history. `turnCount`
     // is otherwise a fresh-zero field, so a reloaded conversation (eviction,
@@ -3204,7 +3199,7 @@ export class Conversation {
       signal: this.abortController?.signal ?? undefined,
       force,
       overrideProfile,
-      actorTrustClass: this.trustContext?.trustClass,
+      actorTrust: this.trustContext,
       fixedTailStartIndex: opts?.fixedTailStartIndex,
       fixedBoundaryRowIndex: opts?.fixedBoundaryRowIndex,
     });
