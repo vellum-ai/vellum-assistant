@@ -6,6 +6,8 @@
  * allowlist: a block reaches a contact only when its type is named below, so
  * anything else (reasoning, tool calls and their results, UI cards, and any
  * block type added later) stays invisible until it is explicitly allowed.
+ * Blocks injected into a turn never reach a contact either, including those
+ * embedded in an older user row's stored text.
  * {@link contactVisibleBlock} switches exhaustively over the stored block
  * union, so a new variant does not compile until it is classified here.
  *
@@ -14,6 +16,10 @@
 
 import { MessageAudienceSchema } from "@vellumai/gateway-client";
 
+import {
+  PER_TURN_INJECTION_MATCHERS,
+  textBlockMatchesInjection,
+} from "../context/strip-injections.js";
 import {
   readChannelDeletedAt,
   readProviderMetadata,
@@ -112,6 +118,18 @@ function audienceAdmits(
 }
 
 /**
+ * Whether a stored row's audience admits this reader. Metadata that cannot be
+ * read admits nobody.
+ */
+export function rowAudienceAdmits(
+  rowMetadata: unknown,
+  reader: ContactReader,
+): boolean {
+  const metadata = metadataRecord(rowMetadata);
+  return metadata !== null && audienceAdmits(metadata, reader);
+}
+
+/**
  * Whether the row records a reaction, in either direction. Its text is a
  * storage sentinel and the reaction itself lives in the metadata envelope.
  */
@@ -152,6 +170,16 @@ function referenceSource(source: unknown): WorkspaceRefMediaSource | null {
   };
 }
 
+/** How a projection renders the blocks it keeps. */
+export interface ContactProjectionOptions {
+  /**
+   * Keep untrusted text inside its `<external_content>` fence rather than
+   * unwrapping it for display. Set when the projection is model context, where
+   * the fence is what marks the text as untrusted.
+   */
+  keepUntrustedFence?: boolean;
+}
+
 /**
  * The contact-visible form of one block, or null when a contact may not see
  * it. Each allowed block is rebuilt from its known fields, so internal riders
@@ -162,6 +190,7 @@ function referenceSource(source: unknown): WorkspaceRefMediaSource | null {
 function contactVisibleBlock(
   block: ContentBlock,
   isAssistant: boolean,
+  options: ContactProjectionOptions,
 ): ContactVisibleBlock | null {
   switch (block.type) {
     case "text": {
@@ -170,13 +199,23 @@ function contactVisibleBlock(
       if (typeof block.text !== "string" || extra._surfaceFallback === true) {
         return null;
       }
+      // Older user rows can carry the blocks injected into their turn (memory,
+      // turn context, workspace) in the stored text itself.
+      if (
+        !isAssistant &&
+        textBlockMatchesInjection(block.text, PER_TURN_INJECTION_MATCHERS)
+      ) {
+        return null;
+      }
       // A contact's own message is stored fenced as untrusted input; the
       // reader sees the text inside the fence.
-      const text = unwrapExternalContentForDisplay(
+      const stored =
         isAssistant && containsNoResponseMarker(block.text)
           ? stripNoResponseMarkers(block.text)
-          : block.text,
-      );
+          : block.text;
+      const text = options.keepUntrustedFence
+        ? stored
+        : unwrapExternalContentForDisplay(stored);
       if (text.length === 0) {
         return null;
       }
@@ -226,6 +265,7 @@ function contactVisibleBlock(
 export function projectRowForContact(
   row: StoredRowForContact,
   reader: ContactReader,
+  options: ContactProjectionOptions = {},
 ): ContactVisibleBlock[] {
   if (row.role !== "user" && row.role !== "assistant") {
     return [];
@@ -253,7 +293,11 @@ export function projectRowForContact(
     if (!isPlainObject(block)) {
       continue;
     }
-    const projected = contactVisibleBlock(block, row.role === "assistant");
+    const projected = contactVisibleBlock(
+      block,
+      row.role === "assistant",
+      options,
+    );
     if (projected) {
       visible.push(projected);
     }

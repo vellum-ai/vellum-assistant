@@ -35,7 +35,7 @@ export type InjectionMatcher = string | { prefix: string; suffix: string };
  * string matches by prefix; a `{ prefix, suffix }` wrapper requires both ends
  * so user-authored text merely opening with an injection-like tag is kept.
  */
-function textBlockMatchesInjection(
+export function textBlockMatchesInjection(
   text: string,
   matchers: InjectionMatcher[],
 ): boolean {
@@ -212,6 +212,36 @@ export const RUNTIME_INJECTION_PREFIXES: InjectionMatcher[] = [
   // and overflow recovery does not duplicate it across turns.
   "<active_thread>",
   "<system_notice>One or more tool calls returned an error.",
+];
+
+/**
+ * Per-turn blocks that `stripInjectionsForCompaction` deliberately keeps in the
+ * durable, summarized history. They are still per-turn injections: the
+ * post-compaction re-injection clears them from the tail, and a contact's view
+ * of a stored row never shows them:
+ *
+ *  - `<turn_context>`: kept in history for temporal/actor grounding.
+ *  - `<config_reset_notice>`: kept so a reset stays visible across turns.
+ *  - `<active_documents>` / `<document_comments>`: kept so open-document and
+ *    comment awareness survives summarization.
+ *
+ * Each uses the full `{ prefix, suffix }` wrapper so user-authored text merely
+ * opening with one of these tags is never mistaken for an injected block.
+ */
+const PERSISTED_PER_TURN_MATCHERS: InjectionMatcher[] = [
+  { prefix: "<turn_context>\n", suffix: "\n</turn_context>" },
+  { prefix: "<config_reset_notice>\n", suffix: "\n</config_reset_notice>" },
+  { prefix: "<active_documents>\n", suffix: "\n</active_documents>" },
+  { prefix: "<document_comments>\n", suffix: "\n</document_comments>" },
+];
+
+/**
+ * The complete per-turn injection set applied to a user message: the
+ * compaction strip set plus the blocks compaction keeps in durable history.
+ */
+export const PER_TURN_INJECTION_MATCHERS: InjectionMatcher[] = [
+  ...RUNTIME_INJECTION_PREFIXES,
+  ...PERSISTED_PER_TURN_MATCHERS,
 ];
 
 /**

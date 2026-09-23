@@ -56,10 +56,21 @@ export function isRowVisibleToUntrustedActor(metadata: string | null): boolean {
   );
 }
 
+/**
+ * The rows an untrusted actor's view is built from: rows whose provenance is
+ * non-guardian, plus any row `inSharedTranscript` marks as part of a
+ * transcript the actor could already read where it happened. Which rows those
+ * are is the channel's answer, so there are none unless a caller names them.
+ */
 export function filterMessagesForUntrustedActor(
   messages: MessageRow[],
+  inSharedTranscript?: (row: MessageRow) => boolean,
 ): MessageRow[] {
-  return messages.filter((m) => isRowVisibleToUntrustedActor(m.metadata));
+  return messages.filter(
+    (m) =>
+      isRowVisibleToUntrustedActor(m.metadata) ||
+      inSharedTranscript?.(m) === true,
+  );
 }
 
 /** The persisted author field: the contact who wrote the row. */

@@ -1392,7 +1392,14 @@ describe("Conversation message queue", () => {
 
     test("runs on the contact's scope, then the guardian's again", async () => {
       storedRows = [
-        row("m-g", "user", "guardian-only notes", "guardian"),
+        {
+          ...row("m-g", "user", "guardian-only notes", "guardian"),
+          metadata: JSON.stringify({
+            provenanceTrustClass: "guardian",
+            hidden: true,
+          }),
+        },
+        row("m-s", "user", "a shared guardian message", "guardian"),
         row("m-c", "user", "an earlier contact message", "trusted_contact"),
       ];
       const conversation = makeConversation();
@@ -1424,6 +1431,7 @@ describe("Conversation message queue", () => {
       await p1;
       await waitForPendingRun(2);
       expect(runText(pendingRuns[1])).not.toContain("guardian-only notes");
+      expect(runText(pendingRuns[1])).toContain("a shared guardian message");
       expect(runText(pendingRuns[1])).toContain("an earlier contact message");
       expect(conversation.currentTurnTrustContext?.trustClass).toBe(
         "trusted_contact",

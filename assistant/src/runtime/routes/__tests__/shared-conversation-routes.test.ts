@@ -387,6 +387,29 @@ describe("GET shared/conversations/:id/messages", () => {
     ]);
   });
 
+  test("drops blocks injected into a guardian turn's stored text", async () => {
+    const conversationId = newConversation();
+    share(conversationId);
+    await write(
+      conversationId,
+      "user",
+      [
+        text("<memory>\nguardian memory\n</memory>"),
+        text("<turn_context>\nguardian context\n</turn_context>"),
+        text("Draft the launch plan."),
+      ],
+      { provenanceTrustClass: "guardian" },
+    );
+
+    const page = await ok<MessagesPage>(
+      `shared/conversations/${conversationId}/messages`,
+    );
+
+    expect(page.messages.map((m) => m.content)).toEqual([
+      [text("Draft the launch plan.")],
+    ]);
+  });
+
   test("the addressee of a restricted reply reads it", async () => {
     const conversationId = newConversation();
     share(conversationId);

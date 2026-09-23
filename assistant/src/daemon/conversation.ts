@@ -201,6 +201,10 @@ import { bestEffortModeSessionTracking } from "./mode-session-tracking.js";
 import { renderReactionHistoryText } from "./reaction-history-render.js";
 import type { QueuedReactionRecord } from "./reaction-record.js";
 import {
+  scopeRowsForSharedReader,
+  sharedTranscriptReader,
+} from "./shared-conversation-history.js";
+import {
   resolveSummarizeBoundary,
   startsNewTurn,
 } from "./summarize-boundary.js";
@@ -708,6 +712,7 @@ export class Conversation {
   }
   /** @internal */ loadedHistoryTrustClass?: TrustClass;
   /** @internal */ loadedHistoryPersonalMemoryAllowed?: boolean;
+  /** @internal */ loadedHistorySharedReader?: string;
   /** @internal */ loadedHistoryStale = false;
   /**
    * @internal Reactions the current turn delivered, awaiting their durable
@@ -1361,10 +1366,16 @@ export class Conversation {
     this.loadedHistoryStale = false;
     const trustClass = this.trustContext?.trustClass;
     const canAccessMemory = resolveCapabilities(trustClass).canAccessMemory;
+    const sharedReader = sharedTranscriptReader(
+      this.conversationId,
+      this.trustContext,
+    );
     const allDbMessages = getMessages(this.conversationId);
     const dbMessages = canAccessMemory
       ? allDbMessages
-      : filterMessagesForUntrustedActor(allDbMessages);
+      : sharedReader
+        ? scopeRowsForSharedReader(allDbMessages, sharedReader)
+        : filterMessagesForUntrustedActor(allDbMessages);
 
     // Rehydrate the in-memory turn counter from persisted history. `turnCount`
     // is otherwise a fresh-zero field, so a reloaded conversation (eviction,
@@ -1923,6 +1934,7 @@ export class Conversation {
 
     this.loadedHistoryTrustClass = trustClass;
     this.loadedHistoryPersonalMemoryAllowed = personalMemoryAllowed;
+    this.loadedHistorySharedReader = sharedReader?.principalId;
 
     const loadElapsedMs = performance.now() - loadStartedAt;
     log.info(
@@ -2008,13 +2020,20 @@ export class Conversation {
    * a trust class and still differ here. A reuse that changes the answer has to
    * reload, or stale personal-memory blocks persist into a turn that must not
    * see them, or stay stripped from one that should.
+   *
+   * The shared-transcript reader is asked too: two contacts share a trust
+   * class, but a shared conversation's history is built for one reader, and
+   * it stops being theirs once they are removed. It is asked last because it
+   * reads the participant store.
    */
   private historyMatchesScope(trustContext: TrustContext | undefined): boolean {
     return (
       !this.loadedHistoryStale &&
       this.loadedHistoryTrustClass === trustContext?.trustClass &&
       this.loadedHistoryPersonalMemoryAllowed ===
-        isPersonalMemoryAllowed(trustContext)
+        isPersonalMemoryAllowed(trustContext) &&
+      this.loadedHistorySharedReader ===
+        sharedTranscriptReader(this.conversationId, trustContext)?.principalId
     );
   }
 
