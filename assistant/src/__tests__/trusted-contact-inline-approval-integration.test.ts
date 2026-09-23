@@ -1335,7 +1335,7 @@ describe("(g) access_request resolver: requester code delivery", () => {
     const replyText = result.applied ? result.resolverReplyText : undefined;
     expect(replyText).toContain("123456");
     const requesterDelivery = deliveredReplies.find(
-      (r) => r.payload.chatId === "requester@example.com",
+      (r) => r.payload.chatId === "plugin-requester-1",
     );
     expect(requesterDelivery).toBeUndefined();
 
