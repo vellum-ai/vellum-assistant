@@ -1141,6 +1141,12 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           and a flip's release makes it transparent again, so the look is the
           one layer there and stays up.
 
+          A flip is read from `camera.flipping` rather than from the feed's own
+          events, because it clears `srcObject` synchronously inside the press
+          and `emptied` is only delivered as a queued media task after it: the
+          flag is what is already true in the first commit the press produces,
+          and it stands until the replacement stream is assigned.
+
           `visibility` rather than an unmount, because mounting is what plays the
           entrance and the look has to come back without replaying it. The
           wrapper carries no z-index, so it opens no stacking context and the
@@ -1152,7 +1158,11 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
         data-testid="voice-room-look"
         className={cn(
           "absolute inset-0",
-          cameraOpen && !camera.native && feedHasFrame && "invisible",
+          cameraOpen &&
+            !camera.native &&
+            feedHasFrame &&
+            !camera.flipping &&
+            "invisible",
         )}
       >
         {!camera.native && look ? (
