@@ -81,8 +81,8 @@ public static class AutomationTreeDiff
 {
     public static TreeDiff Compute(AutomationNode? previous, AutomationNode? next)
     {
-        var before = Flatten(previous);
-        var after = Flatten(next);
+        var before = AutomationTree.Flatten(previous);
+        var after = AutomationTree.Flatten(next);
         var added = new List<AutomationNode>();
         var changed = new List<AutomationNode>();
         foreach (var (id, node) in after)
@@ -99,7 +99,11 @@ public static class AutomationTreeDiff
         a.Selected == b.Selected && a.Editable == b.Editable && a.Enabled == b.Enabled &&
         a.Bounds == b.Bounds;
 
-    private static Dictionary<long, AutomationNode> Flatten(AutomationNode? root)
+}
+
+public static class AutomationTree
+{
+    public static Dictionary<long, AutomationNode> Flatten(AutomationNode? root)
     {
         var nodes = new Dictionary<long, AutomationNode>();
         var stack = new Stack<AutomationNode>();
