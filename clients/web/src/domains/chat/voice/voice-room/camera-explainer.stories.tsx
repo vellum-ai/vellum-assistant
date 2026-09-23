@@ -178,8 +178,10 @@ export const SheetNarrowPhone: Story = {
 };
 
 /**
- * Live not on offer: the secondary goes and the primary is the only way out
- * besides the scrim. This is what a session below the Live gate sees.
+ * Live already running, which the assistant's spoken ask can arrange before the
+ * user has read any of this. There is nothing left to try, so the secondary
+ * goes and the primary is the only way out besides the scrim. Both cards stay:
+ * the user is in one of the two modes they describe.
  */
 export const SheetWithoutTryLive: Story = {
   ...phone,
@@ -209,4 +211,15 @@ export const Modal: Story = { ...pane };
 export const ModalOverDimFeed: Story = {
   ...pane,
   args: { ...pane.args, background: CAMERA_STORY_FEED_DIM },
+};
+
+/**
+ * A pointer surface with no room to spare. `useTouchSurface` wants a narrow
+ * viewport AND a coarse pointer, so a tiled window or a landscape phone lands
+ * here rather than on the sheet. The dialog stops at the pane's height and its
+ * body scrolls, leaving the close glyph pinned; narrower than this the privacy
+ * line takes its own row above the buttons instead of squeezing them.
+ */
+export const ModalShortPane: Story = {
+  globals: { viewport: { value: "sbShort", isRotated: false } },
 };

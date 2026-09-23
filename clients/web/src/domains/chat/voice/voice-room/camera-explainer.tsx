@@ -95,7 +95,15 @@ export interface CameraExplainerProps {
   host: HTMLElement | null;
   /** The assistant's display name, already fallen back by the caller. */
   assistantName: string;
-  /** Whether "Try Live" is offered at all: false hides the secondary action. */
+  /**
+   * Whether entering Live is still something to offer. False means Live is
+   * already running, which the assistant's spoken ask can arrange before the
+   * user has read any of this; the secondary action goes and nothing else
+   * changes, because both cards still describe a mode the user is in one of.
+   *
+   * It is never "Live is unavailable": the room raises this only where Live is
+   * offered, since a card for a mode the user cannot reach advertises nothing.
+   */
   tryLiveOffered: boolean;
   /** Every way out, named, so the caller can persist the seen flag and act on "tryLive". */
   onDismiss: (how: CameraExplainerDismissal) => void;
@@ -289,13 +297,19 @@ export function CameraExplainer({
             // The dialog is centred by the overlay it sits inside and is
             // `relative` itself, so the overlay is the only element whose
             // position changes; this one takes the pointer-events opt-in alone.
-            className="pointer-events-auto max-w-[640px] rounded-[28px] border-0 p-0 shadow-[0_30px_80px_rgba(0,0,0,.6)]"
+            //
+            // The ceiling is the host rather than the primitive's viewport
+            // one: a pointer surface can be short (a landscape phone, a tiled
+            // window), and the box this is centred in is the thing it must fit
+            // inside. The body below it is what scrolls, so the close glyph
+            // stays pinned to the corner.
+            className="pointer-events-auto max-h-full max-w-[640px] rounded-[28px] border-0 p-0 shadow-[0_30px_80px_rgba(0,0,0,.6)]"
             onEscapeKeyDown={escape}
             onKeyDown={escapeKeyBelt}
             onOpenAutoFocus={focusTitle}
             onClickCapture={markInside}
           >
-            <div className="flex flex-col px-[34px] pt-[34px] pb-[30px]">
+            <div className="flex min-h-0 flex-col overflow-y-auto px-[34px] pt-[34px] pb-[30px]">
               {body}
             </div>
           </Modal.Content>
@@ -465,9 +479,14 @@ function ExplainerBody({
           {tryLive ? <div className="mt-1.5">{tryLive}</div> : null}
         </>
       ) : (
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex min-w-0 items-center gap-2.5">{privacy}</div>
-          <div className="flex shrink-0 gap-2.5">
+        // The privacy line takes its own line above the buttons once the row
+        // is too narrow for both, rather than squeezing either. `ml-auto`
+        // keeps the buttons at the right edge on whichever line they land.
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="flex min-w-0 grow basis-64 items-center gap-2.5">
+            {privacy}
+          </div>
+          <div className="ml-auto flex shrink-0 gap-2.5">
             {tryLive}
             {gotIt}
           </div>
