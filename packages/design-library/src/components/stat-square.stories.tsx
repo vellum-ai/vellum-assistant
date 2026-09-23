@@ -93,3 +93,16 @@ export const Row: Story = {
     </div>
   ),
 };
+
+/**
+ * A value longer than the tile, which is what a model id or a long count is.
+ * The tile cuts it and the caller passes `title`, so the rest stays readable
+ * on hover; the cut never reflows the tile or spills past its edge.
+ */
+export const LongValue: Story = {
+  args: {
+    value: "claude-opus-4-1-20250805",
+    label: "Model",
+    title: "claude-opus-4-1-20250805",
+  },
+};

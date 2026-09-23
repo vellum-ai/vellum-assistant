@@ -1,7 +1,7 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useReducedMotion } from "motion/react";
 
-import { cn, Typography } from "@vellumai/design-library";
+import { StatSquare } from "@vellumai/design-library/components/stat-square";
 
 /** Format a number compactly (e.g. 257400 -> "257.4K"). */
 export function formatNumber(n: number): string {
@@ -77,55 +77,15 @@ export function useAnimatedNumber(target: number): number {
   return displayed;
 }
 
-export function MetricCard({
-  icon,
-  value,
-  label,
-  valueTitle,
-}: {
-  icon: ReactNode;
-  value: string;
-  label: string;
-  /**
-   * Truncates the value row and carries the whole value as its native tooltip,
-   * the way the design library's own Select pairs the two on its trigger: a
-   * truncated value is unreadable without it. Opt-in: without it the row shows
-   * the value in full, and a title repeating a fully visible value is noise a
-   * screen reader reads twice.
-   */
-  valueTitle?: string;
-}) {
-  return (
-    <div className="flex items-center gap-3 rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] px-3 py-3">
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--surface-base)]">
-        {icon}
-      </div>
-      <div className="min-w-0">
-        <Typography
-          variant="title-small"
-          title={valueTitle || undefined}
-          className={cn(
-            "block text-[var(--content-default)]",
-            // `title-small` sets `line-height: 1`, which leaves descenders
-            // outside the line box. The padding keeps them inside the clip and
-            // the matching negative margin keeps the tile's height.
-            valueTitle && "-mb-1 truncate pb-1",
-          )}
-        >
-          {value}
-        </Typography>
-        <Typography
-          variant="body-small-default"
-          className="block text-[var(--content-secondary)]"
-        >
-          {label}
-        </Typography>
-      </div>
-    </div>
-  );
-}
-
-export function AnimatedMetricCard({
+/**
+ * A `StatSquare` whose value counts toward `target` as it changes.
+ *
+ * The animation is the only thing this adds: a token count climbing while a
+ * run streams reads as the run doing something, where a number replaced
+ * outright does not. Everything a person sees of the tile itself is the
+ * design library's.
+ */
+export function AnimatedStatSquare({
   icon,
   label,
   target,
@@ -137,5 +97,5 @@ export function AnimatedMetricCard({
   format: (n: number) => string;
 }) {
   const animated = useAnimatedNumber(target);
-  return <MetricCard icon={icon} label={label} value={format(animated)} />;
+  return <StatSquare icon={icon} label={label} value={format(animated)} />;
 }

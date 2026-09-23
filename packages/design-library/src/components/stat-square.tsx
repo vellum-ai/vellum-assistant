@@ -47,13 +47,21 @@ export function StatSquare({
       <div className="flex min-w-0 flex-col">
         <span
           className={cn(
-            "text-title-small leading-none",
+            // A tile is a fixed cell, so a value too long for it is cut rather
+            // than allowed to wrap the tile taller or spill past its edge. Pass
+            // `title` when a value can run long: the cut is then recoverable.
+            //
+            // The step's own `line-height: 1` leaves no room under the
+            // baseline, so cutting it would clip the tails of g, y and p.
+            // Rebinding the step's leading is what the style guide asks for
+            // here, rather than padding the box back out from under a crop.
+            "block truncate text-title-small [--text-title-small-line-height:20px]",
             VALUE_TONE_CLASSES[tone],
           )}
         >
           {value}
         </span>
-        <span className="mt-1 text-body-small-default text-[var(--content-tertiary)]">
+        <span className="mt-1 truncate text-body-small-default text-[var(--content-tertiary)]">
           {label}
         </span>
       </div>

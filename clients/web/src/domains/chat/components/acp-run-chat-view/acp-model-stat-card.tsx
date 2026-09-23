@@ -10,7 +10,8 @@
 import { Sparkles } from "lucide-react";
 
 import type { AcpModelOption } from "@/domains/chat/acp-run-store";
-import { MetricCard } from "@/domains/chat/components/metric-card";
+import { StatSquare } from "@vellumai/design-library/components/stat-square";
+
 import { useTranslation } from "@/i18n";
 
 export function AcpModelStatCard({
@@ -27,16 +28,12 @@ export function AcpModelStatCard({
   const named = options?.find((option) => option.value === model)?.label;
   const value = named ?? model;
   return (
-    <MetricCard
-      icon={
-        <Sparkles
-          className="h-4 w-4 shrink-0"
-          style={{ color: "var(--content-secondary)" }}
-        />
-      }
+    <StatSquare
+      icon={<Sparkles className="h-4 w-4 shrink-0" />}
       value={value}
-      // A model id is longer than the tile, so the row ellipses it.
-      valueTitle={value}
+      // A model id is longer than the tile, which cuts it; the tooltip is how
+      // the rest of it is still readable.
+      title={value}
       label={t("acpRunChatView.modelLabel")}
     />
   );
