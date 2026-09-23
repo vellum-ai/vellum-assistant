@@ -356,18 +356,36 @@ function buildMarkdownComponents(
     // step's own: a heading reads as a heading because the scale says a title
     // is 500 against body's 400, so overriding the weight here would put this
     // renderer's idea of a heading above the scale's.
+    //
+    // The leading is not the step's own. The three title rungs ship
+    // `line-height: 1`, which is single-line only (STYLE_GUIDE.md, "Check the
+    // leading before text that wraps"), and a markdown heading is a sentence
+    // that wraps as often as not. Each level rebinds its own leading
+    // variable, the form that guide asks for, rather than stacking a
+    // `leading-*` utility whose win over the token's own rule depends on
+    // generation order. The values are in px, like every other real leading
+    // in the scale.
     h1: ({ node: _node, children, ...rest }) => (
-      <h1 {...rest} className="mb-2 mt-4 text-title-large first:mt-0">
+      <h1
+        {...rest}
+        className="mb-2 mt-4 text-title-large [--text-title-large-line-height:32px] first:mt-0"
+      >
         {children}
       </h1>
     ),
     h2: ({ node: _node, children, ...rest }) => (
-      <h2 {...rest} className="mb-2 mt-4 text-title-medium first:mt-0">
+      <h2
+        {...rest}
+        className="mb-2 mt-4 text-title-medium [--text-title-medium-line-height:28px] first:mt-0"
+      >
         {children}
       </h2>
     ),
     h3: ({ node: _node, children, ...rest }) => (
-      <h3 {...rest} className="mb-2 mt-3 text-title-small first:mt-0">
+      <h3
+        {...rest}
+        className="mb-2 mt-3 text-title-small [--text-title-small-line-height:22px] first:mt-0"
+      >
         {children}
       </h3>
     ),
@@ -395,15 +413,22 @@ function buildMarkdownComponents(
         {children}
       </h4>
     ),
+    // The last two rebind theirs for the same reason: 12px text wraps at
+    // 18px leading everywhere else in the scale, and `body-small-default` is
+    // the emphasised 12px rung, which ships `line-height: 1` for single-line
+    // labels.
     h5: ({ node: _node, children, ...rest }) => (
-      <h5 {...rest} className="mb-1 mt-2 text-body-small-default first:mt-0">
+      <h5
+        {...rest}
+        className="mb-1 mt-2 text-body-small-default [--text-body-small-default-line-height:18px] first:mt-0"
+      >
         {children}
       </h5>
     ),
     h6: ({ node: _node, children, ...rest }) => (
       <h6
         {...rest}
-        className="mb-1 mt-2 text-body-small-default text-[var(--content-secondary)] first:mt-0"
+        className="mb-1 mt-2 text-body-small-default [--text-body-small-default-line-height:18px] text-[var(--content-secondary)] first:mt-0"
       >
         {children}
       </h6>
