@@ -426,6 +426,78 @@ answers nothing here.
       (`cameraError.permissionDenied` and the like) reach the screen, and no
       English is left over.
 
+## First-open explainer
+
+The "Photo or Live?" sheet, shown once per device the first time the viewfinder
+comes up on a session where Live is on offer. Run it on a phone and on desktop:
+the two presentations are a bottom sheet and a centred modal, and only the phone
+exercises the native preview underneath.
+
+A device that has already seen it will not show it again, so reset between runs
+by clearing the app's site data, or by deleting `cameraExplainerSeen` from
+`vellum:voice-prefs` in local storage.
+
+- [ ] It comes up after the preview, not before it. Open the camera: the
+      viewfinder is already drawing frames when the sheet arrives. Nothing
+      explains the camera before the camera control is pressed, which is what
+      keeps the OS permission prompt the first thing the user is asked.
+- [ ] The camera is still in Photo behind it. The shutter under the sheet is the
+      photo shutter, and dismissing it leaves the viewfinder exactly where it
+      was.
+- [ ] It is over the native preview, not under it. On the installed iPhone app
+      and on Android, the sheet, its scrim and both illustrations paint over live
+      video. A sheet that is invisible, or one that shows the app background
+      instead of the feed, is the failure this row exists for: no automated test
+      can see it.
+- [ ] "Got it" is remembered. Dismiss with the primary button, close the camera,
+      open it again: nothing. Restart the app and open the camera: still
+      nothing.
+- [ ] A scrim tap is remembered. Same check, dismissing by pressing outside the
+      sheet.
+- [ ] Escape is remembered, on desktop. The key closes the sheet and leaves the
+      room up; a second press minimizes the room.
+- [ ] The close glyph is remembered, on desktop. Same check with the modal's own
+      ✕.
+- [ ] "Try Live now" enters Live. The pill reads Live, the shutter says "Stop
+      live", and keeps begin to land. It is the only way out that changes the
+      mode.
+- [ ] "Try Live now" is absent once Live is already running. Ask the assistant
+      to look at something so the spoken ask arms Live, on a device that has not
+      seen the sheet: the sheet still comes up, with the primary button alone.
+- [ ] A press inside the sheet does not minimize the room. Press and swipe down
+      on the sheet's body, its buttons and its cards on a phone: the room stays
+      up. The room still minimizes from a pull anywhere outside the sheet.
+- [ ] The desktop modal is centred in the content pane. The scrim dims the pane
+      only: the left sidebar and the title bar stay lit and usable behind it.
+- [ ] A short window still fits. Narrow the desktop window past a phone's width,
+      and turn a phone to landscape: the modal is what shows on a fine pointer,
+      its body scrolls rather than clipping, its footer wraps the privacy line
+      above the buttons, and the close glyph stays in the corner.
+- [ ] Reduced motion. With Reduce Motion on, the sheet fades in rather than
+      sliding up, and the modal does the same.
+- [ ] Locale sweep. In Spanish and Russian the title, both cards, the privacy
+      line and both buttons read in that language, with the assistant's name
+      interpolated and no key names on screen.
+
+### Deliberate departures from the handoff
+
+Each needs a yes or a correction.
+
+- [ ] The seen flag is per device rather than per account, stored beside the
+      other voice preferences. A second device shows the sheet again.
+- [ ] There is no consent sheet before Live. The explainer is the education and
+      the press is the consent, which is what the shutter's hold already
+      assumes.
+- [ ] The privacy line says what this product does: everything the assistant
+      sees stays in the assistant's own private workspace, and Live ends when
+      the camera closes. The handoff's "Photos and video aren't saved" is not
+      true here, since photos and kept frames are persisted messages.
+- [ ] The faces are the app's, the serif brand face and the type scale, rather
+      than the handoff's Playfair Display and Manrope.
+- [ ] The two illustrations are drawn once in the phone's numbers and scaled to
+      whichever box they land in, so the desktop pair is the phone pair
+      enlarged.
+
 ## Grouped frame transcript
 
 Run on desktop web, macOS, mobile Safari, and the installed iPhone app in Live.
