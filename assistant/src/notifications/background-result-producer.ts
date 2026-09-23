@@ -15,7 +15,10 @@ import {
   parseMessageMetadata,
 } from "../persistence/conversation-crud.js";
 import { isReplaceableTitle } from "../persistence/conversation-title-placeholders.js";
-import { resolveConversationKind } from "../persistence/conversation-types.js";
+import {
+  isEchoSuppressedUserMessage,
+  resolveConversationKind,
+} from "../persistence/conversation-types.js";
 import { getSubagentRecordById } from "../persistence/subagent-store.js";
 import type { CompletionContext } from "./completion-policy.js";
 import { isUserFacingSubagent } from "./completion-work.js";
@@ -95,12 +98,9 @@ function resolveCompletedWork(
   return undefined;
 }
 
-function isCompletionTrigger(row: MessageRow): boolean {
+function isInternalTurnTrigger(row: MessageRow): boolean {
   const metadata = parseMessageMetadata(row.metadata);
-  return (
-    metadata?.subagentNotification !== undefined ||
-    metadata?.backgroundEventSource === "background-tool"
-  );
+  return metadata?.automated === true || isEchoSuppressedUserMessage(metadata);
 }
 
 function* completionCandidates(
@@ -113,7 +113,7 @@ function* completionCandidates(
   result: MessageRow;
   work: CompletedWork;
 }> {
-  if (!isCompletionTrigger(trigger)) {
+  if (!isInternalTurnTrigger(trigger)) {
     return;
   }
   let beforeMessageId: string | undefined;
@@ -150,7 +150,7 @@ function* completionCandidates(
         previousResult ??= row;
         sharedTurn = undefined;
       } else if (row.role === "user" && !isToolResultOnlyUserMessage(row)) {
-        if (!isCompletionTrigger(row)) {
+        if (!isInternalTurnTrigger(row)) {
           return;
         }
         const metadata = parseMessageMetadata(row.metadata);

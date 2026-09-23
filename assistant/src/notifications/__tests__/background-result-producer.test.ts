@@ -205,6 +205,24 @@ function batchSuccessfulResultWithSibling(
   );
   attention.latestAssistantMessageAt = startedAt + 100;
 }
+const internalBatchTriggers = [
+  {
+    name: "ACP notification",
+    metadata: { acpNotification: { acpSessionId: "acp-123" } },
+  },
+  { name: "hidden message", metadata: { hidden: true } },
+  { name: "automated message", metadata: { automated: true } },
+  {
+    name: "background wake",
+    metadata: { backgroundEventSource: "agent-wake" },
+  },
+] satisfies Array<{ name: string; metadata: Record<string, unknown> }>;
+function batchSuccessfulResultWithInternalTrigger(
+  metadata: Record<string, unknown> = internalBatchTriggers[0].metadata,
+): void {
+  batchSuccessfulResultWithSibling("failed");
+  rows.get("batch-final")!.metadata = JSON.stringify(metadata);
+}
 const emit = (
   overrides: Partial<
     Parameters<typeof emitBackgroundResultNotification>[0]
@@ -270,6 +288,134 @@ beforeEach(() => {
 });
 
 describe("background result ownership", () => {
+  test.each(internalBatchTriggers)(
+    "$name can anchor a completed task's shared result",
+    async ({ metadata }) => {
+      batchSuccessfulResultWithInternalTrigger(metadata);
+
+      await emit({ userMessageId: "batch-final" });
+
+      expect(signals).toHaveLength(1);
+      expect(signals[0]).toMatchObject({
+        dedupeKey: `activity.complete:${conversationId}:subagent:${task.id}`,
+        contextPayload: { requestedMessage: "The completed portion is ready." },
+      });
+    },
+  );
+
+  test.each(internalBatchTriggers)(
+    "$name without an eligible completed batch member stays silent",
+    async ({ metadata }) => {
+      batchSuccessfulResultWithInternalTrigger(metadata);
+      rows.delete("trigger");
+
+      await emit({ userMessageId: "batch-final" });
+
+      expect(signals).toHaveLength(0);
+    },
+  );
+
+  test.each([
+    { turnOutcome: "failed" },
+    { turnOutcome: "cancelled" },
+    { voiceSessionTurn: true },
+  ])(
+    "a non-completion batch anchor preserves %j suppression",
+    async (flags) => {
+      batchSuccessfulResultWithInternalTrigger({
+        ...internalBatchTriggers[0].metadata,
+        ...flags,
+      });
+
+      await emit({ userMessageId: "batch-final" });
+
+      expect(signals).toHaveLength(0);
+    },
+  );
+
+  test("an internal batch anchor requires the completed member's matching batch link", async () => {
+    batchSuccessfulResultWithInternalTrigger();
+    for (const turnBatchedInto of [undefined, "missing-target", "trigger"]) {
+      triggerMetadata({
+        ...JSON.parse(rows.get("trigger")!.metadata!),
+        turnBatchedInto,
+      });
+      await emit({ userMessageId: "batch-final" });
+    }
+    triggerMetadata({
+      ...JSON.parse(rows.get("trigger")!.metadata!),
+      turnOutcome: undefined,
+      turnBatchedInto: undefined,
+    });
+    await emit({ userMessageId: "batch-final" });
+
+    expect(signals).toHaveLength(0);
+  });
+
+  test.each([{}, { userMessageChannel: "slack" }, { voiceSessionTurn: true }])(
+    "a person's prompt remains a recovery boundary with metadata %j",
+    async (metadata) => {
+      batchSuccessfulResultWithInternalTrigger(metadata);
+
+      await emit({ userMessageId: "batch-final" });
+      finishSiblingCommand("failed");
+      await emit({
+        userMessageId: "later-trigger",
+        assistantMessageId: "later-result",
+      });
+
+      expect(signals).toHaveLength(0);
+    },
+  );
+
+  test("recovery-only skips the current internal batch and recovers an earlier one", async () => {
+    batchSuccessfulResultWithInternalTrigger();
+    await emit({
+      userMessageId: "batch-final",
+      assistantMessageId: undefined,
+      recoverOnly: true,
+    });
+    expect(signals).toHaveLength(0);
+
+    finishSiblingCommand("failed");
+    await emit({
+      userMessageId: "later-trigger",
+      assistantMessageId: undefined,
+      recoverOnly: true,
+    });
+    expect(signals).toHaveLength(1);
+    expect(signals[0].contextPayload?.requestedMessage).toBe(
+      "The completed portion is ready.",
+    );
+  });
+
+  test("internal members preserve their shared batch result across history pages", async () => {
+    batchSuccessfulResultWithInternalTrigger();
+    const finalTrigger = rows.get("batch-final")!;
+    const result = rows.get("result")!;
+    rows.delete("batch-final");
+    rows.delete("result");
+    for (let index = 0; index < 210; index++) {
+      rows.set(
+        `internal-member-${index}`,
+        row(`internal-member-${index}`, "user", "INTERNAL UPDATE", 100, {
+          hidden: true,
+          turnOutcome: "batched",
+          turnBatchedInto: finalTrigger.id,
+        }),
+      );
+    }
+    rows.set(finalTrigger.id, finalTrigger);
+    rows.set(result.id, result);
+
+    await emit({ userMessageId: "batch-final" });
+
+    expect(signals).toHaveLength(1);
+    expect(signals[0].dedupeKey).toBe(
+      `activity.complete:${conversationId}:subagent:${task.id}`,
+    );
+  });
+
   test.each(["failed", "cancelled"] as const)(
     "a successful batched child owns the shared result when the final command is %s",
     async (status) => {
