@@ -19,6 +19,7 @@ import {
   removeSubagentConversation,
   setSubagentConversation,
 } from "../daemon/conversation-registry.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import { bootstrapConversation } from "../persistence/conversation-bootstrap.js";
 import {
   deleteAllSubagentRecords,
@@ -418,6 +419,11 @@ interface ManagedSubagent {
   /** Cleared when the run settles; fires the `maxRuntimeMs` stop. */
   runtimeTimer?: ReturnType<typeof setTimeout>;
   /**
+   * The trust of the turn that spawned this child, which its notifications
+   * to the parent run as. Absent for a child rebuilt from a durable row.
+   */
+  startedBy?: TrustContext;
+  /**
    * One-shot delivery latch for the budget-stop notification: which budget
    * stopped this child, set when the ceiling is hit and consumed by the run's
    * teardown, which is the first moment the child's output is on disk for the
@@ -775,6 +781,7 @@ export class SubagentManager {
     } else if (parentTurnTrust) {
       conversation.setTrustContext({ ...parentTurnTrust });
     }
+    managed.startedBy = config.trustContext ?? parentTurnTrust;
     const parentAuthContext = parentConversation?.getAuthContext();
     if (parentAuthContext) {
       conversation.setAuthContext({ ...parentAuthContext });
@@ -1319,7 +1326,10 @@ export class SubagentManager {
           conversationId: managed.state.conversationId,
         },
       },
-      { cronRunId: managed.state.config.cronRunId },
+      {
+        cronRunId: managed.state.config.cronRunId,
+        startedBy: managed.startedBy,
+      },
     );
   }
 
@@ -1405,7 +1415,10 @@ export class SubagentManager {
               conversationId: managed.state.conversationId,
             },
           },
-          { cronRunId: managed.state.config.cronRunId },
+          {
+            cronRunId: managed.state.config.cronRunId,
+            startedBy: managed.startedBy,
+          },
         );
       }
     } else {
@@ -2193,7 +2206,7 @@ export class SubagentManager {
       { subagentNotification: notification },
       // The parent turn this notification starts is the same firing's work as
       // the child that just finished, so its spend is attributed there too.
-      { cronRunId: config.cronRunId },
+      { cronRunId: config.cronRunId, startedBy: managed.startedBy },
     );
   }
 }

@@ -64,11 +64,12 @@ afterEach(() => {
  * `enqueueQueued: true` to exercise the enqueue branch instead.
  */
 function mockConversation(opts?: { enqueueQueued?: boolean }) {
-  const enqueueMessage = mock(() => ({
-    queued: opts?.enqueueQueued ?? false,
+  const enqueueMessage = mock((options?: { queueWhenIdle?: boolean }) => ({
+    queued: (opts?.enqueueQueued ?? false) || options?.queueWhenIdle === true,
     requestId: "req-1",
     rejected: false,
   }));
+  const kickDrainQueue = mock(async () => {});
   const persistUserMessage = mock(async () => ({
     id: "msg-1",
     deduplicated: false,
@@ -84,12 +85,14 @@ function mockConversation(opts?: { enqueueQueued?: boolean }) {
     enqueueMessage,
     persistUserMessage,
     runAgentLoop,
+    kickDrainQueue,
   } as unknown as Conversation;
   return {
     conversation,
     enqueueMessage,
     persistUserMessage,
     runAgentLoop,
+    kickDrainQueue,
     loopRan,
   };
 }
@@ -227,7 +230,7 @@ describe("AcpSessionManager parent notification", () => {
     });
   });
 
-  test("a notification after a shared-conversation contact's turn runs as the actor before it", async () => {
+  test("a notification no turn started, after a shared-conversation contact's turn, runs as the actor before it", async () => {
     const GUARDIAN = {
       sourceChannel: "vellum",
       trustClass: "guardian",
@@ -269,6 +272,138 @@ describe("AcpSessionManager parent notification", () => {
 
     expect(trustAtPersist).toBe(GUARDIAN);
     expect(reloadedFor).toEqual([ALICE, GUARDIAN]);
+  });
+
+  describe("a notification for an instruction a turn gave", () => {
+    const GUARDIAN = {
+      sourceChannel: "vellum",
+      trustClass: "guardian",
+    } as TrustContext;
+    const ALICE = {
+      sourceChannel: "vellum-shared",
+      trustClass: "trusted_contact",
+      requesterExternalUserId: "principal-alice",
+    } as TrustContext;
+
+    /** An idle parent resting on Alice after her turn, with a real scope slot. */
+    async function parentAfterContactTurn(id: string) {
+      const mocked = mockConversation();
+      const parent = mocked.conversation as unknown as {
+        trustContext?: TrustContext;
+        setTrustContext: (ctx: TrustContext | null) => void;
+        ensureActorScopedHistory: () => Promise<void>;
+      };
+      const reloadedFor: Array<TrustContext | undefined> = [];
+      parent.trustContext = GUARDIAN;
+      parent.setTrustContext = (ctx) => {
+        parent.trustContext = ctx ?? undefined;
+      };
+      parent.ensureActorScopedHistory = async () => {
+        reloadedFor.push(parent.trustContext);
+      };
+      await scopeHistoryToActor(parent, ALICE);
+      reloadedFor.length = 0;
+      setConversation(id, mocked.conversation);
+      registered.push(id);
+      return { ...mocked, parent, reloadedFor };
+    }
+
+    test("a contact's instruction is handed to the drain, which checks them first", async () => {
+      const manager = new AcpSessionManager(1);
+      const { enqueueMessage, persistUserMessage, kickDrainQueue } =
+        await parentAfterContactTurn("parent-alice-acp");
+      const proc = fakeProcess(() =>
+        Promise.resolve({ stopReason: "end_turn" }),
+      );
+      const entry = injectSession(
+        manager,
+        "sess-alice",
+        "parent-alice-acp",
+        proc,
+      );
+      (entry as { startedBy?: TrustContext }).startedBy = ALICE;
+
+      await fire(manager, "sess-alice", entry);
+      await new Promise((r) => setTimeout(r, 10));
+
+      const calls = enqueueMessage.mock.calls as unknown as Array<
+        [{ trustContext?: TrustContext; queueWhenIdle?: boolean }]
+      >;
+      expect(calls).toHaveLength(2);
+      expect(calls[1][0].trustContext).toBe(ALICE);
+      expect(calls[1][0].queueWhenIdle).toBe(true);
+      expect(kickDrainQueue).toHaveBeenCalledTimes(1);
+      expect(persistUserMessage).not.toHaveBeenCalled();
+    });
+
+    test("the guardian's instruction runs as the guardian after a contact's turn", async () => {
+      const manager = new AcpSessionManager(1);
+      const { parent, persistUserMessage, loopRan, reloadedFor } =
+        await parentAfterContactTurn("parent-guardian-acp");
+      let trustAtPersist: TrustContext | undefined;
+      persistUserMessage.mockImplementation(async () => {
+        trustAtPersist = parent.trustContext;
+        return { id: "msg-1", deduplicated: false };
+      });
+      const proc = fakeProcess(() =>
+        Promise.resolve({ stopReason: "end_turn" }),
+      );
+      const entry = injectSession(
+        manager,
+        "sess-guardian",
+        "parent-guardian-acp",
+        proc,
+      );
+      const guardianTurn = { ...GUARDIAN };
+      (entry as { startedBy?: TrustContext }).startedBy = guardianTurn;
+
+      await fire(manager, "sess-guardian", entry);
+      await loopRan;
+
+      expect(trustAtPersist).toBe(guardianTurn);
+      expect(reloadedFor).toEqual([guardianTurn]);
+    });
+
+    test("a history that cannot load queues the notification instead of dropping it", async () => {
+      const manager = new AcpSessionManager(1);
+      const { parent, enqueueMessage, persistUserMessage, kickDrainQueue } =
+        await parentAfterContactTurn("parent-reload-fails");
+      parent.ensureActorScopedHistory = async () => {
+        throw new Error("db unavailable");
+      };
+      const proc = fakeProcess(() =>
+        Promise.resolve({ stopReason: "end_turn" }),
+      );
+      const entry = injectSession(
+        manager,
+        "sess-reload",
+        "parent-reload-fails",
+        proc,
+      );
+
+      await fire(manager, "sess-reload", entry);
+      await new Promise((r) => setTimeout(r, 10));
+
+      const calls = enqueueMessage.mock.calls as unknown as Array<
+        [{ queueWhenIdle?: boolean }]
+      >;
+      expect(calls).toHaveLength(2);
+      expect(calls[1][0].queueWhenIdle).toBe(true);
+      expect(kickDrainQueue).toHaveBeenCalledTimes(1);
+      expect(persistUserMessage).not.toHaveBeenCalled();
+    });
+
+    test("a steer records the steering turn for the notification it leads to", async () => {
+      const manager = new AcpSessionManager(1);
+      await parentAfterContactTurn("parent-steer");
+      const proc = fakeProcess(() => new Promise(() => {}));
+      const entry = injectSession(manager, "sess-steer", "parent-steer", proc);
+      (entry as { startedBy?: TrustContext }).startedBy = GUARDIAN;
+
+      await manager.steer("sess-steer", "look again", { startedBy: ALICE });
+
+      expect((entry as { startedBy?: TrustContext }).startedBy).toBe(ALICE);
+    });
   });
 
   test("a cancelled session does not notify the parent on failure", async () => {

@@ -1477,7 +1477,7 @@ describe("Conversation message queue", () => {
         },
       },
     ])(
-      "$kind queued after a contact's turn runs as the guardian again",
+      "$kind no turn started, queued during a contact's turn, runs as the guardian again",
       async ({ content, metadata }) => {
         storedRows = guardianAndContactRows();
         capturedAddMessages.length = 0;
@@ -1528,7 +1528,7 @@ describe("Conversation message queue", () => {
       },
     );
 
-    test("a completion injected once a contact's turn has ended runs as the guardian", async () => {
+    test("a completion no turn started, injected once a contact's turn has ended, runs as the guardian", async () => {
       storedRows = guardianAndContactRows();
       capturedAddMessages.length = 0;
       const conversation = makeConversation();
@@ -1575,7 +1575,7 @@ describe("Conversation message queue", () => {
       await new Promise((r) => setTimeout(r, 10));
     });
 
-    test("a completion after a contact's turn on a conversation that rested on no actor runs on none", async () => {
+    test("a completion no turn started, after a contact's turn on a conversation that rested on no actor, runs on none", async () => {
       capturedAddMessages.length = 0;
       const conversation = makeConversation();
       await conversation.loadFromDb();
@@ -1615,6 +1615,141 @@ describe("Conversation message queue", () => {
       );
       await resolveRun(2);
       await new Promise((r) => setTimeout(r, 10));
+    });
+
+    const subagentCompletion = (startedBy: typeof ALICE | typeof GUARDIAN) => ({
+      content: "[Subagent research completed]",
+      requestId: "req-completion",
+      metadata: {
+        subagentNotification: {
+          subagentId: "sub-1",
+          label: "research",
+          status: "completed",
+        },
+        scripted: true,
+      },
+      isInteractive: false,
+      trustContext: startedBy,
+    });
+
+    test("a completion of work a contact's turn started runs as that contact on their scope", async () => {
+      storedRows = guardianAndContactRows();
+      capturedAddMessages.length = 0;
+      aliceGuardianRoute = true;
+      const conversation = makeConversation();
+      conversation.setTrustContext(GUARDIAN);
+      await conversation.loadFromDb();
+      const p1 = conversation.processMessage({
+        content: "msg-1",
+        attachments: [],
+        onEvent: () => {},
+        requestId: "req-1",
+      });
+      await waitForPendingRun(1);
+      conversation.enqueueMessage({
+        content: "guardian follow-up",
+        requestId: "req-guardian",
+        trustContext: GUARDIAN,
+      });
+      conversation.enqueueMessage(subagentCompletion(ALICE));
+
+      await resolveRun(0);
+      await p1;
+      await waitForPendingRun(2);
+      expect(runText(pendingRuns[1])).toContain("guardian-only notes");
+
+      await resolveRun(1);
+      await waitForPendingRun(3);
+      expect(runText(pendingRuns[2])).not.toContain("guardian-only notes");
+      expect(runText(pendingRuns[2])).toContain("a shared guardian message");
+      expect(conversation.currentTurnTrustContext?.trustClass).toBe(
+        "trusted_contact",
+      );
+      expect(
+        conversation.currentTurnTrustContext?.requesterExternalUserId,
+      ).toBe("principal-alice");
+      // Their own messages would turn interactive with a guardian route; work
+      // their turn started stays a machine turn.
+      expect(conversation.currentTurnIsNonInteractive).toBe(true);
+      const completionRow = capturedAddMessages.find((m) =>
+        m.content.includes("Subagent research completed"),
+      );
+      expect(completionRow?.metadata?.provenanceTrustClass).toBe(
+        "trusted_contact",
+      );
+      await resolveRun(2);
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    test("a completion of work the guardian's turn started runs as the guardian after a contact's turn", async () => {
+      storedRows = guardianAndContactRows();
+      capturedAddMessages.length = 0;
+      const conversation = makeConversation();
+      conversation.setTrustContext(GUARDIAN);
+      await conversation.loadFromDb();
+      const p1 = conversation.processMessage({
+        content: "msg-1",
+        attachments: [],
+        onEvent: () => {},
+        requestId: "req-1",
+      });
+      await waitForPendingRun(1);
+      conversation.enqueueMessage({
+        content: "from Alice",
+        requestId: "req-contact",
+        trustContext: ALICE,
+        author: ALICE,
+        sourceActorPrincipalId: "principal-alice",
+      });
+      conversation.enqueueMessage(subagentCompletion(GUARDIAN));
+
+      await resolveRun(0);
+      await p1;
+      await waitForPendingRun(2);
+      expect(runText(pendingRuns[1])).not.toContain("guardian-only notes");
+
+      await resolveRun(1);
+      await waitForPendingRun(3);
+      expect(runText(pendingRuns[2])).toContain("guardian-only notes");
+      expect(conversation.currentTurnTrustContext).toBe(GUARDIAN);
+      const completionRow = capturedAddMessages.find((m) =>
+        m.content.includes("Subagent research completed"),
+      );
+      expect(completionRow?.metadata?.provenanceTrustClass).toBe("guardian");
+      await resolveRun(2);
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    test("a completion of a removed contact's work does not run", async () => {
+      storedRows = guardianAndContactRows();
+      capturedAddMessages.length = 0;
+      const conversation = makeConversation();
+      conversation.setTrustContext(GUARDIAN);
+      await conversation.loadFromDb();
+      const p1 = conversation.processMessage({
+        content: "msg-1",
+        attachments: [],
+        onEvent: () => {},
+        requestId: "req-1",
+      });
+      await waitForPendingRun(1);
+      conversation.enqueueMessage(subagentCompletion(ALICE));
+      aliceIsParticipant = false;
+      try {
+        await resolveRun(0);
+        await p1;
+        await new Promise((r) => setTimeout(r, 30));
+
+        expect(pendingRuns.length).toBe(1);
+        expect(conversation.getQueueDepth()).toBe(0);
+        expect(
+          capturedAddMessages.some((m) =>
+            m.content.includes("Subagent research completed"),
+          ),
+        ).toBe(false);
+      } finally {
+        aliceIsParticipant = true;
+      }
     });
 
     test("a subagent completion with no contact turn before it runs as it always has", async () => {

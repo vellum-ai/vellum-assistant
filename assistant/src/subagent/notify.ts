@@ -20,6 +20,7 @@ import {
   findConversation,
   findConversationOrSubagent,
 } from "../daemon/conversation-registry.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import { startAfterTurnFinalization } from "../daemon/turn-finalization.js";
 import { deliverSubagentNotificationToLiveVoice } from "../live-voice/live-voice-manager.js";
 import { getSubagentRecordByConversationId } from "../persistence/subagent-store.js";
@@ -41,7 +42,12 @@ export function injectMessageIntoParent(
   parentConversationId: string,
   message: string,
   metadata?: Record<string, unknown>,
-  opts?: { cronRunId?: string | null; bypassLiveVoice?: boolean },
+  opts?: {
+    cronRunId?: string | null;
+    bypassLiveVoice?: boolean;
+    /** The trust of the turn that spawned the subagent; see `trustOfStartingTurn`. */
+    startedBy?: TrustContext;
+  },
 ): void {
   const notification = metadata?.subagentNotification;
   // The live child's conversation ID is stable even if its cosmetic record changes.
@@ -104,13 +110,14 @@ function deliverToParent(
       isInteractive: boolean;
       queueWhenIdle: boolean;
       cronRunId?: string | null;
+      trustContext?: TrustContext;
     }) => { queued: boolean; rejected?: boolean };
     kickDrainQueue: (reason: "loop_complete", origin: string) => Promise<void>;
   },
   parentConversationId: string,
   message: string,
   metadata?: Record<string, unknown>,
-  opts?: { cronRunId?: string | null },
+  opts?: { cronRunId?: string | null; startedBy?: TrustContext },
 ): void {
   // The continuation this notification starts is still the scheduled firing's
   // work, so it carries the same run id as the child whose result triggered it.
@@ -125,6 +132,9 @@ function deliverToParent(
     isInteractive: false,
     queueWhenIdle: true,
     ...(cronRunId ? { cronRunId } : {}),
+    // The notification runs as the turn that spawned the child, so work a
+    // contact's turn started never finishes with anyone else's trust.
+    ...(opts?.startedBy ? { trustContext: opts.startedBy } : {}),
   });
   if (enqueueResult.queued) {
     startAfterTurnFinalization(
@@ -191,14 +201,22 @@ export function notifyParentFromChild(
     notificationString += `\nUse subagent_message to send guidance to this ${prefix.toLowerCase()}.`;
   }
 
-  injectMessageIntoParent(parentConversationId, notificationString, {
-    subagentNotification: {
-      subagentId: record?.id ?? childConversationId,
-      label,
-      status: "running" as const,
-      conversationId: childConversationId,
-      objective: record?.objective ?? "",
+  // The child runs as the turn that spawned it, which is who its updates
+  // run as in the parent.
+  const startedBy = child?.trustContext;
+  injectMessageIntoParent(
+    parentConversationId,
+    notificationString,
+    {
+      subagentNotification: {
+        subagentId: record?.id ?? childConversationId,
+        label,
+        status: "running" as const,
+        conversationId: childConversationId,
+        objective: record?.objective ?? "",
+      },
     },
-  });
+    startedBy ? { startedBy } : undefined,
+  );
   return true;
 }

@@ -10,6 +10,7 @@ const capturedNotifications: {
   parentConversationId: string;
   message: string;
   cronRunId?: string | null;
+  trustContext?: TrustContext;
 }[] = [];
 
 mock.module("../daemon/conversation-registry.js", () => ({
@@ -19,11 +20,13 @@ mock.module("../daemon/conversation-registry.js", () => ({
     enqueueMessage: (options: {
       content: string;
       cronRunId?: string | null;
+      trustContext?: TrustContext;
     }) => {
       capturedNotifications.push({
         parentConversationId: id,
         message: options.content,
         cronRunId: options.cronRunId,
+        trustContext: options.trustContext,
       });
       return { queued: true };
     },
@@ -36,6 +39,7 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
 }));
 
 import type { AssistantEvent } from "../api/index.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import { SubagentManager } from "../subagent/manager.js";
 import type { SubagentState } from "../subagent/types.js";
 
@@ -68,6 +72,8 @@ interface FakeManagedSubagent {
   parentSendToClient: (msg: AssistantEvent) => void;
   /** Sticky marker that a follow-up turn was queued during the run. */
   hadEnqueuedMessages?: boolean;
+  /** The trust of the turn that spawned the child. */
+  startedBy?: TrustContext;
 }
 
 /** Type-safe accessor for SubagentManager's private internals via bracket notation. */
@@ -359,6 +365,51 @@ describe("SubagentManager notifyParent (via runSubagent)", () => {
     );
     expect(capturedNotifications[0].message).toContain("subagent_read");
 
+    asInternals(manager).stopSweep();
+  });
+
+  test("terminal and abort notifications run as the turn that spawned the child", async () => {
+    clearCaptured();
+    const alice: TrustContext = {
+      sourceChannel: "vellum-shared",
+      trustClass: "trusted_contact",
+      requesterExternalUserId: "principal-alice",
+    };
+    const manager = new SubagentManager();
+    injectFakeSubagent(manager, "sub-done", makeState("sub-done"));
+    const done = asInternals(manager).subagents.get("sub-done")!;
+    done.startedBy = alice;
+    done.conversation!.persistUserMessage = () => ({
+      id: "msg-1",
+      deduplicated: false,
+    });
+    done.conversation!.runAgentLoop = async () => {};
+    await asInternals(manager).runSubagent("sub-done", "Do something");
+
+    injectFakeSubagent(manager, "sub-stop", makeState("sub-stop"));
+    asInternals(manager).subagents.get("sub-stop")!.startedBy = alice;
+    manager.abort("sub-stop", () => {});
+
+    expect(capturedNotifications).toHaveLength(2);
+    expect(capturedNotifications[0].trustContext).toBe(alice);
+    expect(capturedNotifications[1].trustContext).toBe(alice);
+    asInternals(manager).stopSweep();
+  });
+
+  test("a child rebuilt with no spawning turn notifies with no trust", async () => {
+    clearCaptured();
+    const manager = new SubagentManager();
+    injectFakeSubagent(manager, "sub-rebuilt", makeState("sub-rebuilt"));
+    const managed = asInternals(manager).subagents.get("sub-rebuilt")!;
+    managed.conversation!.persistUserMessage = () => ({
+      id: "msg-1",
+      deduplicated: false,
+    });
+    managed.conversation!.runAgentLoop = async () => {};
+    await asInternals(manager).runSubagent("sub-rebuilt", "Do something");
+
+    expect(capturedNotifications).toHaveLength(1);
+    expect(capturedNotifications[0].trustContext).toBeUndefined();
     asInternals(manager).stopSweep();
   });
 

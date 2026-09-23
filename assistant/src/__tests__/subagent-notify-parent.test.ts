@@ -45,6 +45,7 @@ const capturedEnqueueCronRunIds: (string | null | undefined)[] = [];
 const capturedQueueOptions: {
   queueWhenIdle: boolean;
   metadata?: Record<string, unknown>;
+  trustContext?: TrustContext;
 }[] = [];
 const drainedParents: string[] = [];
 let parentAcceptsEnqueue = true;
@@ -57,6 +58,7 @@ const liveSubagents = new Map<
   {
     parentConversationId: string;
     subagentSuppressParentNotifications?: boolean;
+    trustContext?: TrustContext;
   }
 >();
 
@@ -71,6 +73,7 @@ mock.module("../daemon/conversation-registry.js", () => ({
         queueWhenIdle: boolean;
         metadata?: Record<string, unknown>;
         cronRunId?: string | null;
+        trustContext?: TrustContext;
       }) => {
         capturedMessages.push(options.content);
         capturedQueueOptions.push(options);
@@ -103,6 +106,7 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
 
 import type { Conversation } from "../daemon/conversation.js";
 import { isToolActiveForContext } from "../daemon/conversation-tool-setup.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import { beginTurnFinalization } from "../daemon/turn-finalization.js";
 import { setLiveVoiceSessionManagerForTesting } from "../live-voice/live-voice-manager.js";
 import { LiveVoiceSessionManager } from "../live-voice/live-voice-session-manager.js";
@@ -448,6 +452,30 @@ describe("notifyParentFromChild", () => {
       true,
     );
     expect(lastCapturedMessage()).toContain("Test message");
+  });
+
+  test("an update runs in the parent as the turn that spawned the child", () => {
+    clearCaptured();
+    const conversationId = "conv-contact-started";
+    seedSubagent(conversationId);
+    const alice: TrustContext = {
+      sourceChannel: "vellum-shared",
+      trustClass: "trusted_contact",
+      requesterExternalUserId: "principal-alice",
+    };
+    liveSubagents.get(conversationId)!.trustContext = alice;
+
+    expect(notifyParentFromChild(conversationId, "Halfway", "info")).toBe(true);
+    expect(capturedQueueOptions.at(-1)?.trustContext).toBe(alice);
+  });
+
+  test("an update from a child with no spawning turn carries no trust", () => {
+    clearCaptured();
+    const conversationId = "conv-no-starter";
+    seedSubagent(conversationId);
+
+    expect(notifyParentFromChild(conversationId, "Halfway", "info")).toBe(true);
+    expect(capturedQueueOptions.at(-1)?.trustContext).toBeUndefined();
   });
 
   test("returns false for a synchronous child that suppresses parent notifications", () => {

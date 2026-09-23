@@ -1,4 +1,5 @@
 import type { Conversation } from "./conversation.js";
+import { findConversationOrSubagent } from "./conversation-registry.js";
 import type { TrustContext } from "./trust-context-types.js";
 
 type ScopedConversation = Pick<
@@ -13,8 +14,23 @@ type ScopedConversation = Pick<
  */
 const actorBeforeContact = new WeakMap<object, TrustContext | undefined>();
 
-function isContactTrust(trustContext: TrustContext | undefined): boolean {
+/** Whether a trust is a shared-conversation contact's. */
+export function isContactTrust(
+  trustContext: TrustContext | undefined,
+): boolean {
   return trustContext?.sourceChannel === "vellum-shared";
+}
+
+/**
+ * The trust of the turn running on a conversation, captured by work that turn
+ * starts and that reports back after it (a subagent, an ACP session, a
+ * background command). The report runs as this actor, not as whoever the
+ * conversation rests on by the time it arrives.
+ */
+export function trustOfStartingTurn(
+  conversationId: string,
+): TrustContext | undefined {
+  return findConversationOrSubagent(conversationId)?.getTurnOrRestingTrust();
 }
 
 /**
@@ -38,12 +54,11 @@ export async function scopeHistoryToActor(
 }
 
 /**
- * The actor work with no sender of its own (a subagent or ACP completion, a
- * wake) runs as: the conversation's resting actor, except while a
- * shared-conversation contact's turn has left the conversation resting on
- * that contact. Such work is never the contact's, so it runs as the actor
- * the conversation rested on before, as it would have had the contact not
- * sent.
+ * The actor work that no turn started (a scheduled wake, a heartbeat) runs as:
+ * the conversation's resting actor, except while a shared-conversation
+ * contact's turn has left the conversation resting on that contact. Such work
+ * is never the contact's, so it runs as the actor the conversation rested on
+ * before, as it would have had the contact not sent.
  */
 export function actorForWorkWithoutSender(
   conversation: Pick<Conversation, "trustContext">,
@@ -60,7 +75,7 @@ export function actorForWorkWithoutSender(
 /**
  * Put back the actor and history a conversation had before a
  * shared-conversation contact's turn left it resting on the contact, for work
- * with no sender of its own that is about to run. Does nothing otherwise.
+ * that no turn started and that is about to run. Does nothing otherwise.
  */
 export async function restoreActorBeforeContact(
   conversation: ScopedConversation,

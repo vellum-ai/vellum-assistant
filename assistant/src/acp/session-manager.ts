@@ -11,9 +11,14 @@ import { eq, inArray } from "drizzle-orm";
 
 import type { AcpSessionUpdateEvent } from "../api/events/acp-session-update.js";
 import type { AssistantEvent } from "../api/index.js";
-import { restoreActorBeforeContact } from "../daemon/actor-scoped-history.js";
+import {
+  isContactTrust,
+  restoreActorBeforeContact,
+  scopeHistoryToActor,
+} from "../daemon/actor-scoped-history.js";
 import { findConversation } from "../daemon/conversation-registry.js";
 import { SYNC_TAGS } from "../daemon/message-types/sync.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import { getDb } from "../persistence/db-connection.js";
 import { acpSessionHistory } from "../persistence/schema/index.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
@@ -130,6 +135,12 @@ interface SessionEntry {
   parentToolUseId?: string;
   /** Objective text the session was spawned with, if known. */
   task?: string;
+  /**
+   * The trust of the turn that gave the session its latest instruction, which
+   * the parent notification for that instruction runs as. Absent when no turn
+   * did (a route call), in which case it runs as sender-less work.
+   */
+  startedBy?: TrustContext;
   /** Resolved adapter command basename (e.g. "claude-agent-acp"). Used to
    *  gate resume hints to the only adapter (claude-agent-acp) whose CLI
    *  accepts `--resume`. */
@@ -182,6 +193,11 @@ type ResumableHistoryRow = typeof acpSessionHistory.$inferSelect & {
  */
 export interface AcpCancellationOptions {
   signal?: AbortSignal;
+}
+
+export interface AcpSteerOptions extends AcpCancellationOptions {
+  /** The trust of the turn giving the instruction; see `SessionEntry.startedBy`. */
+  startedBy?: TrustContext;
 }
 
 export class AcpSessionManager {
@@ -298,7 +314,11 @@ export class AcpSessionManager {
     cwd: string,
     parentConversationId: string,
     sendToVellum: (msg: AssistantEvent) => void,
-    options?: { parentToolUseId?: string; model?: string },
+    options?: {
+      parentToolUseId?: string;
+      model?: string;
+      startedBy?: TrustContext;
+    },
     cancellation?: AcpCancellationOptions,
   ): Promise<{
     acpSessionId: string;
@@ -333,6 +353,7 @@ export class AcpSessionManager {
       parentToolUseId: options?.parentToolUseId,
       task,
     });
+    entry.startedBy = options?.startedBy;
     const { process: agentProcess, state } = entry;
 
     const requestedModel = options?.model?.trim() || undefined;
@@ -1097,7 +1118,7 @@ export class AcpSessionManager {
   async steer(
     acpSessionId: string,
     instruction: string,
-    opts?: AcpCancellationOptions,
+    opts?: AcpSteerOptions,
   ): Promise<void> {
     const entry = this.sessions.get(acpSessionId);
     if (!entry) {
@@ -1129,6 +1150,7 @@ export class AcpSessionManager {
     // call below hands a paid agent a new instruction that outlives this turn.
     opts?.signal?.throwIfAborted();
 
+    entry.startedBy = opts?.startedBy;
     // Fire new prompt in the background with event handlers
     entry.currentPrompt = this.firePromptInBackground(
       acpSessionId,
@@ -1163,7 +1185,7 @@ export class AcpSessionManager {
     acpSessionId: string,
     instruction: string,
     sendToVellum: (msg: AssistantEvent) => void,
-    opts?: AcpCancellationOptions,
+    opts?: AcpSteerOptions,
   ): Promise<{ resumed: boolean }> {
     try {
       await this.steer(acpSessionId, instruction, opts);
@@ -1809,35 +1831,68 @@ export class AcpSessionManager {
     // The notification turn streams to whoever is watching (the parent's sink is
     // its client hub), but it is machine-injected with no human asserted to be
     // present, so it runs non-interactive: a tool that would need approval is
-    // denied rather than left waiting on a prompt nobody may answer.
-    const enqueueResult = parentConversation.enqueueMessage({
-      content: message,
-      metadata: { acpNotification },
-      isInteractive: false,
-    });
+    // denied rather than left waiting on a prompt nobody may answer. It runs as
+    // the turn that gave the instruction it reports on.
+    const startedBy = entry.startedBy;
+    const enqueue = (queueWhenIdle: boolean) =>
+      parentConversation.enqueueMessage({
+        content: message,
+        metadata: { acpNotification },
+        isInteractive: false,
+        ...(startedBy ? { trustContext: startedBy } : {}),
+        ...(queueWhenIdle ? { queueWhenIdle: true } : {}),
+      });
+    const enqueueResult = enqueue(false);
     if (enqueueResult.queued || enqueueResult.rejected) {
       return;
     }
-    // Like a queued one, the notification runs as the conversation did before
-    // any shared-conversation contact's turn, never as that contact.
-    restoreActorBeforeContact(parentConversation)
-      .then(() =>
-        parentConversation.persistUserMessage({
-          content: message,
-          metadata: { acpNotification },
-        }),
-      )
-      .then(({ id: messageId }) =>
-        parentConversation.runAgentLoop(message, messageId, {
-          isInteractive: false,
-        }),
-      )
-      .catch((err) => {
+    // The drain runs it instead, checking a contact is still admitted first.
+    const queueForDrain = (): void => {
+      if (!enqueue(true).queued) {
         log.error(
-          { parentConversationId: entry.parentConversationId, err },
-          "Failed to process ACP notification in parent",
+          { parentConversationId: entry.parentConversationId },
+          "Parent queue rejected ACP notification",
         );
-      });
+        return;
+      }
+      void parentConversation.kickDrainQueue(
+        "loop_complete",
+        "acp_notification",
+      );
+    };
+    if (isContactTrust(startedBy)) {
+      queueForDrain();
+      return;
+    }
+    const scope = startedBy
+      ? scopeHistoryToActor(parentConversation, startedBy)
+      : restoreActorBeforeContact(parentConversation);
+    scope.then(
+      () =>
+        parentConversation
+          .persistUserMessage({
+            content: message,
+            metadata: { acpNotification },
+          })
+          .then(({ id: messageId }) =>
+            parentConversation.runAgentLoop(message, messageId, {
+              isInteractive: false,
+            }),
+          )
+          .catch((err) => {
+            log.error(
+              { parentConversationId: entry.parentConversationId, err },
+              "Failed to process ACP notification in parent",
+            );
+          }),
+      (err) => {
+        log.warn(
+          { parentConversationId: entry.parentConversationId, err },
+          "Failed to load the parent's history for an ACP notification; queueing it",
+        );
+        queueForDrain();
+      },
+    );
   }
 
   /**

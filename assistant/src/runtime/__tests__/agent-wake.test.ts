@@ -259,6 +259,19 @@ let mockDiskPressureStatus: DiskPressureStatus = {
   error: null,
 };
 
+/** The admission answer for a contact who started a wake's work. */
+let mockStarterAdmission: unknown = { outcome: "denied" };
+const starterAdmissionChecks: Array<{
+  conversationId: string;
+  principalId: string;
+}> = [];
+mock.module("../shared-sender-admission.js", () => ({
+  checkSharedSender: async (conversationId: string, principalId: string) => {
+    starterAdmissionChecks.push({ conversationId, principalId });
+    return mockStarterAdmission;
+  },
+}));
+
 mock.module("../../daemon/disk-pressure-guard.js", () => ({
   getDiskPressureStatus: () => mockDiskPressureStatus,
 }));
@@ -645,6 +658,8 @@ beforeEach(() => {
   recordUsageCalls.length = 0;
   publishMessagesChangedCalls.length = 0;
   provenanceTrusts.length = 0;
+  mockStarterAdmission = { outcome: "denied" };
+  starterAdmissionChecks.length = 0;
   mockGetOrCreateConversationCalls.length = 0;
   mockResolverTarget = null;
   mockGetConversationOverrideProfile = () => undefined;
@@ -898,7 +913,49 @@ describe("wakeAgentForOpportunity", () => {
       }
     });
 
-    test("a wake on a conversation no contact has sent on reloads nothing", async () => {
+    test("a wake for work a contact's turn started runs as that contact while admitted", async () => {
+      const aliceNow: TrustContext = { ...ALICE, requesterContactId: "c-1" };
+      mockStarterAdmission = { outcome: "admitted", trust: aliceNow };
+      let turnTrustAtRun: unknown;
+      const conversation = makeWakeConversation({
+        initialTrustContext: GUARDIAN,
+        runImpl: async (input) => {
+          turnTrustAtRun = conversation.currentTurnTrustContext;
+          return runResult([
+            ...input,
+            { role: "assistant", content: [{ type: "text", text: "done." }] },
+          ]);
+        },
+      });
+
+      const result = await wakeAgentForOpportunity(
+        {
+          conversationId: conversation.conversationId,
+          hint: "Background command completed",
+          source: "background-tool",
+          persistTriggerAsEvent: true,
+          startedBy: ALICE,
+        },
+        { resolveTarget: async () => conversation },
+      );
+
+      expect(result.invoked).toBe(true);
+      expect(starterAdmissionChecks).toEqual([
+        {
+          conversationId: conversation.conversationId,
+          principalId: "principal-alice",
+        },
+      ]);
+      expect(turnTrustAtRun).toBe(aliceNow);
+      expect(conversation.trustContext).toBe(aliceNow);
+      expect(conversation.callSequence).toContain("ensureHistory");
+      for (const trust of provenanceTrusts) {
+        expect(trust).toBe(aliceNow);
+      }
+    });
+
+    test("a wake for work a removed contact started does not run", async () => {
+      mockStarterAdmission = { outcome: "denied" };
       const conversation = makeWakeConversation({
         initialTrustContext: GUARDIAN,
         scriptedAssistant: {
@@ -906,8 +963,73 @@ describe("wakeAgentForOpportunity", () => {
           content: [{ type: "text", text: "done." }],
         },
       });
-      conversation.currentTurnTrustContext = GUARDIAN;
-      conversation.turnTrustContextSets.length = 0;
+
+      const result = await wakeAgentForOpportunity(
+        {
+          conversationId: conversation.conversationId,
+          hint: "Background command completed",
+          source: "background-tool",
+          persistTriggerAsEvent: true,
+          startedBy: ALICE,
+        },
+        { resolveTarget: async () => conversation },
+      );
+
+      expect(result).toEqual({
+        invoked: false,
+        producedToolCalls: false,
+        reason: "starter_not_admitted",
+      });
+      expect(conversation.runCalls).toHaveLength(0);
+      expect(conversation.persistedTailCalls).toHaveLength(0);
+      expect(conversation.trustContext).toBe(GUARDIAN);
+      expect(conversation.isProcessing()).toBe(false);
+    });
+
+    test("a wake for a contact's work whose history cannot load does not run", async () => {
+      mockStarterAdmission = { outcome: "admitted", trust: ALICE };
+      const conversation = makeWakeConversation({
+        initialTrustContext: GUARDIAN,
+        scriptedAssistant: {
+          role: "assistant",
+          content: [{ type: "text", text: "done." }],
+        },
+      });
+      (
+        conversation as unknown as {
+          ensureActorScopedHistory: () => Promise<void>;
+        }
+      ).ensureActorScopedHistory = async () => {
+        throw new Error("db unavailable");
+      };
+
+      const result = await wakeAgentForOpportunity(
+        {
+          conversationId: conversation.conversationId,
+          hint: "Background command completed",
+          source: "background-tool",
+          persistTriggerAsEvent: true,
+          startedBy: ALICE,
+        },
+        { resolveTarget: async () => conversation },
+      );
+
+      expect(result.reason).toBe("starter_not_admitted");
+      expect(conversation.runCalls).toHaveLength(0);
+      expect(conversation.isProcessing()).toBe(false);
+      expect(conversation.drainQueueCalls).toBe(1);
+    });
+
+    test("a wake for work the guardian's turn started runs as the guardian after a contact's turn", async () => {
+      let turnTrustAtRun: unknown;
+      const conversation = await afterContactTurn(async (input) => {
+        turnTrustAtRun = conversation.currentTurnTrustContext;
+        return runResult([
+          ...input,
+          { role: "assistant", content: [{ type: "text", text: "done." }] },
+        ]);
+      });
+      const guardianTurn: TrustContext = { ...GUARDIAN };
 
       await wakeAgentForOpportunity(
         {
@@ -915,19 +1037,56 @@ describe("wakeAgentForOpportunity", () => {
           hint: "Background command completed",
           source: "background-tool",
           persistTriggerAsEvent: true,
+          startedBy: guardianTurn,
         },
         { resolveTarget: async () => conversation },
       );
 
-      expect(conversation.callSequence).not.toContain("ensureHistory");
-      expect(conversation.trustContextSets).toEqual([]);
-      for (const set of conversation.turnTrustContextSets) {
-        expect(set.ctx).toBe(GUARDIAN);
-      }
+      expect(starterAdmissionChecks).toEqual([]);
+      expect(turnTrustAtRun).toBe(guardianTurn);
+      expect(conversation.trustContext).toBe(guardianTurn);
       for (const trust of provenanceTrusts) {
-        expect(trust).toBe(GUARDIAN);
+        expect(trust).toBe(guardianTurn);
       }
     });
+
+    test.each([
+      undefined,
+      { sourceChannel: "vellum", trustClass: "guardian" } as TrustContext,
+    ])(
+      "a wake on a conversation no contact has sent on reloads nothing (started by %p)",
+      async (startedBy) => {
+        const conversation = makeWakeConversation({
+          initialTrustContext: GUARDIAN,
+          scriptedAssistant: {
+            role: "assistant",
+            content: [{ type: "text", text: "done." }],
+          },
+        });
+        conversation.currentTurnTrustContext = GUARDIAN;
+        conversation.turnTrustContextSets.length = 0;
+
+        await wakeAgentForOpportunity(
+          {
+            conversationId: conversation.conversationId,
+            hint: "Background command completed",
+            source: "background-tool",
+            persistTriggerAsEvent: true,
+            ...(startedBy ? { startedBy } : {}),
+          },
+          { resolveTarget: async () => conversation },
+        );
+
+        expect(conversation.callSequence).not.toContain("ensureHistory");
+        expect(conversation.trustContextSets).toEqual([]);
+        for (const set of conversation.turnTrustContextSets) {
+          expect(set.ctx).toBe(GUARDIAN);
+        }
+        for (const trust of provenanceTrusts) {
+          expect(trust).toBe(GUARDIAN);
+        }
+      },
+    );
   });
 
   test("trustContext elevation is applied for the run and restored after", async () => {

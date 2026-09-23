@@ -352,6 +352,48 @@ describe("SubagentManager — provider call-site routing", () => {
     expect(createdConversation.authContext).not.toBe(parentAuthContext);
   });
 
+  test("records the spawning turn's trust for the child's notifications", async () => {
+    setLlmConfig(makeLlmFixture());
+    const guardian: TrustContext = {
+      sourceChannel: "vellum",
+      trustClass: "guardian",
+    };
+    const alice: TrustContext = {
+      sourceChannel: "vellum-shared",
+      trustClass: "trusted_contact",
+      requesterExternalUserId: "principal-alice",
+    };
+    capturedConversations.length = 0;
+    clearConversations();
+    const manager = new SubagentManager();
+    setConversation(
+      "parent-contact-turn",
+      asConversation({
+        trustContext: guardian,
+        currentTurnTrustContext: alice,
+        getAuthContext: () => undefined,
+        assistantId: "self",
+        getCurrentSystemPrompt: () => "parent system",
+      }),
+    );
+
+    const subagentId = await manager.spawn(
+      {
+        parentConversationId: "parent-contact-turn",
+        label: "contact work",
+        objective: "look something up",
+      },
+      () => {},
+    );
+
+    const managed = (
+      manager as unknown as {
+        subagents: Map<string, { startedBy?: TrustContext }>;
+      }
+    ).subagents.get(subagentId);
+    expect(managed?.startedBy).toBe(alice);
+  });
+
   test("copies the parent's plugin scope into the spawned conversation (by value)", async () => {
     setLlmConfig(makeLlmFixture());
 

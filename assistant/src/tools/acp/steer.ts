@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { getAcpSessionManager } from "../../acp/index.js";
+import { trustOfStartingTurn } from "../../daemon/actor-scoped-history.js";
 import { isAbortLikeError, throwIfCancelled } from "../shared/abort.js";
 import {
   invalidToolInputResult,
@@ -41,6 +42,7 @@ export async function executeAcpSteer(
 
   const manager = getAcpSessionManager();
   const sendToClient = getSendToClient(context);
+  const startedBy = trustOfStartingTurn(context.conversationId);
 
   try {
     if (!sendToClient) {
@@ -49,6 +51,7 @@ export async function executeAcpSteer(
       // steer the in-memory session only.
       await manager.steer(acpSessionId, instruction, {
         ...(context.signal ? { signal: context.signal } : {}),
+        startedBy,
       });
       return steeredResult(acpSessionId, { resumed: false });
     }
@@ -61,7 +64,7 @@ export async function executeAcpSteer(
       acpSessionId,
       instruction,
       sendToClient,
-      { ...(context.signal ? { signal: context.signal } : {}) },
+      { ...(context.signal ? { signal: context.signal } : {}), startedBy },
     );
     return steeredResult(acpSessionId, { resumed });
   } catch (err) {

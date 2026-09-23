@@ -85,7 +85,11 @@ import {
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { isSidebarDoneEnabled } from "../config/sidebar-done-gate.js";
-import { restoreActorBeforeContact } from "../daemon/actor-scoped-history.js";
+import {
+  isContactTrust,
+  restoreActorBeforeContact,
+  scopeHistoryToActor,
+} from "../daemon/actor-scoped-history.js";
 import { conversationSupportsDynamicUi } from "../daemon/channel-ui-capability.js";
 import type { Conversation } from "../daemon/conversation.js";
 import type { QueueDrainReason } from "../daemon/conversation-queue-manager.js";
@@ -224,6 +228,14 @@ export interface WakeOptions {
    * assistant-self-maintenance jobs.
    */
   trustContext?: TrustContext;
+  /**
+   * The trust of the turn that started the work this wake reports on (a
+   * background command), captured when it started. The wake runs as that
+   * actor when a shared-conversation contact is involved: a contact's work
+   * completes as that contact, on their history, and only while they are
+   * still admitted. Absent for work no turn started.
+   */
+  startedBy?: TrustContext;
   /**
    * Explicit local-owner metadata for rare direct wakes that are allowed to run
    * in cleanup mode. Omit for background jobs; they are paused under disk
@@ -450,6 +462,12 @@ export type WakeSkipReason =
   | "no_resolver"
   | "disk_pressure"
   /**
+   * The wake reports on work a shared-conversation contact's turn started,
+   * and that contact is no longer admitted, could not be verified, or their
+   * history could not be loaded. It never runs as anyone else instead.
+   */
+  | "starter_not_admitted"
+  /**
    * The wake input exceeds the effective context window and the caller
    * suppressed auto-compaction (`suppressAutoCompaction: true`), so the
    * run cannot proceed without the compaction it was told not to perform.
@@ -619,6 +637,67 @@ async function kickWakeDrainQueue(
       "agent-wake: kickDrainQueue threw; continuing",
     );
   }
+}
+
+// ── Starting actor ────────────────────────────────────────────────────
+
+/** The contact's current trust while they are still admitted, else undefined. */
+async function admittedContactTrust(
+  conversationId: string,
+  contact: TrustContext,
+): Promise<TrustContext | undefined> {
+  try {
+    const { checkSharedSender } = await import("./shared-sender-admission.js");
+    const admission = await checkSharedSender(
+      conversationId,
+      contact.requesterExternalUserId ?? "",
+    );
+    return admission.outcome === "admitted" ? admission.trust : undefined;
+  } catch (err) {
+    log.warn(
+      { err, conversationId },
+      "agent-wake: shared sender admission check failed",
+    );
+    return undefined;
+  }
+}
+
+/**
+ * Put the wake on its starting actor's history and trust when a
+ * shared-conversation contact is involved; a conversation no contact has
+ * touched is left exactly as it is. Answers false when a contact's own work
+ * could not be put on their history, which must not run on anyone else's.
+ */
+async function scopeWakeToStarter(
+  conversation: Conversation,
+  starter: TrustContext | undefined,
+  conversationId: string,
+  source: string,
+): Promise<boolean> {
+  const contactInvolved =
+    isContactTrust(starter) ||
+    isContactTrust(conversation.trustContext) ||
+    isContactTrust(conversation.currentTurnTrustContext);
+  if (!contactInvolved) {
+    return true;
+  }
+  try {
+    if (starter) {
+      await scopeHistoryToActor(conversation, starter);
+    } else {
+      await restoreActorBeforeContact(conversation);
+    }
+  } catch (err) {
+    log.warn(
+      { conversationId, source, err },
+      "agent-wake: failed to load history for the actor that started this work",
+    );
+    if (isContactTrust(starter)) {
+      return false;
+    }
+  }
+  conversation.currentTurnTrustContext = starter ?? conversation.trustContext;
+  return true;
 }
 
 // ── Per-conversation single-flight lock ───────────────────────────────
@@ -835,6 +914,25 @@ export async function wakeAgentForOpportunity(
       };
     }
 
+    // Work a contact's turn started completes as that contact only while
+    // they may still act in the conversation, and as they are now.
+    let starter = opts.startedBy;
+    if (starter && isContactTrust(starter)) {
+      starter = await admittedContactTrust(conversationId, starter);
+      if (!starter) {
+        log.info(
+          { conversationId, source },
+          "agent-wake: the contact who started this work is no longer admitted; skipping",
+        );
+        restorePersistentWakeTrust();
+        return {
+          invoked: false,
+          producedToolCalls: false,
+          reason: "starter_not_admitted" as const,
+        };
+      }
+    }
+
     // Wait for any independently started user turn to release the processing
     // lock so we don't run a second agent loop concurrently. With no abort
     // signal, waitForIdle never rejects — `false` means the budget elapsed
@@ -931,21 +1029,32 @@ export async function wakeAgentForOpportunity(
     // the lock cannot change hands in between.
     conversation.setProcessing(true);
 
-    // A wake is never a shared-conversation contact's turn. After one, it runs
-    // as the conversation did before that turn, on that actor's history, and
-    // does not inherit the contact's trust from the turn that just ended.
-    try {
-      await restoreActorBeforeContact(conversation);
-    } catch (err) {
-      log.warn(
-        { conversationId, source, err },
-        "agent-wake: failed to reload history for the actor before a contact's turn; continuing",
-      );
-    }
+    // After a shared-conversation contact's turn, the wake runs as the actor
+    // that started its work, or, when no turn did, as the conversation did
+    // before the contact's turn. Either way it never inherits the contact's
+    // trust from the turn that just ended. A contact's own work that cannot
+    // be put on their history does not run.
     if (
-      conversation.currentTurnTrustContext?.sourceChannel === "vellum-shared"
+      !(await scopeWakeToStarter(conversation, starter, conversationId, source))
     ) {
-      conversation.currentTurnTrustContext = conversation.trustContext;
+      try {
+        conversation.setProcessing(false);
+      } catch (err) {
+        log.warn(
+          { conversationId, source, err },
+          "agent-wake: setProcessing(false) threw; continuing",
+        );
+      }
+      restorePersistentWakeTrust();
+      await kickWakeDrainQueue(conversation, "agent_wake_cleanup", {
+        conversationId,
+        source,
+      });
+      return {
+        invoked: false,
+        producedToolCalls: false,
+        reason: "starter_not_admitted" as const,
+      };
     }
 
     // ── Pre-run auto-compaction gate ──────────────────────────────────
