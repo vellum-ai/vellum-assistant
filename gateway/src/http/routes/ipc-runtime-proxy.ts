@@ -17,6 +17,7 @@ import { contactTokenMayReachRoute } from "@vellumai/gateway-client";
 import { admitActorToken } from "../../auth/actor-token-revocation.js";
 import {
   isNarrowScopeProfile,
+  isTrustCheckedScopeProfile,
   resolveScopeProfile,
 } from "../../auth/scopes.js";
 import { parseSub } from "../../auth/subject.js";
@@ -117,10 +118,10 @@ export async function tryIpcProxy(
   }
   // A passthrough forwards caller-authored paths, so undecodable ones arrive
   // here routinely. Same answer the daemon's own router gives them, except
-  // for a contact token: the match carries no policy to check its trust
-  // class against, so it gets the 404 an unadmitted route would.
+  // for a trust-checked profile: the match carries no policy to check its
+  // trust class against, so it gets the 404 an unadmitted route would.
   if ("malformedPath" in match) {
-    if (claims?.scope_profile === "contact_client_v1") {
+    if (claims && isTrustCheckedScopeProfile(claims.scope_profile)) {
       return notFound();
     }
     return Response.json(
@@ -317,7 +318,7 @@ export async function tryIpcProxy(
 // ---------------------------------------------------------------------------
 
 /**
- * Trust class of the principal a contact-role token names, read locally from
+ * Trust class of the principal a trust-checked token names, read locally from
  * its contact ACL on the `vellum-shared` channel. Undefined when the token
  * names no actor principal or the resolver could not vouch.
  */
@@ -337,10 +338,11 @@ async function resolveContactTrustClass(
 
 /**
  * Enforce the route's trust-class/scope/principal policy against the
- * caller's token. Returns a 404 when a contact-role token reaches a route
- * that does not admit its trust class, a 403 for any other denial, and null
- * when allowed. The trust check runs first so a contact learns nothing about
- * which routes exist; only contact-role tokens are resolved.
+ * caller's token. Returns a 404 when a trust-checked token (see
+ * {@link isTrustCheckedScopeProfile}) reaches a route that does not admit its
+ * trust class, a 403 for any other denial, and null when allowed. The trust
+ * check runs first so its holder learns nothing about which routes exist, and
+ * no other token is resolved.
  *
  * A route naming no scope (`policy` null, or empty `requiredScopes`) is
  * unprotected (e.g. health, debug) for a broad profile, and closed to a narrow
@@ -357,7 +359,7 @@ async function enforceRoutePolicy(
   if (!claims) return null;
 
   if (
-    claims.scope_profile === "contact_client_v1" &&
+    isTrustCheckedScopeProfile(claims.scope_profile) &&
     !(await contactTokenMayReachRoute(policy?.allowedTrustClasses, () =>
       resolveContactTrustClass(claims),
     ))

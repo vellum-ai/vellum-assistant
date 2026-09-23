@@ -16,7 +16,11 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
 
-import { isNarrowScopeProfile, resolveScopeProfile } from "../scopes.js";
+import {
+  isNarrowScopeProfile,
+  isTrustCheckedScopeProfile,
+  resolveScopeProfile,
+} from "../scopes.js";
 import type { Scope, ScopeProfile } from "../types.js";
 
 // ---------------------------------------------------------------------------
@@ -340,10 +344,34 @@ describe("contact_client_v1 agrees with the gateway registry", () => {
     expect(runtimeScopes).toEqual(gatewayScopes);
   });
 
+  /** Entries of a `Record<ScopeProfile, boolean>` table in the gateway source. */
+  function gatewayTable(name: string): Record<string, boolean> {
+    const block = new RegExp(
+      `${name}: Record<ScopeProfile, boolean> = \\{([^}]*)\\}`,
+    ).exec(gatewaySource());
+    expect(block, `${name} not found in ${GATEWAY_SCOPES_PATH}`).not.toBeNull();
+    return Object.fromEntries(
+      [...block![1].matchAll(/(\w+): (true|false)/g)].map((m) => [
+        m[1],
+        m[2] === "true",
+      ]),
+    );
+  }
+
   test("is narrow on both sides", () => {
-    const broad = /contact_client_v1: (true|false)/.exec(gatewaySource());
-    expect(broad).not.toBeNull();
-    expect(broad![1]).toBe("false");
+    expect(gatewayTable("BROAD_SCOPE_PROFILES").contact_client_v1).toBe(false);
     expect(isNarrowScopeProfile("contact_client_v1")).toBe(true);
+  });
+
+  test("both sides trust-check the same profiles", () => {
+    const gateway = gatewayTable("TRUST_CHECKED_SCOPE_PROFILES");
+    expect(gateway.contact_client_v1).toBe(true);
+    const runtime = Object.fromEntries(
+      Object.keys(gateway).map((profile) => [
+        profile,
+        isTrustCheckedScopeProfile(profile as ScopeProfile),
+      ]),
+    );
+    expect(runtime).toEqual(gateway);
   });
 });

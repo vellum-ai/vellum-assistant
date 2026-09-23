@@ -14,6 +14,7 @@ import { contactTokenMayReachRoute } from "@vellumai/gateway-client";
 
 import { getLogger } from "../util/logger.js";
 import { enforcePolicy, type RoutePolicy } from "./auth/route-policy.js";
+import { isTrustCheckedScopeProfile } from "./auth/scopes.js";
 import type { AuthContext } from "./auth/types.js";
 import { httpError } from "./http-errors.js";
 import type { HTTPRouteDefinition, RouteParams } from "./http-router-types.js";
@@ -163,13 +164,14 @@ export class HttpRouter {
 // ---------------------------------------------------------------------------
 
 /**
- * Refuses a contact-role caller on a route that does not admit its trust
- * class, with the same 404 an unmatched path gets so a contact cannot probe
- * which routes exist. It runs ahead of path decoding and the scope check so
- * neither can answer 400 or 403 first, and under the dev auth bypass too, because a
- * contact context exists only when a contact's bearer was verified.
+ * Refuses a caller whose profile is trust-checked (see
+ * {@link isTrustCheckedScopeProfile}) on a route that does not admit its trust
+ * class, with the same 404 an unmatched path gets so it cannot probe which
+ * routes exist. It runs ahead of path decoding and the scope check so neither
+ * can answer 400 or 403 first, and under the dev auth bypass too, because such
+ * a context exists only when its bearer was verified.
  *
- * Every other token passes without a trust lookup, so guardian, service and
+ * Every other profile passes without a trust lookup, so guardian, service and
  * local callers never wait on the gateway here.
  */
 async function enforceContactTrust(
@@ -177,7 +179,7 @@ async function enforceContactTrust(
   policy: RoutePolicy | null,
   authContext: AuthContext,
 ): Promise<Response | null> {
-  if (authContext.scopeProfile !== "contact_client_v1") {
+  if (!isTrustCheckedScopeProfile(authContext.scopeProfile)) {
     return null;
   }
   const principalId = authContext.actorPrincipalId;

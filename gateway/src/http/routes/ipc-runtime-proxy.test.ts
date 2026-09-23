@@ -9,7 +9,10 @@
 import { describe, test, expect, mock, beforeEach } from "bun:test";
 import "../../__tests__/test-preload.js";
 
-import { isNarrowScopeProfile } from "../../auth/scopes.js";
+import {
+  isNarrowScopeProfile,
+  isTrustCheckedScopeProfile,
+} from "../../auth/scopes.js";
 import type { ScopeProfile } from "../../auth/types.js";
 
 // ---------------------------------------------------------------------------
@@ -788,14 +791,14 @@ const SUB_BY_PROFILE: Record<ScopeProfile, string> = {
  * Every profile, paired with the status it gets on a route that names no
  * scope. The classification is the source's own (`isNarrowScopeProfile`);
  * these cases assert the fast path consults it. A contact token is refused
- * earlier, by the route's trust class, with a 404. `SUB_BY_PROFILE` is
- * exhaustive over ScopeProfile, so a new profile joins the sweep by declaring
- * its subject.
+ * earlier, by the route's trust class, with a 404 (see
+ * `isTrustCheckedScopeProfile`). `SUB_BY_PROFILE` is exhaustive over
+ * ScopeProfile, so a new profile joins the sweep by declaring its subject.
  */
 const UNSCOPED_ROUTE_STATUS = (
   Object.keys(SUB_BY_PROFILE) as ScopeProfile[]
 ).map((profile) => {
-  if (profile === "contact_client_v1") {
+  if (isTrustCheckedScopeProfile(profile)) {
     return [profile, 404] as const;
   }
   return [profile, isNarrowScopeProfile(profile) ? 403 : 200] as const;

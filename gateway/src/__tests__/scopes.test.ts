@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import { isNarrowScopeProfile, resolveScopeProfile } from "../auth/scopes.js";
+import {
+  isNarrowScopeProfile,
+  isTrustCheckedScopeProfile,
+  resolveScopeProfile,
+} from "../auth/scopes.js";
 import type { ScopeProfile } from "../auth/types.js";
 
 describe("resolveScopeProfile", () => {
@@ -80,6 +84,41 @@ describe("isNarrowScopeProfile", () => {
       "__proto__",
     ]) {
       expect(isNarrowScopeProfile(profile as never)).toBe(true);
+    }
+  });
+});
+
+describe("isTrustCheckedScopeProfile", () => {
+  test("classifies every profile", () => {
+    // The source table is exhaustive over ScopeProfile, so a new profile has
+    // to be classified there. This pins the answers it gives today: a `false`
+    // flipped onto a non-guardian profile would let it past every route's
+    // trust class.
+    const checked: Record<ScopeProfile, boolean> = {
+      actor_client_v1: false,
+      contact_client_v1: true,
+      gateway_ingress_v1: false,
+      gateway_service_v1: false,
+      local_v1: false,
+      oauth_proxy_v1: false,
+      speech_relay_v1: false,
+      ui_page_v1: false,
+    };
+    for (const [profile, expected] of Object.entries(checked)) {
+      expect(isTrustCheckedScopeProfile(profile as ScopeProfile)).toBe(
+        expected,
+      );
+    }
+  });
+
+  test("unknown profiles and prototype keys are trust-checked", () => {
+    for (const profile of [
+      "bogus_v1",
+      "toString",
+      "constructor",
+      "__proto__",
+    ]) {
+      expect(isTrustCheckedScopeProfile(profile as never)).toBe(true);
     }
   });
 });

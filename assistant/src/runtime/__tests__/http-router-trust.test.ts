@@ -209,6 +209,16 @@ describe("contact-role tokens", () => {
     expect((await dispatch(route.method, path, GUARDIAN)).status).toBe(400);
   });
 
+  test("an unrecognized profile is trust-checked too", async () => {
+    const response = await dispatch(
+      "POST",
+      "messages",
+      context("actor:self:principal-alice", "bogus_v1" as ScopeProfile),
+    );
+    expect(response.status).toBe(404);
+    expect(reached).toBeUndefined();
+  });
+
   test("refusal holds under the dev auth bypass", async () => {
     authDisabled = true;
     const response = await dispatch("POST", "messages", CONTACT);
