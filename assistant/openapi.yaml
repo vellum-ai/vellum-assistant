@@ -32862,6 +32862,19 @@ paths:
           description: A query parameter is not a valid number
         "404":
           description: Conversation not found or not shared with the caller
+  /v1/shared/events:
+    get:
+      operationId: shared_events_get
+      summary: Subscribe to shared conversation events
+      description:
+        "Stream events for the conversations shared with the calling contact as Server-Sent Events. Carries message
+        and metadata invalidations, title changes and activity state, and never message content: the contact reads
+        messages through the shared conversation routes."
+      tags:
+        - shared
+      responses:
+        "200":
+          description: Successful response
   /v1/skills:
     get:
       operationId: skills_get
