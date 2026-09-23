@@ -157,6 +157,15 @@ function mixedPrefixSharedStringsXml(long: string): string {
   return `<sst xmlns="${MAIN_NS}" xmlns:x="${MAIN_NS}"><x:si><x:t>alpha</x:t></x:si><x:si><x:t>${long}</x:t></x:si><x:si><x:t>gamma</x:t></x:si></sst>`;
 }
 
+/**
+ * A sheet long enough that inflating its part takes many stream chunks, so a
+ * one-cell sheet read alongside it would settle first.
+ */
+const SLOW_SHEET_ROWS: CellInput[][] = Array.from(
+  { length: 2000 },
+  (_, index) => [`row ${index + 1}`],
+);
+
 /** The widest and longest grid the caps keep, as a raw worksheet part. */
 function fullCapSheetXml(): string {
   const cells = "<c><v>1</v></c>".repeat(MAX_CSV_COLUMNS);
@@ -279,6 +288,83 @@ describe("parseWorkbook", () => {
     expect(parsed.sheets[0]!.read()).toBe(first);
     const [grid] = await Promise.all([first, ...newer]);
     expect(grid.rows).toEqual([["cell 1"]]);
+  });
+
+  test("reads queued sheets newest request first, one at a time", async () => {
+    const parsed = await workbookOfSheets(5);
+    const settled: number[] = [];
+
+    const grids = await Promise.all(
+      parsed.sheets.map((sheet, index) =>
+        sheet.read().then((grid) => {
+          settled.push(index);
+          return grid;
+        }),
+      ),
+    );
+
+    // The first request runs on arrival and the rest wait; each turn takes the
+    // newest of them, so the last tab clicked is served before the ones
+    // abandoned on the way to it.
+    expect(settled).toEqual([0, 4, 3, 2, 1]);
+    expect(grids.map((grid) => grid.rows)).toEqual([
+      [["cell 1"]],
+      [["cell 2"]],
+      [["cell 3"]],
+      [["cell 4"]],
+      [["cell 5"]],
+    ]);
+  });
+
+  test("shares the promise of a sheet already waiting its turn", async () => {
+    const parsed = await workbookOfSheets(3);
+    const running = parsed.sheets[0]!.read();
+    const queued = parsed.sheets[1]!.read();
+
+    expect(parsed.sheets[1]!.read()).toBe(queued);
+    expect((await queued).rows).toEqual([["cell 2"]]);
+    expect((await running).rows).toEqual([["cell 1"]]);
+  });
+
+  test("settles a sheet queued behind a slower one only after it", async () => {
+    const parsed = await parseWorkbook(
+      await workbookBlob({
+        sheets: [
+          { name: "Slow", rows: SLOW_SHEET_ROWS },
+          { name: "Quick", rows: [["alpha"]] },
+        ],
+      }),
+    );
+    const settled: string[] = [];
+
+    await Promise.all(
+      parsed.sheets.map((sheet) =>
+        sheet.read().then(() => {
+          settled.push(sheet.name);
+        }),
+      ),
+    );
+
+    // Read together, the small part would finish inflating long before the
+    // large one. Read in turn, the sheet asked for first settles first.
+    expect(settled).toEqual(["Slow", "Quick"]);
+  });
+
+  test("runs the next queued sheet after a read rejects", async () => {
+    const parsed = await parseWorkbook(
+      await workbookBlob({
+        sheets: [
+          { name: "Broken", trailing: "<row><c><v>1</v>" },
+          { name: "Good", rows: [["alpha"]] },
+        ],
+      }),
+    );
+
+    const broken = parsed.sheets[0]!.read();
+    const queued = parsed.sheets[1]!.read();
+
+    await expect(broken).rejects.toThrow("Malformed XML");
+    expect((await queued).rows).toEqual([["alpha"]]);
   });
 
   test("keeps a failed sheet read while its entry is cached", async () => {

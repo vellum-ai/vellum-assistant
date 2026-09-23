@@ -28,7 +28,10 @@ export interface WorkbookSheet {
   /** Sheet name as the workbook spells it, which is also the tab label. */
   name: string;
   /**
-   * This sheet's grid, read on demand. A workbook holds the
+   * This sheet's grid, read on demand. Reads are queued per workbook, newest
+   * request first: one sheet part is inflated and parsed at a time, so the
+   * tab being looked at waits only on the read already running and the tabs
+   * left behind drain one at a time after it. A workbook holds the
    * {@link MAX_CACHED_SHEETS} most recently read grids, so asking again for
    * one of those costs nothing and a failed read of one stays failed, while a
    * sheet crowded out by newer reads is read again. Sheets are lazy because
@@ -1046,7 +1049,9 @@ type SharedStringReader = (highestIndex: number) => Promise<string[]>;
  * keeps what it has read, so a sheet reaching no further than an earlier one
  * costs nothing, and a sheet reaching further re-reads the part to its own
  * maximum. Reads are chained because two sheets resolving at once would
- * otherwise inflate the same part twice.
+ * otherwise inflate the same part twice. The chain is this reader's own, so a
+ * shared string read nested inside a sheet's turn on the sheet queue never
+ * waits on that queue.
  */
 function createSharedStringReader(
   zip: JSZip,
@@ -1136,10 +1141,56 @@ async function readSheetGrid(
  */
 export const MAX_CACHED_SHEETS = 3;
 
-/** A grid the workbook is holding, and whether its read has settled. */
+/** A sheet's grid promise, and whether that read has settled. */
 interface CachedGrid {
   grid: Promise<ParsedCsv>;
   settled: boolean;
+}
+
+/** Runs one workbook's sheet reads, one at a time and newest request first. */
+type ReadQueue = (read: () => Promise<ParsedCsv>) => Promise<ParsedCsv>;
+
+/** A read waiting its turn, holding the promise its caller already has. */
+interface QueuedRead {
+  read: () => Promise<ParsedCsv>;
+  resolve: (grid: ParsedCsv) => void;
+  reject: (reason: unknown) => void;
+}
+
+/**
+ * Serializer for the sheet reads of one workbook. A panel that unmounts does
+ * not cancel the read it started, so clicking through the tabs of a 24-sheet
+ * workbook would otherwise inflate and parse 24 capped grids at once. Running
+ * one read at a time costs a workbook one grid in flight however fast the
+ * tabs are clicked. The newest request runs next because that is the tab
+ * being looked at, which waits on nothing but the read already running.
+ */
+function createReadQueue(): ReadQueue {
+  const waiting: QueuedRead[] = [];
+  let running = false;
+  const runNext = (): void => {
+    const next = waiting.pop();
+    if (next === undefined) {
+      running = false;
+      return;
+    }
+    running = true;
+    void (async () => {
+      try {
+        next.resolve(await next.read());
+      } catch (reason) {
+        next.reject(reason);
+      }
+      runNext();
+    })();
+  };
+  return (read) =>
+    new Promise<ParsedCsv>((resolve, reject) => {
+      waiting.push({ read, resolve, reject });
+      if (!running) {
+        runNext();
+      }
+    });
 }
 
 /** Serves one workbook's sheet grid by index, reading it on a miss. */
@@ -1152,7 +1203,9 @@ type GridCache = (
  * Cache of the {@link MAX_CACHED_SHEETS} most recently read grids of one
  * workbook, keyed by sheet index and held in least recently read order. Only a
  * settled entry is evicted, so every caller of a read still in flight shares
- * the one inflation of that part.
+ * the one inflation of that part. An entry whose read is queued or running
+ * holds no grid yet, so one sitting past the cap costs nothing: memory is
+ * bounded by the single read the queue lets run plus the grids kept here.
  */
 function createGridCache(): GridCache {
   const cached = new Map<number, CachedGrid>();
@@ -1189,12 +1242,14 @@ function createGridCache(): GridCache {
 /** A sheet's `read`, served from the grids its workbook is holding. */
 function createSheetReader(
   cache: GridCache,
+  queue: ReadQueue,
   index: number,
   context: WorkbookContext,
   name: string,
   target: string | undefined,
 ): () => Promise<ParsedCsv> {
-  return () => cache(index, () => readSheetGrid(context, name, target));
+  return () =>
+    cache(index, () => queue(() => readSheetGrid(context, name, target)));
 }
 
 export interface ParseWorkbookOptions {
@@ -1240,11 +1295,13 @@ export async function parseWorkbook(
   const kept = visible.length > 0 ? visible : sheets;
 
   const grids = createGridCache();
+  const reads = createReadQueue();
   return {
     sheets: kept.map((sheet, index) => ({
       name: sheet.name,
       read: createSheetReader(
         grids,
+        reads,
         index,
         context,
         sheet.name,
