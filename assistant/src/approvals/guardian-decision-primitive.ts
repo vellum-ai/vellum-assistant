@@ -528,12 +528,13 @@ export async function applyGuardianDecision(
   // never throws; the `.catch` is a defensive backstop.
   // For access requests the resolver folds the generic decision pair onto the
   // introduction outcomes (`reject` → `leave_unverified`, `approve_once` →
-  // `verify_code`), so the resolved card must reflect the OUTCOME, not the raw
+  // `verify_code`, or `trust` for a requester who cannot complete a code
+  // handshake), so the resolved card must reflect the OUTCOME, not the raw
   // button — otherwise a `reject` that actually parked the contact at
   // `unverified` would still render "Denied". Other kinds have no such mapping.
   const cardAction =
     request.kind === "access_request"
-      ? introductionOutcomeForAction(effectiveAction)
+      ? introductionOutcomeForAction(resolved, effectiveAction)
       : effectiveAction;
   void withdrawGuardianRequestCards({
     request: resolved,

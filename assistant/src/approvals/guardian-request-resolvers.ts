@@ -622,20 +622,33 @@ const OUTCOME_BY_ACTION = {
 } as const satisfies Record<ApprovalAction, IntroductionOutcome>;
 
 /**
- * The introduction outcome a decision action resolves to for an access request.
- * The generic decision pair folds onto the card outcomes (`reject` →
- * `leave_unverified`, `approve_once` → `verify_code`); the introduction actions
- * map to themselves. Every outcome is itself an `ApprovalAction`, so a caller
- * that must reflect the resolved *outcome* rather than the raw button — the
- * resolved-card projection, so a `reject` that parked the contact at
- * `unverified` reads as the neutral "Left unverified" and not "Denied" — can
- * normalize through this. It does not apply the bot handshake→trust coercion,
- * which does not affect the park/deny distinction the card cares about.
+ * The introduction outcome a decision action resolves to for an access
+ * request. The generic decision pair folds onto the card outcomes (`reject` →
+ * `leave_unverified`, `approve_once` → `verify_code`) and the introduction
+ * actions map to themselves, except that a handshake approval on a requester
+ * who can never complete the handshake (a bot, an email sender) resolves to
+ * direct trust: the guardian's intent ("let them in") is unambiguous.
+ *
+ * The one derivation of the outcome: the resolver plans and follows through on
+ * it, and the decision primitive reports it (`decidedAction`) and projects it
+ * onto the resolved cards, so a `reject` that parked the contact reads as the
+ * neutral "Left unverified" and a coerced approval reads as the trust it was.
  */
 export function introductionOutcomeForAction(
+  request: Pick<GuardianRequestWire, "sourceChannel" | "requesterSignals">,
   action: ApprovalAction,
-): ApprovalAction {
-  return OUTCOME_BY_ACTION[action];
+): IntroductionOutcome {
+  const outcome = OUTCOME_BY_ACTION[action];
+  if (
+    outcome === "verify_code" &&
+    !requesterCanCompleteHandshake(
+      request.sourceChannel ?? undefined,
+      parseRequesterSignals(request.requesterSignals),
+    )
+  ) {
+    return "trust";
+  }
+  return outcome;
 }
 
 /** Derived access-request decision facts shared by `prepare` and `resolve`. */
@@ -678,18 +691,7 @@ function deriveAccessRequestDecision(
     requesterContactResult?.contact.displayName ?? null;
 
   const signals = parseRequesterSignals(request.requesterSignals);
-  let outcome: IntroductionOutcome = OUTCOME_BY_ACTION[action];
-
-  // A handshake approval on a requester who can never complete the handshake
-  // (a bot, an email sender) is coerced to direct trust: the guardian's
-  // intent ("let them in") is unambiguous. Logged once, in `prepare` (this
-  // derivation runs again in `resolve`).
-  if (
-    outcome === "verify_code" &&
-    !requesterCanCompleteHandshake(channel, signals)
-  ) {
-    outcome = "trust";
-  }
+  const outcome = introductionOutcomeForAction(request, action);
 
   return {
     channel,
