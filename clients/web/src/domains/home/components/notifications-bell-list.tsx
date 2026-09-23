@@ -1,8 +1,9 @@
 import type { Ref, UIEventHandler } from "react";
 
 import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
+import type { GuardianDecisionActionId } from "@vellumai/service-contracts/guardian-requests";
 
-import { HomeRecapRow, type HomeRecapRowDecision } from "../home-recap-row";
+import { HomeRecapRow } from "../home-recap-row";
 import { resolveThreadName } from "../utils";
 
 /** No titles known: every row falls back to its source label, or to nothing. */
@@ -31,7 +32,7 @@ export interface NotificationsBellListProps {
   onDismiss: (itemId: string) => void;
   onToggleRead: (itemId: string, newStatus: FeedItemStatus) => void;
   /** Decides a pending approval from its row; see `HomeRecapRow`. */
-  onDecide?: (item: FeedItem, decision: HomeRecapRowDecision) => void;
+  onDecide?: (item: FeedItem, decision: GuardianDecisionActionId) => void;
   isDecisionPending?: boolean;
   /**
    * Requests with a decision in flight from any surface, whose rows hold

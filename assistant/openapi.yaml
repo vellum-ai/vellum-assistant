@@ -14118,9 +14118,17 @@ paths:
               properties:
                 requestId:
                   type: string
+                  minLength: 1
                   description: Guardian request ID
                 action:
                   type: string
+                  enum:
+                    - approve_once
+                    - reject
+                    - trust
+                    - verify_code
+                    - leave_unverified
+                    - block
                   description: Decision action
                 conversationId:
                   type: string

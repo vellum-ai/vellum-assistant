@@ -9,6 +9,12 @@
  */
 
 import type { ApprovalActionOption } from "@vellumai/gateway-client";
+import {
+  GUARDIAN_DECISION_ACTION_IDS,
+  GUARDIAN_DENYING_ACTION_VALUES,
+  GUARDIAN_PARK_ACTION_VALUES,
+  isParkGuardianAction,
+} from "@vellumai/service-contracts/guardian-requests";
 
 import type { GuardianDecisionAction } from "./guardian-decision-types.js";
 
@@ -35,14 +41,7 @@ export {
  * introduction-card actions, valid only for `access_request` requests — the
  * guardian decision primitive rejects them for any other kind.
  */
-export const APPROVAL_ACTION_IDS = [
-  "approve_once",
-  "reject",
-  "trust",
-  "verify_code",
-  "leave_unverified",
-  "block",
-] as const;
+export const APPROVAL_ACTION_IDS = GUARDIAN_DECISION_ACTION_IDS;
 
 export type ApprovalAction = (typeof APPROVAL_ACTION_IDS)[number];
 
@@ -74,11 +73,9 @@ export const INTRODUCTION_ACTION_SET: ReadonlySet<string> = new Set([
  * Actions that resolve a request to the `denied` terminal status. Everything
  * else resolves to `approved`.
  */
-export const DENYING_ACTION_SET: ReadonlySet<string> = new Set([
-  "reject",
-  "leave_unverified",
-  "block",
-]);
+export const DENYING_ACTION_SET: ReadonlySet<string> = new Set(
+  GUARDIAN_DENYING_ACTION_VALUES,
+);
 
 /**
  * The denying actions that *park* the sender at `unverified` — a neutral hold,
@@ -90,17 +87,15 @@ export const DENYING_ACTION_SET: ReadonlySet<string> = new Set([
  * resolved card consult this to render a park neutrally (see
  * {@link PARK_STATUS_LABEL}) instead of as a denial.
  */
-export const PARK_ACTION_SET: ReadonlySet<string> = new Set([
-  "leave_unverified",
-]);
+export const PARK_ACTION_SET: ReadonlySet<string> = new Set(
+  GUARDIAN_PARK_ACTION_VALUES,
+);
 
 /** Completed-card label shown for a parked (leave-unverified) decision. */
 export const PARK_STATUS_LABEL = "Left unverified";
 
 /** True when `action` parks the sender at `unverified` (a neutral hold). */
-export function isParkAction(action: string | undefined): boolean {
-  return action !== undefined && PARK_ACTION_SET.has(action);
-}
+export const isParkAction = isParkGuardianAction;
 
 /** Outcome word per terminal guardian-request status on a resolved card. */
 const DECISION_STATUS_WORDS: Record<string, string> = {

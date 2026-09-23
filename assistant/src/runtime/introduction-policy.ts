@@ -31,6 +31,7 @@ import {
   VERIFIED_VIA_CHANNEL_CLAIM,
   VERIFIED_VIA_MANUAL,
 } from "@vellumai/gateway-client";
+import type { GuardianActionEmphasis } from "@vellumai/service-contracts/guardian-requests";
 
 import type { ApprovalAction } from "./channel-approval-types.js";
 
@@ -194,7 +195,7 @@ export interface IntroductionActionOption {
     "trust" | "verify_code" | "leave_unverified" | "block"
   >;
   label: string;
-  emphasis: "primary" | "secondary" | "destructive";
+  emphasis: GuardianActionEmphasis;
 }
 
 /**
