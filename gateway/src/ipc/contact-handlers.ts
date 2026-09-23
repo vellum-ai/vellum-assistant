@@ -34,6 +34,7 @@ import {
   upsertVerifiedContactChannel,
 } from "../verification/contact-helpers.js";
 import { canonicalizeInboundIdentity } from "../verification/identity.js";
+import { ipcCallAssistant } from "./assistant-client.js";
 import type { IpcRoute } from "./server.js";
 
 const log = getLogger("contact-handlers");
@@ -226,6 +227,10 @@ export const contactRoutes: IpcRoute[] = [
       // Thrown BindContactPrincipalError carries statusCode/code, which the
       // IPC server's buildErrorResponse mirrors into the wire envelope.
       getStore().bindContactPrincipal(contactId, principalId);
+      // Emit contacts_changed so connected clients refresh.
+      void ipcCallAssistant("emit_event", {
+        body: { kind: "contacts_changed" },
+      } as unknown as Record<string, unknown>).catch(() => {});
       return { ok: true };
     },
   },

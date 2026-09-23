@@ -428,6 +428,11 @@ describe("IPC contact routes", () => {
     expect(res.error).toBeUndefined();
     const store = new ContactStore(getGatewayDb());
     expect(store.getContact("c2")!.principalId).toBe("prin-fake-002");
+    const emits = ipcCallAssistantMock.mock.calls.filter(
+      ([method]) => method === "emit_event",
+    );
+    expect(emits).toHaveLength(1);
+    expect(emits[0][1]?.body).toEqual({ kind: "contacts_changed" });
   });
 
   test("contacts_bind_principal refuses a guardian-role contact", async () => {
@@ -442,6 +447,11 @@ describe("IPC contact routes", () => {
     expect(res.error).toBeDefined();
     const store = new ContactStore(getGatewayDb());
     expect(store.getContact("c1")!.principalId).toBe("p1");
+    expect(
+      ipcCallAssistantMock.mock.calls.some(
+        ([method]) => method === "emit_event",
+      ),
+    ).toBe(false);
   });
 
   test("create_contact ignores the role param (guardian binding not settable here)", async () => {
