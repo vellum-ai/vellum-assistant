@@ -2054,6 +2054,7 @@
     "openTitle": "開啟 {path}"
   },
   "xlsxPreview": {
+    "beyondPreviewLimit": "此工作表的儲存格均超出預覽限制",
     "emptySheet": "此工作表為空",
     "sheetUnreadable": "無法讀取此工作表",
     "sheetsAria": "工作表",

@@ -93,6 +93,27 @@ describe("WorkbookGrid", () => {
     await waitFor(() => expect(screen.getByText("Salary")).toBeTruthy());
   });
 
+  test("a sheet with cells only past the caps names the limit", async () => {
+    const user = userEvent.setup();
+    const beyond: WorkbookSheet = {
+      name: "Sparse",
+      read: () => Promise.resolve({ headers: null, rows: [], truncated: true }),
+    };
+    render(<WorkbookGrid sheets={[beyond, INCOME]} />);
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("This sheet only has cells past the preview limit"),
+      ).toBeTruthy(),
+    );
+    expect(screen.queryByText("This sheet is empty")).toBeNull();
+    expect(screen.queryByRole("table")).toBeNull();
+
+    await user.click(screen.getAllByRole("tab")[1]);
+
+    await waitFor(() => expect(screen.getByText("Salary")).toBeTruthy());
+  });
+
   test("a tab's id and the panel it controls carry no whitespace", async () => {
     render(
       <WorkbookGrid sheets={[sheet("Q1 Budget", grid([["kept"]])), INCOME]} />,

@@ -503,6 +503,34 @@ describe("parseWorkbook", () => {
     ]);
   });
 
+  test("reads the East Asian built-in time ids as clock readings", async () => {
+    const grid = await readOneSheet(
+      [
+        [{ v: 0.5, s: 0 }],
+        [{ v: 0.043090277777777776, s: 1 }],
+        [{ v: 44927, s: 2 }],
+        [{ v: 44927, s: 3 }],
+      ],
+      {
+        // 32 and 33 spell a time of day inside the 27 to 36 date block, which
+        // 31 and 34 stay on either side of.
+        styles: [
+          { numFmtId: 32 },
+          { numFmtId: 33 },
+          { numFmtId: 31 },
+          { numFmtId: 34 },
+        ],
+      },
+    );
+
+    expect(grid.rows).toEqual([
+      ["12:00"],
+      ["01:02:03"],
+      ["2023-01-01"],
+      ["2023-01-01"],
+    ]);
+  });
+
   test("counts an elapsed format past midnight instead of wrapping at it", async () => {
     const grid = await readOneSheet(
       [
@@ -740,6 +768,21 @@ describe("parseWorkbook", () => {
     const grid = await readOneSheet([wide, wide]);
 
     expect(grid.rows[0]!.length).toBe(MAX_CSV_COLUMNS);
+    expect(grid.truncated).toBe(true);
+  });
+
+  test("keeps a sheet whose only cell sits past the column cap truncated", async () => {
+    // One cell at `r="KN1"`, which is column 300, so the preview window holds
+    // nothing and the grid has to say the sheet was cut.
+    const sparse: CellInput[] = [
+      ...Array.from({ length: 299 }, () => null),
+      { v: 42 },
+    ];
+
+    const grid = await readOneSheet([sparse]);
+
+    expect(grid.headers).toBeNull();
+    expect(grid.rows).toEqual([[]]);
     expect(grid.truncated).toBe(true);
   });
 

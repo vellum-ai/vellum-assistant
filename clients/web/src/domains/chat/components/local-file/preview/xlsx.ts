@@ -86,12 +86,15 @@ const PLAIN_NUMBER: NumberFormatKind = { kind: "none" };
  * time ids a clock reading, 22 is the one built-in that spells both, and 46
  * (`[h]:mm:ss`) is the one that counts elapsed hours. Ids 45 (`mm:ss`) and 47
  * (`mmss.0`) read the minutes and seconds of a time of day, so they stay
- * clock readings.
+ * clock readings, and so do the East Asian ids 32 (`h"時"mm"分"`) and 33
+ * (`h"時"mm"分"ss"秒"`), which sit between the date ids 27 to 31 and 34 to
+ * 36.
  */
 function builtInFormatKind(id: number): NumberFormatKind {
   if (
     (id >= 14 && id <= 17) ||
-    (id >= 27 && id <= 36) ||
+    (id >= 27 && id <= 31) ||
+    (id >= 34 && id <= 36) ||
     (id >= 50 && id <= 58)
   ) {
     return { kind: "date" };
@@ -99,7 +102,13 @@ function builtInFormatKind(id: number): NumberFormatKind {
   if (id === 46) {
     return { kind: "elapsed", from: "hours", to: "seconds" };
   }
-  if ((id >= 18 && id <= 21) || id === 45 || id === 47) {
+  if (
+    (id >= 18 && id <= 21) ||
+    id === 32 ||
+    id === 33 ||
+    id === 45 ||
+    id === 47
+  ) {
     return { kind: "time" };
   }
   return id === 22 ? { kind: "datetime" } : PLAIN_NUMBER;

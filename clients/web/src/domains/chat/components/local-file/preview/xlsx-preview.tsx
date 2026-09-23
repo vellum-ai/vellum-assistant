@@ -46,9 +46,16 @@ function SheetPanel({ sheet }: { sheet: WorkbookSheet }): ReactNode {
     return <PreviewSkeleton />;
   }
 
+  const columns = columnCountOf(grid);
+  // A sheet whose populated cells all sit past the row or column cap reads as
+  // a grid with nothing in it, so it names the cap rather than claiming the
+  // sheet holds no data.
+  if (columns === 0 && grid.truncated) {
+    return <PreviewNotice>{t("xlsxPreview.beyondPreviewLimit")}</PreviewNotice>;
+  }
+
   // A sheet with no columns shows the empty copy in place of a footer, so its
   // sentence is never built.
-  const columns = columnCountOf(grid);
   const summary =
     columns === 0
       ? undefined

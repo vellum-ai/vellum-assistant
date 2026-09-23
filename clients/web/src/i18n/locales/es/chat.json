@@ -2016,6 +2016,7 @@
     "openTitle": "Abrir {path}"
   },
   "xlsxPreview": {
+    "beyondPreviewLimit": "Esta hoja solo tiene celdas más allá del límite de previsualización",
     "emptySheet": "Esta hoja está vacía",
     "sheetUnreadable": "No se pudo leer esta hoja",
     "sheetsAria": "Hojas",
