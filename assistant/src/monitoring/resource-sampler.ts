@@ -44,9 +44,14 @@ import {
   listProcesses,
 } from "../util/process-tree.js";
 import { readActiveConversations } from "./active-conversations.js";
+import { readDaemonHeartbeat } from "./daemon-heartbeat.js";
 import { topProcessesByFd } from "./file-descriptors.js";
 import { getTrackedDataFiles, readFileResidency } from "./page-cache.js";
 import { topProcessesByMemory } from "./process-memory.js";
+import {
+  createProcessUsageTracker,
+  type ProcessUsageTracker,
+} from "./process-usage.js";
 import { prunePrefixedJsonFiles } from "./prune-snapshots.js";
 import type {
   ResourceSample,
@@ -94,6 +99,7 @@ export function computeSampleDeltas(
 export async function takeSample(
   now: number,
   prev: ResourceSample | null = null,
+  processUsage: ProcessUsageTracker | null = null,
 ): Promise<ResourceSample> {
   const currentBytes = getContainerMemoryUsageBytes();
   const limitBytes = getContainerMemoryLimitBytes();
@@ -129,6 +135,8 @@ export async function takeSample(
         }
       : null,
     activeConversations: readActiveConversations(),
+    processes:
+      processUsage?.sample(now, readDaemonHeartbeat(now)?.pid ?? null) ?? null,
   };
   if (prev != null) {
     sample.deltas = computeSampleDeltas(prev, sample);
@@ -252,6 +260,7 @@ export function startResourceSampler(
   // Watches the daemon's event-loop heartbeat; captures the daemon main
   // thread's kernel state mid-stall when the heartbeat goes stale.
   const stallCapture = createStallCaptureMonitor(dataDir);
+  const processUsage = createProcessUsageTracker();
 
   // Skip ticks while a sample is in flight: the disk measurement can take
   // seconds (du over the workspace), and overlapping ticks would all delta
@@ -273,7 +282,7 @@ export function startResourceSampler(
     const now = clock();
     let sample: ResourceSample;
     try {
-      sample = await takeSample(now, prevSample);
+      sample = await takeSample(now, prevSample, processUsage);
       prevSample = sample;
       buffer.append(sample);
     } catch (err) {

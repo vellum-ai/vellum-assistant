@@ -60,6 +60,15 @@ function captureWith(conversationCount: number): StallCapture {
       events: null,
       deltas: null,
       disk: null,
+      processes: [
+        ...Array.from({ length: 6 }, (_, i) => ({
+          pid: 100 + i,
+          name: i === 0 ? "memory-worker" : `chrome-${i}`,
+          cpuPct: 150 - i * 10,
+          rssMb: 800,
+        })),
+        { pid: 1, name: "daemon", cpuPct: 4, rssMb: 900 },
+      ],
       activeConversations: Array.from(
         { length: conversationCount },
         (_, i) => ({
@@ -236,6 +245,12 @@ describe("buildBlockTelemetryDetail", () => {
     expect(detail.stall_capture!.waitState!.epoll!.pipes).toBe(1);
     expect(detail.stall_capture!.waitState!.children).toHaveLength(1);
     expect(detail.activity.length).toBeGreaterThanOrEqual(4);
+    expect(
+      detail.stall_capture!.sample.processes!.length,
+    ).toBeGreaterThanOrEqual(3);
+    expect(detail.stall_capture!.sample.processes![0]!.name).toBe(
+      "memory-worker",
+    );
     expect(detail.activity[0]).toMatchObject({
       kind: "turn",
       conversationType: "standard",

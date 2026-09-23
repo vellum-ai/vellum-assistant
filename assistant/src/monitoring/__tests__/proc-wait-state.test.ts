@@ -23,6 +23,7 @@ import {
   parseProcSyscall,
   readStallWaitState,
 } from "../proc-wait-state.js";
+import { stat } from "./proc-fixtures.js";
 
 const DAEMON = 100;
 const EPFD = 7;
@@ -39,18 +40,6 @@ function fdLink(pid: number, fd: number, target: string): void {
   const dir = join(procRoot, String(pid), "fd");
   mkdirSync(dir, { recursive: true });
   symlinkSync(target, join(dir, String(fd)));
-}
-
-/** A `/proc/<pid>/stat` line: state, ppid, and start time in clock ticks. */
-function stat(
-  pid: number,
-  comm: string,
-  state: string,
-  ppid: number,
-  startTicks: number,
-): string {
-  const fields = [state, ppid, ...Array(17).fill(0), startTicks, 0];
-  return `${pid} (${comm}) ${fields.join(" ")}\n`;
 }
 
 /**
@@ -201,11 +190,21 @@ describe("readStallWaitState", () => {
 
 describe("parsers", () => {
   test("parseProcStat handles a comm containing spaces and parentheses", () => {
-    expect(parseProcStat(stat(5, "Bun (Pool) 1", "D", 4, 42))).toEqual({
+    expect(
+      parseProcStat(
+        stat(5, "Bun (Pool) 1", "D", 4, 42, {
+          utime: 7,
+          stime: 3,
+          rssPages: 9,
+        }),
+      ),
+    ).toEqual({
       comm: "Bun (Pool) 1",
       state: "D",
       ppid: 4,
+      cpuTicks: 10,
       startTicks: 42,
+      rssPages: 9,
     });
     expect(parseProcStat("garbage")).toBeNull();
   });

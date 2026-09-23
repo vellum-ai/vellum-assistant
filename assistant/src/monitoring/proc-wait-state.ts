@@ -28,8 +28,8 @@ import { join } from "node:path";
 const MAX_CHILDREN = 5;
 const MAX_THREAD_GROUPS = 8;
 
-/** Linux USER_HZ; `/proc/<pid>/stat` start times are in these ticks. */
-const CLOCK_TICKS_PER_SECOND = 100;
+/** Linux USER_HZ; `/proc/<pid>/stat` times are in these ticks. */
+export const CLOCK_TICKS_PER_SECOND = 100;
 
 /** What `/proc/<pid>/fd/<n>` links to for an epoll instance. */
 const EPOLL_FD_LINK = "anon_inode:[eventpoll]";
@@ -99,30 +99,48 @@ function listNumericDirs(path: string): number[] {
   }
 }
 
+export interface ProcStat {
+  comm: string;
+  state: string;
+  ppid: number;
+  /** User plus system CPU time consumed, in clock ticks. */
+  cpuTicks: number;
+  /** Start time after boot, in clock ticks. */
+  startTicks: number;
+  /** Resident set size, in pages. */
+  rssPages: number;
+}
+
 /** Parse `/proc/<pid>/stat` around the parenthesised comm, which may contain spaces. */
-export function parseProcStat(
-  raw: string,
-): { comm: string; state: string; ppid: number; startTicks: number } | null {
+export function parseProcStat(raw: string): ProcStat | null {
   const open = raw.indexOf("(");
   const close = raw.lastIndexOf(")");
   if (open < 0 || close < open) {
     return null;
   }
-  // Fields after the comm start at field 3 (state); starttime is field 22.
+  // Fields after the comm start at field 3 (state), so field N is at index
+  // N - 3: utime 14, stime 15, starttime 22, rss 24.
   const fields = raw
     .slice(close + 1)
     .trim()
     .split(/\s+/);
   const ppid = Number(fields[1]);
+  const cpuTicks = Number(fields[11]) + Number(fields[12]);
   const startTicks = Number(fields[19]);
-  if (!fields[0] || !Number.isFinite(ppid) || !Number.isFinite(startTicks)) {
+  const rssPages = Number(fields[21]);
+  if (
+    !fields[0] ||
+    ![ppid, cpuTicks, startTicks, rssPages].every(Number.isFinite)
+  ) {
     return null;
   }
   return {
     comm: raw.slice(open + 1, close),
     state: fields[0],
     ppid,
+    cpuTicks,
     startTicks,
+    rssPages,
   };
 }
 
