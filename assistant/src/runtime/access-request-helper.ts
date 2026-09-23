@@ -329,9 +329,11 @@ export async function notifyGuardianOfAccessRequest(
   // Where the card goes:
   // - Slack or Telegram with the guardian verified on that same channel: only
   //   that channel, where the card is answered in place.
-  // - Email: every channel the guardian is connected on. The card cannot be
-  //   delivered or answered by email, and the in-app copy alone is easy to
-  //   miss for a guardian who handles requests in a chat app.
+  // - Email, for a sender who was denied: every channel the guardian is
+  //   connected on. The card cannot be delivered or answered by email, and
+  //   the in-app copy alone is easy to miss for a guardian who handles
+  //   requests in a chat app. An admitted sender's nudge blocks nobody, so it
+  //   takes the default below.
   // - Anywhere else: the channels the decision engine selects. The in-app
   //   card is always among them (`emit-signal.ts` forces it for access
   //   requests).
@@ -358,7 +360,7 @@ export async function notifyGuardianOfAccessRequest(
     ...(vellumConversationAffinity ?? {}),
     ...(sameChannelOnly
       ? { routingIntent: "single_channel" as const }
-      : sourceChannel === "email"
+      : sourceChannel === "email" && trigger === "denied"
         ? { routingIntent: "all_channels" as const }
         : {}),
     attentionHints: {

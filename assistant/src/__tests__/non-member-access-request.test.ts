@@ -610,6 +610,17 @@ describe("access-request-helper unit tests", () => {
     expect(emitSignalCalls[0].routingIntent).toBe("all_channels");
   });
 
+  test("an admitted email sender's nudge keeps the default routing", async () => {
+    await maybeNotifyGuardianOfAdmittedContact({
+      sourceChannel: "email",
+      conversationExternalId: "<thread-2@example.com>",
+      actorExternalId: "admitted@example.com",
+    });
+
+    expect(emitSignalCalls.length).toBe(1);
+    expect(emitSignalCalls[0].routingIntent).toBeUndefined();
+  });
+
   test("a telegram access request with a telegram guardian stays on telegram", async () => {
     seedGatewayGuardian({
       channelType: "telegram",
