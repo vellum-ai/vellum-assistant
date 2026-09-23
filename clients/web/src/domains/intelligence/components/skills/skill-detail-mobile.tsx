@@ -208,6 +208,7 @@ export function SkillDetailMobile({
               </div>
             ) : activeFile ? (
               <SkillFileContent
+                key={activeFile.path}
                 fileName={activeFile.name}
                 content={fileContent}
                 isBinary={isBinary}

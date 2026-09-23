@@ -56,3 +56,29 @@ export const Source: Story = {
     await expect(await screen.findByText(/owner: platform/)).toBeTruthy();
   },
 };
+
+/**
+ * In a bounded pane, which is how a file surface hands it a box: the skills
+ * tab on mobile gives it a card that is `overflow-hidden` with a height of
+ * its own and no flex of its own. The view has to fill that box and scroll
+ * inside it, in either mode, rather than growing past the bottom edge.
+ */
+export const InABoundedPane: Story = {
+  args: {
+    content: [
+      NOTE,
+      ...Array.from(
+        { length: 12 },
+        (_, i) =>
+          `Paragraph ${i + 1} of a file longer than the pane that shows it.`,
+      ),
+    ].join("\n\n"),
+  },
+  render: (args) => (
+    <div className="flex h-80 flex-col overflow-hidden rounded-xl border border-[var(--border-base)]">
+      <div className="min-h-0 flex-1 overflow-hidden">
+        <MarkdownView {...args} />
+      </div>
+    </div>
+  ),
+};

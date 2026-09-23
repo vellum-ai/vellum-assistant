@@ -8,6 +8,11 @@ import { useTranslation } from "@/i18n";
  * A markdown file shows formatted with its source one click away, through the
  * shared `MarkdownView`, so it offers the same choice in the same words as
  * every other file surface. Anything else is source, which is all it has.
+ *
+ * The caller keys this by the file's path, so opening another file starts
+ * formatted rather than inheriting what the last one was left showing. A
+ * basename cannot carry that: a skill can hold `docs/README.md` and
+ * `examples/README.md`.
  */
 export function SkillFileContent({
   fileName,
@@ -42,15 +47,7 @@ export function SkillFileContent({
   }
 
   if (isMarkdown(fileName, undefined)) {
-    return (
-      <MarkdownView
-        // Keyed by file: opening another one starts formatted rather than
-        // inheriting whatever the last file was left showing.
-        key={fileName}
-        content={content}
-        className="h-full overflow-auto px-6 py-4"
-      />
-    );
+    return <MarkdownView content={content} className="px-6 py-4" />;
   }
 
   return (
