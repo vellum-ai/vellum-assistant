@@ -67,7 +67,7 @@ const NUDGE_TARGETS: readonly NudgeTarget[] = ["ios", "android", "generic"];
 function createNudgeFlagStorage(field: "downloaded" | "bannerDismissed") {
   return createKeyedStorageAccessor({
     keyFn: (target) => STORAGE_KEYS[target as NudgeTarget][field],
-    scope: "user",
+    scope: "device",
     parse: parseBool,
     serialize: String,
     fallback: false,
@@ -249,4 +249,10 @@ export const __testing = {
   readNativeAppBannerDismissed,
   writeNativeAppBannerDismissed,
   resolveAndroidPlayStoreUrl,
+  resetFlags() {
+    for (const target of NUDGE_TARGETS) {
+      downloadedStorage.remove(target);
+      dismissedStorage.remove(target);
+    }
+  },
 };

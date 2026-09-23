@@ -11,6 +11,7 @@ import { act, cleanup, renderHook } from "@testing-library/react";
 import { clearUserScopedOverrides } from "@/utils/typed-storage";
 
 import {
+  __testing,
   ANDROID_PLAY_STORE_URL,
   incrementNativeAppAssistantTurnsSeen,
   openNativeAppStore,
@@ -32,14 +33,14 @@ const originalPlayStoreUrl = env.VITE_ANDROID_PLAY_STORE_URL;
 const originalWindowOpen = window.open;
 
 beforeEach(() => {
-  clearUserScopedOverrides();
+  __testing.resetFlags();
   localStorage.clear();
   delete env.VITE_ANDROID_PLAY_STORE_URL;
 });
 
 afterEach(() => {
   cleanup();
-  clearUserScopedOverrides();
+  __testing.resetFlags();
   window.open = originalWindowOpen;
   if (originalPlayStoreUrl === undefined) {
     delete env.VITE_ANDROID_PLAY_STORE_URL;
@@ -206,7 +207,7 @@ describe("native app nudge state", () => {
 
 describe("cross-target nudge reads", () => {
   test.each(["handleBannerDismiss", "handleDownload"] as const)(
-    "%s hides mounted and remounted nudges when storage rejects writes",
+    "%s survives remounts and logout when storage rejects writes",
     (action) => {
       window.open = mock(() => null) as typeof window.open;
       const write = spyOn(localStorage, "setItem").mockImplementation(() => {
@@ -224,6 +225,7 @@ describe("cross-target nudge reads", () => {
 
         expect(notifications.result.current.bannerShouldShow).toBe(false);
         notifications.unmount();
+        clearUserScopedOverrides();
         const remounted = renderHook(() => useNativeAppNudgeState("generic"));
         expect(remounted.result.current.bannerShouldShow).toBe(false);
       } finally {
