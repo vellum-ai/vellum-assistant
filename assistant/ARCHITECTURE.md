@@ -631,7 +631,7 @@ Key modules:
 | `src/calls/voice-metrics.ts`                        | Per-turn latency marks, shared with live voice                                                        |
 | `src/calls/media-turn-detector.ts`                  | Energy-based VAD turn detector for raw audio (batch mode)                                             |
 | `src/calls/media-stream-stt-session.ts`             | STT session — streaming/batch mode selection and transcription via `services.stt`                     |
-| `src/calls/media-stream-audio-transcode.ts`         | Mu-law ↔ PCM16 codecs and resampling                                                                 |
+| `src/calls/media-stream-audio-transcode.ts`         | Mu-law ↔ PCM16 codecs and resampling                                                                  |
 | `src/calls/call-transport.ts`                       | Transport interface decoupling CallController from wire protocol                                      |
 | `src/calls/media-stream-output.ts`                  | Output adapter for sending TTS audio back via Media Streams                                           |
 | `src/calls/media-stream-server.ts`                  | WebSocket server binding media-stream lifecycle to call sessions and setup flows                      |
@@ -876,7 +876,7 @@ graph LR
         TOOL["tool_invocations<br/>───────────────<br/>tool_name, input, result<br/>decision, risk_level<br/>duration_ms"]
         JOBS["memory_jobs<br/>───────────────<br/>Async task queue<br/>Types: embed, extract,<br/>summarize, backfill, cleanup<br/>Status: pending → running →<br/>completed | failed"]
         ATT["attachments<br/>───────────────<br/>base64-encoded file data<br/>mime_type, size_bytes<br/>Linked to messages via<br/>message_attachments join"]
-        SCHED_JOBS["cron_jobs (recurrence schedules)<br/>───────────────<br/>Recurring schedule definitions<br/>cron_expression: cron or RRULE string<br/>schedule_syntax: 'cron' | 'rrule'<br/>timezone, message, next_run_at<br/>enabled, retry_count<br/>source_key: plugin-declared provenance<br/>definition_hash, user_enabled<br/>Legacy alias: scheduleJobs"]
+        SCHED_JOBS["cron_jobs (schedules)<br/>───────────────<br/>Recurring and one-shot schedule definitions<br/>cron_expression: cron or RRULE string<br/>(null for one-shot)<br/>schedule_syntax: 'cron' | 'rrule'<br/>mode, routing_intent (default all_channels)<br/>timezone, message, next_run_at<br/>enabled, retry_count<br/>source_key: plugin-declared provenance<br/>definition_hash, user_enabled<br/>Legacy alias: scheduleJobs"]
         SCHED_RUNS["cron_runs (schedule runs)<br/>───────────────<br/>Execution history per schedule<br/>job_id (FK → cron_jobs)<br/>status: ok | error<br/>duration_ms, output, error<br/>Legacy alias: scheduleRuns"]
         TASKS["tasks<br/>───────────────<br/>Reusable prompt templates<br/>title, Handlebars template<br/>inputSchema, contextFlags<br/>requiredTools, status"]
         TASK_RUNS["task_runs<br/>───────────────<br/>Execution history per task<br/>taskId (FK → tasks)<br/>conversationId, status<br/>startedAt, finishedAt, error"]

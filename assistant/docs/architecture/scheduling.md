@@ -68,7 +68,7 @@ When the scheduler fires a `notify`-mode schedule, its routing metadata flows th
 
 ```mermaid
 sequenceDiagram
-    participant Scheduler as Scheduler<br/>(runScheduleOnce)
+    participant Scheduler as Schedule worker<br/>(runDueSchedulesOnce, worker.ts)
     participant Signal as emitNotificationSignal
     participant Engine as Decision Engine<br/>(LLM)
     participant Enforce as enforceRoutingIntent
