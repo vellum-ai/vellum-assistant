@@ -46,7 +46,7 @@ const REINJECTION_TAIL_ONLY_MATCHERS: InjectionMatcher[] = [
  * The complete per-turn injection set applied to the tail user message: the
  * compaction strip set plus the blocks compaction keeps in durable history.
  */
-const REINJECTION_TAIL_STRIP_MATCHERS: InjectionMatcher[] = [
+export const PER_TURN_INJECTION_MATCHERS: InjectionMatcher[] = [
   ...RUNTIME_INJECTION_PREFIXES,
   ...REINJECTION_TAIL_ONLY_MATCHERS,
 ];
@@ -58,8 +58,5 @@ const REINJECTION_TAIL_STRIP_MATCHERS: InjectionMatcher[] = [
 export function stripTailInjectionsForReinjection(
   messages: Message[],
 ): Message[] {
-  return stripTailUserTextBlocksByPrefix(
-    messages,
-    REINJECTION_TAIL_STRIP_MATCHERS,
-  );
+  return stripTailUserTextBlocksByPrefix(messages, PER_TURN_INJECTION_MATCHERS);
 }

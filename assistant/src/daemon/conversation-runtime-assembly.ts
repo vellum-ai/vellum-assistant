@@ -1100,14 +1100,8 @@ function filterSlackConversationRowsForActor(
   if (resolveCapabilities(trustClass).canAccessMemory) {
     return rows;
   }
-  const nonSlackVisibleRows = filterMessagesForUntrustedActor(rows);
-  const nonSlackVisibleIds = new Set(nonSlackVisibleRows.map((row) => row.id));
-  return rows.filter((row) => {
-    if (hasSlackMetadata(row)) {
-      return true;
-    }
-    return nonSlackVisibleIds.has(row.id);
-  });
+  // A row posted in Slack is one the contact could already read there.
+  return filterMessagesForUntrustedActor(rows, hasSlackMetadata);
 }
 
 /**

@@ -278,6 +278,28 @@ describe("projectRowForContact", () => {
     });
   });
 
+  describe("untrusted fence", () => {
+    const fenced =
+      '<external_content source="webhook">\nHello from Alice\n</external_content>';
+    const row = {
+      role: "user",
+      content: [{ type: "text", text: fenced }] as ContentBlock[],
+      metadata: null,
+    };
+
+    test("is unwrapped for display", () => {
+      expect(projectRowForContact(row, ALICE)).toEqual([
+        { type: "text", text: "Hello from Alice" },
+      ]);
+    });
+
+    test("is kept when asked", () => {
+      expect(
+        projectRowForContact(row, ALICE, { keepUntrustedFence: true }),
+      ).toEqual([{ type: "text", text: fenced }]);
+    });
+  });
+
   test("drops a deliberate silence", () => {
     const content: ContentBlock[] = [{ type: "text", text: "<no_response/>" }];
     const metadata = JSON.stringify({ messageKind: NO_RESPONSE_MESSAGE_KIND });
