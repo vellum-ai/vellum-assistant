@@ -132,6 +132,9 @@ interface WakeConversationProbe {
 
 const wakeConvRegistry = new Map<string, WakeConversationProbe>();
 
+/** The trust each persisted wake row's provenance was stamped from. */
+const provenanceTrusts: unknown[] = [];
+
 // Stub the DB-backed override-profile read so unit tests don't need a
 // real SQLite database. The wake helper calls this on every invocation
 // to honor the conversation's pinned inference profile. `getConversation`
@@ -152,7 +155,10 @@ mock.module("../../persistence/conversation-crud.js", () => ({
     archivedAt: null,
     createdAt: "2026-01-01T00:00:00.000Z",
   }),
-  provenanceFromTrustContext: () => ({}),
+  provenanceFromTrustContext: (ctx: unknown) => {
+    provenanceTrusts.push(ctx);
+    return {};
+  },
   addMessage: async (
     conversationId: string,
     role: string,
@@ -343,12 +349,14 @@ import type {
   AgentLoopRunOptions,
   AgentLoopRunResult,
 } from "../../agent/loop.js";
+import { scopeHistoryToActor } from "../../daemon/actor-scoped-history.js";
 import type { Conversation } from "../../daemon/conversation.js";
 import {
   deleteConversation,
   setConversation,
 } from "../../daemon/conversation-registry.js";
 import { stripAgedSightFrames } from "../../daemon/conversation-sight-frames.js";
+import type { TrustContext } from "../../daemon/trust-context-types.js";
 import { ContextOverflowError, type Message } from "../../providers/types.js";
 import {
   __resetWakeChainForTests,
@@ -614,6 +622,11 @@ function makeWakeConversation(options: {
       probe.trustContextSets.push(ctx);
     },
     buildCurrentSystemPrompt: () => "mock-system-prompt",
+    // Mirrors Conversation.ensureActorScopedHistory: reloads the history for
+    // whoever the resting trust names, recorded so ordering can be asserted.
+    ensureActorScopedHistory: async () => {
+      probe.callSequence.push("ensureHistory");
+    },
     modelOverride: undefined,
     ...(kickDrainQueue ? { kickDrainQueue } : {}),
   };
@@ -631,6 +644,7 @@ beforeEach(() => {
   recordRequestLogCalls.length = 0;
   recordUsageCalls.length = 0;
   publishMessagesChangedCalls.length = 0;
+  provenanceTrusts.length = 0;
   mockGetOrCreateConversationCalls.length = 0;
   mockResolverTarget = null;
   mockGetConversationOverrideProfile = () => undefined;
@@ -816,6 +830,104 @@ describe("wakeAgentForOpportunity", () => {
     // Applied exactly once and cleared before the wake released the
     // conversation, so a queued user turn can't build under it.
     expect(conversation.personaOverrideSets).toEqual([override, undefined]);
+  });
+
+  describe("after a shared-conversation contact's turn", () => {
+    const GUARDIAN: TrustContext = {
+      sourceChannel: "vellum",
+      trustClass: "guardian",
+    };
+    const ALICE: TrustContext = {
+      sourceChannel: "vellum-shared",
+      trustClass: "trusted_contact",
+      requesterExternalUserId: "principal-alice",
+    };
+
+    /** A conversation a contact's turn has just run on. */
+    async function afterContactTurn(
+      runImpl: ScriptedRun,
+    ): Promise<WakeConversation> {
+      const conversation = makeWakeConversation({
+        initialTrustContext: GUARDIAN,
+        runImpl,
+      });
+      await scopeHistoryToActor(conversation, ALICE);
+      conversation.currentTurnTrustContext = ALICE;
+      conversation.callSequence.length = 0;
+      conversation.turnTrustContextSets.length = 0;
+      return conversation;
+    }
+
+    test("a wake runs as the conversation did before the contact's turn", async () => {
+      let turnTrustAtRun: unknown;
+      let restingTrustAtRun: unknown;
+      const conversation = await afterContactTurn(async (input) => {
+        turnTrustAtRun = conversation.currentTurnTrustContext;
+        restingTrustAtRun = conversation.trustContext;
+        return runResult([
+          ...input,
+          { role: "assistant", content: [{ type: "text", text: "done." }] },
+        ]);
+      });
+
+      const result = await wakeAgentForOpportunity(
+        {
+          conversationId: conversation.conversationId,
+          hint: "Background command completed",
+          source: "background-tool",
+          persistTriggerAsEvent: true,
+        },
+        { resolveTarget: async () => conversation },
+      );
+
+      expect(result.invoked).toBe(true);
+      expect(turnTrustAtRun).toBe(GUARDIAN);
+      expect(restingTrustAtRun).toBe(GUARDIAN);
+      expect(conversation.trustContext).toBe(GUARDIAN);
+      // The history is reloaded for the guardian before compaction and the run.
+      expect(
+        conversation.callSequence.indexOf("ensureHistory"),
+      ).toBeGreaterThan(-1);
+      expect(conversation.callSequence.indexOf("ensureHistory")).toBeLessThan(
+        conversation.callSequence.indexOf("maybeCompact"),
+      );
+      // Every row the wake persisted is attributed to the guardian.
+      expect(provenanceTrusts.length).toBeGreaterThan(0);
+      for (const trust of provenanceTrusts) {
+        expect(trust).toBe(GUARDIAN);
+      }
+    });
+
+    test("a wake on a conversation no contact has sent on reloads nothing", async () => {
+      const conversation = makeWakeConversation({
+        initialTrustContext: GUARDIAN,
+        scriptedAssistant: {
+          role: "assistant",
+          content: [{ type: "text", text: "done." }],
+        },
+      });
+      conversation.currentTurnTrustContext = GUARDIAN;
+      conversation.turnTrustContextSets.length = 0;
+
+      await wakeAgentForOpportunity(
+        {
+          conversationId: conversation.conversationId,
+          hint: "Background command completed",
+          source: "background-tool",
+          persistTriggerAsEvent: true,
+        },
+        { resolveTarget: async () => conversation },
+      );
+
+      expect(conversation.callSequence).not.toContain("ensureHistory");
+      expect(conversation.trustContextSets).toEqual([]);
+      for (const set of conversation.turnTrustContextSets) {
+        expect(set.ctx).toBe(GUARDIAN);
+      }
+      for (const trust of provenanceTrusts) {
+        expect(trust).toBe(GUARDIAN);
+      }
+    });
   });
 
   test("trustContext elevation is applied for the run and restored after", async () => {

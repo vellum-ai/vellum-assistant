@@ -75,6 +75,7 @@ import {
 import type { AuthContext } from "../runtime/auth/types.js";
 import { INTERRUPTED_TURN_NOTE_TEXT } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
+import { actorForWorkWithoutSender } from "./actor-scoped-history.js";
 import type { ConversationModeSessionCoordinator } from "./conversation-mode-session.js";
 import type { MessageQueue } from "./conversation-queue-manager.js";
 import type { SlackInboundMessageMetadata } from "./handlers/shared.js";
@@ -888,7 +889,8 @@ export function enqueueMessage(
     queuedAuthContext?.actorPrincipalId;
   // Deliberately not falling back to `currentTurnTrustContext`: that is the
   // in-flight turn's actor, which is precisely who this message is not from.
-  const queuedTrustContext = options.trustContext ?? ctx.trustContext;
+  const queuedTrustContext =
+    options.trustContext ?? actorForWorkWithoutSender(ctx);
 
   if (!ctx.isProcessing() && options.queueWhenIdle !== true) {
     return { queued: false, requestId };

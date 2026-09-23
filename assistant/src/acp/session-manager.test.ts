@@ -2,11 +2,13 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import { RequestError } from "@agentclientprotocol/sdk";
 
+import { scopeHistoryToActor } from "../daemon/actor-scoped-history.js";
 import type { Conversation } from "../daemon/conversation.js";
 import {
   deleteConversation,
   setConversation,
 } from "../daemon/conversation-registry.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import { claudeTokenDigest } from "./acp-auth-marker-store.js";
 import { hasAcpConnectCardRaised } from "./acp-connect-card-state.js";
 
@@ -223,6 +225,50 @@ describe("AcpSessionManager parent notification", () => {
     expect(persistArg.metadata).toEqual({
       acpNotification: { acpSessionId: "proto-1", agent: "claude" },
     });
+  });
+
+  test("a notification after a shared-conversation contact's turn runs as the actor before it", async () => {
+    const GUARDIAN = {
+      sourceChannel: "vellum",
+      trustClass: "guardian",
+    } as TrustContext;
+    const ALICE = {
+      sourceChannel: "vellum-shared",
+      trustClass: "trusted_contact",
+      requesterExternalUserId: "principal-alice",
+    } as TrustContext;
+    const manager = new AcpSessionManager(1);
+    const { conversation, persistUserMessage, loopRan } = mockConversation();
+    const parent = conversation as unknown as {
+      trustContext?: TrustContext;
+      setTrustContext: (ctx: TrustContext | null) => void;
+      ensureActorScopedHistory: () => Promise<void>;
+    };
+    const reloadedFor: Array<TrustContext | undefined> = [];
+    parent.trustContext = GUARDIAN;
+    parent.setTrustContext = (ctx) => {
+      parent.trustContext = ctx ?? undefined;
+    };
+    parent.ensureActorScopedHistory = async () => {
+      reloadedFor.push(parent.trustContext);
+    };
+    await scopeHistoryToActor(parent, ALICE);
+    let trustAtPersist: TrustContext | undefined;
+    persistUserMessage.mockImplementation(async () => {
+      trustAtPersist = parent.trustContext;
+      return { id: "msg-1", deduplicated: false };
+    });
+    setConversation("parent-shared", conversation);
+    registered.push("parent-shared");
+
+    const proc = fakeProcess(() => Promise.resolve({ stopReason: "end_turn" }));
+    const entry = injectSession(manager, "sess-shared", "parent-shared", proc);
+
+    await fire(manager, "sess-shared", entry);
+    await loopRan;
+
+    expect(trustAtPersist).toBe(GUARDIAN);
+    expect(reloadedFor).toEqual([ALICE, GUARDIAN]);
   });
 
   test("a cancelled session does not notify the parent on failure", async () => {

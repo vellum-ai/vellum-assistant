@@ -11,6 +11,7 @@ import { eq, inArray } from "drizzle-orm";
 
 import type { AcpSessionUpdateEvent } from "../api/events/acp-session-update.js";
 import type { AssistantEvent } from "../api/index.js";
+import { restoreActorBeforeContact } from "../daemon/actor-scoped-history.js";
 import { findConversation } from "../daemon/conversation-registry.js";
 import { SYNC_TAGS } from "../daemon/message-types/sync.js";
 import { getDb } from "../persistence/db-connection.js";
@@ -1817,8 +1818,15 @@ export class AcpSessionManager {
     if (enqueueResult.queued || enqueueResult.rejected) {
       return;
     }
-    parentConversation
-      .persistUserMessage({ content: message, metadata: { acpNotification } })
+    // Like a queued one, the notification runs as the conversation did before
+    // any shared-conversation contact's turn, never as that contact.
+    restoreActorBeforeContact(parentConversation)
+      .then(() =>
+        parentConversation.persistUserMessage({
+          content: message,
+          metadata: { acpNotification },
+        }),
+      )
       .then(({ id: messageId }) =>
         parentConversation.runAgentLoop(message, messageId, {
           isInteractive: false,

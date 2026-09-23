@@ -85,6 +85,7 @@ import {
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { isSidebarDoneEnabled } from "../config/sidebar-done-gate.js";
+import { restoreActorBeforeContact } from "../daemon/actor-scoped-history.js";
 import { conversationSupportsDynamicUi } from "../daemon/channel-ui-capability.js";
 import type { Conversation } from "../daemon/conversation.js";
 import type { QueueDrainReason } from "../daemon/conversation-queue-manager.js";
@@ -929,6 +930,23 @@ export async function wakeAgentForOpportunity(
     // check and this acquisition awaits — keep that stretch await-free so
     // the lock cannot change hands in between.
     conversation.setProcessing(true);
+
+    // A wake is never a shared-conversation contact's turn. After one, it runs
+    // as the conversation did before that turn, on that actor's history, and
+    // does not inherit the contact's trust from the turn that just ended.
+    try {
+      await restoreActorBeforeContact(conversation);
+    } catch (err) {
+      log.warn(
+        { conversationId, source, err },
+        "agent-wake: failed to reload history for the actor before a contact's turn; continuing",
+      );
+    }
+    if (
+      conversation.currentTurnTrustContext?.sourceChannel === "vellum-shared"
+    ) {
+      conversation.currentTurnTrustContext = conversation.trustContext;
+    }
 
     // ── Pre-run auto-compaction gate ──────────────────────────────────
     // The wake invokes `conversation.agentLoop.run()` with the loop's

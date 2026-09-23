@@ -26,7 +26,10 @@ import { noteDroppedOwnMessage } from "../runtime/contact-event-projection.js";
 import type { SharedSenderAdmission } from "../runtime/shared-sender-admission.js";
 import { resolveRoutingState } from "../runtime/trust-context-resolver.js";
 import { getLogger } from "../util/logger.js";
-import { scopeHistoryToActor } from "./actor-scoped-history.js";
+import {
+  restoreActorBeforeContact,
+  scopeHistoryToActor,
+} from "./actor-scoped-history.js";
 import type { Conversation } from "./conversation.js";
 import type { QueuedMessage } from "./conversation-queue-manager.js";
 
@@ -194,12 +197,16 @@ export async function gateSharedSenderHead(
     if (principalId === undefined) {
       // A contact's turn left the conversation scoped to them. The next
       // message from anyone else takes its own sender's scope back before it
-      // runs, so it never runs on the contact's narrower history.
-      if (
-        conversation.trustContext?.sourceChannel === "vellum-shared" &&
-        next.trustContext
-      ) {
-        await scopeHistoryToActor(conversation, next.trustContext);
+      // runs, so it never runs on the contact's narrower history. A message
+      // with no sender of its own, such as a subagent's completion, runs as
+      // the conversation did before the contact's turn. While a turn is
+      // running it is left alone: the drain requeues it behind that turn.
+      if (conversation.trustContext?.sourceChannel === "vellum-shared") {
+        if (next.trustContext) {
+          await scopeHistoryToActor(conversation, next.trustContext);
+        } else if (!conversation.isProcessing()) {
+          await restoreActorBeforeContact(conversation);
+        }
         if (conversation.queue.findByRequestId(next.requestId) !== next) {
           continue;
         }
