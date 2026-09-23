@@ -36,6 +36,12 @@ export async function quitApp(bundleId: string): Promise<boolean> {
   }
 }
 
+export function supportsFrontmostApp(): boolean {
+  return (
+    isElectron() && typeof window.vellum?.helper?.apps?.frontmost === "function"
+  );
+}
+
 /** The bundle identifier of the application in front, or `null` off a host that cannot say. */
 export async function frontmostApp(): Promise<string | null> {
   const query = window.vellum?.helper?.apps?.frontmost;

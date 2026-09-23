@@ -12,7 +12,7 @@ import {
 } from "@/runtime/permission-setup";
 import { captureError } from "@/lib/sentry/capture-error";
 import { ensureMainWindowVisible } from "@/runtime/main-window";
-import { frontmostApp } from "@/runtime/running-apps";
+import { frontmostApp, supportsFrontmostApp } from "@/runtime/running-apps";
 import {
   getSystemPermissionsState,
   openSystemPermissionSettings,
@@ -98,12 +98,13 @@ export function useCompanionIntroPermission(
       checkingReturn = true;
       try {
         // The grant can precede Settings' Quit & Reopen confirmation.
-        const frontmost = await frontmostApp();
+        const canCheckFrontmost = supportsFrontmostApp();
+        const frontmost = canCheckFrontmost ? await frontmostApp() : null;
         if (
           !active ||
           pending ||
           returnToApp !== "ready" ||
-          frontmost === null ||
+          (canCheckFrontmost && frontmost === null) ||
           frontmost === "com.apple.systempreferences" ||
           frontmost === "com.apple.SecurityAgent"
         ) {
