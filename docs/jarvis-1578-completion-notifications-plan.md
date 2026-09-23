@@ -16,7 +16,7 @@ Background provenance reuses existing task/tool IDs and persisted trigger/result
 
 Completion callbacks use the pipeline's existing permanent deduplication claim. Failed earlier explicit sends do not count as successful result delivery, but this change does not add a durable retry queue for a completion whose transports all fail. Releasing an already processed event's claim would also duplicate its notification-bell entry, so that delivery-retry redesign is outside this change.
 
-Automated coverage includes recipient-scoped presence and dispatch, silent/quiet rules, browser permission actions, hidden-tab transport, background completion ownership, private result projection, scheduled delivery preservation, and real two-page coordination in Chromium and WebKit. The browser integration exercises Web Locks and storage with a test delivery callback; it does not prove an OS banner appears. Full assistant and web typechecks have passed. Platform-specific manual acceptance below remains required before closing the ticket.
+Automated coverage includes recipient-scoped presence and dispatch, silent/quiet rules, browser permission actions, hidden-tab transport, background completion ownership, private result projection, scheduled delivery preservation, and real two-page coordination in Chromium and WebKit. The browser integration exercises IndexedDB transactions and storage with a test delivery callback; it does not prove an OS banner appears. Full assistant and web typechecks have passed. Platform-specific manual acceptance below remains required before closing the ticket.
 
 ## Intended experience
 
