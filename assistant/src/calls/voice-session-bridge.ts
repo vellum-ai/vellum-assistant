@@ -1814,6 +1814,20 @@ export async function startVoiceTurn(
       ? createFrontDoorStreamGate(opts.unifiedVerdict === true)
       : null;
 
+  const broadcastFrontDoorText = (
+    msg: Extract<AssistantEvent, { type: "assistant_text_delta" }>,
+  ): void => {
+    // Answer text waits for the judge, including text flushed at completion.
+    if (
+      frontDoorStreamGate?.answering &&
+      !escalationJudgeSettled &&
+      hubHold === null
+    ) {
+      hubHold = [];
+    }
+    emitHubEvent(msg);
+  };
+
   /**
    * Broadcast one agent-loop event to hub subscribers, holding a front-door
    * leg's control-plane text back at the boundary rather than emitting it and
@@ -1828,16 +1842,7 @@ export async function startVoiceTurn(
     }
     const released = frontDoorStreamGate.push(msg.text);
     if (released.length > 0) {
-      // Answer text while the escalation judge is out: hold it, and every
-      // leg event after it, until the verdict says the caller hears it.
-      if (
-        frontDoorStreamGate.answering &&
-        !escalationJudgeSettled &&
-        hubHold === null
-      ) {
-        hubHold = [];
-      }
-      emitHubEvent({ ...msg, text: released });
+      broadcastFrontDoorText({ ...msg, text: released });
     }
   };
 
@@ -2153,7 +2158,7 @@ export async function startVoiceTurn(
             // never hands off, and correspondingly never flushes.
             const trailing = frontDoorStreamGate.finish();
             if (trailing.length > 0) {
-              broadcastMessage({
+              broadcastFrontDoorText({
                 type: "assistant_text_delta",
                 text: trailing,
                 ...(reservedAssistantRowId !== null
