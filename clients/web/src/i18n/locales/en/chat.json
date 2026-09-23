@@ -414,10 +414,10 @@
   },
   "cameraViewOptions": {
     "buttonAria": "Camera view options",
-    "gateHudDescription": "The tuning readout for what Live keeps.",
-    "gateHudTitle": "Frame gate readout",
-    "keptFrameDescription": "The last frame Live sent, beside your photos. Live keeps sending either way.",
-    "keptFrameTitle": "Kept frame",
+    "gateHudDescription": "Debug overlay for how Live picks which frames to send.",
+    "gateHudTitle": "Frame gate tuning",
+    "keptFrameDescription": "Shows the most recent frame Live sent.",
+    "keptFrameTitle": "Latest shared frame",
     "title": "Show"
   },
   "cardSurface": {

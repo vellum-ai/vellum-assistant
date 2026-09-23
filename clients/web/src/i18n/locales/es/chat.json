@@ -400,10 +400,10 @@
   },
   "cameraViewOptions": {
     "buttonAria": "Opciones de vista de la cámara",
-    "gateHudDescription": "El panel de ajuste de lo que conserva el modo en vivo.",
-    "gateHudTitle": "Lectura del filtro de fotogramas",
-    "keptFrameDescription": "El último fotograma enviado en vivo, junto a tus fotos. El envío continúa igualmente.",
-    "keptFrameTitle": "Último fotograma",
+    "gateHudDescription": "Superposición de depuración: cómo el modo en vivo elige qué fotogramas enviar.",
+    "gateHudTitle": "Ajuste del filtro de fotogramas",
+    "keptFrameDescription": "Muestra el fotograma más reciente que envió el modo en vivo.",
+    "keptFrameTitle": "Último fotograma compartido",
     "title": "Mostrar"
   },
   "cardSurface": {

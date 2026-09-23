@@ -81,11 +81,11 @@ scrim.
       dialog that traps VoiceOver, and it never arrives dead to touch.
 - [ ] The kept-frame switch reaches the thumbnail. On a fresh profile the
       switch is off and Live draws no thumbnail: enter Live, sit through
-      several keeps, and only the photo strip is in the row. Turn "Kept frame"
-      on and the next keep draws beside the strip. Turn it off again and the
-      thumbnail goes, the row it sat in goes with it when no photos are in the
-      strip, and the assistant keeps answering questions about what the camera
-      is pointed at.
+      several keeps, and only the photo strip is in the row. Turn "Latest
+      shared frame" on and the next keep draws beside the strip. Turn it off
+      again and the thumbnail goes, the row it sat in goes with it when no
+      photos are in the strip, and the assistant keeps answering questions
+      about what the camera is pointed at.
 - [ ] A device that used voice before converges too. On a profile that already
       has a `vellum:voice-prefs` payload, the switch is off on the first launch
       after this change whatever that payload said, and the thumbnail does not

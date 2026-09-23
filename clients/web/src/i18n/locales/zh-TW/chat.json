@@ -400,10 +400,10 @@
   },
   "cameraViewOptions": {
     "buttonAria": "相機顯示選項",
-    "gateHudDescription": "用於調整即時模式保留哪些畫面的面板。",
-    "gateHudTitle": "影格篩選讀數",
-    "keptFrameDescription": "即時模式傳送的最近一格，顯示在照片旁邊。無論是否顯示，都會繼續傳送。",
-    "keptFrameTitle": "最近一格",
+    "gateHudDescription": "偵錯疊加層：即時模式如何挑選要傳送的畫面。",
+    "gateHudTitle": "影格篩選調校",
+    "keptFrameDescription": "顯示即時模式最近傳送的畫面。",
+    "keptFrameTitle": "最近分享的畫面",
     "title": "顯示"
   },
   "cardSurface": {
