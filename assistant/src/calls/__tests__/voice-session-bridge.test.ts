@@ -2388,7 +2388,9 @@ describe("desktop skill preactivation", () => {
     });
     expect(result.skillIdsDuringLoop).toContain("screen-annotation");
     expect(result.promptDuringLoop).toContain("ID: screen-annotation");
-    expect(result.promptDuringLoop).toContain("Name the thing.");
+    expect(result.promptDuringLoop).toContain(
+      "Use the picture when names cannot identify the control.",
+    );
     expect(result.promptDuringLoop).toContain("screen_point_at");
     expect(result.promptDuringLoop).toContain("screen_clear_marks");
     expect(result.promptDuringLoop).toContain('"target"');
