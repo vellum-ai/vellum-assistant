@@ -107,7 +107,10 @@ import {
   readSlackMetadataFromMessageMetadata,
   type SlackMessageMetadata,
 } from "../../messaging/providers/slack/message-metadata.js";
-import { readProviderMetadata } from "../../messaging/read-provider-metadata.js";
+import {
+  readChannelDeletedAt,
+  readProviderMetadata,
+} from "../../messaging/read-provider-metadata.js";
 import { recordOnboardingEvent } from "../../onboarding/onboarding-events-store.js";
 import {
   classifyKind,
@@ -1135,12 +1138,8 @@ export async function handleListMessages({
         // render the stored "[reaction]" sentinel; a row deleted on its
         // channel projects the deletion so clients render a tombstone over
         // the content the row keeps for audit. The substring guard keeps the
-        // envelope parse off rows that can carry neither fact: both
-        // envelopes spell these keys literally.
-        if (
-          msg.metadata.includes("reaction") ||
-          msg.metadata.includes("deletedAt")
-        ) {
+        // envelope parse off rows that cannot carry a reaction.
+        if (msg.metadata.includes("reaction")) {
           const providerMeta = readProviderMetadata(msg.metadata);
           if (providerMeta?.eventKind === "reaction" && providerMeta.reaction) {
             const r = providerMeta.reaction;
@@ -1155,10 +1154,8 @@ export async function handleListMessages({
               ...(msg.role === "assistant" ? { selfAuthored: true } : {}),
             };
           }
-          if (providerMeta?.deletedAt !== undefined) {
-            deletedAt = providerMeta.deletedAt;
-          }
         }
+        deletedAt = readChannelDeletedAt(msg.metadata);
         // Daemon-persisted provider-failure notices carry the classified
         // error code/category so clients can render a themed card instead
         // of a persona bubble.
