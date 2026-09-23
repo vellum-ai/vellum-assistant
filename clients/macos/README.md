@@ -468,7 +468,7 @@ their current lesson. Every permission step is skippable.
 
 Microphone uses the native prompt. Input Monitoring and Screen Recording lift
 the coachmark's permission control into a guide beside System Settings. Drag
-Vellum Helper into the privacy list, authenticate if asked, and enable its switch.
+Vellum Helper into the privacy list and authenticate if asked.
 **Show in Finder** provides a keyboard and manual-drag alternative. The bundle
 label and icon reflect the actual installed helper, including development builds.
 
@@ -483,8 +483,11 @@ final step's explicit call action does that.
 The guide follows the main Settings window using the helper's window inventory;
 when unavailable it stays near the bottom of the current display. Before a drag
 or Finder reveal it stops following and drops its floating level to leave native
-authentication visible. A confirmed grant or **Back to the tour** returns to the
-same coachmark. Leaving the lesson, replacing the guide, or a five-minute timeout
+authentication visible. When a permission requested in the tour is confirmed,
+the guide closes and Vellum comes to the foreground at the same coachmark. This
+waits for the permission request and refreshed status, including recycling the
+screen capture helper when needed. **Back to the tour** also returns to the same
+coachmark. Leaving the lesson, replacing the guide, or a five-minute timeout
 also closes it. Motion respects macOS Reduce Motion.
 
 Accessibility, Speech Recognition, Automation, and Notifications serve other app

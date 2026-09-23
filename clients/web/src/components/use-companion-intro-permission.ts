@@ -11,6 +11,7 @@ import {
   supportsPermissionSetup,
 } from "@/runtime/permission-setup";
 import { captureError } from "@/lib/sentry/capture-error";
+import { ensureMainWindowVisible } from "@/runtime/main-window";
 import {
   getSystemPermissionsState,
   openSystemPermissionSettings,
@@ -84,6 +85,17 @@ export function useCompanionIntroPermission(
     let pending = false;
     let revision = 0;
     let reading = false;
+    let returnToApp: "waiting" | "ready" | null = null;
+    const resumeTour = () => {
+      if (!active || pending || returnToApp !== "ready") {
+        return;
+      }
+      returnToApp = null;
+      cancelPermissionGuide();
+      void ensureMainWindowVisible().catch((error: unknown) => {
+        captureError(error, { context: "companionIntro.resumeAfterPermission" });
+      });
+    };
     const record = (
       state: SystemPermissionsState | null,
       keepRequestPending = false,
@@ -99,6 +111,14 @@ export function useCompanionIntroPermission(
       });
       if (!keepRequestPending) {
         setAction(null);
+      }
+      if (returnToApp !== null && kind !== null) {
+        returnToApp = state
+          ? state[kind].status === "granted"
+            ? "ready"
+            : "waiting"
+          : null;
+        resumeTour();
       }
     };
     const failed = (error: unknown) => {
@@ -165,6 +185,7 @@ export function useCompanionIntroPermission(
             return;
           }
           const requesting = revision;
+          returnToApp = "waiting";
           const result =
             kind !== "microphone" && supportsPermissionSetup()
               ? await beginPermissionGuide(kind, source)
@@ -179,9 +200,11 @@ export function useCompanionIntroPermission(
             }
           }
         } catch (error) {
+          returnToApp = null;
           failed(error);
         } finally {
           pending = false;
+          resumeTour();
         }
       })();
     };
