@@ -189,14 +189,17 @@ export class BrowserNotificationDelivery {
         return "claimed";
       }
       const now = Date.now();
-      let receipts: Receipt[] = [];
+      const receiptSources: unknown[] = [storedReceipts];
       try {
-        // Seed missing database rows from localStorage receipts.
-        const value: unknown = storedReceipts ?? JSON.parse(
+        receiptSources.push(JSON.parse(
           localStorage.getItem(storageKey) ?? "[]",
-        );
+        ));
+      } catch (error) {
+        captureError(error, { context: "browser_notification.read_receipts" });
+      }
+      for (const value of receiptSources) {
         if (Array.isArray(value)) {
-          receipts = value
+          const receipts = value
             .filter((entry): entry is Receipt =>
               Array.isArray(entry) &&
               entry.length === 2 &&
@@ -205,12 +208,10 @@ export class BrowserNotificationDelivery {
               entry[1] > now,
             )
             .slice(-MAX_DELIVERIES);
+          for (const [receiptKey, expiresAt] of receipts) {
+            recent.set(receiptKey, Math.max(expiresAt, recent.get(receiptKey) ?? 0));
+          }
         }
-      } catch (error) {
-        captureError(error, { context: "browser_notification.read_receipts" });
-      }
-      for (const [receiptKey, expiresAt] of receipts) {
-        recent.set(receiptKey, Math.max(expiresAt, recent.get(receiptKey) ?? 0));
       }
       const currentReceipts = [...recent]
         .filter(([, expiresAt]) => expiresAt > now)

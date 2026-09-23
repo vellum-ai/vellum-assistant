@@ -81,12 +81,76 @@ try {
           IDBObjectStore.prototype.put = put;
         }
       }), "posted");
-      assert.equal(await pages[0].evaluate(
+      await pages[1].waitForFunction(() =>
+        JSON.parse(localStorage.getItem("vellum:browser-notification-deliveries:v1") ?? "[]")
+          .some(([key]: [string, number]) => key === "commit-failure"),
+      );
+      assert.equal(await pages[1].evaluate(
         () => window.notificationDeliveryTest.deliver("commit-failure"),
       ), "duplicate");
-      assert.equal(await pages[0].evaluate(
+      const commitFailurePosts = await Promise.all(pages.map((page) => page.evaluate(
         () => window.notificationDeliveryTest.posted.filter((key) => key === "commit-failure").length,
-      ), 1);
+      )));
+      assert.equal(commitFailurePosts.reduce((sum, count) => sum + count, 0), 1);
+
+      assert.equal(await pages[0].evaluate(
+        () => window.notificationDeliveryTest.deliver("canonical-post"),
+      ), "posted");
+      const freshPage = await context.newPage();
+      await freshPage.goto(server.url.href);
+      await freshPage.addScriptTag({ content: bundle });
+      assert.equal(await freshPage.evaluate(async () => {
+        const open = indexedDB.open("vellum-browser-notifications", 1);
+        const db = await new Promise<IDBDatabase>((resolve, reject) => {
+          open.onsuccess = () => resolve(open.result);
+          open.onerror = () => reject(open.error);
+        });
+        const read = () => new Promise<[string, number][]>((resolve, reject) => {
+          const request = db.transaction("receipts").objectStore("receipts")
+            .get("vellum:browser-notification-deliveries:v1");
+          request.onsuccess = () => resolve(request.result);
+          request.onerror = () => reject(request.error);
+        });
+        try {
+          const before = await read();
+          const canonical = before.find(([key]) => key === "canonical-post");
+          if (!canonical) {
+            throw new Error("Missing canonical receipt");
+          }
+          localStorage.setItem("vellum:browser-notification-deliveries:v1", JSON.stringify([
+            [canonical[0], canonical[1] - 1_000],
+          ]));
+          const result = await window.notificationDeliveryTest.deliver("canonical-post");
+          return result === "duplicate" && JSON.stringify(await read()) === JSON.stringify(before);
+        } finally {
+          db.close();
+        }
+      }), true);
+      await freshPage.reload();
+      await freshPage.addScriptTag({ content: bundle });
+      for (const mirror of ["[]", "{", "unavailable"]) {
+        assert.equal(await freshPage.evaluate(async (mirror) => {
+          const getItem = Storage.prototype.getItem;
+          if (mirror === "unavailable") {
+            Storage.prototype.getItem = function (key) {
+              if (key === "vellum:browser-notification-deliveries:v1") {
+                throw new DOMException("Storage refused", "SecurityError");
+              }
+              return getItem.call(this, key);
+            };
+          } else {
+            localStorage.setItem("vellum:browser-notification-deliveries:v1", mirror);
+          }
+          try {
+            return await window.notificationDeliveryTest.deliver("canonical-post");
+          } finally {
+            Storage.prototype.getItem = getItem;
+          }
+        }, mirror), "duplicate");
+        await freshPage.reload();
+        await freshPage.addScriptTag({ content: bundle });
+      }
+      await freshPage.close();
 
       assert.equal(await pages[0].evaluate(
         () => window.notificationDeliveryTest.deliver("retry", true),
