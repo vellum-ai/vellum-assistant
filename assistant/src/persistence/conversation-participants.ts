@@ -6,7 +6,7 @@
  * took part.
  */
 
-import { and, eq, isNotNull, isNull } from "drizzle-orm";
+import { and, asc, eq, isNotNull, isNull } from "drizzle-orm";
 
 import { type DrizzleDb, getDb } from "./db-connection.js";
 import { conversationParticipants } from "./schema/index.js";
@@ -152,6 +152,29 @@ export function isParticipant(
     .get();
 
   return row !== undefined;
+}
+
+/** Live participants of a conversation, earliest added first. */
+export function listParticipants(
+  conversationId: string,
+  options?: ConversationParticipantStoreOptions,
+): ConversationParticipant[] {
+  const db = resolveDb(options);
+  return db
+    .select()
+    .from(conversationParticipants)
+    .where(
+      and(
+        eq(conversationParticipants.conversationId, conversationId),
+        isNull(conversationParticipants.removedAt),
+      ),
+    )
+    .orderBy(
+      asc(conversationParticipants.addedAt),
+      asc(conversationParticipants.principalId),
+    )
+    .all()
+    .map(rowToParticipant);
 }
 
 export function listConversationIdsForPrincipal(
