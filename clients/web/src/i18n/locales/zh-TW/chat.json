@@ -391,7 +391,8 @@
     "subtitle": "選擇 {name} 要如何看您對準的畫面。隨時都可以切換。",
     "title": "相片還是即時？",
     "tryLive": "立即試用即時",
-    "tryLiveDesktop": "試用即時"
+    "tryLiveDesktop": "試用即時",
+    "yourAssistant": "您的助理"
   },
   "cameraShutterHint": {
     "live": "即時 · 輕觸停止",

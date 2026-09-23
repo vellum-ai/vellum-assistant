@@ -405,7 +405,8 @@
     "subtitle": "Pick how {name} sees what you're pointing at. You can switch any time.",
     "title": "Photo or Live?",
     "tryLive": "Try Live now",
-    "tryLiveDesktop": "Try Live"
+    "tryLiveDesktop": "Try Live",
+    "yourAssistant": "your assistant"
   },
   "cameraShutterHint": {
     "live": "Live · Tap to stop",

@@ -163,6 +163,10 @@ import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 import { toneForBg } from "@/utils/avatar-tone";
 
 import {
+  CameraExplainer,
+  type CameraExplainerDismissal,
+} from "./camera-explainer";
+import {
   CameraFlashControl,
   liveFlashMode,
   nextFlashMode,
@@ -682,6 +686,11 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   const [viewOptionsHost, setViewOptionsHost] = useState<HTMLDivElement | null>(
     null,
   );
+  // Where the "Photo or Live?" explainer renders. A box of its own rather than
+  // the one above, which is zero-size and so no containing block for a scrim.
+  const [explainerHost, setExplainerHost] = useState<HTMLDivElement | null>(
+    null,
+  );
 
   // Backwards-compat fallback for assistants that can still raise
   // `oauth_connect` mid-call — see use-supports-noninteractive-voice-turns.ts
@@ -877,6 +886,60 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   // Live cannot run there is nothing for either to show, so the corner carries
   // no button rather than a panel of switches that do nothing.
   const viewOptionsOffered = liveOffered;
+
+  // The "Photo or Live?" explainer, once per device. It is raised only once the
+  // preview has drawn, never before the camera control is pressed, which is
+  // what keeps it clear of the pre-permission rule in `docs/CAPACITOR.md`.
+  //
+  // Only where Live is offered: two cards describing a mode the user cannot
+  // reach advertise nothing. A spoken "look at this" that arms Live still gets
+  // it, since it is education rather than a gate; the offer to try Live is
+  // what goes, not the explainer.
+  const cameraExplainerSeen = useVoicePrefsStore.use.cameraExplainerSeen();
+  const markCameraExplainerSeen =
+    useVoicePrefsStore.use.markCameraExplainerSeen();
+  const [explainerOpen, setExplainerOpen] = useState(false);
+  // What "the preview is up" means on each path. The native shells draw theirs
+  // behind the web view the moment acquisition succeeds and raise no frame
+  // event to wait for; the browser's `<video>` takes the stream first and
+  // decodes a frame a beat later, and until it does the sheet would be over
+  // the look rather than over anything the camera sees. Same signal the look
+  // stands down on.
+  const previewDrawn = camera.native || feedHasFrame;
+  // Once per camera open. The seen flag is written on dismissal and covers
+  // every later open; this holds the frames in between. Both it and the sheet
+  // come down with the viewfinder, so nothing about one open reaches the next,
+  // and a flip's dropped frame cannot raise it a second time.
+  const explainerShown = useRef(false);
+  useEffect(() => {
+    if (!cameraOpen) {
+      explainerShown.current = false;
+      setExplainerOpen(false);
+      return;
+    }
+    if (
+      !liveOffered ||
+      !previewDrawn ||
+      cameraExplainerSeen ||
+      explainerShown.current
+    ) {
+      return;
+    }
+    explainerShown.current = true;
+    setExplainerOpen(true);
+  }, [cameraOpen, liveOffered, previewDrawn, cameraExplainerSeen]);
+  // Every way out is a dismissal the device remembers; only one of them acts.
+  const dismissExplainer = useCallback(
+    (how: CameraExplainerDismissal) => {
+      setExplainerOpen(false);
+      markCameraExplainerSeen();
+      if (how === "tryLive" && liveOffered && !live) {
+        setLive(true);
+      }
+    },
+    [live, liveOffered, markCameraExplainerSeen, setLive],
+  );
+
   // The shutter's two acts, which are two different sentences rather than one
   // with the mode pushed into it.
   const shutterLabel = live
@@ -1774,6 +1837,38 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           data-testid="camera-view-settings-host"
           className={cn("absolute left-0 top-0", VIEW_OPTIONS_HOST_LAYER)}
         />
+      ) : null}
+
+      {/* The explainer's own host, and the explainer inside it. In the room for
+          the reasons above; full-size, because the scrim and the panel are laid
+          out against it and a zero-size box would collapse both; and
+          press-through, so the shutter and the controls still answer a tap for
+          as long as the explainer is closed (it opts back in for itself).
+          Later than the host above, so it stacks over the panel inside their
+          shared tier. */}
+      {liveOffered ? (
+        <>
+          <div
+            ref={setExplainerHost}
+            data-testid="camera-explainer-host"
+            className={cn(
+              "pointer-events-none absolute inset-0",
+              VIEW_OPTIONS_HOST_LAYER,
+            )}
+          />
+          <CameraExplainer
+            open={explainerOpen}
+            host={explainerHost}
+            // The name lands mid-sentence here, so this fallback is lowercase
+            // where the pill's, which leads one, is not. Blank is the same as
+            // absent, as it is for the pill.
+            assistantName={
+              assistantName?.trim() || t("cameraExplainer.yourAssistant")
+            }
+            tryLiveOffered={!live}
+            onDismiss={dismissExplainer}
+          />
+        </>
       ) : null}
 
       {/* Screen readers get session-state changes here; the avatar is the
