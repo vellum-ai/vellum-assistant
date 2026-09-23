@@ -626,6 +626,12 @@ subgraph "Text Q&A Session"
     classDef provider fill:#ef5350,stroke:#c62828,color:#fff
 ```
 
+Computer-use observations pass screenshots through the shared transport
+optimizer before formatting their metadata. Screenshot dimensions come from
+the emitted image bytes. Full-desktop results include per-axis conversion to
+screen points; window/display-scoped captures do not derive this mapping from
+the main display's dimensions. Actions keep their existing screen-point units.
+
 Computer-use screenshots are materialized as canonical attachment rows while
 their tool-result messages are finalized. Every screenshot keeps that
 tool-result link. At turn completion, only the last screenshot-bearing

@@ -1186,6 +1186,85 @@ describe("HostCuProxy", () => {
 
       expect(result.content).toContain("2560x1440 px");
       expect(result.content).toContain("1280x720 pt");
+      expect(result.content).toContain("x = round(image_x * 0.500000)");
+      expect(result.content).toContain("y = round(image_y * 0.500000)");
+    });
+
+    test("derives separate screen-point scales for a downscaled screenshot", () => {
+      setup();
+
+      const result = proxy.formatObservation({
+        screenshot: "base64data",
+        screenshotWidthPx: 835,
+        screenshotHeightPx: 540,
+        screenWidthPt: 1728,
+        screenHeightPt: 1117,
+      });
+
+      const xScale = Number(result.content.match(/image_x \* ([\d.]+)/)?.[1]);
+      const yScale = Number(result.content.match(/image_y \* ([\d.]+)/)?.[1]);
+      expect(Math.round(675 * xScale)).toBe(1397);
+      expect(Math.round(330 * yScale)).toBe(683);
+      expect(result.content).toContain("screen points, not screenshot pixels");
+    });
+
+    test.each([
+      { capture_window_id: 12 },
+      { captureWindowId: 12 },
+      { captureDisplayId: 2 },
+    ])(
+      "does not scale a scoped screenshot by desktop dimensions: %j",
+      (input) => {
+        setup();
+
+        const result = proxy.formatObservation(
+          {
+            screenshot: "base64data",
+            screenshotWidthPx: 800,
+            screenshotHeightPx: 600,
+            screenWidthPt: 1600,
+            screenHeightPt: 1200,
+          },
+          undefined,
+          false,
+          { toolName: "computer_use_observe", input },
+        );
+
+        expect(result.content).toContain("screenshot is capture-relative");
+        expect(result.content).not.toContain("round(image_");
+      },
+    );
+
+    test.each([undefined, 0, -1, Number.NaN, Number.POSITIVE_INFINITY])(
+      "does not invent a mapping for an unavailable or invalid dimension: %s",
+      (screenWidthPt) => {
+        setup();
+
+        const result = proxy.formatObservation({
+          screenshot: "base64data",
+          screenshotWidthPx: 800,
+          screenshotHeightPx: 600,
+          screenWidthPt,
+          screenHeightPt: 1200,
+        });
+
+        expect(result.content).toContain("coordinate mapping is unavailable");
+        expect(result.content).not.toContain("round(image_");
+      },
+    );
+
+    test("omits coordinate guidance when no screenshot accompanies dimensions", () => {
+      setup();
+
+      const result = proxy.formatObservation({
+        axTree: "Button [1]",
+        screenshotWidthPx: 800,
+        screenshotHeightPx: 600,
+        screenWidthPt: 1600,
+        screenHeightPt: 1200,
+      });
+
+      expect(result.content).not.toContain("coordinate");
     });
 
     test("escapes </ax-tree> in AX tree content", () => {

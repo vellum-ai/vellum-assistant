@@ -156,6 +156,17 @@ export function SkillsReferenceComputerUseContent() {
               than coordinates for reliability.
             </li>
             <li>
+              <strong>Coordinate scaling.</strong> Click, scroll, and drag coordinates use screen
+              points. Desktop screenshots include a conversion from image pixels when both
+              dimensions are available. Window captures need element IDs or a fresh desktop
+              observation, not scaling by the full display size.
+            </li>
+            <li>
+              <strong>Live editing.</strong> The assistant uses app zoom controls and fresh
+              screenshots to inspect small targets. If a cut depends on audio or an edit boundary
+              it cannot observe, it asks for a timestamp, a positioned playhead, or source media.
+            </li>
+            <li>
               <strong>Session caps.</strong> Sessions are capped at 50 steps with loop detection.
             </li>
             <li>

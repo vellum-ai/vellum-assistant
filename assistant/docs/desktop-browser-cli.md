@@ -53,8 +53,9 @@ Non-platform assistants keep their connected-computer behavior.
 Explicit `target: "connected-computer"` or `target_client_id` selects a connected
 computer on every client. The selected target never falls back to another
 computer when unavailable. The virtual desktop uses a fixed 1440x810 display.
-Observations return full-screen screenshots and mouse actions use the same
-screen coordinates.
+Observations return full-screen screenshots and mouse actions use screen
+points. Screenshot metadata uses the transport-optimized image dimensions and
+provides per-axis conversion from image pixels to those screen points.
 Viewer resizing scales the canvas locally without changing the desktop layout.
 
 Observe first and pass the returned `observation_id` with each native action.

@@ -6,6 +6,7 @@
  */
 import { z } from "zod";
 
+import { prepareComputerUseObservation } from "../../daemon/computer-use-observation.js";
 import { findConversation } from "../../daemon/conversation-registry.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { SAME_ACTOR_FORBIDDEN_DESCRIPTION } from "../auth/same-actor.js";
@@ -112,7 +113,7 @@ async function handleHostCuResult({ body, headers }: RouteHandlerArgs) {
     throw new NotFoundError("No host CU proxy for conversation");
   }
 
-  conversation.hostCuProxy.processObservation(requestId, {
+  const observation = await prepareComputerUseObservation({
     axTree,
     axDiff,
     screenshot,
@@ -126,6 +127,7 @@ async function handleHostCuResult({ body, headers }: RouteHandlerArgs) {
     userGuidance,
     timings,
   });
+  conversation.hostCuProxy.processObservation(requestId, observation);
 
   return { accepted: true };
 }
