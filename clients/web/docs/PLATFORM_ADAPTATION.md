@@ -202,11 +202,15 @@ reason a variant cannot cover.
 
 ## Mobile chat detail sheets
 
-Tool calls, grouped activity, subagents, background tasks, workflows, and ACP runs share
-`MobileDetailSheet` in the chat domain. It adapts viewer data and viewport safe areas to the design
-library's `BottomSheet.Content variant="detail"`: a 90% surface with a visible conversation margin,
-handle-only drag dismissal, and reduced-motion-aware enter/exit animations. The transcript stays
-mounted, and focus returns to the originating row without scrolling it into view.
+Tool calls, grouped activity, subagents, background tasks, workflows, ACP runs, and wake details
+share `MobileDetailSheet` in the chat domain. It adapts viewer data and viewport safe areas to the
+design library's `BottomSheet.Content variant="detail"`: a 90% surface with a visible conversation
+margin, handle-only drag dismissal, and reduced-motion-aware enter/exit animations. The transcript
+stays mounted, and focus returns to the originating row without scrolling it into view.
+
+A control that opens a sheet calls `openDetailSheetFromTrigger`, which marks it as the trigger. The
+sheet rises from the marked control and hands focus back to it on close; a control that opens the
+sheet any other way leaves focus to fall back to the conversation.
 
 The adapter uses the viewport portal host and provides its content element as the portal host for
 nested previews. Nested dialogs consume Escape before the sheet. Android Back uses the existing
