@@ -1,5 +1,6 @@
 import { isBackgroundConversationType } from "../persistence/conversation-types.js";
 import { readChannelAllowlist } from "./channel-allowlist.js";
+import { hasCompletionOwnership } from "./completion-policy.js";
 import type { NotificationSignal } from "./signal.js";
 
 /**
@@ -13,7 +14,8 @@ import type { NotificationSignal } from "./signal.js";
  * that append must not resurface a Done chat, while a notification the bell
  * does not carry has the transcript as its only home and must.
  *
- * `assistant_tool` mirrors unconditionally because the documented
+ * Recipient-owned completions never mirror: the feed has no recipient ACL.
+ * Other `assistant_tool` signals mirror because the documented
  * `notifications send` skill (and background-job failure emits) deliberately
  * target the home feed, unless an exclusive channel allowlist leaves vellum
  * out; `chat.assistant_reply` follows the same rule. An async-background
@@ -23,6 +25,9 @@ export function signalMirrorsToHomeFeed(
   signal: NotificationSignal,
   sourceConversationType: string | undefined,
 ): boolean {
+  if (hasCompletionOwnership(signal)) {
+    return false;
+  }
   if (
     signal.sourceChannel === "assistant_tool" ||
     signal.sourceEventName === "chat.assistant_reply"

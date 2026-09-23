@@ -30,10 +30,6 @@ import { publishConversationMessagesChanged } from "../runtime/sync/resource-syn
 import { getLogger } from "../util/logger.js";
 import { isPlainObject } from "../util/object.js";
 import { normalizeTitle, stripMarkdown } from "../util/short-title.js";
-import {
-  hasPersistedCompletionResult,
-  notificationConversationId,
-} from "./completion-policy.js";
 import { isConversationSeedSane } from "./conversation-seed-composer.js";
 import { deriveTitle } from "./copy-composer.js";
 import {
@@ -317,7 +313,7 @@ async function resolveOwnedConversationMessageId(
 ): Promise<string | undefined> {
   // The completed reply is already the source conversation's canonical row.
   // This signal's body is a compact push preview, not conversation content.
-  if (hasPersistedCompletionResult(signal)) {
+  if (signal.sourceEventName === "chat.assistant_reply") {
     return undefined;
   }
   if (vellumDelivery?.conversationId) {
@@ -539,7 +535,8 @@ function deriveDetailPanelKind(
  * (scheduler job ids, watcher event ids, CLI tool-call ids) leave
  * `sourceConversationId` undefined so the client hides the affordance.
  *
- * `assistant_tool` mirrors unconditionally because the documented
+ * Recipient-owned completions are excluded by `signalMirrorsToHomeFeed`.
+ * Other `assistant_tool` signals mirror because the documented
  * `notifications send` skill (and background-job failure emits) deliberately
  * does not require a background-typed conversation or the
  * `isAsyncBackground` hint. `chat.assistant_reply` also mirrors: it is the
@@ -570,7 +567,7 @@ function resolveHomeFeedMirror(
     conversationType?: string;
     scheduleJobId?: string | null;
   } | null = null;
-  const conversationId = notificationConversationId(signal);
+  const conversationId = signal.sourceContextId;
   if (conversationId) {
     try {
       sourceRow = getConversation(conversationId) ?? null;
@@ -578,7 +575,7 @@ function resolveHomeFeedMirror(
       sourceRow = null;
     }
   }
-  // Link to the persisted result or producing conversation when it exists.
+  // Link to the producing conversation when it exists.
   // Signals with non-conversation source IDs use the paired delivery.
   const sourceConversationId = sourceRow
     ? conversationId

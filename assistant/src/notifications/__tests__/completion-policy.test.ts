@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  hasCompletionOwnership,
   isCompletionNotification,
   isCompletionRecipientUnavailable,
   isLocalNotificationSilent,
@@ -15,6 +16,30 @@ const completion = {
 };
 
 describe("completion local delivery policy", () => {
+  test("declared completion ownership survives invalid or incomplete metadata", () => {
+    for (const payload of [
+      completion,
+      {},
+      null,
+      { recipientPrincipalId: "principal-1" },
+    ]) {
+      expect(
+        hasCompletionOwnership({
+          sourceEventName: "activity.complete",
+          contextPayload: { completion: payload },
+        }),
+      ).toBe(true);
+    }
+    expect(
+      hasCompletionOwnership({ sourceEventName: "activity.complete" }),
+    ).toBe(false);
+    expect(
+      hasCompletionOwnership({
+        sourceEventName: "assistant.share",
+        contextPayload: { completion },
+      }),
+    ).toBe(false);
+  });
   test.each(["chat.assistant_reply", "schedule.result"])(
     "%s can banner at medium urgency",
     (sourceEventName) => {

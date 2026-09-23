@@ -17,10 +17,21 @@ interface CompletionEvent {
   contextPayload?: Record<string, unknown>;
 }
 
+/** Declared ownership stays private even when the completion payload is malformed. */
+export function hasCompletionOwnership(event: CompletionEvent): boolean {
+  return (
+    event.sourceEventName === "activity.complete" &&
+    Object.prototype.hasOwnProperty.call(
+      event.contextPayload ?? {},
+      "completion",
+    )
+  );
+}
+
 export function readCompletionContext(
   event: CompletionEvent,
 ): CompletionContext | undefined {
-  if (event.sourceEventName !== "activity.complete") {
+  if (!hasCompletionOwnership(event)) {
     return undefined;
   }
   const parsed = CompletionContextSchema.safeParse(

@@ -29,6 +29,12 @@ path (`parent_continuation`). Ordinary maintenance events
 without that context retain their existing policy. Producers persist the
 user-facing result before emitting. Reply previews and these explicit background
 previews link to that result without appending another transcript row.
+Recipient-owned `activity.complete` signals do not mirror into the Home feed or
+notification bell, regardless of whether scoped delivery succeeds. The feed is
+assistant-wide and has no per-recipient read policy, so confirming the active
+guardian alone does not make a shared preview private. A declared but malformed
+completion ownership payload is excluded too. Ordinary activity notifications
+and skill-update receipts retain their existing feed behavior.
 
 The local send waits for the bounded platform outcome and carries its accepted
 mobile platforms, preserving remote/local mobile deduplication. A successful
