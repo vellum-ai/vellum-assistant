@@ -23,27 +23,10 @@ const log = getLogger("twilio-provider");
 export class TwilioVoiceProvider implements VoiceProvider {
   readonly name = "twilio";
 
-  // ── Credential helpers ──────────────────────────────────────────────
-
-  private async getCredentials(): Promise<{
-    accountSid: string;
-    authToken: string;
-  }> {
-    return await getTwilioCredentials();
-  }
-
-  private authHeader(accountSid: string, authToken: string): string {
-    return twilioAuthHeader(accountSid, authToken);
-  }
-
-  private baseUrl(accountSid: string): string {
-    return twilioBaseUrl(accountSid);
-  }
-
   // ── VoiceProvider interface ─────────────────────────────────────────
 
   async initiateCall(opts: InitiateCallOptions): Promise<{ callSid: string }> {
-    const { accountSid, authToken } = await this.getCredentials();
+    const { accountSid, authToken } = await getTwilioCredentials();
 
     const body = new URLSearchParams({
       From: opts.from,
@@ -80,10 +63,10 @@ export class TwilioVoiceProvider implements VoiceProvider {
 
     log.info({ from: opts.from, to: opts.to }, "Initiating Twilio call");
 
-    const res = await fetch(`${this.baseUrl(accountSid)}/Calls.json`, {
+    const res = await fetch(`${twilioBaseUrl(accountSid)}/Calls.json`, {
       method: "POST",
       headers: {
-        Authorization: this.authHeader(accountSid, authToken),
+        Authorization: twilioAuthHeader(accountSid, authToken),
         "Content-Type": "application/x-www-form-urlencoded",
       },
       body: body.toString(),
@@ -108,18 +91,18 @@ export class TwilioVoiceProvider implements VoiceProvider {
   }
 
   async endCall(callSid: string): Promise<void> {
-    const { accountSid, authToken } = await this.getCredentials();
+    const { accountSid, authToken } = await getTwilioCredentials();
 
     log.info({ callSid }, "Ending Twilio call");
 
     const body = new URLSearchParams({ Status: "completed" });
 
     const res = await fetch(
-      `${this.baseUrl(accountSid)}/Calls/${callSid}.json`,
+      `${twilioBaseUrl(accountSid)}/Calls/${callSid}.json`,
       {
         method: "POST",
         headers: {
-          Authorization: this.authHeader(accountSid, authToken),
+          Authorization: twilioAuthHeader(accountSid, authToken),
           "Content-Type": "application/x-www-form-urlencoded",
         },
         body: body.toString(),
@@ -143,14 +126,14 @@ export class TwilioVoiceProvider implements VoiceProvider {
   }
 
   async getCallStatus(callSid: string): Promise<string> {
-    const { accountSid, authToken } = await this.getCredentials();
+    const { accountSid, authToken } = await getTwilioCredentials();
 
     const res = await fetch(
-      `${this.baseUrl(accountSid)}/Calls/${callSid}.json`,
+      `${twilioBaseUrl(accountSid)}/Calls/${callSid}.json`,
       {
         method: "GET",
         headers: {
-          Authorization: this.authHeader(accountSid, authToken),
+          Authorization: twilioAuthHeader(accountSid, authToken),
         },
       },
     );
@@ -183,7 +166,7 @@ export class TwilioVoiceProvider implements VoiceProvider {
   async checkCallerIdEligibility(
     phoneNumber: string,
   ): Promise<{ eligible: boolean; reason?: string }> {
-    const { accountSid, authToken } = await this.getCredentials();
+    const { accountSid, authToken } = await getTwilioCredentials();
     const encodedNumber = encodeURIComponent(phoneNumber);
 
     let incomingOk = false;
@@ -191,13 +174,13 @@ export class TwilioVoiceProvider implements VoiceProvider {
 
     // Check incoming phone numbers (owned by this account)
     const incomingRes = await fetch(
-      `${this.baseUrl(
+      `${twilioBaseUrl(
         accountSid,
       )}/IncomingPhoneNumbers.json?PhoneNumber=${encodedNumber}`,
       {
         method: "GET",
         headers: {
-          Authorization: this.authHeader(accountSid, authToken),
+          Authorization: twilioAuthHeader(accountSid, authToken),
         },
       },
     );
@@ -223,13 +206,13 @@ export class TwilioVoiceProvider implements VoiceProvider {
 
     // Check outgoing caller IDs (verified with this account)
     const outgoingRes = await fetch(
-      `${this.baseUrl(
+      `${twilioBaseUrl(
         accountSid,
       )}/OutgoingCallerIds.json?PhoneNumber=${encodedNumber}`,
       {
         method: "GET",
         headers: {
-          Authorization: this.authHeader(accountSid, authToken),
+          Authorization: twilioAuthHeader(accountSid, authToken),
         },
       },
     );

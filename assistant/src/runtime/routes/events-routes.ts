@@ -492,7 +492,7 @@ export function handleSubscribeAssistantEvents(
     });
   }
 
-  const stream = new ReadableStream<Uint8Array>(
+  return new ReadableStream<Uint8Array>(
     {
       start(controller) {
         controllerRef = controller;
@@ -573,8 +573,6 @@ export function handleSubscribeAssistantEvents(
     },
     new CountQueuingStrategy({ highWaterMark: 16 }),
   );
-
-  return stream;
 }
 
 /**

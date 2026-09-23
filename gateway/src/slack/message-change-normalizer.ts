@@ -60,8 +60,6 @@ export function normalizeSlackMessageEdit(
 
   // Each edit event gets a unique externalMessageId so the dedup pipeline
   // does not discard subsequent edits of the same Slack message.
-  const externalMessageId = eventId;
-
   return {
     event: {
       version: "v1",
@@ -71,7 +69,7 @@ export function normalizeSlackMessageEdit(
         eventKind: "edit",
         content,
         conversationExternalId: channel,
-        externalMessageId,
+        externalMessageId: eventId,
       },
       actor: {
         actorExternalId: edited.user,

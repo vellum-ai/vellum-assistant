@@ -147,7 +147,7 @@ export async function orchestrateOAuthConnect(
   }
 
   // Deserialize JSON fields from the DB row
-  const dbAuthorizeParams = safeJsonParse<Record<string, string> | undefined>(
+  const authorizeParams = safeJsonParse<Record<string, string> | undefined>(
     providerRow.authorizeParams,
     undefined,
   );
@@ -155,7 +155,6 @@ export async function orchestrateOAuthConnect(
   // Resolve all protocol-level config from the DB
   const authorizeUrl = providerRow.authorizeUrl;
   const tokenExchangeUrl = providerRow.tokenExchangeUrl;
-  const authorizeParams = dbAuthorizeParams;
   const userinfoUrl = providerRow.userinfoUrl ?? undefined;
   const tokenEndpointAuthMethod = providerRow.tokenEndpointAuthMethod as
     | TokenEndpointAuthMethod

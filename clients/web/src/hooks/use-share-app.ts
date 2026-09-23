@@ -24,7 +24,7 @@ export function useShareApp(
   const { id, name } = app;
   const isSharingRef = useRef(false);
 
-  const share = useCallback(async () => {
+  return useCallback(async () => {
     if (isSharingRef.current) {
       return;
     }
@@ -35,6 +35,4 @@ export function useShareApp(
       isSharingRef.current = false;
     }
   }, [assistantId, id, name, exported, failed]);
-
-  return share;
 }

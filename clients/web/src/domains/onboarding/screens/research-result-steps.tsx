@@ -260,7 +260,6 @@ export function LookingYouUpStep({
     t("lookingYouUpStep.piecing"),
     t("lookingYouUpStep.almostThere"),
   ];
-  const tone = DARK_TONE;
   const [index, setIndex] = useState(0);
 
   useEffect(() => {
@@ -280,7 +279,7 @@ export function LookingYouUpStep({
   }, [index, ready, onDone, onAdvance, lookingMessages.length]);
 
   return (
-    <div className="absolute inset-0 z-10" style={{ color: tone.fg }}>
+    <div className="absolute inset-0 z-10" style={{ color: DARK_TONE.fg }}>
       <OnboardingTopBar onBack={onBack} onNext={onForward} />
       {/* True center of the viewport. The message reserves a fixed min-height
           (two AVATAR_HEADING_CLASS lines) so the row's height — and therefore
@@ -337,7 +336,6 @@ export function FinishingUpStep({
     t("finishingUpStep.gettingIntoCharacter"),
     t("finishingUpStep.almostThere"),
   ];
-  const tone = DARK_TONE;
   const [index, setIndex] = useState(0);
 
   useEffect(() => {
@@ -360,7 +358,7 @@ export function FinishingUpStep({
   }, [index, ready, onDone, finishingMessages.length]);
 
   return (
-    <div className="absolute inset-0 z-10" style={{ color: tone.fg }}>
+    <div className="absolute inset-0 z-10" style={{ color: DARK_TONE.fg }}>
       <div className="absolute left-1/2 top-[14%] sm:top-[26%] flex w-full max-w-xl -translate-x-1/2 items-start gap-3 px-6">
         <MiniAssistant isAssistantBusy />
         <AnimatePresence mode="wait">

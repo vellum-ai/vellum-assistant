@@ -531,7 +531,7 @@ export const shellTool = {
     // -----------------------------------------------------------------------
     // Foreground mode: await the process and return its output.
     // -----------------------------------------------------------------------
-    const result = await new Promise<ToolExecutionResult>((resolve) => {
+    return await new Promise<ToolExecutionResult>((resolve) => {
       let timedOut = false;
       const startedAt = Date.now();
 
@@ -620,8 +620,6 @@ export const shellTool = {
         });
       });
     });
-
-    return result;
   },
 } satisfies ToolDefinition;
 
