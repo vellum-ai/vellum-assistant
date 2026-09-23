@@ -5945,11 +5945,6 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     ) {
       return;
     }
-    // One assistant turn at a time: a server_vad utterance that closes while
-    // the previous turn is still speaking waits; rearmAfterTurn retries it.
-    if (this.activeAssistantTurn) {
-      return;
-    }
     if (utterance.phase !== "transcriber_closed") {
       return;
     }
@@ -5969,6 +5964,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       }
       await this.finalizePendingUtterance(utterance, "empty_transcript");
       this.scheduleRearmAfterTurn();
+      return;
+    }
+
+    // Empty cycles must rearm input even during a reply so provider speech
+    // starts can still interrupt it. Only a real transcript waits its turn.
+    if (this.activeAssistantTurn) {
       return;
     }
 

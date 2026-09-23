@@ -1771,6 +1771,89 @@ describe("LiveVoiceSession Flux end-of-turn during the STT dial", () => {
     await session.close("client_end");
   }, 10_000);
 
+  test("rearms an empty fallback cycle while the previous reply is active", async () => {
+    const abort = mock();
+    const { frames, session, transcribers, turnCalls } = createHarness({
+      fluxConfig: FLUX_ON,
+      startVoiceTurn: async (turnOptions) => {
+        turnOptions.callbacks?.assistant_text_delta?.(
+          makeTextDelta("Working on the edit."),
+        );
+        return { turnId: "editing-turn", abort };
+      },
+    });
+
+    try {
+      await session.start();
+      await waitFor(() => transcribers.length === 1);
+      const transcriber = transcribers[0]!;
+      await session.handleBinaryAudio(LOUD_CHUNK);
+      transcriber.startOfTurn(0);
+      transcriber.endOfTurn("edit the clip", 0);
+      await waitFor(() => turnCalls.length === 1);
+
+      const speechStarts = countFrames(frames, "speech_started");
+      await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+      // No provider speech start or transcript arrives for this local onset.
+      await waitFor(() => transcriber.stopped);
+      await waitFor(
+        () => transcribers.length >= 2,
+        "An empty fallback cycle blocked the replacement stream behind the reply",
+      );
+      expect(countFrames(frames, "utterance_discarded")).toBe(1);
+      expect(countFrames(frames, "speech_started")).toBe(speechStarts);
+      expect(countFrames(frames, "turn_cancelled")).toBe(0);
+      expect(abort).not.toHaveBeenCalled();
+      expect(turnCalls).toHaveLength(1);
+
+      const replacement = transcribers.at(-1)!;
+      await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+      expect(replacement.received.length).toBeGreaterThan(0);
+      replacement.startOfTurn(0);
+      await waitFor(() => countFrames(frames, "turn_cancelled") === 1);
+      expect(countFrames(frames, "speech_started")).toBe(speechStarts + 1);
+      expect(abort).toHaveBeenCalledTimes(1);
+
+      replacement.endOfTurn("stop editing", 0);
+      await waitFor(() => turnCalls.length === 2);
+      expect(turnCalls[1]?.content).toBe("stop editing");
+    } finally {
+      await session.close("client_end");
+    }
+  }, 10_000);
+
+  test("keeps a nonempty fallback transcript queued behind the previous reply", async () => {
+    const abort = mock();
+    const { frames, session, transcribers, turnCalls } = createHarness({
+      fluxConfig: FLUX_ON,
+      startVoiceTurn: async () => ({ turnId: "editing-turn", abort }),
+    });
+
+    try {
+      await session.start();
+      await waitFor(() => transcribers.length === 1);
+      const transcriber = transcribers[0]!;
+      await session.handleBinaryAudio(LOUD_CHUNK);
+      transcriber.startOfTurn(0);
+      transcriber.endOfTurn("edit the clip", 0);
+      await waitFor(() => turnCalls.length === 1);
+
+      transcriber.pendingFlushText = "show me the result";
+      await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+      await waitFor(() => transcriber.stopped);
+      await flushAsyncCallbacks();
+      expect(turnCalls).toHaveLength(1);
+      expect(countFrames(frames, "utterance_discarded")).toBe(0);
+      expect(abort).not.toHaveBeenCalled();
+
+      turnCalls[0]?.callbacks?.message_complete?.(makeMessageComplete());
+      await waitFor(() => turnCalls.length === 2);
+      expect(turnCalls[1]?.content).toBe("show me the result");
+    } finally {
+      await session.close("client_end");
+    }
+  }, 10_000);
+
   test("routes a closing stream's flush into the turn it released", async () => {
     const { session, transcribers, turnCalls } = createHarness({
       fluxConfig: FLUX_ON,
