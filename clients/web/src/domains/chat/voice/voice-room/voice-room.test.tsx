@@ -3448,6 +3448,17 @@ describe("VoiceRoom: camera", () => {
         });
       }
 
+      /**
+       * Open the browser viewfinder and let it decode its first frame, which
+       * is what the room waits for on that path.
+       */
+      async function openCameraWithFrame(): Promise<void> {
+        await openLiveCapableCamera();
+        await act(async () => {
+          fireEvent.loadedData(viewfinder()!);
+        });
+      }
+
       beforeEach(() => {
         stubSurface(true);
         useVoicePrefsStore.setState({ cameraExplainerSeen: false });
@@ -3461,8 +3472,39 @@ describe("VoiceRoom: camera", () => {
         });
       });
 
-      test("comes up on the first open, in a room-owned box of its own", async () => {
+      test("waits for the browser feed to draw before it comes up", async () => {
         await openLiveCapableCamera();
+
+        // The stream reaches the element before a frame decodes, and the room
+        // is still painting the look through the transparent feed, so a sheet
+        // raised here would sit over the look rather than over the camera.
+        expect(explainer()).toBeNull();
+
+        await act(async () => {
+          fireEvent.loadedData(viewfinder()!);
+        });
+
+        expect(explainer()).not.toBeNull();
+      });
+
+      test("comes up with the native preview, which has no frame to report", async () => {
+        // The shells draw their preview behind the web view as soon as
+        // acquisition succeeds, and mount no element to raise an event.
+        nativeShell = true;
+        stubMediaDevices(async () => fakeStream());
+        seedLiveCapableAssistant();
+        startOwnedSession("listening");
+        render(<VoiceRoom />);
+        await act(async () => {
+          fireEvent.click(cameraToggle()!);
+        });
+
+        expect(viewfinder()).toBeNull();
+        expect(explainer()).not.toBeNull();
+      });
+
+      test("comes up on the first open, in a room-owned box of its own", async () => {
+        await openCameraWithFrame();
 
         const host = explainerHost()!;
         // Full-size, so the scrim and the sheet have a box to cover; and
@@ -3499,6 +3541,9 @@ describe("VoiceRoom: camera", () => {
         expect(explainerHost()).not.toBeNull();
 
         await act(async () => {
+          fireEvent.loadedData(viewfinder()!);
+        });
+        await act(async () => {
           fireEvent.click(gotIt());
         });
         await act(async () => {
@@ -3510,7 +3555,7 @@ describe("VoiceRoom: camera", () => {
 
       test("stays away on a device that has already seen it", async () => {
         useVoicePrefsStore.setState({ cameraExplainerSeen: true });
-        await openLiveCapableCamera();
+        await openCameraWithFrame();
 
         expect(explainer()).toBeNull();
         // The host answers to Live's offer rather than to the explainer, so it
@@ -3537,7 +3582,7 @@ describe("VoiceRoom: camera", () => {
       });
 
       test('"Got it" closes it, and the device remembers', async () => {
-        await openLiveCapableCamera();
+        await openCameraWithFrame();
 
         await act(async () => {
           fireEvent.click(gotIt());
@@ -3549,7 +3594,7 @@ describe("VoiceRoom: camera", () => {
       });
 
       test("a press on the scrim closes it, and the device remembers", async () => {
-        await openLiveCapableCamera();
+        await openCameraWithFrame();
 
         await act(async () => {
           pressBackdrop(sheetOverlay()!);
@@ -3561,7 +3606,7 @@ describe("VoiceRoom: camera", () => {
       });
 
       test("Escape closes it and leaves the room up", async () => {
-        await openLiveCapableCamera();
+        await openCameraWithFrame();
 
         await act(async () => {
           fireEvent.keyDown(explainer()!, { key: "Escape" });
@@ -3576,7 +3621,7 @@ describe("VoiceRoom: camera", () => {
 
       test("the desktop close glyph closes it, and the device remembers", async () => {
         stubSurface(false);
-        await openLiveCapableCamera();
+        await openCameraWithFrame();
 
         await act(async () => {
           fireEvent.click(screen.getByLabelText("Close"));
@@ -3588,7 +3633,7 @@ describe("VoiceRoom: camera", () => {
       });
 
       test('"Try Live now" is the one way out that starts Live', async () => {
-        await openLiveCapableCamera();
+        await openCameraWithFrame();
 
         await act(async () => {
           fireEvent.click(screen.getByRole("button", { name: "Try Live now" }));
@@ -3601,7 +3646,7 @@ describe("VoiceRoom: camera", () => {
       });
 
       test("a second open in the same session leaves it closed", async () => {
-        await openLiveCapableCamera();
+        await openCameraWithFrame();
         await act(async () => {
           fireEvent.click(gotIt());
         });
@@ -3626,6 +3671,9 @@ describe("VoiceRoom: camera", () => {
         render(<VoiceRoom variant="sheet" />);
         await act(async () => {
           fireEvent.click(cameraToggle()!);
+        });
+        await act(async () => {
+          fireEvent.loadedData(viewfinder()!);
         });
         roomDragStarts.mockClear();
 

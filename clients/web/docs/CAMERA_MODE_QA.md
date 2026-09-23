@@ -467,8 +467,12 @@ by clearing the app's site data, or by deleting `cameraExplainerSeen` from
 - [ ] A press inside the sheet does not minimize the room. Press and swipe down
       on the sheet's body, its buttons and its cards on a phone: the room stays
       up. The room still minimizes from a pull anywhere outside the sheet.
-- [ ] The desktop modal is centred in the content pane. The scrim dims the pane
-      only: the left sidebar and the title bar stay lit and usable behind it.
+- [ ] The desktop modal is centred in the content pane, and its scrim dims that
+      pane only: the left sidebar and the title bar stay undimmed. Undimmed is
+      not the same as usable. The modal is a focus trap by design, so while it
+      is up Tab cycles inside it, focus never reaches the sidebar, and Escape
+      or any other dismissal is the way out. Dismissing hands focus back to the
+      room.
 - [ ] A short window still fits. Narrow the desktop window past a phone's width,
       and turn a phone to landscape: the modal is what shows on a fine pointer,
       its body scrolls rather than clipping, its footer wraps the privacy line

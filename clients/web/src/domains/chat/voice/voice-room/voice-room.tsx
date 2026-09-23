@@ -887,8 +887,8 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   // no button rather than a panel of switches that do nothing.
   const viewOptionsOffered = liveOffered;
 
-  // The "Photo or Live?" explainer, once per device. It is raised only after
-  // the viewfinder is up, never before the camera control is pressed, which is
+  // The "Photo or Live?" explainer, once per device. It is raised only once the
+  // preview has drawn, never before the camera control is pressed, which is
   // what keeps it clear of the pre-permission rule in `docs/CAPACITOR.md`.
   //
   // Only where Live is offered: two cards describing a mode the user cannot
@@ -899,9 +899,17 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   const markCameraExplainerSeen =
     useVoicePrefsStore.use.markCameraExplainerSeen();
   const [explainerOpen, setExplainerOpen] = useState(false);
+  // What "the preview is up" means on each path. The native shells draw theirs
+  // behind the web view the moment acquisition succeeds and raise no frame
+  // event to wait for; the browser's `<video>` takes the stream first and
+  // decodes a frame a beat later, and until it does the sheet would be over
+  // the look rather than over anything the camera sees. Same signal the look
+  // stands down on.
+  const previewDrawn = camera.native || feedHasFrame;
   // Once per camera open. The seen flag is written on dismissal and covers
   // every later open; this holds the frames in between. Both it and the sheet
-  // come down with the viewfinder, so nothing about one open reaches the next.
+  // come down with the viewfinder, so nothing about one open reaches the next,
+  // and a flip's dropped frame cannot raise it a second time.
   const explainerShown = useRef(false);
   useEffect(() => {
     if (!cameraOpen) {
@@ -909,12 +917,17 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
       setExplainerOpen(false);
       return;
     }
-    if (!liveOffered || cameraExplainerSeen || explainerShown.current) {
+    if (
+      !liveOffered ||
+      !previewDrawn ||
+      cameraExplainerSeen ||
+      explainerShown.current
+    ) {
       return;
     }
     explainerShown.current = true;
     setExplainerOpen(true);
-  }, [cameraOpen, liveOffered, cameraExplainerSeen]);
+  }, [cameraOpen, liveOffered, previewDrawn, cameraExplainerSeen]);
   // Every way out is a dismissal the device remembers; only one of them acts.
   const dismissExplainer = useCallback(
     (how: CameraExplainerDismissal) => {
