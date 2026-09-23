@@ -44,6 +44,36 @@ test("two independent pages post once for the same scoped signal", async () => {
   expect(await secondTab.post('["account-1","assistant-2","signal-1"]', post)).toBe("posted");
 });
 
+test("two pages share sound ownership separately from accepted banner receipts", async () => {
+  const firstTab = new BrowserNotificationDelivery();
+  const secondTab = new BrowserNotificationDelivery();
+  const key = '["account-1","assistant-1","signal-1"]';
+  expect(await Promise.all([firstTab.claimSound(key), secondTab.claimSound(key)]))
+    .toEqual(["claimed", "duplicate"]);
+  expect(localStorage.getItem("vellum:browser-notification-deliveries:v1")).toBeNull();
+  expect(JSON.parse(localStorage.getItem("vellum:browser-notification-sounds:v1")!))
+    .toHaveLength(1);
+  expect(await secondTab.post(key, () => undefined)).toBe("posted");
+  expect(await secondTab.claimSound(key)).toBe("duplicate");
+  expect(await secondTab.claimSound('["account-2","assistant-1","signal-1"]')).toBe("claimed");
+  expect(await secondTab.claimSound('["account-1","assistant-2","signal-1"]')).toBe("claimed");
+});
+
+test("cancelled and attended sound claims retain no ownership receipt", async () => {
+  const tab = new BrowserNotificationDelivery();
+  let sessionValid = true;
+  const pending = tab.claimSound("signal-1", () => sessionValid);
+  sessionValid = false;
+  expect(await pending).toBe("cancelled");
+  const stop = tab.trackAttention(() => "conversation-key");
+  try {
+    expect(await tab.claimSound("signal-2", undefined, "conversation-key")).toBe("suppressed");
+    expect(localStorage.getItem("vellum:browser-notification-sounds:v1")).toBeNull();
+  } finally {
+    stop();
+  }
+});
+
 test("a failed post releases its claim for another tab", async () => {
   const firstTab = new BrowserNotificationDelivery();
   const secondTab = new BrowserNotificationDelivery();

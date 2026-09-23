@@ -25,6 +25,7 @@ const fixture = {
       : undefined;
   },
   isAttended: (key: string) => delivery.isConversationAttended(key),
+  claimSound: (key: string) => delivery.claimSound(key),
   deliver: async (key: string, fail = false, currentSession = true, conversationKey: string | null = null) => {
     try {
       return await delivery.post(key, () => {

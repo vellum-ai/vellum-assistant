@@ -435,15 +435,24 @@ seconds. Suppression acknowledges a handled intent and records no accepted post.
 Settings exposes an explicit browser notification permission action. Notification
 arrival never opens a browser permission prompt. Browser delivery uses the
 captured account/connection and assistant identity with the signal correlation ID
-(or delivery ID) for a Web Locks claim. A bounded localStorage receipt ledger
-retains only accepted posts for ten minutes, with a maximum of 128 receipts.
+(or delivery ID) for an IndexedDB transaction. A bounded receipt ledger retains
+only accepted posts for ten minutes, with a maximum of 128 receipts. The
+transaction checks session ownership and conversation attention before posting,
+then commits the receipt. This keeps ownership atomic across browser processes,
+where a localStorage write can remain invisible after a Web Lock is released.
+Browser chimes use a separate bounded ownership ledger so prompt, denied, and
+unsupported notification permission produce at most one fallback sound across
+tabs. A sound claim does not create an accepted-post receipt; failed delivery
+remains reported as failed and another tab can retry the browser post.
 Failed posts release the claim; duplicate tabs neither chime nor acknowledge a
-post they did not make. Logout clears the `vellum:` ledger, and queued delivery
-rechecks its captured session before posting. These receipts record browser API
-acceptance, not proof the user saw an OS banner.
+post they did not make. Logout clears localStorage mirrors and attention leases;
+IndexedDB receipts contain only scoped delivery IDs and expirations, with expired
+entries pruned on the next claim. These receipts record browser API acceptance,
+not proof the user saw an OS banner. If the transaction fails after posting, the
+page retains its local receipt and does not repeat the OS side effect.
 
-When Web Locks or storage is unavailable, delivery remains available with a
-stable scoped Notification tag and page-local deduplication; cross-tab atomic
-deduplication is unavailable in that fallback. Tabs that the browser freezes,
+When IndexedDB is unavailable, localStorage mirrors, Web Locks when supported,
+and a stable scoped Notification tag provide best-effort coordination. Atomic
+cross-tab deduplication is unavailable in that fallback. Tabs that the browser freezes,
 discards, or closes, and sleeping/offline devices, cannot guarantee live delivery.
 Closed-tab Web Push requires a separate service worker and server delivery path.

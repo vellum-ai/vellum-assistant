@@ -31,7 +31,23 @@ try {
         await page.addScriptTag({ content: bundle });
         assert.ok(await page.evaluate(() => !!navigator.locks));
       }));
-      for (let i = 0; i < 20; i++) {
+      await pages[0].evaluate(() => {
+        localStorage.setItem("vellum:browser-notification-deliveries:v1", JSON.stringify([
+          ["legacy-post", Date.now() + 60_000],
+        ]));
+        localStorage.setItem("vellum:browser-notification-sounds:v1", JSON.stringify([
+          ["legacy-sound", Date.now() + 60_000],
+        ]));
+      });
+      for (const page of pages) {
+        assert.equal(await page.evaluate(
+          () => window.notificationDeliveryTest.deliver("legacy-post"),
+        ), "duplicate");
+        assert.equal(await page.evaluate(
+          () => window.notificationDeliveryTest.claimSound("legacy-sound"),
+        ), "duplicate");
+      }
+      for (let i = 0; i < 200; i++) {
         const key = JSON.stringify(["account-1", "assistant-1", `signal-${i}`]);
         const results = await Promise.all(pages.map((page) => page.evaluate(
           (key) => window.notificationDeliveryTest.deliver(key), key,
@@ -41,7 +57,36 @@ try {
       const posted = await Promise.all(pages.map((page) => page.evaluate(
         () => window.notificationDeliveryTest.posted.length,
       )));
-      assert.equal(posted.reduce((sum, count) => sum + count, 0), 20);
+      assert.equal(posted.reduce((sum, count) => sum + count, 0), 200);
+
+      for (let i = 0; i < 200; i++) {
+        const key = JSON.stringify(["account-1", "assistant-1", `sound-only-${i}`]);
+        const results = await Promise.all(pages.map((page) => page.evaluate(
+          (key) => window.notificationDeliveryTest.claimSound(key), key,
+        )));
+        assert.deepEqual(results.sort(), ["claimed", "duplicate"]);
+      }
+      assert.equal(await pages[0].evaluate(() =>
+        JSON.parse(localStorage.getItem("vellum:browser-notification-deliveries:v1")!).length,
+      ), 128);
+
+      assert.equal(await pages[0].evaluate(async () => {
+        const put = IDBObjectStore.prototype.put;
+        IDBObjectStore.prototype.put = function () {
+          throw new DOMException("Storage refused", "QuotaExceededError");
+        };
+        try {
+          return await window.notificationDeliveryTest.deliver("commit-failure");
+        } finally {
+          IDBObjectStore.prototype.put = put;
+        }
+      }), "posted");
+      assert.equal(await pages[0].evaluate(
+        () => window.notificationDeliveryTest.deliver("commit-failure"),
+      ), "duplicate");
+      assert.equal(await pages[0].evaluate(
+        () => window.notificationDeliveryTest.posted.filter((key) => key === "commit-failure").length,
+      ), 1);
 
       assert.equal(await pages[0].evaluate(
         () => window.notificationDeliveryTest.deliver("retry", true),
@@ -103,7 +148,7 @@ try {
       assert.equal(await pages[1].evaluate(
         (key) => window.notificationDeliveryTest.deliver("after-expiry", false, true, key), conversationKey,
       ), "posted");
-      console.log(`${engine.name()}: two-page coordination, focused conversation in both arrival orders, blur/logout/expiry, failed-post retry, session cancellation, and identity isolation passed`);
+      console.log(`${engine.name()}: two-page banner and sound coordination, focused conversation in both arrival orders, blur/logout/expiry, failed-post retry, session cancellation, and identity isolation passed`);
     } finally {
       await browser.close();
     }

@@ -599,6 +599,52 @@ async function acknowledgeSuppressedNotification(
   return "silent";
 }
 
+function browserNotificationDeliveryKey(args: PostLocalNotificationArgs): {
+  tag: string;
+  receiptKey: string | null;
+} {
+  const key = notificationDeliveryKey(args.correlationId, args.deliveryId);
+  const tag = JSON.stringify([
+    args.identity?.scopeId ?? null,
+    args.identity?.assistantId ?? args.assistantId ?? null,
+    key.status === "valid"
+      ? key.value
+      : `${args.sourceEventName}:${args.title}:${args.body}`,
+  ]);
+  return { tag, receiptKey: args.identity && key.status === "valid" ? tag : null };
+}
+
+async function notificationFailureSound(
+  args: PostLocalNotificationArgs,
+  errorMessage: string,
+): Promise<NotificationSoundDisposition> {
+  if (isBrowserNotificationHost()) {
+    const result = await browserNotificationDelivery.claimSound(
+      browserNotificationDeliveryKey(args).receiptKey,
+      args.canDeliver,
+      browserNotificationConversationKey(
+        args.identity,
+        extractConversationId(args.deepLinkMetadata),
+      ),
+    );
+    if (result === "suppressed") {
+      return acknowledgeSuppressedNotification(args);
+    }
+    if (result !== "claimed" || (args.canDeliver && !args.canDeliver())) {
+      return "silent";
+    }
+  }
+  if (args.assistantId && args.deliveryId) {
+    await sendNotificationIntentAck(
+      args.assistantId, args.deliveryId, false, errorMessage,
+    );
+  }
+  if (isBrowserNotificationHost() && args.canDeliver && !args.canDeliver()) {
+    return "silent";
+  }
+  return "web-sound";
+}
+
 /**
  * POST `notification_intent_result` to the daemon via the cloud platform's
  * runtime proxy. Mirrors the macOS client's
@@ -729,15 +775,9 @@ export async function postLocalNotification(
   }
 
   if (!isNotificationsSupported()) {
-    if (args.assistantId && args.deliveryId) {
-      await sendNotificationIntentAck(
-        args.assistantId,
-        args.deliveryId,
-        false,
-        "Notifications not supported on this client",
-      );
-    }
-    return "web-sound";
+    return notificationFailureSound(
+      args, "Notifications not supported on this client",
+    );
   }
 
   // Electron path: route through the main-process bridge which uses
@@ -790,15 +830,9 @@ export async function postLocalNotification(
     return acknowledgeSuppressedNotification(args);
   }
   if (permission !== "granted") {
-    if (args.assistantId && args.deliveryId) {
-      await sendNotificationIntentAck(
-        args.assistantId,
-        args.deliveryId,
-        false,
-        `Notification authorization ${permission}`,
-      );
-    }
-    return "web-sound";
+    return notificationFailureSound(
+      args, `Notification authorization ${permission}`,
+    );
   }
 
   const conversationId = extractConversationId(args.deepLinkMetadata);
@@ -815,6 +849,7 @@ export async function postLocalNotification(
   let success = true;
   let errorMessage: string | undefined;
   let nativeSoundOwned = false;
+  let webSoundOwned = true;
 
   if (isNativePlatform()) {
     // Foreground native pushes use a local banner. Hidden pushes use the OS
@@ -997,14 +1032,7 @@ export async function postLocalNotification(
       errorMessage = err instanceof Error ? err.message : String(err);
     }
   } else {
-    const key = notificationDeliveryKey(args.correlationId, args.deliveryId);
-    const tag = JSON.stringify([
-      args.identity?.scopeId ?? null,
-      args.identity?.assistantId ?? args.assistantId ?? null,
-      key.status === "valid"
-        ? key.value
-        : `${args.sourceEventName}:${args.title}:${args.body}`,
-    ]);
+    const { tag, receiptKey } = browserNotificationDeliveryKey(args);
     const options: NotificationOptions = {
       body: args.body,
       tag,
@@ -1013,7 +1041,7 @@ export async function postLocalNotification(
     const icon = browserNotificationIcon(senderResolution);
     try {
       const result = await browserNotificationDelivery.post(
-        args.identity && key.status === "valid" ? tag : null,
+        receiptKey,
         () => {
           let n: Notification;
           if (icon) {
@@ -1043,9 +1071,17 @@ export async function postLocalNotification(
         return "silent";
       }
     } catch (err) {
-      success = false;
-      errorMessage = err instanceof Error ? err.message : String(err);
+      return notificationFailureSound(
+        args, err instanceof Error ? err.message : String(err),
+      );
     }
+    const sound = await browserNotificationDelivery.claimSound(
+      receiptKey, args.canDeliver, browserConversationKey,
+    );
+    if (sound === "cancelled" || (args.canDeliver && !args.canDeliver())) {
+      return "silent";
+    }
+    webSoundOwned = sound === "claimed";
   }
 
   if (args.assistantId && args.deliveryId) {
@@ -1056,7 +1092,13 @@ export async function postLocalNotification(
       errorMessage,
     );
   }
-  return nativeSoundOwned ? "native-owned" : "web-sound";
+  if (browserHost && args.canDeliver && !args.canDeliver()) {
+    return "silent";
+  }
+  if (nativeSoundOwned) {
+    return "native-owned";
+  }
+  return webSoundOwned ? "web-sound" : "silent";
 }
 
 export interface ForegroundRemotePushContext {

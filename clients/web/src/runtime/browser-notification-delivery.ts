@@ -5,6 +5,9 @@ import { captureError } from "@/lib/sentry/capture-error";
 import { mintRandomId } from "@/lib/telemetry/random-id";
 
 const STORAGE_KEY = "vellum:browser-notification-deliveries:v1";
+const SOUND_STORAGE_KEY = "vellum:browser-notification-sounds:v1";
+const DATABASE_NAME = "vellum-browser-notifications";
+const RECEIPTS_STORE = "receipts";
 const MAX_DELIVERIES = 128;
 const RETENTION_MS = 10 * 60_000;
 const ATTENTION_PREFIX = "vellum:browser-notification-attention:v1:";
@@ -12,7 +15,30 @@ const ATTENTION_TTL_MS = 15_000;
 const ATTENTION_REFRESH_MS = 5_000;
 
 type DeliveryResult = "posted" | "duplicate" | "cancelled" | "suppressed";
+type ClaimResult = "claimed" | Exclude<DeliveryResult, "posted">;
 type Receipt = [key: string, expiresAt: number];
+
+function openReceiptDatabase(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DATABASE_NAME, 1);
+    let blocked = false;
+    request.onupgradeneeded = () => {
+      request.result.createObjectStore(RECEIPTS_STORE);
+    };
+    request.onsuccess = () => {
+      if (blocked) {
+        request.result.close();
+      } else {
+        resolve(request.result);
+      }
+    };
+    request.onerror = () => reject(request.error);
+    request.onblocked = () => {
+      blocked = true;
+      reject(new Error("Notification receipt database is blocked"));
+    };
+  });
+}
 
 export function browserNotificationConversationKey(
   identity: NotificationIdentity | null | undefined,
@@ -23,9 +49,10 @@ export function browserNotificationConversationKey(
     : null;
 }
 
-/** One instance per page; Web Locks serialize the same-origin receipt ledger. */
+/** One instance per page; IndexedDB transactions serialize shared receipts. */
 export class BrowserNotificationDelivery {
   private recent = new Map<string, number>();
+  private recentSounds = new Map<string, number>();
   private attentionReaders = new Set<() => string | null>();
 
   /** Publish attention before an intent arrives, including in other tabs. */
@@ -115,7 +142,9 @@ export class BrowserNotificationDelivery {
 
   resetForTests(): void {
     this.recent.clear();
+    this.recentSounds.clear();
     localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(SOUND_STORAGE_KEY);
   }
 
   async post(
@@ -124,7 +153,31 @@ export class BrowserNotificationDelivery {
     canDeliver: () => boolean = () => true,
     conversationKey: string | null = null,
   ): Promise<DeliveryResult> {
-    const claim = (): DeliveryResult => {
+    const result = await this.claim(
+      "post", key, deliver, canDeliver, conversationKey,
+    );
+    return result === "claimed" ? "posted" : result;
+  }
+
+  /** Reserve web sound independently of whether the browser accepted a banner. */
+  claimSound(
+    key: string | null,
+    canDeliver: () => boolean = () => true,
+    conversationKey: string | null = null,
+  ): Promise<ClaimResult> {
+    return this.claim("sound", key, () => undefined, canDeliver, conversationKey);
+  }
+
+  private async claim(
+    kind: "post" | "sound",
+    key: string | null,
+    deliver: () => void,
+    canDeliver: () => boolean,
+    conversationKey: string | null,
+  ): Promise<ClaimResult> {
+    const storageKey = kind === "post" ? STORAGE_KEY : SOUND_STORAGE_KEY;
+    const recent = kind === "post" ? this.recent : this.recentSounds;
+    const claim = (storedReceipts?: unknown): ClaimResult => {
       if (!canDeliver()) {
         return "cancelled";
       }
@@ -133,13 +186,14 @@ export class BrowserNotificationDelivery {
       }
       if (!key) {
         deliver();
-        return "posted";
+        return "claimed";
       }
       const now = Date.now();
       let receipts: Receipt[] = [];
       try {
-        const value: unknown = JSON.parse(
-          localStorage.getItem(STORAGE_KEY) ?? "[]",
+        // Seed missing database rows from localStorage receipts.
+        const value: unknown = storedReceipts ?? JSON.parse(
+          localStorage.getItem(storageKey) ?? "[]",
         );
         if (Array.isArray(value)) {
           receipts = value
@@ -155,31 +209,94 @@ export class BrowserNotificationDelivery {
       } catch (error) {
         captureError(error, { context: "browser_notification.read_receipts" });
       }
-      this.recent = new Map(
-        [...this.recent, ...receipts]
-          .filter(([, expiresAt]) => expiresAt > now)
-          .slice(-MAX_DELIVERIES),
-      );
-      if (this.recent.has(key)) {
+      for (const [receiptKey, expiresAt] of receipts) {
+        recent.set(receiptKey, Math.max(expiresAt, recent.get(receiptKey) ?? 0));
+      }
+      const currentReceipts = [...recent]
+        .filter(([, expiresAt]) => expiresAt > now)
+        .sort((first, second) => first[1] - second[1])
+        .slice(-MAX_DELIVERIES);
+      recent.clear();
+      for (const [receiptKey, expiresAt] of currentReceipts) {
+        recent.set(receiptKey, expiresAt);
+      }
+      if (recent.has(key)) {
         return "duplicate";
       }
-      // Posting is synchronous inside the lock. A failed post retains no
-      // claim, so another tab can attempt the same delivery.
+      // A throwing browser post retains no receipt so another tab can retry.
       deliver();
-      this.recent.set(key, now + RETENTION_MS);
-      this.recent = new Map([...this.recent].slice(-MAX_DELIVERIES));
+      recent.set(key, now + RETENTION_MS);
+      if (recent.size > MAX_DELIVERIES) {
+        const oldest = recent.keys().next().value;
+        if (oldest !== undefined) {
+          recent.delete(oldest);
+        }
+      }
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify([...this.recent]));
+        localStorage.setItem(storageKey, JSON.stringify([...recent]));
       } catch (error) {
         captureError(error, { context: "browser_notification.write_receipts" });
       }
-      return "posted";
+      return "claimed";
     };
+
+    if (key && typeof indexedDB !== "undefined") {
+      let enteredClaim = false;
+      try {
+        const db = await openReceiptDatabase();
+        try {
+          return await new Promise<ClaimResult>((resolve, reject) => {
+            const transaction = db.transaction(RECEIPTS_STORE, "readwrite");
+            const store = transaction.objectStore(RECEIPTS_STORE);
+            const request = store.get(storageKey);
+            let result: ClaimResult | undefined;
+            let claimError: unknown;
+            request.onsuccess = () => {
+              enteredClaim = true;
+              try {
+                result = claim(request.result);
+                if (result === "claimed" || result === "duplicate") {
+                  store.put([...recent], storageKey);
+                }
+              } catch (error) {
+                claimError = error;
+                transaction.abort();
+              }
+            };
+            transaction.oncomplete = () => {
+              if (result === undefined) {
+                reject(new Error("Notification receipt transaction completed without a claim"));
+              } else {
+                resolve(result);
+              }
+            };
+            transaction.onabort = () => {
+              const error = claimError ?? transaction.error;
+              if (result === undefined) {
+                reject(error);
+              } else {
+                // The side effect already ran; keep its in-page receipt and
+                // never retry it because durable storage failed to commit.
+                captureError(error, { context: "browser_notification.commit_receipt" });
+                resolve(result);
+              }
+            };
+          });
+        } finally {
+          db.close();
+        }
+      } catch (error) {
+        if (enteredClaim) {
+          throw error;
+        }
+        captureError(error, { context: "browser_notification.open_receipts" });
+      }
+    }
 
     if (key && typeof navigator !== "undefined" && navigator.locks?.request) {
       let enteredClaim = false;
       try {
-        return await navigator.locks.request(STORAGE_KEY, () => {
+        return await navigator.locks.request(storageKey, () => {
           enteredClaim = true;
           return claim();
         });
@@ -190,8 +307,7 @@ export class BrowserNotificationDelivery {
         captureError(error, { context: "browser_notification.acquire_lock" });
       }
     }
-    // Older browsers retain page-local deduplication and a shared OS tag.
-    // Without Web Locks the same-origin read/write is not atomic.
+    // Browsers without IndexedDB retain best-effort coordination and an OS tag.
     return claim();
   }
 }
