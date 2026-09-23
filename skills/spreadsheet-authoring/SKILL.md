@@ -33,6 +33,24 @@ the total should be, and a summary sheet of formulas comes out blank.
 So: write the computed value next to every formula. Compute it in Python,
 where the data already is.
 
+## Install the two packages first
+
+Both come from PyPI and neither is there by default. Run this once at the
+start of the task; the import check makes it a no-op when they are already
+installed.
+
+```bash
+python3 -c "import xlsxwriter, openpyxl" 2>/dev/null \
+  || pip install --user --quiet XlsxWriter==3.2.9 openpyxl==3.1.5 \
+  || pip install --user --quiet --break-system-packages XlsxWriter==3.2.9 openpyxl==3.1.5
+```
+
+Use `pip`, not `python3 -m pip`. Some environments mark the system Python as
+externally managed, and the second form is refused there outright. If both
+attempts fail, build a virtualenv somewhere that persists
+(`python3 -m venv .venv`), install into it, and run the scripts below with
+`.venv/bin/python`.
+
 ## Writing a new workbook
 
 Use XlsxWriter. `write_formula(row, col, formula, format, value)` takes the
@@ -93,24 +111,34 @@ it for the whole column.
 
 ## Editing a workbook that already exists
 
-XlsxWriter only writes new files. openpyxl edits in place, and it keeps the
-values already cached in the file, but any formula it adds has none. Two ways
-through it:
+XlsxWriter only writes new files, and openpyxl does not preserve cached
+results. A cell's formula and the value it produced are two separate things in
+the file, and openpyxl holds only one of them: loaded the default way it keeps
+the formula and discards the value, loaded with `data_only=True` it keeps the
+value and discards the formula. A save writes back what it kept. So saving an
+existing workbook with openpyxl leaves every formula in it without a result,
+including the ones the edit never touched, and the totals go blank in a
+preview.
 
+Three ways through it, best first:
+
+- Rebuild the file with XlsxWriter from the data, writing every formula with
+  its value as above. This is the only path that guarantees the result, and it
+  is usually cleaner than patching.
+- Save with openpyxl, then hand the file to a formula engine to fill the
+  values back in. LibreOffice computes the formulas it finds without results
+  and writes them out when it saves:
+
+  ```bash
+  soffice --headless --convert-to xlsx --outdir out/ book.xlsx
+  ```
+
+  `--outdir` has to differ from the input's directory, and LibreOffice is not
+  installed everywhere. Verify the output rather than assuming it worked.
 - Write the literal computed value instead of a formula, when the user does
   not need the formula itself.
-- Rebuild the file with XlsxWriter from the data, which is usually cleaner
-  than patching.
 
-Where LibreOffice is installed, it recalculates on load and can write the
-result back:
-
-```bash
-soffice --headless --convert-to xlsx --outdir out/ book.xlsx
-```
-
-That is optional and not available everywhere, so verify the output rather
-than assuming it worked.
+Whichever path, run the check below on the file you are about to send.
 
 ## Verify before sharing
 
