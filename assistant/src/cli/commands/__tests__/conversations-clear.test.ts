@@ -6,8 +6,10 @@ import { Command } from "commander";
 let lastIpcCall: { method: string; params?: Record<string, unknown> } | null =
   null;
 const loggerCalls: { level: string; msg: string }[] = [];
-let promptAnswer = "";
+// null simulates EOF (Ctrl+D): readline emits close without answering.
+let promptAnswer: string | null = "";
 let prompted = false;
+let stderrOutput = "";
 
 mock.module("../../../ipc/cli-client.js", () => ({
   cliIpcCall: async (method: string, params?: Record<string, unknown>) => {
@@ -37,14 +39,28 @@ mock.module("../../../util/logger.js", () => ({
   getCurrentLogFilePath: () => "/tmp/test-assistant.log",
 }));
 
-mock.module("node:readline", () => ({
-  createInterface: () => ({
+function fakeInterface() {
+  let onClose = () => {};
+  return {
     question: (_q: string, cb: (a: string) => void) => {
       prompted = true;
-      cb(promptAnswer);
+      if (promptAnswer === null) {
+        queueMicrotask(() => onClose());
+      } else {
+        cb(promptAnswer);
+      }
+    },
+    on: (event: string, cb: () => void) => {
+      if (event === "close") {
+        onClose = cb;
+      }
     },
     close: () => {},
-  }),
+  };
+}
+mock.module("node:readline", () => ({
+  default: { createInterface: fakeInterface },
+  createInterface: fakeInterface,
 }));
 
 // node:fs must stay fully functional for conversations.js's heavy import graph.
@@ -71,16 +87,23 @@ async function runClear(args: string[]): Promise<number> {
 }
 
 const savedIsTTY = process.stdin.isTTY;
+const realStderrWrite = process.stderr.write.bind(process.stderr);
 
 beforeEach(() => {
   lastIpcCall = null;
   loggerCalls.length = 0;
   prompted = false;
+  stderrOutput = "";
   process.exitCode = 0;
+  process.stderr.write = ((chunk: string) => {
+    stderrOutput += chunk;
+    return true;
+  }) as typeof process.stderr.write;
 });
 
 afterEach(() => {
   process.stdin.isTTY = savedIsTTY;
+  process.stderr.write = realStderrWrite;
 });
 
 describe("conversations clear", () => {
@@ -110,9 +133,15 @@ describe("conversations clear", () => {
     expect(await runClear([])).toBe(1);
     expect(prompted).toBe(false);
     expect(lastIpcCall).toBeNull();
-    expect(
-      loggerCalls.some((c) => c.level === "error" && c.msg.includes("--yes")),
-    ).toBe(true);
+    expect(stderrOutput).toContain("--yes");
+  });
+
+  test("interactive: EOF cancels instead of hanging", async () => {
+    process.stdin.isTTY = true;
+    promptAnswer = null;
+    expect(await runClear([])).toBe(0);
+    expect(lastIpcCall).toBeNull();
+    expect(loggerCalls.some((c) => c.msg === "Cancelled")).toBe(true);
   });
 
   test("non-TTY with --yes clears without prompting", async () => {

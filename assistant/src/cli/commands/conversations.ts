@@ -8,6 +8,7 @@ import {
   exitFromIpcResult,
 } from "../../ipc/cli-client.js";
 import { applyCommandHelp, subcommand } from "../lib/cli-command-help.js";
+import { confirmPrompt } from "../lib/confirm-prompt.js";
 import { registerCommand } from "../lib/register-command.js";
 import { timeAgo } from "../lib/time-ago.js";
 import { log } from "../logger.js";
@@ -504,23 +505,17 @@ export function registerConversationsCommand(program: Command): void {
           );
 
           if (!opts.yes) {
-            if (!process.stdin.isTTY) {
-              log.error(
+            const confirm = await confirmPrompt({
+              question: "Are you sure? (y/N) ",
+              isTTY: Boolean(process.stdin.isTTY),
+              refuseNonInteractiveMessage:
                 "Refusing to clear without confirmation: stdin is not a terminal. Re-run with --yes to confirm.",
-              );
+            });
+            if (confirm === "non-interactive") {
               process.exitCode = 1;
               return;
             }
-            const readline = await import("node:readline");
-            const rl = readline.createInterface({
-              input: process.stdin,
-              output: process.stdout,
-            });
-            const answer = await new Promise<string>((resolve) => {
-              rl.question("Are you sure? (y/N) ", resolve);
-            });
-            rl.close();
-            if (answer.toLowerCase() !== "y") {
+            if (confirm === "denied") {
               log.info("Cancelled");
               return;
             }
