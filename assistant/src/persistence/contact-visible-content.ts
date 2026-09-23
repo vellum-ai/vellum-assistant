@@ -14,13 +14,18 @@
 
 import { MessageAudienceSchema } from "@vellumai/gateway-client";
 
+import { readProviderMetadata } from "../messaging/read-provider-metadata.js";
 import type {
   ContentBlock,
   TextContent,
   WorkspaceRefMediaSource,
 } from "../providers/types.js";
 import { isPlainObject } from "../util/object.js";
-import { isEchoSuppressedUserMessage } from "./conversation-types.js";
+import {
+  isEchoSuppressedUserMessage,
+  isNoResponseMetadata,
+  isReactionMessageMetadata,
+} from "./conversation-types.js";
 import {
   isPrivateAssistantText,
   projectUserFacingContent,
@@ -94,6 +99,21 @@ function audienceAdmits(
   return audience.success && audience.data.userId === reader.principalId;
 }
 
+/**
+ * Whether the row records a reaction, in either direction. Its text is a
+ * storage sentinel and the reaction itself lives in the metadata envelope.
+ */
+function isReactionRow(
+  metadata: Record<string, unknown>,
+  metadataJson: string,
+): boolean {
+  return (
+    isReactionMessageMetadata(metadata) ||
+    (metadataJson.includes("reaction") &&
+      readProviderMetadata(metadataJson)?.eventKind === "reaction")
+  );
+}
+
 function referenceSource(source: unknown): WorkspaceRefMediaSource | null {
   if (!isPlainObject(source) || source.type !== "workspace_ref") {
     return null;
@@ -164,7 +184,9 @@ function contactVisibleBlock(block: ContentBlock): ContactVisibleBlock | null {
 /**
  * The blocks of a stored row that a contact may read, in order. A row that is
  * internal scaffolding, restricted to another reader, or whose metadata cannot
- * be read projects to nothing.
+ * be read projects to nothing. So do a deliberate silence and a reaction:
+ * their only content is a stored sentinel, which clients never render as
+ * text.
  *
  * Reasoning is dropped on every row, whether or not it carries the `private`
  * marker. That marker only decides whether the model's plain text was a
@@ -180,6 +202,13 @@ export function projectRowForContact(
   if (
     metadata === null ||
     isEchoSuppressedUserMessage(metadata) ||
+    isNoResponseMetadata(metadata) ||
+    isReactionRow(
+      metadata,
+      typeof row.metadata === "string"
+        ? row.metadata
+        : JSON.stringify(metadata),
+    ) ||
     !audienceAdmits(metadata, reader)
   ) {
     return [];

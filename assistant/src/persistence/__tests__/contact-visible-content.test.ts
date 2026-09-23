@@ -1,11 +1,16 @@
 import { describe, expect, test } from "bun:test";
 
+import { buildReactionRowEnvelope } from "../../messaging/reaction-envelopes.js";
 import type { ContentBlock } from "../../providers/types.js";
 import {
   type ContactReader,
   MESSAGE_AUDIENCE_METADATA_KEY,
   projectRowForContact,
 } from "../contact-visible-content.js";
+import {
+  NO_RESPONSE_MESSAGE_KIND,
+  REACTION_MESSAGE_KIND,
+} from "../conversation-types.js";
 import { ASSISTANT_TEXT_VISIBILITY_KEY } from "../user-facing-content.js";
 
 const ALICE: ContactReader = { principalId: "principal-alice" };
@@ -211,6 +216,38 @@ describe("projectRowForContact", () => {
     ]) {
       expect(projectRowForContact({ content, metadata }, ALICE)).toEqual([]);
     }
+  });
+
+  test("drops a deliberate silence", () => {
+    const content: ContentBlock[] = [{ type: "text", text: "<no_response/>" }];
+    const metadata = JSON.stringify({ messageKind: NO_RESPONSE_MESSAGE_KIND });
+    expect(projectRowForContact({ content, metadata }, ALICE)).toEqual([]);
+  });
+
+  describe("reaction", () => {
+    const content: ContentBlock[] = [{ type: "text", text: "[reaction]" }];
+    const facts = {
+      channel: "telegram",
+      chatId: "chat-1",
+      targetMessageId: "msg-1",
+      emoji: "thumbsup",
+      op: "added",
+    } as const;
+
+    test("drops the assistant's own reaction", () => {
+      const metadata = {
+        messageKind: REACTION_MESSAGE_KIND,
+        ...buildReactionRowEnvelope(facts),
+      };
+      expect(projectRowForContact({ content, metadata }, ALICE)).toEqual([]);
+    });
+
+    test("drops an inbound reaction", () => {
+      const metadata = JSON.stringify(
+        buildReactionRowEnvelope({ ...facts, actorDisplayName: "Bob" }),
+      );
+      expect(projectRowForContact({ content, metadata }, ALICE)).toEqual([]);
+    });
   });
 
   test("drops a row whose metadata cannot be read", () => {
