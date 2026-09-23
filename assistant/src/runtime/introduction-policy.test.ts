@@ -3,10 +3,10 @@ import { describe, expect, test } from "bun:test";
 import {
   bindingStrengthForVerifiedVia,
   buildIntroductionActions,
-  canCompleteHandshake,
   isHandshakeOffered,
   isWorkspaceVouchedIdentity,
   parseRequesterSignals,
+  requesterCanCompleteHandshake,
   resolveTrustBinding,
   serializeRequesterSignals,
   VERIFIED_VIA_CHANNEL_CLAIM,
@@ -119,7 +119,7 @@ describe("handshake policy", () => {
   });
 
   test("not offered on email: the code has no route to the sender", () => {
-    expect(canCompleteHandshake("email", {})).toBe(false);
+    expect(requesterCanCompleteHandshake("email", {})).toBe(false);
     expect(isHandshakeOffered("email", {})).toBe(false);
     expect(isHandshakeOffered("email", { isStranger: true })).toBe(false);
   });

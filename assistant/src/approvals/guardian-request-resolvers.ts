@@ -46,9 +46,9 @@ import {
 } from "../runtime/channel-approval-types.js";
 import { deliverChannelReply } from "../runtime/gateway-client.js";
 import {
-  canCompleteHandshake,
   introductionMode,
   parseRequesterSignals,
+  requesterCanCompleteHandshake,
   type RequesterIdentitySignals,
   resolveTrustBinding,
 } from "../runtime/introduction-policy.js";
@@ -684,7 +684,10 @@ function deriveAccessRequestDecision(
   // (a bot, an email sender) is coerced to direct trust: the guardian's
   // intent ("let them in") is unambiguous. Logged once, in `prepare` (this
   // derivation runs again in `resolve`).
-  if (outcome === "verify_code" && !canCompleteHandshake(channel, signals)) {
+  if (
+    outcome === "verify_code" &&
+    !requesterCanCompleteHandshake(channel, signals)
+  ) {
     outcome = "trust";
   }
 

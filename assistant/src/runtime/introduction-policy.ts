@@ -206,7 +206,7 @@ export interface IntroductionActionOption {
  * already checked on every message (a `From:` that fails DMARC/DKIM reaches
  * the runtime as a stranger).
  */
-export function canCompleteHandshake(
+export function requesterCanCompleteHandshake(
   sourceChannel: string | undefined,
   signals: RequesterIdentitySignals,
 ): boolean {
@@ -217,7 +217,7 @@ export function canCompleteHandshake(
  * Whether the verification handshake is offered for this requester.
  *
  * The handshake is the exception, not the default:
- * - never where it cannot complete (see {@link canCompleteHandshake});
+ * - never where it cannot complete (see {@link requesterCanCompleteHandshake});
  * - not for workspace-vouched identities — the platform already
  *   authenticated them;
  * - not on voice — a phone call has no text handshake path;
@@ -227,7 +227,7 @@ export function isHandshakeOffered(
   sourceChannel: string | undefined,
   signals: RequesterIdentitySignals,
 ): boolean {
-  if (!canCompleteHandshake(sourceChannel, signals)) {
+  if (!requesterCanCompleteHandshake(sourceChannel, signals)) {
     return false;
   }
   if (sourceChannel === "phone") {
