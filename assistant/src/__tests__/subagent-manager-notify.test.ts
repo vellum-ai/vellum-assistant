@@ -43,6 +43,7 @@ import type { SubagentState } from "../subagent/types.js";
 interface FakeManagedSubagent {
   conversation: {
     abort: () => void;
+    abortScheduledRun?: (runId: string) => void;
     dispose: () => void;
     messages: Array<{
       role: string;
@@ -796,4 +797,33 @@ describe("SubagentManager sendMessage validation", () => {
     expect(await manager.sendMessage(subagentId, "   ")).toBe("empty");
     expect(await manager.sendMessage(subagentId, "\n\t")).toBe("empty");
   });
+});
+
+describe("scheduled subagent cancellation", () => {
+  for (const owned of [true, false]) {
+    test(`cancels only run-owned child work (owned=${owned})`, () => {
+      const manager = new SubagentManager();
+      const state = makeState("task-schedule");
+      state.config.cronRunId = owned ? "run-timeout" : "run-other";
+      injectFakeSubagent(manager, "task-schedule", state);
+      const child =
+        asInternals(manager).subagents.get("task-schedule")!.conversation!;
+      const abort = mock(() => {});
+      const abortScheduledRun = mock((_runId: string) => {});
+      child.abort = abort;
+      child.abortScheduledRun = abortScheduledRun;
+      expect(
+        manager.abort("task-schedule", undefined, undefined, {
+          cronRunId: "run-timeout",
+        }),
+      ).toBe(owned);
+      expect(abort).not.toHaveBeenCalled();
+      expect(abortScheduledRun).toHaveBeenCalledTimes(owned ? 1 : 0);
+      if (owned) {
+        expect(abortScheduledRun).toHaveBeenCalledWith("run-timeout");
+      }
+      expect(state.status).toBe(owned ? "aborted" : "running");
+      asInternals(manager).stopSweep();
+    });
+  }
 });

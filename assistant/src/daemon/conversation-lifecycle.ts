@@ -34,6 +34,7 @@ import { getLogger } from "../util/logger.js";
 import { unregisterCallNotifiers } from "./conversation-notifiers.js";
 import type {
   MessageQueue,
+  QueuedMessage,
   QueueDrainReason,
 } from "./conversation-queue-manager.js";
 import { resetSkillToolProjection } from "./conversation-skill-tools.js";
@@ -131,6 +132,7 @@ export function reinjectInterruptTurnNote(
 
 export interface AbortContext {
   readonly conversationId: string;
+  readonly currentTurnCronRunId?: string | null;
   isProcessing(): boolean;
   setProcessing(value: boolean): void;
   abortController: AbortController | null;
@@ -269,8 +271,17 @@ function preserveQueueAcrossInterrupt(
  * suppressed for the same reason they get no queued ack: they have no client
  * row to close.
  */
-function discardQueueOnAbort(ctx: AbortContext): void {
-  for (const queued of ctx.queue) {
+function discardQueueOnAbort(
+  ctx: AbortContext,
+  shouldDiscard?: (queued: QueuedMessage) => boolean,
+): void {
+  for (const queued of [...ctx.queue]) {
+    if (shouldDiscard && !shouldDiscard(queued)) {
+      continue;
+    }
+    if (shouldDiscard) {
+      ctx.queue.removeByRequestId(queued.requestId);
+    }
     queued.onEvent({
       type: "generation_cancelled",
       conversationId: ctx.conversationId,
@@ -287,7 +298,20 @@ function discardQueueOnAbort(ctx: AbortContext): void {
         : {}),
     });
   }
-  ctx.queue.clear();
+  if (!shouldDiscard) {
+    ctx.queue.clear();
+  }
+}
+
+/** Cancel only the scheduled firing's queued continuations and active turn. */
+export function abortScheduledRun(ctx: AbortContext, runId: string): void {
+  discardQueueOnAbort(ctx, (queued) => queued.cronRunId === runId);
+  if (ctx.currentTurnCronRunId === runId) {
+    abortConversation(
+      ctx,
+      createAbortReason("schedule_timeout", "scheduler", ctx.conversationId),
+    );
+  }
 }
 
 export function abortConversation(
@@ -344,10 +368,11 @@ export function abortConversation(
     ctx.setProcessing(false);
   }
 
-  // The queue decision is independent of the processing flag: an interrupt
-  // hands its queue to the drain, and every other abort kind is a teardown
-  // that must take the queue with it even when the flag already reads idle.
-  if (isUserInterruptAbort(effectiveReason)) {
+  // Interrupts and run-scoped timeouts preserve the remaining queue for the drain.
+  if (
+    isUserInterruptAbort(effectiveReason) ||
+    effectiveReason.kind === "schedule_timeout"
+  ) {
     // An idle conversation counts as having a live turn for drain purposes:
     // either a turn is unwinding toward its own `kickDrainQueue`, or the queue
     // is empty. Kicking a second drain here would race the first.

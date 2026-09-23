@@ -36,9 +36,11 @@ mock.module("../../messaging/providers/telegram-bot/render.js", () => ({
   renderTelegramHtml: () => undefined,
 }));
 
-const { abortConversation } = await import("../conversation-lifecycle.js");
+const { abortConversation, abortScheduledRun } =
+  await import("../conversation-lifecycle.js");
 import { createAbortReason } from "../../util/abort-reasons.js";
 import type { AbortContext } from "../conversation-lifecycle.js";
+import { MessageQueue } from "../conversation-queue-manager.js";
 
 interface QueuedEvent {
   type: string;
@@ -307,4 +309,53 @@ describe("abortConversation", () => {
     expect(h.prompterDisposed()).toBe(false);
     expect(h.ctx.queue.length).toBe(0);
   });
+});
+
+describe("run-scoped schedule timeout", () => {
+  for (const activeRunId of ["run-timeout", "run-other", null, undefined]) {
+    test(`preserves unrelated queued work with active owner ${String(activeRunId)}`, () => {
+      const controller = new AbortController();
+      const h = makeContext({ processing: true, controller });
+      const queue = new MessageQueue();
+      const events: Array<{ requestId: string; type: string }> = [];
+      const owners = [
+        undefined,
+        "run-timeout",
+        "run-other",
+        "run-timeout",
+        null,
+      ];
+      for (const [index, cronRunId] of owners.entries()) {
+        const requestId = `request-${index}`;
+        queue.push({
+          requestId,
+          cronRunId,
+          content: "Queued work",
+          attachments: [],
+          sentAt: index,
+          onEvent: (event) => events.push({ requestId, type: event.type }),
+        });
+      }
+      const ctx = { ...h.ctx, queue, currentTurnCronRunId: activeRunId };
+      const bytesBefore = queue.totalBytes;
+      abortScheduledRun(ctx, "run-timeout");
+      expect(queue.snapshot().map((message) => message.requestId)).toEqual([
+        "request-0",
+        "request-2",
+        "request-4",
+      ]);
+      expect(queue.totalBytes).toBe((bytesBefore * 3) / 5);
+      expect(events).toEqual([
+        { requestId: "request-1", type: "generation_cancelled" },
+        { requestId: "request-1", type: "message_queued_deleted" },
+        { requestId: "request-3", type: "generation_cancelled" },
+        { requestId: "request-3", type: "message_queued_deleted" },
+      ]);
+      expect(controller.signal.aborted).toBe(activeRunId === "run-timeout");
+      expect(ctx.pendingInterruptRepair).toBe(activeRunId === "run-timeout");
+      expect(h.prompterDisposed()).toBe(activeRunId === "run-timeout");
+      expect(h.secretPrompterDisposed()).toBe(activeRunId === "run-timeout");
+      expect(h.setProcessingCalls).toEqual([]);
+    });
+  }
 });

@@ -90,6 +90,11 @@ import type { AssistantEvent } from "../api/index.js";
 import { getConfig } from "../config/loader.js";
 import type { Conversation } from "../daemon/conversation.js";
 import {
+  type AbortContext,
+  abortScheduledRun,
+} from "../daemon/conversation-lifecycle.js";
+import { MessageQueue } from "../daemon/conversation-queue-manager.js";
+import {
   clearConversations,
   setConversation,
 } from "../daemon/conversation-registry.js";
@@ -132,7 +137,10 @@ function latestAssistantText(conversationId: string): string | undefined {
  * run delegated. Returns a handle that settles it, mirroring what a real
  * child's teardown does.
  */
-function attachRunningChild(parentConversationId: string): {
+function attachRunningChild(
+  parentConversationId: string,
+  cronRunId?: string,
+): {
   settle: () => void;
 } {
   const manager = getSubagentManager();
@@ -148,13 +156,14 @@ function attachRunningChild(parentConversationId: string): {
     >;
     parentToChildren: Map<string, Set<string>>;
   };
-  const subagentId = `sub-${parentConversationId}`;
+  const subagentId = `sub-${parentConversationId}-${cronRunId ?? "default"}`;
   const entry = {
     conversation: null,
     state: {
       config: {
         id: subagentId,
         parentConversationId,
+        cronRunId,
         label: "advisor",
         objective: "Advise on the briefing",
         role: "advisor",
@@ -169,7 +178,10 @@ function attachRunningChild(parentConversationId: string): {
     runInFlight: true,
   };
   internals.subagents.set(subagentId, entry);
-  internals.parentToChildren.set(parentConversationId, new Set([subagentId]));
+  const children =
+    internals.parentToChildren.get(parentConversationId) ?? new Set<string>();
+  children.add(subagentId);
+  internals.parentToChildren.set(parentConversationId, children);
   return {
     settle: () => {
       entry.state.status = "completed";
@@ -418,10 +430,12 @@ describe("schedule result notification wiring", () => {
             "assistant",
             "The report is still running.",
           );
+          const cronRunId = getScheduleRuns(schedule.id)[0].id;
           setConversation(conversationId, {
             hasInFlightWork: () =>
               getSubagentManager().hasActiveChildren(conversationId),
-            abort: () => {
+            abortScheduledRun: (runId: string) => {
+              expect(runId).toBe(cronRunId);
               parentAborted = true;
             },
           } as unknown as Conversation);
@@ -446,13 +460,14 @@ describe("schedule result notification wiring", () => {
           } else {
             let toolConversationId = conversationId;
             if (kind === "subagent") {
-              attachRunningChild(conversationId);
+              attachRunningChild(conversationId, cronRunId);
               toolConversationId =
                 getSubagentManager().getChildrenOf(conversationId)[0]
                   .conversationId;
             }
             registerBackgroundTool({
               id: "bg-timeout",
+              cronRunId,
               conversationId: toolConversationId,
               toolName: kind,
               command: "generate-report",
@@ -491,6 +506,105 @@ describe("schedule result notification wiring", () => {
         }
       });
     }
+  }
+
+  for (const userTurnActive of [true, false]) {
+    test(`timeout preserves unrelated work (user turn active=${userTurnActive})`, async () => {
+      const timeouts = getConfig().timeouts;
+      setConfig("timeouts", { ...timeouts, scheduleTurnTimeoutSec: 1 });
+      const schedule = await createSchedule({
+        name: "Report",
+        message: "Prepare a report",
+        syntax: "cron",
+        expression: "0 9 * * *",
+        maxRetries: 1,
+      });
+      forceScheduleDue(schedule.id);
+      const controller = new AbortController();
+      const queue = new MessageQueue();
+      const userEvents: string[] = [];
+      const cancelledTools: string[] = [];
+      let conversationId = "";
+      let runId = "";
+      let settleUserChild: (() => void) | undefined;
+      delegateOnRun = (id) => {
+        conversationId = id;
+        runId = getScheduleRuns(schedule.id)[0].id;
+        const ctx = {
+          conversationId: id,
+          currentTurnCronRunId: userTurnActive ? undefined : runId,
+          isProcessing: () => true,
+          setProcessing: () => {},
+          abortController: controller,
+          queue,
+          pendingInterruptRepair: false,
+          prompter: { dispose: () => {} },
+          secretPrompter: { dispose: () => {} },
+          pendingSurfaceActions: new Map(),
+          surfaceActionRequestIds: new Set(),
+          surfaceState: new Map(),
+          accumulatedSurfaceState: new Map(),
+          kickDrainQueue: async () => {},
+        } as unknown as AbortContext;
+        setConversation(id, {
+          ...ctx,
+          hasInFlightWork: () => true,
+          abortScheduledRun: (run: string) => abortScheduledRun(ctx, run),
+        } as unknown as Conversation);
+        for (const owner of [undefined, runId, "run-other"]) {
+          queue.push({
+            content: "Follow-up",
+            attachments: [],
+            requestId: `queued-${owner ?? "user"}`,
+            sentAt: Date.now(),
+            cronRunId: owner,
+            onEvent: (event) => {
+              if (owner !== runId) {
+                userEvents.push(event.type);
+              }
+            },
+          });
+          const id = `tool-${owner ?? "user"}`;
+          registerBackgroundTool({
+            id,
+            cronRunId: owner,
+            conversationId,
+            toolName: "bash",
+            command: "example-command",
+            startedAt: Date.now(),
+            cancel: () => {
+              cancelledTools.push(id);
+              removeBackgroundTool(id);
+            },
+          });
+        }
+        attachRunningChild(id, runId);
+        settleUserChild = attachRunningChild(id).settle;
+      };
+      try {
+        await runDueSchedulesOnce();
+        expect(controller.signal.aborted).toBe(!userTurnActive);
+        expect(queue.snapshot().map((message) => message.requestId)).toEqual([
+          "queued-user",
+          "queued-run-other",
+        ]);
+        expect(userEvents).toEqual([]);
+        expect(cancelledTools).toEqual([`tool-${runId}`]);
+        const children = getSubagentManager().getChildrenOf(conversationId);
+        expect(
+          children.find((child) => child.config.cronRunId === runId)?.status,
+        ).toBe("aborted");
+        expect(
+          children.find((child) => child.config.cronRunId === undefined)
+            ?.status,
+        ).toBe("running");
+        expect(producerCalls).toHaveLength(0);
+      } finally {
+        settleUserChild?.();
+        _clearRegistryForTesting();
+        setConfig("timeouts", timeouts);
+      }
+    });
   }
 
   test("captures runStartedAt before the run, not after", async () => {

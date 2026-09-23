@@ -3958,6 +3958,7 @@ describe("scheduled wake cancellation", () => {
     const deps = { resolveTarget: async () => conversation };
     const wake = wakeAgentForOpportunity(options, deps);
     const signal = await running.promise;
+    expect(conversation.currentTurnCronRunId).toBe("run-123");
     const queuedWake = wakeAgentForOpportunity(options, deps);
     scheduleRunStatus = "error";
     conversation.abortController!.abort();
@@ -3970,12 +3971,14 @@ describe("scheduled wake cancellation", () => {
     expect(conversation.runCalls).toHaveLength(1);
     expect(conversation.isProcessing()).toBe(false);
     expect(conversation.abortController).toBeNull();
+    expect(conversation.currentTurnCronRunId).toBeUndefined();
   });
 
   test("a timeout during compaction never starts the scheduled loop", async () => {
     scheduleRunStatus = "running";
     const conversation = makeWakeConversation({});
     conversation.maybeCompact = async () => {
+      expect(conversation.currentTurnCronRunId).toBe("run-123");
       scheduleRunStatus = "error";
       conversation.abortController!.abort();
       return null;
@@ -3994,5 +3997,6 @@ describe("scheduled wake cancellation", () => {
     expect(conversation.runCalls).toHaveLength(0);
     expect(conversation.isProcessing()).toBe(false);
     expect(conversation.abortController).toBeNull();
+    expect(conversation.currentTurnCronRunId).toBeUndefined();
   });
 });

@@ -34,7 +34,6 @@ import {
   cancelBackgroundTools,
   hasBackgroundToolWork,
 } from "../tools/background-tool-registry.js";
-import { createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import { describeScheduleSource } from "../util/schedule-source-key.js";
 import {
@@ -157,17 +156,24 @@ async function awaitDelegatedWork(
   return false;
 }
 
-function cancelTimedOutScheduleWork(conversationId: string): void {
+function cancelTimedOutScheduleWork(
+  conversationId: string,
+  runId: string,
+): void {
   const manager = getSubagentManager();
   for (const child of manager.getChildrenOf(conversationId)) {
-    cancelTimedOutScheduleWork(child.conversationId);
+    if (child.config.cronRunId !== runId) {
+      continue;
+    }
+    cancelTimedOutScheduleWork(child.conversationId, runId);
+    manager.abort(child.config.id, undefined, conversationId, {
+      cronRunId: runId,
+    });
   }
-  manager.abortAllForParent(conversationId);
-  findConversation(conversationId)?.abort(
-    createAbortReason("schedule_timeout", "scheduler", conversationId),
-  );
+  findConversation(conversationId)?.abortScheduledRun(runId);
   cancelBackgroundTools(
-    (tool) => tool.conversationId === conversationId,
+    (tool) =>
+      tool.conversationId === conversationId && tool.cronRunId === runId,
     "schedule_timeout",
   );
 }
@@ -1247,7 +1253,7 @@ export async function runDueSchedulesOnce(
       );
       await completeScheduleRun(runId, { status: "error", error: errorMsg });
       if (errorKind === "timeout") {
-        cancelTimedOutScheduleWork(conversationId);
+        cancelTimedOutScheduleWork(conversationId, runId);
       }
       await handleExecutionFailure({
         job,

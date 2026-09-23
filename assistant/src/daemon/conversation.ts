@@ -130,6 +130,7 @@ import type { HistoryConversationContext } from "./conversation-history.js";
 import { undo as undoImpl } from "./conversation-history.js";
 import {
   abortConversation,
+  abortScheduledRun,
   disposeConversation,
   reinjectAttachmentPathAnnotations,
   reinjectInterruptTurnNote,
@@ -2502,6 +2503,10 @@ export class Conversation {
 
   abort(reason?: AbortReason): void {
     abortConversation(this, reason);
+  }
+
+  abortScheduledRun(runId: string): void {
+    abortScheduledRun(this, runId);
   }
 
   dispose(): void {

@@ -935,8 +935,10 @@ export async function wakeAgentForOpportunity(
     const scheduleAbortController = opts.cronRunId
       ? new AbortController()
       : undefined;
+    const priorScheduledRunId = conversation.currentTurnCronRunId;
     if (scheduleAbortController) {
       conversation.abortController = scheduleAbortController;
+      conversation.currentTurnCronRunId = opts.cronRunId;
     }
     conversation.setProcessing(true);
 
@@ -1455,6 +1457,13 @@ export async function wakeAgentForOpportunity(
      * is one function rather than a rebuild bolted onto either half.
      */
     const restoreWakeTurnScope = (): void => {
+      if (
+        scheduleAbortController &&
+        conversation.abortController === scheduleAbortController
+      ) {
+        conversation.abortController = null;
+        conversation.currentTurnCronRunId = priorScheduledRunId;
+      }
       desktopAutomationLease.releaseForConversation(conversationId);
       restoreWakeAllowedTools();
       clearWakePersonaOverride();
@@ -1866,12 +1875,6 @@ export async function wakeAgentForOpportunity(
 
       return { invoked: true, producedToolCalls, ...exitReasonField() };
     } finally {
-      if (
-        scheduleAbortController &&
-        conversation.abortController === scheduleAbortController
-      ) {
-        conversation.abortController = null;
-      }
       if (
         opts.backgroundToolCompletion &&
         wakeTriggerMessageId &&

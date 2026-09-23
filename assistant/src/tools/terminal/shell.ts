@@ -499,6 +499,7 @@ export const shellTool = {
 
       registerBackgroundTool({
         id: bgId,
+        cronRunId,
         toolName: "bash",
         conversationId: context.conversationId,
         command,

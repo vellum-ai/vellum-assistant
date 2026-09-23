@@ -1331,6 +1331,8 @@ export class SubagentManager {
     callerConversationId?: string,
     options?: {
       suppressNotification?: boolean;
+      /** Restricts cancellation to one schedule firing while preserving user turns. */
+      cronRunId?: string;
       /**
        * Replaces the default "explicitly aborted, do not retry" injection for
        * an abort the parent did not ask for, whose right follow-up differs.
@@ -1340,6 +1342,12 @@ export class SubagentManager {
   ): boolean {
     const managed = this.subagents.get(subagentId);
     if (!managed) {
+      return false;
+    }
+    if (
+      options?.cronRunId &&
+      managed.state.config.cronRunId !== options.cronRunId
+    ) {
       return false;
     }
     if (TERMINAL_STATUSES.has(managed.state.status)) {
@@ -1361,13 +1369,17 @@ export class SubagentManager {
       return false;
     }
 
-    managed.conversation?.abort(
-      createAbortReason(
-        "subagent_aborted",
-        "SubagentManager.abort",
-        managed.conversation.conversationId,
-      ),
-    );
+    if (options?.cronRunId) {
+      managed.conversation?.abortScheduledRun(options.cronRunId);
+    } else {
+      managed.conversation?.abort(
+        createAbortReason(
+          "subagent_aborted",
+          "SubagentManager.abort",
+          managed.conversation.conversationId,
+        ),
+      );
+    }
     managed.state.completedAt = Date.now();
     // Capture the conversation's latest usage before emitting the terminal
     // status. `subagent_status_changed` ships `state.usage`, and the abort path

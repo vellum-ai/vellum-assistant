@@ -171,6 +171,10 @@ describe("host_bash background mode — proxy path", () => {
           context,
         );
         context.cronRunId = "cron-run-later";
+        const ownedCommand = (
+          mockRegisterBackgroundTool.mock.calls as unknown[][]
+        )[0]![0] as BackgroundTool;
+        expect(ownedCommand.cronRunId).toBe(cronRunId ?? undefined);
         const cancelled =
           outcome === "cancelled" || outcome === "cancelled-rejection";
         if (cancelled) {
@@ -375,6 +379,10 @@ describe("host_bash background mode — direct execution path", () => {
           context,
         );
         context.cronRunId = "cron-run-later";
+        const ownedCommand = (
+          mockRegisterBackgroundTool.mock.calls as unknown[][]
+        )[0]![0] as BackgroundTool;
+        expect(ownedCommand.cronRunId).toBe(cronRunId ?? undefined);
         if (outcome === "cancelled") {
           const registered = (
             mockRegisterBackgroundTool.mock.calls as unknown[][]

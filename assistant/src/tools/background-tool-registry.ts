@@ -16,6 +16,8 @@ export interface BackgroundTool {
   /** Tool type identifier (e.g. "bash", "host_bash"). */
   toolName: string;
   conversationId: string;
+  /** Scheduled firing that owns this command, absent for user-owned work. */
+  cronRunId?: string;
   command: string;
   startedAt: number;
   /** Kills the process (bash) or aborts the proxy (host_bash). */

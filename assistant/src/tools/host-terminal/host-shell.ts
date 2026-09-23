@@ -381,6 +381,7 @@ export const hostShellTool = {
 
         registerBackgroundTool({
           id: bgId,
+          cronRunId,
           toolName: "host_bash",
           conversationId: context.conversationId,
           command,
@@ -605,6 +606,7 @@ export const hostShellTool = {
 
       registerBackgroundTool({
         id: bgId,
+        cronRunId,
         toolName: "host_bash",
         conversationId: context.conversationId,
         command,

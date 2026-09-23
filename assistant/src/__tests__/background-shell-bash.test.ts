@@ -260,6 +260,7 @@ describe("bash tool background mode", () => {
           context,
         );
         context.cronRunId = "cron-run-later";
+        expect(registeredTools[0]!.cronRunId).toBe(cronRunId ?? undefined);
         if (outcome === "cancelled") {
           registeredTools[0]!.cancel();
         }
