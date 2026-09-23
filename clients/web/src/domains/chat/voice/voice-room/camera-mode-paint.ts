@@ -144,6 +144,25 @@ export const CAMERA_MEDIA_GLASS_CLASS =
   "bg-black/45 text-white backdrop-blur-sm";
 
 /**
+ * The "Photo or Live?" explainer's own paint: the dark sheet it is drawn on,
+ * the two inks that sit on it, the fills that tell its two cards apart, the
+ * gradient behind its illustrations, and the scrim it dims the feed with.
+ *
+ * Fixed values for the reason the file header gives. The sheet covers a running
+ * viewfinder, so a theme surface would flip with the app while the frame under
+ * it never changed. Scoped to the camera, not new global ramps.
+ */
+export const CAMERA_SHEET_SURFACE = "#1c1a19";
+export const CAMERA_SHEET_INK = "#f4f1ec";
+export const CAMERA_SHEET_INK_MUTED = "rgba(244,241,236,.55)";
+export const CAMERA_SHEET_CARD_CLASS = "border border-white/10 bg-white/6";
+export const CAMERA_SHEET_CARD_LIVE_CLASS =
+  "border border-[rgba(207,67,112,.35)] bg-[rgba(207,67,112,.10)]";
+export const CAMERA_SHEET_THUMB_GRADIENT =
+  "linear-gradient(160deg,#6c6862,#4b4844)";
+export const CAMERA_SHEET_SCRIM_CLASS = "bg-black/58 backdrop-blur-[4px]";
+
+/**
  * The `--camera-*` vars as an inline style, for the element that owns a piece
  * of camera chrome. Mirrors the `voiceSurfaceStyle` pattern next door.
  */
