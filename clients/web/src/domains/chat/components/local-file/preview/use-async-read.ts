@@ -1,7 +1,8 @@
 /**
  * Run one asynchronous read per source and drop a reply that lands after the
  * source changed or the component unmounted, which is the shape every reader
- * in the document drawer needs to turn a blob into something renderable.
+ * in the document drawer needs to turn a blob into something renderable. The
+ * state handed back always belongs to the source the caller passed.
  */
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -13,14 +14,23 @@ export interface AsyncRead<T> {
   failed: boolean;
 }
 
-/** Shared so a second `setState` with nothing read yet bails out. */
-const PENDING = { value: null, failed: false } as const;
+/** A read tagged with the source it answers, which only the hook sees. */
+interface Read<S, T> extends AsyncRead<T> {
+  source: S;
+}
+
+/** Shared so a state belonging to another source reads as one object. */
+const PENDING: AsyncRead<never> = { value: null, failed: false };
 
 export function useAsyncRead<S, T>(
   source: S,
   read: (source: S) => Promise<T>,
 ): AsyncRead<T> {
-  const [state, setState] = useState<AsyncRead<T>>(PENDING);
+  const [state, setState] = useState<Read<S, T>>({
+    source,
+    value: null,
+    failed: false,
+  });
 
   // Only `source` starts a read, so the caller may pass an inline closure
   // without every render restarting the one in flight.
@@ -31,16 +41,17 @@ export function useAsyncRead<S, T>(
 
   useEffect(() => {
     let cancelled = false;
-    setState(PENDING);
+    // Releases the previous source's value while the new read is in flight.
+    setState({ source, value: null, failed: false });
     latestRead.current(source).then(
       (value) => {
         if (!cancelled) {
-          setState({ value, failed: false });
+          setState({ source, value, failed: false });
         }
       },
       () => {
         if (!cancelled) {
-          setState({ value: null, failed: true });
+          setState({ source, value: null, failed: true });
         }
       },
     );
@@ -49,5 +60,8 @@ export function useAsyncRead<S, T>(
     };
   }, [source]);
 
-  return state;
+  // A reply that belongs to a source no longer current reads as pending, so
+  // the render right after the source changes never shows the previous
+  // source's value.
+  return state.source === source ? state : PENDING;
 }
