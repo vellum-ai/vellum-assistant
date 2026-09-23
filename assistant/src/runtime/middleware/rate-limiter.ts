@@ -275,20 +275,22 @@ export function selectAuthenticatedRateLimiter(
  *   must always answer. The desktop app polls `/v1/health` every few seconds
  *   and the reachability probe hits `/v1/healthz`; a 429 makes the client
  *   treat the assistant as unreachable and reconnect harder.
- * - SSE stream (`events`): a single long-lived streaming connection, not a
- *   burst of discrete requests. Metering each (re)connect against the
- *   per-minute budget is the wrong model — and 429-ing the stream drops it,
- *   which drives a client reconnect + full re-bootstrap loop that generates
- *   far more load than the limiter saves. The events route still enforces
- *   auth downstream (an unauthenticated stream request is rejected there),
- *   and daemon memory is bounded by SSE backpressure shedding and subscriber
- *   caps rather than by this request-count limiter.
+ * - SSE streams (`events`, `shared/events`): each a long-lived streaming
+ *   connection, not a burst of discrete requests. Metering each (re)connect
+ *   against the per-minute budget is the wrong model, and 429-ing a stream
+ *   drops it, which drives a client reconnect + full re-bootstrap loop that
+ *   generates far more load than the limiter saves. The stream routes still
+ *   enforce auth downstream (an unauthenticated stream request is rejected
+ *   there), and daemon memory is bounded by SSE backpressure shedding and
+ *   subscriber caps (per contact for `shared/events`) rather than by this
+ *   request-count limiter.
  *
  * The argument is the `/v1/`-stripped, trailing-slash-normalized endpoint
  * segment (e.g. `events`, `health`) as computed by the HTTP server.
  */
 const RATE_LIMIT_EXEMPT_ENDPOINTS = new Set([
   "events",
+  "shared/events",
   "health",
   "healthz",
   "readyz",

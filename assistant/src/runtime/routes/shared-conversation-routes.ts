@@ -41,7 +41,7 @@ import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 const DEFAULT_MESSAGE_LIMIT = 50;
 const MAX_MESSAGE_LIMIT = 500;
 
-const POLICY: RoutePolicy = {
+export const POLICY: RoutePolicy = {
   requiredScopes: ["shared.read"],
   allowedPrincipalTypes: ["actor"],
   allowedTrustClasses: TRUSTED_CONTACT_ONLY,
@@ -98,7 +98,9 @@ function serializeConversation(conversation: ConversationRow) {
  * The caller's principal. Trust enforcement has already required one, so a
  * request without it is refused as if the route did not exist.
  */
-function readerFrom(headers: RouteHandlerArgs["headers"]): ContactReader {
+export function readerFrom(
+  headers: RouteHandlerArgs["headers"],
+): ContactReader {
   const principalId = headers?.["x-vellum-actor-principal-id"]?.trim();
   if (!principalId) {
     throw new NotFoundError("Not found");

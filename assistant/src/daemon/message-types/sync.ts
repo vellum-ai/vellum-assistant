@@ -28,6 +28,9 @@ export const SYNC_TAGS = {
    *  Invalidated when a token write retires them, so a client holding a
    *  restored prompt for the replaced token stops offering it. */
   acpAuthRecovery: "acp:auth-recovery",
+  /** The conversations shared with one contact. Sent only on that contact's
+   *  shared event stream, when they join or leave a conversation. */
+  sharedConversationsList: "shared-conversations:list",
 } as const;
 
 export type KnownSyncInvalidationTag =

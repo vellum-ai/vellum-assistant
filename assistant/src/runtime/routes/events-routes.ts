@@ -23,6 +23,7 @@ import { type IntervalHistogram, monitorEventLoopDelay } from "node:perf_hooks";
 import { sanitizeClientMetadataValue } from "@vellumai/service-contracts/client-metadata";
 import { z } from "zod";
 
+import type { AssistantEventEnvelope } from "../../api/index.js";
 import type { HostProxyCapability, InterfaceId } from "../../channels/types.js";
 import { parseInterfaceId, supportsHostProxy } from "../../channels/types.js";
 import { notifyContactsChanged } from "../../contacts/notify-contacts-changed.js";
@@ -34,6 +35,7 @@ import type {
   AssistantEventCallback,
   AssistantEventFilter,
   AssistantEventSubscription,
+  SubscriberPool,
 } from "../assistant-event-hub.js";
 import {
   AssistantEventHub,
@@ -43,16 +45,22 @@ import type { SubscriberIdentity } from "../assistant-event-targeting.js";
 import { getReplayWindow } from "../assistant-stream-state.js";
 import { ACTOR_PRINCIPALS, GATEWAY_PRINCIPALS } from "../auth/route-policy.js";
 import { DEFAULT_HEARTBEAT_INTERVAL_MS } from "../client-health.js";
+import { createContactEventProjection } from "../contact-event-projection.js";
 import {
   resolveActorPrincipalIdForLocalGuardian,
   resolveActorPrincipalIdForLocalGuardianSync,
 } from "../local-actor-identity.js";
+import { resolveSharedPrincipalFresh } from "../shared-principal-lookup.js";
 import {
   BadRequestError,
   NotFoundError,
   ServiceUnavailableError,
 } from "./errors.js";
 import { parseBody } from "./parse-body.js";
+import {
+  POLICY as SHARED_READ_POLICY,
+  readerFrom,
+} from "./shared-conversation-routes.js";
 import { startActorPrincipalHeal } from "./sse-actor-principal-heal.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -263,6 +271,13 @@ const defaultSseShedReporter: SseShedReporter = (reason, inst) => {
  *   heartbeatIntervalMs -- how often to emit keep-alive comments (default 7 s).
  *   shedReporter      -- override the callback invoked when a subscriber is shed
  *                        under backpressure (defaults to a log line).
+ *   project           -- the frames to send in place of each event, replay
+ *                        included; an empty result drops the event. Defaults
+ *                        to sending every event as is.
+ *   stillAuthorized   -- checked on every heartbeat; the stream closes when it
+ *                        resolves false or rejects.
+ *   pool              -- caps the subscription within its own pool rather
+ *                        than the hub-wide cap (see `SubscriberPool`).
  */
 export function handleSubscribeAssistantEvents(
   args: RouteHandlerArgs,
@@ -270,6 +285,9 @@ export function handleSubscribeAssistantEvents(
     hub?: AssistantEventHub;
     heartbeatIntervalMs?: number;
     shedReporter?: SseShedReporter;
+    project?: (event: AssistantEventEnvelope) => AssistantEventEnvelope[];
+    stillAuthorized?: () => Promise<boolean>;
+    pool?: SubscriberPool;
   },
 ): ReadableStream<Uint8Array> {
   const { queryParams, headers, abortSignal } = args;
@@ -326,6 +344,8 @@ export function handleSubscribeAssistantEvents(
   const heartbeatIntervalMs =
     options?.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS;
   const shedReporter = options?.shedReporter ?? defaultSseShedReporter;
+  const project = options?.project ?? ((event) => [event]);
+  const stillAuthorized = options?.stillAuthorized;
 
   // Resolve the scope. `conversationId` (when supplied) is the
   // assistant-minted internal id — looked up directly; 404 if absent.
@@ -404,14 +424,20 @@ export function handleSubscribeAssistantEvents(
       return;
     }
     try {
+      const frames = project(event);
+      if (frames.length === 0) {
+        return;
+      }
       if (controller.desiredSize != null && controller.desiredSize <= 0) {
         shedReporter("callback_backpressure", instrumentation);
         sub.dispose("shed_backpressure");
         cleanup();
         return;
       }
-      controller.enqueue(encoder.encode(formatSseFrame(event)));
-      instrumentation.eventsDelivered += 1;
+      for (const frame of frames) {
+        controller.enqueue(encoder.encode(formatSseFrame(frame)));
+        instrumentation.eventsDelivered += 1;
+      }
     } catch {
       sub.dispose();
       cleanup();
@@ -423,6 +449,7 @@ export function handleSubscribeAssistantEvents(
       filter,
       callback,
       onEvict: cleanup,
+      pool: options?.pool,
     };
 
     sub =
@@ -526,8 +553,10 @@ export function handleSubscribeAssistantEvents(
           );
           if (window !== null) {
             for (const replayed of window) {
-              controller.enqueue(encoder.encode(formatSseFrame(replayed)));
-              instrumentation.eventsDelivered += 1;
+              for (const frame of project(replayed)) {
+                controller.enqueue(encoder.encode(formatSseFrame(frame)));
+                instrumentation.eventsDelivered += 1;
+              }
               if (replayed.seq != null && replayed.seq > highWaterReplaySeq) {
                 highWaterReplaySeq = replayed.seq;
               }
@@ -554,7 +583,17 @@ export function handleSubscribeAssistantEvents(
           } catch {
             sub.dispose();
             cleanup();
+            return;
           }
+          const close = () => {
+            sub.dispose();
+            cleanup();
+          };
+          void stillAuthorized?.().then((authorized) => {
+            if (!authorized) {
+              close();
+            }
+          }, close);
         }, heartbeatIntervalMs);
 
         abortSignal?.addEventListener(
@@ -575,6 +614,49 @@ export function handleSubscribeAssistantEvents(
   );
 
   return stream;
+}
+
+/** Concurrent shared event streams one contact may hold. */
+export const SHARED_STREAMS_PER_PRINCIPAL = 3;
+
+/**
+ * A trusted contact's event stream: every event of the conversations shared
+ * with them, as {@link createContactEventProjection} rewrites it, and nothing
+ * else.
+ *
+ * It rides the same subscription as the guardian's stream, registered as a
+ * process subscriber with no conversation filter and no replay, whatever the
+ * request carries. The contact never registers as a client, so no targeted
+ * or host-proxy event can reach them and their client id cannot displace the
+ * guardian's connection. Each principal's streams form their own pool of
+ * {@link SHARED_STREAMS_PER_PRINCIPAL}, outside the hub-wide cap, so opening
+ * another evicts only that principal's oldest stream and never a guardian
+ * connection. Trust was checked when the stream opened and is read again,
+ * uncached, on every heartbeat; a contact that no longer resolves as trusted,
+ * or whose trust cannot be read, has the stream closed.
+ */
+export function handleSubscribeSharedEvents(
+  { headers, abortSignal }: RouteHandlerArgs,
+  options?: {
+    hub?: AssistantEventHub;
+    heartbeatIntervalMs?: number;
+  },
+): ReadableStream<Uint8Array> {
+  const { principalId } = readerFrom(headers);
+  return handleSubscribeAssistantEvents(
+    { abortSignal },
+    {
+      ...options,
+      project: createContactEventProjection(principalId),
+      pool: {
+        key: `shared:${principalId}`,
+        limit: SHARED_STREAMS_PER_PRINCIPAL,
+      },
+      stillAuthorized: async () =>
+        (await resolveSharedPrincipalFresh(principalId)).trustClass ===
+        "trusted_contact",
+    },
+  );
 }
 
 /**
@@ -706,6 +788,12 @@ const EmitEventBodySchema = z.object({
   kind: z.enum(["contacts_changed"]),
 });
 
+const SSE_RESPONSE_HEADERS = {
+  "Content-Type": "text/event-stream",
+  "Cache-Control": "no-cache",
+  Connection: "keep-alive",
+};
+
 export const ROUTES: RouteDefinition[] = [
   {
     operationId: "emit_event",
@@ -757,12 +845,22 @@ export const ROUTES: RouteDefinition[] = [
           "Optional reconnect cursor: the highest global event seq the client has already applied. `seq` is a single per-assistant counter shared across all conversations, so one cursor resumes the stream regardless of how many conversations are multiplexed on the connection. When set, the daemon replays any buffered events with seq > lastSeenSeq (re-applying the subscriber's targeting/scope filter) before going live. If the cursor is older than the ring buffer's oldest entry the connection simply goes live; the client is expected to detect the gap from the next event's seq and refetch via the messages API. Must be a non-negative integer.",
       },
     ],
-    responseHeaders: {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
-    },
+    responseHeaders: SSE_RESPONSE_HEADERS,
     handler: (args) => handleSubscribeAssistantEvents(args),
+  },
+  {
+    operationId: "subscribeSharedEvents",
+    endpoint: "shared/events",
+    method: "GET",
+    policy: SHARED_READ_POLICY,
+    summary: "Subscribe to shared conversation events",
+    description:
+      "Stream events for the conversations shared with the calling contact as Server-Sent Events. " +
+      "Carries message and metadata invalidations, title changes and activity state, and never message content: " +
+      "the contact reads messages through the shared conversation routes.",
+    tags: ["shared"],
+    responseHeaders: SSE_RESPONSE_HEADERS,
+    handler: (args) => handleSubscribeSharedEvents(args),
   },
   {
     operationId: "events_tail_get",

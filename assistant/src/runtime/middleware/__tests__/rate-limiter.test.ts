@@ -73,6 +73,7 @@ describe("isRateLimitExemptEndpoint", () => {
     // Streaming: 429-ing the events stream drops it and drives a client
     // reconnect + re-bootstrap storm, so it bypasses the per-minute limiter.
     expect(isRateLimitExemptEndpoint("events")).toBe(true);
+    expect(isRateLimitExemptEndpoint("shared/events")).toBe(true);
     // Liveness/readiness probes must always answer.
     expect(isRateLimitExemptEndpoint("health")).toBe(true);
     expect(isRateLimitExemptEndpoint("healthz")).toBe(true);
@@ -85,6 +86,7 @@ describe("isRateLimitExemptEndpoint", () => {
     expect(isRateLimitExemptEndpoint("home/feed")).toBe(false);
     // Match is exact on the normalized endpoint segment, not a prefix.
     expect(isRateLimitExemptEndpoint("events/replay")).toBe(false);
+    expect(isRateLimitExemptEndpoint("shared/conversations")).toBe(false);
     expect(isRateLimitExemptEndpoint("")).toBe(false);
   });
 });
