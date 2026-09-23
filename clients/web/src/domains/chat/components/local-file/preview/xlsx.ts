@@ -510,24 +510,106 @@ export const MAX_ZIP_ENTRIES = 10_000;
 /** Signature the end of central directory record opens with. */
 const ZIP_DIRECTORY_END = 0x06054b50;
 
-/** The record's own 22 bytes, plus the longest comment one can sit behind. */
-const ZIP_DIRECTORY_END_SEARCH = 22 + 65_535;
+/** Bytes that record holds, before the comment it can carry. */
+const ZIP_DIRECTORY_END_BYTES = 22;
 
-/**
- * How many entries the container's own directory declares, or `null` when the
- * bytes carry no directory at all, which is a file for the zip reader to turn
- * down rather than this. A ZIP64 container spells `0xffff` here and holds its
- * real count elsewhere, which is past anything the preview opens anyway.
- */
-function zipEntryCount(bytes: ArrayBuffer): number | null {
-  const view = new DataView(bytes);
-  const from = Math.max(0, view.byteLength - ZIP_DIRECTORY_END_SEARCH);
-  for (let at = view.byteLength - 22; at >= from; at -= 1) {
-    if (view.getUint32(at, true) === ZIP_DIRECTORY_END) {
-      return view.getUint16(at + 10, true);
+/** Signature each central file header opens with. */
+const ZIP_CENTRAL_HEADER = 0x02014b50;
+
+/** Bytes that header holds, before the name, extra, and comment it carries. */
+const ZIP_CENTRAL_HEADER_BYTES = 46;
+
+/** The values a record spells when its real ones live in a ZIP64 record. */
+const MAX_UINT16 = 0xffff;
+const MAX_UINT32 = 0xffff_ffff;
+
+/** Whether `signature` sits at `at`, which the end of the bytes rules out. */
+function signatureAt(view: DataView, at: number, signature: number): boolean {
+  return (
+    at >= 0 &&
+    at + 4 <= view.byteLength &&
+    view.getUint32(at, true) === signature
+  );
+}
+
+/** Where `signature` sits last in `bytes`, which is where the reader looks. */
+function lastSignatureAt(bytes: Uint8Array, signature: number): number {
+  const first = signature & 0xff;
+  const second = (signature >> 8) & 0xff;
+  const third = (signature >> 16) & 0xff;
+  const fourth = (signature >>> 24) & 0xff;
+  for (let at = bytes.length - 4; at >= 0; at -= 1) {
+    if (
+      bytes[at] === first &&
+      bytes[at + 1] === second &&
+      bytes[at + 2] === third &&
+      bytes[at + 3] === fourth
+    ) {
+      return at;
     }
   }
-  return null;
+  return -1;
+}
+
+/**
+ * How many entries the zip reader would take out of these bytes, which is not
+ * the count the container declares: the walk follows the reader's own. It
+ * takes the last end of central directory record in the file, shifts every
+ * offset by the bytes sitting in front of the directory the way the reader
+ * does, and then counts central file headers from there for as long as their
+ * signature holds. Counting stops once it passes `cap`, so a crafted
+ * directory costs the cap rather than its own length. `null` leaves the file
+ * to the reader to turn down itself, and a ZIP64 container, whose real bounds
+ * sit in a record of its own, counts as past the cap: it holds more entries
+ * than a preview opens or is larger than one reads.
+ */
+function zipEntryCount(bytes: ArrayBuffer, cap: number): number | null {
+  const data = new Uint8Array(bytes);
+  const view = new DataView(bytes);
+  const at = lastSignatureAt(data, ZIP_DIRECTORY_END);
+  if (at < 0 || at + ZIP_DIRECTORY_END_BYTES > data.length) {
+    return null;
+  }
+  const size = view.getUint32(at + 12, true);
+  const offset = view.getUint32(at + 16, true);
+  if (
+    view.getUint16(at + 4, true) === MAX_UINT16 ||
+    view.getUint16(at + 6, true) === MAX_UINT16 ||
+    view.getUint16(at + 8, true) === MAX_UINT16 ||
+    view.getUint16(at + 10, true) === MAX_UINT16 ||
+    size === MAX_UINT32 ||
+    offset === MAX_UINT32
+  ) {
+    return cap + 1;
+  }
+  const directoryEnds = offset + size;
+  if (at < directoryEnds) {
+    // The reader turns down a record sitting in front of the directory it
+    // names, so the file is its to report on.
+    return null;
+  }
+  // Bytes in front of the directory shift every offset it holds, unless a
+  // header already sits where the record says the directory ends.
+  const shift = signatureAt(view, at, ZIP_CENTRAL_HEADER)
+    ? 0
+    : at - directoryEnds;
+  let scan = shift + offset;
+  let entries = 0;
+  while (
+    scan + ZIP_CENTRAL_HEADER_BYTES <= data.length &&
+    signatureAt(view, scan, ZIP_CENTRAL_HEADER)
+  ) {
+    entries += 1;
+    if (entries > cap) {
+      return entries;
+    }
+    scan +=
+      ZIP_CENTRAL_HEADER_BYTES +
+      view.getUint16(scan + 28, true) +
+      view.getUint16(scan + 30, true) +
+      view.getUint16(scan + 32, true);
+  }
+  return entries;
 }
 
 /**
@@ -2273,15 +2355,13 @@ export async function parseWorkbook(
   // An ArrayBuffer rather than the Blob, so one call covers the browser and
   // the test runner.
   const bytes = await blob.arrayBuffer();
-  const entries = zipEntryCount(bytes);
+  const maxZipEntries = options.maxZipEntries ?? MAX_ZIP_ENTRIES;
   // Before the reader is handed the bytes, since it holds every entry it
   // finds whether or not a workbook is among them.
-  if (
-    entries !== null &&
-    entries > (options.maxZipEntries ?? MAX_ZIP_ENTRIES)
-  ) {
+  const entries = zipEntryCount(bytes, maxZipEntries);
+  if (entries !== null && entries > maxZipEntries) {
     throw new Error(
-      `Not a workbook: ${entries} zip entries is more than the preview reads`,
+      `Not a workbook: it holds more than ${maxZipEntries} zip entries`,
     );
   }
   const zip = await JSZip.loadAsync(bytes);

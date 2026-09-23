@@ -226,6 +226,48 @@ function straddledCommentSheetXml(commentAt: number, markers: number): string {
   )}</sheetData></worksheet>`;
 }
 
+/** A package of four parts and the one folder they sit in, five entries. */
+function flatPackageParts(): Record<string, string> {
+  return {
+    "_rels/.rels": `<Relationships xmlns="${PACKAGE_RELATIONSHIP_NS}"><Relationship Id="rId1" Type="${RELATIONSHIP_NS}/officeDocument" Target="wb.xml"/></Relationships>`,
+    "wb.xml": workbookPartXml(),
+    "_rels/wb.xml.rels": `<Relationships xmlns="${PACKAGE_RELATIONSHIP_NS}"><Relationship Id="rId1" Type="${RELATIONSHIP_NS}/worksheet" Target="s1.xml"/></Relationships>`,
+    "s1.xml": sheetXml(rowXml(1, "alpha")),
+  };
+}
+
+/** Where the last end of central directory record sits, as a reader looks. */
+function lastRecordAt(view: DataView): number {
+  for (let at = view.byteLength - 22; at >= 0; at -= 1) {
+    if (view.getUint32(at, true) === 0x06054b50) {
+      return at;
+    }
+  }
+  return -1;
+}
+
+/**
+ * The same container with a second end of central directory record after it,
+ * declaring `count` entries while naming the directory the first one names,
+ * which is what a reader walks whatever the count says.
+ */
+async function withTrailingRecord(blob: Blob, count: number): Promise<Blob> {
+  const original = new Uint8Array(await blob.arrayBuffer());
+  const directoryAt = new DataView(original.buffer).getUint32(
+    lastRecordAt(new DataView(original.buffer)) + 16,
+    true,
+  );
+  const bytes = new Uint8Array(original.length + 22);
+  bytes.set(original);
+  const record = new DataView(bytes.buffer, original.length);
+  record.setUint32(0, 0x06054b50, true);
+  record.setUint16(8, count, true);
+  record.setUint16(10, count, true);
+  record.setUint32(12, original.length - directoryAt, true);
+  record.setUint32(16, directoryAt, true);
+  return new Blob([bytes]);
+}
+
 /** A one-sheet workbook part, as raw XML. */
 function workbookPartXml(): string {
   return `<workbook xmlns="${MAIN_NS}" xmlns:r="${RELATIONSHIP_NS}"><sheets><sheet name="Data" sheetId="1" r:id="rId1"/></sheets></workbook>`;
@@ -1949,14 +1991,7 @@ describe("parseWorkbook", () => {
   });
 
   test("rejects a container with more entries than the preview reads", async () => {
-    // Four parts and the one folder they sit in, which the container holds an
-    // entry for as well.
-    const parts = {
-      "_rels/.rels": `<Relationships xmlns="${PACKAGE_RELATIONSHIP_NS}"><Relationship Id="rId1" Type="${RELATIONSHIP_NS}/officeDocument" Target="wb.xml"/></Relationships>`,
-      "wb.xml": workbookPartXml(),
-      "_rels/wb.xml.rels": `<Relationships xmlns="${PACKAGE_RELATIONSHIP_NS}"><Relationship Id="rId1" Type="${RELATIONSHIP_NS}/worksheet" Target="s1.xml"/></Relationships>`,
-      "s1.xml": sheetXml(rowXml(1, "alpha")),
-    };
+    const parts = flatPackageParts();
 
     await expect(
       parseWorkbook(await partsBlob(parts), { maxZipEntries: 4 }),
@@ -1967,6 +2002,37 @@ describe("parseWorkbook", () => {
     });
 
     expect((await parsed.sheets[0]!.read()).rows).toEqual([["alpha"]]);
+  });
+
+  test("counts the entries the reader reaches, not the count a record declares", async () => {
+    const crafted = await withTrailingRecord(
+      await partsBlob(flatPackageParts()),
+      1,
+    );
+
+    // The record the reader takes declares one entry and names the directory
+    // holding all five, which is what it reads.
+    await expect(parseWorkbook(crafted, { maxZipEntries: 4 })).rejects.toThrow(
+      "zip entries",
+    );
+
+    const parsed = await parseWorkbook(crafted, { maxZipEntries: 5 });
+
+    expect((await parsed.sheets[0]!.read()).rows).toEqual([["alpha"]]);
+  });
+
+  test("leaves a container whose last record names no directory to the reader", async () => {
+    const blob = await partsBlob(
+      flatPackageParts(),
+      `PK\u0005\u0006${"\u0000".repeat(18)}trailing`,
+    );
+
+    // The record inside the comment names a directory that holds nothing, so
+    // the count the preview reads is zero and the reader has the last word:
+    // it opens a container of no entries, which carries no workbook.
+    await expect(parseWorkbook(blob)).rejects.toThrow(
+      "xl/workbook.xml is missing",
+    );
   });
 
   test("reads the entry count through a trailing zip comment", async () => {
