@@ -33,6 +33,10 @@
       "unreachable": "Unreachable"
     }
   },
+  "homeUpdatesList": {
+    "titleOne": "Skill updated: {name}",
+    "titleMany": "{count, plural, one {# skill} other {# skills}} updated"
+  },
   "notificationsBell": {
     "ariaLabel": "Notifications",
     "ariaLabelUnread": "Notifications (unread)",

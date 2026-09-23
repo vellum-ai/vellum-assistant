@@ -1,6 +1,11 @@
 import { z } from "zod";
 
 export {
+  type AskQuestionInput,
+  AskQuestionInputSchema,
+  type RecordedQuestion,
+} from "./ask-question-tool.js";
+export {
   isComputerUseToolCall,
   resolveComputerUseToolName,
 } from "./computer-use-tool.js";
@@ -832,6 +837,8 @@ export {
   FeedItemStatusSchema,
   type FeedItemType,
   FeedItemTypeSchema,
+  type FeedItemUpdate,
+  FeedItemUpdateSchema,
   type FeedItemUrgency,
   FeedItemUrgencySchema,
   GUARDIAN_TERMINAL_REASON_SUPERSEDED,

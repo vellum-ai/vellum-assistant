@@ -16,6 +16,9 @@ import type {
   ProviderConnection,
 } from "@/generated/daemon/types.gen";
 
+/** The managed profile the assistant routes per message (`AUTO_PROFILE_KEY`). */
+const AUTO_PROFILE_NAME = "auto";
+
 /**
  * The subset of a profile a picker needs. Fields are typed from the generated
  * `ProfileEntry` so they cannot drift from the wire, and stay optional so
@@ -224,14 +227,20 @@ export function undispatchableProfileReason(p: ProfilePickerEntry): string {
  * model there would only repeat the label beside it.
  *
  * Returns null when there is nothing definite to name: a user profile, a
- * profile carrying no model, or a mix, whose arm is picked per conversation at
- * dispatch time and so is not knowable when a picker is drawn.
+ * profile carrying no model, a mix, whose arm is picked per conversation at
+ * dispatch time, or the Auto profile, whose model is picked per message, so
+ * neither is knowable when a picker is drawn.
  */
 export function managedProfileModelName(
   p: ProfilePickerEntry,
   connections?: ProviderConnection[],
 ): string | null {
-  if (p.source !== "managed" || p.mix != null || !p.model) {
+  if (
+    p.source !== "managed" ||
+    p.mix != null ||
+    !p.model ||
+    p.name === AUTO_PROFILE_NAME
+  ) {
     return null;
   }
   return resolveModelDisplayName(p.provider ?? undefined, p.model, connections);

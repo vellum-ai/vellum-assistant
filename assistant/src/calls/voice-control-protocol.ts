@@ -28,7 +28,12 @@ export const TASK_UPDATE_SILENT_MARKER = "[TASK_UPDATE:SILENT]";
  * markers they are swallowed before reaching TTS — never spoken aloud.
  */
 export const HOLD_VERDICT_TOKEN = "[0]";
-export const ESCALATE_VERDICT_TOKEN = "[1]";
+export const ESCALATE_VERDICT_TOKEN = "[ESCALATE]";
+const LEGACY_ESCALATE_VERDICT_TOKEN = "[1]";
+export const ESCALATE_VERDICT_TOKENS = [
+  ESCALATE_VERDICT_TOKEN,
+  LEGACY_ESCALATE_VERDICT_TOKEN,
+] as const;
 
 /**
  * Room-minimize token, kept in the marker table so it is stripped from
@@ -93,7 +98,6 @@ const CALL_OPENING_ACK_MARKER_REGEX = /\[CALL_OPENING_ACK\]/g;
 const END_CALL_MARKER_REGEX = /\[END_CALL\]/g;
 const TASK_STOP_MARKER_REGEX = /\[TASK:STOP\]/g;
 const HOLD_VERDICT_TOKEN_REGEX = /\[0\]/g;
-const ESCALATE_VERDICT_TOKEN_REGEX = /\[1\]/g;
 const MINIMIZE_ROOM_MARKER_REGEX = /\[-1\]/g;
 const MUTE_MARKER_REGEX = /\[MUTE(?::\s*[^\]]*)?\]/g;
 const UPDATES_MARKER_REGEX = /\[UPDATES:\s*[^\]]*\]/g;
@@ -223,7 +227,8 @@ export function stripInternalSpeechMarkers(text: string): string {
     .replace(TASK_STOP_MARKER_REGEX, "")
     .replaceAll(TASK_UPDATE_SILENT_MARKER, "")
     .replace(HOLD_VERDICT_TOKEN_REGEX, "")
-    .replace(ESCALATE_VERDICT_TOKEN_REGEX, "")
+    .replaceAll(ESCALATE_VERDICT_TOKEN, "")
+    .replaceAll(LEGACY_ESCALATE_VERDICT_TOKEN, "")
     .replace(MINIMIZE_ROOM_MARKER_REGEX, "")
     .replace(MUTE_MARKER_REGEX, "")
     .replace(UPDATES_MARKER_REGEX, "")
@@ -253,7 +258,7 @@ const CONTROL_MARKER_STRINGS = [
   TASK_STOP_MARKER,
   TASK_UPDATE_SILENT_MARKER,
   "[0]",
-  "[1]",
+  ...ESCALATE_VERDICT_TOKENS,
   "[-1]",
   MUTE_MARKER,
   MUTE_MARKER_PREFIX,

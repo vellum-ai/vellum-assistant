@@ -28,6 +28,18 @@ const PROFILE_SCOPES: Record<ScopeProfile, ReadonlySet<Scope>> = {
     "feature_flags.read",
     "feature_flags.write",
   ]),
+  // A non-guardian principal. Deliberately excludes `admin.write`,
+  // `settings.*` and `feature_flags.*`, which `actor_client_v1` grants: those
+  // reach the control plane, which only the guardian may write.
+  // Carries no read scope. The routes behind `chat.read`, `approval.read` and
+  // `attachments.read` take a caller-supplied conversation or attachment id
+  // and never check who is asking, so they return the guardian's data to any
+  // holder. Each read is added back once its routes filter by caller.
+  contact_client_v1: new Set<Scope>([
+    "chat.write",
+    "approval.write",
+    "attachments.write",
+  ]),
   gateway_ingress_v1: new Set<Scope>(["ingress.write", "internal.write"]),
   gateway_service_v1: new Set<Scope>([
     "chat.read",
@@ -81,6 +93,9 @@ export function resolveScopeProfile(profile: ScopeProfile): ReadonlySet<Scope> {
  */
 const BROAD_SCOPE_PROFILES: Record<ScopeProfile, boolean> = {
   actor_client_v1: true,
+  // Narrow: a route naming no scope is a route no one has judged a contact
+  // against, so it refuses them rather than admitting any valid token.
+  contact_client_v1: false,
   gateway_ingress_v1: true,
   gateway_service_v1: true,
   local_v1: true,

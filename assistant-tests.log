@@ -1,0 +1,106 @@
+bun test v1.3.11 (af24e281)
+
+src/__tests__/managed-fallback-dispatch.test.ts:
+274 | 
+275 |     const response: ProviderResponse = await provider.sendMessage(MESSAGES, {
+276 |       config: { callSite: "mainAgent" },
+277 |     });
+278 | 
+279 |     expect(requestsTo(OPENAI_PATH).length).toBeGreaterThan(1);
+                                                 ^
+error: expect(received).toBeGreaterThan(expected)
+
+Expected: > 1
+Received: 0
+
+      at <anonymous> (/private/tmp/claude-501/-Users-emmiekehoe-vellum-vellum-assistant/f3babcb2-2cb8-4308-a19c-843c7692c51f/scratchpad/wt/assistant/src/__tests__/managed-fallback-dispatch.test.ts:279:44)
+(fail) managed fallback dispatch > a managed default outage is served through the routed backup profile [4.64ms]
+216 |   try {
+217 |     await promise;
+218 |   } catch (error) {
+219 |     return error;
+220 |   }
+221 |   throw new Error("expected the promise to reject");
+                  ^
+error: expected the promise to reject
+      at captureError (/private/tmp/claude-501/-Users-emmiekehoe-vellum-vellum-assistant/f3babcb2-2cb8-4308-a19c-843c7692c51f/scratchpad/wt/assistant/src/__tests__/managed-fallback-dispatch.test.ts:221:13)
+      at async <anonymous> (/private/tmp/claude-501/-Users-emmiekehoe-vellum-vellum-assistant/f3babcb2-2cb8-4308-a19c-843c7692c51f/scratchpad/wt/assistant/src/__tests__/managed-fallback-dispatch.test.ts:304:27)
+(fail) managed fallback dispatch > a persisted call-site model pin never falls back [2.13ms]
+216 |   try {
+217 |     await promise;
+218 |   } catch (error) {
+219 |     return error;
+220 |   }
+221 |   throw new Error("expected the promise to reject");
+                  ^
+error: expected the promise to reject
+      at captureError (/private/tmp/claude-501/-Users-emmiekehoe-vellum-vellum-assistant/f3babcb2-2cb8-4308-a19c-843c7692c51f/scratchpad/wt/assistant/src/__tests__/managed-fallback-dispatch.test.ts:221:13)
+      at async <anonymous> (/private/tmp/claude-501/-Users-emmiekehoe-vellum-vellum-assistant/f3babcb2-2cb8-4308-a19c-843c7692c51f/scratchpad/wt/assistant/src/__tests__/managed-fallback-dispatch.test.ts:304:27)
+(fail) managed fallback dispatch > a persisted call-site provider pin never falls back [1.63ms]
+216 |   try {
+217 |     await promise;
+218 |   } catch (error) {
+219 |     return error;
+220 |   }
+221 |   throw new Error("expected the promise to reject");
+                  ^
+error: expected the promise to reject
+      at captureError (/private/tmp/claude-501/-Users-emmiekehoe-vellum-vellum-assistant/f3babcb2-2cb8-4308-a19c-843c7692c51f/scratchpad/wt/assistant/src/__tests__/managed-fallback-dispatch.test.ts:221:13)
+      at async <anonymous> (/private/tmp/claude-501/-Users-emmiekehoe-vellum-vellum-assistant/f3babcb2-2cb8-4308-a19c-843c7692c51f/scratchpad/wt/assistant/src/__tests__/managed-fallback-dispatch.test.ts:339:25)
+(fail) managed fallback dispatch > a BYOK connection never installs automatic fallback routing [1.68ms]
+216 |   try {
+217 |     await promise;
+218 |   } catch (error) {
+219 |     return error;
+220 |   }
+221 |   throw new Error("expected the promise to reject");
+                  ^
+error: expected the promise to reject
+      at captureError (/private/tmp/claude-501/-Users-emmiekehoe-vellum-vellum-assistant/f3babcb2-2cb8-4308-a19c-843c7692c51f/scratchpad/wt/assistant/src/__tests__/managed-fallback-dispatch.test.ts:221:13)
+      at async <anonymous> (/private/tmp/claude-501/-Users-emmiekehoe-vellum-vellum-assistant/f3babcb2-2cb8-4308-a19c-843c7692c51f/scratchpad/wt/assistant/src/__tests__/managed-fallback-dispatch.test.ts:364:25)
+(fail) managed fallback dispatch > a custom managed profile has no automatic fallback contract [1.67ms]
+387 |     const response = await provider.sendMessage(MESSAGES, {
+388 |       config: { callSite: "mainAgent" },
+389 |     });
+390 | 
+391 |     const backup = requestsTo(ANTHROPIC_PATH);
+392 |     expect(backup).toHaveLength(1);
+                         ^
+error: expect(received).toHaveLength(expected)
+
+Expected length: 1
+Received length: 0
+
+      at <anonymous> (/private/tmp/claude-501/-Users-emmiekehoe-vellum-vellum-assistant/f3babcb2-2cb8-4308-a19c-843c7692c51f/scratchpad/wt/assistant/src/__tests__/managed-fallback-dispatch.test.ts:392:20)
+(fail) managed fallback dispatch > a user shadow cannot change the code-owned backup route [1.93ms]
+216 |   try {
+217 |     await promise;
+218 |   } catch (error) {
+219 |     return error;
+220 |   }
+221 |   throw new Error("expected the promise to reject");
+                  ^
+error: expected the promise to reject
+      at captureError (/private/tmp/claude-501/-Users-emmiekehoe-vellum-vellum-assistant/f3babcb2-2cb8-4308-a19c-843c7692c51f/scratchpad/wt/assistant/src/__tests__/managed-fallback-dispatch.test.ts:221:13)
+      at async <anonymous> (/private/tmp/claude-501/-Users-emmiekehoe-vellum-vellum-assistant/f3babcb2-2cb8-4308-a19c-843c7692c51f/scratchpad/wt/assistant/src/__tests__/managed-fallback-dispatch.test.ts:402:25)
+(fail) managed fallback dispatch > a failed backup preserves the primary error and does not count as served [1.59ms]
+414 |     const provider = createRoutedManagedProvider();
+415 | 
+416 |     await provider.sendMessage(MESSAGES, {
+417 |       config: { callSite: "mainAgent" },
+418 |     });
+419 |     expect(shouldSkipPrimary({ upstream: "openai" })).toBe(true);
+                                                            ^
+error: expect(received).toBe(expected)
+
+Expected: true
+Received: false
+
+      at <anonymous> (/private/tmp/claude-501/-Users-emmiekehoe-vellum-vellum-assistant/f3babcb2-2cb8-4308-a19c-843c7692c51f/scratchpad/wt/assistant/src/__tests__/managed-fallback-dispatch.test.ts:419:55)
+(fail) managed fallback dispatch > a served backup opens the breaker for the routed primary [1.03ms]
+
+ 598 pass
+ 1 todo
+ 8 fail
+ 6308 expect() calls
+Ran 607 tests across 26 files. [885.00ms]

@@ -29,6 +29,7 @@ import type {
   CompanionGrowth,
   CompanionContext,
   CompanionIntroAction,
+  CompanionIntroAnnouncementAction,
   CompanionIntroCallControl,
   CompanionIntroReport,
   CompanionSurfaceState,
@@ -40,6 +41,7 @@ import type {
   DictationOverlayState,
   DictationPartialEvent,
   DictationOfferAnswer,
+  UnplacedDictationOffer,
   CompanionPopoverAnswer,
   CompanionPopoverView,
   CompanionPicker,
@@ -56,7 +58,7 @@ import type {
   HotkeyEvent,
   HotkeyEventState,
   HotkeyScope,
-  HotkeySelection,
+  HotkeySelectionResult,
   LocalAssistantStatusResult,
   LocalListDevicesResult,
   LocalPairingPollResult,
@@ -116,7 +118,7 @@ export type {
   HotkeyEvent,
   HotkeyEventState,
   HotkeyScope,
-  HotkeySelection,
+  HotkeySelectionResult,
   NotificationCategory,
   PowerEvent,
   PowerEventKind,
@@ -195,7 +197,7 @@ declare global {
             hold: ModifierHold,
           ): Promise<ModifierHoldRegistrationResult>;
           setChords?(binding: ChordBinding): Promise<ChordRegistrationResult>;
-          readFrontSelection?(): Promise<HotkeySelection | null>;
+          readFrontSelection?(): Promise<HotkeySelectionResult>;
           onRegistrationChange?(
             callback: (active: boolean) => void,
           ): () => void;
@@ -403,6 +405,12 @@ declare global {
       companion?: {
         getState(): Promise<CompanionSurfaceState | null>;
         onState(callback: (state: CompanionSurfaceState) => void): () => void;
+        /** Optional: shells that predate the app-side announcement have none. */
+        getIntroAnnouncement?(): Promise<boolean>;
+        answerIntroAnnouncement?(
+          action: CompanionIntroAnnouncementAction,
+        ): void;
+        onIntroAnnouncement?(callback: (open: boolean) => void): () => void;
         /** Optional: shells that predate the staged introduction have none. */
         getIntroStage?(): Promise<boolean>;
         onIntroStage?(callback: (staged: boolean) => void): () => void;
@@ -450,6 +458,7 @@ declare global {
           target: WatchCaptureTarget,
         ): Promise<string | null>;
         answerWatchRetro?(open: boolean): void;
+        setUnplacedDictationOffer?(offer: UnplacedDictationOffer | null): void;
         answerDictationOffer?(
           answer: DictationOfferAnswer,
           offerId: string,

@@ -224,10 +224,7 @@ export function inferProviderFromModel(model: string): string | undefined {
   if (model.startsWith("accounts/fireworks/models/")) {
     return "fireworks";
   }
-  if (
-    model.startsWith("openai/gpt-5.6") ||
-    model.startsWith("openai/gpt-6-astra")
-  ) {
+  if (model.startsWith("openai/gpt-5.6") || model.startsWith("openai/gpt-6-")) {
     // Listed by OpenRouter (#37856), the earlier catalog entry; the Vercel
     // AI Gateway does not carry these IDs.
     return "openrouter";

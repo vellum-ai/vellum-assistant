@@ -188,7 +188,7 @@ describe("SkillDetailMobile", () => {
     expect(screen.getByText("helper.py")).toBeTruthy();
   });
 
-  test("markdown file: toggles between rendered preview and raw source", () => {
+  test("markdown file: opens formatted, with its source one click away", () => {
     render(
       <SkillDetailMobile
         assistantId="asst-1"
@@ -197,23 +197,21 @@ describe("SkillDetailMobile", () => {
       />,
     );
 
-    // Default is preview: rendered markdown (no raw <pre>, heading text shown).
+    // Formatted, which is how a file opens: rendered markdown, no raw <pre>.
     expect(document.querySelector("pre")).toBeNull();
     expect(screen.getByText("Hello")).toBeTruthy();
 
-    // Switch to Source: raw <pre> with the markdown source text.
     fireEvent.click(getButton("Source"));
     const pre = document.querySelector("pre");
     expect(pre).not.toBeNull();
     expect(pre?.textContent).toBe("# Hello");
 
-    // Switch back to Preview: rendered markdown again.
-    fireEvent.click(getButton("Preview"));
+    fireEvent.click(getButton("Formatted"));
     expect(document.querySelector("pre")).toBeNull();
     expect(screen.getByText("Hello")).toBeTruthy();
   });
 
-  test("non-markdown file: Preview disabled and content shows as source", () => {
+  test("non-markdown file: source, and no choice to offer", () => {
     setActiveFile(JSON_FILE);
 
     render(
@@ -224,7 +222,9 @@ describe("SkillDetailMobile", () => {
       />,
     );
 
-    expect(getButton("Preview").disabled).toBe(true);
+    // A file with no formatted view offers no control at all, rather than one
+    // with its first option greyed out.
+    expect(document.querySelector('button[aria-label="Formatted"]')).toBeNull();
 
     const pre = document.querySelector("pre");
     expect(pre).not.toBeNull();

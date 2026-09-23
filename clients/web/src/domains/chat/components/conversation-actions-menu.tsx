@@ -1,6 +1,4 @@
 import {
-  Archive,
-  ArchiveRestore,
   Copy,
   ExternalLink,
   FilePlus,
@@ -24,7 +22,15 @@ import {
   PanelMenuDivider,
   type PanelMenuItemOptions,
 } from "@/domains/chat/components/panel-menu-item";
+import {
+  useConversationDoneLabels,
+  type ConversationDoneLabels,
+} from "@/utils/done-labels";
 import type { MoveToGroupTarget } from "@/domains/chat/utils/group-conversations";
+import {
+  ROW_TRAILING_CONTROL_CLASSES,
+  ROW_TRAILING_GLYPH_CLASSES,
+} from "@/domains/chat/utils/row-trailing-control";
 import { useTouchMobile } from "@/hooks/use-touch-mobile";
 import { type ConversationMenuShortcuts } from "@/domains/chat/hooks/use-conversation-menu-shortcuts";
 import { useTranslation, type TFunction } from "@/i18n";
@@ -183,6 +189,14 @@ export interface ConversationMenuItemsProps {
   channelSourceLink?: { href: string; label: string } | null;
   /** Controls item order and labels. "header" uses macOS-parity order; "sidebar" preserves the original order. */
   variant?: "header" | "sidebar";
+  /**
+   * Overrides the archive/done wording {@link useConversationDoneLabels}
+   * resolves from the flag. Only a surface that exists on one side of the
+   * flag passes it (the All chats page, which is flag-on only). The pure
+   * renderers below take it as a required argument instead, since they cannot
+   * hold the hook themselves.
+   */
+  doneLabels?: ConversationDoneLabels;
 }
 
 /**
@@ -220,6 +234,7 @@ export function renderConversationMenuItems({
   channelSourceLink,
   variant = "sidebar",
   shortcuts = {},
+  doneLabels,
 }: ConversationMenuItemsProps & {
   Primitive: ConversationMenuPrimitive;
   /** Threaded in: these builders are plain functions, so they cannot hold
@@ -227,6 +242,8 @@ export function renderConversationMenuItems({
   t: TFunction<"chat">;
   /** Bindings for the rows that have one, absent where the host binds none. */
   shortcuts?: ConversationMenuShortcuts;
+  /** Required here for the same reason `t` is: no hook, so the caller binds. */
+  doneLabels: ConversationDoneLabels;
 }): ReactNode {
   // The submenu shows whenever move + create are wired, even with zero
   // existing groups — "New group…" is always a valid action and is the only
@@ -252,14 +269,17 @@ export function renderConversationMenuItems({
   const archiveItem =
     isArchived && onUnarchive ? (
       <Primitive.Item
-        leftIcon={<ArchiveRestore size={14} />}
+        leftIcon={<doneLabels.unarchiveIcon size={14} />}
         onSelect={onUnarchive}
       >
-        {t("conversationActions.unarchive")}
+        {doneLabels.unarchive}
       </Primitive.Item>
     ) : onArchive ? (
-      <Primitive.Item leftIcon={<Archive size={14} />} onSelect={onArchive}>
-        {t("conversationActions.archive")}
+      <Primitive.Item
+        leftIcon={<doneLabels.archiveIcon size={14} />}
+        onSelect={onArchive}
+      >
+        {doneLabels.archive}
       </Primitive.Item>
     ) : null;
 
@@ -548,10 +568,13 @@ export function renderConversationMenuItemsAsPanelItems({
   variant = "sidebar",
   onClose,
   isNativePlatform = false,
+  doneLabels,
 }: ConversationMenuItemsProps & {
   onClose: () => void;
   isNativePlatform?: boolean;
   t: TFunction<"chat">;
+  /** Required here for the same reason `t` is: no hook, so the caller binds. */
+  doneLabels: ConversationDoneLabels;
 }): ReactNode {
   // BottomSheet is a single-level surface, so the "Move to group" submenu is
   // flattened into an inline labeled block (mirrors the desktop submenu).
@@ -582,16 +605,16 @@ export function renderConversationMenuItemsAsPanelItems({
     isArchived && onUnarchive
       ? buildSheetMenuItem({
           key: "unarchive",
-          icon: ArchiveRestore,
-          label: t("conversationActions.unarchive"),
+          icon: doneLabels.unarchiveIcon,
+          label: doneLabels.unarchive,
           run: onUnarchive,
           onClose,
         })
       : onArchive
         ? buildSheetMenuItem({
             key: "archive",
-            icon: Archive,
-            label: t("conversationActions.archive"),
+            icon: doneLabels.archiveIcon,
+            label: doneLabels.archive,
             run: onArchive,
             onClose,
           })
@@ -819,6 +842,8 @@ export function ConversationActionsSheet({
 }) {
   const isNativePlatform = useIsNativePlatform();
   const { t } = useTranslation("chat");
+  const flagLabels = useConversationDoneLabels();
+  const doneLabels = itemProps.doneLabels ?? flagLabels;
   return (
     <BottomSheet.Root open={open} onOpenChange={onOpenChange}>
       {trigger ? (
@@ -862,6 +887,7 @@ export function ConversationActionsSheet({
           {renderConversationMenuItemsAsPanelItems({
             ...itemProps,
             t,
+            doneLabels,
             onClose: () => onOpenChange(false),
             isNativePlatform,
           })}
@@ -903,6 +929,8 @@ export function ConversationActionsMenu({
 }: ConversationActionsMenuProps) {
   const isTouchMobile = useTouchMobile();
   const { t } = useTranslation("chat");
+  const flagLabels = useConversationDoneLabels();
+  const doneLabels = itemProps.doneLabels ?? flagLabels;
   const [open, setOpen] = useState(false);
 
   const defaultTrigger = (
@@ -914,12 +942,12 @@ export function ConversationActionsMenu({
         event.stopPropagation();
         event.preventDefault();
       }}
-      className="flex h-6 w-6 items-center justify-center rounded-[4px] outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--content-secondary)] aria-[expanded=true]:bg-[var(--surface-active)] aria-[expanded=true]:text-[var(--content-emphasised)] max-md:h-[30px] max-md:w-[30px]"
+      className={ROW_TRAILING_CONTROL_CLASSES}
     >
       <MoreHorizontal
         size={14}
         aria-hidden
-        className="max-md:h-[21px] max-md:w-[21px]"
+        className={ROW_TRAILING_GLYPH_CLASSES}
       />
     </button>
   );
@@ -955,6 +983,7 @@ export function ConversationActionsMenu({
           t,
           shortcuts,
           ...itemProps,
+          doneLabels,
         })}
       </Menu.Content>
     </Menu.Root>

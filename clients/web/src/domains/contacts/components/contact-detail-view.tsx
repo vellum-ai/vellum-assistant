@@ -196,6 +196,7 @@ function ContactDetailViewInner({
           channelsLoadFailed={channelsLoadFailed}
           a2aEnabled={a2aEnabled}
           verifyLoading={verifyPending}
+          actionsDisabled={deletePending}
           verifySubject="contact"
           onSetupChannel={onSetupChannel}
           onVerifyChannel={onVerifyChannel}
@@ -207,7 +208,7 @@ function ContactDetailViewInner({
       {canEditContactPermissions(contact) && onAutoApproveThresholdChange ? (
         <ContactPermissionsSection
           contact={contact}
-          pending={pendingAutoApproveThreshold}
+          pending={pendingAutoApproveThreshold || deletePending}
           onAutoApproveThresholdChange={onAutoApproveThresholdChange}
         />
       ) : null}

@@ -673,6 +673,17 @@
     "toggleLabel": "Daily Credit Limit",
     "toggleSubtitle": "Daily limit only applies to extra usage credits"
   },
+  "debugBundleExport": {
+    "description": "Vellum staff can't reach this computer. To let them look, export a debug bundle: your assistant's workspace, its logs, and the gateway's own database, with no credentials. It is kept for 7 days.",
+    "export": "Export debug bundle",
+    "exporting": "Exporting…",
+    "sentAt": "Sent to Vellum at {time}.",
+    "toastFailed": "The debug bundle was not sent.",
+    "toastFailedWithReason": "The debug bundle was not sent: {reason}",
+    "toastSent": "Debug bundle sent to Vellum.",
+    "updateAssistant": "Update the assistant to {version} or newer to export a debug bundle.",
+    "useDesktopApp": "Export from the Vellum desktop app on the computer running this assistant."
+  },
   "debugControlsPanel": {
     "backups": "Backups",
     "loadFailedToast": "Failed to load assistant info",
@@ -963,15 +974,14 @@
     "needsAttention": "Needs attention"
   },
   "integrationTile": {
-    "cancel": "Cancel",
+    "cancelLabel": "Cancel connecting {name}",
     "connect": "Connect {name}",
     "connecting": "Almost there. Waiting for {name} to become ready.",
     "failedGeneric": "Sign-in to {name} did not complete.",
     "retryLabel": "Retry connecting {name}",
     "setupGuide": "Setup guide",
-    "tryAnother": "Try another way",
-    "tryAnotherLabel": "Try another way to connect {name}",
-    "waiting": "Finish signing in to {name} in your browser."
+    "waiting": "Finish signing in to {name} in your browser.",
+    "waitingCancel": "Finish signing in to {name} in your browser. Click to cancel."
   },
   "integrationsPage": {
     "accountConnectedToast": "{providerLabel} account connected successfully.",
@@ -1755,7 +1765,7 @@
     "goToBilling": "Go to billing",
     "machineLabel": "Machine",
     "noExtraUsage": "No extra usage",
-    "packageChip": "{name} package",
+    "packageLabel": "Package",
     "planReadyStatus": "Your plan is ready",
     "retryInBackground": "Retry in the background",
     "srOnlyTo": "to",

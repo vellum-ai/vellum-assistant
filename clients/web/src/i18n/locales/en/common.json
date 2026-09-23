@@ -137,6 +137,34 @@
     "searching": "Searching…"
   },
   "companionIntro": {
+    "announcement": {
+      "body": "I can now join you anywhere on your desktop.",
+      "cards": {
+        "context": {
+          "body": "Let me see what you see and help in context.",
+          "title": "Show and explain"
+        },
+        "flow": {
+          "body": "Reach me without leaving the app you’re in.",
+          "title": "Stay in your flow"
+        },
+        "together": {
+          "body": "Talk, point, and make progress together.",
+          "title": "Work side by side"
+        }
+      },
+      "close": "Close",
+      "confirm": {
+        "body": "It’ll take about a minute. I’m excited to show you what I can do from your desktop.",
+        "keep": "Take the tour",
+        "skip": "Skip for now",
+        "title": "Skip the tour?"
+      },
+      "previewLabel": "Your desktop companion",
+      "previewAssistantName": "Quill",
+      "start": "Let’s go",
+      "title": "Meet me where you work"
+    },
     "ariaLabel": "Introducing your companion",
     "back": "Back",
     "call": {
@@ -156,7 +184,8 @@
       "titleNamed": "Hey, it’s {name}"
     },
     "key": {
-      "scolded": "No, the button on your keyboard"
+      "scolded": "No, the button on your keyboard",
+      "title": "Make it easy to talk to me"
     },
     "meet": {
       "body": "I stay on your desktop, even when Vellum isn’t visible."
@@ -174,13 +203,25 @@
       "body": "Click me to start a conversation.",
       "gesture": "Or double tap this key:",
       "greeted": "You did it! That’s all there is to it.",
-      "prompt": "You’ll be asked to let me use your mic",
       "title": "Talk to me"
     },
     "try": {
       "body": "Say hello and I’ll answer out loud.",
       "how": "Click me, or double tap the key",
       "title": "Give it a go"
+    },
+    "permission": {
+      "microphoneAction": "Enable microphone",
+      "microphoneBody": "Let me use your microphone for voice conversations.",
+      "shortcutBody": "Let me hear the shortcut while you use other apps.",
+      "screenAction": "Enable screen sharing",
+      "screenBody": "Prepare screen sharing. You choose what to share when you use it.",
+      "openSettings": "Open Settings",
+      "settingsHint": "Allow access in System Settings, then return here.",
+      "restricted": "This permission is restricted on your Mac. You can skip this step.",
+      "error": "Could not check access. Try again.",
+      "waiting": "Checking access…",
+      "skip": "Skip for now"
     }
   },
   "companionPopover": {
@@ -255,7 +296,6 @@
     "unmuteAssistantNamed": "Unmute {name}",
     "unmuteMicrophone": "Unmute microphone",
     "chooseMicrophone": "Choose microphone",
-    "chooseVoice": "Choose voice",
     "workCount": "{count, plural, =0 {Nothing running} one {# thing running} other {# things running}}",
     "workDone": "Done",
     "workStopped": "Stopped",
@@ -404,6 +444,11 @@
     "discard": "Discard",
     "save": "Save",
     "saving": "Saving…"
+  },
+  "fileViewMode": {
+    "formatted": "Formatted",
+    "modeAria": "How to show this file",
+    "source": "Source"
   },
   "generateInviteLinkDialog": {
     "copyAriaLabel": "Copy invite link",
@@ -999,6 +1044,7 @@
   },
   "detailShell": {
     "close": "Close",
-    "closePanel": "Close panel"
+    "closePanel": "Close panel",
+    "loading": "Loading…"
   }
 }

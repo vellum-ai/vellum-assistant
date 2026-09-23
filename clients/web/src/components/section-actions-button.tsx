@@ -19,7 +19,12 @@ import type { ComponentProps, MouseEvent } from "react";
 import { useTranslation } from "@/i18n";
 import { cn } from "@vellumai/design-library/utils/cn";
 
-const BUTTON_CLASSES = [
+/**
+ * The box every control in a section header's trailing cluster draws in, so a
+ * header that carries more than one ("…" plus "View all chats") reads as a
+ * matched pair rather than two controls at two weights.
+ */
+export const SECTION_HEADER_CONTROL_CLASSES = [
   "flex h-5 w-5 items-center justify-center rounded-[4px]",
   "text-[var(--content-tertiary)] transition-colors",
   "hover:bg-[var(--surface-hover)] hover:text-[var(--content-secondary)]",
@@ -52,7 +57,7 @@ export function SectionActionsButton({
         event.stopPropagation();
         onClick?.(event);
       }}
-      className={cn(BUTTON_CLASSES, className)}
+      className={cn(SECTION_HEADER_CONTROL_CLASSES, className)}
     >
       <MoreHorizontal
         size={14}

@@ -19,13 +19,6 @@ interface IntegrationListRowProps {
   status?: ReactNode;
   primaryAction: ReactNode;
   actionMenu?: ReactNode;
-  /**
-   * A block under the description, for what the row has to say about itself
-   * right now: progress on a connect attempt, or the error it ended in. It
-   * sits in the text column in both layouts, so it wraps with the description
-   * rather than competing with the action for width.
-   */
-  footer?: ReactNode;
   layout?: IntegrationListLayout;
 }
 
@@ -51,7 +44,6 @@ export function IntegrationListRow({
   status,
   primaryAction,
   actionMenu,
-  footer,
   layout = "row",
 }: IntegrationListRowProps) {
   if (layout === "tile") {
@@ -77,12 +69,19 @@ export function IntegrationListRow({
           <p className="text-title-small text-[var(--content-default)] [overflow-wrap:anywhere]">
             {title}
           </p>
-          {subtitle ? (
-            <p className="line-clamp-2 text-body-small-lighter text-[var(--content-tertiary)] [overflow-wrap:anywhere]">
-              {subtitle}
-            </p>
-          ) : null}
-          {footer}
+          {/*
+           * Two lines, reserved whether or not there are two lines to put in
+           * them. These are grid cells and the row stretches to its tallest,
+           * so a tile whose description runs to one line and a tile that has
+           * something else to say here both have to occupy the same block or
+           * the whole row moves when one of them changes.
+           *
+           * `min-h-9` is two lines of `text-body-small-lighter`, whose
+           * line-height token is 18px.
+           */}
+          <p className="line-clamp-2 min-h-9 text-body-small-lighter text-[var(--content-tertiary)] [overflow-wrap:anywhere]">
+            {subtitle}
+          </p>
         </div>
       </Card.Root>
     );
@@ -121,7 +120,6 @@ export function IntegrationListRow({
               {subtitle}
             </p>
           ) : null}
-          {footer}
         </div>
         <div className={`${ACTION_SLOT} col-start-3 row-start-1 justify-end`}>
           {primaryAction}

@@ -104,16 +104,17 @@ export function ChannelTranscriptPanelView({
       closeTooltip={t("channelTranscriptPanel.closeTooltip")}
       onClose={onClose}
     >
+      <div className="flex flex-col gap-5">
       <Typography
         as="p"
         variant="body-small-lighter"
-        className="mb-3 text-[var(--content-tertiary)]"
+        className="text-[var(--content-tertiary)]"
       >
         {t("channelTranscriptPanel.readOnlyNote", { channel: channelLabel })}
       </Typography>
 
       {entries.length === 0 ? (
-        <DetailShellNotice>
+        <DetailShellNotice placement="panel">
           {channelReportsMessageProvenance(sidecarRef.channelId)
             ? t("channelTranscriptPanel.emptyThread", { channel: channelLabel })
             : t("channelTranscriptPanel.emptyNoMessageDetail", {
@@ -134,6 +135,7 @@ export function ChannelTranscriptPanelView({
           ))}
         </div>
       )}
+      </div>
     </DetailShell>
   );
 }

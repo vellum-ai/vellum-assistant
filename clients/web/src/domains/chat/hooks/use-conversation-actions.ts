@@ -560,6 +560,20 @@ export function useConversationActions({
   // Handlers — thin wrappers that compute UI side effects, then fire mutate
   // -------------------------------------------------------------------------
 
+  const handleUnarchiveConversation = useCallback(
+    (conversation: Conversation) => {
+      if (!assistantId) {
+        return;
+      }
+      unarchiveMutation.mutate({
+        assistantId,
+        conversationId: conversation.conversationId,
+        previousArchivedAt: conversation.archivedAt,
+      });
+    },
+    [assistantId, unarchiveMutation],
+  );
+
   const handleArchiveConversation = useCallback(
     (conversation: Conversation) => {
       if (!assistantId) {
@@ -594,20 +608,6 @@ export function useConversationActions({
       startNewConversation,
       archiveMutation,
     ],
-  );
-
-  const handleUnarchiveConversation = useCallback(
-    (conversation: Conversation) => {
-      if (!assistantId) {
-        return;
-      }
-      unarchiveMutation.mutate({
-        assistantId,
-        conversationId: conversation.conversationId,
-        previousArchivedAt: conversation.archivedAt,
-      });
-    },
-    [assistantId, unarchiveMutation],
   );
 
   const handleDeleteConversation = useCallback(

@@ -30,6 +30,7 @@ const TOC_ITEMS = [
   { id: "perplexity", label: "Perplexity Integration", level: 2 },
   { id: "brave", label: "Brave Search Integration", level: 2 },
   { id: "firecrawl", label: "Firecrawl Integration", level: 2 },
+  { id: "exa", label: "Exa Integration", level: 2 },
 ];
 
 export function WebSearchContent() {
@@ -160,6 +161,17 @@ export function WebSearchContent() {
                     web fetch.
                   </td>
                 </tr>
+                <tr>
+                  <td className="py-3 pr-4 font-medium text-stone-900 dark:text-stone-100">
+                    Exa
+                  </td>
+                  <td className="py-3 pr-4"><KindBadge kind="BYOK" /></td>
+                  <td className="py-3">
+                    Neural search built for AI agents. Matches on meaning and
+                    returns the most relevant passages from each page as
+                    highlights.
+                  </td>
+                </tr>
               </tbody>
             </table>
           </div>
@@ -201,6 +213,15 @@ export function WebSearchContent() {
               className="text-emerald-700 underline hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300"
             >
               Firecrawl
+            </Link>
+            ,{" "}
+            <Link
+              href="https://exa.ai/privacy-policy"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-emerald-700 underline hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300"
+            >
+              Exa
             </Link>
             .
           </p>
@@ -516,6 +537,28 @@ export function WebSearchContent() {
               className="text-emerald-700 underline hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300"
             >
               Firecrawl integration page
+            </Link>
+            .
+          </p>
+        </section>
+
+        {/* ------------------------------------------------------------------ */}
+        {/* Exa Integration                                                      */}
+        {/* ------------------------------------------------------------------ */}
+        <section id="exa" className="mt-12">
+          <SectionHeading id="exa" level={2}>
+            Exa Integration
+          </SectionHeading>
+          <p className="mb-4 text-stone-600 dark:text-stone-400">
+            Exa is a neural search engine built for AI agents that returns
+            highlighted passages alongside each result. For a step-by-step
+            walkthrough of connecting your Exa API key, provider configuration,
+            and usage, see the{" "}
+            <Link
+              href="/docs/key-concepts/web-search/exa"
+              className="text-emerald-700 underline hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300"
+            >
+              Exa integration page
             </Link>
             .
           </p>

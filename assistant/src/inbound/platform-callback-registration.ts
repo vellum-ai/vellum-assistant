@@ -24,7 +24,10 @@ import { getConfig } from "../config/loader.js";
 import { resolvePlatformAssistantId } from "../config/platform-identity.js";
 import { ipcRegisterWebhookRoute } from "../ipc/gateway-client.js";
 import { credentialKey } from "../security/credential-key.js";
-import { getSecureKeyAsync } from "../security/secure-keys.js";
+import {
+  getSecureKeyAsync,
+  getSecureKeyResultAsync,
+} from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
 import { resolveClaimedPodWebhookUrl } from "./pod-webhook-claim.js";
 import {
@@ -39,17 +42,23 @@ export interface PlatformCallbackRegistrationContext {
   isPlatform: boolean;
   platformBaseUrl: string;
   assistantId: string;
-  hasAssistantApiKey: boolean;
+  /**
+   * Whether a managed assistant API key is available: `null` when the
+   * credential store could not be read, so its absence is not evidence that
+   * no key is stored. A client deciding whether to provision one must not
+   * read `null` as "missing".
+   */
+  hasAssistantApiKey: boolean | null;
   authHeader: string | null;
   enabled: boolean;
 }
 
 export async function resolvePlatformCallbackRegistrationContext(): Promise<PlatformCallbackRegistrationContext> {
   const platform = getIsPlatform();
-  const [storedBaseUrlRaw, storedAssistantApiKeyRaw, assistantId] =
+  const [storedBaseUrlRaw, storedAssistantApiKey, assistantId] =
     await Promise.all([
       getSecureKeyAsync(credentialKey("vellum", "platform_base_url")),
-      getSecureKeyAsync(credentialKey("vellum", "assistant_api_key")),
+      getSecureKeyResultAsync(credentialKey("vellum", "assistant_api_key")),
       resolvePlatformAssistantId(),
     ]);
 
@@ -60,16 +69,20 @@ export async function resolvePlatformCallbackRegistrationContext(): Promise<Plat
   );
   const envAssistantCredential = process.env.ASSISTANT_API_KEY?.trim();
   const assistantCredential =
-    storedAssistantApiKeyRaw?.trim() || envAssistantCredential || undefined;
+    storedAssistantApiKey.value?.trim() || envAssistantCredential || undefined;
   const authHeader = assistantCredential
     ? `Api-Key ${assistantCredential}`
     : null;
+  const hasAssistantApiKey =
+    !assistantCredential && storedAssistantApiKey.unreachable
+      ? null
+      : !!assistantCredential;
 
   return {
     isPlatform: platform,
     platformBaseUrl,
     assistantId,
-    hasAssistantApiKey: !!assistantCredential,
+    hasAssistantApiKey,
     authHeader,
     // Enabled when we have enough context to register callback routes.
     // Does NOT require IS_PLATFORM — self-hosted assistants with stored

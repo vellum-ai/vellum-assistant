@@ -1,8 +1,119 @@
 {
   "version": 1,
   "plugins": {
+    "amplemarket": {
+      "iconVersion": "d66ba4590bfb838c"
+    },
+    "ashby": {
+      "iconVersion": "5b8d53102890f7fa"
+    },
+    "atlassian": {
+      "iconVersion": "005dcf1a9b0e026f"
+    },
+    "attio": {
+      "iconVersion": "e581b35da9f740bf"
+    },
+    "brex": {
+      "iconVersion": "882b24a922552992"
+    },
+    "calendly": {
+      "iconVersion": "8dda74becfc00a44"
+    },
+    "circleback": {
+      "iconVersion": "085f60082666c120"
+    },
+    "clay": {
+      "iconVersion": "e5d6f6704962a824"
+    },
     "coffee-aficionado": {
       "iconVersion": "935f15a04ff24911"
+    },
+    "craft": {
+      "iconVersion": "3f45c2ec266a7206"
+    },
+    "customer-io": {
+      "iconVersion": "55d00a67eec607cb"
+    },
+    "fathom": {
+      "iconVersion": "fd10ce203ab5781b"
+    },
+    "fireflies": {
+      "iconVersion": "2d71dd07f09655d0"
+    },
+    "gamma": {
+      "iconVersion": "ca526174f3e5b7ce"
+    },
+    "guru": {
+      "iconVersion": "6aad429d7e8e77eb"
+    },
+    "interactive-brokers": {
+      "iconVersion": "2c560b84a2dd9e41"
+    },
+    "intercom": {
+      "iconVersion": "54635894e5c8d026"
+    },
+    "jotform": {
+      "iconVersion": "b39feb8f7fa31025"
+    },
+    "juicebox": {
+      "iconVersion": "9ba189bfb2996d73"
+    },
+    "klaviyo": {
+      "iconVersion": "7a3795ce1b9cba0f"
+    },
+    "linear": {
+      "iconVersion": "f14a9ca930962ca5"
+    },
+    "mailerlite": {
+      "iconVersion": "36dd31202c7249ed"
+    },
+    "meltwater": {
+      "iconVersion": "fcb45f96c48b4686"
+    },
+    "mem": {
+      "iconVersion": "3f3faa21dafa7b63"
+    },
+    "mercury": {
+      "iconVersion": "6aa20bbe788133e7"
+    },
+    "navan": {
+      "iconVersion": "565bd8805bf96c3f"
+    },
+    "notion": {
+      "iconVersion": "b28afde6f0347e19"
+    },
+    "otter": {
+      "iconVersion": "4588762763c69b38"
+    },
+    "profound": {
+      "iconVersion": "5f88d0f8182f5f6a"
+    },
+    "ramp": {
+      "iconVersion": "bae00d24237c765b"
+    },
+    "readwise": {
+      "iconVersion": "6358cd1251c4b095"
+    },
+    "semrush": {
+      "iconVersion": "ad4ed19e4a2899a5"
+    },
+    "sentry": {
+      "iconVersion": "8480627a6ef63987"
+    },
+    "stripe": {
+      "iconVersion": "cbf4561554cf883d"
+    },
+    "todoist": {
+      "iconVersion": "d7300c099c0dfae3"
+    },
+    "typeform": {
+      "iconVersion": "4e912965be16f146"
+    },
+    "upwork": {
+      "iconVersion": "44112a64e07ab478"
+    },
+    "webull": {
+      "iconVersion": "7e9376e3347f5122"
     }
   }
 }

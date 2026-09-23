@@ -1,4 +1,7 @@
 {
+  "askQuestionDetail": {
+    "heading": "{count, plural, one {Pregunta} other {Preguntas}}"
+  },
   "documentChat": {
     "saveFailed": "No se pudo guardar el documento. Tu mensaje sigue aquí. Intenta enviarlo de nuevo.",
     "viewConversation": "Ver conversación",
@@ -61,6 +64,11 @@
     "takingLonger": "Tu asistente está tardando más de lo esperado.",
     "tryAgain": "Reintentar"
   },
+  "markAllDoneConfirmDialog": {
+    "confirm": "Marcar todo como hecho",
+    "message": "{count, plural, one {¿Marcar como hecha la conversación en “{groupName}”? Sale de la barra lateral y te espera en Todos los chats, donde puedes reabrirla.} other {¿Marcar como hechas las # conversaciones en “{groupName}”? Salen de la barra lateral y te esperan en Todos los chats, donde puedes reabrirlas.}}",
+    "title": "Marcar todo como hecho"
+  },
   "mobileDetailSheet": {
     "title": "Detalles de la actividad"
   },
@@ -72,7 +80,6 @@
     "screenshotFallbackAria": "Vista previa de la captura de pantalla del ordenador",
     "screenshotFallbackTitle": "Captura de pantalla del ordenador",
     "screenshotTitle": "Captura de pantalla de {activity}",
-    "thinkingTitle": "Pensando",
     "viewThinkingAria": "Ver razonamiento"
   },
   "computerUseScreenshotPreview": {
@@ -116,6 +123,28 @@
     "observe": "Observando",
     "navigate": "Navegando",
     "terminal": "Ejecutando un comando"
+  },
+  "allChatsPage": {
+    "band": {
+      "previous30Days": "Últimos 30 días",
+      "previous7Days": "Últimos 7 días",
+      "today": "Hoy",
+      "yesterday": "Ayer"
+    },
+    "chip": {
+      "all": "Todos",
+      "background": "En segundo plano",
+      "done": "Hecho"
+    },
+    "doneMeta": "Hecho · {time}",
+    "empty": "Aún no hay chats aquí.",
+    "filterAria": "Filtrar chats",
+    "loadError": "No se pudieron cargar tus chats.",
+    "loading": "Cargando chats",
+    "noMatches": "Ningún chat coincide con «{query}».",
+    "retry": "Reintentar",
+    "searchPlaceholder": "Buscar chats",
+    "title": "Todos los chats"
   },
   "sessionGroupRow": {
     "mode": {
@@ -455,6 +484,7 @@
   },
   "chatConversationHeader": {
     "archived": "[Archivado]",
+    "done": "[Hecho]",
     "newChat": "Chat nuevo"
   },
   "chatInfoPanel": {
@@ -695,8 +725,10 @@
     "copyConversation": "Copiar conversación completa",
     "copyConversationId": "Copiar ID de conversación",
     "delete": "Eliminar",
+    "done": "Hecho",
     "forkConversation": "Bifurcar conversación",
     "inspect": "Analizar conversación",
+    "markAsDone": "Marcar como hecho",
     "markRead": "Marcar como leída",
     "markUnread": "Marcar como no leída",
     "moveToGroup": "Mover al grupo",
@@ -708,6 +740,7 @@
     "refresh": "Actualizar",
     "removeFromGroup": "Quitar del grupo",
     "rename": "Cambiar nombre",
+    "reopen": "Reabrir",
     "shareFeedback": "Enviar comentarios",
     "triggerAriaLabel": "Acciones de conversación",
     "unarchive": "Desarchivar",
@@ -907,6 +940,7 @@
     "deleteGroup": "Eliminar grupo",
     "deleteGroupWithConversations": "Eliminar grupo…",
     "groupByChannel": "Agrupar por canal",
+    "markAllAsDone": "Marcar todo como hecho…",
     "markAllRead": "Marcar todas como leídas",
     "moveSectionDown": "Bajar sección",
     "moveSectionUp": "Subir sección",
@@ -1637,6 +1671,15 @@
   "sidebarListContextMenu": {
     "newGroup": "Grupo nuevo…"
   },
+  "sidebarSectionViewAll": {
+    "label": "Ver todos los chats"
+  },
+  "chatsSection": {
+    "doneEmptyBody": "Los chats que marcas como hechos te esperan en Todos los chats.",
+    "doneEmptyTitle": "Todo al día.",
+    "emptyBody": "Inicia un chat nuevo y aparecerá aquí.",
+    "emptyTitle": "Aún no hay chats."
+  },
   "singleActivity": {
     "webSearch": "Búsqueda web"
   },
@@ -1692,8 +1735,6 @@
     "noEventsYet": "Aún no hay eventos",
     "objective": "Objetivo",
     "output": "Salida",
-    "showLess": "Mostrar menos",
-    "showMore": "Mostrar más",
     "stopSubagentAria": "Detener subagente",
     "timeline": "Línea de tiempo"
   },
@@ -1751,6 +1792,9 @@
   },
   "textSelectionPopover": {
     "reply": "Responder"
+  },
+  "thinkingDetail": {
+    "title": "Pensando"
   },
   "tiptapDocumentEditor": {
     "adding": "Añadiendo…",
@@ -1848,6 +1892,7 @@
     "seed": "Hola, acabo de iniciar una conversación de voz contigo. Este mensaje se envía automáticamente. Salúdame en una frase corta y luego pregúntame en qué quiero trabajar."
   },
   "voiceErrors": {
+    "selectionUnavailable": "No se pudo leer el texto seleccionado. No se pegó nada. Vuelve a seleccionar el texto e inténtalo de nuevo; puedes copiar tus palabras dictadas.",
     "nativeSttNoTranscript": "El dictado nativo de {clientName} no devolvió una transcripción. Revisa el reconocimiento de voz nativo en los ajustes del sistema e inténtalo de nuevo."
   },
   "voiceFirstRunCard": {
@@ -1929,8 +1974,9 @@
   },
   "webFetchDetailView": {
     "fetchFailed": "La obtención falló.",
-    "fetching": "Obteniendo…",
-    "noContent": "No se extrajo contenido."
+    "mayRequireJavaScript": "Es posible que esta página necesite JavaScript para mostrarlo todo, así que puede faltar parte del contenido.",
+    "startIndexPastEnd": "La lectura empezó después del final de esta página, así que no se leyó nada.",
+    "truncated": "Solo se leyó parte de esta página."
   },
   "webSearchDetailView": {
     "noSources": "No se encontraron fuentes.",

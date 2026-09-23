@@ -19,6 +19,8 @@ import type { MarketplaceEntry } from "./plugin-marketplace.js";
 export interface SearchPluginsDeps {
   /** HTTP client. Production callers pass `globalThis.fetch.bind(globalThis)`. */
   readonly fetch: FetchLike;
+  /** Optional feature-flag resolver for deterministic tests. */
+  readonly featureFlagEnabled?: (key: string) => boolean;
 }
 
 /** Where a catalog match comes from. */

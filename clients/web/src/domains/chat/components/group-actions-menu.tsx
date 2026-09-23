@@ -19,9 +19,9 @@
  */
 
 import {
-  Archive,
   ArrowDown,
   ArrowUp,
+  ArrowUpRight,
   Copy,
   Layers,
   Pencil,
@@ -32,6 +32,10 @@ import { type ReactNode, useState } from "react";
 import { useTouchMobile } from "@/hooks/use-touch-mobile";
 import { useTranslation, type TFunction } from "@/i18n";
 import { SectionActionsButton } from "@/components/section-actions-button";
+import {
+  useConversationDoneLabels,
+  type ConversationDoneLabels,
+} from "@/utils/done-labels";
 import {
   buildPanelMenuItem,
   PanelMenuDivider,
@@ -88,6 +92,13 @@ export interface GroupMenuItemsProps {
   onToggleGroupByChannel?: () => void;
   /** Whether channel grouping is on, which decides the toggle's label. */
   isGroupedByChannel?: boolean;
+  /**
+   * Open the All chats page on this section's filter. Under `sidebar-done`
+   * the header carries a hover-only icon for it, and a touch header, which
+   * has no hover, carries this item instead so the destination is reachable
+   * by thumb.
+   */
+  onViewAllChats?: () => void;
 }
 
 /**
@@ -103,6 +114,7 @@ export function hasAnyGroupMenuAction({
   onToggleGroupByChannel,
   onMoveUp,
   onMoveDown,
+  onViewAllChats,
 }: GroupMenuItemsProps): boolean {
   return (
     onMarkAllRead != null ||
@@ -112,7 +124,8 @@ export function hasAnyGroupMenuAction({
     onCopyGroupId != null ||
     onToggleGroupByChannel != null ||
     onMoveUp != null ||
-    onMoveDown != null
+    onMoveDown != null ||
+    onViewAllChats != null
   );
 }
 
@@ -129,10 +142,14 @@ export function renderGroupMenuItems({
   isGroupedByChannel = false,
   onMoveUp,
   onMoveDown,
+  onViewAllChats,
   t,
+  doneLabels,
 }: GroupMenuItemsProps & {
   Primitive: GroupMenuPrimitive;
   t: TFunction<"chat">;
+  /** Required here for the same reason `t` is: no hook, so the caller binds. */
+  doneLabels: ConversationDoneLabels;
 }): ReactNode {
   const hasBulkActions = onMarkAllRead != null || onArchiveAll != null;
   const hasIndividualActions =
@@ -144,6 +161,19 @@ export function renderGroupMenuItems({
 
   return (
     <>
+      {/* The destination a done chat went to leads the menu: it is where the
+          section's own history is, not an action on the rows in view. */}
+      {onViewAllChats ? (
+        <>
+          <Primitive.Item
+            leftIcon={<ArrowUpRight size={14} />}
+            onSelect={onViewAllChats}
+          >
+            {t("sidebarSectionViewAll.label")}
+          </Primitive.Item>
+          <Primitive.Separator />
+        </>
+      ) : null}
       {/* Layout actions lead: they apply to every section, so keeping them
           in one place means the menu doesn't reshuffle between a channel
           section (no rename/delete) and a custom group. */}
@@ -174,11 +204,11 @@ export function renderGroupMenuItems({
       ) : null}
       {onArchiveAll ? (
         <Primitive.Item
-          leftIcon={<Archive size={14} />}
+          leftIcon={<doneLabels.archiveAllIcon size={14} />}
           onSelect={onArchiveAll}
           disabled={!hasConversations}
         >
-          {t("groupActions.archiveAll")}
+          {doneLabels.archiveAll}
         </Primitive.Item>
       ) : null}
       {hasBulkActions && hasIndividualActions ? <Primitive.Separator /> : null}
@@ -229,11 +259,15 @@ export function renderGroupMenuItemsAsPanelItems({
   isGroupedByChannel = false,
   onMoveUp,
   onMoveDown,
+  onViewAllChats,
   onClose,
   t,
+  doneLabels,
 }: GroupMenuItemsProps & {
   onClose: () => void;
   t: TFunction<"chat">;
+  /** Required here for the same reason `t` is: no hook, so the caller binds. */
+  doneLabels: ConversationDoneLabels;
 }): ReactNode {
   const hasBulkActions = onMarkAllRead != null || onArchiveAll != null;
   const hasIndividualActions =
@@ -245,6 +279,18 @@ export function renderGroupMenuItemsAsPanelItems({
 
   return (
     <>
+      {onViewAllChats ? (
+        <>
+          {buildPanelMenuItem({
+            key: "view-all-chats",
+            icon: ArrowUpRight,
+            label: t("sidebarSectionViewAll.label"),
+            run: onViewAllChats,
+            onClose,
+          })}
+          <PanelMenuDivider />
+        </>
+      ) : null}
       {onMoveUp
         ? buildPanelMenuItem({
             key: "move-section-up",
@@ -279,8 +325,8 @@ export function renderGroupMenuItemsAsPanelItems({
       {onArchiveAll
         ? buildPanelMenuItem({
             key: "archive-all",
-            icon: Archive,
-            label: t("groupActions.archiveAll"),
+            icon: doneLabels.archiveAllIcon,
+            label: doneLabels.archiveAll,
             disabled: !hasConversations,
             run: onArchiveAll,
             onClose,
@@ -353,6 +399,7 @@ export function GroupActionsMenu({
   const [open, setOpen] = useState(false);
   const isTouchMobile = useTouchMobile();
   const { t } = useTranslation("chat");
+  const doneLabels = useConversationDoneLabels();
   const closeMenu = () => setOpen(false);
   const hasItems = hasAnyGroupMenuAction(menuProps);
 
@@ -364,6 +411,7 @@ export function GroupActionsMenu({
     ...menuProps,
     onClose: closeMenu,
     t,
+    doneLabels,
   });
 
   const trigger = <SectionActionsButton label={label} />;

@@ -58,6 +58,26 @@
           }
         },
         {
+          "id": "claude-opus-5-5",
+          "displayName": "Claude Opus 5.5",
+          "contextWindowTokens": 1000000,
+          "maxOutputTokens": 128000,
+          "defaultContextWindowTokens": 200000,
+          "longContextPricingThresholdTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "adaptiveThinkingOnly": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 4,
+            "outputPer1mTokens": 20,
+            "cacheWritePer1mTokens": 5,
+            "cacheReadPer1mTokens": 0.2
+          }
+        },
+        {
           "id": "claude-opus-5",
           "displayName": "Claude Opus 5",
           "contextWindowTokens": 1000000,
@@ -267,6 +287,62 @@
                 "outputPer1mTokens": 75,
                 "cacheWritePer1mTokens": 25,
                 "cacheReadPer1mTokens": 2
+              }
+            ]
+          }
+        },
+        {
+          "id": "gpt-6-sol",
+          "displayName": "GPT-6 Sol",
+          "contextWindowTokens": 1050000,
+          "maxOutputTokens": 128000,
+          "defaultContextWindowTokens": 200000,
+          "longContextPricingThresholdTokens": 272000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 2,
+            "outputPer1mTokens": 10,
+            "cacheWritePer1mTokens": 2.5,
+            "cacheReadPer1mTokens": 0.2,
+            "tiers": [
+              {
+                "inputTokenThreshold": 272000,
+                "inputPer1mTokens": 4,
+                "outputPer1mTokens": 15,
+                "cacheWritePer1mTokens": 5,
+                "cacheReadPer1mTokens": 0.4
+              }
+            ]
+          }
+        },
+        {
+          "id": "gpt-6-luna",
+          "displayName": "GPT-6 Luna",
+          "contextWindowTokens": 1050000,
+          "maxOutputTokens": 128000,
+          "defaultContextWindowTokens": 200000,
+          "longContextPricingThresholdTokens": 272000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 0.1,
+            "outputPer1mTokens": 0.5,
+            "cacheWritePer1mTokens": 0.125,
+            "cacheReadPer1mTokens": 0.01,
+            "tiers": [
+              {
+                "inputTokenThreshold": 272000,
+                "inputPer1mTokens": 0.2,
+                "outputPer1mTokens": 0.75,
+                "cacheWritePer1mTokens": 0.25,
+                "cacheReadPer1mTokens": 0.02
               }
             ]
           }
@@ -1043,6 +1119,26 @@
           }
         },
         {
+          "id": "anthropic/claude-opus-5.5",
+          "displayName": "Claude Opus 5.5",
+          "contextWindowTokens": 1000000,
+          "maxOutputTokens": 128000,
+          "defaultContextWindowTokens": 200000,
+          "longContextPricingThresholdTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "adaptiveThinkingOnly": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 4,
+            "outputPer1mTokens": 20,
+            "cacheWritePer1mTokens": 5,
+            "cacheReadPer1mTokens": 0.2
+          }
+        },
+        {
           "id": "anthropic/claude-opus-5",
           "displayName": "Claude Opus 5",
           "contextWindowTokens": 1000000,
@@ -1262,6 +1358,118 @@
                 "outputPer1mTokens": 75,
                 "cacheWritePer1mTokens": 25,
                 "cacheReadPer1mTokens": 2
+              }
+            ]
+          }
+        },
+        {
+          "id": "openai/gpt-6-sol",
+          "displayName": "GPT-6 Sol",
+          "contextWindowTokens": 1050000,
+          "maxOutputTokens": 128000,
+          "defaultContextWindowTokens": 200000,
+          "longContextPricingThresholdTokens": 272000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 2,
+            "outputPer1mTokens": 10,
+            "cacheWritePer1mTokens": 2.5,
+            "cacheReadPer1mTokens": 0.2,
+            "tiers": [
+              {
+                "inputTokenThreshold": 272000,
+                "inputPer1mTokens": 4,
+                "outputPer1mTokens": 15,
+                "cacheWritePer1mTokens": 5,
+                "cacheReadPer1mTokens": 0.4
+              }
+            ]
+          }
+        },
+        {
+          "id": "openai/gpt-6-sol-pro",
+          "displayName": "GPT-6 Sol Pro",
+          "contextWindowTokens": 1050000,
+          "maxOutputTokens": 128000,
+          "defaultContextWindowTokens": 200000,
+          "longContextPricingThresholdTokens": 272000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 2,
+            "outputPer1mTokens": 10,
+            "cacheWritePer1mTokens": 2.5,
+            "cacheReadPer1mTokens": 0.2,
+            "tiers": [
+              {
+                "inputTokenThreshold": 272000,
+                "inputPer1mTokens": 4,
+                "outputPer1mTokens": 15,
+                "cacheWritePer1mTokens": 5,
+                "cacheReadPer1mTokens": 0.4
+              }
+            ]
+          }
+        },
+        {
+          "id": "openai/gpt-6-luna",
+          "displayName": "GPT-6 Luna",
+          "contextWindowTokens": 1050000,
+          "maxOutputTokens": 128000,
+          "defaultContextWindowTokens": 200000,
+          "longContextPricingThresholdTokens": 272000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 0.1,
+            "outputPer1mTokens": 0.5,
+            "cacheWritePer1mTokens": 0.125,
+            "cacheReadPer1mTokens": 0.01,
+            "tiers": [
+              {
+                "inputTokenThreshold": 272000,
+                "inputPer1mTokens": 0.2,
+                "outputPer1mTokens": 0.75,
+                "cacheWritePer1mTokens": 0.25,
+                "cacheReadPer1mTokens": 0.02
+              }
+            ]
+          }
+        },
+        {
+          "id": "openai/gpt-6-luna-pro",
+          "displayName": "GPT-6 Luna Pro",
+          "contextWindowTokens": 1050000,
+          "maxOutputTokens": 128000,
+          "defaultContextWindowTokens": 200000,
+          "longContextPricingThresholdTokens": 272000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 0.1,
+            "outputPer1mTokens": 0.5,
+            "cacheWritePer1mTokens": 0.125,
+            "cacheReadPer1mTokens": 0.01,
+            "tiers": [
+              {
+                "inputTokenThreshold": 272000,
+                "inputPer1mTokens": 0.2,
+                "outputPer1mTokens": 0.75,
+                "cacheWritePer1mTokens": 0.25,
+                "cacheReadPer1mTokens": 0.02
               }
             ]
           }
@@ -2021,6 +2229,26 @@
           }
         },
         {
+          "id": "anthropic/claude-opus-5.5",
+          "displayName": "Claude Opus 5.5",
+          "contextWindowTokens": 1000000,
+          "maxOutputTokens": 128000,
+          "defaultContextWindowTokens": 200000,
+          "longContextPricingThresholdTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "adaptiveThinkingOnly": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 4,
+            "outputPer1mTokens": 20,
+            "cacheWritePer1mTokens": 5,
+            "cacheReadPer1mTokens": 0.2
+          }
+        },
+        {
           "id": "anthropic/claude-opus-5",
           "displayName": "Claude Opus 5",
           "contextWindowTokens": 1000000,
@@ -2440,7 +2668,7 @@
         "url": "https://typesafe.ai",
         "linkLabel": "Open TypeSafe"
       },
-      "supportsPlatformAuth": false,
+      "supportsPlatformAuth": true,
       "defaultModel": "jev-latest",
       "models": [
         {

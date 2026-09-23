@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, renderHook } from "@testing-library/react";
 
-import type { HotkeySelection } from "@vellumai/ipc-contract";
+import type { HotkeySelectionResult } from "@vellumai/ipc-contract";
 
 import type { HotkeyEvent } from "@/runtime/hotkey";
 import type { VoiceKey } from "@/utils/voice-key";
@@ -9,7 +9,7 @@ import type { VoiceKey } from "@/utils/voice-key";
 let holdSupported = true;
 let registrationSucceeds = true;
 let emitHotkeyEvent: ((event: HotkeyEvent) => void) | null = null;
-let frontSelection: HotkeySelection | null = null;
+let frontSelection: HotkeySelectionResult = null;
 const setModifierHold = mock(async (_hold: unknown) => ({
   ok: true as const,
   enabled: registrationSucceeds,
@@ -28,12 +28,15 @@ mock.module("@/runtime/hotkey", () => ({
   },
 }));
 
-let inputMonitoringStatus = "granted";
+let onPermissionGranted: (() => void) | null = null;
 const requestSystemPermission = mock(async (_kind: string) => null);
 mock.module("@/runtime/system-permissions", () => ({
-  getSystemPermissionsState: async () => ({
-    inputMonitoring: { status: inputMonitoringStatus },
-  }),
+  subscribeToInputMonitoringGranted: (callback: () => void) => {
+    onPermissionGranted = callback;
+    return () => {
+      onPermissionGranted = null;
+    };
+  },
   requestSystemPermission,
 }));
 
@@ -73,7 +76,7 @@ const tap = async () => {
 /** What the start the hook reported will resolve its selection to. */
 const startedOver = async (
   onHoldStart: ReturnType<typeof mock<(start: HoldStart) => void>>,
-): Promise<HotkeySelection | null> => {
+): Promise<HotkeySelectionResult> => {
   const start = onHoldStart.mock.calls[0]?.[0];
   if (!start) {
     throw new Error("the hold never started");
@@ -105,7 +108,6 @@ describe("the voice key", () => {
     holdSupported = true;
     registrationSucceeds = true;
     frontSelection = null;
-    inputMonitoringStatus = "granted";
     setModifierHold.mockClear();
     readFrontSelection.mockClear();
     requestSystemPermission.mockClear();
@@ -277,23 +279,23 @@ describe("the voice key", () => {
     expect(onRegistered).toHaveBeenLastCalledWith(false);
   });
 
-  /**
-   * Arming the key is what asks for Input Monitoring, once per launch: the
-   * grant is for noticing the press, so the press itself can never be the
-   * moment to ask.
-   */
-  test("asks for Input Monitoring when the key is armed without it", async () => {
-    inputMonitoringStatus = "not-determined";
-    const { view } = renderKey();
+  test("does not prompt when the key is registered", async () => {
+    renderKey();
     await settle(0);
-    expect(requestSystemPermission).toHaveBeenCalledWith("inputMonitoring");
+    expect(requestSystemPermission).not.toHaveBeenCalled();
+  });
 
-    // Once. A second registration in the same launch asks nothing more.
-    view.rerender({
-      key: { kind: "modifierOnly", modifiers: ["control", "option"] },
-    });
+  test("registers a refused key again when permission is granted", async () => {
+    registrationSucceeds = false;
+    const { onRegistered, view } = renderKey();
     await settle(0);
-    expect(requestSystemPermission).toHaveBeenCalledTimes(1);
+    expect(onRegistered).toHaveBeenLastCalledWith(false);
+    registrationSucceeds = true;
+    act(() => onPermissionGranted?.());
+    await settle(0);
+    expect(onRegistered).toHaveBeenLastCalledWith(true);
+    view.unmount();
+    expect(onPermissionGranted).toBeNull();
   });
 
   /** Edges from the other bindings are other features' business. */

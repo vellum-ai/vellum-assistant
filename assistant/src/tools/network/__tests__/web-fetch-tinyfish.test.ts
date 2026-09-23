@@ -1,4 +1,12 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  spyOn,
+  test,
+} from "bun:test";
 
 import { setConfig } from "../../../__tests__/helpers/set-config.js";
 
@@ -99,6 +107,32 @@ describe("executeTinyfishFetch", () => {
     expect(result.activityMetadata?.webFetch?.finalUrl).toBe(
       "https://www.example.com/",
     );
+  });
+
+  test("an empty upstream title is no title", async () => {
+    spyOn(globalThis, "fetch").mockResolvedValue(
+      fetchResponse({
+        results: [
+          {
+            url: "https://example.com/",
+            final_url: "https://example.com/",
+            title: "  ",
+            text: "# Example",
+            format: "markdown",
+          },
+        ],
+        errors: [],
+      }),
+    );
+
+    const result = await executeTinyfishFetch(
+      { url: "https://example.com" },
+      { apiKey: "tf_test" },
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.activityMetadata?.webFetch?.title).toBeUndefined();
+    expect(result.content).not.toContain("Title:");
   });
 
   test("uses a custom API base and applies character windows", async () => {

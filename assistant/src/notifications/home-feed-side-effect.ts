@@ -15,6 +15,8 @@ import {
   type FeedItemCategory,
   type FeedItemDetailPanelKind,
   feedItemSchema,
+  type FeedItemUpdate,
+  feedItemUpdateSchema,
 } from "../home/feed-types.js";
 import { appendFeedItem } from "../home/feed-writer.js";
 import {
@@ -23,14 +25,11 @@ import {
   getMessageById,
   updateMessageContent,
 } from "../persistence/conversation-crud.js";
-import {
-  ASSISTANT_INITIATED_SOURCE,
-  isBackgroundConversationType,
-} from "../persistence/conversation-types.js";
+import { ASSISTANT_INITIATED_SOURCE } from "../persistence/conversation-types.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { getLogger } from "../util/logger.js";
+import { isPlainObject } from "../util/object.js";
 import { normalizeTitle, stripMarkdown } from "../util/short-title.js";
-import { readChannelAllowlist } from "./channel-allowlist.js";
 import { isConversationSeedSane } from "./conversation-seed-composer.js";
 import { deriveTitle } from "./copy-composer.js";
 import {
@@ -39,6 +38,7 @@ import {
   isGuardianRequestSignalEvent,
   receiptGuardianFeedItemIfRequestTerminal,
 } from "./guardian-feed-projection.js";
+import { signalMirrorsToHomeFeed } from "./home-feed-mirror.js";
 import { readPayloadString } from "./notification-utils.js";
 import type { NotificationSignal } from "./signal.js";
 import type {
@@ -64,6 +64,30 @@ const log = getLogger("home-feed-side-effect");
  * it would otherwise hand an edit an arbitrary message id to overwrite.
  */
 const CONVERSATION_MESSAGE_ID_KEY = "notificationConversationMessageId";
+
+/**
+ * Payload key a skill-update receipt carries its entries under. Read here
+ * through the wire schema and mapped onto the item's typed `updates`, so the
+ * panel the client opens is decided by the shape, never by copy.
+ */
+const UPDATES_KEY = "updates";
+
+/**
+ * The receipt entries in `contextPayload`, when it carries a non-empty list
+ * that parses as the wire shape; otherwise undefined, and the item renders
+ * as an ordinary notification. A malformed list is dropped rather than
+ * mirrored, since a client would render whatever survived.
+ */
+function readUpdates(contextPayload: unknown): FeedItemUpdate[] | undefined {
+  if (!isPlainObject(contextPayload)) {
+    return undefined;
+  }
+  const parsed = feedItemUpdateSchema
+    .array()
+    .min(1)
+    .safeParse(contextPayload[UPDATES_KEY]);
+  return parsed.success ? parsed.data : undefined;
+}
 
 /**
  * Append a `FeedItem` for the given notification signal when the
@@ -106,12 +130,19 @@ export async function writeHomeFeedItemForSignal(
     readPayloadString(signal.contextPayload, "body") ??
     readPayloadString(signal.contextPayload, "requestedMessage");
 
+  // A receipt's summary is the producer's own list of what changed, which
+  // the panel renders from the typed entries and a client without the panel
+  // reads as-is. Model copy is not allowed to rewrite it: a paraphrase can
+  // drop an entry, and the list is the receipt's whole point.
+  const updates = readUpdates(signal.contextPayload);
+
   // Prefer conversationSeedMessage over body for the home feed: the seed
   // message is richer and may contain structured markdown (lists, headers,
   // bold) that the detail panel renders. The popup-oriented `body` is
   // intentionally short (≤ 2 sentences) and loses formatting.
   const seedCandidate = renderedCopy?.conversationSeedMessage;
   const resolvedSummary =
+    (updates ? payloadBody?.trim() : undefined) ||
     (isConversationSeedSane(seedCandidate)
       ? seedCandidate.trim()
       : undefined) ||
@@ -146,7 +177,7 @@ export async function writeHomeFeedItemForSignal(
   const now = new Date().toISOString();
 
   const category = deriveCategory(signal);
-  const panelKind = deriveDetailPanelKind(signal);
+  const panelKind = updates ? "updatesList" : deriveDetailPanelKind(signal);
 
   const baseMetadata =
     signal.contextPayload &&
@@ -157,6 +188,9 @@ export async function writeHomeFeedItemForSignal(
   // Producer payloads reach the card verbatim, and this key addresses a
   // message row for rewriting, so only this module may set it.
   delete baseMetadata?.[CONVERSATION_MESSAGE_ID_KEY];
+  // The entries ride on the item as its typed `updates`, not in the
+  // free-form bag, so a client reads them from one place.
+  delete baseMetadata?.[UPDATES_KEY];
 
   // Link scheduled-run notifications back to their schedule. `notify`-mode
   // jobs put `scheduleId` directly in the context payload; `execute`-mode (and
@@ -205,6 +239,7 @@ export async function writeHomeFeedItemForSignal(
     ...(urgency ? { urgency } : {}),
     ...(sourceConversationId ? { conversationId: sourceConversationId } : {}),
     ...(panelKind ? { detailPanel: { kind: panelKind } } : {}),
+    ...(updates ? { updates } : {}),
     ...(metadata ? { metadata } : {}),
   };
 
@@ -322,6 +357,10 @@ async function appendSummaryToFeedTarget(
   try {
     const message = await addMessage(conversationId, "assistant", summary, {
       skipIndexing: true,
+      // The body is bookkeeping about the conversation, not activity in it:
+      // a receipt for work the conversation already saw must not bounce a
+      // chat the user just marked Done back into the sidebar.
+      skipResurface: true,
     });
     publishConversationMessagesChanged(conversationId);
     log.info(
@@ -553,19 +592,7 @@ function resolveHomeFeedMirror(
   if (isAssistantInitiatedThreadDelivery(fallbackConversationId)) {
     return { mirror: false };
   }
-  if (
-    signal.sourceChannel === "assistant_tool" ||
-    signal.sourceEventName === "chat.assistant_reply"
-  ) {
-    const allowlist = readChannelAllowlist(signal.contextPayload);
-    if (!allowlist || allowlist.includes("vellum")) {
-      return { mirror: true, sourceConversationId, sourceScheduleJobId };
-    }
-  }
-  if (signal.attentionHints.isAsyncBackground) {
-    return { mirror: true, sourceConversationId, sourceScheduleJobId };
-  }
-  if (isBackgroundConversationType(sourceRow?.conversationType)) {
+  if (signalMirrorsToHomeFeed(signal, sourceRow?.conversationType)) {
     return { mirror: true, sourceConversationId, sourceScheduleJobId };
   }
   return { mirror: false };

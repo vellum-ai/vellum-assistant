@@ -15,11 +15,12 @@
  */
 
 import { isAvatarAccentHex } from "./accent.js";
+import type { AvatarKind } from "./manifest.js";
 
 /** Output edge in pixels: large enough for an iOS notification thumbnail. */
 export const NOTIFICATION_AVATAR_SIZE = 256;
 
-/** Free disc on each side, as a fraction of the edge; the avatar gets the rest. */
+/** Free disc on each side of a character avatar, as a fraction of the edge. */
 export const NOTIFICATION_AVATAR_INSET = 0.11;
 
 /** The disc when the assistant has no accent. */
@@ -48,7 +49,7 @@ export const NOTIFICATION_AVATAR_MAX_LOCAL_BYTES = 512 * 1024;
  * Bumped whenever the drawing above changes, so a sync keyed on it re-uploads
  * a disc rendered by an older spec even when the avatar itself is unchanged.
  */
-export const NOTIFICATION_AVATAR_SPEC_VERSION = 1;
+export const NOTIFICATION_AVATAR_SPEC_VERSION = 2;
 
 /** The id the inner raster's clip path is referenced by inside the document. */
 const CLIP_ID = "notification-avatar-disc";
@@ -74,24 +75,26 @@ export function notificationAvatarDiscHex(accentHex: string | null): string {
 
 /** Raster formats an `<image>` href carries here; what resvg and a canvas both decode. */
 export type NotificationAvatarMediaType =
-  | "image/png"
-  | "image/jpeg"
-  | "image/gif";
+  "image/png" | "image/jpeg" | "image/gif";
 
 /**
  * The three measurements the drawing derives from the edge: the disc's radius,
  * which is also its centre; the free border around the avatar; and the
  * avatar's own edge. Every rasterizer reads them from here, so the daemon's
  * SVG and the desktop canvas cannot drift.
+ * Custom images fill the disc; character avatars retain space around their
+ * silhouette.
  */
 export function notificationAvatarGeometry(
+  kind: Exclude<AvatarKind, "none">,
   size: number = NOTIFICATION_AVATAR_SIZE,
 ): { radius: number; offset: number; inner: number } {
-  const offset = size * NOTIFICATION_AVATAR_INSET;
+  const offset = kind === "character" ? size * NOTIFICATION_AVATAR_INSET : 0;
   return { radius: size / 2, offset, inner: size - 2 * offset };
 }
 
 export interface NotificationAvatarSvgOptions {
+  kind: Exclude<AvatarKind, "none">;
   /** The avatar raster to draw inside the disc, base64 with no data prefix. */
   innerPngBase64: string;
   /** What `innerPngBase64` holds; PNG unless an upload arrived as a JPEG or a GIF. */
@@ -107,7 +110,7 @@ function px(value: number): string {
 
 /**
  * The notification avatar as an SVG document: a filled disc with the avatar
- * drawn inset into it.
+ * filling it for custom images or inset for character avatars.
  *
  * The inner raster is cover-cropped (`xMidYMid slice`), matching what the web
  * canvas does, so a portrait or landscape upload fills the square instead of
@@ -119,12 +122,13 @@ function px(value: number): string {
  * rasterizer is known to render it.
  */
 export function notificationAvatarSvg({
+  kind,
   innerPngBase64,
   innerMediaType = "image/png",
   accentHex,
   size = NOTIFICATION_AVATAR_SIZE,
 }: NotificationAvatarSvgOptions): string {
-  const { radius, offset, inner } = notificationAvatarGeometry(size);
+  const { radius, offset, inner } = notificationAvatarGeometry(kind, size);
   const href = `data:${innerMediaType};base64,${innerPngBase64}`;
   const disc = `cx="${px(radius)}" cy="${px(radius)}" r="${px(radius)}"`;
   return (

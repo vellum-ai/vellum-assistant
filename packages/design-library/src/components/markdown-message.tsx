@@ -13,6 +13,9 @@ import {
   useState,
 } from "react";
 import ReactMarkdown from "react-markdown";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize from "rehype-sanitize";
+import remarkFrontmatter from "remark-frontmatter";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import remarkParse from "remark-parse";
@@ -337,78 +340,104 @@ function renderUprightEmoji(children: ReactNode): ReactNode {
 function buildMarkdownComponents(
   LinkComponent: MarkdownLinkComponent,
   ImageComponent?: MarkdownImageComponent,
+  remoteImages = false,
 ): Components {
   return {
     // mb-6 (24px) equals one --text-chat-line-height, so a `\n\n` paragraph
     // break reads as a full blank line — distinct from the 24px hard break a
     // single `\n` produces. Smaller margins make the two nearly identical.
-    p: ({ children }) => <p className="mb-6 last:mb-0">{children}</p>,
-    // Markdown headings keep the canonical scale sizes but restore bold weight
-    // via `!font-bold` (the scale variants bake font-weight:500 into the utility,
-    // so a plain `font-bold` loses to the custom rule; `!important` wins).
-    h1: ({ children }) => (
-      // typography: off-scale — bold weight override on canonical size
-
-      <h1 className="mb-2 mt-3 text-title-medium !font-bold first:mt-0">
+    p: ({ node: _node, children, ...rest }) => (
+      <p {...rest} className="mb-6 last:mb-0">
+        {children}
+      </p>
+    ),
+    // One step of the type scale per heading level, `#` through `######`,
+    // with no level sharing a step with the one below it. The weight is the
+    // step's own: a heading reads as a heading because the scale says a title
+    // is 500 against body's 400, so overriding the weight here would put this
+    // renderer's idea of a heading above the scale's.
+    //
+    // The leading is not the step's own. The three title rungs ship
+    // `line-height: 1`, which is single-line only (STYLE_GUIDE.md, "Check the
+    // leading before text that wraps"), and a markdown heading is a sentence
+    // that wraps as often as not. Each level rebinds its own leading
+    // variable, the form that guide asks for, rather than stacking a
+    // `leading-*` utility whose win over the token's own rule depends on
+    // generation order. The values are in px, like every other real leading
+    // in the scale.
+    h1: ({ node: _node, children, ...rest }) => (
+      <h1
+        {...rest}
+        className="mb-2 mt-4 text-title-large [--text-title-large-line-height:32px] first:mt-0"
+      >
         {children}
       </h1>
     ),
-    h2: ({ children }) => (
-      // typography: off-scale — bold weight override on canonical size
-
-      <h2 className="mb-2 mt-3 text-title-small !font-bold first:mt-0">
+    h2: ({ node: _node, children, ...rest }) => (
+      <h2
+        {...rest}
+        className="mb-2 mt-4 text-title-medium [--text-title-medium-line-height:28px] first:mt-0"
+      >
         {children}
       </h2>
     ),
-    h3: ({ children }) => (
-      // typography: off-scale — bold weight override on canonical size
-
-      <h3 className="mb-1 mt-2 text-body-medium-default !font-bold first:mt-0">
+    h3: ({ node: _node, children, ...rest }) => (
+      <h3
+        {...rest}
+        className="mb-2 mt-3 text-title-small [--text-title-small-line-height:22px] first:mt-0"
+      >
         {children}
       </h3>
     ),
-    ul: ({ children }) => (
-      <ul className="mb-2 list-disc pl-5 last:mb-0">{children}</ul>
+    ul: ({ node: _node, children, ...rest }) => (
+      <ul {...rest} className="mb-2 list-disc pl-5 last:mb-0">
+        {children}
+      </ul>
     ),
     // `start` must be forwarded: react-markdown emits `<ol start="N">` for a
     // list that begins at a non-1 number (a bare "3." answer, or a list the
     // model continues from a prior number). Dropping it silently renumbers
     // every such list to 1 — e.g. "3." would render as "1.".
-    ol: ({ children, start }) => (
-      <ol start={start} className="mb-2 list-decimal pl-5 last:mb-0">
+    ol: ({ node: _node, children, ...rest }) => (
+      <ol {...rest} className="mb-2 list-decimal pl-5 last:mb-0">
         {children}
       </ol>
     ),
-    // h4-h6 are rare in assistant output but must not fall through to
-    // unstyled browser defaults (a Tailwind reset strips their size/weight,
-    // leaving them indistinguishable from body text). Keep them bold on a
-    // descending body scale.
-    h4: ({ children }) => (
-      // typography: off-scale — bold weight override on canonical size
-
-      <h4 className="mb-1 mt-2 text-body-medium-default !font-bold first:mt-0">
+    // Below the three title steps the ramp continues through the body steps
+    // at their emphasised weight, so h4-h6 stay distinguishable from the
+    // paragraphs around them (a Tailwind reset strips the browser's own
+    // heading sizes) and from each other. h6, the last step, has no smaller
+    // size left to take, so it steps down in colour instead.
+    h4: ({ node: _node, children, ...rest }) => (
+      <h4 {...rest} className="mb-1 mt-3 text-body-medium-default first:mt-0">
         {children}
       </h4>
     ),
-    h5: ({ children }) => (
-      // typography: off-scale — bold weight override on canonical size
-
-      <h5 className="mb-1 mt-2 text-body-small-lighter !font-bold first:mt-0">
+    // The last two rebind theirs for the same reason: 12px text wraps at
+    // 18px leading everywhere else in the scale, and `body-small-default` is
+    // the emphasised 12px rung, which ships `line-height: 1` for single-line
+    // labels.
+    h5: ({ node: _node, children, ...rest }) => (
+      <h5
+        {...rest}
+        className="mb-1 mt-2 text-body-small-default [--text-body-small-default-line-height:18px] first:mt-0"
+      >
         {children}
       </h5>
     ),
-    h6: ({ children }) => (
-      // typography: off-scale — bold weight override on canonical size
-
-      <h6 className="mb-1 mt-2 text-body-small-lighter !font-bold text-[var(--content-secondary)] first:mt-0">
+    h6: ({ node: _node, children, ...rest }) => (
+      <h6
+        {...rest}
+        className="mb-1 mt-2 text-body-small-default [--text-body-small-default-line-height:18px] text-[var(--content-secondary)] first:mt-0"
+      >
         {children}
       </h6>
     ),
     // `value` is forwarded so a list item whose source ordinal breaks the
     // running sequence (set by remarkPreserveOrderedListNumbers) renders at its
     // typed number via the HTML `<li value="N">` attribute.
-    li: ({ children, value }) => (
-      <li value={value} className="mb-0.5">
+    li: ({ node: _node, children, ...rest }) => (
+      <li {...rest} className="mb-0.5">
         {children}
       </li>
     ),
@@ -456,8 +485,11 @@ function buildMarkdownComponents(
     thead: ({ children }) => (
       <thead className="bg-[var(--surface-sunken)]">{children}</thead>
     ),
-    th: ({ children }) => (
+    // `rest` carries the column alignment GFM writes as an inline style, so a
+    // `:---:` column stays centred rather than silently falling back to left.
+    th: ({ node: _node, children, ...rest }) => (
       <th
+        {...rest}
         className={
           "border border-stone-200 px-2 py-1 text-left font-semibold [&_code]:whitespace-pre-wrap [&_code]:break-words [&_code]:box-decoration-clone dark:border-moss-600" /* typography: off-scale — no canonical variant */
         }
@@ -465,13 +497,19 @@ function buildMarkdownComponents(
         {children}
       </th>
     ),
-    td: ({ children }) => (
-      <td className="border border-stone-200 px-2 py-1 [&_code]:whitespace-pre-wrap [&_code]:break-words [&_code]:box-decoration-clone dark:border-moss-600">
+    td: ({ node: _node, children, ...rest }) => (
+      <td
+        {...rest}
+        className="border border-stone-200 px-2 py-1 [&_code]:whitespace-pre-wrap [&_code]:break-words [&_code]:box-decoration-clone dark:border-moss-600"
+      >
         {children}
       </td>
     ),
     hr: () => <hr className="my-3 border-[var(--border-subtle)]" />,
-    img: ({ src, alt }) => {
+    // `rest` carries what a file's own `<img>` tag said about its picture:
+    // width, height and title, after sanitising. Rebuilding the element from
+    // src and alt alone silently resizes every image a README lays out.
+    img: ({ node: _node, src, alt, ...rest }) => {
       const srcStr = typeof src === "string" ? src : "";
       const altStr = typeof alt === "string" ? alt : "";
       // Every src goes to the consumer's component, absolute host paths and
@@ -486,9 +524,14 @@ function buildMarkdownComponents(
         srcStr.startsWith("data:") ||
         srcStr.startsWith("blob:") ||
         srcStr.startsWith(".");
-      if (isLocal) {
+      if (remoteImages || isLocal) {
         return (
-          <img src={srcStr} alt={altStr} className="my-1 max-w-full rounded" />
+          <img
+            {...rest}
+            src={srcStr}
+            alt={altStr}
+            className="my-1 max-w-full rounded"
+          />
         );
       }
       return (
@@ -1075,6 +1118,31 @@ export interface MarkdownMessageProps {
    * so leave this off for settled content that may rely on them.
    */
   incremental?: boolean;
+  /**
+   * Parse embedded HTML into real elements, then sanitise it. Off by default:
+   * a message is model-authored, and parsing HTML there would let it put
+   * markup into the app. A file someone opened uses HTML for layout, so a
+   * file surface turns it on.
+   */
+  parseHtml?: boolean;
+  /**
+   * Load images from anywhere. Off by default: a remote image in
+   * model-authored text is a request to a third party, so it draws as a
+   * placeholder instead. A file's own screenshots and badges are its content.
+   */
+  remoteImages?: boolean;
+  /**
+   * Read `$…$` and `\(…\)` as maths. On by default. File content turns it
+   * off: a README's `$HOME` is a shell variable and a price list's `$40` is a
+   * price, and neither is an equation.
+   */
+  math?: boolean;
+  /**
+   * What a leading YAML block is. `content` (the default) renders it as the
+   * markdown it looks like. `metadata` parses it as frontmatter, so it is not
+   * drawn as content; the source view still shows it.
+   */
+  frontmatter?: "content" | "metadata";
 }
 
 const REMARK_PLUGINS: PluggableList = [
@@ -1084,12 +1152,23 @@ const REMARK_PLUGINS: PluggableList = [
   remarkDisplayMathBlocks,
 ];
 
+/** A leading YAML block, parsed as metadata rather than drawn as content. */
+const FRONTMATTER_PLUGIN: Pluggable = [remarkFrontmatter, ["yaml"]];
+
+/** Without maths, the two maths plugins and their rewrites drop out. */
+const PROSE_REMARK_PLUGINS: PluggableList = [
+  remarkGfm,
+  remarkPreserveOrderedListNumbers,
+];
+
 interface MarkdownBlockProps {
   content: string;
   hardLineBreaks: boolean | undefined;
   components: Components;
   rehypePlugins: Pluggable[];
   urlTransform: ((url: string) => string) | undefined;
+  remarkPlugins: PluggableList;
+  math: boolean;
 }
 
 /**
@@ -1104,17 +1183,24 @@ function MarkdownBlock({
   components,
   rehypePlugins,
   urlTransform,
+  remarkPlugins,
+  math,
 }: MarkdownBlockProps) {
   const processed = useMemo(() => {
+    // The maths rewrites exist to protect maths from prose and prose from
+    // maths, so without maths none of them apply.
+    if (!math) {
+      return hardLineBreaks ? hardBreakNewlines(content) : content;
+    }
     const escaped = escapeCurrencyDollars(content);
     const broken = hardLineBreaks ? hardBreakNewlines(escaped) : escaped;
     // Last: currency escaping would otherwise read a converted `\(5\)` as an
     // amount and escape the `$` it just introduced.
     return convertLatexDelimiters(broken);
-  }, [content, hardLineBreaks]);
+  }, [content, hardLineBreaks, math]);
   return (
     <ReactMarkdown
-      remarkPlugins={REMARK_PLUGINS}
+      remarkPlugins={remarkPlugins}
       rehypePlugins={rehypePlugins}
       components={components}
       urlTransform={urlTransform}
@@ -1154,18 +1240,31 @@ export function MarkdownMessage({
   extraRehypePlugins,
   extraComponents,
   incremental = false,
+  parseHtml = false,
+  remoteImages = false,
+  math = true,
+  frontmatter = "content",
 }: MarkdownMessageProps) {
   const blocks = useIncrementalMarkdownBlocks(incremental ? content : "");
+  const remarkPlugins = useMemo(
+    () => [
+      ...(math ? REMARK_PLUGINS : PROSE_REMARK_PLUGINS),
+      // Parsed rather than removed: the block becomes a frontmatter node with
+      // no renderer, so it draws nothing while the source still carries it.
+      ...(frontmatter === "metadata" ? [FRONTMATTER_PLUGIN] : []),
+    ],
+    [math, frontmatter],
+  );
   const Link = linkComponent ?? DefaultLink;
   const components = useMemo(
     () =>
       ({
-        ...buildMarkdownComponents(Link, imageComponent),
+        ...buildMarkdownComponents(Link, imageComponent, remoteImages),
         // Custom tag names from consumer rehype plugins are not part of
         // react-markdown's intrinsic `Components` key set, hence the cast.
         ...extraComponents,
       }) as Components,
-    [Link, imageComponent, extraComponents],
+    [Link, imageComponent, extraComponents, remoteImages],
   );
   // Loosest possible trigger on purpose: every construct remark-math can
   // treat as math contains a dollar sign, or one of the `\(` / `\[` openers
@@ -1174,14 +1273,21 @@ export function MarkdownMessage({
   // unformatted. Anything cleverer (e.g. skipping escaped `\$`) risks the
   // reverse, and the only cost of a false positive is a lazy chunk load.
   const needsMath =
-    content.includes("$") || content.includes("\\(") || content.includes("\\[");
+    math &&
+    (content.includes("$") ||
+      content.includes("\\(") ||
+      content.includes("\\["));
   const katexPlugin = useRehypeKatex(needsMath);
   const rehypePlugins = useMemo(
     () => [
+      // A document's embedded HTML is reparsed into real elements and then
+      // sanitised, in that order so sanitising sees elements rather than text.
+      // Without it react-markdown prints the tags a README uses for layout.
+      ...(parseHtml ? [rehypeRaw, rehypeSanitize] : []),
       ...(katexPlugin === null ? [] : [katexPlugin]),
       ...(extraRehypePlugins ?? []),
     ],
-    [katexPlugin, extraRehypePlugins],
+    [parseHtml, katexPlugin, extraRehypePlugins],
   );
   return (
     <div
@@ -1201,6 +1307,8 @@ export function MarkdownMessage({
             components={components}
             rehypePlugins={rehypePlugins}
             urlTransform={urlTransform}
+            remarkPlugins={remarkPlugins}
+            math={math}
           />
         ))
       ) : (
@@ -1210,6 +1318,8 @@ export function MarkdownMessage({
           components={components}
           rehypePlugins={rehypePlugins}
           urlTransform={urlTransform}
+          remarkPlugins={remarkPlugins}
+          math={math}
         />
       )}
     </div>

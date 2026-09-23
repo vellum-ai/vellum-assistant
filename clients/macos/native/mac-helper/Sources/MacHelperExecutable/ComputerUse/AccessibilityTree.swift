@@ -10,6 +10,7 @@ struct AXElement: Identifiable, Sendable {
     let role: String
     let title: String?
     let value: String?
+    let textDescription: String?
     let frame: CGRect
     let isEnabled: Bool
     let isFocused: Bool
@@ -18,6 +19,8 @@ struct AXElement: Identifiable, Sendable {
     let identifier: String?
     let url: String?
     let placeholderValue: String?
+
+    var annotationName: String? { title ?? textDescription }
 }
 
 protocol AccessibilityTreeProviding: Sendable {
@@ -494,13 +497,19 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
         // Only for a control. Text on screen is read out of its value, and a
         // description or a tooltip standing in as its title would be reported
         // in place of the words the user is actually looking at.
-        let namesAControl = !Self.textRoles.contains(role)
+        let isStaticText = Self.textRoles.contains(role)
+        let namesAControl = !isStaticText
         let title = AXLabel.nonBlank(getStringAttribute(element, kAXTitleAttribute as CFString))
             ?? (namesAControl
                 ? AXLabel.nonBlank(getStringAttribute(element, kAXDescriptionAttribute as CFString))
                     ?? AXLabel.nonBlank(getStringAttribute(element, kAXHelpAttribute as CFString))
                 : nil)
         let value = getValueAttribute(element)
+        let textDescription = isStaticText
+            ? AXLabel.textDescription(title: title, value: value) {
+                getStringAttribute(element, kAXDescriptionAttribute as CFString)
+            }
+            : nil
         let roleDescription = getStringAttribute(element, kAXRoleDescriptionAttribute as CFString)
         let identifier = getStringAttribute(element, kAXIdentifierAttribute as CFString)
         let placeholderValue = getStringAttribute(element, kAXPlaceholderValueAttribute as CFString)
@@ -512,7 +521,6 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
         let isInteractive = Self.interactiveRoles.contains(role)
         let isContainer = Self.containerRoles.contains(role)
         let hasTextContent = (title != nil && !title!.isEmpty) || (value != nil && !value!.isEmpty)
-        let isStaticText = Self.textRoles.contains(role)
 
         // What this element leaves of everything under it: its own frame when
         // it scrolls, otherwise whatever its ancestors already left.
@@ -568,6 +576,7 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
                 role: role,
                 title: title,
                 value: value,
+                textDescription: textDescription,
                 frame: frame,
                 isEnabled: isEnabled,
                 isFocused: isFocused,
@@ -579,7 +588,7 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
             )]
         }
 
-        if isStaticText && hasTextContent {
+        if isStaticText && (hasTextContent || textDescription != nil) {
             let id = nextId
             nextId += 1
             return [AXElement(
@@ -587,10 +596,11 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
                 role: role,
                 title: title,
                 value: value,
+                textDescription: textDescription,
                 frame: frame,
                 isEnabled: isEnabled,
                 isFocused: isFocused,
-                children: [],
+                children: textDescription != nil ? childElements : [],
                 roleDescription: roleDescription,
                 identifier: identifier,
                 url: url,
@@ -606,6 +616,7 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
                 role: role,
                 title: title,
                 value: value,
+                textDescription: textDescription,
                 frame: frame,
                 isEnabled: isEnabled,
                 isFocused: isFocused,
@@ -675,10 +686,11 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
         lines.append("Window: \"\(windowTitle)\" (\(appName))")
 
         var interactive: [String] = []
+        var describedTexts: [String] = []
         var staticTexts: [String] = []
         var prunedCount = 0
         var clippedCount = clippedDuringWalk
-        collectFormatted(elements: elements, interactive: &interactive, staticTexts: &staticTexts, prunedCount: &prunedCount, clippedCount: &clippedCount)
+        collectFormatted(elements: elements, interactive: &interactive, describedTexts: &describedTexts, staticTexts: &staticTexts, prunedCount: &prunedCount, clippedCount: &clippedCount)
 
         if !interactive.isEmpty {
             lines.append("Interactive elements:")
@@ -694,6 +706,14 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
                 // has four rows on screen", and only the second tells the
                 // model that scrolling is what reaches the rest.
                 lines.append("  (\(clippedCount) elements scrolled out of view: scroll to bring them on screen)")
+            }
+        }
+
+        if !describedTexts.isEmpty {
+            lines.append("")
+            lines.append("Text elements with accessibility names (not visible labels):")
+            for text in describedTexts {
+                lines.append("  \(text)")
             }
         }
 
@@ -735,7 +755,7 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
     ///
     /// A tree with nothing cropping in it (no `AXScrollArea` ancestor) keeps a
     /// nil clip the whole way down and is reported exactly as before.
-    private static func collectFormatted(elements: [AXElement], interactive: inout [String], staticTexts: inout [String], prunedCount: inout Int, clippedCount: inout Int, clip: CGRect? = nil) {
+    private static func collectFormatted(elements: [AXElement], interactive: inout [String], describedTexts: inout [String], staticTexts: inout [String], prunedCount: inout Int, clippedCount: inout Int, clip: CGRect? = nil) {
         for element in elements {
             let isInteractiveRole = interactiveRoles.contains(element.role)
             let isText = textRoles.contains(element.role)
@@ -757,7 +777,7 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
                 if isInteractiveRole || isText {
                     clippedCount += 1
                 }
-                collectFormatted(elements: element.children, interactive: &interactive, staticTexts: &staticTexts, prunedCount: &prunedCount, clippedCount: &clippedCount, clip: inner)
+                collectFormatted(elements: element.children, interactive: &interactive, describedTexts: &describedTexts, staticTexts: &staticTexts, prunedCount: &prunedCount, clippedCount: &clippedCount, clip: inner)
                 continue
             }
 
@@ -771,7 +791,7 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
 
                 if !hasTitle && !isTextInput && !element.isFocused && !hasPlaceholder && !hasUrl {
                     prunedCount += 1
-                    collectFormatted(elements: element.children, interactive: &interactive, staticTexts: &staticTexts, prunedCount: &prunedCount, clippedCount: &clippedCount, clip: inner)
+                    collectFormatted(elements: element.children, interactive: &interactive, describedTexts: &describedTexts, staticTexts: &staticTexts, prunedCount: &prunedCount, clippedCount: &clippedCount, clip: inner)
                     continue
                 }
 
@@ -794,6 +814,8 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
                     line += " → \(url)"
                 }
                 interactive.append(line)
+            } else if let description = element.textDescription {
+                describedTexts.append("[\(element.id)] \(cleanRole(element.role)) description: \"\(AXLabel.singleLine(description))\" at (\(Int(element.frame.midX)), \(Int(element.frame.midY)))")
             } else if isText {
                 // Kept whole, unlike a name: this is what the user is reading,
                 // and the tail of it can be the half of an error message that
@@ -805,7 +827,7 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
                 }
             }
 
-            collectFormatted(elements: element.children, interactive: &interactive, staticTexts: &staticTexts, prunedCount: &prunedCount, clippedCount: &clippedCount, clip: inner)
+            collectFormatted(elements: element.children, interactive: &interactive, describedTexts: &describedTexts, staticTexts: &staticTexts, prunedCount: &prunedCount, clippedCount: &clippedCount, clip: inner)
         }
     }
 

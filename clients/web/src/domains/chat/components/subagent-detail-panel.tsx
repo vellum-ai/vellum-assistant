@@ -1,8 +1,6 @@
 import {
   ArrowDownToLine,
   ArrowUpFromLine,
-  Bolt,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
@@ -18,6 +16,7 @@ import {
 
 import { motion, useReducedMotion } from "motion/react";
 
+import { ClampedContent, SectionLabel } from "@/components/detail-primitives";
 import { AvatarRenderer } from "@/components/avatar-renderer";
 import { DetailShell, DetailShellNotice } from "@/components/detail-shell";
 import {
@@ -33,19 +32,16 @@ import { isActiveStatus } from "@/utils/subagent-status";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 import { Button, Typography } from "@vellumai/design-library";
 
-import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import { DetailPanelStopButton } from "@/components/detail-panel-stop-button";
 import { SubagentPhaseTimeline } from "@/domains/chat/components/subagent-phase-timeline";
 import {
-  deriveStepLabelFromName,
-  type IconName,
-} from "@/domains/chat/components/tool-progress-card/derive-step-label";
-import { ICON_MAP } from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";
-import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/three-dot-indicator";
+  StepDetailGlyph,
+  useStepDetailTitle,
+} from "@/domains/chat/components/step-detail-header";
+import { ThinkingDetailMarkdown } from "@/domains/chat/components/thinking-detail-markdown";
 import {
   ToolDetailBody,
   ToolDetailHeaderTitle,
-  toolDetailHeaderTitle,
 } from "@/domains/chat/components/tool-detail-panel";
 import {
   findToolCall,
@@ -56,48 +52,7 @@ import {
 import { useSubagentSteps } from "@/domains/chat/subagent-step-projection";
 import { useSubagentStepDetails } from "@/domains/chat/subagent-detail-projection";
 import { resolveSubagentStepDetail } from "@/domains/chat/utils/subagent-step-detail";
-import type { ToolDetailPayload } from "@/stores/viewer-store";
 import { useTranslation } from "@/i18n";
-import { useOverflows } from "@/hooks/use-overflows";
-
-/**
- * The icon name for a nested step detail — the same glyph its timeline pill
- * shows: a globe for web search, a brain for a thinking segment, otherwise the
- * tool-type icon `deriveStepLabelFromName` resolves (e.g. code brackets for
- * bash). Resolved through the shared `ICON_MAP` so header and pills never drift.
- */
-function iconNameForDetail(detail: ToolDetailPayload): IconName {
-  if (detail.kind === "web_search") {
-    return "globe";
-  }
-  if (detail.kind === "thinking") {
-    return "brain";
-  }
-  return deriveStepLabelFromName(detail.toolName, detail.input).iconName;
-}
-
-/**
- * Leading glyph for the nested-detail header — replaces the subagent avatar: the
- * running indicator while the step is still in flight, otherwise the step's own
- * icon (matching the pill that opened it).
- */
-function NestedHeaderGlyph({ detail }: { detail: ToolDetailPayload }) {
-  if (detail.status === "running") {
-    return (
-      <ThreeDotIndicator
-        className="shrink-0"
-        data-testid="nested-detail-running"
-      />
-    );
-  }
-  const Glyph = ICON_MAP[iconNameForDetail(detail)] ?? Bolt;
-  return (
-    <Glyph
-      aria-hidden
-      className="h-5 w-5 shrink-0 text-[var(--content-secondary)]"
-    />
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Props
@@ -209,26 +164,15 @@ export function SubagentDetailPanel({
   const [expandedSectionKeys, setExpandedSectionKeys] = useState<Set<string>>(
     new Set(),
   );
-
-  // Objective collapse/expand. The toggle only appears when the clamped body
-  // actually overflows, so short objectives show no affordance.
+  // Whether the objective is open, lifted for the same reason: the objective
+  // unmounts with the timeline while a nested detail is shown.
   const [objectiveExpanded, setObjectiveExpanded] = useState(false);
-  // Measured against the collapsed clamp, and held while expanded so "Show
-  // less" stays. Keyed on the subagent as well as the text, so a switch
-  // between two subagents with the same objective still re-measures.
-  const { ref: objectiveBodyRef, overflows: objectiveOverflows } =
-    useOverflows<HTMLParagraphElement>({
-      contentKey: `${entry.subagentId}:${entry.objective}`,
-      paused: objectiveExpanded,
-    });
 
-  // Reset objective collapse state when the subagent changes. The desktop
-  // parent reuses this instance across subagent switches (no `key`), so without
-  // this an objective expanded for one subagent leaks onto the next, and since
-  // the measurement holds while expanded, the new (possibly short) objective
-  // would render stale-expanded with a spurious "Show less". Resetting during
-  // render (React's "store previous prop" pattern) collapses it before paint
-  // (no flash), which resumes the measurement for the new objective.
+  // Reset per-subagent view state when the subagent changes. The desktop
+  // parent reuses this instance across subagent switches (no `key`), so
+  // without this one subagent's open step, expanded groups and open objective
+  // leak onto the next. Resetting during render (React's "store previous
+  // prop" pattern) lands before paint, so nothing flashes.
   const [prevSubagentId, setPrevSubagentId] = useState(entry.subagentId);
   if (prevSubagentId !== entry.subagentId) {
     setPrevSubagentId(entry.subagentId);
@@ -270,10 +214,9 @@ export function SubagentDetailPanel({
   // Shared by the header Back button and the breadcrumb's subagent crumb.
   const handleBack = useCallback(() => setSelectedDetailKey(null), []);
 
-  // The nested step's label — the breadcrumb tail and the header title while a
-  // detail is open. Mirrors the main-chat tool detail panel's `activity ||
-  // title` precedence.
-  const detailTitle = activeDetail ? toolDetailHeaderTitle(activeDetail) : "";
+  // The nested step's label: the breadcrumb tail and the header title while a
+  // detail is open, read the same way every panel that opens a step reads it.
+  const detailTitle = useStepDetailTitle(activeDetail);
   // The header title tracks the breadcrumb's deepest crumb: the subagent at the
   // timeline, the drilled-into step once a detail is open.
   const headerTitle = activeDetail ? detailTitle : entry.label;
@@ -340,7 +283,10 @@ export function SubagentDetailPanel({
             />
           )}
           {activeDetail ? (
-            <NestedHeaderGlyph detail={activeDetail} />
+            <StepDetailGlyph
+              detail={activeDetail}
+              source={SNAPSHOT_TOOL_CALL_SOURCE}
+            />
           ) : components ? (
             <AvatarRenderer
               components={components}
@@ -378,6 +324,7 @@ export function SubagentDetailPanel({
       {/* Body: swaps to a step's nested detail when one is selected, keeping
           the header above mounted in both views. */}
       <motion.div
+          className="flex flex-col gap-5"
           key={activeDetail ? "detail" : "list"}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -390,14 +337,13 @@ export function SubagentDetailPanel({
           {activeDetail ? (
             <>
               {/* Navigation back to the timeline lives in the header (Back button)
-              and the breadcrumb; this body only renders the step's detail.
-              Thinking steps render their reasoning markdown statically, because
-              subagent detail is not a live chat-session source; every tool goes
-              through `ToolDetailBody`, which picks its renderer. */}
+              and the breadcrumb; this body only renders the step's detail. A
+              thinking step's payload names no chat message, so the shared body
+              renders its text as recorded; every tool goes through
+              `ToolDetailBody`, which picks its renderer. */}
               {activeDetail.kind === "thinking" ? (
-                <ChatMarkdownMessage
-                  content={activeDetail.thinkingText ?? ""}
-                  hardLineBreaks
+                <ThinkingDetailMarkdown
+                  detail={activeDetail}
                   assistantId={assistantId}
                 />
               ) : (
@@ -411,7 +357,7 @@ export function SubagentDetailPanel({
           ) : (
             <>
               {/* Metrics row */}
-              <div className="mb-5 grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-3">
                 <AnimatedMetricCard
                   icon={
                     <ArrowDownToLine
@@ -438,67 +384,37 @@ export function SubagentDetailPanel({
 
               {/* Objective section */}
               {entry.objective && (
-                <div className="mb-5">
-                  <Typography
-                    variant="body-medium-default"
-                    as="h3"
-                    className="mb-2 text-[var(--content-emphasised)]"
-                  >
+                <div>
+                  <SectionLabel as="h3">
                     {t("subagentDetailPanel.objective")}
-                  </Typography>
-                  <Typography
-                    ref={objectiveBodyRef}
-                    variant="body-medium-lighter"
-                    as="p"
-                    // When expanded the text becomes its own scroll container, so
-                    // make it a focusable, labelled region — otherwise keyboard
-                    // users can't reach the overflowed objective content.
-                    tabIndex={objectiveExpanded ? 0 : undefined}
-                    role={objectiveExpanded ? "region" : undefined}
-                    aria-label={objectiveExpanded ? t("subagentDetailPanel.objective") : undefined}
-                    className={`whitespace-pre-wrap break-words leading-relaxed text-[var(--content-default)] ${
-                      objectiveExpanded
-                        ? "max-h-[280px] overflow-y-auto"
-                        : "line-clamp-5"
-                    }`}
+                  </SectionLabel>
+                  {/* Keyed by subagent so the next subagent's objective is
+                      measured afresh; its open state resets with the switch. */}
+                  <ClampedContent
+                    key={entry.subagentId}
+                    label={t("subagentDetailPanel.objective")}
+                    expanded={objectiveExpanded}
+                    onExpandedChange={setObjectiveExpanded}
                   >
-                    {entry.objective}
-                  </Typography>
-                  {objectiveOverflows && (
-                    <Button
-                      variant="link"
-                      onClick={() => setObjectiveExpanded((prev) => !prev)}
-                      aria-expanded={objectiveExpanded}
-                      rightIcon={
-                        <ChevronDown
-                          className={`h-3.5 w-3.5 transition-transform ${
-                            objectiveExpanded ? "rotate-180" : ""
-                          }`}
-                          aria-hidden
-                        />
-                      }
-                      // no-underline: this is a disclosure toggle, not a link.
-                      // border-0: see the breadcrumb crumb above.
-                      className="mt-1.5 inline-flex gap-1 border-0 text-[color:var(--content-secondary)] hover:text-[color:var(--content-default)] hover:no-underline"
+                    <Typography
+                      variant="body-medium-lighter"
+                      as="p"
+                      className="whitespace-pre-wrap break-words leading-relaxed text-[var(--content-default)]"
                     >
-                      <Typography variant="label-small-default">
-                        {objectiveExpanded ? t("subagentDetailPanel.showLess") : t("subagentDetailPanel.showMore")}
-                      </Typography>
-                    </Button>
-                  )}
+                      {entry.objective}
+                    </Typography>
+                  </ClampedContent>
+                  {/* The rule closes the objective, so it sits inside the
+                      section rather than between two of them. */}
                   <div className="mt-5 h-px w-full bg-[var(--border-hover)]" />
                 </div>
               )}
 
               {/* Timeline section */}
               <div>
-                <Typography
-                  variant="title-medium"
-                  as="h3"
-                  className="mb-4 text-[var(--content-emphasised)]"
-                >
+                <SectionLabel as="h3">
                   {t("subagentDetailPanel.timeline")}
-                </Typography>
+                </SectionLabel>
                 {/*
                  * Key by subagent id so the timeline remounts on subagent switch,
                  * resetting the expand/collapse state it holds. The drawer keeps this
@@ -529,7 +445,7 @@ export function SubagentDetailPanel({
                     isRunning={isRunning}
                   />
                 ) : (
-                  <DetailShellNotice>
+                  <DetailShellNotice placement="section">
                     {t("subagentDetailPanel.noEventsYet")}
                   </DetailShellNotice>
                 )}

@@ -183,16 +183,16 @@ Use this flow when you are changing files under `gateway/` and need to validate 
 cd assistant
 bun run assistant:restart:http
 
-# Terminal 2: run gateway from local source with runtime proxy enabled
+# Terminal 2: run gateway from local source
 cd gateway
-bun run dev:proxy
+bun run dev
 ```
 
 If `7830` is already in use, start the gateway on another port:
 
 ```bash
 cd gateway
-GATEWAY_PORT=7840 bun run dev:proxy
+GATEWAY_PORT=7840 bun run dev
 ```
 
 Then point your tunnel to that same local target (for example `http://127.0.0.1:7840`).
@@ -262,7 +262,7 @@ The gateway acts as the single ingress point for all traffic. Dedicated gateway 
 
 ### Auth behavior
 
-By default, proxied requests must include a valid `Authorization: Bearer <jwt>` header with a JWT signed by the shared signing key. Auth requirement is configured via workspace config.
+By default, proxied requests must include a valid `Authorization: Bearer <jwt>` header with a JWT signed by the shared signing key. Setting `RUNTIME_PROXY_REQUIRE_AUTH=false` in the gateway process environment drops that requirement; workspace config is not consulted.
 
 `OPTIONS` requests are always allowed without auth (CORS preflight). Telegram webhook requests use their own secret-based verification and are not affected by proxy auth.
 

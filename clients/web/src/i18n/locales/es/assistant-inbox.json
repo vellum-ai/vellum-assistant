@@ -70,6 +70,7 @@
   "assistantInboxRoute": {
     "loading": "Abriendo la bandeja…",
     "setupFailed": "No se pudo configurar la dirección.",
+    "setupIncomplete": "No se creó la dirección. Inténtalo de nuevo en un momento.",
     "setupSucceeded": "{address} está lista.",
     "replyPrompt": "Responde al correo con id {id} de tu bandeja (de {sender}, asunto \"{subject}\"). Léelo primero con `assistant email download {id}`, redacta una respuesta y muéstramela antes de enviarla.",
     "mailFailed": "No se pudo cargar el correo.",

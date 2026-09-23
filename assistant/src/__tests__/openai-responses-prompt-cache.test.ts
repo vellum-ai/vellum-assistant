@@ -446,7 +446,7 @@ describe("OpenAIResponsesProvider explicit prompt caching (GPT-5.6+)", () => {
     expect(JSON.stringify(messages)).not.toContain("prompt_cache_breakpoint");
   });
 
-  test("catalog flags GPT-5.6 and GPT-6 Astra direct-openai rows", () => {
+  test("catalog flags GPT-5.6 and GPT-6 direct-openai rows", () => {
     const openai = PROVIDER_CATALOG.find((p) => p.id === "openai");
     const flagged = (openai?.models ?? [])
       .filter((m) => m.supportsPromptCacheBreakpoints)
@@ -457,6 +457,8 @@ describe("OpenAIResponsesProvider explicit prompt caching (GPT-5.6+)", () => {
       "gpt-5.6-sol",
       "gpt-5.6-terra",
       "gpt-6-astra",
+      "gpt-6-luna",
+      "gpt-6-sol",
     ]);
   });
 });

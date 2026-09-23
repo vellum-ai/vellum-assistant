@@ -4,8 +4,9 @@ import { CALL_SITE_DEFAULTS } from "../../../config/call-site-defaults.js";
 import {
   type LLMCallSite,
   LLMCallSiteEnum,
+  LLMSchema,
 } from "../../../config/schemas/llm.js";
-import { ROUTES } from "../llm-call-sites-routes.js";
+import { buildCallSiteCatalog, ROUTES } from "../llm-call-sites-routes.js";
 
 const route = ROUTES.find((r) => r.operationId === "llm_call_sites_list")!;
 
@@ -87,6 +88,20 @@ describe("llm-call-sites-routes", () => {
       const site = result.callSites.find((s) => s.id === id);
       expect(site?.shippedDefaultProfile).toBe("balanced");
     }
+  });
+
+  test("omits an unavailable managed-only shipped default under BYOK", () => {
+    const managed = buildCallSiteCatalog(LLMSchema.parse({})).find(
+      ({ id }) => id === "voiceEscalationJudge",
+    );
+    expect(managed?.defaultProfile).toBe("jev-managed");
+    expect(managed?.shippedDefaultProfile).toBe("jev-managed");
+
+    const byok = buildCallSiteCatalog(
+      LLMSchema.parse({ defaultProvider: { provider: "anthropic" } }),
+    ).find(({ id }) => id === "voiceEscalationJudge");
+    expect(byok?.defaultProfile).toBeUndefined();
+    expect(byok?.shippedDefaultProfile).toBeUndefined();
   });
 
   test("domains have non-empty id and displayName", async () => {

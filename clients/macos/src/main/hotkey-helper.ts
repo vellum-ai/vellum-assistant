@@ -37,7 +37,7 @@ import type {
   HelperState,
   HotkeyEvent,
   HotkeyEventState,
-  HotkeySelection,
+  HotkeySelectionResult,
   ModifierHold,
   ModifierHoldRegistrationResult,
 } from "@vellumai/ipc-contract";
@@ -106,6 +106,8 @@ const HOTKEY_EVENT_SCHEMA = z.union([
 ]);
 
 const FRONT_SELECTION_SCHEMA = z.object({
+  unavailable: z.boolean().optional(),
+  holdId: z.number().int().optional(),
   selection: z
     .object({
       text: z.string(),
@@ -116,6 +118,9 @@ const FRONT_SELECTION_SCHEMA = z.object({
     })
     .optional(),
 });
+
+const FRONT_SELECTION_MAX_RETRIES = 30;
+const FRONT_SELECTION_RETRY_DELAY_MS = 100;
 
 const RUNNING_APPS_SCHEMA = z.object({
   running: z.array(z.string()),
@@ -338,25 +343,44 @@ const sendModifierHold = async (
 };
 
 /**
- * What is highlighted in the application in front, or `null` when nothing is
- * or the helper cannot say. A refusal reads as no selection rather than as an
- * error: the hold that asks lands its words at the cursor either way.
+ * Retries Chromium's asynchronous accessibility activation without blocking
+ * the native keyboard monitor. The helper binds retries to the original hold
+ * and application; an unavailable read never becomes permission to paste.
  */
-const readFrontSelection = async (): Promise<HotkeySelection | null> => {
+const readFrontSelection = async (): Promise<HotkeySelectionResult> => {
   try {
-    const result = await client.call("selection.read");
-    const parsed = FRONT_SELECTION_SCHEMA.safeParse(result);
-    if (!parsed.success) {
-      log.warn("[mac-helper] selection read returned an invalid result");
-      return null;
+    let holdId: number | undefined;
+    // Chromium debounces activation for two seconds, so allow tree build time too.
+    for (let attempt = 0; attempt <= FRONT_SELECTION_MAX_RETRIES; attempt++) {
+      const result = await client.call(
+        "selection.read",
+        holdId === undefined ? undefined : { holdId },
+      );
+      const parsed = FRONT_SELECTION_SCHEMA.safeParse(result);
+      if (!parsed.success) {
+        log.warn("[mac-helper] selection read returned an invalid result");
+        return { unavailable: true };
+      }
+      if (!parsed.data.unavailable) {
+        return parsed.data.selection ?? null;
+      }
+      if (
+        parsed.data.holdId === undefined ||
+        attempt === FRONT_SELECTION_MAX_RETRIES
+      ) {
+        return { unavailable: true };
+      }
+      holdId ??= parsed.data.holdId;
+      await new Promise((resolve) =>
+        setTimeout(resolve, FRONT_SELECTION_RETRY_DELAY_MS),
+      );
     }
-    return parsed.data.selection ?? null;
   } catch (err) {
     log.warn(
       `[mac-helper] selection read failed: ${err instanceof Error ? err.message : String(err)}`,
     );
-    return null;
   }
+  return { unavailable: true };
 };
 
 /**

@@ -1,4 +1,7 @@
 {
+  "askQuestionDetail": {
+    "heading": "{count, plural, one {Question} other {Questions}}"
+  },
   "documentChat": {
     "saveFailed": "Couldn't save the document. Your message is still here. Try sending again.",
     "viewConversation": "View conversation",
@@ -61,6 +64,11 @@
     "takingLonger": "Your assistant is taking longer than expected.",
     "tryAgain": "Try again"
   },
+  "markAllDoneConfirmDialog": {
+    "confirm": "Mark all as done",
+    "message": "{count, plural, one {Mark the conversation in “{groupName}” as done? It leaves the sidebar and waits for you under All chats, where you can reopen it.} other {Mark all # conversations in “{groupName}” as done? They leave the sidebar and wait for you under All chats, where you can reopen them.}}",
+    "title": "Mark all as done"
+  },
   "mobileDetailSheet": {
     "title": "Activity details"
   },
@@ -72,7 +80,6 @@
     "screenshotFallbackAria": "Preview computer screenshot",
     "screenshotFallbackTitle": "Computer screenshot",
     "screenshotTitle": "Screenshot from {activity}",
-    "thinkingTitle": "Thinking",
     "viewThinkingAria": "View thinking"
   },
   "computerUseScreenshotPreview": {
@@ -116,6 +123,28 @@
     "observe": "Observing",
     "navigate": "Navigating",
     "terminal": "Running a command"
+  },
+  "allChatsPage": {
+    "band": {
+      "previous30Days": "Previous 30 days",
+      "previous7Days": "Previous 7 days",
+      "today": "Today",
+      "yesterday": "Yesterday"
+    },
+    "chip": {
+      "all": "All",
+      "background": "Background",
+      "done": "Done"
+    },
+    "doneMeta": "Done · {time}",
+    "empty": "No chats here yet.",
+    "filterAria": "Filter chats",
+    "loadError": "Could not load your chats.",
+    "loading": "Loading chats",
+    "noMatches": "No chats match “{query}”.",
+    "retry": "Try again",
+    "searchPlaceholder": "Search chats",
+    "title": "All chats"
   },
   "sessionGroupRow": {
     "mode": {
@@ -173,6 +202,12 @@
   "assistantSection": {
     "emptyTitle": "Nothing on my mind yet.",
     "emptyBody": "I'm always thinking. When something's worth your time, I'll start a thread here."
+  },
+  "chatsSection": {
+    "emptyTitle": "No chats yet.",
+    "emptyBody": "Start a new chat and it shows up here.",
+    "doneEmptyTitle": "All caught up.",
+    "doneEmptyBody": "Chats you mark as done wait for you in All chats."
   },
   "assistantSectionToggle": {
     "hide": "Hide threads from {name}",
@@ -463,6 +498,7 @@
   },
   "chatConversationHeader": {
     "archived": "[Archived]",
+    "done": "[Done]",
     "newChat": "New Chat"
   },
   "chatInfoPanel": {
@@ -703,8 +739,10 @@
     "copyConversation": "Copy Full Conversation",
     "copyConversationId": "Copy conversation ID",
     "delete": "Delete",
+    "done": "Done",
     "forkConversation": "Fork Conversation",
     "inspect": "Analyze Conversation",
+    "markAsDone": "Mark as done",
     "markRead": "Mark as read",
     "markUnread": "Mark as unread",
     "moveToGroup": "Move to group",
@@ -716,6 +754,7 @@
     "refresh": "Refresh",
     "removeFromGroup": "Remove from group",
     "rename": "Rename",
+    "reopen": "Reopen",
     "shareFeedback": "Share Feedback",
     "triggerAriaLabel": "Conversation actions",
     "unarchive": "Unarchive",
@@ -955,6 +994,7 @@
     "deleteGroup": "Delete group",
     "deleteGroupWithConversations": "Delete group…",
     "groupByChannel": "Group by channel",
+    "markAllAsDone": "Mark all as done…",
     "markAllRead": "Mark All as Read",
     "moveSectionDown": "Move Section Down",
     "moveSectionUp": "Move Section Up",
@@ -1686,6 +1726,9 @@
   "sidebarListContextMenu": {
     "newGroup": "New group…"
   },
+  "sidebarSectionViewAll": {
+    "label": "View all chats"
+  },
   "singleActivity": {
     "webSearch": "Web Search"
   },
@@ -1741,8 +1784,6 @@
     "noEventsYet": "No events yet",
     "objective": "Objective",
     "output": "Output",
-    "showLess": "Show less",
-    "showMore": "Show more",
     "stopSubagentAria": "Stop subagent",
     "timeline": "Timeline"
   },
@@ -1800,6 +1841,9 @@
   },
   "textSelectionPopover": {
     "reply": "Reply"
+  },
+  "thinkingDetail": {
+    "title": "Thinking"
   },
   "tiptapDocumentEditor": {
     "adding": "Adding…",
@@ -1897,6 +1941,7 @@
     "seed": "Hey, I just started a voice conversation with you. This message is sent automatically. Greet me in one short sentence, then ask what I'd like to work on."
   },
   "voiceErrors": {
+    "selectionUnavailable": "Couldn't read the selected text. Nothing was pasted. Select the text again and retry; your spoken words are available to copy.",
     "askUnavailable": "Your assistant can’t take a spoken question right now.",
     "nativeSttNoTranscript": "{clientName} Native Dictation didn’t return a transcript. Check native speech recognition in system settings, then try again."
   },
@@ -1979,8 +2024,9 @@
   },
   "webFetchDetailView": {
     "fetchFailed": "Fetch failed.",
-    "fetching": "Fetching…",
-    "noContent": "No content extracted."
+    "mayRequireJavaScript": "This page may need JavaScript to show everything, so some of it may be missing.",
+    "startIndexPastEnd": "The fetch started past the end of this page, so nothing was read.",
+    "truncated": "Only part of this page was read."
   },
   "webSearchDetailView": {
     "noSources": "No sources found.",

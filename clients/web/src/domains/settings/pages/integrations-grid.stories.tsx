@@ -85,6 +85,41 @@ const AVAILABLE: { plan: ConnectPlan; state: TileConnectState }[] = [
   { plan: dropboxPlan, state: idle },
 ];
 
+/**
+ * Every connect state in one grid row, which is where the height of a tile
+ * stops being the tile's own business: a grid row stretches to its tallest
+ * cell, so a line of status text on one tile used to push empty space into
+ * all four of its neighbours.
+ *
+ * The short description is deliberate. The body reserves two lines whether or
+ * not there are two to put in them, so a one-line tile and a two-line tile
+ * are the same height and the row never moves when one of them changes.
+ */
+const AVAILABLE_EVERY_STATE: { plan: ConnectPlan; state: TileConnectState }[] =
+  [
+    { plan: googlePlan, state: idle },
+    {
+      plan: planFor({
+        providers: [oauthProvider("todoist", "Todoist", "Tasks from Todoist.")],
+      }),
+      state: { phase: "waiting", canCancel: true },
+    },
+    { plan: asanaPlan, state: { phase: "connecting" } },
+    { plan: linearMcpPlan, state: mcpFailure },
+    {
+      plan: figmaPlan,
+      state: {
+        phase: "failed",
+        error:
+          "Figma rejected the sign-in because the workspace administrator " +
+          "has not granted this application access to the account yet.",
+        methodId: figmaPlan.primary.id,
+        methodKind: "managed-oauth",
+      },
+    },
+    { plan: dropboxPlan, state: idle },
+  ];
+
 /** The same catalog with no platform session: every managed path is a login. */
 const AVAILABLE_LOGGED_OUT = [
   planFor({ providers: [GOOGLE_PROVIDER], platformGate: "disabled" }),
@@ -238,6 +273,15 @@ export default meta;
 type Story = StoryObj<typeof IntegrationsGrid>;
 
 export const Default: Story = {};
+
+/**
+ * Idle, waiting, connecting, and two failures in one row. Every card is the
+ * same height, and a tile that goes idle -> waiting -> idle moves nothing
+ * around it: this is the story to check the fix against.
+ */
+export const EveryConnectState: Story = {
+  render: () => <IntegrationsGrid available={AVAILABLE_EVERY_STATE} />,
+};
 
 /**
  * Signed out of the Vellum platform. The tiles are the ones above, glyph for

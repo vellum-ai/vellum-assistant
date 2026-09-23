@@ -183,6 +183,11 @@ export type VellumCommand =
    * that already happened, ready to redraw the prompt on the next push.
    */
   | { kind: "answerWatchRetro"; open: boolean }
+  /** Deliver a pop-out's recovery offer to the main renderer, or clear it. */
+  | {
+      kind: "setUnplacedDictationOffer";
+      offer: UnplacedDictationOffer | null;
+    }
   /**
    * Answer the offer the surface makes when a dictation ends with its words
    * still in hand: put Vellum's version in place of what another app pasted,
@@ -337,6 +342,10 @@ export interface HotkeySelection {
    */
   editable: boolean;
 }
+
+/** Null means no selection; an unavailable read must never authorize a paste. */
+export type HotkeySelectionResult =
+  HotkeySelection | { unavailable: true } | null;
 
 export interface HotkeyEvent {
   kind: HotkeyEventKind;
@@ -1341,6 +1350,12 @@ export const COMPANION_BASE_CANVAS_PAD = 24;
  */
 export const COMPANION_BASE_CARD_HEIGHT = 290;
 
+/** Fixed tour geometry, shared by the native canvas and its renderer. */
+export const COMPANION_INTRO_CARD_WIDTH = 320;
+export const COMPANION_INTRO_CARD_HEIGHT = 224;
+export const COMPANION_INTRO_PERCH_GAP = 6;
+export const COMPANION_PERCH_HOP = 22;
+
 /**
  * The widest the pill draws at the base size, measured from its avatar-facing
  * edge.
@@ -1551,6 +1566,12 @@ export const companionCardSideFor = (
       COMPANION_BASE_CARD_HEIGHT * scale - baseline,
       (COMPANION_BASE_CARD_HEIGHT - COMPANION_BASE_AVATAR_BOX) * scale +
         baseline,
+      (COMPANION_INTRO_CARD_HEIGHT +
+        COMPANION_PERCH_HOP +
+        COMPANION_INTRO_PERCH_GAP) *
+        scale +
+        avatarBox +
+        companionGapFor(avatarBox, optionsBox),
       avatarBox / 2,
     ) + companionPadFor(avatarBox, optionsBox)
   );
@@ -1632,7 +1653,12 @@ interface OfferedDictation {
 
 export type CompanionDictationOffer =
   | (OfferedDictation & { reason: "claimed"; app: string })
-  | (OfferedDictation & { reason: "no-text-field" | "paste-failed" });
+  | (OfferedDictation & UnplacedDictationOffer);
+
+export interface UnplacedDictationOffer {
+  text: string;
+  reason: "no-text-field" | "paste-failed";
+}
 
 /**
  * The most an offered dictation can be, in characters. One bound for the
@@ -2650,6 +2676,15 @@ export const COMPANION_INTRO_ACTIONS = [
 ] as const;
 
 export type CompanionIntroAction = (typeof COMPANION_INTRO_ACTIONS)[number];
+
+/** What the app's announcement asks main to do with a due introduction. */
+export const COMPANION_INTRO_ANNOUNCEMENT_ACTIONS = [
+  "start",
+  "dismiss",
+] as const;
+
+export type CompanionIntroAnnouncementAction =
+  (typeof COMPANION_INTRO_ANNOUNCEMENT_ACTIONS)[number];
 
 /**
  * The moments of a run worth counting.

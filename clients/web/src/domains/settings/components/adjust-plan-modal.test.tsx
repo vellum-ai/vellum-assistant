@@ -106,10 +106,6 @@ mock.module("@/runtime/platform-detection", () => ({
   useIsNativeAndroid: () => nativeAndroid,
 }));
 
-import {
-  clearTakeoverAvatarStash,
-  readTakeoverAvatarStash,
-} from "@/lib/billing/takeover-avatar-stash";
 import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
 import {
   clearCheckoutIntent,
@@ -304,10 +300,9 @@ beforeEach(() => {
   onboardingFixture = null;
   openedUrl = null;
   nativeAndroid = false;
-  // The stash also keeps an in-memory mirror, so clearing sessionStorage alone
-  // leaves a prior test's intent readable.
+  // The intent also keeps an in-memory mirror, so clearing sessionStorage
+  // alone leaves a prior test's intent readable.
   clearCheckoutIntent();
-  clearTakeoverAvatarStash();
   useResolvedAssistantsStore.setState({
     activeAssistantId: null,
     assistants: [],
@@ -430,9 +425,6 @@ describe("AdjustPlanModal upgrade — checkout intent stash", () => {
       storageTier: "storage_10",
       creditTier: null,
     });
-    // The avatar snapshot rides along so the takeover can draw it on a cold
-    // return, before the live avatar query resolves.
-    expect(readTakeoverAvatarStash()?.assistantId).toBe("a1");
   });
 
   test("does not stash when the upgrade response has no checkout URL", async () => {
@@ -996,7 +988,9 @@ describe("AdjustPlanModal Downgrade to Base cancel survey", () => {
     );
 
     fireEvent.click(getByTestId("modal-downgrade-to-base-button"));
-    const confirm = getByTestId("confirm-downgrade-button") as HTMLButtonElement;
+    const confirm = getByTestId(
+      "confirm-downgrade-button",
+    ) as HTMLButtonElement;
     // No reason yet: the confirm can't post a survey-less cancellation.
     expect(confirm.disabled).toBe(true);
     expect(queryByTestId("cancel-reason-comment")).toBeNull();

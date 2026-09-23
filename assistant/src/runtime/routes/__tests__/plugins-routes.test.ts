@@ -165,8 +165,14 @@ const getCatalogSpy = mock(
   },
 );
 
+const getInstalledMetadataCatalogSpy = mock(
+  (ref: string, deps: SearchPluginsDeps): Promise<PluginCatalog> =>
+    getCatalogSpy(ref, deps),
+);
+
 mock.module("../../../cli/lib/plugin-catalog-cache.js", () => ({
   getPluginCatalog: getCatalogSpy,
+  getPluginCatalogForInstalledMetadata: getInstalledMetadataCatalogSpy,
 }));
 
 // Mock uninstallPlugin. The handler's error mapping is the wiring under
@@ -471,6 +477,7 @@ beforeEach(() => {
 describe("GET /v1/plugins", () => {
   beforeEach(() => {
     getCatalogSpy.mockClear();
+    getInstalledMetadataCatalogSpy.mockClear();
     // Default to an empty catalog so every installed plugin's category resolves
     // to `null` (bucketed under "system"). Tests that exercise real categories
     // override this.
@@ -849,6 +856,7 @@ describe("GET /v1/plugins", () => {
     );
 
     const map = await loadCategoryMapBounded();
+    expect(getInstalledMetadataCatalogSpy).toHaveBeenCalledTimes(1);
     expect(map.get("alpha")).toBe("productivity");
   });
 

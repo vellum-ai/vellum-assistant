@@ -124,3 +124,11 @@ export const Bundled: Story = {
 export const NoEmoji: Story = {
   decorators: [withFrame, withQueryCache(seedSkill({ removable: true }))],
 };
+
+/**
+ * A skill that failed to load, with nothing cached to fall back on: the
+ * error says so, in the error tone every panel uses for a failure.
+ */
+export const LoadError: Story = {
+  decorators: [withFrame, withQueryCache()],
+};

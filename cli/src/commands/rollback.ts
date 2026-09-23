@@ -156,7 +156,12 @@ async function rollbackPlatformViaEndpoint(
 
   let result: { detail: string; version: string | null };
   try {
-    result = await rollbackPlatformAssistant(token, version, entry.runtimeUrl);
+    result = await rollbackPlatformAssistant(
+      token,
+      entry.assistantId,
+      version,
+      entry.runtimeUrl,
+    );
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
 

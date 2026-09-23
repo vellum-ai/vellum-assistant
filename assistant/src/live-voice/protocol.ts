@@ -276,16 +276,16 @@ export interface LiveVoiceClientEndFrame {
 }
 
 /**
- * Mid-session tuning update: applies the same turn-detection knobs the start
- * frame carries to the *running* session, so the client can retune "pause
- * before reply" / "interrupt sensitivity" without reconnecting. Each field is
- * optional and independently applied; the same bounds as the start frame apply.
- * Only meaningful for `server_vad` sessions.
+ * Mid-session screen-sharing state and turn-detection tuning. Each field is
+ * optional and independently applied. Tuning uses the start frame's bounds
+ * and affects `server_vad` sessions.
  */
 export interface LiveVoiceClientUpdateConfigFrame {
   readonly type: "update_config";
   readonly silenceThresholdMs?: number;
   readonly bargeInMinSpeechMs?: number;
+  /** A shared desktop surface is available for annotation. */
+  readonly screenSharing?: boolean;
 }
 
 /**
@@ -1279,6 +1279,14 @@ function validateSightFrameTiming(
 function validateUpdateConfigFrame(
   value: Record<string, unknown>,
 ): LiveVoiceParseResult<LiveVoiceClientUpdateConfigFrame> {
+  if ("screenSharing" in value && typeof value.screenSharing !== "boolean") {
+    return protocolError(
+      "invalid_field",
+      "update_config field screenSharing must be a boolean",
+      "screenSharing",
+      "update_config",
+    );
+  }
   if (
     "silenceThresholdMs" in value &&
     !isIntInRange(
@@ -1315,6 +1323,9 @@ function validateUpdateConfigFrame(
     ok: true,
     frame: {
       type: "update_config",
+      ...(typeof value.screenSharing === "boolean"
+        ? { screenSharing: value.screenSharing }
+        : {}),
       ...(typeof value.silenceThresholdMs === "number"
         ? { silenceThresholdMs: value.silenceThresholdMs }
         : {}),

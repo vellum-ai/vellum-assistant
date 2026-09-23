@@ -71,16 +71,29 @@ const CLAMP_FADE_MASK = `linear-gradient(to bottom, black calc(100% - ${CLAMP_FA
  */
 export function ClampedContent({
   label,
+  expanded,
+  onExpandedChange,
   children,
 }: {
   /** Names the value while it scrolls; defaults to a generic name. */
   label?: string;
+  /**
+   * Whether the value is open, for a host whose view unmounts the value and
+   * brings it back (a list swapped for a drill-in and back). Pair with
+   * `onExpandedChange`; without them the fold keeps its own state.
+   */
+  expanded?: boolean;
+  onExpandedChange?: (expanded: boolean) => void;
   children: ReactNode;
 }) {
   if (useContext(InsideFold)) {
     return children;
   }
-  return <Fold label={label}>{children}</Fold>;
+  return (
+    <Fold label={label} expanded={expanded} onExpandedChange={onExpandedChange}>
+      {children}
+    </Fold>
+  );
 }
 
 /** Whether content is already inside a fold, which owns folding it. */
@@ -88,13 +101,19 @@ const InsideFold = createContext(false);
 
 function Fold({
   label,
+  expanded: controlledExpanded,
+  onExpandedChange,
   children,
 }: {
   label: string | undefined;
+  expanded: boolean | undefined;
+  onExpandedChange: ((expanded: boolean) => void) | undefined;
   children: ReactNode;
 }) {
   const { t } = useTranslation();
-  const [expanded, setExpanded] = useState(false);
+  const [ownExpanded, setOwnExpanded] = useState(false);
+  const expanded = controlledExpanded ?? ownExpanded;
+  const setExpanded = onExpandedChange ?? setOwnExpanded;
   // Measured against the fold height rather than the box, so the measure holds
   // while expanded too and content swapped in that fits drops the control.
   const fold = useOverflows<HTMLDivElement>({ limit: CLAMP_HEIGHT });
@@ -126,6 +145,11 @@ function Fold({
     <>
       <div
         ref={ref}
+        // Focus reaching a link below the cut opens the fold rather than
+        // scrolling the clipped box to content the reader cannot see. The
+        // alternative, making the folded subtree inert, would also stop the
+        // part that IS visible from being selected.
+        onFocusCapture={clamped ? () => setExpanded(true) : undefined}
         // A keyboard scrolls the expanded value only once it can focus it,
         // and anything focusable needs a role and a name (WCAG 2.1.1, 4.1.2).
         // The ring is inset: the box clips anything drawn outside it.
@@ -324,7 +348,8 @@ export function CodeBlock({
 }
 
 /**
- * Uppercase section label in `--content-tertiary`.
+ * The one section heading every detail panel uses: uppercase, in
+ * `--content-tertiary`.
  *
  * `leading-4` is deliberate: the `label-small-default` token ships
  * `line-height: 1`, which leaves no room below the baseline and clips glyph
@@ -332,16 +357,22 @@ export function CodeBlock({
  */
 export function SectionLabel({
   children,
+  as = "div",
   className = "mb-2",
 }: {
   children: string;
+  /**
+   * `h3` where the label heads a section of a panel's outline; `span` inside
+   * a control such as a disclosure trigger, which takes only phrasing content.
+   */
+  as?: "div" | "span" | "h3";
   /** Margin override for rows that manage their own spacing. */
   className?: string;
 }) {
   return (
     <Typography
       variant="label-small-default"
-      as="div"
+      as={as}
       className={`uppercase leading-4 tracking-wider text-[var(--content-tertiary)] ${className}`}
     >
       {children}

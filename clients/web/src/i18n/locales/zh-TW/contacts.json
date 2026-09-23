@@ -8,9 +8,6 @@
     "deleting": "正在刪除…",
     "connect": "連線",
     "connecting": "正在連線…",
-    "manage": "管理",
-    "disconnect": "中斷連線",
-    "disconnecting": "正在中斷連線…",
     "cancel": "取消",
     "back": "返回",
     "verify": "驗證",
@@ -43,7 +40,8 @@
     "saveFailed": "儲存聯絡人失敗",
     "verifyFailed": "驗證頻道失敗",
     "rosterLoadFailed": "無法載入工作區名單。請檢查 Slack 連線並重試。",
-    "emptyBody": "選取一個聯絡人"
+    "emptyBody": "選取一個聯絡人",
+    "notFoundBody": "此聯絡人不可用。"
   },
   "contactsList": {
     "heading": "項目",
@@ -54,8 +52,7 @@
     "verified": "已驗證",
     "unverified": "未驗證",
     "you": "您",
-    "youNamed": "{name} (您)",
-    "assistantFallback": "您的助理"
+    "youNamed": "{name} (您)"
   },
   "contactDetailView": {
     "namePlaceholder": "為此人命名",
@@ -92,15 +89,6 @@
     "channelsTitle": "頻道",
     "channelsSubtitle": "驗證後，當您從這些頻道傳送訊息時，您的助理將會辨識出您。",
     "setupLabel": "驗證我"
-  },
-  "assistantChannelsDetail": {
-    "title": "{name} (您的助理)",
-    "channelsTitle": "頻道",
-    "channelsSubtitle": "{name} 可聯繫到的地方。"
-  },
-  "assistantContactChannels": {
-    "disconnectConfirmTitle": "中斷 {channel} 的連線？",
-    "disconnectConfirmMessage": "這將清除此頻道的儲存憑證。您可以稍後重新連線。"
   },
   "accountLink": {
     "linked": "已連結為 @{username}",

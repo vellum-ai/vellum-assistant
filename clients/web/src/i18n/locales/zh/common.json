@@ -137,6 +137,34 @@
     "searching": "正在搜索…"
   },
   "companionIntro": {
+    "announcement": {
+      "body": "现在，无论你在桌面上的哪个位置，我都能陪你一起工作。",
+      "cards": {
+        "context": {
+          "body": "让我看到你所看到的内容，结合情境为你提供帮助。",
+          "title": "展示并讲解"
+        },
+        "flow": {
+          "body": "无需离开当前应用，随时都能找到我。",
+          "title": "保持专注和节奏"
+        },
+        "together": {
+          "body": "和我交谈、指点，一起推进工作。",
+          "title": "并肩协作"
+        }
+      },
+      "close": "关闭",
+      "confirm": {
+        "body": "只需大约一分钟。我迫不及待想向你展示我能在桌面上做些什么。",
+        "keep": "开始导览",
+        "skip": "暂时跳过",
+        "title": "跳过导览？"
+      },
+      "previewLabel": "你的桌面助手",
+      "previewAssistantName": "Quill",
+      "start": "出发吧",
+      "title": "在你工作的地方与我相遇"
+    },
     "ariaLabel": "介绍您的助手",
     "back": "上一步",
     "call": {
@@ -156,7 +184,8 @@
       "titleNamed": "嘿，我是 {name}"
     },
     "key": {
-      "scolded": "不是这个，是键盘上的那个键"
+      "scolded": "不是这个，是键盘上的那个键",
+      "title": "让我更方便地和你交谈"
     },
     "meet": {
       "body": "我会在您的桌面上，即使 Vellum 不可见。"
@@ -174,13 +203,25 @@
       "body": "点击我就能开始对话。",
       "gesture": "或者连按两次这个键：",
       "greeted": "成功了！就这么简单。",
-      "prompt": "我会请求使用您的麦克风",
       "title": "和我说话"
     },
     "try": {
       "body": "跟我打个招呼，我会说出声来回答。",
       "how": "点击我，或连按两次这个键",
       "title": "试一试"
+    },
+    "permission": {
+      "microphoneAction": "启用麦克风",
+      "microphoneBody": "允许我使用你的麦克风进行语音对话。",
+      "shortcutBody": "允许我在你使用其他应用时识别快捷键。",
+      "screenAction": "启用屏幕共享",
+      "screenBody": "设置屏幕共享。使用时再选择要共享的内容。",
+      "openSettings": "打开设置",
+      "settingsHint": "在系统设置中允许访问，然后返回这里。",
+      "restricted": "你的 Mac 限制了此权限。你可以跳过此步骤。",
+      "error": "无法检查访问权限。请重试。",
+      "waiting": "正在检查访问权限…",
+      "skip": "暂时跳过"
     }
   },
   "companionPopover": {
@@ -253,13 +294,14 @@
     "dictating": "正在聆听",
     "dictatingTranscribing": "正在思考",
     "chooseMicrophone": "选择麦克风",
-    "chooseVoice": "选择声音",
     "workCount": "{count, plural, =0 {没有正在进行的任务} other {# 项任务进行中}}",
     "workDone": "已完成",
     "workStopped": "已停止",
     "workMore": "还有 {count} 项",
     "workWaiting": "{count, plural, other {# 项等待你的回复}}",
-    "workWaitingStep": "等待你的回复"
+    "workWaitingStep": "等待你的回复",
+    "captureScreenRecordingOff": "屏幕录制已关闭",
+    "captureTurnOnScreenRecording": "开启"
   },
   "companionWatchFramePage": {
     "sharingScreen": "正在分享你的屏幕",
@@ -402,6 +444,11 @@
     "discard": "放弃",
     "save": "保存",
     "saving": "正在保存…"
+  },
+  "fileViewMode": {
+    "formatted": "格式化",
+    "modeAria": "如何显示此文件",
+    "source": "源码"
   },
   "generateInviteLinkDialog": {
     "copyAriaLabel": "复制邀请链接",
@@ -997,6 +1044,7 @@
   },
   "detailShell": {
     "close": "关闭",
-    "closePanel": "关闭面板"
+    "closePanel": "关闭面板",
+    "loading": "加载中…"
   }
 }

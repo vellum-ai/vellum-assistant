@@ -1,6 +1,6 @@
 {
   "name": "@vellumai/vellum-gateway",
-  "version": "0.12.2",
+  "version": "0.12.4",
   "license": "MIT",
   "type": "module",
   "exports": {
@@ -13,7 +13,6 @@
   },
   "scripts": {
     "dev": "bun run --watch src/index.ts",
-    "dev:proxy": "bun run src/cli/enable-proxy.ts && bun run --watch src/index.ts",
     "build": "bun build src/index.ts --outdir dist --target bun",
     "schema": "bun run src/cli/schema.ts",
     "generate:openapi": "bun run scripts/generate-openapi.ts",

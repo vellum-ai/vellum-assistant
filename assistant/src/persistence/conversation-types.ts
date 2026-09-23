@@ -430,7 +430,8 @@ function isReplyDeliveredOffApp(
  *
  * - `automated`: a scheduled or background prompt injected into an ordinary
  *   user conversation, which has its own producer (e.g. `schedule.notify`).
- * - Echo-suppressed: internal scaffolding, nobody's prompt awaiting a reply.
+ * - Echo-suppressed: internal scaffolding, except a hidden voice continuation
+ *   result whose finished reply reaches the user through this push.
  * - Voice-session: the reply is spoken back over the still-open session.
  * - Channel-originated: the finished reply is delivered back to the
  *   originating messaging surface (`finalizeEventDelivery`), so the sender
@@ -455,7 +456,10 @@ export function isReplyPushIneligibleUserMessage(
   return (
     metadata?.automated === true ||
     metadata?.pointerInstruction === true ||
-    isEchoSuppressedUserMessage(metadata) ||
+    (isEchoSuppressedUserMessage(metadata) &&
+      !(
+        metadata?.hidden === true && metadata?.voiceContinuationResult === true
+      )) ||
     (!options?.replyDeliveredInAppOnly && isReplyDeliveredOffApp(metadata))
   );
 }

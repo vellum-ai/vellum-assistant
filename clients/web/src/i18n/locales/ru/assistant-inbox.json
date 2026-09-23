@@ -70,6 +70,7 @@
   "assistantInboxRoute": {
     "loading": "Открываем почту…",
     "setupFailed": "Не удалось настроить адрес.",
+    "setupIncomplete": "Адрес не был создан. Попробуйте ещё раз через минуту.",
     "setupSucceeded": "Адрес {address} готов.",
     "replyPrompt": "Ответь на письмо с id {id} из твоей почты (от {sender}, тема \"{subject}\"). Сначала прочитай его командой `assistant email download {id}`, затем подготовь ответ и покажи мне перед отправкой.",
     "mailFailed": "Не удалось загрузить почту.",

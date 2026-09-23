@@ -1,9 +1,9 @@
 /**
- * Tests for `WebFetchDetailView` and its `parseWebFetchResult` parser, the
- * nested detail shown when a subagent `web_fetch` pill is clicked. Covers
- * header parsing (url/status/notices), `<external_content>` stripping, the
- * source card + notices + content render, and the error-result fallback. The
- * unparsed result is the drawer's Raw output, covered with the drawer.
+ * Tests for `WebFetchDetailView` and its `parseWebFetchResult` parser. Covers
+ * the source card and warnings read from `activityMetadata.webFetch`, the
+ * header parsing kept for history recorded without it, `<external_content>`
+ * stripping, and the running, refused and failed states. The unparsed result
+ * is the drawer's Raw output, covered with the drawer.
  */
 
 import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
@@ -35,6 +35,7 @@ import {
   WebFetchDetailView,
 } from "@/domains/chat/components/web-fetch/web-fetch-detail-view";
 import type { ToolDetailPayload } from "@/stores/viewer-store";
+import type { WebFetchMetadata } from "@vellumai/assistant-api";
 
 afterEach(() => {
   cleanup();
@@ -120,13 +121,17 @@ describe("hostnameOf", () => {
  * Render the view the way the registry does: the live `result` and status
  * flags `ToolDetailBody` resolves, with the payload only as the input source.
  */
-function renderView(detail: ReturnType<typeof payload>) {
+function renderView(
+  detail: ReturnType<typeof payload>,
+  webFetch?: WebFetchMetadata,
+) {
   return render(
     <WebFetchDetailView
       detail={detail}
       result={detail.result}
       streamedOutput={undefined}
-      activityMetadata={undefined}
+      answeredQuestion={undefined}
+      activityMetadata={webFetch ? { webFetch } : undefined}
       isRunning={detail.status === "running"}
       isError={detail.status === "error"}
       isDenied={detail.status === "denied"}
@@ -184,6 +189,7 @@ describe("WebFetchDetailView", () => {
         detail={payload({ status: "denied", result: refusal })}
         result={refusal}
         streamedOutput={undefined}
+        answeredQuestion={undefined}
         activityMetadata={undefined}
         isRunning={false}
         isError
@@ -206,6 +212,7 @@ describe("WebFetchDetailView", () => {
         detail={payload({ status: "running", result: undefined })}
         result={payload({}).result}
         streamedOutput={undefined}
+        answeredQuestion={undefined}
         activityMetadata={undefined}
         isRunning={false}
         isError={false}
@@ -217,5 +224,175 @@ describe("WebFetchDetailView", () => {
     expect(getByTestId("markdown").textContent).toContain(
       "Michelob Ultra has overtaken",
     );
+  });
+
+  describe("with the daemon's metadata", () => {
+    const META: WebFetchMetadata = {
+      url: "https://cnbc.com/michelob",
+      finalUrl: "https://www.cnbc.com/2025/09/22/michelob.html",
+      provider: "default",
+      status: 200,
+      byteCount: 757146,
+      charCount: 5047,
+      truncated: false,
+      title: "Michelob Ultra is now America's top beer",
+      domain: "www.cnbc.com",
+      faviconUrl: "https://favicons.example/cnbc.png",
+      redirectCount: 1,
+      durationMs: 820,
+      startIndexPastEnd: false,
+    };
+
+    test("the source card shows the page's title, final url, status and favicon", () => {
+      const { getByText, getByTestId, container } = renderView(
+        payload({}),
+        META,
+      );
+      expect(
+        getByText("Michelob Ultra is now America's top beer"),
+      ).toBeDefined();
+      expect(
+        getByText("https://www.cnbc.com/2025/09/22/michelob.html"),
+      ).toBeDefined();
+      // The metadata's numeric status, not the header's "200 OK".
+      expect(getByText("200")).toBeDefined();
+      expect(container.textContent).not.toContain("200 OK");
+      expect(
+        getByTestId("site-favicon").querySelector("img")?.getAttribute("src"),
+      ).toBe("https://favicons.example/cnbc.png");
+      expect(container.querySelector("a")?.getAttribute("href")).toBe(
+        "https://www.cnbc.com/2025/09/22/michelob.html",
+      );
+    });
+
+    test("warns from the metadata's flags, not the header's notices for the model", () => {
+      const quiet = renderView(payload({}), META);
+      // The header carries a JavaScript notice; the metadata flags none.
+      expect(quiet.queryAllByRole("status")).toHaveLength(0);
+      quiet.unmount();
+
+      const { getAllByRole, getByText, container } = renderView(payload({}), {
+        ...META,
+        truncated: true,
+        mayRequireJavaScript: true,
+      });
+      expect(getAllByRole("status")).toHaveLength(2);
+      expect(getByText("Only part of this page was read.")).toBeDefined();
+      expect(
+        getByText(
+          "This page may need JavaScript to show everything, so some of it may be missing.",
+        ),
+      ).toBeDefined();
+      expect(container.textContent).not.toContain("Extracted only");
+    });
+
+    test("a failed fetch shows its error verbatim under the page it tried", () => {
+      const { getByText } = renderView(
+        payload({ status: "error", result: "Error: HTTP 404" }),
+        { ...META, status: 404, errorMessage: "Error: HTTP 404" },
+      );
+      expect(getByText("Error: HTTP 404")).toBeDefined();
+      expect(getByText("404")).toBeDefined();
+    });
+
+    test("metadata from an assistant that predates the full warning set keeps the result's notices", () => {
+      // No `startIndexPastEnd`: the writer's remaining warnings are only in
+      // the result text, so that text's notices are what the reader sees.
+      const { startIndexPastEnd: _omitted, ...older } = META;
+      const { getByText } = renderView(payload({}), older);
+      expect(
+        getByText(
+          "Extracted only 5047 chars of text from 757146 bytes of HTML (0.7%). Content may be JavaScript-rendered.",
+        ),
+      ).toBeDefined();
+      // The card still reads the metadata it has.
+      expect(
+        getByText("Michelob Ultra is now America's top beer"),
+      ).toBeDefined();
+    });
+
+    test("warns of a start past the end and shows a provider's warning as sent", () => {
+      const { getAllByRole, getByText } = renderView(payload({}), {
+        ...META,
+        startIndexPastEnd: true,
+        providerWarning: "The page was served from cache.",
+      });
+      expect(getAllByRole("status")).toHaveLength(2);
+      expect(
+        getByText(
+          "The fetch started past the end of this page, so nothing was read.",
+        ),
+      ).toBeDefined();
+      expect(getByText("The page was served from cache.")).toBeDefined();
+    });
+
+    test("a malformed web url the daemon refused reads as text, not a link", () => {
+      const { container } = renderView(
+        payload({
+          status: "error",
+          result: "Error: url is required and must be a valid HTTP(S) URL",
+          input: { url: "https://[" },
+        }),
+        {
+          ...META,
+          url: "https://[",
+          finalUrl: "https://[",
+          status: 0,
+          title: undefined,
+          domain: "",
+          faviconUrl: undefined,
+          errorMessage:
+            "Error: url is required and must be a valid HTTP(S) URL",
+        },
+      );
+      expect(container.querySelector("a")).toBeNull();
+    });
+
+    test("an empty title leaves the card named by its domain", () => {
+      const { getByText } = renderView(payload({}), { ...META, title: "" });
+      expect(getByText("www.cnbc.com")).toBeDefined();
+    });
+
+    test("a url the daemon refused reads as text, not a link", () => {
+      const { getByText, getAllByText, container } = renderView(
+        payload({
+          status: "error",
+          result: "Error: url must use http or https",
+          input: { url: "file:///etc/hosts" },
+        }),
+        {
+          ...META,
+          url: "file:///etc/hosts",
+          finalUrl: "file:///etc/hosts",
+          status: 0,
+          title: undefined,
+          domain: "",
+          faviconUrl: undefined,
+          errorMessage: "Error: url must use http or https",
+        },
+      );
+      expect(getByText("Error: url must use http or https")).toBeDefined();
+      // Named by the url itself, since it has no title or domain.
+      expect(getAllByText("file:///etc/hosts")).toHaveLength(2);
+      expect(container.querySelector("a")).toBeNull();
+    });
+
+    test("a fetch that got no response shows no status", () => {
+      const { queryByText, getByText } = renderView(
+        payload({ status: "error", result: "Error: request timed out" }),
+        { ...META, status: 0, errorMessage: "Error: request timed out" },
+      );
+      expect(getByText("Error: request timed out")).toBeDefined();
+      expect(queryByText("0")).toBeNull();
+    });
+  });
+
+  test("a fetch still running says so the way every running tool does", () => {
+    const { getByText, getByTestId } = renderView(
+      payload({ status: "running", result: undefined }),
+    );
+    expect(getByTestId("tool-output-notice").textContent).toBe("Running…");
+    // The requested url is the only source there is yet.
+    expect(getByText("cnbc.com")).toBeDefined();
   });
 });

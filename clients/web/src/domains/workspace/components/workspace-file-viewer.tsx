@@ -28,6 +28,10 @@ import {
   FileTextarea,
   SourcePre,
 } from "@/components/file-editor";
+import {
+  FileViewModeControl,
+  type FileViewMode,
+} from "@/components/file-view-mode";
 import { formatLocale, useTranslation } from "@/i18n";
 import { FileMarkdown, isMarkdown } from "@/components/file-markdown";
 import { isJson, prettifyJson } from "@/domains/workspace/utils/file-json";
@@ -41,8 +45,6 @@ import {
 import type { WorkspaceFileGetResponse } from "@/generated/daemon/types.gen";
 import { downloadWorkspaceFile } from "@/utils/download-workspace-file";
 import { Button } from "@vellumai/design-library/components/button";
-
-import type { WorkspaceViewMode } from "@/domains/workspace/components/workspace-browser";
 
 /**
  * Download state for a single workspace file — shared by the binary-fallback
@@ -170,48 +172,6 @@ function FileHeaderIcon({ mimeType }: { mimeType: string }) {
         style={{ color: "var(--content-default)" }}
       />
     </span>
-  );
-}
-
-function ViewModeToggle({
-  viewMode,
-  onChange,
-}: {
-  viewMode: WorkspaceViewMode;
-  onChange: (mode: WorkspaceViewMode) => void;
-}) {
-  const { t } = useTranslation("workspace");
-  return (
-    <div
-      className="inline-flex rounded-md p-0.5"
-      style={{
-        backgroundColor:
-          "color-mix(in oklab, var(--content-default) 6%, transparent)",
-      }}
-    >
-      {(["preview", "source"] as const).map((mode) => {
-        const active = viewMode === mode;
-        return (
-          <Button
-            key={mode}
-            variant="ghost"
-            onClick={() => onChange(mode)}
-            className="h-auto rounded border-0 px-2.5 py-1 text-body-small-default hover:bg-transparent"
-            style={{
-              backgroundColor: active ? "var(--surface-lift)" : "transparent",
-              color: active
-                ? "var(--content-default)"
-                : "var(--content-tertiary)",
-              boxShadow: active ? "0 1px 2px rgba(0,0,0,0.15)" : undefined,
-            }}
-          >
-            {mode === "preview"
-              ? t("workspaceFileViewer.preview")
-              : t("workspaceFileViewer.source")}
-          </Button>
-        );
-      })}
-    </div>
   );
 }
 
@@ -454,8 +414,8 @@ export function WorkspaceFileViewer({
   assistantId: string;
   selectedPath: string | null;
   showHidden?: boolean;
-  viewMode: WorkspaceViewMode;
-  onChangeViewMode: (mode: WorkspaceViewMode) => void;
+  viewMode: FileViewMode;
+  onChangeViewMode: (mode: FileViewMode) => void;
   /**
    * Opens the file tree's drawer from the empty state. Passed only while the
    * tree is behind that drawer, so the button exists exactly when the tree is
@@ -648,8 +608,8 @@ export function WorkspaceFileViewer({
           name={name}
           mimeType={mimeType}
           rightContent={
-            <ViewModeToggle
-              viewMode={viewMode}
+            <FileViewModeControl
+              mode={viewMode}
               onChange={(mode) => {
                 if (isEditing) {
                   stopEditing();
@@ -670,7 +630,7 @@ export function WorkspaceFileViewer({
               isEditing ? stopEditing() : setEditingPath(selectedPath)
             }
           />
-          {viewMode === "preview" ? (
+          {viewMode === "formatted" ? (
             <div
               className="h-full overflow-auto px-6 py-4"
               style={{ color: "var(--content-default)" }}
@@ -708,8 +668,8 @@ export function WorkspaceFileViewer({
           name={name}
           mimeType={mimeType}
           rightContent={
-            <ViewModeToggle
-              viewMode={viewMode}
+            <FileViewModeControl
+              mode={viewMode}
               onChange={(mode) => {
                 if (isEditing) {
                   stopEditing();
@@ -721,7 +681,7 @@ export function WorkspaceFileViewer({
         />
         <div className="relative flex-1 overflow-hidden">
           <ContentActionBar
-            content={viewMode === "preview" ? previewContent : sourceContent}
+            content={viewMode === "formatted" ? previewContent : sourceContent}
             downloadContent={sourceContent}
             fileName={name}
             mimeType={mimeType}
@@ -731,7 +691,7 @@ export function WorkspaceFileViewer({
               isEditing ? stopEditing() : setEditingPath(selectedPath)
             }
           />
-          {viewMode === "preview" ? (
+          {viewMode === "formatted" ? (
             <SourcePre content={previewContent} readOnly whiteSpace="pre" />
           ) : isEditing ? (
             <FileTextarea

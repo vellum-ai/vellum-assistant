@@ -6,6 +6,8 @@ import {
   AnimatedMetricCard,
   formatNumber,
 } from "@/domains/chat/components/metric-card";
+import { DetailShellNotice } from "@/components/detail-shell";
+import { ClampedContent, SectionLabel } from "@/components/detail-primitives";
 import type { WorkflowLeaf } from "@/domains/chat/workflow-store";
 import { useTranslation } from "@/i18n";
 
@@ -20,30 +22,20 @@ function DetailSection({
   emptyText: string;
 }) {
   return (
-    <div className="mb-5">
-      <Typography
-        variant="body-medium-default"
-        as="h3"
-        className="mb-2 text-[var(--content-emphasised)]"
-      >
-        {title}
-      </Typography>
+    <div>
+      <SectionLabel as="h3">{title}</SectionLabel>
       {body ? (
-        <Typography
-          variant="body-medium-lighter"
-          as="p"
-          className="whitespace-pre-wrap break-words leading-relaxed text-[var(--content-default)]"
-        >
-          {body}
-        </Typography>
+        <ClampedContent label={title}>
+          <Typography
+            variant="body-medium-lighter"
+            as="p"
+            className="whitespace-pre-wrap break-words leading-relaxed text-[var(--content-default)]"
+          >
+            {body}
+          </Typography>
+        </ClampedContent>
       ) : (
-        <Typography
-          variant="body-medium-lighter"
-          as="p"
-          className="text-[var(--content-tertiary)]"
-        >
-          {emptyText}
-        </Typography>
+        <DetailShellNotice placement="section">{emptyText}</DetailShellNotice>
       )}
     </div>
   );
@@ -63,8 +55,8 @@ export function WorkflowLeafDetail({ leaf }: { leaf: WorkflowLeaf }) {
       : t("workflowLeafDetail.noResultSummary");
 
   return (
-    <div>
-      <div className="mb-5 grid grid-cols-2 gap-3">
+    <div className="flex flex-col gap-5">
+      <div className="grid grid-cols-2 gap-3">
         <AnimatedMetricCard
           icon={
             <ArrowDownToLine

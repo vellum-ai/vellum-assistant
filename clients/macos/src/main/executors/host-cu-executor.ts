@@ -134,7 +134,7 @@ const UNRESOLVED = (unresolved: CoachmarkUnresolved): string => {
   if (reason === "ambiguous") {
     return `More than one thing on the shared surface answers to "${target}": ${shown}${rest}. A name is matched whole, so there is no wording of "${target}" that picks one of them out. Point at a nearby control whose name is its own, or say where the thing is out loud.`;
   }
-  return `Nothing on the shared surface is called "${target}". What is there: ${shown}${rest}. Point at one of those by name, or say where the thing is out loud. Do not fall back to guessing bounds for it: a ring drawn at a guess is worse than no ring, because it is followed.`;
+  return `Nothing on the shared surface is called "${target}". What is there: ${shown}${rest}. These are accessibility names and may differ from the visible labels. If one identifies the intended control in the shared image, retry with that exact name as target and use the visible label in the caption. Otherwise say where the thing is out loud. Do not fall back to guessing bounds for it: a ring drawn at a guess is worse than no ring, because it is followed.`;
 };
 
 const UNSHARED =

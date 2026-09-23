@@ -11,6 +11,7 @@ import type {
   WindowAttentionPayload,
 } from "@vellumai/ipc-contract";
 import {
+  COMPANION_SET_UNPLACED_DICTATION_OFFER,
   DOWNLOADS_DONE_EVENT,
   DOWNLOADS_REVEAL,
   NOTIFICATIONS_ACTION,
@@ -22,6 +23,17 @@ import {
 } from "@vellumai/ipc-contract";
 
 type RendererIpc = Pick<IpcRenderer, "invoke" | "off" | "on" | "send">;
+
+export const createDictationOfferBridge = (
+  ipc: RendererIpc,
+): Pick<
+  NonNullable<VellumBridge["companion"]>,
+  "setUnplacedDictationOffer"
+> => ({
+  setUnplacedDictationOffer: (offer) => {
+    ipc.send(COMPANION_SET_UNPLACED_DICTATION_OFFER, offer);
+  },
+});
 
 const subscribe =
   <Payload>(ipc: RendererIpc, channel: string) =>

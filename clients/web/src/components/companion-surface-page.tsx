@@ -8,6 +8,11 @@ import {
   type MouseEvent,
 } from "react";
 
+import {
+  useCompanionIntroPermission,
+  companionIntroNeedsPermission,
+} from "./use-companion-intro-permission";
+
 import { CompanionCapturePicker } from "@/components/companion-capture-picker";
 import {
   CompanionPopover,
@@ -58,9 +63,7 @@ import {
 } from "@/runtime/companion-surface";
 import { sendVoiceActivityControl } from "@/runtime/desktop-voice-activity";
 import {
-  getSystemPermissionsState,
   openSystemPermissionSettings,
-  requestSystemPermission,
   subscribeToSystemPermissions,
 } from "@/runtime/system-permissions";
 import { supportsChords } from "@/runtime/hotkey";
@@ -186,9 +189,6 @@ export function CompanionSurfacePage() {
   // What the assistant is putting in front of the user, and how main has it
   // shown. A call's bar carries the short form as a row of its own, and counts
   // what was put off. The whole of it is the popover's own window.
-  // Whether the call's assistant has voices to pick from, so the voice
-  // chevron is drawn only when it has something to open.
-  const [voicesPickable, setVoicesPickable] = useState(false);
   const [popover, setPopover] = useState<CompanionPopoverContent | undefined>(
     undefined,
   );
@@ -347,7 +347,6 @@ export function CompanionSurfacePage() {
       setWatchRetro(state.watchRetro);
       setDictationOffer(state.dictationOffer);
       setPopover(state.popover);
-      setVoicesPickable(state.voicesPickable === true);
       setPopoverView(state.popoverView);
       // Off unless the answer is positively yes, which covers a shell that
       // predates the field and a window whose flags have not synced yet. The
@@ -685,22 +684,19 @@ export function CompanionSurfacePage() {
   const demo = introShown
     ? introDemoState(intro, t("companionIntro.call.line"))
     : null;
-  /**
-   * Whether a call may already use the microphone, which is what the Talk beat
-   * reads to decide whether to mention the prompt the real thing will raise.
-   *
-   * Read while that beat is up and then polled, because the grant can be made
-   * in System Settings, which reports nothing back. Null until the first read
-   * lands and on every shell without a permission to check, which the card
-   * draws as nothing to mention.
-   */
-  const [micGranted, setMicGranted] = useState<boolean | null>(null);
+  const introPermission = useCompanionIntroPermission(
+    introShown ? intro : null,
+  );
+  const needsIntroPermission = companionIntroNeedsPermission(introPermission);
   /**
    * Whether the creature is standing in the introduction's card rather than in
    * its own spot, which is a beat asking to be clicked: the Talk beat, for the
    * rehearsal, and the last beat, where the click starts a real session.
    */
-  const staging = introShown && (intro === "talk" || intro === "try");
+  const staging =
+    introShown &&
+    !needsIntroPermission &&
+    (intro === "talk" || intro === "try");
   /**
    * **The first beat is finished by doing the thing it describes.** It says a
    * hover brings the creature out, and a hover does: the creature stands up on
@@ -729,25 +725,11 @@ export function CompanionSurfacePage() {
   useEffect(() => {
     setGreeted(false);
   }, [intro]);
-  /**
-   * Take the run's offer to start a conversation for real.
-   *
-   * **The mic is asked for before the call, not during it.** A session that
-   * opens by raising a system prompt is a session the user spends talking to a
-   * dialog. Electron's own ask is a prompt inside this app rather than a trip
-   * to System Settings, so the one press covers both and the call starts on the
-   * answer.
-   */
-  const takeIntroOffer = useCallback((): void => {
-    if (micGranted !== false) {
+  const takeIntroOffer = (): void => {
+    if (!needsIntroPermission) {
       advanceCompanionIntro("try");
-      return;
     }
-    void requestSystemPermission("microphone").then((item) => {
-      setMicGranted(item?.status === "granted");
-      advanceCompanionIntro("try");
-    });
-  }, [micGranted]);
+  };
   /**
    * The run carries on by itself once the click has landed.
    *
@@ -758,7 +740,7 @@ export function CompanionSurfacePage() {
    * first.
    */
   useEffect(() => {
-    if (!greeted) {
+    if (!greeted || needsIntroPermission) {
       return;
     }
     const timer = setTimeout(() => {
@@ -767,25 +749,7 @@ export function CompanionSurfacePage() {
     return () => {
       clearTimeout(timer);
     };
-  }, [greeted]);
-  const asking = introShown && intro === "talk";
-  useEffect(() => {
-    if (!asking) {
-      return;
-    }
-    const read = (): void => {
-      void getSystemPermissionsState().then((state) => {
-        setMicGranted(
-          state === null ? null : state.microphone.status === "granted",
-        );
-      });
-    };
-    read();
-    const timer = setInterval(read, 2_000);
-    return () => {
-      clearInterval(timer);
-    };
-  }, [asking]);
+  }, [greeted, needsIntroPermission]);
   /** Whether what the pill is drawing is that demonstration. */
   const demoing = demo !== null;
   const phase: CompanionSurfacePhase =
@@ -1130,11 +1094,7 @@ export function CompanionSurfacePage() {
               // one there is no name to introduce it by.
               assistantName={assistantName === "" ? undefined : assistantName}
               cardRef={introRef}
-              // Whether the microphone is already granted, which decides
-              // whether the Talk beat says the real thing will ask for it.
-              // Undefined rather than false while the first read is out, so the
-              // card does not promise a prompt that will not appear.
-              micGranted={micGranted ?? undefined}
+              permission={introPermission}
               // Whether the click the Talk beat asks for has landed, since the
               // creature that takes it belongs to the surface rather than to
               // the card.
@@ -1223,8 +1183,11 @@ export function CompanionSurfacePage() {
           //
           // The last beat is the opposite: the creature is in its card for the
           // same reason, and the press is the finish. It goes out as the run's
-          // own `try`, which arms the microphone first and starts a session.
+          // own `try`, which checks microphone access before starting a session.
           if (introShown && intro === "talk") {
+            if (needsIntroPermission) {
+              return;
+            }
             setGreeted(true);
             return;
           }
@@ -1295,17 +1258,11 @@ export function CompanionSurfacePage() {
                 clearCompanionMarks();
               }
         }
-        // The chevrons beside the mic and the assistant's audio. The window
-        // holding the call fills the picker; what the popover shows is how
-        // the chevron knows it is open. Withheld while a beat of the
-        // introduction is borrowing the bar's shape, like every other handler
-        // on that fictional call.
-        openPicker={
-          popover?.kind === "microphones" || popover?.kind === "voices"
-            ? popover.kind
-            : undefined
-        }
-        voicesPickable={voicesPickable}
+        // The chevron beside the mic. The window holding the call fills the
+        // picker; what the popover shows is how the chevron knows it is open.
+        // Withheld while a beat of the introduction is borrowing the bar's
+        // shape, like every other handler on that fictional call.
+        openPicker={popover?.kind === "microphones" ? popover.kind : undefined}
         onPicker={
           !demoing && companionHasPickers()
             ? (picker) => {

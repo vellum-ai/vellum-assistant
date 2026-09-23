@@ -74,4 +74,5 @@ export type ChannelType =
   | "phone"
   | "telegram"
   | "discord"
+  | "vellum-shared"
   | "other";

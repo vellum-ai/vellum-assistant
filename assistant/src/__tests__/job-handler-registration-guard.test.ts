@@ -35,6 +35,7 @@ const MEMORY_JOB_TYPES = [
   "memory_retrospective",
   "memory_retrospective_sweep",
   "skill_card_insert",
+  "skill_update_receipt",
   "pkb_filing",
   "pkb_compaction",
 ].sort();

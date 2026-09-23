@@ -339,11 +339,27 @@
       "defaultEnabled": false
     },
     {
+      "id": "mcp-catalog-qa-integrations",
+      "scope": "assistant",
+      "key": "mcp-catalog-qa-integrations",
+      "label": "MCP Catalog QA Integrations",
+      "description": "Show Gamma, Guru, Intercom, Ramp, Semrush, and Typeform in the installable plugin catalog while their OAuth flows are validated. When off, catalog search, detail, and install-by-name cannot resolve them. Existing installed connections remain available.",
+      "defaultEnabled": false
+    },
+    {
       "id": "os-beta",
       "scope": "assistant",
       "key": "os-beta",
       "label": "OS Beta",
       "description": "Enable the OS Beta model profile (MiniMax M3 / Together) in the assistant's model profile selection.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "auto-profile",
+      "scope": "assistant",
+      "key": "auto-profile",
+      "label": "Auto Profile",
+      "description": "Enable the Auto model profile, which asks Jev which default profile should answer each message.",
       "defaultEnabled": false
     },
     {
@@ -549,7 +565,23 @@
       "scope": "client",
       "key": "assistant-inbox",
       "label": "Assistant Inbox",
-      "description": "Shows an Assistant Inbox entry above Preferences in the web sidebar and the /assistant/inbox page it opens: a mailbox for the assistant's managed vellum.me address (received and sent, with a reading pane), the inline email setup card for entitled orgs with no address yet, and an upgrade card for orgs without the managed_email entitlement. Off hides the entry and redirects the route to chat.",
+      "description": "Shows an Assistant Inbox entry above Preferences in the web sidebar and the /assistant/inbox page it opens: a mailbox for the assistant's managed vellum.me address (received and sent, with a reading pane), the inline email setup card for entitled orgs with no address yet, and an upgrade card for orgs without the managed_email entitlement. With it on, email setup happens only there: the billing wizard hands off to the inbox instead of its own domain step, the billing page's finish-setup nudge gives way to the inbox's rail entry, and the Channels page's Email section points there instead of registering an address itself. Off hides the entry, redirects the route to chat, and keeps the older setup surfaces.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "sidebar-done",
+      "scope": "both",
+      "key": "sidebar-done",
+      "label": "Sidebar Done",
+      "description": "Turns archiving a chat into marking it done: the sidebar row carries a Done check instead of the overflow menu, an All chats page lists the full history, and done chats stay findable in search by default. Off keeps today's Archive wording, the overflow menu, and search that hides archived rows unless the query asks for them.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "vellum-trusted-contacts",
+      "scope": "both",
+      "key": "vellum-trusted-contacts",
+      "label": "Vellum Trusted Contacts",
+      "description": "Lets a guardian give another person access to talk to their assistant in the Vellum UI as a trusted contact. Gates contact-role token minting in the gateway, trusted-contact trust resolution for `vellum` channel principals, and the assistant's trusted-contact route allowlist. Off: none of those surfaces admit a contact, and the assistant stays reachable only by its guardian.",
       "defaultEnabled": false
     }
   ]

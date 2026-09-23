@@ -1119,6 +1119,19 @@ export const routeTree = [
                             },
                           },
                           {
+                            // Same page, with the selected contact in the URL
+                            // so a row is linkable, survives a reload, and is
+                            // a screen Back can leave. `/contacts` alone still
+                            // resolves, landing on the guardian.
+                            path: "contacts/:contactId",
+                            lazy: {
+                              Component: () =>
+                                import("@/contacts-page-route").then(
+                                  (m) => m.ContactsPageRoute,
+                                ),
+                            },
+                          },
+                          {
                             path: "channels",
                             lazy: {
                               Component: () =>
@@ -1189,6 +1202,19 @@ export const routeTree = [
                           Component: () =>
                             import("@/domains/contacts/connect-page").then(
                               (m) => m.ConnectPage,
+                            ),
+                        },
+                      },
+                      // All chats draws its own page chrome and keeps the
+                      // sidebar beside it, so it sits here rather than under
+                      // IntelligenceLayout: it is not an About Assistant
+                      // section.
+                      {
+                        path: "chats",
+                        lazy: {
+                          Component: () =>
+                            import("@/domains/chat/pages/all-chats-page-route").then(
+                              (m) => m.AllChatsPageRoute,
                             ),
                         },
                       },

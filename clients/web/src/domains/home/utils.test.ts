@@ -4,13 +4,15 @@
 
 import { describe, expect, test } from "bun:test";
 
-import type { FeedItem } from "@vellumai/assistant-api";
+import type { FeedItem, FeedItemUpdate } from "@vellumai/assistant-api";
 
 import {
   clearAllArgs,
   getFeedItemScheduleId,
   getFeedItemSkillId,
+  getFeedItemUpdates,
   getVisibleFeedItems,
+  groupFeedItemUpdates,
   guardianLabelKey,
   markAllReadArgs,
   resolveFeedItemTitle,
@@ -97,6 +99,85 @@ describe("getFeedItemSkillId", () => {
     });
     expect(getFeedItemScheduleId(item)).toBe("schedule-1");
     expect(getFeedItemSkillId(item)).toBe("weekly-export");
+  });
+});
+
+describe("getFeedItemUpdates", () => {
+  const update: FeedItemUpdate = {
+    skillId: "skill-a",
+    name: "Skill A",
+    summary: "Changed a step.",
+  };
+
+  test("returns the entries of a receipt", () => {
+    const item = feedItem({
+      detailPanel: { kind: "updatesList" },
+      updates: [update],
+    });
+    expect(getFeedItemUpdates(item)).toEqual([update]);
+  });
+
+  test("returns nothing for an item whose panel is not the list", () => {
+    // The entries alone do not make a receipt: the panel kind is what the
+    // daemon sets, and an item carrying entries under another kind renders
+    // as that kind.
+    const item = feedItem({ updates: [update] });
+    expect(getFeedItemUpdates(item)).toEqual([]);
+  });
+
+  test("returns nothing for a receipt that arrived without entries", () => {
+    expect(
+      getFeedItemUpdates(feedItem({ detailPanel: { kind: "updatesList" } })),
+    ).toEqual([]);
+    expect(
+      getFeedItemUpdates(
+        feedItem({ detailPanel: { kind: "updatesList" }, updates: [] }),
+      ),
+    ).toEqual([]);
+  });
+
+  test("returns nothing when there is no item", () => {
+    expect(getFeedItemUpdates(null)).toEqual([]);
+  });
+});
+
+describe("groupFeedItemUpdates", () => {
+  test("groups by skill in first-seen order, keeping rewrite order within", () => {
+    const groups = groupFeedItemUpdates([
+      { skillId: "a", name: "A", summary: "first" },
+      { skillId: "b", name: "B", summary: "second" },
+      { skillId: "a", name: "A", summary: "third" },
+    ]);
+    expect(groups.map((group) => group.skillId)).toEqual(["a", "b"]);
+    expect(groups[0]?.updates.map((update) => update.summary)).toEqual([
+      "first",
+      "third",
+    ]);
+  });
+
+  test("groups on the id alone, so two skills sharing a name stay apart", () => {
+    const groups = groupFeedItemUpdates([
+      { skillId: "a", name: "Same", summary: "x" },
+      { skillId: "b", name: "Same", summary: "y" },
+    ]);
+    expect(groups).toHaveLength(2);
+  });
+
+  test("a skill renamed between rewrites carries its latest name", () => {
+    const groups = groupFeedItemUpdates([
+      { skillId: "a", name: "Old", summary: "x" },
+      { skillId: "a", name: "New", summary: "y" },
+    ]);
+    expect(groups).toEqual([
+      {
+        skillId: "a",
+        name: "New",
+        updates: [
+          { skillId: "a", name: "Old", summary: "x" },
+          { skillId: "a", name: "New", summary: "y" },
+        ],
+      },
+    ]);
   });
 });
 

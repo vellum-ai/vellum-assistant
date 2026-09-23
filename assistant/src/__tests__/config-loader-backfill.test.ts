@@ -1869,6 +1869,7 @@ describe("seedInferenceProfiles BYOK-mode default profiles", () => {
       "quality-optimized-backup",
       "cost-optimized-backup",
       "latency-optimized-backup",
+      "jev-managed",
       "my-custom",
     ]);
   });

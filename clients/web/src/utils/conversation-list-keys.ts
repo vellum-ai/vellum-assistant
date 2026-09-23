@@ -85,6 +85,16 @@ export const ARCHIVED_BACKGROUND_FILTER: ConversationListFilter = {
   archiveStatus: "archived",
   conversationType: "background",
 };
+/**
+ * Whole history in one cursor: every conversation type, archived and active
+ * alike, recency-ordered. The All chats page reads this instead of merging
+ * the four bucket caches, so one paginated window covers what the buckets
+ * only cover by draining all of them.
+ */
+export const ALL_HISTORY_FILTER: ConversationListFilter = {
+  conversationType: "all",
+  archiveStatus: "all",
+};
 
 /** The `_id` the generated key stamps on every list read, read off the key itself. */
 const LIST_OPERATION_ID = conversationsGetQueryKey({
@@ -200,6 +210,17 @@ export function isSectionFilter(filter: ConversationListFilter): boolean {
 /** Whether a list filter names an archived list (the archive view's reads). */
 export function isArchivedFilter(filter: ConversationListFilter): boolean {
   return filter.archiveStatus === "archived";
+}
+
+/**
+ * Whether a list filter names the whole-history read
+ * ({@link ALL_HISTORY_FILTER}). It is not an archived list, so it sorts by
+ * `lastMessageAt` like every other recency read, and it is windowed rather
+ * than drained: a full history is far longer than a bucket, and the page
+ * that reads it pages on scroll.
+ */
+export function isWholeHistoryFilter(filter: ConversationListFilter): boolean {
+  return filter.conversationType === "all" && filter.archiveStatus === "all";
 }
 
 /**

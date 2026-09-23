@@ -1,3 +1,4 @@
+import { ClampedContent, SectionLabel } from "@/components/detail-primitives";
 import { useTranslation } from "@/i18n";
 /**
  * Devin-style chat view for an ACP run. Assembles the projected chat blocks
@@ -319,7 +320,10 @@ export function AcpRunChatView({
               </div>
             )}
 
-            <ObjectiveSection task={entry.task} />
+            <ObjectiveSection
+              key={`objective-${entry.acpSessionId}`}
+              task={entry.task}
+            />
 
             {/* Blocks render on a vertical timeline rail with a dot on action
                 blocks (tool calls + plan), plus the first and last block so the
@@ -468,20 +472,16 @@ function ObjectiveSection({ task }: { task: string | undefined }) {
   }
   return (
     <div data-testid="acp-chat-objective">
-      <Typography
-        variant="body-medium-default"
-        as="h3"
-        className="mb-1 text-[var(--content-emphasised)]"
-      >
-        {t("acpRunChatView.objective")}
-      </Typography>
-      <Typography
-        variant="body-medium-lighter"
-        as="p"
-        className="whitespace-pre-wrap break-words leading-relaxed text-[var(--content-default)]"
-      >
-        {task}
-      </Typography>
+      <SectionLabel as="h3">{t("acpRunChatView.objective")}</SectionLabel>
+      <ClampedContent label={t("acpRunChatView.objective")}>
+        <Typography
+          variant="body-medium-lighter"
+          as="p"
+          className="whitespace-pre-wrap break-words leading-relaxed text-[var(--content-default)]"
+        >
+          {task}
+        </Typography>
+      </ClampedContent>
       <div className="mt-4 h-px w-full bg-[var(--border-hover)]" />
     </div>
   );

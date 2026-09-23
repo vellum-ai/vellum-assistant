@@ -996,6 +996,12 @@ describe("pairDeliveryWithConversation", () => {
     expect(createConversationMock).not.toHaveBeenCalled();
     expect(addMessageMock).toHaveBeenCalledTimes(1);
     expect(messagesInvalidated).toContain("conv-foreground");
+    // The transcript is this notification's only home, so a chat marked Done
+    // comes back for it.
+    const options = addMessageMock.mock.calls[0]![3] as {
+      skipResurface?: boolean;
+    };
+    expect(options.skipResurface).toBe(false);
   });
 
   test("appended notification body skips indexing", async () => {
@@ -1017,8 +1023,12 @@ describe("pairDeliveryWithConversation", () => {
 
     const options = addMessageMock.mock.calls[0]![3] as {
       skipIndexing?: boolean;
+      skipResurface?: boolean;
     };
     expect(options.skipIndexing).toBe(true);
+    // The bell carries this one (async-background), so the append is
+    // bookkeeping and never resurfaces a chat the user marked Done.
+    expect(options.skipResurface).toBe(true);
   });
 
   test("passive vellum signal appends regardless of the producing conversation's source", async () => {
