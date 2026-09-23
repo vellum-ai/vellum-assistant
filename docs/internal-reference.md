@@ -243,10 +243,10 @@ Installed managed skills are discovered from valid directories under `$VELLUM_WO
 
 #### Tools
 
-| Tool                       | Risk Level | Description                                                                                                                                         |
-| -------------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `scaffold_managed_skill`   | High       | Write a managed skill to `$VELLUM_WORKSPACE_DIR/skills/<id>/`. Creates `SKILL.md` with frontmatter, including optional `includes` for child skills. |
-| `delete_managed_skill`     | High       | Remove a managed skill directory.                                                                                                                   |
+| Tool                     | Risk Level | Description                                                                                                                                         |
+| ------------------------ | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `scaffold_managed_skill` | High       | Write a managed skill to `$VELLUM_WORKSPACE_DIR/skills/<id>/`. Creates `SKILL.md` with frontmatter, including optional `includes` for child skills. |
+| `delete_managed_skill`   | High       | Remove a managed skill directory.                                                                                                                   |
 
 Both tools require explicit user approval before execution (Risk Level = High).
 
@@ -568,10 +568,11 @@ This repo includes Claude Code slash commands for agent-driven development. Most
 
 #### Utility
 
-| Command           | Purpose                                                                                                                                                                                                                       |
-| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/release [bump]` | Cut a release in two steps: dispatch `create-release-branch.yml` (cuts `release/vX.Y.Z` from main → staging bake), then after the bake is green dispatch `release.yml` on the release branch for the full production release. |
-| `/update`         | Pull latest from `main`, kill stale processes, rebuild and launch the macOS app. The app manages its own assistant and gateway lifecycle (hatching on first launch). Prints a startup summary.                                |
+| Command                | Purpose                                                                                                                                                                                                                       |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/release [bump]`      | Cut a release in two steps: dispatch `create-release-branch.yml` (cuts `release/vX.Y.Z` from main → staging bake), then after the bake is green dispatch `release.yml` on the release branch for the full production release. |
+| `/update`              | Pull latest from `main`, kill stale processes, rebuild and launch the macOS app. The app manages its own assistant and gateway lifecycle (hatching on first launch). Prints a startup summary.                                |
+| `/add-mcp-integration` | Add a vendor's remote MCP server to the bundled integrations catalog: check its OAuth support, add the icon and package files, run the generators and CI checks, and open the PR.                                             |
 
 #### Review
 
