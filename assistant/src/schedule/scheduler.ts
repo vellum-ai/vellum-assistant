@@ -30,7 +30,11 @@ import { runSequencesOnce } from "../sequence/engine.js";
 import { getSubagentManager } from "../subagent/index.js";
 import type { TurnFailure } from "../telemetry/turn-outcome.js";
 import { recordWatchdogEvent } from "../telemetry/watchdog-events-store.js";
-import { hasBackgroundToolWork } from "../tools/background-tool-registry.js";
+import {
+  cancelBackgroundTools,
+  hasBackgroundToolWork,
+} from "../tools/background-tool-registry.js";
+import { createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import { describeScheduleSource } from "../util/schedule-source-key.js";
 import {
@@ -108,17 +112,16 @@ const DELEGATED_WORK_QUIET_POLLS = 2;
  *
  * Bounded by what is left of the schedule turn timeout, so the whole run (its
  * turn plus the work it delegated) stays inside the one ceiling that stops a
- * wedged schedule from blocking the next tick. Exhausting the ceiling is not a
- * failure: the run still completes and still produces a result, just from
- * whatever had been written by then.
+ * wedged schedule from blocking the next tick. Unsettled work at the ceiling
+ * fails the attempt, so partial output cannot consume its completion alert.
  */
 async function awaitDelegatedWork(
   conversationId: string,
   runStartedAt: number,
   rlog: typeof log,
-): Promise<void> {
+): Promise<boolean> {
   if (!conversationId || conversationId.startsWith("bootstrap-error:")) {
-    return;
+    return true;
   }
   const hasPendingToolsOrWakes = () =>
     hasBackgroundToolWork(conversationId) ||
@@ -127,7 +130,7 @@ async function awaitDelegatedWork(
     getSubagentManager().getChildrenOf(conversationId).length === 0 &&
     !hasPendingToolsOrWakes()
   ) {
-    return;
+    return true;
   }
 
   const deadline =
@@ -142,14 +145,30 @@ async function awaitDelegatedWork(
     } else {
       quiet += 1;
       if (quiet >= DELEGATED_WORK_QUIET_POLLS) {
-        return;
+        return true;
       }
     }
     await new Promise((resolve) => setTimeout(resolve, DELEGATED_WORK_POLL_MS));
   }
   rlog.warn(
     { conversationId },
-    "Delegated work still in flight at the schedule turn ceiling; producing the result from what is written",
+    "Delegated work did not settle before the schedule turn ceiling",
+  );
+  return false;
+}
+
+function cancelTimedOutScheduleWork(conversationId: string): void {
+  const manager = getSubagentManager();
+  for (const child of manager.getChildrenOf(conversationId)) {
+    cancelTimedOutScheduleWork(child.conversationId);
+  }
+  manager.abortAllForParent(conversationId);
+  findConversation(conversationId)?.abort(
+    createAbortReason("schedule_timeout", "scheduler", conversationId),
+  );
+  cancelBackgroundTools(
+    (tool) => tool.conversationId === conversationId,
+    "schedule_timeout",
   );
 }
 
@@ -1183,10 +1202,13 @@ export async function runDueSchedulesOnce(
       failedTurn = result.turnFailure;
     }
 
+    if (ok && !(await awaitDelegatedWork(conversationId, runStartedAt, log))) {
+      ok = false;
+      errorKind = "timeout";
+      errorMsg = "Scheduled work did not finish before its time limit";
+    }
+
     if (ok) {
-      // The turn resolved, but work it delegated may still be running. Settle
-      // that before the run is called done and its one result is produced.
-      await awaitDelegatedWork(conversationId, runStartedAt, log);
       await completeScheduleRun(runId, { status: "ok" });
       // Automatic completion notification for successful execute-mode runs.
       // Quiet schedules skip this fallback so a clean tick stays silent.
@@ -1224,6 +1246,9 @@ export async function runDueSchedulesOnce(
           : "Schedule execution failed",
       );
       await completeScheduleRun(runId, { status: "error", error: errorMsg });
+      if (errorKind === "timeout") {
+        cancelTimedOutScheduleWork(conversationId);
+      }
       await handleExecutionFailure({
         job,
         errorMsg: errorMsg ?? "Schedule run failed",

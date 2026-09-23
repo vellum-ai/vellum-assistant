@@ -24,6 +24,11 @@ import type { DiskPressureStatus } from "../../daemon/disk-pressure-guard.js";
 import { desktopAutomationLease } from "../../desktop/desktop-automation-lease.js";
 import { hasPendingAgentWake } from "../agent-wake-queue.js";
 
+let scheduleRunStatus: "running" | "ok" | "error" | undefined;
+mock.module("../../schedule/schedule-store.js", () => ({
+  getScheduleRunStatus: () => scheduleRunStatus,
+}));
+
 // ── Per-conversation capture registry ────────────────────────────────
 //
 // Module mocks for the daemon boundary (`broadcastMessage`, `addMessage`)
@@ -657,6 +662,7 @@ function makeWakeConversation(options: {
 let wakeSightFrameCaptureTimes = new Map<string, number>();
 
 beforeEach(() => {
+  scheduleRunStatus = undefined;
   wakeOutcomeStamps.length = 0;
   backgroundNotificationCalls.length = 0;
   __resetWakeChainForTests();
@@ -3895,4 +3901,98 @@ describe("background command completion notification wiring", () => {
       },
     );
   }
+});
+
+describe("scheduled wake cancellation", () => {
+  test("a wake loading its target cannot resume a failed run", async () => {
+    scheduleRunStatus = "running";
+    const loading = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const conversation = makeWakeConversation({});
+    const wake = wakeAgentForOpportunity(
+      {
+        conversationId: conversation.conversationId,
+        cronRunId: "run-123",
+        source: "background-tool",
+        hint: "Command finished",
+      },
+      {
+        resolveTarget: async () => {
+          loading.resolve();
+          await release.promise;
+          return conversation;
+        },
+      },
+    );
+    await loading.promise;
+    scheduleRunStatus = "error";
+    release.resolve();
+    expect(await wake).toMatchObject({ invoked: false, reason: "timeout" });
+    expect(conversation.runCalls).toHaveLength(0);
+    expect(conversation.processingToggles).toEqual([]);
+  });
+
+  test("cancellation reaches the active loop and prevents queued schedule wakes", async () => {
+    scheduleRunStatus = "running";
+    const running = Promise.withResolvers<AbortSignal>();
+    const conversation = makeWakeConversation({
+      runImpl: async (input, onEvent, options) => {
+        const signal = options!.signal!;
+        running.resolve(signal);
+        await new Promise<void>((resolve) =>
+          signal.addEventListener("abort", () => resolve(), { once: true }),
+        );
+        await onEvent({
+          type: "agent_loop_exit",
+          reason: "aborted_pre_call",
+        } as AgentEvent);
+        return runResult(input);
+      },
+    });
+    const options = {
+      conversationId: conversation.conversationId,
+      cronRunId: "run-123",
+      source: "background-tool",
+      hint: "Command finished",
+    };
+    const deps = { resolveTarget: async () => conversation };
+    const wake = wakeAgentForOpportunity(options, deps);
+    const signal = await running.promise;
+    const queuedWake = wakeAgentForOpportunity(options, deps);
+    scheduleRunStatus = "error";
+    conversation.abortController!.abort();
+    await wake;
+    expect(signal.aborted).toBe(true);
+    expect(await queuedWake).toMatchObject({
+      invoked: false,
+      reason: "timeout",
+    });
+    expect(conversation.runCalls).toHaveLength(1);
+    expect(conversation.isProcessing()).toBe(false);
+    expect(conversation.abortController).toBeNull();
+  });
+
+  test("a timeout during compaction never starts the scheduled loop", async () => {
+    scheduleRunStatus = "running";
+    const conversation = makeWakeConversation({});
+    conversation.maybeCompact = async () => {
+      scheduleRunStatus = "error";
+      conversation.abortController!.abort();
+      return null;
+    };
+    expect(
+      await wakeAgentForOpportunity(
+        {
+          conversationId: conversation.conversationId,
+          cronRunId: "run-123",
+          source: "background-tool",
+          hint: "Command finished",
+        },
+        { resolveTarget: async () => conversation },
+      ),
+    ).toMatchObject({ invoked: false, reason: "timeout" });
+    expect(conversation.runCalls).toHaveLength(0);
+    expect(conversation.isProcessing()).toBe(false);
+    expect(conversation.abortController).toBeNull();
+  });
 });

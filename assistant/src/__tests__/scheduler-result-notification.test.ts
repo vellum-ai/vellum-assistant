@@ -87,6 +87,7 @@ mock.module("../notifications/emit-signal.js", () => ({
 }));
 
 import type { AssistantEvent } from "../api/index.js";
+import { getConfig } from "../config/loader.js";
 import type { Conversation } from "../daemon/conversation.js";
 import {
   clearConversations,
@@ -106,6 +107,7 @@ import {
   registerBackgroundTool,
   removeBackgroundTool,
 } from "../tools/background-tool-registry.js";
+import { setConfig } from "./helpers/set-config.js";
 
 await initializeDb();
 
@@ -387,6 +389,105 @@ describe("schedule result notification wiring", () => {
         expect(producerCalls).toHaveLength(quiet ? 0 : 1);
         if (!quiet) {
           expect(producerSawText).toEqual([`Final result: ${status}.`]);
+        }
+      });
+    }
+  }
+
+  for (const quiet of [false, true]) {
+    for (const kind of ["bash", "host_bash", "wake", "subagent"] as const) {
+      test(`a timed-out ${kind} fails without a partial result (quiet=${quiet})`, async () => {
+        const timeouts = getConfig().timeouts;
+        setConfig("timeouts", { ...timeouts, scheduleTurnTimeoutSec: 1 });
+        const schedule = await createSchedule({
+          name: "Background report",
+          message: "Prepare the report",
+          syntax: "cron",
+          expression: "0 9 * * *",
+          maxRetries: 1,
+          quiet,
+        });
+        forceScheduleDue(schedule.id);
+        let cancelled = false;
+        let parentAborted = false;
+        let wake: ReturnType<typeof wakeAgentForOpportunity> | undefined;
+        const finishLookup = Promise.withResolvers<void>();
+        delegateOnRun = (conversationId) => {
+          addMessage(
+            conversationId,
+            "assistant",
+            "The report is still running.",
+          );
+          setConversation(conversationId, {
+            hasInFlightWork: () =>
+              getSubagentManager().hasActiveChildren(conversationId),
+            abort: () => {
+              parentAborted = true;
+            },
+          } as unknown as Conversation);
+          if (kind === "wake") {
+            wake = wakeAgentForOpportunity(
+              {
+                conversationId,
+                cronRunId: getScheduleRuns(schedule.id)[0].id,
+                source: "background-tool",
+                hint: "The command finished",
+              },
+              {
+                resolveTarget: async () => {
+                  await finishLookup.promise;
+                  return {
+                    waitForIdle: async () => true,
+                    isProcessing: () => false,
+                  } as unknown as Conversation;
+                },
+              },
+            );
+          } else {
+            let toolConversationId = conversationId;
+            if (kind === "subagent") {
+              attachRunningChild(conversationId);
+              toolConversationId =
+                getSubagentManager().getChildrenOf(conversationId)[0]
+                  .conversationId;
+            }
+            registerBackgroundTool({
+              id: "bg-timeout",
+              conversationId: toolConversationId,
+              toolName: kind,
+              command: "generate-report",
+              startedAt: Date.now(),
+              cancel: () => {
+                cancelled = true;
+                removeBackgroundTool("bg-timeout");
+              },
+            });
+          }
+        };
+        try {
+          const result = await runDueSchedulesOnce();
+          expect(getScheduleRuns(schedule.id)[0]).toMatchObject({
+            status: "error",
+            error: "Scheduled work did not finish before its time limit",
+          });
+          expect(producerCalls).toHaveLength(0);
+          expect(parentAborted).toBe(true);
+          if (kind !== "wake") {
+            expect(cancelled).toBe(true);
+          }
+          finishLookup.resolve();
+          if (wake) {
+            expect(await wake).toMatchObject({
+              invoked: false,
+              reason: "timeout",
+            });
+          }
+          expect(result.failed).toBe(1);
+        } finally {
+          finishLookup.resolve();
+          await wake;
+          removeBackgroundTool("bg-timeout");
+          setConfig("timeouts", timeouts);
         }
       });
     }

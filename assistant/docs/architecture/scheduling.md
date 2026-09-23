@@ -2,6 +2,12 @@
 
 Recurring schedules, watchers, and queued task execution architecture.
 
+## Execute-mode completion and time limits
+
+An execute-mode run owns its automatic result notification, including results from background commands and subagents. The scheduler waits for delegated work and queued command wakes to settle before marking the run successful and emitting `schedule.result`. Quiet runs skip this fallback, and explicit successful delivery suppresses duplicates.
+
+The wait shares the run's `timeouts.scheduleTurnTimeoutSec` budget. If delegated work exceeds that budget, the scheduler records an error, cancels the remaining commands and child tasks, and aborts the parent continuation. The attempt follows the existing retry and exhaustion-alert policy; partial output never emits a success notification. Scheduled command wakes carry `cronRunId`, check the persisted run status before starting, and observe cancellation while running, so a late callback cannot restart a failed attempt.
+
 ## Recurrence Schedules — Cron and RRULE Dual-Syntax Engine
 
 The scheduler supports two recurrence syntaxes for recurring tasks:

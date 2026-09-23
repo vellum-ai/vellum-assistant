@@ -122,6 +122,7 @@ import {
 } from "../persistence/llm-request-log-store.js";
 import type { SystemPromptPersonaOverride } from "../prompts/system-prompt.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
+import { getScheduleRunStatus } from "../schedule/schedule-store.js";
 import {
   type UntrustedContentSource,
   wrapUntrustedContent,
@@ -756,6 +757,9 @@ export async function wakeAgentForOpportunity(
   const resolveTarget = deps?.resolveTarget ?? defaultResolveTarget;
   const nowFn = deps?.now ?? Date.now;
   const startedAt = nowFn();
+  const scheduledRunFailed = (): boolean =>
+    opts.cronRunId !== undefined &&
+    getScheduleRunStatus(opts.cronRunId) === "error";
   let wakeTriggerMessageId: string | undefined;
   let completionAssistantMessageId: string | undefined;
 
@@ -856,6 +860,10 @@ export async function wakeAgentForOpportunity(
       restorePersistentWakeTrust();
       return { invoked: false, producedToolCalls: false, reason: "timeout" };
     }
+    if (scheduledRunFailed()) {
+      restorePersistentWakeTrust();
+      return { invoked: false, producedToolCalls: false, reason: "timeout" };
+    }
 
     // Trust elevation is applied per-turn via `currentTurnTrustContext` right
     // before the run (see below) — not on the persistent conversation trust.
@@ -924,6 +932,12 @@ export async function wakeAgentForOpportunity(
     // observed the lock free, and nothing between its final `isProcessing()`
     // check and this acquisition awaits — keep that stretch await-free so
     // the lock cannot change hands in between.
+    const scheduleAbortController = opts.cronRunId
+      ? new AbortController()
+      : undefined;
+    if (scheduleAbortController) {
+      conversation.abortController = scheduleAbortController;
+    }
     conversation.setProcessing(true);
 
     // ── Pre-run auto-compaction gate ──────────────────────────────────
@@ -1525,7 +1539,12 @@ export async function wakeAgentForOpportunity(
         reason: "context_overflow" as const,
       };
     };
+    let cancelledBeforeRun = false;
     try {
+      if (scheduleAbortController?.signal.aborted || scheduledRunFailed()) {
+        cancelledBeforeRun = true;
+        return { invoked: false, producedToolCalls: false, reason: "timeout" };
+      }
       // ── Over-window policy under suppressed auto-compaction ─────────
       // The pre-run gate above is the wake's only compaction path (the
       // loop's in-loop budget gate stays disabled), so when the caller
@@ -1622,6 +1641,7 @@ export async function wakeAgentForOpportunity(
       try {
         ({ history: updatedHistory } = await conversation.agentLoop.run({
           messages: runInput,
+          signal: scheduleAbortController?.signal,
           onEvent,
           requestId: `wake:${source}`,
           onCheckpoint,
@@ -1847,16 +1867,24 @@ export async function wakeAgentForOpportunity(
       return { invoked: true, producedToolCalls, ...exitReasonField() };
     } finally {
       if (
+        scheduleAbortController &&
+        conversation.abortController === scheduleAbortController
+      ) {
+        conversation.abortController = null;
+      }
+      if (
         opts.backgroundToolCompletion &&
         wakeTriggerMessageId &&
-        (runError ||
+        (cancelledBeforeRun ||
+          runError ||
           (terminalExitReason !== null &&
             terminalExitReason !== "no_tool_calls" &&
             terminalExitReason !== "yield_to_user"))
       ) {
         stampTurnOutcome(
           wakeTriggerMessageId,
-          String(terminalExitReason).startsWith("aborted_") ||
+          cancelledBeforeRun ||
+            String(terminalExitReason).startsWith("aborted_") ||
             terminalExitReason === "checkpoint_handoff"
             ? "cancelled"
             : "failed",
