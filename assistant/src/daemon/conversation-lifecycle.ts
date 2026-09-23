@@ -31,6 +31,10 @@ import {
   isUserInterruptAbort,
 } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
+import {
+  cancelPreparingClaim,
+  type PreparingClaim,
+} from "./conversation-actor-claim.js";
 import { unregisterCallNotifiers } from "./conversation-notifiers.js";
 import type {
   MessageQueue,
@@ -138,6 +142,8 @@ export interface AbortContext {
   readonly pendingQueuedDispatches?: Map<string | null, Set<QueuedDispatch>>;
   isProcessing(): boolean;
   setProcessing(value: boolean): void;
+  holdsProcessingClaim(owner: number): boolean;
+  preparingClaim: PreparingClaim | null;
   abortController: AbortController | null;
   prompter: PermissionPrompter;
   secretPrompter: SecretPrompter;
@@ -363,7 +369,12 @@ export function abortConversation(
   ) {
     return;
   }
-  const hasLiveTurn = ctx.abortController !== null;
+  // A claim still preparing its turn has no controller yet. Cancelling it
+  // leaves the release to its holder, which gives the claim back once its
+  // history reload settles; force-clearing it instead would let another
+  // sender acquire and reload while that reload is still in flight.
+  const preparing = ctx.abortController === null && cancelPreparingClaim(ctx);
+  const hasLiveTurn = ctx.abortController !== null || preparing;
   const wasProcessing = ctx.isProcessing();
   if (wasProcessing) {
     log.info(
@@ -377,7 +388,7 @@ export function abortConversation(
       // (after the awaited turn-boundary commit), so we deliberately do NOT
       // clear it here and risk clobbering a client's optimistic state.
       ctx.abortController.abort(effectiveReason);
-    } else {
+    } else if (!preparing) {
       forceClearStaleProcessing(ctx, "abortConversation");
     }
     ctx.prompter.dispose();

@@ -11,11 +11,15 @@
  * The persist and the agent loop record what they ran under, so a test can
  * ask which sender's turn ran, under whose trust, on whose history, and
  * whether two turns ever overlapped.
+ *
+ * It carries the fields an abort reads as plain stubs, so a test can run the
+ * real abort against it. `busyMessage` is the error text the persist throws
+ * for a conversation it cannot have, which callers match on; the claim a
+ * sender takes before scoping is left to the test to wire, so this helper
+ * imports nothing at runtime.
  */
 
-import { CONVERSATION_BUSY_MESSAGE } from "../../daemon/conversation-messaging.js";
 import type { TrustContext } from "../../daemon/trust-context-types.js";
-import { acquireProcessingForActorDouble } from "./mock-conversation.js";
 
 export interface HeldReload {
   /** Resolves once a reload is waiting on this hold. */
@@ -34,19 +38,49 @@ export function historyScopedFor(trust: TrustContext | undefined): string[] {
   return [`history visible to ${trust?.trustClass ?? "nobody"}`];
 }
 
-export function createScopeRaceConversation(conversationId: string) {
+export function createScopeRaceConversation(
+  conversationId: string,
+  busyMessage: string,
+) {
   let processing = false;
   let owner = 0;
   let nextOwner = 0;
   let loadedFor: string | null = null;
   const holds: Array<{ gate: Promise<void>; enter: () => void }> = [];
   let running = 0;
+  const queued: unknown[] = [];
+  const queue = {
+    get length() {
+      return queued.length;
+    },
+    get isEmpty() {
+      return queued.length === 0;
+    },
+    [Symbol.iterator]: () => queued[Symbol.iterator](),
+    clear: () => {
+      queued.length = 0;
+    },
+    removeByRequestId: () => undefined,
+  };
 
   const conversation = {
     conversationId,
     trustContext: undefined as TrustContext | undefined,
     messages: [] as string[],
     abortController: null as AbortController | null,
+    preparingClaim: null as {
+      readonly owner: number;
+      cancelled: boolean;
+    } | null,
+    drainKicks: [] as Array<string | undefined>,
+    queue,
+    pendingInterruptRepair: false,
+    prompter: { dispose: () => {} },
+    secretPrompter: { dispose: () => {} },
+    pendingSurfaceActions: new Map(),
+    surfaceActionRequestIds: new Set<string>(),
+    surfaceState: new Map(),
+    accumulatedSurfaceState: new Map(),
     trustWrites: [] as Array<TrustContext | undefined>,
     persistedTrust: [] as Array<TrustContext | undefined>,
     turns: [] as RecordedTurn[],
@@ -91,7 +125,9 @@ export function createScopeRaceConversation(conversationId: string) {
       owner = 0;
       return true;
     },
-    kickDrainQueue: async () => {},
+    kickDrainQueue: async (_reason?: string, origin?: string) => {
+      conversation.drainKicks.push(origin);
+    },
 
     setTrustContext(ctx: TrustContext | null) {
       conversation.trustContext = ctx ?? undefined;
@@ -112,7 +148,6 @@ export function createScopeRaceConversation(conversationId: string) {
       conversation.messages = historyScopedFor(scope);
       loadedFor = key;
     },
-    acquireProcessingForActor: acquireProcessingForActorDouble,
     getMessages: () => conversation.messages,
 
     async persistUserMessage(options: {
@@ -126,10 +161,10 @@ export function createScopeRaceConversation(conversationId: string) {
         }
         const claim = await conversation.acquireProcessingFenced();
         if (claim === null) {
-          throw new Error(CONVERSATION_BUSY_MESSAGE);
+          throw new Error(busyMessage);
         }
       } else if (owner !== options.processingClaim) {
-        throw new Error(CONVERSATION_BUSY_MESSAGE);
+        throw new Error(busyMessage);
       }
       conversation.persistedTrust.push(
         options.trustContext ?? conversation.trustContext,

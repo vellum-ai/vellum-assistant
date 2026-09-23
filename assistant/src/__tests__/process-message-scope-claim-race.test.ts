@@ -51,9 +51,15 @@ mock.module("../daemon/conversation-store.js", () => ({
   mergeConversationOptions: () => {},
 }));
 
-import { isConversationBusyError } from "../daemon/conversation-messaging.js";
+import { acquireProcessingForActor } from "../daemon/conversation-actor-claim.js";
+import { abortConversation } from "../daemon/conversation-lifecycle.js";
+import {
+  CONVERSATION_BUSY_MESSAGE,
+  isConversationBusyError,
+} from "../daemon/conversation-messaging.js";
 import { processMessage } from "../daemon/process-message.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
+import { createAbortReason } from "../util/abort-reasons.js";
 import {
   createScopeRaceConversation,
   historyScopedFor,
@@ -74,21 +80,39 @@ const BOB: TrustContext = {
 };
 
 function makeConversation() {
-  return Object.assign(createScopeRaceConversation(CONV_ID), {
-    authContext: undefined,
-    usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
-    setAssistantId: () => {},
-    setAuthContext: () => {},
-    setChannelCapabilities: () => {},
-    setHostCuProxy: () => {},
-    setHostAppControlProxy: () => {},
-    addPreactivatedSkillId: () => {},
-    setCommandIntent: () => {},
-    setTurnChannelContext: () => {},
-    getTurnChannelContext: () => null,
-    setTurnInterfaceContext: () => {},
-    getTurnInterfaceContext: () => null,
-  });
+  const conversation = Object.assign(
+    createScopeRaceConversation(CONV_ID, CONVERSATION_BUSY_MESSAGE),
+    {
+      authContext: undefined,
+      usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
+      setAssistantId: () => {},
+      setAuthContext: () => {},
+      setChannelCapabilities: () => {},
+      setHostCuProxy: () => {},
+      setHostAppControlProxy: () => {},
+      addPreactivatedSkillId: () => {},
+      setCommandIntent: () => {},
+      setTurnChannelContext: () => {},
+      getTurnChannelContext: () => null,
+      setTurnInterfaceContext: () => {},
+      getTurnInterfaceContext: () => null,
+      acquireProcessingForActor: (trust: TrustContext | null | undefined) =>
+        acquireProcessingForActor(conversation, trust),
+      stop: () =>
+        abortConversation(
+          conversation as unknown as Parameters<typeof abortConversation>[0],
+          createAbortReason("user_cancel", "test", CONV_ID),
+        ),
+    },
+  );
+  return conversation;
+}
+
+async function settled(promise: Promise<unknown>): Promise<unknown> {
+  return promise.then(
+    () => null,
+    (err: unknown) => err,
+  );
 }
 
 function send(content: string, trustContext: TrustContext) {
@@ -113,10 +137,7 @@ describe("channel ingress racing another sender to an idle conversation", () => 
     await aliceReload.entered;
 
     // Bob arrives while Alice's reload is still in flight.
-    const bobError = await send("from Bob", BOB).then(
-      () => null,
-      (err: unknown) => err,
-    );
+    const bobError = await settled(send("from Bob", BOB));
     expect(isConversationBusyError(bobError)).toBe(true);
     expect(conversation.trustContext).toBe(ALICE);
     expect(conversation.trustWrites).toEqual([ALICE]);
@@ -132,5 +153,32 @@ describe("channel ingress racing another sender to an idle conversation", () => 
     expect(conversation.persistedTrust).toEqual([ALICE]);
     expect(conversation.maxConcurrentTurns).toBe(1);
     expect(conversation.isProcessing()).toBe(false);
+  });
+  test("a Stop during the history reload cancels the claim instead of clearing it, and the message is turned away as busy", async () => {
+    const conversation = activeConversation;
+    const aliceReload = conversation.holdNextReload();
+
+    const alice = settled(send("from Alice", ALICE));
+    await aliceReload.entered;
+
+    conversation.stop();
+    // The claim is still held: Alice's reload has not settled, so nobody else
+    // may acquire and reload over it.
+    expect(conversation.isProcessing()).toBe(true);
+    const bobError = await settled(send("from Bob", BOB));
+    expect(isConversationBusyError(bobError)).toBe(true);
+    expect(conversation.trustWrites).toEqual([ALICE]);
+
+    aliceReload.release();
+    // Alice's message takes the channel's busy path (deferred until idle and
+    // retried) rather than starting a turn after the Stop.
+    expect(isConversationBusyError(await alice)).toBe(true);
+    expect(conversation.turns).toHaveLength(0);
+    expect(conversation.persistedTrust).toEqual([]);
+    // The claim is given back, the trust Alice stamped is put back, and the
+    // queue is kicked for anything that arrived meanwhile.
+    expect(conversation.isProcessing()).toBe(false);
+    expect(conversation.trustContext).toBeUndefined();
+    expect(conversation.drainKicks).toContain("actor_scope_cancelled");
   });
 });

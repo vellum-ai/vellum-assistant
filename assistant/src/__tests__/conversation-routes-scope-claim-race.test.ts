@@ -119,12 +119,16 @@ mock.module("../ipc/gateway-client.js", () => ({
 }));
 
 import type { Conversation } from "../daemon/conversation.js";
+import { acquireProcessingForActor } from "../daemon/conversation-actor-claim.js";
+import { abortConversation } from "../daemon/conversation-lifecycle.js";
+import { CONVERSATION_BUSY_MESSAGE } from "../daemon/conversation-messaging.js";
 import {
   deleteConversation,
   setConversation,
 } from "../daemon/conversation-registry.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import { handleSendMessage } from "../runtime/routes/conversation-routes.js";
+import { createAbortReason } from "../util/abort-reasons.js";
 import { callHandler } from "./helpers/call-route-handler.js";
 import { mockUnownedModeSessions } from "./helpers/mock-conversation.js";
 import {
@@ -136,37 +140,47 @@ const CONV_ID = "conv-route-race";
 
 function makeConversation() {
   const enqueued: Array<{ content: string; trustContext?: TrustContext }> = [];
-  const conversation = Object.assign(createScopeRaceConversation(CONV_ID), {
-    enqueued,
-    modeSessions: mockUnownedModeSessions(),
-    queue: { length: 0 },
-    inFlightSendRequestIds: new Map<string, string>(),
-    usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
-    assistantId: "self",
-    pendingInterruptActivityBridge: false,
-    replayActivityState: () => {},
-    emitConfirmationStateChanged: () => {},
-    emitActivityState: () => {},
-    setTurnChannelContext: () => {},
-    setTurnInterfaceContext: () => {},
-    getTurnChannelContext: () => null,
-    getTurnInterfaceContext: () => null,
-    hasAnyPendingConfirmation: () => false,
-    hasPendingConfirmation: () => false,
-    denyAllPendingConfirmations: () => {},
-    enqueueMessage: (options: {
-      content: string;
-      trustContext?: TrustContext;
-    }) => {
-      enqueued.push(options);
-      return { queued: true, requestId: "queued-id" };
+  const conversation = Object.assign(
+    createScopeRaceConversation(CONV_ID, CONVERSATION_BUSY_MESSAGE),
+    {
+      enqueued,
+      modeSessions: mockUnownedModeSessions(),
+      queue: { length: 0 },
+      inFlightSendRequestIds: new Map<string, string>(),
+      usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
+      assistantId: "self",
+      pendingInterruptActivityBridge: false,
+      replayActivityState: () => {},
+      emitConfirmationStateChanged: () => {},
+      emitActivityState: () => {},
+      setTurnChannelContext: () => {},
+      setTurnInterfaceContext: () => {},
+      getTurnChannelContext: () => null,
+      getTurnInterfaceContext: () => null,
+      hasAnyPendingConfirmation: () => false,
+      hasPendingConfirmation: () => false,
+      denyAllPendingConfirmations: () => {},
+      enqueueMessage: (options: {
+        content: string;
+        trustContext?: TrustContext;
+      }) => {
+        enqueued.push(options);
+        return { queued: true, requestId: "queued-id" };
+      },
+      setHostBrowserProxy: () => {},
+      setHostCuProxy: () => {},
+      setHostAppControlProxy: () => {},
+      addPreactivatedSkillId: () => {},
+      warmPromptCache: () => {},
+      acquireProcessingForActor: (trust: TrustContext | null | undefined) =>
+        acquireProcessingForActor(conversation, trust),
+      stop: () =>
+        abortConversation(
+          conversation as unknown as Parameters<typeof abortConversation>[0],
+          createAbortReason("user_cancel", "test", CONV_ID),
+        ),
     },
-    setHostBrowserProxy: () => {},
-    setHostCuProxy: () => {},
-    setHostAppControlProxy: () => {},
-    addPreactivatedSkillId: () => {},
-    warmPromptCache: () => {},
-  });
+  );
   return conversation;
 }
 
@@ -247,5 +261,41 @@ describe("POST /v1/messages racing another sender to an idle conversation", () =
     expect(turn.historyAtEnd).toEqual(historyScopedFor(ALICE));
     expect(conversation.persistedTrust).toEqual([ALICE]);
     expect(conversation.maxConcurrentTurns).toBe(1);
+  });
+  test("a Stop during the history reload cancels the claim instead of clearing it, and the message queues", async () => {
+    const conversation = makeConversation();
+    setConversation(CONV_ID, conversation as unknown as Conversation);
+    const aliceReload = conversation.holdNextReload();
+
+    const alice = send(conversation, "alice-principal", "from Alice");
+    await aliceReload.entered;
+
+    conversation.stop();
+    // The claim is still held: Alice's reload has not settled, so nobody else
+    // may acquire and reload over it.
+    expect(conversation.isProcessing()).toBe(true);
+    const bobResponse = await send(conversation, "bob-principal", "from Bob");
+    expect(await bobResponse.json()).toMatchObject({ queued: true });
+    expect(conversation.trustWrites).toEqual([ALICE]);
+
+    aliceReload.release();
+    // Alice's message is not dropped and does not start a turn after the Stop:
+    // it queues behind Bob's, as a send to a busy conversation does, and runs
+    // on the drain the released claim kicks.
+    const aliceResponse = await alice;
+    expect(await aliceResponse.json()).toMatchObject({
+      accepted: true,
+      queued: true,
+    });
+    expect(conversation.enqueued.map((item) => item.content)).toEqual([
+      "from Bob",
+      "from Alice",
+    ]);
+    expect(conversation.enqueued[1].trustContext).toBe(ALICE);
+    expect(conversation.turns).toHaveLength(0);
+    expect(conversation.persistedTrust).toEqual([]);
+    expect(conversation.isProcessing()).toBe(false);
+    expect(conversation.trustContext).toBeUndefined();
+    expect(conversation.drainKicks).toContain("actor_scope_cancelled");
   });
 });
