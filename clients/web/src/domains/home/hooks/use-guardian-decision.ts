@@ -149,6 +149,9 @@ export function useGuardianDecision(): {
         committed: wasCommitted(data),
         applied: data.applied,
         reason: data.reason,
+        ...(data.applied && data.replyText
+          ? { replyText: data.replyText }
+          : {}),
       };
       useGuardianDecisionStore.getState().recordOutcome(settled);
       if (!settled.applied) {

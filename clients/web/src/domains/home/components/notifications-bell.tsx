@@ -452,6 +452,7 @@ export function NotificationsBell() {
         isDecisionPending={decision.isPending}
         pendingRequestIds={decision.pendingRequestIds}
         decidedRequestIds={decision.decidedRequestIds}
+        decisionOutcomes={decision.outcomes}
       />
     );
 

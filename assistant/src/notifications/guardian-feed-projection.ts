@@ -16,6 +16,7 @@
 
 import {
   type FeedItem,
+  type FeedItemGuardianDecisionAction,
   type FeedItemGuardianIntent,
   type FeedItemGuardianRequest,
   isPendingGuardianFeedItem,
@@ -35,7 +36,14 @@ import {
   getMemoryCheckpoint,
   setMemoryCheckpoint,
 } from "../persistence/checkpoints.js";
+import {
+  buildIntroductionActions,
+  parseRequesterSignals,
+  type RequesterIdentitySignals,
+} from "../runtime/introduction-policy.js";
 import { getLogger } from "../util/logger.js";
+import { AccessRequestPayloadSchema } from "./access-request-copy.js";
+import { DEFAULT_APPROVAL_CARD_ACTIONS } from "./approval-card-builder.js";
 import {
   buildToolApprovalSourceView,
   describeSlackChatLabel,
@@ -108,6 +116,18 @@ export function buildPendingGuardianProjection(
   );
 
   const sourceView = buildToolApprovalSourceView(payload);
+  const accessRequest = AccessRequestPayloadSchema.safeParse(contextPayload);
+  const requester = accessRequest.success ? accessRequest.data : undefined;
+  const decisionActions = decisionActionsFor(
+    payload.requestKind,
+    intent,
+    requester?.sourceChannel,
+    {
+      isBot: requester?.isBot,
+      isStranger: requester?.isStranger,
+      isRestricted: requester?.isRestricted,
+    },
+  );
   // Access-request payloads name their requester differently.
   const requesterLabel =
     payload.requesterIdentifier?.trim() ||
@@ -121,12 +141,39 @@ export function buildPendingGuardianProjection(
     status: "pending",
     ...(requesterLabel ? { requesterLabel } : {}),
     ...(payload.toolName?.trim() ? { toolName: payload.toolName.trim() } : {}),
+    ...(decisionActions ? { decisionActions } : {}),
     ...(sourceView?.channel ? { sourceChannel: sourceView.channel } : {}),
     ...(sourceView
       ? { sourceContextLabel: describeApprovalSourceContext(sourceView) }
       : {}),
     ...(sourceView?.permalink ? { sourceUrl: sourceView.permalink } : {}),
   };
+}
+
+/**
+ * The decisions a pending request's card offers, as the feed carries them:
+ * the introduction actions for an access request, the in-app card's generic
+ * pair for any other approval, and none for a question, which is answered in
+ * its conversation.
+ */
+function decisionActionsFor(
+  kind: string,
+  intent: FeedItemGuardianIntent,
+  sourceChannel: string | undefined,
+  signals: RequesterIdentitySignals,
+): FeedItemGuardianDecisionAction[] | undefined {
+  if (intent !== "approval") {
+    return undefined;
+  }
+  if (kind === "access_request") {
+    return buildIntroductionActions(sourceChannel, signals).map(
+      ({ id, emphasis }) => ({ id, emphasis }),
+    );
+  }
+  return DEFAULT_APPROVAL_CARD_ACTIONS.map(({ id, style }) => ({
+    id,
+    ...(style ? { emphasis: style } : {}),
+  }));
 }
 
 /**
@@ -502,6 +549,12 @@ function buildBackfillGuardianFeedItem(request: GuardianRequestWire): FeedItem {
       request.toolName ?? undefined,
     )?.mode,
   );
+  const decisionActions = decisionActionsFor(
+    request.kind,
+    intent,
+    request.sourceChannel ?? undefined,
+    parseRequesterSignals(request.requesterSignals),
+  );
   const now = new Date().toISOString();
   return {
     id: guardianFeedItemId(request.id),
@@ -524,6 +577,7 @@ function buildBackfillGuardianFeedItem(request: GuardianRequestWire): FeedItem {
       intent,
       status: "pending",
       ...(request.toolName ? { toolName: request.toolName } : {}),
+      ...(decisionActions ? { decisionActions } : {}),
       ...(request.sourceChannel
         ? { sourceChannel: request.sourceChannel }
         : {}),

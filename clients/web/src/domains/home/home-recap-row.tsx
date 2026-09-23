@@ -11,15 +11,12 @@ import {
   type FeedItem,
   type FeedItemStatus,
 } from "@vellumai/assistant-api";
-import {
-  Button,
-  cn,
-  CrossfadeStack,
-  Typography,
-} from "@vellumai/design-library";
+import { cn, CrossfadeStack, Typography } from "@vellumai/design-library";
 import type { GuardianDecisionActionId } from "@vellumai/service-contracts/guardian-requests";
 
+import { HomeMarkdownContent } from "./detail-panel/home-markdown-content";
 import { flattenSummary, resolvePreview } from "./feed-preview";
+import { GuardianDecisionButtons } from "./guardian-decision-buttons";
 import {
   buildRecapActions,
   RecapActionButtons,
@@ -79,6 +76,8 @@ export interface HomeRecapRowProps {
    * down while the feed still projects it as pending.
    */
   isDecided?: boolean;
+  /** What the daemon replied to a decision made this session, if anything. */
+  decisionReply?: string;
   trailingAction?: HomeRecapRowTrailingAction;
 }
 
@@ -114,6 +113,7 @@ export function HomeRecapRow({
   onDecide,
   isDecisionPending = false,
   isDecided = false,
+  decisionReply,
   trailingAction = "dismiss",
 }: HomeRecapRowProps) {
   const { t } = useTranslation("home");
@@ -196,35 +196,31 @@ export function HomeRecapRow({
   );
 
   const decisionButtons =
-    isPendingApproval && onDecide && !isDecided ? (
+    item.guardianRequest && isPendingApproval && onDecide && !isDecided ? (
       /* The buttons stand above the stretched link and take their own
          clicks, so deciding a request does not also open it. */
       <div
         data-testid="home-recap-row-decision"
-        className="pointer-events-auto flex gap-[var(--app-spacing-sm)] pt-[var(--app-spacing-sm)]"
+        className="pointer-events-auto flex flex-wrap gap-[var(--app-spacing-sm)] pt-[var(--app-spacing-sm)]"
       >
-        <Button
-          variant="primary"
+        <GuardianDecisionButtons
+          guardianRequest={item.guardianRequest}
           disabled={isDecisionPending}
-          onClick={(event) => {
-            event.stopPropagation();
-            onDecide(item, "approve_once");
-          }}
-        >
-          {t("homeRecapRow.approve")}
-        </Button>
-        <Button
-          variant="outlined"
-          disabled={isDecisionPending}
-          onClick={(event) => {
-            event.stopPropagation();
-            onDecide(item, "reject");
-          }}
-        >
-          {t("homeRecapRow.reject")}
-        </Button>
+          onDecide={(action) => onDecide(item, action)}
+        />
       </div>
     ) : null;
+
+  /* A decision's reply stands where its buttons stood, and can be selected:
+     a verification code the guardian passes on is shown nowhere else. */
+  const decisionReplyBlock = decisionReply ? (
+    <div
+      data-testid="home-recap-row-decision-reply"
+      className="pointer-events-auto select-text pt-[var(--app-spacing-sm)] text-[var(--content-secondary)]"
+    >
+      <HomeMarkdownContent content={decisionReply} />
+    </div>
+  ) : null;
 
   const card = (
     <div
@@ -295,7 +291,10 @@ export function HomeRecapRow({
         )}
       </div>
 
-      {description !== null || threadName !== null || decisionButtons ? (
+      {description !== null ||
+      threadName !== null ||
+      decisionButtons ||
+      decisionReplyBlock ? (
         <div className={BODY_COLUMN_CLASS}>
           {description !== null ? (
             isPendingQuestion ? (
@@ -338,6 +337,7 @@ export function HomeRecapRow({
           ) : null}
 
           {decisionButtons}
+          {decisionReplyBlock}
         </div>
       ) : null}
     </div>

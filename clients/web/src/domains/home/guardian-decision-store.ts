@@ -18,6 +18,13 @@ export interface GuardianDecisionOutcome {
   committed: boolean;
   applied: boolean;
   reason?: string;
+  /**
+   * What the daemon told the guardian about an applied decision. When the
+   * decision minted a verification code for the guardian to pass on, this
+   * is the only place the guardian sees it: the code is stored nowhere a
+   * surface could show it again.
+   */
+  replyText?: string;
 }
 
 export interface GuardianDecisionState {

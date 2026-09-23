@@ -251,6 +251,64 @@ describe("buildPendingGuardianProjection", () => {
   });
 });
 
+describe("decision actions on the projection", () => {
+  test("a tool approval offers the in-app card's generic pair", () => {
+    const projection = buildPendingGuardianProjection(toolApprovalPayload);
+    expect(projection?.decisionActions).toEqual([
+      { id: "approve_once", emphasis: "primary" },
+      { id: "reject", emphasis: "destructive" },
+    ]);
+  });
+
+  test("a question offers no decision actions", () => {
+    const projection = buildPendingGuardianProjection({
+      requestKind: "pending_question",
+      requestId: "req-q",
+      requestCode: "Q1",
+      questionText: "Which venue should I book?",
+    });
+    expect(projection?.decisionActions).toBeUndefined();
+  });
+
+  test("a workspace member's access request leads with Trust and offers no code", () => {
+    const projection = buildPendingGuardianProjection(
+      {
+        requestId: "req-w",
+        requestCode: "WS1234",
+        sourceChannel: "slack",
+        senderIdentifier: "Alice",
+        isStranger: false,
+        isRestricted: false,
+      },
+      "access_request",
+    );
+    expect(projection?.decisionActions).toEqual([
+      { id: "trust", emphasis: "primary" },
+      { id: "leave_unverified", emphasis: "secondary" },
+      { id: "block", emphasis: "destructive" },
+    ]);
+  });
+
+  test("a Slack stranger's access request leads with the code handshake", () => {
+    const projection = buildPendingGuardianProjection(
+      {
+        requestId: "req-s",
+        requestCode: "SL1234",
+        sourceChannel: "slack",
+        senderIdentifier: "Alice",
+        isStranger: true,
+      },
+      "access_request",
+    );
+    expect(projection?.decisionActions?.map((action) => action.id)).toEqual([
+      "verify_code",
+      "trust",
+      "leave_unverified",
+      "block",
+    ]);
+  });
+});
+
 describe("guardianFeedItemId", () => {
   test("round-trips through requestIdFromGuardianFeedItemId", () => {
     expect(requestIdFromGuardianFeedItemId(guardianFeedItemId("req-9"))).toBe(
@@ -498,6 +556,28 @@ describe("reconcileGuardianFeedProjections", () => {
     expect(item?.guardianRequest?.status).toBe("pending");
     expect(item?.conversationId).toBe("conv-1");
     expect(item?.detailPanel?.kind).toBe("permissionChat");
+  });
+
+  test("a backfilled access request carries the card's decisions", async () => {
+    listGuardianRequestsStub = async () => [
+      wireRequest({
+        id: "req-ra",
+        kind: "access_request",
+        sourceChannel: "slack",
+        toolName: null,
+        requesterSignals: JSON.stringify({
+          isStranger: false,
+          isRestricted: false,
+        }),
+      }),
+    ];
+    await reconcileGuardianFeedProjections();
+    const item = readHomeFeed().items.find(
+      (i) => i.id === guardianFeedItemId("req-ra"),
+    );
+    expect(
+      item?.guardianRequest?.decisionActions?.map((action) => action.id),
+    ).toEqual(["trust", "leave_unverified", "block"]);
   });
 
   test("receipts an actionable item whose request went terminal", async () => {

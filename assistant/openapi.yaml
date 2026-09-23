@@ -15121,6 +15121,22 @@ paths:
                               type: string
                             toolName:
                               type: string
+                            decisionActions:
+                              type: array
+                              items:
+                                type: object
+                                properties:
+                                  id:
+                                    type: string
+                                  emphasis:
+                                    type: string
+                                    enum:
+                                      - primary
+                                      - secondary
+                                      - destructive
+                                required:
+                                  - id
+                                additionalProperties: false
                             sourceChannel:
                               type: string
                             sourceContextLabel:
@@ -15374,6 +15390,22 @@ paths:
                         type: string
                       toolName:
                         type: string
+                      decisionActions:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                            emphasis:
+                              type: string
+                              enum:
+                                - primary
+                                - secondary
+                                - destructive
+                          required:
+                            - id
+                          additionalProperties: false
                       sourceChannel:
                         type: string
                       sourceContextLabel:
@@ -15721,6 +15753,22 @@ paths:
                               type: string
                             toolName:
                               type: string
+                            decisionActions:
+                              type: array
+                              items:
+                                type: object
+                                properties:
+                                  id:
+                                    type: string
+                                  emphasis:
+                                    type: string
+                                    enum:
+                                      - primary
+                                      - secondary
+                                      - destructive
+                                required:
+                                  - id
+                                additionalProperties: false
                             sourceChannel:
                               type: string
                             sourceContextLabel:
@@ -24902,6 +24950,22 @@ paths:
                             type: string
                           toolName:
                             type: string
+                          decisionActions:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                id:
+                                  type: string
+                                emphasis:
+                                  type: string
+                                  enum:
+                                    - primary
+                                    - secondary
+                                    - destructive
+                              required:
+                                - id
+                              additionalProperties: false
                           sourceChannel:
                             type: string
                           sourceContextLabel:
