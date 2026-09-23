@@ -4,9 +4,11 @@ import {
   describe,
   expect,
   mock,
+  spyOn,
   test,
 } from "bun:test";
 import { act, cleanup, renderHook } from "@testing-library/react";
+import { clearUserScopedOverrides } from "@/utils/typed-storage";
 
 import {
   ANDROID_PLAY_STORE_URL,
@@ -30,12 +32,14 @@ const originalPlayStoreUrl = env.VITE_ANDROID_PLAY_STORE_URL;
 const originalWindowOpen = window.open;
 
 beforeEach(() => {
+  clearUserScopedOverrides();
   localStorage.clear();
   delete env.VITE_ANDROID_PLAY_STORE_URL;
 });
 
 afterEach(() => {
   cleanup();
+  clearUserScopedOverrides();
   window.open = originalWindowOpen;
   if (originalPlayStoreUrl === undefined) {
     delete env.VITE_ANDROID_PLAY_STORE_URL;
@@ -201,6 +205,33 @@ describe("native app nudge state", () => {
 });
 
 describe("cross-target nudge reads", () => {
+  test.each(["handleBannerDismiss", "handleDownload"] as const)(
+    "%s hides mounted and remounted nudges when storage rejects writes",
+    (action) => {
+      window.open = mock(() => null) as typeof window.open;
+      const write = spyOn(localStorage, "setItem").mockImplementation(() => {
+        throw new Error("Storage unavailable");
+      });
+      try {
+        const schedule = renderHook(() =>
+          useNativeAppNudgeState("ios", "schedule-created"),
+        );
+        const notifications = renderHook(() =>
+          useNativeAppNudgeState("android", "notifications-empty"),
+        );
+
+        act(() => schedule.result.current[action]());
+
+        expect(notifications.result.current.bannerShouldShow).toBe(false);
+        notifications.unmount();
+        const remounted = renderHook(() => useNativeAppNudgeState("generic"));
+        expect(remounted.result.current.bannerShouldShow).toBe(false);
+      } finally {
+        write.mockRestore();
+      }
+    },
+  );
+
   test("dismisses every mounted surface when one nudge is dismissed", () => {
     const chat = renderHook(() => useNativeAppNudgeState("android"));
     const schedule = renderHook(() =>

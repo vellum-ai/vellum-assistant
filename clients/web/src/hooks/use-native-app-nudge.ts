@@ -6,12 +6,14 @@ import {
 } from "@/utils/native-app-nudge-telemetry";
 import { VELLUM_DOWNLOADS_URL } from "@/utils/external-urls";
 import {
-  getLocalBool,
   getLocalNumber,
-  setLocalBool,
   setLocalNumber,
   watchSetting,
 } from "@/utils/local-settings";
+import {
+  createKeyedStorageAccessor,
+  parseBool,
+} from "@/utils/typed-storage";
 
 export type NativeAppPlatform = "ios" | "android";
 
@@ -61,6 +63,19 @@ const STORAGE_KEYS: Record<
 };
 
 const NUDGE_TARGETS: readonly NudgeTarget[] = ["ios", "android", "generic"];
+
+function createNudgeFlagStorage(field: "downloaded" | "bannerDismissed") {
+  return createKeyedStorageAccessor({
+    keyFn: (target) => STORAGE_KEYS[target as NudgeTarget][field],
+    scope: "user",
+    parse: parseBool,
+    serialize: String,
+    fallback: false,
+  });
+}
+
+const downloadedStorage = createNudgeFlagStorage("downloaded");
+const dismissedStorage = createNudgeFlagStorage("bannerDismissed");
 
 function resolveAndroidPlayStoreUrl(): string | null {
   const configuredUrl = import.meta.env.VITE_ANDROID_PLAY_STORE_URL?.trim();
@@ -127,22 +142,22 @@ function targetPlatform(target: NudgeTarget): NativeAppPlatform | null {
 // who already said no.
 export function readNativeAppDownloaded(_target: NudgeTarget): boolean {
   return NUDGE_TARGETS.some((candidate) =>
-    getLocalBool(STORAGE_KEYS[candidate].downloaded, false),
+    downloadedStorage.load(candidate),
   );
 }
 
 export function writeNativeAppDownloaded(target: NudgeTarget): void {
-  setLocalBool(STORAGE_KEYS[target].downloaded, true);
+  downloadedStorage.save(target, true);
 }
 
 function readNativeAppBannerDismissed(_target: NudgeTarget): boolean {
   return NUDGE_TARGETS.some((candidate) =>
-    getLocalBool(STORAGE_KEYS[candidate].bannerDismissed, false),
+    dismissedStorage.load(candidate),
   );
 }
 
 function writeNativeAppBannerDismissed(target: NudgeTarget): void {
-  setLocalBool(STORAGE_KEYS[target].bannerDismissed, true);
+  dismissedStorage.save(target, true);
 }
 
 export function readNativeAppAssistantTurnsSeen(_target: NudgeTarget): number {
