@@ -49,41 +49,36 @@ The database column is named `cron_expression` and the Drizzle table is `cronJob
 
 ---
 
-## Reminder Routing — Trigger-Time Multi-Channel Delivery
+## Schedule Routing: Trigger-Time Multi-Channel Delivery
 
-Reminders support optional routing metadata that controls how the notification pipeline fans out delivery across channels when a reminder fires. This allows a single reminder to reach the user on multiple channels (desktop, Telegram) without requiring duplicate reminders.
+A `notify`-mode schedule carries routing metadata that controls how the notification pipeline fans its delivery out across channels when it fires, so one schedule can reach the user in several places without duplicate schedules.
 
 ### Routing Metadata Model
 
-Two columns on the `reminders` table carry routing metadata:
+Two columns on the `cron_jobs` table carry routing metadata:
 
-| Column               | Type        | Default            | Description                                                                     |
-| -------------------- | ----------- | ------------------ | ------------------------------------------------------------------------------- |
-| `routing_intent`     | TEXT        | `'single_channel'` | Controls channel coverage: `single_channel`, `multi_channel`, or `all_channels` |
-| `routing_hints_json` | TEXT (JSON) | `'{}'`             | Free-form hints for the decision engine (e.g. preferred channels)               |
+| Column               | Type        | Default          | Description                                                                     |
+| -------------------- | ----------- | ---------------- | ------------------------------------------------------------------------------- |
+| `routing_intent`     | TEXT        | `'all_channels'` | Controls channel coverage: `single_channel`, `multi_channel`, or `all_channels` |
+| `routing_hints_json` | TEXT (JSON) | `'{}'`           | Free-form hints for the decision engine (e.g. preferred channels)               |
 
 ### Trigger-Time Data Flow
 
-When the scheduler fires a reminder, routing metadata flows through the full notification pipeline:
+When the scheduler fires a `notify`-mode schedule, its routing metadata flows through the notification pipeline:
 
 ```mermaid
 sequenceDiagram
-    participant Scheduler as Scheduler<br/>(15s tick)
-    participant Store as ReminderStore<br/>(SQLite)
-    participant Lifecycle as Daemon Lifecycle<br/>(notifyReminder)
+    participant Scheduler as Scheduler<br/>(runScheduleOnce)
     participant Signal as emitNotificationSignal
     participant Engine as Decision Engine<br/>(LLM)
     participant Enforce as enforceRoutingIntent
     participant Broadcaster as Broadcaster
-    participant Adapters as Channel Adapters<br/>(Vellum, Telegram)
+    participant Adapters as Channel Adapters
 
-    Scheduler->>Store: claimDueReminders(now)
-    Store-->>Scheduler: ReminderRow[] (with routingIntent, routingHints)
-    Scheduler->>Lifecycle: notifyReminder({ id, label, message, routingIntent, routingHints })
-    Lifecycle->>Signal: emitNotificationSignal({ routingIntent, routingHints, ... })
+    Scheduler->>Signal: emitScheduleNotifySignal → emitNotificationSignal({ sourceEventName: "schedule.notify", routingIntent, routingHints, ... })
     Signal->>Engine: evaluateSignal(signal, connectedChannels)
     Engine-->>Signal: NotificationDecision (LLM channel selection)
-    Signal->>Enforce: enforceRoutingIntent(decision, routingIntent, connectedChannels)
+    Signal->>Enforce: enforceRoutingIntent(decision, routingIntent, connectedChannels, sourceChannel)
     Note over Enforce: Override channel selection<br/>based on routing intent
     Enforce-->>Signal: Enforced decision (re-persisted if changed)
     Signal->>Broadcaster: dispatchDecision(signal, decision)
@@ -100,34 +95,31 @@ The `enforceRoutingIntent()` step runs after the LLM produces a channel selectio
 | `multi_channel`  | If the LLM selected < 2 channels and 2+ are connected, expand to at least two connected channels.                            |
 | `all_channels`   | Replace the LLM's selection with all connected channels.                                                                     |
 
-A decision the LLM suppressed (`shouldNotify: false`) is left alone under every intent. A signal with no routing intent keeps the LLM's selection.
+A decision the LLM suppressed (`shouldNotify: false`) is left alone under every intent. A signal with no routing intent keeps the LLM's selection. A schedule's source channel is `scheduler`, which is never a delivery channel, so `single_channel` on a schedule keeps the LLM's first pick.
 
 When enforcement changes the decision, the updated `selectedChannels` and annotated `reasoningSummary` are re-persisted to `notification_decisions` so the audit trail reflects what was actually dispatched.
 
-### Single-Reminder Fanout
-
-One reminder creates one notification signal. The routing intent on that single signal controls how many channels receive the notification. The notification pipeline handles per-channel copy rendering, conversation pairing, and delivery through existing adapters. No duplicate reminders are needed for multi-channel delivery.
-
 ### Connected Channels at Fire Time
 
-Channel availability is resolved when the signal is emitted (not when the reminder is created):
+Channel availability is resolved when the signal is emitted (`getConnectedChannels()` in `emit-signal.ts`), not when the schedule is created:
 
-- **Vellum** — always connected (local HTTP)
-- **Telegram** — connected when an active guardian binding exists
+- **Vellum** and **Platform** push: always treated as connected
+- **Telegram**: connected when the guardian has a delivery endpoint
+- **Slack**: connected when the guardian's delivery chat is a DM
+- **Discord**: connected when a verified guardian binding names a user to DM
 
-If a channel becomes unavailable between reminder creation and fire time, it is silently excluded from delivery. The routing intent enforcement operates only on channels that are connected at fire time.
+If a channel becomes unavailable between schedule creation and fire time, it is silently excluded from delivery. Routing intent enforcement operates only on channels that are connected at fire time.
 
 ### Key Source Files
 
-| File                                             | Responsibility                                                                  |
-| ------------------------------------------------ | ------------------------------------------------------------------------------- |
-| `assistant/src/tools/reminder/reminder-store.ts` | CRUD with `routingIntent` and `routingHints` fields                             |
-| `assistant/src/memory/schema.ts`                 | `reminders` table schema with `routing_intent` and `routing_hints_json` columns |
-| `assistant/src/schedule/scheduler.ts`            | Claims due reminders and passes routing metadata to the notifier                |
-| `assistant/src/daemon/lifecycle.ts`              | Wires the reminder notifier to `emitNotificationSignal()` with routing metadata |
-| `assistant/src/notifications/emit-signal.ts`     | Orchestrates the full pipeline including routing intent enforcement             |
-| `assistant/src/notifications/decision-engine.ts` | `enforceRoutingIntent()` post-decision guard                                    |
-| `assistant/src/notifications/signal.ts`          | `RoutingIntent` type and `NotificationSignal` fields                            |
+| File                                                 | Responsibility                                                            |
+| ---------------------------------------------------- | ------------------------------------------------------------------------- |
+| `assistant/src/persistence/schema/infrastructure.ts` | `cron_jobs` schema with `routing_intent` and `routing_hints_json` columns |
+| `assistant/src/schedule/schedule-store.ts`           | CRUD with `routingIntent` and `routingHints` fields                       |
+| `assistant/src/schedule/scheduler.ts`                | Fires due schedules and emits `schedule.notify` with the routing metadata |
+| `assistant/src/notifications/emit-signal.ts`         | Orchestrates the full pipeline including routing intent enforcement       |
+| `assistant/src/notifications/decision-engine.ts`     | `enforceRoutingIntent()` post-decision guard                              |
+| `assistant/src/notifications/signal.ts`              | `RoutingIntent` type and `NotificationSignal` fields                      |
 
 ---
 
