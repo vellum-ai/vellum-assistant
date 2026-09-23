@@ -135,6 +135,7 @@ import type { CompletedBackgroundTool } from "../tools/background-tool-registry.
 import { getLogger } from "../util/logger.js";
 import { createKeyedSingleFlight } from "../util/single-flight.js";
 import { safeStringSlice } from "../util/unicode.js";
+import type { SharedSenderAdmission } from "./shared-sender-admission.js";
 
 const log = getLogger("agent-wake");
 
@@ -469,6 +470,13 @@ export type WakeSkipReason =
    */
   | "starter_not_admitted"
   /**
+   * The wake reports on work a shared-conversation contact's turn started,
+   * and the contact could not be verified. The same wake is asked again with
+   * the backoff queued contact messages use, and dropped once the contact has
+   * stayed unverifiable as long as a queued message may.
+   */
+  | "starter_unverifiable"
+  /**
    * The wake input exceeds the effective context window and the caller
    * suppressed auto-compaction (`suppressAutoCompaction: true`), so the
    * run cannot proceed without the compaction it was told not to perform.
@@ -642,25 +650,57 @@ async function kickWakeDrainQueue(
 
 // ── Starting actor ────────────────────────────────────────────────────
 
-/** The contact's current trust while they are still admitted, else undefined. */
-async function admittedContactTrust(
+/** Whether the contact who started a wake's work may still act in it. */
+async function checkStarterAdmission(
   conversationId: string,
   contact: TrustContext,
-): Promise<TrustContext | undefined> {
+): Promise<SharedSenderAdmission> {
   try {
     const { checkSharedSender } = await import("./shared-sender-admission.js");
-    const admission = await checkSharedSender(
+    return await checkSharedSender(
       conversationId,
       contact.requesterExternalUserId ?? "",
     );
-    return admission.outcome === "admitted" ? admission.trust : undefined;
   } catch (err) {
     log.warn(
       { err, conversationId },
       "agent-wake: shared sender admission check failed",
     );
-    return undefined;
+    return { outcome: "unverifiable" };
   }
+}
+
+/** Consecutive unverifiable checks per wake waiting on its contact. */
+const unverifiableStarters = new WeakMap<
+  WakeOptions,
+  { attempts: number; firstAt: number }
+>();
+
+/**
+ * Ask again later about the contact who started a wake's work, with the
+ * backoff and cutoff a queued message from an unverifiable contact gets.
+ * Answers false once the cutoff has passed and the wake is dropped.
+ */
+async function retryWakeForUnverifiableStarter(
+  opts: WakeOptions,
+  deps: WakeDeps | undefined,
+  now: number,
+): Promise<boolean> {
+  const { unverifiableSenderRetryPolicy } =
+    await import("../daemon/shared-sender-queue-gate.js");
+  const policy = unverifiableSenderRetryPolicy();
+  const state = unverifiableStarters.get(opts) ?? { attempts: 0, firstAt: now };
+  state.attempts += 1;
+  unverifiableStarters.set(opts, state);
+  if (now - state.firstAt >= policy.maxAgeMs) {
+    unverifiableStarters.delete(opts);
+    return false;
+  }
+  const timer = setTimeout(() => {
+    void wakeAgentForOpportunity(opts, deps);
+  }, policy.delayMs(state.attempts));
+  timer.unref?.();
+  return true;
 }
 
 /**
@@ -915,10 +955,26 @@ export async function wakeAgentForOpportunity(
     // they may still act in the conversation, and as they are now.
     let starter = opts.startedBy;
     if (starter && isContactTrust(starter)) {
-      starter = await admittedContactTrust(conversationId, starter);
-      if (!starter) {
+      const admission = await checkStarterAdmission(conversationId, starter);
+      if (
+        admission.outcome === "unverifiable" &&
+        (await retryWakeForUnverifiableStarter(opts, deps, nowFn()))
+      ) {
         log.info(
           { conversationId, source },
+          "agent-wake: the contact who started this work could not be verified; asking again later",
+        );
+        restorePersistentWakeTrust();
+        return {
+          invoked: false,
+          producedToolCalls: false,
+          reason: "starter_unverifiable" as const,
+        };
+      }
+      unverifiableStarters.delete(opts);
+      if (admission.outcome !== "admitted") {
+        log.info(
+          { conversationId, source, outcome: admission.outcome },
           "agent-wake: the contact who started this work is no longer admitted; skipping",
         );
         restorePersistentWakeTrust();
@@ -928,6 +984,7 @@ export async function wakeAgentForOpportunity(
           reason: "starter_not_admitted" as const,
         };
       }
+      starter = admission.trust;
     }
 
     // Wait for any independently started user turn to release the processing

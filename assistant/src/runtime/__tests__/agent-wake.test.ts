@@ -259,8 +259,15 @@ let mockDiskPressureStatus: DiskPressureStatus = {
   error: null,
 };
 
-/** The admission answer for a contact who started a wake's work. */
-let mockStarterAdmission: unknown = { outcome: "denied" };
+/**
+ * The admission answers for a contact who started a wake's work, in order;
+ * the last one repeats.
+ */
+let mockStarterAdmissions: unknown[] = [{ outcome: "denied" }];
+let mockRetryPolicy = { delayMs: (_attempt: number) => 5, maxAgeMs: 60_000 };
+mock.module("../../daemon/shared-sender-queue-gate.js", () => ({
+  unverifiableSenderRetryPolicy: () => mockRetryPolicy,
+}));
 const starterAdmissionChecks: Array<{
   conversationId: string;
   principalId: string;
@@ -268,7 +275,9 @@ const starterAdmissionChecks: Array<{
 mock.module("../shared-sender-admission.js", () => ({
   checkSharedSender: async (conversationId: string, principalId: string) => {
     starterAdmissionChecks.push({ conversationId, principalId });
-    return mockStarterAdmission;
+    return mockStarterAdmissions.length > 1
+      ? mockStarterAdmissions.shift()
+      : mockStarterAdmissions[0];
   },
 }));
 
@@ -658,7 +667,8 @@ beforeEach(() => {
   recordUsageCalls.length = 0;
   publishMessagesChangedCalls.length = 0;
   provenanceTrusts.length = 0;
-  mockStarterAdmission = { outcome: "denied" };
+  mockStarterAdmissions = [{ outcome: "denied" }];
+  mockRetryPolicy = { delayMs: () => 5, maxAgeMs: 60_000 };
   starterAdmissionChecks.length = 0;
   mockGetOrCreateConversationCalls.length = 0;
   mockResolverTarget = null;
@@ -915,7 +925,7 @@ describe("wakeAgentForOpportunity", () => {
 
     test("a wake for work a contact's turn started runs as that contact while admitted", async () => {
       const aliceNow: TrustContext = { ...ALICE, requesterContactId: "c-1" };
-      mockStarterAdmission = { outcome: "admitted", trust: aliceNow };
+      mockStarterAdmissions = [{ outcome: "admitted", trust: aliceNow }];
       let turnTrustAtRun: unknown;
       const conversation = makeWakeConversation({
         initialTrustContext: GUARDIAN,
@@ -955,7 +965,7 @@ describe("wakeAgentForOpportunity", () => {
     });
 
     test("a wake for work a removed contact started does not run", async () => {
-      mockStarterAdmission = { outcome: "denied" };
+      mockStarterAdmissions = [{ outcome: "denied" }];
       const conversation = makeWakeConversation({
         initialTrustContext: GUARDIAN,
         scriptedAssistant: {
@@ -986,8 +996,79 @@ describe("wakeAgentForOpportunity", () => {
       expect(conversation.isProcessing()).toBe(false);
     });
 
+    test("a wake for a contact who cannot be verified runs once they are admitted again", async () => {
+      mockStarterAdmissions = [
+        { outcome: "unverifiable" },
+        { outcome: "unverifiable" },
+        { outcome: "admitted", trust: ALICE },
+      ];
+      let turnTrustAtRun: unknown;
+      const conversation = makeWakeConversation({
+        initialTrustContext: GUARDIAN,
+        runImpl: async (input) => {
+          turnTrustAtRun = conversation.currentTurnTrustContext;
+          return runResult([
+            ...input,
+            { role: "assistant", content: [{ type: "text", text: "done." }] },
+          ]);
+        },
+      });
+      const deps = { resolveTarget: async () => conversation };
+
+      const first = await wakeAgentForOpportunity(
+        {
+          conversationId: conversation.conversationId,
+          hint: "Background command completed",
+          source: "background-tool",
+          persistTriggerAsEvent: true,
+          startedBy: ALICE,
+        },
+        deps,
+      );
+
+      expect(first.reason).toBe("starter_unverifiable");
+      expect(conversation.runCalls).toHaveLength(0);
+      const start = Date.now();
+      while (conversation.runCalls.length === 0 && Date.now() - start < 2000) {
+        await new Promise((r) => setTimeout(r, 5));
+      }
+      expect(starterAdmissionChecks).toHaveLength(3);
+      expect(conversation.runCalls).toHaveLength(1);
+      expect(turnTrustAtRun).toBe(ALICE);
+      await new Promise((r) => setTimeout(r, 20));
+      expect(conversation.runCalls).toHaveLength(1);
+    });
+
+    test("a wake for a contact who stays unverifiable past the cutoff is dropped", async () => {
+      mockStarterAdmissions = [{ outcome: "unverifiable" }];
+      mockRetryPolicy = { delayMs: () => 5, maxAgeMs: 0 };
+      const conversation = makeWakeConversation({
+        initialTrustContext: GUARDIAN,
+        scriptedAssistant: {
+          role: "assistant",
+          content: [{ type: "text", text: "done." }],
+        },
+      });
+
+      const result = await wakeAgentForOpportunity(
+        {
+          conversationId: conversation.conversationId,
+          hint: "Background command completed",
+          source: "background-tool",
+          persistTriggerAsEvent: true,
+          startedBy: ALICE,
+        },
+        { resolveTarget: async () => conversation },
+      );
+      await new Promise((r) => setTimeout(r, 30));
+
+      expect(result.reason).toBe("starter_not_admitted");
+      expect(starterAdmissionChecks).toHaveLength(1);
+      expect(conversation.runCalls).toHaveLength(0);
+    });
+
     test("a wake for a contact's work whose history cannot load does not run", async () => {
-      mockStarterAdmission = { outcome: "admitted", trust: ALICE };
+      mockStarterAdmissions = [{ outcome: "admitted", trust: ALICE }];
       const conversation = makeWakeConversation({
         initialTrustContext: GUARDIAN,
         scriptedAssistant: {

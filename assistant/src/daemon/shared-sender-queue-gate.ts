@@ -291,6 +291,18 @@ export async function gateSharedSenderHead(
 }
 
 /**
+ * How long to wait before asking again about a contact who could not be
+ * verified, and how long they may stay unverifiable before their work is
+ * dropped. Shared with wakes for work a contact's turn started.
+ */
+export function unverifiableSenderRetryPolicy(): {
+  delayMs: (attempt: number) => number;
+  maxAgeMs: number;
+} {
+  return { delayMs: retryDelayMs, maxAgeMs: maxUnverifiableAgeMs };
+}
+
+/**
  * Test-only: replace the retry backoff and the age an unverifiable message
  * is dropped at, or restore both with no argument.
  */

@@ -51,9 +51,15 @@ export function injectMessageIntoParent(
   },
 ): void {
   const notification = metadata?.subagentNotification;
+  const existing = findConversation(parentConversationId);
+  // A live voice session delivers as its own actor, so a notification a
+  // shared-conversation contact is involved in goes through the queue, where
+  // the contact is checked and the starting turn's trust applies.
+  const contactInvolved = isContactInvolved(existing ?? {}, opts?.startedBy);
   // The live child's conversation ID is stable even if its cosmetic record changes.
   if (
     !opts?.bypassLiveVoice &&
+    !contactInvolved &&
     notification !== null &&
     typeof notification === "object" &&
     "subagentId" in notification &&
@@ -72,7 +78,6 @@ export function injectMessageIntoParent(
   ) {
     return;
   }
-  const existing = findConversation(parentConversationId);
   if (!existing) {
     log.warn(
       { parentConversationId },
