@@ -12,6 +12,8 @@
  * IPC, and converts the result back into an HTTP Response.
  */
 
+import { contactTokenMayReachRoute } from "@vellumai/gateway-client";
+
 import { admitActorToken } from "../../auth/actor-token-revocation.js";
 import {
   isNarrowScopeProfile,
@@ -32,11 +34,19 @@ import {
   type RouteSchemaPolicy,
 } from "../../ipc/route-schema-cache.js";
 import { getLogger } from "../../logger.js";
+import { resolveTrustVerdict } from "../../risk/trust-verdict-resolver.js";
 
 const log = getLogger("ipc-runtime-proxy");
 
 const V1_PREFIX = "/v1/";
 const VELLUM_HEADER_PREFIX = "x-vellum-";
+
+function notFound(): Response {
+  return Response.json(
+    { error: "Not found", source: "ipc-proxy" },
+    { status: 404 },
+  );
+}
 
 /**
  * Attempt to serve a request via IPC.
@@ -97,23 +107,22 @@ export async function tryIpcProxy(
   const pathname = url.pathname;
 
   if (!pathname.startsWith(V1_PREFIX)) {
-    return Response.json(
-      { error: "Not found", source: "ipc-proxy" },
-      { status: 404 },
-    );
+    return notFound();
   }
 
   const routePath = pathname.slice(V1_PREFIX.length);
   const match = matchRoute(req.method, routePath);
   if (!match) {
-    return Response.json(
-      { error: "Not found", source: "ipc-proxy" },
-      { status: 404 },
-    );
+    return notFound();
   }
   // A passthrough forwards caller-authored paths, so undecodable ones arrive
-  // here routinely. Same answer the daemon's own router gives them.
+  // here routinely. Same answer the daemon's own router gives them, except
+  // for a contact token: the match carries no policy to check its trust
+  // class against, so it gets the 404 an unadmitted route would.
   if ("malformedPath" in match) {
+    if (claims?.scope_profile === "contact_client_v1") {
+      return notFound();
+    }
     return Response.json(
       {
         error: {
@@ -148,7 +157,7 @@ export async function tryIpcProxy(
       { status: 403 },
     );
   }
-  const policyDenied = enforceRoutePolicy(policy, claims, pathname);
+  const policyDenied = await enforceRoutePolicy(policy, claims, pathname);
   if (policyDenied) return policyDenied;
 
   const start = performance.now();
@@ -308,8 +317,30 @@ export async function tryIpcProxy(
 // ---------------------------------------------------------------------------
 
 /**
- * Enforce the route's scope/principal policy against the caller's token.
- * Returns a 403 Response when denied, null when allowed.
+ * Trust class of the principal a contact-role token names, read locally from
+ * its contact ACL on the `vellum-shared` channel. Undefined when the token
+ * names no actor principal or the resolver could not vouch.
+ */
+async function resolveContactTrustClass(
+  claims: TokenClaims,
+): Promise<string | undefined> {
+  const sub = parseSub(claims.sub);
+  if (!sub.ok || !sub.actorPrincipalId) {
+    return undefined;
+  }
+  const verdict = await resolveTrustVerdict({
+    channelType: "vellum-shared",
+    actorExternalId: sub.actorPrincipalId,
+  });
+  return verdict.resolutionFailed ? undefined : verdict.trustClass;
+}
+
+/**
+ * Enforce the route's trust-class/scope/principal policy against the
+ * caller's token. Returns a 404 when a contact-role token reaches a route
+ * that does not admit its trust class, a 403 for any other denial, and null
+ * when allowed. The trust check runs first so a contact learns nothing about
+ * which routes exist; only contact-role tokens are resolved.
  *
  * A route naming no scope (`policy` null, or empty `requiredScopes`) is
  * unprotected (e.g. health, debug) for a broad profile, and closed to a narrow
@@ -317,13 +348,26 @@ export async function tryIpcProxy(
  * policy check of its own, so this fast path is the only place that rule
  * applies to IPC-served requests.
  */
-function enforceRoutePolicy(
+async function enforceRoutePolicy(
   policy: RouteSchemaPolicy | null,
   claims: TokenClaims | undefined,
   path: string,
-): Response | null {
+): Promise<Response | null> {
   // When auth is disabled (dev mode), no claims → skip enforcement.
   if (!claims) return null;
+
+  if (
+    claims.scope_profile === "contact_client_v1" &&
+    !(await contactTokenMayReachRoute(policy?.allowedTrustClasses, () =>
+      resolveContactTrustClass(claims),
+    ))
+  ) {
+    log.warn(
+      { path, sub: claims.sub },
+      "IPC proxy policy denied: trust class not admitted",
+    );
+    return notFound();
+  }
 
   // A single-route grant reaches only a route that names its scope, so an
   // unprotected one refuses it rather than admitting any valid token.

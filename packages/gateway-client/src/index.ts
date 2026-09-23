@@ -132,6 +132,13 @@ export type {
   TrustVerdict,
 } from "./trust-verdict-contract.js";
 
+// Route trust class, applied by both the daemon router and the gateway IPC proxy
+export {
+  contactTokenMayReachRoute,
+  DEFAULT_ROUTE_TRUST_CLASSES,
+  routeAdmitsTrustClass,
+} from "./route-trust-class.js";
+
 // Invite contract (shared gateway ↔ daemon) — hash/generate helpers,
 // channel gating, redemption outcome, method map + invite IPC schemas
 export {

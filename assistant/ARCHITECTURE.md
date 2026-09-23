@@ -97,6 +97,8 @@ All HTTP API requests use a single `Authorization: Bearer <jwt>` header for auth
 
 **Route policy enforcement:** Every protected endpoint declares required scopes and allowed principal types in `src/runtime/auth/route-policy.ts`. The `enforcePolicy()` function checks the AuthContext against these requirements and returns 403 when access is denied. A guard test ensures every dispatched endpoint has a corresponding policy entry.
 
+**Trust class enforcement:** A policy's `allowedTrustClasses` names whose turn may call a route, and an absent list means guardian only. A `contact_client_v1` token reaches only a route whose list admits the trust class its principal resolves to on the `vellum-shared` channel; every other route answers 404, as an unmatched path does. The daemon's HTTP router and the gateway's IPC proxy both apply this rule (`contactTokenMayReachRoute` in `@vellumai/gateway-client`), since the daemon's IPC server runs no policy check of its own. Other tokens are not trust-checked here.
+
 **Credential storage:** Only hashed tokens are persisted. Access token hashes go in `credential_records`; refresh token hashes in `refresh_token_records`. Raw tokens are returned once and never stored server-side.
 
 **Notification scoping:** Guardian-sensitive notifications (`notification_intent`, `notification_conversation_created`) are published with `targetActorPrincipalId`, so the event hub delivers them, live, on reconnect replay, and from the `events/tail` recovery route, only to SSE connections whose verified `actorPrincipalId` is the guardian's. Connections without a principal never receive them. The payload's `targetGuardianPrincipalId` records the scoping.

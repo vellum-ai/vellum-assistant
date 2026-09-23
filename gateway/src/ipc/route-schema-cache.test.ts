@@ -83,6 +83,41 @@ describe("refreshRouteSchema — happy path", () => {
     expect(matchRoute("GET", "settings")).toBeDefined();
   });
 
+  test("carries allowedTrustClasses through, and loads entries without it", async () => {
+    setSchema([
+      {
+        operationId: "contact_probe",
+        endpoint: "contact-probe",
+        method: "POST",
+        policy: {
+          requiredScopes: ["chat.write"],
+          allowedPrincipalTypes: ["actor"],
+          // A class this gateway does not know must not reject the schema.
+          allowedTrustClasses: ["guardian", "trusted_contact", "future_class"],
+        },
+      },
+      {
+        operationId: "settings_get",
+        endpoint: "settings",
+        method: "GET",
+        policy: {
+          requiredScopes: ["settings.read"],
+          allowedPrincipalTypes: ["actor"],
+        },
+      },
+    ]);
+
+    expect(await refreshRouteSchema()).toBe(true);
+    expect(getCachedRoutePolicy("contact_probe")?.allowedTrustClasses).toEqual([
+      "guardian",
+      "trusted_contact",
+      "future_class",
+    ]);
+    expect(
+      getCachedRoutePolicy("settings_get")?.allowedTrustClasses,
+    ).toBeUndefined();
+  });
+
   test("reports a matched route whose param cannot be percent-decoded", async () => {
     // Callers author these paths verbatim through the OAuth passthrough, so
     // the decode has to report rather than throw out of the proxy.

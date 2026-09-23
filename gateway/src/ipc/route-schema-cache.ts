@@ -10,9 +10,9 @@
  * assistant's IPC socket.  A future `route_schema_changed` event will allow
  * reactive updates without polling.
  *
- * Each schema entry carries a `policy` field — the resolved scope /
- * principal-type requirements the daemon's HTTP path enforces via
- * `enforcePolicy()`. The gateway's IPC proxy uses this directly (see
+ * Each schema entry carries a `policy` field: the resolved scope,
+ * principal-type and trust-class requirements the daemon's HTTP router
+ * enforces. The gateway's IPC proxy uses this directly (see
  * `getCachedRoutePolicy`), eliminating the parallel gateway-side policy
  * table that used to be maintained by hand and silently drifted whenever a
  * route was added (ATL-315). When `policy` is `null` the daemon has
@@ -35,6 +35,9 @@ const log = getLogger("route-schema-cache");
 const routeSchemaPolicySchema = z.object({
   requiredScopes: z.array(z.string()).readonly(),
   allowedPrincipalTypes: z.array(z.string()).readonly(),
+  // Optional: a daemon that predates the field omits it, and absent means
+  // guardian only, so that daemon keeps proxying with contacts refused.
+  allowedTrustClasses: z.array(z.string()).readonly().optional(),
 });
 
 const routeSchemaEntrySchema = z.object({

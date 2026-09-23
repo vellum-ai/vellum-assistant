@@ -83,6 +83,33 @@ const ROUTE_SCHEMA = [
       allowedPrincipalTypes: ["actor", "svc_gateway", "svc_daemon", "local"],
     },
   },
+  // A guardian-only route as a current daemon ships it, with the trust class
+  // resolved onto the wire.
+  {
+    operationId: "messages_post",
+    endpoint: "messages",
+    method: "POST",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ["actor", "svc_gateway", "svc_daemon", "local"],
+      allowedTrustClasses: ["guardian"],
+    },
+  },
+  // A route that opts into contacts.
+  {
+    operationId: "contact_probe",
+    endpoint: "contact-probe",
+    method: "POST",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ["actor"],
+      allowedTrustClasses: [
+        "guardian",
+        "trusted_contact",
+        "unverified_contact",
+      ],
+    },
+  },
   // The OAuth passthrough proxy: the one route an oauth_proxy_v1 grant opens.
   {
     operationId: "oauth_proxy_get",
@@ -144,6 +171,21 @@ let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(
 
 mock.module("../../fetch.js", () => ({
   fetchImpl: (...args: Parameters<FetchFn>) => fetchMock(...args),
+}));
+
+// The contact trust lookup reads the gateway ACL; stubbed per test.
+type Verdict = { trustClass: string; resolutionFailed?: boolean };
+const resolveTrustVerdictMock = mock(
+  async (_input: {
+    channelType: string;
+    actorExternalId?: string;
+  }): Promise<Verdict> => ({ trustClass: "trusted_contact" }),
+);
+const actualTrustVerdictResolver =
+  await import("../../risk/trust-verdict-resolver.js");
+mock.module("../../risk/trust-verdict-resolver.js", () => ({
+  ...actualTrustVerdictResolver,
+  resolveTrustVerdict: resolveTrustVerdictMock,
 }));
 
 // The HTTP proxy mints a service token for the daemon on every request.
@@ -743,14 +785,21 @@ const SUB_BY_PROFILE: Record<ScopeProfile, string> = {
 };
 
 /**
- * Every profile, paired with whether it may reach a route that names no scope.
- * The classification is the source's own (`isNarrowScopeProfile`); these cases
- * assert the fast path consults it. `SUB_BY_PROFILE` is exhaustive over
- * ScopeProfile, so a new profile joins the sweep by declaring its subject.
+ * Every profile, paired with the status it gets on a route that names no
+ * scope. The classification is the source's own (`isNarrowScopeProfile`);
+ * these cases assert the fast path consults it. A contact token is refused
+ * earlier, by the route's trust class, with a 404. `SUB_BY_PROFILE` is
+ * exhaustive over ScopeProfile, so a new profile joins the sweep by declaring
+ * its subject.
  */
-const REACHES_UNSCOPED_ROUTES = (
+const UNSCOPED_ROUTE_STATUS = (
   Object.keys(SUB_BY_PROFILE) as ScopeProfile[]
-).map((profile) => [profile, !isNarrowScopeProfile(profile)] as const);
+).map((profile) => {
+  if (profile === "contact_client_v1") {
+    return [profile, 404] as const;
+  }
+  return [profile, isNarrowScopeProfile(profile) ? 403 : 200] as const;
+});
 
 function mockClaims(profile: ScopeProfile) {
   validateEdgeTokenMock.mockImplementation(() => ({
@@ -775,27 +824,27 @@ describe("single-route grants on the IPC fast path", () => {
     validateEdgeTokenMock.mockReset();
   });
 
-  test.each(REACHES_UNSCOPED_ROUTES)(
+  test.each(UNSCOPED_ROUTE_STATUS)(
     "%s on a null-policy route",
-    async (profile, allowed) => {
+    async (profile, status) => {
       mockClaims(profile);
       const req = makeRequest("/v1/health", {
         headers: { authorization: "Bearer valid" },
       });
       const result = await tryIpcProxy(req, AUTHED_CONFIG());
-      expect(result!.status).toBe(allowed ? 200 : 403);
+      expect(result!.status).toBe(status);
     },
   );
 
-  test.each(REACHES_UNSCOPED_ROUTES)(
+  test.each(UNSCOPED_ROUTE_STATUS)(
     "%s on a route whose policy names no scope",
-    async (profile, allowed) => {
+    async (profile, status) => {
       mockClaims(profile);
       const req = makeRequest("/v1/debug/ping", {
         headers: { authorization: "Bearer valid" },
       });
       const result = await tryIpcProxy(req, AUTHED_CONFIG());
-      expect(result!.status).toBe(allowed ? 200 : 403);
+      expect(result!.status).toBe(status);
     },
   );
 
@@ -851,5 +900,168 @@ describe("single-route grants on the IPC fast path", () => {
     });
     const result = await tryIpcProxy(req, AUTHED_CONFIG());
     expect(result!.status).toBe(403);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: trust class on the IPC fast path
+//
+// The daemon's IPC server runs no policy check, so this is the only place a
+// contact token is kept off guardian routes for IPC-served requests.
+// ---------------------------------------------------------------------------
+
+function postJson(path: string): Request {
+  return makeRequest(path, {
+    method: "POST",
+    headers: {
+      authorization: "Bearer valid",
+      "content-type": "application/json",
+    },
+    body: "{}",
+  });
+}
+
+describe("trust class on the IPC fast path", () => {
+  beforeEach(() => {
+    ipcCallAssistantMock.mockReset();
+    ipcCallAssistantMock.mockImplementation(defaultIpcImpl);
+    validateEdgeTokenMock.mockReset();
+    resolveTrustVerdictMock.mockReset();
+    resolveTrustVerdictMock.mockImplementation(async () => ({
+      trustClass: "trusted_contact",
+    }));
+  });
+
+  test("a contact token gets 404 from POST /v1/messages", async () => {
+    mockClaims("contact_client_v1");
+    const result = await tryIpcProxy(postJson("/v1/messages"), AUTHED_CONFIG());
+
+    expect(result!.status).toBe(404);
+    expect(await result!.json()).toEqual({
+      error: "Not found",
+      source: "ipc-proxy",
+    });
+    expect(ipcCallAssistantMock).not.toHaveBeenCalled();
+    expect(resolveTrustVerdictMock).not.toHaveBeenCalled();
+  });
+
+  test("a contact token gets 404 from every route not admitting contacts", async () => {
+    mockClaims("contact_client_v1");
+    const refused = ROUTE_SCHEMA.filter(
+      (route) => route.operationId !== "contact_probe",
+    );
+    const leaks: string[] = [];
+    for (const route of refused) {
+      const path = route.endpoint.replace(/:[^/]+\*?/g, "x");
+      const req = makeRequest(`/v1/${path}`, {
+        method: route.method,
+        headers: { authorization: "Bearer valid" },
+      });
+      const result = await tryIpcProxy(req, AUTHED_CONFIG());
+      if (result?.status !== 404) {
+        leaks.push(`${route.method} ${route.endpoint}: ${result?.status}`);
+      }
+    }
+    expect(leaks).toEqual([]);
+    expect(ipcCallAssistantMock).not.toHaveBeenCalled();
+    expect(resolveTrustVerdictMock).not.toHaveBeenCalled();
+  });
+
+  test("a contact token gets 404, not 400, for a malformed path", async () => {
+    mockClaims("contact_client_v1");
+    const req = makeRequest("/v1/oauth/proxy/gh/a%zz", {
+      headers: { authorization: "Bearer valid" },
+    });
+    const result = await tryIpcProxy(req, AUTHED_CONFIG());
+
+    expect(result!.status).toBe(404);
+    expect(ipcCallAssistantMock).not.toHaveBeenCalled();
+  });
+
+  test("a guardian token is unaffected and never looked up", async () => {
+    mockClaims("actor_client_v1");
+    const result = await tryIpcProxy(postJson("/v1/messages"), AUTHED_CONFIG());
+
+    expect(result!.status).toBe(200);
+    expect(ipcCallAssistantMock).toHaveBeenCalledTimes(1);
+    expect(resolveTrustVerdictMock).not.toHaveBeenCalled();
+  });
+
+  test.each(["trusted_contact", "unverified_contact"])(
+    "a route admitting contacts serves a %s, resolved on vellum-shared",
+    async (trustClass) => {
+      mockClaims("contact_client_v1");
+      resolveTrustVerdictMock.mockImplementation(async () => ({ trustClass }));
+      const result = await tryIpcProxy(
+        postJson("/v1/contact-probe"),
+        AUTHED_CONFIG(),
+      );
+
+      expect(result!.status).toBe(200);
+      expect(resolveTrustVerdictMock).toHaveBeenCalledWith({
+        channelType: "vellum-shared",
+        actorExternalId: "contact_1",
+      });
+      const [opId] = ipcCallAssistantMock.mock.calls[0] as [string];
+      expect(opId).toBe("contact_probe");
+    },
+  );
+
+  test.each([
+    ["an unknown principal", { trustClass: "unknown" }],
+    ["a principal resolving guardian", { trustClass: "guardian" }],
+    [
+      "a verdict the resolver could not vouch for",
+      { trustClass: "trusted_contact", resolutionFailed: true },
+    ],
+  ] as const)(
+    "a route admitting contacts refuses %s",
+    async (_label, verdict) => {
+      mockClaims("contact_client_v1");
+      resolveTrustVerdictMock.mockImplementation(async () => verdict);
+      const result = await tryIpcProxy(
+        postJson("/v1/contact-probe"),
+        AUTHED_CONFIG(),
+      );
+
+      expect(result!.status).toBe(404);
+      expect(ipcCallAssistantMock).not.toHaveBeenCalled();
+    },
+  );
+
+  test("a failed trust lookup refuses", async () => {
+    mockClaims("contact_client_v1");
+    resolveTrustVerdictMock.mockImplementation(async () => {
+      throw new Error("db unavailable");
+    });
+    const result = await tryIpcProxy(
+      postJson("/v1/contact-probe"),
+      AUTHED_CONFIG(),
+    );
+
+    expect(result!.status).toBe(404);
+    expect(ipcCallAssistantMock).not.toHaveBeenCalled();
+  });
+
+  test("a schema without allowedTrustClasses still proxies, guardian only", async () => {
+    // `settings_get` carries no trust classes, as a daemon predating the
+    // field serves it.
+    mockClaims("actor_client_v1");
+    const guardian = await tryIpcProxy(
+      makeRequest("/v1/settings", {
+        headers: { authorization: "Bearer valid" },
+      }),
+      AUTHED_CONFIG(),
+    );
+    expect(guardian!.status).toBe(200);
+
+    mockClaims("contact_client_v1");
+    const contact = await tryIpcProxy(
+      makeRequest("/v1/settings", {
+        headers: { authorization: "Bearer valid" },
+      }),
+      AUTHED_CONFIG(),
+    );
+    expect(contact!.status).toBe(404);
   });
 });

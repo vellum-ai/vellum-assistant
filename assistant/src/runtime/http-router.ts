@@ -10,7 +10,10 @@
  * `normalizeEndpointForPolicy`.
  */
 
-import { enforcePolicy } from "./auth/route-policy.js";
+import { contactTokenMayReachRoute } from "@vellumai/gateway-client";
+
+import { getLogger } from "../util/logger.js";
+import { enforcePolicy, type RoutePolicy } from "./auth/route-policy.js";
 import type { AuthContext } from "./auth/types.js";
 import { httpError } from "./http-errors.js";
 import type { HTTPRouteDefinition, RouteParams } from "./http-router-types.js";
@@ -18,6 +21,9 @@ import { withErrorHandling } from "./middleware/error-handler.js";
 import { routeDefinitionsToHTTPRoutes } from "./routes/http-adapter.js";
 import { ROUTES } from "./routes/index.js";
 import type { RouteLoggingConfig } from "./routes/types.js";
+import { resolveSharedPrincipal } from "./shared-principal-lookup.js";
+
+const log = getLogger("http-router");
 
 // ---------------------------------------------------------------------------
 // Compiled route — internal representation with pre-built regex
@@ -106,6 +112,15 @@ export class HttpRouter {
         continue;
       }
 
+      const trustDenied = await enforceContactTrust(
+        compiled.def.endpoint,
+        compiled.def.policy,
+        authContext,
+      );
+      if (trustDenied) {
+        return trustDenied;
+      }
+
       // Extract named params
       const params: RouteParams = {};
       for (let i = 0; i < compiled.paramNames.length; i++) {
@@ -141,6 +156,46 @@ export class HttpRouter {
 
     return null;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Trust class
+// ---------------------------------------------------------------------------
+
+/**
+ * Refuses a contact-role caller on a route that does not admit its trust
+ * class, with the same 404 an unmatched path gets so a contact cannot probe
+ * which routes exist. It runs ahead of path decoding and the scope check so
+ * neither can answer 400 or 403 first, and under the dev auth bypass too, because a
+ * contact context exists only when a contact's bearer was verified.
+ *
+ * Every other token passes without a trust lookup, so guardian, service and
+ * local callers never wait on the gateway here.
+ */
+async function enforceContactTrust(
+  endpoint: string,
+  policy: RoutePolicy | null,
+  authContext: AuthContext,
+): Promise<Response | null> {
+  if (authContext.scopeProfile !== "contact_client_v1") {
+    return null;
+  }
+  const principalId = authContext.actorPrincipalId;
+  const admitted = await contactTokenMayReachRoute(
+    policy?.allowedTrustClasses,
+    async () =>
+      principalId
+        ? (await resolveSharedPrincipal(principalId)).trustClass
+        : undefined,
+  );
+  if (admitted) {
+    return null;
+  }
+  log.warn(
+    { endpoint, actorPrincipalId: principalId },
+    "Route policy denied: trust class not admitted",
+  );
+  return httpError("NOT_FOUND", "Not found", 404);
 }
 
 // ---------------------------------------------------------------------------
