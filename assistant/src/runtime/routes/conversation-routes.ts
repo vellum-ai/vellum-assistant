@@ -160,7 +160,6 @@ import { normalizeOnboardingContext } from "../../prompts/normalize-onboarding.j
 import { writeOnboardingSection } from "../../prompts/persona-resolver.js";
 import { getConfiguredProvider } from "../../providers/provider-send-message.js";
 import type { Provider } from "../../providers/types.js";
-import { checkIngressForSecrets } from "../../security/secret-ingress.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import {
   isHeicFilename,
@@ -210,6 +209,7 @@ import {
   NotFoundError,
   RouteError,
 } from "./errors.js";
+import { secretBlockedResponse } from "./secret-blocked-response.js";
 import {
   collectPendingConfirmations,
   enrichToolCallsWithConfirmation,
@@ -1860,18 +1860,9 @@ export async function handleSendMessage(
 
   // Block messages containing known-format secrets before any persistence
   if (trimmedContent.length > 0 && !body.bypassSecretCheck) {
-    const ingressResult = checkIngressForSecrets(trimmedContent);
-    if (ingressResult.blocked) {
-      return new RouteResponse(
-        JSON.stringify({
-          accepted: false,
-          error: "secret_blocked",
-          message: ingressResult.userNotice,
-          detectedTypes: ingressResult.detectedTypes,
-        }),
-        { "content-type": "application/json" },
-        422,
-      );
+    const blocked = secretBlockedResponse(trimmedContent);
+    if (blocked) {
+      return blocked;
     }
   }
 

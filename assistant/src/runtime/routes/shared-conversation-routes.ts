@@ -1,21 +1,26 @@
 /**
- * A trusted contact's read routes for the conversations shared with them.
+ * A trusted contact's routes for the conversations shared with them.
  *
- * GET /v1/shared/conversations
- * GET /v1/shared/conversations/:id
- * GET /v1/shared/conversations/:id/messages
+ * GET  /v1/shared/conversations
+ * GET  /v1/shared/conversations/:id
+ * GET  /v1/shared/conversations/:id/messages
+ * POST /v1/shared/conversations/:id/messages
  *
  * Every route resolves the caller's membership before anything else and
  * answers 404 when it is missing, so a contact cannot tell a conversation
  * they were not given from one that does not exist. Conversation metadata
  * is an explicit allowlist, and every message passes through the contact
  * projection, which drops reasoning, tool traffic and anything else a
- * contact may not read. The guardian reads through their own routes and is
- * refused here.
+ * contact may not read. A contact's message runs a turn as that contact on
+ * the `vellum-shared` channel, in a conversation that already exists. The
+ * guardian uses their own routes and is refused here.
  */
 
 import { z } from "zod";
 
+import { isConversationBusyError } from "../../daemon/conversation-messaging.js";
+import { processMessageInBackground } from "../../daemon/process-message.js";
+import type { TrustContext } from "../../daemon/trust-context-types.js";
 import {
   type ContactReader,
   type ContactVisibleBlock,
@@ -32,17 +37,40 @@ import {
   listConversationIdsForPrincipal,
 } from "../../persistence/conversation-participants.js";
 import {
+  PluginTurnNotAdmittedError,
+  resolvePluginChannelTurnTrust,
+} from "../../plugin-api/plugin-channel-turn-trust.js";
+import { getLogger } from "../../util/logger.js";
+import {
   type RoutePolicy,
   TRUSTED_CONTACT_ONLY,
 } from "../auth/route-policy.js";
+import { resolveRoutingState } from "../trust-context-resolver.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
+import { withChannelTurnAdmission } from "./inbound-stages/channel-turn-admission.js";
+import { prepareChannelInboundContent } from "./inbound-stages/inbound-content-prep.js";
+import { secretBlockedResponse } from "./secret-blocked-response.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
+
+const log = getLogger("shared-conversation-routes");
 
 const DEFAULT_MESSAGE_LIMIT = 50;
 const MAX_MESSAGE_LIMIT = 500;
 
+/**
+ * How many times a contact's turn goes back to wait when another turn claims
+ * the conversation between admission and the turn taking it.
+ */
+const MAX_TURN_START_ATTEMPTS = 3;
+
 const POLICY: RoutePolicy = {
   requiredScopes: ["shared.read"],
+  allowedPrincipalTypes: ["actor"],
+  allowedTrustClasses: TRUSTED_CONTACT_ONLY,
+};
+
+const WRITE_POLICY: RoutePolicy = {
+  requiredScopes: ["chat.write"],
   allowedPrincipalTypes: ["actor"],
   allowedTrustClasses: TRUSTED_CONTACT_ONLY,
 };
@@ -209,6 +237,130 @@ function handleListSharedMessages({
   };
 }
 
+/**
+ * The contact's own trust on the `vellum-shared` channel, read fresh from the
+ * gateway with the channel's admission floor applied. Anything short of an
+ * admitted trusted contact is refused as if the conversation did not exist.
+ */
+async function contactTurnTrust(reader: ContactReader): Promise<TrustContext> {
+  let trust: TrustContext;
+  try {
+    trust = await resolvePluginChannelTurnTrust({
+      sourceChannel: "vellum-shared",
+      externalChatId: reader.principalId,
+      externalUserId: reader.principalId,
+    });
+  } catch (err) {
+    if (err instanceof PluginTurnNotAdmittedError) {
+      throw new NotFoundError("Conversation not found");
+    }
+    throw err;
+  }
+  if (trust.trustClass !== "trusted_contact") {
+    throw new NotFoundError("Conversation not found");
+  }
+  return trust;
+}
+
+type SharedTurnOptions = NonNullable<
+  Parameters<typeof processMessageInBackground>[2]
+>;
+
+/**
+ * Run the contact's turn once the conversation is free, behind any turn
+ * already in flight. A contact removed while it waited is not run at all.
+ */
+async function runSharedTurn(
+  conversationId: string,
+  principalId: string,
+  content: string,
+  options: SharedTurnOptions,
+): Promise<void> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await withChannelTurnAdmission(conversationId, async () => {
+        if (!isParticipant(conversationId, principalId)) {
+          log.info(
+            { conversationId, principalId },
+            "Shared turn dropped: the sender is no longer a participant",
+          );
+          return;
+        }
+        await processMessageInBackground(conversationId, content, options);
+      });
+      return;
+    } catch (err) {
+      if (!isConversationBusyError(err) || attempt >= MAX_TURN_START_ATTEMPTS) {
+        throw err;
+      }
+    }
+  }
+}
+
+async function handleSendSharedMessage({
+  pathParams = {},
+  body = {},
+  headers,
+}: RouteHandlerArgs) {
+  const reader = readerFrom(headers);
+  const { id: conversationId } = sharedConversationOrThrow(
+    pathParams.id!,
+    reader,
+  );
+
+  if (typeof body.content !== "string" || body.content.trim().length === 0) {
+    throw new BadRequestError("content is required");
+  }
+  if (
+    body.clientMessageId != null &&
+    typeof body.clientMessageId !== "string"
+  ) {
+    throw new BadRequestError("clientMessageId must be a string");
+  }
+  const trimmedContent = body.content.trim();
+
+  const trust = await contactTurnTrust(reader);
+
+  const blocked = secretBlockedResponse(trimmedContent);
+  if (blocked) {
+    return blocked;
+  }
+
+  const prepared = prepareChannelInboundContent({
+    trimmedContent,
+    trustClass: trust.trustClass,
+    sourceChannel: "vellum-shared",
+    requesterIdentifier: trust.requesterIdentifier,
+  });
+
+  void runSharedTurn(conversationId, reader.principalId, prepared.content, {
+    existingConversationOnly: true,
+    sourceChannel: "vellum-shared",
+    sourceInterface: "web",
+    trustContext: trust,
+    author: trust,
+    sourceActorPrincipalId: reader.principalId,
+    isInteractive: resolveRoutingState(trust).promptWaitingAllowed,
+    ...(prepared.displayContent !== undefined
+      ? { displayContent: prepared.displayContent }
+      : {}),
+    // Namespaced by sender, so a contact's retry deduplicates against their
+    // own earlier send and never against a row someone else wrote.
+    ...(body.clientMessageId
+      ? {
+          clientMessageId: `vellum-shared:${reader.principalId}:${body.clientMessageId}`,
+        }
+      : {}),
+  }).catch((err) => {
+    log.error(
+      { err, conversationId, principalId: reader.principalId },
+      "Shared conversation turn failed",
+    );
+  });
+
+  return { accepted: true };
+}
+
 const conversationIdParam = { name: "id", type: "uuid" } as const;
 const notFound = {
   "404": {
@@ -292,5 +444,35 @@ export const ROUTES: RouteDefinition[] = [
       "400": { description: "A query parameter is not a valid number" },
     },
     handler: handleListSharedMessages,
+  },
+  {
+    operationId: "sendSharedConversationMessage",
+    endpoint: "shared/conversations/:id/messages",
+    method: "POST",
+    policy: WRITE_POLICY,
+    summary: "Send a message to a shared conversation",
+    description:
+      "Send a message from the calling contact to a conversation shared with them. " +
+      "The reply runs as that contact and streams to the conversation's readers. " +
+      "The conversation must already exist; this never creates one.",
+    tags: ["shared"],
+    responseStatus: "202",
+    pathParams: [conversationIdParam],
+    requestBody: z.object({
+      content: z.string().describe("Message text"),
+      clientMessageId: z
+        .string()
+        .optional()
+        .describe(
+          "Client-generated idempotency nonce. A retry with the same value is accepted without running a second turn.",
+        ),
+    }),
+    responseBody: z.object({ accepted: z.boolean() }),
+    additionalResponses: {
+      ...notFound,
+      "400": { description: "The message has no content" },
+      "422": { description: "The message contains a secret and was not sent" },
+    },
+    handler: handleSendSharedMessage,
   },
 ];

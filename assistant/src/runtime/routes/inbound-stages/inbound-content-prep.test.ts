@@ -27,7 +27,7 @@ describe("prepareChannelInboundContent", () => {
     expect(result.displayContent).toBe("please summarize this thread");
   });
 
-  test("fences a non-guardian non-Slack message as webhook without display copy", () => {
+  test("fences a non-guardian Telegram message as webhook without display copy", () => {
     const result = prepareChannelInboundContent({
       trimmedContent: "hi from telegram",
       trustClass: "trusted_contact",
@@ -35,8 +35,19 @@ describe("prepareChannelInboundContent", () => {
     });
     expect(result.content).toContain('<external_content source="webhook"');
     expect(result.content).toContain("hi from telegram");
-    // Display copy is Slack-only (mirrors the live ingress path).
     expect(result.displayContent).toBeUndefined();
+  });
+
+  test("fences a shared-conversation contact and keeps the raw text as display copy", () => {
+    const result = prepareChannelInboundContent({
+      trimmedContent: "hi from a shared conversation",
+      trustClass: "trusted_contact",
+      sourceChannel: "vellum-shared",
+      requesterIdentifier: "principal-alice",
+    });
+    expect(result.content).toContain('<external_content source="webhook"');
+    expect(result.content).toContain("hi from a shared conversation");
+    expect(result.displayContent).toBe("hi from a shared conversation");
   });
 
   test("escapes boundary-breaking sequences in untrusted content", () => {
