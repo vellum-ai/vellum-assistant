@@ -9,19 +9,17 @@ import {
 import { useEffect, useState, type ReactNode } from "react";
 
 import { Button, Modal } from "@vellumai/design-library";
-import {
-  DEFAULT_COMPANION_SIZE,
-  companionBoxFor,
-} from "@vellumai/ipc-contract";
+import { companionBoxFor } from "@vellumai/ipc-contract";
 
+import { introDemoCall } from "@/components/companion-intro";
 import { CompanionSurface } from "@/components/companion-surface";
 import { scopedAvatarAccentVars } from "@/hooks/use-avatar-accent-var";
 import { useTranslation } from "@/i18n";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 import { resolveAvatarRender } from "@/utils/avatar-render";
 
-const AVATAR_BOX = companionBoxFor("avatar", DEFAULT_COMPANION_SIZE);
-const OPTIONS_BOX = companionBoxFor("options", DEFAULT_COMPANION_SIZE);
+const AVATAR_BOX = companionBoxFor("avatar", "small");
+const OPTIONS_BOX = companionBoxFor("options", "small");
 
 export interface CompanionTourEntryModalProps {
   avatar?: {
@@ -191,11 +189,12 @@ export function CompanionTourEntryModal({
                 <span className="mt-3 h-20 rounded-lg bg-white/6" />
               </div>
             </div>
-            <div className="absolute inset-x-0 bottom-0 h-48">
+            <div className="absolute inset-x-0 bottom-0 h-48" inert>
               <CompanionSurface
-                phase="hover"
-                hovered
-                spotlight="talk"
+                phase="call"
+                call={introDemoCall(t("companionIntro.call.line"))}
+                shareEnabled
+                sharing
                 assistantName={
                   assistantName ??
                   t("companionIntro.announcement.previewAssistantName")
