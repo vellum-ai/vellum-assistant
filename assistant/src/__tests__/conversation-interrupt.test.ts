@@ -1,6 +1,6 @@
 /**
- * `interrupt-on-send`: a message sent while the assistant is busy stops the
- * turn in flight and is delivered at once instead of joining the queue.
+ * Interrupt on send: a message sent while the assistant is busy stops the turn
+ * in flight and is delivered at once instead of joining the queue.
  *
  * Covers the decision (`interruptRunningTurn`) and the history repair it runs
  * before handing an idle conversation back: whether this sender may interrupt,
@@ -28,11 +28,6 @@ import {
 // ---------------------------------------------------------------------------
 // Mocks must precede the module imports so Bun applies them at load time.
 // ---------------------------------------------------------------------------
-
-let flagEnabled = true;
-mock.module("../config/interrupt-on-send-gate.js", () => ({
-  isInterruptOnSendEnabled: () => flagEnabled,
-}));
 
 const persisted: Array<{ role: string; content: string }> = [];
 let persistGate: Promise<void> = Promise.resolve();
@@ -77,7 +72,7 @@ const {
 // Fixtures
 // ---------------------------------------------------------------------------
 
-const CONV = "interrupt-on-send-conv";
+const CONV = "conversation-interrupt-conv";
 
 const assistantWithToolUse = (...ids: string[]): Message => ({
   role: "assistant",
@@ -276,7 +271,6 @@ function registerBusyTurn(
 }
 
 beforeEach(() => {
-  flagEnabled = true;
   persisted.length = 0;
   persistGate = Promise.resolve();
   persistShouldFail = false;
@@ -288,10 +282,6 @@ afterEach(() => {
   deleteConversation(CONV);
   pendingInteractions.clear();
   resetTurnFinalizationsForTesting();
-  // `mock.module` is process-wide, so this stub outlives the file. Leave it
-  // reading off, which is the flag's shipped state, so a later file's
-  // flag-off expectations are not answered by this file's last setting.
-  flagEnabled = false;
 });
 
 describe("interruptRunningTurn", () => {
@@ -493,24 +483,6 @@ describe("interruptRunningTurn", () => {
     );
     expect(source).not.toContain("getSubagentManager");
     expect(source).not.toContain("cancelForParent");
-  });
-
-  test("declines when the flag is off, touching nothing", async () => {
-    flagEnabled = false;
-    const turn = registerBusyTurn({
-      messages: [assistantWithToolUse("tool-1")],
-    });
-
-    const outcome = await interruptRunningTurn(turn.conversation, {
-      origin: "test",
-    });
-
-    expect(outcome).toBe("declined");
-    expect(turn.aborts).toEqual([]);
-    expect(turn.denyAllCount()).toBe(0);
-    expect(turn.messages).toHaveLength(1);
-    expect(persisted).toEqual([]);
-    expect(turn.conversation.isProcessing()).toBe(true);
   });
 
   test("declines when another actor principal owns the running turn", async () => {
@@ -783,14 +755,6 @@ describe("classifyInterruptEligibility", () => {
     const turn = registerBusyTurn();
     expect(classifyInterruptEligibility(turn.conversation, opts)).toBe(
       "eligible",
-    );
-  });
-
-  test("names the flag when it is off", () => {
-    flagEnabled = false;
-    const turn = registerBusyTurn();
-    expect(classifyInterruptEligibility(turn.conversation, opts)).toBe(
-      "flag_off",
     );
   });
 

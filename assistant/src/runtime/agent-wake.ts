@@ -73,7 +73,6 @@
 import type {
   AgentEvent,
   AgentLoopExitReason,
-  CheckpointDecision,
   CheckpointInfo,
 } from "../agent/loop.js";
 import type { InterfaceId } from "../channels/types.js";
@@ -216,7 +215,6 @@ const OVER_WINDOW_REJECTION_LOG_MESSAGE =
 const CLEAN_NO_OUTPUT_EXIT_REASONS: ReadonlySet<AgentLoopExitReason> = new Set([
   "no_tool_calls",
   "yield_to_user",
-  "checkpoint_handoff",
 ]);
 
 export interface WakeOptions {
@@ -495,8 +493,7 @@ export interface WakeResult {
   /**
    * How the agent loop terminated, from its `agent_loop_exit` event. Set on
    * `invoked: true` results whose loop reported a terminal exit, and absent
-   * when it reported none (a checkpoint handoff, whose run resumes
-   * separately).
+   * when it reported none.
    *
    * `"no_tool_calls"` is the model-driven stop: the run finished because the
    * assistant answered without asking for another tool. Every other reason
@@ -1136,8 +1133,8 @@ export async function wakeAgentForOpportunity(
     // instead (`reason: "context_overflow"`).
     let suppressedContextOverflow = false;
     // Terminal exit reason captured from the loop's `agent_loop_exit` event.
-    // `agentLoop.run()`'s returned `exitReason` only distinguishes checkpoint
-    // handoffs, so this event is the wake's only view of HOW the loop ended.
+    // `agentLoop.run()` returns no exit reason, so this event is the wake's
+    // only view of HOW the loop ended.
     // Read by the no-output branch below to tell a genuine silent no-op
     // (model produced nothing) from a swallowed terminal failure (the loop's
     // catch turns provider rejections and unhandled throws into a graceful
@@ -1524,12 +1521,9 @@ export async function wakeAgentForOpportunity(
     // mode and persist what's been produced so far so a client opening
     // the conversation mid-run can fetchHistory and see real content
     // instead of the empty-state welcome view.
-    const onCheckpoint = async (
-      checkpoint: CheckpointInfo,
-    ): Promise<CheckpointDecision> => {
+    const onCheckpoint = async (checkpoint: CheckpointInfo): Promise<void> => {
       goLive(checkpoint.history);
       await flushPendingTail(checkpoint.history);
-      return "continue";
     };
 
     let runError: Error | null = null;
@@ -1910,8 +1904,7 @@ export async function wakeAgentForOpportunity(
         stampTurnOutcome(
           wakeTriggerMessageId,
           cancelledBeforeRun ||
-            String(terminalExitReason).startsWith("aborted_") ||
-            terminalExitReason === "checkpoint_handoff"
+            String(terminalExitReason).startsWith("aborted_")
             ? "cancelled"
             : "failed",
         );

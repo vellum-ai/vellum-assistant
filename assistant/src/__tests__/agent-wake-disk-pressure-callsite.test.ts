@@ -73,7 +73,6 @@ function makeTarget(): Conversation {
     agentLoop: {
       run: async ({ messages }: { messages: Message[] }) => ({
         history: messages,
-        exitReason: null,
         newMessages: [],
       }),
     },

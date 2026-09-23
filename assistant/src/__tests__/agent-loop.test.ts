@@ -1,12 +1,8 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import type {
-  AgentEvent,
-  CheckpointDecision,
-  CheckpointInfo,
-} from "../agent/loop.js";
+import type { AgentEvent, CheckpointInfo } from "../agent/loop.js";
 import { AgentLoop } from "../agent/loop.js";
-import type { PostToolUseContext, StopContext } from "../plugin-api/types.js";
+import type { PostToolUseContext } from "../plugin-api/types.js";
 import { REFUSAL_FALLBACK_TEXT } from "../plugins/defaults/empty-response/hooks/post-model-call.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
 import { registerPlugin } from "../plugins/registry.js";
@@ -596,60 +592,6 @@ describe("AgentLoop", () => {
     const exitEvents = events.filter((e) => e.type === "agent_loop_exit");
     expect(exitEvents).toHaveLength(1);
     expect(exitEvents[0]).toMatchObject({ reason: "no_tool_calls" });
-  });
-
-  test("fires the stop teardown chain on a checkpoint handoff without emitting agent_loop_exit", async () => {
-    // A handoff pauses this run so the orchestrator can drain a queued message,
-    // then re-enters with a fresh run. It still ends *this* turn, so the
-    // terminal `stop` chain must fire — that is what runs per-turn teardown
-    // (e.g. clearing the recovery bounds the post-model-call hooks set) before
-    // the queued message is processed. But `agent_loop_exit` must NOT be
-    // emitted, because the handoff is a control transfer, not a terminal exit.
-
-    // GIVEN a stop hook recording every exit reason it observes, and a provider
-    // whose first reply requests a tool so the loop reaches a checkpoint
-    const stopReasons: string[] = [];
-    registerPlugin({
-      manifest: { name: "recording-stop", version: "0.0.1" },
-      hooks: {
-        stop: async (ctx: StopContext) => {
-          stopReasons.push(ctx.exitReason);
-        },
-      },
-    });
-    const { provider } = createMockProvider([
-      toolUseResponse("t1", "read_file", { path: "/a.txt" }),
-      textResponse("never reached"),
-    ]);
-    const toolExecutor = async () => ({ content: "ok", isError: false });
-    const loop = new AgentLoop({
-      provider,
-      systemPrompt: "system",
-      conversationId: "test-conversation",
-      tools: dummyTools,
-      toolExecutor,
-    });
-    const events: AgentEvent[] = [];
-
-    // AND a checkpoint callback that hands off at the first opportunity
-    const onCheckpoint = (_info: CheckpointInfo): CheckpointDecision =>
-      "handoff";
-
-    // WHEN the loop runs and yields control at the checkpoint
-    const { exitReason } = await loop.run({
-      requestId: "test-request",
-      messages: [userMessage],
-      onEvent: collectEvents(events),
-      trust: { sourceChannel: "vellum", trustClass: "unknown" },
-      onCheckpoint,
-    });
-
-    // THEN the terminal stop chain fired exactly once with the handoff reason
-    // (teardown ran), the run reported the handoff, and no agent_loop_exit was
-    // emitted
-    expect(stopReasons).toEqual(["checkpoint_handoff"]);
-    expect(exitReason).toBe("handoff");
-    expect(events.filter((e) => e.type === "agent_loop_exit")).toHaveLength(0);
   });
 
   // 6. Abort signal — verify the loop respects AbortSignal
@@ -1499,9 +1441,8 @@ describe("AgentLoop", () => {
     });
 
     const checkpoints: CheckpointInfo[] = [];
-    const onCheckpoint = (checkpoint: CheckpointInfo): CheckpointDecision => {
+    const onCheckpoint = (checkpoint: CheckpointInfo): void => {
       checkpoints.push(checkpoint);
-      return "continue";
     };
 
     await loop.run({
@@ -1522,8 +1463,8 @@ describe("AgentLoop", () => {
     expect(checkpoints[0].history.length).toBeGreaterThanOrEqual(3);
   });
 
-  // 17. Returning 'continue' lets the loop proceed normally
-  test("checkpoint returning continue lets the loop proceed normally", async () => {
+  // 17. The checkpoint observer does not change the loop's course
+  test("checkpoint observer lets the loop proceed normally", async () => {
     const { provider, calls } = createMockProvider([
       toolUseResponse("t1", "read_file", { path: "/a.txt" }),
       toolUseResponse("t2", "read_file", { path: "/b.txt" }),
@@ -1539,7 +1480,7 @@ describe("AgentLoop", () => {
       toolExecutor: toolExecutor,
     });
 
-    const onCheckpoint = (): CheckpointDecision => "continue";
+    const onCheckpoint = (): void => {};
 
     const { history } = await loop.run({
       requestId: "test-request",
@@ -1554,41 +1495,6 @@ describe("AgentLoop", () => {
     // Full history: user, assistant(t1), user(result1), assistant(t2), user(result2), assistant(text)
     expect(history).toHaveLength(6);
     expect(history[5].content).toEqual([{ type: "text", text: "All done" }]);
-  });
-
-  // 18. Returning 'yield' causes the loop to stop after that turn
-  test("checkpoint returning yield causes the loop to stop", async () => {
-    const { provider, calls } = createMockProvider([
-      toolUseResponse("t1", "read_file", { path: "/a.txt" }),
-      toolUseResponse("t2", "read_file", { path: "/b.txt" }),
-      textResponse("Should not reach"),
-    ]);
-
-    const toolExecutor = async () => ({ content: "data", isError: false });
-    const loop = new AgentLoop({
-      provider: provider,
-      systemPrompt: "system",
-      conversationId: "test-conversation",
-      tools: dummyTools,
-      toolExecutor: toolExecutor,
-    });
-
-    const onCheckpoint = (): CheckpointDecision => "handoff";
-
-    const { history } = await loop.run({
-      requestId: "test-request",
-      messages: [userMessage],
-      onEvent: () => {},
-      trust: { sourceChannel: "vellum", trustClass: "unknown" },
-      onCheckpoint,
-    });
-
-    // Only 1 provider call should happen — loop yields after first tool turn
-    expect(calls).toHaveLength(1);
-    // History: user, assistant(t1), user(result1)
-    expect(history).toHaveLength(3);
-    expect(history[1].role).toBe("assistant");
-    expect(history[2].role).toBe("user");
   });
 
   // 19. Without a checkpoint callback, behavior is unchanged
@@ -1639,9 +1545,8 @@ describe("AgentLoop", () => {
     });
 
     const checkpoints: CheckpointInfo[] = [];
-    const onCheckpoint = (checkpoint: CheckpointInfo): CheckpointDecision => {
+    const onCheckpoint = (checkpoint: CheckpointInfo): void => {
       checkpoints.push(checkpoint);
-      return "continue";
     };
 
     await loop.run({
@@ -1671,9 +1576,8 @@ describe("AgentLoop", () => {
     });
 
     const checkpoints: CheckpointInfo[] = [];
-    const onCheckpoint = (checkpoint: CheckpointInfo): CheckpointDecision => {
+    const onCheckpoint = (checkpoint: CheckpointInfo): void => {
       checkpoints.push(checkpoint);
-      return "continue";
     };
 
     const { history } = await loop.run({
@@ -1734,9 +1638,8 @@ describe("AgentLoop", () => {
     });
 
     const checkpoints: CheckpointInfo[] = [];
-    const onCheckpoint = (checkpoint: CheckpointInfo): CheckpointDecision => {
+    const onCheckpoint = (checkpoint: CheckpointInfo): void => {
       checkpoints.push(checkpoint);
-      return "continue";
     };
 
     await loop.run({
@@ -1750,122 +1653,6 @@ describe("AgentLoop", () => {
     expect(checkpoints).toHaveLength(1);
     expect(checkpoints[0].toolCount).toBe(3);
     expect(checkpoints[0].hasToolUse).toBe(true);
-  });
-
-  // 23. Multiple checkpoints across a multi-turn run with selective yield on turn 3
-  test("multiple checkpoints with selective yield — executes turns 0-2, yields at turn 3, never runs 4+", async () => {
-    // Mock provider to return tool_use for 5 turns, then text
-    const responses: ProviderResponse[] = [];
-    for (let i = 0; i < 5; i++) {
-      responses.push(
-        toolUseResponse(`t${i}`, "read_file", { path: `/file${i}.txt` }),
-      );
-    }
-    responses.push(textResponse("Should never reach this"));
-
-    const { provider, calls } = createMockProvider(responses);
-    const toolExecutor = async () => ({ content: "data", isError: false });
-    const loop = new AgentLoop({
-      provider: provider,
-      systemPrompt: "system",
-      conversationId: "test-conversation",
-      tools: dummyTools,
-      toolExecutor: toolExecutor,
-    });
-
-    const checkpoints: CheckpointInfo[] = [];
-    const onCheckpoint = (checkpoint: CheckpointInfo): CheckpointDecision => {
-      checkpoints.push(checkpoint);
-      // Yield on turn 3 (0-indexed)
-      return checkpoint.turnIndex === 3 ? "handoff" : "continue";
-    };
-
-    const events: AgentEvent[] = [];
-    const { history } = await loop.run({
-      requestId: "test-request",
-      messages: [userMessage],
-      onEvent: collectEvents(events),
-      trust: { sourceChannel: "vellum", trustClass: "unknown" },
-      onCheckpoint,
-    });
-
-    // Turns 0, 1, 2, 3 execute (4 provider calls). Turn 3 yields, so turns 4+ never execute.
-    expect(calls).toHaveLength(4);
-
-    // Checkpoints should have been called for turns 0 through 3
-    expect(checkpoints).toHaveLength(4);
-    expect(checkpoints[0].turnIndex).toBe(0);
-    expect(checkpoints[1].turnIndex).toBe(1);
-    expect(checkpoints[2].turnIndex).toBe(2);
-    expect(checkpoints[3].turnIndex).toBe(3);
-
-    // History should contain results from turns 0-3:
-    // user, assistant(t0), user(result0), assistant(t1), user(result1),
-    // assistant(t2), user(result2), assistant(t3), user(result3)
-    // = 1 original + 4*(assistant + user) = 9
-    expect(history).toHaveLength(9);
-
-    // Verify the last two messages are from turn 3
-    expect(history[7].role).toBe("assistant");
-    const lastAssistantToolUse = history[7].content.find(
-      (b) => b.type === "tool_use",
-    );
-    expect(lastAssistantToolUse).toBeDefined();
-    if (lastAssistantToolUse && lastAssistantToolUse.type === "tool_use") {
-      expect(lastAssistantToolUse.id).toBe("t3");
-    }
-    expect(history[8].role).toBe("user");
-    const lastToolResult = history[8].content.find(
-      (b): b is Extract<ContentBlock, { type: "tool_result" }> =>
-        b.type === "tool_result",
-    );
-    expect(lastToolResult).toBeDefined();
-    expect(lastToolResult!.tool_use_id).toBe("t3");
-
-    // Verify turns 4+ never executed — no tool_use event for t4
-    const toolUseEvents = events.filter(
-      (e): e is Extract<AgentEvent, { type: "tool_use" }> =>
-        e.type === "tool_use",
-    );
-    const toolUseNames = toolUseEvents.map((e) => e.id);
-    expect(toolUseNames).toEqual(["t0", "t1", "t2", "t3"]);
-    expect(toolUseNames).not.toContain("t4");
-  });
-
-  // 24. Yield on second turn — first turn proceeds, second stops
-  test("yield on second turn lets first turn proceed and stops on second", async () => {
-    const { provider, calls } = createMockProvider([
-      toolUseResponse("t1", "read_file", { path: "/a.txt" }),
-      toolUseResponse("t2", "read_file", { path: "/b.txt" }),
-      textResponse("Should not reach"),
-    ]);
-
-    const toolExecutor = async () => ({ content: "data", isError: false });
-    const loop = new AgentLoop({
-      provider: provider,
-      systemPrompt: "system",
-      conversationId: "test-conversation",
-      tools: dummyTools,
-      toolExecutor: toolExecutor,
-    });
-
-    const onCheckpoint = (checkpoint: CheckpointInfo): CheckpointDecision => {
-      // Yield on the second turn (turnIndex 1)
-      return checkpoint.turnIndex === 1 ? "handoff" : "continue";
-    };
-
-    const { history } = await loop.run({
-      requestId: "test-request",
-      messages: [userMessage],
-      onEvent: () => {},
-      trust: { sourceChannel: "vellum", trustClass: "unknown" },
-      onCheckpoint,
-    });
-
-    // 2 provider calls: first tool turn + second tool turn (yield after second)
-    expect(calls).toHaveLength(2);
-    // History: user, assistant(t1), user(result1), assistant(t2), user(result2)
-    expect(history).toHaveLength(5);
   });
 
   // ---------------------------------------------------------------------------

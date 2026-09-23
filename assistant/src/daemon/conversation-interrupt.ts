@@ -2,9 +2,9 @@
  * Interrupt the turn a conversation is running so a message that just arrived
  * can be delivered at once.
  *
- * Gated on `interrupt-on-send`. Off, a message sent while the assistant is
- * busy goes on the conversation's queue and runs when the current turn ends;
- * on, it stops the turn in flight and takes its place.
+ * A message sent while the assistant is busy stops the turn in flight and
+ * takes its place. A send that may not interrupt goes on the conversation's
+ * queue and runs when the current turn ends.
  *
  * The helper covers everything between "a message arrived for a busy
  * conversation" and "the conversation is idle and the ordinary send path can
@@ -14,7 +14,6 @@
  * third one for interrupts.
  */
 
-import { isInterruptOnSendEnabled } from "../config/interrupt-on-send-gate.js";
 import { getConfigReadOnly } from "../config/loader.js";
 import { supersedePendingSecrets } from "../runtime/pending-interactions.js";
 import { createAbortReason } from "../util/abort-reasons.js";
@@ -35,10 +34,9 @@ const log = getLogger("conversation-interrupt");
  *
  * - `released`: the running turn is over and the conversation is idle. The
  *   caller starts the new message's turn on the ordinary idle path.
- * - `declined`: this send must not interrupt (the flag is off, the send is a
- *   hidden machine signal, or the sender is not the actor running the turn).
- *   The caller queues it, which is what the flag-off path does with every
- *   send.
+ * - `declined`: this send must not interrupt (the send is a hidden machine
+ *   signal, or the sender is not the actor running the turn). The caller
+ *   queues it.
  * - `busy`: the conversation cannot be handed over. The lock is held by
  *   something that is not an abortable turn, or the interrupted turn never let
  *   go of it inside the abort budget, or another waiter took it as that turn
@@ -51,13 +49,11 @@ export type InterruptOutcome = "released" | "declined" | "busy";
 /**
  * Whether this sender may interrupt the turn that is running.
  *
- * Same rule the queue's `mayActOnQueuedMessage` applies to cancelling and
- * steering another actor's queued message, read against the running turn's
- * requester instead: the actor whose turn it is may cut it short, and so may a
- * caller with no actor principal, who is the guardian by the convention the
- * routes layer follows (local/IPC and service principals carry none). Any
- * other actor's message queues, because stopping a turn somebody else is
- * watching is not theirs to do.
+ * The actor whose turn it is may cut it short, and so may a caller with no
+ * actor principal, who is the guardian by the convention the routes layer
+ * follows (local/IPC and service principals carry none). Any other actor's
+ * message queues, because stopping a turn somebody else is watching is not
+ * theirs to do.
  */
 export function mayInterruptRunningTurn(
   conversation: Conversation,
@@ -122,12 +118,10 @@ export interface InterruptOptions {
  * Why a send may or may not stop the turn a conversation is running.
  *
  * `eligible` is the only value that interrupts; every other value takes the
- * queue, exactly as the flag-off path does.
+ * queue.
  */
 export type InterruptEligibility =
   | "eligible"
-  /** The `interrupt-on-send` flag is off for this install. */
-  | "flag_off"
   /**
    * A hidden send is a machine signal (proactive-greeting priming, the
    * channel-setup wizard close), not a user deciding to move on, which is the
@@ -163,9 +157,6 @@ export function classifyInterruptEligibility(
   conversation: Conversation,
   options: InterruptOptions,
 ): InterruptEligibility {
-  if (!isInterruptOnSendEnabled()) {
-    return "flag_off";
-  }
   if (options.hidden === true) {
     return "hidden";
   }
@@ -202,8 +193,8 @@ export async function interruptRunningTurn(
       { conversationId: conversation.conversationId, origin: options.origin },
       "Processing is held with no abortable turn behind it; queueing the message instead of interrupting",
     );
-    // Not `declined`: the caller must not treat this as "the feature is off",
-    // because the lock really is held and the message really must wait.
+    // Not `declined`: the lock really is held and the message really must
+    // wait.
     return "busy";
   }
   if (eligibility !== "eligible") {

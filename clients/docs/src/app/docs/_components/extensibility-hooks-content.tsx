@@ -416,7 +416,7 @@ const HOOK_REFERENCE: HookReference[] = [
         name: "exitReason",
         type: "AgentLoopExitReason",
         mutable: false,
-        desc: "Which terminal state the turn reached (for example no_tool_calls, max_tokens_reached, error, checkpoint_handoff). A hook that should act only on a particular ending guards on it.",
+        desc: "Which terminal state the turn reached (for example no_tool_calls, max_tokens_reached, error). A hook that should act only on a particular ending guards on it.",
       },
       {
         name: "error",

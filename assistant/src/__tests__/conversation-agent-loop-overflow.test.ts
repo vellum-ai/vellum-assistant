@@ -581,7 +581,6 @@ function makeCtx(
     emitActivityState: () => {},
     getQueueDepth: () => 0,
     hasQueuedMessages: () => false,
-    canHandoffAtCheckpoint: () => false,
     drainQueue: async (_reason?: QueueDrainReason) => {},
     // Forwards to drainQueue so tests that spy the drain observe the agent
     // loop's post-turn kick through the guarded entry point.

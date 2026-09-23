@@ -34,7 +34,6 @@ export function mockUnownedModeSessions(): Conversation["modeSessions"] {
     beginDraining: () => false,
     finalizeTurn: () => false,
     releaseTurn: () => {},
-    transferTurn: () => undefined,
   } as unknown as Conversation["modeSessions"];
 }
 

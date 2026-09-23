@@ -49,7 +49,7 @@ function makeTarget(onRun: (conv: Conversation) => void): {
     agentLoop: {
       run: async (options: AgentLoopRunOptions) => {
         onRun(target as unknown as Conversation);
-        return { history: options.messages, exitReason: null };
+        return { history: options.messages };
       },
       setSystemPrompt: (prompt: string) => {
         loopPrompt = prompt;

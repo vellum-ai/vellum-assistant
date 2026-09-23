@@ -226,8 +226,7 @@ async function dispatchUserMessage(params: {
   };
 
   if (conversation.isProcessing()) {
-    // Under `interrupt-on-send` this message stops the turn in flight and takes
-    // its place. The CLI carries no actor principal, so it is the guardian by
+    // This message stops the turn in flight and takes its place. The CLI carries no actor principal, so it is the guardian by
     // the routes layer's convention and always allowed to interrupt.
     //
     // Decided synchronously so the acceptance can be written before any of the

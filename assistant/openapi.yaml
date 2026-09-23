@@ -23829,60 +23829,6 @@ paths:
       responses:
         "200":
           description: Successful response
-  /v1/messages/queued/{id}:
-    delete:
-      operationId: messages_queued_by_id_delete
-      summary: Delete a queued message
-      description:
-        Remove a pending message from the conversation queue before it is processed. Broadcasts
-        `message_queued_deleted` so every client can close out the pending row.
-      tags:
-        - messages
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: conversationId
-          in: query
-          required: true
-          schema:
-            type: string
-          description: Conversation ID (required)
-      responses:
-        "200":
-          description: Successful response
-        "403":
-          description: The queued message was enqueued by a different actor principal.
-        "404":
-          description: Conversation or queued message not found.
-  /v1/messages/queued/{id}/steer:
-    post:
-      operationId: messages_queued_by_id_steer_post
-      summary: Steer to a queued message
-      description: Promote a queued message to the head of the queue and abort the current generation so it is processed next.
-      tags:
-        - messages
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: conversationId
-          in: query
-          required: true
-          schema:
-            type: string
-          description: Conversation ID (required)
-      responses:
-        "200":
-          description: Successful response
-        "403":
-          description: The queued message was enqueued by a different actor principal.
-        "404":
-          description: Conversation or queued message not found.
   /v1/migrations/export:
     post:
       operationId: migrations_export_post

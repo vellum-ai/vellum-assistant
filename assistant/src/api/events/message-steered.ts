@@ -1,9 +1,13 @@
 /**
  * `message_steered` SSE event.
  *
- * Server → client notification that an in-flight generation was steered
- * by a follow-up user message, so clients can reflect the mid-turn
- * redirect. Scoped by `conversationId` and `requestId`.
+ * The daemon does not emit this event. The schema stays in the published
+ * contract so clients that still handle it keep compiling, and so a client
+ * talking to an older daemon can still parse it.
+ *
+ * On those older daemons it was a server → client notification that an
+ * in-flight generation was steered by a follow-up user message. Scoped by
+ * `conversationId` and `requestId`.
  *
  * Canonical wire-contract source. Daemon code imports the type
  * directly from this file; external consumers import via

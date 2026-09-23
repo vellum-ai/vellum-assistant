@@ -304,6 +304,11 @@ describe("hidden sends queued behind an in-flight turn", () => {
 
   test("visible sends in the same state keep the supersede behavior", async () => {
     const spies = makeBusyConversation();
+    // Another actor owns the running turn, so this visible send queues rather
+    // than interrupting, which is the path the supersede runs on.
+    (
+      spies.conversation as { currentTurnSourceActorPrincipalId?: string }
+    ).currentTurnSourceActorPrincipalId = "another-user";
     setConversation(CONV_ID, spies.conversation);
     registerConfirmation();
 

@@ -2,13 +2,7 @@ import { rmSync, writeFileSync } from "node:fs";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { CompactionCircuit } from "../agent/compaction-circuit.js";
-import type {
-  AgentEvent,
-  AgentLoopRunResult,
-  CheckpointDecision,
-  CheckpointInfo,
-  ExitReason,
-} from "../agent/loop.js";
+import type { AgentEvent, AgentLoopRunResult } from "../agent/loop.js";
 import type { AssistantEvent } from "../api/index.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 import { stampAndBuffer } from "../runtime/assistant-stream-state.js";
@@ -303,16 +297,6 @@ interface PendingRun {
   reject: (err: Error) => void;
   messages: Message[];
   onEvent: (event: AgentEvent) => void | Promise<void>;
-  onCheckpoint?: (
-    checkpoint: CheckpointInfo,
-  ) => CheckpointDecision | Promise<CheckpointDecision>;
-  /**
-   * Pause-reason recorded from the most recent `onCheckpoint` call, mirroring
-   * how the production loop carries it back via {@link AgentLoopRunResult}.
-   * `resolve(history)` packages this into the run result so the orchestrator
-   * derives its handoff bookkeeping the same way it does against the real loop.
-   */
-  exitReason: ExitReason | null;
 }
 
 let pendingRuns: PendingRun[] = [];
@@ -333,9 +317,6 @@ mock.module("../agent/loop.js", () => ({
     async run(options: {
       messages: Message[];
       onEvent: (event: AgentEvent) => void | Promise<void>;
-      onCheckpoint?: (
-        checkpoint: CheckpointInfo,
-      ) => CheckpointDecision | Promise<CheckpointDecision>;
     }): Promise<AgentLoopRunResult> {
       const { messages, onEvent } = options;
       return new Promise<AgentLoopRunResult>((resolveResult, reject) => {
@@ -343,20 +324,11 @@ mock.module("../agent/loop.js", () => ({
           resolve: (history: Message[]) =>
             resolveResult({
               history,
-              exitReason: pending.exitReason,
               newMessages: history.slice(messages.length),
             }),
           reject,
           messages,
           onEvent,
-          exitReason: null,
-          onCheckpoint: options?.onCheckpoint
-            ? async (checkpoint) => {
-                const decision = await options.onCheckpoint!(checkpoint);
-                pending.exitReason = decision === "continue" ? null : decision;
-                return decision;
-              }
-            : undefined,
         };
         pendingRuns.push(pending);
       });
@@ -368,7 +340,7 @@ mock.module("../agent/loop.js", () => ({
 // Import Conversation AFTER mocks are registered.
 // ---------------------------------------------------------------------------
 
-import type { QueueDrainReason, QueuePolicy } from "../daemon/conversation.js";
+import type { QueueDrainReason } from "../daemon/conversation.js";
 import { Conversation } from "../daemon/conversation.js";
 import { MessageQueue } from "../daemon/conversation-queue-manager.js";
 
@@ -3028,174 +3000,23 @@ describe("Conversation queue policy helpers", () => {
     await new Promise((r) => setTimeout(r, 10));
   });
 
-  test("canHandoffAtCheckpoint() returns false when not processing", async () => {
-    const conversation = makeConversation();
-    await conversation.loadFromDb();
-
-    // Not processing, no queued messages
-    expect(conversation.canHandoffAtCheckpoint()).toBe(false);
-  });
-
-  test("canHandoffAtCheckpoint() returns false when processing but no queued messages", async () => {
-    const conversation = makeConversation();
-    await conversation.loadFromDb();
-
-    // Start processing — but don't enqueue anything
-    conversation.processMessage({
-      content: "msg-1",
-      attachments: [],
-      requestId: "req-1",
-    });
-    await waitForPendingRun(1);
-
-    expect(conversation.isProcessing()).toBe(true);
-    expect(conversation.hasQueuedMessages()).toBe(false);
-    expect(conversation.canHandoffAtCheckpoint()).toBe(false);
-
-    // Cleanup
-    await resolveRun(0);
-    await new Promise((r) => setTimeout(r, 10));
-  });
-
-  test("canHandoffAtCheckpoint() returns true when processing and queue has messages", async () => {
-    const conversation = makeConversation();
-    await conversation.loadFromDb();
-
-    // Start processing
-    conversation.processMessage({
-      content: "msg-1",
-      attachments: [],
-      requestId: "req-1",
-    });
-    await waitForPendingRun(1);
-
-    // Enqueue a message
-    conversation.enqueueMessage({ content: "msg-2", requestId: "req-2" });
-
-    expect(conversation.isProcessing()).toBe(true);
-    expect(conversation.hasQueuedMessages()).toBe(true);
-    expect(conversation.canHandoffAtCheckpoint()).toBe(true);
-
-    // Cleanup
-    await resolveRun(0);
-    await waitForPendingRun(2);
-    await resolveRun(1);
-    await new Promise((r) => setTimeout(r, 10));
-  });
-
   test("QueueDrainReason type accepts expected values", () => {
     // Compile-time verification that these are valid QueueDrainReason values
     const reason1: QueueDrainReason = "loop_complete";
-    const reason2: QueueDrainReason = "checkpoint_handoff";
     expect(reason1).toBe("loop_complete");
-    expect(reason2).toBe("checkpoint_handoff");
-  });
-
-  test("QueuePolicy type accepts expected shape", () => {
-    // Compile-time verification that the QueuePolicy interface works
-    const policy: QueuePolicy = { checkpointHandoffEnabled: true };
-    expect(policy.checkpointHandoffEnabled).toBe(true);
-
-    const disabledPolicy: QueuePolicy = { checkpointHandoffEnabled: false };
-    expect(disabledPolicy.checkpointHandoffEnabled).toBe(false);
   });
 });
 
 // ---------------------------------------------------------------------------
-// Checkpoint handoff tests
+// End-of-turn drain tests
 // ---------------------------------------------------------------------------
 
-describe("Conversation checkpoint handoff", () => {
+describe("Conversation end-of-turn drain", () => {
   beforeEach(() => {
     pendingRuns = [];
   });
 
-  test("[experimental] onCheckpoint yields when there is a queued message", async () => {
-    const conversation = makeConversation();
-    await conversation.loadFromDb();
-
-    const events1: AssistantEvent[] = [];
-
-    // Start processing first message
-    const p1 = conversation.processMessage({
-      content: "msg-1",
-      attachments: [],
-      onEvent: (e) => events1.push(e),
-      requestId: "req-1",
-    });
-    await waitForPendingRun(1);
-
-    // Enqueue a second message while the first is processing
-    conversation.enqueueMessage({ content: "msg-2", requestId: "req-2" });
-    expect(conversation.hasQueuedMessages()).toBe(true);
-
-    // The pending run should have received an onCheckpoint callback.
-    // Simulate the agent loop calling it at a turn boundary.
-    const run = pendingRuns[0];
-    expect(run.onCheckpoint).toBeDefined();
-    const decision = await run.onCheckpoint!({
-      turnIndex: 0,
-      toolCount: 1,
-      hasToolUse: true,
-      history: [],
-    });
-
-    // Because there is a queued message, the callback should yield for handoff
-    expect(decision).toEqual("handoff");
-
-    // Complete the run so the conversation finishes cleanly
-    await resolveRun(0);
-    await p1;
-
-    // After yield, the first message should emit generation_handoff
-    const handoff = events1.find((e) => e.type === "generation_handoff");
-    expect(handoff).toBeDefined();
-    expect(handoff).toMatchObject({
-      type: "generation_handoff",
-      conversationId: "conv-1",
-      requestId: "req-1",
-      queuedCount: 1,
-    });
-
-    // The queued message should now be draining (second run started)
-    await waitForPendingRun(2);
-    await resolveRun(1);
-    await new Promise((r) => setTimeout(r, 10));
-  });
-
-  test("onCheckpoint returns continue when queue is empty", async () => {
-    const conversation = makeConversation();
-    await conversation.loadFromDb();
-
-    // Start processing — no enqueued messages
-    const p1 = conversation.processMessage({
-      content: "msg-1",
-      attachments: [],
-      requestId: "req-1",
-    });
-    await waitForPendingRun(1);
-
-    expect(conversation.hasQueuedMessages()).toBe(false);
-
-    // The pending run should have an onCheckpoint callback
-    const run = pendingRuns[0];
-    expect(run.onCheckpoint).toBeDefined();
-    const decision = await run.onCheckpoint!({
-      turnIndex: 0,
-      toolCount: 1,
-      hasToolUse: true,
-      history: [],
-    });
-
-    // No queued messages → continue
-    expect(decision).toBe("continue");
-
-    // Cleanup
-    await resolveRun(0);
-    await p1;
-  });
-
-  test("[experimental] checkpoint handoff pulls a batched run for all queued siblings", async () => {
+  test("end-of-turn drain pulls a batched run for all queued siblings", async () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
@@ -3204,7 +3025,7 @@ describe("Conversation checkpoint handoff", () => {
     const events3: AssistantEvent[] = [];
     const events4: AssistantEvent[] = [];
 
-    // Start first message (mid-tool-use — will yield at the next checkpoint)
+    // Start first message
     const p1 = conversation.processMessage({
       content: "msg-1",
       attachments: [],
@@ -3231,23 +3052,12 @@ describe("Conversation checkpoint handoff", () => {
     });
     expect(conversation.getQueueDepth()).toBe(3);
 
-    // Simulate the agent loop yielding at the checkpoint (first run is mid-tool-use)
-    const run0 = pendingRuns[0];
-    expect(run0.onCheckpoint).toBeDefined();
-    const decision = await run0.onCheckpoint!({
-      turnIndex: 0,
-      toolCount: 1,
-      hasToolUse: true,
-      history: [],
-    });
-    expect(decision).toEqual("handoff");
-
     // Complete first run
     await resolveRun(0);
     await p1;
 
-    // The yielded drain pulls ALL THREE queued siblings as ONE batched run —
-    // not three separate runs.
+    // The drain pulls ALL THREE queued siblings as ONE batched run, not three
+    // separate runs.
     await waitForPendingRun(2);
     expect(pendingRuns.length).toBe(2);
 
@@ -3265,74 +3075,7 @@ describe("Conversation checkpoint handoff", () => {
     expect(events4.some((e) => e.type === "message_complete")).toBe(true);
   });
 
-  test("[experimental] active run with repeated tool turns + queued message triggers checkpoint handoff", async () => {
-    const conversation = makeConversation();
-    await conversation.loadFromDb();
-
-    const events1: AssistantEvent[] = [];
-    const events2: AssistantEvent[] = [];
-
-    // Start processing first message
-    const p1 = conversation.processMessage({
-      content: "msg-1",
-      attachments: [],
-      onEvent: (e) => events1.push(e),
-      requestId: "req-1",
-    });
-    await waitForPendingRun(1);
-
-    // Enqueue a second message while the first is processing
-    conversation.enqueueMessage({
-      content: "msg-2",
-      onEvent: (e) => events2.push(e),
-      requestId: "req-2",
-    });
-    expect(conversation.hasQueuedMessages()).toBe(true);
-
-    // Simulate tool-use turns: the agent loop calls onCheckpoint at each turn boundary.
-    // Because there is a queued message, the callback should yield for handoff.
-    const run = pendingRuns[0];
-    expect(run.onCheckpoint).toBeDefined();
-
-    // Simulate multiple tool-use turns before the checkpoint fires
-    // Turn 0 — checkpoint yields because msg-2 is waiting
-    const decision = await run.onCheckpoint!({
-      turnIndex: 0,
-      toolCount: 1,
-      hasToolUse: true,
-      history: [],
-    });
-    expect(decision).toEqual("handoff");
-
-    // Complete the run (AgentLoop resolves after yielding)
-    await resolveRun(0);
-    await p1;
-
-    // Verify generation_handoff was emitted (not plain message_complete)
-    const handoff = events1.find((e) => e.type === "generation_handoff");
-    expect(handoff).toBeDefined();
-    expect(handoff).toMatchObject({
-      type: "generation_handoff",
-      conversationId: "conv-1",
-      requestId: "req-1",
-      queuedCount: 1,
-    });
-    // message_complete should NOT be in events1 (handoff replaces it)
-    const messageComplete = events1.find(
-      (e) => e.type === "message_complete" && "conversationId" in e,
-    );
-    expect(messageComplete).toBeUndefined();
-
-    // The queued message should subsequently drain
-    await waitForPendingRun(2);
-    expect(events2.some((e) => e.type === "message_dequeued")).toBe(true);
-
-    // Complete the second run
-    await resolveRun(1);
-    await new Promise((r) => setTimeout(r, 10));
-  });
-
-  test("queued messages still drain FIFO under multiple handoffs", async () => {
+  test("queued messages drain FIFO across consecutive turns", async () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
@@ -3380,63 +3123,20 @@ describe("Conversation checkpoint handoff", () => {
     });
     expect(conversation.getQueueDepth()).toBe(3);
 
-    // Handoff from A -> B
-    const runA = pendingRuns[0];
-    expect(runA.onCheckpoint).toBeDefined();
-    expect(
-      await runA.onCheckpoint!({
-        turnIndex: 0,
-        toolCount: 1,
-        hasToolUse: true,
-        history: [],
-      }),
-    ).toEqual("handoff");
+    // A ends -> B
     await resolveRun(0);
     await pA;
 
     // B should be draining
     await waitForPendingRun(2);
 
-    // Handoff from B -> C
-    const runB = pendingRuns[1];
-    expect(runB.onCheckpoint).toBeDefined();
-    expect(
-      await runB.onCheckpoint!({
-        turnIndex: 0,
-        toolCount: 1,
-        hasToolUse: true,
-        history: [],
-      }),
-    ).toEqual("handoff");
+    // B ends -> C
     await resolveRun(1);
     await waitForPendingRun(3);
 
-    // Handoff from C -> D
-    const runC = pendingRuns[2];
-    expect(runC.onCheckpoint).toBeDefined();
-    // Only D remains, still should yield
-    expect(
-      await runC.onCheckpoint!({
-        turnIndex: 0,
-        toolCount: 1,
-        hasToolUse: true,
-        history: [],
-      }),
-    ).toEqual("handoff");
+    // C ends -> D
     await resolveRun(2);
     await waitForPendingRun(4);
-
-    // D has no more queued -> checkpoint should return 'continue'
-    const runD = pendingRuns[3];
-    expect(runD.onCheckpoint).toBeDefined();
-    expect(
-      await runD.onCheckpoint!({
-        turnIndex: 0,
-        toolCount: 1,
-        hasToolUse: true,
-        history: [],
-      }),
-    ).toBe("continue");
 
     await resolveRun(3);
     await new Promise((r) => setTimeout(r, 10));
@@ -3773,80 +3473,6 @@ describe("Conversation attachment event payloads", () => {
     expect(attachments[0].mimeType).toBe("image/png");
     expect(attachments[0].data).toBe("iVBORw0K");
     expect(attachments[0].id).toBeDefined();
-  });
-
-  test("generation_handoff includes assistant attachments", async () => {
-    const events1: AssistantEvent[] = [];
-    const conversation = makeConversation();
-    await conversation.loadFromDb();
-
-    const p1 = conversation.processMessage({
-      content: "msg-1",
-      attachments: [],
-      onEvent: (e) => events1.push(e),
-      requestId: "req-1",
-    });
-    await waitForPendingRun(1);
-
-    // Queue a second message so the first run yields via checkpoint handoff.
-    conversation.enqueueMessage({ content: "msg-2", requestId: "req-2" });
-
-    const run = pendingRuns[0];
-    expect(run.onCheckpoint).toBeDefined();
-    expect(
-      await run.onCheckpoint!({
-        turnIndex: 0,
-        toolCount: 1,
-        hasToolUse: true,
-        history: [],
-      }),
-    ).toEqual("handoff");
-
-    const assistantMsg: Message = {
-      role: "assistant",
-      content: [{ type: "text", text: "Handing off with attachment." }],
-    };
-    run.onEvent({
-      type: "tool_result",
-      toolUseId: "tool-1",
-      content: "ok",
-      isError: false,
-      contentBlocks: [
-        {
-          type: "image",
-          source: { type: "base64", media_type: "image/png", data: "iVBORw0K" },
-        } as any,
-      ],
-    });
-    await run.onEvent({ type: "llm_call_started" });
-    run.onEvent({
-      type: "usage",
-      inputTokens: 10,
-      outputTokens: 5,
-      model: "mock",
-      providerDurationMs: 100,
-    });
-    run.onEvent({ type: "message_complete", message: assistantMsg });
-    run.resolve([...run.messages, assistantMsg]);
-
-    await p1;
-
-    const handoff = events1.find(
-      (e) => e.type === "generation_handoff" && Array.isArray(e.attachments),
-    );
-    expect(handoff).toBeDefined();
-    const attachments = (
-      handoff as {
-        attachments: Array<{ mimeType: string; data: string; id?: string }>;
-      }
-    ).attachments;
-    expect(attachments).toHaveLength(1);
-    expect(attachments[0].mimeType).toBe("image/png");
-    expect(attachments[0].data).toBe("iVBORw0K");
-
-    await waitForPendingRun(2);
-    await resolveRun(1);
-    await new Promise((r) => setTimeout(r, 10));
   });
 });
 
