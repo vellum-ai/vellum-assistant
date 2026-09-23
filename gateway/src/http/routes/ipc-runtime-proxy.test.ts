@@ -9,10 +9,9 @@
 import { describe, test, expect, mock, beforeEach } from "bun:test";
 import "../../__tests__/test-preload.js";
 
-import {
-  isNarrowScopeProfile,
-  isTrustCheckedScopeProfile,
-} from "../../auth/scopes.js";
+import { isTrustCheckedScopeProfile } from "@vellumai/gateway-client";
+
+import { isNarrowScopeProfile } from "../../auth/scopes.js";
 import type { ScopeProfile } from "../../auth/types.js";
 
 // ---------------------------------------------------------------------------

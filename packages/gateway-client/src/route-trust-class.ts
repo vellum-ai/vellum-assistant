@@ -9,6 +9,34 @@
 
 import { isTrustClass, type TrustClass } from "./trust-verdict-contract.js";
 
+/**
+ * Scope profiles whose holders are not trust-checked: the guardian's own
+ * client, and service, local and single-route grants that route policy
+ * already governs. Any profile not listed here is trust-checked, so an
+ * unknown or newly added profile fails closed until it is judged exempt.
+ */
+export const TRUST_EXEMPT_SCOPE_PROFILES: readonly string[] = [
+  "actor_client_v1",
+  "gateway_ingress_v1",
+  "gateway_service_v1",
+  "local_v1",
+  "oauth_proxy_v1",
+  "speech_relay_v1",
+  "ui_page_v1",
+];
+
+const TRUST_EXEMPT_SET: ReadonlySet<string> = new Set(
+  TRUST_EXEMPT_SCOPE_PROFILES,
+);
+
+/**
+ * True when a token of `profile` reaches a route only if the route admits
+ * its holder's trust class.
+ */
+export function isTrustCheckedScopeProfile(profile: string): boolean {
+  return !TRUST_EXEMPT_SET.has(profile);
+}
+
 /** Trust classes a route admits when its policy names none. */
 export const DEFAULT_ROUTE_TRUST_CLASSES: readonly TrustClass[] = ["guardian"];
 

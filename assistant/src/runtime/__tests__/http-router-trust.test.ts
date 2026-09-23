@@ -26,7 +26,7 @@ mock.module("../../config/env.js", () => ({
 }));
 
 type Trust = { trustClass: string };
-const resolveSharedPrincipal = mock(
+const resolveSharedPrincipalFresh = mock(
   async (_principalId: string): Promise<Trust> => ({
     trustClass: "trusted_contact",
   }),
@@ -34,7 +34,7 @@ const resolveSharedPrincipal = mock(
 const actualLookup = await import("../shared-principal-lookup.js");
 mock.module("../shared-principal-lookup.js", () => ({
   ...actualLookup,
-  resolveSharedPrincipal,
+  resolveSharedPrincipalFresh,
 }));
 
 const { isContactTrustClass } = await import("../trust-class.js");
@@ -141,8 +141,8 @@ afterAll(() => {
 beforeEach(() => {
   authDisabled = false;
   reached = undefined;
-  resolveSharedPrincipal.mockReset();
-  resolveSharedPrincipal.mockImplementation(async () => ({
+  resolveSharedPrincipalFresh.mockReset();
+  resolveSharedPrincipalFresh.mockImplementation(async () => ({
     trustClass: "trusted_contact",
   }));
 });
@@ -196,7 +196,7 @@ describe("contact-role tokens", () => {
       }
     }
     expect(leaks).toEqual([]);
-    expect(resolveSharedPrincipal).not.toHaveBeenCalled();
+    expect(resolveSharedPrincipalFresh).not.toHaveBeenCalled();
   });
 
   test("a malformed path on a guardian route is a 404, not a 400", async () => {
@@ -229,19 +229,25 @@ describe("contact-role tokens", () => {
   test.each(["trusted_contact", "unverified_contact"])(
     "a route admitting contacts serves a %s",
     async (trustClass) => {
-      resolveSharedPrincipal.mockImplementation(async () => ({ trustClass }));
+      resolveSharedPrincipalFresh.mockImplementation(async () => ({
+        trustClass,
+      }));
       const response = await dispatch("POST", "trust-probe", CONTACT);
 
       expect(response.status).toBe(200);
       expect(reached).toBe("trust_probe");
-      expect(resolveSharedPrincipal).toHaveBeenCalledWith("principal-alice");
+      expect(resolveSharedPrincipalFresh).toHaveBeenCalledWith(
+        "principal-alice",
+      );
     },
   );
 
   test.each(["unknown", "guardian"])(
     "a route admitting contacts refuses a principal resolving %s",
     async (trustClass) => {
-      resolveSharedPrincipal.mockImplementation(async () => ({ trustClass }));
+      resolveSharedPrincipalFresh.mockImplementation(async () => ({
+        trustClass,
+      }));
       const response = await dispatch("POST", "trust-probe", CONTACT);
 
       expect(response.status).toBe(404);
@@ -249,8 +255,20 @@ describe("contact-role tokens", () => {
     },
   );
 
+  test("a revoked contact is refused on its next request", async () => {
+    expect((await dispatch("POST", "trust-probe", CONTACT)).status).toBe(200);
+
+    resolveSharedPrincipalFresh.mockImplementation(async () => ({
+      trustClass: "unknown",
+    }));
+    reached = undefined;
+    expect((await dispatch("POST", "trust-probe", CONTACT)).status).toBe(404);
+    expect(reached).toBeUndefined();
+    expect(resolveSharedPrincipalFresh).toHaveBeenCalledTimes(2);
+  });
+
   test("a failed trust lookup refuses", async () => {
-    resolveSharedPrincipal.mockImplementation(async () => {
+    resolveSharedPrincipalFresh.mockImplementation(async () => {
       throw new Error("gateway unreachable");
     });
     const response = await dispatch("POST", "trust-probe", CONTACT);
@@ -267,7 +285,7 @@ describe("contact-role tokens", () => {
     );
 
     expect(response.status).toBe(404);
-    expect(resolveSharedPrincipal).not.toHaveBeenCalled();
+    expect(resolveSharedPrincipalFresh).not.toHaveBeenCalled();
   });
 });
 
@@ -298,7 +316,7 @@ describe("other tokens", () => {
         }
       }
       expect(drift).toEqual([]);
-      expect(resolveSharedPrincipal).not.toHaveBeenCalled();
+      expect(resolveSharedPrincipalFresh).not.toHaveBeenCalled();
     },
   );
 });

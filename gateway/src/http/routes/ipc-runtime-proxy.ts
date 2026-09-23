@@ -12,12 +12,14 @@
  * IPC, and converts the result back into an HTTP Response.
  */
 
-import { contactTokenMayReachRoute } from "@vellumai/gateway-client";
+import {
+  contactTokenMayReachRoute,
+  isTrustCheckedScopeProfile,
+} from "@vellumai/gateway-client";
 
 import { admitActorToken } from "../../auth/actor-token-revocation.js";
 import {
   isNarrowScopeProfile,
-  isTrustCheckedScopeProfile,
   resolveScopeProfile,
 } from "../../auth/scopes.js";
 import { parseSub } from "../../auth/subject.js";

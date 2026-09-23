@@ -2,7 +2,9 @@ import { describe, expect, mock, test } from "bun:test";
 
 import {
   contactTokenMayReachRoute,
+  isTrustCheckedScopeProfile,
   routeAdmitsTrustClass,
+  TRUST_EXEMPT_SCOPE_PROFILES,
 } from "../route-trust-class.js";
 
 const CONTACT_ROUTE = ["guardian", "trusted_contact", "unverified_contact"];
@@ -63,5 +65,25 @@ describe("contactTokenMayReachRoute", () => {
         throw new Error("gateway unreachable");
       }),
     ).toBe(false);
+  });
+});
+
+describe("isTrustCheckedScopeProfile", () => {
+  test("an exempt profile is not trust-checked", () => {
+    for (const profile of TRUST_EXEMPT_SCOPE_PROFILES) {
+      expect(isTrustCheckedScopeProfile(profile)).toBe(false);
+    }
+  });
+
+  test("the contact profile, unknown profiles and prototype keys are", () => {
+    for (const profile of [
+      "contact_client_v1",
+      "bogus_v1",
+      "toString",
+      "constructor",
+      "__proto__",
+    ]) {
+      expect(isTrustCheckedScopeProfile(profile)).toBe(true);
+    }
   });
 });

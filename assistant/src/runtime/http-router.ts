@@ -10,11 +10,13 @@
  * `normalizeEndpointForPolicy`.
  */
 
-import { contactTokenMayReachRoute } from "@vellumai/gateway-client";
+import {
+  contactTokenMayReachRoute,
+  isTrustCheckedScopeProfile,
+} from "@vellumai/gateway-client";
 
 import { getLogger } from "../util/logger.js";
 import { enforcePolicy, type RoutePolicy } from "./auth/route-policy.js";
-import { isTrustCheckedScopeProfile } from "./auth/scopes.js";
 import type { AuthContext } from "./auth/types.js";
 import { httpError } from "./http-errors.js";
 import type { HTTPRouteDefinition, RouteParams } from "./http-router-types.js";
@@ -22,7 +24,7 @@ import { withErrorHandling } from "./middleware/error-handler.js";
 import { routeDefinitionsToHTTPRoutes } from "./routes/http-adapter.js";
 import { ROUTES } from "./routes/index.js";
 import type { RouteLoggingConfig } from "./routes/types.js";
-import { resolveSharedPrincipal } from "./shared-principal-lookup.js";
+import { resolveSharedPrincipalFresh } from "./shared-principal-lookup.js";
 
 const log = getLogger("http-router");
 
@@ -171,8 +173,10 @@ export class HttpRouter {
  * can answer 400 or 403 first, and under the dev auth bypass too, because such
  * a context exists only when its bearer was verified.
  *
- * Every other profile passes without a trust lookup, so guardian, service and
- * local callers never wait on the gateway here.
+ * The trust class is read fresh, matching the gateway's per-request ACL read
+ * on the IPC path, so a revoked contact is refused on its next request. Every
+ * other profile passes without a lookup, so guardian, service and local
+ * callers never wait on the gateway here.
  */
 async function enforceContactTrust(
   endpoint: string,
@@ -187,7 +191,7 @@ async function enforceContactTrust(
     policy?.allowedTrustClasses,
     async () =>
       principalId
-        ? (await resolveSharedPrincipal(principalId)).trustClass
+        ? (await resolveSharedPrincipalFresh(principalId)).trustClass
         : undefined,
   );
   if (admitted) {

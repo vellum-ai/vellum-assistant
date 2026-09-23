@@ -136,7 +136,9 @@ export type {
 export {
   contactTokenMayReachRoute,
   DEFAULT_ROUTE_TRUST_CLASSES,
+  isTrustCheckedScopeProfile,
   routeAdmitsTrustClass,
+  TRUST_EXEMPT_SCOPE_PROFILES,
 } from "./route-trust-class.js";
 
 // Invite contract (shared gateway ↔ daemon) — hash/generate helpers,

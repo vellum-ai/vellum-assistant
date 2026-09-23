@@ -125,38 +125,3 @@ const BROAD_SCOPE_PROFILES: Record<ScopeProfile, boolean> = {
 export function isNarrowScopeProfile(profile: ScopeProfile): boolean {
   return BROAD_SCOPE_PROFILES[profile] !== true;
 }
-
-// ---------------------------------------------------------------------------
-// Trust-class enforcement
-// ---------------------------------------------------------------------------
-
-/**
- * Whether a profile's holder must resolve to a trust class a route admits
- * before reaching it. A profile marked `false` stands for the guardian or for
- * a service, local or single-route caller that route policy already governs.
- *
- * Exhaustive over `ScopeProfile`, so a new profile has to be classified here
- * rather than inheriting whichever answer the compiler allows.
- */
-const TRUST_CHECKED_SCOPE_PROFILES: Record<ScopeProfile, boolean> = {
-  actor_client_v1: false,
-  contact_client_v1: true,
-  gateway_ingress_v1: false,
-  gateway_service_v1: false,
-  local_v1: false,
-  oauth_proxy_v1: false,
-  speech_relay_v1: false,
-  ui_page_v1: false,
-};
-
-/**
- * True when the profile's holder reaches a route only if the route admits
- * its trust class.
- *
- * Claims come from JSON, so an unrecognized profile reaches this despite the
- * type. `!== false` checks those too, along with inherited keys
- * ("constructor", "__proto__") whose values are objects.
- */
-export function isTrustCheckedScopeProfile(profile: ScopeProfile): boolean {
-  return TRUST_CHECKED_SCOPE_PROFILES[profile] !== false;
-}

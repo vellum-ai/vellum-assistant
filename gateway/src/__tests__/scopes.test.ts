@@ -1,10 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
-import {
-  isNarrowScopeProfile,
-  isTrustCheckedScopeProfile,
-  resolveScopeProfile,
-} from "../auth/scopes.js";
+import { isTrustCheckedScopeProfile } from "@vellumai/gateway-client";
+
+import { isNarrowScopeProfile, resolveScopeProfile } from "../auth/scopes.js";
 import type { ScopeProfile } from "../auth/types.js";
 
 describe("resolveScopeProfile", () => {
@@ -89,11 +87,10 @@ describe("isNarrowScopeProfile", () => {
 });
 
 describe("isTrustCheckedScopeProfile", () => {
-  test("classifies every profile", () => {
-    // The source table is exhaustive over ScopeProfile, so a new profile has
-    // to be classified there. This pins the answers it gives today: a `false`
-    // flipped onto a non-guardian profile would let it past every route's
-    // trust class.
+  test("exempts every profile but the contact's", () => {
+    // Keyed by this package's ScopeProfile, so a profile added to the union
+    // has to be listed here, and the assertion catches it being missing from
+    // the shared exempt list (or a contact profile landing on it).
     const checked: Record<ScopeProfile, boolean> = {
       actor_client_v1: false,
       contact_client_v1: true,
@@ -105,9 +102,7 @@ describe("isTrustCheckedScopeProfile", () => {
       ui_page_v1: false,
     };
     for (const [profile, expected] of Object.entries(checked)) {
-      expect(isTrustCheckedScopeProfile(profile as ScopeProfile)).toBe(
-        expected,
-      );
+      expect(isTrustCheckedScopeProfile(profile)).toBe(expected);
     }
   });
 
@@ -118,7 +113,7 @@ describe("isTrustCheckedScopeProfile", () => {
       "constructor",
       "__proto__",
     ]) {
-      expect(isTrustCheckedScopeProfile(profile as never)).toBe(true);
+      expect(isTrustCheckedScopeProfile(profile)).toBe(true);
     }
   });
 });
