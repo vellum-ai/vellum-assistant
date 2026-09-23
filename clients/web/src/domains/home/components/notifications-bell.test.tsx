@@ -383,6 +383,11 @@ interface DecisionCallbacks {
 /** What the rows' inline Approve and Reject submit to the decision route. */
 const decisionCalls: DecisionVars[] = [];
 
+/** The last decision left in flight, so a test can settle it later. */
+const heldDecisionRef: {
+  value?: { options?: DecisionCallbacks; vars: DecisionVars };
+} = {};
+
 /**
  * How the mocked decision settles. "not-applied" is the 200 the route
  * returns when it declines to apply the decision, carrying a `reason`; it
@@ -444,7 +449,9 @@ mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
       }
       // "pending" leaves the decision in flight, which is the state the
       // shared in-flight guard has to hold under.
-      if (decisionRef.outcome !== "pending") {
+      if (decisionRef.outcome === "pending") {
+        heldDecisionRef.value = { options, vars };
+      } else {
         options?.onSettled?.(undefined, null, vars);
       }
     },
@@ -629,6 +636,7 @@ beforeEach(() => {
   decisionRef.reason = undefined;
   decisionRef.committed = undefined;
   decisionRef.replyText = undefined;
+  heldDecisionRef.value = undefined;
   useGuardianDecisionStore.getState().reset();
   feedInvalidateCalls.length = 0;
   toastCalls.length = 0;
@@ -1148,6 +1156,48 @@ describe("NotificationsBell guardian rows", () => {
     ];
     rerender(<NotificationsBell />);
     await act(async () => {});
+
+    expect(
+      screen.getByTestId("home-recap-row-decision-reply").textContent,
+    ).toContain("424242");
+  });
+
+  test("a code that arrives after the bell closed is there when it reopens", async () => {
+    feedRef.items = [guardianBellItem()];
+
+    const { rerender } = render(<NotificationsBell />);
+    await clickTrigger();
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    await act(async () => {});
+    // Closed before the decision returns.
+    await clickTrigger();
+
+    const held = heldDecisionRef.value;
+    expect(held).toBeDefined();
+    await act(async () => {
+      held?.options?.onSuccess?.(
+        {
+          applied: true,
+          replyText:
+            "Access approved for Alice. Give them this verification code: `424242`.",
+        },
+        held.vars,
+      );
+      held?.options?.onSettled?.(undefined, null, held.vars);
+    });
+    feedRef.items = [
+      guardianBellItem({
+        status: "seen",
+        guardianRequest: {
+          requestId: "req-1",
+          kind: "tool_approval",
+          intent: "approval",
+          status: "approved",
+        },
+      }),
+    ];
+    rerender(<NotificationsBell />);
+    await clickTrigger();
 
     expect(
       screen.getByTestId("home-recap-row-decision-reply").textContent,
