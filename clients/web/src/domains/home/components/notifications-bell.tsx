@@ -425,7 +425,10 @@ export function NotificationsBell() {
           {t("notificationsBell.noUnread")}
         </Typography>
       ) : (
-        <div className="px-[var(--app-spacing-lg)] pt-[var(--app-spacing-lg)]">
+        <div
+          className="overflow-y-auto px-[var(--app-spacing-lg)] pt-[var(--app-spacing-lg)]"
+          style={{ maxHeight: listMaxHeight }}
+        >
           <NotificationsBellEmptyState
             onLaunchRecipe={closePanel}
             showBriefingRecipe={showBriefingRecipe}
