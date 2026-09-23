@@ -544,10 +544,9 @@ export async function processMessage(
   try {
     return await runClaimedMessage(conversationId, content, options, prepared);
   } finally {
-    // The agent loop releases the claim before it returns, and a persist that
-    // fails or deduplicates gives it back itself, so this releases only when
-    // no turn ever took it over (a slash command, or a throw before the
-    // persist).
+    // The agent loop releases the claim before it returns, so this releases
+    // only when no turn took it over: a slash command, a persist that failed
+    // or deduplicated, or a throw before the persist.
     releaseUnstartedTurnClaim(prepared.conversation, prepared.processingClaim);
   }
 }
@@ -918,6 +917,7 @@ export async function processMessageInBackground(
   publishConversationMessagesChanged(conversationId);
 
   if (deduplicated) {
+    releaseUnstartedTurnClaim(conversation, processingClaim);
     // At-least-once redelivery of a turn that already ran — skip the loop.
     log.info(
       { conversationId, messageId },

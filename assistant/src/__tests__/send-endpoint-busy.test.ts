@@ -444,6 +444,7 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
         },
         holdsProcessingClaim: (owner: number) =>
           processing && owner === processingOwner,
+        kickDrainQueue: async () => {},
         releaseProcessing: (owner: number) => {
           if (!processing || owner !== processingOwner) {
             return false;

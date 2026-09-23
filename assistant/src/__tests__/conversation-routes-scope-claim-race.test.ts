@@ -10,6 +10,9 @@
  */
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
+// What the real user-row insert answers, for tests that persist through it.
+let insertOutcome: "insert" | "duplicate" | "throw" = "insert";
+
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => false }));
 
 mock.module("../config/interrupt-on-send-gate.js", () => ({
@@ -43,7 +46,12 @@ mock.module("../runtime/confirmation-request-guardian-bridge.js", () => ({
 mock.module("../persistence/conversation-crud.js", () => ({
   setConversationProcessingStartedAt: () => {},
   isConversationProcessing: () => false,
-  addMessage: async () => ({ id: "persisted-id", deduplicated: false }),
+  addMessage: async () => {
+    if (insertOutcome === "throw") {
+      throw new Error("persist failed");
+    }
+    return { id: "persisted-id", deduplicated: insertOutcome === "duplicate" };
+  },
   extractImageSourcePaths: () => undefined,
   getConversation: () => null,
   getConversationOverrideProfile: () => undefined,
@@ -121,7 +129,11 @@ mock.module("../ipc/gateway-client.js", () => ({
 import type { Conversation } from "../daemon/conversation.js";
 import { acquireProcessingForActor } from "../daemon/conversation-actor-claim.js";
 import { abortConversation } from "../daemon/conversation-lifecycle.js";
-import { CONVERSATION_BUSY_MESSAGE } from "../daemon/conversation-messaging.js";
+import {
+  CONVERSATION_BUSY_MESSAGE,
+  type MessagingConversationContext,
+  persistUserMessage,
+} from "../daemon/conversation-messaging.js";
 import {
   deleteConversation,
   setConversation,
@@ -165,6 +177,7 @@ function makeConversation() {
         trustContext?: TrustContext;
       }) => {
         enqueued.push(options);
+        conversation.enqueue(options.content);
         return { queued: true, requestId: "queued-id" };
       },
       setHostBrowserProxy: () => {},
@@ -224,6 +237,7 @@ function send(
 
 afterEach(() => {
   deleteConversation(CONV_ID);
+  insertOutcome = "insert";
 });
 
 describe("POST /v1/messages racing another sender to an idle conversation", () => {
@@ -298,4 +312,39 @@ describe("POST /v1/messages racing another sender to an idle conversation", () =
     expect(conversation.trustContext).toBeUndefined();
     expect(conversation.drainKicks).toContain("actor_scope_cancelled");
   });
+  test.each(["duplicate", "throw"] as const)(
+    "a send queued behind the claim still runs when the persist answers %s",
+    async (outcome) => {
+      const conversation = makeConversation();
+      setConversation(CONV_ID, conversation as unknown as Conversation);
+      const aliceReload = conversation.holdNextReload();
+
+      const alice = send(conversation, "alice-principal", "from Alice").then(
+        () => null,
+        (err: unknown) => err,
+      );
+      await aliceReload.entered;
+      const bobResponse = await send(conversation, "bob-principal", "from Bob");
+      expect(await bobResponse.json()).toMatchObject({ queued: true });
+      // Through the real persist, so the claim is handled as production
+      // handles it when the insert answers a duplicate or throws.
+      insertOutcome = outcome;
+      conversation.persistUserMessage = (options) =>
+        persistUserMessage(
+          conversation as unknown as MessagingConversationContext,
+          { content: "from Alice", ...options },
+        );
+
+      aliceReload.release();
+      const result = await alice;
+      if (outcome === "throw") {
+        expect((result as Error).message).toBe("persist failed");
+      } else {
+        expect(result).toBeNull();
+      }
+      expect(conversation.turns).toHaveLength(0);
+      expect(conversation.isProcessing()).toBe(false);
+      expect(conversation.drained).toEqual(["from Bob"]);
+    },
+  );
 });

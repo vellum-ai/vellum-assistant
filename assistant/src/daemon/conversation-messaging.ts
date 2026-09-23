@@ -980,7 +980,9 @@ export interface PersistMessageOptions {
    * A processing claim the caller already holds, taken with
    * `Conversation.acquireProcessingForActor` so the history was scoped under
    * it. The persist runs under that claim instead of taking its own, and
-   * reports busy when it is no longer the live one.
+   * reports busy when it is no longer the live one. The claim stays the
+   * caller's: a persist that fails or deduplicates leaves it held, and the
+   * caller releases it and drains what queued behind it.
    */
   processingClaim?: number;
   /**
@@ -1185,7 +1187,9 @@ export async function persistUserMessage(
     });
     options.signal?.throwIfAborted();
     if (result.deduplicated) {
-      ctx.releaseProcessing(owner);
+      if (processingClaim === undefined) {
+        ctx.releaseProcessing(owner);
+      }
       ctx.abortController = null;
       ctx.currentRequestId = undefined;
       ctx.currentTurnClientMessageId = undefined;
@@ -1199,7 +1203,7 @@ export async function persistUserMessage(
     // claimed since is left alone, and one this call never took is nothing to
     // release.
     try {
-      if (owner !== null) {
+      if (owner !== null && processingClaim === undefined) {
         ctx.releaseProcessing(owner);
       }
     } catch (clearErr) {

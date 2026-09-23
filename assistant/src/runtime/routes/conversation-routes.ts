@@ -3195,7 +3195,6 @@ export async function handleSendMessage(
     } finally {
       if (!startedAgentLoop) {
         conversation.pendingInterruptActivityBridge = false;
-        // A no-op once the persist has given the claim back itself.
         if (
           unstartedClaim !== null &&
           conversation.releaseProcessing(unstartedClaim)

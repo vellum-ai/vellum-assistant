@@ -73,6 +73,8 @@ export function createScopeRaceConversation(
       cancelled: boolean;
     } | null,
     drainKicks: [] as Array<string | undefined>,
+    /** Messages a drain picked up, in the order it ran them. */
+    drained: [] as unknown[],
     queue,
     pendingInterruptRepair: false,
     prompter: { dispose: () => {} },
@@ -125,8 +127,16 @@ export function createScopeRaceConversation(
       owner = 0;
       return true;
     },
+    /** Queue a message the way a send to a busy conversation does. */
+    enqueue(message: unknown) {
+      queued.push(message);
+    },
     kickDrainQueue: async (_reason?: string, origin?: string) => {
       conversation.drainKicks.push(origin);
+      // A drain is a no-op on a busy conversation, as the real one is.
+      if (!processing) {
+        conversation.drained.push(...queued.splice(0));
+      }
     },
 
     setTrustContext(ctx: TrustContext | null) {
