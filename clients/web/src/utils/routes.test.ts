@@ -2,11 +2,13 @@ import { describe, expect, test } from "bun:test";
 
 import {
   ABOUT_ASSISTANT_SECTIONS,
+  aboutAssistantSectionForPath,
   appIdForPath,
   conversationIdForPath,
   isAboutAssistantPath,
   isConversationChatPath,
   isConversationPath,
+  isPathExactly,
   routes,
 } from "@/utils/routes";
 import {
@@ -44,6 +46,11 @@ describe("routes", () => {
     );
   });
 
+  test("builds the contacts list and per-contact detail paths", () => {
+    expect(routes.contacts.root).toBe("/assistant/contacts");
+    expect(routes.contacts.detail("c_1")).toBe("/assistant/contacts/c_1");
+  });
+
   test("builds the superpowers list and per-skill detail paths", () => {
     expect(routes.superpowers).toBe("/assistant/superpowers");
     expect(routes.skills.root).toBe("/assistant/skills");
@@ -76,6 +83,14 @@ describe("routes", () => {
     );
   });
 
+  test("encodes contact ids into a single path segment", () => {
+    // Contact ids are caller-supplied, so a slash or a space must not split
+    // the segment or leave the URL unparseable.
+    expect(routes.contacts.detail("org/team c_1")).toBe(
+      "/assistant/contacts/org%2Fteam%20c_1",
+    );
+  });
+
   test("encodes namespaced skill ids into a single path segment", () => {
     // skills.sh catalog ids contain slashes (org/repo/skill); the produced
     // URL must keep the id as ONE segment so `skills/:skillId` can match it.
@@ -99,6 +114,14 @@ describe("isAboutAssistantPath", () => {
     expect(isAboutAssistantPath(routes.library.app("app-1"))).toBe(true);
   });
 
+  test("matches the Contacts section, including a contact detail path", () => {
+    expect(isAboutAssistantPath(routes.contacts.root)).toBe(true);
+    expect(isAboutAssistantPath(routes.contacts.detail("c_1"))).toBe(true);
+    expect(
+      aboutAssistantSectionForPath(routes.contacts.detail("c_1"))?.key,
+    ).toBe("contacts");
+  });
+
   test("every registry section counts as an About Assistant path", () => {
     // Chrome and sidebar highlight derive from the same registry — this
     // guards the wiring, so a new section can't get one without the other.
@@ -110,6 +133,29 @@ describe("isAboutAssistantPath", () => {
   test("rejects settings and conversations", () => {
     expect(isAboutAssistantPath(routes.settings.root)).toBe(false);
     expect(isAboutAssistantPath(routes.conversation("conv-1"))).toBe(false);
+  });
+});
+
+describe("isPathExactly (the route itself, trailing slash tolerated)", () => {
+  test("matches the path and its single-trailing-slash spelling", () => {
+    expect(isPathExactly(routes.contacts.root, routes.contacts.root)).toBe(
+      true,
+    );
+    expect(
+      isPathExactly(`${routes.contacts.root}/`, routes.contacts.root),
+    ).toBe(true);
+  });
+
+  test("rejects sub-paths, doubled slashes, and other routes", () => {
+    expect(
+      isPathExactly(`${routes.contacts.root}/c_1`, routes.contacts.root),
+    ).toBe(false);
+    expect(
+      isPathExactly(`${routes.contacts.root}//`, routes.contacts.root),
+    ).toBe(false);
+    expect(isPathExactly(routes.library.root, routes.contacts.root)).toBe(
+      false,
+    );
   });
 });
 

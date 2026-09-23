@@ -26,7 +26,6 @@ import {
   type UsagePeriodEnd,
   usagePeriodEndLabels,
 } from "@/domains/settings/billing/usage-balance-panel";
-import { captureTakeoverAvatarStash } from "@/lib/billing/takeover-avatar-stash";
 import { useCheckoutDismissRefresh } from "@/domains/settings/billing/use-checkout-dismiss-refresh";
 import {
   formatGraceDate,
@@ -228,7 +227,6 @@ function RecommendedUpgrade({
           kind: "package",
           packageKey: recommended.key,
         });
-        captureTakeoverAvatarStash(queryClient);
         // Stripe returns with a `session_id`, which opens the
         // post-checkout Pro onboarding wizard — via the billing page on
         // web, via the `billing/checkout-complete` deep link on macOS.

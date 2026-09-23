@@ -114,6 +114,7 @@ import {
 // Re-export for consumers
 export { isPrivateAddress } from "./middleware/auth.js";
 
+import { trackDaemonActivity } from "../daemon/activity-trail.js";
 import type { RuntimeHttpServerOptions } from "./http-types.js";
 
 const log = getLogger("runtime-http");
@@ -697,7 +698,9 @@ export class RuntimeHttpServer {
           return;
         }
         this.sweepInProgress = true;
-        void sweepFailedEvents(processMessage)
+        void trackDaemonActivity({ kind: "channel_retry_sweep" }, () =>
+          sweepFailedEvents(processMessage),
+        )
           .catch((err) => {
             log.error({ err }, "Failed channel event retry sweep failed");
           })

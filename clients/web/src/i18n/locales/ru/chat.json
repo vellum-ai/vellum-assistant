@@ -1,4 +1,7 @@
 {
+  "askQuestionDetail": {
+    "heading": "{count, plural, one {Вопрос} few {Вопроса} many {Вопросов} other {Вопроса}}"
+  },
   "secretPromptCard": {
     "showValue": "Показать значение",
     "hideValue": "Скрыть значение"
@@ -34,8 +37,7 @@
     "screenshotAria": "Открыть снимок экрана: {activity}",
     "screenshotFallbackAria": "Открыть снимок экрана компьютера",
     "screenshotFallbackTitle": "Снимок экрана компьютера",
-    "screenshotTitle": "Снимок экрана: {activity}",
-    "thinkingTitle": "Размышление"
+    "screenshotTitle": "Снимок экрана: {activity}"
   },
   "computerUseScreenshotPreview": {
     "unavailable": "Последний снимок экрана недоступен.",
@@ -284,10 +286,10 @@
   },
   "cameraViewOptions": {
     "buttonAria": "Параметры отображения камеры",
-    "gateHudDescription": "Панель настройки того, что сохраняет прямой эфир.",
-    "gateHudTitle": "Показатели фильтра кадров",
-    "keptFrameDescription": "Последний кадр, отправленный в эфире, рядом с вашими фото. Отправка продолжается в любом случае.",
-    "keptFrameTitle": "Последний кадр",
+    "gateHudDescription": "Отладочный слой: как прямой эфир выбирает, какие кадры отправлять.",
+    "gateHudTitle": "Настройка фильтра кадров",
+    "keptFrameDescription": "Показывает последний кадр, отправленный в эфире.",
+    "keptFrameTitle": "Последний отправленный кадр",
     "title": "Показывать"
   },
   "channelReferenceChip": {
@@ -389,6 +391,7 @@
     "trigger": "Триггер"
   },
   "composerSettingsMenu": {
+    "autoPreview": "Авто · {profile}",
     "profileSwitchFailed": "Профиль создан, но переключиться на него не удалось",
     "profileSwitchFallback": "Не удалось сменить профиль. Повторите попытку."
   },
@@ -438,8 +441,6 @@
     "markRead": "Отметить как прочитанный",
     "markUnread": "Отметить как непрочитанный",
     "moveToGroup": "Перенести в группу",
-    "newDocument": "Новый документ",
-    "newDocumentFailed": "Не удалось создать документ. Попробуйте ещё раз.",
     "newGroup": "Новая группа…",
     "openInNewWindow": "Открыть в новом окне",
     "pin": "Закрепить",
@@ -798,6 +799,7 @@
     "yes": "Да"
   },
   "messageHoverActions": {
+    "autoRouted": "Авто · {profile}",
     "bookmark": "Закладка",
     "copied": "Скопировано",
     "copy": "Копировать",
@@ -990,6 +992,9 @@
   "tableSurface": {
     "table": "Таблица"
   },
+  "thinkingDetail": {
+    "title": "Размышление"
+  },
   "toolDefinitionsContent": {
     "defaultValue": "по умолчанию: {value}",
     "inputSchema": "Схема ввода",
@@ -1156,5 +1161,14 @@
   },
   "skillExecuteDetail": {
     "unnamedTool": "Инструмент навыка"
+  },
+  "chatsSection": {
+    "doneEmptyBody": "Чаты, отмеченные как выполненные, ждут вас в разделе «Все чаты».",
+    "doneEmptyTitle": "Всё разобрано.",
+    "emptyBody": "Начните новый чат, и он появится здесь.",
+    "emptyTitle": "Чатов пока нет."
+  },
+  "sidebarSectionViewAll": {
+    "label": "Все чаты"
   }
 }

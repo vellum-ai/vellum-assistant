@@ -712,6 +712,28 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   // as the status pill's word below.
   const errorMessage = errorKey ? t(errorKey) : null;
   const cameraOpen = camera.open;
+  // Whether the viewfinder has a decoded frame on screen. The feed is
+  // transparent until it does, so this is what tells the look whether it is
+  // still the thing being seen. The `<video>` raises it on `loadeddata` and
+  // drops it on `emptied`, which is what a flip's release of the stream fires
+  // (`stopCapture` clears `srcObject`) before the replacement stream decodes
+  // its own first frame.
+  const [feedHasFrame, setFeedHasFrame] = useState(false);
+  // Closing unmounts the element, so nothing fires `emptied` on the way out.
+  useEffect(() => {
+    if (!cameraOpen) {
+      setFeedHasFrame(false);
+    }
+  }, [cameraOpen]);
+  // A flip takes the stream away before it asks for the other camera, so the
+  // frame the flag stands for is gone the moment the flip starts. Keyed on the
+  // flag rather than hung off the flip control, so a flip started anywhere
+  // reaches it.
+  useEffect(() => {
+    if (camera.flipping) {
+      setFeedHasFrame(false);
+    }
+  }, [camera.flipping]);
   // Sight rides the viewfinder the shutter already put on screen: while Live is
   // running the gate keeps the frames worth keeping and sends each one as it
   // lands, and the daemon persists it as its own message, so the call can be
@@ -1117,46 +1139,85 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           state caption, and the eyes when the avatar has any). A custom-image
           avatar takes the same path with its sampled field color and no eyes,
           so nothing about the bands or the caption depends on avatar type; the
-          centered avatar below fills the middle in its place. */}
-      {!camera.native && look ? (
-        // Held back until the box is measured. That is one pre-paint commit, so the
-        // entrance still plays from the room's first painted frame, but it
-        // grows inside a real rectangle rather than a zero-sized one.
-        box ? (
-          <VoiceRoomColorLook
-            look={look}
-            visual={visual}
-            getAmplitude={getLiveVoiceInputAmplitude}
-            getResponseAmplitude={getLiveVoiceOutputAmplitude}
-            // While assistant captions are on, the transcript's lower zone
-            // already narrates the turn from the caption's own baseline, so the
-            // caption stands down rather than doubling it. The user-only caption
-            // pref leaves it up (a user pill alone doesn't name the assistant's
-            // state).
-            showStateCaption={!showAssistantTranscript}
-            entryOrigin={localEntryOrigin}
-            entrance={choreography.entrance}
-            viewport={box}
-          />
-        ) : null
-      ) : !camera.native ? (
-        <>
-          {/* No avatar resolved yet, so there is no field to paint. The bands
-              are the same component at the same edge; only the ink changes,
-              because the dark voice ink cannot be seen on the void. */}
-          <VoiceRoomAmbientBackground />
-          <VoiceRoomVoiceBands
-            visual={visual}
-            getAmplitude={getLiveVoiceInputAmplitude}
-            getResponseAmplitude={getLiveVoiceOutputAmplitude}
-            ink="accent"
-            viewport={box ?? undefined}
-          />
-          {!showAssistantTranscript ? (
-            <VoiceStateCaption visual={visual} />
-          ) : null}
-        </>
-      ) : null}
+          centered avatar below fills the middle in its place.
+
+          Held out of the paint while a decoded frame is on screen, so the room
+          keeps exactly one opaque layer under its rounded clip. That clip is
+          anti-aliased once per painted layer, so a second layer blends into the
+          first along the corner arc (and, where the box lands on fractional
+          device pixels, along the straight edges too) and draws a fringe around
+          the feed. Until the first frame decodes the viewfinder is transparent,
+          and a flip's release makes it transparent again, so the look is the
+          one layer there and stays up.
+
+          A flip is read from `camera.flipping` rather than from the feed's own
+          events, because it clears `srcObject` synchronously inside the press
+          and `emptied` is only delivered as a queued media task after it: the
+          flag is what is already true in the first commit the press produces,
+          and it stands until the replacement stream is assigned. The start of a
+          flip also drops `feedHasFrame` itself, so the two terms do not depend
+          on `emptied` beating the replacement camera's arrival: the frame flag
+          is already false by the commit that clears `flipping`, whichever of
+          the two lands first.
+
+          `visibility` rather than an unmount, because mounting is what plays the
+          entrance and the look has to come back without replaying it. The
+          wrapper carries no z-index, so it opens no stacking context and the
+          look's own `z-0` / `z-[1]` layers keep resolving against the room box,
+          under the feed at `z-[2]`; `absolute inset-0` hands it the room box's
+          own rect, so the geometry the look lays itself out against is the same
+          rectangle. */}
+      <div
+        data-testid="voice-room-look"
+        className={cn(
+          "absolute inset-0",
+          cameraOpen &&
+            !camera.native &&
+            feedHasFrame &&
+            !camera.flipping &&
+            "invisible",
+        )}
+      >
+        {!camera.native && look ? (
+          // Held back until the box is measured. That is one pre-paint commit, so the
+          // entrance still plays from the room's first painted frame, but it
+          // grows inside a real rectangle rather than a zero-sized one.
+          box ? (
+            <VoiceRoomColorLook
+              look={look}
+              visual={visual}
+              getAmplitude={getLiveVoiceInputAmplitude}
+              getResponseAmplitude={getLiveVoiceOutputAmplitude}
+              // While assistant captions are on, the transcript's lower zone
+              // already narrates the turn from the caption's own baseline, so the
+              // caption stands down rather than doubling it. The user-only caption
+              // pref leaves it up (a user pill alone doesn't name the assistant's
+              // state).
+              showStateCaption={!showAssistantTranscript}
+              entryOrigin={localEntryOrigin}
+              entrance={choreography.entrance}
+              viewport={box}
+            />
+          ) : null
+        ) : !camera.native ? (
+          <>
+            {/* No avatar resolved yet, so there is no field to paint. The bands
+                are the same component at the same edge; only the ink changes,
+                because the dark voice ink cannot be seen on the void. */}
+            <VoiceRoomAmbientBackground />
+            <VoiceRoomVoiceBands
+              visual={visual}
+              getAmplitude={getLiveVoiceInputAmplitude}
+              getResponseAmplitude={getLiveVoiceOutputAmplitude}
+              ink="accent"
+              viewport={box ?? undefined}
+            />
+            {!showAssistantTranscript ? (
+              <VoiceStateCaption visual={visual} />
+            ) : null}
+          </>
+        ) : null}
+      </div>
 
       {/* The browser-fallback viewfinder, when the camera is open.
 
@@ -1179,7 +1240,18 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
 
           Muted + playsInline + autoPlay lets the fallback stream start inline;
           `aria-hidden` because a live camera feed has nothing to announce and
-          the controls below carry the accessible names. */}
+          the controls below carry the accessible names.
+
+          No surface of its own. A background here is a second opaque layer
+          under the room's rounded clip and fringes its corners exactly the way
+          the look does, in the room's dark instead of the avatar's tone. The
+          feed is left transparent and the look stands behind it until a frame
+          decodes, which is what covers the window between this element mounting
+          and the stream reaching it.
+
+          `loadeddata` is the first decoded frame; `emptied` is the stream being
+          taken away, which a flip does before it acquires the other camera. See
+          {@link feedHasFrame}. */}
       {cameraOpen && !camera.native ? (
         <video
           ref={viewfinderRef}
@@ -1188,6 +1260,8 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           autoPlay
           muted
           playsInline
+          onLoadedData={() => setFeedHasFrame(true)}
+          onEmptied={() => setFeedHasFrame(false)}
           className={cn(
             "absolute inset-0 z-[2] size-full object-cover",
             camera.facing === "user" && "-scale-x-100",

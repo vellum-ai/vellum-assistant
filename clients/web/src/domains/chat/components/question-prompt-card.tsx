@@ -1,6 +1,5 @@
 import {
   ArrowRight,
-  Check,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -9,7 +8,6 @@ import {
 } from "lucide-react";
 import {
   type KeyboardEvent as ReactKeyboardEvent,
-  type ReactNode,
   useCallback,
   useEffect,
   useId,
@@ -17,6 +15,10 @@ import {
   useState,
 } from "react";
 
+import {
+  QuestionRowContents,
+  RowGlyph,
+} from "@/domains/chat/components/question-row-contents";
 import type { QuestionResponseEntry } from "@/domains/chat/api/event-types";
 import { useQuestionCardMinimize } from "@/domains/chat/hooks/use-question-card-minimize";
 import { useTranslation } from "@/i18n";
@@ -521,8 +523,7 @@ export function QuestionPromptBody({
                   })}
                 >
                   <QuestionRowContents
-                    badgeNumber={badgeNumber}
-                    showBadge={showHotkeyBadges}
+                    badge={showHotkeyBadges ? badgeNumber : undefined}
                     label={option.label}
                     description={option.description}
                     showCheck={isSelected}
@@ -600,66 +601,3 @@ export function QuestionPromptBody({
  * free-text line. Decorative in both cases: the row's own label carries the
  * meaning.
  */
-function RowGlyph({ children }: { children: ReactNode }) {
-  return (
-    <span
-      aria-hidden="true"
-      className="text-body-small-default flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[var(--surface-base)] text-[color:var(--content-secondary)]"
-    >
-      {children}
-    </span>
-  );
-}
-
-interface QuestionRowContentsProps {
-  badgeNumber: number;
-  /**
-   * Whether to render the visible numeric badge (the hotkey hint).
-   * Hidden on coarse-pointer devices — see the parent's `showHotkeyBadges`.
-   * The badge is decorative; option labels are always present, and
-   * `aria-label` on the wrapping button retains the position number for
-   * assistive tech regardless of this prop.
-   */
-  showBadge: boolean;
-  label: string;
-  description?: string;
-  showCheck: boolean;
-}
-
-function QuestionRowContents({
-  badgeNumber,
-  showBadge,
-  label,
-  description,
-  showCheck,
-}: QuestionRowContentsProps) {
-  return (
-    <span className="flex w-full min-w-0 items-center gap-3">
-      {showBadge && <RowGlyph>{badgeNumber}</RowGlyph>}
-      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <Typography
-          variant="body-medium-default"
-          as="span"
-          className="text-[color:var(--content-default)]"
-        >
-          {label}
-        </Typography>
-        {description && (
-          <Typography
-            variant="body-small-default"
-            as="span"
-            className="text-[color:var(--content-tertiary)]"
-          >
-            {description}
-          </Typography>
-        )}
-      </span>
-      {showCheck && (
-        <Check
-          aria-hidden="true"
-          className="h-3.5 w-3.5 shrink-0 text-[var(--primary-base)]"
-        />
-      )}
-    </span>
-  );
-}

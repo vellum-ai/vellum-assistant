@@ -15,6 +15,7 @@ import { bundledToolInputMisuseMessage } from "../shared/input-misuse.js";
 import { bundledToolInputRepairs } from "../shared/input-repairs.js";
 import type { ExecutionTarget } from "../tool-types.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
+import { formatSkillInputSchema } from "./format-input-schema.js";
 import { runSkillToolScript } from "./skill-script-runner.js";
 
 const riskMap: Record<SkillToolEntry["risk"], RiskLevel> = {
@@ -94,7 +95,7 @@ export function createSkillTool(
         return {
           content:
             misuse ??
-            `Invalid input for tool "${entry.name}": ${validation.errors.join("; ")}. Fix the arguments and retry.`,
+            `Invalid input for tool "${entry.name}": ${validation.errors.join("; ")}. If skill_load is available, load the owning skill for its current instructions. Retry with arguments matching this schema.\n\n${formatSkillInputSchema(entry.input_schema)}`,
           isError: true,
         };
       }

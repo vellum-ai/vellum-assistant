@@ -10,7 +10,7 @@ export const TIER_TRAITS: Record<
   { bodyShape: string; eyeStyle: string; color: string }
 > = {
   free: { bodyShape: "ninja", eyeStyle: "angry", color: "yellow" },
-  mighty: { bodyShape: "blob", eyeStyle: "grumpy", color: "green" },
+  mighty: { bodyShape: "cloud", eyeStyle: "grumpy", color: "green" },
   super: { bodyShape: "urchin", eyeStyle: "goofy", color: "teal" },
   ultra: { bodyShape: "sprout", eyeStyle: "curious", color: "orange" },
 };

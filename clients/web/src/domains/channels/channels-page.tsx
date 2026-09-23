@@ -20,9 +20,9 @@ export interface ChannelsPageProps {
  * as its own tab in the About Assistant nav (`/assistant/channels`): the
  * adapter list beside the selected adapter's detail panel, with no page
  * heading or subtitle of its own (`IntelligenceLayout` supplies the section
- * heading, matching the sibling Contacts tab). The Contacts page's assistant
- * detail (`AssistantChannelsDetail`) shows only a connect/disconnect summary
- * of the same channels; management stays here.
+ * heading, matching the sibling Contacts tab). This is the only surface that
+ * manages the assistant's own channels; the Contacts tab covers the guardian
+ * and the assistant's contacts.
  */
 export function ChannelsPage({
   assistantId,

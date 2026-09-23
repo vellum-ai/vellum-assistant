@@ -218,6 +218,29 @@ describe("introduction card decisions", () => {
     }
   });
 
+  test("handshake approval on an email sender is coerced to direct trust", async () => {
+    for (const action of ["approve_once", "verify_code"] as const) {
+      resetState();
+      const req = makeAccessRequest({ sourceChannel: "email" });
+
+      const result = await applyGuardianDecision({
+        requestId: req.id,
+        action,
+        actorContext: desktopGuardian(),
+      });
+
+      expect(result.applied).toBe(true);
+      // No code is minted: email has no route to deliver one to the sender.
+      expect(outcomesOfType("mint_outbound_session")).toHaveLength(0);
+      const activations = outcomesOfType("activate_member");
+      expect(activations).toHaveLength(1);
+      expect(activations[0].sourceChannel).toBe("email");
+      expect(activations[0].verifiedVia).toBe("manual_channel_claim");
+      // The reported and projected outcome is the trust that was applied.
+      expect(result.applied && result.decidedAction).toBe("trust");
+    }
+  });
+
   test("leave_unverified persists the sender as unverified and is silent (legacy reject path)", async () => {
     for (const action of ["leave_unverified", "reject"] as const) {
       resetState();
@@ -392,18 +415,40 @@ describe("introduction card decisions", () => {
 });
 
 describe("introductionOutcomeForAction", () => {
+  const slackStranger = {
+    sourceChannel: "slack",
+    requesterSignals: serializeRequesterSignals({ isStranger: true }) ?? null,
+  };
+
   test("folds the generic decision pair onto the introduction outcomes", () => {
     // `reject` and `leave_unverified` both park the contact at `unverified`;
     // `approve_once` starts the handshake. Introduction actions map to
     // themselves. Callers that must present the resolved outcome (the card
     // projection) rely on this so a `reject` park never reads as "Denied".
-    expect(introductionOutcomeForAction("reject")).toBe("leave_unverified");
-    expect(introductionOutcomeForAction("leave_unverified")).toBe(
-      "leave_unverified",
-    );
-    expect(introductionOutcomeForAction("approve_once")).toBe("verify_code");
-    expect(introductionOutcomeForAction("verify_code")).toBe("verify_code");
-    expect(introductionOutcomeForAction("trust")).toBe("trust");
-    expect(introductionOutcomeForAction("block")).toBe("block");
+    const outcome = (
+      action: Parameters<typeof introductionOutcomeForAction>[1],
+    ) => introductionOutcomeForAction(slackStranger, action);
+    expect(outcome("reject")).toBe("leave_unverified");
+    expect(outcome("leave_unverified")).toBe("leave_unverified");
+    expect(outcome("approve_once")).toBe("verify_code");
+    expect(outcome("verify_code")).toBe("verify_code");
+    expect(outcome("trust")).toBe("trust");
+    expect(outcome("block")).toBe("block");
+  });
+
+  test("a handshake approval resolves to trust where the handshake cannot complete", () => {
+    const email = { sourceChannel: "email", requesterSignals: null };
+    const bot = {
+      sourceChannel: "slack",
+      requesterSignals: serializeRequesterSignals({ isBot: true }) ?? null,
+    };
+    for (const request of [email, bot]) {
+      expect(introductionOutcomeForAction(request, "approve_once")).toBe(
+        "trust",
+      );
+      expect(introductionOutcomeForAction(request, "verify_code")).toBe(
+        "trust",
+      );
+    }
   });
 });

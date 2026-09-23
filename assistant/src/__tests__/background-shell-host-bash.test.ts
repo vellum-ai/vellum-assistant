@@ -84,7 +84,11 @@ mock.module("../daemon/host-bash-proxy.js", () => ({
 // Import under test — MUST come after mock.module calls.
 // ---------------------------------------------------------------------------
 
-import type { CompletedBackgroundTool } from "../tools/background-tool-registry.js";
+import type { WakeOptions } from "../runtime/agent-wake.js";
+import type {
+  BackgroundTool,
+  CompletedBackgroundTool,
+} from "../tools/background-tool-registry.js";
 import { hostShellTool } from "../tools/host-terminal/host-shell.js";
 import type { ToolContext, ToolExecutionResult } from "../tools/types.js";
 
@@ -148,6 +152,56 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("host_bash background mode — proxy path", () => {
+  for (const cronRunId of [undefined, null, "cron-run-123"]) {
+    for (const outcome of [
+      "completed",
+      "failed",
+      "rejected",
+      "cancelled",
+      "cancelled-rejection",
+    ] as const) {
+      test(`preserves originating schedule ${String(cronRunId)} on ${outcome}`, async () => {
+        mockProxyAvailable = true;
+        const result = Promise.withResolvers<ToolExecutionResult>();
+        mockProxyRequestImpl = () => result.promise;
+        const context = makeContext({ cronRunId });
+
+        await hostShellTool.execute(
+          { command: "echo bg-proxy", background: true },
+          context,
+        );
+        context.cronRunId = "cron-run-later";
+        const ownedCommand = (
+          mockRegisterBackgroundTool.mock.calls as unknown[][]
+        )[0]![0] as BackgroundTool;
+        expect(ownedCommand.cronRunId).toBe(cronRunId ?? undefined);
+        const cancelled =
+          outcome === "cancelled" || outcome === "cancelled-rejection";
+        if (cancelled) {
+          const registered = (
+            mockRegisterBackgroundTool.mock.calls as unknown[][]
+          )[0]![0] as BackgroundTool;
+          registered.cancel();
+        }
+        if (outcome === "rejected" || outcome === "cancelled-rejection") {
+          result.reject(new Error("proxy transport error"));
+        } else {
+          result.resolve({ content: "done", isError: outcome === "failed" });
+        }
+        await new Promise((resolve) => setTimeout(resolve, 10));
+
+        expect(mockWakeAgentForOpportunity).toHaveBeenCalledTimes(1);
+        const wake = (
+          mockWakeAgentForOpportunity.mock.calls as unknown[][]
+        )[0]![0] as WakeOptions;
+        expect(wake.cronRunId).toBe(cronRunId ?? undefined);
+        expect(wake.backgroundToolCompletion?.status).toBe(
+          cancelled ? "cancelled" : outcome === "rejected" ? "failed" : outcome,
+        );
+      });
+    }
+  }
+
   test("returns immediately with backgrounded response", async () => {
     const proxyResult: ToolExecutionResult = {
       content: "proxy output",
@@ -311,6 +365,49 @@ describe("host_bash background mode — proxy path", () => {
 // ---------------------------------------------------------------------------
 
 describe("host_bash background mode — direct execution path", () => {
+  for (const cronRunId of [undefined, null, "cron-run-123"]) {
+    for (const outcome of [
+      "completed",
+      "failed",
+      "spawn-error",
+      "cancelled",
+    ] as const) {
+      test(`preserves originating schedule ${String(cronRunId)} on ${outcome}`, async () => {
+        const context = makeContext({ cronRunId });
+        await hostShellTool.execute(
+          { command: "echo bg-local", background: true },
+          context,
+        );
+        context.cronRunId = "cron-run-later";
+        const ownedCommand = (
+          mockRegisterBackgroundTool.mock.calls as unknown[][]
+        )[0]![0] as BackgroundTool;
+        expect(ownedCommand.cronRunId).toBe(cronRunId ?? undefined);
+        if (outcome === "cancelled") {
+          const registered = (
+            mockRegisterBackgroundTool.mock.calls as unknown[][]
+          )[0]![0] as BackgroundTool;
+          registered.cancel();
+        }
+        if (outcome === "spawn-error") {
+          latestChild!.emit("error", new Error("spawn ENOENT"));
+          latestChild!.emit("close", null);
+        } else {
+          latestChild!.emit("close", outcome === "failed" ? 1 : 0);
+        }
+
+        expect(mockWakeAgentForOpportunity).toHaveBeenCalledTimes(1);
+        const wake = (
+          mockWakeAgentForOpportunity.mock.calls as unknown[][]
+        )[0]![0] as WakeOptions;
+        expect(wake.cronRunId).toBe(cronRunId ?? undefined);
+        expect(wake.backgroundToolCompletion?.status).toBe(
+          outcome === "spawn-error" ? "failed" : outcome,
+        );
+      });
+    }
+  }
+
   test("returns immediately with backgrounded response", async () => {
     const ctx = makeContext();
 

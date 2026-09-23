@@ -291,18 +291,15 @@
     "backToConversationAriaLabel": "Back to conversation",
     "backToSkillsAriaLabel": "Back to skills",
     "filesTab": "Files",
-    "fileViewModeAriaLabel": "File view mode",
     "historyTab": "History",
     "install": "Install",
     "noFilesAvailable": "No files available.",
     "openInWorkspaceAriaLabel": "Open in Workspace",
     "pendingAriaLabel": "Pending",
-    "preview": "Preview",
     "remove": "Remove",
     "saveFailed": "Save failed",
     "selectAFile": "Select a file",
-    "selectFilePrompt": "Select a file to view its contents.",
-    "source": "Source"
+    "selectFilePrompt": "Select a file to view its contents."
   },
   "skillDetailPage": {
     "backToConversation": "Back to conversation",

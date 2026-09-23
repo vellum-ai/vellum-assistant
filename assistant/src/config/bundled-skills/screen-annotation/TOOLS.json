@@ -3,7 +3,7 @@
   "tools": [
     {
       "name": "screen_point_at",
-      "description": "Point at something on the screen the user is sharing with the call: draws an arrow at it, with a short caption beside it. Replaces whatever is currently drawn.\n\nName what to point at with `target`, written the way the control's own label is written: \"color balance\", \"Send\", \"Search\". The name is looked up on the surface itself, and the arrow lands on it. This is how to point at a control. A name the surface does not carry draws nothing and comes back with the names it does carry, to point again with or to say out loud.\n\nGive `x`/`y`/`width`/`height` only when the extent is the message: a region of an image, an area of a canvas, a panel named as a whole. Those draw a ring around the bounds, and they are fractions of the shared surface measured against the picture you were last shown, so they are a guess at where something is rather than a reading of it.\n\nRequires the user to be sharing their screen. If nothing is shared this fails, and the right move is to ask them to share before pointing again.",
+      "description": "Point at something on the screen the user is sharing with the call. Draws an arrow at a named control or a ring around measured bounds, with a short caption. Replaces whatever is currently drawn.\n\nPrefer target for an arrow, using the control label: \"color balance\", \"Send\", \"Search\". A failed lookup returns accessibility names that may differ from visible labels. Retry with a returned name only when it identifies the intended control; do not invent internal names.\n\nUse x/y/width/height for a region, an explicit request for a circle or ring, or a visual fallback when a named lookup fails. Measure tight bounds from a fresh image of the shared surface only when you can confidently identify the target. A failed accessibility lookup does not prevent drawing a clearly visible control. If the view is stale or the target is unclear, get a fresh view or ask the user to clarify; do not invent coordinates.\n\nRequires the user to be sharing their screen. If nothing is shared, ask them to share before pointing again. Confirm a mark only after the tool reports success.",
       "category": "screen-annotation",
       "risk": "low",
       "input_schema": {
@@ -15,14 +15,14 @@
             "maxItems": 4,
             "items": {
               "type": "object",
-              "description": "One thing to point at: `target` naming a control, which draws an arrow at it, or all four bounds giving a region, which draws a ring around it. Naming is exact; bounds are estimated. One or the other, never both and never part of either.",
+              "description": "One thing to point at: target naming a control for an arrow, or all four bounds measured from a fresh shared image for a ring. Use bounds for regions, explicit circle requests, or a clearly identified visual fallback after a name lookup fails. Supply either target or bounds, never both.",
               "oneOf": [
                 {
                   "description": "A control, named and found on the surface. An arrow lands on it.",
                   "required": ["target"]
                 },
                 {
-                  "description": "A region, measured off the picture you were last shown. A ring is drawn around it, and all four bounds are needed to have one.",
+                  "description": "A region or clearly identified control, measured from a fresh shared image. Draws a ring; all four bounds are required.",
                   "required": ["x", "y", "width", "height"]
                 }
               ],
@@ -35,11 +35,11 @@
                 },
                 "x": {
                   "type": "number",
-                  "description": "Left edge as a fraction of the shared surface's width (0 to 1). Only when the extent is the message."
+                  "description": "Left edge as a fraction of the shared surface's width (0 to 1), measured from a fresh image."
                 },
                 "y": {
                   "type": "number",
-                  "description": "Top edge as a fraction of the shared surface's height (0 to 1). Only when the extent is the message."
+                  "description": "Top edge as a fraction of the shared surface's height (0 to 1), measured from a fresh image."
                 },
                 "width": {
                   "type": "number",

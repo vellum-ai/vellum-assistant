@@ -10,7 +10,9 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { WindowAttentionPayload } from "@vellumai/ipc-contract";
 
 import {
+  canHandleForegroundDirective,
   isVisibleToUser,
+  isClientAttended,
   isWindowAttended,
   isWindowOnScreen,
   subscribeToWindowAttention,
@@ -68,12 +70,17 @@ beforeEach(() => {
   listener = null;
 });
 
+const originalHasFocus = document.hasFocus;
+
 afterEach(() => {
+  document.hasFocus = originalHasFocus;
   unsubscribe?.();
   unsubscribe = null;
   delete window.vellum;
   if (realVisibilityState) {
     Object.defineProperty(document, "visibilityState", realVisibilityState);
+  } else {
+    Reflect.deleteProperty(document, "visibilityState");
   }
 });
 
@@ -200,5 +207,48 @@ describe("isWindowOnScreen", () => {
 
     send({ minimized: null });
     expect(isWindowOnScreen()).toBe(false);
+  });
+});
+
+describe("isClientAttended", () => {
+  test("visible browser windows require focus for notification attention", () => {
+    setVisibilityState("visible");
+    document.hasFocus = () => false;
+    expect(isVisibleToUser()).toBe(true);
+    expect(isClientAttended()).toBe(false);
+    document.hasFocus = () => true;
+    expect(isClientAttended()).toBe(true);
+    setVisibilityState("hidden");
+    expect(isClientAttended()).toBe(false);
+  });
+});
+
+describe("canHandleForegroundDirective", () => {
+  test("requires both browser visibility and focus", () => {
+    setVisibilityState("hidden");
+    document.hasFocus = () => true;
+    expect(canHandleForegroundDirective(false)).toBe(false);
+
+    setVisibilityState("visible");
+    document.hasFocus = () => false;
+    expect(canHandleForegroundDirective(false)).toBe(false);
+
+    document.hasFocus = () => true;
+    expect(canHandleForegroundDirective(false)).toBe(true);
+  });
+
+  test("preserves Capacitor handoff while its webview is hidden", () => {
+    setVisibilityState("hidden");
+    document.hasFocus = () => false;
+    expect(canHandleForegroundDirective(true)).toBe(true);
+  });
+
+  test("preserves Electron handoff regardless of host attention", () => {
+    installBridgeWithoutAttention();
+    setVisibilityState("hidden");
+    document.hasFocus = () => false;
+
+    expect(isClientAttended()).toBe(false);
+    expect(canHandleForegroundDirective(false)).toBe(true);
   });
 });

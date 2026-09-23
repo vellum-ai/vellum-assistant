@@ -282,7 +282,10 @@ export function startResourceSampler(
     }
 
     try {
-      stallCapture.check(sample, now);
+      // Judge staleness at capture time, not tick start: sampling can take
+      // seconds, and a stall that ended meanwhile must not be captured from
+      // the recovered daemon.
+      stallCapture.check(sample, clock());
     } catch (err) {
       log.warn({ err }, "Daemon stall check failed");
     }

@@ -125,6 +125,7 @@ export const shellTool = {
     input: Record<string, unknown>,
     context: ToolContext,
   ): Promise<ToolExecutionResult> {
+    const cronRunId = context.cronRunId ?? undefined;
     const parsed = shellInputSchema.safeParse(input);
     if (!parsed.success) {
       return invalidToolInputResult("bash", parsed.error);
@@ -410,6 +411,7 @@ export const shellTool = {
             : `Background command completed (id=${bgId}, exit=${code ?? "unknown"}):`;
         void wakeAgentForOpportunity({
           conversationId: context.conversationId,
+          cronRunId,
           hint: framing,
           source: "background-tool",
           persistTriggerAsEvent: true,
@@ -473,6 +475,7 @@ export const shellTool = {
         };
         void wakeAgentForOpportunity({
           conversationId: context.conversationId,
+          cronRunId,
           hint: framing,
           source: "background-tool",
           persistTriggerAsEvent: true,
@@ -496,6 +499,7 @@ export const shellTool = {
 
       registerBackgroundTool({
         id: bgId,
+        cronRunId,
         toolName: "bash",
         conversationId: context.conversationId,
         command,

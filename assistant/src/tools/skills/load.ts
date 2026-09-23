@@ -35,6 +35,7 @@ import type {
   ToolDefinition,
   ToolExecutionResult,
 } from "../types.js";
+import { formatSkillInputSchema } from "./format-input-schema.js";
 
 /** Skill sources eligible for inline command expansion in v1. */
 const INLINE_COMMAND_ELIGIBLE_SOURCES = new Set([
@@ -123,32 +124,7 @@ function formatToolSchemas(
       tool.description.replaceAll("{workspaceDir}", getWorkspaceDirDisplay()),
     );
 
-    const schema = tool.input_schema;
-    const properties = schema.properties as
-      | Record<string, Record<string, unknown>>
-      | undefined;
-    if (properties && Object.keys(properties).length > 0) {
-      const requiredSet = new Set<string>(
-        Array.isArray(schema.required) ? (schema.required as string[]) : [],
-      );
-
-      lines.push("Parameters:");
-      for (const [paramName, paramDef] of Object.entries(properties)) {
-        const paramType =
-          typeof paramDef.type === "string" ? paramDef.type : "any";
-        const requiredLabel = requiredSet.has(paramName)
-          ? "required"
-          : "optional";
-        const descPart =
-          typeof paramDef.description === "string"
-            ? `: ${paramDef.description.replaceAll("{workspaceDir}", getWorkspaceDirDisplay())}`
-            : "";
-        lines.push(
-          `- ${paramName} (${paramType}, ${requiredLabel})${descPart}`,
-        );
-      }
-    }
-
+    lines.push(formatSkillInputSchema(tool.input_schema));
     lines.push("");
   }
 
@@ -181,6 +157,7 @@ export const skillLoadTool = {
   async execute(
     input: Record<string, unknown>,
     context: ToolContext,
+    options?: { readOnly?: boolean },
   ): Promise<ToolExecutionResult> {
     const selector = input.skill;
     if (typeof selector !== "string" || selector.trim().length === 0) {
@@ -195,13 +172,17 @@ export const skillLoadTool = {
     // command execution. Instructions are still returned so the assistant can
     // load the system-storage-cleanup skill (and any already-installed skill).
     const cleanupMode = context.diskPressureCleanupModeActive === true;
+    const readOnly = cleanupMode || options?.readOnly === true;
+    const inlineCommandStub = cleanupMode
+      ? INLINE_COMMAND_CLEANUP_STUB
+      : "[inline command not executed]";
 
     let loaded = loadSkillBySelector(selector);
 
     // Auto-install from catalog if the skill isn't found locally
     if (
       !loaded.skill &&
-      !cleanupMode &&
+      !readOnly &&
       (loaded.errorCode === "not_found" || loaded.errorCode === "empty_catalog")
     ) {
       try {
@@ -297,9 +278,8 @@ export const skillLoadTool = {
           break;
         }
 
-        // Under the disk-pressure lock, never auto-install missing includes
-        // (that writes to the workspace). Leave them advisory ("not loaded").
-        if (cleanupMode) {
+        // Read-only loads leave missing includes advisory ("not loaded").
+        if (readOnly) {
           break;
         }
 
@@ -373,17 +353,11 @@ export const skillLoadTool = {
     const hasInlineCommands =
       skill.inlineCommandExpansions && skill.inlineCommandExpansions.length > 0;
 
-    if (hasInlineCommands && cleanupMode) {
-      // Under the disk-pressure lock, loading a skill must not execute shell.
-      // Strip inline command tokens instead of rendering them; the rest of the
-      // instructions are still returned.
-      body = body.replace(
-        INLINE_COMMAND_TOKEN_PATTERN,
-        INLINE_COMMAND_CLEANUP_STUB,
-      );
+    if (hasInlineCommands && readOnly) {
+      body = body.replace(INLINE_COMMAND_TOKEN_PATTERN, inlineCommandStub);
       log.info(
         { skillId: skill.id },
-        "Skipped inline command expansion during disk pressure cleanup mode",
+        "Skipped inline command expansion during read-only skill load",
       );
     } else if (hasInlineCommands) {
       if (skill.source === "extra" || skill.source === "plugin") {
@@ -475,12 +449,10 @@ export const skillLoadTool = {
             childLoaded.skill.inlineCommandExpansions &&
             childLoaded.skill.inlineCommandExpansions.length > 0;
 
-          if (childHasInlineCommands && cleanupMode) {
-            // No shell execution under the disk-pressure lock — strip the
-            // child's inline command tokens rather than rendering them.
+          if (childHasInlineCommands && readOnly) {
             childBody = childBody.replace(
               INLINE_COMMAND_TOKEN_PATTERN,
-              INLINE_COMMAND_CLEANUP_STUB,
+              inlineCommandStub,
             );
           } else if (childHasInlineCommands) {
             if (

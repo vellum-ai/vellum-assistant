@@ -17,7 +17,12 @@
 
 import { screen } from "@testing-library/react";
 import { useEffect, type ReactElement, type ReactNode } from "react";
-import { MemoryRouter, useLocation } from "react-router";
+import {
+  createMemoryRouter,
+  MemoryRouter,
+  useLocation,
+  type InitialEntry,
+} from "react-router";
 
 const PATHNAME_TEST_ID = "router-probe-pathname";
 const SEARCH_TEST_ID = "router-probe-search";
@@ -67,6 +72,50 @@ export function currentLocation(): {
       screen.getByTestId(STATE_TEST_ID).textContent || "null",
     ) as unknown,
   };
+}
+
+/**
+ * A data router mounting one element at each of `paths`, with a
+ * {@link LocationProbe} beside it.
+ *
+ * The shape a list-detail pair has in production: sibling entries sharing one
+ * component, so stepping between them keeps the page mounted. The returned
+ * router is what a suite reads its entry from and walks the history with
+ * (`router.navigate(-1)`), which a `MemoryRouter` cannot do.
+ *
+ * `awayPaths` mount the probe alone, standing in for the rest of the app: a
+ * suite navigates to one to unmount `element` while the location stays
+ * readable, which is how a move made after the page is left is asserted on.
+ */
+export function createProbedRouter({
+  paths,
+  element,
+  initialEntries,
+  initialIndex,
+  awayPaths = [],
+}: {
+  paths: readonly string[];
+  element: ReactNode;
+  initialEntries: InitialEntry[];
+  initialIndex?: number;
+  awayPaths?: readonly string[];
+}) {
+  function ProbedRoute(): ReactElement {
+    return (
+      <>
+        {element}
+        <LocationProbe />
+      </>
+    );
+  }
+
+  return createMemoryRouter(
+    [
+      ...paths.map((path) => ({ path, Component: ProbedRoute })),
+      ...awayPaths.map((path) => ({ path, Component: LocationProbe })),
+    ],
+    { initialEntries, initialIndex },
+  );
 }
 
 /** A `renderHook` wrapper whose router opens at `initialPath`. */

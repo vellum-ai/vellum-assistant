@@ -1,6 +1,11 @@
 import { z } from "zod";
 
 export {
+  type AskQuestionInput,
+  AskQuestionInputSchema,
+  type RecordedQuestion,
+} from "./ask-question-tool.js";
+export {
   isComputerUseToolCall,
   resolveComputerUseToolName,
 } from "./computer-use-tool.js";
@@ -767,6 +772,10 @@ export {
   DictationRequestSchema,
 } from "./requests/dictation.js";
 export {
+  type GuardianActionDecisionRequest,
+  GuardianActionDecisionRequestSchema,
+} from "./requests/guardian-actions.js";
+export {
   type BackgroundToolCompletion,
   type ConversationAttachmentBlock,
   ConversationAttachmentBlockSchema,
@@ -832,6 +841,8 @@ export {
   FeedItemStatusSchema,
   type FeedItemType,
   FeedItemTypeSchema,
+  type FeedItemUpdate,
+  FeedItemUpdateSchema,
   type FeedItemUrgency,
   FeedItemUrgencySchema,
   GUARDIAN_TERMINAL_REASON_SUPERSEDED,

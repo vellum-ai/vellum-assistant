@@ -2,8 +2,6 @@ import {
   ArrowDownToLine,
   ArrowLeft,
   ChevronDown,
-  Code,
-  Eye,
   FileText,
   Folder,
   Loader2,
@@ -12,7 +10,6 @@ import {
 import { useEffect, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 
-import { isMarkdown } from "@/components/file-markdown";
 import { SkillLineageLink } from "@/components/skill-lineage-link";
 import {
   isAvailableSkill,
@@ -24,7 +21,7 @@ import {
 } from "@/hooks/use-skill-detail-files";
 import { useTranslation } from "@/i18n";
 import { isRemovableSkill } from "@/utils/skills";
-import { Button, Card, Menu, SegmentControl } from "@vellumai/design-library";
+import { Button, Card, Menu } from "@vellumai/design-library";
 import { SkillIcon } from "@/components/skill-icon";
 import { SkillFileContent } from "./skill-file-content";
 import { SkillOriginBadge } from "./skill-origin-badge";
@@ -102,13 +99,6 @@ export function SkillDetailMobile({
     isContentLoading,
   } = useSkillDetailFiles(assistantId, skill.id);
 
-  const [viewMode, setViewMode] = useState<"preview" | "raw">("preview");
-
-  // Each newly opened file starts in preview.
-  useEffect(() => {
-    setViewMode("preview");
-  }, [activePath]);
-
   // Resolve the full-screen portal target after commit (SSR-safe; the
   // element is mounted by RootLayout). Falls back to inline rendering when
   // absent (e.g. tests, first paint).
@@ -116,11 +106,6 @@ export function SkillDetailMobile({
   useEffect(() => {
     setOverlayTarget(document.getElementById("viewport-overlays"));
   }, []);
-
-  const activeIsMarkdown = activeFile
-    ? isMarkdown(activeFile.name, undefined)
-    : false;
-  const effectiveViewMode = activeIsMarkdown ? viewMode : "raw";
 
   const overlay = (
     <div
@@ -211,25 +196,6 @@ export function SkillDetailMobile({
               activeName={activeFile?.name ?? null}
               onSelect={setSelectedPath}
             />
-            <SegmentControl<"preview" | "raw">
-              iconOnly
-              ariaLabel={t("skillDetail.fileViewModeAriaLabel")}
-              value={effectiveViewMode}
-              onChange={setViewMode}
-              items={[
-                {
-                  value: "preview",
-                  label: t("skillDetail.preview"),
-                  icon: <Eye aria-hidden />,
-                  disabled: !activeIsMarkdown,
-                },
-                {
-                  value: "raw",
-                  label: t("skillDetail.source"),
-                  icon: <Code aria-hidden />,
-                },
-              ]}
-            />
           </div>
 
           <div className="min-h-0 flex-1 overflow-hidden">
@@ -242,10 +208,10 @@ export function SkillDetailMobile({
               </div>
             ) : activeFile ? (
               <SkillFileContent
+                key={activeFile.path}
                 fileName={activeFile.name}
                 content={fileContent}
                 isBinary={isBinary}
-                viewMode={effectiveViewMode}
               />
             ) : (
               <p

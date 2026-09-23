@@ -76,5 +76,6 @@ status are recorded in the canonical
 | Dock badge and bounce                                   | Taskbar overlay icon and attention flash (`main/taskbar.ts`).                                                                      |
 | Share sheet                                             | Native Save As dialog (`main/features/share.ts`).                                                                                  |
 | Quick Look extension                                    | Explorer preview and thumbnail handler.                                                                                            |
+| `permissions.setup` | macOS-only companion coachmark guides for helper-bundle drops into System Settings. Windows retains its existing permission prompts and Settings links. |
 | Accessibility, Input Monitoring, Automation permissions | No Windows permission concept; the rows are hidden on a Windows host.                                                              |
 | Notarization and stapling                               | Authenticode signatures, verified at release time.                                                                                 |

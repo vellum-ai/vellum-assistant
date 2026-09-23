@@ -192,6 +192,11 @@ export interface DisplayMessage {
    *  the upsell card instead of a persona bubble; other categories keep the
    *  plain rendering. */
   providerError?: { code?: string; category?: string };
+  /** The default profile key the Auto profile routed this turn to. Mirrors
+   *  `ConversationMessage["autoRoutedProfile"]` and the same field on
+   *  `message_complete`; set only on rows from a turn that ran on Auto, and
+   *  shown beside the timestamp so the pick is visible per message. */
+  autoRoutedProfile?: string;
   /** Unix ms at which the message was deleted on its channel after the
    *  daemon stored it. Mirrors `ConversationMessage["deletedAt"]`; renders as
    *  a tombstone in place of the stored content, which stays for Inspect. */

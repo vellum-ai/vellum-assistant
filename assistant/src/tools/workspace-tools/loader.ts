@@ -236,7 +236,7 @@ function selectLiveExtension(
  * delete of the file unregisters the right tool.
  */
 function applyWorkspaceToolDefaults(tool: ToolDefinition, name: string): Tool {
-  const finalized = finalizeTool(
+  return finalizeTool(
     {
       ...tool,
       name,
@@ -253,7 +253,6 @@ function applyWorkspaceToolDefaults(tool: ToolDefinition, name: string): Tool {
     },
     name,
   );
-  return finalized;
 }
 
 /**

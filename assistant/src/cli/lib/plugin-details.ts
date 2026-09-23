@@ -46,6 +46,7 @@ import {
   findCatalogEntry,
   resolveSourceFromMatch,
 } from "./plugin-catalog-resolve.js";
+import { isPluginCatalogEntryVisible } from "./plugin-catalog-visibility.js";
 import { DEFAULT_PLUGIN_REF } from "./plugin-constants.js";
 import { readValidatedPluginIcon } from "./plugin-icon-file.js";
 import { fetchMarketplaceEntries } from "./plugin-marketplace.js";
@@ -156,8 +157,8 @@ export class PluginDetailsNotFoundError extends Error {
  * Resolve the detail view for {@link opts.name}.
  *
  * Throws {@link PluginDetailsNotFoundError} when the name is neither installed
- * locally nor present in the catalog (gated at the default ref, the GitHub
- * marketplace at an explicit historical ref). A gated-catalog outage
+ * locally nor present in the visibility-gated catalog at either the default
+ * or an explicit historical ref. A gated-catalog outage
  * ({@link PluginCatalogUnavailableError}) degrades to the on-disk fields only
  * when a local copy exists; with nothing installed to render it propagates so
  * the caller can map the transient failure to a retryable 503 rather than a
@@ -400,11 +401,10 @@ async function fetchRawFile(
 /**
  * Resolve the external catalog entry claiming {@link name}.
  *
- * The default ref reads the gated catalog (the same source search / install
- * use). An explicit historical {@link ref} reads the GitHub marketplace
- * manifest at that revision — the gated catalog is ref-agnostic, so honoring a
- * reviewed/rolled-back revision is inherently a git lookup, matching the pin
- * history / inspect carve-out.
+ * Both default and historical-ref lookups apply catalog visibility first. The
+ * default ref then reads the gated catalog used by search and install, while an
+ * explicit historical {@link ref} reads the GitHub marketplace manifest at
+ * that revision.
  *
  * A gated-catalog outage (fail-hard {@link PluginCatalogUnavailableError})
  * propagates when nothing is installed — there is nothing to render and the
@@ -420,6 +420,9 @@ async function resolveCatalogEntry(
   fetchFn: FetchLike,
   installed: boolean,
 ): Promise<PluginSearchMatch | null> {
+  if (!isPluginCatalogEntryVisible(name)) {
+    return null;
+  }
   try {
     const match =
       ref === DEFAULT_PLUGIN_REF

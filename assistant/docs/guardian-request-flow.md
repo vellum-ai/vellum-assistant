@@ -24,7 +24,7 @@ anti-pattern was retired in #35642 and again in the ask_question redesign).
   (generic actions[] + plainTextFallback)         resolveQuestionContext)
         │
         ▼ per-channel rendering ONLY
-  channel adapters                               (notifications/adapters/{telegram,slack,macos,platform},
+  channel adapters                               (notifications/adapters/{telegram,slack,discord,macos,platform},
   telegram: inline keyboard; slack: blocks;       vellum: conversation card via approval-card-builder)
   card deliveries recorded per channel            (guardian-delivery-recorder.ts → guardian_request_deliveries)
         │

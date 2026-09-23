@@ -151,6 +151,9 @@ jobs:
       - name: Test gestures in Chromium and WebKit
         run: bun run test:edge-swipe:browser
 
+      - name: Test notification coordination in Chromium and WebKit
+        run: bun scripts/test-browser-notification-delivery.ts
+
   build:
     name: Build
     runs-on: ubuntu-latest

@@ -1,7 +1,6 @@
 {
-  "conversationDoneToast": {
-    "message": "已完成",
-    "undo": "復原"
+  "askQuestionDetail": {
+    "heading": "{count, plural, other {問題}}"
   },
   "documentChat": {
     "saveFailed": "無法儲存文件。你的訊息仍在這裡。請重新傳送。",
@@ -67,7 +66,7 @@
   },
   "markAllDoneConfirmDialog": {
     "confirm": "全部標記為已完成",
-    "message": "{count, plural, other {將「{groupName}」中的所有 {count} 個對話標記為已完成？它們將從側邊欄移除，並保留在「舊聊天」中，您可以在那裡重新開啟它們。}}",
+    "message": "{count, plural, other {將「{groupName}」中的所有 {count} 個對話標記為已完成？它們將從側邊欄移除，並保留在「所有聊天」中，您可以在那裡重新開啟它們。}}",
     "title": "全部標記為已完成"
   },
   "mobileDetailSheet": {
@@ -81,7 +80,6 @@
     "screenshotFallbackAria": "預覽電腦螢幕截圖",
     "screenshotFallbackTitle": "電腦螢幕截圖",
     "screenshotTitle": "來自「{activity}」的螢幕截圖",
-    "thinkingTitle": "思考中",
     "viewThinkingAria": "檢視思考過程"
   },
   "computerUseScreenshotPreview": {
@@ -126,7 +124,7 @@
     "navigate": "導覽",
     "terminal": "執行命令"
   },
-  "oldChatsPage": {
+  "allChatsPage": {
     "band": {
       "previous30Days": "過去 30 天",
       "previous7Days": "過去 7 天",
@@ -146,7 +144,7 @@
     "noMatches": "沒有與「{query}」相符的聊天。",
     "retry": "重試",
     "searchPlaceholder": "搜尋聊天",
-    "title": "舊聊天"
+    "title": "所有聊天"
   },
   "sessionGroupRow": {
     "mode": {
@@ -402,10 +400,10 @@
   },
   "cameraViewOptions": {
     "buttonAria": "相機顯示選項",
-    "gateHudDescription": "用於調整即時模式保留哪些畫面的面板。",
-    "gateHudTitle": "影格篩選讀數",
-    "keptFrameDescription": "即時模式傳送的最近一格，顯示在照片旁邊。無論是否顯示，都會繼續傳送。",
-    "keptFrameTitle": "最近一格",
+    "gateHudDescription": "偵錯疊加層：即時模式如何挑選要傳送的畫面。",
+    "gateHudTitle": "影格篩選調校",
+    "keptFrameDescription": "顯示即時模式最近傳送的畫面。",
+    "keptFrameTitle": "最近分享的畫面",
     "title": "顯示"
   },
   "cardSurface": {
@@ -637,6 +635,7 @@
     "warningTitle": "這看起來像一個 API 金鑰"
   },
   "composerSettingsMenu": {
+    "autoPreview": "自動 · {profile}",
     "accessAria": "助理存取權限：{label}",
     "assistantAccess": "助理存取權限",
     "assistantAccessTitle": "助理存取權限",
@@ -731,8 +730,6 @@
     "markRead": "標示為已讀",
     "markUnread": "標示為未讀",
     "moveToGroup": "移至群組",
-    "newDocument": "新增文件",
-    "newDocumentFailed": "無法建立文件。請再試一次。",
     "newGroup": "新增群組…",
     "openInNewWindow": "在新視窗中開啟",
     "pin": "釘選",
@@ -1305,6 +1302,7 @@
     "title": "檔案"
   },
   "messageHoverActions": {
+    "autoRouted": "自動 · {profile}",
     "bookmark": "書籤",
     "copied": "已複製",
     "copy": "複製",
@@ -1827,6 +1825,9 @@
   "textSelectionPopover": {
     "reply": "回覆"
   },
+  "thinkingDetail": {
+    "title": "思考中"
+  },
   "tiptapDocumentEditor": {
     "adding": "正在新增…",
     "comment": "註解",
@@ -2005,8 +2006,9 @@
   },
   "webFetchDetailView": {
     "fetchFailed": "擷取失敗。",
-    "fetching": "正在擷取…",
-    "noContent": "未擷取到內容。"
+    "mayRequireJavaScript": "此頁面可能需要 JavaScript 才能完整顯示，因此部分內容可能缺失。",
+    "startIndexPastEnd": "讀取起點超出了此頁面的結尾，因此沒有讀取到任何內容。",
+    "truncated": "只讀取了此頁面的一部分。"
   },
   "webSearchDetailView": {
     "noSources": "找不到來源。",
@@ -2093,6 +2095,12 @@
   "assistantSection": {
     "emptyBody": "我隨時都在思考。當有值得您關注的事情時，我會在這裡發起對話。",
     "emptyTitle": "目前還沒有任何想法。"
+  },
+  "chatsSection": {
+    "doneEmptyBody": "標記為已完成的聊天會保留在「所有聊天」中。",
+    "doneEmptyTitle": "全部處理完畢。",
+    "emptyBody": "開始新的聊天後，它會顯示在這裡。",
+    "emptyTitle": "還沒有聊天。"
   },
   "sidebarExpandRow": {
     "expand": "展開",

@@ -5,17 +5,12 @@
  * Ctrl+S / Cmd+S to save.
  */
 
-import {
-  queryOptions,
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Download,
+  ArrowUp,
   FileIcon,
   FileText,
-  FolderOpen,
   Image as ImageIcon,
   Loader2,
   Video,
@@ -28,21 +23,24 @@ import {
   FileTextarea,
   SourcePre,
 } from "@/components/file-editor";
-import { formatLocale, useTranslation } from "@/i18n";
+import {
+  FileViewModeControl,
+  type FileViewMode,
+} from "@/components/file-view-mode";
+import { formatLocale, Trans, useTranslation } from "@/i18n";
 import { FileMarkdown, isMarkdown } from "@/components/file-markdown";
 import { isJson, prettifyJson } from "@/domains/workspace/utils/file-json";
 import { formatFileSize } from "@/utils/format-file-size";
 import { isHiddenPath } from "@/domains/workspace/utils/is-hidden-path";
 import {
   workspaceFileContentGet,
-  workspaceFileGet,
   workspaceWritePost,
 } from "@/generated/daemon/sdk.gen";
-import type { WorkspaceFileGetResponse } from "@/generated/daemon/types.gen";
 import { downloadWorkspaceFile } from "@/utils/download-workspace-file";
 import { Button } from "@vellumai/design-library/components/button";
+import { Typography } from "@vellumai/design-library/components/typography";
 
-import type { WorkspaceViewMode } from "@/domains/workspace/components/workspace-browser";
+import { workspaceFileRetrieveOptions } from "../utils/workspace-file-query";
 
 /**
  * Download state for a single workspace file — shared by the binary-fallback
@@ -120,28 +118,6 @@ function HeaderDownloadButton({
   );
 }
 
-function workspaceFileRetrieveOptions(opts: {
-  path: { assistant_id: string };
-  query: { path: string; showHidden?: boolean };
-}) {
-  return queryOptions<WorkspaceFileGetResponse>({
-    queryFn: async () => {
-      const { data, error } = await workspaceFileGet({
-        path: opts.path,
-        query: {
-          path: opts.query.path,
-          ...(opts.query.showHidden ? { showHidden: "true" } : {}),
-        },
-      });
-      if (error) {
-        throw error;
-      }
-      return data!;
-    },
-    queryKey: ["assistantsWorkspaceFileRetrieve", opts],
-  });
-}
-
 function FileHeaderIcon({ mimeType }: { mimeType: string }) {
   const semi = mimeType.indexOf(";");
   const baseMime = (semi === -1 ? mimeType : mimeType.slice(0, semi)).trim();
@@ -159,6 +135,7 @@ function FileHeaderIcon({ mimeType }: { mimeType: string }) {
   }
   return (
     <span
+      data-slot="workspace-file-icon"
       className="flex h-5 w-5 shrink-0 items-center justify-center rounded"
       style={{
         backgroundColor:
@@ -170,48 +147,6 @@ function FileHeaderIcon({ mimeType }: { mimeType: string }) {
         style={{ color: "var(--content-default)" }}
       />
     </span>
-  );
-}
-
-function ViewModeToggle({
-  viewMode,
-  onChange,
-}: {
-  viewMode: WorkspaceViewMode;
-  onChange: (mode: WorkspaceViewMode) => void;
-}) {
-  const { t } = useTranslation("workspace");
-  return (
-    <div
-      className="inline-flex rounded-md p-0.5"
-      style={{
-        backgroundColor:
-          "color-mix(in oklab, var(--content-default) 6%, transparent)",
-      }}
-    >
-      {(["preview", "source"] as const).map((mode) => {
-        const active = viewMode === mode;
-        return (
-          <Button
-            key={mode}
-            variant="ghost"
-            onClick={() => onChange(mode)}
-            className="h-auto rounded border-0 px-2.5 py-1 text-body-small-default hover:bg-transparent"
-            style={{
-              backgroundColor: active ? "var(--surface-lift)" : "transparent",
-              color: active
-                ? "var(--content-default)"
-                : "var(--content-tertiary)",
-              boxShadow: active ? "0 1px 2px rgba(0,0,0,0.15)" : undefined,
-            }}
-          >
-            {mode === "preview"
-              ? t("workspaceFileViewer.preview")
-              : t("workspaceFileViewer.source")}
-          </Button>
-        );
-      })}
-    </div>
   );
 }
 
@@ -228,12 +163,14 @@ function FileHeader({
 }) {
   return (
     <div
+      data-slot="workspace-file-header"
       className="flex items-center justify-between gap-3 border-b px-3 py-2.5"
       style={{ borderColor: "var(--border-element)" }}
     >
       <div className="flex min-w-0 items-center gap-2">
         <FileHeaderIcon mimeType={mimeType} />
         <span
+          data-slot="workspace-file-name"
           className="truncate text-body-medium-default"
           style={{ color: "var(--content-default)" }}
         >
@@ -248,7 +185,7 @@ function FileHeader({
           </span>
         )}
       </div>
-      {rightContent}
+      {rightContent && <div className="shrink-0">{rightContent}</div>}
     </div>
   );
 }
@@ -447,21 +384,17 @@ export function WorkspaceFileViewer({
   showHidden,
   viewMode,
   onChangeViewMode,
-  onBrowse,
+  pickerAvailable = false,
   pathRename,
   pathDelete,
 }: {
   assistantId: string;
   selectedPath: string | null;
   showHidden?: boolean;
-  viewMode: WorkspaceViewMode;
-  onChangeViewMode: (mode: WorkspaceViewMode) => void;
-  /**
-   * Opens the file tree's drawer from the empty state. Passed only while the
-   * tree is behind that drawer, so the button exists exactly when the tree is
-   * not already on screen beside this.
-   */
-  onBrowse?: () => void;
+  viewMode: FileViewMode;
+  onChangeViewMode: (mode: FileViewMode) => void;
+  /** The header's file picker is available instead of an inline tree. */
+  pickerAvailable?: boolean;
   /** Last successful workspace rename, so edit state can follow the file. */
   pathRename?: { from: string; to: string } | null;
   /** Last successful workspace delete, so drafts for the path are discarded. */
@@ -572,21 +505,42 @@ export function WorkspaceFileViewer({
 
   if (!selectedPath) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3">
-        <p
-          className="text-body-medium-lighter"
-          style={{ color: "var(--content-tertiary)" }}
+      <div className="flex h-full flex-col items-center justify-center gap-3.5 px-10 text-center">
+        <div className="flex h-11 w-11 items-center justify-center rounded-[14px] bg-[color-mix(in_srgb,var(--content-default)_6%,transparent)]">
+          <FileText
+            className="h-5 w-4 text-[var(--content-secondary)]"
+            aria-hidden
+          />
+        </div>
+        <Typography
+          variant="body-large-lighter"
+          className="text-[var(--content-tertiary)]"
         >
-          {t("workspaceFileViewer.selectAFile")}
-        </p>
-        {onBrowse && (
-          <Button
-            type="button"
-            onClick={onBrowse}
-            leftIcon={<FolderOpen aria-hidden />}
+          {t("workspaceFileViewer.emptyTitle")}
+        </Typography>
+        {pickerAvailable ? (
+          <Typography
+            variant="body-small-lighter"
+            className="text-[var(--content-disabled)] [--text-body-small-lighter-size:13px]"
           >
-            {t("workspaceFileViewer.browseFiles")}
-          </Button>
+            <Trans
+              ns="workspace"
+              i18nKey="workspaceFileViewer.emptyHint"
+              components={{
+                strong: (
+                  <strong className="font-medium text-[var(--content-secondary)]" />
+                ),
+                arrow: <ArrowUp className="ml-1 inline h-3 w-3" aria-hidden />,
+              }}
+            />
+          </Typography>
+        ) : (
+          <Typography
+            variant="body-small-lighter"
+            className="text-[var(--content-tertiary)]"
+          >
+            {t("workspaceFileViewer.selectAFile")}
+          </Typography>
         )}
       </div>
     );
@@ -647,9 +601,10 @@ export function WorkspaceFileViewer({
         <FileHeader
           name={name}
           mimeType={mimeType}
+          size={data.size}
           rightContent={
-            <ViewModeToggle
-              viewMode={viewMode}
+            <FileViewModeControl
+              mode={viewMode}
               onChange={(mode) => {
                 if (isEditing) {
                   stopEditing();
@@ -670,8 +625,9 @@ export function WorkspaceFileViewer({
               isEditing ? stopEditing() : setEditingPath(selectedPath)
             }
           />
-          {viewMode === "preview" ? (
+          {viewMode === "formatted" ? (
             <div
+              data-slot="workspace-file-preview"
               className="h-full overflow-auto px-6 py-4"
               style={{ color: "var(--content-default)" }}
             >
@@ -687,6 +643,8 @@ export function WorkspaceFileViewer({
             />
           ) : (
             <SourcePre
+              lineNumbers={pickerAvailable}
+              whiteSpace={pickerAvailable ? "pre" : "pre-wrap"}
               content={data.content}
               readOnly={readOnly}
               onStartEdit={() => setEditingPath(selectedPath)}
@@ -707,9 +665,10 @@ export function WorkspaceFileViewer({
         <FileHeader
           name={name}
           mimeType={mimeType}
+          size={data.size}
           rightContent={
-            <ViewModeToggle
-              viewMode={viewMode}
+            <FileViewModeControl
+              mode={viewMode}
               onChange={(mode) => {
                 if (isEditing) {
                   stopEditing();
@@ -721,7 +680,7 @@ export function WorkspaceFileViewer({
         />
         <div className="relative flex-1 overflow-hidden">
           <ContentActionBar
-            content={viewMode === "preview" ? previewContent : sourceContent}
+            content={viewMode === "formatted" ? previewContent : sourceContent}
             downloadContent={sourceContent}
             fileName={name}
             mimeType={mimeType}
@@ -731,8 +690,13 @@ export function WorkspaceFileViewer({
               isEditing ? stopEditing() : setEditingPath(selectedPath)
             }
           />
-          {viewMode === "preview" ? (
-            <SourcePre content={previewContent} readOnly whiteSpace="pre" />
+          {viewMode === "formatted" ? (
+            <SourcePre
+              content={previewContent}
+              readOnly
+              whiteSpace="pre"
+              lineNumbers={pickerAvailable}
+            />
           ) : isEditing ? (
             <FileTextarea
               value={editableContent}
@@ -743,6 +707,8 @@ export function WorkspaceFileViewer({
             />
           ) : (
             <SourcePre
+              lineNumbers={pickerAvailable}
+              whiteSpace={pickerAvailable ? "pre" : "pre-wrap"}
               content={data.content}
               readOnly={readOnly}
               onStartEdit={() => setEditingPath(selectedPath)}
@@ -780,6 +746,8 @@ export function WorkspaceFileViewer({
             />
           ) : (
             <SourcePre
+              lineNumbers={pickerAvailable}
+              whiteSpace={pickerAvailable ? "pre" : "pre-wrap"}
               content={data.content ?? ""}
               readOnly={readOnly}
               onStartEdit={() => setEditingPath(selectedPath)}

@@ -109,6 +109,41 @@ async function executeSkillLoad(
 // ── Tests ─────────────────────────────────────────────────────────────────
 
 describe("skill_load inline command expansion", () => {
+  test("read-only preloading returns instructions without running inline commands", async () => {
+    writeSkill(
+      "readonly-example",
+      "readonly-example",
+      "Example skill",
+      "Context: !`echo example`",
+    );
+    const result = await skillLoadTool.execute(
+      { skill: "readonly-example" },
+      {
+        conversationId: "conversation-1",
+        workingDir: TEST_DIR,
+        trustClass: "guardian",
+      },
+      { readOnly: true },
+    );
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("[inline command not executed]");
+    expect(runInlineCommandCalls).toHaveLength(0);
+    expect(mockAutoInstall).not.toHaveBeenCalled();
+  });
+
+  test("read-only preloading does not install missing skills", async () => {
+    const result = await skillLoadTool.execute(
+      { skill: "missing-readonly-skill" },
+      {
+        conversationId: "conversation-1",
+        workingDir: TEST_DIR,
+        trustClass: "guardian",
+      },
+      { readOnly: true },
+    );
+    expect(result.isError).toBe(true);
+    expect(mockAutoInstall).not.toHaveBeenCalled();
+  });
   beforeEach(() => {
     mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
     runInlineCommandCalls.length = 0;

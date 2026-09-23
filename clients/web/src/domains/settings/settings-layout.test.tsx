@@ -11,6 +11,7 @@ let supportsBookmarks = false;
 let canUseInternalActions = true;
 let supportsCredentials = false;
 let nativeAndroid = false;
+let browserHost = false;
 
 mock.module("@/stores/assistant-feature-flag-store", () => {
   const store = () => null;
@@ -55,6 +56,10 @@ mock.module("@/lib/auth/handle-logout", () => ({
 
 mock.module("@/stores/auth-store", () => ({
   useHasPlatformSession: () => false,
+}));
+
+mock.module("@/runtime/notifications", () => ({
+  isBrowserNotificationHost: () => browserHost,
 }));
 
 mock.module("@/runtime/is-electron", () => ({
@@ -107,6 +112,7 @@ afterEach(() => {
   supportsCredentials = false;
   canUseInternalActions = true;
   nativeAndroid = false;
+  browserHost = false;
 });
 
 describe("SettingsLayout", () => {
@@ -210,7 +216,7 @@ describe("SettingsLayout", () => {
     expect(screen.queryByRole("link", { name: "Personality" })).toBeNull();
   });
 
-  test("renders Notifications only in the native Android app", () => {
+  test("renders Notifications on Android and browser hosts", () => {
     render(
       <MemoryRouter initialEntries={["/assistant/settings"]}>
         <SettingsLayout />
@@ -220,6 +226,15 @@ describe("SettingsLayout", () => {
     cleanup();
 
     nativeAndroid = true;
+    render(
+      <MemoryRouter initialEntries={["/assistant/settings"]}>
+        <SettingsLayout />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole("link", { name: "Notifications" })).not.toBeNull();
+    cleanup();
+    nativeAndroid = false;
+    browserHost = true;
     render(
       <MemoryRouter initialEntries={["/assistant/settings"]}>
         <SettingsLayout />

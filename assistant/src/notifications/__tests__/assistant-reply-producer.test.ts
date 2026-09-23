@@ -31,6 +31,25 @@ let assistantRow: MessageRow | null = null;
 let initiatingRow: MessageRow | null = null;
 let attentionState: AttentionState | null = null;
 let getConversationShouldThrow = false;
+let pendingBackgroundWork = false;
+let pendingWorkStartedAt: number | undefined;
+let firstAssistantRow: MessageRow | null = null;
+let persistedRows: MessageRow[] | undefined;
+const recentHistoryPages: Array<string | undefined> = [];
+const pendingWorkArgs: unknown[][] = [];
+
+mock.module("../has-pending-background-work.js", () => ({
+  hasPendingBackgroundWork: (...args: unknown[]) => {
+    pendingWorkArgs.push(args);
+    if (pendingWorkStartedAt !== undefined) {
+      return (
+        pendingWorkStartedAt >=
+        (args[1] as { startedAfter: number }).startedAfter
+      );
+    }
+    return pendingBackgroundWork;
+  },
+}));
 
 mock.module("../emit-signal.js", () => ({
   emitNotificationSignal: async (params: any) => {
@@ -60,7 +79,30 @@ mock.module("../../persistence/conversation-crud.js", () => ({
   },
   getMessageById: (messageId: string) => {
     messageLookups.push(messageId);
+    if (firstAssistantRow?.id === messageId) {
+      return firstAssistantRow;
+    }
+    const persisted = persistedRows?.find((row) => row.id === messageId);
+    if (persisted) {
+      return persisted;
+    }
     return messageId === ASSISTANT_MESSAGE_ID ? assistantRow : initiatingRow;
+  },
+  getRecentConversationMessages: (
+    _conversationId: string,
+    limit: number,
+    beforeMessageId?: string,
+  ) => {
+    recentHistoryPages.push(beforeMessageId);
+    const history =
+      persistedRows ??
+      [initiatingRow, firstAssistantRow, assistantRow].filter(
+        (row): row is MessageRow => row !== null,
+      );
+    const end = beforeMessageId
+      ? history.findIndex((row) => row.id === beforeMessageId)
+      : history.length;
+    return history.slice(Math.max(0, end - limit), end);
   },
 }));
 
@@ -75,6 +117,30 @@ mock.module("../../persistence/attachments-store.js", () => ({
   getAttachmentMetadataForMessage: (messageId: string) => {
     attachmentLookups.push(messageId);
     return assistantAttachments;
+  },
+}));
+
+let guardianPrincipalId: string | undefined = "guardian-1";
+let guardianLookupGate: Promise<void> | undefined;
+let onGuardianLookup = () => {};
+const realGuardianDelivery =
+  await import("../../contacts/guardian-delivery-reader.js");
+mock.module("../../contacts/guardian-delivery-reader.js", () => ({
+  ...realGuardianDelivery,
+  getGuardianDelivery: async () => {
+    onGuardianLookup();
+    if (guardianLookupGate) {
+      await guardianLookupGate;
+    }
+    return guardianPrincipalId
+      ? [
+          {
+            channelType: "vellum",
+            status: "active",
+            principalId: guardianPrincipalId,
+          },
+        ]
+      : null;
   },
 }));
 
@@ -290,10 +356,19 @@ async function run(
 }
 
 beforeEach(() => {
+  pendingBackgroundWork = false;
+  pendingWorkStartedAt = undefined;
+  firstAssistantRow = null;
+  persistedRows = undefined;
+  recentHistoryPages.length = 0;
+  pendingWorkArgs.length = 0;
   emitCalls.length = 0;
   warnCalls.length = 0;
   messageLookups.length = 0;
   attachmentLookups.length = 0;
+  guardianPrincipalId = "guardian-1";
+  guardianLookupGate = undefined;
+  onGuardianLookup = () => {};
   desktopPresenceArgs.length = 0;
   webPresenceArgs.length = 0;
   assistantAttachments = [];
@@ -316,6 +391,281 @@ beforeEach(() => {
 // ── Tests ──────────────────────────────────────────────────────────────
 
 describe("emitAssistantReplyNotification", () => {
+  function appendCompletedContinuation(): void {
+    persistedRows = [
+      ...(persistedRows ?? [initiatingRow!, assistantRow!]),
+      makeMessage({
+        id: "msg-completed-trigger",
+        createdAt: assistantRow!.createdAt,
+        metadata: JSON.stringify({
+          backgroundEventSource: "background-tool",
+          backgroundToolCompletion: {
+            id: "tool-completed",
+            toolName: "bash",
+            conversationId: CONVERSATION_ID,
+            command: "example-command",
+            startedAt: assistantRow!.createdAt,
+            completedAt: assistantRow!.createdAt,
+            status: "completed",
+            exitCode: 0,
+            output: "completed",
+          },
+        }),
+      }),
+      makeMessage({
+        id: "msg-completed-result",
+        role: "assistant",
+        createdAt: assistantRow!.createdAt,
+        content: [{ type: "text", text: "The requested work is finished." }],
+      }),
+    ];
+  }
+
+  test.each([false, true])(
+    "suppresses a stale kickoff after fast completion with projected=%s and timestamp ties",
+    async (projected) => {
+      assistantRow!.content = [{ type: "text", text: "The work is started." }];
+      appendCompletedContinuation();
+      if (projected) {
+        attentionState!.latestAssistantMessageId = "msg-completed-result";
+      }
+
+      await run();
+
+      expect(pendingBackgroundWork).toBe(false);
+      expect(emitCalls).toHaveLength(0);
+    },
+  );
+
+  test.each(["new continuation", "pending continuation", "reply seen"])(
+    "rechecks freshness after presence lookup when there is a %s",
+    async (change) => {
+      const { promise: lookupStarted, resolve: markLookupStarted } =
+        Promise.withResolvers<void>();
+      const { promise: lookupReady, resolve: releaseLookup } =
+        Promise.withResolvers<void>();
+      onGuardianLookup = markLookupStarted;
+      guardianLookupGate = lookupReady;
+      const notification = run();
+      await lookupStarted;
+      if (change === "new continuation") {
+        appendCompletedContinuation();
+      } else if (change === "pending continuation") {
+        pendingBackgroundWork = true;
+      } else {
+        attentionState!.lastSeenAssistantMessageAt = assistantRow!.createdAt;
+      }
+      releaseLookup();
+      await notification;
+
+      expect(emitCalls).toHaveLength(0);
+    },
+  );
+
+  test.each(["text", "media"])(
+    "keeps an unseen public %s reply with a same-turn private wrap-up across history pages",
+    async (replyType) => {
+      if (replyType === "media") {
+        assistantRow!.content = [];
+        assistantAttachments = [{ originalFilename: "report.pdf" }];
+      }
+      persistedRows = [initiatingRow!, assistantRow!];
+      for (let index = 0; index < 110; index++) {
+        persistedRows.push(
+          makeMessage({
+            id: `msg-private-${index}`,
+            role: "assistant",
+            content: [
+              {
+                type: "tool_use",
+                id: `tool-${index}`,
+                name: "bash",
+                input: {},
+              },
+            ],
+            metadata: JSON.stringify({ assistantTextVisibility: "private" }),
+            createdAt: assistantRow!.createdAt + index + 1,
+          }),
+          makeMessage({
+            id: `msg-tool-result-${index}`,
+            content: [
+              {
+                type: "tool_result",
+                tool_use_id: `tool-${index}`,
+                content: "ok",
+              },
+            ],
+            createdAt: assistantRow!.createdAt + index + 1,
+          }),
+        );
+      }
+      const wrapUp = makeMessage({
+        id: "msg-private-wrap-up",
+        role: "assistant",
+        content: [{ type: "text", text: "Private working notes." }],
+        metadata: JSON.stringify({ assistantTextVisibility: "private" }),
+        createdAt: assistantRow!.createdAt + 200,
+      });
+      persistedRows.push(wrapUp);
+      attentionState!.latestAssistantMessageId = wrapUp.id;
+      attentionState!.latestAssistantMessageAt = wrapUp.createdAt;
+
+      await run();
+
+      expect(recentHistoryPages).toContain(
+        persistedRows[persistedRows.length - 200].id,
+      );
+      expect(emitCalls).toHaveLength(1);
+      expect(emitCalls[0].contextPayload.requestedMessage).toBe(
+        replyType === "media" ? "Sent report.pdf" : "Sure, here is the plan.",
+      );
+    },
+  );
+
+  test("does not reuse a seen public reply because a private wrap-up is unseen", async () => {
+    const wrapUp = makeMessage({
+      id: "msg-private-wrap-up",
+      role: "assistant",
+      metadata: JSON.stringify({ assistantTextVisibility: "private" }),
+      createdAt: assistantRow!.createdAt + 1,
+    });
+    persistedRows = [initiatingRow!, assistantRow!, wrapUp];
+    attentionState!.latestAssistantMessageId = wrapUp.id;
+    attentionState!.latestAssistantMessageAt = wrapUp.createdAt;
+    attentionState!.lastSeenAssistantMessageAt = assistantRow!.createdAt;
+
+    await run();
+
+    expect(emitCalls).toHaveLength(0);
+  });
+
+  test.each([false, true])(
+    "keeps a newer reply eligible when older work starts its continuation, completed=%s",
+    async (completed) => {
+      appendCompletedContinuation();
+      const trigger = persistedRows![2];
+      const metadata = JSON.parse(trigger.metadata!);
+      metadata.backgroundToolCompletion.startedAt =
+        assistantRow!.createdAt - 1000;
+      trigger.metadata = JSON.stringify(metadata);
+      if (!completed) {
+        persistedRows!.pop();
+      }
+      await run();
+      expect(emitCalls).toHaveLength(1);
+    },
+  );
+
+  test("keeps a later human reply eligible after old background completion", async () => {
+    appendCompletedContinuation();
+    persistedRows = persistedRows!.map((row) => ({
+      ...row,
+      id: `old-${row.id}`,
+      createdAt: row.createdAt - 1000,
+    }));
+    persistedRows!.push(initiatingRow!, assistantRow!);
+
+    await run();
+
+    expect(emitCalls).toHaveLength(1);
+  });
+
+  test.each([false, true])(
+    "preserves a mixed human/hidden batch unless a later continuation exists=%s",
+    async (laterContinuation) => {
+      initiatingRow!.metadata = JSON.stringify({
+        turnOutcome: "batched",
+        turnBatchedInto: "msg-hidden-batch-tail",
+      });
+      const hiddenTail = makeMessage({
+        id: "msg-hidden-batch-tail",
+        metadata: JSON.stringify({ hidden: true }),
+      });
+      persistedRows = [initiatingRow!, hiddenTail, assistantRow!];
+      if (laterContinuation) {
+        appendCompletedContinuation();
+      }
+
+      await run();
+
+      expect(emitCalls).toHaveLength(laterContinuation ? 0 : 1);
+    },
+  );
+
+  test.each([undefined, "", 123, "msg-missing-target"])(
+    "rejects a malformed or missing batch target %s",
+    async (turnBatchedInto) => {
+      initiatingRow!.metadata = JSON.stringify({
+        turnOutcome: "batched",
+        turnBatchedInto,
+      });
+
+      await run();
+
+      expect(emitCalls).toHaveLength(0);
+    },
+  );
+
+  test("scopes unfinished work to this reply's turn, including its tool-call rows", async () => {
+    firstAssistantRow = makeMessage({
+      id: "msg-first-assistant",
+      role: "assistant",
+      createdAt: 1700000000100,
+    });
+
+    await run();
+
+    expect(emitCalls).toHaveLength(1);
+    expect(pendingWorkArgs.length).toBeGreaterThan(0);
+    for (const args of pendingWorkArgs) {
+      expect(args).toEqual([
+        CONVERSATION_ID,
+        { startedAfter: firstAssistantRow.createdAt },
+      ]);
+    }
+  });
+
+  test("long turns retain the pending work cutoff from their first assistant row", async () => {
+    const first = makeMessage({
+      id: "msg-first-assistant",
+      role: "assistant",
+      createdAt: initiatingRow!.createdAt + 1,
+    });
+    pendingWorkStartedAt = first.createdAt + 1;
+    persistedRows = [initiatingRow!, first];
+    for (let index = 0; index < 220; index++) {
+      persistedRows.push(
+        makeMessage({
+          id: `msg-long-turn-${index}`,
+          role: "assistant",
+          createdAt: first.createdAt + index + 2,
+        }),
+      );
+    }
+    assistantRow!.createdAt = first.createdAt + 300;
+    attentionState!.latestAssistantMessageAt = assistantRow!.createdAt;
+    persistedRows.push(assistantRow!);
+
+    await run();
+
+    expect(emitCalls).toHaveLength(0);
+    expect(pendingWorkArgs[0]).toEqual([
+      CONVERSATION_ID,
+      { startedAfter: first.createdAt },
+    ]);
+  });
+
+  test("does not announce completion while delegated work is pending", async () => {
+    pendingBackgroundWork = true;
+    assistantRow = makeAssistantRow([
+      { type: "text", text: "I have started the requested work." },
+    ]);
+
+    await run();
+
+    expect(emitCalls).toHaveLength(0);
+  });
+
   test("emits one well-formed signal for an unseen user-conversation reply", async () => {
     await run();
 
@@ -336,7 +686,7 @@ describe("emitAssistantReplyNotification", () => {
       },
       dedupeKey: `chat.assistant_reply:${CONVERSATION_ID}:${ASSISTANT_MESSAGE_ID}`,
     });
-    // No conversation-creation fields: the platform channel is push-only.
+    // Completion alerts link to the existing conversation.
     expect("requiresConversation" in emitCalls[0]).toBe(false);
     expect("conversationAffinityHint" in emitCalls[0]).toBe(false);
     expect("routingIntent" in emitCalls[0]).toBe(false);
@@ -355,139 +705,34 @@ describe("emitAssistantReplyNotification", () => {
   // so the producer's contract here is the hint it emits, not the silence.
   describe("desktop presence", () => {
     beforeEach(() => {
-      initiatingRow = makeMacOriginatedMessage();
       desktopAttended = true;
     });
 
-    test("marks the signal source-active while a desktop reports itself attended", async () => {
-      await run();
-
-      expect(emitCalls).toHaveLength(1);
-      expect(emitCalls[0].attentionHints.visibleInSourceNow).toBe(true);
-      // Unscoped by design: the push targets the assistant owner, and a pod
-      // has exactly one owner, so no principal filter belongs here.
-      expect(desktopPresenceArgs).toEqual([[]]);
-    });
-
-    test("marks a Windows-originated signal source-active while attended", async () => {
-      initiatingRow = makeWindowsOriginatedMessage();
-
-      await run();
-
-      expect(emitCalls).toHaveLength(1);
-      expect(emitCalls[0].attentionHints.visibleInSourceNow).toBe(true);
-    });
-
-    test("leaves the signal live when no desktop is attended", async () => {
-      desktopAttended = false;
-
-      await run();
-
-      expect(emitCalls).toHaveLength(1);
-      expect(emitCalls[0].attentionHints.visibleInSourceNow).toBe(false);
-    });
-
-    test("leaves the signal live when the presence read throws", async () => {
-      desktopPresenceShouldThrow = true;
-
-      await run();
-
-      expect(emitCalls).toHaveLength(1);
-      expect(emitCalls[0].attentionHints.visibleInSourceNow).toBe(false);
-      expect(warnCalls).toHaveLength(1);
-    });
-
-    // An attended desktop only speaks for a turn that desktop itself opened.
-    // The user can send from the phone minutes after last touching the keyboard,
-    // is exactly the reply this producer exists to push.
-    const NON_DESKTOP_ORIGIN_CASES: Array<{
-      name: string;
-      metadata: unknown;
-    }> = [
-      {
-        name: "the iOS app",
-        metadata: { client: { os: "ios" }, clientOsFromRequest: true },
-      },
-      {
-        name: "a browser",
-        metadata: { client: { os: "web" }, clientOsFromRequest: true },
-      },
-      {
-        name: "a client that reports no OS",
-        metadata: { client: {} },
-      },
-      { name: "a row with no client bag", metadata: {} },
-      {
-        name: "a client reporting an unknown OS",
-        metadata: { client: { os: "bsd" }, clientOsFromRequest: true },
-      },
-      // The fail-closed shape this gate exists to refuse: a surface action
-      // tapped on the phone carries no transport, so persistence stamps the
-      // `macos` the conversation's live client state kept from an earlier
-      // desktop send. Without the marker that OS names an earlier turn, not
-      // this one, and the push the user is waiting for on their phone would
-      // be dropped by the attended desktop.
-      {
-        name: "a row whose macOS OS was inherited, not reported",
-        metadata: { userMessageInterface: "web", client: { os: "macos" } },
-      },
-      // A marker without a matching OS is not evidence of anything.
-      {
-        name: "a row marked request-reported with no client bag",
-        metadata: { clientOsFromRequest: true },
-      },
-    ];
-
-    for (const { name, metadata } of NON_DESKTOP_ORIGIN_CASES) {
-      test(`leaves the signal live for a turn opened from ${name}`, async () => {
-        initiatingRow = makeMessage({ metadata: JSON.stringify(metadata) });
-
+    for (const [name, makeRow] of [
+      ["macOS", makeMacOriginatedMessage],
+      ["Windows", makeWindowsOriginatedMessage],
+    ] as const) {
+      test(`notifies an unseen ${name} reply while the user is in another app`, async () => {
+        initiatingRow = makeRow();
         await run();
 
         expect(emitCalls).toHaveLength(1);
         expect(emitCalls[0].attentionHints.visibleInSourceNow).toBe(false);
-        // The origin check runs first, so a turn no desktop opened never
-        // reaches the presence read.
         expect(desktopPresenceArgs).toEqual([]);
       });
     }
 
-    // The transport interface is "web" for the macOS app, the iOS app, and a
-    // desktop browser alike, so it cannot stand in for the client OS.
-    test("leaves the signal live for a web-interface turn with no client OS", async () => {
-      initiatingRow = makeMessage({
-        metadata: JSON.stringify({
-          userMessageChannel: "vellum",
-          userMessageInterface: "web",
-        }),
-      });
-
+    test("ignores whole-computer presence even when its read would fail", async () => {
+      initiatingRow = makeMacOriginatedMessage();
+      desktopPresenceShouldThrow = true;
       await run();
 
-      expect(emitCalls).toHaveLength(1);
       expect(emitCalls[0].attentionHints.visibleInSourceNow).toBe(false);
-    });
-
-    // An unrecognized channel fails the whole metadata schema, so the origin
-    // read has to answer off the permissive fallback too.
-    test("marks the signal source-active when only the channel is unrecognized", async () => {
-      initiatingRow = makeMessage({
-        metadata: JSON.stringify({
-          userMessageChannel: "not-a-channel",
-          client: { os: "macos" },
-          clientOsFromRequest: true,
-        }),
-      });
-
-      await run();
-
-      expect(emitCalls).toHaveLength(1);
-      expect(emitCalls[0].attentionHints.visibleInSourceNow).toBe(true);
+      expect(desktopPresenceArgs).toEqual([]);
+      expect(warnCalls).toHaveLength(0);
     });
   });
 
-  // Same pre-gate as "desktop presence" above, scoped to a browser tab
-  // instead of the whole app.
   describe("web presence", () => {
     beforeEach(() => {
       initiatingRow = makeWebOriginatedMessage();
@@ -501,7 +746,18 @@ describe("emitAssistantReplyNotification", () => {
       expect(emitCalls[0].attentionHints.visibleInSourceNow).toBe(true);
       // Scoped to this conversation, unlike desktop attendance: a focused tab
       // only speaks for the conversation it is actually looking at.
-      expect(webPresenceArgs).toEqual([[CONVERSATION_ID]]);
+      expect(webPresenceArgs).toEqual([
+        [CONVERSATION_ID, { actorPrincipalId: "guardian-1" }],
+      ]);
+    });
+
+    test("does not suppress without a resolved recipient", async () => {
+      guardianPrincipalId = undefined;
+      await run();
+
+      expect(emitCalls).toHaveLength(1);
+      expect(emitCalls[0].attentionHints.visibleInSourceNow).toBe(false);
+      expect(webPresenceArgs).toEqual([]);
     });
 
     test("leaves the signal live when no web tab is focused on this conversation", async () => {
@@ -540,7 +796,9 @@ describe("emitAssistantReplyNotification", () => {
 
       expect(emitCalls).toHaveLength(1);
       expect(emitCalls[0].attentionHints.visibleInSourceNow).toBe(true);
-      expect(webPresenceArgs).toEqual([[CONVERSATION_ID]]);
+      expect(webPresenceArgs).toEqual([
+        [CONVERSATION_ID, { actorPrincipalId: "guardian-1" }],
+      ]);
     });
   });
 
@@ -956,6 +1214,19 @@ describe("emitAssistantReplyNotification", () => {
       expect(emitCalls).toHaveLength(0);
     });
   }
+
+  test("pushes the reply to a hidden voice continuation result", async () => {
+    initiatingRow = makeMessage({
+      metadata: JSON.stringify({
+        hidden: true,
+        voiceContinuationResult: true,
+      }),
+    });
+
+    await run();
+
+    expect(emitCalls).toHaveLength(1);
+  });
 
   // A pointer turn fact-checks the rows it generated only after the turn ends
   // and deletes them when validation fails, so a push at turn end would have

@@ -155,7 +155,7 @@ describe("CameraViewSettings", () => {
 
     test("sits under the panel, so a press inside the panel is the panel's", async () => {
       await openPanel();
-      const inside = row("Kept frame")!;
+      const inside = row("Latest shared frame")!;
 
       await act(async () => {
         fireEvent.click(inside);
@@ -171,16 +171,16 @@ describe("CameraViewSettings", () => {
   test("a session without the readout gets the thumbnail row alone", async () => {
     await openPanel();
 
-    expect(row("Kept frame")).not.toBeNull();
-    expect(row("Frame gate readout")).toBeNull();
+    expect(row("Latest shared frame")).not.toBeNull();
+    expect(row("Frame gate tuning")).toBeNull();
   });
 
   test("a session with the readout gets both rows", async () => {
     hudAvailable = true;
     await openPanel();
 
-    expect(row("Frame gate readout")).not.toBeNull();
-    expect(row("Kept frame")).not.toBeNull();
+    expect(row("Frame gate tuning")).not.toBeNull();
+    expect(row("Latest shared frame")).not.toBeNull();
   });
 
   test("each switch points at its own description", async () => {
@@ -193,36 +193,42 @@ describe("CameraViewSettings", () => {
       return id ? (document.getElementById(id)?.textContent ?? "") : undefined;
     };
 
-    // The thumbnail row's line is the only place the panel says the sending
-    // carries on, so a switch that did not point at it would offer to turn
-    // Live's signal off with the reassurance left on screen and out of reach.
-    expect(describedText("Kept frame")).toBe(
-      "The last frame Live sent, beside your photos. Live keeps sending either way.",
+    // The helper line is the only thing that says what a row shows, so a
+    // switch that did not point at its own would be announced as a bare name
+    // with the explanation on screen and out of reach.
+    expect(describedText("Latest shared frame")).toBe(
+      "Shows the most recent frame Live sent.",
     );
-    expect(describedText("Frame gate readout")).toBe(
-      "The tuning readout for what Live keeps.",
+    expect(describedText("Frame gate tuning")).toBe(
+      "Debug overlay for how Live picks which frames to send.",
     );
   });
 
   test("the thumbnail row writes the voice preference", async () => {
     await openPanel();
-    expect(row("Kept frame")?.getAttribute("aria-checked")).toBe("true");
+    expect(row("Latest shared frame")?.getAttribute("aria-checked")).toBe(
+      "true",
+    );
 
     await act(async () => {
-      fireEvent.click(row("Kept frame")!);
+      fireEvent.click(row("Latest shared frame")!);
     });
 
     expect(useVoicePrefsStore.getState().showKeptFrame).toBe(false);
-    expect(row("Kept frame")?.getAttribute("aria-checked")).toBe("false");
+    expect(row("Latest shared frame")?.getAttribute("aria-checked")).toBe(
+      "false",
+    );
 
     // The direction a fresh profile takes, since the preference ships off:
     // this row is the only place a call turns the thumbnail on.
     await act(async () => {
-      fireEvent.click(row("Kept frame")!);
+      fireEvent.click(row("Latest shared frame")!);
     });
 
     expect(useVoicePrefsStore.getState().showKeptFrame).toBe(true);
-    expect(row("Kept frame")?.getAttribute("aria-checked")).toBe("true");
+    expect(row("Latest shared frame")?.getAttribute("aria-checked")).toBe(
+      "true",
+    );
   });
 
   test("the readout row writes the persisted switch", async () => {
@@ -230,7 +236,7 @@ describe("CameraViewSettings", () => {
     await openPanel();
 
     await act(async () => {
-      fireEvent.click(row("Frame gate readout")!);
+      fireEvent.click(row("Frame gate tuning")!);
     });
 
     expect(useCameraGateDebugStore.getState().hudEnabled).toBe(true);

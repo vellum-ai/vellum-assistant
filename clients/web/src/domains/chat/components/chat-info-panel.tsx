@@ -13,12 +13,13 @@ import { ChevronLeft, Layers } from "lucide-react";
 import { Fragment, type ReactNode } from "react";
 import { useCallback, useEffect, useMemo } from "react";
 
-import { Button } from "@vellumai/design-library";
+import { Button, Notice } from "@vellumai/design-library";
 
 import { DeleteAppDialog } from "@/components/delete-app-dialog";
 import {
   DetailShell,
   type DetailShellHeaderProps,
+  DetailShellLoading,
   DetailShellNotice,
   DetailShellTitleWithCount,
 } from "@/components/detail-shell";
@@ -194,7 +195,7 @@ export function ChatInfoPanel({
       const name = sourceNames[source];
       if (!state.supported) {
         return (
-          <DetailShellNotice key={source}>
+          <DetailShellNotice key={source} placement="section">
             {t("chatInfoPanel.framesUnsupported")}
           </DetailShellNotice>
         );
@@ -207,44 +208,47 @@ export function ChatInfoPanel({
               ? "chatInfoPanel.sourceRefreshFailed"
               : "chatInfoPanel.sourceLoadFailed";
         return (
-          <div
+          <Notice
             key={source}
-            className="flex flex-wrap items-center gap-2"
-            role="status"
+            // A failed refresh or next page still shows what loaded, so it
+            // warns; a source with nothing to show has failed.
+            tone={state.hasData ? "warning" : "error"}
+            actions={
+              (!allFailed || level !== null) && (
+                <Button
+                  variant="outlined"
+                  size="compact"
+                  disabled={state.fetching}
+                  onClick={() => retrySource(source)}
+                  aria-label={t("chatInfoPanel.retrySourceAria", {
+                    source: name,
+                  })}
+                >
+                  {t("chatInfoPanel.retry")}
+                </Button>
+              )
+            }
           >
-            <DetailShellNotice>
-              {t(messageKey, { source: name })}
-            </DetailShellNotice>
-            {(!allFailed || level !== null) && (
-              <Button
-                variant="outlined"
-                size="compact"
-                disabled={state.fetching}
-                onClick={() => retrySource(source)}
-                aria-label={t("chatInfoPanel.retrySourceAria", {
-                  source: name,
-                })}
-              >
-                {t("chatInfoPanel.retry")}
-              </Button>
-            )}
-          </div>
+            {t(messageKey, { source: name })}
+          </Notice>
         );
       }
       if (state.pending) {
         return (
-          <DetailShellNotice key={source}>
-            {t("chatInfoPanel.sourceLoading", { source: name })}
-          </DetailShellNotice>
+          <DetailShellLoading
+            key={source}
+            placement="section"
+            label={t("chatInfoPanel.sourceLoading", { source: name })}
+          />
         );
       }
       if (state.scope === "loaded-history") {
         return (
           <Fragment key={source}>
-            <DetailShellNotice>
+            <DetailShellNotice placement="section">
               {t("chatInfoPanel.loadedHistory")}
             </DetailShellNotice>
-            <DetailShellNotice>
+            <DetailShellNotice placement="section">
               {t("chatInfoPanel.framesUnsupported")}
             </DetailShellNotice>
           </Fragment>
@@ -339,9 +343,11 @@ export function ChatInfoPanel({
     );
   } else {
     body = (
-      <div className="flex flex-col gap-8">
+      <div className="flex flex-col gap-5">
         {status === "ready" && count === 0 && (
-          <DetailShellNotice>{t("chatInfoPanel.empty")}</DetailShellNotice>
+          <DetailShellNotice placement="panel">
+            {t("chatInfoPanel.empty")}
+          </DetailShellNotice>
         )}
         {(apps.length > 0 || sources.apps.pending || sources.apps.failure) && (
           <ChatInfoSection
@@ -406,17 +412,23 @@ export function ChatInfoPanel({
       onClose={onClose}
     >
       {level === null && allFailed && (
-        <div className="flex flex-wrap items-center gap-2" role="status">
-          <DetailShellNotice>{t("chatInfoPanel.loadFailed")}</DetailShellNotice>
-          <Button
-            variant="outlined"
-            size="compact"
-            disabled={Object.values(sources).some((source) => source.fetching)}
-            onClick={retryFailedSources}
-          >
-            {t("chatInfoPanel.retry")}
-          </Button>
-        </div>
+        <Notice
+          tone="error"
+          actions={
+            <Button
+              variant="outlined"
+              size="compact"
+              disabled={Object.values(sources).some(
+                (source) => source.fetching,
+              )}
+              onClick={retryFailedSources}
+            >
+              {t("chatInfoPanel.retry")}
+            </Button>
+          }
+        >
+          {t("chatInfoPanel.loadFailed")}
+        </Notice>
       )}
       {level !== null && sourceNotices(level)}
       {body}

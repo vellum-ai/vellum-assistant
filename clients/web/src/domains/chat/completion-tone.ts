@@ -14,23 +14,10 @@
  */
 
 import type { SurfaceCompletionTone } from "@/domains/chat/types/types";
-
-/** Guardian-decision actions that resolve a request to a denied state. */
-const DENY_DECISION_ACTIONS: ReadonlySet<string> = new Set([
-  "reject",
-  "leave_unverified",
-  "block",
-]);
-
-/**
- * Denying actions that *park* the contact at `unverified` — a neutral hold, not
- * an active rejection. Mirrors the daemon's `PARK_ACTION_SET`: a parked contact
- * is neither trusted nor kept out, so the card reads neutral. `block`/`reject`
- * stay `danger`.
- */
-const PARK_DECISION_ACTIONS: ReadonlySet<string> = new Set([
-  "leave_unverified",
-]);
+import {
+  isDenyingGuardianAction,
+  isParkGuardianAction,
+} from "@vellumai/service-contracts/guardian-requests";
 
 /** Action segment of an `apr:<requestId>:<action>` guardian-decision id. */
 function guardianDecisionAction(actionId: string): string {
@@ -59,10 +46,12 @@ export function guardianDecisionTone(
   // the raw button would mislabel that park as a denial. Fall back to the action
   // id for paths that don't carry the resolved action.
   const action = result.decidedAction ?? guardianDecisionAction(actionId);
-  if (PARK_DECISION_ACTIONS.has(action)) {
+  // A park is a denying action that reads neutral: the contact is held at
+  // `unverified`, neither trusted nor kept out.
+  if (isParkGuardianAction(action)) {
     return "neutral";
   }
-  return DENY_DECISION_ACTIONS.has(action) ? "danger" : "success";
+  return isDenyingGuardianAction(action) ? "danger" : "success";
 }
 
 /**

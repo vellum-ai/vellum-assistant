@@ -54,7 +54,9 @@ export function MessageFilesPanel({
       onClose={onClose}
     >
       {displayAttachments.length === 0 ? (
-        <DetailShellNotice>{t("messageFilesPanel.empty")}</DetailShellNotice>
+        <DetailShellNotice placement="panel">
+          {t("messageFilesPanel.empty")}
+        </DetailShellNotice>
       ) : (
         // Wraps rather than sitting on a fixed column count: the drawer is
         // drag-resizable and the mobile overlay renders this same panel at

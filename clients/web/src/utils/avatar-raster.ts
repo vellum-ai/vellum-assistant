@@ -13,6 +13,7 @@
  * agrees on which avatar it is drawing.
  */
 
+import type { AvatarKind } from "@vellumai/avatar-manifest";
 import {
   NOTIFICATION_AVATAR_SIZE,
   notificationAvatarDiscHex,
@@ -167,8 +168,8 @@ export async function rasterizeAvatar(
 }
 
 /**
- * Draw the notification avatar: the avatar inset into an opaque disc tinted by
- * its accent, the icon a native notification shows as the sender. Returns null
+ * Draw the notification avatar: custom images fill the accent-tinted disc and
+ * character avatars sit inset, matching the shared SVG renderer. Returns null
  * when the canvas or the encoder gives nothing back, so the caller sends no
  * sender rather than a broken one.
  *
@@ -179,6 +180,7 @@ export async function rasterizeAvatar(
 export async function rasterizeNotificationAvatar(
   src: string,
   accentHex: string | null,
+  kind: Exclude<AvatarKind, "none">,
 ): Promise<Uint8Array<ArrayBuffer> | null> {
   const image = await loadImage(src);
   const size = NOTIFICATION_AVATAR_SIZE;
@@ -189,7 +191,7 @@ export async function rasterizeNotificationAvatar(
   }
   const { canvas, ctx } = surface;
 
-  const { radius, offset, inner } = notificationAvatarGeometry(size);
+  const { radius, offset, inner } = notificationAvatarGeometry(kind, size);
   const discPath = (): void => {
     ctx.beginPath();
     ctx.arc(radius, radius, radius, 0, Math.PI * 2);

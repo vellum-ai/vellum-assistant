@@ -47,6 +47,7 @@ export const SEARCH_PROVIDER_ENV_VAR_NAMES: Record<string, string> = {
   fastcrw: "FASTCRW_API_KEY",
   searxng: "SEARXNG_API_KEY",
   tinyfish: "TINYFISH_API_KEY",
+  exa: "EXA_API_KEY",
 };
 
 /**

@@ -44,6 +44,9 @@ const FLIGHTS: VoiceActivityWork = {
 const lineOf = (container: HTMLElement): string | null =>
   container.querySelector('[data-label="line"]')?.textContent ?? null;
 
+const lineElementOf = (container: HTMLElement): HTMLElement | null =>
+  container.querySelector<HTMLElement>('[data-label="line"]');
+
 const chipOf = (container: HTMLElement): HTMLButtonElement | null =>
   container.querySelector<HTMLButtonElement>('button[data-control="work"]');
 
@@ -74,6 +77,23 @@ describe("the call's work on its bar", () => {
     const chip = chipOf(container);
     expect(chip?.textContent).toContain("2");
     expect(chip?.getAttribute("aria-label")).toBe("2 things running");
+    expect(chip?.nextElementSibling?.getAttribute("data-label")).toBe("line");
+  });
+
+  test("takes the indicator's width out of the status line", () => {
+    const { container: plain } = renderCall(CALL);
+    const { container: working } = renderCall({
+      ...CALL,
+      work: [TURN, FLIGHTS],
+    });
+    const chipWidth = parseFloat(chipOf(working)?.style.width ?? "0");
+    const plainLineWidth = parseFloat(lineElementOf(plain)?.style.width ?? "0");
+    const workingLineWidth = parseFloat(
+      lineElementOf(working)?.style.width ?? "0",
+    );
+
+    expect(chipWidth).toBeGreaterThan(0);
+    expect(workingLineWidth + chipWidth).toBe(plainLineWidth);
   });
 
   test("an empty list draws no count", () => {
@@ -103,6 +123,9 @@ describe("the call's work on its bar", () => {
     expect(shelf?.textContent).toContain("Reading a page");
     expect(shelf?.textContent).toContain("Ziggy");
     expect(chip.getAttribute("aria-expanded")).toBe("true");
+    expect(
+      container.querySelector("[data-shelf-side] .companion-working-ring"),
+    ).toBeNull();
 
     fireEvent.click(chip);
     expect(shelfOf(container)).toBeNull();

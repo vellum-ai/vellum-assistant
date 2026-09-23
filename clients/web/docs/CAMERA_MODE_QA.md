@@ -54,10 +54,12 @@ scrim.
       the same size as flip, the two mutes, the camera toggle, end session and
       the two corner controls, in Photo and in Live and in all three states,
       with the auto badge still on the bolt at the larger circle.
-- [ ] Flash and flip are mirrored. They sit the same distance in from their own
-      edges, on one line with the shutter's centre. That distance is 30pt in
-      portrait; rotate to landscape on a notched phone and both move in
-      together to the deeper of the two side safe-area insets.
+- [ ] Flash and flip are mirrored, on the corner controls' column. They sit the
+      same distance in from their own edges, on one line with the shutter's
+      centre, and in portrait that distance is the room's corner gap: flash
+      lines up under the view-options button and flip under the minimize
+      control. Rotate to landscape on a notched phone and both move in together
+      to the deeper of the two side safe-area insets.
 - [ ] Backgrounding releases the preview. With the viewfinder up, background the
       app: the status bar's camera indicator goes out. Foreground it: the
       viewfinder returns, or the room reports the failure. Never a frozen frame.
@@ -79,11 +81,11 @@ scrim.
       dialog that traps VoiceOver, and it never arrives dead to touch.
 - [ ] The kept-frame switch reaches the thumbnail. On a fresh profile the
       switch is off and Live draws no thumbnail: enter Live, sit through
-      several keeps, and only the photo strip is in the row. Turn "Kept frame"
-      on and the next keep draws beside the strip. Turn it off again and the
-      thumbnail goes, the row it sat in goes with it when no photos are in the
-      strip, and the assistant keeps answering questions about what the camera
-      is pointed at.
+      several keeps, and only the photo strip is in the row. Turn "Latest
+      shared frame" on and the next keep draws beside the strip. Turn it off
+      again and the thumbnail goes, the row it sat in goes with it when no
+      photos are in the strip, and the assistant keeps answering questions
+      about what the camera is pointed at.
 - [ ] A device that used voice before converges too. On a profile that already
       has a `vellum:voice-prefs` payload, the switch is off on the first launch
       after this change whatever that payload said, and the thumbnail does not
@@ -383,6 +385,15 @@ answers nothing here.
       desktop app, on any camera.
 - [ ] The pill is present. It renders in the panel variant and the fullscreen
       variant, top centre, on the minimize control's line.
+- [ ] The panel's edges are clean. Once the feed is up, zoom into all four
+      corners of the desktop panel at the pixel level (and along the straight
+      edges on a non-Retina display): no avatar-tone pixels and no dark
+      hairline on any of them.
+- [ ] The look stands behind the feed until it has a frame. Open the camera and
+      watch the moment it comes up: the look is what shows through the
+      viewfinder until the first frame lands, never the chat behind the panel.
+      Flip the camera and the look returns for the swap rather than going
+      black.
 - [ ] Reduced motion. Turn on Reduce Motion (macOS: Settings, Accessibility,
       Display), reload, open the camera. The status dot holds still and fully
       lit. The shutter's capture pulse still fires and is shorter. The core's
@@ -521,10 +532,11 @@ the redesign is called shipped.
       take the spec offsets back.
 - [ ] Flash circle and flank offsets. The design draws the flash at 46pt, 44pt
       in from the left, against a 52pt flip 30pt in from the right. The build
-      draws both flanks at the room's 52pt and hangs both the same distance in
-      from their own edge, so the pair is a mirror image around the shutter and
-      every round control on the screen is one size. Confirm the mirrored pair,
-      or take the design's flash.
+      draws both flanks at the room's 52pt and hangs both off their own edge at
+      the room's corner gap, so the pair is a mirror image around the shutter,
+      the flanks share the column the corner controls sit on, and every round
+      control on the screen is one size. Confirm the mirrored pair on that
+      column, or take the design's flash.
 - [ ] Localized session words on the surfaces outside the room. The composer's
       voice bar, the title-bar session pill, the iOS Dynamic Island and the
       macOS companion panel all read the session's state through the catalog,

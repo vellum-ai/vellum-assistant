@@ -1483,6 +1483,30 @@
         "logo": "webull-mcp.png",
         "category": "finance"
       }
+    },
+    {
+      "name": "wix",
+      "source": {
+        "source": "local",
+        "path": "plugins/mcp-catalog/wix",
+        "version": "1.0.2"
+      },
+      "description": "Manage Wix sites, stores, bookings, and CMS content.",
+      "homepage": "https://dev.wix.com/docs/sdk/articles/use-the-wix-mcp/about-the-wix-mcp",
+      "license": "MIT",
+      "integration": {
+        "kind": "mcp",
+        "displayName": "Wix",
+        "documentationUrl": "https://dev.wix.com/docs/sdk/articles/use-the-wix-mcp/about-the-wix-mcp",
+        "verifiedAt": "2026-09-23",
+        "verification": "documentation-only",
+        "setup": {
+          "mode": "oauth",
+          "instructions": "Sign in with the Wix account that owns the sites you want to manage."
+        },
+        "logo": "wix-mcp.png",
+        "category": "commerce"
+      }
     }
   ]
 }

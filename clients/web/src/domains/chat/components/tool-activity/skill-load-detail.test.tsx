@@ -89,6 +89,7 @@ function renderDetail(overrides: Partial<DetailProps> = {}) {
       detail={makeDetail()}
       result={loadResult}
       streamedOutput={undefined}
+      answeredQuestion={undefined}
       activityMetadata={undefined}
       isRunning={false}
       isError={false}
@@ -164,8 +165,11 @@ describe("SkillLoadDetail", () => {
   });
 
   test("folds a body taller than the fold behind Show more", () => {
-    // The skill body is the only folded content in this detail.
-    const restore = stubOverflow(() => true);
+    // Only the body is tall here, so only it offers to open.
+    // Matches the rendered body prose, which only the body's fold contains.
+    const restore = stubOverflow(
+      (el) => el.textContent?.includes("Detailed guidance") ?? false,
+    );
     const { getByText, queryByText } = renderDetail();
     restore();
 
@@ -177,6 +181,24 @@ describe("SkillLoadDetail", () => {
 
     expect(getByText("Show less")).toBeDefined();
     expect(queryByText("Show more")).toBeNull();
+  });
+
+  test("folds a long tool list as one value, not one control per tool", () => {
+    // A skill can advertise dozens of tools; a Show more under every row
+    // would be worse than the run-on it fixes.
+    const restore = stubOverflow(
+      (el) => el.textContent?.includes("app_create") ?? false,
+    );
+    const { getAllByText, getByText } = renderDetail();
+    restore();
+
+    expect(getAllByText("Show more")).toHaveLength(1);
+
+    act(() => {
+      fireEvent.click(getByText("Show more"));
+    });
+
+    expect(getByText("Show less")).toBeDefined();
   });
 
   test("reports a failed load once, with no Output section", () => {

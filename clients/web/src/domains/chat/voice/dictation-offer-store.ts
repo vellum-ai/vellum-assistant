@@ -3,8 +3,11 @@ import { create } from "zustand";
 import {
   COMPANION_DICTATION_OFFER_MAX,
   type FnClaimant,
+  type UnplacedDictationOffer,
 } from "@vellumai/ipc-contract";
 
+import { forwardUnplacedDictationOffer } from "@/runtime/companion-surface";
+import { isPopoutWindowLifetime } from "@/runtime/popout-window";
 import {
   setInputActivityWatch,
   subscribeToInputActivity,
@@ -17,10 +20,9 @@ import {
  * here. Another dictation app heard the key too and has already pasted its
  * version, since nothing on macOS owns a key; nothing in the application in
  * front takes text, so no paste was sent at all; or the paste was sent and
- * did not go through. The offer is this
- * window's either way, the way a watch retrospective is: the companion draws
- * it and answers it, and the answer comes back here as a command, because
- * this is the side holding the words.
+ * did not go through. The main window owns the offer and publishes it to
+ * the companion. Pop-outs forward unplaced words to that window, where
+ * answers and expiry clear the same store that publishes the offer.
  */
 interface OfferedWords {
   /**
@@ -58,7 +60,7 @@ export type DictationOffer =
  * Why words that were never pasted are being offered: nothing in front took
  * text, or the paste into something that did failed.
  */
-export type UnplacedReason = "no-text-field" | "paste-failed";
+export type UnplacedReason = UnplacedDictationOffer["reason"];
 
 /**
  * How long an unanswered offer stands. Long enough to read and decide, short
@@ -166,6 +168,14 @@ function putOffer(
     | { reason: UnplacedReason },
   text: string,
 ): void {
+  const boundedText = text.slice(0, COMPANION_DICTATION_OFFER_MAX);
+  if (
+    reason.reason !== "claimed" &&
+    isPopoutWindowLifetime() &&
+    forwardUnplacedDictationOffer({ reason: reason.reason, text: boundedText })
+  ) {
+    return;
+  }
   const expiry = setTimeout(
     () => clearDictationOffer(),
     DICTATION_OFFER_TTL_MS,
@@ -174,7 +184,7 @@ function putOffer(
     offer: {
       ...reason,
       id: crypto.randomUUID(),
-      text: text.slice(0, COMPANION_DICTATION_OFFER_MAX),
+      text: boundedText,
       expiry,
     },
   });
@@ -186,6 +196,9 @@ export function clearDictationOffer({
 }: { keepWatch?: boolean } = {}): DictationOffer | null {
   if (!keepWatch) {
     disarmDictationOfferWatch();
+    if (isPopoutWindowLifetime()) {
+      forwardUnplacedDictationOffer(null);
+    }
   }
   const { offer } = useDictationOfferStore.getState();
   if (offer === null) {

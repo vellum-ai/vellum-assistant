@@ -43,6 +43,8 @@ If there are none, see [Configuring a New OAuth Application](CONFIGURING_APPLICA
 
 In managed mode, connections use the platform's default scopes unless you pass `data.requestedScopes` on the oauth_connect surface. When you do, it is a full replacement set: the platform uses exactly those scopes instead of the defaults, so include every scope the connection should keep, not just the new ones. The chat surface handles the connection affordance.
 
+Managed apps only accept scopes the provider approved for Vellum's OAuth app, so your-own scope names do not carry over. For managed Google, Gmail access is the single scope `https://mail.google.com/`; the `gmail.*` scopes and `calendar.readonly` are not approved for Vellum's app, and the platform rejects them.
+
 For your-own mode, consider what the user is trying to accomplish and request only the scopes needed for that task. You can see what scopes are available for a provider with:
 
 ```bash
@@ -70,7 +72,7 @@ Use a short task-specific description, and let the client own the action label. 
     "displayName": "Google",
     "description": "Connect Gmail and Google Tasks for this task.",
     "requestedScopes": [
-      "https://www.googleapis.com/auth/gmail.readonly",
+      "https://mail.google.com/",
       "https://www.googleapis.com/auth/tasks"
     ]
   }

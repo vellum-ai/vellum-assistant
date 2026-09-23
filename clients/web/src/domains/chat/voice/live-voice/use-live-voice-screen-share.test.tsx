@@ -256,6 +256,39 @@ afterEach(() => {
 });
 
 describe("useLiveVoiceScreenShare: starting", () => {
+  test("reports share start and stop without repeating on voice activity", async () => {
+    renderShare();
+    share(WINDOW);
+    await flush();
+    expect(controls.updateConfig.mock.calls).toEqual([
+      [{ screenSharing: true }],
+    ]);
+    speak(true);
+    speak(false);
+    expect(controls.updateConfig).toHaveBeenCalledTimes(1);
+    share(null);
+    expect(controls.updateConfig).toHaveBeenLastCalledWith({
+      screenSharing: false,
+    });
+  });
+
+  test("announces an existing share when the connection becomes ready and after reconnect", async () => {
+    act(() => useLiveVoiceStore.getState().setState("connecting"));
+    renderShare();
+    share(WINDOW);
+    expect(controls.updateConfig).not.toHaveBeenCalled();
+    act(() => useLiveVoiceStore.getState().setState("listening"));
+    expect(controls.updateConfig).toHaveBeenLastCalledWith({
+      screenSharing: true,
+    });
+    act(() => useLiveVoiceStore.getState().setReconnecting(true));
+    act(() => useLiveVoiceStore.getState().setReconnecting(false));
+    expect(controls.updateConfig.mock.calls).toEqual([
+      [{ screenSharing: true }],
+      [{ screenSharing: false }],
+      [{ screenSharing: true }],
+    ]);
+  });
   test("takes no frame until something is shared", async () => {
     renderShare();
     await flush();

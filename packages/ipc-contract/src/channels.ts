@@ -19,6 +19,15 @@ export const TEXT_UNDO = "vellum:text:undoInFrontApp";
 export const TEXT_OPEN_SETTINGS = "vellum:text:openAutomationSettings";
 
 // System permissions
+export const PERMISSION_GUIDE_CANCEL = "vellum:permissions:guide:cancel";
+export const PERMISSION_SETUP_BEGIN = "vellum:permissions:setup:begin";
+export const PERMISSION_GUIDE_GET = "vellum:permissions:guide:get";
+export const PERMISSION_GUIDE_STATE = "vellum:permissions:guide:state";
+export const PERMISSION_GUIDE_READY = "vellum:permissions:guide:ready";
+export const PERMISSION_GUIDE_DISMISS = "vellum:permissions:guide:dismiss";
+export const PERMISSION_GUIDE_DRAG = "vellum:permissions:guide:drag";
+export const PERMISSION_GUIDE_REVEAL = "vellum:permissions:guide:reveal";
+
 export const PERMISSIONS_GET_STATE = "vellum:permissions:getState";
 export const PERMISSIONS_REQUEST = "vellum:permissions:request";
 export const PERMISSIONS_OPEN_SETTINGS = "vellum:permissions:openSettings";
@@ -221,6 +230,8 @@ export const COMPANION_SHARED_FRAME = "vellum:companion:sharedFrame";
 export const COMPANION_ANSWER_WATCH_RETRO = "vellum:companion:answerWatchRetro";
 export const COMPANION_ANSWER_DICTATION_OFFER =
   "vellum:companion:answerDictationOffer";
+export const COMPANION_SET_UNPLACED_DICTATION_OFFER =
+  "vellum:companion:setUnplacedDictationOffer";
 export const COMPANION_ANSWER_POPOVER = "vellum:companion:answerPopover";
 export const COMPANION_SET_POPOVER_SIZE = "vellum:companion:setPopoverSize";
 export const COMPANION_SET_POPOVER_VIEW = "vellum:companion:setPopoverView";

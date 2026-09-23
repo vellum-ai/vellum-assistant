@@ -1,7 +1,6 @@
 {
-  "conversationDoneToast": {
-    "message": "Hecho",
-    "undo": "Deshacer"
+  "askQuestionDetail": {
+    "heading": "{count, plural, one {Pregunta} other {Preguntas}}"
   },
   "documentChat": {
     "saveFailed": "No se pudo guardar el documento. Tu mensaje sigue aquí. Intenta enviarlo de nuevo.",
@@ -67,7 +66,7 @@
   },
   "markAllDoneConfirmDialog": {
     "confirm": "Marcar todo como hecho",
-    "message": "{count, plural, one {¿Marcar como hecha la conversación en “{groupName}”? Sale de la barra lateral y te espera en Chats antiguos, donde puedes reabrirla.} other {¿Marcar como hechas las # conversaciones en “{groupName}”? Salen de la barra lateral y te esperan en Chats antiguos, donde puedes reabrirlas.}}",
+    "message": "{count, plural, one {¿Marcar como hecha la conversación en “{groupName}”? Sale de la barra lateral y te espera en Todos los chats, donde puedes reabrirla.} other {¿Marcar como hechas las # conversaciones en “{groupName}”? Salen de la barra lateral y te esperan en Todos los chats, donde puedes reabrirlas.}}",
     "title": "Marcar todo como hecho"
   },
   "mobileDetailSheet": {
@@ -81,7 +80,6 @@
     "screenshotFallbackAria": "Vista previa de la captura de pantalla del ordenador",
     "screenshotFallbackTitle": "Captura de pantalla del ordenador",
     "screenshotTitle": "Captura de pantalla de {activity}",
-    "thinkingTitle": "Pensando",
     "viewThinkingAria": "Ver razonamiento"
   },
   "computerUseScreenshotPreview": {
@@ -126,7 +124,7 @@
     "navigate": "Navegando",
     "terminal": "Ejecutando un comando"
   },
-  "oldChatsPage": {
+  "allChatsPage": {
     "band": {
       "previous30Days": "Últimos 30 días",
       "previous7Days": "Últimos 7 días",
@@ -146,7 +144,7 @@
     "noMatches": "Ningún chat coincide con «{query}».",
     "retry": "Reintentar",
     "searchPlaceholder": "Buscar chats",
-    "title": "Chats antiguos"
+    "title": "Todos los chats"
   },
   "sessionGroupRow": {
     "mode": {
@@ -402,10 +400,10 @@
   },
   "cameraViewOptions": {
     "buttonAria": "Opciones de vista de la cámara",
-    "gateHudDescription": "El panel de ajuste de lo que conserva el modo en vivo.",
-    "gateHudTitle": "Lectura del filtro de fotogramas",
-    "keptFrameDescription": "El último fotograma enviado en vivo, junto a tus fotos. El envío continúa igualmente.",
-    "keptFrameTitle": "Último fotograma",
+    "gateHudDescription": "Superposición de depuración: cómo el modo en vivo elige qué fotogramas enviar.",
+    "gateHudTitle": "Ajuste del filtro de fotogramas",
+    "keptFrameDescription": "Muestra el fotograma más reciente que envió el modo en vivo.",
+    "keptFrameTitle": "Último fotograma compartido",
     "title": "Mostrar"
   },
   "cardSurface": {
@@ -640,6 +638,7 @@
     "warningTitle": "Esto parece una clave de API"
   },
   "composerSettingsMenu": {
+    "autoPreview": "Auto · {profile}",
     "accessAria": "Acceso del asistente: {label}",
     "assistantAccess": "Acceso del asistente",
     "assistantAccessTitle": "Acceso del asistente",
@@ -734,8 +733,6 @@
     "markRead": "Marcar como leída",
     "markUnread": "Marcar como no leída",
     "moveToGroup": "Mover al grupo",
-    "newDocument": "Nuevo documento",
-    "newDocumentFailed": "No se pudo crear el documento. Inténtalo de nuevo.",
     "newGroup": "Nuevo grupo…",
     "openInNewWindow": "Abrir en una ventana nueva",
     "pin": "Fijar",
@@ -1267,6 +1264,7 @@
     "title": "Archivos"
   },
   "messageHoverActions": {
+    "autoRouted": "Auto · {profile}",
     "bookmark": "Marcador",
     "copied": "Copiado",
     "copy": "Copiar",
@@ -1676,6 +1674,12 @@
   "sidebarSectionViewAll": {
     "label": "Ver todos los chats"
   },
+  "chatsSection": {
+    "doneEmptyBody": "Los chats que marcas como hechos te esperan en Todos los chats.",
+    "doneEmptyTitle": "Todo al día.",
+    "emptyBody": "Inicia un chat nuevo y aparecerá aquí.",
+    "emptyTitle": "Aún no hay chats."
+  },
   "singleActivity": {
     "webSearch": "Búsqueda web"
   },
@@ -1789,6 +1793,9 @@
   "textSelectionPopover": {
     "reply": "Responder"
   },
+  "thinkingDetail": {
+    "title": "Pensando"
+  },
   "tiptapDocumentEditor": {
     "adding": "Añadiendo…",
     "comment": "Comentar",
@@ -1885,6 +1892,7 @@
     "seed": "Hola, acabo de iniciar una conversación de voz contigo. Este mensaje se envía automáticamente. Salúdame en una frase corta y luego pregúntame en qué quiero trabajar."
   },
   "voiceErrors": {
+    "selectionUnavailable": "No se pudo leer el texto seleccionado. No se pegó nada. Vuelve a seleccionar el texto e inténtalo de nuevo; puedes copiar tus palabras dictadas.",
     "nativeSttNoTranscript": "El dictado nativo de {clientName} no devolvió una transcripción. Revisa el reconocimiento de voz nativo en los ajustes del sistema e inténtalo de nuevo."
   },
   "voiceFirstRunCard": {
@@ -1966,8 +1974,9 @@
   },
   "webFetchDetailView": {
     "fetchFailed": "La obtención falló.",
-    "fetching": "Obteniendo…",
-    "noContent": "No se extrajo contenido."
+    "mayRequireJavaScript": "Es posible que esta página necesite JavaScript para mostrarlo todo, así que puede faltar parte del contenido.",
+    "startIndexPastEnd": "La lectura empezó después del final de esta página, así que no se leyó nada.",
+    "truncated": "Solo se leyó parte de esta página."
   },
   "webSearchDetailView": {
     "noSources": "No se encontraron fuentes.",

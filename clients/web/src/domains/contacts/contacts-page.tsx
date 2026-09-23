@@ -1,15 +1,32 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Navigate, useSearchParams } from "react-router";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import {
+  Navigate,
+  useLocation,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router";
+import { Loader2, Plus } from "lucide-react";
 
+import { Button } from "@vellumai/design-library/components/button";
 import { toast } from "@vellumai/design-library/components/toast";
 
+import { useIntelligenceLayoutSlotsStore } from "@/components/layout/intelligence-layout-slots-store";
 import { SideListDrawer, SideListTrigger } from "@/components/side-list-drawer";
+import { useEdgeSwipeBack } from "@/hooks/use-edge-swipe-back";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useSideListRoom } from "@/hooks/use-side-list-room";
 import { isVerifiedContactChannel } from "@/domains/contacts/channel-linking";
 import { channelTypeLabel } from "@/domains/contacts/channel-type-labels";
 import { DRAFT_CONTACT_NAME } from "@/domains/contacts/draft-contact";
-import { AssistantChannelsDetail } from "@/domains/contacts/components/assistant-channels-detail";
 import { ContactDetailView } from "@/domains/contacts/components/contact-detail-view";
 import { isPluginChannel } from "@/domains/contacts/components/contact-channels-section";
 import { ContactMergeDialog } from "@/domains/contacts/components/contact-merge-dialog";
@@ -28,7 +45,6 @@ import type {
   ChannelInfo,
   ContactChannelPayload,
   ContactPayload,
-  ContactSelection,
 } from "@/domains/contacts/types";
 import { isSetupChannelId } from "@/types/channel-types";
 import {
@@ -42,12 +58,15 @@ import {
 import { channelsAvailableGet } from "@/generated/daemon/sdk.gen";
 import type { ChannelsAvailableGetResponse } from "@/generated/daemon/types.gen";
 import { useTranslation } from "@/i18n";
-import { assistantDisplayName } from "@/utils/assistant-display-name";
-import { useAssistantChannels } from "@/hooks/use-assistant-channels";
+import { useSlackConfigured } from "@/hooks/use-slack-configured";
 import { useInviteLinkDialog } from "@/hooks/use-invite-link-dialog";
 import { useAccountLink } from "@/domains/contacts/hooks/use-account-link";
+import { usePendingContactIds } from "@/domains/contacts/hooks/use-pending-contact-ids";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
-import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+import {
+  PUSHED_FROM_LIST_STATE,
+  returnToList,
+} from "@/utils/list-detail-navigation";
 import { toastOnError } from "@/utils/mutation-error";
 import { routes } from "@/utils/routes";
 
@@ -116,32 +135,37 @@ export function ContactsPage({
 }: ContactsPageProps) {
   const { t } = useTranslation("contacts");
   const a2aChannel = useAssistantFeatureFlagStore.use.a2aChannel();
-  const identityName = useAssistantIdentityStore.use.name();
   const queryClient = useQueryClient();
-  // Legacy `?setup=<channel>` deep link. Setup used to continue on this
-  // page's assistant detail card; the credential forms now live only on the
-  // Channels tab, so the param is forwarded there (see the redirect below)
-  // instead of being consumed via `useSetupChannelParam`.
+  // Legacy `?setup=<channel>` deep link. The credential forms live only on
+  // the Channels tab, so the param is forwarded there (see the redirect
+  // below) instead of being consumed via `useSetupChannelParam`.
   const [searchParams] = useSearchParams();
   const rawSetupParam = searchParams.get("setup");
   const setupChannel =
     rawSetupParam && isSetupChannelId(rawSetupParam) ? rawSetupParam : null;
 
-  const [selection, setSelection] = useState<ContactSelection>({
-    kind: "assistant",
-  });
+  const { contactId: routeContactId } = useParams<{ contactId: string }>();
+  const navigate = useNavigate();
+  const { pathname, state: locationState } = useLocation();
 
   const inviteDialog = useInviteLinkDialog(assistantId);
+  const isMobile = useIsMobile();
   const { paneRef, hasRoomForList, drawerOpen, openDrawer, closeDrawer } =
     useSideListRoom();
+  // On a phone the list is the page and a contact is a pushed screen. A narrow
+  // pane in a desktop window keeps the drawer, since it has no top bar to
+  // carry a list-level Back.
+  const listIsScreen = isMobile && !hasRoomForList;
+  // The list is the whole page, with no detail open over it.
+  const listFillsPage = listIsScreen && !routeContactId;
+  // The contact is the whole page, with the list a screen behind it.
+  const detailFillsPage = listIsScreen && Boolean(routeContactId);
   // Above the inline/drawer branch below, which remounts whichever list
   // surface it swaps to: held inside `ContactsList` the filter would be
   // dropped whenever the pane crosses the threshold, and dragging the chat
   // sidebar is enough to cross it.
   const [contactSearch, setContactSearch] = useState("");
   const [mergeDialogOpen, setMergeDialogOpen] = useState(false);
-
-  const assistantName = assistantDisplayName(identityName);
 
   // ---------------------------------------------------------------------------
   // Queries
@@ -157,11 +181,6 @@ export function ContactsPage({
     ...contactsGetOptions(contactsPathOpts),
     enabled: Boolean(assistantId),
     select: (data) => data.contacts,
-  });
-
-  const channelsController = useAssistantChannels({
-    assistantId,
-    onStartSetupConversation,
   });
 
   const availabilityQuery = useQuery({
@@ -210,34 +229,103 @@ export function ContactsPage({
     () => contactsData?.filter((c) => c.role !== "guardian") ?? [],
     [contactsData],
   );
-  const selectedContact = useMemo<ContactPayload | null>(() => {
-    if (selection.kind !== "contact") {
-      return null;
-    }
-    return contactsData?.find((c) => c.id === selection.contactId) ?? null;
-  }, [contactsData, selection]);
+  // With nothing picked the pane rests on the guardian, but only where a
+  // detail sits beside or behind the list. As a screen the list is the whole
+  // page and nothing is open.
+  const selectedContactId =
+    routeContactId ?? (listFillsPage ? null : (guardian?.id ?? null));
+  const selectedContact = useMemo<ContactPayload | null>(
+    () => contactsData?.find((c) => c.id === selectedContactId) ?? null,
+    [contactsData, selectedContactId],
+  );
+
+  // The layout's Back returns to the list only while the detail is a pushed
+  // screen, which the pane's own width decides.
+  const setDetailIsScreen =
+    useIntelligenceLayoutSlotsStore.use.setDetailIsScreen();
+
+  // A push is marked so Back pops to the list, and only a pick made while the
+  // list is the page has a list behind it. Every other pick lands on a detail
+  // already open (a row beside the rail, a merge survivor), which is a move
+  // within one page rather than a step to walk back through, so it replaces
+  // that entry and carries its state: one pushed from the list keeps its
+  // marker, a deep-linked one stays unmarked.
+  const selectContact = useCallback(
+    (contactId: string) => {
+      if (contactId === routeContactId) {
+        return;
+      }
+      if (listFillsPage) {
+        // Reported with the navigation so the layout's Back lands in the same
+        // commit as the pushed screen: a Back a commit behind aims at the
+        // assistant overview over an open contact. The layout ignores the
+        // flag on the list path, so a navigation that never lands cannot
+        // strand it.
+        setDetailIsScreen(true);
+      }
+      void navigate(
+        routes.contacts.detail(contactId),
+        listFillsPage
+          ? { state: PUSHED_FROM_LIST_STATE }
+          : { replace: true, state: locationState },
+      );
+    },
+    [navigate, listFillsPage, routeContactId, locationState, setDetailIsScreen],
+  );
+
+  // The page's own ways out of an open contact, over the same `returnToList`
+  // the layout's top-bar Back uses, so a pushed entry always pops and a
+  // deep-linked one always replaces.
+  const backToList = useCallback(() => {
+    returnToList(navigate, locationState, routes.contacts.root);
+  }, [navigate, locationState]);
+
+  // A contact that fills the page is the back-swipe owner, so `ChatLayout`
+  // yields the left edge to it rather than opening the nav drawer. The list
+  // screen and both pane modes keep that drawer gesture. The section is what
+  // the swipe drags: on a phone it is the whole visible page. No prefetch:
+  // list and detail resolve to one lazy chunk, already loaded here.
+  const swipeContainerRef = useRef<HTMLElement>(null);
+  useEdgeSwipeBack({
+    containerRef: swipeContainerRef,
+    onBack: backToList,
+    enabled: detailFillsPage,
+    navKey: pathname,
+  });
+
+  // Positive evidence that this list is the whole list. `fetchStatus` rather
+  // than `isFetching` because TanStack's default `networkMode` pauses an
+  // offline request, which reads as neither fetching nor failed.
+  const contactsListSettled =
+    contactsQuery.isSuccess && contactsQuery.fetchStatus === "idle";
+
+  // An id no contact carries keeps its URL until the list settles: one that
+  // arrives later (an invalidation, a refetch, a reconnect) resolves the link
+  // on its own.
+  const resolvingRouteContact =
+    Boolean(routeContactId) && !selectedContact && !contactsListSettled;
+
+  // One observer reports only its newest mutation, so each page-global
+  // mutation's in-flight contacts are held by id: a second request must not
+  // speak for the one still open before it.
+  const pendingDeletes = usePendingContactIds();
+  const pendingSaves = usePendingContactIds();
+  const pendingThresholds = usePendingContactIds();
 
   const mergeCandidates = useMemo<ContactPayload[]>(() => {
     if (!contactsData || !selectedContact) {
       return [];
     }
+    // A contact whose DELETE is open has left the list, so offering it as a
+    // donor would race that request.
     return contactsData.filter(
-      (c) => c.id !== selectedContact.id && c.role !== "guardian",
+      (c) =>
+        c.id !== selectedContact.id &&
+        c.role !== "guardian" &&
+        !pendingDeletes.ids.has(c.id),
     );
-  }, [contactsData, selectedContact]);
+  }, [contactsData, selectedContact, pendingDeletes.ids]);
   const canMerge = mergeCandidates.length > 0;
-
-  const guardianAutoSelectedRef = useRef(!!setupChannel);
-  useEffect(() => {
-    if (guardianAutoSelectedRef.current) {
-      return;
-    }
-    if (!guardian) {
-      return;
-    }
-    guardianAutoSelectedRef.current = true;
-    setSelection({ kind: "contact", contactId: guardian.id });
-  }, [guardian]);
 
   // ---------------------------------------------------------------------------
   // Mutations
@@ -247,6 +335,20 @@ export function ContactsPage({
     () => queryClient.invalidateQueries({ queryKey: contactsQueryKey }),
     [queryClient, contactsQueryKey],
   );
+
+  // A mutation's own callbacks run from the request, not from this component,
+  // so a response that lands after the page is left still reaches them. The
+  // cache writes belong to the data either way; a navigation belongs to the
+  // page that asked for it, and would otherwise drag the user back to Contacts
+  // (under whichever assistant they switched to). Every post-success move
+  // below is gated on this.
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const createMutation = useMutation({
     mutationFn: () =>
@@ -258,15 +360,28 @@ export function ContactsPage({
       contactsGetSetQueryData(queryClient, contactsPathOpts, (prev) =>
         prev ? { ...prev, contacts: [...prev.contacts, contact] } : undefined,
       );
-      setSelection({ kind: "contact", contactId: contact.id });
+      if (mountedRef.current) {
+        selectContact(contact.id);
+      }
     },
     onError: toastOnError(t("contactsPage.createFailed")),
     onSettled: () => invalidateContacts(),
   });
 
+  // Fresh options reach only the newest mutation, so an older delete's
+  // callbacks keep the selection they were built with. The ref carries the
+  // live one, written at commit so a response cannot read a stale value.
+  const selectedContactIdRef = useRef(selectedContactId);
+  useLayoutEffect(() => {
+    selectedContactIdRef.current = selectedContactId;
+  }, [selectedContactId]);
+
   const deleteMutation = useMutation({
     mutationFn: (contactId: string) =>
       gatewayDeleteContact(assistantId, contactId),
+    onMutate: (contactId) => {
+      pendingDeletes.add(contactId);
+    },
     onSuccess: (_data, contactId) => {
       contactsGetSetQueryData(queryClient, contactsPathOpts, (prev) =>
         prev
@@ -276,10 +391,16 @@ export function ContactsPage({
             }
           : undefined,
       );
-      setSelection({ kind: "assistant" });
+      // Another contact may be open by now, holding edits of its own.
+      if (mountedRef.current && selectedContactIdRef.current === contactId) {
+        backToList();
+      }
     },
     onError: toastOnError(t("contactsPage.deleteFailed")),
-    onSettled: () => invalidateContacts(),
+    onSettled: (_data, _error, contactId) => {
+      pendingDeletes.remove(contactId);
+      return invalidateContacts();
+    },
   });
 
   const updateMutation = useMutation({
@@ -295,6 +416,9 @@ export function ContactsPage({
         displayName: patch.displayName,
         notes: patch.notes,
       }),
+    onMutate: ({ contactId }) => {
+      pendingSaves.add(contactId);
+    },
     onSuccess: (updatedContact) => {
       contactsGetSetQueryData(queryClient, contactsPathOpts, (prev) =>
         prev
@@ -308,7 +432,10 @@ export function ContactsPage({
       );
     },
     onError: toastOnError(t("contactsPage.saveFailed")),
-    onSettled: () => invalidateContacts(),
+    onSettled: (_data, _error, { contactId }) => {
+      pendingSaves.remove(contactId);
+      return invalidateContacts();
+    },
   });
 
   const thresholdMutation = useMutation({
@@ -326,6 +453,9 @@ export function ContactsPage({
         displayName,
         autoApproveThreshold,
       }),
+    onMutate: ({ contactId }) => {
+      pendingThresholds.add(contactId);
+    },
     onSuccess: (updatedContact) => {
       contactsGetSetQueryData(queryClient, contactsPathOpts, (prev) =>
         prev
@@ -339,7 +469,10 @@ export function ContactsPage({
       );
     },
     onError: toastOnError(t("contactPermissions.saveFailed")),
-    onSettled: () => invalidateContacts(),
+    onSettled: (_data, _error, { contactId }) => {
+      pendingThresholds.remove(contactId);
+      return invalidateContacts();
+    },
   });
 
   const mergeMutation = useContactsMergePostMutation({
@@ -360,7 +493,9 @@ export function ContactsPage({
               }
             : undefined,
         );
-        setSelection({ kind: "contact", contactId: mergedContact.id });
+        if (mountedRef.current) {
+          selectContact(mergedContact.id);
+        }
       }
       setMergeDialogOpen(false);
       toast.success(t("contactsPage.mergeSucceeded"));
@@ -368,20 +503,24 @@ export function ContactsPage({
     onSettled: () => invalidateContacts(),
   });
 
+  // The mutation object is new every render; its bound methods are not, so
+  // the callbacks below keep their identity across renders.
+  const resetMerge = mergeMutation.reset;
+
   const handleSelect = useCallback(
-    (sel: ContactSelection) => {
-      setSelection(sel);
+    (contactId: string) => {
+      selectContact(contactId);
       closeDrawer();
       setMergeDialogOpen(false);
-      mergeMutation.reset();
+      resetMerge();
     },
-    [closeDrawer, mergeMutation],
+    [selectContact, closeDrawer, resetMerge],
   );
 
   const handleOpenMerge = useCallback(() => {
-    mergeMutation.reset();
+    resetMerge();
     setMergeDialogOpen(true);
-  }, [mergeMutation]);
+  }, [resetMerge]);
 
   const handleCloseMerge = useCallback(() => {
     if (mergeMutation.isPending) {
@@ -405,12 +544,51 @@ export function ContactsPage({
     [revokeMutation, assistantId],
   );
 
+  const createContact = createMutation.mutate;
+  const createPending = createMutation.isPending;
   const handleAddContact = useCallback(() => {
-    if (createMutation.isPending) {
+    if (createPending) {
       return;
     }
-    createMutation.mutate();
-  }, [createMutation]);
+    createContact();
+  }, [createContact, createPending]);
+
+  // As a screen the list has no heading row of its own, so the add action
+  // rides the layout's mobile top bar. Everywhere else the card's own plus
+  // carries it.
+  const setHeaderTrailing =
+    useIntelligenceLayoutSlotsStore.use.setHeaderTrailing();
+  useEffect(() => {
+    if (!listFillsPage) {
+      setHeaderTrailing(null);
+      return;
+    }
+    setHeaderTrailing(
+      <Button
+        shape="pill"
+        variant="ghost"
+        iconOnly={<Plus aria-hidden />}
+        aria-label={t("contactsList.addAriaLabel")}
+        tooltip={t("contactsList.addAriaLabel")}
+        className="max-md:bg-[var(--surface-active)]"
+        loading={createPending}
+        disabled={createPending}
+        onClick={handleAddContact}
+      />,
+    );
+    return () => {
+      setHeaderTrailing(null);
+    };
+  }, [createPending, handleAddContact, listFillsPage, setHeaderTrailing, t]);
+
+  // Layout effect, not passive: the layout above reads this flag, so it is
+  // published in the commit that measured the pane rather than a phase later.
+  useLayoutEffect(() => {
+    setDetailIsScreen(detailFillsPage);
+    return () => {
+      setDetailIsScreen(false);
+    };
+  }, [detailFillsPage, setDetailIsScreen]);
 
   const handleContactSetupChannel = useCallback(
     (type: string) => {
@@ -511,13 +689,8 @@ export function ContactsPage({
   });
 
   // Without configured Slack credentials the roster can only 503, so the Link
-  // action is offered only once Slack is set up. Configuration, not liveness:
-  // the roster is an outbound Web API call, so it answers perfectly well while
-  // the inbound Socket Mode connection is down, and gating on the connection
-  // state would hide a working action during a reconnect.
-  const slackReady = channelsController.channels.some(
-    (channel) => channel.key === "slack" && channel.configured,
-  );
+  // action is offered only once Slack is set up.
+  const slackReady = useSlackConfigured(assistantId);
 
   const handleLinkAccount = useCallback(
     (channelId: string) => {
@@ -532,10 +705,9 @@ export function ContactsPage({
   // Derived optimistic state
   // ---------------------------------------------------------------------------
 
-  const deletingContactId = deleteMutation.isPending
-    ? deleteMutation.variables
-    : null;
-
+  // The overlay reads the observer because it needs the values a request
+  // carries, which only the newest call reports. Whether a contact has a
+  // request open at all is the pending-id sets' answer, below.
   const optimisticContact = useMemo<ContactPayload | null>(() => {
     if (!selectedContact) {
       return null;
@@ -569,21 +741,27 @@ export function ContactsPage({
     thresholdMutation.variables,
   ]);
 
+  // Each flag belongs to the open contact alone: saving one contact must not
+  // freeze the form of another, and must stay set while a later save on a
+  // different contact is the one the observer describes.
+  const savePending =
+    selectedContactId !== null && pendingSaves.ids.has(selectedContactId);
+  const thresholdPending =
+    selectedContactId !== null && pendingThresholds.ids.has(selectedContactId);
+
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
 
-  // Old builds' mobile chat handoff (and saved links) deep-linked channel
-  // setup to this page. The forms it targeted moved to the Channels tab,
-  // so forward the link there rather than stranding it on the assistant
-  // card's plain connect/disconnect list.
+  // Old builds' mobile chat handoff (and saved links) deep-link channel setup
+  // to this page. The forms they target live on the Channels tab, so the link
+  // is forwarded there.
   if (setupChannel) {
     return <Navigate to={`${routes.channels}?setup=${setupChannel}`} replace />;
   }
 
   const contactsListProps = {
     loading: contactsQuery.isLoading,
-    assistantName: assistantName,
     guardian: guardian
       ? {
           id: guardian.id,
@@ -595,7 +773,7 @@ export function ContactsPage({
         }
       : null,
     regularContacts: regularContacts
-      .filter((c) => c.id !== deletingContactId)
+      .filter((c) => !pendingDeletes.ids.has(c.id))
       .map((c) => ({
         id: c.id,
         displayName: c.displayName,
@@ -604,9 +782,10 @@ export function ContactsPage({
         channelTypes: channelTypeLabels(c.channels, a2aChannel),
         verified: isVerifiedContact(c.channels),
       })),
-    selection,
+    selectedContactId,
+    onSelect: handleSelect,
     onAddContact: handleAddContact,
-    addingContact: createMutation.isPending,
+    addingContact: createPending,
     search: contactSearch,
     onSearchChange: setContactSearch,
   };
@@ -620,9 +799,9 @@ export function ContactsPage({
     >
       {hasRoomForList ? (
         <aside className="min-h-0 w-[320px] shrink-0 overflow-y-auto self-stretch">
-          <ContactsList {...contactsListProps} onSelect={handleSelect} />
+          <ContactsList {...contactsListProps} />
         </aside>
-      ) : (
+      ) : listIsScreen ? null : (
         <>
           <div className="flex items-center">
             <SideListTrigger onClick={openDrawer} />
@@ -633,27 +812,29 @@ export function ContactsPage({
             onClose={closeDrawer}
             title={t("contactsPage.title")}
           >
-            <ContactsList {...contactsListProps} onSelect={handleSelect} />
+            <ContactsList {...contactsListProps} />
           </SideListDrawer>
         </>
       )}
 
-      <section className="min-h-0 min-w-0 flex-1 overflow-y-auto">
-        {selection.kind === "assistant" ||
-        (selection.kind === "contact" &&
-          selection.contactId === deletingContactId) ? (
-          <AssistantChannelsDetail
-            assistantName={assistantName}
-            channels={channelsController.channels}
-            pendingChannelKey={channelsController.pendingChannelKey}
-            onConnect={channelsController.onSetup}
-            onDisconnect={channelsController.onDisconnect}
-          />
+      {/* One slot in every mode, so an open detail keeps its form state when
+          the pane crosses the threshold. */}
+      <section
+        ref={swipeContainerRef}
+        className="min-h-0 min-w-0 flex-1 overflow-y-auto"
+      >
+        {/* The spinner comes first: as the page the list renders nothing at
+            all during a cold load, so the branch below would leave a bare
+            screen under the top bar. */}
+        {contactsQuery.isLoading || resolvingRouteContact ? (
+          <ContactsPaneSpinner />
+        ) : listFillsPage ? (
+          <ContactsList {...contactsListProps} surface="screen" />
         ) : optimisticContact ? (
           optimisticContact.role === "guardian" ? (
             <GuardianDetailView
               contact={optimisticContact}
-              savePending={updateMutation.isPending}
+              savePending={savePending}
               verifyPending={
                 verifyChannelMutation.isPending ||
                 linkAndVerifyMutation.isPending
@@ -682,8 +863,10 @@ export function ContactsPage({
           ) : (
             <ContactDetailView
               contact={optimisticContact}
-              savePending={updateMutation.isPending}
-              deletePending={deleteMutation.isPending}
+              savePending={savePending}
+              // The list stays reachable during a delete, so the freeze
+              // belongs to the contact being deleted, not whichever is open.
+              deletePending={pendingDeletes.ids.has(optimisticContact.id)}
               verifyPending={
                 verifyChannelMutation.isPending ||
                 linkAndVerifyMutation.isPending
@@ -709,7 +892,7 @@ export function ContactsPage({
               onVerifyChannel={handleVerifyChannel}
               onRevokeChannel={handleRevokeChannel}
               onLinkAccount={slackReady ? handleLinkAccount : undefined}
-              pendingAutoApproveThreshold={thresholdMutation.isPending}
+              pendingAutoApproveThreshold={thresholdPending}
               onAutoApproveThresholdChange={(autoApproveThreshold) => {
                 thresholdMutation.mutate({
                   contactId: optimisticContact.id,
@@ -719,8 +902,10 @@ export function ContactsPage({
               }}
             />
           )
+        ) : routeContactId ? (
+          <ContactsPaneMessage text={t("contactsPage.notFoundBody")} />
         ) : (
-          <ContactsEmptyState />
+          <ContactsPaneMessage text={t("contactsPage.emptyBody")} />
         )}
       </section>
 
@@ -783,17 +968,24 @@ export function ContactsPage({
   );
 }
 
-function ContactsEmptyState() {
-  const { t } = useTranslation("contacts");
-
+/** The pane's resting copy: nothing picked, or a URL naming no contact. */
+function ContactsPaneMessage({ text }: { text: string }) {
   return (
     <div className="flex h-full items-center justify-center py-16">
       <p
         className="text-body-medium-lighter"
         style={{ color: "var(--content-tertiary)" }}
       >
-        {t("contactsPage.emptyBody")}
+        {text}
       </p>
+    </div>
+  );
+}
+
+function ContactsPaneSpinner() {
+  return (
+    <div className="flex h-full items-center justify-center py-16">
+      <Loader2 className="h-6 w-6 animate-spin text-[var(--content-tertiary)]" />
     </div>
   );
 }

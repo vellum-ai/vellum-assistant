@@ -17,6 +17,7 @@ import {
   CrossfadeStack,
   Typography,
 } from "@vellumai/design-library";
+import type { GuardianDecisionActionId } from "@vellumai/service-contracts/guardian-requests";
 
 import { flattenSummary, resolvePreview } from "./feed-preview";
 import {
@@ -27,6 +28,7 @@ import {
   swipeActionsFor,
   type HomeRecapRowTrailingAction,
 } from "./home-recap-actions";
+import { useFeedItemReceiptTitle } from "./hooks/use-feed-item-receipt-title";
 import { guardianLabelKey, resolveFeedItemTitle } from "./utils";
 
 /**
@@ -42,13 +44,6 @@ const skipRowControls = (target: Element | null) => {
   const control = target?.closest("button, a");
   return control != null && !control.hasAttribute(CARD_LINK_ATTRIBUTE);
 };
-
-/**
- * The decision a row's inline buttons submit for a pending approval. Mirrors
- * the canonical decision route's `action` field, so the bell can hand it to
- * the mutation unchanged.
- */
-export type HomeRecapRowDecision = "approve_once" | "reject";
 
 /**
  * The line under the title, in the indented column: a description where the
@@ -76,7 +71,7 @@ export interface HomeRecapRowProps {
    * Submits a decision on a pending approval from the row itself. Without it
    * the row offers no buttons and the request is decided from its detail.
    */
-  onDecide?: (item: FeedItem, decision: HomeRecapRowDecision) => void;
+  onDecide?: (item: FeedItem, decision: GuardianDecisionActionId) => void;
   /** True while a decision is in flight, holding every row's buttons inert. */
   isDecisionPending?: boolean;
   /**
@@ -151,6 +146,9 @@ export function HomeRecapRow({
      title is the generic name of the kind of request, and the ask itself
      (which lives in the body) reads underneath. */
   const attentionLabelKey = needsAttention ? guardianLabelKey(item) : null;
+  // A skill-update receipt is named by what it lists, in the reader's
+  // language; null for every other item.
+  const receiptTitle = useFeedItemReceiptTitle(item);
 
   // Both memoized: each parses the summary as markdown, and the bell re-renders
   // every row whenever the feed changes.
@@ -158,8 +156,9 @@ export function HomeRecapRow({
     () =>
       attentionLabelKey
         ? t(attentionLabelKey)
-        : resolveFeedItemTitle({ title: item.title, summary: item.summary }),
-    [attentionLabelKey, t, item.title, item.summary],
+        : (receiptTitle ??
+          resolveFeedItemTitle({ title: item.title, summary: item.summary })),
+    [attentionLabelKey, receiptTitle, t, item.title, item.summary],
   );
 
   const hasOffers = (item.actions?.length ?? 0) > 0;

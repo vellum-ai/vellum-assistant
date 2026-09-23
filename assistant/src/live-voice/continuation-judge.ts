@@ -17,7 +17,7 @@
 import {
   askTypesafeNoul,
   resolveTypesafeProvider,
-} from "../calls/typesafe-noul.js";
+} from "../providers/jev/ask.js";
 import type { Provider } from "../providers/types.js";
 
 export const VOICE_CONTINUATION_JUDGE_CALL_SITE = "voiceContinuationJudge";

@@ -1,6 +1,5 @@
 /**
- * `chat.assistant_reply` producer: an APNs push for a finished reply the user
- * is no longer looking at.
+ * `chat.assistant_reply` producer for a finished reply the user is not watching.
  *
  * Called at the end of a user-initiated turn (see
  * `daemon/conversation-turn-finalize.ts`) and best-effort throughout: every
@@ -11,6 +10,7 @@
 import type pino from "pino";
 
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
+import { isToolResultOnlyUserMessage } from "../conversations/message-consolidation.js";
 import { getAttachmentMetadataForMessage } from "../persistence/attachments-store.js";
 import {
   getAttentionStateByConversationIds,
@@ -20,20 +20,22 @@ import {
   type ConversationRow,
   getConversation,
   getMessageById,
+  getRecentConversationMessages,
+  type MessageRow,
   parseMessageMetadata,
 } from "../persistence/conversation-crud.js";
 import { isReplaceableTitle } from "../persistence/conversation-title-placeholders.js";
 import {
-  isDesktopOriginatedUserMessage,
+  isEchoSuppressedUserMessage,
   isReplyPushIneligibleUserMessage,
   resolveConversationKind,
 } from "../persistence/conversation-types.js";
 import { stringifyMessageContent } from "../persistence/message-content.js";
 import { projectPersistedAssistantContent } from "../persistence/user-facing-content.js";
-import { isDesktopAttended } from "../runtime/desktop-presence.js";
-import { isWebConversationFocused } from "../runtime/web-presence.js";
 import { safeParseRecord } from "../util/json.js";
+import { workStartedAfter } from "./completion-work.js";
 import { emitNotificationSignal } from "./emit-signal.js";
+import { hasPendingBackgroundWork } from "./has-pending-background-work.js";
 import {
   describeMedia,
   mediaEmbeds,
@@ -42,12 +44,62 @@ import {
   sanitizeNotificationTitle,
   stripMarkdownForPreview,
 } from "./notification-utils.js";
+import { resolveCompletionVisibleInSourceNow } from "./resolve-visible-in-source.js";
+import { collectRunRows } from "./result-output.js";
 
 /** Kill switch for this producer, on by default. */
 const ASSISTANT_REPLY_PUSH_FLAG = "assistant-reply-push" as const;
+const REPLY_HISTORY_PAGE_SIZE = 200;
 
-/** Gates the web-focused suppression below, on by default. */
-const WEB_PRESENCE_FLAG = "web-presence-suppression" as const;
+function isCurrentUnseenReply(
+  conversationId: string,
+  assistantRow: MessageRow,
+  turnBoundaryId: string,
+  startedAfter: number,
+): boolean {
+  const attention = getAttentionStateByConversationIds([conversationId]).get(
+    conversationId,
+  );
+  if (
+    !hasUnseenLatestAssistantMessage(attention) ||
+    assistantRow.createdAt <=
+      (attention?.lastSeenAssistantMessageAt ?? -Infinity)
+  ) {
+    return false;
+  }
+  let beforeMessageId: string | undefined;
+  let foundReply = false;
+  let foundLatestAttention = false;
+  // A same-turn private wrap-up can own attention while the public reply is earlier.
+  // Persisted turn boundaries also supersede replies whose projection is delayed.
+  while (true) {
+    const history = getRecentConversationMessages(
+      conversationId,
+      REPLY_HISTORY_PAGE_SIZE,
+      beforeMessageId,
+    );
+    for (let index = history.length - 1; index >= 0; index--) {
+      const row = history[index];
+      foundReply ||= row.id === assistantRow.id;
+      foundLatestAttention ||= row.id === attention?.latestAssistantMessageId;
+      if (row.role === "user" && !isToolResultOnlyUserMessage(row)) {
+        const metadata = readSuppressionMarkers(row.metadata);
+        if (
+          row.id !== turnBoundaryId &&
+          isEchoSuppressedUserMessage(metadata) &&
+          !workStartedAfter({ sentAt: row.createdAt, metadata }, startedAfter)
+        ) {
+          continue;
+        }
+        return row.id === turnBoundaryId && foundReply && foundLatestAttention;
+      }
+    }
+    if (history.length < REPLY_HISTORY_PAGE_SIZE) {
+      return false;
+    }
+    beforeMessageId = history[0].id;
+  }
+}
 
 /**
  * Flatten a title onto one line. Notification titles cannot wrap, and
@@ -114,44 +166,6 @@ function readSuppressionMarkers(
     return validated;
   }
   return metadataJson ? safeParseRecord(metadataJson) : undefined;
-}
-
-/**
- * Desktop attendance, kept fail-open here: a presence read that fails has to
- * send the push, not reach the producer's catch and silence it.
- *
- * No `actorPrincipalId`: the platform delivers this push to the assistant
- * owner's device tokens, and a pod has exactly one owner, so any attended
- * desktop client is that owner's.
- */
-function readDesktopAttended(rlog: pino.Logger): boolean {
-  try {
-    return isDesktopAttended();
-  } catch (err) {
-    rlog.warn({ err }, "Desktop presence read failed; treating as unattended");
-    return false;
-  }
-}
-
-/**
- * Web presence, kept fail-open here for the same reason as
- * {@link readDesktopAttended}: a presence read that fails has to send the
- * push, not reach the producer's catch and silence it.
- *
- * No `actorPrincipalId`: the platform delivers this push to the assistant
- * owner's device tokens, and a pod has exactly one owner, so any focused web
- * tab is that owner's.
- */
-function readWebConversationFocused(
-  conversationId: string,
-  rlog: pino.Logger,
-): boolean {
-  try {
-    return isWebConversationFocused(conversationId);
-  } catch (err) {
-    rlog.warn({ err }, "Web presence read failed; treating as unfocused");
-    return false;
-  }
 }
 
 export async function emitAssistantReplyNotification(params: {
@@ -221,6 +235,26 @@ export async function emitAssistantReplyNotification(params: {
     ) {
       return;
     }
+    let turnBoundaryId = userMessageId;
+    if (initiatingMetadata?.turnOutcome === "batched") {
+      if (
+        typeof initiatingMetadata.turnBatchedInto !== "string" ||
+        !initiatingMetadata.turnBatchedInto
+      ) {
+        return;
+      }
+      turnBoundaryId = initiatingMetadata.turnBatchedInto;
+    }
+
+    const firstAssistantRow = collectRunRows(
+      assistantRow,
+      conversationId,
+      initiatingMessage.createdAt,
+    )[0];
+    const startedAfter = firstAssistantRow?.createdAt ?? assistantRow.createdAt;
+    if (hasPendingBackgroundWork(conversationId, { startedAfter })) {
+      return;
+    }
 
     // A reply whose output is entirely media has no text to preview, so name
     // the media rather than suppressing a real reply. Markdown is flattened
@@ -256,21 +290,21 @@ export async function emitAssistantReplyNotification(params: {
       ? ""
       : sanitizeNotificationTitle(flattenTitleWhitespace(storedTitle));
 
-    // Read as close to the emit as possible: nothing short-circuits on it.
-    // Presence only speaks for a turn the desktop itself opened, on that row's
-    // own OS evidence. A turn sent from the phone still needs its push while the
-    // desktop sits idle within the attendance window.
-    const desktopAttended =
-      isDesktopOriginatedUserMessage(initiatingMetadata) &&
-      readDesktopAttended(rlog);
-
-    // Conversation-scoped web presence applies regardless of which device
-    // initiated the turn: a visible matching tab proves where this reply is
-    // currently being displayed, while the conversation id prevents an
-    // unrelated tab from suppressing the push.
-    const webFocused =
-      isAssistantFeatureFlagEnabled(WEB_PRESENCE_FLAG) &&
-      readWebConversationFocused(conversationId, rlog);
+    const visibleInSourceNow = await resolveCompletionVisibleInSourceNow({
+      conversationId,
+      logger: rlog,
+    });
+    if (
+      hasPendingBackgroundWork(conversationId, { startedAfter }) ||
+      !isCurrentUnseenReply(
+        conversationId,
+        assistantRow,
+        turnBoundaryId,
+        startedAfter,
+      )
+    ) {
+      return;
+    }
 
     await emitNotificationSignal({
       sourceEventName: "chat.assistant_reply",
@@ -280,24 +314,15 @@ export async function emitAssistantReplyNotification(params: {
       sourceContextId: conversationId,
       attentionHints: {
         requiresAction: false,
-        // Load-bearing for the iOS-only scope: `emit-signal.ts` force-adds the
-        // vellum channel for high/critical signals, which would widen this into
-        // an in-app banner on every client. Raising the urgency is the same as
-        // opting into v2.
         urgency: "medium",
         isAsyncBackground: false,
-        // Read weakly, as "at the surface this landed on": the attended desktop
-        // or focused web tab that opened the turn renders the reply in-app,
-        // so a redundant push would only duplicate what's already on screen.
-        visibleInSourceNow: desktopAttended || webFocused,
+        visibleInSourceNow,
       },
       contextPayload: {
         ...(requestedTitle ? { requestedTitle } : {}),
         requestedMessage: preview,
       },
-      // The pipeline dedupe window is a flat hour keyed on this alone, so it
-      // has to carry the message id or a second reply within the hour is
-      // silently dropped.
+      // Each persisted reply owns its notification claim independently.
       dedupeKey: `chat.assistant_reply:${conversationId}:${assistantMessageId}`,
     });
   } catch (err) {

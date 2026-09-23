@@ -25,6 +25,7 @@ import { ROUTES as ATTACHMENT_ROUTES } from "./attachment-routes.js";
 import { ROUTES as AUDIO_ROUTES } from "./audio-routes.js";
 import { ROUTES as AUDIT_ROUTES } from "./audit-routes.js";
 import { ROUTES as AUTH_ROUTES } from "./auth-routes.js";
+import { ROUTES as AUTO_PROFILE_ROUTES } from "./auto-profile-routes.js";
 import { ROUTES as AVATAR_ROUTES } from "./avatar-routes.js";
 import { ROUTES as BACKGROUND_TOOL_ROUTES } from "./background-tool-routes.js";
 import { ROUTES as BACKGROUND_WAKE_ROUTES } from "./background-wake-routes.js";
@@ -217,6 +218,7 @@ export const ROUTES: RouteDefinition[] = [
   ...CONVERSATION_QUERY_ROUTES,
   ...CONVERSATION_STARTER_ROUTES,
   ...ACTIVATION_ROUTES,
+  ...AUTO_PROFILE_ROUTES,
   ...DEBUG_ROUTES,
   ...DEFAULT_PROVIDER_ROUTES,
   ...DESKTOP_SETUP_ROUTES,

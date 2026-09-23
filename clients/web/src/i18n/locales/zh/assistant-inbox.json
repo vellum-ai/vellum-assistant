@@ -70,6 +70,7 @@
   "assistantInboxRoute": {
     "loading": "正在打开收件箱…",
     "setupFailed": "无法设置该地址。",
+    "setupIncomplete": "地址未能创建。请稍后重试。",
     "setupSucceeded": "{address} 已就绪。",
     "replyPrompt": "回复你收件箱中 id 为 {id} 的邮件（来自 {sender}，主题为“{subject}”）。请先用 `assistant email download {id}` 读取它，然后起草回复并在发送前给我看。",
     "mailFailed": "无法加载邮件。",

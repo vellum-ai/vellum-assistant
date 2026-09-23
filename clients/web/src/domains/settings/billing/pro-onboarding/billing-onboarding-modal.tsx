@@ -1,10 +1,6 @@
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type CSSProperties,
-} from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+
+import { useNavigate } from "react-router";
 
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -15,6 +11,8 @@ import {
   type CheckoutIntent,
 } from "@/lib/billing/checkout-intent";
 import { useTranslation } from "@/i18n";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
+import { routes } from "@/utils/routes";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { toast } from "@vellumai/design-library/components/toast";
@@ -26,27 +24,25 @@ import type {
   ProvisioningDimensions,
   ProvisioningStateKind,
 } from "./provisioning-machine";
-import {
-  ProvisioningState,
-  TAKEOVER_SURFACE,
-  TAKEOVER_SURFACE_VAR,
-} from "./provisioning-state";
-import { clearTakeoverAvatarStash } from "@/lib/billing/takeover-avatar-stash";
-import { TakeoverBackdrop } from "./takeover-backdrop";
+import { PROVISIONING_SURFACE, ProvisioningState } from "./provisioning-state";
 import { takeoverCopy, type TakeoverDirection } from "./takeover-copy";
 import { useAssistantDomains } from "./use-assistant-domains";
 import { useProProvisioning } from "./use-pro-provisioning";
 import type { CreditTierChange } from "./use-provisioning-credits";
-import { useTakeoverSurface } from "./use-takeover-surface";
 
+/**
+ * The wizard's steps. With the Assistant Inbox on, "domain" is never shown:
+ * the moment the wizard would advance into it, it hands the user to the
+ * inbox's own setup card instead (see `handOffToInbox`).
+ */
 type WizardStep = "provisioning" | "domain" | "complete";
 
 /**
- * Leaving the takeover changes the modal's shape and its theme in one frame,
- * which neither transitions cheaply. So a sheet in the takeover's own colour
- * covers it first: fading that in reads as the content dissolving (it matches
- * what is already on screen), the swap happens out of sight, and the sheet
- * then clears to reveal the card.
+ * Leaving the takeover changes the modal's shape in one frame, which does
+ * not transition cheaply. So a sheet in the takeover's own colour covers it
+ * first: fading that in reads as the content dissolving (it matches what is
+ * already on screen), the swap happens out of sight, and the sheet then
+ * clears to reveal the card.
  */
 type TakeoverExit = "idle" | "covering" | "revealing";
 const TAKEOVER_COVER_MS = 200;
@@ -126,6 +122,8 @@ export function BillingOnboardingModal({
   const { t } = useTranslation("settings");
   const isResize = mode === "resize";
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const inboxEnabled = useClientFeatureFlagStore.use.assistantInbox();
   const [step, setStep] = useState<WizardStep>("provisioning");
   const [takeoverExit, setTakeoverExit] = useState<TakeoverExit>("idle");
   const exitTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -160,16 +158,8 @@ export function BillingOnboardingModal({
   // restart before it may complete.
   const provisioning = useProProvisioning({ open, canLowerResources });
 
-  // Whether this wizard has actually been opened, so the reset branch below can
-  // tell a close from the mount of an instance that is simply rendered closed
-  // (the billing page mounts two of these; only one opens). Its overlap with
-  // `domainsOpenedAt` is deliberate: tying the stash lifecycle to a
-  // domains-freshness fence would couple two unrelated concerns.
-  const hasOpenedRef = useRef(false);
-
   useEffect(() => {
     if (open) {
-      hasOpenedRef.current = true;
       setIntent(isResize ? null : readPurchasedCheckoutIntent());
       // Fence the domains freshness check to this open before any domains fetch
       // can land, so a pre-open cached list never reads as fresh.
@@ -185,13 +175,6 @@ export function BillingOnboardingModal({
     setDisplayedPhase(null);
     setDomainsOpenedAt(null);
     setBackgroundConfirmOpen(false);
-    if (hasOpenedRef.current) {
-      hasOpenedRef.current = false;
-      // On close, not at the complete step: the takeover's exit sheet still
-      // paints from this surface, so bumping the stash version mid-fade would
-      // slide an otherwise-empty avatar query's tint to bundled green.
-      clearTakeoverAvatarStash();
-    }
   }, [open, isResize]);
 
   useEffect(
@@ -244,12 +227,6 @@ export function BillingOnboardingModal({
     machineSize: capturedFrom?.machineSize ?? actualsFrom?.machineSize ?? null,
     storageGib: capturedFrom?.storageGib ?? actualsFrom?.storageGib ?? null,
   };
-
-  // The takeover and the sheet that covers it on the way out paint from one
-  // surface: the tint published as a custom property, plus the same blurred
-  // backdrop a custom-image avatar shows — so the handoff can't cross-fade a
-  // colour or an image against a flat fill.
-  const { tintHex, backdropImageUrl } = useTakeoverSurface(assistantId);
 
   // Resize-mode routing needs "is a domain already registered?", which
   // checkout mode never consults — DomainStep owns its own fetch there. The
@@ -340,6 +317,25 @@ export function BillingOnboardingModal({
     }
   }, [open, routingInputsSettled]);
 
+  // The Assistant Inbox owns email setup once its flag is on: one card, in
+  // the app, that registers the address and opens the mailbox in the same
+  // place. So instead of the domain step, the wizard leaves for the inbox.
+  // An address set up through the old step could never reach that mailbox,
+  // so the old step is not offered beside the new one.
+  const handOffToInbox = useCallback(() => {
+    // The inbox opens for the assistant the user was using, not the one the
+    // upgrade provisioned: the entitlement is the organisation's, and an
+    // assistant that already carries an address must land on its mailbox,
+    // not on a setup card for a sibling with none.
+    //
+    // What the skipped complete step did on its own way out: clear the
+    // intent. Navigating unmounts this modal before any close effect runs,
+    // so it is done here.
+    clearCheckoutIntent();
+    onClose();
+    navigate(routes.assistantInbox, { replace: true });
+  }, [navigate, onClose]);
+
   const advanceFromProvisioning = useCallback(() => {
     // Checkout treats unknown availability optimistically (`undefined` → domain
     // step); resize requires affirmative `domainStepAvailable === true` AND no
@@ -351,6 +347,10 @@ export function BillingOnboardingModal({
       : domainStepAvailable === false
         ? "complete"
         : "domain";
+    if (next === "domain" && inboxEnabled) {
+      handOffToInbox();
+      return;
+    }
     if (prefersReducedMotion()) {
       setStep(next);
       return;
@@ -366,7 +366,13 @@ export function BillingOnboardingModal({
         );
       }, TAKEOVER_COVER_MS),
     );
-  }, [domainStepAvailable, isResize, hasExistingDomain]);
+  }, [
+    domainStepAvailable,
+    isResize,
+    hasExistingDomain,
+    inboxEnabled,
+    handOffToInbox,
+  ]);
 
   // "Continue in the background" opens a confirm that warns chatting stays
   // unavailable until the upgrade finishes, so the user chooses to keep waiting
@@ -415,15 +421,15 @@ export function BillingOnboardingModal({
   // user. Only a terminal ready state unlocks the backdrop itself.
   const lockTakeover = isTakeover && !onScreenSettled;
 
-  // Full-bleed dark content that fills the viewport for the takeover.
+  // Full-bleed content that fills the viewport for the takeover.
   const provisioningContentClass =
     "overflow-y-auto inset-0 max-w-none w-screen h-screen max-h-none rounded-none border-0";
 
-  // The backdrop goes from a 50% scrim to solid black as the takeover opens.
+  // The backdrop goes from a 50% scrim to solid white as the takeover opens.
   // Easing that colour keeps the room darkening rather than blinking; padding
   // isn't animatable and rides along with the geometry.
   const overlayClass = `transition-[background-color] duration-300 ease-out${
-    isTakeover ? " bg-black p-0" : ""
+    isTakeover ? " bg-white p-0" : ""
   }`;
 
   const stepEntrance = isTakeover
@@ -452,15 +458,13 @@ export function BillingOnboardingModal({
           onInteractOutside={
             lockTakeover ? (e) => e.preventDefault() : undefined
           }
-          data-theme={isTakeover ? "dark" : undefined}
           overlayClassName={overlayClass}
           className={isTakeover ? provisioningContentClass : "overflow-hidden"}
-          style={{ [TAKEOVER_SURFACE_VAR]: tintHex } as CSSProperties}
         >
           {/* Keyed on step so the fade replays as we swap takeover ⇄ card. The
               takeover is the modal's opening step, so it mounts at full size
               rather than growing into it — it gets a longer, softer entrance so
-              a full-bleed dark canvas doesn't just appear over the billing page. */}
+              a full-bleed canvas doesn't just appear over the billing page. */}
           <div
             key={step}
             className={`flex min-h-0 flex-1 flex-col motion-reduce:[animation:none] ${stepEntrance}`}
@@ -481,20 +485,8 @@ export function BillingOnboardingModal({
                     : "[animation:fadeIn_380ms_ease-out_both_reverse]"
                 }`
               }
-              style={{ backgroundColor: TAKEOVER_SURFACE }}
-            >
-              {/* A custom-image takeover's colour lives in this blurred image,
-                  not the ground fill, so the sheet reproduces it to match. The
-                  `TAKEOVER_SURFACE` fill shows through while it decodes. The
-                  sheet's own fade drives the reveal, so the backdrop doesn't
-                  re-fade over it. */}
-              {backdropImageUrl && (
-                <TakeoverBackdrop
-                  imageUrl={backdropImageUrl}
-                  animateIn={false}
-                />
-              )}
-            </div>
+              style={{ backgroundColor: PROVISIONING_SURFACE }}
+            />
           )}
         </Modal.Content>
       </Modal.Root>
@@ -535,7 +527,6 @@ export function BillingOnboardingModal({
           landed={provisioning.landed}
           celebrating={routingSettled}
           onCelebrationEnd={advanceFromProvisioning}
-          assistantId={assistantId}
           escapeAvailable={machineBusy && provisioning.escapeEligible}
           onEscape={escapeProvisioning}
           onPhaseChange={setDisplayedPhase}

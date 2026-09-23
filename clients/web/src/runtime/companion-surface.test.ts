@@ -6,8 +6,12 @@ mock.module("@/runtime/is-electron", () => ({
   isElectron: () => true,
 }));
 
-const { setCompanionContext, clearCompanionWorking, setCompanionDictation } =
-  await import("./companion-surface");
+const {
+  setCompanionContext,
+  clearCompanionWorking,
+  setCompanionDictation,
+  forwardUnplacedDictationOffer,
+} = await import("./companion-surface");
 
 const sent: CompanionContext[] = [];
 
@@ -35,6 +39,30 @@ const WORKING: CompanionContext = {
   assistantName: "Ziggy",
   working: true,
 };
+
+describe("forwardUnplacedDictationOffer", () => {
+  test("forwards offers and clears to the host", () => {
+    const send = mock((_offer: unknown) => undefined);
+    window.vellum!.companion!.setUnplacedDictationOffer = send;
+    const offer = { text: "words", reason: "paste-failed" as const };
+    expect(forwardUnplacedDictationOffer(offer)).toBe(true);
+    expect(forwardUnplacedDictationOffer(null)).toBe(true);
+    expect(send.mock.calls).toEqual([[offer], [null]]);
+  });
+
+  test("reports unavailable on older shells and web", () => {
+    expect(forwardUnplacedDictationOffer(null)).toBe(false);
+    delete window.vellum;
+    expect(forwardUnplacedDictationOffer(null)).toBe(false);
+  });
+
+  test("keeps transport failures recoverable", () => {
+    window.vellum!.companion!.setUnplacedDictationOffer = () => {
+      throw new Error("bridge closed");
+    };
+    expect(forwardUnplacedDictationOffer(null)).toBe(false);
+  });
+});
 
 /**
  * Main holds the last context it was given so the surface survives its own

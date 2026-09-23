@@ -46,11 +46,15 @@ export function CollapsedGroupFlyout({
   onEndReached,
 }: CollapsedGroupFlyoutProps) {
   const ctx = useConversationListContext();
+  const windows =
+    conversations.length > CONVERSATION_LIST_VIRTUALIZE_THRESHOLD &&
+    scrollParent != null;
 
   const renderRow = (conversation: Conversation) => (
     <ConversationRow
       key={conversation.conversationId}
       conversation={conversation}
+      windowed={windows}
       withContextMenu={false}
       marquee={false}
       onSelect={(id) => {
@@ -71,8 +75,7 @@ export function CollapsedGroupFlyout({
         </span>
       </div>
       <div className="px-2">
-        {conversations.length > CONVERSATION_LIST_VIRTUALIZE_THRESHOLD &&
-        scrollParent ? (
+        {windows ? (
           <VirtualList
             items={conversations}
             customScrollParent={scrollParent}

@@ -7,11 +7,7 @@
 // `resolveConversationKind` classifier, and the pure predicates over a
 // persisted message's `metadata` record.
 
-import {
-  type ChannelId,
-  parseChannelId,
-  parseClientOs,
-} from "../channels/types.js";
+import { type ChannelId, parseChannelId } from "../channels/types.js";
 
 /**
  * Where a conversation came from, stated by whoever creates it.
@@ -166,6 +162,14 @@ export function isSystemCardMetadata(
  * waiting forever for a reply that was never coming.
  */
 export const NO_RESPONSE_MESSAGE_KIND = "no_response";
+
+/**
+ * Metadata key on an assistant row from a turn that ran on the Auto profile:
+ * the default profile key the router picked for the turn. Projected to
+ * `ConversationMessage.autoRoutedProfile` so clients can show which profile
+ * answered. Absent on every other row.
+ */
+export const AUTO_ROUTED_PROFILE_METADATA_KEY = "autoRoutedProfile";
 
 /**
  * Shared predicate for the deliberate-silence marker, mirroring
@@ -358,36 +362,6 @@ export function messageMetadataIsAmbientSightKeep(
 }
 
 /**
- * True when the row that opened the turn was sent from a desktop app, on that
- * row's own evidence.
- *
- * Two markers, both required. The `client` bag's `os` entry is the only
- * per-platform attribution on a message: `userMessageInterface` is `"web"` for
- * the desktop apps, the iOS app, and a desktop browser alike.
- * `clientOsFromRequest` says that `os` was reported by this row's request or
- * transport rather than inherited from the conversation's live client state,
- * which names the surface of an earlier turn. A button tapped on the phone
- * against a conversation last sent to from desktop persists the old OS with no
- * marker.
- *
- * Origin a row did not report itself is origin unknown. Callers gate
- * suppression on this, so unknown has to read as not-desktop.
- */
-export function isDesktopOriginatedUserMessage(
-  metadata: Record<string, unknown> | undefined,
-): boolean {
-  if (metadata?.clientOsFromRequest !== true) {
-    return false;
-  }
-  const client = metadata.client;
-  if (typeof client !== "object" || client === null) {
-    return false;
-  }
-  const clientOs = parseClientOs((client as Record<string, unknown>).os);
-  return clientOs === "macos" || clientOs === "windows" || clientOs === "linux";
-}
-
-/**
  * True when the row that opened the turn arrived over an external messaging
  * surface (Slack, Telegram, WhatsApp, email, a phone call) rather than the
  * native app.
@@ -430,7 +404,8 @@ function isReplyDeliveredOffApp(
  *
  * - `automated`: a scheduled or background prompt injected into an ordinary
  *   user conversation, which has its own producer (e.g. `schedule.notify`).
- * - Echo-suppressed: internal scaffolding, nobody's prompt awaiting a reply.
+ * - Echo-suppressed: internal scaffolding, except a hidden voice continuation
+ *   result whose finished reply reaches the user through this push.
  * - Voice-session: the reply is spoken back over the still-open session.
  * - Channel-originated: the finished reply is delivered back to the
  *   originating messaging surface (`finalizeEventDelivery`), so the sender
@@ -455,7 +430,10 @@ export function isReplyPushIneligibleUserMessage(
   return (
     metadata?.automated === true ||
     metadata?.pointerInstruction === true ||
-    isEchoSuppressedUserMessage(metadata) ||
+    (isEchoSuppressedUserMessage(metadata) &&
+      !(
+        metadata?.hidden === true && metadata?.voiceContinuationResult === true
+      )) ||
     (!options?.replyDeliveredInAppOnly && isReplyDeliveredOffApp(metadata))
   );
 }

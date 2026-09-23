@@ -3,10 +3,11 @@ import { ArrowDownToLine, ArrowUpFromLine } from "lucide-react";
 import { Typography } from "@vellumai/design-library";
 
 import {
-  AnimatedMetricCard,
+  AnimatedStatSquare,
   formatNumber,
-} from "@/domains/chat/components/metric-card";
-import { SectionLabel } from "@/components/detail-primitives";
+} from "@/domains/chat/components/animated-stat-square";
+import { DetailShellNotice } from "@/components/detail-shell";
+import { ClampedContent, SectionLabel } from "@/components/detail-primitives";
 import type { WorkflowLeaf } from "@/domains/chat/workflow-store";
 import { useTranslation } from "@/i18n";
 
@@ -21,24 +22,20 @@ function DetailSection({
   emptyText: string;
 }) {
   return (
-    <div className="mb-5">
+    <div>
       <SectionLabel as="h3">{title}</SectionLabel>
       {body ? (
-        <Typography
-          variant="body-medium-lighter"
-          as="p"
-          className="whitespace-pre-wrap break-words leading-relaxed text-[var(--content-default)]"
-        >
-          {body}
-        </Typography>
+        <ClampedContent label={title}>
+          <Typography
+            variant="body-medium-lighter"
+            as="p"
+            className="whitespace-pre-wrap break-words leading-relaxed text-[var(--content-default)]"
+          >
+            {body}
+          </Typography>
+        </ClampedContent>
       ) : (
-        <Typography
-          variant="body-medium-lighter"
-          as="p"
-          className="text-[var(--content-tertiary)]"
-        >
-          {emptyText}
-        </Typography>
+        <DetailShellNotice placement="section">{emptyText}</DetailShellNotice>
       )}
     </div>
   );
@@ -58,26 +55,16 @@ export function WorkflowLeafDetail({ leaf }: { leaf: WorkflowLeaf }) {
       : t("workflowLeafDetail.noResultSummary");
 
   return (
-    <div>
-      <div className="mb-5 grid grid-cols-2 gap-3">
-        <AnimatedMetricCard
-          icon={
-            <ArrowDownToLine
-              className="h-4 w-4 shrink-0"
-              style={{ color: "var(--content-secondary)" }}
-            />
-          }
+    <div className="flex flex-col gap-5">
+      <div className="grid grid-cols-2 gap-3">
+        <AnimatedStatSquare
+          icon={<ArrowDownToLine />}
           target={leaf.inputTokens ?? 0}
           format={(n) => formatNumber(Math.round(n))}
           label={t("workflowLeafDetail.input")}
         />
-        <AnimatedMetricCard
-          icon={
-            <ArrowUpFromLine
-              className="h-4 w-4 shrink-0"
-              style={{ color: "var(--content-secondary)" }}
-            />
-          }
+        <AnimatedStatSquare
+          icon={<ArrowUpFromLine />}
           target={leaf.outputTokens ?? 0}
           format={(n) => formatNumber(Math.round(n))}
           label={t("workflowLeafDetail.output")}

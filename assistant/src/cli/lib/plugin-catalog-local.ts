@@ -14,6 +14,10 @@
 
 import bundledManifest from "./bundled-marketplace.json" with { type: "json" };
 import {
+  isPluginCatalogEntryVisible,
+  type PluginCatalogFeatureFlagResolver,
+} from "./plugin-catalog-visibility.js";
+import {
   type MarketplaceEntry,
   marketplaceManifestSchema,
   type ResolvedPluginSource,
@@ -27,6 +31,7 @@ import {
 // Re-exported so `local`-tagged CLI commands can gate on platform features
 // without importing `platform/` directly (cli/no-daemon-internals allows lib).
 export { arePlatformFeaturesEnabled } from "../../platform/feature-gate.js";
+export { isPluginCatalogEntryVisible };
 
 let memoizedEntries: readonly MarketplaceEntry[] | undefined;
 
@@ -80,6 +85,10 @@ export function readBundledLocalPluginCatalog(): PluginCatalog {
  */
 export function resolveBundledPluginSource(
   name: string,
+  isFeatureFlagEnabled?: PluginCatalogFeatureFlagResolver,
 ): ResolvedPluginSource | null {
+  if (!isPluginCatalogEntryVisible(name, isFeatureFlagEnabled)) {
+    return null;
+  }
   return resolveMarketplaceSource(name, bundledEntries());
 }

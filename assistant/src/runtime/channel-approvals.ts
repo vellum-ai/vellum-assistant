@@ -9,6 +9,8 @@
  *   3. Consume user decisions and apply them to the underlying session
  */
 
+import { isDenyingGuardianAction } from "@vellumai/service-contracts/guardian-requests";
+
 import { findConversation } from "../daemon/conversation-registry.js";
 import type { UserDecision } from "../permissions/types.js";
 import { composeApprovalMessage } from "./approval-message-composer.js";
@@ -18,10 +20,7 @@ import type {
   ApprovalUIMetadata,
   ChannelApprovalPrompt,
 } from "./channel-approval-types.js";
-import {
-  DENYING_ACTION_SET,
-  toApprovalActionOptions,
-} from "./channel-approval-types.js";
+import { toApprovalActionOptions } from "./channel-approval-types.js";
 import {
   buildOneTimeDecisionActions,
   buildPlainTextFallback,
@@ -136,7 +135,7 @@ export function buildApprovalUIMetadata(
  * pending tool confirmation as an approval.
  */
 function mapApprovalActionToUserDecision(action: ApprovalAction): UserDecision {
-  return DENYING_ACTION_SET.has(action) ? "deny" : "allow";
+  return isDenyingGuardianAction(action) ? "deny" : "allow";
 }
 
 // ---------------------------------------------------------------------------

@@ -412,6 +412,12 @@ The preload script exposes a typed `window.vellum` API to the renderer:
   the `up` says why it closed, which is how the renderer tells a hold from a
   double tap. `helper.hotkey.readFrontSelection()` reads what is highlighted
   in the application in front, which a hold asks for once it has armed.
+  The result distinguishes no selection (`null`) from an unavailable capture
+  (`{ unavailable: true }`). Chromium activation uses Electron's manual AX
+  flag with Chrome's enhanced UI flag as fallback. Main retries reads with a
+  three-second wait budget without reactivating the tree or blocking the native event
+  loop. Retries are bound to the original hold and foreground process. An
+  unavailable capture preserves the transcript for copying and never pastes.
 - `helper.ping()` — health-checks the native helper over JSON-RPC stdio.
 - `auth.*` — typed stubs that reject with "not implemented yet" until the
   corresponding feature tickets land.
@@ -448,3 +454,51 @@ the established shape) rather than reaching into `window.vellum.*`
 directly from feature code. That keeps the platform-branching logic in
 one place and makes the cross-platform contract (web / iOS / Electron)
 live in TypeScript types.
+
+## Companion tour permissions
+
+The existing companion coachmarks check and request only the access needed by
+their current lesson. Every permission step is skippable.
+
+| Lesson | Permission | Purpose |
+| --- | --- | --- |
+| Try a call | Microphone | Capture your voice during calls |
+| Voice key | Input Monitoring | Detect the global voice-key shortcut |
+| Share | Screen Recording | Share a screen or window through Vellum Helper |
+
+Microphone uses the native prompt. Input Monitoring and Screen Recording lift
+the coachmark's permission control into a guide beside System Settings. Drag
+Vellum Helper into the privacy list and authenticate if asked.
+**Show in Finder** provides a keyboard and manual-drag alternative. The bundle
+label and icon reflect the actual installed helper, including development builds.
+
+The informational introduction and **Start the tour** button appear before the
+coachmarks. Closing that introduction dismisses it immediately. Both the companion
+and its introduction wait for sign-in and assistant selection to finish. Losing
+assistant readiness clears an interrupted tour; an unfinished tour returns to its
+introduction when the assistant is ready again. Talk and voice-key practice are
+rehearsals: neither requests microphone access nor starts a real call. The final
+step accepts the avatar or a double-tap of the voice key through the same call
+action, with microphone access checked by the native host. The Talk success
+message stays visible until **Next** is pressed.
+
+The guide follows the main Settings window using the helper's window inventory;
+when unavailable it stays near the bottom of the current display. Before a drag
+or Finder reveal it stops following and drops its floating level to leave native
+authentication visible. A confirmed grant closes the guide without raising the
+companion over Settings. Vellum returns to the same coachmark only after the
+request settles and System Settings leaves the foreground. Settings keeps focus
+through its **Quit & Reopen** confirmation; an unknown foreground application or
+active authentication agent also defers the return. **Back to the tour** returns
+to the same coachmark. Leaving the lesson, replacing the guide, or a five-minute
+timeout also closes it. Motion respects macOS Reduce Motion.
+
+Accessibility, Speech Recognition, Automation, and Notifications serve other app
+features and are not requested by this tour. General Privacy settings retain their
+existing controls.
+
+Implementation: `companion-permission-guide.ts` owns the native guide, helper app
+drag, Finder fallback, and polling. `permissions-service.ts` owns permission state.
+The tour uses the optional `permissions.setup` bridge; its detached guide renders
+at the internal `/assistant/floating/permission-guide` route. There is no separate
+permission setup page or menu entry.

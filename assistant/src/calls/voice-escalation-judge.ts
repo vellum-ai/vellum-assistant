@@ -9,15 +9,16 @@
  * correct reply need something the front door cannot do from here? A
  * confident yes overrules a front-door answer and hands the turn off.
  *
- * The judge runs only when the `voiceEscalationJudge` call site resolves to
- * the TypeSafe provider. Every other outcome (no such profile, provider
- * error, timeout, unparseable answer) is a "clear" verdict, so the front
- * door's own decision stands exactly as it would without the judge.
+ * The judge uses managed Jev by default when Vellum-managed inference is
+ * available. An explicit TypeSafe call-site override can use a user-owned
+ * connection. Every other outcome (unavailable route, provider error,
+ * timeout, unparseable answer) is a "clear" verdict, so the front door's own
+ * decision stands exactly as it would without the judge.
  */
 
+import { askTypesafeNoul } from "../providers/jev/ask.js";
 import type { Message, Provider } from "../providers/types.js";
 import { safeStringSlice } from "../util/unicode.js";
-import { askTypesafeNoul } from "./typesafe-noul.js";
 
 export const VOICE_ESCALATION_JUDGE_CALL_SITE = "voiceEscalationJudge";
 
@@ -57,7 +58,7 @@ export interface EscalationJudgement {
 }
 
 const ESCALATION_QUESTION =
-  "The voice assistant answering right now has NO tools and no access to the user's accounts, files, messages, calendar, screen, apps, the web, or saved memories. Would a correct reply to what the caller just said require doing something it cannot do from here: taking an action (sending, scheduling, creating, editing, changing, opening, calling), looking up live or current information, or retrieving a personal fact that is not already stated in the recent conversation? Answer yes if the caller is asking for, or agreeing to, any such action, even vaguely or via a short confirmation of an earlier offer. Answer no for conversation, opinions, general knowledge, and questions answerable from the recent conversation.";
+  "The voice assistant answering right now has NO tools and no access to the user's accounts, files, messages, calendar, apps, the web, or saved memories. It can start or refresh screen sharing and inspect shared screen images through built-in call controls. Answer no when the caller only asks to share their screen, look at their screen, or describe what is visible; obtaining a screen view does not require escalation. Requests to click, type, edit, or draw/highlight on the screen still require escalation. Would a correct reply to what the caller just said require doing something it cannot do from here: taking an action (sending, scheduling, creating, editing, changing, opening, calling), looking up live or current information, or retrieving a personal fact that is not already stated in the recent conversation? Answer yes if the caller is asking for, or agreeing to, any such action, even vaguely or via a short confirmation of an earlier offer. Answer no for conversation, opinions, general knowledge, and questions answerable from the recent conversation.";
 
 function textOf(message: Message): string {
   return message.content

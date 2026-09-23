@@ -97,6 +97,16 @@
       "privacyPolicyUrl": "https://www.tinyfish.ai/privacy-policy",
       "supportsApiBase": true,
       "defaultApiBase": "https://api.search.tinyfish.ai"
+    },
+    {
+      "id": "exa",
+      "displayName": "Exa",
+      "kind": "byok",
+      "apiKeyPrefix": "Exa API key...",
+      "envVar": "EXA_API_KEY",
+      "secretKey": "exa",
+      "fallbackOrder": 9,
+      "privacyPolicyUrl": "https://exa.ai/privacy-policy"
     }
   ]
 }

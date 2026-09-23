@@ -29,8 +29,16 @@ let emitFails = false;
 
 // ── Module mocks ──────────────────────────────────────────────────────
 
+// Spread the real module: mocks are shared across files in a combined run,
+// and a wholesale replacement drops the exports peer modules import.
+const actualSecureKeys = await import("../../security/secure-keys.js");
 mock.module("../../security/secure-keys.js", () => ({
+  ...actualSecureKeys,
   getSecureKeyAsync: async (account: string) => secureKeyValues.get(account),
+  getSecureKeyResultAsync: async (account: string) => ({
+    value: secureKeyValues.get(account),
+    unreachable: false,
+  }),
 }));
 
 mock.module("../../security/credential-key.js", () => ({

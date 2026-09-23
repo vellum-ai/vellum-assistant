@@ -16,6 +16,8 @@ import { z } from "zod";
 import {
   companionCapturePickSchema,
   companionContextSchema,
+  COMPANION_DICTATION_OFFER_MAX,
+  COMPANION_SET_UNPLACED_DICTATION_OFFER,
   companionPickerSchema,
   companionPopoverAnswerSchema,
   companionPopoverHasRow,
@@ -32,6 +34,7 @@ import {
   COMPANION_BASE_MAX_PILL_WIDTH,
   VOICE_START_REQUEST_TTL_MS,
   COMPANION_INTRO_ACTIONS,
+  COMPANION_INTRO_ANNOUNCEMENT_ACTIONS,
   COMPANION_INTRO_BEATS,
   COMPANION_INTRO_VERSION,
   companionIntroCallControlFor,
@@ -126,7 +129,10 @@ import {
 import { unwatchFrameScroll, watchFrameScroll } from "./frame-scroll-watch";
 import { handle, on } from "./ipc";
 import log from "./logger";
-import { getPermissionsService } from "./permissions-service";
+import {
+  getPermissionsService,
+  onPermissionPresentation,
+} from "./permissions-service";
 import {
   answerScreenRecordingRefusal,
   isScreenRecordingRefusal,
@@ -453,6 +459,9 @@ let geometry: CompanionGeometry = geometryFor(
  */
 let intro: CompanionIntroBeat | null = null;
 
+/** Whether the app is waiting for the user to start or skip a due run. */
+let introAnnouncement = false;
+
 /**
  * Whether the surface is parked over the app's own window for the
  * introduction, rather than sitting where it lives.
@@ -481,6 +490,16 @@ let introStaged = false;
  * scrim is actually about, so it is the fact both the push and the pull carry.
  */
 let introScrim = false;
+
+let introPermissionLowered = false;
+
+const restoreIntroWindowLevel = (): void => {
+  if (!introPermissionLowered) {
+    return;
+  }
+  introPermissionLowered = false;
+  getFloatingWindow(COMPANION_KIND)?.setAlwaysOnTop(true, "floating");
+};
 
 /**
  * How long the surface stays put after landing before the ordinary
@@ -689,6 +708,19 @@ const setIntroScrim = (on: boolean): void => {
   win.webContents.send("vellum:companion:introStage", on);
 };
 
+/** Tell the app whether it should announce the tour before the run begins. */
+const setIntroAnnouncement = (open: boolean): void => {
+  if (introAnnouncement === open) {
+    return;
+  }
+  introAnnouncement = open;
+  const win = currentMainWindow();
+  if (win === null || win.isDestroyed()) {
+    return;
+  }
+  win.webContents.send("vellum:companion:introAnnouncement", open);
+};
+
 /**
  * Which call control the beat on screen is asking for a chord for, or `null`
  * when it is asking for none, which is most of the run and all of the rest of
@@ -730,6 +762,7 @@ let introChordAsked: CompanionIntroCallControl | null = null;
  * up is a card asking for a key that answers nothing.
  */
 const setIntroBeat = (next: CompanionIntroBeat | null): void => {
+  restoreIntroWindowLevel();
   intro = next;
   const control = introChordFor(next);
   if (control === introChordAsked) {
@@ -749,12 +782,19 @@ const setIntroBeat = (next: CompanionIntroBeat | null): void => {
  * way, so nothing is left dimmed.
  */
 const unstageIntro = (): void => {
+  restoreIntroWindowLevel();
   cancelIntroLanding();
   if (!introStaged && !introScrim) {
     return;
   }
   introStaged = false;
   setIntroScrim(false);
+};
+
+const clearIntro = (): void => {
+  setIntroAnnouncement(false);
+  setIntroBeat(null);
+  unstageIntro();
 };
 
 const cancelIntroLanding = (): void => {
@@ -824,13 +864,6 @@ export const introEndsOnSession = (beat: CompanionIntroBeat | null): boolean =>
  * A real conversation has started, so finish a run whose last beat was the
  * offer of one.
  *
- * **The last card advertises two ways in, and only one of them is a press on
- * it.** A double tap on the key reaches the window that owns the voice key and
- * starts a session directly: nothing about it comes back through the run, so
- * without this the beat survives the call, the card returns when it ends, and
- * the install is never recorded as introduced. Either gesture is the user doing
- * the thing the run exists to teach, so either one finishes it.
- *
  * Only the last beat. A session started from an earlier one is the run being
  * interrupted by the user's own business, and main holds the beat so the card
  * picks up where it left off once the call is over.
@@ -839,10 +872,6 @@ const finishIntroOnSession = (): void => {
   if (!introEndsOnSession(intro)) {
     return;
   }
-  // **The offer taken the other way.** The press on the last beat is counted
-  // where the press lands; this is the same offer accepted by a double tap on
-  // the key, and the beat it names is the same one, so the two read as one
-  // number that the path is not lost from.
   if (intro !== null) {
     reportIntro("offer_taken", intro);
   }
@@ -1506,6 +1535,39 @@ const stagedCanvasOrigin = (): { x: number; y: number } => {
   return placed.origin;
 };
 
+/** Start the due introduction after the app has announced it. */
+const startAnnouncedIntro = (): void => {
+  if (!introAnnouncement) {
+    return;
+  }
+  const win = getFloatingWindow(COMPANION_KIND);
+  if (win === null || win.isDestroyed()) {
+    return;
+  }
+
+  setIntroAnnouncement(false);
+  setIntroBeat(COMPANION_INTRO_BEATS[0]);
+  introMicGranted =
+    systemPreferences.getMediaAccessStatus("microphone") === "granted";
+  introStaged = true;
+
+  const origin = stagedCanvasOrigin();
+  win.setPosition(origin.x, origin.y);
+  syncFrontmost();
+  pushState();
+  setIntroScrim(true);
+  reportIntro("exposed", COMPANION_INTRO_BEATS[0]);
+};
+
+/** Skip a due introduction before any of its cards have been shown. */
+const dismissIntroAnnouncement = (): void => {
+  if (!introAnnouncement) {
+    return;
+  }
+  setIntroAnnouncement(false);
+  writeCompanionIntroSeen(COMPANION_INTRO_VERSION);
+};
+
 /**
  * Take the surface from where the introduction ran to where it lives, and let
  * the ordinary frontmost rule have it back once it is there.
@@ -1526,7 +1588,13 @@ const landIntroHome = (): void => {
   // holds it there for.
   setIntroScrim(false);
   const { workArea } = displayUnder(avatarCentre(win));
-  glideAvatarTo(win, defaultAvatarCentre(workArea, geometry), workArea);
+  const home = defaultAvatarCentre(workArea, geometry);
+  if (callHome !== null) {
+    // The final offer can already have borrowed the tour's centered position.
+    callHome = home;
+  } else {
+    glideAvatarTo(win, home, workArea);
+  }
   introLanding = setTimeout(() => {
     introLanding = null;
     introStaged = false;
@@ -2297,11 +2365,9 @@ const sameCaptureTarget = (
 /**
  * A pointed-at control the user can press, and what to call it when they do.
  *
- * Only a control found by name has one. Its rectangle is the frame the tree
- * reported for it, in screen points, which is the one description of where
- * a press would land that does not go through the picture. A ring drawn from
- * bounds the model gave is an extent someone means, not a button, and a
- * press inside it says nothing about a step.
+ * Only a control found by name has one. Its rectangle comes from the
+ * accessibility tree. Bounds measured from an image do not establish a
+ * control's hit area, so rings do not emit press acknowledgements.
  */
 interface CoachmarkPress {
   /**
@@ -2539,9 +2605,7 @@ export const showCompanionCoachmarks = async (
   const presses: CoachmarkPress[] = [];
   for (const request of requests) {
     if (!namesATarget(request)) {
-      // Bounds given outright are an extent someone means, so they keep the
-      // ring. The kind is added here rather than asked for: what the caller
-      // sends is a rectangle, and how a rectangle is drawn is this side's.
+      // Bounds draw a ring around a region or a visually identified control.
       marks.push({ kind: "region", ...request });
       continue;
     }
@@ -3592,6 +3656,9 @@ export const installCompanionWindow = (): void => {
    * some other app entirely, so "focused" would name the wrong target.
    */
   on("vellum:companion:startVoice", z.tuple([]), () => {
+    if (introAnnouncement || intro !== null) {
+      return;
+    }
     // Drawn before the press is delivered, so the pill answers the hand in
     // the same beat: the session it asks for opens after a network round trip
     // in a window the user cannot see.
@@ -3923,6 +3990,21 @@ export const installCompanionWindow = (): void => {
     });
   });
 
+  on(
+    COMPANION_SET_UNPLACED_DICTATION_OFFER,
+    z.tuple([
+      z
+        .object({
+          text: z.string().max(COMPANION_DICTATION_OFFER_MAX),
+          reason: z.enum(["no-text-field", "paste-failed"]),
+        })
+        .nullable(),
+    ]),
+    ([offer]) => {
+      void dispatchWithoutRaising({ kind: "setUnplacedDictationOffer", offer });
+    },
+  );
+
   /**
    * The answer to the offer of a dictation's words. Never raises the app:
    * every answer acts on the application in front, on the pasteboard, or on
@@ -4146,15 +4228,34 @@ export const installCompanionWindow = (): void => {
    * This *does* raise the app, unlike Talk. It is the one press on the surface
    * whose entire purpose is to go back to Vellum.
    */
-  // The introduction's two presses. Main resolves them rather than taking a
-  // beat from the renderer, so a press that arrives from a renderer showing a
-  // beat main has already left is the no-op the guard makes it, not a jump
-  // backwards.
+  // The app answers the announcement before any introduction beat exists.
+  on(
+    "vellum:companion:answerIntroAnnouncement",
+    z.tuple([z.enum(COMPANION_INTRO_ANNOUNCEMENT_ACTIONS)]),
+    ([action]) => {
+      if (action === "start") {
+        startAnnouncedIntro();
+        return;
+      }
+      dismissIntroAnnouncement();
+    },
+  );
+
+  // Main resolves introduction presses rather than taking a beat from the
+  // renderer, so a stale press cannot jump the run backwards.
   on(
     "vellum:companion:advanceIntro",
     z.tuple([z.enum(COMPANION_INTRO_ACTIONS)]),
     ([action]) => {
       if (intro === null) {
+        return;
+      }
+      // Only the final offer can open a call, with a current microphone grant.
+      if (
+        action === "try" &&
+        (intro !== "try" ||
+          systemPreferences.getMediaAccessStatus("microphone") !== "granted")
+      ) {
         return;
       }
       // Resolved against the beat main is on when it runs, not the one this
@@ -4169,10 +4270,6 @@ export const installCompanionWindow = (): void => {
           return;
         }
         const next = introOnAdvance(from, action);
-        // **The offer is counted where it is taken, not where it lands.** A
-        // `try` on the last beat ends the run and a `try` before it does not,
-        // so the beat it was taken on is the only place the two are told
-        // apart, and that beat is gone a line later.
         if (action === "try") {
           reportIntro("offer_taken", from);
         }
@@ -4180,8 +4277,6 @@ export const installCompanionWindow = (): void => {
           finishIntro(introEndingFor(action));
         } else {
           setIntroBeat(next);
-          // `try` mid-run holds the beat, and a beat held is not a beat
-          // reached.
           if (next !== from) {
             reportIntro("advanced", next);
           }
@@ -4411,9 +4506,22 @@ export const installCompanionWindow = (): void => {
     pushState();
   });
 
+  onPermissionPresentation(() => {
+    if (intro === null || introPermissionLowered) {
+      return;
+    }
+    const win = getFloatingWindow(COMPANION_KIND);
+    if (win === null) {
+      return;
+    }
+    // A floating panel otherwise covers Settings and native permission alerts.
+    introPermissionLowered = true;
+    win.setAlwaysOnTop(false);
+  });
   // The app coming forward and going back, which is what decides whether the
   // surface is on the screen at all while it is open. See `appActive`.
   app.on("did-become-active", () => {
+    restoreIntroWindowLevel();
     appActive = true;
     syncFrontmost();
   });
@@ -4425,6 +4533,7 @@ export const installCompanionWindow = (): void => {
     if (win !== currentMainWindow()) {
       return;
     }
+    restoreIntroWindowLevel();
     appActive = true;
     syncFrontmost();
   });
@@ -4456,6 +4565,14 @@ export const installCompanionWindow = (): void => {
   // The route loads lazily after the window is created, so a state pushed
   // before its subscription registers is dropped. It pulls this once mounted.
   handle("vellum:companion:getState", z.tuple([]), () => currentState());
+
+  // A due run waits in the app until the user accepts or skips its
+  // announcement. Pulled on mount because the push may predate the renderer.
+  handle(
+    "vellum:companion:getIntroAnnouncement",
+    z.tuple([]),
+    () => introAnnouncement,
+  );
 
   // The app's window is told when to dim itself for a run, and a push that
   // lands before its scrim has subscribed is dropped the same way a surface
@@ -4497,23 +4614,7 @@ export const openCompanionWindow = (): void => {
     return;
   }
 
-  // A run is due the first time the surface actually reaches the screen, which
-  // is later than launch and later than sign-in: it is the moment the thing
-  // being introduced is there to be pointed at. Set before the window is
-  // created so the state its route pulls on mount already carries the beat,
-  // rather than the surface appearing plain and being annotated a frame later.
-  if (readCompanionIntroSeenVersion() < COMPANION_INTRO_VERSION) {
-    setIntroBeat(COMPANION_INTRO_BEATS[0]);
-    // Taken once, here, for the whole run. See {@link introMicGranted}: the
-    // last beat can win the grant mid-run, and a run counted in two cohorts is
-    // one whose conversions land where its exposures are not.
-    introMicGranted =
-      systemPreferences.getMediaAccessStatus("microphone") === "granted";
-    // Held in front and stood over the app's window for the run, rather than
-    // opening where it lives and being hidden a frame later by the frontmost
-    // rule (see `introStaged`).
-    introStaged = true;
-  }
+  const introDue = readCompanionIntroSeenVersion() < COMPANION_INTRO_VERSION;
 
   const win = createFloatingWindow({
     kind: COMPANION_KIND,
@@ -4522,7 +4623,7 @@ export const openCompanionWindow = (): void => {
     height: geometry.canvasHeight,
     // The canvas is a click-through sheet until the pointer reaches the pill.
     ignoreMouseEvents: { forward: true },
-    position: introStaged ? stagedCanvasOrigin : defaultCanvasOrigin,
+    position: defaultCanvasOrigin,
     browserWindow: {
       // The window draws no shadow of its own: `hasShadow` would outline the
       // invisible canvas rect rather than the pill inside it. Same reason the
@@ -4588,11 +4689,8 @@ export const openCompanionWindow = (): void => {
     if (getFloatingWindow(COMPANION_KIND) !== null) {
       return;
     }
+    clearIntro();
     cancelGlide();
-    // A landing owed to a window that no longer exists is one nothing can
-    // land, and the staging it was going to lift must not outlive it: the
-    // app's window would be left dimmed with nothing staged over it.
-    unstageIntro();
     callHome = null;
     // A drag on a window that no longer exists has nothing left to drop.
     docking = null;
@@ -4606,17 +4704,8 @@ export const openCompanionWindow = (): void => {
   // off the screen: it is due when the user leaves.
   surfaceAway = false;
   syncFrontmost();
-  // Dim the app's window for the run, now that the surface it is staged over
-  // is actually on screen.
-  if (introStaged) {
-    setIntroScrim(true);
-    // **Counted from here rather than from the decision above.** A run is
-    // exposure once the thing it introduces is on the screen, and everything
-    // between the two is a window being built, which can fail. Nothing between
-    // them can move the beat, so this is still the first card.
-    if (intro !== null) {
-      reportIntro("exposed", intro);
-    }
+  if (introDue) {
+    setIntroAnnouncement(true);
   }
   // A surface shown mid-call is the call's from its first frame, and one
   // shown mid-session has the frame beside it rather than under the cursor.
@@ -4625,6 +4714,7 @@ export const openCompanionWindow = (): void => {
 };
 
 const closeCompanionWindow = (): void => {
+  clearIntro();
   getFloatingWindow(COMPANION_KIND)?.close();
 };
 
@@ -4650,6 +4740,7 @@ export const setCompanionSurfaceVisible = (visible: boolean): void => {
     syncCompanionSurface();
     return;
   }
+  dismissIntroAnnouncement();
   // Putting the surface away mid-introduction is an answer to it. Recorded, so
   // bringing it back later does not start explaining it again to someone who
   // has already decided what they think.
@@ -4668,9 +4759,7 @@ export const setCompanionSurfaceVisible = (visible: boolean): void => {
  */
 export const replayCompanionIntro = (): void => {
   clearCompanionIntroSeen();
-  // A replay during a run is a run ending: the window it was staged over stops
-  // being dimmed for it, and the one opened below dims it for the new run.
-  unstageIntro();
+  clearIntro();
   const bringBack = (): void => {
     // A surface the user has hidden comes back through the tray's own path, so
     // the preference is cleared as well as the window opened; anything else

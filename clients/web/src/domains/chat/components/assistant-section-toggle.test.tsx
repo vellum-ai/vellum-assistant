@@ -25,6 +25,7 @@ mock.module("@/domains/chat/use-section-conversations", () => ({
   useSectionConversations: () => ({
     conversations,
     hasMore: false,
+    resolved: true,
     loadMore: () => {},
     getAllRows: async () => conversations,
   }),

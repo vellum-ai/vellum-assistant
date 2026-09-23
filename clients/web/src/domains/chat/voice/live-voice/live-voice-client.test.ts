@@ -1056,6 +1056,21 @@ describe("control frames", () => {
     ]);
   });
 
+  test("updateConfig sends both screen-sharing start and stop", async () => {
+    const client = makeClient();
+    const ws = await connectAndGetSocket(client);
+    ws.open();
+    ws.receive({ type: "ready", seq: 1, sessionId: "s", conversationId: "c" });
+
+    client.updateConfig({ screenSharing: true });
+    client.updateConfig({ screenSharing: false });
+
+    expect(ws.sentJson.slice(1)).toEqual([
+      { type: "update_config", screenSharing: true },
+      { type: "update_config", screenSharing: false },
+    ]);
+  });
+
   test("updateConfig is a no-op before the session is active", async () => {
     const client = makeClient();
     const ws = await connectAndGetSocket(client);

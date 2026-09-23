@@ -78,10 +78,7 @@ function rowBox(sidebarDone: boolean): HTMLElement {
     createElement(
       ConversationListProvider,
       { value: { onSelect: () => {}, onArchive: () => {} } },
-      createElement(ConversationRow, {
-        conversation: CONVERSATION,
-        animateDone: true,
-      }),
+      createElement(ConversationRow, { conversation: CONVERSATION }),
     ),
   );
   const box = container.firstElementChild;
@@ -124,18 +121,19 @@ describe("ConversationRow layout under sidebar-done", () => {
   test("the row takes on no resting geometry from the flag", () => {
     const on = rowBox(true);
 
-    /* The collapse writes `height` and `opacity`, whose resting values are
-       the element's own, and clips only while the row is leaving. Anything
-       here that spaced or sized the box would move every row below it. */
+    /* The exit writes `height` and `margin-bottom` and clips, all only while
+       the row is leaving. Anything here that spaced or sized the box at rest
+       would move every row below it. */
     for (const property of [
+      "height",
       "margin",
-      "marginTop",
-      "marginBottom",
+      "margin-top",
+      "margin-bottom",
       "padding",
       "display",
       "overflow",
-      "minHeight",
-      "maxHeight",
+      "min-height",
+      "max-height",
     ]) {
       expect(on.style.getPropertyValue(property)).toBe("");
     }

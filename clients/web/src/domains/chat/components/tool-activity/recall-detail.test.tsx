@@ -63,6 +63,7 @@ function renderRecall(overrides: Partial<Props> = {}) {
       result="Let staging bake, then dispatch production."
       activityMetadata={{ recall }}
       streamedOutput={undefined}
+      answeredQuestion={undefined}
       isRunning={false}
       isError={false}
       isDenied={false}

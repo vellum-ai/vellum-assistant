@@ -33,6 +33,10 @@ export const GMAIL_API_BASE_URL =
  * requests Calendar-only). Resolving against Gmail read access turns a
  * downstream 403 into an actionable "reconnect Google and grant Gmail" error
  * at resolution time when the selected connection cannot read Gmail.
+ *
+ * Managed connections never carry this scope: Vellum's app grants Gmail as
+ * `https://mail.google.com/`, which `scopeDifference` in `oauth/scope-utils.ts`
+ * accepts as covering it.
  */
 export const GMAIL_REQUIRED_SCOPES = [
   "https://www.googleapis.com/auth/gmail.readonly",

@@ -481,7 +481,39 @@ export function EmailManagedContent({
     </Notice>
   ) : null;
 
+  /* With the Assistant Inbox on, the address is created from the inbox's own
+     setup card, the one place that also opens the mailbox once it exists.
+     This section then points there instead of carrying a second way to
+     register: an address made here would leave the inbox with nothing to
+     show for it. Behind the inbox's flag, like the pitch above. */
+  const inboxSetupNotice = inboxEnabled ? (
+    <Notice
+      tone="info"
+      icon={<Mail className="h-4 w-4" aria-hidden />}
+      title={t("emailManagedContent.inboxSetupTitle")}
+      actions={
+        <Button
+          size="compact"
+          onClick={() => navigate(routes.assistantInbox)}
+          data-testid="email-inbox-setup-button"
+        >
+          {t("emailManagedContent.inboxSetupButton")}
+        </Button>
+      }
+    >
+      {t("emailManagedContent.inboxSetupBody")}
+    </Notice>
+  ) : null;
+
   if (!domain) {
+    if (inboxSetupNotice) {
+      return (
+        <div className="space-y-3">
+          {subscriptionWarning}
+          {inboxSetupNotice}
+        </div>
+      );
+    }
     return (
       <div className="space-y-3">
         {subscriptionWarning}
@@ -585,46 +617,51 @@ export function EmailManagedContent({
           />
         </div>
 
-        <div className="space-y-1.5">
-          <label className="block text-body-small-default text-[var(--content-tertiary)]">
-            {t("emailManagedContent.emailAddressLabel")}
-          </label>
-          <div className="flex items-center gap-2">
-            <div
-              className={`flex h-9 min-w-0 flex-1 items-center rounded-md border bg-[var(--field-bg)] text-body-medium-lighter transition-[border-color] duration-150 ${usernameError ? "border-[var(--system-negative-strong)]" : "border-[var(--field-border)] focus-within:border-[var(--border-active)]"}`}
-            >
-              <input
-                value={usernameDraft}
-                onChange={(e) => {
-                  setUsernameDraft(e.target.value.toLowerCase());
-                  if (usernameError) {
-                    setUsernameError(null);
-                  }
-                }}
-                placeholder={t("emailManagedContent.emailUsernamePlaceholder")}
-                aria-label={t("emailManagedContent.emailUsernameAriaLabel")}
-                aria-invalid={!!usernameError}
-                className="h-full min-w-0 flex-1 bg-transparent pl-3 pr-1 text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] outline-none"
-              />
-              <span className="shrink-0 pr-3 font-mono text-[var(--content-secondary)]">
-                @{fullDomain}
-              </span>
+        {/* The domain row stays: releasing a domain is offered only here. */}
+        {inboxSetupNotice ?? (
+          <div className="space-y-1.5">
+            <label className="block text-body-small-default text-[var(--content-tertiary)]">
+              {t("emailManagedContent.emailAddressLabel")}
+            </label>
+            <div className="flex items-center gap-2">
+              <div
+                className={`flex h-9 min-w-0 flex-1 items-center rounded-md border bg-[var(--field-bg)] text-body-medium-lighter transition-[border-color] duration-150 ${usernameError ? "border-[var(--system-negative-strong)]" : "border-[var(--field-border)] focus-within:border-[var(--border-active)]"}`}
+              >
+                <input
+                  value={usernameDraft}
+                  onChange={(e) => {
+                    setUsernameDraft(e.target.value.toLowerCase());
+                    if (usernameError) {
+                      setUsernameError(null);
+                    }
+                  }}
+                  placeholder={t(
+                    "emailManagedContent.emailUsernamePlaceholder",
+                  )}
+                  aria-label={t("emailManagedContent.emailUsernameAriaLabel")}
+                  aria-invalid={!!usernameError}
+                  className="h-full min-w-0 flex-1 bg-transparent pl-3 pr-1 text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] outline-none"
+                />
+                <span className="shrink-0 pr-3 font-mono text-[var(--content-secondary)]">
+                  @{fullDomain}
+                </span>
+              </div>
+              <Button
+                onClick={handleRegisterAddress}
+                disabled={registerAddress.isPending || !usernameDraft.trim()}
+              >
+                {registerAddress.isPending
+                  ? t("emailManagedContent.creating")
+                  : t("emailManagedContent.create")}
+              </Button>
             </div>
-            <Button
-              onClick={handleRegisterAddress}
-              disabled={registerAddress.isPending || !usernameDraft.trim()}
-            >
-              {registerAddress.isPending
-                ? t("emailManagedContent.creating")
-                : t("emailManagedContent.create")}
-            </Button>
+            {usernameError && (
+              <p className="text-body-small-default text-[var(--system-negative-strong)]">
+                {usernameError}
+              </p>
+            )}
           </div>
-          {usernameError && (
-            <p className="text-body-small-default text-[var(--system-negative-strong)]">
-              {usernameError}
-            </p>
-          )}
-        </div>
+        )}
       </div>
     );
   }

@@ -250,34 +250,34 @@ describe("Inspiration List route", () => {
   });
 });
 
-describe("Old chats route", () => {
+describe("All chats route", () => {
   // The page is reachable by URL only while the flag is off everywhere else,
   // so the failure this guards is the path falling through to the
   // `/assistant/*` catch-all and answering not-found instead of the redirect
   // the route itself owns.
   test("matches a route of its own inside the auth-protected app tree", async () => {
     const { routes } = await import("@/utils/routes");
-    const matches = matchRoutes(routeTree as never, routes.oldChats) ?? [];
+    const matches = matchRoutes(routeTree as never, routes.allChats) ?? [];
 
     expect(matches.length).toBeGreaterThan(0);
-    expect(matches.at(-1)?.pathname).toBe(routes.oldChats);
+    expect(matches.at(-1)?.pathname).toBe(routes.allChats);
     expect(matches.at(-1)?.params["*"]).toBeUndefined();
-    expect(hasRouteMiddleware(routes.oldChats)).toBe(true);
+    expect(hasRouteMiddleware(routes.allChats)).toBe(true);
   });
 
   test("resolves the page behind the active-assistant gate, with the sidebar", async () => {
     const { routes } = await import("@/utils/routes");
-    const matches = matchRoutes(routeTree as never, routes.oldChats) ?? [];
+    const matches = matchRoutes(routeTree as never, routes.allChats) ?? [];
     const leaf = matches.at(-1)?.route as
       | { lazy?: { Component: () => Promise<unknown> } }
       | undefined;
 
     expect(await leaf?.lazy?.Component()).toBe(
-      (await import("@/domains/chat/pages/old-chats-page-route"))
-        .OldChatsPageRoute,
+      (await import("@/domains/chat/pages/all-chats-page-route"))
+        .AllChatsPageRoute,
     );
-    expect(isUnderComponent(routes.oldChats, "ActiveAssistantGate")).toBe(true);
-    expect(isUnderComponent(routes.oldChats, "ChatLayoutRoute")).toBe(true);
+    expect(isUnderComponent(routes.allChats, "ActiveAssistantGate")).toBe(true);
+    expect(isUnderComponent(routes.allChats, "ChatLayoutRoute")).toBe(true);
   });
 
   // The preselect links the sidebar section headers carry are the same path
@@ -285,16 +285,16 @@ describe("Old chats route", () => {
   // never sees them.
   test("matches with a preselected filter in the query string", async () => {
     const { routes } = await import("@/utils/routes");
-    const { oldChatsSearchFor } =
-      await import("@/domains/chat/utils/old-chats-filters");
-    const url = `${routes.oldChats}${oldChatsSearchFor({
+    const { allChatsSearchFor } =
+      await import("@/domains/chat/utils/all-chats-filters");
+    const url = `${routes.allChats}${allChatsSearchFor({
       kind: "channel",
       channelId: "slack",
     })}`;
 
     expect(url).toBe("/assistant/chats?channel=slack");
     const matches = matchRoutes(routeTree as never, url) ?? [];
-    expect(matches.at(-1)?.pathname).toBe(routes.oldChats);
+    expect(matches.at(-1)?.pathname).toBe(routes.allChats);
   });
 });
 

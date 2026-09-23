@@ -66,6 +66,7 @@ final class MacHelper: @unchecked Sendable {
     /// so "held" is per modifier rather than per bit.
     private var modifierHoldMasks: [UInt32] = []
     private var isModifierHoldDown = false
+    private var selectionReadSession = SelectionReadSession()
     /// The chord binding: the modifiers that must be held, and the keys that
     /// mean something with them. Its own binding rather than a mode of the
     /// hold's, because it is a different question about the keyboard: the hold
@@ -192,11 +193,11 @@ final class MacHelper: @unchecked Sendable {
         // What is highlighted in the application in front, read when the app
         // asks rather than on every press: a hold that has outlasted the
         // chords passing through it is the one worth reading for.
-        router.register("selection.read") { [weak self] _ in
+        router.register("selection.read") { [weak self] params in
             guard let self else {
                 throw JsonRpcDispatchError.internalError("Helper is shutting down")
             }
-            return self.readFrontSelection()
+            return self.readFrontSelection(expectedHoldId: (params as? [String: Any])?["holdId"] as? Int)
         }
         // Which of the given applications are running, by bundle identifier.
         // The voice key asks before it arms Fn: another app watching the same
@@ -412,10 +413,12 @@ final class MacHelper: @unchecked Sendable {
         case .down:
             guard !isModifierHoldDown else { return }
             isModifierHoldDown = true
+            selectionReadSession.begin(processId: NSWorkspace.shared.frontmostApplication?.processIdentifier)
             params["state"] = "down"
         case .up(let reason):
             guard isModifierHoldDown else { return }
             isModifierHoldDown = false
+            selectionReadSession.end()
             params["state"] = "up"
             params["reason"] = reason.rawValue
         }
@@ -428,15 +431,23 @@ final class MacHelper: @unchecked Sendable {
     /// after the keys are up would sample whatever the user moved on to, and
     /// a hold over that is not the hold that was made. Character counts only
     /// in the log; the text itself is the user's.
-    private func readFrontSelection() -> [String: Any] {
-        guard isModifierHoldDown else {
-            log("front selection: skipped, no hold is open")
-            return [:]
+    private func readFrontSelection(expectedHoldId: Int?) -> [String: Any] {
+        guard let holdId = selectionReadSession.token(
+            processId: NSWorkspace.shared.frontmostApplication?.processIdentifier,
+            expected: expectedHoldId
+        ) else {
+            log("front selection: unavailable, hold or application changed")
+            return ["unavailable": true]
         }
         let readStarted = Date()
-        let outcome = FrontSelection.read()
+        let outcome = FrontSelection.read(activateChromium: expectedHoldId == nil)
         let readMs = Int(Date().timeIntervalSince(readStarted) * 1000)
         log("front selection: \(outcome.logLine) truncated=\(outcome.selection?.truncated ?? false) readMs=\(readMs)")
+        if outcome.unavailable {
+            return SelectionReadSession.unavailableResult(
+                holdId: holdId, trusted: outcome.trusted, chromium: outcome.chromium
+            )
+        }
         guard let selection = outcome.selection else {
             return [:]
         }
@@ -977,7 +988,7 @@ final class MacHelper: @unchecked Sendable {
             let elements = flattened.compactMap {
                 candidate -> (element: AXElement, frame: CGRect)? in
                 let element = candidate.element
-                guard let title = element.title, !title.isEmpty else { return nil }
+                guard let name = element.annotationName, !name.isEmpty else { return nil }
                 guard element.frame.width > 0, element.frame.height > 0 else { return nil }
                 var seen = element.frame
                 for bound in [candidate.visible, surface] {
@@ -989,7 +1000,7 @@ final class MacHelper: @unchecked Sendable {
             }
             let outcome = AXTargetMatch.locate(
                 query: query,
-                among: elements.map { AXTargetMatch.Candidate(label: $0.element.title ?? "") }
+                among: elements.map { AXTargetMatch.Candidate(label: $0.element.annotationName ?? "") }
             )
 
             switch outcome {
@@ -997,7 +1008,7 @@ final class MacHelper: @unchecked Sendable {
                 let (element, frame) = elements[index]
                 self.writeResponse(JsonRpcCodec.successResponse(id: id, result: [
                     "found": true,
-                    "label": AXLabel.singleLine(element.title ?? "", max: Self.labelLength),
+                    "label": AXLabel.singleLine(element.annotationName ?? "", max: Self.labelLength),
                     "role": element.role,
                     "x": Double(frame.origin.x),
                     "y": Double(frame.origin.y),
@@ -1615,6 +1626,10 @@ final class MacHelper: @unchecked Sendable {
         guard keyboardTap == nil else {
             return
         }
+        // Only an explicit setup action requests Input Monitoring.
+        guard IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) == kIOHIDAccessTypeGranted else {
+            throw HelperError.eventTap("Input Monitoring not granted")
+        }
         do {
             try installEventHandlers()
         } catch {
@@ -1826,11 +1841,15 @@ if CommandLine.arguments.contains("--front-selection") {
     }
 } else if CommandLine.arguments.contains("--request-input-monitoring") {
     MainActor.assumeIsolated {
-        NSApplication.shared.setActivationPolicy(.prohibited)
-        if IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) != kIOHIDAccessTypeGranted {
-            _ = IOHIDRequestAccess(kIOHIDRequestTypeListenEvent)
+        NSApplication.shared.setActivationPolicy(.accessory)
+        DispatchQueue.main.async {
+            NSApplication.shared.activate(ignoringOtherApps: true)
+            if IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) != kIOHIDAccessTypeGranted {
+                _ = IOHIDRequestAccess(kIOHIDRequestTypeListenEvent)
+            }
+            NSApplication.shared.terminate(nil)
         }
-        NSApplication.shared.terminate(nil)
+        NSApplication.shared.run()
     }
 } else if CommandLine.arguments.contains("--request-screen-recording") {
     // Asking is also what lists the helper under Screen Recording in System

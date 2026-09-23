@@ -183,6 +183,11 @@ export type VellumCommand =
    * that already happened, ready to redraw the prompt on the next push.
    */
   | { kind: "answerWatchRetro"; open: boolean }
+  /** Deliver a pop-out's recovery offer to the main renderer, or clear it. */
+  | {
+      kind: "setUnplacedDictationOffer";
+      offer: UnplacedDictationOffer | null;
+    }
   /**
    * Answer the offer the surface makes when a dictation ends with its words
    * still in hand: put Vellum's version in place of what another app pasted,
@@ -338,6 +343,12 @@ export interface HotkeySelection {
   editable: boolean;
 }
 
+/** Null means no selection; an unavailable read must never authorize a paste. */
+export type HotkeySelectionResult =
+  | HotkeySelection
+  | { unavailable: true }
+  | null;
+
 export interface HotkeyEvent {
   kind: HotkeyEventKind;
   state: HotkeyEventState;
@@ -394,6 +405,24 @@ export type ChordRegistrationResult = HotkeyRegistrationResult;
 // ---------------------------------------------------------------------------
 // System permissions
 // ---------------------------------------------------------------------------
+
+export type DraggablePermissionKind = "screen" | "inputMonitoring";
+
+export interface PermissionGuideState {
+  id: number;
+  kind: DraggablePermissionKind;
+  appName: string;
+  appIcon: string;
+  accentHex?: string;
+  error: boolean;
+}
+
+export interface PermissionSourceRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
 
 export const SYSTEM_PERMISSION_KINDS = [
   "accessibility",
@@ -1341,6 +1370,12 @@ export const COMPANION_BASE_CANVAS_PAD = 24;
  */
 export const COMPANION_BASE_CARD_HEIGHT = 290;
 
+/** Fixed tour geometry, shared by the native canvas and its renderer. */
+export const COMPANION_INTRO_CARD_WIDTH = 320;
+export const COMPANION_INTRO_CARD_HEIGHT = 224;
+export const COMPANION_INTRO_PERCH_GAP = 6;
+export const COMPANION_PERCH_HOP = 22;
+
 /**
  * The widest the pill draws at the base size, measured from its avatar-facing
  * edge.
@@ -1551,6 +1586,12 @@ export const companionCardSideFor = (
       COMPANION_BASE_CARD_HEIGHT * scale - baseline,
       (COMPANION_BASE_CARD_HEIGHT - COMPANION_BASE_AVATAR_BOX) * scale +
         baseline,
+      (COMPANION_INTRO_CARD_HEIGHT +
+        COMPANION_PERCH_HOP +
+        COMPANION_INTRO_PERCH_GAP) *
+        scale +
+        avatarBox +
+        companionGapFor(avatarBox, optionsBox),
       avatarBox / 2,
     ) + companionPadFor(avatarBox, optionsBox)
   );
@@ -1632,7 +1673,12 @@ interface OfferedDictation {
 
 export type CompanionDictationOffer =
   | (OfferedDictation & { reason: "claimed"; app: string })
-  | (OfferedDictation & { reason: "no-text-field" | "paste-failed" });
+  | (OfferedDictation & UnplacedDictationOffer);
+
+export interface UnplacedDictationOffer {
+  text: string;
+  reason: "no-text-field" | "paste-failed";
+}
 
 /**
  * The most an offered dictation can be, in characters. One bound for the
@@ -1974,9 +2020,9 @@ export const COMPANION_ANNOTATION_STROKE = 0.006;
  * goes outside them, so the control a user is being pointed at stays as
  * visible as it was before anything was drawn on it.
  *
- * For an extent that is itself the message: a region of an image, an area of
- * a canvas, a panel being named as a whole. To send someone to one control,
- * see {@link CompanionCoachmarkPoint}.
+ * For a region, an explicit circle request, or a control confidently located
+ * in a fresh image when its accessibility name cannot be resolved. Named
+ * controls use {@link CompanionCoachmarkPoint} for an arrow.
  */
 export interface CompanionCoachmarkRegion {
   kind: "region";
@@ -2057,12 +2103,10 @@ export type CoachmarkRefusal =
 /**
  * One thing to point at: a control named, or a rectangle given.
  *
- * **Naming is the one to reach for.** The accessibility tree holds the exact
- * frame of every labelled control on the surface, so a name resolves to where
- * the thing actually is; a rectangle is a guess at it, measured off a picture
- * that has been scaled and compressed on its way to whoever is guessing. The
- * rectangle form remains for what the tree cannot name (a canvas, an image,
- * a plugin's own drawing), where there is nothing to resolve against.
+ * A name resolves a control through accessibility information and draws an
+ * arrow. Bounds measured from a fresh shared image draw a ring for a region,
+ * an explicit circle request, or a confidently identified control whose
+ * accessibility name could not be resolved.
  */
 export type CoachmarkRequest =
   | { target: string; caption?: string }
@@ -2086,9 +2130,10 @@ export type PlacedCoachmark = CompanionCoachmark & { matched?: string };
 /**
  * Why a named control could not be turned into a mark.
  *
- * Each carries the labels that were on the surface, because the answer to all
- * three is the same shape: say what is there instead of drawing at a guess.
- * `ambiguous` lists the ones that fit, the others everything there was.
+ * Candidates support an exact-name retry when they identify the control.
+ * Otherwise, a control confidently identified in a fresh shared image can
+ * be retried with bounds. `ambiguous` lists matching labels; the other
+ * reasons list available labels.
  */
 export interface CoachmarkUnresolved {
   target: string;
@@ -2650,6 +2695,15 @@ export const COMPANION_INTRO_ACTIONS = [
 ] as const;
 
 export type CompanionIntroAction = (typeof COMPANION_INTRO_ACTIONS)[number];
+
+/** What the app's announcement asks main to do with a due introduction. */
+export const COMPANION_INTRO_ANNOUNCEMENT_ACTIONS = [
+  "start",
+  "dismiss",
+] as const;
+
+export type CompanionIntroAnnouncementAction =
+  (typeof COMPANION_INTRO_ANNOUNCEMENT_ACTIONS)[number];
 
 /**
  * The moments of a run worth counting.

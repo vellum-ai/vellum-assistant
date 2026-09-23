@@ -20,13 +20,17 @@ export const graphRecallDefinition = {
 } satisfies ToolDefinition;
 
 /**
- * `remember` tool description. The retrospective pass catches what isn't
- * captured in the moment, so the in-conversation pressure stays at a
- * judgment framing: pause when something feels worth marking, not because
- * the volume is required.
+ * `remember` tool description. The in-conversation pressure stays at a
+ * judgment framing (pause when something feels worth marking, not because
+ * the volume is required), but later capture is conditional and the model
+ * must not rely on it: the retrospective enqueue gate skips `scheduled`
+ * conversations outright (`isLowYieldRetrospectiveSource` in
+ * `memory-retrospective-enqueue.ts`) and the substrate sweep excludes
+ * `scheduled` and `background` types, so a durable fact surfaced by
+ * automated work survives only if it is saved inline.
  */
 const REMEMBER_DESCRIPTION =
-  "Remember anything concrete shared in conversation: corrections, plans, decisions, felt moments, names, dates, commitments, preferences. Corrections are the highest priority — call `remember` the same turn the correction lands. You don't have to call this on every turn; a retrospective pass reviews the conversation after each message-count / time interval and saves what you didn't capture. Use judgment: pause and remember when something feels worth marking, not because the volume is required.";
+  "Remember anything concrete shared in conversation: corrections, plans, decisions, felt moments, names, dates, commitments, preferences. Corrections are the highest priority: call `remember` the same turn the correction lands. A later pass may review an ordinary user conversation and save what you did not capture, but it is not guaranteed and never runs over scheduled work. If a fact must survive, especially in proactive, scheduled, or other automated work, save it now. Use judgment: pause and remember when something feels worth marking, not because the volume is required.";
 
 const REMEMBER_CONTENT_DESCRIPTION =
   "The fact(s) to remember. Pass a single string for one fact, or an array of strings to record several independent facts in one call. When a turn surfaces multiple unrelated facts, pass them all as an array in one call rather than calling `remember` once per fact. Write naturally — a preference, a detail, a commitment, a plan. No need to categorize.";

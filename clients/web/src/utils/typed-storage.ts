@@ -180,8 +180,7 @@ const overrideStores: { scope: StorageScope; clear: () => void }[] = [];
  * them: it removes keys, and a held value is precisely the one that never
  * became a key. Without this, a preference set on a device that refuses writes
  * would outlive the session that set it and be read by whoever logs in next in
- * the same tab, the same trap `clearTakeoverAvatarStash` exists to close for
- * the avatar mirror.
+ * the same tab.
  *
  * Device-scoped values are left alone. `device:` keys survive logout by
  * design, so dropping their in-memory counterparts would make a rejected write

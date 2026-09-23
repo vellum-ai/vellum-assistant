@@ -927,6 +927,65 @@ describe("pairDeliveryWithConversation", () => {
     expect(messagesInvalidated).toEqual([]);
   });
 
+  test("explicit background result keeps its persisted result without another preview row", async () => {
+    mockExistingConversations["conv-user-chat"] = {
+      id: "conv-user-chat",
+      source: "user",
+      title: "An ordinary chat",
+    };
+    const result = await pairDeliveryWithConversation(
+      makeSignal({
+        requiresConversation: undefined,
+        sourceContextId: "task-1",
+        sourceEventName: "activity.complete",
+        contextPayload: {
+          completion: {
+            workId: "task-1",
+            conversationId: "conv-user-chat",
+            recipientPrincipalId: "principal-1",
+            owner: "parent_continuation",
+          },
+        },
+      }),
+      "vellum",
+      makeCopy({ body: "The report is ready." }),
+    );
+
+    expect(result.conversationId).toBe("conv-user-chat");
+    expect(result.messageId).toBeNull();
+    expect(createConversationMock).not.toHaveBeenCalled();
+    expect(addMessageMock).not.toHaveBeenCalled();
+  });
+
+  test("a missing declared completion conversation does not fall back to unrelated source content", async () => {
+    mockExistingConversations["conv-source"] = {
+      id: "conv-source",
+      source: "user",
+      title: "Another chat",
+    };
+    const result = await pairDeliveryWithConversation(
+      makeSignal({
+        requiresConversation: undefined,
+        sourceContextId: "conv-source",
+        sourceEventName: "activity.complete",
+        contextPayload: {
+          completion: {
+            workId: "task-1",
+            conversationId: "conv-missing",
+            recipientPrincipalId: "principal-1",
+            owner: "parent_continuation",
+          },
+        },
+      }),
+      "vellum",
+      makeCopy({ body: "The report is ready." }),
+    );
+
+    expect(result.conversationId).toBeNull();
+    expect(createConversationMock).not.toHaveBeenCalled();
+    expect(addMessageMock).not.toHaveBeenCalled();
+  });
+
   test("passive vellum signal appends the body to the producing conversation", async () => {
     mockExistingConversations["conv-producer"] = {
       id: "conv-producer",
@@ -996,6 +1055,12 @@ describe("pairDeliveryWithConversation", () => {
     expect(createConversationMock).not.toHaveBeenCalled();
     expect(addMessageMock).toHaveBeenCalledTimes(1);
     expect(messagesInvalidated).toContain("conv-foreground");
+    // The transcript is this notification's only home, so a chat marked Done
+    // comes back for it.
+    const options = addMessageMock.mock.calls[0]![3] as {
+      skipResurface?: boolean;
+    };
+    expect(options.skipResurface).toBe(false);
   });
 
   test("appended notification body skips indexing", async () => {
@@ -1017,8 +1082,12 @@ describe("pairDeliveryWithConversation", () => {
 
     const options = addMessageMock.mock.calls[0]![3] as {
       skipIndexing?: boolean;
+      skipResurface?: boolean;
     };
     expect(options.skipIndexing).toBe(true);
+    // The bell carries this one (async-background), so the append is
+    // bookkeeping and never resurfaces a chat the user marked Done.
+    expect(options.skipResurface).toBe(true);
   });
 
   test("passive vellum signal appends regardless of the producing conversation's source", async () => {

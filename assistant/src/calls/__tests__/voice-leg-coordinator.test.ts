@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { SCREEN_ACTION_VERDICT_TOKEN } from "../voice-control-protocol.js";
 import {
   createFrontDoorLegCoordinator,
   type EscalatedLeg,
@@ -103,6 +104,33 @@ describe("escalatedLegFor", () => {
 });
 
 describe("createFrontDoorLegCoordinator", () => {
+  test.each(["leading", "terminal", "bare"])(
+    "a %s screen-action verdict survives split deltas and reaches the escalated leg",
+    (position) => {
+      const { coordinator, recorded } = harness();
+      const text =
+        position === "leading"
+          ? `${SCREEN_ACTION_VERDICT_TOKEN} Let me circle that.`
+          : position === "terminal"
+            ? `Let me circle that. ${SCREEN_ACTION_VERDICT_TOKEN}`
+            : SCREEN_ACTION_VERDICT_TOKEN;
+      for (const char of text) {
+        coordinator.push(char);
+      }
+      coordinator.complete();
+      expect(recorded.escalated).toHaveLength(1);
+      expect(recorded.escalated[0]?.screenAction).toBe(true);
+      expect(recorded.bridges[0]?.spokenBridge).not.toContain(
+        SCREEN_ACTION_VERDICT_TOKEN,
+      );
+    },
+  );
+
+  test("ordinary escalation keeps fresh memory retrieval", () => {
+    const { coordinator, recorded } = harness();
+    coordinator.push("[ESCALATE] Let me recall that.");
+    expect(recorded.escalated[0]?.screenAction).toBeUndefined();
+  });
   test("an answer releases the held leading text, then streams", () => {
     const { coordinator, recorded } = harness();
     coordinator.push("[");
@@ -147,6 +175,48 @@ describe("createFrontDoorLegCoordinator", () => {
     expect(recorded.answers).toEqual([]);
     expect(recorded.escalated.length).toBe(1);
   });
+
+  test("a terminal verdict hands off once with the already released speech", () => {
+    const { coordinator, recorded } = harness();
+    const bridge = "I will highlight the Rotate control on your screen.";
+    coordinator.push(bridge);
+    expect(recorded.answers).toEqual([bridge]);
+    coordinator.push(" [");
+    coordinator.push("ESCALATE]");
+    expect(coordinator.handedOff).toBe(false);
+
+    expect(coordinator.complete()).toBe(true);
+    expect(recorded.bridges).toEqual([
+      { spokenBridge: bridge, usesFallback: false, alreadyReleased: true },
+    ]);
+    expect(recorded.escalated).toEqual([escalatedLegFor(bridge)]);
+    expect(recorded.events).not.toContain("overrule");
+    coordinator.complete();
+    coordinator.push("late text");
+    expect(recorded.escalated).toHaveLength(1);
+  });
+
+  test("a cancelled answer with a terminal verdict never hands off", () => {
+    let live = true;
+    const { coordinator, recorded } = harness({ live: () => live });
+    coordinator.push("I will highlight it. [ESCALATE]");
+    live = false;
+    expect(coordinator.complete()).toBe(false);
+    expect(recorded.bridges).toEqual([]);
+    expect(recorded.escalated).toEqual([]);
+  });
+
+  test.each(["Select option [1]", "The source is listed as [1]"])(
+    "a numbered reference does not start another leg: %s",
+    (answer) => {
+      const { coordinator, recorded } = harness();
+      coordinator.push(answer);
+      expect(coordinator.complete()).toBe(false);
+      expect(recorded.answers).toEqual([answer]);
+      expect(recorded.bridges).toEqual([]);
+      expect(recorded.escalated).toEqual([]);
+    },
+  );
 
   test("a leg that stops mid-bridge hands off on completion with the canned bridge", () => {
     const { coordinator, recorded } = harness({ language: "es" });

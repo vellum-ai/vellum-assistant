@@ -7,7 +7,7 @@
  * mounts the chat surface, and a client on screen. Route is driven by a real
  * `MemoryRouter` so the basename behaves as it does in remote-gateway mode.
  *
- * `isVisibleToUser` is deliberately NOT mocked. It branches on the host, and
+ * `isClientAttended` is deliberately NOT mocked. It branches on the host, and
  * one stub answers for both branches: every case here passes even while the
  * hook reads the desktop's always-true window-attention default and a hidden
  * tab swallows its own notification. The DOM is stubbed for the browser cases
@@ -24,6 +24,10 @@ import { MemoryRouter } from "react-router";
 import { identityGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import { resolveAssistantAvatarOwnerScopeId } from "@/hooks/use-assistant-avatar";
 import { __resetForTesting, publish } from "@/lib/event-bus";
+import {
+  browserNotificationConversationKey,
+  BrowserNotificationDelivery,
+} from "@/runtime/browser-notification-delivery";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useAuthStore } from "@/stores/auth-store";
 import { useConversationStore } from "@/stores/conversation-store";
@@ -33,7 +37,7 @@ import {
   type ResolvedAssistant,
 } from "@/stores/resolved-assistants-store";
 import type { PostLocalNotificationArgs } from "@/runtime/notifications";
-import { isVisibleToUser } from "@/runtime/window-attention";
+import { isClientAttended } from "@/runtime/window-attention";
 import { isConversationChatPath, routes } from "@/utils/routes";
 
 const CONVERSATION_ID = "conv-1";
@@ -74,6 +78,7 @@ const shouldSuppressFocusedNotificationDeliveryMock = mock(
 );
 mock.module("@/runtime/notifications", () => ({
   postLocalNotification: postLocalNotificationMock,
+  isBrowserNotificationHost: () => !window.vellum,
   sendNotificationIntentAck: sendAckMock,
   extractConversationId: (metadata?: Record<string, unknown>) =>
     typeof metadata?.conversationId === "string"
@@ -85,7 +90,7 @@ mock.module("@/runtime/notifications", () => ({
   ) =>
     conversationId === useConversationStore.getState().activeConversationId &&
     isConversationChatPath(pathname) &&
-    isVisibleToUser(),
+    isClientAttended(),
   shouldSuppressFocusedNotificationDelivery:
     shouldSuppressFocusedNotificationDeliveryMock,
 }));
@@ -143,6 +148,7 @@ function runInElectron(attended: boolean): void {
   });
 }
 
+const originalHasFocus = document.hasFocus;
 const originalHref = window.location.href;
 let queryClient: QueryClient;
 
@@ -236,6 +242,7 @@ function identityQueryKey(assistantId: string, scopeId: string) {
 }
 
 beforeEach(() => {
+  document.hasFocus = () => true;
   queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
@@ -272,6 +279,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  document.hasFocus = originalHasFocus;
   cleanup();
   queryClient.clear();
   __resetForTesting();
@@ -410,6 +418,17 @@ describe("useNotificationIntentSync", () => {
     expect(postedArgs[0]?.identityStoreName).toBeNull();
   });
 
+  test("logout cancels a queued browser delivery", () => {
+    mountAt(routes.assistant);
+    publishNotificationIntent({});
+    const canDeliver = postedArgs[0]?.canDeliver;
+    expect(canDeliver?.()).toBe(true);
+    act(() => {
+      useAuthStore.setState({ sessionStatus: "unauthenticated", user: null });
+    });
+    expect(canDeliver?.()).toBe(false);
+  });
+
   test("keeps delayed work bound to self-hosted origin A after selecting B", () => {
     const assistantA: ResolvedAssistant = {
       id: "local-a",
@@ -448,12 +467,14 @@ describe("useNotificationIntentSync", () => {
 
     publishNotificationIntent({ assistantName: "Origin A" });
     const originA = postedArgs[0]?.identity;
+    expect(postedArgs[0]?.canDeliver?.()).toBe(true);
 
     act(() => {
       useResolvedAssistantsStore.setState({ activeAssistantId: assistantB.id });
       mounted.rerender({ assistantId: assistantB.id });
     });
 
+    expect(postedArgs[0]?.canDeliver?.()).toBe(false);
     expect(originA).toMatchObject({
       scopeId: resolveAssistantAvatarOwnerScopeId(
         assistantA,
@@ -516,6 +537,22 @@ describe("useNotificationIntentSync guardian-scoped intents", () => {
 
     expect(postedArgs).toHaveLength(0);
   });
+
+  for (const version of [undefined, "0.12.3-local.202609221200"]) {
+    test.each(["chat.assistant_reply", "schedule.result", "activity.complete"])(
+      `delivers %s without the guardian-card marker when the assistant version is ${version}`,
+      (sourceEventName) => {
+        if (version) {
+          useAssistantIdentityStore.getState().setIdentity("Test", version, "assistant-1");
+        }
+        mountAt(routes.assistant);
+
+        publishNotificationIntent({ sourceEventName, silent: false });
+
+        expectNotified();
+      },
+    );
+  }
 });
 
 describe("useNotificationIntentSync silent intents", () => {
@@ -549,6 +586,7 @@ describe("useNotificationIntentSync silent intents", () => {
 
 describe("useNotificationIntentSync already-watching skip", () => {
   beforeEach(() => {
+    document.hasFocus = () => true;
     useConversationStore.getState().setActiveConversationId(CONVERSATION_ID);
   });
 
@@ -558,6 +596,50 @@ describe("useNotificationIntentSync already-watching skip", () => {
     publishForActiveConversation();
 
     expectSuppressed();
+  });
+
+  test("shares attended conversation before an intent and clears it on logout", () => {
+    const mounted = mountAt(routes.conversation(CONVERSATION_ID));
+    publishNotificationIntent({ deepLinkMetadata: { conversationId: "another-conversation" } });
+    const key = browserNotificationConversationKey(postedArgs[0]?.identity, CONVERSATION_ID);
+    const otherTab = new BrowserNotificationDelivery();
+    expect(otherTab.isConversationAttended(key)).toBe(true);
+
+    act(() => {
+      document.hasFocus = () => false;
+      publish("app.attention", { attended: false });
+    });
+    expect(otherTab.isConversationAttended(key)).toBe(false);
+
+    act(() => {
+      document.hasFocus = () => true;
+      publish("app.attention", { attended: true });
+    });
+    expect(otherTab.isConversationAttended(key)).toBe(true);
+    act(() => {
+      useAuthStore.setState({ sessionStatus: "unauthenticated", user: null });
+    });
+    expect(otherTab.isConversationAttended(key)).toBe(false);
+    mounted.unmount();
+  });
+
+  test("clears shared attention when switching assistant or conversation", () => {
+    const mounted = mountAt(routes.conversation(CONVERSATION_ID));
+    publishNotificationIntent({ deepLinkMetadata: { conversationId: "another-conversation" } });
+    const key = browserNotificationConversationKey(postedArgs[0]?.identity, CONVERSATION_ID);
+    const otherTab = new BrowserNotificationDelivery();
+    expect(otherTab.isConversationAttended(key)).toBe(true);
+    act(() => {
+      useConversationStore.getState().setActiveConversationId("another-conversation");
+    });
+    expect(otherTab.isConversationAttended(key)).toBe(false);
+    act(() => {
+      useConversationStore.getState().setActiveConversationId(CONVERSATION_ID);
+    });
+    expect(otherTab.isConversationAttended(key)).toBe(true);
+    act(() => mounted.rerender({ assistantId: "assistant-2" }));
+    expect(otherTab.isConversationAttended(key)).toBe(false);
+    mounted.unmount();
   });
 
   test("retained FCM focus suppression keeps the original SSE ack id", () => {
@@ -592,6 +674,13 @@ describe("useNotificationIntentSync already-watching skip", () => {
     publishForActiveConversation();
 
     expectSuppressed();
+  });
+
+  test("notifies for a visible browser window behind another app", () => {
+    document.hasFocus = () => false;
+    mountAt(routes.conversation(CONVERSATION_ID));
+    publishForActiveConversation();
+    expectNotified();
   });
 
   test("notifies when the desktop window is off screen or unfocused", () => {

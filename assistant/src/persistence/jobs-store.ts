@@ -72,6 +72,7 @@ export type MemoryJobType =
   | "delete_message_lexical"
   | "backfill_lexical_index"
   | "skill_card_insert"
+  | "skill_update_receipt"
   | "memory_retrospective"
   | "memory_retrospective_sweep"
   // Retired/legacy — no live handler; persisted rows drop via LEGACY_JOB_TYPES.
@@ -377,6 +378,234 @@ function mergeSkillCardEntries(
     merged.push(entry);
   }
   return merged;
+}
+
+/**
+ * One rewrite of a managed skill by a background pass, as the receipt job's
+ * payload carries it. `entryId` is the producing tool call's, so a replayed
+ * call merges as a no-op; the conversation ids are what the receipt links
+ * to and what a conversation delete purges by.
+ */
+export interface SkillUpdateReceiptEntry {
+  entryId: string;
+  skillId: string;
+  name: string;
+  changeSummary: string;
+  sourceConversationId?: string;
+  runConversationId: string;
+  createdAt: number;
+}
+
+/** Payload of a `skill_update_receipt` job: one burst's rewrites so far. */
+export interface SkillUpdateReceiptJobPayload {
+  /** When the burst's earliest rewrite landed; the cap is measured from it. */
+  firstEntryAt: number;
+  /** When its latest rewrite landed; the quiet window is measured from it. */
+  lastEntryAt: number;
+  entries: SkillUpdateReceiptEntry[];
+}
+
+/**
+ * Upsert a pending `skill_update_receipt` job: the one open receipt for the
+ * burst of background skill rewrites in progress. Every append merges into
+ * the pending row rather than creating a duplicate; the receipt handler
+ * re-upserts the same payload when it defers, and merges into a sibling
+ * that opened while it evaluated (see `skill-update-receipt-job.ts`).
+ *
+ * Merge rules, each load-bearing: entries dedupe by `entryId`, with the
+ * pending entry winning so a replay changes nothing; `firstEntryAt` is the
+ * EARLIEST of the two, so a continuous stream of rewrites cannot ratchet the
+ * cap forward and hold the burst's first entries past their own cap;
+ * `lastEntryAt` is the latest; and `runAfter` is the earliest, mirroring
+ * `upsertMemoryRetrospectiveJob`. A running row never matches (its payload
+ * is frozen at claim), so an append during evaluation opens the sibling the
+ * handler merges into.
+ */
+export function upsertSkillUpdateReceiptJob(
+  payload: SkillUpdateReceiptJobPayload,
+  runAfter: number = Date.now(),
+): void {
+  const db = memoryDb();
+  const existing = db
+    .select()
+    .from(memoryJobs)
+    .where(
+      and(
+        eq(memoryJobs.type, "skill_update_receipt"),
+        eq(memoryJobs.status, "pending"),
+      ),
+    )
+    .orderBy(asc(memoryJobs.createdAt))
+    .get();
+  if (existing) {
+    const existingPayload = parseSkillUpdateReceiptPayload(existing.payload);
+    const merged: SkillUpdateReceiptJobPayload = {
+      firstEntryAt: Math.min(
+        existingPayload?.firstEntryAt ?? payload.firstEntryAt,
+        payload.firstEntryAt,
+      ),
+      lastEntryAt: Math.max(
+        existingPayload?.lastEntryAt ?? payload.lastEntryAt,
+        payload.lastEntryAt,
+      ),
+      entries: mergeSkillUpdateReceiptEntries(
+        existingPayload?.entries ?? [],
+        payload.entries,
+      ),
+    };
+    db.update(memoryJobs)
+      .set({
+        payload: JSON.stringify(merged),
+        runAfter: Math.min(existing.runAfter, runAfter),
+        updatedAt: Date.now(),
+      })
+      .where(eq(memoryJobs.id, existing.id))
+      .run();
+    return;
+  }
+  enqueueMemoryJob(
+    "skill_update_receipt",
+    payload as unknown as Record<string, unknown>,
+    runAfter,
+  );
+}
+
+/**
+ * Validate a `skill_update_receipt` payload back into its typed shape, or
+ * null for a corrupted or foreign row. Entries missing a usable id, skill,
+ * name, summary, or run are dropped rather than failing the whole payload.
+ */
+export function parseSkillUpdateReceiptPayload(
+  raw: unknown,
+): SkillUpdateReceiptJobPayload | null {
+  let payload: unknown = raw;
+  if (typeof raw === "string") {
+    try {
+      payload = JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+  const rec = payload as Record<string, unknown>;
+  if (
+    typeof rec.firstEntryAt !== "number" ||
+    typeof rec.lastEntryAt !== "number" ||
+    !Array.isArray(rec.entries)
+  ) {
+    return null;
+  }
+  return {
+    firstEntryAt: rec.firstEntryAt,
+    lastEntryAt: rec.lastEntryAt,
+    entries: mergeSkillUpdateReceiptEntries([], rec.entries),
+  };
+}
+
+function mergeSkillUpdateReceiptEntries(
+  existing: unknown,
+  incoming: unknown,
+): SkillUpdateReceiptEntry[] {
+  const merged: SkillUpdateReceiptEntry[] = [];
+  const seen = new Set<string>();
+  const candidates = [
+    ...(Array.isArray(existing) ? existing : []),
+    ...(Array.isArray(incoming) ? incoming : []),
+  ];
+  for (const entry of candidates) {
+    if (!entry || typeof entry !== "object") {
+      continue;
+    }
+    const rec = entry as Record<string, unknown>;
+    if (
+      typeof rec.entryId !== "string" ||
+      rec.entryId.length === 0 ||
+      typeof rec.skillId !== "string" ||
+      typeof rec.name !== "string" ||
+      typeof rec.changeSummary !== "string" ||
+      typeof rec.runConversationId !== "string" ||
+      typeof rec.createdAt !== "number" ||
+      seen.has(rec.entryId)
+    ) {
+      continue;
+    }
+    seen.add(rec.entryId);
+    merged.push({
+      entryId: rec.entryId,
+      skillId: rec.skillId,
+      name: rec.name,
+      changeSummary: rec.changeSummary,
+      runConversationId: rec.runConversationId,
+      createdAt: rec.createdAt,
+      ...(typeof rec.sourceConversationId === "string"
+        ? { sourceConversationId: rec.sourceConversationId }
+        : {}),
+    });
+  }
+  // Rewrite order is the receipt's order, and a merge into a sibling puts
+  // the older payload behind the newer one; the stamp restores it, with
+  // the id as a deterministic tie-break.
+  return merged.sort(
+    (a, b) => a.createdAt - b.createdAt || a.entryId.localeCompare(b.entryId),
+  );
+}
+
+/**
+ * Drop a deleted source conversation's entries from every pending
+ * `skill_update_receipt` row, deleting a row left with none. The plugin's
+ * `conversation-deleted` hook calls this beside its other per-conversation
+ * purges; the entries carry that conversation's id and a summary distilled
+ * from it. The run conversation is never a purge key: a run is an ephemeral
+ * fork that the next successful retrospective garbage-collects, and the
+ * handler reads a missing run as finished precisely so its entries still
+ * get announced. The burst's bounds are recomputed from what remains, so a
+ * dropped edge entry neither holds the rest past their quiet window nor
+ * caps them early.
+ */
+export function removeSkillUpdateReceiptEntriesForConversation(
+  conversationId: string,
+): void {
+  const db = memoryDb();
+  const rows = db
+    .select()
+    .from(memoryJobs)
+    .where(
+      and(
+        eq(memoryJobs.type, "skill_update_receipt"),
+        eq(memoryJobs.status, "pending"),
+      ),
+    )
+    .all();
+  for (const row of rows) {
+    const payload = parseSkillUpdateReceiptPayload(row.payload);
+    if (!payload) {
+      continue;
+    }
+    const kept = payload.entries.filter(
+      (entry) => entry.sourceConversationId !== conversationId,
+    );
+    if (kept.length === payload.entries.length) {
+      continue;
+    }
+    if (kept.length === 0) {
+      db.delete(memoryJobs).where(eq(memoryJobs.id, row.id)).run();
+      continue;
+    }
+    const stamps = kept.map((entry) => entry.createdAt);
+    db.update(memoryJobs)
+      .set({
+        payload: JSON.stringify({
+          firstEntryAt: Math.min(...stamps),
+          lastEntryAt: Math.max(...stamps),
+          entries: kept,
+        } satisfies SkillUpdateReceiptJobPayload),
+        updatedAt: Date.now(),
+      })
+      .where(eq(memoryJobs.id, row.id))
+      .run();
+  }
 }
 
 /**

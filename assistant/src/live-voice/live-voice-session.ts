@@ -1217,6 +1217,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private releaseModeSessionResidency?: () => void;
   private cameraModeSessions?: CameraModeSessionProducer;
   private sightFrameSequence: Promise<void> = Promise.resolve();
+  private screenSharing = false;
   /**
    * Mirrors phase changes to the iOS Live Activity through the platform, for
    * the case the client cannot cover: an app backgrounded long enough for iOS
@@ -2084,13 +2085,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   }
 
   /**
-   * Apply a mid-session `update_config` frame: retune the live turn detector's
-   * pause ("pause before reply") and/or the barge-in guard ("interrupt
-   * sensitivity") without reconnecting. Each field is optional and independent;
-   * changes take effect from the next utterance. A no-op on manual (non-
-   * server_vad) sessions, which have no turn detector.
+   * Apply screen-sharing state and turn-detection tuning independently.
+   * Changes take effect from the next utterance.
    */
   private applyConfigUpdate(frame: LiveVoiceClientUpdateConfigFrame): void {
+    if (frame.screenSharing !== undefined) {
+      this.screenSharing = frame.screenSharing;
+    }
     if (frame.silenceThresholdMs !== undefined) {
       this.turnDetector?.setSilenceThresholdMs(frame.silenceThresholdMs);
       this.silenceThresholdMs = frame.silenceThresholdMs;
@@ -3607,7 +3608,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           const outcome: VoiceTaskOutcome = {
             taskId: `voice-continuation:${turn.turnId}`,
             message: buildContinuationResult(interruptedRequest, answer),
-            metadata: {},
+            metadata: { hidden: true, voiceContinuationResult: true },
             source: "continuation",
           };
           accepted = this.receiveTaskOutcome(outcome);
@@ -6353,6 +6354,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       frontDoor?: boolean;
       directEscalated?: boolean;
       spokenEscalationBridge?: string;
+      screenAction?: boolean;
       attachments?: readonly string[];
     },
   ): Promise<boolean> {
@@ -6602,7 +6604,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         userMessageInterface: "macos",
         assistantMessageInterface: "macos",
         ...(this.context.startFrame.client === "macos"
-          ? { macosDesktopSession: true }
+          ? { macosDesktopSession: true, screenSharing: this.screenSharing }
           : {}),
         voiceTelemetry: {
           sessionId: this.context.sessionId,
@@ -6653,6 +6655,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           ? { overrideProfile: leg.overrideProfile }
           : {}),
         ...(leg.routingLeg != null ? { routingLeg: leg.routingLeg } : {}),
+        ...(leg.screenAction === true ? { screenAction: true } : {}),
         ...(leg.spokenEscalationBridge != null
           ? { spokenEscalationBridge: leg.spokenEscalationBridge }
           : {}),
@@ -6922,13 +6925,15 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   ): void {
     const { spokenBridge, usesFallback, language } = bridge;
     if (!usesFallback) {
-      this.markFirstAssistantDelta(activeTurn.utterance, activeTurn.turnId);
-      this.markAssistantDelta(activeTurn);
-      void this.sendFrame(
-        { type: "assistant_text_delta", text: spokenBridge },
-        () => !activeTurn.abortController.signal.aborted && !this.isClosed,
-      );
-      this.bufferAssistantTextForTts(activeTurn.token, `${spokenBridge} `);
+      if (!bridge.alreadyReleased) {
+        this.markFirstAssistantDelta(activeTurn.utterance, activeTurn.turnId);
+        this.markAssistantDelta(activeTurn);
+        void this.sendFrame(
+          { type: "assistant_text_delta", text: spokenBridge },
+          () => !activeTurn.abortController.signal.aborted && !this.isClosed,
+        );
+        this.bufferAssistantTextForTts(activeTurn.token, `${spokenBridge} `);
+      }
       // Force-flush now: on the TTS path an unpunctuated bridge would
       // otherwise sit buffered until a sentence boundary and leave the
       // caller in silence during the escalated model's call.

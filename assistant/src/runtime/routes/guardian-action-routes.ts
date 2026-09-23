@@ -13,6 +13,7 @@
  */
 import { z } from "zod";
 
+import { GuardianActionDecisionRequestSchema } from "../../api/requests/guardian-actions.js";
 import {
   type GuardianRequestWire,
   listPendingRequestsByScope,
@@ -25,6 +26,7 @@ import type { GuardianDecisionPrompt } from "../guardian-decision-types.js";
 import { buildOneTimeDecisionActions } from "../guardian-decision-types.js";
 import { findLocalGuardianPrincipalId } from "../local-actor-identity.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
+import { parseBody } from "./parse-body.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -55,23 +57,10 @@ async function handleGuardianActionDecision({
   body,
   headers = {},
 }: RouteHandlerArgs) {
-  if (!body || typeof body !== "object") {
-    throw new BadRequestError("Request body is required");
-  }
-
-  const { requestId, action, conversationId } = body as {
-    requestId?: string;
-    action?: string;
-    conversationId?: string;
-  };
-
-  if (!requestId || typeof requestId !== "string") {
-    throw new BadRequestError("requestId is required");
-  }
-
-  if (!action || typeof action !== "string") {
-    throw new BadRequestError("action is required");
-  }
+  const { requestId, action, conversationId } = parseBody(
+    GuardianActionDecisionRequestSchema,
+    body,
+  );
 
   // Resolve the actor's guardian principal ID. The HTTP adapter injects it
   // from the AuthContext via the x-vellum-actor-principal-id header.
@@ -258,13 +247,9 @@ export const ROUTES: RouteDefinition[] = [
     },
     requireGuardian: true,
     summary: "Submit guardian decision",
-    description: "Submit a guardian action decision (approve/reject).",
+    description: "Submit a guardian decision on a pending request.",
     tags: ["guardian"],
-    requestBody: z.object({
-      requestId: z.string().describe("Guardian request ID"),
-      action: z.string().describe("Decision action"),
-      conversationId: z.string().describe("Conversation ID").optional(),
-    }),
+    requestBody: GuardianActionDecisionRequestSchema,
     responseBody: z.object({
       applied: z.boolean(),
       requestId: z.string(),

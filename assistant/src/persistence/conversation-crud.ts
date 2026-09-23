@@ -432,6 +432,8 @@ export const messageMetadataSchema = z
      * treat message text as organic user input.
      */
     hidden: z.boolean().optional(),
+    /** A hidden voice continuation trigger whose finished reply can raise a push. */
+    voiceContinuationResult: z.boolean().optional(),
     /**
      * Marks a role-`"user"` row that opened a live phone or in-app voice turn.
      * Test with {@link isVoiceSessionUserMessage}, which documents why the
@@ -3203,6 +3205,30 @@ export function getMessagesAfter(
     )
     .orderBy(asc(messages.createdAt), asc(messages.id))
     .all()
+    .map(parseMessage);
+}
+
+/** Read a bounded conversation window in insertion order, including timestamp ties. */
+export function getRecentConversationMessages(
+  conversationId: string,
+  limit: number,
+  beforeMessageId?: string,
+): MessageRow[] {
+  return getDb()
+    .select()
+    .from(messages)
+    .where(
+      and(
+        eq(messages.conversationId, conversationId),
+        beforeMessageId === undefined
+          ? undefined
+          : sql`rowid < (SELECT rowid FROM messages WHERE id = ${beforeMessageId} AND conversation_id = ${conversationId})`,
+      ),
+    )
+    .orderBy(sql`rowid DESC`)
+    .limit(limit)
+    .all()
+    .reverse()
     .map(parseMessage);
 }
 

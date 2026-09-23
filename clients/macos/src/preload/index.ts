@@ -1,3 +1,4 @@
+import { createPermissionSetupBridge } from "@vellumai/electron-desktop/preload";
 import {
   contextBridge,
   ipcRenderer,
@@ -23,6 +24,7 @@ import type {
   ScreenCaptureFrame,
   WatchCaptureTarget,
   CompanionIntroAction,
+  CompanionIntroAnnouncementAction,
   CompanionIntroCallControl,
   CompanionIntroReport,
   CompanionSurfaceState,
@@ -41,7 +43,7 @@ import type {
   HelperRestartResult,
   HelperState,
   HotkeyEvent,
-  HotkeySelection,
+  HotkeySelectionResult,
   ChordBinding,
   ChordRegistrationResult,
   ModifierHold,
@@ -84,6 +86,7 @@ import {
 import {
   createBundleConfirmBridge,
   createDeepLinksBridge,
+  createDictationOfferBridge,
   createDownloadsBridge,
   createHotkeysBridge,
   createLaunchAtLoginBridge,
@@ -217,10 +220,10 @@ const bridge: VellumBridge = {
           HELPER_HOTKEY_SET_CHORDS,
           binding,
         ) as Promise<ChordRegistrationResult>,
-      readFrontSelection: (): Promise<HotkeySelection | null> =>
+      readFrontSelection: (): Promise<HotkeySelectionResult> =>
         ipcRenderer.invoke(
           HELPER_HOTKEY_READ_FRONT_SELECTION,
-        ) as Promise<HotkeySelection | null>,
+        ) as Promise<HotkeySelectionResult>,
       onEvent: (callback) => {
         const handler = (_event: IpcRendererEvent, payload: HotkeyEvent) => {
           callback(payload);
@@ -285,6 +288,7 @@ const bridge: VellumBridge = {
     },
   },
   permissions: {
+    setup: createPermissionSetupBridge(ipcRenderer),
     getState: (): Promise<SystemPermissionsState> =>
       ipcRenderer.invoke(
         "vellum:permissions:getState",
@@ -536,6 +540,24 @@ const bridge: VellumBridge = {
         ipcRenderer.off("vellum:companion:state", handler);
       };
     },
+    getIntroAnnouncement: (): Promise<boolean> =>
+      ipcRenderer.invoke(
+        "vellum:companion:getIntroAnnouncement",
+      ) as Promise<boolean>,
+    answerIntroAnnouncement: (
+      action: CompanionIntroAnnouncementAction,
+    ): void => {
+      ipcRenderer.send("vellum:companion:answerIntroAnnouncement", action);
+    },
+    onIntroAnnouncement: (callback) => {
+      const handler = (_event: IpcRendererEvent, open: boolean) => {
+        callback(open);
+      };
+      ipcRenderer.on("vellum:companion:introAnnouncement", handler);
+      return () => {
+        ipcRenderer.off("vellum:companion:introAnnouncement", handler);
+      };
+    },
     getIntroStage: (): Promise<boolean> =>
       ipcRenderer.invoke("vellum:companion:getIntroStage") as Promise<boolean>,
     onIntroStage: (callback) => {
@@ -661,6 +683,7 @@ const bridge: VellumBridge = {
     answerWatchRetro: (open: boolean): void => {
       ipcRenderer.send("vellum:companion:answerWatchRetro", open);
     },
+    ...createDictationOfferBridge(ipcRenderer),
     answerDictationOffer: (
       answer: DictationOfferAnswer,
       offerId: string,

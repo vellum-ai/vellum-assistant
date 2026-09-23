@@ -26,7 +26,7 @@ import {
   within,
 } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, useLocation } from "react-router";
 
 import {
   assistantsDomainsListOptions,
@@ -44,14 +44,12 @@ import type {
   PlanListResponse,
   SubscriptionResponse,
 } from "@/generated/api/types.gen";
-import * as assistantAvatarMod from "@/hooks/use-assistant-avatar";
 import { pressBackdrop } from "@/lib/overlay-test-helpers";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import {
   readCheckoutIntent,
   saveCheckoutIntent,
 } from "@/lib/billing/checkout-intent";
-import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
-import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import * as toastMod from "@vellumai/design-library/components/toast";
 
 import type { ResizeTakeoverContext } from "./billing-onboarding-modal";
@@ -76,24 +74,6 @@ mock.module("@/stores/organization-store", () => ({
   useRequestOrganizationId: () => null,
 }));
 
-// Stub the takeover avatar hook so the provisioning target's avatar doesn't
-// fire (404-ing) fetches that each invalidateQueries() would await, slowing
-// the polls past the test budget. The payload is mutable so the surface tint
-// derived from it can be driven per-test.
-let avatarComponents: CharacterComponents | null = null;
-let avatarTraits: CharacterTraits | null = null;
-let avatarCustomImageUrl: string | null = null;
-mock.module("@/hooks/use-assistant-avatar", () => ({
-  ...assistantAvatarMod,
-  useAssistantAvatar: () => ({
-    components: avatarComponents,
-    traits: avatarTraits,
-    customImageUrl: avatarCustomImageUrl,
-    isLoading: false,
-    invalidate: () => {},
-  }),
-}));
-
 // Capture the escape toast so the exit-on-escape path can assert its message;
 // keep the real module's other methods intact.
 const toastInfoCalls: string[] = [];
@@ -104,6 +84,16 @@ mock.module("@vellumai/design-library/components/toast", () => ({
     info: (message: string) => {
       toastInfoCalls.push(message);
     },
+  },
+}));
+
+// The complete step selects the provisioning target; record the ids rather
+// than write the real selection, which mirrors to a lockfile the test has no
+// daemon for, and so the hand-off can be shown never to select one.
+const selectedAssistantIds: Array<string | null> = [];
+mock.module("@/assistant/selection", () => ({
+  setSelectedAssistant: async (id: string | null) => {
+    selectedAssistantIds.push(id);
   },
 }));
 
@@ -319,13 +309,7 @@ mock.module("@/generated/api/sdk.gen", () => ({
 }));
 
 const { BillingOnboardingModal } = await import("./billing-onboarding-modal");
-const { TAKEOVER_SURFACE, TAKEOVER_SURFACE_VAR } =
-  await import("./provisioning-state");
-const {
-  clearTakeoverAvatarStash,
-  readTakeoverAvatarStash,
-  saveTakeoverAvatarStash,
-} = await import("@/lib/billing/takeover-avatar-stash");
+const { PROVISIONING_SURFACE } = await import("./provisioning-state");
 
 /**
  * Fast celebration dwell. Long enough for waitFor (50ms polls) to reliably
@@ -334,6 +318,12 @@ const {
  * `use-held-phase.test.ts` and `provisioning-state.test.tsx` own that.
  */
 const TEST_DWELL_MS = 250;
+
+/** Where the router is, for the hand-off that leaves the wizard by navigating. */
+function LocationProbe() {
+  const location = useLocation();
+  return <div data-testid="loc">{location.pathname}</div>;
+}
 
 function renderModal({
   mode,
@@ -354,7 +344,7 @@ function renderModal({
   }
   const onClose = mock(() => {});
   const tree = (open: boolean) => (
-    <MemoryRouter>
+    <MemoryRouter initialEntries={["/assistant/settings/usage?tab=billing"]}>
       <QueryClientProvider client={client}>
         <BillingOnboardingModal
           open={open}
@@ -365,6 +355,7 @@ function renderModal({
           resizeContext={resizeContext}
         />
       </QueryClientProvider>
+      <LocationProbe />
     </MemoryRouter>
   );
   const view = render(tree(true));
@@ -374,9 +365,6 @@ function renderModal({
 }
 
 beforeEach(() => {
-  avatarComponents = null;
-  avatarTraits = null;
-  avatarCustomImageUrl = null;
   subscriptionPlanId = "base";
   onboardingResponse = makeOnboarding();
   assistantResponse = makeAssistant("small", 10);
@@ -395,10 +383,9 @@ beforeEach(() => {
   domainCreateCalls = 0;
   dateNowOffsetMs = 0;
   toastInfoCalls.length = 0;
+  selectedAssistantIds.length = 0;
+  useClientFeatureFlagStore.setState({ assistantInbox: false });
   sessionStorage.clear();
-  // Also resets the stash module's in-memory mirror, which sessionStorage.clear()
-  // leaves in place (it is simply never served while storage is readable).
-  clearTakeoverAvatarStash();
 });
 
 afterEach(() => {
@@ -417,7 +404,7 @@ describe("BillingOnboardingModal", () => {
     await waitFor(() =>
       expect(getByText("Confirming your upgrade…")).toBeTruthy(),
     );
-    expect(getByText("Super package")).toBeTruthy();
+    expect(getByText("Super")).toBeTruthy();
 
     subscriptionPlanId = "pro";
     await client.invalidateQueries();
@@ -462,19 +449,14 @@ describe("BillingOnboardingModal", () => {
       () => expect(getByText("Confirming your upgrade…")).toBeTruthy(),
       { timeout: 5000 },
     );
-    expect(queryByText("Super package")).toBeNull();
+    expect(queryByText("Super")).toBeNull();
   });
 
-  test("domain_setup_available false skips straight to complete, clearing the intent there and the avatar stash on close", async () => {
+  test("domain_setup_available false skips straight to complete, clearing the intent there", async () => {
     saveCheckoutIntent({ kind: "package", packageKey: "super" });
-    saveTakeoverAvatarStash({
-      assistantId: "assistant-1",
-      components: BUNDLED_COMPONENTS,
-      traits: null,
-    });
     subscriptionPlanId = "pro";
     onboardingResponse = makeOnboarding({ domain_setup_available: false });
-    const { client, close, getByText, queryByText } = renderModal();
+    const { client, getByText, queryByText } = renderModal();
 
     await waitFor(
       () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
@@ -494,14 +476,8 @@ describe("BillingOnboardingModal", () => {
     });
     expect(queryByText("Assistant Email")).toBeNull();
     expect(readCheckoutIntent()).toBeNull();
-    // The stash outlives the step flip: the exit sheet still paints from the
-    // surface it feeds, so clearing here would slide that tint mid-fade.
-    expect(readTakeoverAvatarStash()).not.toBeNull();
     // Checkout mode never fires the modal-level domains query.
     expect(domainsCalls).toBe(0);
-
-    close();
-    expect(readTakeoverAvatarStash()).toBeNull();
   });
 
   test("no assistant to attach a domain to skips straight to complete", async () => {
@@ -597,7 +573,7 @@ describe("BillingOnboardingModal", () => {
     expect(getByTestId("chip-machine").textContent).toContain("Small");
   });
 
-  test("a dimension that lands checks off while the machine rollout keeps spinning", async () => {
+  test("a dimension that lands checks off while the machine rollout stays pending", async () => {
     subscriptionPlanId = "pro";
     operationalStatusResponse = makeOperationalStatus("resizing_machine");
     const { client, getByText, getByTestId } = renderModal();
@@ -623,8 +599,8 @@ describe("BillingOnboardingModal", () => {
       { timeout: 5000 },
     );
     expect(
-      within(getByTestId("chip-machine")).getByTestId("chip-spinner"),
-    ).toBeTruthy();
+      within(getByTestId("chip-machine")).queryByTestId("chip-check"),
+    ).toBeNull();
   });
 
   test("already-provisioned fast path reconciles, celebrates and advances", async () => {
@@ -660,83 +636,36 @@ describe("BillingOnboardingModal", () => {
     });
   });
 
-  test("provisioning renders a full-bleed dark takeover; the domain step reverts to a standard card", async () => {
+  test("provisioning renders a full-bleed white takeover; the domain step reverts to a standard card", async () => {
     subscriptionPlanId = "pro";
     assistantResponse = makeAssistant("large", 50);
-    const { getByText } = renderModal();
+    const { getByText, getByTestId, findByTestId } = renderModal();
 
-    // Provisioning phase: full-bleed, dark-themed Modal.Content.
+    // Provisioning phase: full-bleed Modal.Content on the takeover's ground,
+    // with no theme of its own.
     await waitFor(() => expect(getByText("All done!")).toBeTruthy(), {
       timeout: 5000,
     });
-    const takeover = document.body.querySelector('[data-slot="modal-content"]');
-    expect(takeover?.getAttribute("data-theme")).toBe("dark");
-    expect(takeover?.className).toContain("w-screen");
+    const content = document.body.querySelector('[data-slot="modal-content"]');
+    expect(content?.getAttribute("data-theme")).toBeNull();
+    expect(content?.className).toContain("w-screen");
+    expect(getByTestId("provisioning-takeover").style.backgroundColor).toBe(
+      PROVISIONING_SURFACE,
+    );
     // The takeover renders no persistent close button — exits live in the step.
     expect(document.body.querySelector('[aria-label="Close"]')).toBeNull();
 
-    // Domain step: standard card — no dark theme, no full-bleed sizing.
+    // The sheet that covers the takeover on the way out paints the same
+    // ground, so leaving never cross-fades a second colour.
+    const sheet = await findByTestId("takeover-exit-sheet");
+    expect(sheet.style.backgroundColor).toBe(PROVISIONING_SURFACE);
+
+    // Domain step: standard card, no full-bleed sizing.
     await waitFor(() => expect(getByText("Assistant Email")).toBeTruthy(), {
       timeout: 5000,
     });
     const card = document.body.querySelector('[data-slot="modal-content"]');
-    expect(card?.getAttribute("data-theme")).toBeNull();
     expect(card?.className).not.toContain("w-screen");
-  });
-
-  test("the takeover and its exit sheet both paint from the modal's surface variable", async () => {
-    // The sheet covers the takeover while the modal changes shape and theme
-    // underneath it, so a second colour there would show as a cross-fade.
-    avatarComponents = BUNDLED_COMPONENTS;
-    avatarTraits = { bodyShape: "blob", eyeStyle: "curious", color: "purple" };
-    subscriptionPlanId = "pro";
-    assistantResponse = makeAssistant("large", 50);
-    const { getByText, findByTestId } = renderModal();
-
-    await waitFor(() => expect(getByText("All done!")).toBeTruthy(), {
-      timeout: 5000,
-    });
-    const content = document.body.querySelector<HTMLElement>(
-      '[data-slot="modal-content"]',
-    );
-    expect(
-      content?.style.getPropertyValue(TAKEOVER_SURFACE_VAR).toLowerCase(),
-    ).toBe("#29202e");
-    const takeover = document.body.querySelector<HTMLElement>(
-      ".provision-surface-settle",
-    );
-    expect(takeover?.style.backgroundColor).toBe(TAKEOVER_SURFACE);
-
-    const sheet = await findByTestId("takeover-exit-sheet");
-    expect(sheet.style.backgroundColor).toBe(TAKEOVER_SURFACE);
-  });
-
-  test("a custom-image takeover's exit sheet reproduces the blurred backdrop", async () => {
-    // A custom-image takeover paints its colour in a blurred backdrop, not the
-    // ground fill. The exit sheet must carry that same image, or the covering
-    // fade cross-fades the image to flat neutral — the handoff it exists to
-    // prevent.
-    avatarComponents = BUNDLED_COMPONENTS;
-    avatarCustomImageUrl = "blob:vellum/avatar-image";
-    subscriptionPlanId = "pro";
-    assistantResponse = makeAssistant("large", 50);
-    const { getByText, findByTestId } = renderModal();
-
-    await waitFor(() => expect(getByText("All done!")).toBeTruthy(), {
-      timeout: 5000,
-    });
-
-    const sheet = await findByTestId("takeover-exit-sheet");
-    const backdrop = sheet.querySelector<HTMLElement>(
-      '[data-testid="takeover-backdrop"]',
-    );
-    expect(backdrop).not.toBeNull();
-    expect(backdrop?.querySelector("img")?.getAttribute("src")).toBe(
-      "blob:vellum/avatar-image",
-    );
-    // The sheet's own fade drives the reveal here, so the backdrop must not
-    // re-fade over it.
-    expect(backdrop?.className).not.toContain("provision-avatar-reveal");
   });
 
   test("a terminal takeover stays dismissable via the backdrop when routing is still resolving", async () => {
@@ -923,9 +852,8 @@ describe("BillingOnboardingModal", () => {
     );
 
     // The error card must not inherit the provisioning takeover's full-bleed
-    // dark treatment — it's a standard, legible, dismissible card.
+    // treatment — it's a standard, legible, dismissible card.
     const content = document.body.querySelector('[data-slot="modal-content"]');
-    expect(content?.getAttribute("data-theme")).toBeNull();
     expect(content?.className).not.toContain("w-screen");
 
     // The FetchErrorState UI and its go-to-billing action still render and act.
@@ -1098,6 +1026,124 @@ describe("BillingOnboardingModal", () => {
   });
 });
 
+describe("BillingOnboardingModal — Assistant Inbox on", () => {
+  /** Runs checkout to the landed resize, where routing decides the next step. */
+  async function landCheckout(
+    client: QueryClient,
+    getByText: (text: string) => HTMLElement,
+  ) {
+    subscriptionPlanId = "pro";
+    await client.invalidateQueries();
+    await waitFor(
+      () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
+      { timeout: 5000 },
+    );
+    // Wait for the pre-resize actuals to land (the "from" side) before
+    // mutating: an invalidate that races the initial actuals fetch is
+    // swallowed, leaving the update to the next poll.
+    await waitFor(() => expect(getByText("10 GB")).toBeTruthy(), {
+      timeout: 5000,
+    });
+    assistantResponse = makeAssistant("large", 50);
+    operationalStatusResponse = makeOperationalStatus("active");
+    await client.invalidateQueries();
+    await waitFor(() => expect(getByText("All done!")).toBeTruthy(), {
+      timeout: 5000,
+    });
+  }
+
+  test("checkout hands off to the inbox route in place of the domain step", async () => {
+    useClientFeatureFlagStore.setState({ assistantInbox: true });
+    saveCheckoutIntent({ kind: "package", packageKey: "super" });
+    const { client, onClose, getByText, getByTestId, queryByText } =
+      renderModal();
+
+    await waitFor(() =>
+      expect(getByText("Confirming your upgrade…")).toBeTruthy(),
+    );
+    await landCheckout(client, getByText);
+
+    // The celebration dwell elapses and, instead of the domain step, the
+    // wizard closes and the router is on the inbox.
+    await waitFor(
+      () => expect(getByTestId("loc").textContent).toBe("/assistant/inbox"),
+      // Routing settles on a post-open onboarding refetch, which the parallel
+      // runner can hold past the usual budget.
+      { timeout: 10_000 },
+    );
+    expect(queryByText("Assistant Email")).toBeNull();
+    expect(onClose).toHaveBeenCalled();
+    // The inbox opens for the assistant the user was on: the provisioning
+    // target is never selected over it. The intent is cleared the way the
+    // skipped complete step would have cleared it.
+    expect(selectedAssistantIds).toEqual([]);
+    expect(readCheckoutIntent()).toBeNull();
+    expect(domainCreateCalls).toBe(0);
+  }, 20_000);
+
+  test("checkout with domain setup unavailable still completes in place", async () => {
+    useClientFeatureFlagStore.setState({ assistantInbox: true });
+    onboardingResponse = makeOnboarding({ domain_setup_available: false });
+    saveCheckoutIntent({ kind: "package", packageKey: "super" });
+    const { client, onClose, getByText, getByTestId } = renderModal();
+
+    await waitFor(() =>
+      expect(getByText("Confirming your upgrade…")).toBeTruthy(),
+    );
+    await landCheckout(client, getByText);
+
+    await waitFor(() => expect(getByText("You're all set!")).toBeTruthy(), {
+      timeout: 5000,
+    });
+    expect(getByTestId("loc").textContent).toBe("/assistant/settings/usage");
+    expect(onClose).not.toHaveBeenCalled();
+  }, 20_000);
+
+  test("a resize whose domain step is newly usable hands off to the inbox too", async () => {
+    useClientFeatureFlagStore.setState({ assistantInbox: true });
+    subscriptionPlanId = "pro";
+    const { client, onClose, getByText, getByTestId, queryByText } =
+      renderModal({ mode: "resize" });
+
+    await waitFor(
+      () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
+      { timeout: 5000 },
+    );
+    assistantResponse = makeAssistant("large", 50);
+    await client.invalidateQueries();
+    await waitFor(() => expect(getByText("All done!")).toBeTruthy(), {
+      timeout: 5000,
+    });
+
+    await waitFor(
+      () => expect(getByTestId("loc").textContent).toBe("/assistant/inbox"),
+      // Routing settles on a post-open onboarding refetch, which the parallel
+      // runner can hold past the usual budget.
+      { timeout: 10_000 },
+    );
+    expect(queryByText("Assistant Email")).toBeNull();
+    expect(onClose).toHaveBeenCalled();
+  }, 20_000);
+
+  test("a resize with a domain already registered completes in place", async () => {
+    useClientFeatureFlagStore.setState({ assistantInbox: true });
+    subscriptionPlanId = "pro";
+    domainsResponse = makeDomains(true);
+    const { client, getByText, getByTestId } = renderModal({ mode: "resize" });
+
+    await waitFor(
+      () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
+      { timeout: 5000 },
+    );
+    assistantResponse = makeAssistant("large", 50);
+    await client.invalidateQueries();
+    await waitFor(() => expect(getByText("You're all set!")).toBeTruthy(), {
+      timeout: 5000,
+    });
+    expect(getByTestId("loc").textContent).toBe("/assistant/settings/usage");
+  }, 20_000);
+});
+
 describe("BillingOnboardingModal — resize mode", () => {
   test("entitled with no domain routes through the domain step", async () => {
     subscriptionPlanId = "pro";
@@ -1207,7 +1253,7 @@ describe("BillingOnboardingModal — resize mode", () => {
       () => expect(getByText("Confirming your upgrade…")).toBeTruthy(),
       { timeout: 5000 },
     );
-    expect(queryByText("Super package")).toBeNull();
+    expect(queryByText("Super")).toBeNull();
   });
 
   test("carries a threaded credit change from the wait through to the terminal phase", async () => {
@@ -1754,7 +1800,7 @@ describe("BillingOnboardingModal (package downgrade)", () => {
     const machine = getByTestId("chip-machine");
     expect(machine.textContent).toContain("Medium");
     expect(machine.textContent).toContain("Small");
-    expect(within(machine).getByTestId("chip-spinner")).toBeTruthy();
+    expect(within(machine).queryByTestId("chip-check")).toBeNull();
     // The volume keeps its size, so there is no storage move to state.
     expect(queryByTestId("chip-storage")).toBeNull();
 
@@ -1840,7 +1886,7 @@ describe("BillingOnboardingModal (package downgrade)", () => {
     const storage = getByTestId("chip-storage");
     expect(storage.textContent).toContain("10 GB");
     expect(storage.textContent).toContain("30 GB");
-    expect(within(storage).getByTestId("chip-spinner")).toBeTruthy();
+    expect(within(storage).queryByTestId("chip-check")).toBeNull();
     const machine = getByTestId("chip-machine");
     expect(machine.textContent).toContain("Small");
     expect(machine.textContent).toContain("Medium");
