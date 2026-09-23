@@ -19,12 +19,14 @@ export interface NotificationsBellEmptyStateProps {
    * advertisement for schedules, so it is shown only to people who have none.
    */
   showBriefingRecipe?: boolean;
+  showNativeAppNudge?: boolean;
 }
 
 /** Empty notifications with optional schedule and phone app recommendations. */
 export function NotificationsBellEmptyState({
   onLaunchRecipe,
   showBriefingRecipe = false,
+  showNativeAppNudge = false,
 }: NotificationsBellEmptyStateProps) {
   const { t } = useTranslation("home");
   const navigate = useNavigate();
@@ -55,7 +57,9 @@ export function NotificationsBellEmptyState({
               />
             </EmptyStateRecipeGrid>
           ) : null}
-          <NativeAppReminderNudge surface="notifications-empty" />
+          {showNativeAppNudge ? (
+            <NativeAppReminderNudge surface="notifications-empty" />
+          ) : null}
         </>
       }
     />

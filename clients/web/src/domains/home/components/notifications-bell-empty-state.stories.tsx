@@ -49,6 +49,14 @@ export const WithBriefingRecipe: Story = {
   ),
 };
 
+export const WithPhoneReminders: Story = {
+  render: () => (
+    <Panel>
+      <NotificationsBellEmptyState showBriefingRecipe showNativeAppNudge />
+    </Panel>
+  ),
+};
+
 /**
  * What everyone else sees: someone who already has a schedule, and anyone
  * whose schedules have not loaded yet. The icon well and the title carry the

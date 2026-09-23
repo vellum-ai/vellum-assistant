@@ -432,6 +432,7 @@ export function NotificationsBell() {
           <NotificationsBellEmptyState
             onLaunchRecipe={closePanel}
             showBriefingRecipe={showBriefingRecipe}
+            showNativeAppNudge={Boolean(assistantId) && feedQuery.isSuccess}
           />
         </div>
       )
