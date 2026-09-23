@@ -849,6 +849,32 @@ describe("parseWorkbook", () => {
     expect(far.truncated).toBe(false);
   });
 
+  test("reads the last item of a table whose extension list holds a foreign item", async () => {
+    const items = ["alpha", "beta", "gamma"]
+      .map((text) => `<si><t>${text}</t></si>`)
+      .join("");
+    const foreign =
+      '<extLst><ext xmlns:x14="http://example.com/ext" uri="{X}"><x14:si><x14:t>noise</x14:t></x14:si></ext></extLst>';
+
+    const grid = await readOneSheet(
+      [
+        [
+          { t: "s", v: 0 },
+          { t: "s", v: 2 },
+        ],
+      ],
+      {
+        sharedStrings: ["alpha", "beta", "gamma"],
+        parts: {
+          "xl/sharedStrings.xml": `<sst xmlns="${MAIN_NS}" count="3" uniqueCount="3">${items}${foreign}</sst>`,
+        },
+      },
+    );
+
+    expect(grid.rows).toEqual([["alpha", "gamma"]]);
+    expect(grid.truncated).toBe(false);
+  });
+
   test("leaves shared string markers inside a comment out of the string count", async () => {
     const grid = await readOneSheet([[{ t: "s", v: 1 }]], {
       parts: {
@@ -1734,6 +1760,27 @@ describe("parseWorkbook", () => {
     expect(grid.rows[0]!.length).toBe(MAX_CSV_COLUMNS);
     expect(grid.truncated).toBe(true);
   });
+
+  test("cuts a first row that runs past the cell budget", async () => {
+    const parsed = await parseWorkbook(
+      await workbookBlob({
+        sheets: [{ name: "Wide" }],
+        parts: {
+          // The budget runs out inside the first row, and everything after
+          // that cell is spelled so that keeping any of it reads back broken.
+          "xl/worksheets/sheet1.xml": sheetXml(
+            `<row r="1">${"<c/>".repeat(MAX_SHEET_CELLS)}<c><v>1</v><row r="2"><c/>`,
+          ),
+        },
+      }),
+    );
+
+    const grid = await parsed.sheets[0]!.read();
+
+    expect(grid.rows.length).toBe(1);
+    expect(grid.rows[0]!.length).toBe(MAX_CSV_COLUMNS);
+    expect(grid.truncated).toBe(true);
+  }, 60_000);
 
   test("keeps a sheet under the cell budget whole", async () => {
     const parsed = await parseWorkbook(

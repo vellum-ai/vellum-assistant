@@ -818,6 +818,28 @@ function findEndTag(xml: string, at: number, localName: string): number {
 }
 
 /**
+ * Where the element opened at `at` ends, past its close tag or past a
+ * self-closing start tag, and the end of `xml` when it never closes. A cut
+ * here keeps the element whole and leaves what follows out, which a retained
+ * item needs because the markup after it belongs to another element.
+ */
+function elementEndsAt(xml: string, at: number, localName: string): number {
+  const opening = tagEndsAt(xml, at);
+  if (opening < 0) {
+    return xml.length;
+  }
+  if (xml.charAt(opening - 1) === "/") {
+    return opening + 1;
+  }
+  const closesAt = findEndTag(xml, at, localName);
+  if (closesAt >= xml.length) {
+    return xml.length;
+  }
+  const closeEnds = tagEndsAt(xml, closesAt);
+  return closeEnds < 0 ? xml.length : closeEnds + 1;
+}
+
+/**
  * Where the tag opened at `at` ends. XML allows an unescaped `>` inside an
  * attribute value, so the scan runs past whatever a quoted value holds.
  */
@@ -1250,15 +1272,22 @@ function readMarkedPart(
             }
             if (counted.kind === "match") {
               budgetSeen += 1;
-              // The cut lands on the marker this one was counted under, so the
-              // row that passes the budget is left out whole. Under two
-              // markers there is nothing whole to keep, which the character
-              // cap answers for instead.
-              if (budgetSeen > marker.budget.limit && seen >= 2) {
+              // Past the first marker the cut lands on the marker this one was
+              // counted under, so the row that passes the budget is left out
+              // whole. Inside the first there is no whole marker to keep, so
+              // the cut lands on this cell and the marker holding it is closed
+              // along with the ancestors.
+              if (budgetSeen > marker.budget.limit && seen >= 1) {
+                const wholeMarker = seen >= 2;
                 settle.resolve({
-                  xml: buffer.slice(0, lastMarkerAt),
+                  xml: buffer.slice(0, wholeMarker ? lastMarkerAt : at),
                   truncated: true,
-                  stillOpen: stillOpen(),
+                  stillOpen: wholeMarker
+                    ? stillOpen()
+                    : [
+                        `${lastMarkerPrefix}${marker.localName}`,
+                        ...stillOpen(),
+                      ],
                 });
                 return;
               }
@@ -1884,9 +1913,9 @@ interface SparseStrings {
  * Stream the shared string part for the items `wanted` names, keeping each
  * one's own text and nothing else. A table holds every string a workbook
  * spells, so a sheet pointing at one entry near the end of a million would
- * otherwise cost a DOM of everything before it. An item runs to the next one,
- * or to the end of the table for the last, and the read stops at the highest
- * index it was after rather than at the end of the part. Every `si` in the
+ * otherwise cost a DOM of everything before it. An item runs to its own close,
+ * and the read stops at the highest index it was after rather than at the end
+ * of the part. Every `si` in the
  * part counts, and a table spells its extension list after its items, so an
  * item of another origin there takes an index past every string the table
  * holds, which no cell of a workbook points at.
@@ -1953,7 +1982,7 @@ function readSharedStringSpans(
           closing = root === null ? "" : `</${root.name}>`;
         }
         if (openAt >= 0) {
-          spans.push(buffer.slice(openAt, at));
+          spans.push(buffer.slice(openAt, elementEndsAt(buffer, openAt, "si")));
           indices.push(openIndex);
           openAt = -1;
         }
@@ -1975,7 +2004,7 @@ function readSharedStringSpans(
     },
     onEnd: (buffer) => {
       if (openAt >= 0) {
-        spans.push(buffer.slice(openAt, findEndTag(buffer, openAt, "sst")));
+        spans.push(buffer.slice(openAt, elementEndsAt(buffer, openAt, "si")));
         indices.push(openIndex);
       }
       return taken(count);
