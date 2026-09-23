@@ -159,11 +159,17 @@ function relationshipsXml(spec: WorkbookSpec): string {
   const relationships = spec.sheets.map((_, index) => {
     return `<Relationship Id="rId${index + 1}" Type="${RELATIONSHIP_NS}/worksheet" Target="worksheets/sheet${index + 1}.xml"/>`;
   });
-  // A container that carries a shared string table points at it from here.
-  if (spec.sharedStrings !== undefined) {
+  // A container that carries these parts points at them from here.
+  const relate = (type: string, target: string): void => {
     relationships.push(
-      `<Relationship Id="rId${spec.sheets.length + 1}" Type="${RELATIONSHIP_NS}/sharedStrings" Target="sharedStrings.xml"/>`,
+      `<Relationship Id="rId${relationships.length + 1}" Type="${RELATIONSHIP_NS}/${type}" Target="${target}"/>`,
     );
+  };
+  if (spec.sharedStrings !== undefined) {
+    relate("sharedStrings", "sharedStrings.xml");
+  }
+  if (spec.styles !== undefined) {
+    relate("styles", "styles.xml");
   }
   return `${DECLARATION}<Relationships xmlns="${PACKAGE_RELATIONSHIP_NS}">${relationships.join("")}</Relationships>`;
 }

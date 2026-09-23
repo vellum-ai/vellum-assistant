@@ -430,6 +430,28 @@ function matchStartTag(
   return { kind: "match", prefix };
 }
 
+/**
+ * Whether the `<` at `at` closes an element named `localName`. A prefix is
+ * skipped the way {@link matchStartTag} skips it, so `</x:row>` and `</row>`
+ * both close a row, while `</rowBreaks>` closes neither.
+ */
+function matchEndTag(buffer: string, at: number, localName: string): boolean {
+  if (buffer.charAt(at + 1) !== "/") {
+    return false;
+  }
+  const nameAt = at + 2;
+  let scan = nameAt;
+  while (scan < buffer.length && isNameCharacter(buffer.charAt(scan))) {
+    scan += 1;
+  }
+  const start =
+    scan > nameAt && buffer.charAt(scan) === ":" ? scan + 1 : nameAt;
+  const end = start + localName.length;
+  return (
+    buffer.slice(start, end) === localName && endsTagName(buffer.charAt(end))
+  );
+}
+
 /** How a chunk handler ends a streamed read before the part runs out. */
 interface Settle<T> {
   resolve(value: T): void;
@@ -684,15 +706,21 @@ function resolveZipPath(base: string, target: string): string {
   return segments.join("/");
 }
 
-/** The part a workbook holds its shared string table in by convention. */
-const DEFAULT_SHARED_STRINGS_PART = "xl/sharedStrings.xml";
-
 /**
- * Last segment of the relationship type that points at a shared string table.
- * Strict and transitional OOXML root that type at namespaces of their own, so
- * only the segment they share identifies it.
+ * The parts a workbook holds beside its sheets, named by the last segment of
+ * the relationship type pointing at each. Strict and transitional OOXML root
+ * those types at namespaces of their own, so only the segment they share
+ * identifies a part.
  */
-const SHARED_STRINGS_TYPE = "/sharedStrings";
+const RELATED_PART_NAMES = ["sharedStrings", "styles"] as const;
+
+type RelatedPart = (typeof RELATED_PART_NAMES)[number];
+
+/** Where each of those parts sits by convention. */
+const DEFAULT_RELATED_PARTS: Record<RelatedPart, string> = {
+  sharedStrings: "xl/sharedStrings.xml",
+  styles: "xl/styles.xml",
+};
 
 /** What a workbook's relationship part names, rooted at the zip. */
 interface WorkbookRelationships {
@@ -700,14 +728,16 @@ interface WorkbookRelationships {
   targets: Map<string, string>;
   /** The shared string part the workbook points at, or the conventional one. */
   sharedStrings: string;
+  /** The styles part the workbook points at, or the conventional one. */
+  styles: string;
 }
 
 /** The parts a workbook's relationship part points at. */
 function readWorkbookRelationships(xml: string | null): WorkbookRelationships {
   const targets = new Map<string, string>();
-  let sharedStrings = DEFAULT_SHARED_STRINGS_PART;
+  const related = { ...DEFAULT_RELATED_PARTS };
   if (xml === null) {
-    return { targets, sharedStrings };
+    return { targets, ...related };
   }
   const root = parseXml(xml, "xl/_rels/workbook.xml.rels");
   for (const relationship of directChildrenNamed(root, "Relationship")) {
@@ -729,19 +759,27 @@ function readWorkbookRelationships(xml: string | null): WorkbookRelationships {
       : resolveZipPath("xl/", decoded);
     targets.set(id, resolved);
     const type = relationship.getAttribute("Type");
-    if (type !== null && type.endsWith(SHARED_STRINGS_TYPE)) {
-      sharedStrings = resolved;
+    if (type === null) {
+      continue;
+    }
+    for (const name of RELATED_PART_NAMES) {
+      if (type.endsWith(`/${name}`)) {
+        related[name] = resolved;
+      }
     }
   }
-  return { targets, sharedStrings };
+  return { targets, ...related };
 }
 
 /** Per `cellXfs` index, what cells carrying that style render as. */
-function readNumberFormatKinds(xml: string | null): NumberFormatKind[] {
+function readNumberFormatKinds(
+  xml: string | null,
+  partPath: string,
+): NumberFormatKind[] {
   if (xml === null) {
     return [];
   }
-  const root = parseXml(xml, "xl/styles.xml");
+  const root = parseXml(xml, partPath);
   const customCodes = new Map<number, string>();
   // Scoped to the `numFmts` block because a `dxf` carries `numFmt` entries of
   // its own in the same id range, which would otherwise win on document order.
@@ -1115,6 +1153,52 @@ interface WorkbookContext {
   sharedStrings: SharedStringReader;
 }
 
+/** Where the row holding the `<` at `at` closes, or the end of `xml`. */
+function findRowEnd(xml: string, at: number): number {
+  let scan = xml.indexOf("<", at);
+  while (scan >= 0) {
+    if (matchEndTag(xml, scan, "row")) {
+      return scan;
+    }
+    scan = xml.indexOf("<", scan + 1);
+  }
+  return xml.length;
+}
+
+/**
+ * The same sheet XML with the cells past the column cap dropped from every
+ * row, so the DOM built over it holds at most {@link MAX_CSV_COLUMNS} cells a
+ * row. Rows are bounded by the marker the part is read with, while a sheet
+ * whose rows run thousands of columns wide inflates well inside the part cap
+ * and every one of those cells would otherwise become a node the preview has
+ * no room for. Cell text escapes `<` as `&lt;`, so every `<` here opens a tag.
+ */
+function dropCellsPastCap(xml: string): { xml: string; dropped: boolean } {
+  const kept: string[] = [];
+  let copiedTo = 0;
+  let cells = 0;
+  let at = xml.indexOf("<");
+  while (at >= 0) {
+    if (matchStartTag(xml, at, "row").kind === "match") {
+      cells = 0;
+    } else if (matchStartTag(xml, at, "c").kind === "match") {
+      cells += 1;
+      if (cells > MAX_CSV_COLUMNS) {
+        const rowEnd = findRowEnd(xml, at);
+        kept.push(xml.slice(copiedTo, at));
+        copiedTo = rowEnd;
+        at = rowEnd;
+      }
+    }
+    at = xml.indexOf("<", at + 1);
+  }
+  if (kept.length === 0) {
+    return { xml, dropped: false };
+  }
+  kept.push(xml.slice(copiedTo));
+  return { xml: kept.join(""), dropped: true };
+}
+
 async function readSheetGrid(
   context: WorkbookContext,
   name: string,
@@ -1130,8 +1214,9 @@ async function readSheetGrid(
     ["sheetData", "worksheet"],
     context.maxPartChars,
   );
+  const trimmed = dropCellsPastCap(closeBoundedPart(part));
   const read = readSheetRows(
-    parseXml(closeBoundedPart(part), entry.name),
+    parseXml(trimmed.xml, entry.name),
     context.formatKinds,
     context.date1904,
   );
@@ -1158,7 +1243,7 @@ async function readSheetGrid(
   return shapeRecords(
     records,
     records.reduce((max, row) => Math.max(max, row.length), 0),
-    part.truncated || read.truncated || lostSharedString,
+    part.truncated || trimmed.dropped || read.truncated || lostSharedString,
   );
 }
 
@@ -1345,7 +1430,8 @@ export async function parseWorkbook(
   const context: WorkbookContext = {
     zip,
     formatKinds: readNumberFormatKinds(
-      await readPart(zip, "xl/styles.xml", maxPartChars),
+      await readPart(zip, relationships.styles, maxPartChars),
+      relationships.styles,
     ),
     date1904,
     maxPartChars,

@@ -80,14 +80,37 @@ function relationshipsXml(target: string): string {
 const STRICT_RELATIONSHIP_NS =
   "http://purl.oclc.org/ooxml/officeDocument/relationships";
 
-/** The same part, plus a shared string relationship of `type` and `target`. */
-function sharedStringsRelationshipsXml(type: string, target: string): string {
+/** The same part, plus a relationship of `type` pointing at `target`. */
+function relationshipsXmlWith(type: string, target: string): string {
   return `<Relationships xmlns="${PACKAGE_RELATIONSHIP_NS}"><Relationship Id="rId1" Type="${RELATIONSHIP_NS}/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="${type}" Target="${target}"/></Relationships>`;
 }
 
 /** A shared string table holding one string, as a raw part. */
 function oneSharedStringXml(text: string): string {
   return `<sst xmlns="${MAIN_NS}" count="1" uniqueCount="1"><si><t>${text}</t></si></sst>`;
+}
+
+/** A styles table whose second `cellXfs` entry renders a cell as a date. */
+const DATE_STYLES = `<styleSheet xmlns="${MAIN_NS}"><numFmts count="0"/><cellStyleXfs count="1"><xf numFmtId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0"/><xf numFmtId="14"/></cellXfs></styleSheet>`;
+
+/** A cell that never closes, which a DOM built over it rejects. */
+const UNCLOSED_CELL = "<c><v>1</v>";
+
+/** The same cell, spelled with a prefix. */
+const PREFIXED_UNCLOSED_CELL = "<x:c><x:v>1</x:v>";
+
+/** A row of `count` numeric cells, followed by the raw XML in `trailing`. */
+function wideRowXml(position: number, count: number, trailing = ""): string {
+  return `<row r="${position}">${"<c><v>1</v></c>".repeat(count)}${trailing}</row>`;
+}
+
+/** The same row, spelled with a prefix on the row and on every cell. */
+function prefixedWideRowXml(
+  position: number,
+  count: number,
+  trailing = "",
+): string {
+  return `<x:row r="${position}">${"<x:c><x:v>1</x:v></x:c>".repeat(count)}${trailing}</x:row>`;
 }
 
 /**
@@ -476,7 +499,7 @@ describe("parseWorkbook", () => {
         await workbookBlob({
           sheets: [{ name: "Sheet1", rows: [[{ t: "s", v: 0 }]] }],
           parts: {
-            "xl/_rels/workbook.xml.rels": sharedStringsRelationshipsXml(
+            "xl/_rels/workbook.xml.rels": relationshipsXmlWith(
               `${RELATIONSHIP_NS}/sharedStrings`,
               target,
             ),
@@ -497,7 +520,7 @@ describe("parseWorkbook", () => {
       await workbookBlob({
         sheets: [{ name: "Sheet1", rows: [[{ t: "s", v: 0 }]] }],
         parts: {
-          "xl/_rels/workbook.xml.rels": sharedStringsRelationshipsXml(
+          "xl/_rels/workbook.xml.rels": relationshipsXmlWith(
             `${STRICT_RELATIONSHIP_NS}/sharedStrings`,
             "strings.xml",
           ),
@@ -529,6 +552,44 @@ describe("parseWorkbook", () => {
 
     expect(grid.rows).toEqual([["alpha"]]);
     expect(grid.truncated).toBe(false);
+  });
+
+  test("resolves the styles part through its workbook relationship", async () => {
+    for (const type of [
+      `${RELATIONSHIP_NS}/styles`,
+      `${STRICT_RELATIONSHIP_NS}/styles`,
+    ]) {
+      const parsed = await parseWorkbook(
+        await workbookBlob({
+          sheets: [{ name: "Sheet1", rows: [[{ v: 44927, s: 1 }]] }],
+          parts: {
+            "xl/_rels/workbook.xml.rels": relationshipsXmlWith(
+              type,
+              "custom/styles.xml",
+            ),
+            "xl/custom/styles.xml": DATE_STYLES,
+          },
+        }),
+      );
+
+      expect((await parsed.sheets[0]!.read()).rows).toEqual([["2023-01-01"]]);
+    }
+  });
+
+  test("reads the conventional styles part when no relationship names one", async () => {
+    const parsed = await parseWorkbook(
+      await workbookBlob({
+        sheets: [{ name: "Sheet1", rows: [[{ v: 44927, s: 0 }]] }],
+        styles: [{ numFmtId: 14 }],
+        parts: {
+          "xl/_rels/workbook.xml.rels": relationshipsXml(
+            "worksheets/sheet1.xml",
+          ),
+        },
+      }),
+    );
+
+    expect((await parsed.sheets[0]!.read()).rows).toEqual([["2023-01-01"]]);
   });
 
   test("reads shared, inline, and rich-run strings", async () => {
@@ -976,6 +1037,70 @@ describe("parseWorkbook", () => {
 
     expect(grid.headers).toBeNull();
     expect(grid.rows).toEqual([[]]);
+    expect(grid.truncated).toBe(true);
+  });
+
+  test("keeps the DOM clear of cells past the column cap", async () => {
+    const parsed = await parseWorkbook(
+      await workbookBlob({
+        sheets: [{ name: "Sheet1" }],
+        parts: {
+          // The cell past the cap never closes, so a DOM built over it rejects
+          // the part.
+          "xl/worksheets/sheet1.xml": sheetXml(
+            wideRowXml(1, MAX_CSV_COLUMNS, UNCLOSED_CELL),
+          ),
+        },
+      }),
+    );
+
+    const grid = await parsed.sheets[0]!.read();
+
+    expect(grid.rows[0]!.length).toBe(MAX_CSV_COLUMNS);
+    expect(grid.truncated).toBe(true);
+  });
+
+  test("drops cells past the cap from every row, not only the first", async () => {
+    const parsed = await parseWorkbook(
+      await workbookBlob({
+        sheets: [{ name: "Sheet1" }],
+        parts: {
+          "xl/worksheets/sheet1.xml": sheetXml(
+            `${wideRowXml(1, MAX_CSV_COLUMNS, UNCLOSED_CELL)}${wideRowXml(
+              2,
+              MAX_CSV_COLUMNS,
+              UNCLOSED_CELL,
+            )}${rowXml(3, "alpha")}`,
+          ),
+        },
+      }),
+    );
+
+    const grid = await parsed.sheets[0]!.read();
+
+    expect(grid.rows.length).toBe(3);
+    expect(grid.rows[1]!.length).toBe(MAX_CSV_COLUMNS);
+    expect(grid.rows[2]![0]).toBe("alpha");
+    expect(grid.truncated).toBe(true);
+  });
+
+  test("drops cells past the cap in a prefixed sheet", async () => {
+    const parsed = await parseWorkbook(
+      await workbookBlob({
+        sheets: [{ name: "Sheet1" }],
+        parts: {
+          "xl/worksheets/sheet1.xml": `<x:worksheet xmlns:x="${MAIN_NS}"><x:sheetData>${prefixedWideRowXml(
+            1,
+            MAX_CSV_COLUMNS,
+            PREFIXED_UNCLOSED_CELL,
+          )}</x:sheetData></x:worksheet>`,
+        },
+      }),
+    );
+
+    const grid = await parsed.sheets[0]!.read();
+
+    expect(grid.rows[0]!.length).toBe(MAX_CSV_COLUMNS);
     expect(grid.truncated).toBe(true);
   });
 
