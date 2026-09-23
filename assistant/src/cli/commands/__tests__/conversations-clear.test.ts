@@ -128,12 +128,12 @@ describe("conversations clear", () => {
     });
   });
 
-  test("non-TTY without --yes fails fast naming the flag", async () => {
+  test("non-TTY without --force fails fast naming the flag", async () => {
     process.stdin.isTTY = false;
     expect(await runClear([])).toBe(1);
     expect(prompted).toBe(false);
     expect(lastIpcCall).toBeNull();
-    expect(stderrOutput).toContain("--yes");
+    expect(stderrOutput).toContain("--force");
   });
 
   test("interactive: EOF cancels instead of hanging", async () => {
@@ -144,9 +144,9 @@ describe("conversations clear", () => {
     expect(loggerCalls.some((c) => c.msg === "Cancelled")).toBe(true);
   });
 
-  test("non-TTY with --yes clears without prompting", async () => {
+  test("non-TTY with --force clears without prompting", async () => {
     process.stdin.isTTY = false;
-    expect(await runClear(["--yes"])).toBe(0);
+    expect(await runClear(["--force"])).toBe(0);
     expect(prompted).toBe(false);
     expect(lastIpcCall?.params).toEqual({
       headers: { "x-confirm-destructive": "clear-all-conversations" },

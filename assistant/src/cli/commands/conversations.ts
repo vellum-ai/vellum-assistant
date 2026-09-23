@@ -499,17 +499,17 @@ export function registerConversationsCommand(program: Command): void {
       // -------------------------------------------------------------------
 
       subcommand(conversations, "clear").action(
-        async (opts: { yes?: boolean }) => {
+        async (opts: { force?: boolean }) => {
           log.info(
             "This will permanently delete all conversations, messages, and vector data.",
           );
 
-          if (!opts.yes) {
+          if (!opts.force) {
             const confirm = await confirmPrompt({
               question: "Are you sure? (y/N) ",
               isTTY: Boolean(process.stdin.isTTY),
               refuseNonInteractiveMessage:
-                "Refusing to clear without confirmation: stdin is not a terminal. Re-run with --yes to confirm.",
+                "Refusing to clear all conversations non-interactively. Pass --force to confirm.",
             });
             if (confirm === "non-interactive") {
               process.exitCode = 1;
