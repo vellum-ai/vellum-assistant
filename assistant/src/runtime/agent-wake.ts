@@ -631,6 +631,10 @@ async function kickWakeDrainQueue(
 
 const runWakeSingleFlight = createKeyedSingleFlight();
 
+export function hasPendingAgentWake(conversationId: string): boolean {
+  return runWakeSingleFlight.isPending(conversationId);
+}
+
 /**
  * How long a wake waits for an in-flight turn to release the conversation's
  * processing lock before skipping with reason "timeout". We rely primarily

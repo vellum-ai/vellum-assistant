@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../runtime/agent-wake.js", () => ({
+  hasPendingAgentWake: () => false,
   wakeAgentForOpportunity: mock(() =>
     Promise.resolve({ invoked: true, producedToolCalls: false }),
   ),

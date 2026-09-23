@@ -6,6 +6,7 @@ import {
   cancelBackgroundTool,
   type CompletedBackgroundTool,
   generateBackgroundToolId,
+  hasBackgroundToolWork,
   listBackgroundTools,
   listCompletedBackgroundTools,
   MAX_BACKGROUND_TOOLS,
@@ -68,6 +69,20 @@ describe("background-tool-registry", () => {
       expect(result).toBe(true);
       expect(cancelFn).toHaveBeenCalledTimes(1);
       expect(listBackgroundTools()).toHaveLength(0);
+      expect(hasBackgroundToolWork(tool.conversationId)).toBe(true);
+      removeBackgroundTool(tool.id);
+      expect(hasBackgroundToolWork(tool.conversationId)).toBe(false);
+    });
+
+    test("a synchronous terminal callback settles cancellation work", () => {
+      registerBackgroundTool(
+        makeTool({
+          id: "bg-sync-cancel",
+          cancel: () => removeBackgroundTool("bg-sync-cancel"),
+        }),
+      );
+      cancelBackgroundTool("bg-sync-cancel");
+      expect(hasBackgroundToolWork("conv-xyz")).toBe(false);
     });
 
     test("returns false for unknown IDs", () => {
@@ -105,6 +120,8 @@ describe("background-tool-registry", () => {
 
       expect(listBackgroundTools("conv-2")).toHaveLength(1);
       expect(listBackgroundTools("conv-nonexistent")).toHaveLength(0);
+      expect(hasBackgroundToolWork("conv-1")).toBe(true);
+      expect(hasBackgroundToolWork("conv-nonexistent")).toBe(false);
     });
   });
 

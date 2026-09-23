@@ -16,7 +16,10 @@ import { getConversation } from "../persistence/conversation-crud.js";
 import { isLifecycleQuiesced } from "../persistence/lifecycle-quiesce.js";
 import { invalidateAssistantInferredItemsForConversation } from "../plugins/defaults/memory/task-memory-cleanup.js";
 import { dispatchProviderResolvable } from "../providers/provider-resolvability.js";
-import { wakeAgentForOpportunity } from "../runtime/agent-wake.js";
+import {
+  hasPendingAgentWake,
+  wakeAgentForOpportunity,
+} from "../runtime/agent-wake.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import {
   type BackgroundJobErrorKind,
@@ -27,6 +30,7 @@ import { runSequencesOnce } from "../sequence/engine.js";
 import { getSubagentManager } from "../subagent/index.js";
 import type { TurnFailure } from "../telemetry/turn-outcome.js";
 import { recordWatchdogEvent } from "../telemetry/watchdog-events-store.js";
+import { hasBackgroundToolWork } from "../tools/background-tool-registry.js";
 import { getLogger } from "../util/logger.js";
 import { describeScheduleSource } from "../util/schedule-source-key.js";
 import {
@@ -99,8 +103,8 @@ const DELEGATED_WORK_QUIET_POLLS = 2;
  * latest assistant row, so completing at the first resolve ships the
  * pre-consult reply and drops the informed one for good.
  *
- * Returns immediately for a conversation that never delegated anything, which
- * is the ordinary case, so no scheduled run pays for this unless it spawned.
+ * Background commands and their queued wakes are included, even while a wake
+ * is resolving its conversation before acquiring the processing lock.
  *
  * Bounded by what is left of the schedule turn timeout, so the whole run (its
  * turn plus the work it delegated) stays inside the one ceiling that stops a
@@ -116,14 +120,13 @@ async function awaitDelegatedWork(
   if (!conversationId || conversationId.startsWith("bootstrap-error:")) {
     return;
   }
-  const conversation = findConversation(conversationId);
-  if (!conversation) {
-    return;
-  }
-  // Terminal children stay readable for their retention window, so this asks
-  // "did this conversation ever delegate?" and skips the polling entirely for
-  // the schedules that never do.
-  if (getSubagentManager().getChildrenOf(conversationId).length === 0) {
+  const hasPendingToolsOrWakes = () =>
+    hasBackgroundToolWork(conversationId) ||
+    hasPendingAgentWake(conversationId);
+  if (
+    getSubagentManager().getChildrenOf(conversationId).length === 0 &&
+    !hasPendingToolsOrWakes()
+  ) {
     return;
   }
 
@@ -131,7 +134,10 @@ async function awaitDelegatedWork(
     runStartedAt + getConfig().timeouts.scheduleTurnTimeoutSec * 1000;
   let quiet = 0;
   while (Date.now() < deadline) {
-    if (conversation.hasInFlightWork()) {
+    if (
+      findConversation(conversationId)?.hasInFlightWork() ||
+      hasPendingToolsOrWakes()
+    ) {
       quiet = 0;
     } else {
       quiet += 1;

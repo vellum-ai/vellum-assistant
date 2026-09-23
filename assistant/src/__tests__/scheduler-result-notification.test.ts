@@ -95,10 +95,17 @@ import {
 import { addMessage } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
+import { wakeAgentForOpportunity } from "../runtime/agent-wake.js";
 import { createSchedule, getScheduleRuns } from "../schedule/schedule-store.js";
 import { runDueSchedulesOnce } from "../schedule/scheduler.js";
 import { getSubagentManager } from "../subagent/index.js";
 import type { SubagentState } from "../subagent/types.js";
+import {
+  _clearRegistryForTesting,
+  cancelBackgroundTool,
+  registerBackgroundTool,
+  removeBackgroundTool,
+} from "../tools/background-tool-registry.js";
 
 await initializeDb();
 
@@ -187,6 +194,7 @@ describe("schedule result notification wiring", () => {
     producerSawText.length = 0;
     runBackgroundJobShouldFail = false;
     clearConversations();
+    _clearRegistryForTesting();
     delegateOnRun = undefined;
   });
 
@@ -306,6 +314,83 @@ describe("schedule result notification wiring", () => {
     expect(producerSawText[0]).toContain("Done.");
     expect(Date.now() - before).toBeLessThan(200);
   });
+
+  for (const quiet of [false, true]) {
+    for (const status of ["completed", "failed", "cancelled"] as const) {
+      test(`waits for a ${status} background command and its final wake (quiet=${quiet})`, async () => {
+        const schedule = await createSchedule({
+          name: "Background report",
+          message: "Run the report in the background",
+          syntax: "cron",
+          expression: "0 9 * * *",
+          quiet,
+        });
+        forceScheduleDue(schedule.id);
+        const started = Promise.withResolvers<string>();
+        const finishWake = Promise.withResolvers<void>();
+        delegateOnRun = (conversationId) => {
+          addMessage(conversationId, "assistant", "The command is running.");
+          setConversation(conversationId, {
+            hasInFlightWork: () => false,
+          } as unknown as Conversation);
+          registerBackgroundTool({
+            id: "bg-scheduled",
+            conversationId,
+            toolName: "bash",
+            command: "generate-report",
+            startedAt: Date.now(),
+            cancel: () => {},
+          });
+          if (status === "cancelled") {
+            cancelBackgroundTool("bg-scheduled");
+          }
+          started.resolve(conversationId);
+        };
+
+        let scheduleSettled = false;
+        const scheduledRun = runDueSchedulesOnce().then(() => {
+          scheduleSettled = true;
+        });
+        const conversationId = await started.promise;
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        expect(scheduleSettled).toBe(false);
+        expect(producerCalls).toHaveLength(0);
+
+        clearConversations();
+        removeBackgroundTool("bg-scheduled");
+        const wake = wakeAgentForOpportunity(
+          {
+            conversationId,
+            hint: `Background command ${status}`,
+            source: "background-tool",
+          },
+          {
+            resolveTarget: async () => {
+              await finishWake.promise;
+              addMessage(
+                conversationId,
+                "assistant",
+                `Final result: ${status}.`,
+              );
+              return null;
+            },
+          },
+        );
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        expect(scheduleSettled).toBe(false);
+        expect(producerCalls).toHaveLength(0);
+
+        finishWake.resolve();
+        await wake;
+        await scheduledRun;
+        expect(getScheduleRuns(schedule.id)[0].status).toBe("ok");
+        expect(producerCalls).toHaveLength(quiet ? 0 : 1);
+        if (!quiet) {
+          expect(producerSawText).toEqual([`Final result: ${status}.`]);
+        }
+      });
+    }
+  }
 
   test("captures runStartedAt before the run, not after", async () => {
     const before = Date.now();

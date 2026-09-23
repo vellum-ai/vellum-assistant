@@ -48,6 +48,7 @@ export const MAX_BACKGROUND_TOOLS = 20;
 export const MAX_COMPLETED_BACKGROUND_TOOLS = 50;
 
 const registry = new Map<string, BackgroundTool>();
+const pendingCancellations = new Map<string, BackgroundTool>();
 
 // FIFO ring of recently-completed tools, oldest first. Bounded by
 // MAX_COMPLETED_BACKGROUND_TOOLS so a long-lived daemon can't accumulate
@@ -70,6 +71,16 @@ export function registerBackgroundTool(tool: BackgroundTool): void {
 /** Removes a background tool entry by ID. */
 export function removeBackgroundTool(id: string): void {
   registry.delete(id);
+  pendingCancellations.delete(id);
+}
+
+/** Includes cancelled processes until their terminal callback has run. */
+export function hasBackgroundToolWork(conversationId: string): boolean {
+  return [registry, pendingCancellations].some((tools) =>
+    Array.from(tools.values()).some(
+      (tool) => tool.conversationId === conversationId,
+    ),
+  );
 }
 
 /**
@@ -128,7 +139,13 @@ export function cancelBackgroundTool(id: string, reason?: string): boolean {
   if (!tool) {
     return false;
   }
-  tool.cancel(reason);
+  pendingCancellations.set(id, tool);
+  try {
+    tool.cancel(reason);
+  } catch (error) {
+    pendingCancellations.delete(id);
+    throw error;
+  }
   registry.delete(id);
   return true;
 }
@@ -142,8 +159,7 @@ export function cancelBackgroundTools(
     if (!shouldCancel(tool)) {
       continue;
     }
-    tool.cancel(reason);
-    registry.delete(tool.id);
+    cancelBackgroundTool(tool.id, reason);
     cancelled.push(tool);
   }
   return cancelled;
@@ -173,5 +189,6 @@ export function isBackgroundToolLimitReached(): boolean {
  */
 export function _clearRegistryForTesting(): void {
   registry.clear();
+  pendingCancellations.clear();
   completedRing.length = 0;
 }
