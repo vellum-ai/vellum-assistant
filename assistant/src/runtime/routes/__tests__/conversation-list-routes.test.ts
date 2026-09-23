@@ -71,6 +71,7 @@ interface ListResponse {
   nextOffset: number;
   hasMore: boolean;
   groups?: unknown[];
+  orderedBy: string;
 }
 
 function findHandler(routes: RouteDefinition[], operationId: string) {
@@ -1410,6 +1411,9 @@ describe("GET /v1/conversations, conversationType=all", () => {
       "recent-foreground",
       "old-chat-done-before-a-reply",
     ]);
+    // A client paging done rows relies on this to know the order is not
+    // message recency.
+    expect(result.orderedBy).toBe("lastActivity");
   });
 
   test("excludes legacy private rows and subagent runs", async () => {

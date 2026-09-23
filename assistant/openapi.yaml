@@ -8290,10 +8290,14 @@ paths:
                         - sortPosition
                         - isSystemGroup
                       additionalProperties: false
+                  orderedBy:
+                    type: string
+                    const: lastActivity
                 required:
                   - conversations
                   - nextOffset
                   - hasMore
+                  - orderedBy
                 additionalProperties: false
     post:
       operationId: conversations_post

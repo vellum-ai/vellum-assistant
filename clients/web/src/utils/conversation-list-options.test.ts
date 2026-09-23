@@ -11,7 +11,9 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient } from "@tanstack/react-query";
 
 import { client as daemonClient } from "@/generated/daemon/client.gen";
+import { MessageOrderedHistoryError } from "@/utils/conversation-list-fetchers";
 import {
+  ALL_HISTORY_FILTER,
   ARCHIVED_BACKGROUND_FILTER,
   ARCHIVED_FILTER,
   BACKGROUND_FILTER,
@@ -32,7 +34,11 @@ const ASSISTANT_ID = "assistant-1";
  * order. Returns the captured queries so tests can assert what was sent.
  */
 function stubPages(
-  fixtures: Array<{ rows: RawConversationFixture[]; hasMore: boolean }>,
+  fixtures: Array<{
+    rows: RawConversationFixture[];
+    hasMore: boolean;
+    orderedBy?: string;
+  }>,
 ): Record<string, unknown>[] {
   const queries: Record<string, unknown>[] = [];
   daemonClient.get = mock(
@@ -46,6 +52,7 @@ function stubPages(
       const body = {
         conversations: fixture.rows.map(rawConversation),
         hasMore: fixture.hasMore,
+        ...(fixture.orderedBy ? { orderedBy: fixture.orderedBy } : {}),
       };
       return {
         data: body,
@@ -65,6 +72,51 @@ const originalGet = daemonClient.get;
 
 afterEach(() => {
   daemonClient.get = originalGet;
+});
+
+describe("conversationListOptions, whole history", () => {
+  test("keeps the window an assistant pages by last activity", async () => {
+    stubPages([
+      {
+        rows: [{ id: "done-today", lastMessageAt: 100, archivedAt: 900 }],
+        hasMore: true,
+        orderedBy: "lastActivity",
+      },
+    ]);
+
+    const result = await freshClient().fetchQuery(
+      conversationListOptions(ASSISTANT_ID, ALL_HISTORY_FILTER),
+    );
+
+    expect(result.conversations.map((c) => c.conversationId)).toEqual([
+      "done-today",
+    ]);
+    expect(result.hasMore).toBe(true);
+  });
+
+  test("refuses a window an assistant pages by message recency", async () => {
+    // An assistant that omits `orderedBy` can hold a chat marked done today
+    // on any later page, so its window is not one this client can merge.
+    stubPages([
+      { rows: [{ id: "recent", lastMessageAt: 900 }], hasMore: true },
+    ]);
+
+    await expect(
+      freshClient().fetchQuery(
+        conversationListOptions(ASSISTANT_ID, ALL_HISTORY_FILTER),
+      ),
+    ).rejects.toBeInstanceOf(MessageOrderedHistoryError);
+  });
+
+  test("never retries that refusal, and retries a network failure", () => {
+    const { retry } = conversationListOptions(ASSISTANT_ID, ALL_HISTORY_FILTER);
+    if (typeof retry !== "function") {
+      throw new Error("the whole-history read sets a retry predicate");
+    }
+
+    expect(retry(0, new MessageOrderedHistoryError())).toBe(false);
+    expect(retry(0, new TypeError("Failed to fetch"))).toBe(true);
+  });
 });
 
 describe("conversationListOptions", () => {

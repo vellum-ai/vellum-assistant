@@ -54,8 +54,22 @@ import {
   type ConversationListPage,
   drainConversationList,
   listConversationsFirstPage,
+  MessageOrderedHistoryError,
 } from "@/utils/conversation-list-fetchers";
 import { mergeListFirstPage } from "@/utils/conversation-order";
+import { shouldRetryQuery } from "@/utils/query-retry";
+
+/**
+ * The global policy, except that an assistant paging the whole history by
+ * message recency is an answer, not a failure: it says the same thing on
+ * every attempt, and retrying only delays the fallback that reads it.
+ */
+function shouldRetryListQuery(failureCount: number, error: Error): boolean {
+  return (
+    !(error instanceof MessageOrderedHistoryError) &&
+    shouldRetryQuery(failureCount, error)
+  );
+}
 
 const QUERY_STALE_TIME_MS = 30_000;
 
@@ -98,6 +112,7 @@ export function conversationListOptions(
             })
           : page;
       },
+      retry: shouldRetryListQuery,
       staleTime: QUERY_STALE_TIME_MS,
     });
   }

@@ -3,13 +3,15 @@
  * fallback for an assistant that cannot serve it in one read.
  *
  * The page reads `conversationType=all&archiveStatus=all`, which is one
- * recency-ordered cursor across every type and both archive states. An
- * assistant that predates that value rejects the request with a 400, so this
- * watches for exactly that answer and switches to the four bucket reads the
- * sidebar already fills, merged into the same recency order. No version gate:
- * the assistant's own refusal is the signal, which is what
- * `docs/BACKWARDS_COMPAT.md` asks for when the old behavior is a clean refusal
- * rather than a plausible-looking wrong answer.
+ * cursor across every type and both archive states, ordered by last activity.
+ * Two kinds of assistant cannot serve that: one that predates the value
+ * rejects the request with a 400, and one that accepts it but pages by
+ * message recency says so by omitting `orderedBy`
+ * ({@link MessageOrderedHistoryError}). Either answer switches this to the
+ * four bucket reads the sidebar already fills, merged into last-activity
+ * order here. No version gate: the assistant's own answer is the signal,
+ * which is what `docs/BACKWARDS_COMPAT.md` asks for when the old behavior
+ * would otherwise be a plausible-looking wrong answer.
  *
  * The degraded path drains four caches, so it is complete but unpaginated:
  * `hasMore` is false there and the page renders everything it was handed.
@@ -33,7 +35,10 @@ import type { Conversation } from "@/types/conversation-types";
 import { ApiError } from "@/utils/api-errors";
 import { mergeConversationLists } from "@/utils/conversation-cache";
 import { loadMoreConversations } from "@/utils/conversation-cache-mutations";
-import { SYSTEM_ASSISTANT_GROUP_ID } from "@/utils/conversation-list-fetchers";
+import {
+  MessageOrderedHistoryError,
+  SYSTEM_ASSISTANT_GROUP_ID,
+} from "@/utils/conversation-list-fetchers";
 import {
   ALL_HISTORY_FILTER,
   type ConversationListFilter,
@@ -51,13 +56,16 @@ const ASSISTANT_INITIATED_FILTER: ConversationListFilter = {
 };
 
 /**
- * Whether this error is the assistant saying it does not know the combined
- * read. A 400 on this request can only be the rejected parameter: the route
- * takes no body, and the rest of the query is the shape every other list read
- * sends.
+ * Whether this error is the assistant saying it cannot serve the combined
+ * read in last-activity order. A 400 on this request can only be the
+ * rejected parameter: the route takes no body, and the rest of the query is
+ * the shape every other list read sends.
  */
 export function isUnsupportedCombinedRead(error: Error | null): boolean {
-  return error instanceof ApiError && error.status === 400;
+  return (
+    error instanceof MessageOrderedHistoryError ||
+    (error instanceof ApiError && error.status === 400)
+  );
 }
 
 export interface AllChatsData {

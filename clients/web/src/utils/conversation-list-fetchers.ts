@@ -44,6 +44,7 @@ import {
   type ConversationListFilter,
   isArchivedFilter,
   isSectionFilter,
+  isWholeHistoryFilter,
 } from "@/utils/conversation-list-keys";
 import { compareByRecency } from "@/utils/conversation-order";
 import { isScheduledConversation } from "@/utils/conversation-predicates";
@@ -204,7 +205,30 @@ type TimedConversationListPage = ConversationListPage & {
   durationMs: number;
   /** `content-length` in bytes, or null when the header is missing or junk. */
   bytes: number | null;
+  /**
+   * Whether the assistant says it ordered the rows by last activity
+   * (`orderedBy: "lastActivity"`). An assistant that omits it pages by
+   * message recency.
+   */
+  orderedByLastActivity: boolean;
 };
+
+/**
+ * The whole-history read came back from an assistant that pages it by
+ * message recency rather than by last activity.
+ *
+ * That order cannot be windowed on the client: a chat marked done today can
+ * sit on any later page, and the window merge drops a just-done row the
+ * first page does not carry. So the read is refused like one the assistant
+ * rejects outright, and the All chats page falls back to the complete
+ * buckets, which it orders itself.
+ */
+export class MessageOrderedHistoryError extends Error {
+  constructor() {
+    super("The assistant pages the whole history by message recency.");
+    this.name = "MessageOrderedHistoryError";
+  }
+}
 
 /** Which path issued an offset-0 list GET. */
 /**
@@ -294,6 +318,7 @@ async function fetchConversationListPage(
     status: response.status,
     durationMs,
     bytes: readContentLength(response),
+    orderedByLastActivity: data?.orderedBy === "lastActivity",
   };
 }
 
@@ -589,6 +614,9 @@ export async function listConversationsFirstPage(
 ): Promise<ConversationListPage> {
   const page = await fetchConversationListPage(assistantId, 0, source, filter);
   recordFirstPageFetch(assistantId, page, drainListKind(filter), source);
+  if (isWholeHistoryFilter(filter) && !page.orderedByLastActivity) {
+    throw new MessageOrderedHistoryError();
+  }
   return {
     conversations: shapeListRows(filter, page.conversations),
     hasMore: page.hasMore,

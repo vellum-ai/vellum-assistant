@@ -150,6 +150,13 @@ const listConversationsResponseSchema = z.object({
   nextOffset: z.number(),
   hasMore: z.boolean(),
   groups: z.array(groupSummarySchema).optional(),
+  /**
+   * The key the rows are ordered on: last activity, the later of a row's
+   * last message and the time it was marked done. Stated so a client that
+   * pages a list including done rows can tell this order from message
+   * recency, which an assistant that omits the field pages by.
+   */
+  orderedBy: z.literal("lastActivity"),
 });
 
 const conversationDetailResponseSchema = z.object({
@@ -376,6 +383,7 @@ function handleListConversations({
     ),
     nextOffset,
     hasMore: nextOffset < totalCount,
+    orderedBy: "lastActivity",
   };
 
   // Include groups array on first page only
