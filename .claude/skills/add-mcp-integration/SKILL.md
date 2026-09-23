@@ -46,24 +46,36 @@ curl -sS -i -X POST "$URL" -H 'content-type: application/json' \
 ```
 
 Expect `401` with `WWW-Authenticate: Bearer ... resource_metadata="<url>"`.
-Fetch that URL, take `authorization_servers[0]`, then fetch
-`<issuer>/.well-known/oauth-authorization-server` (fall back to
-`/.well-known/openid-configuration`). Check:
+Fetch that URL and take `authorization_servers[0]` as the issuer. Then fetch
+the issuer's metadata from the first URL that answers, in the order the MCP
+SDK tries them (`buildDiscoveryUrls` in `@modelcontextprotocol/sdk`
+`client/auth.js`):
 
-| Field                                   | Need                            |
-| --------------------------------------- | ------------------------------- |
-| `registration_endpoint`                 | present (DCR)                   |
-| `code_challenge_methods_supported`      | includes `S256`                 |
-| `grant_types_supported`                 | includes `refresh_token`        |
-| `token_endpoint_auth_methods_supported` | includes `none` (public client) |
+| Issuer                             | Metadata URLs, in order                                                                                                                                                        |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `https://auth.example.com`         | `/.well-known/oauth-authorization-server`, then `/.well-known/openid-configuration`                                                                                            |
+| `https://auth.example.com/tenant1` | `/.well-known/oauth-authorization-server/tenant1`, then `/.well-known/openid-configuration/tenant1`, then `/tenant1/.well-known/openid-configuration` (all on the issuer host) |
+
+Check the metadata the way the SDK does:
+
+| Field                              | Rule                                                                                             |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `registration_endpoint`            | Must be present. The SDK stops with "does not support dynamic client registration" without it.   |
+| `code_challenge_methods_supported` | If present, must include `S256`. Absent is fine.                                                 |
+| `response_types_supported`         | Must include `code`.                                                                             |
+| `grant_types_supported`            | Should include `refresh_token`. Without it, users sign in again each time the access token ends. |
+
+Do not judge `token_endpoint_auth_methods_supported` from the metadata. The
+registration in step 3 shows which method the server gives our public client.
 
 Pick the setup mode:
 
-- **All four hold:** `oauth`. The normal case.
+- **The rules hold and step 3 succeeds:** `oauth`. The normal case.
 - **DCR works, but the vendor must allowlist our redirect URI first:** `manual`.
   `ramp` is the example. Its `setup.instructions` tell the user what to ask
   the vendor for.
-- **No `registration_endpoint`, or only `client_secret_*` auth:** not a catalog
+- **No `registration_endpoint`, or step 3 only returns a confidential client
+  (a `client_secret` and a `client_secret_*` auth method):** not a catalog
   addition. It needs a pre-registered client, which the MCP OAuth flow does
   not support. Stop and report this.
 
@@ -82,7 +94,16 @@ curl -sS -X POST <registration_endpoint> -H 'content-type: application/json' \
   -d '{"client_name":"Vellum Assistant (registration probe)","redirect_uris":["https://example.com/webhooks/oauth/callback"],"token_endpoint_auth_method":"none","grant_types":["authorization_code","refresh_token"],"response_types":["code"],"logo_uri":"https://www.vellum.ai/favicon.ico","software_version":"0.0.0"}'
 ```
 
-A `client_id` in the response means registration works.
+A `client_id` with `token_endpoint_auth_method: "none"` in the response means
+the server registers public clients.
+
+This probe does not prove the vendor accepts our real redirect URI. Each
+assistant resolves its own callback (`resolveOauthCallbackUrl` in
+`assistant/src/inbound/oauth-callback-url.ts`), and a vendor can restrict
+redirect hosts. If you know the callback URL of the assistant you will test
+with, register that instead of `example.com`. If the `example.com` probe is
+rejected for its redirect URI, retry with a real callback before you reject
+the server. Step 9 is the real test of the redirect.
 
 ## 4. Icon
 
@@ -219,6 +240,11 @@ the `mcp-catalog-qa-integrations` description in
 `meta/feature-flags/feature-flag-registry.json` and
 `clients/web/src/lib/feature-flags/feature-flag-registry.json`. Then the entry
 stays hidden until it passes QA.
+
+The flag key and default do not change, so this needs no platform Terraform
+change. Check its row in `meta/feature-flags/PENDING_PLATFORM_PRS.md`: while
+the flag is not provisioned, nobody can turn it on remotely, so QA uses a local
+flag override.
 
 ## 10. Open the PR
 
