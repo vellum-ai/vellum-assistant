@@ -612,7 +612,14 @@ describe("schedule result notification wiring", () => {
     });
   }
 
-  for (const kind of ["turn", "queue", "command", "child", "wake"] as const) {
+  for (const kind of [
+    "turn",
+    "queue",
+    "command",
+    "child",
+    "wake",
+    "dispatch",
+  ] as const) {
     test(`unrelated ${kind} does not keep a settled firing open`, async () => {
       const timeouts = getConfig().timeouts;
       setConfig("timeouts", { ...timeouts, scheduleTurnTimeoutSec: 1 });
@@ -644,6 +651,10 @@ describe("schedule result notification wiring", () => {
         setConversation(id, {
           isProcessing: () => kind === "turn",
           currentTurnCronRunId: undefined,
+          pendingScheduledDispatches:
+            kind === "dispatch"
+              ? new Map([["run-other", new Set([new AbortController()])]])
+              : new Map(),
           snapshotQueuedMessages: () => queue.snapshot(),
         } as unknown as Conversation);
         registerBackgroundTool({
@@ -760,6 +771,39 @@ describe("schedule result notification wiring", () => {
       expect(producerSawText).toEqual(["Final report."]);
     });
   }
+
+  test("waits for a dequeued dispatch before its processing claim", async () => {
+    const schedule = await createSchedule({
+      name: "Report",
+      message: "Prepare report",
+      syntax: "cron",
+      expression: "0 9 * * *",
+    });
+    forceScheduleDue(schedule.id);
+    const entered = Promise.withResolvers<string>();
+    const dispatches = new Map<string, Set<AbortController>>();
+    delegateOnRun = (id) => {
+      dispatches.set(
+        getScheduleRuns(schedule.id)[0].id,
+        new Set([new AbortController()]),
+      );
+      setConversation(id, {
+        isProcessing: () => false,
+        snapshotQueuedMessages: () => [],
+        pendingScheduledDispatches: dispatches,
+      } as unknown as Conversation);
+      entered.resolve(id);
+    };
+    const scheduledRun = runDueSchedulesOnce();
+    const id = await entered.promise;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    expect(producerCalls).toHaveLength(0);
+    addMessage(id, "assistant", "Final report.");
+    dispatches.clear();
+    await scheduledRun;
+    expect(getScheduleRuns(schedule.id)[0].status).toBe("ok");
+    expect(producerSawText).toEqual(["Final report."]);
+  });
 
   test("captures runStartedAt before the run, not after", async () => {
     const before = Date.now();

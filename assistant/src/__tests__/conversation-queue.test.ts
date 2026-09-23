@@ -1049,6 +1049,66 @@ describe("Conversation message queue", () => {
     expect(pendingRuns.length).toBe(3);
   });
 
+  for (const batchSize of [1, 2]) {
+    for (const cancel of [false, true]) {
+      for (const claimed of [false, true]) {
+        test(`scheduled dispatch stays owned during persistence (batch=${batchSize}, cancel=${cancel}, claimed=${claimed})`, async () => {
+          const conversation = makeConversation();
+          await conversation.loadFromDb();
+          const persistedBefore = capturedAddMessages.length;
+          const entered = Promise.withResolvers<void>();
+          const release = Promise.withResolvers<void>();
+          const acquire =
+            conversation.acquireProcessingFenced.bind(conversation);
+          conversation.acquireProcessingFenced = async () => {
+            const owner = claimed ? await acquire() : undefined;
+            entered.resolve();
+            await release.promise;
+            return owner === undefined ? acquire() : owner;
+          };
+          conversation.setProcessing(true);
+          for (let i = 0; i < batchSize; i++) {
+            conversation.enqueueMessage({
+              content: `Scheduled continuation ${i}`,
+              requestId: `scheduled-${i}`,
+              cronRunId: "run-scheduled",
+              onEvent: () => {},
+            });
+          }
+          conversation.setProcessing(false);
+          const drain = conversation.drainQueue();
+          try {
+            await entered.promise;
+            expect(conversation.getQueueDepth()).toBe(0);
+            expect(conversation.isProcessing()).toBe(claimed);
+            expect(
+              conversation.pendingScheduledDispatches.get("run-scheduled")
+                ?.size,
+            ).toBe(1);
+            expect(conversation.hasInFlightWork()).toBe(true);
+            if (cancel) {
+              conversation.abortScheduledRun("run-scheduled");
+            }
+          } finally {
+            release.resolve();
+            await drain;
+          }
+          expect(conversation.pendingScheduledDispatches.size).toBe(0);
+          if (cancel) {
+            expect(pendingRuns).toHaveLength(0);
+            expect(capturedAddMessages).toHaveLength(persistedBefore);
+            expect(conversation.isProcessing()).toBe(false);
+            expect(conversation.currentTurnCronRunId).toBeUndefined();
+          } else {
+            await waitForPendingRun(1);
+            expect(conversation.currentTurnCronRunId).toBe("run-scheduled");
+            await resolveRun(0);
+          }
+        });
+      }
+    }
+  }
+
   test("[experimental] batched siblings run under their firing's cron run id", async () => {
     // A batched drain runs after the enqueuing turn has ended, so the firing's
     // attribution has to travel on the queued messages. Without it the batch's

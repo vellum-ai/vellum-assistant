@@ -103,6 +103,7 @@ function hasPendingScheduledWork(
   const conversation = findConversationOrSubagent(conversationId);
   const manager = getSubagentManager();
   return (
+    (conversation?.pendingScheduledDispatches?.get(runId)?.size ?? 0) > 0 ||
     (conversation?.isProcessing() === true &&
       conversation.currentTurnCronRunId === runId) ||
     conversation

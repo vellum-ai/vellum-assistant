@@ -336,9 +336,21 @@ describe("run-scoped schedule timeout", () => {
           onEvent: (event) => events.push({ requestId, type: event.type }),
         });
       }
-      const ctx = { ...h.ctx, queue, currentTurnCronRunId: activeRunId };
+      const ownedDispatch = new AbortController();
+      const otherDispatch = new AbortController();
+      const ctx = {
+        ...h.ctx,
+        queue,
+        currentTurnCronRunId: activeRunId,
+        pendingScheduledDispatches: new Map([
+          ["run-timeout", new Set([ownedDispatch])],
+          ["run-other", new Set([otherDispatch])],
+        ]),
+      };
       const bytesBefore = queue.totalBytes;
       abortScheduledRun(ctx, "run-timeout");
+      expect(ownedDispatch.signal.aborted).toBe(true);
+      expect(otherDispatch.signal.aborted).toBe(false);
       expect(queue.snapshot().map((message) => message.requestId)).toEqual([
         "request-0",
         "request-2",

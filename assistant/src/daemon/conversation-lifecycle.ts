@@ -133,6 +133,7 @@ export function reinjectInterruptTurnNote(
 export interface AbortContext {
   readonly conversationId: string;
   readonly currentTurnCronRunId?: string | null;
+  readonly pendingScheduledDispatches?: Map<string, Set<AbortController>>;
   isProcessing(): boolean;
   setProcessing(value: boolean): void;
   abortController: AbortController | null;
@@ -305,6 +306,11 @@ function discardQueueOnAbort(
 
 /** Cancel only the scheduled firing's queued continuations and active turn. */
 export function abortScheduledRun(ctx: AbortContext, runId: string): void {
+  for (const dispatch of ctx.pendingScheduledDispatches?.get(runId) ?? []) {
+    dispatch.abort(
+      createAbortReason("schedule_timeout", "scheduler", ctx.conversationId),
+    );
+  }
   discardQueueOnAbort(ctx, (queued) => queued.cronRunId === runId);
   if (ctx.currentTurnCronRunId === runId) {
     abortConversation(

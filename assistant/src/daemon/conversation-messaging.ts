@@ -235,6 +235,7 @@ export interface MessagingConversationContext {
   acquireProcessingFenced(): Promise<number | null>;
   releaseProcessing(owner: number): boolean;
   abortController: AbortController | null;
+  currentTurnCronRunId?: string | null;
   currentRequestId?: string;
   currentActiveSurfaceId?: string;
   readonly modeSessions?: Pick<
@@ -954,6 +955,8 @@ export function enqueueMessage(
 
 /** Shared options for `persistUserMessage` and `persistQueuedMessageBody`. */
 export interface PersistMessageOptions {
+  cronRunId?: string | null;
+  signal?: AbortSignal;
   content: string;
   attachments?: UserMessageAttachment[];
   requestId?: string;
@@ -1112,13 +1115,18 @@ export async function persistUserMessage(
     throw new Error("Message content or attachments are required");
   }
 
+  options.signal?.throwIfAborted();
   const reqId = options.requestId ?? uuidv7();
   ctx.currentRequestId = reqId;
   // Recorded in the same synchronous step as the abort controller and the lock
   // below, so a retransmission of this very send can never find the turn armed
   // but unattributed and abort it.
   ctx.currentTurnClientMessageId = options.clientMessageId;
-  ctx.abortController = new AbortController();
+  const controller = new AbortController();
+  ctx.abortController = controller;
+  ctx.currentTurnCronRunId = options.cronRunId ?? null;
+  const abort = () => controller.abort(options.signal?.reason);
+  options.signal?.addEventListener("abort", abort, { once: true });
 
   let owner: number | null = null;
   try {
@@ -1140,16 +1148,19 @@ export async function persistUserMessage(
     if (owner === null) {
       throw new Error(CONVERSATION_BUSY_MESSAGE);
     }
+    options.signal?.throwIfAborted();
     const result = await persistQueuedMessageBody(ctx, {
       ...options,
       attachments,
       requestId: reqId,
     });
+    options.signal?.throwIfAborted();
     if (result.deduplicated) {
       ctx.releaseProcessing(owner);
       ctx.abortController = null;
       ctx.currentRequestId = undefined;
       ctx.currentTurnClientMessageId = undefined;
+      ctx.currentTurnCronRunId = undefined;
     }
     return result;
   } catch (err) {
@@ -1170,7 +1181,10 @@ export async function persistUserMessage(
     ctx.abortController = null;
     ctx.currentRequestId = undefined;
     ctx.currentTurnClientMessageId = undefined;
+    ctx.currentTurnCronRunId = undefined;
     throw err;
+  } finally {
+    options.signal?.removeEventListener("abort", abort);
   }
 }
 
