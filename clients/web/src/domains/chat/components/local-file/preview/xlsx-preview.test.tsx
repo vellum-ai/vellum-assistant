@@ -9,7 +9,6 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import {
-  MAX_SHEET_TABS,
   WorkbookGrid,
   XlsxPreview,
 } from "@/domains/chat/components/local-file/preview/xlsx-preview";
@@ -17,7 +16,10 @@ import {
   grid,
   sheet,
 } from "@/domains/chat/components/local-file/preview/xlsx-preview.test-helper";
-import type { WorkbookSheet } from "@/domains/chat/components/local-file/preview/xlsx";
+import {
+  MAX_WORKBOOK_SHEETS,
+  type WorkbookSheet,
+} from "@/domains/chat/components/local-file/preview/xlsx";
 import { workbookBlob } from "@/domains/chat/components/local-file/preview/xlsx.test-helper";
 
 const EXPENSES = sheet(
@@ -158,10 +160,15 @@ describe("WorkbookGrid", () => {
   });
 
   test("a workbook past the sheet cap shows the first hundred tabs and says how many are left", async () => {
-    render(<WorkbookGrid sheets={numberedSheets(MAX_SHEET_TABS + 7)} />);
+    render(
+      <WorkbookGrid
+        sheets={numberedSheets(MAX_WORKBOOK_SHEETS)}
+        sheetCount={MAX_WORKBOOK_SHEETS + 7}
+      />,
+    );
 
     const tabs = screen.getAllByRole("tab");
-    expect(tabs.length).toBe(MAX_SHEET_TABS);
+    expect(tabs.length).toBe(MAX_WORKBOOK_SHEETS);
     expect(tabs[0].textContent).toBe("Sheet 1");
     expect(tabs[0].getAttribute("aria-selected")).toBe("true");
     expect(screen.getByText("7 more sheets are not shown")).toBeTruthy();
@@ -170,9 +177,9 @@ describe("WorkbookGrid", () => {
   });
 
   test("a workbook at the sheet cap shows every tab and no omission notice", async () => {
-    render(<WorkbookGrid sheets={numberedSheets(MAX_SHEET_TABS)} />);
+    render(<WorkbookGrid sheets={numberedSheets(MAX_WORKBOOK_SHEETS)} />);
 
-    expect(screen.getAllByRole("tab").length).toBe(MAX_SHEET_TABS);
+    expect(screen.getAllByRole("tab").length).toBe(MAX_WORKBOOK_SHEETS);
     expect(screen.queryByText(/are not shown/)).toBeNull();
 
     await waitFor(() => expect(screen.getByText("cell 1")).toBeTruthy());

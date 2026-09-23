@@ -8,7 +8,9 @@ import {
 } from "@/domains/chat/components/local-file/preview/csv";
 import {
   MAX_CACHED_SHEETS,
+  MAX_SHARED_STRINGS,
   MAX_SHEET_CELLS,
+  MAX_WORKBOOK_SHEETS,
   parseWorkbook,
   type ParsedWorkbook,
   type ParseWorkbookOptions,
@@ -284,6 +286,24 @@ describe("parseWorkbook", () => {
     );
 
     expect(parsed.sheets.map((sheet) => sheet.name)).toEqual(["Visible"]);
+  });
+
+  test("builds readers only for the sheets the switcher shows", async () => {
+    const parsed = await parseWorkbook(
+      await workbookBlob({
+        sheets: [
+          ...Array.from({ length: MAX_WORKBOOK_SHEETS + 25 }, (_, index) => ({
+            name: `Sheet ${index + 1}`,
+            rows: [[`cell ${index + 1}`]],
+          })),
+          { name: "Hidden", rows: [["hidden"]], hidden: "hidden" },
+        ],
+      }),
+    );
+
+    expect(parsed.sheets.length).toBe(MAX_WORKBOOK_SHEETS);
+    expect(parsed.sheetCount).toBe(MAX_WORKBOOK_SHEETS + 25);
+    expect((await parsed.sheets[0]!.read()).rows).toEqual([["cell 1"]]);
   });
 
   test("keeps every sheet when they are all hidden", async () => {
@@ -696,6 +716,29 @@ describe("parseWorkbook", () => {
     expect(grid.truncated).toBe(false);
   });
 
+  test("caps the shared string table at the budget", async () => {
+    const grid = await readOneSheet(
+      [
+        [
+          { t: "s", v: 0 },
+          { t: "s", v: MAX_SHARED_STRINGS + 2 },
+        ],
+      ],
+      {
+        parts: {
+          "xl/sharedStrings.xml": `<sst xmlns="${MAIN_NS}"><si><t>first</t></si>${"<si><t>s</t></si>".repeat(
+            MAX_SHARED_STRINGS + 5,
+          )}</sst>`,
+        },
+      },
+    );
+
+    // A cell reaching past the budget reads as blank, which is the same path
+    // a cell past a cut table takes.
+    expect(grid.rows).toEqual([["first", ""]]);
+    expect(grid.truncated).toBe(true);
+  });
+
   test("reads a shared-string cell with no index as blank", async () => {
     const grid = await readOneSheet([[{ t: "s" }, { t: "s", v: "" }]]);
 
@@ -963,6 +1006,26 @@ describe("parseWorkbook", () => {
     );
 
     expect(grid.rows).toEqual([["0"], ["12:00"], ["00:00"]]);
+  });
+
+  test("selects a custom format section by its condition", async () => {
+    const grid = await readOneSheet(
+      [
+        [{ v: 50, s: 0 }],
+        [{ v: 44927, s: 0 }],
+        [{ v: 5, s: 1 }],
+        [{ v: 0, s: 2 }],
+      ],
+      {
+        styles: [
+          { formatCode: "[>=100]yyyy-mm-dd;0" },
+          { formatCode: "[Red][<0]-0.00;0.00" },
+          { formatCode: "[>0]h:mm;0" },
+        ],
+      },
+    );
+
+    expect(grid.rows).toEqual([["50"], ["2023-01-01"], ["5"], ["0"]]);
   });
 
   test("ignores a numFmt a dxf declares under a real format's id", async () => {

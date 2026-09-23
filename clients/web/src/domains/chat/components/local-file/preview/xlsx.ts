@@ -42,7 +42,10 @@ export interface WorkbookSheet {
 }
 
 export interface ParsedWorkbook {
+  /** Readers for the first {@link MAX_WORKBOOK_SHEETS} sheets shown. */
   sheets: WorkbookSheet[];
+  /** How many sheets the workbook shows, which `sheets` holds the start of. */
+  sheetCount: number;
 }
 
 const MS_PER_DAY = 86_400_000;
@@ -84,19 +87,27 @@ type NumberFormatKind =
 /** What a cell renders as when nothing styles it as a date or a duration. */
 const PLAIN_NUMBER: NumberFormatKind = { kind: "none" };
 
-/**
- * What a style renders, per the section of its format code a value selects.
- * The sections run positive, negative, zero, text, and a negative serial never
- * reaches the date branch, so only the two a rendered serial can pick are
- * kept.
- */
-interface StyleFormat {
-  positive: NumberFormatKind;
-  zero: NumberFormatKind;
+/** How a section's condition compares the value against its own number. */
+interface FormatCondition {
+  operator: string;
+  value: number;
 }
 
+/** One section of a format code: what selects it, and what it renders. */
+interface FormatSection {
+  condition: FormatCondition | null;
+  kind: NumberFormatKind;
+}
+
+/**
+ * What a style renders, as the sections of its format code in the order they
+ * are spelled. A value picks one of them, by its own condition where the code
+ * carries conditions and by its sign where it does not.
+ */
+type StyleFormat = FormatSection[];
+
 /** What a cell carrying no style, or one that spells no format, renders as. */
-const PLAIN_STYLE: StyleFormat = { positive: PLAIN_NUMBER, zero: PLAIN_NUMBER };
+const PLAIN_STYLE: StyleFormat = [{ condition: null, kind: PLAIN_NUMBER }];
 
 /**
  * What a built-in `numFmtId` renders. The date ids spell a calendar day, the
@@ -278,16 +289,68 @@ function formatCodeKind(code: string): NumberFormatKind {
   return hasTime ? { kind: "time" } : PLAIN_NUMBER;
 }
 
-/** What a custom format code renders, by the section a value selects. */
+/**
+ * A section's own condition, such as the `[>=100]` a section applying to
+ * hundreds and up opens with. The comparisons are spelled longest first so
+ * `[<=1]` reads as `<=` rather than as `<`. A colour or locale bracket sits in
+ * the same place and spells no comparison, so neither reads as a condition.
+ */
+const FORMAT_CONDITION = /\[(<=|>=|<>|<|>|=)(-?\d+(?:\.\d+)?)\]/;
+
+/** What a custom format code renders, section by section. */
 function formatCodeStyle(code: string): StyleFormat {
-  const sections = formatSections(code);
-  const positive = formatCodeKind(sections[0] ?? "");
-  // Excel holds the zero rendering in the third section, so a code of one or
-  // two sections renders zero the way it renders a positive value.
-  return {
-    positive,
-    zero: sections.length > 2 ? formatCodeKind(sections[2]!) : positive,
-  };
+  return formatSections(code).map((section) => {
+    const condition = FORMAT_CONDITION.exec(section);
+    return {
+      condition:
+        condition === null
+          ? null
+          : { operator: condition[1]!, value: Number(condition[2]) },
+      // The condition spells no placeholder, so the kind is read from what is
+      // left once it is out.
+      kind: formatCodeKind(section.replace(FORMAT_CONDITION, "")),
+    };
+  });
+}
+
+/** Whether `value` is what `condition` asks for. */
+function conditionHolds(condition: FormatCondition, value: number): boolean {
+  switch (condition.operator) {
+    case "<":
+      return value < condition.value;
+    case "<=":
+      return value <= condition.value;
+    case ">":
+      return value > condition.value;
+    case ">=":
+      return value >= condition.value;
+    case "<>":
+      return value !== condition.value;
+    default:
+      return value === condition.value;
+  }
+}
+
+/**
+ * The kind `value` renders as under `style`. A code that carries conditions
+ * selects by them, falling back to the section that carries none and then to
+ * the last one. A code that carries none selects by sign: Excel holds the zero
+ * rendering in the third section, so a code of one or two sections renders
+ * zero the way it renders a positive value.
+ */
+function selectFormatKind(style: StyleFormat, value: number): NumberFormatKind {
+  if (!style.some((section) => section.condition !== null)) {
+    const section = value === 0 && style.length > 2 ? style[2] : style[0];
+    return section?.kind ?? PLAIN_NUMBER;
+  }
+  const selected =
+    style.find(
+      (section) =>
+        section.condition !== null && conditionHolds(section.condition, value),
+    ) ??
+    style.find((section) => section.condition === null) ??
+    style[style.length - 1];
+  return selected?.kind ?? PLAIN_NUMBER;
 }
 
 /** Local part of a qualified name, so `rel:id` and `id` both read as `id`. */
@@ -419,6 +482,14 @@ const MAX_PART_CHARS = 64 * 1024 * 1024;
  * inflated.
  */
 export const MAX_SHEET_CELLS = 250_000;
+
+/**
+ * How many shared strings are read. A preview showing at most
+ * {@link MAX_SHEET_CELLS} cells can point at no more strings than that, so a
+ * sheet naming an index past this one is reaching past anything it could show,
+ * and the entries before it are never inflated for its sake.
+ */
+export const MAX_SHARED_STRINGS = MAX_SHEET_CELLS;
 
 interface BoundedPart {
   xml: string;
@@ -1026,8 +1097,7 @@ function readStyleFormats(xml: string | null, partPath: string): StyleFormat[] {
       return formatCodeStyle(code);
     }
     // A built-in id spells one rendering, which every value takes.
-    const kind = builtInFormatKind(id);
-    return { positive: kind, zero: kind };
+    return [{ condition: null, kind: builtInFormatKind(id) }];
   });
 }
 
@@ -1202,7 +1272,7 @@ function readCell(
   }
   const style =
     styleFormats[Number(cell.getAttribute("s") ?? "0")] ?? PLAIN_STYLE;
-  const format = asNumber === 0 ? style.zero : style.positive;
+  const format = selectFormatKind(style, asNumber);
   if (isDateSerial(asNumber, date1904)) {
     if (format.kind === "elapsed") {
       return formatElapsed(asNumber, format.from, format.to);
@@ -1302,6 +1372,11 @@ interface SharedStringTable {
   exhausted: boolean;
 }
 
+/** The highest index a read covers, which the budget caps. */
+function cappedStringIndex(highestIndex: number): number {
+  return Math.min(highestIndex, MAX_SHARED_STRINGS - 1);
+}
+
 /** The shared string table, read only as far as a sheet reaches into it. */
 async function readSharedStringTable(
   zip: JSZip,
@@ -1309,13 +1384,14 @@ async function readSharedStringTable(
   highestIndex: number,
   maxPartChars: number,
 ): Promise<SharedStringTable> {
+  const readUpTo = cappedStringIndex(highestIndex);
   const entry = zip.file(partPath);
   if (entry === null) {
-    return { strings: [], readUpTo: highestIndex, exhausted: true };
+    return { strings: [], readUpTo, exhausted: true };
   }
   const part = await readMarkedPart(
     entry,
-    { localName: "si", limit: highestIndex + 1 },
+    { localName: "si", limit: readUpTo + 1 },
     ["sst"],
     maxPartChars,
   );
@@ -1326,7 +1402,7 @@ async function readSharedStringTable(
       table === undefined
         ? []
         : directChildrenNamed(table, "si").map((item) => joinTextRuns(item)),
-    readUpTo: highestIndex,
+    readUpTo,
     exhausted: !part.truncated,
   };
 }
@@ -1350,15 +1426,15 @@ function createSharedStringReader(
   let table: SharedStringTable | null = null;
   let queue: Promise<void> = Promise.resolve();
   return (highestIndex) => {
+    // Against the capped request, so a sheet reaching past the budget asks for
+    // no more than the table already holds.
+    const wanted = cappedStringIndex(highestIndex);
     const read = queue.then(async () => {
-      if (
-        table === null ||
-        (!table.exhausted && table.readUpTo < highestIndex)
-      ) {
+      if (table === null || (!table.exhausted && table.readUpTo < wanted)) {
         table = await readSharedStringTable(
           zip,
           partPath,
-          highestIndex,
+          wanted,
           maxPartChars,
         );
       }
@@ -1497,6 +1573,15 @@ async function readSheetGrid(
  * to {@link MAX_SHEET_CELLS} cells per visited sheet never piles up.
  */
 export const MAX_CACHED_SHEETS = 3;
+
+/**
+ * How many sheets a workbook builds a reader for, which is what the switcher
+ * shows. Workbook metadata is compact enough that a generated file can declare
+ * thousands of sheets inside the part limits, and a reader apiece costs the
+ * browser before a single sheet is read, so the sheets past this one are
+ * counted and left unbuilt.
+ */
+export const MAX_WORKBOOK_SHEETS = 100;
 
 /** A sheet's grid promise, whether it has settled, and its place in line. */
 interface CachedGrid {
@@ -1701,7 +1786,8 @@ export async function parseWorkbook(
   const grids = createGridCache();
   const reads = createReadQueue();
   return {
-    sheets: kept.map((sheet, index) => ({
+    sheetCount: kept.length,
+    sheets: kept.slice(0, MAX_WORKBOOK_SHEETS).map((sheet, index) => ({
       name: sheet.name,
       read: createSheetReader(
         grids,

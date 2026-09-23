@@ -7,8 +7,8 @@
  * `TabularGrid`. A sheet's own part is read when its tab is opened, so a
  * workbook costs the sheet on screen rather than all of them, and a sheet that
  * cannot be read fails inside its own panel while the other tabs stay usable.
- * The switcher itself is bounded, so a workbook's sheet count cannot cost the
- * browser a trigger apiece.
+ * The reader hands over the sheets the switcher shows and how many there are,
+ * so a workbook's sheet count cannot cost the browser a trigger apiece.
  */
 
 import { useState, type ReactNode } from "react";
@@ -28,14 +28,6 @@ import {
   type WorkbookSheet,
 } from "@/domains/chat/components/local-file/preview/xlsx";
 import { useTranslation } from "@/i18n";
-
-/**
- * Sheet tabs the switcher mounts. Workbook metadata is compact enough that a
- * generated file can declare thousands of sheets inside the part limits, and a
- * trigger apiece stalls the browser before a single sheet is read, so the rest
- * are counted in a line under the tab strip instead.
- */
-export const MAX_SHEET_TABS = 100;
 
 interface XlsxPreviewProps {
   blob: Blob;
@@ -86,27 +78,29 @@ function SheetPanel({ sheet }: { sheet: WorkbookSheet }): ReactNode {
 }
 
 /**
- * The sheets of an already-parsed workbook, with a switcher over the first
- * `MAX_SHEET_TABS` of them and a line naming the ones left out. Exported so
- * stories and tests can state sheets directly instead of building a
- * container.
+ * The sheets of an already-parsed workbook, with a switcher over the ones the
+ * reader built and a line counting the rest. `sheetCount` is how many sheets
+ * the workbook shows, which a fixture stating its own sheets leaves out.
+ * Exported so stories and tests can state sheets directly instead of building
+ * a container.
  */
 export function WorkbookGrid({
   sheets,
+  sheetCount = sheets.length,
 }: {
   sheets: WorkbookSheet[];
+  sheetCount?: number;
 }): ReactNode {
   const { t } = useTranslation("chat");
   const [activeIndex, setActiveIndex] = useState(0);
 
-  const shown = sheets.slice(0, MAX_SHEET_TABS);
-  const omitted = sheets.length - shown.length;
+  const omitted = sheetCount - sheets.length;
 
   // Position, not name, is the selection: a name can repeat, be empty, or
   // carry spaces, and the tab value becomes the `id` the panel is wired to.
   // A workbook that loses sheets keeps the last one selected.
-  const selectedIndex = Math.min(activeIndex, shown.length - 1);
-  const active = shown[selectedIndex];
+  const selectedIndex = Math.min(activeIndex, sheets.length - 1);
+  const active = sheets[selectedIndex];
   // Type narrowing for the lookup above.
   if (active === undefined) {
     return null;
@@ -114,7 +108,7 @@ export function WorkbookGrid({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {shown.length === 1 ? (
+      {sheets.length === 1 ? (
         <SheetPanel sheet={active} />
       ) : (
         <Tabs.Root
@@ -135,7 +129,7 @@ export function WorkbookGrid({
               aria-label={t("xlsxPreview.sheetsAria")}
               className="border-b-0 px-4"
             >
-              {shown.map((sheet, index) => (
+              {sheets.map((sheet, index) => (
                 <Tabs.Trigger
                   key={index}
                   value={String(index)}
@@ -188,5 +182,7 @@ export function XlsxPreview({ blob, filename }: XlsxPreviewProps): ReactNode {
     return <PreviewSkeleton />;
   }
 
-  return <WorkbookGrid sheets={workbook.sheets} />;
+  return (
+    <WorkbookGrid sheets={workbook.sheets} sheetCount={workbook.sheetCount} />
+  );
 }

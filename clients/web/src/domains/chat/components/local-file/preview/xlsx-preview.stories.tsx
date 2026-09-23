@@ -15,8 +15,8 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import type { ParsedCsv } from "./csv";
-import type { WorkbookSheet } from "./xlsx";
-import { MAX_SHEET_TABS, WorkbookGrid } from "./xlsx-preview";
+import { MAX_WORKBOOK_SHEETS, type WorkbookSheet } from "./xlsx";
+import { WorkbookGrid } from "./xlsx-preview";
 import { grid, sheet } from "./xlsx-preview.test-helper";
 
 const EXPENSE_HEADERS = ["category", "budget", "spent", "remaining"];
@@ -68,8 +68,8 @@ const MANY_SHEETS = Array.from({ length: 24 }, (_, index) =>
   ),
 );
 
-/** More sheets than the switcher mounts, so the rest are counted under the row. */
-const CAPPED_SHEETS = Array.from({ length: MAX_SHEET_TABS + 25 }, (_, index) =>
+/** Every sheet the reader builds, for a workbook that declares 25 more. */
+const CAPPED_SHEETS = Array.from({ length: MAX_WORKBOOK_SHEETS }, (_, index) =>
   sheet(
     `Sheet ${String(index + 1).padStart(3, "0")}`,
     expenseGrid(`Sheet ${index + 1}`),
@@ -143,7 +143,7 @@ export const ManySheets: Story = {
 
 /** Past the tab cap, so the row stops and a line names the sheets left out. */
 export const ManySheetsCapped: Story = {
-  args: { sheets: CAPPED_SHEETS },
+  args: { sheets: CAPPED_SHEETS, sheetCount: MAX_WORKBOOK_SHEETS + 25 },
 };
 
 /** Names longer than a tab can hold truncate, with the full name in a tooltip. */
