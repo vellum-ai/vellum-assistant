@@ -34,7 +34,10 @@ import {
 
 const ASSISTANT_NAME = "Luna";
 
-/** Stands in for the element the room owns and hands down. */
+/**
+ * Stands in for the element the room owns and hands down: the full-size,
+ * press-through box the explainer lays itself out against.
+ */
 let host: HTMLDivElement | null = null;
 let dismissals: CameraExplainerDismissal[] = [];
 
@@ -115,6 +118,7 @@ async function press(element: Element): Promise<void> {
 beforeEach(() => {
   dismissals = [];
   host = document.createElement("div");
+  host.className = "pointer-events-none absolute inset-0";
   document.body.appendChild(host);
 });
 
@@ -141,6 +145,30 @@ describe("CameraExplainer", () => {
     renderExplainer();
 
     expect(host?.contains(dialog()!)).toBe(true);
+  });
+
+  describe("the scrim is laid out against the host, not the window", () => {
+    // The primitives position themselves `fixed`, which would dim the whole
+    // window from inside a room that only owns a pane of it.
+    test("on the sheet", () => {
+      renderExplainer({ touch: true });
+
+      expect(sheetOverlay()?.className).toContain("absolute");
+      expect(sheetOverlay()?.className).not.toContain("fixed");
+      // The sheet rides the host's bottom edge rather than the window's.
+      expect(dialog()?.className).toContain("absolute");
+      expect(dialog()?.className).not.toContain("fixed");
+    });
+
+    test("on the modal", () => {
+      renderExplainer({ touch: false });
+
+      expect(modalOverlay()?.className).toContain("absolute");
+      expect(modalOverlay()?.className).not.toContain("fixed");
+      // The dialog is centred by the overlay and stays `relative` inside it,
+      // so the overlay is the only element whose position changes.
+      expect(dialog()?.className).toContain("relative");
+    });
   });
 
   test("a touch surface gets the sheet, with its grabber", () => {

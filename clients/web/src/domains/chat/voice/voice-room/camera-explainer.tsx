@@ -27,13 +27,11 @@
  * Over the feed it takes the camera's fixed palette rather than theme tokens,
  * for the reason `camera-mode-paint.ts` gives.
  *
- * The scrim keeps the primitives' viewport scope and only changes colour. An
- * overlay scoped to the room instead would have to be `absolute inset-0`, and
- * inset percentages resolve against the nearest positioned ancestor, which
- * inside the room is the zero-size element the panel and this hang off; that
- * collapses the scrim to nothing. Under a thumb the viewport is the room
- * anyway; under a pointer it dims the window rather than the content pane,
- * which is the one place this departs from the design.
+ * The scrim and the panel are laid out against the host rather than the
+ * viewport, which is what scopes the dim to the room: the whole screen on a
+ * phone, the content pane on a desktop. The primitives position themselves
+ * `fixed`, so both are handed `absolute`, and both opt back into pointer
+ * events, since the host lets presses through to the chrome behind it.
  */
 
 import {
@@ -88,7 +86,12 @@ export type CameraExplainerDismissal =
 
 export interface CameraExplainerProps {
   open: boolean;
-  /** The room-owned element the sheet or modal portals into; null until committed. */
+  /**
+   * The room-owned element the sheet or modal portals into, and the box both
+   * are laid out against: a positioned element filling the room, which passes
+   * presses through to the chrome behind it. Null until the room has committed
+   * it, which no press can beat.
+   */
   host: HTMLElement | null;
   /** The assistant's display name, already fallen back by the caller. */
   assistantName: string;
@@ -97,6 +100,16 @@ export interface CameraExplainerProps {
   /** Every way out, named, so the caller can persist the seen flag and act on "tryLive". */
   onDismiss: (how: CameraExplainerDismissal) => void;
 }
+
+/**
+ * The scrim, scoped to the host. `absolute` replaces the primitive's `fixed`
+ * through tailwind-merge's position group, so `inset-0` resolves against the
+ * host rather than the window.
+ */
+const SCRIM_CLASS = cn(
+  "absolute pointer-events-auto",
+  CAMERA_SHEET_SCRIM_CLASS,
+);
 
 /** The dark sheet, plus the `--camera-*` contract the LIVE tag's fill reads. */
 const SHEET_SURFACE_STYLE: CSSProperties = {
@@ -234,9 +247,13 @@ export function CameraExplainer({
           <BottomSheet.Content
             data-testid="camera-explainer"
             padded={false}
-            overlayClassName={CAMERA_SHEET_SCRIM_CLASS}
+            overlayClassName={SCRIM_CLASS}
             style={SHEET_SURFACE_STYLE}
             className={cn(
+              // `absolute` against the host, keeping the primitive's own
+              // `inset-x-0 bottom-0`, so the sheet rides the room's bottom
+              // edge rather than the window's.
+              "absolute pointer-events-auto",
               "max-h-[85dvh] min-h-0 overflow-y-auto rounded-t-[28px] border-t-0 shadow-none",
               reduce &&
                 "data-[state=open]:animate-[fadeIn_var(--anim-snappy)_ease-out]",
@@ -267,9 +284,12 @@ export function CameraExplainer({
           <Modal.Content
             data-testid="camera-explainer"
             size="md"
-            overlayClassName={CAMERA_SHEET_SCRIM_CLASS}
+            overlayClassName={SCRIM_CLASS}
             style={MODAL_SURFACE_STYLE}
-            className="max-w-[640px] rounded-[28px] border-0 p-0 shadow-[0_30px_80px_rgba(0,0,0,.6)]"
+            // The dialog is centred by the overlay it sits inside and is
+            // `relative` itself, so the overlay is the only element whose
+            // position changes; this one takes the pointer-events opt-in alone.
+            className="pointer-events-auto max-w-[640px] rounded-[28px] border-0 p-0 shadow-[0_30px_80px_rgba(0,0,0,.6)]"
             onEscapeKeyDown={escape}
             onKeyDown={escapeKeyBelt}
             onOpenAutoFocus={focusTitle}

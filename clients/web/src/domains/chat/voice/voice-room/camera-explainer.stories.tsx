@@ -78,34 +78,53 @@ interface FakeRoomProps {
   background: string;
   assistantName: string;
   tryLiveOffered: boolean;
+  /**
+   * A stand-in for the chat sidebar beside the room. The desktop stories run
+   * with one so the scrim can be read stopping at the room's edge rather than
+   * covering the window.
+   */
+  sidebar: boolean;
 }
 
 /**
  * The room box as far as this component is concerned: a positioned,
- * `overflow-hidden` frame with the zero-size host the room hangs its camera
- * overlays off, committed through state exactly as the room commits it.
+ * `overflow-hidden` frame holding the full-size, press-through host the room
+ * gives the explainer, committed through state exactly as the room commits it.
  */
 function FakeRoom({
   background,
   assistantName,
   tryLiveOffered,
+  sidebar,
 }: FakeRoomProps): ReactNode {
   const [host, setHost] = useState<HTMLDivElement | null>(null);
   const [open, setOpen] = useState(true);
 
   return (
-    <div
-      className="relative h-dvh w-full overflow-hidden"
-      style={{ background }}
-    >
-      <div ref={setHost} className="absolute top-0 left-0 z-30" />
-      <CameraExplainer
-        open={open}
-        host={host}
-        assistantName={assistantName}
-        tryLiveOffered={tryLiveOffered}
-        onDismiss={() => setOpen(false)}
-      />
+    <div className="flex h-dvh w-full bg-[#141312]">
+      {sidebar ? (
+        <div
+          data-testid="fake-sidebar"
+          className="h-full w-[260px] shrink-0 border-r border-white/6 bg-[#1a1817]"
+        />
+      ) : null}
+      <div
+        data-testid="fake-room"
+        className="relative h-full min-w-0 flex-1 overflow-hidden"
+        style={{ background }}
+      >
+        <div
+          ref={setHost}
+          className="pointer-events-none absolute inset-0 z-30"
+        />
+        <CameraExplainer
+          open={open}
+          host={host}
+          assistantName={assistantName}
+          tryLiveOffered={tryLiveOffered}
+          onDismiss={() => setOpen(false)}
+        />
+      </div>
     </div>
   );
 }
@@ -119,6 +138,7 @@ const meta: Meta<typeof FakeRoom> = {
     background: CAMERA_STORY_FEED,
     assistantName: "Luna",
     tryLiveOffered: true,
+    sidebar: false,
   },
   argTypes: {
     background: { control: false },
@@ -166,20 +186,27 @@ export const SheetWithoutTryLive: Story = {
   args: { tryLiveOffered: false },
 };
 
+/** Desktop, with a stand-in sidebar so the room is narrower than the window. */
+const pane = {
+  globals: { viewport: { value: "sbDesktop", isRotated: false } },
+  args: { sidebar: true },
+} satisfies Partial<Story>;
+
 /**
  * The pointer presentation. The library's own close glyph is the third way out,
  * the privacy line sits left of the buttons and is allowed two lines, and the
  * Live card carries the extra sentence the phone drops.
+ *
+ * What the sidebar is here for: the scrim stops at the room's left edge and the
+ * dialog is centred in the room, not in the window.
  */
-export const Modal: Story = {
-  globals: { viewport: { value: "sbDesktop", isRotated: false } },
-};
+export const Modal: Story = { ...pane };
 
 /**
  * The same modal over a dim frame. The scrim and the sheet surface are both
  * dark, so this is where the card borders have to carry the edges on their own.
  */
 export const ModalOverDimFeed: Story = {
-  globals: { viewport: { value: "sbDesktop", isRotated: false } },
-  args: { background: CAMERA_STORY_FEED_DIM },
+  ...pane,
+  args: { ...pane.args, background: CAMERA_STORY_FEED_DIM },
 };
