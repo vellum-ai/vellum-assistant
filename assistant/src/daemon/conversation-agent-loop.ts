@@ -1038,6 +1038,7 @@ export async function runAgentLoopImpl(
   // provider-error turn's only assistant row is the synthetic error text, so
   // the deferred tail must not treat either as a final reply.
   let turnCompleted = false;
+  let failedTurnAt: number | undefined;
   // Files this turn attached that survived resolution and persistence, in
   // the shape the activation hook records as artifacts. Rejected directives
   // never reach it, so a checklist card can never point at a file the turn
@@ -1055,6 +1056,30 @@ export async function runAgentLoopImpl(
   // cross-turn variant of the pairing corruption the boundary drain
   // prevents.
   const ownedReactionRecords: QueuedReactionRecord[] = [];
+
+  const queueDeferredTurnTail = (
+    completed: boolean,
+    criticalSectionMs: number,
+    ready?: Promise<void>,
+  ): void => {
+    chainTurnTail(ctx.conversationId, async () => {
+      if (ready) {
+        await ready;
+      }
+      await runDeferredTurnTail({
+        conversationId: ctx.conversationId,
+        state,
+        rlog,
+        criticalSectionMs,
+        turnCompleted: completed,
+        userMessageId: options?.notifyUserMessageId ?? userMessageId,
+        cronRunId: turnCronRunId,
+        ...(options?.replyDeliveredInAppOnly
+          ? { replyDeliveredInAppOnly: true }
+          : {}),
+      });
+    });
+  };
 
   /**
    * Free the conversation for its next turn.
@@ -2349,21 +2374,9 @@ export async function runAgentLoopImpl(
     // conversation id rather than held on this instance, because the tail runs
     // while the conversation reads idle and can therefore outlive the instance
     // that scheduled it.
-    chainTurnTail(ctx.conversationId, () =>
-      runDeferredTurnTail({
-        conversationId: ctx.conversationId,
-        state,
-        rlog,
-        criticalSectionMs,
-        turnCompleted,
-        userMessageId: options?.notifyUserMessageId ?? userMessageId,
-        cronRunId: turnCronRunId,
-        ...(options?.replyDeliveredInAppOnly
-          ? { replyDeliveredInAppOnly: true }
-          : {}),
-      }),
-    );
+    queueDeferredTurnTail(turnCompleted, criticalSectionMs);
   } catch (err) {
+    failedTurnAt = Date.now();
     clearConversationNotices(ctx.conversationId);
     // A turn that threw out of the loop is over too; see the happy path.
     if (!isPreemptedByNewMessage(abortController.signal.reason)) {
@@ -2565,10 +2578,15 @@ export async function runAgentLoopImpl(
       // kickDrainQueue never rejects: a drain failure here would otherwise be
       // an unhandled rejection that strands the queue with nothing left to
       // re-trigger it.
-      void ctx.kickDrainQueue(
+      const queueDrain = ctx.kickDrainQueue(
         yieldedForHandoff ? "checkpoint_handoff" : "loop_complete",
         "agent_loop_finally",
       );
+      if (failedTurnAt !== undefined) {
+        // A terminal failure can release an earlier successful sibling result.
+        // Recovery waits for queued continuations to settle and stays detached.
+        queueDeferredTurnTail(false, Date.now() - failedTurnAt, queueDrain);
+      }
     }
   }
 }
