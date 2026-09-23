@@ -43,6 +43,9 @@ and skill-update receipts retain their existing feed behavior.
 and background-tool completion wakes in user conversations. It waits for
 user-facing work and queued continuations to settle, preserves scheduled-run
 ownership, and reads the same public-result projection as scheduled delivery.
+An external-origin continuation remains eligible: its inherited channel metadata
+does not acknowledge a channel delivery. Recorded result notifications and
+successful messaging-tool deliveries suppress the completion fallback.
 When a sibling fails or is cancelled, settlement can recover an earlier unseen
 successful result from persisted conversation rows in pages of 200. Recovery stops
 at a user prompt and preserves prior delivery and quiet decisions. It uses

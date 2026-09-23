@@ -12,6 +12,7 @@ import type { EmitSignalParams } from "../emit-signal.js";
 
 const conversationId = "conv-parent";
 const startedAt = 1_700_000_000_000;
+const externalChannels = ["slack", "telegram", "discord"] as const;
 const rows = new Map<string, MessageRow>();
 let conversation: ConversationRow;
 let task: SubagentRecord;
@@ -121,6 +122,22 @@ function triggerMetadata(metadata: Record<string, unknown>): void {
     metadata: JSON.stringify(metadata),
   });
 }
+function setExternalOrigin(channel: (typeof externalChannels)[number]): void {
+  conversation.source = channel;
+  triggerMetadata({
+    ...JSON.parse(rows.get("trigger")!.metadata!),
+    userMessageChannel: channel,
+    assistantMessageChannel: channel,
+  });
+  rows.get("result")!.metadata = JSON.stringify({
+    assistantMessageChannel: channel,
+    providerMeta: JSON.stringify({
+      source: channel,
+      conversationExternalId: "chat-123",
+      eventKind: "message",
+    }),
+  });
+}
 const rlog = getLogger("background-result-producer-test");
 function finishSiblingCommand(
   status: "failed" | "cancelled",
@@ -221,6 +238,62 @@ beforeEach(() => {
 });
 
 describe("background result ownership", () => {
+  test.each([...externalChannels])(
+    "an undelivered %s-origin delegated result still emits a completion",
+    async (channel) => {
+      setExternalOrigin(channel);
+      await emit();
+      expect(signals).toHaveLength(1);
+      expect(signals[0]).toMatchObject({
+        contextPayload: {
+          requestedMessage: "Here are the completed findings.",
+          completion: {
+            workId: `subagent:${task.id}`,
+            conversationId,
+            recipientPrincipalId: "principal-owner",
+          },
+        },
+      });
+    },
+  );
+
+  test.each([...externalChannels])(
+    "an undelivered %s-origin background command result still emits a completion",
+    async (channel) => {
+      triggerMetadata({
+        backgroundEventSource: "background-tool",
+        backgroundToolCompletion: {
+          id: "tool-123",
+          toolName: "bash",
+          conversationId,
+          command: "example-command",
+          startedAt,
+          completedAt: startedAt + 100,
+          status: "completed",
+          exitCode: 0,
+          output: "RAW COMMAND OUTPUT",
+        },
+      });
+      setExternalOrigin(channel);
+      await emit();
+      expect(signals).toHaveLength(1);
+      expect(signals[0].dedupeKey).toBe(
+        `activity.complete:${conversationId}:tool:tool-123`,
+      );
+      expect(signals[0].contextPayload?.requestedMessage).toBe(
+        "Here are the completed findings.",
+      );
+    },
+  );
+
+  test("voice continuation results keep their existing delivery owner", async () => {
+    triggerMetadata({
+      ...JSON.parse(rows.get("trigger")!.metadata!),
+      voiceSessionTurn: true,
+    });
+    await emit();
+    expect(signals).toHaveLength(0);
+  });
   test.each(["failed", "cancelled"] as const)(
     "recovers a deferred successful child result when the last command is %s",
     async (status) => {
@@ -526,34 +599,41 @@ describe("background result ownership", () => {
     await emit();
     expect(signals).toHaveLength(0);
   });
-  test("failed messaging send keeps fallback; acknowledged send suppresses it", async () => {
-    rows.set("send", {
-      ...row("send", "assistant", "", 150),
-      content: [
-        { type: "tool_use", name: "messaging_send", id: "send-1", input: {} },
-      ] as ContentBlock[],
-    });
-    resultRows = [
-      {
-        ...row("send-result", "user", "", 160),
+  test.each([...externalChannels])(
+    "only an acknowledged messaging send suppresses the %s-origin fallback",
+    async (channel) => {
+      setExternalOrigin(channel);
+      rows.set("send", {
+        ...row("send", "assistant", "", 150),
         content: [
-          {
-            type: "tool_result",
-            tool_use_id: "send-1",
-            is_error: true,
-            content: "failed",
-          },
+          { type: "tool_use", name: "messaging_send", id: "send-1", input: {} },
         ] as ContentBlock[],
-      },
-    ];
-    await emit();
-    expect(signals).toHaveLength(1);
-    resultRows[0].content = [
-      { type: "tool_result", tool_use_id: "send-1", content: "sent" },
-    ] as ContentBlock[];
-    await emit();
-    expect(signals).toHaveLength(1);
-  });
+      });
+      await emit();
+      expect(signals).toHaveLength(1);
+      signals.length = 0;
+      resultRows = [
+        {
+          ...row("send-result", "user", "", 160),
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "send-1",
+              is_error: true,
+              content: "failed",
+            },
+          ] as ContentBlock[],
+        },
+      ];
+      await emit();
+      expect(signals).toHaveLength(1);
+      resultRows[0].content = [
+        { type: "tool_result", tool_use_id: "send-1", content: "sent" },
+      ] as ContentBlock[];
+      await emit();
+      expect(signals).toHaveLength(1);
+    },
+  );
   test("empty, private-only, unfinalized, and seen results stay quiet", async () => {
     rows.set("result", row("result", "assistant", "", 200));
     await emit();

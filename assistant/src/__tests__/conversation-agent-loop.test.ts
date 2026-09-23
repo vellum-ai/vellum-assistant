@@ -317,6 +317,9 @@ let backgroundRecoveryRows: MessageRow[] | undefined;
 let backgroundRecoveryAttention: AttentionState | undefined;
 let backgroundRecoveryPending = () => false;
 const backgroundRecoverySignals: EmitSignalParams[] = [];
+const emitBackgroundSignalMock = mock(async (signal: EmitSignalParams) => {
+  backgroundRecoverySignals.push(signal);
+});
 
 // The in-flight delta files the writers create for the (unmocked-path)
 // test conversation. Files are uuid-named at reserve time, so tests locate
@@ -474,9 +477,7 @@ mock.module("../notifications/events-store.js", () => ({
   hasNotifiedSourceContextSince: () => false,
 }));
 mock.module("../notifications/emit-signal.js", () => ({
-  emitNotificationSignal: async (signal: EmitSignalParams) => {
-    backgroundRecoverySignals.push(signal);
-  },
+  emitNotificationSignal: emitBackgroundSignalMock,
 }));
 mock.module("../notifications/resolve-visible-in-source.js", () => ({
   resolveCompletionRecipientPrincipalId: async () => "principal-owner",
@@ -1144,6 +1145,7 @@ beforeEach(() => {
   backgroundRecoveryAttention = undefined;
   backgroundRecoveryPending = () => false;
   backgroundRecoverySignals.length = 0;
+  emitBackgroundSignalMock.mockClear();
   updateMessageMetadataMock.mockClear();
   updateMessageMetadataMock.mockImplementation(() => {});
   updateConversationSlackContextWatermarkMock.mockClear();
@@ -4274,6 +4276,131 @@ describe("session-agent-loop", () => {
       ]);
       expect(emitAssistantReplyNotificationMock).not.toHaveBeenCalled();
       expect(backgroundRecoverySignals).toHaveLength(0);
+    });
+
+    test("a failed continuation draining a newer public result emits only that result", async () => {
+      seedDeferredCommandResult();
+      const rows = backgroundRecoveryRows!;
+      const startedAt = rows[0].createdAt;
+      const { promise: queuedTurnReady, resolve: releaseQueuedTurn } =
+        Promise.withResolvers<void>();
+      const { promise: projectionReady, resolve: releaseProjection } =
+        Promise.withResolvers<void>();
+      const { promise: indexingStarted, resolve: markIndexingStarted } =
+        Promise.withResolvers<void>();
+      const { promise: deliveryReady, resolve: releaseDelivery } =
+        Promise.withResolvers<void>();
+      const { promise: deliveryStarted, resolve: markDeliveryStarted } =
+        Promise.withResolvers<void>();
+      let queued = true;
+      const drainQueue = mock(async () => {
+        if (!queued) {
+          return;
+        }
+        await queuedTurnReady;
+        queued = false;
+        const metadata = JSON.parse(rows[0].metadata!);
+        rows.push({
+          ...rows[0],
+          id: "queued-trigger",
+          createdAt: startedAt + 10,
+          metadata: JSON.stringify({
+            ...metadata,
+            backgroundToolCompletion: {
+              ...metadata.backgroundToolCompletion,
+              id: "tool-queued",
+              completedAt: startedAt + 10,
+            },
+          }),
+        });
+        ctx.abortController = new AbortController();
+        ctx.setProcessing(true);
+        await runAgentLoopImpl(
+          ctx,
+          "queued result",
+          "queued-trigger",
+          () => {},
+        );
+      });
+      const ctx = makeCtx({
+        providerResponses: [textResponse("The complete report is ready.")],
+        hasQueuedMessages: () => queued,
+        drainQueue,
+      });
+      backgroundRecoveryPending = () =>
+        ctx.isProcessing() || ctx.hasQueuedMessages();
+      reserveMessageMock.mockImplementationOnce(async () => {
+        rows.push({
+          ...rows[1],
+          id: "queued-result",
+          createdAt: startedAt + 11,
+          content: [],
+          finalized: 0,
+        });
+        return { id: "queued-result", createdAt: startedAt + 11 };
+      });
+      finalizeMessageContentMock.mockImplementationOnce(
+        (...args: unknown[]) => {
+          const [id, content] = args as [string, string];
+          const row = rows.find((candidate) => candidate.id === id)!;
+          row.content = JSON.parse(content);
+          row.finalized = 1;
+        },
+      );
+      indexMessageNowMock.mockImplementationOnce(async () => {
+        markIndexingStarted();
+        await projectionReady;
+        return { indexedSegments: 0, enqueuedJobs: 0 };
+      });
+      projectAssistantMessageMock.mockImplementationOnce(
+        (...args: unknown[]) => {
+          const [projection] = args as [
+            { messageId: string; messageAt: number },
+          ];
+          backgroundRecoveryAttention!.latestAssistantMessageId =
+            projection.messageId;
+          backgroundRecoveryAttention!.latestAssistantMessageAt =
+            projection.messageAt;
+          return true;
+        },
+      );
+      emitBackgroundSignalMock.mockImplementationOnce(async (signal) => {
+        markDeliveryStarted();
+        await deliveryReady;
+        backgroundRecoverySignals.push(signal);
+      });
+      const run = spyOn(ctx.agentLoop, "run").mockRejectedValueOnce(
+        new Error("runtime failure outside the provider retry loop"),
+      );
+      await runAgentLoopImpl(ctx, "continue", "final-trigger", () => {});
+      run.mockRestore();
+      expect(backgroundRecoverySignals).toHaveLength(0);
+      releaseQueuedTurn();
+      await indexingStarted;
+      await drainQueue.mock.results[0].value;
+      expect(ctx.isProcessing()).toBe(false);
+      expect(backgroundRecoverySignals).toHaveLength(0);
+      releaseProjection();
+      await deliveryStarted;
+      await settleTurnTail(ctx.conversationId);
+      expect(emitBackgroundSignalMock).toHaveBeenCalledTimes(1);
+      expect(backgroundRecoverySignals).toHaveLength(0);
+      releaseDelivery();
+      await Promise.all(
+        emitBackgroundResultNotificationMock.mock.results.map(
+          (result) => result.value,
+        ),
+      );
+
+      expect(emitBackgroundResultNotificationMock).toHaveBeenCalledTimes(2);
+      expect(backgroundRecoverySignals).toMatchObject([
+        {
+          dedupeKey: "activity.complete:test-conv:tool:tool-queued",
+          contextPayload: {
+            requestedMessage: "The complete report is ready.",
+          },
+        },
+      ]);
     });
 
     test("finalized continuations pass their persisted rows and scheduled owner to the background producer", async () => {

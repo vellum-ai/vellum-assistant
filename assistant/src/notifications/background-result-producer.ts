@@ -52,9 +52,7 @@ function resolveCompletedWork(
   if (
     !metadata ||
     metadata.turnOutcome !== undefined ||
-    metadata.voiceSessionTurn === true ||
-    (metadata.assistantMessageChannel &&
-      metadata.assistantMessageChannel !== "vellum")
+    metadata.voiceSessionTurn === true
   ) {
     return undefined;
   }
