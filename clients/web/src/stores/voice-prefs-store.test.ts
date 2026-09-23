@@ -386,10 +386,10 @@ describe("useVoicePrefsStore: the camera explainer", () => {
     expect(useVoicePrefsStore.getState().cameraExplainerSeen).toBe(true);
   });
 
-  test("a payload written before the flag existed opens it unseen", async () => {
-    // Version 1 is the shape from before the flag, so it passes through the
-    // migration as written: the absent field falls back to the shipped
-    // default and the choices version 1 did hold come along.
+  test("a version 1 payload opens the explainer unseen", async () => {
+    // Version 1 omits cameraExplainerSeen and passes through the migration as
+    // written: zustand's merge supplies the flag from the shipped default and
+    // the choices the payload holds stay intact.
     localStorage.setItem(
       VOICE_PREFS_STORE_KEY,
       JSON.stringify({
