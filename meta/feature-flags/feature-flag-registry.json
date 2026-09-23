@@ -575,6 +575,14 @@
       "label": "Sidebar Done",
       "description": "Turns archiving a chat into marking it done: the sidebar row carries a Done check instead of the overflow menu, an All chats page lists the full history, and done chats stay findable in search by default. Off keeps today's Archive wording, the overflow menu, and search that hides archived rows unless the query asks for them.",
       "defaultEnabled": false
+    },
+    {
+      "id": "vellum-trusted-contacts",
+      "scope": "both",
+      "key": "vellum-trusted-contacts",
+      "label": "Vellum Trusted Contacts",
+      "description": "Lets a guardian give another person access to talk to their assistant in the Vellum UI as a trusted contact. Gates contact-role token minting in the gateway, trusted-contact trust resolution for `vellum` channel principals, and the assistant's trusted-contact route allowlist. Off: none of those surfaces admit a contact, and the assistant stays reachable only by its guardian.",
+      "defaultEnabled": false
     }
   ]
 }
