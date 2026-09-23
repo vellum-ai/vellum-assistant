@@ -469,3 +469,128 @@ describe("history reuse across actors", () => {
     expect(history).toContain("Summary of earlier guardian turns");
   });
 });
+
+describe("another contact's turns in a shared conversation", () => {
+  function contactTurnMeta(principalId: string): string {
+    return meta({
+      provenanceTrustClass: "trusted_contact",
+      provenanceSourceChannel: "vellum-shared",
+      provenanceRequesterIdentifier: principalId,
+    });
+  }
+
+  beforeEach(() => {
+    participants.add(`${CONVERSATION_ID}:${ALICE}`);
+    participants.add(`${CONVERSATION_ID}:${BOB}`);
+    seedSharedTranscript();
+    mockRows.push(
+      {
+        id: "a-user",
+        role: "user",
+        content: [{ type: "text", text: FENCED_CONTACT_TEXT }],
+        createdAt: 300,
+        metadata: contactTurnMeta(ALICE),
+      },
+      {
+        id: "a-assistant-1",
+        role: "assistant",
+        content: [
+          {
+            type: "thinking",
+            thinking: "reasoning on Alice's turn",
+            signature: "sig",
+          },
+          {
+            type: "tool_use",
+            id: "alice-tool",
+            name: "web_fetch",
+            input: { url: "https://example.com/alice-lookup" },
+          },
+        ],
+        createdAt: 310,
+        metadata: contactTurnMeta(ALICE),
+      },
+      {
+        id: "a-tool-result",
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "alice-tool",
+            content: "result fetched on Alice's turn",
+          },
+        ],
+        createdAt: 320,
+        metadata: contactTurnMeta(ALICE),
+      },
+      {
+        id: "a-assistant-2",
+        role: "assistant",
+        content: [{ type: "text", text: "Here is what I found for Alice." }],
+        createdAt: 330,
+        metadata: contactTurnMeta(ALICE),
+      },
+    );
+  });
+
+  const ALICE_TURN_MATERIAL = [
+    "reasoning on Alice's turn",
+    "https://example.com/alice-lookup",
+    "result fetched on Alice's turn",
+  ];
+
+  test("another participant gets only what the contact view shows", async () => {
+    const conversation = await loadAs(sharedContact(BOB));
+    const history = historyText(conversation);
+
+    for (const material of [
+      ...ALICE_TURN_MATERIAL,
+      ...GUARDIAN_ONLY_MATERIAL,
+    ]) {
+      expect(history).not.toContain(material);
+    }
+    expect(texts(conversation)).toContain("Here is what I found for Alice.");
+  });
+
+  test("the contact's own next turn keeps their turn as stored", async () => {
+    const conversation = await loadAs(sharedContact(ALICE));
+    const history = historyText(conversation);
+
+    for (const material of ALICE_TURN_MATERIAL) {
+      expect(history).toContain(material);
+    }
+    for (const material of GUARDIAN_ONLY_MATERIAL) {
+      expect(history).not.toContain(material);
+    }
+  });
+
+  test("a contact row with no requester identifier is projected", async () => {
+    mockRows = mockRows.map((row) =>
+      row.id === "a-tool-result"
+        ? {
+            ...row,
+            metadata: meta({
+              provenanceTrustClass: "trusted_contact",
+              provenanceSourceChannel: "vellum-shared",
+            }),
+          }
+        : row,
+    );
+
+    const conversation = await loadAs(sharedContact(ALICE));
+
+    expect(historyText(conversation)).not.toContain(
+      "result fetched on Alice's turn",
+    );
+  });
+
+  test("the guardian's view is unchanged", async () => {
+    const conversation = await loadAs(GUARDIAN);
+    const history = historyText(conversation);
+
+    for (const material of ALICE_TURN_MATERIAL) {
+      expect(history).toContain(material);
+    }
+    expect(history).toContain("guardian reasoning");
+  });
+});
