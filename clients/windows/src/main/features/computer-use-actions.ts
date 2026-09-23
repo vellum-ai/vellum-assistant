@@ -1,3 +1,5 @@
+import { PointAtExecutor } from "@vellumai/electron-desktop/host-proxy/point-at-executor";
+import { showCompanionCoachmarks } from "@vellumai/electron-desktop/companion-window";
 /**
  * Computer-use action executor backed by the Windows native helper. `host_cu`
  * proxies `cu.perform`; the helper owns the verify, execute, settle, observe
@@ -110,9 +112,8 @@ export const protectComputerUseCapture = (
 let protectedSharedHelper: CuHelperClient | null = null;
 
 const getProtectedSharedCuHelper = (): CuHelperClient => {
-  protectedSharedHelper ??= protectComputerUseCapture(
-    getSharedCuHelper(),
-    () => BrowserWindow.getAllWindows(),
+  protectedSharedHelper ??= protectComputerUseCapture(getSharedCuHelper(), () =>
+    BrowserWindow.getAllWindows(),
   );
   return protectedSharedHelper;
 };
@@ -131,10 +132,14 @@ export const createWindowsHostCuExecutor = (
   deps: WindowsCuExecutorDeps = {},
 ): HostProxyExecutor => {
   const { helper } = deps;
-  return createCuHelperProxyExecutor({
-    logger: log,
-    resolveHelper: helper ? () => helper : getProtectedSharedCuHelper,
-  });
+  return new PointAtExecutor(
+    createCuHelperProxyExecutor({
+      logger: log,
+      resolveHelper: helper ? () => helper : getProtectedSharedCuHelper,
+    }),
+    showCompanionCoachmarks,
+    log,
+  );
 };
 
 const computerUseActionsFeature: CapabilityModule<DesktopCapabilityRegistry> = {

@@ -1,4 +1,13 @@
 import { expect, mock, test } from "bun:test";
+mock.module("@vellumai/electron-desktop/companion-window", () => ({
+  replayCompanionIntro: () => {},
+  setCompanionSurfaceSize: () => {},
+  setCompanionSurfaceVisible: () => {},
+  showCompanionCoachmarks: async () => ({
+    kind: "refused",
+    refusal: "unshared",
+  }),
+}));
 
 import type { HostProxyPoster } from "@vellumai/electron-desktop/host-proxy/poster";
 import type { HostProxySseMessage } from "@vellumai/electron-desktop/host-proxy/sse";
@@ -13,8 +22,9 @@ mock.module("./logger", () => ({
   getLogFilePaths: () => [],
 }));
 
-const { DesktopCapabilityRegistry } =
-  await import("@vellumai/electron-desktop/capability-registry");
+const { DesktopCapabilityRegistry } = await import(
+  "@vellumai/electron-desktop/capability-registry"
+);
 const {
   COMPUTER_USE_ACTION_EXECUTORS,
   createWindowsHostCuExecutor,

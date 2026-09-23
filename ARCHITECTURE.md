@@ -813,6 +813,21 @@ See [Voice input diagnostics](assistant/docs/voice-input-diagnostics.md) for the
 
 With Flux turn detection enabled, microphone audio passes through for one second after locally detected speech, then room audio becomes digital silence. A bounded 200 ms buffer preserves the lead-in to resumed speech without replaying already-submitted audio. Confirmed playback echo becomes silence before buffering. Flux retains an elapsed-audio timeline through pauses. In hands-free Flux sessions, provider `StartOfTurn` owns interruption: local energy alone cannot emit `speech_started` or cancel a reply, even when provider end-of-turn handling is disabled. Other providers retain the local sustained-speech guard, and manual sessions retain client-owned interruption. Gate transitions, submission cadence, interruption source, and provider turn-end confidence, trigger, and audio position are logged for correlation with the input measurements.
 
+## Desktop Companion
+
+The macOS and Windows shells share the floating companion controller, popover,
+capture-source model, preload bridge, and coachmark executor in
+`packages/electron-desktop`. Platform adapters supply IPC validation, main-window
+lifecycle, capture, permissions, and native input observation. The renderer and
+persisted companion settings use the same contracts on both platforms.
+
+Windows enumerates native windows through its helper, converts physical bounds to
+Electron DIPs, and captures selected sources with Electron. Its mouse hook feeds
+coachmark presses and drawing scroll completion. Cursor sampling supplies hover
+coordinates to the renderer while the transparent companion is click-through.
+Companion canvases are excluded from capture. Chrome tab enumeration and helper-drag
+permission setup remain macOS integrations.
+
 ## macOS Companion Tour Permissions
 
 The existing companion coachmarks request Microphone for calls, Input Monitoring

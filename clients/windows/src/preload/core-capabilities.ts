@@ -20,16 +20,8 @@ export type WindowsCoreBridge = Pick<
   (typeof WINDOWS_CORE_CAPABILITIES)[number]
 >;
 
-/**
- * macOS-only bridge surfaces with no Windows counterpart. Both belong to the
- * companion surface, a floating always-present window the Windows shell does
- * not open; the renderer feature-detects them and falls back to web behavior.
- * See `docs/parity-matrix.md`.
- */
-export const WINDOWS_NOT_APPLICABLE_CAPABILITIES = [
-  "companion",
-  "voiceActivity",
-] as const satisfies readonly (keyof VellumBridge)[];
+export const WINDOWS_NOT_APPLICABLE_CAPABILITIES =
+  [] as const satisfies readonly (keyof VellumBridge)[];
 
 /** The always-present core every `./features/` module builds on. */
 export const createWindowsCoreBridge = (

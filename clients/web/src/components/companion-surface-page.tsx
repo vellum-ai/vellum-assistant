@@ -1,3 +1,4 @@
+import { subscribeCompanionPointer } from "@/runtime/companion-surface";
 import {
   useCallback,
   useEffect,
@@ -789,6 +790,10 @@ export function CompanionSurfacePage() {
       }
       return;
     }
+    hitTestPointer({ x: event.clientX, y: event.clientY });
+  };
+
+  const hitTestPointer = (point: { x: number; y: number }) => {
     const avatar = avatarRef.current;
     if (!avatar) {
       return;
@@ -827,7 +832,7 @@ export function CompanionSurfacePage() {
           ? restingRect
           : null;
     const onSurface = onCompanionSurface(
-      { x: event.clientX, y: event.clientY },
+      { x: point.x, y: point.y },
       {
         avatar: avatar.getBoundingClientRect(),
         pill: drawnPill,
@@ -840,47 +845,27 @@ export function CompanionSurfacePage() {
     const introCard = introRef.current;
     const onIntro =
       introCard !== null &&
-      containsPoint(
-        introCard.getBoundingClientRect(),
-        event.clientX,
-        event.clientY,
-      );
+      containsPoint(introCard.getBoundingClientRect(), point.x, point.y);
     // The offer's card, for the same reason and for as long as it is drawn.
     const offerCard = offerRef.current;
     const onOffer =
       offerCard !== null &&
-      containsPoint(
-        offerCard.getBoundingClientRect(),
-        event.clientX,
-        event.clientY,
-      );
+      containsPoint(offerCard.getBoundingClientRect(), point.x, point.y);
     // The picker's card, for the same reason and for as long as it is drawn.
     const pickerCard = pickerRef.current;
     const onPicker =
       pickerCard !== null &&
-      containsPoint(
-        pickerCard.getBoundingClientRect(),
-        event.clientX,
-        event.clientY,
-      );
+      containsPoint(pickerCard.getBoundingClientRect(), point.x, point.y);
     // The prompt row on the call's bar, for the same reason.
     const promptRow = promptRef.current;
     const onPrompt =
       promptRow !== null &&
-      containsPoint(
-        promptRow.getBoundingClientRect(),
-        event.clientX,
-        event.clientY,
-      );
+      containsPoint(promptRow.getBoundingClientRect(), point.x, point.y);
     // The drawing tools, for the same reason and for as long as they are drawn.
     const drawTools = drawToolsEl.current;
     const onDrawTools =
       drawTools !== null &&
-      containsPoint(
-        drawTools.getBoundingClientRect(),
-        event.clientX,
-        event.clientY,
-      );
+      containsPoint(drawTools.getBoundingClientRect(), point.x, point.y);
     // Hover is the creature noticing a hand on *it*, so the card does not feed
     // it: a pointer resting on a paragraph is not a pointer on the avatar, and
     // widening the eyes for it would be the surface reacting to the wrong
@@ -892,6 +877,20 @@ export function CompanionSurfacePage() {
       onSurface || onIntro || onPicker || onOffer || onDrawTools || onPrompt,
     );
   };
+
+  const pointerHitTest = useRef(hitTestPointer);
+  useLayoutEffect(() => {
+    pointerHitTest.current = hitTestPointer;
+  });
+  useEffect(
+    () =>
+      subscribeCompanionPointer((point) => {
+        if (dragRef.current === null) {
+          pointerHitTest.current(point);
+        }
+      }),
+    [],
+  );
 
   // The avatar's own colour, shared with the display's edge glow so the two
   // lights cannot come apart. See `companionAccentHexFor`.

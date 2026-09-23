@@ -23,7 +23,9 @@ import {
 } from "@/runtime/system-permissions";
 
 export type CompanionIntroPermissionKind =
-  "microphone" | "inputMonitoring" | "screen";
+  | "microphone"
+  | "inputMonitoring"
+  | "screen";
 type CompanionIntroPermissionState =
   | { phase: "checking" | "requesting" | "error" }
   | { phase: "known"; item: SystemPermissionStateItem };
@@ -59,7 +61,8 @@ export function companionIntroNeedsPermission(
   return (
     permission !== null &&
     (permission.state.phase !== "known" ||
-      permission.state.item.status !== "granted")
+      (permission.state.item.status !== "granted" &&
+        permission.state.item.status !== "not-applicable"))
   );
 }
 
@@ -110,7 +113,9 @@ export function useCompanionIntroPermission(
         cancelPermissionGuide();
         await ensureMainWindowVisible();
       } catch (error) {
-        captureError(error, { context: "companionIntro.resumeAfterPermission" });
+        captureError(error, {
+          context: "companionIntro.resumeAfterPermission",
+        });
       } finally {
         checkingReturn = false;
       }

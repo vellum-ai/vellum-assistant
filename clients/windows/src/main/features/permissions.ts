@@ -110,6 +110,14 @@ const allWindowsWebContents = () =>
     .filter((win) => !win.isDestroyed() && !win.webContents.isDestroyed())
     .map((win) => win.webContents);
 
+const presentationListeners = new Set<() => void>();
+export const onPermissionPresentation = (listener: () => void): void => {
+  presentationListeners.add(listener);
+};
+let service: WindowsPermissionsService | null = null;
+export const getWindowsPermissionsService =
+  (): WindowsPermissionsService | null => service;
+
 class WindowsPermissionsService {
   private lastStateJson: string | null = null;
   // Probe result plus the native status seen when probing. Dropped when the
@@ -155,6 +163,9 @@ class WindowsPermissionsService {
   async openSettings(
     kind: SystemPermissionKind,
   ): Promise<SystemPermissionStateItem> {
+    for (const listener of presentationListeners) {
+      listener();
+    }
     const uri = SETTINGS_URIS[kind];
     if (uri) {
       await shell.openExternal(uri);
@@ -298,17 +309,20 @@ const permissionsFeature: CapabilityModule<DesktopCapabilityRegistry> = {
   id: "permissions",
   install: () => {
     configureWindowsPermissionsNative(createNativeProvider());
-    const service = new WindowsPermissionsService();
+    const installedService = new WindowsPermissionsService();
+    service = installedService;
 
-    handle(PERMISSIONS_GET_STATE, z.tuple([]), () => service.refresh());
+    handle(PERMISSIONS_GET_STATE, z.tuple([]), () =>
+      installedService.refresh(),
+    );
     handle(PERMISSIONS_REQUEST, z.tuple([kindSchema]), ([kind]) =>
-      service.request(kind),
+      installedService.request(kind),
     );
     handle(PERMISSIONS_OPEN_SETTINGS, z.tuple([kindSchema]), ([kind]) =>
-      service.openSettings(kind),
+      installedService.openSettings(kind),
     );
     handle(PERMISSIONS_QUIT_AND_REOPEN, z.tuple([]), () => {
-      service.quitAndReopen();
+      installedService.quitAndReopen();
     });
 
     handle(TEXT_INSERT, z.tuple([z.string()]), ([text]) =>
@@ -320,7 +334,7 @@ const permissionsFeature: CapabilityModule<DesktopCapabilityRegistry> = {
     );
 
     app.on("browser-window-focus", () => {
-      void service.refreshOnFocus();
+      void installedService.refreshOnFocus();
     });
   },
 };

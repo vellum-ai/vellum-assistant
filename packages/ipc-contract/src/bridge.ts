@@ -184,7 +184,8 @@ export type LocalListDevicesResult =
   | { ok: false; error: string };
 
 export type LocalRevokeDeviceResult =
-  { ok: true } | { ok: false; error: string };
+  | { ok: true }
+  | { ok: false; error: string };
 
 /**
  * A local assistant's avatar as read off its workspace by the host. `null`
@@ -623,7 +624,7 @@ export interface VellumBridge {
    * `end` and listens for `onControl`; the companion surface's own route reads
    * the session off `companion.onState` and presses `control`.
    *
-   * Absent on shells without a companion surface (the Windows shell).
+   * Absent on shells without a companion surface.
    */
   voiceActivity?: {
     start(state: VoiceActivityStart): void;
@@ -640,9 +641,12 @@ export interface VellumBridge {
    * window clickable without the transparent canvas swallowing clicks meant for
    * whatever is behind it.
    *
-   * Absent on shells without a companion surface (the Windows shell).
+   * Absent on shells without a companion surface.
    */
   companion?: {
+    onPointerPosition?(
+      callback: (point: { x: number; y: number }) => void,
+    ): () => void;
     getState(): Promise<CompanionSurfaceState | null>;
     onState(callback: (state: CompanionSurfaceState) => void): () => void;
     /** Whether the app should announce a due introduction before it begins. */

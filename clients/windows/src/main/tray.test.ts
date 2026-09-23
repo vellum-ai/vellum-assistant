@@ -1,4 +1,13 @@
 import { beforeEach, expect, mock, test } from "bun:test";
+mock.module("@vellumai/electron-desktop/companion-window", () => ({
+  replayCompanionIntro: () => {},
+  setCompanionSurfaceSize: () => {},
+  setCompanionSurfaceVisible: () => {},
+  showCompanionCoachmarks: async () => ({
+    kind: "refused",
+    refusal: "unshared",
+  }),
+}));
 import type { Lockfile } from "@vellumai/local-mode/contract";
 
 const trayIcon = { isEmpty: () => false };
@@ -40,6 +49,8 @@ mock.module("@vellumai/electron-desktop/status-icon", () => ({
 }));
 mock.module("@vellumai/electron-desktop/window-state", () => ({
   readOnboardingActive: () => false,
+  readCompanionHidden: () => false,
+  readCompanionSize: () => "medium",
 }));
 mock.module("@vellumai/electron-desktop/about", () => ({
   openAboutWindow: () => undefined,
@@ -65,8 +76,9 @@ mock.module("./main-window", () => ({
 }));
 
 const { installWindowsTray } = await import("./tray");
-const { installFeatureFlagsIpc, isFeatureEnabled } =
-  await import("./feature-flags");
+const { installFeatureFlagsIpc, isFeatureEnabled } = await import(
+  "./feature-flags"
+);
 
 beforeEach(() => {
   trayRuntime = null;

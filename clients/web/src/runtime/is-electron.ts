@@ -403,6 +403,9 @@ declare global {
         ): () => void;
       };
       companion?: {
+        onPointerPosition?(
+          callback: (point: { x: number; y: number }) => void,
+        ): () => void;
         getState(): Promise<CompanionSurfaceState | null>;
         onState(callback: (state: CompanionSurfaceState) => void): () => void;
         /** Optional: shells that predate the app-side announcement have none. */

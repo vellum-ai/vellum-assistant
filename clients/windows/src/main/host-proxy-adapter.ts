@@ -38,6 +38,7 @@ export const createWindowsHostProxyRuntime = (
     getClientId,
     getMachineName: hostname,
     interfaceId: "windows",
+    supportsCoachmarks: computerUseExecutors !== undefined,
   });
   return {
     ...runtimeSources,
