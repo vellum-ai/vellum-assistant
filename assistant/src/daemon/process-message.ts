@@ -306,11 +306,7 @@ export function resolveTurnInterface(sourceInterface?: string): InterfaceId {
 // prepareConversationForMessage
 // ---------------------------------------------------------------------------
 
-async function prepareConversationForMessage(
-  conversationId: string,
-  content: string,
-  options?: ProcessMessageOptions,
-): Promise<{
+interface PreparedConversation {
   conversation: Conversation;
   attachments: {
     id: string;
@@ -319,9 +315,33 @@ async function prepareConversationForMessage(
     data: string;
     filePath?: string;
   }[];
-}> {
+  /**
+   * The processing claim this message holds. The persist runs under it and
+   * the agent loop releases it; a path that starts no turn gives it back
+   * through {@link releaseUnstartedTurnClaim}.
+   */
+  processingClaim: number;
+  /** The sender's trust, read under the claim. */
+  turnTrustContext: TrustContext | undefined;
+}
+
+/** Give back a claim no turn took over, and run whatever queued behind it. */
+function releaseUnstartedTurnClaim(
+  conversation: Conversation,
+  processingClaim: number,
+): void {
+  if (conversation.releaseProcessing(processingClaim)) {
+    void conversation.kickDrainQueue("loop_complete", "ingress_no_turn");
+  }
+}
+
+async function prepareConversationForMessage(
+  conversationId: string,
+  content: string,
+  options?: ProcessMessageOptions,
+): Promise<PreparedConversation> {
   const {
-    attachmentIds,
+    attachmentIds: _attachmentIds,
     sourceChannel,
     sourceInterface,
     onEvent: _onEvent,
@@ -347,17 +367,50 @@ async function prepareConversationForMessage(
     conversationOptions.transport?.channelId,
   );
   const resolvedInterface = resolveTurnInterface(sourceInterface);
+  const processingClaim = await conversation.acquireProcessingForActor(
+    options?.trustContext,
+  );
+  if (processingClaim === null) {
+    throw new Error(CONVERSATION_BUSY_MESSAGE);
+  }
+  try {
+    return {
+      conversation,
+      ...configureClaimedConversation(
+        conversation,
+        conversationId,
+        resolvedChannel,
+        resolvedInterface,
+        options,
+      ),
+      processingClaim,
+      turnTrustContext: restingTrust(conversation),
+    };
+  } catch (err) {
+    releaseUnstartedTurnClaim(conversation, processingClaim);
+    throw err;
+  }
+}
+
+/**
+ * The per-turn setup a message runs once it holds the processing claim, so
+ * nothing here is written by a sender that lost the conversation to another.
+ */
+function configureClaimedConversation(
+  conversation: Conversation,
+  conversationId: string,
+  resolvedChannel: ChannelId,
+  resolvedInterface: InterfaceId,
+  options: ProcessMessageOptions | undefined,
+): Pick<PreparedConversation, "attachments"> {
+  const { attachmentIds, sourceChannel, sourceInterface } = options ?? {};
   conversation.setAssistantId(
     options?.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
   );
   conversation.taskRunId = options?.taskRunId;
-  if (options?.trustContext !== undefined) {
-    conversation.setTrustContext(options.trustContext);
-  }
   if (options?.authContext !== undefined) {
     conversation.setAuthContext(options.authContext);
   }
-  await conversation.ensureActorScopedHistory();
 
   mergeConversationOptions(conversationId, {
     trustContext: conversation.trustContext,
@@ -387,10 +440,8 @@ async function prepareConversationForMessage(
       sourceActorPrincipalId,
     )
   ) {
-    if (!conversation.isProcessing() || !conversation.hostCuProxy) {
-      conversation.setHostCuProxy(new HostCuProxy());
-    }
-  } else if (!conversation.isProcessing()) {
+    conversation.setHostCuProxy(new HostCuProxy());
+  } else {
     conversation.setHostCuProxy(undefined);
   }
   // App-control mirrors CU's per-conversation lifecycle. The proxy attaches
@@ -404,16 +455,14 @@ async function prepareConversationForMessage(
       sourceActorPrincipalId,
     )
   ) {
-    if (!conversation.isProcessing() || !conversation.hostAppControlProxy) {
-      conversation.setHostAppControlProxy(
-        new HostAppControlProxy(conversationId),
-      );
-    }
-  } else if (!conversation.isProcessing()) {
+    conversation.setHostAppControlProxy(
+      new HostAppControlProxy(conversationId),
+    );
+  } else {
     conversation.setHostAppControlProxy(undefined);
   }
-  // The early `isProcessing()` throw above guarantees the conversation is
-  // idle here, so preactivation is unconditional once the proxies are wired.
+  // The claim makes this turn the conversation's own, so the proxies above
+  // and the preactivation below are set for it outright.
   preactivateHostProxySkills(
     conversation,
     resolvedInterface,
@@ -433,7 +482,7 @@ async function prepareConversationForMessage(
     ? resolveAttachmentsForPersist(attachmentIds)
     : [];
 
-  return { conversation, attachments };
+  return { attachments };
 }
 
 // ---------------------------------------------------------------------------
@@ -460,11 +509,7 @@ function assertDbMigrationsReadyForTurn(): void {
   }
 }
 
-export async function processMessage(
-  conversationId: string,
-  content: string,
-  options?: ProcessMessageOptions,
-): Promise<{
+type ProcessMessageResult = {
   messageId: string;
   assistantMessageId?: string;
   /**
@@ -482,14 +527,42 @@ export async function processMessage(
    * by the slash-command branches, which never run the agent loop.
    */
   turnFailure?: TurnFailure | null;
-}> {
+};
+
+export async function processMessage(
+  conversationId: string,
+  content: string,
+  options?: ProcessMessageOptions,
+): Promise<ProcessMessageResult> {
   assertDbMigrationsReadyForTurn();
 
-  const { conversation, attachments } = await prepareConversationForMessage(
+  const prepared = await prepareConversationForMessage(
     conversationId,
     content,
     options,
   );
+  try {
+    return await runClaimedMessage(conversationId, content, options, prepared);
+  } finally {
+    // The agent loop releases the claim before it returns, and a persist that
+    // fails or deduplicates gives it back itself, so this releases only when
+    // no turn ever took it over (a slash command, or a throw before the
+    // persist).
+    releaseUnstartedTurnClaim(prepared.conversation, prepared.processingClaim);
+  }
+}
+
+async function runClaimedMessage(
+  conversationId: string,
+  content: string,
+  options: ProcessMessageOptions | undefined,
+  {
+    conversation,
+    attachments,
+    processingClaim,
+    turnTrustContext,
+  }: PreparedConversation,
+): Promise<ProcessMessageResult> {
   const emitEvent = buildEventEmitter(options?.onEvent);
 
   const serverInterfaceCtx = conversation.getTurnInterfaceContext();
@@ -751,6 +824,8 @@ export async function processMessage(
       requestId,
       metadata: persistMetadata,
       displayContent: options?.displayContent,
+      trustContext: turnTrustContext,
+      processingClaim,
       ...(options?.author ? { author: options.author } : {}),
       ...(options?.skipUserMessageIndexing ? { skipIndexing: true } : {}),
       ...(ingressKey ? { clientMessageId: ingressKey } : {}),
@@ -780,6 +855,7 @@ export async function processMessage(
       onEvent: emitEvent,
       isInteractive: options?.isInteractive ?? false,
       isUserMessage: true,
+      turnTrustContext,
       ...(options?.callSite ? { callSite: options.callSite } : {}),
       ...(options?.overrideProfile
         ? { overrideProfile: options.overrideProfile }
@@ -816,27 +892,29 @@ export async function processMessageInBackground(
 ): Promise<{ messageId: string }> {
   assertDbMigrationsReadyForTurn();
 
-  const { conversation, attachments } = await prepareConversationForMessage(
-    conversationId,
-    content,
-    options,
-  );
+  const { conversation, attachments, processingClaim, turnTrustContext } =
+    await prepareConversationForMessage(conversationId, content, options);
   const emitEvent = buildEventEmitter(options?.onEvent);
 
-  const requestId = uuidv7();
-  const persistMetadata = buildPersistMetadata(options);
-  const ingressKey = deriveIngressIdempotencyKey(options);
-  const { id: messageId, deduplicated } = await conversation.persistUserMessage(
-    {
+  let persisted: { id: string; deduplicated: boolean };
+  try {
+    const ingressKey = deriveIngressIdempotencyKey(options);
+    persisted = await conversation.persistUserMessage({
       content,
       attachments,
-      requestId,
-      metadata: persistMetadata,
+      requestId: uuidv7(),
+      metadata: buildPersistMetadata(options),
       displayContent: options?.displayContent,
+      trustContext: turnTrustContext,
+      processingClaim,
       ...(options?.author ? { author: options.author } : {}),
       ...(ingressKey ? { clientMessageId: ingressKey } : {}),
-    },
-  );
+    });
+  } catch (err) {
+    releaseUnstartedTurnClaim(conversation, processingClaim);
+    throw err;
+  }
+  const { id: messageId, deduplicated } = persisted;
   publishConversationMessagesChanged(conversationId);
 
   if (deduplicated) {
@@ -854,6 +932,7 @@ export async function processMessageInBackground(
       onEvent: emitEvent,
       isInteractive: options?.isInteractive ?? false,
       isUserMessage: true,
+      turnTrustContext,
       ...(options?.callSite ? { callSite: options.callSite } : {}),
       ...(options?.overrideProfile
         ? { overrideProfile: options.overrideProfile }

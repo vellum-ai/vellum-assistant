@@ -1,0 +1,251 @@
+/**
+ * Two direct sends with different trust reaching the same idle conversation at
+ * once through POST /v1/messages.
+ *
+ * Scoping a turn's history awaits a reload. The first send takes the
+ * processing claim before it stamps its trust and reloads, so the second finds
+ * the conversation busy and queues, as any send to a busy conversation does,
+ * without overwriting the trust slot or the history while the first send's
+ * reload is in flight.
+ */
+import { afterEach, describe, expect, mock, test } from "bun:test";
+
+mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => false }));
+
+mock.module("../config/interrupt-on-send-gate.js", () => ({
+  isInterruptOnSendEnabled: () => false,
+}));
+
+mock.module("../persistence/conversation-key-store.js", () => ({
+  getOrCreateConversation: () => ({ conversationId: "conv-route-race" }),
+  getConversationByKey: () => null,
+}));
+
+mock.module("../runtime/guardian-reply-router.js", () => ({
+  routeGuardianReply: async () => ({
+    consumed: false,
+    decisionApplied: false,
+    type: "not_consumed",
+  }),
+}));
+
+mock.module("../channels/gateway-guardian-requests.js", () => ({
+  createGuardianRequest: async (params: Record<string, unknown>) => ({
+    ...params,
+    requestCode: "ABC123",
+  }),
+}));
+
+mock.module("../runtime/confirmation-request-guardian-bridge.js", () => ({
+  bridgeConfirmationRequestToGuardian: async () => undefined,
+}));
+
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
+  addMessage: async () => ({ id: "persisted-id", deduplicated: false }),
+  extractImageSourcePaths: () => undefined,
+  getConversation: () => null,
+  getConversationOverrideProfile: () => undefined,
+  getMessages: () => [],
+  isHiddenMessageMetadata: () => false,
+  provenanceFromTrustContext: () => ({}),
+  setConversationOriginChannelIfUnset: () => {},
+  setConversationOriginInterfaceIfUnset: () => {},
+  setConversationInferenceProfile: () => {},
+  setConversationEnabledPlugins: () => {},
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
+  recordConversationPersistedSeq: () => {},
+}));
+
+mock.module("../persistence/conversation-disk-view.js", () => ({
+  syncMessageToDisk: () => {},
+  updateMetaFile: () => {},
+}));
+
+mock.module("../persistence/attachments-store.js", () => ({
+  getAttachmentsByIds: () => [],
+  resolveAttachmentsForPersist: () => [],
+  attachmentExists: () => false,
+  linkAttachmentToMessage: () => {},
+  attachInlineAttachmentToMessage: () => {},
+  validateAttachmentUpload: () => ({ ok: true }),
+}));
+
+mock.module("../daemon/conversation-process.js", () => ({
+  buildModelInfoEvent: () => null,
+  isModelSlashCommand: () => false,
+  formatCompactResult: () => "",
+}));
+
+const realLocalActorIdentity =
+  await import("../runtime/local-actor-identity.js");
+mock.module("../runtime/local-actor-identity.js", () => ({
+  ...realLocalActorIdentity,
+}));
+
+const ALICE: TrustContext = {
+  trustClass: "guardian",
+  sourceChannel: "vellum",
+  guardianPrincipalId: "alice-principal",
+};
+const BOB: TrustContext = {
+  trustClass: "trusted_contact",
+  sourceChannel: "vellum",
+  requesterExternalUserId: "bob-principal",
+};
+const TRUST_BY_PRINCIPAL: Record<string, TrustContext> = {
+  "alice-principal": ALICE,
+  "bob-principal": BOB,
+};
+
+mock.module("../runtime/local-principal-trust.js", () => ({
+  resolveLocalPrincipalTrustContext: async (input: {
+    actorPrincipalId: string;
+  }) => TRUST_BY_PRINCIPAL[input.actorPrincipalId],
+}));
+
+mock.module("../runtime/trust-context-resolver.js", () => ({
+  resolveTrustContext: () => ALICE,
+  withSourceChannel: (_sourceChannel: unknown, ctx: unknown) => ctx,
+}));
+
+mock.module("../contacts/guardian-delivery-reader.js", () => ({
+  getGuardianDelivery: async () => [],
+}));
+
+mock.module("../ipc/gateway-client.js", () => ({
+  ipcCall: async () => ({ ok: true }),
+}));
+
+import type { Conversation } from "../daemon/conversation.js";
+import {
+  deleteConversation,
+  setConversation,
+} from "../daemon/conversation-registry.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
+import { handleSendMessage } from "../runtime/routes/conversation-routes.js";
+import { callHandler } from "./helpers/call-route-handler.js";
+import { mockUnownedModeSessions } from "./helpers/mock-conversation.js";
+import {
+  createScopeRaceConversation,
+  historyScopedFor,
+} from "./helpers/scope-race-conversation.js";
+
+const CONV_ID = "conv-route-race";
+
+function makeConversation() {
+  const enqueued: Array<{ content: string; trustContext?: TrustContext }> = [];
+  const conversation = Object.assign(createScopeRaceConversation(CONV_ID), {
+    enqueued,
+    modeSessions: mockUnownedModeSessions(),
+    queue: { length: 0 },
+    inFlightSendRequestIds: new Map<string, string>(),
+    usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
+    assistantId: "self",
+    pendingInterruptActivityBridge: false,
+    replayActivityState: () => {},
+    emitConfirmationStateChanged: () => {},
+    emitActivityState: () => {},
+    setTurnChannelContext: () => {},
+    setTurnInterfaceContext: () => {},
+    getTurnChannelContext: () => null,
+    getTurnInterfaceContext: () => null,
+    hasAnyPendingConfirmation: () => false,
+    hasPendingConfirmation: () => false,
+    denyAllPendingConfirmations: () => {},
+    enqueueMessage: (options: {
+      content: string;
+      trustContext?: TrustContext;
+    }) => {
+      enqueued.push(options);
+      return { queued: true, requestId: "queued-id" };
+    },
+    setHostBrowserProxy: () => {},
+    setHostCuProxy: () => {},
+    setHostAppControlProxy: () => {},
+    addPreactivatedSkillId: () => {},
+    warmPromptCache: () => {},
+  });
+  return conversation;
+}
+
+function makeRequest(principalId: string, content: string) {
+  return new Request("http://localhost/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-vellum-actor-principal-id": principalId,
+      "x-vellum-principal-type": "actor",
+    },
+    body: JSON.stringify({
+      conversationKey: "route-race-key",
+      content,
+      sourceChannel: "vellum",
+      interface: "macos",
+    }),
+  });
+}
+
+function send(
+  conversation: ReturnType<typeof makeConversation>,
+  principalId: string,
+  content: string,
+) {
+  return callHandler(
+    (args) =>
+      handleSendMessage(args, {
+        sendMessageDeps: {
+          getOrCreateConversation: async () =>
+            conversation as unknown as Conversation,
+          assistantEventHub: { publish: async () => {} } as never,
+          resolveAttachments: () => [],
+        },
+      }),
+    makeRequest(principalId, content),
+    undefined,
+    202,
+  );
+}
+
+afterEach(() => {
+  deleteConversation(CONV_ID);
+});
+
+describe("POST /v1/messages racing another sender to an idle conversation", () => {
+  test("the send inside the history reload keeps its trust and history, and the other queues", async () => {
+    const conversation = makeConversation();
+    setConversation(CONV_ID, conversation as unknown as Conversation);
+    const aliceReload = conversation.holdNextReload();
+
+    const alice = send(conversation, "alice-principal", "from Alice");
+    await aliceReload.entered;
+
+    // Bob arrives while Alice's reload is still in flight.
+    const bobResponse = await send(conversation, "bob-principal", "from Bob");
+    expect(await bobResponse.json()).toMatchObject({
+      accepted: true,
+      queued: true,
+    });
+    expect(conversation.enqueued).toHaveLength(1);
+    expect(conversation.enqueued[0].content).toBe("from Bob");
+    expect(conversation.enqueued[0].trustContext).toBe(BOB);
+    expect(conversation.trustContext).toBe(ALICE);
+    expect(conversation.trustWrites).toEqual([ALICE]);
+
+    aliceReload.release();
+    const aliceResponse = await alice;
+    expect(await aliceResponse.json()).toMatchObject({ accepted: true });
+
+    while (conversation.isProcessing()) {
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+    expect(conversation.turns).toHaveLength(1);
+    const [turn] = conversation.turns;
+    expect(turn.trust).toBe(ALICE);
+    expect(turn.historyAtStart).toEqual(historyScopedFor(ALICE));
+    expect(turn.historyAtEnd).toEqual(historyScopedFor(ALICE));
+    expect(conversation.persistedTrust).toEqual([ALICE]);
+    expect(conversation.maxConcurrentTurns).toBe(1);
+  });
+});

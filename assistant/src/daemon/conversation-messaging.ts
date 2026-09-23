@@ -236,6 +236,7 @@ export interface MessagingConversationContext {
   isProcessing(): boolean;
   setProcessing(value: boolean): void;
   acquireProcessingFenced(): Promise<number | null>;
+  holdsProcessingClaim(owner: number): boolean;
   releaseProcessing(owner: number): boolean;
   abortController: AbortController | null;
   currentTurnCronRunId?: string | null;
@@ -976,6 +977,13 @@ export interface PersistMessageOptions {
    */
   trustContext?: TrustContext;
   /**
+   * A processing claim the caller already holds, taken with
+   * `Conversation.acquireProcessingForActor` so the history was scoped under
+   * it. The persist runs under that claim instead of taking its own, and
+   * reports busy when it is no longer the live one.
+   */
+  processingClaim?: number;
+  /**
    * The person whose own inbound message this row records, passed only by a
    * caller relaying one (channel ingress and its retry replay). It names the
    * row's author (`actorAuthorProvenance`). Machine-authored callers omit it,
@@ -1109,9 +1117,16 @@ export async function persistUserMessage(
   ctx: MessagingConversationContext,
   options: PersistMessageOptions,
 ): Promise<{ id: string; deduplicated: boolean }> {
-  const { content, attachments = [] } = options;
+  const { content, attachments = [], processingClaim } = options;
 
-  if (ctx.isProcessing()) {
+  // A claim the caller holds is checked here, before the per-turn fields
+  // below are written: a lost one belongs to another turn, whose fields they
+  // are.
+  if (
+    processingClaim === undefined
+      ? ctx.isProcessing()
+      : !ctx.holdsProcessingClaim(processingClaim)
+  ) {
     throw new Error(CONVERSATION_BUSY_MESSAGE);
   }
 
@@ -1156,8 +1171,9 @@ export async function persistUserMessage(
     // retrospective worker read that marker to decide a turn is live. Null is
     // a conversation that belongs to someone else, whether it was already held
     // or was claimed away while the marker landed. A throw is the marker
-    // refusing to persist, with the claim already given back.
-    owner = await ctx.acquireProcessingFenced();
+    // refusing to persist, with the claim already given back. A claim the
+    // caller already holds was fenced when it was taken.
+    owner = processingClaim ?? (await ctx.acquireProcessingFenced());
     if (owner === null) {
       throw new Error(CONVERSATION_BUSY_MESSAGE);
     }

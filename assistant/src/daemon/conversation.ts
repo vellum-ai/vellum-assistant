@@ -2357,6 +2357,42 @@ export class Conversation {
   }
 
   /**
+   * Take the processing claim for a turn, then stamp the sender's trust and
+   * scope the resident history for it, all under that claim.
+   *
+   * Scoping awaits a history reload. Two senders can reach an idle
+   * conversation together, and if they scoped before claiming, the second
+   * could overwrite the trust slot or replace `messages` during the first
+   * one's reload, so the first turn would start on the other actor's history.
+   * Under the claim, the second finds the conversation busy before it touches
+   * either.
+   *
+   * An undefined `trustContext` keeps the conversation's current trust. Null
+   * is a busy conversation, as for {@link acquireProcessingFenced}. A reload
+   * that throws gives the claim back before the error propagates.
+   */
+  async acquireProcessingForActor(
+    trustContext: TrustContext | null | undefined,
+  ): Promise<number | null> {
+    const owner = await this.acquireProcessingFenced();
+    if (owner === null) {
+      return null;
+    }
+    try {
+      if (trustContext !== undefined) {
+        this.setTrustContext(trustContext);
+      }
+      await this.ensureActorScopedHistory();
+    } catch (err) {
+      if (this.releaseProcessing(owner)) {
+        void this.kickDrainQueue("loop_complete", "actor_scope_failed");
+      }
+      throw err;
+    }
+    return owner;
+  }
+
+  /**
    * Whether this claim is still the live hold on the conversation.
    *
    * For work that runs across awaits under a claim it took earlier. A Stop on

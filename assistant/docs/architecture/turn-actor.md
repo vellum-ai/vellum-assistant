@@ -62,6 +62,17 @@ and restore the prior value afterwards, each guarding the restore so a turn that
 started in between is not clobbered. They are supplying the acting actor for
 their run, and are covered by this contract.
 
+Ingress that starts a turn on an idle conversation (channel ingress through
+`prepareConversationForMessage`, and the idle `POST /v1/messages` path) stamps
+the slot and scopes the history through `Conversation.acquireProcessingForActor`,
+which takes the processing claim first. Scoping awaits a history reload, and a
+second sender reaching the same conversation inside that await would otherwise
+overwrite the slot or replace the resident history under the first sender's
+turn. Under the claim, the second sender finds the conversation busy and takes
+its path's busy handling (the queue, or the channel's defer-until-idle) without
+writing either. The persist and the loop then run on the trust read under the
+claim, not on a later read of the slot.
+
 The queue drains are deliberately not in that set. `drainSingleMessage` and
 `drainBatch` carry the queued sender on the per-turn field and into the run,
 and leave the resting slot alone: at the point they stamp, the drain has not

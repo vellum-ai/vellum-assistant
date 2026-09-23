@@ -135,7 +135,10 @@ mock.module("../ipc/gateway-client.js", () => ({
 import { getEffectiveEnabledPluginSet } from "../daemon/conversation-tool-setup.js";
 import { handleSendMessage } from "../runtime/routes/conversation-routes.js";
 import { callHandler } from "./helpers/call-route-handler.js";
-import { mockUnownedModeSessions } from "./helpers/mock-conversation.js";
+import {
+  acquireProcessingForActorDouble,
+  mockUnownedModeSessions,
+} from "./helpers/mock-conversation.js";
 
 function makeConversation() {
   const runAgentLoop = mock(async () => undefined);
@@ -168,6 +171,8 @@ function makeConversation() {
     getTurnChannelContext: () => null,
     getTurnInterfaceContext: () => null,
     ensureActorScopedHistory: async () => {},
+    acquireProcessingForActor: acquireProcessingForActorDouble,
+    releaseProcessing: () => false,
     isProcessing: () => processing,
     setProcessing: (value: boolean) => {
       processing = value;

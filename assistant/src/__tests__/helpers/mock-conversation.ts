@@ -17,6 +17,7 @@
 
 import type { Conversation } from "../../daemon/conversation.js";
 import type { ChannelCapabilities } from "../../daemon/conversation-runtime-assembly.js";
+import type { TrustContext } from "../../daemon/trust-context-types.js";
 
 /** Build a coordinator double representing a turn with no mode owner. */
 export function mockUnownedModeSessions(): Conversation["modeSessions"] {
@@ -78,4 +79,33 @@ export function mockChannelCapabilities(
     Partial<ChannelCapabilities>,
 ): ChannelCapabilities {
   return { dashboardCapable: false, supportsVoiceInput: false, ...caps };
+}
+
+/**
+ * `Conversation.acquireProcessingForActor` for a double, built from the
+ * double's own claim, trust and history methods the way the real one is, so a
+ * test sees the calls the real claim makes. A double without
+ * `acquireProcessingFenced` stands for an idle conversation and always gets
+ * the claim.
+ */
+export async function acquireProcessingForActorDouble(
+  this: Partial<
+    Pick<
+      Conversation,
+      "acquireProcessingFenced" | "setTrustContext" | "ensureActorScopedHistory"
+    >
+  >,
+  trustContext: TrustContext | null | undefined,
+): Promise<number | null> {
+  const owner = this.acquireProcessingFenced
+    ? await this.acquireProcessingFenced()
+    : 1;
+  if (owner === null) {
+    return null;
+  }
+  if (trustContext !== undefined) {
+    this.setTrustContext?.(trustContext);
+  }
+  await this.ensureActorScopedHistory?.();
+  return owner;
 }

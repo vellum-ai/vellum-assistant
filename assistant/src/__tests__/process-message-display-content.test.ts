@@ -150,6 +150,7 @@ import type { UserMessageAttachment } from "../daemon/message-protocol.js";
 import { processMessage } from "../daemon/process-message.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import type { Message } from "../providers/types.js";
+import { acquireProcessingForActorDouble } from "./helpers/mock-conversation.js";
 
 function makeTestConversation() {
   const messages: Message[] = [];
@@ -177,6 +178,7 @@ function makeTestConversation() {
       owner += 1;
       return owner;
     },
+    holdsProcessingClaim: (claim: number) => processing && claim === owner,
     releaseProcessing: (claim: number) => {
       if (claim !== owner) {
         return false;
@@ -218,6 +220,8 @@ function makeTestConversation() {
       (conversation as { authContext: unknown }).authContext = authContext;
     },
     ensureActorScopedHistory: async () => {},
+    acquireProcessingForActor: acquireProcessingForActorDouble,
+    releaseProcessing: () => false,
     setChannelCapabilities: () => {},
     setHostCuProxy: () => {},
     setHostAppControlProxy: () => {},

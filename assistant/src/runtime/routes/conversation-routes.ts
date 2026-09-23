@@ -2399,9 +2399,9 @@ export async function handleSendMessage(
    *
    * Reached from the check just below, and again from every point past it that
    * finds the conversation busy after all. That check and the acquire which
-   * actually starts a turn are separated by guardian cleanup, history scoping
-   * and slash resolution, so anything taking the flag inside those awaits
-   * leaves a send that has to queue rather than fail. Answering the same way
+   * actually starts a turn are separated by the interaction sweep and guardian
+   * cleanup, so anything taking the flag inside those awaits leaves a send
+   * that has to queue rather than fail. Answering the same way
    * from both means a client cannot tell which side of the awaits the
    * conversation went busy on.
    */
@@ -2632,6 +2632,10 @@ export async function handleSendMessage(
     // a transition belonging to an interrupt that is long over. Disarmed in the
     // `finally` unless the loop this call started is there to consume it.
     let startedAgentLoop = false;
+    // The processing claim this send took for its turn while nothing else has
+    // taken it over. The `finally` gives it back; the slash branches and the
+    // agent loop release it themselves.
+    let unstartedClaim: number | null = null;
     try {
       // Per-turn host-proxy setup, after the interrupt decision so the replacement
       // turn an interrupt starts gets what an idle send gets. A send that queues
@@ -2736,13 +2740,19 @@ export async function handleSendMessage(
 
       // Conversation is idle — persist and fire agent loop immediately.
       //
-      // Stamping the sender here rather than at resolution is what keeps the two
-      // in step: the slot hydrates and scopes the turn started just below
-      // (`ensureActorScopedHistory`, persisted provenance, the loop's own trust),
-      // so it must name whoever this request is about to run as. A request that
-      // queues instead returns above without stamping — it is not starting a run,
-      // and its actor rides the queue item to the drain.
-      conversation.setTrustContext(resolvedTrustCtx);
+      // The claim comes first, and the sender is stamped and the history scoped
+      // under it, so a second sender reaching this idle conversation at the same
+      // time finds it busy and queues without touching either. Stamping here
+      // rather than at resolution keeps the slot naming whoever this request is
+      // about to run as. A request that queues instead returns without stamping:
+      // it is not starting a run, and its actor rides the queue item to the
+      // drain.
+      const turnClaim =
+        await conversation.acquireProcessingForActor(resolvedTrustCtx);
+      if (turnClaim === null) {
+        return queueFallback(contentAfterScan, "lock_race");
+      }
+      unstartedClaim = turnClaim;
       conversation.setTurnChannelContext({
         userMessageChannel: sourceChannel,
         assistantMessageChannel: sourceChannel,
@@ -2752,8 +2762,6 @@ export async function handleSendMessage(
         assistantMessageInterface: sourceInterface,
       });
       conversation.currentTurnSourceActorPrincipalId = sourceActorPrincipalId;
-
-      await conversation.ensureActorScopedHistory();
 
       // Resolve slash commands before persisting or running the agent loop.
       // `contentAfterScan` already carries the scan-rewritten content when
@@ -2769,11 +2777,21 @@ export async function handleSendMessage(
       });
       const slashResult = await resolveSlash(rawContent, slashContext);
 
+      // A Stop can force-clear a claim with no turn behind it while the slash
+      // resolves. The canned branches below write under the claim without a
+      // persist to check it for them, so they queue here the way a send that
+      // finds the conversation taken does.
+      if (
+        slashResult.kind !== "passthrough" &&
+        !conversation.holdsProcessingClaim(turnClaim)
+      ) {
+        return queueFallback(rawContent, "lock_race");
+      }
+
       if (slashResult.kind === "unknown") {
-        const slashOwner = await conversation.acquireProcessingFenced();
-        if (slashOwner === null) {
-          return queueFallback(rawContent, "lock_race");
-        }
+        // Released by this branch on every path.
+        const slashOwner = turnClaim;
+        unstartedClaim = null;
         let cleanupDeferred = false;
         try {
           const slashMeta = {
@@ -2894,10 +2912,9 @@ export async function handleSendMessage(
       }
 
       if (slashResult.kind === "compact") {
-        const compactOwner = await conversation.acquireProcessingFenced();
-        if (compactOwner === null) {
-          return queueFallback(rawContent, "lock_race");
-        }
+        // Released by this branch on every path.
+        const compactOwner = turnClaim;
+        unstartedClaim = null;
         const slashMeta = {
           userMessageChannel: sourceChannel,
           assistantMessageChannel: sourceChannel,
@@ -2997,10 +3014,9 @@ export async function handleSendMessage(
       }
 
       if (slashResult.kind === "clean") {
-        const cleanOwner = await conversation.acquireProcessingFenced();
-        if (cleanOwner === null) {
-          return queueFallback(rawContent, "lock_race");
-        }
+        // Released by this branch on every path.
+        const cleanOwner = turnClaim;
+        unstartedClaim = null;
         const conversationId = mapping.conversationId;
         // Outer try/finally guarantees the processing flag is cleared (and the
         // queue drained) on every failure path — including a throw from the
@@ -3102,11 +3118,13 @@ export async function handleSendMessage(
           ),
           scripted: body.scripted,
           clientMessageId,
+          trustContext: turnTrustContext,
+          processingClaim: turnClaim,
           ...(clientOs ? { requestClientOs: clientOs } : {}),
         });
       } catch (err) {
         if (isConversationBusyError(err)) {
-          // The flag went to someone else inside the awaits above. This is the
+          // The claim went to someone else inside the awaits above. This is the
           // same message the check at the top would have queued, so queue it.
           return queueFallback(resolvedContent, "lock_race");
         }
@@ -3177,6 +3195,13 @@ export async function handleSendMessage(
     } finally {
       if (!startedAgentLoop) {
         conversation.pendingInterruptActivityBridge = false;
+        // A no-op once the persist has given the claim back itself.
+        if (
+          unstartedClaim !== null &&
+          conversation.releaseProcessing(unstartedClaim)
+        ) {
+          void conversation.kickDrainQueue("loop_complete", "send_error_path");
+        }
       }
     }
   };
