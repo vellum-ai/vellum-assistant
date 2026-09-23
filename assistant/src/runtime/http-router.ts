@@ -10,10 +10,7 @@
  * `normalizeEndpointForPolicy`.
  */
 
-import {
-  contactTokenMayReachRoute,
-  isTrustCheckedScopeProfile,
-} from "@vellumai/gateway-client";
+import { tokenMayReachRoute } from "@vellumai/gateway-client";
 
 import { getLogger } from "../util/logger.js";
 import { enforcePolicy, type RoutePolicy } from "./auth/route-policy.js";
@@ -115,7 +112,7 @@ export class HttpRouter {
         continue;
       }
 
-      const trustDenied = await enforceContactTrust(
+      const trustDenied = await enforceTrustClass(
         compiled.def.endpoint,
         compiled.def.policy,
         authContext,
@@ -166,28 +163,26 @@ export class HttpRouter {
 // ---------------------------------------------------------------------------
 
 /**
- * Refuses a caller whose profile is trust-checked (see
- * {@link isTrustCheckedScopeProfile}) on a route that does not admit its trust
- * class, with the same 404 an unmatched path gets so it cannot probe which
- * routes exist. It runs ahead of path decoding and the scope check so neither
- * can answer 400 or 403 first, and under the dev auth bypass too, because such
- * a context exists only when its bearer was verified.
+ * Refuses a caller on a route that does not admit its trust class, with the
+ * same 404 an unmatched path gets so it cannot probe which routes exist. It
+ * runs ahead of path decoding and the scope check so neither can answer 400 or
+ * 403 first, and under the dev auth bypass too, because a trust-checked
+ * context exists only when its bearer was verified.
  *
- * The trust class is read fresh, matching the gateway's per-request ACL read
- * on the IPC path, so a revoked contact is refused on its next request. Every
- * other profile passes without a lookup, so guardian, service and local
- * callers never wait on the gateway here.
+ * A trust-exempt profile (see {@link isTrustCheckedScopeProfile}) counts as
+ * the guardian with no lookup, so guardian, service and local callers never
+ * wait on the gateway here. A trust-checked one is read fresh, matching the
+ * gateway's per-request ACL read on the IPC path, so a revoked contact is
+ * refused on its next request.
  */
-async function enforceContactTrust(
+async function enforceTrustClass(
   endpoint: string,
   policy: RoutePolicy | null,
   authContext: AuthContext,
 ): Promise<Response | null> {
-  if (!isTrustCheckedScopeProfile(authContext.scopeProfile)) {
-    return null;
-  }
   const principalId = authContext.actorPrincipalId;
-  const admitted = await contactTokenMayReachRoute(
+  const admitted = await tokenMayReachRoute(
+    authContext.scopeProfile,
     policy?.allowedTrustClasses,
     async () =>
       principalId
@@ -198,7 +193,11 @@ async function enforceContactTrust(
     return null;
   }
   log.warn(
-    { endpoint, actorPrincipalId: principalId },
+    {
+      endpoint,
+      scopeProfile: authContext.scopeProfile,
+      actorPrincipalId: principalId,
+    },
     "Route policy denied: trust class not admitted",
   );
   return httpError("NOT_FOUND", "Not found", 404);

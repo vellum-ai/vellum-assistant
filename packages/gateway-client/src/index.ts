@@ -134,10 +134,10 @@ export type {
 
 // Route trust class, applied by both the daemon router and the gateway IPC proxy
 export {
-  contactTokenMayReachRoute,
   DEFAULT_ROUTE_TRUST_CLASSES,
   isTrustCheckedScopeProfile,
   routeAdmitsTrustClass,
+  tokenMayReachRoute,
   TRUST_EXEMPT_SCOPE_PROFILES,
 } from "./route-trust-class.js";
 

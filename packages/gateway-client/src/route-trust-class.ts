@@ -58,18 +58,26 @@ export function routeAdmitsTrustClass(
 }
 
 /**
- * Whether a caller holding a contact-role token may reach a route admitting
- * `allowedTrustClasses`.
+ * Whether a caller whose token carries `scopeProfile` may reach a route
+ * admitting `allowedTrustClasses`.
  *
- * A contact token never speaks for the guardian, so a route admitting no other
- * class refuses it without calling `resolveTrustClass`. Otherwise the resolved
- * class must be one the route admits and must not be `guardian`. A resolver
- * that throws or resolves nothing refuses.
+ * A trust-exempt profile stands for the guardian, so it reaches exactly the
+ * routes that admit `guardian`, with no lookup. That is every route naming no
+ * classes.
+ *
+ * A trust-checked token never speaks for the guardian, so a route admitting no
+ * other class refuses it without calling `resolveTrustClass`. Otherwise the
+ * resolved class must be one the route admits and must not be `guardian`. A
+ * resolver that throws or resolves nothing refuses.
  */
-export async function contactTokenMayReachRoute(
+export async function tokenMayReachRoute(
+  scopeProfile: string,
   allowedTrustClasses: readonly string[] | undefined,
   resolveTrustClass: () => Promise<string | undefined>,
 ): Promise<boolean> {
+  if (!isTrustCheckedScopeProfile(scopeProfile)) {
+    return routeAdmitsTrustClass(allowedTrustClasses, "guardian");
+  }
   const allowed = allowedTrustClasses ?? DEFAULT_ROUTE_TRUST_CLASSES;
   if (!allowed.some((trustClass) => trustClass !== "guardian")) {
     return false;

@@ -97,6 +97,17 @@ const ROUTE_SCHEMA = [
       allowedTrustClasses: ["guardian"],
     },
   },
+  // A route that admits contacts and not the guardian.
+  {
+    operationId: "contact_only_probe",
+    endpoint: "contact-only-probe",
+    method: "POST",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ["actor"],
+      allowedTrustClasses: ["trusted_contact"],
+    },
+  },
   // A route that opts into contacts.
   {
     operationId: "contact_probe",
@@ -950,7 +961,8 @@ describe("trust class on the IPC fast path", () => {
   test("a contact token gets 404 from every route not admitting contacts", async () => {
     mockClaims("contact_client_v1");
     const refused = ROUTE_SCHEMA.filter(
-      (route) => route.operationId !== "contact_probe",
+      (route) =>
+        !route.policy?.allowedTrustClasses?.includes("trusted_contact"),
     );
     const leaks: string[] = [];
     for (const route of refused) {
@@ -978,6 +990,45 @@ describe("trust class on the IPC fast path", () => {
 
     expect(result!.status).toBe(404);
     expect(ipcCallAssistantMock).not.toHaveBeenCalled();
+  });
+
+  test("a guardian token reaches a route admitting guardians and contacts", async () => {
+    mockClaims("actor_client_v1");
+    const result = await tryIpcProxy(
+      postJson("/v1/contact-probe"),
+      AUTHED_CONFIG(),
+    );
+
+    expect(result!.status).toBe(200);
+    expect(resolveTrustVerdictMock).not.toHaveBeenCalled();
+  });
+
+  test("a guardian token gets 404 from a contact-only route, without a lookup", async () => {
+    mockClaims("actor_client_v1");
+    const result = await tryIpcProxy(
+      postJson("/v1/contact-only-probe"),
+      AUTHED_CONFIG(),
+    );
+
+    expect(result!.status).toBe(404);
+    expect(await result!.json()).toEqual({
+      error: "Not found",
+      source: "ipc-proxy",
+    });
+    expect(ipcCallAssistantMock).not.toHaveBeenCalled();
+    expect(resolveTrustVerdictMock).not.toHaveBeenCalled();
+  });
+
+  test("a contact token reaches a contact-only route", async () => {
+    mockClaims("contact_client_v1");
+    const result = await tryIpcProxy(
+      postJson("/v1/contact-only-probe"),
+      AUTHED_CONFIG(),
+    );
+
+    expect(result!.status).toBe(200);
+    const [opId] = ipcCallAssistantMock.mock.calls[0] as [string];
+    expect(opId).toBe("contact_only_probe");
   });
 
   test("a guardian token is unaffected and never looked up", async () => {

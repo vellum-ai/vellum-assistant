@@ -1,13 +1,18 @@
 import { describe, expect, mock, test } from "bun:test";
 
 import {
-  contactTokenMayReachRoute,
   isTrustCheckedScopeProfile,
   routeAdmitsTrustClass,
+  tokenMayReachRoute,
   TRUST_EXEMPT_SCOPE_PROFILES,
 } from "../route-trust-class.js";
 
 const CONTACT_ROUTE = ["guardian", "trusted_contact", "unverified_contact"];
+
+const contactMayReach = (
+  allowed: readonly string[] | undefined,
+  resolve: () => Promise<string | undefined>,
+) => tokenMayReachRoute("contact_client_v1", allowed, resolve);
 
 describe("routeAdmitsTrustClass", () => {
   test("an absent list admits the guardian only", () => {
@@ -27,11 +32,11 @@ describe("routeAdmitsTrustClass", () => {
   });
 });
 
-describe("contactTokenMayReachRoute", () => {
+describe("tokenMayReachRoute for a contact token", () => {
   test("a route admitting only the guardian refuses without resolving", async () => {
     const resolve = mock(async () => "trusted_contact");
-    expect(await contactTokenMayReachRoute(undefined, resolve)).toBe(false);
-    expect(await contactTokenMayReachRoute(["guardian"], resolve)).toBe(false);
+    expect(await contactMayReach(undefined, resolve)).toBe(false);
+    expect(await contactMayReach(["guardian"], resolve)).toBe(false);
     expect(resolve).not.toHaveBeenCalled();
   });
 
@@ -44,15 +49,15 @@ describe("contactTokenMayReachRoute", () => {
   ] as const)(
     "a contact route resolving %p admits: %p",
     async (trustClass, admitted) => {
-      expect(
-        await contactTokenMayReachRoute(CONTACT_ROUTE, async () => trustClass),
-      ).toBe(admitted);
+      expect(await contactMayReach(CONTACT_ROUTE, async () => trustClass)).toBe(
+        admitted,
+      );
     },
   );
 
   test("a class the route does not list is refused", async () => {
     expect(
-      await contactTokenMayReachRoute(
+      await contactMayReach(
         ["guardian", "trusted_contact"],
         async () => "unverified_contact",
       ),
@@ -61,7 +66,7 @@ describe("contactTokenMayReachRoute", () => {
 
   test("a resolver that throws refuses", async () => {
     expect(
-      await contactTokenMayReachRoute(CONTACT_ROUTE, async () => {
+      await contactMayReach(CONTACT_ROUTE, async () => {
         throw new Error("gateway unreachable");
       }),
     ).toBe(false);
@@ -86,4 +91,21 @@ describe("isTrustCheckedScopeProfile", () => {
       expect(isTrustCheckedScopeProfile(profile)).toBe(true);
     }
   });
+});
+
+describe("tokenMayReachRoute for a trust-exempt token", () => {
+  test.each([...TRUST_EXEMPT_SCOPE_PROFILES])(
+    "%s counts as the guardian without a lookup",
+    async (profile) => {
+      const resolve = mock(async () => "trusted_contact");
+      expect(await tokenMayReachRoute(profile, undefined, resolve)).toBe(true);
+      expect(await tokenMayReachRoute(profile, CONTACT_ROUTE, resolve)).toBe(
+        true,
+      );
+      expect(
+        await tokenMayReachRoute(profile, ["trusted_contact"], resolve),
+      ).toBe(false);
+      expect(resolve).not.toHaveBeenCalled();
+    },
+  );
 });

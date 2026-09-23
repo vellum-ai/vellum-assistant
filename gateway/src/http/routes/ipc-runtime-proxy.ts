@@ -13,8 +13,8 @@
  */
 
 import {
-  contactTokenMayReachRoute,
   isTrustCheckedScopeProfile,
+  tokenMayReachRoute,
 } from "@vellumai/gateway-client";
 
 import { admitActorToken } from "../../auth/actor-token-revocation.js";
@@ -340,11 +340,11 @@ async function resolveContactTrustClass(
 
 /**
  * Enforce the route's trust-class/scope/principal policy against the
- * caller's token. Returns a 404 when a trust-checked token (see
- * {@link isTrustCheckedScopeProfile}) reaches a route that does not admit its
+ * caller's token. Returns a 404 when the route does not admit the caller's
  * trust class, a 403 for any other denial, and null when allowed. The trust
- * check runs first so its holder learns nothing about which routes exist, and
- * no other token is resolved.
+ * check runs first so the caller learns nothing about which routes exist. A
+ * trust-exempt profile (see {@link isTrustCheckedScopeProfile}) counts as the
+ * guardian with no lookup; only a trust-checked one is resolved.
  *
  * A route naming no scope (`policy` null, or empty `requiredScopes`) is
  * unprotected (e.g. health, debug) for a broad profile, and closed to a narrow
@@ -361,13 +361,14 @@ async function enforceRoutePolicy(
   if (!claims) return null;
 
   if (
-    isTrustCheckedScopeProfile(claims.scope_profile) &&
-    !(await contactTokenMayReachRoute(policy?.allowedTrustClasses, () =>
-      resolveContactTrustClass(claims),
+    !(await tokenMayReachRoute(
+      claims.scope_profile,
+      policy?.allowedTrustClasses,
+      () => resolveContactTrustClass(claims),
     ))
   ) {
     log.warn(
-      { path, sub: claims.sub },
+      { path, sub: claims.sub, scopeProfile: claims.scope_profile },
       "IPC proxy policy denied: trust class not admitted",
     );
     return notFound();

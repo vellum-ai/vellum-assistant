@@ -65,13 +65,20 @@ const PROBE: RouteDefinition = {
   handler: () => ({ ok: true }),
 };
 
+const CONTACT_ONLY_PROBE: RouteDefinition = {
+  ...PROBE,
+  operationId: "contact_only_probe",
+  endpoint: "contact-only-probe",
+  policy: { ...PROBE.policy!, allowedTrustClasses: ["trusted_contact"] },
+};
+
 const REAL_ROUTES = actualRoutes.ROUTES.map(stub);
 const GUARDIAN_ROUTES = REAL_ROUTES.filter(
   (route) => !route.policy?.allowedTrustClasses?.some(isContactTrustClass),
 );
 mock.module("../routes/index.js", () => ({
   ...actualRoutes,
-  ROUTES: [...REAL_ROUTES, stub(PROBE)],
+  ROUTES: [...REAL_ROUTES, stub(PROBE), stub(CONTACT_ONLY_PROBE)],
 }));
 
 const { resolveScopeProfile } = await import("../auth/scopes.js");
@@ -295,6 +302,37 @@ describe("other tokens", () => {
 
     expect(response.status).toBe(202);
     expect(reached).toBe("messages_post");
+  });
+
+  test("a guardian token reaches a route admitting guardians and contacts", async () => {
+    const response = await dispatch("POST", "trust-probe", GUARDIAN);
+
+    expect(response.status).toBe(200);
+    expect(reached).toBe("trust_probe");
+    expect(resolveSharedPrincipalFresh).not.toHaveBeenCalled();
+  });
+
+  test("a guardian token gets 404 from a contact-only route, without a lookup", async () => {
+    const response = await dispatch("POST", "contact-only-probe", GUARDIAN);
+
+    expect(response.status).toBe(404);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("NOT_FOUND");
+    expect(reached).toBeUndefined();
+    expect(resolveSharedPrincipalFresh).not.toHaveBeenCalled();
+  });
+
+  test("the dev-bypass guardian is refused on a contact-only route too", async () => {
+    authDisabled = true;
+    const response = await dispatch("POST", "contact-only-probe", GUARDIAN);
+    expect(response.status).toBe(404);
+  });
+
+  test("a contact token reaches a contact-only route", async () => {
+    const response = await dispatch("POST", "contact-only-probe", CONTACT);
+
+    expect(response.status).toBe(200);
+    expect(reached).toBe("contact_only_probe");
   });
 
   test.each([
