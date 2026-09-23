@@ -1,5 +1,5 @@
 /**
- * Trust-class lookup for a `vellum` principal.
+ * Trust-class lookup for a shared-conversation principal.
  *
  * `local-principal-trust.ts` asks the gateway one question about a `vellum`
  * principal (is it the guardian?), so a principal belonging to a contact
@@ -13,7 +13,7 @@
  * single-flight: the callers this exists for run per request, where
  * {@link readInboundTrust} caches nothing because it serves call setup. A
  * revoked contact keeps resolving from cache until the entry expires; callers
- * that cannot tolerate that read {@link resolveVellumPrincipalFresh}.
+ * that cannot tolerate that read {@link resolveSharedPrincipalFresh}.
  *
  * Failures resolve `unknown` and are not cached: an unreachable gateway, a
  * malformed response, and the resolver's own could-not-vouch sentinel all
@@ -25,7 +25,7 @@ import type { TrustClass } from "@vellumai/gateway-client";
 import { readInboundTrust } from "../calls/inbound-trust-reader.js";
 import { getLogger } from "../util/logger.js";
 
-const log = getLogger("vellum-principal-lookup");
+const log = getLogger("shared-principal-lookup");
 
 /** Bounds staleness after a revoke; callers needing none read fresh. */
 const CACHE_TTL_MS = 30_000;
@@ -33,19 +33,19 @@ const CACHE_TTL_MS = 30_000;
 /** Keeps the map from growing without limit across principals. */
 export const MAX_ENTRIES = 2000;
 
-export interface VellumPrincipalTrust {
+export interface SharedPrincipalTrust {
   trustClass: TrustClass;
   contactId?: string;
   displayName?: string;
 }
 
 // Frozen: returned to every failing caller, so a mutation would travel.
-const UNKNOWN: VellumPrincipalTrust = Object.freeze({ trustClass: "unknown" });
+const UNKNOWN: SharedPrincipalTrust = Object.freeze({ trustClass: "unknown" });
 
 interface PrincipalState {
-  trust?: VellumPrincipalTrust;
+  trust?: SharedPrincipalTrust;
   expiresAt?: number;
-  inFlight?: Promise<VellumPrincipalTrust>;
+  inFlight?: Promise<SharedPrincipalTrust>;
   /** Bumped when a read starts; only the newest read may write its result. */
   generation: number;
   /** Reads currently in flight for this principal. */
@@ -105,7 +105,7 @@ function evictIfFull(principalId: string): void {
 
 async function fetchTrust(
   principalId: string,
-): Promise<{ trust: VellumPrincipalTrust; cacheable: boolean }> {
+): Promise<{ trust: SharedPrincipalTrust; cacheable: boolean }> {
   const result = await readInboundTrust({
     channelType: "vellum",
     actorExternalId: principalId,
@@ -114,7 +114,7 @@ async function fetchTrust(
   if (!result.ok) {
     log.warn(
       { principalId },
-      "vellum principal trust unresolved: gateway read failed",
+      "shared principal trust unresolved: gateway read failed",
     );
     return { trust: UNKNOWN, cacheable: false };
   }
@@ -124,12 +124,12 @@ async function fetchTrust(
   if (verdict.resolutionFailed) {
     log.warn(
       { principalId },
-      "vellum principal trust unresolved: gateway could not vouch",
+      "shared principal trust unresolved: gateway could not vouch",
     );
     return { trust: UNKNOWN, cacheable: false };
   }
 
-  const trust: VellumPrincipalTrust = { trustClass: verdict.trustClass };
+  const trust: SharedPrincipalTrust = { trustClass: verdict.trustClass };
   if (verdict.contactId !== undefined) {
     trust.contactId = verdict.contactId;
   }
@@ -143,7 +143,7 @@ async function fetchTrust(
 function read(
   principalId: string,
   forceRefresh: boolean,
-): Promise<VellumPrincipalTrust> {
+): Promise<SharedPrincipalTrust> {
   const key = principalId.trim();
   if (!key) {
     return Promise.resolve(UNKNOWN);
@@ -196,32 +196,32 @@ function read(
 }
 
 /**
- * Trust class for a `vellum` principal, from cache when fresh. Resolves
- * `unknown` for an unknown, revoked, or blocked principal, and for any read
- * the gateway could not complete.
+ * Trust class for a shared-conversation principal, from cache when fresh.
+ * Resolves `unknown` for an unknown, revoked, or blocked principal, and for
+ * any read the gateway could not complete.
  */
-export function resolveVellumPrincipal(
+export function resolveSharedPrincipal(
   principalId: string,
-): Promise<VellumPrincipalTrust> {
+): Promise<SharedPrincipalTrust> {
   return read(principalId, false);
 }
 
 /**
- * Uncached variant of {@link resolveVellumPrincipal}, for callers whose threat
+ * Uncached variant of {@link resolveSharedPrincipal}, for callers whose threat
  * model is the stale entry itself. Repopulates the cache on success.
  */
-export function resolveVellumPrincipalFresh(
+export function resolveSharedPrincipalFresh(
   principalId: string,
-): Promise<VellumPrincipalTrust> {
+): Promise<SharedPrincipalTrust> {
   return read(principalId, true);
 }
 
 /** Test-only: number of principals currently held. */
-export function __vellumPrincipalCacheSizeForTest(): number {
+export function __sharedPrincipalCacheSizeForTest(): number {
   return states.size;
 }
 
 /** Test-only: reset cache + in-flight state for deterministic test runs. */
-export function __resetVellumPrincipalCacheForTest(): void {
+export function __resetSharedPrincipalCacheForTest(): void {
   states.clear();
 }

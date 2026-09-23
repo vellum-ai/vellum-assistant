@@ -1,5 +1,5 @@
 /**
- * Tests for the `vellum` principal trust lookup.
+ * Tests for the shared-conversation principal trust lookup.
  *
  * The gateway classifies; this module surfaces that classification, caches it
  * per principal, and fails closed. These pin the verdict passthrough for each
@@ -46,12 +46,12 @@ function defer(): { promise: Promise<void>; release: () => void } {
 }
 
 const {
-  resolveVellumPrincipal,
-  resolveVellumPrincipalFresh,
-  __resetVellumPrincipalCacheForTest,
-  __vellumPrincipalCacheSizeForTest,
+  resolveSharedPrincipal,
+  resolveSharedPrincipalFresh,
+  __resetSharedPrincipalCacheForTest,
+  __sharedPrincipalCacheSizeForTest,
   MAX_ENTRIES,
-} = await import("../vellum-principal-lookup.js");
+} = await import("../shared-principal-lookup.js");
 
 const PRINCIPAL = "11111111-2222-3333-4444-555555555555";
 
@@ -71,14 +71,14 @@ beforeEach(() => {
   readCalls = [];
   nextResult = { ok: false };
   gate = null;
-  __resetVellumPrincipalCacheForTest();
+  __resetSharedPrincipalCacheForTest();
 });
 
-describe("resolveVellumPrincipal", () => {
+describe("resolveSharedPrincipal", () => {
   test("asks the gateway for the vellum channel and the principal as actor", async () => {
     nextResult = verdict({ trustClass: "trusted_contact" });
 
-    await resolveVellumPrincipal(PRINCIPAL);
+    await resolveSharedPrincipal(PRINCIPAL);
 
     expect(readCalls).toEqual([
       { channelType: "vellum", actorExternalId: PRINCIPAL },
@@ -88,7 +88,7 @@ describe("resolveVellumPrincipal", () => {
   test("a principal with no contact row resolves unknown", async () => {
     nextResult = verdict({ trustClass: "unknown" });
 
-    expect(await resolveVellumPrincipal(PRINCIPAL)).toEqual({
+    expect(await resolveSharedPrincipal(PRINCIPAL)).toEqual({
       trustClass: "unknown",
     });
   });
@@ -100,7 +100,7 @@ describe("resolveVellumPrincipal", () => {
       guardianDisplayName: "Owner",
     });
 
-    expect(await resolveVellumPrincipal(PRINCIPAL)).toEqual({
+    expect(await resolveSharedPrincipal(PRINCIPAL)).toEqual({
       trustClass: "guardian",
       displayName: "Owner",
     });
@@ -114,7 +114,7 @@ describe("resolveVellumPrincipal", () => {
       status: "active",
     });
 
-    expect(await resolveVellumPrincipal(PRINCIPAL)).toEqual({
+    expect(await resolveSharedPrincipal(PRINCIPAL)).toEqual({
       trustClass: "trusted_contact",
       contactId: "c-1",
       displayName: "Alice",
@@ -130,7 +130,7 @@ describe("resolveVellumPrincipal", () => {
         status,
       });
 
-      expect(await resolveVellumPrincipal(PRINCIPAL)).toMatchObject({
+      expect(await resolveSharedPrincipal(PRINCIPAL)).toMatchObject({
         trustClass: "unverified_contact",
         contactId: "c-1",
       });
@@ -146,14 +146,14 @@ describe("resolveVellumPrincipal", () => {
         status,
       });
 
-      expect((await resolveVellumPrincipal(PRINCIPAL)).trustClass).toBe(
+      expect((await resolveSharedPrincipal(PRINCIPAL)).trustClass).toBe(
         "unknown",
       );
     },
   );
 
   test("a blank principal resolves unknown without reading the gateway", async () => {
-    expect(await resolveVellumPrincipal("   ")).toEqual({
+    expect(await resolveSharedPrincipal("   ")).toEqual({
       trustClass: "unknown",
     });
     expect(readCalls).toEqual([]);
@@ -164,7 +164,7 @@ describe("fail-closed reads", () => {
   test("an unreachable gateway resolves unknown", async () => {
     nextResult = { ok: false };
 
-    expect(await resolveVellumPrincipal(PRINCIPAL)).toEqual({
+    expect(await resolveSharedPrincipal(PRINCIPAL)).toEqual({
       trustClass: "unknown",
     });
   });
@@ -172,17 +172,17 @@ describe("fail-closed reads", () => {
   test("a could-not-vouch verdict resolves unknown", async () => {
     nextResult = verdict({ trustClass: "unknown", resolutionFailed: true });
 
-    expect(await resolveVellumPrincipal(PRINCIPAL)).toEqual({
+    expect(await resolveSharedPrincipal(PRINCIPAL)).toEqual({
       trustClass: "unknown",
     });
   });
 
   test("an unreachable gateway is retried rather than cached", async () => {
     nextResult = { ok: false };
-    await resolveVellumPrincipal(PRINCIPAL);
+    await resolveSharedPrincipal(PRINCIPAL);
 
     nextResult = verdict({ trustClass: "trusted_contact" });
-    const second = await resolveVellumPrincipal(PRINCIPAL);
+    const second = await resolveSharedPrincipal(PRINCIPAL);
 
     expect(second.trustClass).toBe("trusted_contact");
     expect(readCalls).toHaveLength(2);
@@ -190,10 +190,10 @@ describe("fail-closed reads", () => {
 
   test("a could-not-vouch verdict is retried rather than cached", async () => {
     nextResult = verdict({ trustClass: "unknown", resolutionFailed: true });
-    await resolveVellumPrincipal(PRINCIPAL);
+    await resolveSharedPrincipal(PRINCIPAL);
 
     nextResult = verdict({ trustClass: "guardian" });
-    const second = await resolveVellumPrincipal(PRINCIPAL);
+    const second = await resolveSharedPrincipal(PRINCIPAL);
 
     expect(second.trustClass).toBe("guardian");
     expect(readCalls).toHaveLength(2);
@@ -204,8 +204,8 @@ describe("caching", () => {
   test("a resolved principal is served from cache", async () => {
     nextResult = verdict({ trustClass: "trusted_contact", contactId: "c-1" });
 
-    await resolveVellumPrincipal(PRINCIPAL);
-    const second = await resolveVellumPrincipal(PRINCIPAL);
+    await resolveSharedPrincipal(PRINCIPAL);
+    const second = await resolveSharedPrincipal(PRINCIPAL);
 
     expect(second).toEqual({
       trustClass: "trusted_contact",
@@ -218,8 +218,8 @@ describe("caching", () => {
     nextResult = verdict({ trustClass: "trusted_contact" });
 
     const [a, b] = await Promise.all([
-      resolveVellumPrincipal(PRINCIPAL),
-      resolveVellumPrincipal(PRINCIPAL),
+      resolveSharedPrincipal(PRINCIPAL),
+      resolveSharedPrincipal(PRINCIPAL),
     ]);
 
     expect(a).toEqual(b);
@@ -232,11 +232,11 @@ describe("caching", () => {
     // An ordinary read misses the cache and is still waiting on the gateway.
     nextResult = verdict({ trustClass: "trusted_contact" });
     gate = stale.promise;
-    const pending = resolveVellumPrincipal(PRINCIPAL);
+    const pending = resolveSharedPrincipal(PRINCIPAL);
 
     // The contact is revoked; a fresh read starts later and answers first.
     nextResult = verdict({ trustClass: "unknown", status: "revoked" });
-    expect((await resolveVellumPrincipalFresh(PRINCIPAL)).trustClass).toBe(
+    expect((await resolveSharedPrincipalFresh(PRINCIPAL)).trustClass).toBe(
       "unknown",
     );
 
@@ -244,7 +244,7 @@ describe("caching", () => {
     expect((await pending).trustClass).toBe("trusted_contact");
 
     // The cache must still hold the revocation.
-    expect((await resolveVellumPrincipal(PRINCIPAL)).trustClass).toBe(
+    expect((await resolveSharedPrincipal(PRINCIPAL)).trustClass).toBe(
       "unknown",
     );
     expect(readCalls).toHaveLength(2);
@@ -252,23 +252,23 @@ describe("caching", () => {
 
   test("distinct principals are cached separately", async () => {
     nextResult = verdict({ trustClass: "guardian" });
-    await resolveVellumPrincipal(PRINCIPAL);
+    await resolveSharedPrincipal(PRINCIPAL);
 
     nextResult = verdict({ trustClass: "trusted_contact" });
-    const other = await resolveVellumPrincipal("other-principal");
+    const other = await resolveSharedPrincipal("other-principal");
 
     expect(other.trustClass).toBe("trusted_contact");
     expect(readCalls).toHaveLength(2);
   });
 });
 
-describe("resolveVellumPrincipalFresh", () => {
+describe("resolveSharedPrincipalFresh", () => {
   test("bypasses a cached entry and re-reads", async () => {
     nextResult = verdict({ trustClass: "trusted_contact" });
-    await resolveVellumPrincipal(PRINCIPAL);
+    await resolveSharedPrincipal(PRINCIPAL);
 
     nextResult = verdict({ trustClass: "unknown", status: "revoked" });
-    const fresh = await resolveVellumPrincipalFresh(PRINCIPAL);
+    const fresh = await resolveSharedPrincipalFresh(PRINCIPAL);
 
     expect(fresh.trustClass).toBe("unknown");
     expect(readCalls).toHaveLength(2);
@@ -276,9 +276,9 @@ describe("resolveVellumPrincipalFresh", () => {
 
   test("repopulates the cache for later cached reads", async () => {
     nextResult = verdict({ trustClass: "guardian" });
-    await resolveVellumPrincipalFresh(PRINCIPAL);
+    await resolveSharedPrincipalFresh(PRINCIPAL);
 
-    const cached = await resolveVellumPrincipal(PRINCIPAL);
+    const cached = await resolveSharedPrincipal(PRINCIPAL);
 
     expect(cached.trustClass).toBe("guardian");
     expect(readCalls).toHaveLength(1);
@@ -289,16 +289,16 @@ describe("cache bounds", () => {
   test("a burst past the limit is trimmed once the reads settle", async () => {
     nextResult = verdict({ trustClass: "guardian" });
     const burst = Array.from({ length: MAX_ENTRIES + 50 }, (_, i) =>
-      resolveVellumPrincipal(`burst-principal-${i}`),
+      resolveSharedPrincipal(`burst-principal-${i}`),
     );
 
     // Nothing was evictable on insert: every entry is mid-read.
-    expect(__vellumPrincipalCacheSizeForTest()).toBeGreaterThan(MAX_ENTRIES);
+    expect(__sharedPrincipalCacheSizeForTest()).toBeGreaterThan(MAX_ENTRIES);
 
     await Promise.all(burst);
 
     // No later lookup is needed to bring it back down.
-    expect(__vellumPrincipalCacheSizeForTest()).toBeLessThanOrEqual(
+    expect(__sharedPrincipalCacheSizeForTest()).toBeLessThanOrEqual(
       MAX_ENTRIES,
     );
   });
