@@ -834,22 +834,39 @@ export function useConversationHistory({
 
   // -------------------------------------------------------------------------
   // Cached history stays usable when a refresh or older-page fetch fails.
-  // Only an initial load can surface an error, after the resume grace window.
+  // Only an initial load can surface an error, after the resume grace window
+  // and while the daemon can take requests.
+  //
+  // While it cannot (the pod is waking or asleep), the transcript keeps its
+  // loading state: a failure from that window is the wake itself, which the
+  // status banner reports, and the query refetches when the gate reopens.
   // -------------------------------------------------------------------------
   const isResumeGraceActive = useResumeGrace();
   const historyErrorRef = useRef<ChatError | null>(null);
   useEffect(() => {
-    if (historyErrorRef.current && (pagination.isSuccess || isResumeGraceActive)) {
+    if (
+      historyErrorRef.current &&
+      (pagination.isSuccess ||
+        isResumeGraceActive ||
+        !pagination.canQueryDaemon)
+    ) {
       const historyError = historyErrorRef.current;
       setError((current) => (current === historyError ? null : current));
       historyErrorRef.current = null;
+    }
+
+    const hasLoadedHistory = pagination.latestPage !== undefined;
+    if (!pagination.canQueryDaemon) {
+      if (!hasLoadedHistory) {
+        setIsLoadingHistory(true);
+      }
+      return;
     }
 
     if (!pagination.isError || !pagination.error) {
       return;
     }
 
-    const hasLoadedHistory = pagination.latestPage !== undefined;
     captureError(pagination.error, {
       context: hasLoadedHistory
         ? "conversation_history_refresh"
@@ -872,6 +889,7 @@ export function useConversationHistory({
     pagination.isSuccess,
     pagination.error,
     pagination.latestPage,
+    pagination.canQueryDaemon,
     isResumeGraceActive,
     setIsLoadingHistory,
     setError,
