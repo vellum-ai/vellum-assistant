@@ -5,9 +5,11 @@ let nativeMobile = false;
 let iosWeb = false;
 let iosSafariWeb = false;
 let androidWeb = false;
+let mobileWeb = false;
+const emitNudgeEvent = mock(() => {});
 
 mock.module("@/utils/native-app-nudge-telemetry", () => ({
-  emitNativeAppNudgeEvent: () => {},
+  emitNativeAppNudgeEvent: emitNudgeEvent,
   emitNativeAppNudgeImpressionOnce: () => {},
 }));
 
@@ -16,6 +18,7 @@ mock.module("@/runtime/platform-detection", () => ({
   useIsIOSWeb: () => iosWeb,
   useIsIOSSafariWeb: () => iosSafariWeb,
   useIsAndroidWeb: () => androidWeb,
+  useIsMobileWeb: () => mobileWeb,
 }));
 
 const { NativeAppReminderNudge } = await import("./native-app-reminder-nudge");
@@ -28,7 +31,8 @@ const originalWindowOpen = window.open;
 
 beforeEach(() => {
   localStorage.clear();
-  nativeMobile = iosWeb = iosSafariWeb = androidWeb = false;
+  nativeMobile = iosWeb = iosSafariWeb = androidWeb = mobileWeb = false;
+  emitNudgeEvent.mockClear();
   env.VITE_ANDROID_PLAY_STORE_URL = ANDROID_PLAY_STORE_URL;
 });
 
@@ -94,6 +98,36 @@ test("dismissal persists across placements", () => {
   schedule.unmount();
   render(<NativeAppReminderNudge surface="notifications-empty" />);
   expect(screen.queryByRole("status")).toBeNull();
+});
+
+test("dismisses both offered targets while saving one preference", () => {
+  render(<NativeAppReminderNudge surface="schedule-created" />);
+  fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+
+  expect(emitNudgeEvent).toHaveBeenCalledWith(
+    "dismiss", "schedule-created", "ios",
+  );
+  expect(emitNudgeEvent).toHaveBeenCalledWith(
+    "dismiss", "schedule-created", "android",
+  );
+  expect(emitNudgeEvent).toHaveBeenCalledTimes(2);
+  expect(localStorage.getItem("app.iosNudge.bannerDismissed")).toBe("true");
+  expect(localStorage.getItem("app.androidNudge.bannerDismissed")).toBeNull();
+});
+
+test("uses the generic download for unidentified mobile browsers", () => {
+  mobileWeb = true;
+  render(<NativeAppReminderNudge surface="notifications-empty" />);
+
+  expect(
+    screen.getByRole("button", { name: "Download Vellum mobile app" }),
+  ).toBeDefined();
+  expect(
+    screen.queryByRole("button", { name: "Download iOS app" }),
+  ).toBeNull();
+  expect(
+    screen.queryByRole("button", { name: "Download Android app" }),
+  ).toBeNull();
 });
 
 test("suppresses the offer when a native download is already recorded", () => {

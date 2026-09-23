@@ -7,8 +7,10 @@ import {
   useIsAndroidWeb,
   useIsIOSSafariWeb,
   useIsIOSWeb,
+  useIsMobileWeb,
   useIsNativeMobile,
 } from "@/runtime/platform-detection";
+import { emitNativeAppNudgeEvent } from "@/utils/native-app-nudge-telemetry";
 
 interface NativeAppReminderNudgeProps {
   surface: "schedule-created" | "notifications-empty";
@@ -21,29 +23,39 @@ export function NativeAppReminderNudge({
   const isIOSWeb = useIsIOSWeb();
   const isIOSSafariWeb = useIsIOSSafariWeb();
   const isAndroidWeb = useIsAndroidWeb();
-  const ios = resolveMobilePromotion("ios");
+  const isMobileWeb = useIsMobileWeb();
+  const offerBoth =
+    !isIOSWeb && !isIOSSafariWeb && !isAndroidWeb && !isMobileWeb;
+  const promotion = resolveMobilePromotion(
+    isIOSWeb || isIOSSafariWeb || offerBoth
+      ? "ios"
+      : isAndroidWeb
+        ? "android"
+        : null,
+  );
   const android = resolveMobilePromotion("android");
-  const iosNudge = useNativeAppNudgeState(ios.target, surface);
+  const nudge = useNativeAppNudgeState(promotion.target, surface);
   const androidNudge = useNativeAppNudgeState(android.target, surface);
 
   if (
     isNativeMobile ||
-    !iosNudge.bannerShouldShow ||
+    !nudge.bannerShouldShow ||
     !androidNudge.bannerShouldShow
   ) {
     return null;
   }
-
-  const promotion = isAndroidWeb ? android : ios;
-  const nudge = isAndroidWeb ? androidNudge : iosNudge;
-  const offerBoth = !isIOSWeb && !isIOSSafariWeb && !isAndroidWeb;
 
   return (
     <div className="my-3">
       <NativeAppBanner
         promotion={promotion}
         onDownload={nudge.handleDownload}
-        onDismiss={nudge.handleBannerDismiss}
+        onDismiss={() => {
+          nudge.handleBannerDismiss();
+          if (offerBoth) {
+            emitNativeAppNudgeEvent("dismiss", surface, android.target);
+          }
+        }}
         surface={surface}
         alternative={
           offerBoth
