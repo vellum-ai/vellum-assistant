@@ -42,15 +42,6 @@ mock.module("../../persistence/conversation-crud.js", () => ({
   ...crud,
   getConversation: () => conversation,
   getMessageById: (id: string) => rows.get(id) ?? null,
-  getAssistantMessageIdsInTurn: (id: string) =>
-    [...rows.values()]
-      .filter(
-        (row) =>
-          row.role === "assistant" &&
-          row.createdAt <= (rows.get(id)?.createdAt ?? 0),
-      )
-      .sort((left, right) => left.createdAt - right.createdAt)
-      .map((row) => row.id),
   getMessagesAfter: () => resultRows,
   getRecentConversationMessages: (
     _conversationId: string,
@@ -942,7 +933,40 @@ describe("background result ownership", () => {
     expect(signals).toHaveLength(1);
   });
 
+  test("a long continuation still recognizes its early successful message delivery", async () => {
+    rows.delete("result");
+    const delivery = row("early-delivery", "assistant", "", 101);
+    delivery.content = [
+      {
+        type: "tool_use",
+        id: "send-result",
+        name: "messaging_send",
+        input: {},
+      },
+    ];
+    rows.set(delivery.id, delivery);
+    const receipt = row("delivery-receipt", "user", "", 102);
+    receipt.content = [
+      { type: "tool_result", tool_use_id: "send-result", content: "Delivered" },
+    ];
+    rows.set(receipt.id, receipt);
+    resultRows.push(receipt);
+    for (let index = 0; index < 220; index++) {
+      rows.set(
+        `long-turn-${index}`,
+        row(`long-turn-${index}`, "assistant", "Working", 103 + index),
+      );
+    }
+    rows.set("result", row("result", "assistant", "Result ready.", 400));
+    attention.latestAssistantMessageAt = startedAt + 400;
+
+    await emit();
+
+    expect(signals).toHaveLength(0);
+  });
+
   test("private wrap-up uses the earlier user-facing result", async () => {
+    rows.delete("result");
     rows.set(
       "visible-result",
       row("visible-result", "assistant", "The requested findings.", 150),
@@ -1066,12 +1090,15 @@ describe("background result ownership", () => {
     "only an acknowledged messaging send suppresses the %s-origin fallback",
     async (channel) => {
       setExternalOrigin(channel);
+      const result = rows.get("result")!;
+      rows.delete("result");
       rows.set("send", {
         ...row("send", "assistant", "", 150),
         content: [
           { type: "tool_use", name: "messaging_send", id: "send-1", input: {} },
         ] as ContentBlock[],
       });
+      rows.set(result.id, result);
       await emit();
       expect(signals).toHaveLength(1);
       signals.length = 0;

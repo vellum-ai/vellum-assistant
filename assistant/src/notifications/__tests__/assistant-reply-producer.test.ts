@@ -32,6 +32,7 @@ let initiatingRow: MessageRow | null = null;
 let attentionState: AttentionState | null = null;
 let getConversationShouldThrow = false;
 let pendingBackgroundWork = false;
+let pendingWorkStartedAt: number | undefined;
 let firstAssistantRow: MessageRow | null = null;
 let persistedRows: MessageRow[] | undefined;
 const recentHistoryPages: Array<string | undefined> = [];
@@ -40,6 +41,12 @@ const pendingWorkArgs: unknown[][] = [];
 mock.module("../has-pending-background-work.js", () => ({
   hasPendingBackgroundWork: (...args: unknown[]) => {
     pendingWorkArgs.push(args);
+    if (pendingWorkStartedAt !== undefined) {
+      return (
+        pendingWorkStartedAt >=
+        (args[1] as { startedAfter: number }).startedAfter
+      );
+    }
     return pendingBackgroundWork;
   },
 }));
@@ -75,12 +82,12 @@ mock.module("../../persistence/conversation-crud.js", () => ({
     if (firstAssistantRow?.id === messageId) {
       return firstAssistantRow;
     }
+    const persisted = persistedRows?.find((row) => row.id === messageId);
+    if (persisted) {
+      return persisted;
+    }
     return messageId === ASSISTANT_MESSAGE_ID ? assistantRow : initiatingRow;
   },
-  getAssistantMessageIdsInTurn: () =>
-    firstAssistantRow
-      ? [firstAssistantRow.id, ASSISTANT_MESSAGE_ID]
-      : [ASSISTANT_MESSAGE_ID],
   getRecentConversationMessages: (
     _conversationId: string,
     limit: number,
@@ -350,6 +357,7 @@ async function run(
 
 beforeEach(() => {
   pendingBackgroundWork = false;
+  pendingWorkStartedAt = undefined;
   firstAssistantRow = null;
   persistedRows = undefined;
   recentHistoryPages.length = 0;
@@ -504,7 +512,9 @@ describe("emitAssistantReplyNotification", () => {
 
       await run();
 
-      expect(recentHistoryPages).toHaveLength(2);
+      expect(recentHistoryPages).toContain(
+        persistedRows[persistedRows.length - 200].id,
+      );
       expect(emitCalls).toHaveLength(1);
       expect(emitCalls[0].contextPayload.requestedMessage).toBe(
         replyType === "media" ? "Sent report.pdf" : "Sure, here is the plan.",
@@ -613,6 +623,36 @@ describe("emitAssistantReplyNotification", () => {
         { startedAfter: firstAssistantRow.createdAt },
       ]);
     }
+  });
+
+  test("long turns retain the pending work cutoff from their first assistant row", async () => {
+    const first = makeMessage({
+      id: "msg-first-assistant",
+      role: "assistant",
+      createdAt: initiatingRow!.createdAt + 1,
+    });
+    pendingWorkStartedAt = first.createdAt + 1;
+    persistedRows = [initiatingRow!, first];
+    for (let index = 0; index < 220; index++) {
+      persistedRows.push(
+        makeMessage({
+          id: `msg-long-turn-${index}`,
+          role: "assistant",
+          createdAt: first.createdAt + index + 2,
+        }),
+      );
+    }
+    assistantRow!.createdAt = first.createdAt + 300;
+    attentionState!.latestAssistantMessageAt = assistantRow!.createdAt;
+    persistedRows.push(assistantRow!);
+
+    await run();
+
+    expect(emitCalls).toHaveLength(0);
+    expect(pendingWorkArgs[0]).toEqual([
+      CONVERSATION_ID,
+      { startedAfter: first.createdAt },
+    ]);
   });
 
   test("does not announce completion while delegated work is pending", async () => {

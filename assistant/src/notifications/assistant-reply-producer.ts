@@ -18,7 +18,6 @@ import {
 } from "../persistence/conversation-attention-store.js";
 import {
   type ConversationRow,
-  getAssistantMessageIdsInTurn,
   getConversation,
   getMessageById,
   getRecentConversationMessages,
@@ -46,6 +45,7 @@ import {
   stripMarkdownForPreview,
 } from "./notification-utils.js";
 import { resolveCompletionVisibleInSourceNow } from "./resolve-visible-in-source.js";
+import { collectRunRows } from "./result-output.js";
 
 /** Kill switch for this producer, on by default. */
 const ASSISTANT_REPLY_PUSH_FLAG = "assistant-reply-push" as const;
@@ -246,12 +246,11 @@ export async function emitAssistantReplyNotification(params: {
       turnBoundaryId = initiatingMetadata.turnBatchedInto;
     }
 
-    const firstAssistantMessageId =
-      getAssistantMessageIdsInTurn(assistantMessageId)[0];
-    const firstAssistantRow =
-      firstAssistantMessageId && firstAssistantMessageId !== assistantMessageId
-        ? getMessageById(firstAssistantMessageId, conversationId)
-        : assistantRow;
+    const firstAssistantRow = collectRunRows(
+      assistantRow,
+      conversationId,
+      initiatingMessage.createdAt,
+    )[0];
     const startedAfter = firstAssistantRow?.createdAt ?? assistantRow.createdAt;
     if (hasPendingBackgroundWork(conversationId, { startedAfter })) {
       return;

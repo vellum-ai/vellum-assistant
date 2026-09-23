@@ -1,8 +1,10 @@
+import { isToolResultOnlyUserMessage } from "../conversations/message-consolidation.js";
 import { getAttentionStateByConversationIds } from "../persistence/conversation-attention-store.js";
 import {
-  getAssistantMessageIdsInTurn,
   getMessageById,
   getMessagesAfter,
+  getRecentConversationMessages,
+  isStandaloneAssistantMessage,
   type MessageRow,
 } from "../persistence/conversation-crud.js";
 import { stringifyMessageContent } from "../persistence/message-content.js";
@@ -17,6 +19,7 @@ import {
 } from "./notification-utils.js";
 
 const MAX_RESULT_BODY_CHARS = 2000;
+const RUN_HISTORY_PAGE_SIZE = 200;
 
 /** A messaging delivery counts only after its matching tool result succeeds.
  * Missing or failed results leave the fallback available. */
@@ -65,15 +68,37 @@ export function collectRunRows(
   conversationId: string,
   runStartedAt: number,
 ): MessageRow[] {
-  const rows: MessageRow[] = [];
-  for (const id of getAssistantMessageIdsInTurn(latestRow.id)) {
-    const row =
-      id === latestRow.id ? latestRow : getMessageById(id, conversationId);
-    if (row && row.createdAt >= runStartedAt) {
-      rows.push(row);
-    }
+  if (latestRow.createdAt < runStartedAt) {
+    return [];
   }
-  return rows;
+  const rows: MessageRow[] = [latestRow];
+  if (isStandaloneAssistantMessage(latestRow.role, latestRow.metadata)) {
+    return rows;
+  }
+  let beforeMessageId = latestRow.id;
+  while (true) {
+    const history = getRecentConversationMessages(
+      conversationId,
+      RUN_HISTORY_PAGE_SIZE,
+      beforeMessageId,
+    );
+    for (let index = history.length - 1; index >= 0; index--) {
+      const row = history[index];
+      if (
+        isStandaloneAssistantMessage(row.role, row.metadata) ||
+        (row.role === "user" && !isToolResultOnlyUserMessage(row))
+      ) {
+        return rows.reverse();
+      }
+      if (row.role === "assistant" && row.createdAt >= runStartedAt) {
+        rows.push(row);
+      }
+    }
+    if (history.length < RUN_HISTORY_PAGE_SIZE) {
+      return rows.reverse();
+    }
+    beforeMessageId = history[0].id;
+  }
 }
 
 /** Read the persisted user-facing result, walking back through private wrap-up
