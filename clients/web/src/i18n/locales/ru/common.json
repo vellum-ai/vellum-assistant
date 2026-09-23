@@ -220,6 +220,9 @@
     "body": "Управляемые сервисы тарифицируются и списываются с баланса аккаунта Vellum. <link>Смотреть цены</link>"
   },
   "nativeAppBanner": {
+    "appStore": "App Store",
+    "googlePlay": "Google Play",
+    "reminderSubtitle": "Получайте напоминания о запланированных задачах на телефоне.",
     "bannerAria": "Скачать приложение {appName}",
     "bannerAriaGeneric": "Скачать приложение Vellum",
     "download": "Скачать",

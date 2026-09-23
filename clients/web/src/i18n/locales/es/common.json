@@ -481,6 +481,9 @@
     "titleWindows": "Consigue la app de Windows"
   },
   "nativeAppBanner": {
+    "appStore": "App Store",
+    "googlePlay": "Google Play",
+    "reminderSubtitle": "Recibe recordatorios de tus tareas programadas en el teléfono.",
     "bannerAria": "Descargar la app de {appName}",
     "bannerAriaGeneric": "Descargar la app móvil de Vellum",
     "download": "Descargar",

@@ -201,6 +201,31 @@ describe("native app nudge state", () => {
 });
 
 describe("cross-target nudge reads", () => {
+  test("dismisses every mounted surface when one nudge is dismissed", () => {
+    const chat = renderHook(() => useNativeAppNudgeState("android"));
+    const schedule = renderHook(() =>
+      useNativeAppNudgeState("ios", "schedule-created"),
+    );
+    const notifications = renderHook(() =>
+      useNativeAppNudgeState("generic", "notifications-empty"),
+    );
+
+    act(() => schedule.result.current.handleBannerDismiss());
+
+    expect(chat.result.current.bannerShouldShow).toBe(false);
+    expect(notifications.result.current.bannerShouldShow).toBe(false);
+  });
+
+  test("hides mounted nudges when Settings records a download", () => {
+    const { result } = renderHook(() =>
+      useNativeAppNudgeState("ios", "notifications-empty"),
+    );
+
+    act(() => writeNativeAppDownloaded("android"));
+
+    expect(result.current.bannerShouldShow).toBe(false);
+  });
+
   test("carries an Android dismissal over to the generic banner", () => {
     localStorage.setItem("app.androidNudge.bannerDismissed", "true");
 

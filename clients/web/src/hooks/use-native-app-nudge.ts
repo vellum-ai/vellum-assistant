@@ -1,12 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { emitNativeAppNudgeEvent } from "@/utils/native-app-nudge-telemetry";
+import {
+  emitNativeAppNudgeEvent,
+  type NudgeSurface,
+} from "@/utils/native-app-nudge-telemetry";
 import { VELLUM_DOWNLOADS_URL } from "@/utils/external-urls";
 import {
   getLocalBool,
   getLocalNumber,
   setLocalBool,
   setLocalNumber,
+  watchSetting,
 } from "@/utils/local-settings";
 
 export type NativeAppPlatform = "ios" | "android";
@@ -168,31 +172,50 @@ export function openNativeAppStore(target: NudgeTarget): void {
   window.open(promotion.storeUrl, "_blank", "noopener,noreferrer");
 }
 
-export function useNativeAppNudgeState(target: NudgeTarget): {
+export function useNativeAppNudgeState(
+  target: NudgeTarget,
+  surface: NudgeSurface = "banner",
+): {
   bannerShouldShow: boolean;
   handleDownload: () => void;
   handleBannerDismiss: () => void;
 } {
-  const [downloaded, setDownloaded] = useState(false);
-  const [bannerDismissed, setBannerDismissed] = useState(false);
+  const [downloaded, setDownloaded] = useState(() =>
+    readNativeAppDownloaded(target),
+  );
+  const [bannerDismissed, setBannerDismissed] = useState(() =>
+    readNativeAppBannerDismissed(target),
+  );
 
   useEffect(() => {
-    setDownloaded(readNativeAppDownloaded(target));
-    setBannerDismissed(readNativeAppBannerDismissed(target));
+    const refresh = () => {
+      setDownloaded(readNativeAppDownloaded(target));
+      setBannerDismissed(readNativeAppBannerDismissed(target));
+    };
+    const unsubscribers = NUDGE_TARGETS.flatMap((candidate) => [
+      watchSetting(STORAGE_KEYS[candidate].downloaded, refresh),
+      watchSetting(STORAGE_KEYS[candidate].bannerDismissed, refresh),
+    ]);
+    refresh();
+    return () => {
+      for (const unsubscribe of unsubscribers) {
+        unsubscribe();
+      }
+    };
   }, [target]);
 
   const handleDownload = useCallback(() => {
-    emitNativeAppNudgeEvent("click", "banner", target);
+    emitNativeAppNudgeEvent("click", surface, target);
     openNativeAppStore(target);
     writeNativeAppDownloaded(target);
     setDownloaded(true);
-  }, [target]);
+  }, [target, surface]);
 
   const handleBannerDismiss = useCallback(() => {
-    emitNativeAppNudgeEvent("dismiss", "banner", target);
+    emitNativeAppNudgeEvent("dismiss", surface, target);
     writeNativeAppBannerDismissed(target);
     setBannerDismissed(true);
-  }, [target]);
+  }, [target, surface]);
 
   // Stable identity: consumers feed this into `useMemo` deps that build
   // banner elements. See docs/CONVENTIONS.md, "Never key an effect on a

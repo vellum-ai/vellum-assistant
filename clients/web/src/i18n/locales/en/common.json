@@ -483,6 +483,9 @@
     "titleWindows": "Get the Windows app"
   },
   "nativeAppBanner": {
+    "appStore": "App Store",
+    "googlePlay": "Google Play",
+    "reminderSubtitle": "Get schedule reminders on your phone.",
     "bannerAria": "Download the {appName} app",
     "bannerAriaGeneric": "Download the Vellum mobile app",
     "download": "Download",
