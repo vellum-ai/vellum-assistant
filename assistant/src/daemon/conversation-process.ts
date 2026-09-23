@@ -64,6 +64,7 @@ import { preactivateHostProxySkills } from "./host-proxy-preactivation.js";
 import type { UserMessageAttachment } from "./message-protocol.js";
 import { gateSharedSenderHead } from "./shared-sender-queue-gate.js";
 import { buildTransportHints } from "./transport-hints.js";
+import { resolveTrustClass } from "./trust-context.js";
 import { sameTrustIdentity, type TrustContext } from "./trust-context-types.js";
 import { restingTrust, turnOrRestingTrust } from "./trust-context-types.js";
 import { resolveVerificationSessionIntent } from "./verification-session-intent.js";
@@ -341,6 +342,65 @@ async function buildPassthroughBatch(
 
   const matched = i;
   return conversation.queue.shiftN(matched);
+}
+
+// ── Notification preferences ─────────────────────────────────────────
+
+/**
+ * Whether a turn's message may set notification preferences. They are the
+ * guardian's own: stored globally and read for every notification decision,
+ * so only a guardian's words may set them, never a contact's.
+ */
+function mayRecordNotificationPreferences(
+  trustContext: TrustContext | undefined,
+): boolean {
+  return resolveTrustClass(trustContext) === "guardian";
+}
+
+/**
+ * Detect notification preferences in a user message and persist any found.
+ * Fire-and-forget, so it never blocks the turn.
+ */
+function recordNotificationPreferences(
+  conversation: Conversation,
+  content: string,
+  trustContext: TrustContext | undefined,
+  source?: "queued" | "batched",
+): void {
+  if (
+    !conversation.assistantId ||
+    !mayRecordNotificationPreferences(trustContext)
+  ) {
+    return;
+  }
+  const suffix = source ? ` (${source})` : "";
+  extractPreferences(content)
+    .then((result) => {
+      if (!result.detected) {
+        return;
+      }
+      for (const pref of result.preferences) {
+        createPreference({
+          preferenceText: pref.preferenceText,
+          appliesWhen: pref.appliesWhen,
+          priority: pref.priority,
+        });
+      }
+      log.info(
+        {
+          count: result.preferences.length,
+          conversationId: conversation.conversationId,
+        },
+        `Persisted extracted notification preferences${suffix}`,
+      );
+    })
+    .catch((err) => {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      log.warn(
+        { err: errMsg, conversationId: conversation.conversationId },
+        `Background preference extraction failed${suffix}`,
+      );
+    });
 }
 
 // ── drainQueue ───────────────────────────────────────────────────────
@@ -1184,39 +1244,16 @@ async function drainSingleMessage(
   conversation.currentActiveSurfaceId = next.activeSurfaceId;
   conversation.currentPage = next.currentPage;
 
-  // Fire-and-forget: detect notification preferences in the queued message
-  // and persist any that are found, mirroring the logic in processMessage.
-  // Hidden rows are machine signals, not user speech — running the detector
+  // Hidden rows are machine signals, not user speech: running the detector
   // on them burns an LLM call per signal and risks persisting a bogus
   // preference from text the user never typed.
-  if (conversation.assistantId && !isHiddenMessageMetadata(next.metadata)) {
-    extractPreferences(resolvedContent)
-      .then((result) => {
-        if (!result.detected) {
-          return;
-        }
-        for (const pref of result.preferences) {
-          createPreference({
-            preferenceText: pref.preferenceText,
-            appliesWhen: pref.appliesWhen,
-            priority: pref.priority,
-          });
-        }
-        log.info(
-          {
-            count: result.preferences.length,
-            conversationId: conversation.conversationId,
-          },
-          "Persisted extracted notification preferences (queued)",
-        );
-      })
-      .catch((err) => {
-        const errMsg = err instanceof Error ? err.message : String(err);
-        log.warn(
-          { err: errMsg, conversationId: conversation.conversationId },
-          "Background preference extraction failed (queued)",
-        );
-      });
+  if (!isHiddenMessageMetadata(next.metadata)) {
+    recordNotificationPreferences(
+      conversation,
+      resolvedContent,
+      next.trustContext,
+      "queued",
+    );
   }
 
   // Fire-and-forget: persistUserMessage set the processing flag to true
@@ -1605,37 +1642,14 @@ async function drainBatch(
     lastSuccessfulContent = qmContent;
     successfulBatch.push(qm);
 
-    // Fire-and-forget: detect notification preferences in each batched user
-    // message and persist any that are found, mirroring drainSingleMessage
-    // (including its hidden-row exclusion).
-    if (conversation.assistantId && !isHiddenMessageMetadata(qm.metadata)) {
-      extractPreferences(qmContent)
-        .then((result) => {
-          if (!result.detected) {
-            return;
-          }
-          for (const pref of result.preferences) {
-            createPreference({
-              preferenceText: pref.preferenceText,
-              appliesWhen: pref.appliesWhen,
-              priority: pref.priority,
-            });
-          }
-          log.info(
-            {
-              count: result.preferences.length,
-              conversationId: conversation.conversationId,
-            },
-            "Persisted extracted notification preferences (batched)",
-          );
-        })
-        .catch((err) => {
-          const errMsg = err instanceof Error ? err.message : String(err);
-          log.warn(
-            { err: errMsg, conversationId: conversation.conversationId },
-            "Background preference extraction failed (batched)",
-          );
-        });
+    // Same hidden-row exclusion as the single-message drain.
+    if (!isHiddenMessageMetadata(qm.metadata)) {
+      recordNotificationPreferences(
+        conversation,
+        qmContent,
+        qm.trustContext,
+        "batched",
+      );
     }
 
     // If the user hit abort mid-batch, stop persisting remaining tails.
@@ -2330,38 +2344,11 @@ export async function processMessage(
 
   const userMessageId = pmResult.id;
 
-  // Fire-and-forget: detect notification preferences in the user message
-  // and persist any that are found. Runs in the background so it doesn't
-  // block the main conversation flow.
-  if (conversation.assistantId) {
-    extractPreferences(resolvedContent)
-      .then((result) => {
-        if (!result.detected) {
-          return;
-        }
-        for (const pref of result.preferences) {
-          createPreference({
-            preferenceText: pref.preferenceText,
-            appliesWhen: pref.appliesWhen,
-            priority: pref.priority,
-          });
-        }
-        log.info(
-          {
-            count: result.preferences.length,
-            conversationId: conversation.conversationId,
-          },
-          "Persisted extracted notification preferences",
-        );
-      })
-      .catch((err) => {
-        const errMsg = err instanceof Error ? err.message : String(err);
-        log.warn(
-          { err: errMsg, conversationId: conversation.conversationId },
-          "Background preference extraction failed",
-        );
-      });
-  }
+  recordNotificationPreferences(
+    conversation,
+    resolvedContent,
+    turnTrustContext,
+  );
 
   const loopOptions: {
     isInteractive?: boolean;

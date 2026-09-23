@@ -90,6 +90,37 @@ function aliceVerdict() {
   };
 }
 
+// Notification preferences: every message "states" one, so a test can see
+// which turns were allowed to record it.
+const createdPreferences: string[] = [];
+const actualPreferenceExtractor =
+  await import("../notifications/preference-extractor.js");
+mock.module("../notifications/preference-extractor.js", () => ({
+  ...actualPreferenceExtractor,
+  extractPreferences: async (message: string) => ({
+    detected: true,
+    preferences: [{ preferenceText: message, appliesWhen: {}, priority: 0 }],
+  }),
+}));
+const actualPreferencesStore =
+  await import("../notifications/preferences-store.js");
+mock.module("../notifications/preferences-store.js", () => ({
+  ...actualPreferencesStore,
+  createPreference: (pref: { preferenceText: string }) => {
+    createdPreferences.push(pref.preferenceText);
+    return { id: `pref-${createdPreferences.length}` };
+  },
+}));
+
+const droppedOwnMessages: Array<{ requestId: string; principalId: string }> =
+  [];
+const actualProjection = await import("../runtime/contact-event-projection.js");
+mock.module("../runtime/contact-event-projection.js", () => ({
+  ...actualProjection,
+  noteDroppedOwnMessage: (note: { requestId: string; principalId: string }) =>
+    droppedOwnMessages.push(note),
+}));
+
 // A contact's turn joins its contact record for display details; this suite
 // runs without a contacts table.
 const actualContactStore = await import("../contacts/contact-store.js");
@@ -898,6 +929,13 @@ describe("Conversation message queue", () => {
           "message_queued",
           "message_queued_deleted",
         ]);
+        // Noted so the contact's own stream forwards the close-out.
+        expect(droppedOwnMessages).toContainEqual(
+          expect.objectContaining({
+            requestId: "req-contact",
+            principalId: "principal-alice",
+          }),
+        );
       } finally {
         aliceIsParticipant = true;
         aliceStatus = "active";
@@ -1059,6 +1097,82 @@ describe("Conversation message queue", () => {
       aliceFailingReads = 0;
       await resolveRun(1);
       await new Promise((r) => setTimeout(r, 10));
+    });
+  });
+
+  describe("notification preferences from queued messages", () => {
+    const GUARDIAN = {
+      trustClass: "guardian" as const,
+      sourceChannel: "vellum" as const,
+    };
+    const ALICE = {
+      trustClass: "trusted_contact" as const,
+      sourceChannel: "vellum-shared" as const,
+      requesterExternalUserId: "principal-alice",
+    };
+
+    async function drainQueued(
+      senders: Array<{ text: string; trust: typeof GUARDIAN | typeof ALICE }>,
+    ) {
+      const conversation = makeConversation();
+      await conversation.loadFromDb();
+      conversation.setAssistantId("self");
+      const p1 = conversation.processMessage({
+        content: "msg-1",
+        attachments: [],
+        onEvent: () => {},
+        requestId: "req-1",
+      });
+      await waitForPendingRun(1);
+      senders.forEach(({ text, trust }, i) => {
+        conversation.enqueueMessage({
+          content: text,
+          requestId: `req-q-${i}`,
+          trustContext: trust,
+          ...(trust === ALICE
+            ? { author: ALICE, sourceActorPrincipalId: "principal-alice" }
+            : {}),
+        });
+      });
+      createdPreferences.length = 0;
+      await resolveRun(0);
+      await p1;
+      await waitForPendingRun(2);
+      await new Promise((r) => setTimeout(r, 10));
+      return conversation;
+    }
+
+    test("a contact's queued message records no preference", async () => {
+      await drainQueued([{ text: "never ping me at night", trust: ALICE }]);
+      expect(createdPreferences).toEqual([]);
+      await resolveRun(1);
+    });
+
+    test("batched contact messages record no preference", async () => {
+      await drainQueued([
+        { text: "never ping me at night", trust: ALICE },
+        { text: "and not on weekends", trust: ALICE },
+      ]);
+      expect(createdPreferences).toEqual([]);
+      await resolveRun(1);
+    });
+
+    test("the guardian's queued message still records one", async () => {
+      await drainQueued([{ text: "only urgent alerts", trust: GUARDIAN }]);
+      expect(createdPreferences).toEqual(["only urgent alerts"]);
+      await resolveRun(1);
+    });
+
+    test("batched guardian messages each record one", async () => {
+      await drainQueued([
+        { text: "only urgent alerts", trust: GUARDIAN },
+        { text: "quiet after ten", trust: GUARDIAN },
+      ]);
+      expect(createdPreferences).toEqual([
+        "only urgent alerts",
+        "quiet after ten",
+      ]);
+      await resolveRun(1);
     });
   });
 

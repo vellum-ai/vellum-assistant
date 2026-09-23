@@ -16,10 +16,12 @@
  *   a contact who cannot be verified never gets a turn.
  *
  * A dropped row gets the terminal `message_queued_deleted` its queued ack
- * owes, so no client keeps showing it; nothing else is announced.
+ * owes, so no client keeps showing it, and the sender's own event stream
+ * forwards that close-out to them; nothing else is announced.
  */
 
 import { isSuppressedQueuedMessage } from "../persistence/conversation-types.js";
+import { noteDroppedOwnMessage } from "../runtime/contact-event-projection.js";
 import { getLogger } from "../util/logger.js";
 import type { Conversation } from "./conversation.js";
 import type { QueuedMessage } from "./conversation-queue-manager.js";
@@ -92,6 +94,11 @@ function drop(
     );
   }
   if (!isSuppressedQueuedMessage(queued.metadata)) {
+    noteDroppedOwnMessage({
+      requestId: queued.requestId,
+      principalId,
+      conversationId: conversation.conversationId,
+    });
     queued.onEvent({
       type: "message_queued_deleted",
       conversationId: conversation.conversationId,

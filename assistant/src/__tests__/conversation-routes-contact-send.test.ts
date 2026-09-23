@@ -27,6 +27,17 @@ mock.module("../runtime/guardian-reply-router.js", () => ({
   routeGuardianReply,
 }));
 
+const extractPreferences = mock(async () => ({
+  detected: false,
+  preferences: [],
+}));
+const actualPreferenceExtractor =
+  await import("../notifications/preference-extractor.js");
+mock.module("../notifications/preference-extractor.js", () => ({
+  ...actualPreferenceExtractor,
+  extractPreferences,
+}));
+
 mock.module("../config/interrupt-on-send-gate.js", () => ({
   isInterruptOnSendEnabled: () => true,
 }));
@@ -310,6 +321,7 @@ beforeEach(() => {
   });
   registeredRequestIds.push(requestId);
   routeGuardianReply.mockClear();
+  extractPreferences.mockClear();
   broadcasts.length = 0;
   storedKeys.clear();
 });
@@ -448,6 +460,7 @@ describe("a contact's send into an idle conversation", () => {
     expect(loop.options?.turnTrustContext).toBe(ALICE);
     expect(spies.denyAllCount()).toBe(0);
     expect(routeGuardianReply).not.toHaveBeenCalled();
+    expect(extractPreferences).not.toHaveBeenCalled();
     expect(
       (
         spies.conversation as unknown as {

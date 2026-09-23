@@ -24,6 +24,11 @@
  * list. That notice survives a removal or a deletion, which clears the
  * membership before anything about it is published, and never names a
  * conversation the contact was not in.
+ *
+ * One event reaches a contact outside membership: the close-out of their own
+ * queued message when it was dropped because they lost access. Nothing on the
+ * event says whose message it was, so the drop is noted here by the code that
+ * dropped it, and only that sender's streams forward it.
  */
 
 import { randomUUID } from "node:crypto";
@@ -40,6 +45,52 @@ import {
 } from "../persistence/conversation-participants.js";
 
 const CONVERSATION_SYNC_TAG = /^conversation:(.+):(?:messages|metadata)$/;
+
+/** How long a dropped message's note waits for its event to be projected. */
+const DROPPED_NOTE_TTL_MS = 60_000;
+const MAX_DROPPED_NOTES = 256;
+
+/** Queued messages dropped because their sender lost access, by request id. */
+const droppedOwnMessages = new Map<
+  string,
+  { principalId: string; conversationId: string; expiresAt: number }
+>();
+
+/**
+ * Record that a contact's queued message was dropped because they lost
+ * access, so the `message_queued_deleted` that closes it out reaches that
+ * contact's own streams. Called before the event is broadcast.
+ */
+export function noteDroppedOwnMessage(note: {
+  requestId: string;
+  principalId: string;
+  conversationId: string;
+}): void {
+  const now = Date.now();
+  for (const [requestId, entry] of droppedOwnMessages) {
+    if (entry.expiresAt > now && droppedOwnMessages.size < MAX_DROPPED_NOTES) {
+      break;
+    }
+    droppedOwnMessages.delete(requestId);
+  }
+  droppedOwnMessages.set(note.requestId, {
+    principalId: note.principalId,
+    conversationId: note.conversationId,
+    expiresAt: now + DROPPED_NOTE_TTL_MS,
+  });
+}
+
+function droppedMessageSender(
+  requestId: string,
+  conversationId: string,
+): string | undefined {
+  const note = droppedOwnMessages.get(requestId);
+  return note &&
+    note.conversationId === conversationId &&
+    note.expiresAt > Date.now()
+    ? note.principalId
+    : undefined;
+}
 
 function envelopeFor(
   event: AssistantEventEnvelope,
@@ -162,6 +213,23 @@ export function createContactEventProjection(
               anchor: message.anchor,
               reason: message.reason,
             }))
+          : [];
+      case "message_queued_deleted":
+        // Only the close-out of this contact's own dropped message, and only
+        // the fields that identify it to the client that sent it.
+        return event.conversationId === message.conversationId &&
+          droppedMessageSender(message.requestId, message.conversationId) ===
+            principalId
+          ? [
+              envelopeFor(event, message.conversationId, {
+                type: "message_queued_deleted",
+                conversationId: message.conversationId,
+                requestId: message.requestId,
+                ...(message.clientMessageId
+                  ? { clientMessageId: message.clientMessageId }
+                  : {}),
+              }),
+            ]
           : [];
       default:
         return [];
