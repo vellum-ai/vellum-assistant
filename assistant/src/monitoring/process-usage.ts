@@ -14,25 +14,52 @@
  * previous scan. Memory is the resident set size from the same file.
  *
  * Names are metadata only: the daemon is "daemon", the assistant's own
- * worker scripts use their `<dir>-worker` name, and any other process uses
- * its kernel `comm` (15 bytes, no arguments). Command-line arguments never
- * leave the machine.
+ * worker scripts use a fixed label from an allowlist, and any other process
+ * uses its kernel `comm` (15 bytes, no arguments). Command-line content never
+ * leaves the machine.
  */
 
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { deriveName } from "../util/process-tree.js";
-import { CLOCK_TICKS_PER_SECOND, parseProcStat } from "./proc-wait-state.js";
+import {
+  CLOCK_TICKS_PER_SECOND,
+  parseProcStat,
+  readKernelPageSizeBytes,
+} from "./proc-wait-state.js";
 
-/** Linux page size assumed when converting resident pages to bytes. */
-const PAGE_SIZE_BYTES = 4096;
-/** Processes reported per sample, busiest first (the daemon is always kept). */
-const MAX_REPORTED_PROCESSES = 6;
+/** Processes reported by CPU, busiest first. */
+const TOP_BY_CPU = 4;
+/** Further processes reported by resident memory, largest first. */
+const TOP_BY_MEMORY = 2;
 /** Minimum time between scans; a shorter tick reuses the last result. */
 const DEFAULT_MIN_SCAN_INTERVAL_MS = 1_000;
-/** `deriveName` output for the assistant's own worker scripts. */
-const WORKER_NAME_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*-worker$/;
+
+/**
+ * The assistant's own worker scripts, matched on the trailing path of a
+ * command-line argument. Only these fixed labels are ever reported; any
+ * other process is named by its kernel comm.
+ */
+const KNOWN_WORKERS: ReadonlyArray<{ pattern: RegExp; name: string }> = [
+  {
+    pattern: /(?:^|\/)src\/schedule\/worker\.[cm]?[jt]s$/,
+    name: "schedule-worker",
+  },
+  {
+    pattern: /(?:^|\/)defaults\/memory\/worker\.[cm]?[jt]s$/,
+    name: "memory-worker",
+  },
+  {
+    pattern: /(?:^|\/)src\/monitoring\/worker\.[cm]?[jt]s$/,
+    name: "monitoring-worker",
+  },
+  {
+    pattern: /(?:^|\/)src\/routes\/worker\.[cm]?[jt]s$/,
+    name: "routes-worker",
+  },
+  { pattern: /(?:^|\/)embed-worker\.mjs$/, name: "embed-worker" },
+  { pattern: /(?:^|\/)rerank-worker\.mjs$/, name: "rerank-worker" },
+];
 
 export interface ProcessUsage {
   pid: number;
@@ -51,7 +78,8 @@ interface ProcessCounters {
 export interface ProcessUsageTracker {
   /**
    * Busiest processes since the previous scan, or null before the first
-   * two scans complete or when `/proc` is unreadable.
+   * two scans complete or when `/proc` is unreadable. `nowMs` must be read
+   * at the call, so the time between scans matches the counters' interval.
    */
   sample(nowMs: number, daemonPid: number | null): ProcessUsage[] | null;
 }
@@ -75,19 +103,26 @@ function processName(
     return "daemon";
   }
   const cmdline = readText(join(procRoot, String(pid), "cmdline"));
-  if (cmdline) {
-    const derived = deriveName(cmdline.split("\0").filter(Boolean).join(" "));
-    if (WORKER_NAME_RE.test(derived)) {
-      return derived;
+  for (const arg of cmdline?.split("\0") ?? []) {
+    const path = arg.replaceAll("\\", "/");
+    const worker = KNOWN_WORKERS.find(({ pattern }) => pattern.test(path));
+    if (worker) {
+      return worker.name;
     }
   }
   return comm;
 }
 
 export function createProcessUsageTracker(
-  options: { procRoot?: string; minScanIntervalMs?: number } = {},
+  options: {
+    procRoot?: string;
+    minScanIntervalMs?: number;
+    pageSizeBytes?: number;
+  } = {},
 ): ProcessUsageTracker {
   const procRoot = options.procRoot ?? "/proc";
+  const pageSizeBytes =
+    options.pageSizeBytes ?? readKernelPageSizeBytes(procRoot);
   const minScanIntervalMs =
     options.minScanIntervalMs ?? DEFAULT_MIN_SCAN_INTERVAL_MS;
   let previous: Map<number, ProcessCounters> | null = null;
@@ -138,7 +173,7 @@ export function createProcessUsageTracker(
             elapsedSeconds > 0
               ? Math.round((cpuSeconds / elapsedSeconds) * 100)
               : 0,
-          rssMb: Math.round((stat.rssPages * PAGE_SIZE_BYTES) / (1024 * 1024)),
+          rssMb: Math.round((stat.rssPages * pageSizeBytes) / (1024 * 1024)),
         });
       }
 
@@ -150,8 +185,21 @@ export function createProcessUsageTracker(
         return null;
       }
 
-      usage.sort((a, b) => b.cpuPct - a.cpuPct || b.rssMb - a.rssMb);
-      const reported = usage.slice(0, MAX_REPORTED_PROCESSES);
+      // The busiest by CPU, then the largest by memory (an idle process can
+      // still fill the cgroup), then the daemon for comparison.
+      const byCpu = [...usage].sort(
+        (a, b) => b.cpuPct - a.cpuPct || b.rssMb - a.rssMb,
+      );
+      const reported = byCpu.slice(0, TOP_BY_CPU);
+      const byMemory = [...usage].sort((a, b) => b.rssMb - a.rssMb);
+      for (const entry of byMemory) {
+        if (reported.length >= TOP_BY_CPU + TOP_BY_MEMORY) {
+          break;
+        }
+        if (!reported.includes(entry)) {
+          reported.push(entry);
+        }
+      }
       const daemon = usage.find((entry) => entry.pid === daemonPid);
       if (daemon && !reported.includes(daemon)) {
         reported.push(daemon);

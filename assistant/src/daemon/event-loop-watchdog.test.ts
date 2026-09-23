@@ -251,6 +251,10 @@ describe("buildBlockTelemetryDetail", () => {
     expect(detail.stall_capture!.sample.processes![0]!.name).toBe(
       "memory-worker",
     );
+    // Trimming keeps the daemon for comparison.
+    expect(
+      detail.stall_capture!.sample.processes!.some((p) => p.name === "daemon"),
+    ).toBe(true);
     expect(detail.activity[0]).toMatchObject({
       kind: "turn",
       conversationType: "standard",

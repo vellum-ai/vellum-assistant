@@ -177,11 +177,15 @@ const TRIM_STEPS: Array<{
     },
   },
   {
+    // Keeps the daemon, which the sampler always lists last, for comparison.
     name: "processes_3",
     apply: (d) => {
-      if (d.stall_capture?.sample.processes) {
-        d.stall_capture.sample.processes =
-          d.stall_capture.sample.processes.slice(0, 3);
+      const processes = d.stall_capture?.sample.processes;
+      if (processes) {
+        const daemon = processes.find((p) => p.name === "daemon");
+        const kept = processes.slice(0, 3);
+        d.stall_capture!.sample.processes =
+          daemon && !kept.includes(daemon) ? [...kept, daemon] : kept;
       }
     },
   },

@@ -135,8 +135,11 @@ export async function takeSample(
         }
       : null,
     activeConversations: readActiveConversations(),
+    // Timestamped at the scan, not the tick start: the disk read above can
+    // take seconds, and the CPU rate needs the counters' real interval.
     processes:
-      processUsage?.sample(now, readDaemonHeartbeat(now)?.pid ?? null) ?? null,
+      processUsage?.sample(Date.now(), readDaemonHeartbeat(now)?.pid ?? null) ??
+      null,
   };
   if (prev != null) {
     sample.deltas = computeSampleDeltas(prev, sample);

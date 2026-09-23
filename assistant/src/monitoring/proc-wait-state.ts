@@ -31,6 +31,35 @@ const MAX_THREAD_GROUPS = 8;
 /** Linux USER_HZ; `/proc/<pid>/stat` times are in these ticks. */
 export const CLOCK_TICKS_PER_SECOND = 100;
 
+/** Page sizes Linux kernels use; `/proc` page counts are in one of these. */
+const KERNEL_PAGE_SIZES = [4096, 16384, 65536] as const;
+
+/**
+ * The kernel page size, which `/proc/<pid>/stat` rss and `statm` counts are
+ * in. It varies by kernel (arm64 kernels can use 16 or 64 KiB), so it is
+ * derived from this process's own resident size, reported both in kB
+ * (`status` VmRSS) and in pages (`statm`). Falls back to 4 KiB.
+ */
+export function readKernelPageSizeBytes(procRoot = "/proc"): number {
+  const status = readText(join(procRoot, "self", "status"));
+  const statm = readText(join(procRoot, "self", "statm"));
+  const rssKb = status
+    ? Number(/^VmRSS:\s+(\d+)\s+kB/m.exec(status)?.[1])
+    : NaN;
+  const rssPages = statm ? Number(statm.trim().split(/\s+/)[1]) : NaN;
+  if (!(rssKb > 0) || !(rssPages > 0)) {
+    return KERNEL_PAGE_SIZES[0];
+  }
+  const measured = (rssKb * 1024) / rssPages;
+  // The two files are read at slightly different moments; snap to the
+  // nearest real page size.
+  return KERNEL_PAGE_SIZES.reduce((best, size) =>
+    Math.abs(Math.log2(size / measured)) < Math.abs(Math.log2(best / measured))
+      ? size
+      : best,
+  );
+}
+
 /** What `/proc/<pid>/fd/<n>` links to for an epoll instance. */
 const EPOLL_FD_LINK = "anon_inode:[eventpoll]";
 
