@@ -26,7 +26,10 @@ so self-hosted assistants can deliver alerts before version hydration.
 Background completions opt in with typed `contextPayload.completion` provenance:
 the stable work ID, result conversation ID, recipient principal ID, and owning
 path (`parent_continuation`). Ordinary maintenance events
-without that context retain their existing policy. Producers persist the
+without that context retain their existing policy. Declared ownership must
+validate before pairing or delivery. Owned completions can only reach `vellum`
+and `platform` with a matching recipient; channel allowlists and model routing
+cannot widen that scope. Producers persist the
 user-facing result before emitting. Reply previews and these explicit background
 previews link to that result without appending another transcript row.
 Recipient-owned `activity.complete` signals do not mirror into the Home feed or

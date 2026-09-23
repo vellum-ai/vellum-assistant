@@ -231,6 +231,36 @@ describe("PlatformPushAdapter", () => {
     },
   );
 
+  test.each([
+    null,
+    {},
+    {
+      workId: "task-1",
+      conversationId: "conv-private",
+      recipientPrincipalId: "principal-1",
+      owner: "unknown",
+    },
+  ])(
+    "malformed ownership %j never dispatches a mobile preview",
+    async (completion) => {
+      const result = await new PlatformPushAdapter().send(
+        makePayload({
+          sourceEventName: "activity.complete",
+          urgency: "high",
+          copy: { title: "Private result", body: "Sensitive result preview." },
+          contextPayload: { completion },
+        }),
+        makeDestination({ metadata: { guardianPrincipalId: "principal-1" } }),
+      );
+
+      expect(result).toEqual({
+        success: false,
+        error: "completion recipient unavailable",
+      });
+      expect(fetchCalls).toEqual([]);
+    },
+  );
+
   test("omits target_guardian_principal_id for non-guardian events even with principalId in metadata", async () => {
     const adapter = new PlatformPushAdapter();
     const payload = makePayload({ sourceEventName: "schedule.notify" });

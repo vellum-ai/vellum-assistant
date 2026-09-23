@@ -450,6 +450,38 @@ describe("VellumAdapter guardian scoping", () => {
     expect(sent).toEqual([]);
   });
 
+  test.each([
+    null,
+    {},
+    {
+      workId: "task-1",
+      conversationId: "conv-private",
+      recipientPrincipalId: "principal-1",
+      owner: "unknown",
+    },
+  ])(
+    "malformed ownership %j never broadcasts a private preview",
+    async (completion) => {
+      const { adapter, options, intents } = captureOptions();
+      const result = await adapter.send(
+        makePayload({
+          sourceEventName: "activity.complete",
+          urgency: "high",
+          copy: { title: "Private result", body: "Sensitive result preview." },
+          contextPayload: { completion },
+        }),
+        makeDestination({ metadata: { guardianPrincipalId: "principal-1" } }),
+      );
+
+      expect(result).toEqual({
+        success: false,
+        error: "completion recipient unavailable",
+      });
+      expect(intents).toEqual([]);
+      expect(options).toEqual([]);
+    },
+  );
+
   test("honors broadcaster presentation independently of urgency", async () => {
     const { adapter, sent } = captureBroadcast();
     await adapter.send(

@@ -86,20 +86,30 @@ export function resolveCompletionRecipient(
     return undefined;
   }
   const completion = readCompletionContext(event);
-  if (completion && completion.recipientPrincipalId !== guardianPrincipalId) {
+  if (
+    hasCompletionOwnership(event) &&
+    completion?.recipientPrincipalId !== guardianPrincipalId
+  ) {
     return undefined;
   }
   return guardianPrincipalId;
 }
 
-/** Local previews and explicitly owned mobile completions require a recipient. */
+/** Owned completions require a matching local/mobile recipient; local previews require a recipient. */
 export function isCompletionRecipientUnavailable(
   event: CompletionEvent,
   destination: ChannelDestination,
 ): boolean {
+  const ownedCompletion = hasCompletionOwnership(event);
+  if (
+    ownedCompletion &&
+    destination.channel !== "vellum" &&
+    destination.channel !== "platform"
+  ) {
+    return true;
+  }
   const requiresRecipient =
-    (destination.channel === "vellum" && isCompletionNotification(event)) ||
-    (destination.channel === "platform" &&
-      readCompletionContext(event) !== undefined);
+    ownedCompletion ||
+    (destination.channel === "vellum" && isCompletionNotification(event));
   return requiresRecipient && !resolveCompletionRecipient(event, destination);
 }

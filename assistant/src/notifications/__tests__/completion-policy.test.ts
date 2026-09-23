@@ -144,6 +144,85 @@ describe("completion local delivery policy", () => {
     }
   });
 
+  test.each([
+    undefined,
+    null,
+    {},
+    "principal-1",
+    { ...completion, recipientPrincipalId: " " },
+    { ...completion, conversationId: "" },
+    { ...completion, owner: "unknown" },
+  ])(
+    "malformed ownership %j cannot resolve a recipient or reach any channel",
+    (payload) => {
+      const event = {
+        sourceEventName: "activity.complete",
+        contextPayload: { completion: payload },
+      };
+      for (const channel of [
+        "vellum",
+        "platform",
+        "slack",
+        "telegram",
+        "discord",
+      ] as const) {
+        for (const guardianPrincipalId of [undefined, "principal-1"]) {
+          const destination = { channel, metadata: { guardianPrincipalId } };
+          expect(
+            resolveCompletionRecipient(event, destination),
+          ).toBeUndefined();
+          expect(isCompletionRecipientUnavailable(event, destination)).toBe(
+            true,
+          );
+        }
+      }
+    },
+  );
+
+  test("ordinary activity events retain their delivery policy", () => {
+    for (const channel of ["vellum", "platform", "slack"] as const) {
+      expect(
+        isCompletionRecipientUnavailable(
+          {
+            sourceEventName: "activity.complete",
+            contextPayload: { body: "Task finished." },
+          },
+          { channel },
+        ),
+      ).toBe(false);
+    }
+    expect(
+      isCompletionRecipientUnavailable(
+        {
+          sourceEventName: "assistant.share",
+          contextPayload: { completion: null },
+        },
+        { channel: "vellum" },
+      ),
+    ).toBe(false);
+  });
+
+  test.each(["slack", "telegram", "discord"] as const)(
+    "owned completion cannot opt into %s through routing metadata",
+    (channel) => {
+      for (const guardianPrincipalId of [
+        undefined,
+        "principal-1",
+        "other-principal",
+      ]) {
+        expect(
+          isCompletionRecipientUnavailable(
+            {
+              sourceEventName: "activity.complete",
+              contextPayload: { completion, channelAllowlist: [channel] },
+            },
+            { channel, metadata: { guardianPrincipalId } },
+          ),
+        ).toBe(true);
+      }
+    },
+  );
+
   test.each(["chat.assistant_reply", "schedule.result"])(
     "%s retains the platform owner fallback when the guardian lookup is unavailable",
     (sourceEventName) => {

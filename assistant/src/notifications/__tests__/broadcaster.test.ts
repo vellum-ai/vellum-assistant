@@ -52,9 +52,11 @@ function defaultPairing(): PairingResult {
 
 let pairingByChannel: Record<string, PairingResult> = {};
 let pairingErrorByChannel: Record<string, Error> = {};
+let pairedChannels: string[] = [];
 
 mock.module("../conversation-pairing.js", () => ({
   pairDeliveryWithConversation: async (_signal: unknown, channel: string) => {
+    pairedChannels.push(channel);
     const error = pairingErrorByChannel[channel];
     if (error) {
       throw error;
@@ -200,6 +202,7 @@ beforeEach(() => {
   knownConversations = new Set();
   pairingByChannel = {};
   pairingErrorByChannel = {};
+  pairedChannels = [];
   updateDeliveryStatusImpl = () => {};
   destinationBindingContexts = {};
   destinationGuardianPrincipalId = undefined;
@@ -210,6 +213,73 @@ beforeEach(() => {
 // ── Tests ───────────────────────────────────────────────────────────────
 
 describe("NotificationBroadcaster completion delivery", () => {
+  test.each([
+    undefined,
+    null,
+    {},
+    { recipientPrincipalId: "principal-1" },
+    {
+      workId: "task-1",
+      conversationId: "conv-private",
+      recipientPrincipalId: "principal-1",
+      owner: "unknown",
+    },
+  ])(
+    "rejects malformed ownership %j before any pairing or transport send",
+    async (completion) => {
+      destinationGuardianPrincipalId = "principal-1";
+      const channels = [
+        "vellum",
+        "platform",
+        "slack",
+        "telegram",
+        "discord",
+      ] as const;
+      const transports = channels.map((channel) =>
+        makeCapturingAdapter(channel),
+      );
+      const broadcaster = new NotificationBroadcaster(
+        transports.map(({ adapter }) => adapter),
+      );
+      const renderedCopy = Object.fromEntries(
+        channels.map((channel) => [
+          channel,
+          { title: "Private result", body: "Sensitive result preview." },
+        ]),
+      );
+      const result = await broadcaster.broadcastDecision(
+        makeSignal({
+          sourceEventName: "activity.complete",
+          sourceContextId: "conv-private",
+          requiresConversation: true,
+          contextPayload: { completion, body: "Sensitive result preview." },
+          attentionHints: {
+            requiresAction: false,
+            urgency: "high",
+            isAsyncBackground: true,
+            visibleInSourceNow: false,
+          },
+        }),
+        makeDecision({ selectedChannels: [...channels], renderedCopy }),
+      );
+
+      expect(result).toEqual(
+        channels.map((channel) =>
+          expect.objectContaining({
+            channel,
+            status: "failed",
+            errorMessage: "completion recipient unavailable",
+          }),
+        ),
+      );
+      expect(pairedChannels).toEqual([]);
+      expect(recordedPosts).toEqual([]);
+      for (const { sends } of transports) {
+        expect(sends).toEqual([]);
+      }
+    },
+  );
+
   test.each(["vellum", "platform"] as const)(
     "%s links a typed completion to its persisted result conversation",
     async (channel) => {
@@ -243,6 +313,58 @@ describe("NotificationBroadcaster completion delivery", () => {
       expect(sends[0]?.payload.deepLinkTarget?.conversationId).toBe(
         "conv-result",
       );
+    },
+  );
+
+  test.each([undefined, "other-principal", "principal-1"])(
+    "owned completion cannot reach an external destination with principal %s",
+    async (guardianPrincipalId) => {
+      destinationGuardianPrincipalId = guardianPrincipalId;
+      const channels = ["slack", "telegram", "discord"] as const;
+      const transports = channels.map((channel) =>
+        makeCapturingAdapter(channel),
+      );
+      const broadcaster = new NotificationBroadcaster(
+        transports.map(({ adapter }) => adapter),
+      );
+      const result = await broadcaster.broadcastDecision(
+        makeSignal({
+          sourceEventName: "activity.complete",
+          contextPayload: {
+            completion: {
+              workId: "task-1",
+              conversationId: "conv-private",
+              recipientPrincipalId: "principal-1",
+              owner: "parent_continuation",
+            },
+            channelAllowlist: [...channels],
+          },
+        }),
+        makeDecision({
+          selectedChannels: [...channels],
+          renderedCopy: Object.fromEntries(
+            channels.map((channel) => [
+              channel,
+              { title: "Private result", body: "Sensitive result preview." },
+            ]),
+          ),
+        }),
+      );
+
+      expect(result).toEqual(
+        channels.map((channel) =>
+          expect.objectContaining({
+            channel,
+            status: "failed",
+            errorMessage: "completion recipient unavailable",
+          }),
+        ),
+      );
+      expect(pairedChannels).toEqual([]);
+      expect(recordedPosts).toEqual([]);
+      for (const { sends } of transports) {
+        expect(sends).toEqual([]);
+      }
     },
   );
 
