@@ -400,7 +400,7 @@ describe("spokenBridgeText", () => {
 
   test("a terminal verdict preserves every sentence already released", () => {
     const bridge = "Let me check. I will highlight the control.";
-    expect(spokenBridgeText(`${bridge} [1]`)).toBe(bridge);
+    expect(spokenBridgeText(`${bridge} [ESCALATE]`)).toBe(bridge);
   });
 });
 
@@ -420,7 +420,7 @@ describe("needsFallbackBridge", () => {
 
 describe("classifyFrontDoorLeading", () => {
   test("pending while the stream could still become a verdict token", () => {
-    for (const leading of ["", "[", "[1"]) {
+    for (const leading of ["", "[", "[1", "[E", "[ESCALATE"]) {
       expect(classifyFrontDoorLeading(leading, false)).toBe("pending");
     }
     expect(classifyFrontDoorLeading("[0", true)).toBe("pending");
@@ -436,6 +436,10 @@ describe("classifyFrontDoorLeading", () => {
   });
 
   test("escalate on the leading escalate token", () => {
+    expect(classifyFrontDoorLeading("[ESCALATE]", false)).toBe("escalate");
+    expect(classifyFrontDoorLeading("[ESCALATE] Let me check.", true)).toBe(
+      "escalate",
+    );
     expect(classifyFrontDoorLeading("[1]", false)).toBe("escalate");
     expect(classifyFrontDoorLeading("[1] Let me check.", true)).toBe(
       "escalate",
@@ -547,7 +551,7 @@ describe("createFrontDoorVerdictMachine", () => {
 
   test("a terminal verdict recovers at completion across every delta boundary", () => {
     const bridge = "I will highlight the Rotate control on your screen.";
-    const text = `${bridge} [1] \n`;
+    const text = `${bridge} [ESCALATE] \n`;
     for (let split = 1; split < text.length; split++) {
       const machine = createFrontDoorVerdictMachine(false);
       expect(machine.push(text.slice(0, split)).kind).toBe("answer");
@@ -559,6 +563,13 @@ describe("createFrontDoorVerdictMachine", () => {
   });
 
   test.each([
+    "Select option [1]",
+    "The source is listed as [1]",
+    "The source supports this statement. [1]",
+    "I will highlight it. [1]",
+    "The token [ESCALATE] is reserved.",
+    "I will highlight it. [ESCALATE",
+    "The token is `[ESCALATE]`",
     "The token [1] is reserved.",
     "I will highlight it. [1",
     "I will highlight it.[1]",
@@ -654,7 +665,7 @@ describe("createFrontDoorStreamGate", () => {
   });
 
   test("recovering a terminal verdict never releases the answer twice", () => {
-    const deltas = ["I will highlight it.", " [", "1", "]"];
+    const deltas = ["I will highlight it.", " [", "ESCALATE", "]"];
     expect(release(deltas)).toEqual(deltas);
   });
 

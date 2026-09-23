@@ -2489,7 +2489,7 @@ describe("cutFrontDoorContentAtVerdict", () => {
     const bridge = "Let me check. I will highlight the Rotate control.";
     const cut = cutFrontDoorContentAtVerdict([
       { type: "text", text: `${bridge} [` },
-      { type: "text", text: "1] " },
+      { type: "text", text: "ESCALATE] " },
     ]);
     expect(cut).toEqual({
       blocks: [{ type: "text", text: bridge }],

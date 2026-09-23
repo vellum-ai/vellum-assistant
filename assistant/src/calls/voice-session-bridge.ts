@@ -73,7 +73,7 @@ import {
 import {
   CALL_OPENING_MARKER,
   CALL_VERIFICATION_COMPLETE_MARKER,
-  ESCALATE_VERDICT_TOKEN,
+  ESCALATE_VERDICT_TOKENS,
   HOLD_VERDICT_TOKEN,
   stripInternalSpeechMarkers,
   terminalControlMarkerLength,
@@ -87,6 +87,7 @@ import {
   ESCALATION_CONTINUATION_CONTENT,
   frontDoorCapabilityDigest,
   frontDoorDecisionRule,
+  leadingEscalationToken,
   spokenBridgeText,
   type VoiceRoutingLeg,
 } from "./voice-triage-escalate.js";
@@ -851,7 +852,7 @@ export function cutFrontDoorContentAtVerdict(
   const spokenText = spokenBridgeText(joinedText);
   if (
     spokenText.length > 0 ||
-    joinedText.trimStart().startsWith(ESCALATE_VERDICT_TOKEN)
+    leadingEscalationToken(joinedText) !== undefined
   ) {
     return {
       blocks: spokenText.length > 0 ? [{ type: "text", text: spokenText }] : [],
@@ -859,7 +860,7 @@ export function cutFrontDoorContentAtVerdict(
     };
   }
   if (
-    !joinedText.includes(ESCALATE_VERDICT_TOKEN) &&
+    !ESCALATE_VERDICT_TOKENS.some((token) => joinedText.includes(token)) &&
     !joinedText.includes(HOLD_VERDICT_TOKEN)
   ) {
     return null;

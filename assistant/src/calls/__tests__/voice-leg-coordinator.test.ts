@@ -154,7 +154,7 @@ describe("createFrontDoorLegCoordinator", () => {
     coordinator.push(bridge);
     expect(recorded.answers).toEqual([bridge]);
     coordinator.push(" [");
-    coordinator.push("1]");
+    coordinator.push("ESCALATE]");
     expect(coordinator.handedOff).toBe(false);
 
     expect(coordinator.complete()).toBe(true);
@@ -171,12 +171,24 @@ describe("createFrontDoorLegCoordinator", () => {
   test("a cancelled answer with a terminal verdict never hands off", () => {
     let live = true;
     const { coordinator, recorded } = harness({ live: () => live });
-    coordinator.push("I will highlight it. [1]");
+    coordinator.push("I will highlight it. [ESCALATE]");
     live = false;
     expect(coordinator.complete()).toBe(false);
     expect(recorded.bridges).toEqual([]);
     expect(recorded.escalated).toEqual([]);
   });
+
+  test.each(["Select option [1]", "The source is listed as [1]"])(
+    "a numbered reference does not start another leg: %s",
+    (answer) => {
+      const { coordinator, recorded } = harness();
+      coordinator.push(answer);
+      expect(coordinator.complete()).toBe(false);
+      expect(recorded.answers).toEqual([answer]);
+      expect(recorded.bridges).toEqual([]);
+      expect(recorded.escalated).toEqual([]);
+    },
+  );
 
   test("a leg that stops mid-bridge hands off on completion with the canned bridge", () => {
     const { coordinator, recorded } = harness({ language: "es" });

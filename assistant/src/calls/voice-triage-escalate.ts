@@ -6,8 +6,8 @@
  *
  *   - `[0]` ({@link HOLD_VERDICT_TOKEN}, unified front-door only): the
  *     caller is mid-thought — the leg is discarded and listening continues.
- *   - `[1]` ({@link ESCALATE_VERDICT_TOKEN}) followed by ONE short natural
- *     holding phrase: the turn is too tricky — the phrase is spoken (capped
+ *   - `[ESCALATE]` ({@link ESCALATE_VERDICT_TOKEN}) followed by ONE short natural
+ *     holding phrase: the turn is too tricky. The phrase is spoken (capped
  *     at a single sentence) while the turn re-runs on the conversation's
  *     own profile, the model the caller's typed turns already run on.
  *     Because the holding phrase is spoken, the caller never hears the
@@ -20,8 +20,9 @@
  * the escalation hand-off: the bridge is capped session-side instead of
  * trusting the model to stop. Every infra failure fails open to a normal
  * committed answer turn.
- * A standalone terminal `[1]` is recovered at normal completion without
+ * A standalone terminal `[ESCALATE]` is recovered at normal completion without
  * delaying answer streaming or repeating the already released speech.
+ * The numeric `[1]` verdict is accepted only at the start of a reply.
  *
  * This module owns the routing policy in one place: the profile key, the
  * leg-specific prompt rules, the leading-token classifier, and the bridge
@@ -35,11 +36,17 @@ import {
 } from "../util/language-subtag.js";
 import {
   ESCALATE_VERDICT_TOKEN,
+  ESCALATE_VERDICT_TOKENS,
   HOLD_VERDICT_TOKEN,
   stripInternalSpeechMarkers,
 } from "./voice-control-protocol.js";
 
 export { ESCALATE_VERDICT_TOKEN, HOLD_VERDICT_TOKEN };
+
+export function leadingEscalationToken(text: string): string | undefined {
+  const leading = text.trimStart();
+  return ESCALATE_VERDICT_TOKENS.find((token) => leading.startsWith(token));
+}
 
 // The fast model fronting every turn is pinned by the `voiceFrontDoor` call
 // site (see config/call-site-defaults.ts) — no per-turn profile override.
@@ -158,7 +165,7 @@ export const BRIDGE_SENTENCE_END_REGEX = new RegExp(
 );
 
 /**
- * Normalize a raw post-`[1]` stream into the bridge that is actually
+ * Normalize the post-verdict stream into the bridge that is actually
  * spoken: internal markers stripped, cut just after the first sentence
  * terminator, hard-capped at {@link MAX_ESCALATION_BRIDGE_CHARS}, trimmed.
  * The session speaks exactly this, the persisted front-door row keeps
@@ -176,7 +183,7 @@ export function capEscalationBridge(rawBridge: string): string {
 }
 
 /**
- * Whether enough of the post-`[1]` stream has arrived to finalize the
+ * Whether enough of the post-verdict stream has arrived to finalize the
  * bridge and hand off: a sentence terminator landed, or the hard cap is
  * reached. Until then the session keeps buffering (the bridge is spoken in
  * one piece at hand-off, so what is spoken is exactly the capped bridge).
@@ -250,12 +257,12 @@ export function classifyFrontDoorLeading(
   if (holdEnabled && leading.startsWith(HOLD_VERDICT_TOKEN)) {
     return "hold";
   }
-  if (leading.startsWith(ESCALATE_VERDICT_TOKEN)) {
+  if (leadingEscalationToken(leading) !== undefined) {
     return "escalate";
   }
   const candidates = holdEnabled
-    ? [HOLD_VERDICT_TOKEN, ESCALATE_VERDICT_TOKEN]
-    : [ESCALATE_VERDICT_TOKEN];
+    ? [HOLD_VERDICT_TOKEN, ...ESCALATE_VERDICT_TOKENS]
+    : ESCALATE_VERDICT_TOKENS;
   if (candidates.some((token) => token.startsWith(leading))) {
     return "pending";
   }
@@ -362,7 +369,9 @@ export function createFrontDoorVerdictMachine(
         }
         if (verdict === "escalate") {
           stage = "bridging";
-          bridgeRaw = raw.trimStart().slice(ESCALATE_VERDICT_TOKEN.length);
+          bridgeRaw = raw
+            .trimStart()
+            .slice(leadingEscalationToken(raw)!.length);
           return {
             kind: "escalate",
             bridge: isEscalationBridgeComplete(bridgeRaw)

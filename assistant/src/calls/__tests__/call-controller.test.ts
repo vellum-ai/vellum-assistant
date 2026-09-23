@@ -4358,7 +4358,7 @@ describe("call-controller", () => {
     test("a terminal verdict hands off without repeating the streamed bridge", async () => {
       const bridge = "Let me check that.";
       const { calls } = scriptLegs([
-        [bridge, " [", "1", "]"],
+        [bridge, " [", "ESCALATE", "]"],
         ["The answer is 42."],
       ]);
       const { relay, controller } = setupController();
