@@ -2070,6 +2070,7 @@
     "emptySheet": "This sheet is empty",
     "sheetUnreadable": "This sheet could not be read",
     "sheetsAria": "Sheets",
+    "sheetsOmitted": "{count, plural, one {# more sheet is not shown} other {# more sheets are not shown}}",
     "summary": "{sheet}: {rows, plural, one {# row} other {# rows}} x {columns, plural, one {# column} other {# columns}}",
     "summaryTruncated": "{sheet}: {rows, plural, one {# row} other {# rows}} x {columns, plural, one {# column} other {# columns}} (truncated)"
   },

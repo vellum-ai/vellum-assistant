@@ -8,14 +8,15 @@
  * The stories drive `WorkbookGrid`, the presentational half, so a sheet is
  * stated as the grid it reads to rather than as a binary workbook. They cover
  * one sheet (no tab row), a few sheets, enough sheets to scroll the row
- * sideways, names long enough to truncate, an empty sheet, a capped sheet,
- * a sheet that cannot be read, and the mobile width.
+ * sideways, more sheets than the switcher mounts, names long enough to
+ * truncate, an empty sheet, a capped sheet, a sheet that cannot be read, and
+ * the mobile width.
  */
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import type { ParsedCsv } from "./csv";
 import type { WorkbookSheet } from "./xlsx";
-import { WorkbookGrid } from "./xlsx-preview";
+import { MAX_SHEET_TABS, WorkbookGrid } from "./xlsx-preview";
 import { grid, sheet } from "./xlsx-preview.test-helper";
 
 const EXPENSE_HEADERS = ["category", "budget", "spent", "remaining"];
@@ -64,6 +65,14 @@ const MANY_SHEETS = Array.from({ length: 24 }, (_, index) =>
   sheet(
     `Week ${String(index + 1).padStart(2, "0")}`,
     expenseGrid(`Week ${index + 1}`),
+  ),
+);
+
+/** More sheets than the switcher mounts, so the rest are counted under the row. */
+const CAPPED_SHEETS = Array.from({ length: MAX_SHEET_TABS + 25 }, (_, index) =>
+  sheet(
+    `Sheet ${String(index + 1).padStart(3, "0")}`,
+    expenseGrid(`Sheet ${index + 1}`),
   ),
 );
 
@@ -130,6 +139,11 @@ export const ThreeSheets: Story = {
 /** Far more tabs than fit, so the row scrolls under its fading edges. */
 export const ManySheets: Story = {
   args: { sheets: MANY_SHEETS },
+};
+
+/** Past the tab cap, so the row stops and a line names the sheets left out. */
+export const ManySheetsCapped: Story = {
+  args: { sheets: CAPPED_SHEETS },
 };
 
 /** Names longer than a tab can hold truncate, with the full name in a tooltip. */

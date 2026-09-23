@@ -2058,6 +2058,7 @@
     "emptySheet": "此工作表为空",
     "sheetUnreadable": "无法读取此工作表",
     "sheetsAria": "工作表",
+    "sheetsOmitted": "{count, plural, other {另有 # 个工作表未显示}}",
     "summary": "{sheet}：{rows, plural, other {# 行}} x {columns, plural, other {# 列}}",
     "summaryTruncated": "{sheet}：{rows, plural, other {# 行}} x {columns, plural, other {# 列}}（已截断）"
   },

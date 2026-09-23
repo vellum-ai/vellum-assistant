@@ -9,6 +9,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import {
+  MAX_SHEET_TABS,
   WorkbookGrid,
   XlsxPreview,
 } from "@/domains/chat/components/local-file/preview/xlsx-preview";
@@ -34,6 +35,13 @@ const INCOME = sheet(
   grid([["Salary", "4000"]], ["source", "amount"]),
 );
 const NOTES = sheet("Notes", grid([["Renew the lease"]]));
+
+/** A workbook of `count` one-cell sheets, for driving the tab cap. */
+function numberedSheets(count: number): WorkbookSheet[] {
+  return Array.from({ length: count }, (_, index) =>
+    sheet(`Sheet ${index + 1}`, grid([[`cell ${index + 1}`]])),
+  );
+}
 
 afterEach(() => {
   cleanup();
@@ -147,6 +155,27 @@ describe("WorkbookGrid", () => {
     await waitFor(() => expect(screen.getByText("second")).toBeTruthy());
     expect(screen.queryByText("first")).toBeNull();
     expect(tabs[1].getAttribute("aria-selected")).toBe("true");
+  });
+
+  test("a workbook past the sheet cap shows the first hundred tabs and says how many are left", async () => {
+    render(<WorkbookGrid sheets={numberedSheets(MAX_SHEET_TABS + 7)} />);
+
+    const tabs = screen.getAllByRole("tab");
+    expect(tabs.length).toBe(MAX_SHEET_TABS);
+    expect(tabs[0].textContent).toBe("Sheet 1");
+    expect(tabs[0].getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByText("7 more sheets are not shown")).toBeTruthy();
+
+    await waitFor(() => expect(screen.getByText("cell 1")).toBeTruthy());
+  });
+
+  test("a workbook at the sheet cap shows every tab and no omission notice", async () => {
+    render(<WorkbookGrid sheets={numberedSheets(MAX_SHEET_TABS)} />);
+
+    expect(screen.getAllByRole("tab").length).toBe(MAX_SHEET_TABS);
+    expect(screen.queryByText(/are not shown/)).toBeNull();
+
+    await waitFor(() => expect(screen.getByText("cell 1")).toBeTruthy());
   });
 
   test("a sheet that cannot be read fails inside its own panel", async () => {

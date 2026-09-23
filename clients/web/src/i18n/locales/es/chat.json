@@ -2020,6 +2020,7 @@
     "emptySheet": "Esta hoja está vacía",
     "sheetUnreadable": "No se pudo leer esta hoja",
     "sheetsAria": "Hojas",
+    "sheetsOmitted": "{count, plural, one {# hoja más no se muestra} other {# hojas más no se muestran}}",
     "summary": "{sheet}: {rows, plural, one {# fila} other {# filas}} x {columns, plural, one {# columna} other {# columnas}}",
     "summaryTruncated": "{sheet}: {rows, plural, one {# fila} other {# filas}} x {columns, plural, one {# columna} other {# columnas}} (truncado)"
   },
