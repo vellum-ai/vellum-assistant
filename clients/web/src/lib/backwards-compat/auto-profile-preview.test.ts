@@ -25,19 +25,19 @@ describe("useSupportsAutoProfilePreview", () => {
   });
 
   test("false for a dev build stamped before the route landed", () => {
-    setVersion("0.12.3-dev.202609220900.0000000");
+    setVersion("0.12.4-dev.202609231900.0000000");
     const { result } = renderHook(() => useSupportsAutoProfilePreview());
     expect(result.current).toBe(false);
   });
 
   test("true for a dev build stamped after the route landed", () => {
-    setVersion("0.12.3-dev.202609231200.abcdef0");
+    setVersion("0.12.4-dev.202609232046.847daa9");
     const { result } = renderHook(() => useSupportsAutoProfilePreview());
     expect(result.current).toBe(true);
   });
 
   test("true for the next stable release", () => {
-    setVersion("0.12.4");
+    setVersion("0.12.5");
     const { result } = renderHook(() => useSupportsAutoProfilePreview());
     expect(result.current).toBe(true);
   });

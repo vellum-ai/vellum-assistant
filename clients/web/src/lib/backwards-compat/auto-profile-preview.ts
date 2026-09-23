@@ -12,7 +12,7 @@
  */
 import { useAssistantSupports } from "@/lib/backwards-compat/utils";
 
-const MIN_VERSION = "0.12.3-dev.202609230022.f2df2fb";
+const MIN_VERSION = "0.12.4-dev.202609231925.1a161d5";
 
 export function useSupportsAutoProfilePreview(): boolean {
   return useAssistantSupports(MIN_VERSION);
