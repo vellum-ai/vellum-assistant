@@ -24,14 +24,14 @@ describe("useSupportsAutoProfilePreview", () => {
     expect(result.current).toBe(false);
   });
 
-  test("false for a dev build stamped before the route landed", () => {
-    setVersion("0.12.4-dev.202609231900.0000000");
+  test("false for the preview build just before the route shipped", () => {
+    setVersion("0.12.4-dev.202609232046.0000000");
     const { result } = renderHook(() => useSupportsAutoProfilePreview());
     expect(result.current).toBe(false);
   });
 
-  test("true for a dev build stamped after the route landed", () => {
-    setVersion("0.12.4-dev.202609232046.847daa9");
+  test("true for the first preview build carrying the route", () => {
+    setVersion("0.12.4-dev.202609232047.847daa9");
     const { result } = renderHook(() => useSupportsAutoProfilePreview());
     expect(result.current).toBe(true);
   });

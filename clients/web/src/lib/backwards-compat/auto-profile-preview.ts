@@ -6,13 +6,13 @@
  * "Auto · <profile>" while the user types. Older assistants have no such
  * route, so the composer must not ask: every paused draft would 404.
  *
- * The floor is the dev stamp of the change that adds the route rather than
- * a predicted release number, so preview builds carrying it light up and
- * nothing earlier does.
+ * The floor is the version `dev-release.yaml` stamped on the first preview
+ * build that carries the route. Same-base builds compare by that stamp, so
+ * every later preview build lights up and every earlier one stays dark.
  */
 import { useAssistantSupports } from "@/lib/backwards-compat/utils";
 
-const MIN_VERSION = "0.12.4-dev.202609231925.1a161d5";
+const MIN_VERSION = "0.12.4-dev.202609232047.847daa9";
 
 export function useSupportsAutoProfilePreview(): boolean {
   return useAssistantSupports(MIN_VERSION);
