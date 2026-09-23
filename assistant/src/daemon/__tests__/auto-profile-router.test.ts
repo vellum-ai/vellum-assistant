@@ -9,10 +9,15 @@ import type {
 } from "../../providers/types.js";
 import {
   AUTO_PROFILE_FALLBACK,
+  AUTO_PROFILE_PREVIEW_REUSE_MS,
   autoProfileCandidates,
   autoProfileFallback,
+  type AutoProfileRoute,
+  clearAutoProfilePreviewsForTesting,
   recentConversationForRouter,
+  rememberAutoProfilePreview,
   routeAutoProfile,
+  takeAutoProfilePreview,
 } from "../auto-profile-router.js";
 
 function text(role: "user" | "assistant", body: string): Message {
@@ -224,5 +229,56 @@ describe("routeAutoProfile", () => {
       outcome: "fallback",
     });
     expect(autoProfileFallback([])).toBe(AUTO_PROFILE_FALLBACK);
+  });
+});
+
+describe("draft preview reuse", () => {
+  const routed: AutoProfileRoute = {
+    profile: "quality-optimized",
+    outcome: "routed",
+    confidence: 0.9,
+    latencyMs: 120,
+  };
+
+  test("a routed preview is reused once by the turn that sends the same text", () => {
+    clearAutoProfilePreviewsForTesting();
+    rememberAutoProfilePreview("conv-1", "Refactor  the auth\nmodule", routed);
+    expect(
+      takeAutoProfilePreview("conv-1", "Refactor the auth module"),
+    ).toEqual(routed);
+    expect(
+      takeAutoProfilePreview("conv-1", "Refactor the auth module"),
+    ).toBeUndefined();
+  });
+
+  test("a different draft, another conversation, or an expired preview is not reused", () => {
+    clearAutoProfilePreviewsForTesting();
+    const at = Date.now();
+    rememberAutoProfilePreview("conv-1", "hello", routed);
+    expect(takeAutoProfilePreview("conv-1", "hello there")).toBeUndefined();
+    expect(takeAutoProfilePreview("conv-2", "hello")).toBeUndefined();
+    expect(
+      takeAutoProfilePreview(
+        "conv-1",
+        "hello",
+        at + AUTO_PROFILE_PREVIEW_REUSE_MS + 1,
+      ),
+    ).toBeUndefined();
+  });
+
+  test("a preview made before the conversation existed is found by any conversation", () => {
+    clearAutoProfilePreviewsForTesting();
+    rememberAutoProfilePreview(undefined, "first message", routed);
+    expect(takeAutoProfilePreview("conv-new", "first message")).toEqual(routed);
+  });
+
+  test("a fallback is not remembered, so the turn asks Jev again", () => {
+    clearAutoProfilePreviewsForTesting();
+    rememberAutoProfilePreview("conv-1", "hi", {
+      profile: AUTO_PROFILE_FALLBACK,
+      outcome: "timeout",
+      latencyMs: 1000,
+    });
+    expect(takeAutoProfilePreview("conv-1", "hi")).toBeUndefined();
   });
 });

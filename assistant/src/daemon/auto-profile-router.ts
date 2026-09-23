@@ -9,13 +9,18 @@
  * cannot judge runs exactly as a Balanced turn would.
  */
 
+import { getConversationProfilesForProvider } from "../config/default-profile-catalog.js";
 import {
+  AUTO_PROFILE_KEY,
   AUTO_PROFILE_ROUTER_CALL_SITE,
   DEFAULT_PROFILE_KEYS,
   type DefaultProfileKey,
   isDefaultProfileKey,
 } from "../config/default-profile-names.js";
+import { getConfig } from "../config/loader.js";
 import type { ProfileEntry } from "../config/schemas/llm.js";
+import { getMessagesPaginated } from "../persistence/conversation-crud.js";
+import { resolveConversationId } from "../persistence/conversation-key-store.js";
 import { askTypesafe } from "../providers/jev/ask.js";
 import type { ContentBlock, Message, Provider } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
@@ -217,4 +222,131 @@ export async function routeAutoProfile(args: {
     ...(typeof confidence === "number" ? { confidence } : {}),
     latencyMs: result.latencyMs,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Draft preview and send-time reuse
+// ---------------------------------------------------------------------------
+
+/**
+ * How long a draft preview stays reusable by the turn that sends the same
+ * text. Long enough to cover the pause between the preview and the send,
+ * short enough that a stale pick never outlives the draft it was made for.
+ */
+export const AUTO_PROFILE_PREVIEW_REUSE_MS = 60_000;
+
+/** Recent history rows the preview shows the router, matching the turn's window. */
+const PREVIEW_HISTORY_ROWS = 12;
+
+/** Cache key for a preview made before the conversation has a server id. */
+const NO_CONVERSATION_KEY = "*";
+
+interface RememberedPreview {
+  text: string;
+  route: AutoProfileRoute;
+  at: number;
+}
+
+const rememberedPreviews = new Map<string, RememberedPreview>();
+
+function normalizeDraft(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Keep a routed preview so the turn that sends the same text reuses it: one
+ * Jev call per message instead of two, and the reply's badge matches what
+ * the composer showed. Only a routed pick is kept; a fallback is worth
+ * retrying at send time.
+ */
+export function rememberAutoProfilePreview(
+  conversationId: string | undefined,
+  text: string,
+  route: AutoProfileRoute,
+): void {
+  if (route.outcome !== "routed") {
+    return;
+  }
+  rememberedPreviews.set(conversationId ?? NO_CONVERSATION_KEY, {
+    text: normalizeDraft(text),
+    route,
+    at: Date.now(),
+  });
+}
+
+/**
+ * The remembered preview for this text, consumed on read. A draft previewed
+ * before its conversation existed is found under the conversation-less key.
+ */
+export function takeAutoProfilePreview(
+  conversationId: string,
+  text: string,
+  now: number = Date.now(),
+): AutoProfileRoute | undefined {
+  const wanted = normalizeDraft(text);
+  for (const key of [conversationId, NO_CONVERSATION_KEY]) {
+    const remembered = rememberedPreviews.get(key);
+    if (!remembered) {
+      continue;
+    }
+    if (now - remembered.at > AUTO_PROFILE_PREVIEW_REUSE_MS) {
+      rememberedPreviews.delete(key);
+      continue;
+    }
+    if (remembered.text === wanted) {
+      rememberedPreviews.delete(key);
+      return remembered.route;
+    }
+  }
+  return undefined;
+}
+
+/** For tests. */
+export function clearAutoProfilePreviewsForTesting(): void {
+  rememberedPreviews.clear();
+}
+
+function recentHistoryFromDb(conversationId: string | undefined): Message[] {
+  const resolved = conversationId
+    ? resolveConversationId(conversationId)
+    : null;
+  if (!resolved) {
+    return [];
+  }
+  return getMessagesPaginated(resolved, PREVIEW_HISTORY_ROWS)
+    .messages.filter((row) => row.role === "user" || row.role === "assistant")
+    .map((row) => ({
+      role: row.role as Message["role"],
+      content: row.content,
+    }));
+}
+
+/**
+ * Route a draft the user has not sent yet, so the composer can show the pick
+ * as they type. Returns null when the Auto profile is not available on this
+ * install; otherwise the same route a turn on the draft would get, remembered
+ * for that turn to reuse.
+ */
+export async function previewAutoProfile(args: {
+  conversationId?: string;
+  text: string;
+  signal?: AbortSignal;
+}): Promise<AutoProfileRoute | null> {
+  const { llm } = getConfig();
+  const profiles = getConversationProfilesForProvider(
+    llm.profiles,
+    llm.defaultProvider ?? null,
+  );
+  if (profiles[AUTO_PROFILE_KEY]?.source !== "managed") {
+    return null;
+  }
+  const route = await routeAutoProfile({
+    conversationId: args.conversationId ?? NO_CONVERSATION_KEY,
+    history: recentHistoryFromDb(args.conversationId),
+    userMessage: args.text,
+    profiles,
+    ...(args.signal ? { signal: args.signal } : {}),
+  });
+  rememberAutoProfilePreview(args.conversationId, args.text, route);
+  return route;
 }

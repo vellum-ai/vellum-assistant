@@ -105,6 +105,7 @@ import {
   type AutoProfileRoute,
   plainTextOf,
   routeAutoProfile,
+  takeAutoProfilePreview,
 } from "./auto-profile-router.js";
 import { conversationSupportsDynamicUi } from "./channel-ui-capability.js";
 import type { Conversation } from "./conversation.js";
@@ -688,21 +689,31 @@ export async function runAgentLoopImpl(
         if (profiles[AUTO_PROFILE_KEY]?.source !== "managed") {
           return null;
         }
-        const route = await routeAutoProfile({
-          conversationId: ctx.conversationId,
-          history: ctx.messages,
-          userMessage: plainTextOf(
-            getMessageById(userMessageId)?.content ?? [],
-          ),
-          profiles,
-          signal: abortController.signal,
-        });
+        const userMessage = plainTextOf(
+          getMessageById(userMessageId)?.content ?? [],
+        );
+        // A draft the composer already previewed carries its pick over, so
+        // the reply lands on the profile the pill showed with no second call.
+        const previewed = takeAutoProfilePreview(
+          ctx.conversationId,
+          userMessage,
+        );
+        const route =
+          previewed ??
+          (await routeAutoProfile({
+            conversationId: ctx.conversationId,
+            history: ctx.messages,
+            userMessage,
+            profiles,
+            signal: abortController.signal,
+          }));
         rlog.info(
           {
             outcome: route.outcome,
             profile: route.profile,
             confidence: route.confidence ?? null,
             latencyMs: route.latencyMs,
+            reusedPreview: previewed !== undefined,
           },
           "Auto profile routed the turn",
         );

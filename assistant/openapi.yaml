@@ -2597,6 +2597,58 @@ paths:
                   - userId
                   - authenticated
                 additionalProperties: false
+  /v1/auto-profile/preview:
+    post:
+      operationId: autoprofile_preview_post
+      summary: Preview the Auto profile's pick for a draft
+      description:
+        Ask the Auto profile which default profile a draft message would run on, using the conversation's recent
+        history when one is given. The pick is kept briefly so the turn that sends the same text reuses it. Spends one
+        Jev call per request.
+      tags:
+        - conversations
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                text:
+                  type: string
+                  minLength: 1
+                  maxLength: 20000
+                conversationId:
+                  type: string
+                  description: Conversation the draft belongs to, for recent history. Omit for a new chat.
+              required:
+                - text
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  profile:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  outcome:
+                    type: string
+                    enum:
+                      - routed
+                      - unavailable
+                      - timeout
+                      - error
+                      - fallback
+                  confidence:
+                    type: number
+                required:
+                  - profile
+                  - outcome
+                additionalProperties: false
   /v1/avatar/accent:
     post:
       operationId: avatar_accent_post
