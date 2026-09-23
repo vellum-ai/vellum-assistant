@@ -50,6 +50,7 @@ import { consolidateMessageRows } from "../../conversations/message-consolidatio
 import { resolveTurnCommitWaitMs } from "../../daemon/abort-watchdog.js";
 import { createApprovalConversationGenerator } from "../../daemon/approval-generators.js";
 import type { Conversation } from "../../daemon/conversation.js";
+import { isClaimLive } from "../../daemon/conversation-actor-claim.js";
 import {
   classifyInterruptEligibility,
   interruptRunningTurn,
@@ -2777,16 +2778,47 @@ export async function handleSendMessage(
       });
       const slashResult = await resolveSlash(rawContent, slashContext);
 
-      // A Stop can force-clear a claim with no turn behind it while the slash
-      // resolves. The canned branches below write under the claim without a
+      // Asked before each write ahead of the turn: a Stop cancels the claim
+      // while it is still preparing, and nothing is written for this send
+      // after. The canned branches below write under the claim without a
       // persist to check it for them, so they queue here the way a send that
       // finds the conversation taken does.
-      if (
-        slashResult.kind !== "passthrough" &&
-        !conversation.holdsProcessingClaim(turnClaim)
-      ) {
+      const claimLive = () => isClaimLive(conversation, turnClaim);
+      if (slashResult.kind !== "passthrough" && !claimLive()) {
         return queueFallback(rawContent, "lock_race");
       }
+      /**
+       * The user row of a slash command answered without a turn, inserted only
+       * while the claim is live. Null is a claim cancelled before the insert,
+       * which the branch answers by queueing, since nothing was written.
+       */
+      const persistCannedUserRow = async (
+        metadata: Record<string, unknown>,
+      ): Promise<Awaited<
+        ReturnType<typeof persistQueuedMessageBody>
+      > | null> => {
+        try {
+          return await persistQueuedMessageBody(conversation, {
+            content: rawContent,
+            attachments,
+            // The send's own id, not a fresh one: an interrupting send is
+            // answered `202` advertising this id as its `messageId` before
+            // these branches run, and a user row is persisted under its
+            // request id, so minting here would advertise a row that never
+            // exists.
+            requestId: sendRequestId,
+            metadata: withClientMetadata(metadata, clientMetadata),
+            clientMessageId,
+            insertPrecondition: claimLive,
+            ...(clientOs ? { requestClientOs: clientOs } : {}),
+          });
+        } catch (err) {
+          if (!claimLive()) {
+            return null;
+          }
+          throw err;
+        }
+      };
 
       if (slashResult.kind === "unknown") {
         // Released by this branch on every path.
@@ -2804,20 +2836,11 @@ export async function handleSendMessage(
               ? { scripted: body.scripted }
               : {}),
           };
-          const persisted = await persistQueuedMessageBody(conversation, {
-            content: rawContent,
-            attachments,
-            // The send's own id, not a fresh one: an interrupting send is
-            // answered `202` advertising this id as its `messageId` before
-            // these branches run, and a user row is persisted under its
-            // request id, so minting here would advertise a row that never
-            // exists.
-            requestId: sendRequestId,
-            metadata: withClientMetadata(slashMeta, clientMetadata),
-            clientMessageId,
-            ...(clientOs ? { requestClientOs: clientOs } : {}),
-          });
-          if (persisted.deduplicated) {
+          const persisted = await persistCannedUserRow(slashMeta);
+          if (!persisted) {
+            return queueFallback(rawContent, "lock_race");
+          }
+          if (persisted.deduplicated || !claimLive()) {
             return {
               accepted: true,
               messageId: persisted.id,
@@ -2921,18 +2944,9 @@ export async function handleSendMessage(
           userMessageInterface: sourceInterface,
           assistantMessageInterface: sourceInterface,
         };
-        let persisted: Awaited<ReturnType<typeof persistQueuedMessageBody>>;
+        let persisted: Awaited<ReturnType<typeof persistCannedUserRow>>;
         try {
-          persisted = await persistQueuedMessageBody(conversation, {
-            content: rawContent,
-            attachments,
-            // See the note on the other canned branches: the id was already
-            // advertised on the acceptance, so it has to be the one used here.
-            requestId: sendRequestId,
-            metadata: withClientMetadata(slashMeta, clientMetadata),
-            clientMessageId,
-            ...(clientOs ? { requestClientOs: clientOs } : {}),
-          });
+          persisted = await persistCannedUserRow(slashMeta);
         } catch (err) {
           // The fire-and-forget compaction below owns clearing `processing`, but a
           // throw from this initial persist never reaches it — reset here so the
@@ -2941,7 +2955,13 @@ export async function handleSendMessage(
           void conversation.kickDrainQueue("loop_complete", "compact_command");
           throw err;
         }
-        if (persisted.deduplicated) {
+        if (!persisted) {
+          const queued = queueFallback(rawContent, "lock_race");
+          conversation.releaseProcessing(compactOwner);
+          void conversation.kickDrainQueue("loop_complete", "compact_command");
+          return queued;
+        }
+        if (persisted.deduplicated || !claimLive()) {
           conversation.releaseProcessing(compactOwner);
           void conversation.kickDrainQueue("loop_complete", "compact_dedup");
           return {
@@ -2977,6 +2997,9 @@ export async function handleSendMessage(
             // Same sink the result card below goes out on, so the indicator and
             // the card can never be delivered to different places.
             const result = await conversation.forceCompact(broadcastMessage);
+            if (!claimLive()) {
+              return;
+            }
             const cardId = await persistCannedAssistantCard({
               conversation,
               conversationId,
@@ -3029,20 +3052,11 @@ export async function handleSendMessage(
             userMessageInterface: sourceInterface,
             assistantMessageInterface: sourceInterface,
           };
-          const persisted = await persistQueuedMessageBody(conversation, {
-            content: rawContent,
-            attachments,
-            // The send's own id, not a fresh one: an interrupting send is
-            // answered `202` advertising this id as its `messageId` before
-            // these branches run, and a user row is persisted under its
-            // request id, so minting here would advertise a row that never
-            // exists.
-            requestId: sendRequestId,
-            metadata: withClientMetadata(slashMeta, clientMetadata),
-            clientMessageId,
-            ...(clientOs ? { requestClientOs: clientOs } : {}),
-          });
-          if (persisted.deduplicated) {
+          const persisted = await persistCannedUserRow(slashMeta);
+          if (!persisted) {
+            return queueFallback(rawContent, "lock_race");
+          }
+          if (persisted.deduplicated || !claimLive()) {
             return {
               accepted: true,
               messageId: persisted.id,
@@ -3068,6 +3082,13 @@ export async function handleSendMessage(
             publishConversationMessagesChanged(conversationId, originClientId);
 
             const result = await conversation.forceClean();
+            if (!claimLive()) {
+              return {
+                accepted: true,
+                messageId: persisted.id,
+                conversationId,
+              };
+            }
             await persistCannedAssistantCard({
               conversation,
               conversationId,

@@ -222,6 +222,7 @@ function makeTestConversation() {
     ensureActorScopedHistory: async () => {},
     acquireProcessingForActor: acquireProcessingForActorDouble,
     releaseProcessing: () => false,
+    holdsProcessingClaim: () => true,
     setChannelCapabilities: () => {},
     setHostCuProxy: () => {},
     setHostAppControlProxy: () => {},

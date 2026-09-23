@@ -37,6 +37,7 @@ import {
 } from "../telemetry/turn-outcome.js";
 import { getLogger } from "../util/logger.js";
 import type { Conversation } from "./conversation.js";
+import { isClaimLive } from "./conversation-actor-claim.js";
 import {
   buildProviderMetaForPersistence,
   buildSlackMetaForPersistence,
@@ -574,6 +575,37 @@ async function runClaimedMessage(
     userMessageInterface: serverInterfaceCtx?.userMessageInterface,
   });
   const slashResult = await resolveSlash(content, slashContext);
+  // Asked before each write ahead of the turn: a Stop cancels the claim while
+  // it is still preparing, and nothing is written for this message after.
+  const claimLive = () => isClaimLive(conversation, processingClaim);
+  if (!claimLive()) {
+    throw new Error(CONVERSATION_BUSY_MESSAGE);
+  }
+  /**
+   * The user row of a slash command answered without a turn, inserted only
+   * while the claim is live. A claim cancelled before the insert answers busy,
+   * as a busy acquire does, since nothing has been written for it.
+   */
+  const persistSlashUserRow = async (
+    metadata: Record<string, unknown>,
+  ): Promise<{ id: string }> => {
+    const body = await serializePersistedUserMessageContent(
+      content,
+      options?.displayContent,
+      attachments,
+    );
+    try {
+      return await addMessage(conversationId, "user", body, {
+        metadata,
+        insertPrecondition: claimLive,
+      });
+    } catch (err) {
+      if (!claimLive()) {
+        throw new Error(CONVERSATION_BUSY_MESSAGE);
+      }
+      throw err;
+    }
+  };
 
   const turnChannel = conversation.getTurnChannelContext()?.userMessageChannel;
   const slackMeta = buildSlackMetaForPersistence({
@@ -624,16 +656,10 @@ async function runClaimedMessage(
     );
     const cleanMsg = await createUserMessage(content, attachments);
     const llmMsg = enrichMessageWithSourcePaths(cleanMsg, attachments);
-    const persisted = await addMessage(
-      conversationId,
-      "user",
-      await serializePersistedUserMessageContent(
-        content,
-        options?.displayContent,
-        attachments,
-      ),
-      { metadata: userMetaWithSlack },
-    );
+    const persisted = await persistSlashUserRow(userMetaWithSlack);
+    if (!claimLive()) {
+      return { messageId: persisted.id };
+    }
     conversation.getMessages().push(llmMsg);
 
     if (serverTurnCtx) {
@@ -722,20 +748,17 @@ async function runClaimedMessage(
       providerMeta,
     );
     const cleanMsg = await createUserMessage(content, attachments);
-    const persisted = await addMessage(
-      conversationId,
-      "user",
-      await serializePersistedUserMessageContent(
-        content,
-        options?.displayContent,
-        attachments,
-      ),
-      { metadata: compactUserMeta },
-    );
+    const persisted = await persistSlashUserRow(compactUserMeta);
+    if (!claimLive()) {
+      return { messageId: persisted.id };
+    }
     conversation.getMessages().push(cleanMsg);
 
     conversation.emitActivityState("thinking", "context_compacting");
     const result = await conversation.forceCompact();
+    if (!claimLive()) {
+      return { messageId: persisted.id };
+    }
     const responseText = formatCompactResult(result);
     const assistantMsg = createAssistantMessage(responseText);
     const persistedAssistant = await addMessage(
@@ -782,19 +805,16 @@ async function runClaimedMessage(
       providerMeta,
     );
     const cleanMsg = await createUserMessage(content, attachments);
-    const persisted = await addMessage(
-      conversationId,
-      "user",
-      await serializePersistedUserMessageContent(
-        content,
-        options?.displayContent,
-        attachments,
-      ),
-      { metadata: cleanUserMeta },
-    );
+    const persisted = await persistSlashUserRow(cleanUserMeta);
+    if (!claimLive()) {
+      return { messageId: persisted.id };
+    }
     conversation.getMessages().push(cleanMsg);
 
     const result = await conversation.forceClean();
+    if (!claimLive()) {
+      return { messageId: persisted.id };
+    }
     const responseText = formatCleanResult(result);
     const assistantMsg = createAssistantMessage(responseText);
     const persistedAssistant = await addMessage(

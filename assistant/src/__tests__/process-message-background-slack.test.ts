@@ -96,6 +96,7 @@ interface TestConversation {
   ensureActorScopedHistory: () => Promise<void>;
   acquireProcessingForActor: typeof acquireProcessingForActorDouble;
   releaseProcessing: (claim: number) => boolean;
+  holdsProcessingClaim: (claim: number) => boolean;
   setChannelCapabilities: () => void;
   setHostCuProxy: () => void;
   setHostAppControlProxy: () => void;
@@ -185,6 +186,7 @@ function makeConversation(): TestConversation {
     ensureActorScopedHistory: async () => {},
     acquireProcessingForActor: acquireProcessingForActorDouble,
     releaseProcessing: () => false,
+    holdsProcessingClaim: () => true,
     setChannelCapabilities: () => {},
     setHostCuProxy: () => {},
     setHostAppControlProxy: () => {},

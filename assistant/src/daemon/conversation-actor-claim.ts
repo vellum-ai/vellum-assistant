@@ -8,8 +8,13 @@ import type { TrustContext } from "./trust-context-types.js";
 
 /**
  * A claim still preparing its turn: taken, but with no agent loop and no abort
- * controller behind it yet. `cancelled` is set by a Stop that lands in that
- * window, and the holder gives the claim back once its reload settles.
+ * controller behind it yet. It covers everything a sender does before its turn
+ * starts (the history reload, slash resolution, a canned reply's writes), and
+ * ends in exactly two places, both through {@link endPreparingClaim}: the
+ * persist that installs the turn's abort controller, and the release of the
+ * claim. `cancelled` is set by a Stop or steer that lands in that window; the
+ * holder checks it with {@link isClaimLive} before each write and gives the
+ * claim back instead of writing.
  */
 export interface PreparingClaim {
   readonly owner: number;
@@ -38,10 +43,10 @@ export interface ActorClaimContext {
  * turn would start on the other actor's history. Under the claim, the second
  * finds the conversation busy before it touches either.
  *
- * The claim is published as preparing while the reload runs, so a Stop in that
- * window cancels it rather than force-clearing a flag it would otherwise read
- * as latched. Clearing it there would let another sender acquire and reload
- * while this reload is still in flight.
+ * The claim is published as preparing, so a Stop before the turn starts
+ * cancels it rather than force-clearing a flag it would otherwise read as
+ * latched. Clearing it there would let another sender acquire and reload while
+ * this sender is still reloading or writing.
  *
  * An undefined `trustContext` keeps the conversation's current trust. Null is
  * a conversation this sender cannot have: busy when asked, or cancelled or
@@ -80,12 +85,8 @@ export async function acquireProcessingForActor(
   } catch (err) {
     giveBack("actor_scope_failed");
     throw err;
-  } finally {
-    if (ctx.preparingClaim === preparation) {
-      ctx.preparingClaim = null;
-    }
   }
-  if (preparation.cancelled || !ctx.holdsProcessingClaim(owner)) {
+  if (!isClaimLive(ctx, owner)) {
     giveBack("actor_scope_cancelled");
     return null;
   }
@@ -105,4 +106,32 @@ export function cancelPreparingClaim(
   }
   preparation.cancelled = true;
   return true;
+}
+
+/**
+ * Whether a claim taken by {@link acquireProcessingForActor} may still write:
+ * it is the live hold, and no Stop has cancelled it. Asked immediately before
+ * each write a sender makes ahead of its turn.
+ */
+export function isClaimLive(
+  ctx: Pick<ActorClaimContext, "holdsProcessingClaim"> & {
+    preparingClaim?: PreparingClaim | null;
+  },
+  owner: number,
+): boolean {
+  const preparation = ctx.preparingClaim;
+  return (
+    ctx.holdsProcessingClaim(owner) &&
+    !(preparation?.owner === owner && preparation.cancelled)
+  );
+}
+
+/** End the preparing window of `owner`'s claim, if it is still open. */
+export function endPreparingClaim(
+  ctx: { preparingClaim?: PreparingClaim | null },
+  owner: number,
+): void {
+  if (ctx.preparingClaim?.owner === owner) {
+    ctx.preparingClaim = null;
+  }
 }

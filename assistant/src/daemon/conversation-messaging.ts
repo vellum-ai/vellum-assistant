@@ -75,6 +75,11 @@ import {
 import type { AuthContext } from "../runtime/auth/types.js";
 import { INTERRUPTED_TURN_NOTE_TEXT } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
+import {
+  endPreparingClaim,
+  isClaimLive,
+  type PreparingClaim,
+} from "./conversation-actor-claim.js";
 import type { ConversationModeSessionCoordinator } from "./conversation-mode-session.js";
 import type {
   MessageQueue,
@@ -238,6 +243,8 @@ export interface MessagingConversationContext {
   acquireProcessingFenced(): Promise<number | null>;
   holdsProcessingClaim(owner: number): boolean;
   releaseProcessing(owner: number): boolean;
+  /** See {@link PreparingClaim}. */
+  preparingClaim?: PreparingClaim | null;
   abortController: AbortController | null;
   currentTurnCronRunId?: string | null;
   currentTurnWorkOrigins?: readonly TurnWorkOrigin[];
@@ -1127,7 +1134,7 @@ export async function persistUserMessage(
   if (
     processingClaim === undefined
       ? ctx.isProcessing()
-      : !ctx.holdsProcessingClaim(processingClaim)
+      : !isClaimLive(ctx, processingClaim)
   ) {
     throw new Error(CONVERSATION_BUSY_MESSAGE);
   }
@@ -1145,6 +1152,11 @@ export async function persistUserMessage(
   ctx.currentTurnClientMessageId = options.clientMessageId;
   const controller = new AbortController();
   ctx.abortController = controller;
+  // The turn is abortable from here, so a Stop signals it rather than
+  // cancelling a claim still preparing.
+  if (processingClaim !== undefined) {
+    endPreparingClaim(ctx, processingClaim);
+  }
   ctx.currentTurnCronRunId = options.cronRunId ?? null;
   ctx.currentTurnWorkOrigins = [
     {

@@ -33,6 +33,30 @@ export interface RecordedTurn {
   historyAtEnd?: string[];
 }
 
+/**
+ * A point a test can hold some awaited work at: `wait()` is what the held
+ * work awaits, `entered` resolves once it is waiting, and `release()` lets it
+ * go on.
+ */
+export function createHold(): HeldReload & { wait(): Promise<void> } {
+  let enter!: () => void;
+  const entered = new Promise<void>((resolve) => {
+    enter = resolve;
+  });
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return {
+    entered,
+    release,
+    wait: () => {
+      enter();
+      return gate;
+    },
+  };
+}
+
 /** The history a reload scoped for `trust` leaves resident. */
 export function historyScopedFor(trust: TrustContext | undefined): string[] {
   return [`history visible to ${trust?.trustClass ?? "nobody"}`];
@@ -48,6 +72,13 @@ export function createScopeRaceConversation(
   let loadedFor: string | null = null;
   const holds: Array<{ gate: Promise<void>; enter: () => void }> = [];
   let running = 0;
+  // A claim's preparing window ends when its turn becomes abortable or the
+  // claim is released, as the real conversation's does.
+  const endPreparing = (claim: number) => {
+    if (conversation.preparingClaim?.owner === claim) {
+      conversation.preparingClaim = null;
+    }
+  };
   const queued: unknown[] = [];
   const queue = {
     get length() {
@@ -123,6 +154,7 @@ export function createScopeRaceConversation(
       if (owner !== claim) {
         return false;
       }
+      endPreparing(claim);
       processing = false;
       owner = 0;
       return true;
@@ -173,13 +205,20 @@ export function createScopeRaceConversation(
         if (claim === null) {
           throw new Error(busyMessage);
         }
-      } else if (owner !== options.processingClaim) {
+      } else if (
+        owner !== options.processingClaim ||
+        (conversation.preparingClaim?.owner === options.processingClaim &&
+          conversation.preparingClaim.cancelled)
+      ) {
         throw new Error(busyMessage);
       }
       conversation.persistedTrust.push(
         options.trustContext ?? conversation.trustContext,
       );
       conversation.abortController = new AbortController();
+      if (options.processingClaim !== undefined) {
+        endPreparing(options.processingClaim);
+      }
       return {
         id: options.requestId ?? `row-${conversation.persistedTrust.length}`,
         deduplicated: false,

@@ -12,6 +12,11 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 
 // What the real user-row insert answers, for tests that persist through it.
 let insertOutcome: "insert" | "duplicate" | "throw" = "insert";
+// Roles of the rows the real insert wrote, in order.
+const insertedRoles: string[] = [];
+// Holds the next user-row insert or slash resolution open when set.
+let heldUserInsert: ReturnType<typeof createHold> | null = null;
+let heldSlash: ReturnType<typeof createHold> | null = null;
 
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => false }));
 
@@ -46,7 +51,19 @@ mock.module("../runtime/confirmation-request-guardian-bridge.js", () => ({
 mock.module("../persistence/conversation-crud.js", () => ({
   setConversationProcessingStartedAt: () => {},
   isConversationProcessing: () => false,
-  addMessage: async () => {
+  addMessage: async (
+    _conversationId: string,
+    role: string,
+    _content: string,
+    options?: { insertPrecondition?: () => boolean },
+  ) => {
+    if (options?.insertPrecondition && !options.insertPrecondition()) {
+      throw new Error("insert precondition failed");
+    }
+    const hold = role === "user" ? heldUserInsert : null;
+    heldUserInsert = null;
+    await hold?.wait();
+    insertedRoles.push(role);
     if (insertOutcome === "throw") {
       throw new Error("persist failed");
     }
@@ -138,15 +155,32 @@ import {
   deleteConversation,
   setConversation,
 } from "../daemon/conversation-registry.js";
+import * as slashModule from "../daemon/conversation-slash.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import { handleSendMessage } from "../runtime/routes/conversation-routes.js";
 import { createAbortReason } from "../util/abort-reasons.js";
 import { callHandler } from "./helpers/call-route-handler.js";
 import { mockUnownedModeSessions } from "./helpers/mock-conversation.js";
 import {
+  createHold,
   createScopeRaceConversation,
   historyScopedFor,
 } from "./helpers/scope-race-conversation.js";
+
+// Mocked after the modules under test have loaded, so the real resolver is in
+// hand to delegate to; the live binding is what those modules call.
+const realSlash = { ...slashModule };
+mock.module("../daemon/conversation-slash.js", () => ({
+  ...realSlash,
+  resolveSlash: async (
+    ...args: Parameters<typeof realSlash.resolveSlash>
+  ): ReturnType<typeof realSlash.resolveSlash> => {
+    const hold = heldSlash;
+    heldSlash = null;
+    await hold?.wait();
+    return realSlash.resolveSlash(...args);
+  },
+}));
 
 const CONV_ID = "conv-route-race";
 
@@ -238,6 +272,9 @@ function send(
 afterEach(() => {
   deleteConversation(CONV_ID);
   insertOutcome = "insert";
+  insertedRoles.length = 0;
+  heldUserInsert = null;
+  heldSlash = null;
 });
 
 describe("POST /v1/messages racing another sender to an idle conversation", () => {
@@ -347,4 +384,53 @@ describe("POST /v1/messages racing another sender to an idle conversation", () =
       expect(conversation.drained).toEqual(["from Bob"]);
     },
   );
+  test("a Stop during slash resolution queues the send and writes nothing", async () => {
+    const conversation = makeConversation();
+    setConversation(CONV_ID, conversation as unknown as Conversation);
+    const slash = createHold();
+    heldSlash = slash;
+
+    const alice = send(conversation, "alice-principal", "from Alice");
+    await slash.entered;
+    conversation.stop();
+    // Cancelled, not cleared: Bob still finds the conversation taken.
+    expect(conversation.isProcessing()).toBe(true);
+    const bobResponse = await send(conversation, "bob-principal", "from Bob");
+    expect(await bobResponse.json()).toMatchObject({ queued: true });
+
+    slash.release();
+    expect(await (await alice).json()).toMatchObject({ queued: true });
+    expect(insertedRoles).toEqual([]);
+    expect(conversation.persistedTrust).toEqual([]);
+    expect(conversation.turns).toHaveLength(0);
+    expect(conversation.isProcessing()).toBe(false);
+    expect(conversation.drained).toEqual(["from Bob", "from Alice"]);
+  });
+
+  test("a Stop during a slash command's user-row insert writes no reply", async () => {
+    const conversation = makeConversation();
+    setConversation(CONV_ID, conversation as unknown as Conversation);
+    const insert = createHold();
+    heldUserInsert = insert;
+
+    const alice = send(conversation, "alice-principal", "/commands");
+    await insert.entered;
+    conversation.stop();
+    expect(conversation.isProcessing()).toBe(true);
+    const bobResponse = await send(conversation, "bob-principal", "from Bob");
+    expect(await bobResponse.json()).toMatchObject({ queued: true });
+
+    insert.release();
+    // The row the insert was already writing stays; nothing follows it.
+    const aliceBody = await (await alice).json();
+    expect(aliceBody).toMatchObject({
+      accepted: true,
+      messageId: "persisted-id",
+    });
+    expect(aliceBody.queued).toBeUndefined();
+    expect(insertedRoles).toEqual(["user"]);
+    expect(conversation.turns).toHaveLength(0);
+    expect(conversation.isProcessing()).toBe(false);
+    expect(conversation.drained).toEqual(["from Bob"]);
+  });
 });

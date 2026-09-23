@@ -11,6 +11,11 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // What the real user-row insert answers, for tests that persist through it.
 let insertOutcome: "insert" | "duplicate" | "throw" = "insert";
+// Roles of the rows the real insert wrote, in order.
+const insertedRoles: string[] = [];
+// Holds the next user-row insert or slash resolution open when set.
+let heldUserInsert: ReturnType<typeof createHold> | null = null;
+let heldSlash: ReturnType<typeof createHold> | null = null;
 
 mock.module("../persistence/attachments-store.js", () => ({
   getAttachmentsByIds: () => [],
@@ -20,7 +25,19 @@ mock.module("../persistence/attachments-store.js", () => ({
 mock.module("../persistence/conversation-crud.js", () => ({
   setConversationProcessingStartedAt: () => {},
   isConversationProcessing: () => false,
-  addMessage: async () => {
+  addMessage: async (
+    _conversationId: string,
+    role: string,
+    _content: string,
+    options?: { insertPrecondition?: () => boolean },
+  ) => {
+    if (options?.insertPrecondition && !options.insertPrecondition()) {
+      throw new Error("insert precondition failed");
+    }
+    const hold = role === "user" ? heldUserInsert : null;
+    heldUserInsert = null;
+    await hold?.wait();
+    insertedRoles.push(role);
     if (insertOutcome === "throw") {
       throw new Error("persist failed");
     }
@@ -67,13 +84,30 @@ import {
   type MessagingConversationContext,
   persistUserMessage,
 } from "../daemon/conversation-messaging.js";
+import * as slashModule from "../daemon/conversation-slash.js";
 import { processMessage } from "../daemon/process-message.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import { createAbortReason } from "../util/abort-reasons.js";
 import {
+  createHold,
   createScopeRaceConversation,
   historyScopedFor,
 } from "./helpers/scope-race-conversation.js";
+
+// Mocked after the modules under test have loaded, so the real resolver is in
+// hand to delegate to; the live binding is what those modules call.
+const realSlash = { ...slashModule };
+mock.module("../daemon/conversation-slash.js", () => ({
+  ...realSlash,
+  resolveSlash: async (
+    ...args: Parameters<typeof realSlash.resolveSlash>
+  ): ReturnType<typeof realSlash.resolveSlash> => {
+    const hold = heldSlash;
+    heldSlash = null;
+    await hold?.wait();
+    return realSlash.resolveSlash(...args);
+  },
+}));
 import { setConfig } from "./helpers/set-config.js";
 
 const CONV_ID = "conv-scope-claim-race";
@@ -138,6 +172,9 @@ describe("channel ingress racing another sender to an idle conversation", () => 
     setConfig("memory", { enabled: false, v2: { enabled: false } });
     activeConversation = makeConversation();
     insertOutcome = "insert";
+    insertedRoles.length = 0;
+    heldUserInsert = null;
+    heldSlash = null;
   });
 
   test("the sender inside the history reload keeps its trust and history, and the other is turned away as busy", async () => {
@@ -223,4 +260,52 @@ describe("channel ingress racing another sender to an idle conversation", () => 
       expect(conversation.drained).toEqual(["from Bob"]);
     },
   );
+  test("a Stop during slash resolution turns the message away as busy and writes nothing", async () => {
+    const conversation = activeConversation;
+    const slash = createHold();
+    heldSlash = slash;
+
+    const alice = settled(send("from Alice", ALICE));
+    await slash.entered;
+    conversation.stop();
+    // Cancelled, not cleared: Bob still finds the conversation taken.
+    expect(conversation.isProcessing()).toBe(true);
+    expect(isConversationBusyError(await settled(send("from Bob", BOB)))).toBe(
+      true,
+    );
+
+    slash.release();
+    expect(isConversationBusyError(await alice)).toBe(true);
+    expect(insertedRoles).toEqual([]);
+    expect(conversation.persistedTrust).toEqual([]);
+    expect(conversation.turns).toHaveLength(0);
+    expect(conversation.isProcessing()).toBe(false);
+  });
+
+  test("a Stop during a slash command's user-row insert writes no reply", async () => {
+    const conversation = activeConversation;
+    const insert = createHold();
+    heldUserInsert = insert;
+
+    const alice = processMessage(CONV_ID, "/commands", {
+      trustContext: ALICE,
+      sourceChannel: "slack",
+      sourceInterface: "slack",
+    });
+    await insert.entered;
+    conversation.stop();
+    expect(conversation.isProcessing()).toBe(true);
+    expect(isConversationBusyError(await settled(send("from Bob", BOB)))).toBe(
+      true,
+    );
+
+    insert.release();
+    // The row the insert was already writing stays; nothing follows it.
+    const result = await alice;
+    expect(result.messageId).toBe("persisted-id");
+    expect(result.assistantMessageId).toBeUndefined();
+    expect(insertedRoles).toEqual(["user"]);
+    expect(conversation.turns).toHaveLength(0);
+    expect(conversation.isProcessing()).toBe(false);
+  });
 });
