@@ -1,16 +1,16 @@
 /**
  * The read-only view the document drawer shows for an `.xlsx` or `.xlsm`
- * workbook: a tab per sheet once there is more than one, and the shared
- * tabular grid under it with a footer naming the open sheet. The grid fills
- * the height its frame gives it, so the decorator mounts it in a fixed-size
- * box the way the drawer body does.
+ * workbook: the shared tabular grid, and under it, once there is more than one
+ * sheet, a bar holding a tab per sheet on the left and the open sheet's row
+ * and column count on the right. The grid fills the height its frame gives it,
+ * so the decorator mounts it in a fixed-size box the way the drawer body does.
  *
  * The stories drive `WorkbookGrid`, the presentational half, so a sheet is
  * stated as the grid it reads to rather than as a binary workbook. They cover
- * one sheet (no tab row), a few sheets, enough sheets to scroll the row
- * sideways, more sheets than the switcher mounts, names long enough to
- * truncate, an empty sheet, a capped sheet, a sheet that cannot be read, and
- * the mobile width.
+ * one sheet (no bar), a few sheets, enough sheets to scroll the row sideways,
+ * more sheets than the switcher mounts, names long enough to truncate, an
+ * empty sheet, a capped sheet, a sheet that cannot be read, and the mobile
+ * width.
  */
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
@@ -126,7 +126,7 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-/** One sheet needs no switcher, so the grid gets the whole frame. */
+/** One sheet needs no bar, so the grid gets the whole frame and its own footer. */
 export const SingleSheet: Story = {
   args: { sheets: SINGLE_SHEET },
 };
@@ -151,12 +151,18 @@ export const LongSheetNames: Story = {
   args: { sheets: LONG_NAME_SHEETS },
 };
 
+/** Long names at phone width, where the tab row still keeps half the bar. */
+export const LongSheetNamesMobile: Story = {
+  args: { sheets: LONG_NAME_SHEETS },
+  globals: { viewport: { value: "sbMobile", isRotated: false } },
+};
+
 /** A sheet with nothing in it says so, and its neighbours still open. */
 export const EmptySheet: Story = {
   args: { sheets: EMPTY_SHEETS },
 };
 
-/** A sheet cut short by the row cap says so in its footer. */
+/** A sheet cut short by the row cap says so in the bar. */
 export const TruncatedSheet: Story = {
   args: { sheets: TRUNCATED_SHEETS },
 };

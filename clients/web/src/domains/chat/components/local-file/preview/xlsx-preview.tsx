@@ -9,12 +9,16 @@
  * cannot be read fails inside its own panel while the other tabs stay usable.
  * The reader hands over the sheets the switcher shows and how many there are,
  * so a workbook's sheet count cannot cost the browser a trigger apiece.
+ *
+ * A workbook of several sheets carries the sentence describing the open one in
+ * the bar beside its tabs, so the grid above draws no footer of its own.
  */
 
-import { useState, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 
 import { ScrollShadow, Tabs, Typography } from "@vellumai/design-library";
 
+import type { ParsedCsv } from "@/domains/chat/components/local-file/preview/csv";
 import { PreviewError } from "@/domains/chat/components/local-file/preview/preview-error";
 import { PreviewNotice } from "@/domains/chat/components/local-file/preview/preview-notice";
 import { PreviewSkeleton } from "@/domains/chat/components/local-file/preview/preview-skeleton";
@@ -34,12 +38,31 @@ interface XlsxPreviewProps {
   filename: string;
 }
 
-/** The sheet on screen, which is the only one whose part is ever read. */
-function SheetPanel({ sheet }: { sheet: WorkbookSheet }): ReactNode {
+/** What a workbook with no sheet to open reads to. */
+const NO_GRID: ParsedCsv = { headers: null, rows: [], truncated: false };
+
+/**
+ * The grid a sheet reads to. An absent sheet resolves to an empty one so the
+ * read runs unconditionally, ahead of the lookup it depends on.
+ */
+function readSheetGrid(sheet: WorkbookSheet | undefined): Promise<ParsedCsv> {
+  return sheet === undefined ? Promise.resolve(NO_GRID) : sheet.read();
+}
+
+/**
+ * The sheet on screen: its grid, or the notice standing in for one that cannot
+ * be read, is still being read, or holds nothing this preview can draw.
+ */
+function SheetPanel({
+  grid,
+  readFailed,
+  summary,
+}: {
+  grid: ParsedCsv | null;
+  readFailed: boolean;
+  summary: string | null;
+}): ReactNode {
   const { t } = useTranslation("chat");
-  const { value: grid, failed: readFailed } = useAsyncRead(sheet, (source) =>
-    source.read(),
-  );
 
   if (readFailed) {
     return <PreviewNotice>{t("xlsxPreview.sheetUnreadable")}</PreviewNotice>;
@@ -48,25 +71,12 @@ function SheetPanel({ sheet }: { sheet: WorkbookSheet }): ReactNode {
     return <PreviewSkeleton />;
   }
 
-  const columns = columnCountOf(grid);
   // A sheet whose populated cells all sit past the row or column cap reads as
   // a grid with nothing in it, so it names the cap rather than claiming the
   // sheet holds no data.
-  if (columns === 0 && grid.truncated) {
+  if (columnCountOf(grid) === 0 && grid.truncated) {
     return <PreviewNotice>{t("xlsxPreview.beyondPreviewLimit")}</PreviewNotice>;
   }
-
-  // A sheet with no columns shows the empty copy in place of a footer, so its
-  // sentence is never built.
-  const summary =
-    columns === 0
-      ? undefined
-      : t(
-          grid.truncated
-            ? "xlsxPreview.summaryTruncated"
-            : "xlsxPreview.summary",
-          { sheet: sheet.name, rows: grid.rows.length, columns },
-        );
 
   return (
     <TabularGrid
@@ -93,6 +103,7 @@ export function WorkbookGrid({
 }): ReactNode {
   const { t } = useTranslation("chat");
   const [activeIndex, setActiveIndex] = useState(0);
+  const summaryId = useId();
 
   const omitted = sheetCount - sheets.length;
 
@@ -101,15 +112,46 @@ export function WorkbookGrid({
   // A workbook that loses sheets keeps the last one selected.
   const selectedIndex = Math.min(activeIndex, sheets.length - 1);
   const active = sheets[selectedIndex];
+  const { value: grid, failed: readFailed } = useAsyncRead(
+    active,
+    readSheetGrid,
+  );
+
   // Type narrowing for the lookup above.
   if (active === undefined) {
     return null;
   }
 
+  // A sheet still being read, or holding nothing the grid can draw, shows the
+  // skeleton or the empty notice in place of a sentence.
+  const columns = grid === null ? 0 : columnCountOf(grid);
+  const sheetSummary =
+    grid === null || columns === 0
+      ? null
+      : t(
+          grid.truncated
+            ? "xlsxPreview.summaryTruncated"
+            : "xlsxPreview.summary",
+          { sheet: active.name, rows: grid.rows.length, columns },
+        );
+  // The bar's sentence counts without naming, because the tab beside it
+  // already names the sheet.
+  const barSummary =
+    grid === null || columns === 0
+      ? null
+      : t(
+          grid.truncated ? "csvPreview.summaryTruncated" : "csvPreview.summary",
+          { rows: grid.rows.length, columns },
+        );
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       {sheets.length === 1 ? (
-        <SheetPanel sheet={active} />
+        <SheetPanel
+          grid={grid}
+          readFailed={readFailed}
+          summary={sheetSummary}
+        />
       ) : (
         <Tabs.Root
           value={String(selectedIndex)}
@@ -118,31 +160,18 @@ export function WorkbookGrid({
           activationMode="manual"
           className="flex min-h-0 min-w-0 flex-1 flex-col"
         >
-          <ScrollShadow
-            orientation="horizontal"
-            hideScrollBar
-            // The rule sits on the scroller, which is full width, rather than
-            // on the list, which is only as wide as the tabs it holds.
-            className="shrink-0 border-b border-[var(--border-base)]"
+          {/*
+            Only the open sheet is mounted, so no other sheet is ever read, and
+            the key starts each sheet at its first row.
+          */}
+          <Tabs.Panel
+            key={selectedIndex}
+            value={String(selectedIndex)}
+            aria-describedby={barSummary === null ? undefined : summaryId}
+            className="flex min-h-0 min-w-0 flex-1 flex-col"
           >
-            <Tabs.List
-              aria-label={t("xlsxPreview.sheetsAria")}
-              className="border-b-0 px-4"
-            >
-              {sheets.map((sheet, index) => (
-                <Tabs.Trigger
-                  key={index}
-                  value={String(index)}
-                  title={sheet.name}
-                  className="shrink-0"
-                >
-                  <span className="block max-w-[12rem] truncate">
-                    {sheet.name}
-                  </span>
-                </Tabs.Trigger>
-              ))}
-            </Tabs.List>
-          </ScrollShadow>
+            <SheetPanel grid={grid} readFailed={readFailed} summary={null} />
+          </Tabs.Panel>
           {omitted > 0 ? (
             <Typography
               as="p"
@@ -152,14 +181,50 @@ export function WorkbookGrid({
               {t("xlsxPreview.sheetsOmitted", { count: omitted })}
             </Typography>
           ) : null}
-          {/* Only the open sheet is mounted, so no other sheet is ever read. */}
-          <Tabs.Panel
-            key={selectedIndex}
-            value={String(selectedIndex)}
-            className="flex min-h-0 min-w-0 flex-1 flex-col"
-          >
-            <SheetPanel sheet={active} />
-          </Tabs.Panel>
+          {/*
+            The sheet row and the sentence about the open sheet share one bar
+            under the grid. The rule sits on the bar, which is full width,
+            rather than on the list, which is only as wide as the tabs it holds.
+          */}
+          <div className="flex shrink-0 items-center border-t border-[var(--border-base)]">
+            <ScrollShadow
+              orientation="horizontal"
+              hideScrollBar
+              className="min-w-0 flex-1"
+            >
+              <Tabs.List
+                aria-label={t("xlsxPreview.sheetsAria")}
+                placement="bottom"
+                className="border-t-0 px-4"
+              >
+                {sheets.map((sheet, index) => (
+                  <Tabs.Trigger
+                    key={index}
+                    value={String(index)}
+                    title={sheet.name}
+                    className="shrink-0"
+                  >
+                    <span className="block max-w-[12rem] truncate">
+                      {sheet.name}
+                    </span>
+                  </Tabs.Trigger>
+                ))}
+              </Tabs.List>
+            </ScrollShadow>
+            {barSummary === null ? null : (
+              <Typography
+                as="p"
+                variant="label-small-default"
+                id={summaryId}
+                // Half the bar at most, so the sentence cannot crowd the tabs
+                // off a phone.
+                className="max-w-[50%] shrink-0 truncate py-1.5 pr-4 pl-3 text-[var(--content-tertiary)]"
+                title={barSummary}
+              >
+                {barSummary}
+              </Typography>
+            )}
+          </div>
         </Tabs.Root>
       )}
     </div>

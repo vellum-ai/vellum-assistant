@@ -78,6 +78,20 @@ describe("TabularGrid", () => {
     expect(screen.queryByText("1 rows x 2 columns")).toBeNull();
   });
 
+  test("a null summary draws no footer at all", async () => {
+    render(
+      <TabularGrid
+        headers={["name", "count"]}
+        rows={[["alpha", "1"]]}
+        truncated={false}
+        summary={null}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByText("alpha")).toBeTruthy());
+    expect(screen.queryByText(/columns/)).toBeNull();
+  });
+
   test("a full cell is readable through its title attribute", async () => {
     render(
       <TabularGrid

@@ -70,22 +70,67 @@ describe("WorkbookGrid", () => {
     await waitFor(() => expect(screen.getByText("Rent")).toBeTruthy());
   });
 
-  test("picking a tab opens that sheet and the footer names it", async () => {
+  test("picking a tab opens that sheet and the bar counts it", async () => {
     const user = userEvent.setup();
     render(<WorkbookGrid sheets={[EXPENSES, INCOME, NOTES]} />);
 
     await waitFor(() =>
-      expect(screen.getByText("Expenses: 2 rows x 2 columns")).toBeTruthy(),
+      expect(screen.getByText("2 rows x 2 columns")).toBeTruthy(),
     );
 
     await user.click(screen.getAllByRole("tab")[1]);
 
     await waitFor(() => expect(screen.getByText("Salary")).toBeTruthy());
-    expect(screen.getByText("Income: 1 row x 2 columns")).toBeTruthy();
+    expect(screen.getByText("1 rows x 2 columns")).toBeTruthy();
     expect(screen.getAllByRole("tab")[1].getAttribute("aria-selected")).toBe(
       "true",
     );
     expect(screen.queryByText("Rent")).toBeNull();
+  });
+
+  test("a workbook of several sheets counts the open one once, in the bar", async () => {
+    render(<WorkbookGrid sheets={[EXPENSES, INCOME, NOTES]} />);
+
+    // `findByText` throws on a second match, so this also proves the grid
+    // above draws no footer of its own.
+    const sentence = await screen.findByText("2 rows x 2 columns");
+
+    expect(sentence.closest('[data-slot="tabular-grid"]')).toBeNull();
+    expect(
+      sentence.closest("div")?.querySelector('[role="tablist"]'),
+    ).toBeTruthy();
+  });
+
+  test("the grid comes before the bar that switches it", async () => {
+    render(<WorkbookGrid sheets={[EXPENSES, INCOME, NOTES]} />);
+
+    await waitFor(() => expect(screen.getByText("Rent")).toBeTruthy());
+
+    const panel = screen.getByRole("tabpanel");
+    const position = panel.compareDocumentPosition(screen.getByRole("tablist"));
+    expect(position & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  test("the panel is described by the bar's sentence", async () => {
+    render(<WorkbookGrid sheets={[EXPENSES, INCOME, NOTES]} />);
+
+    await waitFor(() => expect(screen.getByText("Rent")).toBeTruthy());
+
+    const describedBy = screen
+      .getByRole("tabpanel")
+      .getAttribute("aria-describedby");
+    expect(describedBy).toBeTruthy();
+    expect(document.getElementById(describedBy ?? "")?.textContent).toBe(
+      "2 rows x 2 columns",
+    );
+  });
+
+  test("a single sheet keeps its sentence in the grid's own footer", async () => {
+    render(<WorkbookGrid sheets={[EXPENSES]} />);
+
+    const sentence = await screen.findByText("Expenses: 2 rows x 2 columns");
+
+    expect(sentence.closest('[data-slot="tabular-grid"]')).toBeTruthy();
   });
 
   test("an empty sheet says so and leaves the other tabs usable", async () => {

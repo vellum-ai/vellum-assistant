@@ -9,8 +9,8 @@
  * visible slice is in the DOM.
  *
  * Purely presentational: the caller owns the bytes and the parse, and may
- * override the footer sentence and the empty-grid copy so a reader can name the
- * unit it is showing.
+ * override the footer sentence, drop it, and set the empty-grid copy so a
+ * reader can name the unit it is showing.
  */
 
 import { useCallback, type ReactNode } from "react";
@@ -47,8 +47,11 @@ const TABLE_COMPONENTS: TableComponents<string[]> = {
 };
 
 export interface TabularGridProps extends ParsedCsv {
-  /** Already-translated footer sentence, in place of the row and column count. */
-  summary?: string;
+  /**
+   * Already-translated footer sentence, in place of the row and column count.
+   * `null` draws no footer, for a caller that shows the sentence itself.
+   */
+  summary?: string | null;
   /** Already-translated copy for a grid with no columns. */
   emptyLabel?: string;
 }
@@ -127,22 +130,24 @@ export function TabularGrid({
         }
         className="min-h-0 flex-1"
       />
-      <Typography
-        as="p"
-        variant="label-small-default"
-        className="shrink-0 border-t border-[var(--border-element)] px-3 py-1.5 text-[var(--content-tertiary)]"
-      >
-        {summary ??
-          (truncated
-            ? t("csvPreview.summaryTruncated", {
-                rows: rows.length,
-                columns: columnCount,
-              })
-            : t("csvPreview.summary", {
-                rows: rows.length,
-                columns: columnCount,
-              }))}
-      </Typography>
+      {summary === null ? null : (
+        <Typography
+          as="p"
+          variant="label-small-default"
+          className="shrink-0 border-t border-[var(--border-element)] px-3 py-1.5 text-[var(--content-tertiary)]"
+        >
+          {summary ??
+            (truncated
+              ? t("csvPreview.summaryTruncated", {
+                  rows: rows.length,
+                  columns: columnCount,
+                })
+              : t("csvPreview.summary", {
+                  rows: rows.length,
+                  columns: columnCount,
+                }))}
+        </Typography>
+      )}
     </div>
   );
 }
