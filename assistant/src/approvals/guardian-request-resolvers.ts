@@ -46,6 +46,7 @@ import {
 } from "../runtime/channel-approval-types.js";
 import { deliverChannelReply } from "../runtime/gateway-client.js";
 import {
+  canCompleteHandshake,
   introductionMode,
   parseRequesterSignals,
   type RequesterIdentitySignals,
@@ -679,11 +680,11 @@ function deriveAccessRequestDecision(
   const signals = parseRequesterSignals(request.requesterSignals);
   let outcome: IntroductionOutcome = OUTCOME_BY_ACTION[action];
 
-  // A bot cannot return a verification code, so a handshake approval on a
-  // bot requester can never complete. Coerce it to direct trust — the
-  // guardian's intent ("let it in") is unambiguous. Logged once, in
-  // `prepare` (this derivation runs again in `resolve`).
-  if (outcome === "verify_code" && signals.isBot === true) {
+  // A handshake approval on a requester who can never complete the handshake
+  // (a bot, an email sender) is coerced to direct trust: the guardian's
+  // intent ("let them in") is unambiguous. Logged once, in `prepare` (this
+  // derivation runs again in `resolve`).
+  if (outcome === "verify_code" && !canCompleteHandshake(channel, signals)) {
     outcome = "trust";
   }
 
@@ -887,8 +888,8 @@ async function notifyRequesterOfDenial(params: {
  * follow-through (requester/guardian notices, verification-code delivery
  * from the decide's `mintedSession`, lifecycle signals).
  *
- * A bot requester can never return a code, so handshake approvals are
- * coerced to direct trust.
+ * A requester who can never complete the handshake (a bot, an email
+ * sender) has handshake approvals coerced to direct trust.
  */
 const accessRequestResolver: GuardianRequestResolver = {
   kind: "access_request",
@@ -907,11 +908,12 @@ const accessRequestResolver: GuardianRequestResolver = {
     if (outcome !== OUTCOME_BY_ACTION[decision.action]) {
       log.info(
         {
-          event: "resolver_access_request_bot_coercion",
+          event: "resolver_access_request_trust_coercion",
           requestId: request.id,
           action: decision.action,
+          channel,
         },
-        "Access request resolver: handshake approval on a bot coerced to direct trust",
+        "Access request resolver: handshake approval coerced to direct trust (requester cannot complete a handshake)",
       );
     }
 

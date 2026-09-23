@@ -198,10 +198,26 @@ export interface IntroductionActionOption {
 }
 
 /**
+ * Whether this requester could ever complete the code handshake.
+ *
+ * A bot cannot return a code. An email sender cannot be sent one: approval
+ * has no delivery route for email, so the guardian would have to pass the
+ * code on outside the product, and the address the code would prove is
+ * already checked on every message (a `From:` that fails DMARC/DKIM reaches
+ * the runtime as a stranger).
+ */
+export function canCompleteHandshake(
+  sourceChannel: string | undefined,
+  signals: RequesterIdentitySignals,
+): boolean {
+  return signals.isBot !== true && sourceChannel !== "email";
+}
+
+/**
  * Whether the verification handshake is offered for this requester.
  *
  * The handshake is the exception, not the default:
- * - never for bots/integrations — a bot cannot return a code;
+ * - never where it cannot complete (see {@link canCompleteHandshake});
  * - not for workspace-vouched identities — the platform already
  *   authenticated them;
  * - not on voice — a phone call has no text handshake path;
@@ -211,7 +227,7 @@ export function isHandshakeOffered(
   sourceChannel: string | undefined,
   signals: RequesterIdentitySignals,
 ): boolean {
-  if (signals.isBot === true) {
+  if (!canCompleteHandshake(sourceChannel, signals)) {
     return false;
   }
   if (sourceChannel === "phone") {

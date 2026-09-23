@@ -218,6 +218,27 @@ describe("introduction card decisions", () => {
     }
   });
 
+  test("handshake approval on an email sender is coerced to direct trust", async () => {
+    for (const action of ["approve_once", "verify_code"] as const) {
+      resetState();
+      const req = makeAccessRequest({ sourceChannel: "email" });
+
+      const result = await applyGuardianDecision({
+        requestId: req.id,
+        action,
+        actorContext: desktopGuardian(),
+      });
+
+      expect(result.applied).toBe(true);
+      // No code is minted: email has no route to deliver one to the sender.
+      expect(outcomesOfType("mint_outbound_session")).toHaveLength(0);
+      const activations = outcomesOfType("activate_member");
+      expect(activations).toHaveLength(1);
+      expect(activations[0].sourceChannel).toBe("email");
+      expect(activations[0].verifiedVia).toBe("manual_channel_claim");
+    }
+  });
+
   test("leave_unverified persists the sender as unverified and is silent (legacy reject path)", async () => {
     for (const action of ["leave_unverified", "reject"] as const) {
       resetState();
