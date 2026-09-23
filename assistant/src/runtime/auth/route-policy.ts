@@ -11,7 +11,11 @@
  * type safety but always allow the request through.
  */
 
-import { isTrustClass, TRUST_CLASS_VALUES } from "@vellumai/gateway-client";
+import {
+  DEFAULT_ROUTE_TRUST_CLASSES,
+  routeAdmitsTrustClass,
+  TRUST_CLASS_VALUES,
+} from "@vellumai/gateway-client";
 
 import { isHttpAuthDisabled } from "../../config/env.js";
 import { getLogger } from "../../util/logger.js";
@@ -76,7 +80,7 @@ export const LOCAL_PRINCIPALS: PrincipalType[] = ["local"];
 // ---------------------------------------------------------------------------
 
 /** Only the guardian's turn. The default for a route naming no classes. */
-export const GUARDIAN_ONLY: TrustClass[] = ["guardian"];
+export const GUARDIAN_ONLY: TrustClass[] = [...DEFAULT_ROUTE_TRUST_CLASSES];
 
 /**
  * The guardian's turn and an admitted contact's, derived rather than listed
@@ -100,10 +104,7 @@ export function trustClassAllowed(
   policy: RoutePolicy | null,
   trustClass: TrustClass | (string & {}) | undefined,
 ): boolean {
-  if (typeof trustClass !== "string" || !isTrustClass(trustClass)) {
-    return false;
-  }
-  return (policy?.allowedTrustClasses ?? GUARDIAN_ONLY).includes(trustClass);
+  return routeAdmitsTrustClass(policy?.allowedTrustClasses, trustClass);
 }
 
 // ---------------------------------------------------------------------------
