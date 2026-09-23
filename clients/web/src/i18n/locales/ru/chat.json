@@ -391,6 +391,7 @@
     "trigger": "Триггер"
   },
   "composerSettingsMenu": {
+    "autoPreview": "Авто · {profile}",
     "profileSwitchFailed": "Профиль создан, но переключиться на него не удалось",
     "profileSwitchFallback": "Не удалось сменить профиль. Повторите попытку."
   },

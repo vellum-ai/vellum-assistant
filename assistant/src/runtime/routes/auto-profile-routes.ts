@@ -40,11 +40,15 @@ async function handlePreviewAutoProfile(
       `text must be a non-empty string of at most ${MAX_DRAFT_CHARS} characters`,
     );
   }
+  // The composer aborts a preview the moment the draft changes; carrying the
+  // abort through stops the retired Jev call and keeps its late answer out
+  // of the reuse cache.
   const route = await previewAutoProfile({
     text: parsed.data.text,
     ...(parsed.data.conversationId
       ? { conversationId: parsed.data.conversationId }
       : {}),
+    ...(args.abortSignal ? { signal: args.abortSignal } : {}),
   });
   if (!route) {
     return { profile: null, outcome: "unavailable" };

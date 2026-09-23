@@ -694,10 +694,12 @@ export async function runAgentLoopImpl(
         );
         // A draft the composer already previewed carries its pick over, so
         // the reply lands on the profile the pill showed with no second call.
-        const previewed = takeAutoProfilePreview(
-          ctx.conversationId,
-          userMessage,
-        );
+        const previewed = takeAutoProfilePreview({
+          conversationId: ctx.conversationId,
+          text: userMessage,
+          history: ctx.messages,
+          profiles,
+        });
         const route =
           previewed ??
           (await routeAutoProfile({

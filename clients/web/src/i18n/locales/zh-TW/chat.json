@@ -635,6 +635,7 @@
     "warningTitle": "這看起來像一個 API 金鑰"
   },
   "composerSettingsMenu": {
+    "autoPreview": "自動 · {profile}",
     "accessAria": "助理存取權限：{label}",
     "assistantAccess": "助理存取權限",
     "assistantAccessTitle": "助理存取權限",

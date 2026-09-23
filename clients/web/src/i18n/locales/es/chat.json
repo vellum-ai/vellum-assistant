@@ -638,6 +638,7 @@
     "warningTitle": "Esto parece una clave de API"
   },
   "composerSettingsMenu": {
+    "autoPreview": "Auto · {profile}",
     "accessAria": "Acceso del asistente: {label}",
     "assistantAccess": "Acceso del asistente",
     "assistantAccessTitle": "Acceso del asistente",

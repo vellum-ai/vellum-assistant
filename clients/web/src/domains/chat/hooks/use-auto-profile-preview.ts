@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { useComposerStore } from "@/domains/chat/composer-store";
 import { autoprofilePreviewPost } from "@/generated/daemon/sdk.gen";
+import { useSupportsAutoProfilePreview } from "@/lib/backwards-compat/auto-profile-preview";
 
 /**
  * How long the draft has to sit unchanged before it is previewed. Each
@@ -23,10 +24,11 @@ export function useAutoProfilePreview(args: {
   enabled: boolean;
 }): string | null {
   const draft = useComposerStore.use.input();
+  const supported = useSupportsAutoProfilePreview();
   const [profile, setProfile] = useState<string | null>(null);
   const inFlight = useRef<AbortController | null>(null);
 
-  const text = args.enabled ? draft.trim() : "";
+  const text = args.enabled && supported ? draft.trim() : "";
 
   useEffect(() => {
     if (text.length === 0) {
@@ -35,10 +37,15 @@ export function useAutoProfilePreview(args: {
       setProfile(null);
       return;
     }
+    // Owned by this effect run so cleanup can abort it: a request that is
+    // still in flight when the draft changes must not land its answer on the
+    // newer draft's pill.
+    let controller: AbortController | null = null;
     const timer = setTimeout(() => {
       inFlight.current?.abort();
-      const controller = new AbortController();
-      inFlight.current = controller;
+      const request = new AbortController();
+      controller = request;
+      inFlight.current = request;
       void autoprofilePreviewPost({
         path: { assistant_id: args.assistantId },
         body: {
@@ -47,11 +54,11 @@ export function useAutoProfilePreview(args: {
             ? { conversationId: args.conversationId }
             : {}),
         },
-        signal: controller.signal,
+        signal: request.signal,
         throwOnError: true,
       })
         .then(({ data }) => {
-          if (!controller.signal.aborted) {
+          if (!request.signal.aborted) {
             setProfile(data.profile);
           }
         })
@@ -60,7 +67,10 @@ export function useAutoProfilePreview(args: {
           // turn itself falls back to Balanced independently of this cue.
         });
     }, AUTO_PROFILE_PREVIEW_DEBOUNCE_MS);
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      controller?.abort();
+    };
   }, [args.assistantId, args.conversationId, text]);
 
   return profile;
