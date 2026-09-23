@@ -840,16 +840,19 @@ function trimOuterTextEdges(blocks: ContentBlock[]): ContentBlock[] {
  * `ESCALATE_VERDICT_TOKEN` reduces to a single text block holding the
  * capped bridge; empty spoken text means the caller heard only the canned
  * fallback bridge, which is audio-only and never a transcript row, so the
- * caller should delete the row. Stray verdict tokens elsewhere in an
- * answer were never spoken (the live gate strips them) and are stripped
- * from the persisted text to match.
+ * caller should delete the row. A terminal escalation keeps all speech
+ * already released before the verdict. Other stray verdict tokens were
+ * never spoken and are stripped from the persisted text to match.
  */
 export function cutFrontDoorContentAtVerdict(
   blocks: ContentBlock[],
 ): { blocks: ContentBlock[]; spokenText: string } | null {
   const joinedText = joinedTextOfBlocks(blocks);
-  if (joinedText.trimStart().startsWith(ESCALATE_VERDICT_TOKEN)) {
-    const spokenText = spokenBridgeText(joinedText);
+  const spokenText = spokenBridgeText(joinedText);
+  if (
+    spokenText.length > 0 ||
+    joinedText.trimStart().startsWith(ESCALATE_VERDICT_TOKEN)
+  ) {
     return {
       blocks: spokenText.length > 0 ? [{ type: "text", text: spokenText }] : [],
       spokenText,
@@ -862,8 +865,7 @@ export function cutFrontDoorContentAtVerdict(
     return null;
   }
   const kept = stripMarkersFromBlocks(blocks);
-  const spokenText = joinedTextOfBlocks(kept).trim();
-  return { blocks: kept, spokenText };
+  return { blocks: kept, spokenText: joinedTextOfBlocks(kept).trim() };
 }
 
 // ---------------------------------------------------------------------------

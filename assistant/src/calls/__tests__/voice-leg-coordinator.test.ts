@@ -148,6 +148,36 @@ describe("createFrontDoorLegCoordinator", () => {
     expect(recorded.escalated.length).toBe(1);
   });
 
+  test("a terminal verdict hands off once with the already released speech", () => {
+    const { coordinator, recorded } = harness();
+    const bridge = "I will highlight the Rotate control on your screen.";
+    coordinator.push(bridge);
+    expect(recorded.answers).toEqual([bridge]);
+    coordinator.push(" [");
+    coordinator.push("1]");
+    expect(coordinator.handedOff).toBe(false);
+
+    expect(coordinator.complete()).toBe(true);
+    expect(recorded.bridges).toEqual([
+      { spokenBridge: bridge, usesFallback: false, alreadyReleased: true },
+    ]);
+    expect(recorded.escalated).toEqual([escalatedLegFor(bridge)]);
+    expect(recorded.events).not.toContain("overrule");
+    coordinator.complete();
+    coordinator.push("late text");
+    expect(recorded.escalated).toHaveLength(1);
+  });
+
+  test("a cancelled answer with a terminal verdict never hands off", () => {
+    let live = true;
+    const { coordinator, recorded } = harness({ live: () => live });
+    coordinator.push("I will highlight it. [1]");
+    live = false;
+    expect(coordinator.complete()).toBe(false);
+    expect(recorded.bridges).toEqual([]);
+    expect(recorded.escalated).toEqual([]);
+  });
+
   test("a leg that stops mid-bridge hands off on completion with the canned bridge", () => {
     const { coordinator, recorded } = harness({ language: "es" });
     coordinator.push("[1]");

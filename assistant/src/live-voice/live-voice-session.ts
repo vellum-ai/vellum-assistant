@@ -6923,13 +6923,15 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   ): void {
     const { spokenBridge, usesFallback, language } = bridge;
     if (!usesFallback) {
-      this.markFirstAssistantDelta(activeTurn.utterance, activeTurn.turnId);
-      this.markAssistantDelta(activeTurn);
-      void this.sendFrame(
-        { type: "assistant_text_delta", text: spokenBridge },
-        () => !activeTurn.abortController.signal.aborted && !this.isClosed,
-      );
-      this.bufferAssistantTextForTts(activeTurn.token, `${spokenBridge} `);
+      if (!bridge.alreadyReleased) {
+        this.markFirstAssistantDelta(activeTurn.utterance, activeTurn.turnId);
+        this.markAssistantDelta(activeTurn);
+        void this.sendFrame(
+          { type: "assistant_text_delta", text: spokenBridge },
+          () => !activeTurn.abortController.signal.aborted && !this.isClosed,
+        );
+        this.bufferAssistantTextForTts(activeTurn.token, `${spokenBridge} `);
+      }
       // Force-flush now: on the TTS path an unpunctuated bridge would
       // otherwise sit buffered until a sentence boundary and leave the
       // caller in silence during the escalated model's call.

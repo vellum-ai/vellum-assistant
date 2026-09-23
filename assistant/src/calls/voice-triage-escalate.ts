@@ -20,6 +20,8 @@
  * the escalation hand-off: the bridge is capped session-side instead of
  * trusting the model to stop. Every infra failure fails open to a normal
  * committed answer turn.
+ * A standalone terminal `[1]` is recovered at normal completion without
+ * delaying answer streaming or repeating the already released speech.
  *
  * This module owns the routing policy in one place: the profile key, the
  * leg-specific prompt rules, the leading-token classifier, and the bridge
@@ -188,24 +190,21 @@ export function isEscalationBridgeComplete(rawBridge: string): boolean {
 }
 
 /**
- * The spoken bridge of a front-door leg's FULL raw output: empty unless the
- * output leads with {@link ESCALATE_VERDICT_TOKEN} (a stray token later in
- * an answer is not an escalation under the verdict-first protocol), else
- * the capped bridge that followed the token. Used by transcript hygiene to
- * reconstruct what the caller heard from a persisted row, by running the
- * same verdict machine the live stream ran through.
+ * The spoken bridge of a front-door leg's full raw output: the capped
+ * phrase following a leading verdict, or the already released speech
+ * before a terminal verdict. Other output has no bridge. Transcript hygiene
+ * replays the same verdict machine to reconstruct what the caller heard.
  */
 export function spokenBridgeText(frontDoorText: string): string {
   const machine = createFrontDoorVerdictMachine(false);
   const step = machine.push(frontDoorText);
-  if (step.kind !== "escalate") {
-    return "";
-  }
-  if (step.bridge !== null) {
+  if (step.kind === "escalate" && step.bridge !== null) {
     return step.bridge;
   }
   const finished = machine.finish();
-  return finished.kind === "bridge" ? finished.bridge : "";
+  return finished.kind === "bridge" || finished.kind === "terminal-escalate"
+    ? finished.bridge
+    : "";
 }
 
 /**
@@ -221,7 +220,8 @@ export function needsFallbackBridge(frontDoorText: string): boolean {
 /**
  * Classification of a front-door leg's accumulated leading output (already
  * `trimStart()`ed). `pending` means the stream could still become a verdict
- * token — keep buffering; everything else is final for the leg.
+ * token: keep buffering. Other results select the leg's streaming path;
+ * a terminal escalation verdict is checked separately at completion.
  */
 export type FrontDoorLeadingVerdict =
   | "pending"
@@ -287,6 +287,8 @@ export type FrontDoorStep =
   | { readonly kind: "bridging" }
   /** The capped bridge is complete: hand off to the escalated leg. */
   | { readonly kind: "bridge"; readonly bridge: string }
+  /** A terminal verdict hands off using the answer text already released. */
+  | { readonly kind: "terminal-escalate"; readonly bridge: string }
   /** The leg already held, handed off, or finished; nothing more happens. */
   | { readonly kind: "done" };
 
@@ -299,8 +301,9 @@ export type FrontDoorStep =
  *
  * `push` feeds one delta and reports what it decided. `finish` is called
  * when the leg completes normally: a bridge that stopped short of a
- * sentence terminator hands off with what arrived. A leg that is cancelled
- * instead never calls `finish`.
+ * sentence terminator hands off with what arrived. A standalone terminal
+ * escalation token also hands off, using the already released answer as
+ * its bridge. A cancelled leg never calls `finish`.
  */
 export interface FrontDoorVerdictMachine {
   push(deltaText: string): FrontDoorStep;
@@ -378,6 +381,17 @@ export function createFrontDoorVerdictMachine(
     finish(): FrontDoorStep {
       if (stage === "bridging") {
         return completeBridge();
+      }
+      if (stage === "answer") {
+        stage = "done";
+        const text = raw.trimEnd();
+        const beforeToken = text.slice(0, -ESCALATE_VERDICT_TOKEN.length);
+        if (text.endsWith(ESCALATE_VERDICT_TOKEN) && /\s$/.test(beforeToken)) {
+          return {
+            kind: "terminal-escalate",
+            bridge: stripInternalSpeechMarkers(beforeToken).trim(),
+          };
+        }
       }
       stage = "done";
       return DONE_STEP;

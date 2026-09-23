@@ -2485,6 +2485,18 @@ describe("cutFrontDoorContentAtVerdict", () => {
     expect(cut?.spokenText).toBe("");
   });
 
+  test("a terminal verdict split across blocks preserves all released speech", () => {
+    const bridge = "Let me check. I will highlight the Rotate control.";
+    const cut = cutFrontDoorContentAtVerdict([
+      { type: "text", text: `${bridge} [` },
+      { type: "text", text: "1] " },
+    ]);
+    expect(cut).toEqual({
+      blocks: [{ type: "text", text: bridge }],
+      spokenText: bridge,
+    });
+  });
+
   test("stray verdict tokens inside an answer are stripped, not treated as escalation", () => {
     const cut = cutFrontDoorContentAtVerdict([
       { type: "text", text: "It is Tuesday [0] indeed." },
