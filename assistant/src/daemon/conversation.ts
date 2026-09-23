@@ -124,6 +124,7 @@ import { ComputerUseModeSessionProducer } from "./computer-use-mode-session.js";
 import type { AssistantSurface } from "./conversation-agent-loop.js";
 import {
   applyCompactionResult,
+  compactedHistoryTrust,
   runAgentLoopImpl,
 } from "./conversation-agent-loop.js";
 import type { HistoryConversationContext } from "./conversation-history.js";
@@ -712,6 +713,12 @@ export class Conversation {
   /** @internal */ loadedHistoryTrustClass?: TrustClass;
   /** @internal */ loadedHistoryPersonalMemoryAllowed?: boolean;
   /** @internal */ loadedHistorySharedReader?: string;
+  /**
+   * @internal The trust the resident history was loaded under, absent before
+   * the first load. Compaction reads it rather than the resting slot, which
+   * another sender can restamp after the load.
+   */
+  loadedHistoryScope?: { trustContext: TrustContext | undefined };
   /** @internal */ loadedHistoryStale = false;
   /**
    * @internal Reactions the current turn delivered, awaiting their durable
@@ -1930,6 +1937,7 @@ export class Conversation {
     this.loadedHistoryTrustClass = trustClass;
     this.loadedHistoryPersonalMemoryAllowed = personalMemoryAllowed;
     this.loadedHistorySharedReader = sharedReader?.principalId;
+    this.loadedHistoryScope = { trustContext: this.trustContext };
 
     const loadElapsedMs = performance.now() - loadStartedAt;
     log.info(
@@ -3199,7 +3207,7 @@ export class Conversation {
       signal: this.abortController?.signal ?? undefined,
       force,
       overrideProfile,
-      actorTrust: this.trustContext,
+      actorTrust: compactedHistoryTrust(this),
       fixedTailStartIndex: opts?.fixedTailStartIndex,
       fixedBoundaryRowIndex: opts?.fixedBoundaryRowIndex,
     });

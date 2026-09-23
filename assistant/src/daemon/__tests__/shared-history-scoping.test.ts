@@ -17,6 +17,34 @@ mock.module("../../security/secret-allowlist.js", () => ({
   resetAllowlist: () => {},
 }));
 
+/** The actor trust each compaction run was handed, for the image manifest. */
+const compactionActorTrusts: unknown[] = [];
+
+mock.module("../../plugins/defaults/compaction/compact.js", () => ({
+  DEFAULT_COMPACTION_PLUGIN_NAME: "default-compaction",
+  defaultCompact: async (context: { actorTrust?: unknown }) => {
+    compactionActorTrusts.push(context.actorTrust);
+    return {
+      compacted: false,
+      messages: [],
+      previousEstimatedInputTokens: 0,
+      estimatedInputTokens: 0,
+      maxInputTokens: 100000,
+      thresholdTokens: 80000,
+      compactedMessages: 0,
+      compactedPersistedMessages: 0,
+      summaryCalls: 0,
+      summaryInputTokens: 0,
+      summaryOutputTokens: 0,
+      summaryModel: "",
+      summaryText: "",
+    };
+  },
+  defaultEmergencyCompact: async () => {
+    throw new Error("not used");
+  },
+}));
+
 interface MockRow {
   id: string;
   role: string;
@@ -257,6 +285,7 @@ beforeEach(() => {
   };
   participants.clear();
   loadedConversationIds.length = 0;
+  compactionActorTrusts.length = 0;
 });
 
 describe("contact turn in a shared conversation", () => {
@@ -662,6 +691,59 @@ describe("compaction on a contact's turn", () => {
     conversation.setTrustContext(GUARDIAN);
     await conversation.ensureActorScopedHistory();
     expect(historyText(conversation)).toBe(guardianHistory);
+  });
+
+  test("stays in memory when the resting trust is restamped after the load", async () => {
+    // GIVEN Alice's projected history, after which another sender restamps the
+    // conversation's resting trust with the guardian's and Alice is removed
+    const persisted = { ...mockConversation };
+    const conversation = await loadAs(sharedContact(ALICE));
+    conversation.setTrustContext(GUARDIAN);
+    participants.delete(`${CONVERSATION_ID}:${ALICE}`);
+
+    // WHEN the compaction of her history applies
+    await applyCompactionResult(
+      conversation,
+      compactionOf(conversation, 2, "Summary of Alice's view"),
+      () => {},
+      null,
+    );
+
+    // THEN nothing persisted changed
+    expect(mockConversation).toEqual(persisted);
+  });
+
+  test("a guardian history persists when the resting trust is restamped with a contact's", async () => {
+    // GIVEN the guardian's history, after which the resting trust is
+    // restamped with Alice's
+    const conversation = await loadAs(GUARDIAN);
+    conversation.setTrustContext(sharedContact(ALICE));
+
+    // WHEN the compaction of the guardian's history applies
+    await applyCompactionResult(
+      conversation,
+      compactionOf(conversation, 2, "Newer guardian summary"),
+      () => {},
+      null,
+    );
+
+    // THEN the persisted state advances
+    expect(mockConversation).toMatchObject({
+      contextSummary: "Newer guardian summary",
+      contextCompactedMessageCount: 3,
+    });
+  });
+
+  test("scopes the image manifest to the trust the history was loaded under", async () => {
+    // GIVEN Alice's projected history, then a guardian restamp of the slot
+    const conversation = await loadAs(sharedContact(ALICE));
+    conversation.setTrustContext(GUARDIAN);
+
+    // WHEN a compaction runs over that history
+    await conversation.forceCompact();
+
+    // THEN the compactor was handed Alice's trust, not the guardian's
+    expect(compactionActorTrusts).toEqual([sharedContact(ALICE)]);
   });
 
   test("a guardian compaction still advances the persisted state", async () => {

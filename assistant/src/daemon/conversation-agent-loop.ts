@@ -166,7 +166,6 @@ import {
   persistReactionRecords,
   type QueuedReactionRecord,
 } from "./reaction-record.js";
-import { sharedTranscriptReader } from "./shared-conversation-history.js";
 import type { TrustContext } from "./trust-context-types.js";
 import { turnOrRestingTrust } from "./trust-context-types.js";
 import { resolveTurnCallSite } from "./turn-call-site.js";
@@ -2643,6 +2642,23 @@ export interface CompactionApplyContext {
   readonly provider: Provider;
   usageStats: UsageStats;
   trustContext?: TrustContext;
+  /** The trust the resident history was loaded under, absent before a load. */
+  readonly loadedHistoryScope?: { trustContext: TrustContext | undefined };
+  /** Principal the resident history was loaded for as a shared transcript. */
+  readonly loadedHistorySharedReader?: string;
+}
+
+/**
+ * The trust the history being compacted was loaded under. The resting slot is
+ * only the fallback for a history that was never loaded, because another
+ * sender can restamp it after the load.
+ */
+export function compactedHistoryTrust(
+  ctx: Pick<CompactionApplyContext, "loadedHistoryScope" | "trustContext">,
+): TrustContext | undefined {
+  return ctx.loadedHistoryScope
+    ? ctx.loadedHistoryScope.trustContext
+    : ctx.trustContext;
 }
 
 /**
@@ -2697,11 +2713,13 @@ export async function applyCompactionResult(
   } = {},
 ): Promise<void> {
   ctx.messages = result.messages;
-  // A shared-conversation participant compacts the projected transcript, whose
-  // row count indexes nothing in the guardian's rows and whose summary leaves
-  // out what the projection drops, so that compaction stays in this resident
-  // history and the persisted state is left as it was.
-  if (sharedTranscriptReader(ctx.conversationId, ctx.trustContext) === null) {
+  // A history loaded as a shared-conversation participant's projected
+  // transcript has a row count that indexes nothing in the guardian's rows and
+  // a summary that leaves out what the projection drops, so its compaction
+  // stays in this resident history and the persisted state is left as it was.
+  // Decided from the load itself rather than the resting trust slot, which
+  // another sender can restamp mid-turn.
+  if (ctx.loadedHistorySharedReader === undefined) {
     // Compaction operates on the in-context history. Untrusted actor views
     // render that history unsliced (boundary 0); trusted views start past the
     // already-compacted prefix (the mirrored DB count). Advance from that
@@ -2709,7 +2727,7 @@ export async function applyCompactionResult(
     // stays consistent with what the new summary represents and never
     // double-counts an unsliced untrusted view.
     const inContextCompactedCount = !resolveCapabilities(
-      ctx.trustContext?.trustClass,
+      compactedHistoryTrust(ctx)?.trustClass,
     ).canAccessMemory
       ? 0
       : ctx.contextCompactedMessageCount;
