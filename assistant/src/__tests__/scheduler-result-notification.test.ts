@@ -93,7 +93,10 @@ import {
   type AbortContext,
   abortScheduledRun,
 } from "../daemon/conversation-lifecycle.js";
-import { MessageQueue } from "../daemon/conversation-queue-manager.js";
+import {
+  MessageQueue,
+  type QueuedDispatch,
+} from "../daemon/conversation-queue-manager.js";
 import {
   clearConversations,
   setConversation,
@@ -653,9 +656,19 @@ describe("schedule result notification wiring", () => {
           currentTurnCronRunId: undefined,
           pendingQueuedDispatches:
             kind === "dispatch"
-              ? new Map<string | null, Set<AbortController>>([
-                  ["run-other", new Set([new AbortController()])],
-                  [null, new Set([new AbortController()])],
+              ? new Map<string | null, Set<QueuedDispatch>>([
+                  [
+                    "run-other",
+                    new Set([
+                      { controller: new AbortController(), messages: [] },
+                    ]),
+                  ],
+                  [
+                    null,
+                    new Set([
+                      { controller: new AbortController(), messages: [] },
+                    ]),
+                  ],
                 ])
               : new Map(),
           snapshotQueuedMessages: () => queue.snapshot(),
@@ -784,11 +797,11 @@ describe("schedule result notification wiring", () => {
     });
     forceScheduleDue(schedule.id);
     const entered = Promise.withResolvers<string>();
-    const dispatches = new Map<string, Set<AbortController>>();
+    const dispatches = new Map<string, Set<QueuedDispatch>>();
     delegateOnRun = (id) => {
       dispatches.set(
         getScheduleRuns(schedule.id)[0].id,
-        new Set([new AbortController()]),
+        new Set([{ controller: new AbortController(), messages: [] }]),
       );
       setConversation(id, {
         isProcessing: () => false,

@@ -155,6 +155,7 @@ import {
   processMessage as processMessageImpl,
 } from "./conversation-process.js";
 import type {
+  QueuedDispatch,
   QueuedMessage,
   QueueDrainReason,
 } from "./conversation-queue-manager.js";
@@ -659,7 +660,7 @@ export class Conversation {
    * @internal
    */
   currentTurnCronRunId?: string | null;
-  pendingQueuedDispatches = new Map<string | null, Set<AbortController>>();
+  pendingQueuedDispatches = new Map<string | null, Set<QueuedDispatch>>();
   /** @internal */ currentTurnIsNonInteractive?: boolean;
   /** @internal */ currentTurnModelProfileNoticeKey?: string;
   /** @internal */ currentTurnRequestOrigin?: string;

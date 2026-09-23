@@ -1,5 +1,9 @@
 import { beforeEach, expect, mock, test } from "bun:test";
 
+import type {
+  QueuedDispatch,
+  QueuedMessage,
+} from "../../daemon/conversation-queue-manager.js";
 import type { SubagentRecord } from "../../persistence/subagent-store.js";
 
 let tasks: Array<
@@ -12,14 +16,22 @@ let queued = false;
 let processing = false;
 let liveChild = false;
 let childProcessing = true;
-const parentDispatches = new Map<string | null, Set<AbortController>>();
-const childDispatches = new Map<string | null, Set<AbortController>>();
+let queuedMessages: QueuedMessage[] = [];
+let taskCreatedAt = 100;
+const parentDispatches = new Map<string | null, Set<QueuedDispatch>>();
+const childDispatches = new Map<string | null, Set<QueuedDispatch>>();
 let wakeQueued = false;
 mock.module("../../runtime/agent-wake-queue.js", () => ({
   hasPendingAgentWake: () => wakeQueued,
 }));
 mock.module("../../persistence/subagent-store.js", () => ({
   getSubagentRecordsByParent: () => tasks,
+  getSubagentRecordById: () => ({
+    role: "worker",
+    isFork: false,
+    sendResultToUser: true,
+    createdAt: taskCreatedAt,
+  }),
   getSubagentRecordByConversationId: () => ({
     role: "worker",
     isFork: false,
@@ -54,7 +66,8 @@ mock.module("../../daemon/conversation-registry.js", () => ({
   findConversation: () => ({
     isProcessing: () => processing,
     pendingQueuedDispatches: parentDispatches,
-    hasQueuedMessages: () => queued,
+    hasQueuedMessages: () => queued || queuedMessages.length > 0,
+    snapshotQueuedMessages: () => queuedMessages,
   }),
 }));
 const { hasPendingBackgroundWork } =
@@ -64,6 +77,8 @@ beforeEach(() => {
   tasks = [];
   tools = [];
   queued = false;
+  queuedMessages = [];
+  taskCreatedAt = 100;
   processing = false;
   liveChild = false;
   childProcessing = true;
@@ -133,7 +148,12 @@ test("a terminal child's queued follow-up must settle before completion", () => 
 });
 
 test("a dequeued unscheduled continuation suppresses kickoff alerts before its processing claim", () => {
-  parentDispatches.set(null, new Set([new AbortController()]));
+  parentDispatches.set(
+    null,
+    new Set([
+      { controller: new AbortController(), messages: [queuedMessage(100)] },
+    ]),
+  );
   expect(hasPendingBackgroundWork("conv-123", { startedAfter: 100 })).toBe(
     true,
   );
@@ -147,7 +167,12 @@ test("a dequeued unscheduled continuation suppresses kickoff alerts before its p
 test("a terminal child's dequeued continuation remains pending before its claim", () => {
   liveChild = true;
   childProcessing = false;
-  childDispatches.set(null, new Set([new AbortController()]));
+  childDispatches.set(
+    null,
+    new Set([
+      { controller: new AbortController(), messages: [queuedMessage(100)] },
+    ]),
+  );
   expect(hasPendingBackgroundWork("conv-123", { startedAfter: 100 })).toBe(
     true,
   );
@@ -156,4 +181,65 @@ test("a terminal child's dequeued continuation remains pending before its claim"
   );
   childDispatches.clear();
   expect(hasPendingBackgroundWork("conv-123")).toBe(false);
+});
+
+function queuedMessage(
+  sentAt: number,
+  metadata?: Record<string, unknown>,
+): QueuedMessage {
+  return {
+    content: "Continuation",
+    attachments: [],
+    requestId: "req-123",
+    sentAt,
+    metadata,
+    onEvent: () => {},
+  };
+}
+
+for (const state of ["queued", "dispatch"] as const) {
+  for (const source of ["user", "subagent", "command"] as const) {
+    test(`a newer reply ignores older ${source} work while ${state}`, () => {
+      const metadata =
+        source === "subagent"
+          ? { subagentNotification: { subagentId: "task-123" } }
+          : source === "command"
+            ? {
+                backgroundEventSource: "background-tool",
+                backgroundToolCompletion: { startedAt: 100 },
+              }
+            : undefined;
+      const message = queuedMessage(source === "user" ? 100 : 300, metadata);
+      if (state === "queued") {
+        queuedMessages = [message];
+      } else {
+        parentDispatches.set(
+          null,
+          new Set([{ controller: new AbortController(), messages: [message] }]),
+        );
+      }
+      expect(hasPendingBackgroundWork("conv-123")).toBe(true);
+      expect(hasPendingBackgroundWork("conv-123", { startedAfter: 200 })).toBe(
+        false,
+      );
+      expect(hasPendingBackgroundWork("conv-123", { startedAfter: 100 })).toBe(
+        true,
+      );
+    });
+  }
+}
+
+test("a mixed dispatch still suppresses the kickoff alert for newer work", () => {
+  parentDispatches.set(
+    null,
+    new Set([
+      {
+        controller: new AbortController(),
+        messages: [queuedMessage(100), queuedMessage(200)],
+      },
+    ]),
+  );
+  expect(hasPendingBackgroundWork("conv-123", { startedAfter: 200 })).toBe(
+    true,
+  );
 });

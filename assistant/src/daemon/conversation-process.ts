@@ -50,6 +50,7 @@ import {
   serializePersistedUserMessageContent,
 } from "./conversation-messaging.js";
 import type {
+  QueuedDispatch,
   QueuedMessage,
   QueueDrainReason,
 } from "./conversation-queue-manager.js";
@@ -558,16 +559,17 @@ async function dispatchDrainWithRestore(
   dispatch: (signal?: AbortSignal) => Promise<void>,
 ): Promise<void> {
   const runId = messages[0]?.cronRunId ?? null;
-  const controller = new AbortController();
+  const controller = runId ? new AbortController() : undefined;
   const pending =
     (conversation.pendingQueuedDispatches ??= new Map()).get(runId) ??
-    new Set<AbortController>();
-  pending.add(controller);
+    new Set<QueuedDispatch>();
+  const queuedDispatch = { controller, messages };
+  pending.add(queuedDispatch);
   conversation.pendingQueuedDispatches.set(runId, pending);
   try {
-    return await dispatch(controller.signal);
+    return await dispatch(controller?.signal);
   } catch (err) {
-    if (controller.signal.aborted) {
+    if (controller?.signal.aborted) {
       return;
     }
     const alreadyRestored =
@@ -585,7 +587,7 @@ async function dispatchDrainWithRestore(
     }
     throw err;
   } finally {
-    pending.delete(controller);
+    pending.delete(queuedDispatch);
     if (pending.size === 0) {
       conversation.pendingQueuedDispatches.delete(runId);
     }

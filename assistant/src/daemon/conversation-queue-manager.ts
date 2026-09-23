@@ -70,6 +70,11 @@ export interface QueuedMessage {
   dequeueAnnounced?: boolean;
 }
 
+export interface QueuedDispatch {
+  readonly controller?: AbortController;
+  readonly messages: readonly QueuedMessage[];
+}
+
 /**
  * Maximum total estimated bytes across all queued messages per conversation.
  * Limits memory consumption when a sender floods messages while the

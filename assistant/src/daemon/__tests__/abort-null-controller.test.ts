@@ -40,7 +40,10 @@ const { abortConversation, abortScheduledRun } =
   await import("../conversation-lifecycle.js");
 import { createAbortReason } from "../../util/abort-reasons.js";
 import type { AbortContext } from "../conversation-lifecycle.js";
-import { MessageQueue } from "../conversation-queue-manager.js";
+import {
+  MessageQueue,
+  type QueuedDispatch,
+} from "../conversation-queue-manager.js";
 
 interface QueuedEvent {
   type: string;
@@ -207,6 +210,66 @@ describe("abortConversation", () => {
     expect(h.ctx.pendingInterruptRepair).toBe(true);
   });
 
+  for (const kind of ["user", "other-request", "internal", "mixed"] as const) {
+    test(`a pending ${kind} dispatch only preserves its own accepted user prompt`, () => {
+      const controller = new AbortController();
+      const h = makeContext({ processing: true, controller });
+      const ctx = {
+        ...h.ctx,
+        currentRequestId: "active-request",
+        pendingQueuedDispatches: new Map<string | null, Set<QueuedDispatch>>([
+          [
+            null,
+            new Set([
+              {
+                messages: [
+                  {
+                    content: "Queued prompt",
+                    attachments: [],
+                    requestId:
+                      kind === "other-request"
+                        ? "queued-request"
+                        : "active-request",
+                    sentAt: 100,
+                    metadata:
+                      kind === "internal" || kind === "mixed"
+                        ? { hidden: true }
+                        : undefined,
+                    onEvent: () => {},
+                  },
+                ],
+              },
+            ]),
+          ],
+        ]),
+      };
+      if (kind === "mixed") {
+        const dispatch = [...ctx.pendingQueuedDispatches.get(null)!][0];
+        ctx.pendingQueuedDispatches.set(
+          null,
+          new Set([
+            {
+              messages: [
+                ...dispatch.messages,
+                {
+                  content: "User prompt",
+                  attachments: [],
+                  requestId: "user-request",
+                  sentAt: 101,
+                  onEvent: () => {},
+                },
+              ],
+            },
+          ]),
+        );
+      }
+      abortConversation(ctx, createAbortReason("user_cancel", "test"));
+      const preserved = kind === "user" || kind === "mixed";
+      expect(controller.signal.aborted).toBe(!preserved);
+      expect(h.prompterDisposed()).toBe(!preserved);
+    });
+  }
+
   test("a user interrupt with no live turn kicks the drain itself", () => {
     // GIVEN a conversation flagged processing with no controller left to
     // signal, so no agent-loop `finally` is coming to drain the preserved queue
@@ -343,10 +406,13 @@ describe("run-scoped schedule timeout", () => {
         ...h.ctx,
         queue,
         currentTurnCronRunId: activeRunId,
-        pendingQueuedDispatches: new Map<string | null, Set<AbortController>>([
-          ["run-timeout", new Set([ownedDispatch])],
-          ["run-other", new Set([otherDispatch])],
-          [null, new Set([userDispatch])],
+        pendingQueuedDispatches: new Map<string | null, Set<QueuedDispatch>>([
+          [
+            "run-timeout",
+            new Set([{ controller: ownedDispatch, messages: [] }]),
+          ],
+          ["run-other", new Set([{ controller: otherDispatch, messages: [] }])],
+          [null, new Set([{ controller: userDispatch, messages: [] }])],
         ]),
       };
       const bytesBefore = queue.totalBytes;

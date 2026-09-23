@@ -34,6 +34,7 @@ import { getLogger } from "../util/logger.js";
 import { unregisterCallNotifiers } from "./conversation-notifiers.js";
 import type {
   MessageQueue,
+  QueuedDispatch,
   QueuedMessage,
   QueueDrainReason,
 } from "./conversation-queue-manager.js";
@@ -133,7 +134,8 @@ export function reinjectInterruptTurnNote(
 export interface AbortContext {
   readonly conversationId: string;
   readonly currentTurnCronRunId?: string | null;
-  readonly pendingQueuedDispatches?: Map<string | null, Set<AbortController>>;
+  readonly currentRequestId?: string;
+  readonly pendingQueuedDispatches?: Map<string | null, Set<QueuedDispatch>>;
   isProcessing(): boolean;
   setProcessing(value: boolean): void;
   abortController: AbortController | null;
@@ -307,7 +309,7 @@ function discardQueueOnAbort(
 /** Cancel only the scheduled firing's queued continuations and active turn. */
 export function abortScheduledRun(ctx: AbortContext, runId: string): void {
   for (const dispatch of ctx.pendingQueuedDispatches?.get(runId) ?? []) {
-    dispatch.abort(
+    dispatch.controller?.abort(
       createAbortReason("schedule_timeout", "scheduler", ctx.conversationId),
     );
   }
@@ -334,9 +336,26 @@ export function abortConversation(
   if (effectiveReason.kind !== "schedule_timeout") {
     for (const dispatches of ctx.pendingQueuedDispatches?.values() ?? []) {
       for (const dispatch of dispatches) {
-        dispatch.abort(effectiveReason);
+        dispatch.controller?.abort(effectiveReason);
       }
     }
+  }
+  // A dequeued user prompt stays queued work until its dispatch starts the loop.
+  if (
+    isUserInterruptAbort(effectiveReason) &&
+    [...(ctx.pendingQueuedDispatches?.get(null) ?? [])].some(
+      (dispatch) =>
+        dispatch.messages.some(
+          (message) => message.requestId === ctx.currentRequestId,
+        ) &&
+        dispatch.messages.some(
+          (message) =>
+            message.metadata?.automated !== true &&
+            !isSuppressedQueuedMessage(message.metadata),
+        ),
+    )
+  ) {
+    return;
   }
   const hasLiveTurn = ctx.abortController !== null;
   const wasProcessing = ctx.isProcessing();

@@ -1051,8 +1051,17 @@ describe("Conversation message queue", () => {
 
   for (const cronRunId of ["run-scheduled", null]) {
     for (const batchSize of [1, 2]) {
-      for (const cancel of [false, "schedule", "stop", "dispose"] as const) {
-        if (cronRunId === null && cancel === "schedule") {
+      for (const cancel of [
+        false,
+        "schedule",
+        "stop",
+        "signal",
+        "dispose",
+      ] as const) {
+        if (
+          cronRunId === null &&
+          (cancel === "schedule" || cancel === "dispose")
+        ) {
           continue;
         }
         for (const claimed of [false, true]) {
@@ -1070,13 +1079,14 @@ describe("Conversation message queue", () => {
               await release.promise;
               return owner === undefined ? acquire() : owner;
             };
+            const events: AssistantEvent[] = [];
             conversation.setProcessing(true);
             for (let i = 0; i < batchSize; i++) {
               conversation.enqueueMessage({
-                content: `Scheduled continuation ${i}`,
-                requestId: `scheduled-${i}`,
+                content: `Queued continuation ${i}`,
+                requestId: `queued-${i}`,
                 cronRunId,
-                onEvent: () => {},
+                onEvent: (event) => events.push(event),
               });
             }
             conversation.setProcessing(false);
@@ -1091,8 +1101,13 @@ describe("Conversation message queue", () => {
               expect(conversation.hasInFlightWork()).toBe(true);
               if (cancel === "schedule") {
                 conversation.abortScheduledRun("run-scheduled");
-              } else if (cancel === "stop") {
-                conversation.abort();
+              } else if (cancel === "stop" || cancel === "signal") {
+                conversation.abort(
+                  createAbortReason(
+                    cancel === "stop" ? "user_cancel" : "signal_cancel",
+                    "test",
+                  ),
+                );
               } else if (cancel === "dispose") {
                 conversation.dispose();
               }
@@ -1101,7 +1116,9 @@ describe("Conversation message queue", () => {
               await drain;
             }
             expect(conversation.pendingQueuedDispatches.size).toBe(0);
-            if (cancel) {
+            const preserved =
+              cronRunId === null && (cancel === "stop" || cancel === "signal");
+            if (cancel && !preserved) {
               expect(pendingRuns).toHaveLength(0);
               expect(capturedAddMessages).toHaveLength(persistedBefore);
               expect(conversation.isProcessing()).toBe(false);
@@ -1109,6 +1126,19 @@ describe("Conversation message queue", () => {
             } else {
               await waitForPendingRun(1);
               expect(conversation.currentTurnCronRunId).toBe(cronRunId);
+              if (preserved) {
+                expect(capturedAddMessages.length).toBe(
+                  persistedBefore + batchSize,
+                );
+                expect(
+                  events.filter((event) => event.type === "user_message_echo"),
+                ).toHaveLength(batchSize);
+                expect(
+                  events.some(
+                    (event) => event.type === "message_queued_deleted",
+                  ),
+                ).toBe(false);
+              }
               await resolveRun(0);
             }
           });
@@ -1116,6 +1146,63 @@ describe("Conversation message queue", () => {
       }
     }
   }
+
+  for (const cancel of ["user_cancel", "signal_cancel"] as const) {
+    for (const batchSize of [1, 2]) {
+      test(`${cancel} preserves an accepted queued prompt after persistence (batch=${batchSize})`, async () => {
+        const conversation = makeConversation();
+        await conversation.loadFromDb();
+        const persistedBefore = capturedAddMessages.length;
+        const entered = Promise.withResolvers<void>();
+        const release = Promise.withResolvers<void>();
+        const persist = conversation.persistUserMessage.bind(conversation);
+        let paused = false;
+        conversation.persistUserMessage = async (options) => {
+          const result = await persist(options);
+          if (!paused) {
+            paused = true;
+            entered.resolve();
+            await release.promise;
+          }
+          return result;
+        };
+        const events: AssistantEvent[] = [];
+        conversation.setProcessing(true);
+        for (let i = 0; i < batchSize; i++) {
+          conversation.enqueueMessage({
+            content: `User prompt ${i}`,
+            requestId: `request-${i}`,
+            clientMessageId: `client-${i}`,
+            onEvent: (event) => events.push(event),
+          });
+        }
+        conversation.setProcessing(false);
+        const drain = conversation.drainQueue();
+        try {
+          await entered.promise;
+          expect(capturedAddMessages.length).toBe(persistedBefore + 1);
+          conversation.abort(createAbortReason(cancel, "test"));
+          expect(conversation.abortController?.signal.aborted).toBe(false);
+        } finally {
+          release.resolve();
+          await drain;
+        }
+        await waitForPendingRun(1);
+        expect(
+          events.filter((event) => event.type === "user_message_echo"),
+        ).toHaveLength(batchSize);
+        expect(
+          events.some((event) => event.type === "message_queued_deleted"),
+        ).toBe(false);
+        expect(capturedAddMessages.length).toBe(persistedBefore + batchSize);
+        expect(conversation.pendingQueuedDispatches.size).toBe(0);
+        conversation.abort(createAbortReason(cancel, "test:active-turn"));
+        expect(conversation.abortController?.signal.aborted).toBe(true);
+        await resolveRun(0);
+      });
+    }
+  }
+
   test("[experimental] batched siblings run under their firing's cron run id", async () => {
     // A batched drain runs after the enqueuing turn has ended, so the firing's
     // attribution has to travel on the queued messages. Without it the batch's
