@@ -996,25 +996,6 @@ describe("enforceIngressAcl — gateway-unreachable deny branches degrade to a p
     expect(gatewaySessions.calls.create.length).toBe(0);
     expect(accessRequestCalls.length).toBe(1);
   });
-
-  test("email stranger message: session reads throwing skips the challenge", async () => {
-    gatewaySessions.unreachable.all = true;
-
-    const result = await enforceIngressAcl(
-      makeParams({
-        sourceChannel: "email",
-        canonicalSenderId: "stranger@example.com",
-        rawSenderId: "stranger@example.com",
-        sourceMetadata: withVerdict({
-          trustClass: "unknown",
-          canonicalSenderId: "stranger@example.com",
-        }),
-      }),
-    );
-
-    expect(result.earlyResponse!.reason).toBe("not_a_member");
-    expect(gatewaySessions.calls.create.length).toBe(0);
-  });
 });
 
 describe("enforceIngressAcl — verdict session-presence stamp elides the verification-read IPC pair", () => {
@@ -1046,20 +1027,23 @@ describe("enforceIngressAcl — verdict session-presence stamp elides the verifi
     expect(gatewaySessions.calls.sessionReads.length).toBe(0);
   });
 
-  test("stamp false (email stranger): challenge minted with ZERO verification-read IPC calls", async () => {
+  test("email stranger: plain deny with a reply for the gateway to send, no session minted", async () => {
     const result = await enforceIngressAcl(
       makeParams({
         sourceChannel: "email",
         canonicalSenderId: "stranger@example.com",
         rawSenderId: "stranger@example.com",
+        replyCallbackUrl: undefined,
         sourceMetadata: withVerdict(
           strangerVerdict(false, "stranger@example.com"),
         ),
       }),
     );
 
-    expect(result.earlyResponse!.reason).toBe("verification_challenge_sent");
-    expect(gatewaySessions.calls.create.length).toBe(1);
+    expect(result.earlyResponse!.reason).toBe("not_a_member");
+    expect(typeof result.earlyResponse!.replyText).toBe("string");
+    expect(accessRequestCalls.length).toBe(1);
+    expect(gatewaySessions.calls.create.length).toBe(0);
     expect(gatewaySessions.calls.sessionReads.length).toBe(0);
   });
 

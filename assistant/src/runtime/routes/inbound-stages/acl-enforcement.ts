@@ -508,59 +508,6 @@ export async function enforceIngressAcl(
           }
         }
 
-        // Email: initiate a verification challenge via the guardian notification
-        // pipeline. Unlike Slack, we cannot DM the requester directly — the
-        // verification code is delivered to the guardian, who decides whether
-        // to share it with the email sender out-of-band.
-        if (
-          sourceChannel === "email" &&
-          (canonicalSenderId ?? rawSenderId) &&
-          !isCallbackInteraction
-        ) {
-          const emailVerifyResult = await initiateVerificationChallenge({
-            sourceChannel,
-            senderUserId: (canonicalSenderId ?? rawSenderId)!,
-            hasInterceptableVerificationSession:
-              verdict.hasInterceptableVerificationSession,
-          });
-
-          if (emailVerifyResult.initiated) {
-            try {
-              await notifyGuardianOfAccessRequest({
-                sourceChannel,
-                conversationExternalId,
-                actorExternalId: canonicalSenderId ?? rawSenderId,
-                actorDisplayName,
-                actorUsername,
-                messagePreview: truncate(
-                  trimmedContent,
-                  MESSAGE_PREVIEW_MAX_LENGTH,
-                ),
-                isBot,
-                isStranger,
-                isRestricted,
-                messageTs,
-                destinationConversationId,
-              });
-            } catch (err) {
-              log.error(
-                { err, sourceChannel, conversationExternalId },
-                "Failed to notify guardian of access request (email verification)",
-              );
-            }
-
-            return {
-              resolvedMember: null,
-              earlyResponse: {
-                accepted: true,
-                denied: true,
-                reason: "verification_challenge_sent",
-                verificationSessionId: emailVerifyResult.sessionId,
-              },
-            };
-          }
-        }
-
         // Notify the guardian about the access request so they can approve/deny.
         // Uses the shared helper which handles guardian binding lookup,
         // deduplication, guardian request creation, and notification emission.
@@ -952,11 +899,11 @@ interface VerificationChallengeResult {
 }
 
 /**
- * Create an outbound verification session for an unknown sender (Slack and
- * email deny lanes). The guardian receives the verification code via the
- * notification pipeline (not a direct DM to the requester). The session is
- * identity-bound with `verificationPurpose: "trusted_contact"` so consuming
- * the code creates a trusted contact record (not a guardian binding).
+ * Create an outbound verification session for a Slack sender without access. The
+ * session marks that the requester has been challenged, so a repeat message
+ * does not re-send the challenge DM. Its code is never delivered: a guardian
+ * approval mints the code the requester receives, and that mint revokes this
+ * session because both are bound to the same identity.
  */
 async function initiateVerificationChallenge(params: {
   sourceChannel: ChannelId;
@@ -1041,10 +988,6 @@ async function initiateVerificationChallenge(params: {
       );
       return { initiated: false };
     }
-
-    // The verification code is delivered to the guardian via the access
-    // request notification flow. The guardian decides whether to share
-    // it with the requester — we do NOT DM the code to the requester.
 
     log.info(
       { sourceChannel, senderUserId, sessionId: session.sessionId },

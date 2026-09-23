@@ -27,6 +27,16 @@ const DENIAL_REPLY_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours
 /** Max denial replies to a single (channel, sourceAddress) within the window. */
 const DENIAL_REPLY_PER_SOURCE_LIMIT = 3;
 
+/**
+ * Channels whose per-source limit differs from the default. An email reply
+ * lands in the sender's inbox as a new message, so a stranger gets one per
+ * window: the same bound the platform applies to the unknown-sender reply it
+ * sends for managed addresses.
+ */
+const PER_SOURCE_LIMIT_BY_CHANNEL: Readonly<Partial<Record<string, number>>> = {
+  email: 1,
+};
+
 /** Max denial replies globally (all channels/senders) within the window. */
 const DENIAL_REPLY_GLOBAL_LIMIT = 50;
 
@@ -66,7 +76,9 @@ export function recordDenialReplyIfAllowed(
     .get();
 
   const perSourceCount = perSourceResult?.total ?? 0;
-  if (perSourceCount >= DENIAL_REPLY_PER_SOURCE_LIMIT) {
+  const perSourceLimit =
+    PER_SOURCE_LIMIT_BY_CHANNEL[channel] ?? DENIAL_REPLY_PER_SOURCE_LIMIT;
+  if (perSourceCount >= perSourceLimit) {
     log.info(
       { channel, sourceAddress, count: perSourceCount },
       "Denial reply rate-limited (per-source)",

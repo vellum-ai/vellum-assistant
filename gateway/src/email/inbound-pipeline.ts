@@ -7,6 +7,7 @@ import { recordDenialReplyIfAllowed } from "../db/denial-reply-rate-limiter.js";
 import type { StringDedupCache } from "../dedup-cache.js";
 import { handleInbound } from "../handlers/handle-inbound.js";
 import { resolveAssistant, isRejection } from "../routing/resolve-assistant.js";
+import { canonicalizeInboundIdentity } from "../verification/identity.js";
 import {
   handleCircuitBreakerError,
   processInboundResult,
@@ -282,7 +283,10 @@ export async function runEmailInboundPipeline(
       result.runtimeResponse.replyText &&
       sendReply
     ) {
-      if (recordDenialReplyIfAllowed("email", senderAddress)) {
+      // Keyed on the canonical address so a casing change is the same sender.
+      const limiterKey =
+        canonicalizeInboundIdentity("email", senderAddress) ?? senderAddress;
+      if (recordDenialReplyIfAllowed("email", limiterKey)) {
         await sendReply({
           kind: "denial",
           from: recipientAddress,

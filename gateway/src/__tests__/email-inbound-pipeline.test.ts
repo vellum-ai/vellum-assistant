@@ -225,6 +225,26 @@ describe("runEmailInboundPipeline", () => {
     expect(sent[0].kind).toBe("denial");
   });
 
+  it("rate-limits a sender by canonical address, whatever its casing", async () => {
+    handleInboundMock.mockImplementation(() =>
+      Promise.resolve({
+        forwarded: true,
+        rejected: false,
+        runtimeResponse: { denied: true, replyText: "Not allowed" },
+      }),
+    );
+    await runEmailInboundPipeline(
+      pipelineOpts({
+        vellumPayload: { ...payload, from: "ALICE@example.com" },
+        sendReply: async () => {},
+      }),
+    );
+    expect(recordDenialReplyIfAllowedMock).toHaveBeenCalledWith(
+      "email",
+      "alice@example.com",
+    );
+  });
+
   it("skips the denial reply when the rate limiter refuses", async () => {
     handleInboundMock.mockImplementation(() =>
       Promise.resolve({

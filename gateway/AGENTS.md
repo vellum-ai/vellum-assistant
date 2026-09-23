@@ -171,7 +171,7 @@ A default row per enforced channel is **seeded at startup** (`seedAdmissionPolic
 | `no_one`           | 5     | Hard-deny at gateway _before_ forwarding (kill switch in `handle-inbound.ts`). Includes the guardian — this channel is _OFF_. |
 | `guardian_only`    | 4     | Seeded default for `vellum`.                                                                                                  |
 | `trusted_contacts` | 3     | Seeded default for all other channels; also the read-path safety fallback.                                                    |
-| `any_contact`      | 2     | May surface Slack DM / email upgrade challenge on deny.                                                                       |
+| `any_contact`      | 2     | May surface Slack DM upgrade challenge on deny.                                                                               |
 | `strangers`        | 1     | May surface upgrade challenge.                                                                                                |
 
 **Exempt channels** (no policy ever applies — gateway **AND** runtime both short-circuit):
