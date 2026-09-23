@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import { buildReactionRowEnvelope } from "../../messaging/reaction-envelopes.js";
+import { writeSlackMetadata } from "../../messaging/providers/slack/message-metadata.js";
+import {
+  buildReactionRowEnvelope,
+  buildSlackReactionMeta,
+} from "../../messaging/reaction-envelopes.js";
 import type { ContentBlock } from "../../providers/types.js";
 import {
   type ContactReader,
@@ -60,7 +64,11 @@ const SAMPLE_OF_EACH_TYPE: {
 describe("projectRowForContact", () => {
   test("allows only text and attachment references", () => {
     const projected = projectRowForContact(
-      { content: Object.values(SAMPLE_OF_EACH_TYPE), metadata: null },
+      {
+        role: "assistant",
+        content: Object.values(SAMPLE_OF_EACH_TYPE),
+        metadata: null,
+      },
       ALICE,
     );
     expect(projected.map((b) => b.type)).toEqual(["text", "image", "file"]);
@@ -72,9 +80,9 @@ describe("projectRowForContact", () => {
       { type: "redacted_thinking", data: "opaque" },
       { type: "text", text: "Here is the answer." },
     ];
-    expect(projectRowForContact({ content, metadata: {} }, ALICE)).toEqual([
-      { type: "text", text: "Here is the answer." },
-    ]);
+    expect(
+      projectRowForContact({ role: "assistant", content, metadata: {} }, ALICE),
+    ).toEqual([{ type: "text", text: "Here is the answer." }]);
   });
 
   test("drops an unknown block type", () => {
@@ -82,9 +90,12 @@ describe("projectRowForContact", () => {
       { type: "text", text: "visible" },
       { type: "future_block", text: "hidden", payload: { secret: true } },
     ] as unknown as ContentBlock[];
-    expect(projectRowForContact({ content, metadata: null }, ALICE)).toEqual([
-      { type: "text", text: "visible" },
-    ]);
+    expect(
+      projectRowForContact(
+        { role: "assistant", content, metadata: null },
+        ALICE,
+      ),
+    ).toEqual([{ type: "text", text: "visible" }]);
   });
 
   test("drops tool calls and their results", () => {
@@ -97,9 +108,12 @@ describe("projectRowForContact", () => {
         contentBlocks: [{ type: "text", text: "nested" }],
       },
     ];
-    expect(projectRowForContact({ content, metadata: null }, ALICE)).toEqual(
-      [],
-    );
+    expect(
+      projectRowForContact(
+        { role: "assistant", content, metadata: null },
+        ALICE,
+      ),
+    ).toEqual([]);
   });
 
   test("on a private row, shows delivered messages and not the scratchpad", () => {
@@ -116,9 +130,9 @@ describe("projectRowForContact", () => {
     const metadata = JSON.stringify({
       [ASSISTANT_TEXT_VISIBILITY_KEY]: "private",
     });
-    expect(projectRowForContact({ content, metadata }, ALICE)).toEqual([
-      { type: "text", text: "All done." },
-    ]);
+    expect(
+      projectRowForContact({ role: "assistant", content, metadata }, ALICE),
+    ).toEqual([{ type: "text", text: "All done." }]);
   });
 
   test("drops the text fallback of a UI card", () => {
@@ -126,18 +140,24 @@ describe("projectRowForContact", () => {
       { type: "ui_surface", surfaceId: "s1", surfaceType: "approval" },
       { type: "text", text: "Approve?", _surfaceFallback: true },
     ] as ContentBlock[];
-    expect(projectRowForContact({ content, metadata: null }, ALICE)).toEqual(
-      [],
-    );
+    expect(
+      projectRowForContact(
+        { role: "assistant", content, metadata: null },
+        ALICE,
+      ),
+    ).toEqual([]);
   });
 
   test("keeps the redaction rider and nothing else on text", () => {
     const content = [
       { type: "text", text: "hi", _redactionVersion: 1, _internal: "x" },
     ] as unknown as ContentBlock[];
-    expect(projectRowForContact({ content, metadata: null }, ALICE)).toEqual([
-      { type: "text", text: "hi", _redactionVersion: 1 },
-    ]);
+    expect(
+      projectRowForContact(
+        { role: "assistant", content, metadata: null },
+        ALICE,
+      ),
+    ).toEqual([{ type: "text", text: "hi", _redactionVersion: 1 }]);
   });
 
   test("projects an attachment to its reference only", () => {
@@ -149,9 +169,12 @@ describe("projectRowForContact", () => {
         _attachmentId: "att-1",
       },
     ] as unknown as ContentBlock[];
-    expect(projectRowForContact({ content, metadata: null }, ALICE)).toEqual([
-      { type: "file", source: REFERENCE_SOURCE },
-    ]);
+    expect(
+      projectRowForContact(
+        { role: "assistant", content, metadata: null },
+        ALICE,
+      ),
+    ).toEqual([{ type: "file", source: REFERENCE_SOURCE }]);
   });
 
   test("drops inline media bytes", () => {
@@ -162,9 +185,12 @@ describe("projectRowForContact", () => {
         _attachmentId: "att-1",
       },
     ];
-    expect(projectRowForContact({ content, metadata: null }, ALICE)).toEqual(
-      [],
-    );
+    expect(
+      projectRowForContact(
+        { role: "assistant", content, metadata: null },
+        ALICE,
+      ),
+    ).toEqual([]);
   });
 
   describe("audience", () => {
@@ -176,7 +202,11 @@ describe("projectRowForContact", () => {
     test("drops a restricted reply for a non-addressee", () => {
       expect(
         projectRowForContact(
-          { content, metadata: restrictedTo(ALICE.principalId) },
+          {
+            role: "assistant",
+            content,
+            metadata: restrictedTo(ALICE.principalId),
+          },
           BOB,
         ),
       ).toEqual([]);
@@ -186,6 +216,7 @@ describe("projectRowForContact", () => {
       expect(
         projectRowForContact(
           {
+            role: "assistant",
             content,
             metadata: JSON.stringify(restrictedTo(ALICE.principalId)),
           },
@@ -198,6 +229,7 @@ describe("projectRowForContact", () => {
       expect(
         projectRowForContact(
           {
+            role: "assistant",
             content,
             metadata: { [MESSAGE_AUDIENCE_METADATA_KEY]: { kind: "everyone" } },
           },
@@ -214,14 +246,43 @@ describe("projectRowForContact", () => {
       { backgroundEventSource: "background-tool" },
       { subagentNotification: { subagentId: "s", label: "l" } },
     ]) {
-      expect(projectRowForContact({ content, metadata }, ALICE)).toEqual([]);
+      expect(
+        projectRowForContact({ role: "user", content, metadata }, ALICE),
+      ).toEqual([]);
     }
+  });
+
+  describe("inline silence sentinel", () => {
+    const content: ContentBlock[] = [
+      { type: "text", text: "Sure, done. <no_response/>" },
+      { type: "text", text: "<no_response/>" },
+    ];
+
+    test("is stripped from assistant text, dropping emptied blocks", () => {
+      expect(
+        projectRowForContact(
+          { role: "assistant", content, metadata: null },
+          ALICE,
+        ),
+      ).toEqual([{ type: "text", text: "Sure, done." }]);
+    });
+
+    test("is left alone in user text", () => {
+      expect(
+        projectRowForContact({ role: "user", content, metadata: null }, ALICE),
+      ).toEqual([
+        { type: "text", text: "Sure, done. <no_response/>" },
+        { type: "text", text: "<no_response/>" },
+      ]);
+    });
   });
 
   test("drops a deliberate silence", () => {
     const content: ContentBlock[] = [{ type: "text", text: "<no_response/>" }];
     const metadata = JSON.stringify({ messageKind: NO_RESPONSE_MESSAGE_KIND });
-    expect(projectRowForContact({ content, metadata }, ALICE)).toEqual([]);
+    expect(
+      projectRowForContact({ role: "assistant", content, metadata }, ALICE),
+    ).toEqual([]);
   });
 
   describe("reaction", () => {
@@ -239,21 +300,37 @@ describe("projectRowForContact", () => {
         messageKind: REACTION_MESSAGE_KIND,
         ...buildReactionRowEnvelope(facts),
       };
-      expect(projectRowForContact({ content, metadata }, ALICE)).toEqual([]);
+      expect(
+        projectRowForContact({ role: "assistant", content, metadata }, ALICE),
+      ).toEqual([]);
     });
 
     test("drops an inbound reaction", () => {
       const metadata = JSON.stringify(
         buildReactionRowEnvelope({ ...facts, actorDisplayName: "Bob" }),
       );
-      expect(projectRowForContact({ content, metadata }, ALICE)).toEqual([]);
+      expect(
+        projectRowForContact({ role: "user", content, metadata }, ALICE),
+      ).toEqual([]);
+    });
+
+    test("drops a legacy flat Slack reaction", () => {
+      const metadata = writeSlackMetadata(
+        buildSlackReactionMeta({ ...facts, channel: "slack" }),
+      );
+      expect(
+        projectRowForContact({ role: "user", content, metadata }, ALICE),
+      ).toEqual([]);
     });
   });
 
   test("drops a row whose metadata cannot be read", () => {
     const content: ContentBlock[] = [{ type: "text", text: "Hello" }];
     expect(
-      projectRowForContact({ content, metadata: "{not json" }, ALICE),
+      projectRowForContact(
+        { role: "assistant", content, metadata: "{not json" },
+        ALICE,
+      ),
     ).toEqual([]);
   });
 });

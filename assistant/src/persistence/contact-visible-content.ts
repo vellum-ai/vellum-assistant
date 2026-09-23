@@ -20,6 +20,10 @@ import type {
   TextContent,
   WorkspaceRefMediaSource,
 } from "../providers/types.js";
+import {
+  containsNoResponseMarker,
+  stripNoResponseMarkers,
+} from "../runtime/no-response.js";
 import { isPlainObject } from "../util/object.js";
 import {
   isEchoSuppressedUserMessage,
@@ -43,8 +47,12 @@ export interface ContactReader {
   principalId: string;
 }
 
-/** A stored row: its resolved content blocks and its raw or parsed metadata. */
+/**
+ * A stored row: its role, its resolved content blocks, and its raw or parsed
+ * metadata.
+ */
 export interface StoredRowForContact {
+  role: string;
   content: ContentBlock[];
   metadata: unknown;
 }
@@ -110,7 +118,8 @@ function isReactionRow(
   return (
     isReactionMessageMetadata(metadata) ||
     (metadataJson.includes("reaction") &&
-      readProviderMetadata(metadataJson)?.eventKind === "reaction")
+      readProviderMetadata(metadataJson, { allowFlatLegacy: true })
+        ?.eventKind === "reaction")
   );
 }
 
@@ -142,9 +151,14 @@ function referenceSource(source: unknown): WorkspaceRefMediaSource | null {
 /**
  * The contact-visible form of one block, or null when a contact may not see
  * it. Each allowed block is rebuilt from its known fields, so internal riders
- * and fields added to a block later never ride along.
+ * and fields added to a block later never ride along. On an assistant row the
+ * `<no_response/>` sentinel is stripped from text, and a block left empty is
+ * dropped.
  */
-function contactVisibleBlock(block: ContentBlock): ContactVisibleBlock | null {
+function contactVisibleBlock(
+  block: ContentBlock,
+  isAssistant: boolean,
+): ContactVisibleBlock | null {
   switch (block.type) {
     case "text": {
       // The plain-text twin of a UI card, which a contact does not see.
@@ -152,11 +166,18 @@ function contactVisibleBlock(block: ContentBlock): ContactVisibleBlock | null {
       if (typeof block.text !== "string" || extra._surfaceFallback === true) {
         return null;
       }
+      const text =
+        isAssistant && containsNoResponseMarker(block.text)
+          ? stripNoResponseMarkers(block.text)
+          : block.text;
+      if (text.length === 0) {
+        return null;
+      }
       const rider = (block as { _redactionVersion?: unknown })
         ._redactionVersion;
       return {
         type: "text",
-        text: block.text,
+        text,
         ...(typeof rider === "number" ? { _redactionVersion: rider } : {}),
       };
     }
@@ -221,7 +242,7 @@ export function projectRowForContact(
     if (!isPlainObject(block)) {
       continue;
     }
-    const projected = contactVisibleBlock(block);
+    const projected = contactVisibleBlock(block, row.role === "assistant");
     if (projected) {
       visible.push(projected);
     }
