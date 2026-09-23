@@ -68,10 +68,12 @@ export function StatSquare({
         </Typography>
         {/* A label wraps rather than being cut or spilling past the tile,
             so a long translation stays whole and inside it. Text that can
-            run to a second line needs the 12px step with leading. */}
+            run to a second line needs the 12px step with leading, and that
+            leading is the whole gap under the value: the two lines are one
+            pair and sit together. */}
         <Typography
           variant="body-small-lighter"
-          className="mt-1 text-[var(--content-secondary)]"
+          className="text-[var(--content-secondary)]"
         >
           {label}
         </Typography>

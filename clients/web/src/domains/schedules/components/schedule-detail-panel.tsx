@@ -200,9 +200,9 @@ function StatCards({ usage }: { usage: ScheduleRowUsage }) {
     return (
       <div className="grid grid-cols-2 gap-3 pt-2">
         {Array.from({ length: 2 }, (_, i) => (
-          // 66px is a `StatSquare`: a 20px value line and an 18px label
-          // line, 4px apart, inside 12px of padding.
-          <Skeleton key={i} className="h-16.5 rounded-xl" />
+          // 62px is a `StatSquare`: a 20px value line and an 18px label
+          // line inside 12px of padding.
+          <Skeleton key={i} className="h-15.5 rounded-xl" />
         ))}
       </div>
     );
