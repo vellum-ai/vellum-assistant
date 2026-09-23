@@ -154,12 +154,6 @@
         }
       },
       "close": "关闭",
-      "confirm": {
-        "body": "只需大约一分钟。我迫不及待想向你展示我能在桌面上做些什么。",
-        "keep": "开始导览",
-        "skip": "暂时跳过",
-        "title": "跳过导览？"
-      },
       "previewLabel": "你的桌面助手",
       "previewAssistantName": "Quill",
       "start": "开始导览",

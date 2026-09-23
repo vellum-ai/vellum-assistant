@@ -2,7 +2,10 @@ import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, jest, mock, test } from "bun:test";
 import { forwardRef, useImperativeHandle } from "react";
 import { MemoryRouter } from "react-router";
-import type { UnplacedDictationOffer } from "@vellumai/ipc-contract";
+import type {
+  CompanionIntroBeat,
+  UnplacedDictationOffer,
+} from "@vellumai/ipc-contract";
 import type { CommandHandlers } from "@/runtime/vellum-commands";
 
 let popout = false;
@@ -101,10 +104,11 @@ mock.module("@/domains/chat/voice/use-voice-key", () => ({
  * Whether the companion's introduction is staged, which is main's answer and
  * the only thing that decides whether a tap is worth counting.
  */
-const advanceIntro = mock((_action: string) => {});
+let mainIntro: CompanionIntroBeat | null = null;
+const readCompanionState = mock(async () => ({ intro: mainIntro }));
 const forwardOffer = mock((_offer: UnplacedDictationOffer | null) => true);
 mock.module("@/runtime/companion-surface", () => ({
-  advanceCompanionIntro: advanceIntro,
+  getCompanionState: readCompanionState,
   forwardUnplacedDictationOffer: forwardOffer,
 }));
 let introStaged = false;
@@ -225,12 +229,15 @@ const { useAssistantIdentityStore } =
 const { useVoiceKeyTapStore } =
   await import("@/domains/chat/voice/voice-key-tap-store");
 
-const renderBridge = (assistantId: string | null = "assistant-1") => {
+const renderBridge = (
+  assistantId: string | null = "assistant-1",
+  enabled = true,
+) => {
   // The bridge's voice mode shortcut navigates to the conversation surface
   // when a press finds no composer, so it renders under a router in the app.
   render(
     <MemoryRouter>
-      <GlobalPushToTalkBridge assistantId={assistantId} />
+      <GlobalPushToTalkBridge assistantId={assistantId} enabled={enabled} />
     </MemoryRouter>,
   );
   if (!latestVoiceInputProps) {
@@ -258,7 +265,8 @@ afterEach(() => {
   nextAskTaken = true;
   announceAskRefusedMock.mockClear();
   toggleVoiceMock.mockClear();
-  advanceIntro.mockClear();
+  mainIntro = null;
+  readCompanionState.mockClear();
   toastErrorMock.mockClear();
   runningClaimant = null;
   popout = false;
@@ -520,11 +528,11 @@ test("drives its own recorder, not whatever claimed dictation last", async () =>
  * assistant with the selection quoted ahead of them, and nothing is pasted or
  * cleaned up: the cleanup pass rewrites words meant for a document.
  */
-test("a double tap of the voice key is Talk", () => {
+test("a double tap of the voice key is Talk", async () => {
   renderBridge("a1");
 
-  act(() => {
-    holdHandlers?.onDoubleTap();
+  await act(async () => {
+    await holdHandlers?.onDoubleTap();
   });
 
   expect(toggleVoiceMock).toHaveBeenCalledTimes(1);
@@ -1071,11 +1079,12 @@ describe("a hold over an editable selection", () => {
   });
 });
 
-test("routes tutorial double taps through the companion permission guard", () => {
+test("tutorial double taps never start a call", async () => {
   introStaged = true;
   renderBridge("a1");
-  act(() => holdHandlers?.onDoubleTap());
-  expect(advanceIntro).toHaveBeenCalledWith("try");
+  await act(async () => {
+    await holdHandlers?.onDoubleTap();
+  });
   expect(toggleVoiceMock).not.toHaveBeenCalled();
 });
 
@@ -1083,5 +1092,26 @@ test("a tutorial hold does not start dictation", () => {
   introStaged = true;
   renderBridge("a1");
   act(() => holdHandlers?.onHoldStart({ selection: null }));
+  expect(voiceStartMock).not.toHaveBeenCalled();
+});
+
+test("checks the native tour step when the staging notification is stale", async () => {
+  introStaged = false;
+  mainIntro = "key";
+  renderBridge("a1");
+  await act(async () => {
+    await holdHandlers?.onDoubleTap();
+  });
+  expect(readCompanionState).toHaveBeenCalled();
+  expect(toggleVoiceMock).not.toHaveBeenCalled();
+});
+
+test("voice gestures stay inactive before assistant selection is ready", async () => {
+  renderBridge("a1", false);
+  await act(async () => {
+    await holdHandlers?.onDoubleTap();
+    holdHandlers?.onHoldStart({ selection: null });
+  });
+  expect(toggleVoiceMock).not.toHaveBeenCalled();
   expect(voiceStartMock).not.toHaveBeenCalled();
 });

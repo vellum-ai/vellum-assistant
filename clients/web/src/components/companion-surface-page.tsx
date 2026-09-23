@@ -726,7 +726,7 @@ export function CompanionSurfacePage() {
     setGreeted(false);
   }, [intro]);
   const takeIntroOffer = (): void => {
-    if (!needsIntroPermission) {
+    if (intro === "try" && !needsIntroPermission) {
       advanceCompanionIntro("try");
     }
   };
@@ -1184,15 +1184,14 @@ export function CompanionSurfacePage() {
           // The last beat is the opposite: the creature is in its card for the
           // same reason, and the press is the finish. It goes out as the run's
           // own `try`, which checks microphone access before starting a session.
-          if (introShown && intro === "talk") {
-            if (needsIntroPermission) {
-              return;
+          if (intro !== null) {
+            if (introShown && !needsIntroPermission) {
+              if (intro === "talk") {
+                setGreeted(true);
+              } else if (intro === "try") {
+                takeIntroOffer();
+              }
             }
-            setGreeted(true);
-            return;
-          }
-          if (introShown && intro === "try") {
-            takeIntroOffer();
             return;
           }
           if (call !== null || dialing) {

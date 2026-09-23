@@ -15,7 +15,10 @@ import {
   test,
 } from "bun:test";
 
-import type { CompanionSurfaceState } from "@vellumai/ipc-contract";
+import {
+  COMPANION_INTRO_BEATS,
+  type CompanionSurfaceState,
+} from "@vellumai/ipc-contract";
 
 const moveByMock = mock((_dx: number, _dy: number) => undefined);
 const releaseMock = mock(() => undefined);
@@ -1377,6 +1380,20 @@ describe("the offer of a dictation's words", () => {
  * the beat; these are about what the page does with the one it is handed.
  */
 describe("the companion's introduction", () => {
+  test.each(COMPANION_INTRO_BEATS.filter((beat) => beat !== "try"))(
+    "clicking the avatar on %s cannot start a call",
+    async (beat) => {
+      STATE.intro = beat;
+      const { container } = render(<CompanionSurfacePage />);
+      const { avatar } = await pinSurface(container);
+
+      fireEvent.click(avatar);
+
+      expect(startVoiceMock).not.toHaveBeenCalled();
+      expect(advanceIntroMock).not.toHaveBeenCalledWith("try");
+    },
+  );
+
   /** The introduction's card, pinned somewhere the hit-test can find it. */
   const pinCard = async (container: HTMLElement): Promise<HTMLElement> => {
     const card = await waitFor(() => {

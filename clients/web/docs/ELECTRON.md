@@ -120,8 +120,12 @@ window retains the full transcript in its saved draft.
 
 The tour announcement previews the same active-assistant avatar source as the
 Dock and main app, including character traits, uploaded images, and accent color.
+It remains the entry point before the coachmarks, with an explicit start button
+and immediate dismissal. The announcement and native identity publication wait
+for session initialization and active assistant selection. Losing readiness clears
+an interrupted native tour without marking it complete.
 
-The macOS companion tour offers microphone setup on Talk, Input Monitoring on
+The macOS companion tour offers microphone setup on its final call step, Input Monitoring on
 its voice-key lesson, and Screen Recording on Share. Setup is explicit and
 skippable. The permission bridge reads the capturing helper's Screen Recording
 grant; the Electron app's grant is not interchangeable with it.
@@ -129,9 +133,10 @@ grant; the Electron app's grant is not interchangeable with it.
 The tour stays on its current step while Settings is open and observes permission
 updates before restoring the rehearsal controls. Global keyboard registration
 never requests access. Permission updates re-arm the voice key and call chords.
-During the tour, holds do not dictate and double taps reach the same native
-microphone guard as the final avatar click. Only the final step with microphone
-access can start the tour's real call.
+During the tour, holds do not dictate and double taps do not start calls. The
+voice-key bridge checks native tour state before starting a call even if its
+staging notification is stale. Only the explicit final-step action with microphone
+access can start the tour's real call. Talk practice needs no microphone grant.
 
 Before a native permission prompt or Settings opens, the tour lowers its window
 below system UI. Returning to Vellum or advancing the tour restores its floating

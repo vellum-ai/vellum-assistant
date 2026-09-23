@@ -154,12 +154,6 @@
         }
       },
       "close": "Close",
-      "confirm": {
-        "body": "It’ll take about a minute. I’m excited to show you what I can do from your desktop.",
-        "keep": "Take the tour",
-        "skip": "Skip for now",
-        "title": "Skip the tour?"
-      },
       "previewLabel": "Your desktop companion",
       "previewAssistantName": "Quill",
       "start": "Start the tour",

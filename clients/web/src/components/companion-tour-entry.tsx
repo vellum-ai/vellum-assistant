@@ -6,7 +6,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 
 import { Button, Modal } from "@vellumai/design-library";
 import { companionBoxFor } from "@vellumai/ipc-contract";
@@ -50,30 +50,13 @@ export function CompanionTourEntryModal({
         AVATAR_BOX,
       )
     : null;
-  const [confirmingDismissal, setConfirmingDismissal] = useState(false);
-
-  useEffect(() => {
-    if (!open) {
-      setConfirmingDismissal(false);
-    }
-  }, [open]);
-
-  const startTour = (): void => {
-    setConfirmingDismissal(false);
-    onStart();
-  };
-
-  const dismissTour = (): void => {
-    setConfirmingDismissal(false);
-    onDismiss();
-  };
 
   return (
     <Modal.Root
       open={open}
       onOpenChange={(nextOpen) => {
         if (!nextOpen) {
-          setConfirmingDismissal(true);
+          onDismiss();
         }
       }}
     >
@@ -83,87 +66,56 @@ export function CompanionTourEntryModal({
         dismissOnOverlayClick={false}
         onEscapeKeyDown={(event) => {
           event.preventDefault();
-          setConfirmingDismissal(true);
+          onDismiss();
         }}
         className="max-w-[820px] overflow-hidden"
         style={scopedAvatarAccentVars(avatar?.accentHex)}
       >
         <div className="relative grid min-h-[500px] md:grid-cols-[1.18fr_0.82fr]">
-          {!confirmingDismissal ? (
-            <button
-              type="button"
-              aria-label={t("companionIntro.announcement.close")}
-              className="absolute top-4 right-4 z-10 flex size-8 items-center justify-center rounded-full text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-active)] hover:text-[var(--content-default)] md:text-white/60 md:hover:bg-white/10 md:hover:text-white"
-              onClick={() => setConfirmingDismissal(true)}
-            >
-              <X className="size-4" />
-            </button>
-          ) : null}
+          <button
+            type="button"
+            aria-label={t("companionIntro.announcement.close")}
+            className="absolute top-4 right-4 z-10 flex size-8 items-center justify-center rounded-full text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-active)] hover:text-[var(--content-default)] md:text-white/60 md:hover:bg-white/10 md:hover:text-white"
+            onClick={onDismiss}
+          >
+            <X className="size-4" />
+          </button>
 
           <div className="relative flex min-w-0 flex-col p-8 sm:p-10">
-            {confirmingDismissal ? (
-              <>
-                <div className="flex flex-1 flex-col justify-center">
-                  <Modal.Title className="[&>span]:whitespace-normal text-[32px] leading-[1.08] tracking-[0.01em]">
-                    {t("companionIntro.announcement.confirm.title")}
-                  </Modal.Title>
-                  <Modal.Description className="mt-4 max-w-[390px] text-body-medium-lighter leading-6 text-[var(--content-secondary)]">
-                    {t("companionIntro.announcement.confirm.body")}
-                  </Modal.Description>
-                </div>
-                <div className="flex flex-wrap items-center justify-end gap-2 pt-8">
-                  <Button variant="ghost" onClick={dismissTour}>
-                    {t("companionIntro.announcement.confirm.skip")}
-                  </Button>
-                  <Button
-                    variant="primary"
-                    rightIcon={<ArrowRight className="size-4" />}
-                    onClick={startTour}
-                  >
-                    {t("companionIntro.announcement.confirm.keep")}
-                  </Button>
-                </div>
-              </>
-            ) : (
-              <>
-                <Modal.Title className="[&>span]:whitespace-normal pr-8 text-[32px] leading-[1.08] tracking-[0.01em]">
-                  {t("companionIntro.announcement.title")}
-                </Modal.Title>
-                <Modal.Description className="mt-3 max-w-[420px] text-body-medium-lighter leading-6 text-[var(--content-secondary)]">
-                  {t("companionIntro.announcement.body")}
-                </Modal.Description>
+            <Modal.Title className="[&>span]:whitespace-normal pr-8 text-[32px] leading-[1.08] tracking-[0.01em]">
+              {t("companionIntro.announcement.title")}
+            </Modal.Title>
+            <Modal.Description className="mt-3 max-w-[420px] text-body-medium-lighter leading-6 text-[var(--content-secondary)]">
+              {t("companionIntro.announcement.body")}
+            </Modal.Description>
 
-                <div className="mt-6 flex flex-col gap-2">
-                  <TourValueCard
-                    icon={MessageCircle}
-                    title={t("companionIntro.announcement.cards.flow.title")}
-                    body={t("companionIntro.announcement.cards.flow.body")}
-                  />
-                  <TourValueCard
-                    icon={MonitorUp}
-                    title={t("companionIntro.announcement.cards.context.title")}
-                    body={t("companionIntro.announcement.cards.context.body")}
-                  />
-                  <TourValueCard
-                    icon={MousePointer2}
-                    title={t(
-                      "companionIntro.announcement.cards.together.title",
-                    )}
-                    body={t("companionIntro.announcement.cards.together.body")}
-                  />
-                </div>
+            <div className="mt-6 flex flex-col gap-2">
+              <TourValueCard
+                icon={MessageCircle}
+                title={t("companionIntro.announcement.cards.flow.title")}
+                body={t("companionIntro.announcement.cards.flow.body")}
+              />
+              <TourValueCard
+                icon={MonitorUp}
+                title={t("companionIntro.announcement.cards.context.title")}
+                body={t("companionIntro.announcement.cards.context.body")}
+              />
+              <TourValueCard
+                icon={MousePointer2}
+                title={t("companionIntro.announcement.cards.together.title")}
+                body={t("companionIntro.announcement.cards.together.body")}
+              />
+            </div>
 
-                <div className="mt-auto flex justify-end pt-8">
-                  <Button
-                    variant="primary"
-                    rightIcon={<ArrowRight className="size-4" />}
-                    onClick={startTour}
-                  >
-                    {t("companionIntro.announcement.start")}
-                  </Button>
-                </div>
-              </>
-            )}
+            <div className="mt-auto flex justify-end pt-8">
+              <Button
+                variant="primary"
+                rightIcon={<ArrowRight className="size-4" />}
+                onClick={onStart}
+              >
+                {t("companionIntro.announcement.start")}
+              </Button>
+            </div>
           </div>
 
           <div

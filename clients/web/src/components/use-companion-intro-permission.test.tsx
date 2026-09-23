@@ -134,16 +134,13 @@ describe("companion tour permission setup", () => {
   test("only requests the three permissions used by companion controls", async () => {
     setupSupported = true;
     const view = setup("idle");
-    for (const beat of ["talk", "key", "share", "try"] as const) {
+    for (const beat of ["key", "share", "try"] as const) {
       view.rerender({ beat });
       await known(view);
       act(() => view.result.current?.enable());
       await known(view);
     }
-    expect(request.mock.calls.map(([kind]) => kind)).toEqual([
-      "microphone",
-      "microphone",
-    ]);
+    expect(request.mock.calls.map(([kind]) => kind)).toEqual(["microphone"]);
     expect(beginGuide.mock.calls.map(([kind]) => kind)).toEqual([
       "inputMonitoring",
       "screen",
@@ -152,7 +149,7 @@ describe("companion tour permission setup", () => {
   });
 
   test.each([
-    ["talk", "microphone", "not-determined", true, "request"],
+    ["try", "microphone", "not-determined", true, "request"],
     ["key", "inputMonitoring", "not-determined", true, "settings"],
     ["share", "screen", "denied", true, "request"],
     ["share", "screen", "denied", false, "settings"],
@@ -189,6 +186,13 @@ describe("companion tour permission setup", () => {
       expect(settings).not.toHaveBeenCalled();
     },
   );
+  test("the Talk rehearsal never asks for microphone access", async () => {
+    const view = setup("talk");
+    await act(async () => {});
+    expect(view.result.current).toBeNull();
+    expect(request).not.toHaveBeenCalled();
+    expect(settings).not.toHaveBeenCalled();
+  });
   test("does not read permissions outside the tour", () => {
     const view = setup(null);
     expect(view.result.current).toBeNull();
@@ -203,7 +207,7 @@ describe("companion tour permission setup", () => {
     for (const beat of ["talk", "key", "share", "draw", "try"] as const) {
       view.rerender({ beat });
       expect(companionIntroNeedsPermission(view.result.current)).toBe(false);
-      if (beat !== "draw") {
+      if (beat !== "draw" && beat !== "talk") {
         expect(view.result.current?.state.phase).toBe("known");
       }
     }
@@ -213,7 +217,7 @@ describe("companion tour permission setup", () => {
   test("retains the last result during periodic permission checks", async () => {
     jest.useFakeTimers();
     current = permissions("granted");
-    const view = setup("talk");
+    const view = setup("try");
     await act(async () => {});
     const { promise, resolve } = deferred<SystemPermissionsState>();
     read.mockReturnValueOnce(promise);
@@ -238,7 +242,7 @@ describe("companion tour permission setup", () => {
     },
   );
   test("does not open a prompt after the user skips a pending read", async () => {
-    const view = setup("talk");
+    const view = setup("try");
     await known(view);
     const { promise, resolve } = deferred<SystemPermissionsState>();
     read.mockReturnValueOnce(promise);
@@ -249,7 +253,7 @@ describe("companion tour permission setup", () => {
     expect(view.result.current?.kind).toBe("inputMonitoring");
   });
   test("ignores a request result after moving to another step", async () => {
-    const view = setup("talk");
+    const view = setup("try");
     await known(view);
     const { promise, resolve } = deferred<SystemPermissionStateItem>();
     request.mockReturnValueOnce(promise);
@@ -264,13 +268,13 @@ describe("companion tour permission setup", () => {
   test("keeps a newer grant when an older read returns", async () => {
     const { promise, resolve } = deferred<SystemPermissionsState>();
     read.mockReturnValueOnce(promise);
-    const view = setup("talk");
+    const view = setup("try");
     act(() => listener?.(permissions("granted")));
     await act(async () => resolve(current));
     expect(companionIntroNeedsPermission(view.result.current)).toBe(false);
   });
   test("deduplicates requests and preserves newer pushed grants", async () => {
-    const view = setup("talk");
+    const view = setup("try");
     await known(view);
     const { promise, resolve } = deferred<SystemPermissionStateItem>();
     request.mockReturnValueOnce(promise);
@@ -290,7 +294,7 @@ describe("companion tour permission setup", () => {
     expect(view.result.current?.state.phase).toBe("known");
   });
   test("reports a failed request and keeps setup available", async () => {
-    const view = setup("talk");
+    const view = setup("try");
     await known(view);
     request.mockRejectedValueOnce(new Error("permission request failed"));
     act(() => view.result.current?.enable());
@@ -302,7 +306,7 @@ describe("companion tour permission setup", () => {
     jest.useFakeTimers();
     const { promise, resolve } = deferred<SystemPermissionsState>();
     read.mockReturnValueOnce(promise);
-    const view = setup("talk");
+    const view = setup("try");
     act(() => listener?.(current));
     await act(async () => view.result.current?.enable());
     expect(request).toHaveBeenCalledTimes(1);
@@ -324,7 +328,7 @@ describe("companion tour permission setup", () => {
   });
   test("supports shells without a permission bridge", async () => {
     read.mockResolvedValue(null);
-    const view = setup("talk");
+    const view = setup("try");
     await waitFor(() => expect(view.result.current).toBeNull());
     expect(companionIntroNeedsPermission(view.result.current)).toBe(false);
   });

@@ -462,7 +462,7 @@ their current lesson. Every permission step is skippable.
 
 | Lesson | Permission | Purpose |
 | --- | --- | --- |
-| Talk / Try a call | Microphone | Capture your voice during calls |
+| Try a call | Microphone | Capture your voice during calls |
 | Voice key | Input Monitoring | Detect the global voice-key shortcut |
 | Share | Screen Recording | Share a screen or window through Vellum Helper |
 
@@ -471,6 +471,14 @@ the coachmark's permission control into a guide beside System Settings. Drag
 Vellum Helper into the privacy list, authenticate if asked, and enable its switch.
 **Show in Finder** provides a keyboard and manual-drag alternative. The bundle
 label and icon reflect the actual installed helper, including development builds.
+
+The informational introduction and **Start the tour** button appear before the
+coachmarks. Closing that introduction dismisses it immediately. Both the companion
+and its introduction wait for sign-in and assistant selection to finish. Losing
+assistant readiness clears an interrupted tour; an unfinished tour returns to its
+introduction when the assistant is ready again. Talk and voice-key practice are
+rehearsals: neither requests microphone access nor starts a real call. Only the
+final step's explicit call action does that.
 
 The guide follows the main Settings window using the helper's window inventory;
 when unavailable it stays near the bottom of the current display. Before a drag

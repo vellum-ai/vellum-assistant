@@ -154,12 +154,6 @@
         }
       },
       "close": "Cerrar",
-      "confirm": {
-        "body": "Solo lleva un minuto. Me hace ilusión enseñarte lo que puedo hacer desde tu escritorio.",
-        "keep": "Hacer el recorrido",
-        "skip": "Omitir por ahora",
-        "title": "¿Omitir el recorrido?"
-      },
       "previewLabel": "Tu compañero de escritorio",
       "previewAssistantName": "Quill",
       "start": "Iniciar el recorrido",

@@ -821,6 +821,11 @@ can detach from the coachmark into a guide beside System Settings, with a native
 file drag of the capturing Vellum Helper application. Other app permissions stay
 outside the companion tour.
 
+The informational introduction waits for an active assistant before offering the
+coachmarks. Losing assistant readiness clears an interrupted tour and its dimming
+without completing it. Talk and voice-key practice cannot start a call; microphone
+setup belongs to the final, explicit call action.
+
 Main resolves the app-owned drag path and accepts drag and Finder actions only
 from the current guide's WebContents. The guide follows the main Settings window
 by its pinned window id. Before dragging or revealing in Finder it stops following

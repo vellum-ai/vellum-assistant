@@ -46,7 +46,6 @@ export function companionIntroOpensSettings(
 const PERMISSION_FOR_BEAT: Partial<
   Record<CompanionIntroBeat, CompanionIntroPermissionKind>
 > = {
-  talk: "microphone",
   try: "microphone",
   key: "inputMonitoring",
   share: "screen",

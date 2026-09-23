@@ -791,6 +791,12 @@ const unstageIntro = (): void => {
   setIntroScrim(false);
 };
 
+const clearIntro = (): void => {
+  setIntroAnnouncement(false);
+  setIntroBeat(null);
+  unstageIntro();
+};
+
 const cancelIntroLanding = (): void => {
   if (introLanding === null) {
     return;
@@ -3665,6 +3671,9 @@ export const installCompanionWindow = (): void => {
    * some other app entirely, so "focused" would name the wrong target.
    */
   on("vellum:companion:startVoice", z.tuple([]), () => {
+    if (introAnnouncement || intro !== null) {
+      return;
+    }
     // Drawn before the press is delivered, so the pill answers the hand in
     // the same beat: the session it asks for opens after a network round trip
     // in a window the user cannot see.
@@ -4256,8 +4265,7 @@ export const installCompanionWindow = (): void => {
       if (intro === null) {
         return;
       }
-      // Rehearsal keys never open a call. Both the avatar and the voice key
-      // reach this guard, including grants revoked since the card last read.
+      // Only the final offer can open a call, with a current microphone grant.
       if (
         action === "try" &&
         (intro !== "try" ||
@@ -4696,11 +4704,8 @@ export const openCompanionWindow = (): void => {
     if (getFloatingWindow(COMPANION_KIND) !== null) {
       return;
     }
+    clearIntro();
     cancelGlide();
-    // A landing owed to a window that no longer exists is one nothing can
-    // land, and the staging it was going to lift must not outlive it: the
-    // app's window would be left dimmed with nothing staged over it.
-    unstageIntro();
     callHome = null;
     // A drag on a window that no longer exists has nothing left to drop.
     docking = null;
@@ -4724,6 +4729,7 @@ export const openCompanionWindow = (): void => {
 };
 
 const closeCompanionWindow = (): void => {
+  clearIntro();
   getFloatingWindow(COMPANION_KIND)?.close();
 };
 
@@ -4768,10 +4774,7 @@ export const setCompanionSurfaceVisible = (visible: boolean): void => {
  */
 export const replayCompanionIntro = (): void => {
   clearCompanionIntroSeen();
-  setIntroAnnouncement(false);
-  // A replay during a run is a run ending: the window it was staged over stops
-  // being dimmed for it, and the one opened below dims it for the new run.
-  unstageIntro();
+  clearIntro();
   const bringBack = (): void => {
     // A surface the user has hidden comes back through the tray's own path, so
     // the preference is cleared as well as the window opened; anything else

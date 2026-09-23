@@ -45,7 +45,7 @@ import { mintVoiceDraftConversation } from "@/domains/chat/voice/voice-draft-con
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
 import type { DictationPostResponse } from "@/generated/daemon/types.gen";
 import { supportsSelectionRewrite } from "@/lib/backwards-compat/selection-rewrite";
-import { advanceCompanionIntro } from "@/runtime/companion-surface";
+import { getCompanionState } from "@/runtime/companion-surface";
 import { companionIntroStaged } from "@/runtime/companion-intro-stage";
 import { subscribeToDictationOverlayStop } from "@/runtime/dictation-overlay";
 import { insertTextIntoFrontApp } from "@/runtime/text-insertion";
@@ -57,6 +57,7 @@ import { toast } from "@vellumai/design-library/components/toast";
 
 interface GlobalPushToTalkBridgeProps {
   assistantId: string | null;
+  enabled: boolean;
 }
 
 /** Bounds intent classification and explicit replacements before using raw words. */
@@ -245,7 +246,15 @@ function saveTranscriptDraft(text: string, assistantId: string | null): void {
 
 export function GlobalPushToTalkBridge({
   assistantId,
+  enabled,
 }: GlobalPushToTalkBridgeProps) {
+  const enabledRef = useRef(enabled);
+  useEffect(() => {
+    enabledRef.current = enabled;
+    return () => {
+      enabledRef.current = false;
+    };
+  }, [enabled]);
   useVellumCommands({
     setUnplacedDictationOffer: (command) => {
       if (
@@ -344,7 +353,7 @@ export function GlobalPushToTalkBridge({
   // The voice mode shortcut lives here rather than in the chat layout because
   // this bridge is mounted app-wide: voice is reachable from any route, the
   // same way dictation is.
-  useVoiceModeHotkey({ enabled: supportsKeyboardActivation() });
+  useVoiceModeHotkey({ enabled: enabled && supportsKeyboardActivation() });
 
   // The voice key, from whatever app the user is in. A hold drives the same
   // target the overlay's stop button drives, so a hold and a press are the
@@ -353,10 +362,10 @@ export function GlobalPushToTalkBridge({
   // over a selection is the one exception: its words are a question about the
   // selection, and go to the assistant instead. A double tap is Talk.
   useVoiceKey({
-    key: voiceKey,
+    key: enabled ? voiceKey : { kind: "off" },
     onRegistered: setVoiceKeyRegistered,
     onHoldStart: ({ selection }) => {
-      if (companionIntroStaged()) {
+      if (!enabled || companionIntroStaged()) {
         return;
       }
       if (useVoiceRecordingStore.getState().phase === "recording") {
@@ -398,9 +407,16 @@ export function GlobalPushToTalkBridge({
         armDictationOfferWatch();
       }
     },
-    onDoubleTap: () => {
-      if (companionIntroStaged()) {
-        advanceCompanionIntro("try");
+    onDoubleTap: async () => {
+      if (!enabled || companionIntroStaged()) {
+        return;
+      }
+      const state = await getCompanionState();
+      if (
+        !enabledRef.current ||
+        state?.intro != null ||
+        companionIntroStaged()
+      ) {
         return;
       }
       toggleVoiceFromSurface(
