@@ -37,19 +37,25 @@
     "deleteFolderMessage": "Are you sure you want to delete <name>{name}</name> and all of its contents? This cannot be undone.",
     "deleting": "Deleting…"
   },
-  "workspaceBrowser": {
-    "drawerTitle": "Files"
-  },
   "workspaceFileViewer": {
     "download": "Download",
     "downloading": "Downloading…",
     "downloadFailed": "Download failed. Try again.",
     "modifiedLabel": "Modified:",
     "selectAFile": "Select a file to view",
-    "browseFiles": "Browse files",
     "fileNotFound": "File not found",
     "saveFailed": "Save failed",
     "unknownSize": "Unknown size",
-    "downloadAria": "Download {name}"
+    "downloadAria": "Download {name}",
+    "emptyTitle": "Nothing open yet",
+    "emptyHint": "Tap <strong>Choose a file</strong> above <arrow/>"
+  },
+  "workspaceFileTitle": {
+    "eyebrow": "Workspace",
+    "chooseFile": "Choose a file",
+    "openHint": "Opens file list"
+  },
+  "workspaceFilePicker": {
+    "dismiss": "Close file list"
   }
 }

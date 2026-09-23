@@ -37,19 +37,25 @@
     "deleteFolderMessage": "Точно удалить <name>{name}</name> и всё содержимое? Это нельзя отменить.",
     "deleting": "Удаление…"
   },
-  "workspaceBrowser": {
-    "drawerTitle": "Файлы"
-  },
   "workspaceFileViewer": {
     "download": "Скачать",
     "downloading": "Скачивание…",
     "downloadFailed": "Не удалось скачать. Повторите попытку.",
     "modifiedLabel": "Изменён:",
     "selectAFile": "Выбор файла для просмотра",
-    "browseFiles": "Обзор файлов",
     "fileNotFound": "Файл не найден",
     "saveFailed": "Не удалось сохранить",
     "unknownSize": "Размер неизвестен",
-    "downloadAria": "Скачать {name}"
+    "downloadAria": "Скачать {name}",
+    "emptyTitle": "Пока ничего не открыто",
+    "emptyHint": "Нажмите <strong>Выбрать файл</strong> выше <arrow/>"
+  },
+  "workspaceFileTitle": {
+    "eyebrow": "Рабочая область",
+    "chooseFile": "Выбрать файл",
+    "openHint": "Открывает список файлов"
+  },
+  "workspaceFilePicker": {
+    "dismiss": "Закрыть список файлов"
   }
 }

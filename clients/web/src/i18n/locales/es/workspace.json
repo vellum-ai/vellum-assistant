@@ -37,19 +37,25 @@
     "deleteFolderMessage": "¿Seguro que quieres eliminar <name>{name}</name> y todo su contenido? Esto no se puede deshacer.",
     "deleting": "Eliminando…"
   },
-  "workspaceBrowser": {
-    "drawerTitle": "Archivos"
-  },
   "workspaceFileViewer": {
     "download": "Descargar",
     "downloading": "Descargando…",
     "downloadFailed": "No se pudo descargar. Inténtalo de nuevo.",
     "modifiedLabel": "Modificado:",
     "selectAFile": "Selecciona un archivo para verlo",
-    "browseFiles": "Explorar archivos",
     "fileNotFound": "Archivo no encontrado",
     "saveFailed": "No se pudo guardar",
     "unknownSize": "Tamaño desconocido",
-    "downloadAria": "Descargar {name}"
+    "downloadAria": "Descargar {name}",
+    "emptyTitle": "Aún no hay nada abierto",
+    "emptyHint": "Toca <strong>Elegir un archivo</strong> arriba <arrow/>"
+  },
+  "workspaceFileTitle": {
+    "eyebrow": "Espacio de trabajo",
+    "chooseFile": "Elegir un archivo",
+    "openHint": "Abre la lista de archivos"
+  },
+  "workspaceFilePicker": {
+    "dismiss": "Cerrar la lista de archivos"
   }
 }

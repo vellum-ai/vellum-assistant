@@ -200,6 +200,17 @@ reason a variant cannot cover.
 
 ---
 
+## Workspace file picker
+
+Workspace uses the measured pane width from `useSideListRoom()` to keep its
+tree beside the file when there is room. Compact panes put the tree in a
+78%-height `BottomSheet` opened by the filename title pill. The page registers
+that control in `intelligence-layout-slots-store.headerTitle`; the layout
+keeps ownership of Back and the mobile header. Search and folder expansion
+live above the two tree surfaces, and file selection clears search and closes
+the sheet. The sheet uses the existing row highlight tokens, viewport keyboard
+insets, and detail-sheet drag dismissal.
+
 ## Mobile chat detail sheets
 
 Tool calls, grouped activity, subagents, background tasks, workflows, and ACP runs share

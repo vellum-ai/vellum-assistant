@@ -65,6 +65,7 @@ import { Input } from "@vellumai/design-library/components/input";
 import { Menu } from "@vellumai/design-library/components/menu";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { PanelItem } from "@vellumai/design-library/components/panel-item";
+import { Typography } from "@vellumai/design-library/components/typography";
 
 export type { WorkspaceSortMode };
 
@@ -247,6 +248,7 @@ export function WorkspaceTree({
   onPathRenamed,
   search,
   onSearchChange,
+  presentation = "sidebar",
 }: {
   assistantId: string;
   expandedPaths: Set<string>;
@@ -268,6 +270,7 @@ export function WorkspaceTree({
    */
   search: string;
   onSearchChange: (search: string) => void;
+  presentation?: "sidebar" | "sheet";
 }) {
   const { t } = useTranslation("workspace");
   const queryClient = useQueryClient();
@@ -450,15 +453,22 @@ export function WorkspaceTree({
   return (
     <>
       <div
-        className="flex items-center justify-between border-b px-3 py-2.5"
+        data-slot="workspace-tree-header"
+        className="flex shrink-0 items-center justify-between border-b px-3 py-2.5"
         style={{ borderColor: "var(--border-element)" }}
       >
-        <span
-          className="text-body-medium-default"
-          style={{ color: "var(--content-secondary)" }}
-        >
-          {t("workspaceTree.heading")}
-        </span>
+        {presentation === "sheet" ? (
+          <BottomSheet.Title className="[--text-title-medium-size:18px] [--text-title-medium-weight:600]">
+            {t("workspaceTree.heading")}
+          </BottomSheet.Title>
+        ) : (
+          <Typography
+            variant="body-medium-default"
+            className="text-[var(--content-secondary)]"
+          >
+            {t("workspaceTree.heading")}
+          </Typography>
+        )}
         <div className="flex items-center gap-0.5">
           <Button
             type="button"
@@ -490,26 +500,32 @@ export function WorkspaceTree({
                 : "var(--content-tertiary)"
             }
           />
-          <Button
-            type="button"
-            variant="ghost"
-            size="compact"
-            iconOnly={showHidden ? <Eye aria-hidden /> : <EyeOff aria-hidden />}
-            onClick={onToggleShowHidden}
-            aria-label={
-              showHidden
-                ? t("workspaceTree.hideHiddenAria")
-                : t("workspaceTree.showHiddenAria")
-            }
-            title={
-              showHidden
-                ? t("workspaceTree.hideHiddenAria")
-                : t("workspaceTree.showHiddenAria")
-            }
-            tintColor={
-              showHidden ? "var(--content-default)" : "var(--content-tertiary)"
-            }
-          />
+          {presentation === "sidebar" && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="compact"
+              iconOnly={
+                showHidden ? <Eye aria-hidden /> : <EyeOff aria-hidden />
+              }
+              onClick={onToggleShowHidden}
+              aria-label={
+                showHidden
+                  ? t("workspaceTree.hideHiddenAria")
+                  : t("workspaceTree.showHiddenAria")
+              }
+              title={
+                showHidden
+                  ? t("workspaceTree.hideHiddenAria")
+                  : t("workspaceTree.showHiddenAria")
+              }
+              tintColor={
+                showHidden
+                  ? "var(--content-default)"
+                  : "var(--content-tertiary)"
+              }
+            />
+          )}
           <WorkspaceTreeCreateMenu
             open={menuOpen}
             onOpenChange={setMenuOpen}
@@ -521,7 +537,7 @@ export function WorkspaceTree({
         </div>
       </div>
 
-      <div className="px-3 py-2">
+      <div data-slot="workspace-tree-search" className="shrink-0 px-3 py-2">
         {/* The clear button centers on this wrapper, so the scope note sits
             outside it rather than in the input's own helper slot. */}
         <div className="relative">
@@ -530,6 +546,7 @@ export function WorkspaceTree({
             value={search}
             onChange={(e) => onSearchChange(e.target.value)}
             placeholder={t("workspaceTree.searchPlaceholder")}
+            aria-label={t("workspaceTree.searchPlaceholder")}
             leftIcon={<Search className="h-3.5 w-3.5" aria-hidden />}
             aria-describedby={searchNote ? searchScopeId : undefined}
             fullWidth
@@ -559,7 +576,10 @@ export function WorkspaceTree({
         )}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto py-1">
+      <div
+        data-slot="workspace-tree-list"
+        className="min-h-0 flex-1 overflow-y-auto py-1"
+      >
         {isRootLoading ? (
           <div className="flex items-center justify-center py-8">
             <div
@@ -586,6 +606,7 @@ export function WorkspaceTree({
               depth={row.depth}
               isExpanded={row.isExpanded}
               isSelected={selectedPath === row.entry.path}
+              presentation={presentation}
               onToggleExpand={onToggleExpand}
               onSelectPath={onSelectPath}
               onRequestDelete={handleRequestDelete}

@@ -77,10 +77,23 @@ afterEach(() => {
   cleanup();
   useAssistantIdentityStore.getState().clearIdentity();
   useIntelligenceLayoutSlotsStore.getState().setHeaderTrailing(null);
+  useIntelligenceLayoutSlotsStore.getState().setHeaderTitle(null);
   useIntelligenceLayoutSlotsStore.getState().setDetailIsScreen(false);
 });
 
 describe("IntelligenceLayout — section pages", () => {
+  test("a page-owned title shares the mobile bar with the layout's Back", () => {
+    isMobileRef.value = true;
+    useIntelligenceLayoutSlotsStore.getState().setHeaderTitle(
+      <button type="button">Choose a file</button>,
+    );
+    renderLayoutAt("/assistant/workspace");
+    const slot = lastMobileTopBar();
+    expect(renderToStaticMarkup(slot?.center)).toContain("Choose a file");
+    expect(slotProps(slot?.leading).to).toBe("/assistant/identity");
+    expect(slot?.trailing).toBeNull();
+  });
+
   test("renders the section heading and a back chevron to the overview", () => {
     const { container } = renderLayoutAt("/assistant/superpowers");
 

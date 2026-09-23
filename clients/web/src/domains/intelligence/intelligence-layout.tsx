@@ -68,6 +68,7 @@ export function IntelligenceLayout() {
   const setTopBarCenter = useChatLayoutSlotsStore.use.setTopBarCenter();
   const setMobileTopBar = useChatLayoutSlotsStore.use.setMobileTopBar();
   const headerTrailing = useIntelligenceLayoutSlotsStore.use.headerTrailing();
+  const headerTitle = useIntelligenceLayoutSlotsStore.use.headerTitle();
   const detailIsScreen = useIntelligenceLayoutSlotsStore.use.detailIsScreen();
 
   const section = aboutAssistantSectionForPath(pathname);
@@ -133,7 +134,9 @@ export function IntelligenceLayout() {
       setTopBarCenter(null);
       setMobileTopBar({
         leading: <MobileTopBarBack {...destination} />,
-        center: <MobileTopBarTitle>{mobileTopBarTitle}</MobileTopBarTitle>,
+        center: headerTitle ?? (
+          <MobileTopBarTitle>{mobileTopBarTitle}</MobileTopBarTitle>
+        ),
         trailing: headerTrailing,
       });
     } else {
@@ -149,6 +152,7 @@ export function IntelligenceLayout() {
     backTitle,
     backToListPath,
     headerTrailing,
+    headerTitle,
     mobileTopBarTitle,
     navigate,
     ownsMobileTopBar,
@@ -170,7 +174,18 @@ export function IntelligenceLayout() {
   }
 
   return (
-    <PageShell>
+    <PageShell
+      className={
+        section.key === "workspace"
+          ? "max-md:rounded-none max-md:border-0 max-md:px-3.5 max-md:pt-0 max-md:pb-3.5"
+          : undefined
+      }
+      style={
+        section.key === "workspace"
+          ? { backgroundColor: "var(--surface-base)" }
+          : undefined
+      }
+    >
       {/* Desktop section chrome. A phone gets these affordances from the
           mobile top bar registered above, so this row would be a second back
           control and does not render there. */}
@@ -184,9 +199,11 @@ export function IntelligenceLayout() {
           >
             <ChevronLeft className="h-5 w-5" aria-hidden />
           </Link>
-          <h1 className="text-title-large text-[var(--content-default)]">
-            {sectionTitle}
-          </h1>
+          {headerTitle ?? (
+            <h1 className="text-title-large text-[var(--content-default)]">
+              {sectionTitle}
+            </h1>
+          )}
           {headerTrailing ? (
             <div className="ml-auto flex shrink-0 items-center">
               {headerTrailing}
