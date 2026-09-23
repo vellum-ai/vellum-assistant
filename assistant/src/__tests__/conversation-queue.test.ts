@@ -1050,7 +1050,7 @@ describe("Conversation message queue", () => {
   });
 
   for (const batchSize of [1, 2]) {
-    for (const cancel of [false, true]) {
+    for (const cancel of [false, "schedule", "stop", "dispose"] as const) {
       for (const claimed of [false, true]) {
         test(`scheduled dispatch stays owned during persistence (batch=${batchSize}, cancel=${cancel}, claimed=${claimed})`, async () => {
           const conversation = makeConversation();
@@ -1086,8 +1086,12 @@ describe("Conversation message queue", () => {
                 ?.size,
             ).toBe(1);
             expect(conversation.hasInFlightWork()).toBe(true);
-            if (cancel) {
+            if (cancel === "schedule") {
               conversation.abortScheduledRun("run-scheduled");
+            } else if (cancel === "stop") {
+              conversation.abort();
+            } else if (cancel === "dispose") {
+              conversation.dispose();
             }
           } finally {
             release.resolve();

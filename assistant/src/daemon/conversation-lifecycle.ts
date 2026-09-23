@@ -331,6 +331,13 @@ export function abortConversation(
       "abortConversation:default",
       ctx.conversationId,
     );
+  if (effectiveReason.kind !== "schedule_timeout") {
+    for (const dispatches of ctx.pendingScheduledDispatches?.values() ?? []) {
+      for (const dispatch of dispatches) {
+        dispatch.abort(effectiveReason);
+      }
+    }
+  }
   const hasLiveTurn = ctx.abortController !== null;
   const wasProcessing = ctx.isProcessing();
   if (wasProcessing) {
