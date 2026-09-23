@@ -35,7 +35,6 @@ mock.module("electron", () => ({
     getAllDisplays: () => [
       { id: 42, bounds: { x: 0, y: 0, width: 1000, height: 600 } },
     ],
-    dipToScreenRect: (_window: unknown, rect: unknown) => rect,
   },
 }));
 mock.module("./features/computer-use-actions", () => ({
@@ -108,4 +107,50 @@ test("converts accessibility rectangles to the same coordinate space as the shar
     width: 40,
     height: 20,
   });
+});
+
+test("locates on the shared display when the foreground window is on another monitor", async () => {
+  const window = {
+    windowId: 7,
+    pid: 123,
+    app: "Example",
+    title: "Calculator",
+    onScreen: true,
+    bounds: { x: 100, y: 100, width: 800, height: 600 },
+  };
+  helperCall.mockResolvedValueOnce({
+    windows: [
+      { ...window, windowId: 9, pid: process.pid },
+      { ...window, windowId: 8, bounds: { ...window.bounds, x: -1200 } },
+      window,
+    ],
+  });
+  helperCall.mockResolvedValueOnce({ found: false, reason: "no-match" });
+  await callCompanionCapture("ax.locate", { displayId: 42, query: "7" });
+  expect(helperCall).toHaveBeenLastCalledWith("ax.locate", {
+    displayId: 42,
+    query: "7",
+    windowId: 7,
+  });
+});
+
+test("does not read a covered window behind one that straddles the shared display", async () => {
+  const window = {
+    windowId: 7,
+    pid: 123,
+    app: "Example",
+    title: "Document",
+    onScreen: true,
+    bounds: { x: -100, y: 100, width: 800, height: 600 },
+  };
+  helperCall.mockResolvedValueOnce({
+    windows: [
+      window,
+      { ...window, windowId: 8, bounds: { ...window.bounds, x: 100 } },
+    ],
+  });
+  expect(
+    await callCompanionCapture("ax.locate", { displayId: 42, query: "Save" }),
+  ).toEqual({ found: false, reason: "no-tree" });
+  expect(helperCall).toHaveBeenCalledTimes(1);
 });

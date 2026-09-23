@@ -18,21 +18,6 @@ public sealed class CompanionCapture : IRpcModule
             var input = parameters ?? throw new ArgumentException("Missing target");
             var window = input.TryGetProperty("windowId", out var id)
                 ? new IntPtr(id.GetInt64()) : new WindowsWindowTargetSource().GetTargetWindow();
-            if (input.TryGetProperty("displayBounds", out var display))
-            {
-                if (!GetWindowRect(window, out var bounds))
-                {
-                    return ValueTask.FromResult<object?>(CompanionLocator.Find(null, ""));
-                }
-                var x = (bounds.Left + bounds.Right) / 2;
-                var y = (bounds.Top + bounds.Bottom) / 2;
-                var left = display.GetProperty("x").GetInt32();
-                var top = display.GetProperty("y").GetInt32();
-                if (x < left || y < top || x >= left + display.GetProperty("width").GetInt32() || y >= top + display.GetProperty("height").GetInt32())
-                {
-                    return ValueTask.FromResult<object?>(CompanionLocator.Find(null, ""));
-                }
-            }
             var snapshot = new UiaSnapshotSource(new TargetWindow(window)).TakeSnapshot(cancellationToken);
             return ValueTask.FromResult<object?>(CompanionLocator.Find(snapshot.Tree, input.GetProperty("query").GetString() ?? ""));
         }
