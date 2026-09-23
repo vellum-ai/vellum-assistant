@@ -733,6 +733,7 @@ describe("policy enforcement", () => {
 /** Subject shapes that parse for each profile under test. */
 const SUB_BY_PROFILE: Record<ScopeProfile, string> = {
   actor_client_v1: "actor:asst_1:user_1",
+  contact_client_v1: "actor:asst_1:contact_1",
   gateway_ingress_v1: "svc:gateway:self",
   gateway_service_v1: "svc:gateway:self",
   local_v1: "local:asst_1:conv_1",

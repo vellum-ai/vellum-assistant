@@ -77,6 +77,7 @@ All HTTP API requests use a single `Authorization: Bearer <jwt>` header for auth
 | Profile              | Scopes                                                                                                                                                | Used by                                      |
 | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
 | `actor_client_v1`    | `chat.{read,write}`, `approval.{read,write}`, `settings.{read,write}`, `attachments.{read,write}`, `calls.{read,write}`, `feature_flags.{read,write}` | Desktop, CLI clients                         |
+| `contact_client_v1`  | `chat.write`, `approval.write`, `attachments.write`                                                                                                   | Non-guardian contact clients                 |
 | `gateway_ingress_v1` | `ingress.write`, `internal.write`                                                                                                                     | Gateway channel inbound + webhook forwarding |
 | `gateway_service_v1` | `chat.{read,write}`, `settings.{read,write}`, `attachments.{read,write}`, `internal.write`                                                            | Gateway service-to-daemon calls              |
 | `local_v1`           | `local.all`                                                                                                                                           | Local (loopback) conversation sessions       |
@@ -91,6 +92,8 @@ All HTTP API requests use a single `Authorization: Bearer <jwt>` header for auth
 2. **Refresh** — `POST /v1/guardian/refresh` accepts `{ refreshToken }` and returns a new access/refresh token pair. Single-use rotation with replay detection and family-based revocation.
 
 3. **Local identity** — Local connections use deterministic identity resolution without tokens.
+
+**Token role:** Each access and refresh token records the principal it belongs to, `guardian` or `contact`. The role picks the scope profile at mint time, and rotation carries it forward.
 
 **Route policy enforcement:** Every protected endpoint declares required scopes and allowed principal types in `src/runtime/auth/route-policy.ts`. The `enforcePolicy()` function checks the AuthContext against these requirements and returns 403 when access is denied. A guard test ensures every dispatched endpoint has a corresponding policy entry.
 

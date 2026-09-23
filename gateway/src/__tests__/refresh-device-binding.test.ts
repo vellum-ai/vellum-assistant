@@ -18,6 +18,7 @@ const { initGatewayDb, resetGatewayDb, getGatewayDb } =
 const { actorRefreshTokenRecords, actorTokenRecords, contacts } =
   await import("../db/schema.js");
 const { hashToken } = await import("../auth/guardian-bootstrap.js");
+const { verifyToken } = await import("../auth/token-service.js");
 const { rotateCredentials } = await import("../auth/guardian-refresh.js");
 const { handleGuardianRefresh } =
   await import("../http/routes/guardian-refresh.js");
@@ -44,6 +45,7 @@ function insertRefreshRecord(
     pairingUserAgent: string | null;
     clientReportedName: string | null;
   } | null = null,
+  role: "guardian" | "contact" = "guardian",
 ) {
   const now = Date.now();
   getGatewayDb()
@@ -53,6 +55,7 @@ function insertRefreshRecord(
       tokenHash: hashToken(rawToken),
       familyId: FAMILY,
       guardianPrincipalId: PRINCIPAL,
+      role,
       hashedDeviceId: hashToken(deviceId),
       platform: "cli",
       pairingUserAgent: identity?.pairingUserAgent ?? null,
@@ -148,6 +151,62 @@ afterEach(() => {
   } catch {
     /* best effort */
   }
+});
+
+describe("rotateCredentials principal role", () => {
+  test("a contact's refresh rotates as a contact", () => {
+    insertRefreshRecord("rt-contact", DEVICE_A, "active", null, "contact");
+
+    const result = rotateCredentials({
+      refreshToken: "rt-contact",
+      hashedDeviceId: hashToken(DEVICE_A),
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+
+    const verified = verifyToken(result.result.accessToken, "vellum-gateway");
+    expect(verified.ok).toBe(true);
+    if (!verified.ok) {
+      return;
+    }
+    expect(verified.claims.scope_profile).toBe("contact_client_v1");
+
+    // The rotated rows carry the role forward, so the next rotation reads it.
+    const access = getGatewayDb()
+      .select()
+      .from(actorTokenRecords)
+      .all()
+      .filter((r) => r.status === "active");
+    expect(access.map((r) => r.role)).toEqual(["contact"]);
+    const refresh = getGatewayDb()
+      .select()
+      .from(actorRefreshTokenRecords)
+      .all()
+      .filter((r) => r.status === "active");
+    expect(refresh.map((r) => r.role)).toEqual(["contact"]);
+  });
+
+  test("a guardian's refresh rotates as the guardian", () => {
+    insertRefreshRecord("rt-guardian", DEVICE_A);
+
+    const result = rotateCredentials({
+      refreshToken: "rt-guardian",
+      hashedDeviceId: hashToken(DEVICE_A),
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+
+    const verified = verifyToken(result.result.accessToken, "vellum-gateway");
+    expect(verified.ok).toBe(true);
+    if (!verified.ok) {
+      return;
+    }
+    expect(verified.claims.scope_profile).toBe("actor_client_v1");
+  });
 });
 
 describe("rotateCredentials device binding", () => {

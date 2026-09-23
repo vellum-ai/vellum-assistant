@@ -19,7 +19,9 @@ import {
   ACCESS_TOKEN_TTL_SECONDS,
   REFRESH_AFTER_FRACTION,
   REFRESH_INACTIVITY_TTL_MS,
+  SCOPE_PROFILE_BY_ROLE,
   type DeviceIdentityInput,
+  type TokenPrincipalRole,
 } from "./guardian-bootstrap.js";
 import { guardianIntegrityState } from "./guardian-integrity.js";
 import { CURRENT_POLICY_EPOCH } from "./policy.js";
@@ -138,6 +140,7 @@ function mintAccessToken(
   guardianPrincipalId: string,
   hashedDeviceId: string,
   platform: string,
+  role: TokenPrincipalRole,
   identity: DeviceIdentityInput,
 ): { token: string; expiresAt: number } {
   const externalAssistantId = getExternalAssistantId();
@@ -146,7 +149,7 @@ function mintAccessToken(
   const token = mintToken({
     aud: "vellum-gateway",
     sub,
-    scope_profile: "actor_client_v1",
+    scope_profile: SCOPE_PROFILE_BY_ROLE[role],
     policy_epoch: CURRENT_POLICY_EPOCH,
     ttlSeconds: ACCESS_TOKEN_TTL_SECONDS,
   });
@@ -161,6 +164,7 @@ function mintAccessToken(
       id: crypto.randomUUID(),
       tokenHash,
       guardianPrincipalId,
+      role,
       hashedDeviceId,
       platform,
       pairingUserAgent: identity.pairingUserAgent,
@@ -180,6 +184,7 @@ function mintRefreshTokenInFamily(params: {
   guardianPrincipalId: string;
   hashedDeviceId: string;
   platform: string;
+  role: TokenPrincipalRole;
   identity: DeviceIdentityInput;
   familyId: string;
   absoluteExpiresAt: number;
@@ -201,6 +206,7 @@ function mintRefreshTokenInFamily(params: {
       tokenHash: refreshTokenHash,
       familyId: params.familyId,
       guardianPrincipalId: params.guardianPrincipalId,
+      role: params.role,
       hashedDeviceId: params.hashedDeviceId,
       platform: params.platform,
       pairingUserAgent: params.identity.pairingUserAgent,
@@ -300,6 +306,7 @@ function rotateRefreshTokenRecord(
       record.guardianPrincipalId,
       record.hashedDeviceId,
       record.platform,
+      record.role,
       identity,
     );
 
@@ -307,6 +314,7 @@ function rotateRefreshTokenRecord(
       guardianPrincipalId: record.guardianPrincipalId,
       hashedDeviceId: record.hashedDeviceId,
       platform: record.platform,
+      role: record.role,
       identity,
       familyId: record.familyId,
       absoluteExpiresAt: record.absoluteExpiresAt,
