@@ -1,8 +1,6 @@
 import { useEffect } from "react";
-import { ArrowLeft, ChevronLeft } from "lucide-react";
+import { ChevronLeft } from "lucide-react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router";
-
-import { Button, Typography } from "@vellumai/design-library";
 
 import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
 import { PageShell } from "@/components/page-shell";
@@ -17,6 +15,8 @@ import {
   isPathExactly,
   routes,
 } from "@/utils/routes";
+
+import { MobileTopBarBack, MobileTopBarTitle } from "./mobile-top-bar";
 
 /**
  * Greppable overview section titles shown in the layout's header (and
@@ -52,6 +52,11 @@ const SECTION_LABEL_KEY: Record<
  * keep their existing URL paths (`/assistant/identity`, etc.) while
  * inheriting the shared chrome.
  *
+ * On a phone the desktop heading row gives way to the mobile top bar this
+ * layout registers for every page below the overview, the personality stage
+ * included, so one owner draws the back control and no page below draws its
+ * own.
+ *
  * @see https://reactrouter.com/start/framework/routing#layout-routes
  */
 export function IntelligenceLayout() {
@@ -67,11 +72,23 @@ export function IntelligenceLayout() {
 
   const section = aboutAssistantSectionForPath(pathname);
   const sectionTitle = section ? t(SECTION_LABEL_KEY[section.key]) : null;
-  // Library and Contacts own the complete mobile top bar (back, title, action)
-  // so those affordances form one centered navigation row; every other section
-  // registers only its title into the shared app bar.
-  const ownsMobileTopBar =
-    isMobile && (section?.key === "library" || section?.key === "contacts");
+  /**
+   * The bar's title, and the test for whether a page takes the bar at all.
+   * The personality stage is no section, but it is one drill-down below the
+   * overview, so on a phone it wears the same bar under the label the
+   * overview card sent the user in by. The overview itself is the root and
+   * wears none.
+   */
+  const mobileTopBarTitle =
+    sectionTitle ??
+    (isPathExactly(pathname, routes.personality)
+      ? t("identitySections.personality.label")
+      : null);
+  // On a phone every page below the overview owns the complete top bar (back,
+  // title, action), so those affordances form one centered navigation row and
+  // nothing below draws a second back control. The body heading row is
+  // desktop-only.
+  const ownsMobileTopBar = isMobile && mobileTopBarTitle != null;
   /**
    * The list the Back pill returns to, else null for the overview. The page
    * reports whether its detail is a pushed screen, since the pane it measures
@@ -80,7 +97,10 @@ export function IntelligenceLayout() {
    * the page already on screen, whoever set the flag and whenever.
    */
   const backToListPath =
-    ownsMobileTopBar && detailIsScreen && !isPathExactly(pathname, section.to)
+    ownsMobileTopBar &&
+    detailIsScreen &&
+    section != null &&
+    !isPathExactly(pathname, section.to)
       ? section.to
       : null;
   const fallbackAssistantName =
@@ -93,58 +113,29 @@ export function IntelligenceLayout() {
   });
 
   useEffect(() => {
-    if (ownsMobileTopBar && sectionTitle) {
-      // A plain button for the list, so nothing navigates before
-      // `returnToList` decides between popping and replacing; a link for the
-      // overview, which is a plain destination.
+    if (ownsMobileTopBar && mobileTopBarTitle) {
       const destination =
         backToListPath != null
           ? {
-              "aria-label": t("intelligenceLayout.backToAriaLabel", {
-                name: sectionTitle,
+              ariaLabel: t("intelligenceLayout.backToAriaLabel", {
+                name: mobileTopBarTitle,
               }),
               tooltip: t("intelligenceLayout.backToTitle", {
-                name: sectionTitle,
+                name: mobileTopBarTitle,
               }),
               onClick: () => returnToList(navigate, state, backToListPath),
             }
           : {
-              "aria-label": backAriaLabel,
+              ariaLabel: backAriaLabel,
               tooltip: backTitle,
-              asChild: true,
-              children: <Link to={routes.identity} />,
+              to: routes.identity,
             };
       setTopBarCenter(null);
       setMobileTopBar({
-        leading: (
-          <Button
-            shape="pill"
-            variant="ghost"
-            iconOnly={<ArrowLeft aria-hidden />}
-            className="max-md:bg-[var(--surface-active)]"
-            {...destination}
-          />
-        ),
-        center: (
-          <Typography
-            variant="body-medium-default"
-            className="max-w-[50vw] truncate text-[var(--content-secondary)]"
-          >
-            {sectionTitle}
-          </Typography>
-        ),
+        leading: <MobileTopBarBack {...destination} />,
+        center: <MobileTopBarTitle>{mobileTopBarTitle}</MobileTopBarTitle>,
         trailing: headerTrailing,
       });
-    } else if (isMobile && sectionTitle) {
-      setMobileTopBar(null);
-      setTopBarCenter(
-        <Typography
-          variant="body-medium-default"
-          className="truncate text-[var(--content-secondary)]"
-        >
-          {sectionTitle}
-        </Typography>,
-      );
     } else {
       setMobileTopBar(null);
       setTopBarCenter(null);
@@ -158,18 +149,18 @@ export function IntelligenceLayout() {
     backTitle,
     backToListPath,
     headerTrailing,
-    isMobile,
+    mobileTopBarTitle,
     navigate,
     ownsMobileTopBar,
-    sectionTitle,
     setMobileTopBar,
     setTopBarCenter,
     state,
     t,
   ]);
 
-  // The overview and personality pages paint their own full-bleed stage —
-  // no shell, heading, or back chrome.
+  // The overview and personality pages paint their own full-bleed stage, so
+  // they take no shell and no body chrome. Personality still takes the mobile
+  // top bar registered above; the overview is the root and takes none.
   if (!section) {
     return (
       <div className="flex min-h-0 flex-1 flex-col">
@@ -180,9 +171,9 @@ export function IntelligenceLayout() {
 
   return (
     <PageShell>
-      {/* Desktop section chrome and the existing mobile chrome for sections
-          that still use the shared app bar. The sections that own the mobile
-          top bar register it above, so they do not render a second body row. */}
+      {/* Desktop section chrome. A phone gets these affordances from the
+          mobile top bar registered above, so this row would be a second back
+          control and does not render there. */}
       {!ownsMobileTopBar ? (
         <div className="mb-4 flex shrink-0 items-center gap-1.5">
           <Link
@@ -193,7 +184,7 @@ export function IntelligenceLayout() {
           >
             <ChevronLeft className="h-5 w-5" aria-hidden />
           </Link>
-          <h1 className="text-title-large text-[var(--content-default)] max-md:hidden">
+          <h1 className="text-title-large text-[var(--content-default)]">
             {sectionTitle}
           </h1>
           {headerTrailing ? (

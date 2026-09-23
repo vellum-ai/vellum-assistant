@@ -7,7 +7,7 @@ import {
   formatNumber,
 } from "@/domains/chat/components/metric-card";
 import { DetailShellNotice } from "@/components/detail-shell";
-import { SectionLabel } from "@/components/detail-primitives";
+import { ClampedContent, SectionLabel } from "@/components/detail-primitives";
 import type { WorkflowLeaf } from "@/domains/chat/workflow-store";
 import { useTranslation } from "@/i18n";
 
@@ -25,13 +25,15 @@ function DetailSection({
     <div>
       <SectionLabel as="h3">{title}</SectionLabel>
       {body ? (
-        <Typography
-          variant="body-medium-lighter"
-          as="p"
-          className="whitespace-pre-wrap break-words leading-relaxed text-[var(--content-default)]"
-        >
-          {body}
-        </Typography>
+        <ClampedContent label={title}>
+          <Typography
+            variant="body-medium-lighter"
+            as="p"
+            className="whitespace-pre-wrap break-words leading-relaxed text-[var(--content-default)]"
+          >
+            {body}
+          </Typography>
+        </ClampedContent>
       ) : (
         <DetailShellNotice placement="section">{emptyText}</DetailShellNotice>
       )}

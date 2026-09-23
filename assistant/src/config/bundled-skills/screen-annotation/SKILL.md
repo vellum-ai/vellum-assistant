@@ -46,9 +46,12 @@ nothing, because no control is called that. Give the label on its own:
 The arrow points at the middle of the control and stops just short, so what
 you are sending someone to stays visible the whole time.
 
-You are answered with what was drawn and the name it resolved to, which is not
-always the name you asked for. Say the resolved one out loud: it is the word
-the user can see.
+You are answered with what was drawn and the accessibility name it resolved
+to. Some apps expose internal names such as `ToolbarExportControl` instead of
+the visible label. When a returned name identifies the intended control in
+the shared image, use that exact name as `target`; use the visible label in
+the caption and speech. Do not invent an internal name or choose an unclear
+candidate.
 
 A name the surface does not carry draws nothing and comes back with the names
 it does carry. That is the answer, not a setback: the thing is nearly always

@@ -813,6 +813,50 @@ export const skillLoadDetail: ToolDetailPayload = payload({
  * A skill body past the Output clamp threshold, so the story shows the
  * "Show more" control in the default Clean view rather than only in Raw.
  */
+/**
+ * A skill advertising many tools, each with a full description. The list is
+ * what runs the panel on, so it folds as one value rather than per row.
+ */
+export const skillLoadManyToolsDetail: ToolDetailPayload = {
+  ...skillLoadDetail,
+  toolCallId: "tc-skill-load-many-tools",
+  result: skillLoadResult.replace(
+    [
+      "### app_refresh",
+      "Rebuild an existing app and refresh any open preview.",
+      "Parameters:",
+      "- app_id (string, required): Id returned by app_create.",
+    ].join("\n"),
+    [
+      "### app_refresh",
+      "Rebuild an existing app and refresh any open preview. Use it after",
+      "writing source into the app's folder; the preview reloads in place.",
+      "Parameters:",
+      "- app_id (string, required): Id returned by app_create.",
+      "",
+      "### app_list",
+      "List the apps in the user's Library, most recently updated first, with",
+      "each app's id, name, description and timestamps.",
+      "",
+      "### app_open",
+      "Open an app for the user. Pass the id returned by app_create, or a",
+      "name to resolve first with app_list.",
+      "",
+      "### app_rename",
+      "Rename an app in the Library. The folder keeps its id, so links and",
+      "open previews survive the rename.",
+      "",
+      "### app_delete",
+      "Remove an app from the Library. The folder is kept for a grace period",
+      "so an accidental delete can be undone from the Library.",
+      "",
+      "### app_share",
+      "Publish an app to a link the user can send on. The link stays private",
+      "until they share it, and revoking it takes the app offline.",
+    ].join("\n"),
+  ),
+};
+
 export const skillLoadLongDetail: ToolDetailPayload = {
   ...skillLoadDetail,
   toolCallId: "tc-skill-load-long",
@@ -957,6 +1001,64 @@ export const webFetchDetail: ToolDetailPayload = payload({
       domain: "storybook.js.org",
       redirectCount: 0,
       durationMs: 640,
+      startIndexPastEnd: false,
+    },
+  },
+  riskLevel: "low",
+});
+
+/** A fetched page long enough to run the panel on, so it folds. */
+export const webFetchLongPageDetail: ToolDetailPayload = payload({
+  toolCallId: "tc-web-fetch-6",
+  toolName: "web_fetch",
+  title: "Fetching a webpage",
+  activity: "Reading the autodocs page",
+  input: { activity: "Reading the autodocs page", url: AUTODOCS_URL },
+  result: [
+    `Requested URL: ${AUTODOCS_URL}`,
+    `Final URL: ${AUTODOCS_URL}`,
+    "Status: 200 OK",
+    "Content:",
+    "# Autodocs",
+    "",
+    "Storybook can generate a documentation page from a set of stories by",
+    "adding the `autodocs` tag to a component's meta.",
+    "",
+    "## Setting it up",
+    "",
+    "Tag the meta and every story inherits the page. A story can opt out with",
+    "the `!autodocs` tag, which is the escape hatch for a case the generated",
+    "page reads badly for.",
+    "",
+    "## What lands on the page",
+    "",
+    "The component's props table, each story rendered with its source, and",
+    "whatever the component's own docs block adds. The order follows the file.",
+    "",
+    "## Writing the description",
+    "",
+    "The description comes from the component's docstring, so it is written",
+    "once and read in two places: the editor and the docs page.",
+    "",
+    "## Customising",
+    "",
+    "A docs page is itself a story, so it takes parameters like any other, and",
+    "a project can replace the template wholesale where the default does not",
+    "suit the component.",
+  ].join("\n"),
+  activityMetadata: {
+    webFetch: {
+      url: AUTODOCS_URL,
+      finalUrl: AUTODOCS_URL,
+      provider: "default",
+      status: 200,
+      byteCount: 91422,
+      charCount: 1120,
+      truncated: false,
+      title: "Autodocs | Storybook docs",
+      domain: "storybook.js.org",
+      redirectCount: 0,
+      durationMs: 700,
       startIndexPastEnd: false,
     },
   },

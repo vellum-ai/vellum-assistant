@@ -49,14 +49,14 @@ export const Card: Story = {
  * The phone page: a 40px search field first, the guardian row, a divider, then
  * the contacts, each trailing only its type tag. No row is selected, because
  * the page holds the selection at null while the list is the screen, and the
- * 24px gutter is the `px-6` the page's shell insets the list by.
+ * 12px gutter is the `max-md:px-3` the page's shell insets the list by.
  */
 export const Screen: Story = {
   args: { surface: "screen", selectedContactId: null },
   globals: { viewport: { value: "sbMobile", isRotated: false } },
   decorators: [
     (Story) => (
-      <div style={{ padding: "16px 24px" }}>
+      <div style={{ padding: "16px 12px" }}>
         <Story />
       </div>
     ),

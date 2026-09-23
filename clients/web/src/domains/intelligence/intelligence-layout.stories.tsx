@@ -1,15 +1,16 @@
 import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
-import { useEffect, useState } from "react";
-import { Plus } from "lucide-react";
 import { Route, Routes } from "react-router";
 
-import { Button } from "@vellumai/design-library";
-
 import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
-import { useIntelligenceLayoutSlotsStore } from "@/components/layout/intelligence-layout-slots-store";
 import { forceMobile } from "@/components/force-mobile-story-decorator";
 
 import { IntelligenceLayout } from "./intelligence-layout";
+import {
+  OutletStub,
+  phoneGlobals,
+  withDetailIsScreen,
+  withRegisteredPlus,
+} from "./intelligence-layout-story-fixtures";
 
 /**
  * Renders the real About Assistant drill-down chrome: section pages get a
@@ -44,25 +45,6 @@ const inDesktopFrame: Decorator = function InDesktopFrame(Story) {
   );
 };
 
-/** Stand-in for a section page, so a story renders visible outlet content. */
-function OutletStub({ label }: { label: string }) {
-  return (
-    <div
-      style={{
-        display: "grid",
-        placeItems: "center",
-        height: "100%",
-        width: "100%",
-        border: "1px dashed var(--border-element)",
-        borderRadius: 8,
-        color: "var(--content-tertiary)",
-      }}
-    >
-      {label}
-    </div>
-  );
-}
-
 export const SectionChrome: Story = {
   parameters: { router: { initialEntries: ["/assistant/superpowers"] } },
   decorators: [inDesktopFrame],
@@ -93,9 +75,10 @@ export const BareOverview: Story = {
 // ---------------------------------------------------------------------------
 
 /**
- * Lays the registered mobile top bar out in the header's own row.
- * `ChatLayoutHeader` is what renders this slot in the app, and its story needs
- * a seeded chat session, which is why the row is drawn here instead.
+ * Lays the registered mobile top bar out in a row of its own, so these stories
+ * stay about the layout and what it publishes. `intelligence-mobile-screens`
+ * is where the same slot is read through the real `ChatLayoutHeader`; the row
+ * here mirrors that header's mobile gutter so the two agree.
  */
 function RegisteredMobileTopBar() {
   const mobileTopBar = useChatLayoutSlotsStore.use.mobileTopBar();
@@ -104,7 +87,7 @@ function RegisteredMobileTopBar() {
   }
   return (
     <div
-      className="grid shrink-0 grid-cols-[1fr_auto_1fr] items-center px-4"
+      className="grid shrink-0 grid-cols-[1fr_auto_1fr] items-center px-4 max-md:px-3"
       style={{ minHeight: 40 }}
     >
       <div className="flex justify-start">{mobileTopBar.leading}</div>
@@ -132,55 +115,6 @@ function MobileSectionChrome({ path, label }: { path: string; label: string }) {
     </div>
   );
 }
-
-/**
- * Publishes into the layout's slots store the way a section page does, and
- * clears the slot when the story unmounts. A `useState` initializer runs
- * during the decorator's own render, i.e. before the layout below it first
- * samples the store.
- */
-function withSlot(publish: () => void, clear: () => void): Decorator {
-  return function WithSlot(Story) {
-    useState(publish);
-    useEffect(() => clear, []);
-    return <Story />;
-  };
-}
-
-/**
- * Registers a circular plus in the layout's action slot, the way the Contacts
- * list registers its add affordance.
- */
-const withRegisteredPlus = withSlot(
-  () =>
-    useIntelligenceLayoutSlotsStore
-      .getState()
-      .setHeaderTrailing(
-        <Button
-          shape="pill"
-          variant="ghost"
-          iconOnly={<Plus aria-hidden />}
-          aria-label="Add contact"
-          tooltip="Add contact"
-          className="max-md:bg-[var(--surface-active)]"
-        />,
-      ),
-  () => useIntelligenceLayoutSlotsStore.getState().setHeaderTrailing(null),
-);
-
-/**
- * Reports a pushed detail screen the way a section page does, which is what
- * aims the layout's Back at that section's list.
- */
-const withDetailIsScreen = withSlot(
-  () => useIntelligenceLayoutSlotsStore.getState().setDetailIsScreen(true),
-  () => useIntelligenceLayoutSlotsStore.getState().setDetailIsScreen(false),
-);
-
-/** The phone viewport the mobile stories are drawn for, 390px wide. */
-const phoneGlobals = {
-  viewport: { value: "sbMobile", isRotated: false },
-};
 
 /** The Contacts list: back to the overview, the section title, and the plus. */
 export const MobileContactsTopBar: Story = {

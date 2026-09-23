@@ -1,5 +1,5 @@
 /**
- * Old chats: the whole conversation history on one page, banded by date and
+ * All chats: the whole conversation history on one page, banded by date and
  * narrowed by a chip row.
  *
  * Presentational. Everything it cannot know on its own arrives as a prop, so
@@ -50,13 +50,13 @@ import {
 import { conversationDoneLabels } from "@/utils/done-labels";
 import { useLongPressSheet } from "@/hooks/use-long-press-sheet";
 import {
-  filterOldChats,
+  filterAllChats,
   isDoneConversation,
-  oldChatsFilterKey,
-  oldChatsFilters,
-  searchOldChats,
-  type OldChatsFilter,
-} from "@/domains/chat/utils/old-chats-filters";
+  allChatsFilterKey,
+  allChatsFilters,
+  searchAllChats,
+  type AllChatsFilter,
+} from "@/domains/chat/utils/all-chats-filters";
 import { formatLocale, useTranslation, type TFunction } from "@/i18n";
 import type {
   Conversation,
@@ -71,14 +71,14 @@ import { ChannelIcon, getChannelLabel } from "@/utils/channel-presentation";
 import { useDisplayConversationTitle } from "@/utils/conversation-title";
 import { isPointerCoarse } from "@/utils/pointer";
 
-export interface OldChatsPageProps {
+export interface AllChatsPageProps {
   /** Every row loaded so far, unfiltered and recency-ordered. */
   conversations: Conversation[];
   /** Custom groups, for the chip labels. */
   groups: ConversationGroup[];
   /** The selected chip. The URL owns it, so the page never changes it alone. */
-  filter: OldChatsFilter;
-  onFilterChange: (filter: OldChatsFilter) => void;
+  filter: AllChatsFilter;
+  onFilterChange: (filter: AllChatsFilter) => void;
   /** Row actions and the open handler, shared with the sidebar's rows. */
   listContext: ConversationListContextValue;
   hasMore: boolean;
@@ -91,7 +91,7 @@ export interface OldChatsPageProps {
 }
 
 /** One rendered line: a band heading, or a conversation under it. */
-type OldChatsListItem =
+type AllChatsListItem =
   | { kind: "header"; key: string; label: string }
   | { kind: "row"; key: string; conversation: Conversation };
 
@@ -101,10 +101,10 @@ type OldChatsListItem =
  * unreferenced entries and is deleted the next time the catalogs are swept.
  */
 const BAND_LABEL_KEYS = {
-  today: "oldChatsPage.band.today",
-  yesterday: "oldChatsPage.band.yesterday",
-  previous7Days: "oldChatsPage.band.previous7Days",
-  previous30Days: "oldChatsPage.band.previous30Days",
+  today: "allChatsPage.band.today",
+  yesterday: "allChatsPage.band.yesterday",
+  previous7Days: "allChatsPage.band.previous7Days",
+  previous30Days: "allChatsPage.band.previous30Days",
 } as const;
 
 function bandLabel(
@@ -218,7 +218,7 @@ export function useBackfillUntilMatch({
 }
 
 /** Exported for its own test; the page is the only thing that renders it. */
-export function OldChatsRow({
+export function AllChatsRow({
   conversation,
   now,
 }: {
@@ -264,7 +264,7 @@ export function OldChatsRow({
       }
       badge={
         <span className={ROW_META_CLASSES}>
-          {done ? t("oldChatsPage.doneMeta", { time: when }) : when}
+          {done ? t("allChatsPage.doneMeta", { time: when }) : when}
         </span>
       }
       badgeBare
@@ -330,7 +330,7 @@ export function OldChatsRow({
   );
 }
 
-export function OldChatsPage({
+export function AllChatsPage({
   conversations,
   groups,
   filter,
@@ -342,20 +342,20 @@ export function OldChatsPage({
   isError,
   onRetry,
   now,
-}: OldChatsPageProps) {
+}: AllChatsPageProps) {
   const { t } = useTranslation("chat");
   const displayTitle = useDisplayConversationTitle();
   const [searchText, setSearchText] = useState("");
 
   const chips = useMemo(
-    () => oldChatsFilters(conversations, groups, filter),
+    () => allChatsFilters(conversations, groups, filter),
     [conversations, groups, filter],
   );
 
   const rows = useMemo(
     () =>
-      searchOldChats(
-        filterOldChats(conversations, filter),
+      searchAllChats(
+        filterAllChats(conversations, filter),
         searchText,
         displayTitle,
       ),
@@ -371,16 +371,16 @@ export function OldChatsPage({
   const bandedAt = useMemo(() => now ?? new Date(dayStart), [now, dayStart]);
   const locale = formatLocale();
 
-  const items = useMemo((): OldChatsListItem[] => {
+  const items = useMemo((): AllChatsListItem[] => {
     const bands = bucketByDate(rows, rowTime, bandedAt);
-    return bands.flatMap((band): OldChatsListItem[] => [
+    return bands.flatMap((band): AllChatsListItem[] => [
       {
         kind: "header",
         key: `header:${band.key}`,
         label: bandLabel(band.id, t, locale),
       },
       ...band.items.map(
-        (conversation): OldChatsListItem => ({
+        (conversation): AllChatsListItem => ({
           kind: "row",
           key: conversation.conversationId,
           conversation,
@@ -395,14 +395,14 @@ export function OldChatsPage({
   );
 
   const chipLabel = useCallback(
-    (chip: OldChatsFilter): string => {
+    (chip: AllChatsFilter): string => {
       switch (chip.kind) {
         case "all":
-          return t("oldChatsPage.chip.all");
+          return t("allChatsPage.chip.all");
         case "done":
-          return t("oldChatsPage.chip.done");
+          return t("allChatsPage.chip.done");
         case "background":
-          return t("oldChatsPage.chip.background");
+          return t("allChatsPage.chip.background");
         case "channel":
           return getChannelLabel(chip.channelId);
         case "group":
@@ -413,13 +413,13 @@ export function OldChatsPage({
   );
 
   const renderItem = useCallback(
-    (_index: number, item: OldChatsListItem) =>
+    (_index: number, item: AllChatsListItem) =>
       item.kind === "header" ? (
         <h2 className="px-2 pt-6 pb-1 text-body-small-lighter text-[color:var(--content-tertiary)]">
           {item.label}
         </h2>
       ) : (
-        <OldChatsRow conversation={item.conversation} now={bandedAt} />
+        <AllChatsRow conversation={item.conversation} now={bandedAt} />
       ),
     [bandedAt],
   );
@@ -441,14 +441,14 @@ export function OldChatsPage({
   return (
     <PageShell>
       <h1 className="mb-4 shrink-0 text-title-large text-[var(--content-default)]">
-        {t("oldChatsPage.title")}
+        {t("allChatsPage.title")}
       </h1>
 
       <Input
         fullWidth
         wrapperClassName="shrink-0"
         type="text"
-        placeholder={t("oldChatsPage.searchPlaceholder")}
+        placeholder={t("allChatsPage.searchPlaceholder")}
         value={searchText}
         onChange={(event: ChangeEvent<HTMLInputElement>) =>
           setSearchText(event.target.value)
@@ -458,15 +458,15 @@ export function OldChatsPage({
 
       <div
         role="group"
-        aria-label={t("oldChatsPage.filterAria")}
+        aria-label={t("allChatsPage.filterAria")}
         className="mt-4 mb-2 flex shrink-0 gap-2 overflow-x-auto pb-1"
       >
         {chips.map((chip) => {
-          const key = oldChatsFilterKey(chip);
+          const key = allChatsFilterKey(chip);
           return (
             <FilterChip
               key={key}
-              selected={key === oldChatsFilterKey(filter)}
+              selected={key === allChatsFilterKey(filter)}
               onClick={() => onFilterChange(chip)}
             >
               {chipLabel(chip)}
@@ -476,7 +476,7 @@ export function OldChatsPage({
       </div>
 
       <div className="min-h-0 flex-1">
-        <OldChatsBody
+        <AllChatsBody
           items={items}
           isLoading={isLoading}
           isError={isError}
@@ -493,7 +493,7 @@ export function OldChatsPage({
 }
 
 /** The page's spinner, shared by the first read and the search for a match. */
-function OldChatsSpinner({ label }: { label: string }) {
+function AllChatsSpinner({ label }: { label: string }) {
   return (
     <div
       className="size-6 animate-spin rounded-full border-2 border-[var(--border-base)] border-t-[var(--primary-base)]"
@@ -507,7 +507,7 @@ function OldChatsSpinner({ label }: { label: string }) {
  * The list region and the states that replace it. Split out so each branch's
  * copy is explicit and the page above stays the layout alone.
  */
-function OldChatsBody({
+function AllChatsBody({
   items,
   isLoading,
   isError,
@@ -518,13 +518,13 @@ function OldChatsBody({
   hasMore,
   endReached,
 }: {
-  items: OldChatsListItem[];
+  items: AllChatsListItem[];
   isLoading: boolean;
   isError: boolean;
   onRetry: () => void;
   searchText: string;
   listContext: ConversationListContextValue;
-  renderItem: (index: number, item: OldChatsListItem) => ReactNode;
+  renderItem: (index: number, item: AllChatsListItem) => ReactNode;
   hasMore: boolean;
   endReached: () => void;
 }) {
@@ -533,7 +533,7 @@ function OldChatsBody({
   if (isLoading) {
     return (
       <div className="flex h-full items-center justify-center">
-        <OldChatsSpinner label={t("oldChatsPage.loading")} />
+        <AllChatsSpinner label={t("allChatsPage.loading")} />
       </div>
     );
   }
@@ -542,11 +542,11 @@ function OldChatsBody({
     return (
       <div className="flex h-full flex-col items-center justify-center gap-4 px-4">
         <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
-          {t("oldChatsPage.loadError")}
+          {t("allChatsPage.loadError")}
         </p>
         <Button variant="outlined" onClick={onRetry}>
           <RotateCcw className="size-4" aria-hidden />
-          {t("oldChatsPage.retry")}
+          {t("allChatsPage.retry")}
         </Button>
       </div>
     );
@@ -561,7 +561,7 @@ function OldChatsBody({
     if (hasMore) {
       return (
         <div className="flex h-full items-center justify-center">
-          <OldChatsSpinner label={t("oldChatsPage.loading")} />
+          <AllChatsSpinner label={t("allChatsPage.loading")} />
         </div>
       );
     }
@@ -569,8 +569,8 @@ function OldChatsBody({
       <div className="flex h-full flex-col items-center justify-center px-4">
         <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
           {searchText.trim()
-            ? t("oldChatsPage.noMatches", { query: searchText.trim() })
-            : t("oldChatsPage.empty")}
+            ? t("allChatsPage.noMatches", { query: searchText.trim() })
+            : t("allChatsPage.empty")}
         </p>
       </div>
     );

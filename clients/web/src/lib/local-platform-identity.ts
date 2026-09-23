@@ -95,9 +95,19 @@ let bootstrapRetryDelaysMs: readonly number[] = BOOTSTRAP_RETRY_DELAYS_MS;
 /** Assistants with a bootstrap retry loop currently running. */
 const activeBootstraps = new Set<string>();
 
+/**
+ * A key the platform issued for an assistant that has not been stored yet,
+ * by runtime assistant id. Every reprovision puts the key the assistant holds
+ * on the platform's grace clock, so a bootstrap whose store write failed
+ * stores this key on its next attempt rather than asking for another; a
+ * repair always asks, because it was asked to. Cleared once the write lands.
+ */
+const unstoredProvisionedKeys = new Map<string, string>();
+
 export function resetLocalPlatformIdentityCacheForTesting(): void {
   platformAssistantIdCache.clear();
   activeBootstraps.clear();
+  unstoredProvisionedKeys.clear();
 }
 
 export function setBootstrapRetryDelaysForTesting(
@@ -422,8 +432,16 @@ async function ensureLocalAssistantPlatformIdentity(
 ): Promise<string> {
   const gateway = await ensureGatewayAccess(assistant, options);
   const status = await fetchPlatformStatus(gateway, assistant.assistantId);
+  // No answer is not "no key". A daemon that is still starting cannot store a
+  // credential either, and a reprovision it never receives starts the grace
+  // clock on the key it holds. The bootstrap retries once it answers.
+  if (!status) {
+    throw new Error(
+      "The local assistant did not answer its platform status, so nothing was provisioned.",
+    );
+  }
   const statusPlatformAssistantId =
-    status?.assistantId && isUuid(status.assistantId)
+    status.assistantId && isUuid(status.assistantId)
       ? status.assistantId
       : null;
   // A stored key the platform has rejected is worse than no key: every call
@@ -444,23 +462,35 @@ async function ensureLocalAssistantPlatformIdentity(
 
   if (
     statusPlatformAssistantId &&
-    status?.hasAssistantApiKey !== false &&
+    status.hasAssistantApiKey !== false &&
     !repairRequested
   ) {
     const statusOrganizationId =
-      status?.organizationId ?? assistant.platformOrganizationId ?? null;
+      status.organizationId ?? assistant.platformOrganizationId ?? null;
     if (statusOrganizationId) {
       await persistPlatformRegistrationMetadata(assistant, {
         platformAssistantId: statusPlatformAssistantId,
-        platformBaseUrl: status?.baseUrl ?? getPlatformRuntimeUrl(),
+        platformBaseUrl: status.baseUrl ?? getPlatformRuntimeUrl(),
         organizationId: statusOrganizationId,
       });
+    }
+    // The registration is known but the daemon could not read its store, so
+    // whether it holds a key is not. Settling here would end a bootstrap that
+    // may still have a provisioned key to store, so this fails with the id
+    // and the bootstrap retries once the store answers.
+    if (status.hasAssistantApiKey === null) {
+      throw new PlatformIdentityInjectionError(
+        statusPlatformAssistantId,
+        new Error(
+          "The local assistant could not read its credential store, so nothing was provisioned.",
+        ),
+      );
     }
     return statusPlatformAssistantId;
   }
 
   const organizationId = await resolveOrganizationId(
-    status?.organizationId ?? null,
+    status.organizationId ?? null,
     assistant,
   );
   if (!organizationId) {
@@ -470,7 +500,7 @@ async function ensureLocalAssistantPlatformIdentity(
   }
 
   const clientInstallationId =
-    status?.clientInstallationId ?? getDeviceId() ?? null;
+    status.clientInstallationId ?? getDeviceId() ?? null;
   if (!clientInstallationId) {
     throw new Error(
       "Unable to identify this local assistant host for platform registration.",
@@ -499,25 +529,46 @@ async function ensureLocalAssistantPlatformIdentity(
   // none, so a repair needs the explicit rotation. The platform keeps the
   // outgoing key valid for a grace period rather than revoking it on the spot,
   // so a rotation whose injection fails leaves the install no worse off.
+  //
+  // A rotation is asked for on a repair, or when the daemon has read its
+  // store and found no key. A daemon that could not read its store reports
+  // null, and that is not evidence either way: the key it may hold would be
+  // put on the grace clock for nothing, and the replacement could not be
+  // stored where the key was unreadable. The bootstrap retries instead.
   let assistantApiKey = stringValue(registration.assistant_api_key);
-  if (
-    !assistantApiKey &&
-    (status?.hasAssistantApiKey !== true || repairRequested)
-  ) {
-    assistantApiKey = await reprovisionApiKey(
-      assistant,
-      organizationId,
-      clientInstallationId,
-    );
+  if (!assistantApiKey) {
+    if (repairRequested) {
+      assistantApiKey = await reprovisionApiKey(
+        assistant,
+        organizationId,
+        clientInstallationId,
+      );
+    } else if (status.hasAssistantApiKey === false) {
+      assistantApiKey =
+        unstoredProvisionedKeys.get(assistant.assistantId) ??
+        (await reprovisionApiKey(
+          assistant,
+          organizationId,
+          clientInstallationId,
+        ));
+    } else if (status.hasAssistantApiKey === null) {
+      throw new Error(
+        "The local assistant could not read its credential store, so nothing was provisioned.",
+      );
+    }
+  }
+  if (assistantApiKey) {
+    unstoredProvisionedKeys.set(assistant.assistantId, assistantApiKey);
   }
 
-  const platformBaseUrl = status?.baseUrl ?? getPlatformRuntimeUrl();
+  const platformBaseUrl = status.baseUrl ?? getPlatformRuntimeUrl();
   try {
     await injectPlatformCredentials(gateway, {
       assistantApiKey,
       platformBaseUrl,
       webhookSecret: stringValue(registration.webhook_secret),
     });
+    unstoredProvisionedKeys.delete(assistant.assistantId);
     await persistPlatformRegistrationMetadata(assistant, {
       platformAssistantId,
       platformBaseUrl,

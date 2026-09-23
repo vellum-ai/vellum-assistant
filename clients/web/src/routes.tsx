@@ -1205,7 +1205,7 @@ export const routeTree = [
                             ),
                         },
                       },
-                      // Old chats draws its own page chrome and keeps the
+                      // All chats draws its own page chrome and keeps the
                       // sidebar beside it, so it sits here rather than under
                       // IntelligenceLayout: it is not an About Assistant
                       // section.
@@ -1213,8 +1213,8 @@ export const routeTree = [
                         path: "chats",
                         lazy: {
                           Component: () =>
-                            import("@/domains/chat/pages/old-chats-page-route").then(
-                              (m) => m.OldChatsPageRoute,
+                            import("@/domains/chat/pages/all-chats-page-route").then(
+                              (m) => m.AllChatsPageRoute,
                             ),
                         },
                       },

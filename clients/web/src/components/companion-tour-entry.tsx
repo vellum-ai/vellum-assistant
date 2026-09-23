@@ -6,7 +6,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { Button, Modal } from "@vellumai/design-library";
 import {
@@ -33,6 +33,7 @@ export function CompanionTourEntryModal({
 }: CompanionTourEntryModalProps): ReactNode {
   const { t } = useTranslation();
   const [confirmingDismissal, setConfirmingDismissal] = useState(false);
+  const contentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open) {
@@ -60,9 +61,23 @@ export function CompanionTourEntryModal({
       }}
     >
       <Modal.Content
+        ref={contentRef}
         size="lg"
         hideCloseButton
         dismissOnOverlayClick={false}
+        // **The card takes the opening focus, not the first control in it.**
+        // Radix focuses the first tabbable node on open, and this card draws
+        // its own close button above the copy, so that node is the one control
+        // that throws the tour away. Nobody asked for this dialog: it opens by
+        // itself when the surface first appears, so the ring lands on the exit
+        // before the user has touched anything, and reads as a pointer already
+        // resting on the X. Focusing the card keeps the trap and Escape intact
+        // while leaving the ring off a control the user never aimed at; the
+        // first Tab still reaches the close button.
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          contentRef.current?.focus();
+        }}
         onEscapeKeyDown={(event) => {
           event.preventDefault();
           setConfirmingDismissal(true);

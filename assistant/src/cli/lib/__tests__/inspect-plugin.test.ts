@@ -306,6 +306,35 @@ describe("inspectPlugin", () => {
     expect(result.remote?.commit).toBe(SHA_B);
   });
 
+  test("hides an uninstalled gated integration without fetching the marketplace", async () => {
+    let fetchCalls = 0;
+    const fetch = (async () => {
+      fetchCalls += 1;
+      return new Response("unexpected request", { status: 500 });
+    }) as FetchLike;
+
+    await expect(
+      inspectPlugin(
+        { name: "gamma" },
+        { fetch, workspacePluginsDir: workspace },
+      ),
+    ).rejects.toBeInstanceOf(PluginInspectNotFoundError);
+    expect(fetchCalls).toBe(0);
+  });
+
+  test("keeps an installed gated integration inspectable", async () => {
+    installPlugin(workspace, "gamma", { sidecar: null });
+    const fetch = makeFetch({ marketplace: manifestWith("gamma", SHA_B) });
+
+    const result = await inspectPlugin(
+      { name: "gamma" },
+      { fetch, workspacePluginsDir: workspace },
+    );
+
+    expect(result.installed).toBe(true);
+    expect(result.local?.description).toBe("Installed copy.");
+  });
+
   test("previews an uninstalled bundled provider offline without fetching GitHub", async () => {
     const savedDisablePlatform = process.env.VELLUM_DISABLE_PLATFORM;
     const savedIsPlatform = process.env.IS_PLATFORM;

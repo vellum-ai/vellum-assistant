@@ -14,6 +14,12 @@ Add an entry to `PROVIDER_SEED_DATA`. Required fields: `provider`, `authorizeUrl
 
 If the provider will support managed mode, set `managedServiceConfigKey` to a slug matching the key you will add to `ServicesSchema` (e.g. `"acme-oauth"`).
 
+#### Scopes: your-own vs. managed
+
+`defaultScopes` here is requested only by the user's own OAuth client. A managed connection authorizes against Vellum's OAuth app, whose defaults live in the platform's `provider_registry.json`. Google shows users warnings or errors for scopes not approved for the app, so the managed start endpoint rejects anything outside the platform registry's `extra_config.allowed_scopes`. Managed Google, for example, grants Gmail only as `https://mail.google.com/`, never `gmail.readonly` / `gmail.modify` / `gmail.send`.
+
+So anything that names scopes for a managed connection (a hardcoded constant, a client hook, `requestedScopes` on an `oauth_connect` surface, a `--scopes` example in a skill) must use scopes from that approved list, not the `defaultScopes` names. A required-scope check that runs against managed grants must accept the approved equivalent: `grantedScopeCoversRequiredScope` in `scope-utils.ts` treats `mail.google.com` as covering `gmail.readonly`. Adding a scope to a managed flow means getting it approved in the provider console and adding it to `allowed_scopes` first.
+
 ### 2. _(managed only)_ Add a service schema — `../config/schemas/services.ts`
 
 Create a schema and export its type:

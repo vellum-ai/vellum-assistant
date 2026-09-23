@@ -13,7 +13,7 @@ import { useTranslation } from "@/i18n";
 
 import { Notice, Skeleton } from "@vellumai/design-library";
 
-import { SectionLabel } from "@/components/detail-primitives";
+import { ClampedContent, SectionLabel } from "@/components/detail-primitives";
 import { SkillLoadCard } from "@/domains/chat/components/tool-activity/skill-load-card";
 import { SkillLoadOutput } from "@/domains/chat/components/tool-activity/skill-load-output";
 import { SkillToolList } from "@/domains/chat/components/tool-activity/skill-tool-list";
@@ -120,7 +120,12 @@ export function SkillLoadDetail({
           {tools.length > 0 && (
             <div>
               <SectionLabel>{t("skillLoadDetail.provides")}</SectionLabel>
-              <SkillToolList tools={tools} />
+              {/* One fold around the list: a skill can advertise dozens of
+                  tools, and folding each description on its own would put a
+                  Show more under every row. */}
+              <ClampedContent label={t("skillLoadDetail.provides")}>
+                <SkillToolList tools={tools} />
+              </ClampedContent>
             </div>
           )}
 

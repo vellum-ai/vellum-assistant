@@ -136,8 +136,14 @@ export function ToolDetailBody({
 
   // One root owns the spacing between sections, so a host that lays the body
   // out in a flex column of its own cannot add its gap to the body's.
+  //
+  // Keyed by the call: a drawer swaps `detail` without unmounting this body,
+  // and what the body holds about what it is showing belongs to the call it
+  // was shown for. Keying the root rather than the renderer alone covers the
+  // shared Output fold and the raw disclosures too, not just a renderer's own
+  // state, so a call opened after another starts the way it would on its own.
   return (
-    <div className="flex flex-col gap-5">
+    <div key={detail.toolCallId} className="flex flex-col gap-5">
       {/* Tool-specific body when the tool has one, else the call's parameters
           with its raw input behind a disclosure. The header names the tool and
           shows its risk, so neither is repeated here. */}

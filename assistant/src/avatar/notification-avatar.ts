@@ -222,6 +222,7 @@ export async function renderNotificationAvatarPng(
     const Resvg = getResvg();
     const resvg = new Resvg(
       notificationAvatarSvg({
+        kind: state.kind,
         innerPngBase64: source.bytes.toString("base64"),
         innerMediaType: source.mediaType,
         accentHex: resolveNotificationAccentHex(state),

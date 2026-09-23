@@ -13,6 +13,9 @@ const DEFAULT_SURFACE = "var(--surface-overlay)";
  * border, padding, and min-h-0 flex behavior consistent across pages so
  * children only own their per-page header/body layout.
  *
+ * The side gutter narrows to 12px under `md`, matching the chat header's
+ * mobile bar, so a phone spends its width on content rather than margin.
+ *
  * Also publishes its own background as the page surface, so on the native
  * mobile shells the color reaches the safe areas instead of stopping at the
  * shell's edge. See `page-surface-store`. Overrides are read from
@@ -58,7 +61,7 @@ export function PageShell({
   return (
     <div
       className={cn(
-        "flex min-h-0 flex-1 flex-col rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] px-6 py-5",
+        "flex min-h-0 flex-1 flex-col rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] px-6 py-5 max-md:px-3",
         bleed && "native-mobile:rounded-none native-mobile:border-0",
         className,
       )}

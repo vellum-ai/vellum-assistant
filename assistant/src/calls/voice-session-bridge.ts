@@ -32,7 +32,9 @@ import { CONVERSATION_BUSY_MESSAGE } from "../daemon/conversation-messaging.js";
 import type { ModeSessionSourceHandle } from "../daemon/conversation-mode-session.js";
 import { resolveChannelCapabilities } from "../daemon/conversation-runtime-assembly.js";
 import { getOrCreateConversation } from "../daemon/conversation-store.js";
+import { getEffectiveEnabledPluginSet } from "../daemon/conversation-tool-setup.js";
 import { preactivateHostProxySkills } from "../daemon/host-proxy-preactivation.js";
+import { resolveTrustClass } from "../daemon/trust-context.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import {
   newestPersistedSightFrame,
@@ -78,6 +80,7 @@ import {
 } from "./voice-control-protocol.js";
 import { judgeEscalation } from "./voice-escalation-judge.js";
 import type { VoiceEscalationTarget } from "./voice-escalation-target.js";
+import { loadVoiceScreenAnnotation } from "./voice-screen-annotation.js";
 import {
   createFrontDoorStreamGate,
   escalatedContinuationRule,
@@ -452,6 +455,8 @@ export interface VoiceTurnOptions {
    * session reports `macos` for its channel capabilities, iOS included.
    */
   macosDesktopSession?: boolean;
+  /** The desktop client currently shares a surface with this voice session. */
+  screenSharing?: boolean;
   /** Whether this is an inbound call (no outbound task). */
   isInbound: boolean;
   /** The outbound call task, if any. */
@@ -2108,6 +2113,23 @@ export async function startVoiceTurn(
           sourceInterface,
           sourceActorPrincipalId,
         );
+        if (opts.screenSharing === true) {
+          const annotation = await loadVoiceScreenAnnotation({
+            conversationId: opts.conversationId,
+            workingDir: conversation.workingDir,
+            trustClass: resolveTrustClass(opts.trustContext),
+            transportInterface: sourceInterface,
+            clientOs: "macos",
+            enabledPluginSet: getEffectiveEnabledPluginSet(conversation),
+            sourceActorPrincipalId,
+            signal: opts.signal,
+          });
+          if (annotation !== null) {
+            conversation.setVoiceCallControlPrompt(
+              [voiceCallControlPrompt, annotation].filter(Boolean).join("\n\n"),
+            );
+          }
+        }
       }
       await conversation.runAgentLoop(persistedContent, messageId, {
         ...(opts.subagentNotification?.cronRunId

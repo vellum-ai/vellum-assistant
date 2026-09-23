@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Vellum Assistant API
-  version: 0.12.3
+  version: 0.12.4
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -26971,7 +26971,12 @@ paths:
                   assistantId:
                     type: string
                   hasAssistantApiKey:
-                    type: boolean
+                    anyOf:
+                      - type: boolean
+                      - type: "null"
+                    description:
+                      Whether a managed assistant API key is stored. Null when the credential store could not be read, which is
+                      not evidence that no key is stored.
                   hasWebhookSecret:
                     type: boolean
                   clientInstallationId:

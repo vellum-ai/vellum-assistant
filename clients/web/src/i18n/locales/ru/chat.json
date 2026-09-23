@@ -1161,5 +1161,14 @@
   },
   "skillExecuteDetail": {
     "unnamedTool": "Инструмент навыка"
+  },
+  "chatsSection": {
+    "doneEmptyBody": "Чаты, отмеченные как выполненные, ждут вас в разделе «Все чаты».",
+    "doneEmptyTitle": "Всё разобрано.",
+    "emptyBody": "Начните новый чат, и он появится здесь.",
+    "emptyTitle": "Чатов пока нет."
+  },
+  "sidebarSectionViewAll": {
+    "label": "Все чаты"
   }
 }

@@ -58,10 +58,7 @@ export class FakeClient {
   textInputSupported = false;
   pttReleaseCount = 0;
   interruptCount = 0;
-  updateConfigCalls: {
-    silenceThresholdMs?: number;
-    bargeInMinSpeechMs?: number;
-  }[] = [];
+  updateConfigCalls: Parameters<LiveVoiceSessionControls["updateConfig"]>[0][] = [];
   ended = false;
   closed = false;
 
@@ -107,10 +104,9 @@ export class FakeClient {
   interrupt(): void {
     this.interruptCount++;
   }
-  updateConfig(config: {
-    silenceThresholdMs?: number;
-    bargeInMinSpeechMs?: number;
-  }): void {
+  updateConfig(
+    config: Parameters<LiveVoiceSessionControls["updateConfig"]>[0],
+  ): void {
     this.updateConfigCalls.push(config);
   }
   end(): void {
@@ -344,10 +340,7 @@ export function makeControlsSpies() {
     setMuted: mock((_muted: boolean) => {}),
     setOutputMuted: mock((_muted: boolean) => {}),
     updateConfig: mock(
-      (_config: {
-        silenceThresholdMs?: number;
-        bargeInMinSpeechMs?: number;
-      }) => {},
+      (_config: Parameters<LiveVoiceSessionControls["updateConfig"]>[0]) => {},
     ),
     // Defaults to delivered. The reconnect-gap case (false) is asserted by the
     // tests that care, so the common path stays uncluttered.
