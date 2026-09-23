@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 
 mock.module("../../providers/registry.js", () => ({
   getProvider: () => ({ name: "mock-provider" }),
@@ -87,7 +87,12 @@ mock.module("../../persistence/conversation-crud.js", () => ({
   getConversation: () => mockConversation,
   createConversation: () => ({ id: "conv-shared" }),
   addMessage: async () => ({ id: "persisted" }),
-  setConversationHistoryStrippedAt: () => {},
+  setConversationHistoryStrippedAt: (
+    _conversationId: string,
+    historyStrippedAt: number | null,
+  ) => {
+    mockConversation = { ...mockConversation, historyStrippedAt };
+  },
   setConversationOriginChannelIfUnset: () => {},
   setConversationOriginInterfaceIfUnset: () => {},
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
@@ -636,9 +641,34 @@ describe("another contact's turns in a shared conversation", () => {
 });
 
 describe("compaction on a contact's turn", () => {
+  const GUARDIAN_LATER_MEMORY = "guardian later memory";
+
   beforeEach(() => {
     participants.add(`${CONVERSATION_ID}:${ALICE}`);
     seedSharedTranscript();
+    // A guardian exchange past the compacted prefix whose injection
+    // rehydrates on the guardian's load until a history-stripped marker
+    // covers it.
+    mockRows.splice(
+      mockRows.findIndex((row) => row.id === "c-user-1"),
+      0,
+      {
+        id: "g-user-3",
+        role: "user",
+        content: [{ type: "text", text: "Any update?" }],
+        createdAt: 140,
+        metadata: guardianMeta({
+          memoryV2StaticBlock: `<info>\n${GUARDIAN_LATER_MEMORY}\n</info>`,
+        }),
+      },
+      {
+        id: "g-assistant-3",
+        role: "assistant",
+        content: [{ type: "text", text: "Nothing new yet." }],
+        createdAt: 150,
+        metadata: guardianMeta(),
+      },
+    );
   });
 
   /** A compaction of the resident history that summarizes its first rows. */
@@ -671,8 +701,11 @@ describe("compaction on a contact's turn", () => {
     const guardianHistory = historyText(await loadAs(GUARDIAN));
     const persisted = { ...mockConversation };
 
+    expect(guardianHistory).toContain(GUARDIAN_LATER_MEMORY);
+
     // WHEN Alice's turn compacts her projected view
     const conversation = await loadAs(sharedContact(ALICE));
+    const onCompacted = spyOn(conversation.graphMemory, "onCompacted");
     await applyCompactionResult(
       conversation,
       compactionOf(conversation, 2, "Summary of Alice's view"),
@@ -683,11 +716,15 @@ describe("compaction on a contact's turn", () => {
     // THEN her resident history is compacted
     expect(texts(conversation)).toEqual([
       "Summary of Alice's view",
+      "Any update?",
+      "Nothing new yet.",
       FENCED_CONTACT_TEXT,
     ]);
-    // AND nothing persisted changed, so the guardian's next turn loads the
-    // same history it had before
+    // AND nothing persisted changed, the history-stripped marker included,
+    // and the guardian's memory-injection ledgers were not reset, so the
+    // guardian's next turn loads the same history, injections and all
     expect(mockConversation).toEqual(persisted);
+    expect(onCompacted).not.toHaveBeenCalled();
     conversation.setTrustContext(GUARDIAN);
     await conversation.ensureActorScopedHistory();
     expect(historyText(conversation)).toBe(guardianHistory);
@@ -749,6 +786,7 @@ describe("compaction on a contact's turn", () => {
   test("a guardian compaction still advances the persisted state", async () => {
     // GIVEN the guardian's history, one row already compacted
     const conversation = await loadAs(GUARDIAN);
+    const onCompacted = spyOn(conversation.graphMemory, "onCompacted");
 
     // WHEN the guardian's turn compacts two more rows
     await applyCompactionResult(
@@ -758,15 +796,23 @@ describe("compaction on a contact's turn", () => {
       null,
     );
 
-    // THEN the persisted state records the new summary and boundary
+    // THEN the memory-injection ledgers reset for the summarized rows
+    expect(onCompacted.mock.calls).toEqual([[2]]);
+
+    // AND the persisted state records the new summary, boundary and
+    // history-stripped marker
     expect(mockConversation).toMatchObject({
       contextSummary: "Newer guardian summary",
       contextCompactedMessageCount: 3,
+      historyStrippedAt: expect.any(Number),
     });
-    // AND the next guardian load starts from them
+    // AND the next guardian load starts from them, with the older injection
+    // stripped
     const reloaded = await loadAs(GUARDIAN);
     const history = historyText(reloaded);
     expect(history).toContain("Newer guardian summary");
     expect(history).not.toContain("guardian reasoning");
+    expect(history).toContain("Any update?");
+    expect(history).not.toContain(GUARDIAN_LATER_MEMORY);
   });
 });

@@ -113,6 +113,7 @@ import {
   dispatchAgentEvent,
   type EventHandlerDeps,
   finalizePendingToolResultRow,
+  isSharedTranscriptHistory,
   resetInjectionLedgersForStrip,
   selectFinalComputerUseScreenshotCandidate,
   settlePendingPartialFlush,
@@ -2713,13 +2714,11 @@ export async function applyCompactionResult(
   } = {},
 ): Promise<void> {
   ctx.messages = result.messages;
-  // A history loaded as a shared-conversation participant's projected
-  // transcript has a row count that indexes nothing in the guardian's rows and
-  // a summary that leaves out what the projection drops, so its compaction
-  // stays in this resident history and the persisted state is left as it was.
-  // Decided from the load itself rather than the resting trust slot, which
-  // another sender can restamp mid-turn.
-  if (ctx.loadedHistorySharedReader === undefined) {
+  // A shared transcript's row count indexes nothing in the guardian's rows and
+  // its summary leaves out what the projection drops, so its compaction stays
+  // in this resident history and nothing persisted changes.
+  const persistsCompaction = !isSharedTranscriptHistory(ctx);
+  if (persistsCompaction) {
     // Compaction operates on the in-context history. Untrusted actor views
     // render that history unsliced (boundary 0); trusted views start past the
     // already-compacted prefix (the mirrored DB count). Advance from that
@@ -2756,10 +2755,16 @@ export async function applyCompactionResult(
   // of the un-compacted history finds its frozen blocks still claimed. The
   // compacted history is the summary plus the compactor's stripped tail, so
   // the reset then runs even when the marker cannot be made durable.
-  await resetInjectionLedgersForStrip(ctx, result.compactedPersistedMessages, {
-    historyStripMarkerDurable: options.historyStripMarkerDurable,
-    historyAlreadyStripped: true,
-  });
+  if (persistsCompaction) {
+    await resetInjectionLedgersForStrip(
+      ctx,
+      result.compactedPersistedMessages,
+      {
+        historyStripMarkerDurable: options.historyStripMarkerDurable,
+        historyAlreadyStripped: true,
+      },
+    );
+  }
   enqueueMemoryRetrospectiveOnCompaction(
     ctx.conversationId,
     ctx.trustContext?.trustClass,
