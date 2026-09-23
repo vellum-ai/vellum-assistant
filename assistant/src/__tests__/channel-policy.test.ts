@@ -16,6 +16,7 @@ import {
   isNotificationDeliverable,
 } from "../channels/config.js";
 import { CHANNEL_IDS, type ChannelId } from "../channels/types.js";
+import { getTransportForChannel } from "../messaging/providers/index.js";
 
 describe("channel policy registry", () => {
   // ── Exhaustiveness ────────────────────────────────────────────────────
@@ -131,6 +132,12 @@ describe("channel policy registry", () => {
 
   test("voice uses not_deliverable strategy", () => {
     expect(getConversationStrategy("phone")).toBe("not_deliverable");
+  });
+
+  test("vellum-shared has no transport and receives no notifications", () => {
+    expect(isNotificationDeliverable("vellum-shared")).toBe(false);
+    expect(getConversationStrategy("vellum-shared")).toBe("not_deliverable");
+    expect(getTransportForChannel("vellum-shared")).toBeUndefined();
   });
 
   test("deliverable channels include vellum and telegram", () => {

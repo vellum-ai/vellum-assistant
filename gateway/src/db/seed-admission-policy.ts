@@ -38,23 +38,27 @@ import {
  * the single row covers every installed plugin at once, so the default admits
  * the narrowest set that still leaves the channel usable and makes widening it
  * an explicit choice in the Channel Trust Floors UI.
+ *
+ * `vellum-shared` (conversations a guardian shares with a contact) defaults to
+ * `guardian_only` and is a hidden channel, so the floor admits no contact.
  */
 export const CHANNEL_ADMISSION_DEFAULTS: Partial<
   Record<ChannelId, AdmissionPolicy>
 > = {
   vellum: "guardian_only",
   plugin: "guardian_only",
+  "vellum-shared": "guardian_only",
 };
 
 /**
  * Insert a default row for every enforced channel that has none. Exempt
  * channels (`platform`/`a2a`) are skipped — they carry no floor.
  *
- * Hidden channels (`vellum`/`whatsapp`) are not surfaced in the Channel Trust
- * Floors UI, so a legacy or stale row would strand the channel at a floor the
- * user can no longer see or reset. They are pinned to their default here,
- * overwriting any drifted row — unlike the non-destructive `seedDefault` used
- * for configurable channels.
+ * Hidden channels (`vellum`/`vellum-shared`/`whatsapp`) are not surfaced in
+ * the Channel Trust Floors UI, so a legacy or stale row would strand the
+ * channel at a floor the user can no longer see or reset. They are pinned to
+ * their default here, overwriting any drifted row, unlike the non-destructive
+ * `seedDefault` used for configurable channels.
  */
 export function seedAdmissionPolicyDefaults(store: AdmissionPolicyStore): void {
   for (const channelType of CHANNEL_IDS) {

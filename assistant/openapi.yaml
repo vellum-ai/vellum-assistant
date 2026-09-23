@@ -4797,6 +4797,7 @@ paths:
                       - a2a
                       - discord
                       - plugin
+                      - vellum-shared
                   assistantId:
                     type: string
                   hasPendingChallenge:
@@ -5227,6 +5228,7 @@ paths:
                             - a2a
                             - discord
                             - plugin
+                            - vellum-shared
                         ready:
                           type: boolean
                         setupStatus:
@@ -5351,6 +5353,7 @@ paths:
                     - a2a
                     - discord
                     - plugin
+                    - vellum-shared
                 includeRemote:
                   description: Include remote checks (default true)
                   type: boolean
@@ -5382,6 +5385,7 @@ paths:
                             - a2a
                             - discord
                             - plugin
+                            - vellum-shared
                         ready:
                           type: boolean
                         setupStatus:
@@ -5515,6 +5519,7 @@ paths:
                     - a2a
                     - discord
                     - plugin
+                    - vellum-shared
                   description: Channel to send on
                 target:
                   type: object
@@ -5565,6 +5570,7 @@ paths:
                       - a2a
                       - discord
                       - plugin
+                      - vellum-shared
                   chatId:
                     type: string
                   threadId:
@@ -8020,6 +8026,7 @@ paths:
               - a2a
               - discord
               - plugin
+              - vellum-shared
           description:
             Filter by origin channel. When provided, only conversations with this exact origin_channel value are
             returned. Omit to include all channels.
@@ -8183,6 +8190,7 @@ paths:
                                 - a2a
                                 - discord
                                 - plugin
+                                - vellum-shared
                             - type: "null"
                         assistantAttention:
                           type: object
@@ -8549,6 +8557,7 @@ paths:
                               - a2a
                               - discord
                               - plugin
+                              - vellum-shared
                           - type: "null"
                       assistantAttention:
                         type: object
@@ -9763,6 +9772,7 @@ paths:
                               - a2a
                               - discord
                               - plugin
+                              - vellum-shared
                           - type: "null"
                       assistantAttention:
                         type: object
@@ -24978,6 +24988,7 @@ paths:
                     - a2a
                     - discord
                     - plugin
+                    - vellum-shared
                     - scheduler
                     - watcher
                 sourceContextId:

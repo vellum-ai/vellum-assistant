@@ -96,7 +96,7 @@ Each policy defines:
 | `start_new_conversation`         | Pairs the delivery with a new or reused conversation, or appends to the producing one (see Conversation Pairing below).                                       | `vellum`                                                                                     |
 | `continue_existing_conversation` | Resolves the destination chat's home conversation, creating one on first delivery. The delivered post is written there only once the channel acknowledges it. | `telegram`, `slack`, `discord`, and the non-deliverable `whatsapp`, `email`, `a2a`, `plugin` |
 | `push_only`                      | Pairs nothing. The push deep-links through the vellum delivery's conversation.                                                                                | `platform`                                                                                   |
-| `not_deliverable`                | Channel cannot receive notifications. Pairing returns null IDs.                                                                                               | `phone`                                                                                      |
+| `not_deliverable`                | Channel cannot receive notifications. Pairing returns null IDs.                                                                                               | `phone`, `vellum-shared`                                                                     |
 
 ### Helper Functions
 

@@ -169,7 +169,7 @@ A default row per enforced channel is **seeded at startup** (`seedAdmissionPolic
 | Policy             | Floor | Notes                                                                                                                         |
 | ------------------ | ----- | ----------------------------------------------------------------------------------------------------------------------------- |
 | `no_one`           | 5     | Hard-deny at gateway _before_ forwarding (kill switch in `handle-inbound.ts`). Includes the guardian — this channel is _OFF_. |
-| `guardian_only`    | 4     | Seeded default for `vellum`.                                                                                                  |
+| `guardian_only`    | 4     | Seeded default for `vellum` and `vellum-shared`.                                                                              |
 | `trusted_contacts` | 3     | Seeded default for all other channels; also the read-path safety fallback.                                                    |
 | `any_contact`      | 2     | May surface Slack DM / email upgrade challenge on deny.                                                                       |
 | `strangers`        | 1     | May surface upgrade challenge.                                                                                                |
@@ -183,7 +183,7 @@ A default row per enforced channel is **seeded at startup** (`seedAdmissionPolic
 
 For exempt ids, `PUT /v1/assistants/:id/channel-admission-policy/:channelType` returns **403**, the GET list omits them, and the runtime short-circuits `admitted: true` in `admission-policy.ts` (defense in depth). Codex finding from #35006 review: exemption checks must live in _both_ the gateway route handler AND the runtime stage — single-side enforcement creates a misuse wedge.
 
-**Hidden channels** (`ADMISSION_POLICY_HIDDEN_CHANNELS` = `vellum`, `whatsapp`) — managed automatically, **not** user-configurable, but (unlike exempt channels) **still enforced at runtime**:
+**Hidden channels** (`ADMISSION_POLICY_HIDDEN_CHANNELS` = `vellum`, `vellum-shared`, `whatsapp`): managed automatically, **not** user-configurable, but (unlike exempt channels) **still enforced at runtime**:
 
 - The GET list omits them, and `PUT`/`DELETE` return **403** (`isAdmissionPolicyHiddenChannel`).
 - They are **not** exempt — the runtime still evaluates rank-vs-floor, so a real inbound channel like `whatsapp` keeps its admission floor.
