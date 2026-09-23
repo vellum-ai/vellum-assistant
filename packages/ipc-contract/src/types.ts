@@ -345,7 +345,9 @@ export interface HotkeySelection {
 
 /** Null means no selection; an unavailable read must never authorize a paste. */
 export type HotkeySelectionResult =
-  HotkeySelection | { unavailable: true } | null;
+  | HotkeySelection
+  | { unavailable: true }
+  | null;
 
 export interface HotkeyEvent {
   kind: HotkeyEventKind;
@@ -2000,9 +2002,9 @@ export const COMPANION_ANNOTATION_STROKE = 0.006;
  * goes outside them, so the control a user is being pointed at stays as
  * visible as it was before anything was drawn on it.
  *
- * For an extent that is itself the message: a region of an image, an area of
- * a canvas, a panel being named as a whole. To send someone to one control,
- * see {@link CompanionCoachmarkPoint}.
+ * For a region, an explicit circle request, or a control confidently located
+ * in a fresh image when its accessibility name cannot be resolved. Named
+ * controls use {@link CompanionCoachmarkPoint} for an arrow.
  */
 export interface CompanionCoachmarkRegion {
   kind: "region";
@@ -2083,12 +2085,10 @@ export type CoachmarkRefusal =
 /**
  * One thing to point at: a control named, or a rectangle given.
  *
- * **Naming is the one to reach for.** The accessibility tree holds the exact
- * frame of every labelled control on the surface, so a name resolves to where
- * the thing actually is; a rectangle is a guess at it, measured off a picture
- * that has been scaled and compressed on its way to whoever is guessing. The
- * rectangle form remains for what the tree cannot name (a canvas, an image,
- * a plugin's own drawing), where there is nothing to resolve against.
+ * A name resolves a control through accessibility information and draws an
+ * arrow. Bounds measured from a fresh shared image draw a ring for a region,
+ * an explicit circle request, or a confidently identified control whose
+ * accessibility name could not be resolved.
  */
 export type CoachmarkRequest =
   | { target: string; caption?: string }
@@ -2112,9 +2112,10 @@ export type PlacedCoachmark = CompanionCoachmark & { matched?: string };
 /**
  * Why a named control could not be turned into a mark.
  *
- * Each carries the labels that were on the surface, because the answer to all
- * three is the same shape: say what is there instead of drawing at a guess.
- * `ambiguous` lists the ones that fit, the others everything there was.
+ * Candidates support an exact-name retry when they identify the control.
+ * Otherwise, a control confidently identified in a fresh shared image can
+ * be retried with bounds. `ambiguous` lists matching labels; the other
+ * reasons list available labels.
  */
 export interface CoachmarkUnresolved {
   target: string;

@@ -5831,11 +5831,8 @@ describe("companion window: pointing at what is shared", () => {
       ]);
     });
 
-    /**
-     * A ring drawn from bounds the model gave is an extent someone means, not
-     * a button: a press inside it says nothing about a step.
-     */
-    test("an extent given as bounds is not something to press", async () => {
+    /** Image bounds do not establish a control's hit area. */
+    test("bounds alone do not arm a control press watch", async () => {
       await shareAndSee();
       await showCompanionCoachmarks([MARK], CALL);
 

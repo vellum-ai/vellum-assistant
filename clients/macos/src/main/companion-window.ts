@@ -2370,11 +2370,9 @@ const sameCaptureTarget = (
 /**
  * A pointed-at control the user can press, and what to call it when they do.
  *
- * Only a control found by name has one. Its rectangle is the frame the tree
- * reported for it, in screen points, which is the one description of where
- * a press would land that does not go through the picture. A ring drawn from
- * bounds the model gave is an extent someone means, not a button, and a
- * press inside it says nothing about a step.
+ * Only a control found by name has one. Its rectangle comes from the
+ * accessibility tree. Bounds measured from an image do not establish a
+ * control's hit area, so rings do not emit press acknowledgements.
  */
 interface CoachmarkPress {
   /**
@@ -2612,9 +2610,7 @@ export const showCompanionCoachmarks = async (
   const presses: CoachmarkPress[] = [];
   for (const request of requests) {
     if (!namesATarget(request)) {
-      // Bounds given outright are an extent someone means, so they keep the
-      // ring. The kind is added here rather than asked for: what the caller
-      // sends is a rectangle, and how a rectangle is drawn is this side's.
+      // Bounds draw a ring around a region or a visually identified control.
       marks.push({ kind: "region", ...request });
       continue;
     }
