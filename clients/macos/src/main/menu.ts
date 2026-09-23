@@ -33,7 +33,7 @@ import {
   isCommandPaletteWindowFocused,
   openCommandPaletteWindow,
 } from "./command-palette.client";
-import { setCompanionSurfaceVisible } from "./companion-window";
+import { setCompanionSurfaceVisible } from "./companion";
 import { areChromeDevToolsEnabled } from "./devtools";
 import { handle } from "./ipc";
 import { dispatchToMain } from "./main-window";

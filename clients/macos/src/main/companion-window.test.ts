@@ -400,7 +400,7 @@ let located: unknown = {
  */
 let locateHeldBy: Promise<void> | null = null;
 
-mock.module("./companion-capture-sources", () => ({
+mock.module("./companion-capture", () => ({
   listCaptureSources: async () => listedSources,
   resolveCapturePick: (pick: unknown) => resolvedPickAsync(pick),
   captureTargetFrame: async (
@@ -769,10 +769,10 @@ const {
   showCompanionCoachmarks,
   installCompanionWindow,
   shownPopover,
-} = await import("./companion-window");
+} = await import("./companion");
 
 const { popoverBoundsFor, POPOVER_GAP } =
-  await import("./companion-popover-window");
+  await import("@vellumai/electron-desktop/companion-popover-window");
 
 const {
   __resetFrameScrollWatchForTesting,

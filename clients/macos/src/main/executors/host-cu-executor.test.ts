@@ -59,7 +59,7 @@ const showCoachmarks = mock(
       : { kind: "refused", refusal },
 );
 
-import { createHostCuExecutor, POINT_AT_TOOL } from "./host-cu-executor";
+import { createHostCuExecutor, POINT_AT_TOOL } from "./host-cu";
 import type {
   CoachmarkRefusal,
   CoachmarkRequest,

@@ -120,7 +120,7 @@ import { installCompanionPermissionGuide } from "./companion-permission-guide";
 import {
   installCompanionWindow,
   syncCompanionSurface,
-} from "./companion-window";
+} from "./companion";
 import { installTextInsertionIpc } from "./textInsertion";
 import { installTray } from "./tray.client";
 import { installWebContentsSecurity } from "./windows";

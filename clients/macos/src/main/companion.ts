@@ -7,7 +7,7 @@ import {
   listCaptureSources,
   resolveCapturePick,
   windowBoundsFor,
-} from "./companion-capture-sources";
+} from "./companion-capture";
 import {
   unwatchCoachmarkPress,
   watchCoachmarkPress,
