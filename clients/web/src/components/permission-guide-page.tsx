@@ -10,7 +10,9 @@ import { Typography } from "@vellumai/design-library/components/typography";
 
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { scopedAvatarAccentVars } from "@/hooks/use-avatar-accent-var";
+import { useClientFeatureFlagSync } from "@/hooks/use-client-feature-flag-sync";
 import { useTranslation } from "@/i18n";
+import { useIsSessionInitializing } from "@/stores/auth-store";
 import {
   dismissPermissionGuide,
   dragPermissionApp,
@@ -22,6 +24,8 @@ import { usePermissionGuide } from "./use-permission-guide";
 import "./permission-guide.css";
 
 export function PermissionGuidePage() {
+  const isSessionInitializing = useIsSessionInitializing();
+  useClientFeatureFlagSync(!isSessionInitializing);
   useAppTheme();
   const { t } = useTranslation();
   const guide = usePermissionGuide();
