@@ -1,8 +1,4 @@
-/**
- * Creates a blank document owned by a conversation. Every "New document"
- * entry point goes through this so they share one request and one cache
- * refresh.
- */
+/** Creates a blank document owned by a conversation. */
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 

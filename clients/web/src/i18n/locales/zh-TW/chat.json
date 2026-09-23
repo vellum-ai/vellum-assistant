@@ -729,8 +729,6 @@
     "markRead": "標示為已讀",
     "markUnread": "標示為未讀",
     "moveToGroup": "移至群組",
-    "newDocument": "新增文件",
-    "newDocumentFailed": "無法建立文件。請再試一次。",
     "newGroup": "新增群組…",
     "openInNewWindow": "在新視窗中開啟",
     "pin": "釘選",
