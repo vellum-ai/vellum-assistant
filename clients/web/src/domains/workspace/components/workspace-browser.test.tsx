@@ -11,6 +11,7 @@ import {
 import { MemoryRouter } from "react-router";
 
 import { useIntelligenceLayoutSlotsStore } from "@/components/layout/intelligence-layout-slots-store";
+import { client as daemonClient } from "@/generated/daemon/client.gen";
 import type * as SideListRoom from "@/hooks/use-side-list-room";
 import { pressBackdrop } from "@/lib/overlay-test-helpers";
 import { useEdgeSwipeArbiterStore } from "@/stores/edge-swipe-arbiter-store";
@@ -85,8 +86,8 @@ describe("Workspace file switching", () => {
       within(dialog).getByRole("button", { name: "Create new file or folder" }),
     ).toBeTruthy();
     expect(
-      screen.queryByRole("button", { name: "Show hidden files" }),
-    ).toBeNull();
+      within(dialog).getByRole("button", { name: "Show hidden files" }),
+    ).toBeTruthy();
     expect(useEdgeSwipeArbiterStore.getState().backOwnerCount).toBe(1);
     fireEvent.keyDown(dialog, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
@@ -195,6 +196,72 @@ describe("Workspace file switching", () => {
     expect(screen.getByRole("dialog")).toBeTruthy();
     drag(140);
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  test("the sheet can show, open, and hide hidden files", async () => {
+    renderBrowser();
+    let dialog = await openPicker();
+    expect(
+      within(dialog).queryByRole("button", { name: /\.notes.md/ }),
+    ).toBeNull();
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Show hidden files" }),
+    );
+    const hiddenFile = await within(dialog).findByRole("button", {
+      name: /\.notes.md/,
+    });
+    fireEvent.click(hiddenFile);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(
+      await screen.findByRole("heading", { name: "Hidden notes" }),
+    ).toBeTruthy();
+
+    dialog = await openPicker(".notes.md");
+    expect(
+      within(dialog)
+        .getByRole("button", { name: "Hide hidden files" })
+        .getAttribute("aria-pressed"),
+    ).toBe("true");
+    fireEvent.click(within(dialog).getByRole("button", { name: /README.md/ }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    dialog = await openPicker("README.md");
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Hide hidden files" }),
+    );
+    await waitFor(() =>
+      expect(
+        within(dialog).queryByRole("button", { name: /\.notes.md/ }),
+      ).toBeNull(),
+    );
+    expect(
+      within(dialog).getByRole("button", { name: /README.md/ }),
+    ).toBeTruthy();
+  });
+
+  test("a hidden-file deep link can be revealed from the sheet", async () => {
+    const originalFetch = daemonClient.getConfig().fetch;
+    daemonClient.setConfig({
+      fetch: Object.assign(
+        async () => Response.json({ error: "File not found" }, { status: 404 }),
+        { preconnect: () => undefined },
+      ),
+    });
+    try {
+      renderBrowser(".notes.md");
+      expect(await screen.findByText("File not found")).toBeTruthy();
+      const dialog = await openPicker(".notes.md");
+      fireEvent.click(
+        within(dialog).getByRole("button", { name: "Show hidden files" }),
+      );
+      fireEvent.click(
+        await within(dialog).findByRole("button", { name: /\.notes.md/ }),
+      );
+      expect(
+        await screen.findByRole("heading", { name: "Hidden notes" }),
+      ).toBeTruthy();
+    } finally {
+      daemonClient.setConfig({ fetch: originalFetch });
+    }
   });
 
   test("wide panes keep the sidebar and hidden-file control", () => {

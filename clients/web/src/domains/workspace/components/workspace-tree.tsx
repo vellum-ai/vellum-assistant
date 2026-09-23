@@ -500,32 +500,27 @@ export function WorkspaceTree({
                 : "var(--content-tertiary)"
             }
           />
-          {presentation === "sidebar" && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="compact"
-              iconOnly={
-                showHidden ? <Eye aria-hidden /> : <EyeOff aria-hidden />
-              }
-              onClick={onToggleShowHidden}
-              aria-label={
-                showHidden
-                  ? t("workspaceTree.hideHiddenAria")
-                  : t("workspaceTree.showHiddenAria")
-              }
-              title={
-                showHidden
-                  ? t("workspaceTree.hideHiddenAria")
-                  : t("workspaceTree.showHiddenAria")
-              }
-              tintColor={
-                showHidden
-                  ? "var(--content-default)"
-                  : "var(--content-tertiary)"
-              }
-            />
-          )}
+          <Button
+            type="button"
+            variant="ghost"
+            size="compact"
+            iconOnly={showHidden ? <Eye aria-hidden /> : <EyeOff aria-hidden />}
+            onClick={onToggleShowHidden}
+            aria-pressed={showHidden}
+            aria-label={
+              showHidden
+                ? t("workspaceTree.hideHiddenAria")
+                : t("workspaceTree.showHiddenAria")
+            }
+            title={
+              showHidden
+                ? t("workspaceTree.hideHiddenAria")
+                : t("workspaceTree.showHiddenAria")
+            }
+            tintColor={
+              showHidden ? "var(--content-default)" : "var(--content-tertiary)"
+            }
+          />
           <WorkspaceTreeCreateMenu
             open={menuOpen}
             onOpenChange={setMenuOpen}

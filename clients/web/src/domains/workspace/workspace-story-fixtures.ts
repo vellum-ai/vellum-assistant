@@ -6,6 +6,7 @@ import type { SeedQueryCache } from "@/lib/story-query-cache";
 import { workspaceTreeQueryOptions } from "@/lib/workspace-tree-query";
 
 import { groupEntriesByDirectory } from "./utils/build-workspace-tree-rows";
+import { isHiddenPath } from "./utils/is-hidden-path";
 import { workspaceFileRetrieveOptions } from "./utils/workspace-file-query";
 
 export const WORKSPACE_STORY_ASSISTANT_ID = "assistant-1";
@@ -39,6 +40,16 @@ export const WORKSPACE_STORY_FILES: WorkspaceFileGetResponse[] = [
     isBinary: false,
     content: '{\n  "name": "Example workspace",\n  "theme": "system"\n}',
   },
+  {
+    path: ".notes.md",
+    name: ".notes.md",
+    size: 64,
+    mimeType: "text/markdown",
+    modifiedAt: "2026-01-01T00:00:00Z",
+    isBinary: false,
+    content:
+      "# Hidden notes\n\nA hidden workspace file available in read-only mode.",
+  },
 ];
 
 export const WORKSPACE_STORY_TREE: WorkspaceTreeGetResponse = {
@@ -65,28 +76,42 @@ export const WORKSPACE_STORY_TREE: WorkspaceTreeGetResponse = {
 /** Seed the same query keys used by the browser, including reopened folders. */
 export const seedWorkspaceStory: SeedQueryCache = (client) => {
   const assistantId = WORKSPACE_STORY_ASSISTANT_ID;
-  client.setQueryData(
-    workspaceTreeQueryOptions({ assistantId, recursive: true }).queryKey,
-    WORKSPACE_STORY_TREE,
-  );
-  for (const [path, entries] of groupEntriesByDirectory(
-    WORKSPACE_STORY_TREE.entries,
-  )) {
-    for (const includeDirSizes of [false, true]) {
+  for (const showHidden of [false, true]) {
+    const tree = {
+      ...WORKSPACE_STORY_TREE,
+      entries: WORKSPACE_STORY_TREE.entries.filter(
+        (entry) => showHidden || !isHiddenPath(entry.path),
+      ),
+    };
+    client.setQueryData(
+      workspaceTreeQueryOptions({ assistantId, showHidden, recursive: true })
+        .queryKey,
+      tree,
+    );
+    for (const [path, entries] of groupEntriesByDirectory(tree.entries)) {
+      for (const includeDirSizes of [false, true]) {
+        client.setQueryData(
+          workspaceTreeQueryOptions({
+            assistantId,
+            path,
+            showHidden,
+            includeDirSizes,
+          }).queryKey,
+          { path, entries },
+        );
+      }
+    }
+    for (const file of WORKSPACE_STORY_FILES) {
+      if (!showHidden && isHiddenPath(file.path)) {
+        continue;
+      }
       client.setQueryData(
-        workspaceTreeQueryOptions({ assistantId, path, includeDirSizes })
-          .queryKey,
-        { path, entries },
+        workspaceFileRetrieveOptions({
+          path: { assistant_id: assistantId },
+          query: { path: file.path, showHidden },
+        }).queryKey,
+        file,
       );
     }
-  }
-  for (const file of WORKSPACE_STORY_FILES) {
-    client.setQueryData(
-      workspaceFileRetrieveOptions({
-        path: { assistant_id: assistantId },
-        query: { path: file.path, showHidden: false },
-      }).queryKey,
-      file,
-    );
   }
 };
