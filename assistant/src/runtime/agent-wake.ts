@@ -131,7 +131,11 @@ import { stampTurnOutcome } from "../telemetry/turn-outcome.js";
 import type { CompletedBackgroundTool } from "../tools/background-tool-registry.js";
 import { getLogger } from "../util/logger.js";
 import { safeStringSlice } from "../util/unicode.js";
-import { runWakeSingleFlight, trackScheduledWake } from "./agent-wake-queue.js";
+import {
+  resetAgentWakeQueueForTests,
+  runWakeSingleFlight,
+  trackAgentWake,
+} from "./agent-wake-queue.js";
 
 export { hasPendingAgentWake } from "./agent-wake-queue.js";
 
@@ -763,10 +767,10 @@ export async function wakeAgentForOpportunity(
   let wakeTriggerMessageId: string | undefined;
   let completionAssistantMessageId: string | undefined;
 
-  const finishScheduledWake = trackScheduledWake(
-    conversationId,
-    opts.cronRunId,
-  );
+  const finishWake = trackAgentWake(conversationId, {
+    cronRunId: opts.cronRunId,
+    startedAt: opts.backgroundToolCompletion?.startedAt,
+  });
   return runWakeSingleFlight<WakeResult>(conversationId, async () => {
     // Snapshot the conversation's resting trust before the resolver runs, so
     // it can be restored after. The resolver leaves the wake's trust on the
@@ -940,6 +944,19 @@ export async function wakeAgentForOpportunity(
       ? new AbortController()
       : undefined;
     const priorScheduledRunId = conversation.currentTurnCronRunId;
+    const priorWorkOrigins = conversation.currentTurnWorkOrigins;
+    const wakeWorkOrigins = opts.backgroundToolCompletion
+      ? [
+          {
+            sentAt: opts.backgroundToolCompletion.startedAt,
+            metadata: {
+              backgroundEventSource: "background-tool",
+              backgroundToolCompletion: opts.backgroundToolCompletion,
+            },
+          },
+        ]
+      : [];
+    conversation.currentTurnWorkOrigins = wakeWorkOrigins;
     if (scheduleAbortController) {
       conversation.abortController = scheduleAbortController;
       conversation.currentTurnCronRunId = opts.cronRunId;
@@ -1461,6 +1478,9 @@ export async function wakeAgentForOpportunity(
      * is one function rather than a rebuild bolted onto either half.
      */
     const restoreWakeTurnScope = (): void => {
+      if (conversation.currentTurnWorkOrigins === wakeWorkOrigins) {
+        conversation.currentTurnWorkOrigins = priorWorkOrigins;
+      }
       if (
         scheduleAbortController &&
         conversation.abortController === scheduleAbortController
@@ -1973,7 +1993,7 @@ export async function wakeAgentForOpportunity(
       }
     }
   }).finally(() => {
-    finishScheduledWake();
+    finishWake();
     if (opts.backgroundToolCompletion && wakeTriggerMessageId) {
       void emitBackgroundResultNotification({
         conversationId,
@@ -1997,5 +2017,5 @@ export async function wakeAgentForOpportunity(
  * @internal
  */
 export function __resetWakeChainForTests(): void {
-  runWakeSingleFlight.reset();
+  resetAgentWakeQueueForTests();
 }

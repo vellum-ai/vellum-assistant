@@ -27,12 +27,14 @@ import {
 } from "../persistence/conversation-crud.js";
 import { isReplaceableTitle } from "../persistence/conversation-title-placeholders.js";
 import {
+  isEchoSuppressedUserMessage,
   isReplyPushIneligibleUserMessage,
   resolveConversationKind,
 } from "../persistence/conversation-types.js";
 import { stringifyMessageContent } from "../persistence/message-content.js";
 import { projectPersistedAssistantContent } from "../persistence/user-facing-content.js";
 import { safeParseRecord } from "../util/json.js";
+import { workStartedAfter } from "./completion-work.js";
 import { emitNotificationSignal } from "./emit-signal.js";
 import { hasPendingBackgroundWork } from "./has-pending-background-work.js";
 import {
@@ -53,6 +55,7 @@ function isCurrentUnseenReply(
   conversationId: string,
   assistantRow: MessageRow,
   turnBoundaryId: string,
+  startedAfter: number,
 ): boolean {
   const attention = getAttentionStateByConversationIds([conversationId]).get(
     conversationId,
@@ -80,6 +83,14 @@ function isCurrentUnseenReply(
       foundReply ||= row.id === assistantRow.id;
       foundLatestAttention ||= row.id === attention?.latestAssistantMessageId;
       if (row.role === "user" && !isToolResultOnlyUserMessage(row)) {
+        const metadata = readSuppressionMarkers(row.metadata);
+        if (
+          row.id !== turnBoundaryId &&
+          isEchoSuppressedUserMessage(metadata) &&
+          !workStartedAfter({ sentAt: row.createdAt, metadata }, startedAfter)
+        ) {
+          continue;
+        }
         return row.id === turnBoundaryId && foundReply && foundLatestAttention;
       }
     }
@@ -241,11 +252,8 @@ export async function emitAssistantReplyNotification(params: {
       firstAssistantMessageId && firstAssistantMessageId !== assistantMessageId
         ? getMessageById(firstAssistantMessageId, conversationId)
         : assistantRow;
-    if (
-      hasPendingBackgroundWork(conversationId, {
-        startedAfter: firstAssistantRow?.createdAt ?? assistantRow.createdAt,
-      })
-    ) {
+    const startedAfter = firstAssistantRow?.createdAt ?? assistantRow.createdAt;
+    if (hasPendingBackgroundWork(conversationId, { startedAfter })) {
       return;
     }
 
@@ -287,7 +295,15 @@ export async function emitAssistantReplyNotification(params: {
       conversationId,
       logger: rlog,
     });
-    if (!isCurrentUnseenReply(conversationId, assistantRow, turnBoundaryId)) {
+    if (
+      hasPendingBackgroundWork(conversationId, { startedAfter }) ||
+      !isCurrentUnseenReply(
+        conversationId,
+        assistantRow,
+        turnBoundaryId,
+        startedAfter,
+      )
+    ) {
       return;
     }
 

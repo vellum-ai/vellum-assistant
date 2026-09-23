@@ -1138,6 +1138,7 @@ export async function runAgentLoopImpl(
     ctx.preactivatedSkillIds = undefined;
     ctx.currentTurnOverrideProfile = undefined;
     ctx.currentTurnCronRunId = undefined;
+    ctx.currentTurnWorkOrigins = undefined;
     ctx.currentTurnModelProfileNoticeKey = undefined;
     // Turn-scoped interactivity. Clear it so paths that bypass this loop
     // (e.g. opportunity wakes calling `agentLoop.run` directly) don't inherit

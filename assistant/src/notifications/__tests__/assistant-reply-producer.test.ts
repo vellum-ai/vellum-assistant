@@ -429,7 +429,7 @@ describe("emitAssistantReplyNotification", () => {
     },
   );
 
-  test.each(["new continuation", "reply seen"])(
+  test.each(["new continuation", "pending continuation", "reply seen"])(
     "rechecks freshness after presence lookup when there is a %s",
     async (change) => {
       const { promise: lookupStarted, resolve: markLookupStarted } =
@@ -442,6 +442,8 @@ describe("emitAssistantReplyNotification", () => {
       await lookupStarted;
       if (change === "new continuation") {
         appendCompletedContinuation();
+      } else if (change === "pending continuation") {
+        pendingBackgroundWork = true;
       } else {
         attentionState!.lastSeenAssistantMessageAt = assistantRow!.createdAt;
       }
@@ -527,6 +529,23 @@ describe("emitAssistantReplyNotification", () => {
     expect(emitCalls).toHaveLength(0);
   });
 
+  test.each([false, true])(
+    "keeps a newer reply eligible when older work starts its continuation, completed=%s",
+    async (completed) => {
+      appendCompletedContinuation();
+      const trigger = persistedRows![2];
+      const metadata = JSON.parse(trigger.metadata!);
+      metadata.backgroundToolCompletion.startedAt =
+        assistantRow!.createdAt - 1000;
+      trigger.metadata = JSON.stringify(metadata);
+      if (!completed) {
+        persistedRows!.pop();
+      }
+      await run();
+      expect(emitCalls).toHaveLength(1);
+    },
+  );
+
   test("keeps a later human reply eligible after old background completion", async () => {
     appendCompletedContinuation();
     persistedRows = persistedRows!.map((row) => ({
@@ -587,9 +606,13 @@ describe("emitAssistantReplyNotification", () => {
     await run();
 
     expect(emitCalls).toHaveLength(1);
-    expect(pendingWorkArgs).toEqual([
-      [CONVERSATION_ID, { startedAfter: firstAssistantRow.createdAt }],
-    ]);
+    expect(pendingWorkArgs.length).toBeGreaterThan(0);
+    for (const args of pendingWorkArgs) {
+      expect(args).toEqual([
+        CONVERSATION_ID,
+        { startedAfter: firstAssistantRow.createdAt },
+      ]);
+    }
   });
 
   test("does not announce completion while delegated work is pending", async () => {

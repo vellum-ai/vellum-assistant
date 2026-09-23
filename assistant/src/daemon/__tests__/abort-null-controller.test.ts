@@ -222,6 +222,7 @@ describe("abortConversation", () => {
             null,
             new Set([
               {
+                controller: new AbortController(),
                 messages: [
                   {
                     content: "Queued prompt",
@@ -249,6 +250,7 @@ describe("abortConversation", () => {
           null,
           new Set([
             {
+              controller: new AbortController(),
               messages: [
                 ...dispatch.messages,
                 {

@@ -559,7 +559,7 @@ async function dispatchDrainWithRestore(
   dispatch: (signal?: AbortSignal) => Promise<void>,
 ): Promise<void> {
   const runId = messages[0]?.cronRunId ?? null;
-  const controller = runId ? new AbortController() : undefined;
+  const controller = new AbortController();
   const pending =
     (conversation.pendingQueuedDispatches ??= new Map()).get(runId) ??
     new Set<QueuedDispatch>();
@@ -567,9 +567,9 @@ async function dispatchDrainWithRestore(
   pending.add(queuedDispatch);
   conversation.pendingQueuedDispatches.set(runId, pending);
   try {
-    return await dispatch(controller?.signal);
+    return await dispatch(controller.signal);
   } catch (err) {
-    if (controller?.signal.aborted) {
+    if (controller.signal.aborted) {
       return;
     }
     const alreadyRestored =
@@ -1738,6 +1738,9 @@ async function drainBatch(
   // side correlation (message_complete / generation_cancelled /
   // generation_handoff) surfaces a requestId that actually has a DB row.
   conversation.currentRequestId = lastSuccessfulRequestId;
+  conversation.currentTurnWorkOrigins = successfulBatch.map(
+    ({ sentAt, metadata }) => ({ sentAt, metadata }),
+  );
   conversation.currentActiveSurfaceId = lastSuccessfulActiveSurfaceId;
   conversation.currentPage = lastSuccessfulCurrentPage;
 

@@ -1058,10 +1058,7 @@ describe("Conversation message queue", () => {
         "signal",
         "dispose",
       ] as const) {
-        if (
-          cronRunId === null &&
-          (cancel === "schedule" || cancel === "dispose")
-        ) {
+        if (cronRunId === null && cancel === "schedule") {
           continue;
         }
         for (const claimed of [false, true]) {
@@ -1126,6 +1123,9 @@ describe("Conversation message queue", () => {
             } else {
               await waitForPendingRun(1);
               expect(conversation.currentTurnCronRunId).toBe(cronRunId);
+              expect(conversation.currentTurnWorkOrigins).toHaveLength(
+                batchSize,
+              );
               if (preserved) {
                 expect(capturedAddMessages.length).toBe(
                   persistedBefore + batchSize,

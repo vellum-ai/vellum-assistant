@@ -158,6 +158,7 @@ import type {
   QueuedDispatch,
   QueuedMessage,
   QueueDrainReason,
+  TurnWorkOrigin,
 } from "./conversation-queue-manager.js";
 import { MessageQueue } from "./conversation-queue-manager.js";
 import {
@@ -660,6 +661,7 @@ export class Conversation {
    * @internal
    */
   currentTurnCronRunId?: string | null;
+  currentTurnWorkOrigins?: readonly TurnWorkOrigin[];
   pendingQueuedDispatches = new Map<string | null, Set<QueuedDispatch>>();
   /** @internal */ currentTurnIsNonInteractive?: boolean;
   /** @internal */ currentTurnModelProfileNoticeKey?: string;

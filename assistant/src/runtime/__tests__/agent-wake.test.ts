@@ -739,6 +739,64 @@ describe("wakeAgentForOpportunity", () => {
     expect(hasPendingAgentWake(conversationId, "run-first")).toBe(false);
   });
 
+  test("age-filters command wakes throughout hydration and single-flight queueing", async () => {
+    const conversationId = "conv-wake-age";
+    const oldGate = Promise.withResolvers<void>();
+    const freshGate = Promise.withResolvers<void>();
+    const start = (startedAt: number, gate: Promise<void>) =>
+      wakeAgentForOpportunity(
+        {
+          conversationId,
+          source: "background-tool",
+          hint: "Command completed",
+          backgroundToolCompletion: {
+            id: `tool-${startedAt}`,
+            conversationId,
+            toolName: "bash",
+            command: "example-command",
+            startedAt,
+            completedAt: 300,
+            status: "completed",
+            exitCode: 0,
+            output: "Done",
+          },
+        },
+        {
+          resolveTarget: async () => {
+            await gate;
+            return null;
+          },
+        },
+      );
+    const older = start(100, oldGate.promise);
+    try {
+      expect(
+        hasPendingAgentWake(conversationId, undefined, { startedAfter: 200 }),
+      ).toBe(false);
+      const fresh = start(200, freshGate.promise);
+      try {
+        expect(
+          hasPendingAgentWake(conversationId, undefined, { startedAfter: 200 }),
+        ).toBe(true);
+        oldGate.resolve();
+        await older;
+        expect(
+          hasPendingAgentWake(conversationId, undefined, { startedAfter: 200 }),
+        ).toBe(true);
+      } finally {
+        freshGate.resolve();
+        await fresh;
+      }
+    } finally {
+      oldGate.resolve();
+      await older;
+    }
+    expect(hasPendingAgentWake(conversationId)).toBe(false);
+    expect(
+      hasPendingAgentWake(conversationId, undefined, { startedAfter: 200 }),
+    ).toBe(false);
+  });
+
   test("disabled disk pressure flag allows background wakes to pass through", async () => {
     const conversation = makeWakeConversation({
       scriptedAssistant: null,

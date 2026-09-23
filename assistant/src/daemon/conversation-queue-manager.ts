@@ -70,8 +70,10 @@ export interface QueuedMessage {
   dequeueAnnounced?: boolean;
 }
 
+export type TurnWorkOrigin = Pick<QueuedMessage, "sentAt" | "metadata">;
+
 export interface QueuedDispatch {
-  readonly controller?: AbortController;
+  readonly controller: AbortController;
   readonly messages: readonly QueuedMessage[];
 }
 

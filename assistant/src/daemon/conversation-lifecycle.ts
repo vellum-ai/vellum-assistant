@@ -309,7 +309,7 @@ function discardQueueOnAbort(
 /** Cancel only the scheduled firing's queued continuations and active turn. */
 export function abortScheduledRun(ctx: AbortContext, runId: string): void {
   for (const dispatch of ctx.pendingQueuedDispatches?.get(runId) ?? []) {
-    dispatch.controller?.abort(
+    dispatch.controller.abort(
       createAbortReason("schedule_timeout", "scheduler", ctx.conversationId),
     );
   }
@@ -333,26 +333,32 @@ export function abortConversation(
       "abortConversation:default",
       ctx.conversationId,
     );
+  const preservedDispatches = isUserInterruptAbort(effectiveReason)
+    ? new Set(
+        [...(ctx.pendingQueuedDispatches?.get(null) ?? [])].filter((dispatch) =>
+          dispatch.messages.some(
+            (message) =>
+              message.metadata?.automated !== true &&
+              !isSuppressedQueuedMessage(message.metadata),
+          ),
+        ),
+      )
+    : new Set<QueuedDispatch>();
   if (effectiveReason.kind !== "schedule_timeout") {
     for (const dispatches of ctx.pendingQueuedDispatches?.values() ?? []) {
       for (const dispatch of dispatches) {
-        dispatch.controller?.abort(effectiveReason);
+        if (!preservedDispatches.has(dispatch)) {
+          dispatch.controller.abort(effectiveReason);
+        }
       }
     }
   }
   // A dequeued user prompt stays queued work until its dispatch starts the loop.
   if (
-    isUserInterruptAbort(effectiveReason) &&
-    [...(ctx.pendingQueuedDispatches?.get(null) ?? [])].some(
-      (dispatch) =>
-        dispatch.messages.some(
-          (message) => message.requestId === ctx.currentRequestId,
-        ) &&
-        dispatch.messages.some(
-          (message) =>
-            message.metadata?.automated !== true &&
-            !isSuppressedQueuedMessage(message.metadata),
-        ),
+    [...preservedDispatches].some((dispatch) =>
+      dispatch.messages.some(
+        (message) => message.requestId === ctx.currentRequestId,
+      ),
     )
   ) {
     return;

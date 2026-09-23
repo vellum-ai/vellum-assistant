@@ -76,7 +76,10 @@ import type { AuthContext } from "../runtime/auth/types.js";
 import { INTERRUPTED_TURN_NOTE_TEXT } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import type { ConversationModeSessionCoordinator } from "./conversation-mode-session.js";
-import type { MessageQueue } from "./conversation-queue-manager.js";
+import type {
+  MessageQueue,
+  TurnWorkOrigin,
+} from "./conversation-queue-manager.js";
 import type { SlackInboundMessageMetadata } from "./handlers/shared.js";
 import type { UserMessageAttachment } from "./message-protocol.js";
 import { actorAuthorProvenance } from "./message-provenance.js";
@@ -236,6 +239,7 @@ export interface MessagingConversationContext {
   releaseProcessing(owner: number): boolean;
   abortController: AbortController | null;
   currentTurnCronRunId?: string | null;
+  currentTurnWorkOrigins?: readonly TurnWorkOrigin[];
   currentRequestId?: string;
   currentActiveSurfaceId?: string;
   readonly modeSessions?: Pick<
@@ -1125,6 +1129,15 @@ export async function persistUserMessage(
   const controller = new AbortController();
   ctx.abortController = controller;
   ctx.currentTurnCronRunId = options.cronRunId ?? null;
+  ctx.currentTurnWorkOrigins = [
+    {
+      sentAt:
+        typeof options.metadata?.sentAt === "number"
+          ? options.metadata.sentAt
+          : Date.now(),
+      metadata: options.metadata,
+    },
+  ];
   const abort = () => controller.abort(options.signal?.reason);
   options.signal?.addEventListener("abort", abort, { once: true });
 
@@ -1161,6 +1174,7 @@ export async function persistUserMessage(
       ctx.currentRequestId = undefined;
       ctx.currentTurnClientMessageId = undefined;
       ctx.currentTurnCronRunId = undefined;
+      ctx.currentTurnWorkOrigins = undefined;
     }
     return result;
   } catch (err) {
@@ -1182,6 +1196,7 @@ export async function persistUserMessage(
     ctx.currentRequestId = undefined;
     ctx.currentTurnClientMessageId = undefined;
     ctx.currentTurnCronRunId = undefined;
+    ctx.currentTurnWorkOrigins = undefined;
     throw err;
   } finally {
     options.signal?.removeEventListener("abort", abort);
