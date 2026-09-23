@@ -1380,6 +1380,38 @@ describe("GET /v1/conversations, conversationType=all", () => {
     ]);
   });
 
+  test("files a done row by when it was marked done when that is later than its last message", async () => {
+    const recent = createConversation("recent-foreground");
+    const doneLater = createConversation("old-chat-marked-done-later");
+    const doneEarlier = createConversation("old-chat-done-before-a-reply");
+    setLastMessageAt(recent.id, 2000);
+    setLastMessageAt(doneLater.id, 1000);
+    setLastMessageAt(doneEarlier.id, 1500);
+    rawRun(
+      "test:markDone",
+      "UPDATE conversations SET archived_at = ? WHERE id = ?",
+      3000,
+      doneLater.id,
+    );
+    rawRun(
+      "test:markDone",
+      "UPDATE conversations SET archived_at = ? WHERE id = ?",
+      500,
+      doneEarlier.id,
+    );
+
+    const result = (await invoke({
+      conversationType: "all",
+      archiveStatus: "all",
+    })) as ListResponse;
+
+    expect(result.conversations.map((c) => c.title)).toEqual([
+      "old-chat-marked-done-later",
+      "recent-foreground",
+      "old-chat-done-before-a-reply",
+    ]);
+  });
+
   test("excludes legacy private rows and subagent runs", async () => {
     createConversation("foreground-1");
     const legacyPrivate = createConversation("legacy-private");

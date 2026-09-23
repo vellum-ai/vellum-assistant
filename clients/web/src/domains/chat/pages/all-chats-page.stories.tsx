@@ -27,6 +27,7 @@ import type {
   Conversation,
   ConversationGroup,
 } from "@/types/conversation-types";
+import { compareByRecency } from "@/utils/conversation-order";
 
 /** The instant the bands are measured against, so the headings never move. */
 const NOW = new Date(2026, 8, 18, 14, 30);
@@ -76,7 +77,7 @@ const DAY_OFFSETS = [
 
 const CHANNELS = ["vellum", "slack", "telegram", "email"];
 
-const HISTORY: Conversation[] = DAY_OFFSETS.map((offset, index) => {
+const DAILY_HISTORY: Conversation[] = DAY_OFFSETS.map((offset, index) => {
   const channel = CHANNELS[index % CHANNELS.length];
   return {
     conversationId: `conv-${index + 1}`,
@@ -93,6 +94,20 @@ const HISTORY: Conversation[] = DAY_OFFSETS.map((offset, index) => {
     ...(index % 11 === 5 ? { groupId: "group-house" } : {}),
   };
 });
+
+/* An old chat marked done this afternoon. Marking done is activity, so it
+   leads Today rather than sitting in the month it was last written to. */
+const HISTORY: Conversation[] = [
+  ...DAILY_HISTORY,
+  {
+    conversationId: "conv-done-today",
+    title: "Passport renewal checklist",
+    lastMessageAt: daysAgo(40, 9),
+    createdAt: daysAgo(41),
+    originChannel: "vellum",
+    archivedAt: daysAgo(0, 14),
+  },
+];
 
 const BACKGROUND: Conversation[] = [
   {
@@ -115,9 +130,8 @@ const BACKGROUND: Conversation[] = [
   },
 ];
 
-const CONVERSATIONS = [...HISTORY, ...BACKGROUND].sort(
-  (a, b) => (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0),
-);
+/** In the order the daemon pages them. */
+const CONVERSATIONS = [...HISTORY, ...BACKGROUND].sort(compareByRecency);
 
 /**
  * The row callbacks, as the chat layout wires them. The real page hands the

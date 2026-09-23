@@ -38,7 +38,7 @@ import {
   ALL_HISTORY_FILTER,
   type ConversationListFilter,
 } from "@/utils/conversation-list-keys";
-import { byTimestampDesc } from "@/utils/conversation-order";
+import { compareByRecency } from "@/utils/conversation-order";
 
 function noop(): void {}
 
@@ -147,7 +147,7 @@ export function useAllChatsData(
           archived.conversations,
           assistantThreads.conversations,
         ),
-      ].sort(byTimestampDesc("lastMessageAt")),
+      ].sort(compareByRecency),
     [
       foreground.conversations,
       background.conversations,
@@ -155,6 +155,15 @@ export function useAllChatsData(
       archived.conversations,
       assistantThreads.conversations,
     ],
+  );
+
+  /* Re-sorted on read: marking a row done patches it in place in this cache,
+     and marking done is activity, so the row has to lead the list the moment
+     it is marked rather than when the settle's refetch returns. Stable, so
+     rows the patch did not touch keep the server's order. */
+  const combinedRows = useMemo(
+    () => [...combined.conversations].sort(compareByRecency),
+    [combined.conversations],
   );
 
   const extendList = useCallback(
@@ -233,7 +242,7 @@ export function useAllChatsData(
   }
 
   return {
-    conversations: combined.conversations,
+    conversations: combinedRows,
     hasMore: combined.hasMore,
     loadMore,
     isLoading: combined.isLoading,

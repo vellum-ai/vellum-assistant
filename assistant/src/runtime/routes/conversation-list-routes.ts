@@ -632,7 +632,7 @@ export const ROUTES: RouteDefinition[] = [
         type: "string",
         required: false,
         description:
-          'Filter by conversation type. Pass "background" to list background and scheduled conversations together (the back-compat umbrella), "scheduled" to list only scheduled conversations, or "all" for the union of the standard listing and that umbrella, so one paginated cursor spans every type. Combine "all" with archiveStatus=all for a whole-history read; rows are recency-ordered (COALESCE(last_message_at, updated_at) descending) like every other list read, and pinned rows are never appended to it.',
+          'Filter by conversation type. Pass "background" to list background and scheduled conversations together (the back-compat umbrella), "scheduled" to list only scheduled conversations, or "all" for the union of the standard listing and that umbrella, so one paginated cursor spans every type. Combine "all" with archiveStatus=all for a whole-history read; rows are ordered by last activity (the later of the last message and the time the row was marked done, descending) like every other list read, and pinned rows are never appended to it.',
         schema: {
           type: "string",
           enum: ["background", "scheduled", "all"],
@@ -662,7 +662,7 @@ export const ROUTES: RouteDefinition[] = [
         type: "string",
         required: false,
         description:
-          'Filter to a single group, so each sidebar section can load independently of the paginated list. Pass "system:all" for conversations in no group, "system:pinned" for the Pinned section, or a custom group id. A group-scoped request is recency-ordered like every list read (COALESCE(last_message_at, updated_at) descending) and never has pinned rows appended to it. Omit to span every group.',
+          'Filter to a single group, so each sidebar section can load independently of the paginated list. Pass "system:all" for conversations in no group, "system:pinned" for the Pinned section, or a custom group id. A group-scoped request is ordered by last activity like every list read (the later of the last message and the time the row was marked done, descending) and never has pinned rows appended to it. Omit to span every group.',
       },
       {
         name: "needsAttention",

@@ -5,8 +5,10 @@ import { listPage } from "@/utils/conversation-list.test-helper";
 
 import {
   activeConversationsByRecency,
+  compareByRecency,
   insertByRecency,
   insertIntoWindow,
+  lastActivityAt,
 } from "./conversation-order";
 
 function row(conversationId: string, lastMessageAt: number): Conversation {
@@ -33,6 +35,43 @@ describe("activeConversationsByRecency", () => {
     activeConversationsByRecency(rows);
 
     expect(rows.map((c) => c.conversationId)).toEqual(["older", "newest"]);
+  });
+});
+
+describe("compareByRecency", () => {
+  test("files a done row by when it was marked done", () => {
+    const rows = [
+      row("recent", 2_000),
+      { ...row("marked-done-now", 1_000), archivedAt: 3_000 },
+      { ...row("replied-after-done", 1_500), archivedAt: 500 },
+    ];
+
+    expect(rows.sort(compareByRecency).map((c) => c.conversationId)).toEqual([
+      "marked-done-now",
+      "recent",
+      "replied-after-done",
+    ]);
+  });
+});
+
+describe("lastActivityAt", () => {
+  test("is the last message for an active row", () => {
+    expect(lastActivityAt(row("active", 2_000))).toBe(2_000);
+  });
+
+  test("is the later of the last message and the done time", () => {
+    expect(lastActivityAt({ ...row("done", 1_000), archivedAt: 3_000 })).toBe(
+      3_000,
+    );
+    expect(lastActivityAt({ ...row("done", 4_000), archivedAt: 3_000 })).toBe(
+      4_000,
+    );
+  });
+
+  test("is undefined for a draft with neither", () => {
+    expect(
+      lastActivityAt({ lastMessageAt: undefined, archivedAt: undefined }),
+    ).toBeUndefined();
   });
 });
 

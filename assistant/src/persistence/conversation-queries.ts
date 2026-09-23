@@ -138,6 +138,19 @@ function archiveStatusClause(status: ArchiveStatusFilter) {
 }
 
 /**
+ * A conversation's last activity, the key every list read is ordered on: its
+ * latest message (its last update, for a row with no messages yet) or the
+ * moment it was marked done, whichever is later. Marking a chat done is
+ * something the user did to it, so a done chat files under the day it was
+ * marked done rather than the day it was last written to. An active row has
+ * no `archived_at`, so for every active listing this is plain message recency.
+ *
+ * SQLite's multi-argument `MAX` is NULL when any argument is, hence the
+ * `COALESCE` on each side.
+ */
+const lastActivitySql = sql`MAX(COALESCE(${conversations.lastMessageAt}, ${conversations.updatedAt}), COALESCE(${conversations.archivedAt}, 0))`;
+
+/**
  * Raw SQL predicate for "visible in the standard (Recents) listing".
  *
  * Shared by the `"standard"` bucket of {@link conversationTypeClause} (list +
@@ -532,9 +545,7 @@ export function listConversations(
   ensureGroupMigration();
   const db = getDb();
   const { limit, offset = 0, ...filter } = query;
-  const recency = desc(
-    sql`COALESCE(${conversations.lastMessageAt}, ${conversations.updatedAt})`,
-  );
+  const recency = desc(lastActivitySql);
   // `id` closes the ordering so the sort is a total order. Rows tied on every
   // preceding key would otherwise have no defined relative order, which
   // becomes duplicated and skipped rows once a cursor pages across a tie
@@ -654,11 +665,7 @@ export function listPinnedConversations(
         ...(archiveCond ? [archiveCond] : []),
       ),
     )
-    .orderBy(
-      desc(
-        sql`COALESCE(${conversations.lastMessageAt}, ${conversations.updatedAt})`,
-      ),
-    );
+    .orderBy(desc(lastActivitySql));
   return query.all().map(parseConversation);
 }
 

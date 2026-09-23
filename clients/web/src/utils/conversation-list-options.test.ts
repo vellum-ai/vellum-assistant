@@ -148,12 +148,15 @@ describe("conversationListOptions", () => {
     ]);
   });
 
-  test("the archived bucket orders by archivedAt, not recency", async () => {
+  test("the archived bucket orders by last activity, message or done", async () => {
+    // Neither axis alone gives this order: by message it would lead with
+    // "replied-after-done", by done time "replied-after-done" would be last.
     stubPages([
       {
         rows: [
-          { id: "recent-msg", lastMessageAt: 900, archivedAt: 10 },
-          { id: "recent-archive", lastMessageAt: 100, archivedAt: 20 },
+          { id: "older-reply", lastMessageAt: 500, archivedAt: 15 },
+          { id: "replied-after-done", lastMessageAt: 900, archivedAt: 10 },
+          { id: "marked-done-last", lastMessageAt: 100, archivedAt: 950 },
         ],
         hasMore: false,
       },
@@ -164,8 +167,9 @@ describe("conversationListOptions", () => {
     );
 
     expect(result.conversations.map((c) => c.conversationId)).toEqual([
-      "recent-archive",
-      "recent-msg",
+      "marked-done-last",
+      "replied-after-done",
+      "older-reply",
     ]);
   });
 

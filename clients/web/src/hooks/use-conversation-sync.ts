@@ -209,10 +209,9 @@ function scheduleConversationListRefetch(
         });
       },
     );
-    // The archived lists stay on plain invalidation: they order by
-    // `archivedAt` while the window refresh merges on a recency axis, and
-    // they are mounted only while the archive view is open, so invalidation
-    // refetches nothing until then. Groups are a single unpaginated GET.
+    // The archived lists stay on plain invalidation: they are mounted only
+    // while the archive view is open, so invalidation refetches nothing
+    // until then. Groups are a single unpaginated GET.
     void queryClient.invalidateQueries(
       conversationListQueryFilter(assistantId, isArchivedFilter),
     );

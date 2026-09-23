@@ -68,6 +68,7 @@ import {
   type DateBucketId,
 } from "@/utils/bucket-by-date";
 import { ChannelIcon, getChannelLabel } from "@/utils/channel-presentation";
+import { lastActivityAt } from "@/utils/conversation-order";
 import { useDisplayConversationTitle } from "@/utils/conversation-title";
 import { isPointerCoarse } from "@/utils/pointer";
 
@@ -122,11 +123,12 @@ function bandLabel(
 }
 
 /**
- * The instant a row is filed under: its last message, falling back to when it
- * was created, which is what a chat with no messages yet has.
+ * The instant a row is filed under: its last activity (the later of its last
+ * message and when it was marked done), falling back to when it was created,
+ * which is what a chat with no messages yet has.
  */
 function rowTime(conversation: Conversation): number | undefined {
-  return conversation.lastMessageAt ?? conversation.createdAt;
+  return lastActivityAt(conversation) ?? conversation.createdAt;
 }
 
 /**
