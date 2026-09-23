@@ -432,6 +432,8 @@ export const messageMetadataSchema = z
      * treat message text as organic user input.
      */
     hidden: z.boolean().optional(),
+    /** A hidden voice continuation trigger whose finished reply can raise a push. */
+    voiceContinuationResult: z.boolean().optional(),
     /**
      * Marks a role-`"user"` row that opened a live phone or in-app voice turn.
      * Test with {@link isVoiceSessionUserMessage}, which documents why the

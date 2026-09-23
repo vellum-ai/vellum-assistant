@@ -3608,7 +3608,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           const outcome: VoiceTaskOutcome = {
             taskId: `voice-continuation:${turn.turnId}`,
             message: buildContinuationResult(interruptedRequest, answer),
-            metadata: { hidden: true },
+            metadata: { hidden: true, voiceContinuationResult: true },
             source: "continuation",
           };
           accepted = this.receiveTaskOutcome(outcome);

@@ -3708,7 +3708,7 @@ describe("LiveVoiceSession server VAD", () => {
     expect(message).toContain("THE_RESULT");
     expect(message).toContain("[Background work finished]");
     expect(message).toContain("first question");
-    expect(metadata).toEqual({ hidden: true });
+    expect(metadata).toEqual({ hidden: true, voiceContinuationResult: true });
   });
 
   test("closing during an active announcement delivers the result into the conversation", async () => {
@@ -3746,7 +3746,7 @@ describe("LiveVoiceSession server VAD", () => {
     expect(message).toContain("THE_RESULT");
     expect(message).toContain("[Background work finished]");
     expect(message).toContain("first question");
-    expect(metadata).toEqual({ hidden: true });
+    expect(metadata).toEqual({ hidden: true, voiceContinuationResult: true });
   });
 
   test("a continuation finishing after the room closes stays hidden in the conversation", async () => {
@@ -3776,7 +3776,7 @@ describe("LiveVoiceSession server VAD", () => {
       injectMessageIntoParentMock.mock.calls[0] ?? [];
     expect(conversationId).toBe("conversation-123");
     expect(message).toContain("THE_RESULT");
-    expect(metadata).toEqual({ hidden: true });
+    expect(metadata).toEqual({ hidden: true, voiceContinuationResult: true });
   });
 
   test("a speculative user reply preserves the pending announcement", async () => {
