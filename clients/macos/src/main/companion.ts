@@ -33,6 +33,7 @@ import {
 } from "./main-window";
 
 configureCompanionWindow({
+  platform: "darwin",
   prefersReducedMotion: () =>
     systemPreferences.getAnimationSettings().prefersReducedMotion,
   microphoneGranted: () =>

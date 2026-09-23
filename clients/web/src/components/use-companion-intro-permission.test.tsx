@@ -48,9 +48,13 @@ let setupSupported = false;
 const cancelGuide = mock(() => undefined);
 const beginGuide = mock(async (kind: SystemPermissionKind) => current[kind]);
 const foreground = mock(async () => undefined);
-const frontmost = mock(async (): Promise<string | null> => "com.example.vellum");
+let frontmostSupported = true;
+const frontmost = mock(
+  async (): Promise<string | null> => "com.example.vellum",
+);
 mock.module("@/runtime/running-apps", () => ({
   frontmostApp: frontmost,
+  supportsFrontmostApp: () => frontmostSupported,
 }));
 mock.module("@/runtime/main-window", () => ({
   ensureMainWindowVisible: foreground,
@@ -79,6 +83,7 @@ const { useCompanionIntroPermission, companionIntroNeedsPermission } =
   await import("./use-companion-intro-permission");
 
 beforeEach(() => {
+  frontmostSupported = true;
   setupSupported = false;
   beginGuide.mockClear();
   cancelGuide.mockClear();
@@ -335,6 +340,24 @@ describe("companion tour permission setup", () => {
     await known(view);
     expect(foreground).toHaveBeenCalledTimes(1);
   });
+  test.each(["try", "share"] as const)(
+    "%s returns after a grant when the shell cannot query the foreground app",
+    async (beat) => {
+      frontmostSupported = false;
+      current = permissions("denied");
+      current.screen.canRequest = false;
+      const view = setup(beat);
+      await known(view);
+      act(() => view.result.current?.enable());
+      await known(view);
+      expect(foreground).not.toHaveBeenCalled();
+      await act(async () => listener?.(permissions("granted")));
+      expect(foreground).toHaveBeenCalledTimes(1);
+      expect(frontmost).not.toHaveBeenCalled();
+      await act(async () => listener?.(permissions("granted")));
+      expect(foreground).toHaveBeenCalledTimes(1);
+    },
+  );
   test("closes the drag guide before returning after a fresh permission read", async () => {
     jest.useFakeTimers();
     setupSupported = true;

@@ -12,7 +12,7 @@ import {
 } from "@/runtime/permission-setup";
 import { captureError } from "@/lib/sentry/capture-error";
 import { ensureMainWindowVisible } from "@/runtime/main-window";
-import { frontmostApp } from "@/runtime/running-apps";
+import { frontmostApp, supportsFrontmostApp } from "@/runtime/running-apps";
 import {
   getSystemPermissionsState,
   openSystemPermissionSettings,
@@ -23,7 +23,9 @@ import {
 } from "@/runtime/system-permissions";
 
 export type CompanionIntroPermissionKind =
-  "microphone" | "inputMonitoring" | "screen";
+  | "microphone"
+  | "inputMonitoring"
+  | "screen";
 type CompanionIntroPermissionState =
   | { phase: "checking" | "requesting" | "error" }
   | { phase: "known"; item: SystemPermissionStateItem };
@@ -59,7 +61,8 @@ export function companionIntroNeedsPermission(
   return (
     permission !== null &&
     (permission.state.phase !== "known" ||
-      permission.state.item.status !== "granted")
+      (permission.state.item.status !== "granted" &&
+        permission.state.item.status !== "not-applicable"))
   );
 }
 
@@ -95,12 +98,13 @@ export function useCompanionIntroPermission(
       checkingReturn = true;
       try {
         // The grant can precede Settings' Quit & Reopen confirmation.
-        const frontmost = await frontmostApp();
+        const canCheckFrontmost = supportsFrontmostApp();
+        const frontmost = canCheckFrontmost ? await frontmostApp() : null;
         if (
           !active ||
           pending ||
           returnToApp !== "ready" ||
-          frontmost === null ||
+          (canCheckFrontmost && frontmost === null) ||
           frontmost === "com.apple.systempreferences" ||
           frontmost === "com.apple.SecurityAgent"
         ) {
@@ -110,7 +114,9 @@ export function useCompanionIntroPermission(
         cancelPermissionGuide();
         await ensureMainWindowVisible();
       } catch (error) {
-        captureError(error, { context: "companionIntro.resumeAfterPermission" });
+        captureError(error, {
+          context: "companionIntro.resumeAfterPermission",
+        });
       } finally {
         checkingReturn = false;
       }

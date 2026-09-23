@@ -128,6 +128,7 @@ const resetState = () => {
  * a bridge that only ever answers once cannot express it.
  */
 const listeners = new Set<(state: CompanionSurfaceState) => void>();
+const pointerListeners = new Set<(point: { x: number; y: number }) => void>();
 
 /**
  * Push a state to the mounted page, inside `act` so React settles.
@@ -147,6 +148,12 @@ const pushState = (state: CompanionSurfaceState = { ...STATE }) => {
 
 mock.module("@/runtime/companion-surface", () => ({
   getCompanionState: async () => STATE,
+  subscribeCompanionPointer: (
+    listener: (point: { x: number; y: number }) => void,
+  ) => {
+    pointerListeners.add(listener);
+    return () => pointerListeners.delete(listener);
+  },
   subscribeCompanionState: (
     listener: (state: CompanionSurfaceState) => void,
   ) => {
@@ -2540,4 +2547,23 @@ describe("the microphone picker on the call's bar", () => {
     });
     expect(chevronOf(container, "Choose microphone")).toBeNull();
   });
+});
+
+test("native cursor positions arm the surface and release the transparent canvas", async () => {
+  const { container, unmount } = render(<CompanionSurfacePage />);
+  await pinSurface(container);
+  act(() => {
+    for (const listener of pointerListeners) {
+      listener({ x: 120, y: 120 });
+    }
+  });
+  expect(setInteractiveMock).toHaveBeenLastCalledWith(true);
+  act(() => {
+    for (const listener of pointerListeners) {
+      listener({ x: 20, y: 20 });
+    }
+  });
+  expect(setInteractiveMock).toHaveBeenLastCalledWith(false);
+  unmount();
+  expect(pointerListeners.size).toBe(0);
 });

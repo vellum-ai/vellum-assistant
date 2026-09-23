@@ -1,3 +1,4 @@
+import { protectCompanionWindow } from "./companion-platform";
 import type { BrowserWindow, Rectangle } from "electron";
 
 import {
@@ -287,6 +288,7 @@ const openPopoverWindow = (): BrowserWindow => {
       backgroundColor: "#00000000",
     },
   });
+  protectCompanionWindow(win);
   win.hide();
   win.on("closed", () => {
     measured = null;

@@ -71,7 +71,7 @@ status are recorded in the canonical
 
 | macOS concept                                           | Windows equivalent                                                                                                                 |
 | ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `companion`, `voiceActivity` (companion surface)        | None. The shell opens no floating companion window; the renderer feature-detects both keys.                                        |
+
 | `helper.hotkey.setModifierHold` (the voice key: Fn held to dictate, double-tapped for a call) | `helper.hotkey.setVoiceModeChord`: the voice mode shortcut's bare-modifier chord, registered with the helper's keyboard hook (`main/features/voice-mode-chord.ts`). |
 | Dock badge and bounce                                   | Taskbar overlay icon and attention flash (`main/taskbar.ts`).                                                                      |
 | Share sheet                                             | Native Save As dialog (`main/features/share.ts`).                                                                                  |
@@ -79,3 +79,30 @@ status are recorded in the canonical
 | `permissions.setup` | macOS-only companion coachmark guides for helper-bundle drops into System Settings. Windows retains its existing permission prompts and Settings links. |
 | Accessibility, Input Monitoring, Automation permissions | No Windows permission concept; the rows are hidden on a Windows host.                                                              |
 | Notarization and stapling                               | Authenticode signatures, verified at release time.                                                                                 |
+
+## Companion surface
+
+Windows and macOS compose the controller, capture picker, popovers, preload bridge,
+and point-at executor from `packages/electron-desktop`. Windows installs them in
+`main/features/companion.ts` and `preload/features/companion.ts`. The companion follows
+assistant sign-in, survives hiding the app, carries the live call and dictation
+state, and exposes show/hide, size, and replay-intro controls through the tray.
+
+Windows uses Electron display/window capture and native window enumeration, with
+physical-pixel bounds converted to Electron DIPs. Browser windows are selectable;
+individual Chrome tabs require macOS AppleScript and are not listed on Windows.
+The native input hook observes coachmark presses and scroll completion while drawing.
+Named coachmarks use the existing bounded UI Automation snapshot reader. Unavailable
+or ambiguous controls return a refusal rather than guessed coordinates.
+
+A visible Windows companion samples the cursor because native click-through mouse
+forwarding is unreliable. The renderer performs the same hit test used on macOS,
+including expanding controls and cards. Companion windows are excluded from capture.
+The introduction treats Input Monitoring as not applicable and opens Windows privacy
+Settings for microphone and screen access. macOS helper-drag permission guides remain
+macOS-specific.
+
+Native smoke coverage: hover and drag the avatar between monitors at different DPI,
+minimize/restore the main window, replay the intro, place/end a call, share a display
+and a window, draw then scroll, and press an assistant coachmark. Run on both supported
+Windows architectures before release.

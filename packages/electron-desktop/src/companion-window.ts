@@ -1,3 +1,4 @@
+import { protectCompanionWindow } from "./companion-platform";
 import {
   BrowserWindow,
   Menu,
@@ -16,6 +17,7 @@ import {
   companionCapturePickSchema,
   companionContextSchema,
   COMPANION_DICTATION_OFFER_MAX,
+  DEFAULT_COMPANION_SIZE,
   COMPANION_SET_UNPLACED_DICTATION_OFFER,
   companionPickerSchema,
   companionPopoverAnswerSchema,
@@ -373,7 +375,7 @@ let cardGrowth: CompanionCardGrowth = "up";
  * a fact about where the window is put, and the renderer has to be told it to
  * draw the bar the way the window was placed for.
  */
-let dock: CompanionDock = readCompanionCallDock();
+let dock: CompanionDock = "bottom";
 
 /**
  * The edge a call's drag would drop the bar on if the hand let go now, or
@@ -411,8 +413,8 @@ let dockDragTravel = 0;
  * running, and the canvas a side dock needs is the call's alone.
  */
 let geometry: CompanionGeometry = geometryFor(
-  readCompanionSize("avatar"),
-  readCompanionSize("options"),
+  DEFAULT_COMPANION_SIZE,
+  DEFAULT_COMPANION_SIZE,
 );
 
 /**
@@ -2164,6 +2166,18 @@ const FRAME_DRAW_TIMEOUT_MS = 3000;
  * than the moment the mode ends. Left key across a scroll the frame stepped
  * aside for, since the mode is still on and the mouse is coming back.
  */
+const raiseCompanionControls = (): void => {
+  if (platform().platform !== "win32") {
+    return;
+  }
+  for (const kind of [COMPANION_KIND, POPOVER_KIND]) {
+    const window = getFloatingWindow(kind);
+    if (window?.isVisible()) {
+      window.moveTop();
+    }
+  }
+};
+
 const applyFrameMouse = (): void => {
   const frame = getFloatingWindow(WATCH_FRAME_KIND);
   if (frame === null) {
@@ -2184,6 +2198,7 @@ const applyFrameMouse = (): void => {
   // draw must stay off it. `revealFrame` runs this again.
   if (frame !== frameAwaitingDraw) {
     frame.focus();
+    raiseCompanionControls();
   }
 };
 
@@ -2810,6 +2825,7 @@ const placeWatchFrame = (bounds: Rectangle): void => {
       enableLargerThanScreen: true,
     },
   });
+  protectCompanionWindow(win);
   win.setAlwaysOnTop(true, "floating", -1);
   awaitFrameDraw(win);
   // A frame opened while the mode is already on is one the user is expecting
@@ -2868,6 +2884,7 @@ const revealFrame = (win: BrowserWindow): void => {
   // Key status is lent with a `focus` that would have shown the window
   // early, so a mode that was on when this frame opened takes it now.
   applyFrameMouse();
+  raiseCompanionControls();
 };
 
 /**
@@ -3214,6 +3231,7 @@ const readyDockZones = (bounds: Rectangle): BrowserWindow => {
       backgroundColor: "#00000000",
     },
   });
+  protectCompanionWindow(win);
   // Under the surface being dragged over it, so the bar is never hidden by
   // the edge it is about to land on.
   win.setAlwaysOnTop(true, "floating", -1);
@@ -3565,6 +3583,12 @@ export const installCompanionWindow = (): void => {
     return;
   }
   installed = true;
+  // Resolve storage after the shell selects its release-channel userData path.
+  dock = readCompanionCallDock();
+  geometry = geometryFor(
+    readCompanionSize("avatar"),
+    readCompanionSize("options"),
+  );
 
   platform().on(
     "vellum:companion:setInteractive",
@@ -4548,6 +4572,15 @@ export const installCompanionWindow = (): void => {
     appActive = true;
     syncFrontmost();
   });
+  app.on("browser-window-blur", (_event, win) => {
+    if (
+      platform().platform === "win32" &&
+      win === platform().currentMainWindow()
+    ) {
+      appActive = false;
+      syncFrontmost();
+    }
+  });
   // The app's window being shown, put away or closed moves the answer without
   // the app's activation changing at all: a window hidden from the tray leaves
   // Vellum active with nothing of its own on screen.
@@ -4690,6 +4723,7 @@ export const openCompanionWindow = (): void => {
       // background instead, as the dictation overlay does.
     },
   });
+  protectCompanionWindow(win);
 
   refreshGrowth();
   win.on("move", refreshGrowth);

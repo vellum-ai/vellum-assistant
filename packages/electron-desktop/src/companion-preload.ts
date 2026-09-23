@@ -54,6 +54,18 @@ export const createCompanionBridge = (
     },
   },
   companion: {
+    onPointerPosition: (callback) => {
+      const handler = (
+        _event: IpcRendererEvent,
+        point: { x: number; y: number },
+      ) => callback(point);
+      ipcRenderer.on("vellum:companion:pointer", handler);
+      ipcRenderer.send("vellum:companion:watchPointer", true);
+      return () => {
+        ipcRenderer.off("vellum:companion:pointer", handler);
+        ipcRenderer.send("vellum:companion:watchPointer", false);
+      };
+    },
     getState: (): Promise<CompanionSurfaceState | null> =>
       ipcRenderer.invoke(
         "vellum:companion:getState",

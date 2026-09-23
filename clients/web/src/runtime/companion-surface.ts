@@ -558,3 +558,9 @@ export function advanceCompanionIntro(action: CompanionIntroAction): void {
 export function showCompanionContextMenu(): void {
   bridge()?.showContextMenu?.();
 }
+
+export function subscribeCompanionPointer(
+  callback: (point: { x: number; y: number }) => void,
+): () => void {
+  return bridge()?.onPointerPosition?.(callback) ?? (() => {});
+}

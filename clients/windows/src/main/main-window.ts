@@ -33,6 +33,15 @@ const TITLE_BAR_HEIGHT = 44;
 
 let mainWindow: BrowserWindow | null = null;
 let isQuitting = false;
+const visibilityListeners = new Set<() => void>();
+export const onMainWindowVisibilityChange = (listener: () => void): void => {
+  visibilityListeners.add(listener);
+};
+const fireVisibilityChange = (): void => {
+  for (const listener of visibilityListeners) {
+    listener();
+  }
+};
 let currentTitle = DEFAULT_WINDOW_TITLE;
 
 const readiness = createWindowReadiness<BrowserWindow>();
@@ -59,10 +68,7 @@ const installSameOriginNavigationGuard = (win: BrowserWindow): void => {
 };
 
 const createMainWindow = (): BrowserWindow => {
-  const { maximized, ...bounds } = restoreBounds(
-    "main",
-    MAIN_DEFAULT_BOUNDS,
-  );
+  const { maximized, ...bounds } = restoreBounds("main", MAIN_DEFAULT_BOUNDS);
   const overlay = readTitleBarOverlayTheme();
   if (overlay) {
     syncNativeColorScheme(overlay.colorScheme);
@@ -110,10 +116,15 @@ const createMainWindow = (): BrowserWindow => {
     win.hide();
   });
 
+  win.on("show", fireVisibilityChange);
+  win.on("hide", fireVisibilityChange);
+  win.on("minimize", fireVisibilityChange);
+  win.on("restore", fireVisibilityChange);
   win.on("closed", () => {
     ready.release();
     if (mainWindow === win) {
       mainWindow = null;
+      fireVisibilityChange();
     }
   });
 
@@ -255,13 +266,9 @@ export const installMainWindow = (): void => {
   handle(MAIN_WINDOW_ENSURE_VISIBLE, z.tuple([]), async () => {
     await ensureVisible();
   });
-  handle(
-    MAIN_WINDOW_SET_ONBOARDING,
-    z.tuple([z.boolean()]),
-    ([active]) => {
-      setOnboarding(active);
-    },
-  );
+  handle(MAIN_WINDOW_SET_ONBOARDING, z.tuple([z.boolean()]), ([active]) => {
+    setOnboarding(active);
+  });
   handle(
     MAIN_WINDOW_SET_TITLE_BAR_OVERLAY,
     z.tuple([titleBarOverlayThemeSchema]),

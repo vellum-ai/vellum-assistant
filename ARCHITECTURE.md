@@ -815,11 +815,18 @@ With Flux turn detection enabled, microphone audio passes through for one second
 
 ## Desktop Companion
 
-The floating companion controller, popover, capture-source model, preload bridge,
-and coachmark executor live in `packages/electron-desktop`. The macOS composition
-adapters supply IPC validation, main-window lifecycle, permissions, capture, and
-native input observation. The shared modules keep the existing renderer contracts
-and persisted companion settings.
+The macOS and Windows shells share the floating companion controller, popover,
+capture-source model, preload bridge, and coachmark executor in
+`packages/electron-desktop`. Platform adapters supply IPC validation, main-window
+lifecycle, capture, permissions, and native input observation. The renderer and
+persisted companion settings use the same contracts on both platforms.
+
+Windows enumerates native windows through its helper, converts physical bounds to
+Electron DIPs, and captures selected sources with Electron. Its mouse hook feeds
+coachmark presses and drawing scroll completion. Cursor sampling supplies hover
+coordinates to the renderer while the transparent companion is click-through.
+Companion canvases are excluded from capture. Chrome tab enumeration and helper-drag
+permission setup remain macOS integrations.
 
 ## macOS Companion Tour Permissions
 

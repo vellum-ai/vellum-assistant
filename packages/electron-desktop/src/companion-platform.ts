@@ -12,6 +12,7 @@ export interface CoachmarkPressRect {
 }
 
 export interface CompanionPlatform {
+  platform: "darwin" | "win32";
   handle: IpcHandle;
   on: IpcOn;
   log: Pick<Console, "warn" | "info" | "error">;
@@ -48,3 +49,9 @@ const configuration =
   createModuleConfiguration<CompanionPlatform>("Companion window");
 export const configureCompanionWindow = configuration.configure;
 export const companionPlatform = configuration.get;
+
+export const protectCompanionWindow = (window: BrowserWindow): void => {
+  if (configuration.get().platform === "win32") {
+    window.setContentProtection(true);
+  }
+};
