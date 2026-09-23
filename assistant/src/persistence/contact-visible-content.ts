@@ -14,7 +14,10 @@
 
 import { MessageAudienceSchema } from "@vellumai/gateway-client";
 
-import { readProviderMetadata } from "../messaging/read-provider-metadata.js";
+import {
+  readChannelDeletedAt,
+  readProviderMetadata,
+} from "../messaging/read-provider-metadata.js";
 import type {
   ContentBlock,
   TextContent,
@@ -205,9 +208,9 @@ function contactVisibleBlock(
 /**
  * The blocks of a stored row that a contact may read, in order. A row that is
  * internal scaffolding, restricted to another reader, or whose metadata cannot
- * be read projects to nothing. So do a deliberate silence and a reaction:
- * their only content is a stored sentinel, which clients never render as
- * text.
+ * be read projects to nothing. So do a deliberate silence and a reaction,
+ * whose only content is a stored sentinel, and a message deleted on its
+ * channel, whose row keeps the original only for audit.
  *
  * Reasoning is dropped on every row, whether or not it carries the `private`
  * marker. That marker only decides whether the model's plain text was a
@@ -220,16 +223,16 @@ export function projectRowForContact(
   reader: ContactReader,
 ): ContactVisibleBlock[] {
   const metadata = metadataRecord(row.metadata);
+  if (metadata === null) {
+    return [];
+  }
+  const metadataJson =
+    typeof row.metadata === "string" ? row.metadata : JSON.stringify(metadata);
   if (
-    metadata === null ||
     isEchoSuppressedUserMessage(metadata) ||
     isNoResponseMetadata(metadata) ||
-    isReactionRow(
-      metadata,
-      typeof row.metadata === "string"
-        ? row.metadata
-        : JSON.stringify(metadata),
-    ) ||
+    isReactionRow(metadata, metadataJson) ||
+    readChannelDeletedAt(metadataJson) !== undefined ||
     !audienceAdmits(metadata, reader)
   ) {
     return [];

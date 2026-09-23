@@ -5,6 +5,7 @@ import {
   buildReactionRowEnvelope,
   buildSlackReactionMeta,
 } from "../../messaging/reaction-envelopes.js";
+import { mergeProviderMessageMetadata } from "../../messaging/read-provider-metadata.js";
 import type { ContentBlock } from "../../providers/types.js";
 import {
   type ContactReader,
@@ -321,6 +322,60 @@ describe("projectRowForContact", () => {
       expect(
         projectRowForContact({ role: "user", content, metadata }, ALICE),
       ).toEqual([]);
+    });
+  });
+
+  describe("provider message state", () => {
+    const content: ContentBlock[] = [
+      { type: "text", text: "Original text" },
+      { type: "image", source: REFERENCE_SOURCE },
+    ];
+    const seed = {
+      source: "telegram",
+      conversationExternalId: "chat-1",
+      messageId: "msg-1",
+    } as const;
+
+    test("drops a message deleted on its channel", () => {
+      const metadata = JSON.stringify({
+        providerMeta: mergeProviderMessageMetadata(null, seed, {
+          deletedAt: 1,
+        }),
+      });
+      for (const role of ["user", "assistant"]) {
+        expect(
+          projectRowForContact({ role, content, metadata }, ALICE),
+        ).toEqual([]);
+      }
+    });
+
+    test("drops a Slack message deleted on its channel", () => {
+      const metadata = {
+        slackMeta: writeSlackMetadata({
+          source: "slack",
+          channelId: "C1",
+          channelTs: "1.0",
+          eventKind: "message",
+          deletedAt: 1,
+        }),
+      };
+      expect(
+        projectRowForContact({ role: "user", content, metadata }, ALICE),
+      ).toEqual([]);
+    });
+
+    test("shows the current text of an edited message", () => {
+      const metadata = JSON.stringify({
+        providerMeta: mergeProviderMessageMetadata(null, seed, {
+          editedAt: 1,
+        }),
+      });
+      expect(
+        projectRowForContact({ role: "user", content, metadata }, ALICE),
+      ).toEqual([
+        { type: "text", text: "Original text" },
+        { type: "image", source: REFERENCE_SOURCE },
+      ]);
     });
   });
 

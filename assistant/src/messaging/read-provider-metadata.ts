@@ -53,6 +53,21 @@ export function readProviderMetadata(
 }
 
 /**
+ * When the row's message was deleted on its channel, or undefined when it was
+ * not. The stored row keeps its content for audit, so any reader that shows a
+ * row must check this first. The substring guard keeps the envelope parse off
+ * rows that cannot carry the marker.
+ */
+export function readChannelDeletedAt(
+  metadata: string | null | undefined,
+): number | undefined {
+  if (!metadata?.includes("deletedAt")) {
+    return undefined;
+  }
+  return readProviderMetadata(metadata)?.deletedAt;
+}
+
+/**
  * Merge an edit or delete stamp into a row's serialized metadata, producing
  * the neutral envelope to store back under `providerMeta`.
  *

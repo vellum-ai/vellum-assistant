@@ -42,7 +42,7 @@ import type {
   ConversationDeletedInputContext,
   MessageDeletedInputContext,
 } from "../hooks/types.js";
-import { readProviderMetadata } from "../messaging/read-provider-metadata.js";
+import { readChannelDeletedAt } from "../messaging/read-provider-metadata.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import { forkConversationMemory } from "../plugins/defaults/memory/fork-conversation-memory.js";
 import { indexMessageNow } from "../plugins/defaults/memory/indexer.js";
@@ -634,14 +634,10 @@ export function isStandaloneAssistantMessage(
  * True when the row was deleted on its channel after it was stored. The
  * marker lives in the provider envelope rather than in `messageKind`, so a
  * merged run would take the anchor's envelope and either drop the deletion
- * or claim it over text that is still visible. The substring guard keeps the
- * envelope parse off rows that cannot carry it.
+ * or claim it over text that is still visible.
  */
 function isChannelDeletedMetadata(metadata: string): boolean {
-  return (
-    metadata.includes("deletedAt") &&
-    readProviderMetadata(metadata)?.deletedAt !== undefined
-  );
+  return readChannelDeletedAt(metadata) !== undefined;
 }
 
 /**
