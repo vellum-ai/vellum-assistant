@@ -42,7 +42,7 @@ function paginationStub(): HistoryPaginationResult {
     isSuccess: false,
     isError: false,
     error: null,
-    canQueryDaemon: true,
+    daemonGate: "open",
     hasMore: false,
     isFetchingOlderPages: false,
     isFetching: false,

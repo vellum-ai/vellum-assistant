@@ -11,6 +11,7 @@ import { __resetForTesting, publish } from "@/lib/event-bus";
 import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { ApiError } from "@/utils/api-errors";
+import type { OrgHeaderReadiness } from "@/hooks/use-is-org-ready";
 
 const realHistoryApi = await import("@/domains/chat/api/history");
 const fetchLatestHistoryPage = mock(
@@ -39,6 +40,14 @@ const realOperationalStatus = await import("@/assistant/operational-status");
 mock.module("@/assistant/operational-status", () => ({
   ...realOperationalStatus,
   useAssistantIsServing: () => podIsServing,
+}));
+
+let orgReadiness: OrgHeaderReadiness = "ready";
+const realOrgReady = await import("@/hooks/use-is-org-ready");
+mock.module("@/hooks/use-is-org-ready", () => ({
+  ...realOrgReady,
+  useOrgHeaderReadiness: () => orgReadiness,
+  useIsOrgReady: () => orgReadiness === "ready",
 }));
 
 const { useConversationHistory } = await import(
@@ -98,6 +107,7 @@ function resume() {
 
 beforeEach(() => {
   podIsServing = true;
+  orgReadiness = "ready";
   __resetForTesting();
   __setResumeGraceMsForTesting(DEFAULT_RESUME_GRACE_MS);
   queryClient = new QueryClient({ defaultOptions: { queries: { gcTime: 0 } } });
@@ -258,7 +268,7 @@ describe("useConversationHistory while the assistant is waking", () => {
     });
 
     expect(fetchLatestHistoryPage).not.toHaveBeenCalled();
-    expect(result.current.pagination.canQueryDaemon).toBe(false);
+    expect(result.current.pagination.daemonGate).toBe("waiting");
     expect(currentError()).toBeNull();
     expect(isLoadingHistory()).toBe(true);
   });
@@ -350,6 +360,35 @@ describe("useConversationHistory while the assistant is waking", () => {
 
     await waitFor(() => expect(result.current.pagination.isSuccess).toBe(true));
     expect(currentError()).toBeNull();
+    expect(isLoadingHistory()).toBe(false);
+  });
+
+  test("does not fetch older pages while the pod is not serving", async () => {
+    fetchLatestHistoryPage.mockImplementation(async () => ({
+      ...page(),
+      hasMore: true,
+      oldestTimestamp: 1_000,
+    }));
+    const { result, rerender } = renderHistory();
+    await waitFor(() => expect(result.current.pagination.hasMore).toBe(true));
+
+    podIsServing = false;
+    rerender();
+    act(() => result.current.pagination.fetchOlderPage());
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(fetchOlderHistoryPage).not.toHaveBeenCalled();
+  });
+
+  test("fails the initial load when org resolution is unavailable", async () => {
+    orgReadiness = "unavailable";
+    const { result } = renderHistory();
+
+    await waitFor(() => expect(currentError()?.message).toBe(HISTORY_ERROR));
+    expect(result.current.pagination.daemonGate).toBe("unavailable");
+    expect(fetchLatestHistoryPage).not.toHaveBeenCalled();
     expect(isLoadingHistory()).toBe(false);
   });
 });
