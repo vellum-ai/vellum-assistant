@@ -379,6 +379,18 @@ describe("projectRowForContact", () => {
     });
   });
 
+  test("drops rows whose role is not user or assistant", () => {
+    const content: ContentBlock[] = [
+      { type: "text", text: "Context for the model" },
+      { type: "image", source: REFERENCE_SOURCE },
+    ];
+    for (const role of ["system", "tool", ""]) {
+      expect(
+        projectRowForContact({ role, content, metadata: null }, ALICE),
+      ).toEqual([]);
+    }
+  });
+
   test("drops a row whose metadata cannot be read", () => {
     const content: ContentBlock[] = [{ type: "text", text: "Hello" }];
     expect(

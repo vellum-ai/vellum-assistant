@@ -206,11 +206,12 @@ function contactVisibleBlock(
 }
 
 /**
- * The blocks of a stored row that a contact may read, in order. A row that is
- * internal scaffolding, restricted to another reader, or whose metadata cannot
- * be read projects to nothing. So do a deliberate silence and a reaction,
- * whose only content is a stored sentinel, and a message deleted on its
- * channel, whose row keeps the original only for audit.
+ * The blocks of a stored row that a contact may read, in order. Only user and
+ * assistant rows are read at all. A row that is internal scaffolding,
+ * restricted to another reader, or whose metadata cannot be read projects to
+ * nothing. So do a deliberate silence and a reaction, whose only content is a
+ * stored sentinel, and a message deleted on its channel, whose row keeps the
+ * original only for audit.
  *
  * Reasoning is dropped on every row, whether or not it carries the `private`
  * marker. That marker only decides whether the model's plain text was a
@@ -222,6 +223,9 @@ export function projectRowForContact(
   row: StoredRowForContact,
   reader: ContactReader,
 ): ContactVisibleBlock[] {
+  if (row.role !== "user" && row.role !== "assistant") {
+    return [];
+  }
   const metadata = metadataRecord(row.metadata);
   if (metadata === null) {
     return [];
