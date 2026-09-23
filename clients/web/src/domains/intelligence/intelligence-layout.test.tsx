@@ -7,12 +7,11 @@
  * (`/assistant/identity`) and the personality page render bare — they own
  * their full-bleed stage chrome — so no back link or heading appears.
  *
- * On mobile the title moves into the shared top-bar center slot (via
- * `setTopBarCenter`): the section label on section pages; the bare pages
- * set no title (the stage greeting already names the assistant). Library and
- * Contacts instead publish the complete mobile bar through `setMobileTopBar`,
- * and back to that section's list while the page reports a pushed detail
- * screen through `intelligence-layout-slots-store`.
+ * On mobile every section publishes the complete bar through
+ * `setMobileTopBar` instead, and backs to that section's list while the page
+ * reports a pushed detail screen through `intelligence-layout-slots-store`.
+ * The personality stage takes that bar too; the overview is the root and
+ * takes none.
  *
  * `useIsMobile` and the slots-store setter are mocked; the assistant name
  * is driven through the real identity store. `MemoryRouter` satisfies the
@@ -140,28 +139,23 @@ describe("IntelligenceLayout — section pages", () => {
     expect(heading.parentElement!.contains(action)).toBe(true);
   });
 
-  test("on mobile, registers the section label as the top-bar title", () => {
-    isMobileRef.value = true;
-    renderLayoutAt("/assistant/workspace");
-
-    const lastCall = setTopBarCenterMock.mock.calls.at(-1);
-    const node = lastCall?.[0];
-    expect(isValidElement(node)).toBe(true);
-    expect(renderToStaticMarkup(node as React.ReactElement)).toContain(
-      "Workspace",
-    );
-  });
-
   test.each([
-    { section: "Library", path: "/assistant/library", action: "Import" },
-    { section: "Contacts", path: "/assistant/contacts", action: "Add" },
+    { section: "Schedules", path: "/assistant/schedules" },
+    { section: "My Superpowers", path: "/assistant/superpowers" },
+    { section: "My Superpowers", path: "/assistant/plugins" },
+    { section: "My Superpowers", path: "/assistant/skills" },
+    { section: "Memory", path: "/assistant/memory" },
+    { section: "Library", path: "/assistant/library" },
+    { section: "Workspace", path: "/assistant/workspace" },
+    { section: "Contacts", path: "/assistant/contacts" },
+    { section: "Channels", path: "/assistant/channels" },
   ])(
-    "on mobile, $section registers one back, title, and action top bar",
-    ({ section, path, action }) => {
+    "on mobile, $path registers one back, title, and action top bar",
+    ({ section, path }) => {
       isMobileRef.value = true;
       useIntelligenceLayoutSlotsStore
         .getState()
-        .setHeaderTrailing(<button type="button">{action}</button>);
+        .setHeaderTrailing(<button type="button">Action</button>);
       const { container } = renderLayoutAt(path);
 
       const slot = lastMobileTopBar();
@@ -171,9 +165,11 @@ describe("IntelligenceLayout — section pages", () => {
       ).toContain(section);
       expect(
         renderToStaticMarkup(slot?.trailing as React.ReactElement),
-      ).toContain(action);
+      ).toContain("Action");
       expect(isValidElement(slot?.leading)).toBe(true);
-      expect(slotProps(slot?.leading).shape).toBe("pill");
+      expect(slotProps(slot?.leading).ariaLabel).toBe("Back to Ada");
+      expect(slotProps(slot?.leading).to).toBe("/assistant/identity");
+      // The body heading row would be a second back control, so it is gone.
       expect(container.querySelector("h1")).toBeNull();
       expect(container.querySelector("a")).toBeNull();
       expect(setTopBarCenterMock).toHaveBeenLastCalledWith(null);
@@ -186,12 +182,11 @@ describe("IntelligenceLayout — section pages", () => {
     renderLayoutAt("/assistant/contacts/c_1");
 
     const leading = slotProps(lastMobileTopBar()?.leading);
-    expect(leading["aria-label"]).toBe("Back to Contacts");
+    expect(leading.ariaLabel).toBe("Back to Contacts");
     expect(typeof leading.onClick).toBe("function");
-    // A plain button, not `asChild` around a <Link>, so nothing navigates
-    // before the pop-or-replace decision is made.
-    expect(leading.children).toBeUndefined();
-    expect(leading.asChild).toBeUndefined();
+    // A handler rather than a destination, so nothing navigates before the
+    // pop-or-replace decision is made.
+    expect(leading.to).toBeUndefined();
   });
 
   /**
@@ -215,12 +210,9 @@ describe("IntelligenceLayout — section pages", () => {
       renderLayoutAt(path);
 
       const leading = slotProps(lastMobileTopBar()?.leading);
-      expect(leading["aria-label"]).toBe("Back to Ada");
-      expect(leading.asChild).toBe(true);
+      expect(leading.ariaLabel).toBe("Back to Ada");
+      expect(leading.to).toBe("/assistant/identity");
       expect(leading.onClick).toBeUndefined();
-      expect(slotProps(leading.children as React.ReactNode).to).toBe(
-        "/assistant/identity",
-      );
     },
   );
 
@@ -232,24 +224,9 @@ describe("IntelligenceLayout — section pages", () => {
     renderLayoutAt("/assistant/contacts/c_1");
 
     const leading = slotProps(lastMobileTopBar()?.leading);
-    expect(leading["aria-label"]).toBe("Back to Ada");
-    expect(leading.asChild).toBe(true);
+    expect(leading.ariaLabel).toBe("Back to Ada");
+    expect(leading.to).toBe("/assistant/identity");
     expect(leading.onClick).toBeUndefined();
-    expect(slotProps(leading.children as React.ReactNode).to).toBe(
-      "/assistant/identity",
-    );
-  });
-
-  test("on mobile, Channels still registers only its title", () => {
-    isMobileRef.value = true;
-    renderLayoutAt("/assistant/channels");
-
-    expect(setMobileTopBarMock).toHaveBeenLastCalledWith(null);
-    const node = setTopBarCenterMock.mock.calls.at(-1)?.[0];
-    expect(isValidElement(node)).toBe(true);
-    expect(renderToStaticMarkup(node as React.ReactElement)).toContain(
-      "Channels",
-    );
   });
 
   test("on desktop, clears the top-bar center", () => {
@@ -286,17 +263,37 @@ describe("IntelligenceLayout — bare pages (overview, personality)", () => {
     expect(container.querySelector("a")).toBeNull();
   });
 
-  test("on mobile, the overview sets no top-bar title", () => {
+  test("on mobile, the overview is the root and publishes no bar", () => {
     isMobileRef.value = true;
     renderLayoutAt("/assistant/identity");
 
+    expect(setMobileTopBarMock).toHaveBeenLastCalledWith(null);
     expect(setTopBarCenterMock).toHaveBeenLastCalledWith(null);
   });
 
-  test("on mobile, the personality page sets no top-bar title", () => {
+  /**
+   * The stage is full-bleed and no section, but it is one drill-down below
+   * the overview, so the header carries its Back. The other half of that
+   * split lives in `personality-page.test.tsx`, which pins the stage itself
+   * at zero back controls on mobile.
+   */
+  test("on mobile, the personality stage takes the back pill and its label", () => {
     isMobileRef.value = true;
     renderLayoutAt("/assistant/personality");
 
+    const slot = lastMobileTopBar();
+    expect(slot).toBeDefined();
+    expect(renderToStaticMarkup(slot?.center as React.ReactElement)).toContain(
+      "Personality",
+    );
+    expect(slotProps(slot?.leading).to).toBe("/assistant/identity");
+    expect(slotProps(slot?.leading).ariaLabel).toBe("Back to Ada");
+  });
+
+  test("on desktop, the personality stage publishes no bar", () => {
+    renderLayoutAt("/assistant/personality");
+
+    expect(setMobileTopBarMock).toHaveBeenLastCalledWith(null);
     expect(setTopBarCenterMock).toHaveBeenLastCalledWith(null);
   });
 });

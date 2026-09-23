@@ -709,6 +709,35 @@ describe("syncAvatarToPlatform", () => {
     expect(patches).toHaveLength(1);
   });
 
+  test("an older rendering spec re-uploads the same avatar once", async () => {
+    mockResvgAvailable = true;
+    syncAvatarToPlatform();
+    await settle();
+    const current = JSON.parse(readFileSync(syncStatePath, "utf-8"));
+    const previous = {
+      ...current,
+      key: current.key.replace(
+        `:${NOTIFICATION_AVATAR_SPEC_VERSION}:`,
+        `:${NOTIFICATION_AVATAR_SPEC_VERSION - 1}:`,
+      ),
+    };
+    expect(previous.key).not.toBe(current.key);
+    writeFileSync(syncStatePath, JSON.stringify(previous));
+
+    _resetSyncAvatarStateForTests();
+    syncAvatarToPlatform();
+    await settle();
+    _resetSyncAvatarStateForTests();
+    syncAvatarToPlatform();
+    await settle();
+
+    expect(patches).toHaveLength(2);
+    expect(patches[1].body.notification_avatar_base64).toBeDefined();
+    expect(JSON.parse(readFileSync(syncStatePath, "utf-8")).key).toBe(
+      current.key,
+    );
+  });
+
   test("a restart re-uploads when the destination or raster changed", async () => {
     syncAvatarToPlatform();
     await settle();

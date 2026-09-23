@@ -957,6 +957,19 @@ describe("emitAssistantReplyNotification", () => {
     });
   }
 
+  test("pushes the reply to a hidden voice continuation result", async () => {
+    initiatingRow = makeMessage({
+      metadata: JSON.stringify({
+        hidden: true,
+        voiceContinuationResult: true,
+      }),
+    });
+
+    await run();
+
+    expect(emitCalls).toHaveLength(1);
+  });
+
   // A pointer turn fact-checks the rows it generated only after the turn ends
   // and deletes them when validation fails, so a push at turn end would have
   // already carried a call outcome the deterministic fallback then replaces.

@@ -143,6 +143,10 @@ mock.module("../../persistence/conversation-crud.js", () => ({
   recordConversationPersistedSeq: () => {},
 }));
 
+import {
+  clearHubClients,
+  registerHubClient,
+} from "../../__tests__/helpers/hub-clients.js";
 import { setConfig } from "../../__tests__/helpers/set-config.js";
 import type { PreparedModelCall } from "../../agent/loop.js";
 import { selectWinningProfile } from "../../config/llm-resolver.js";
@@ -2326,21 +2330,30 @@ describe("front-door leg tool suppression", () => {
 });
 
 describe("desktop skill preactivation", () => {
+  afterEach(() => clearHubClients(assistantEventHub));
+
   async function preactivatedFor(turn: Record<string, unknown>): Promise<{
     skillIds: string[];
     proxyInterfaces: unknown[];
     skillIdsDuringLoop: string[];
+    promptDuringLoop: string | null;
   }> {
     const skillIds: string[] = [];
     const proxyInterfaces: unknown[] = [];
     let skillIdsDuringLoop: string[] = [];
+    let prompt: string | null = null;
+    let promptDuringLoop: string | null = null;
     const fake = makeFakeConversation({
       processing: false,
       runAgentLoop: async () => {
         skillIdsDuringLoop = [...skillIds];
+        promptDuringLoop = prompt;
       },
     });
     Object.assign(fake.conversation, {
+      setVoiceCallControlPrompt: (value: string | null) => {
+        prompt = value;
+      },
       addPreactivatedSkillId: (id: string) => {
         skillIds.push(id);
       },
@@ -2356,8 +2369,59 @@ describe("desktop skill preactivation", () => {
       ...turn,
     });
     await flushMicrotasks();
-    return { skillIds, proxyInterfaces, skillIdsDuringLoop };
+    return { skillIds, proxyInterfaces, skillIdsDuringLoop, promptDuringLoop };
   }
+
+  test("a shared-screen turn receives the annotation instructions and schemas before inference", async () => {
+    registerHubClient({
+      hub: assistantEventHub,
+      clientId: "annotation-client",
+      interfaceId: "macos",
+      actorPrincipalId: "user-123",
+      capabilities: ["host_cu", "host_cu_annotate"],
+    });
+    const result = await preactivatedFor({
+      routingLeg: "escalated",
+      macosDesktopSession: true,
+      screenSharing: true,
+      actorPrincipalId: "user-123",
+    });
+    expect(result.skillIdsDuringLoop).toContain("screen-annotation");
+    expect(result.promptDuringLoop).toContain("ID: screen-annotation");
+    expect(result.promptDuringLoop).toContain(
+      "Use the picture when names cannot identify the control.",
+    );
+    expect(result.promptDuringLoop).toContain("screen_point_at");
+    expect(result.promptDuringLoop).toContain("screen_clear_marks");
+    expect(result.promptDuringLoop).toContain('"target"');
+    expect(result.promptDuringLoop).toContain("skill_execute");
+  });
+
+  test.each([
+    { screenSharing: false },
+    { actorPrincipalId: "other-user" },
+    { routingLeg: "front-door" },
+    { macosDesktopSession: false },
+  ])(
+    "does not preload annotation for an ineligible turn: %j",
+    async (override) => {
+      registerHubClient({
+        hub: assistantEventHub,
+        clientId: "annotation-client",
+        interfaceId: "macos",
+        actorPrincipalId: "user-123",
+        capabilities: ["host_cu", "host_cu_annotate"],
+      });
+      const result = await preactivatedFor({
+        routingLeg: "escalated",
+        macosDesktopSession: true,
+        screenSharing: true,
+        actorPrincipalId: "user-123",
+        ...override,
+      });
+      expect(result.promptDuringLoop).not.toContain("ID: screen-annotation");
+    },
+  );
 
   test("an escalated leg of a macOS desktop session starts with computer use active", async () => {
     const result = await preactivatedFor({
@@ -2423,6 +2487,18 @@ describe("cutFrontDoorContentAtVerdict", () => {
     expect(cut?.spokenText).toBe("");
   });
 
+  test("a terminal verdict split across blocks preserves all released speech", () => {
+    const bridge = "Let me check. I will highlight the Rotate control.";
+    const cut = cutFrontDoorContentAtVerdict([
+      { type: "text", text: `${bridge} [` },
+      { type: "text", text: "ESCALATE] " },
+    ]);
+    expect(cut).toEqual({
+      blocks: [{ type: "text", text: bridge }],
+      spokenText: bridge,
+    });
+  });
+
   test("stray verdict tokens inside an answer are stripped, not treated as escalation", () => {
     const cut = cutFrontDoorContentAtVerdict([
       { type: "text", text: "It is Tuesday [0] indeed." },
@@ -2449,7 +2525,7 @@ describe("front-door hub stream gate", () => {
    * `deltas` in order, then ends the leg with `finalEvent`.
    */
   function makeStreamingConversation(
-    deltas: string[],
+    deltas: readonly string[],
     finalEvent:
       | "message_complete"
       | "generation_cancelled" = "message_complete",
@@ -2533,6 +2609,22 @@ describe("front-door hub stream gate", () => {
     expect(texts.join("")).toBe("It is Tuesday, and it is sunny.");
   });
 
+  test("a terminal escalation never broadcasts marker fragments", async () => {
+    makeStreamingConversation([
+      "I will highlight it.",
+      " [",
+      "ESC",
+      "ALATE",
+      "]",
+    ]);
+
+    const texts = await collectBroadcastText(() =>
+      startVoiceTurn({ ...makeTurnOptions(), routingLeg: "front-door" }),
+    );
+
+    expect(texts).toEqual(["I will highlight it.", " "]);
+  });
+
   test("an answer waits on the escalation judge before reaching the hub", async () => {
     let openGate!: () => void;
     judgeEscalationGate = new Promise<void>((resolve) => {
@@ -2556,9 +2648,12 @@ describe("front-door hub stream gate", () => {
     }
   });
 
-  test("an overruled answer never reaches the hub", async () => {
+  test.each([
+    { deltas: ["Yeah okay, ", "I'll do it."] },
+    { deltas: ["[ASK_GUARDIAN:"] },
+  ])("an overruled answer never reaches the hub: %j", async ({ deltas }) => {
     judgeEscalationVerdict = true;
-    makeStreamingConversation(["Yeah okay, ", "I'll do it."]);
+    makeStreamingConversation(deltas);
 
     const texts = await collectBroadcastText(async () => {
       const handle = await startVoiceTurn({

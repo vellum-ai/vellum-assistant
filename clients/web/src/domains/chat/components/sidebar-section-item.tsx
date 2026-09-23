@@ -24,17 +24,13 @@
  * reload like the section's open state does.
  */
 
-import { useEffect, useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { useNavigate } from "react-router";
-import { useReducedMotion } from "motion/react";
 
 import type { CollapsibleNavSectionDrag } from "@/components/collapsible-nav-section";
 import { AssistantSectionEmptyState } from "@/domains/chat/components/assistant-section-empty-state";
+import { ChatsSectionEmptyState } from "@/domains/chat/components/chats-section-empty-state";
 import { useConversationListContext } from "@/domains/chat/components/conversation-list-context";
-import {
-  SectionDoneFlashProvider,
-  useSectionDoneFlash,
-} from "@/domains/chat/components/section-done-flash";
 import { SectionViewAllLink } from "@/domains/chat/components/section-view-all-link";
 import {
   saveExpandedSections,
@@ -47,9 +43,9 @@ import {
 } from "@/domains/chat/components/group-actions-menu";
 import { useSidebarDoneEnabled } from "@/utils/done-labels";
 import {
-  oldChatsSearchFor,
-  type OldChatsFilter,
-} from "@/domains/chat/utils/old-chats-filters";
+  allChatsSearchFor,
+  type AllChatsFilter,
+} from "@/domains/chat/utils/all-chats-filters";
 import type { SidebarSection } from "@/domains/chat/use-sidebar-state";
 import { useSectionConversations } from "@/domains/chat/use-section-conversations";
 import { sectionIcon } from "@/domains/chat/utils/sidebar-section-icon";
@@ -67,20 +63,13 @@ import { cn } from "@vellumai/design-library";
 const ASSISTANT_SECTION_MAX_HEIGHT = 5 * 30 + 4 * 4;
 
 /**
- * How long the header's trailing cluster stays painted after a row in the
- * section is marked done, so the flash on "View all chats" is visible with
- * the pointer still down on the row rather than up on the header.
- */
-const DONE_FLASH_HOLD_MS = 420;
-
-/**
- * Where a section's "View all chats" goes: the Old chats page, narrowed to
+ * Where a section's "View all chats" goes: the All chats page, narrowed to
  * that section. `pinned` and `assistant` get none. Pinned is the user's own
  * curation rather than a slice of the history, and the assistant's section is
  * a byline, not a bucket, so neither names a view of the page.
  */
 export function viewAllHrefFor(section: SidebarSection): string | null {
-  const filter = ((): OldChatsFilter | null => {
+  const filter = ((): AllChatsFilter | null => {
     switch (section.type) {
       case "recents":
         return { kind: "all" };
@@ -94,7 +83,7 @@ export function viewAllHrefFor(section: SidebarSection): string | null {
   })();
   return filter === null
     ? null
-    : `${routes.oldChats}${oldChatsSearchFor(filter)}`;
+    : `${routes.allChats}${allChatsSearchFor(filter)}`;
 }
 
 export interface SidebarSectionItemProps {
@@ -131,19 +120,7 @@ export interface SidebarSectionItemProps {
   isLast?: boolean;
 }
 
-/**
- * The flash a row marked done sends this header is section-scoped, so the
- * provider stands above the card and the card reads it from inside.
- */
-export function SidebarSectionItem(props: SidebarSectionItemProps) {
-  return (
-    <SectionDoneFlashProvider>
-      <SidebarSectionCardWithMenu {...props} />
-    </SectionDoneFlashProvider>
-  );
-}
-
-function SidebarSectionCardWithMenu({
+export function SidebarSectionItem({
   section,
   assistantId,
   groupMenu: buildGroupMenu,
@@ -151,30 +128,12 @@ function SidebarSectionCardWithMenu({
   collapsedIndicator,
   isLast,
 }: SidebarSectionItemProps) {
-  const { conversations, hasMore, loadMore, getAllRows } =
+  const { conversations, hasMore, resolved, loadMore, getAllRows } =
     useSectionConversations(assistantId, section);
   const isAssistantSection = section.type === "assistant";
   const { overlayCards } = useConversationListContext();
   const sidebarDone = useSidebarDoneEnabled();
   const navigate = useNavigate();
-  const reduceMotion = useReducedMotion();
-  const { count: doneFlashCount } = useSectionDoneFlash();
-  const [holdsReveal, setHoldsReveal] = useState(false);
-
-  /* The icon is a hover affordance, and the pointer is on the row that just
-     left, so the cluster is held up for the length of the flash. Reduced
-     motion asks for no flash at all, so there is nothing to hold up for. */
-  useEffect(() => {
-    if (doneFlashCount === 0 || reduceMotion) {
-      return;
-    }
-    setHoldsReveal(true);
-    const timer = window.setTimeout(
-      () => setHoldsReveal(false),
-      DONE_FLASH_HOLD_MS,
-    );
-    return () => window.clearTimeout(timer);
-  }, [doneFlashCount, reduceMotion]);
 
   /* Where the section's whole history lives. The icon in the header is a
      hover affordance, so a device that cannot hover gets the same
@@ -323,7 +282,6 @@ function SidebarSectionCardWithMenu({
       }
       groupMenu={groupMenu}
       collapsedIndicator={collapsedIndicator?.(conversations, section)}
-      revealHold={holdsReveal}
       drag={drag}
       // Pinned collapses like every other section (one component, one
       // behavior; its open state defaults open and persists like the
@@ -340,15 +298,18 @@ function SidebarSectionCardWithMenu({
       onExpandedChange={onExpandedChange}
       items={conversations}
       onEndReached={hasMore ? loadMore : undefined}
-      /* The only section that renders at zero, so the only one with anything
-         to say there. `ConversationNavSection` resolves this as
+      /* The two sections that render at zero, so the two with anything to
+         say there. Chats says it only once its own read has answered: before
+         that, an empty stand-in is not an empty section. `ConversationNavSection` resolves this as
          `children ?? <ConversationRowList/>`, so it has to be exactly
          `undefined` in every other case or a section would lose its rows to
          an empty node. Passed as a prop rather than as a JSX child for that
          reason: it keeps the absent case unambiguous. */
       children={
-        isAssistantSection && conversations.length === 0 ? (
+        conversations.length > 0 ? undefined : isAssistantSection ? (
           <AssistantSectionEmptyState />
+        ) : section.type === "recents" && resolved ? (
+          <ChatsSectionEmptyState viewAllHref={viewAllHref} />
         ) : undefined
       }
     />

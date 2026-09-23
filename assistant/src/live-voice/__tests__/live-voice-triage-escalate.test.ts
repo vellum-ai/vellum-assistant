@@ -217,7 +217,7 @@ describe("live-voice triage-and-escalate routing", () => {
 
   test("tricky turn: the escalate verdict hands off to a second quality leg", async () => {
     const { starter } = scriptedStartVoiceTurn({
-      frontDoor: ["[1] ", "Let me think about that."],
+      frontDoor: ["[ESCALATE] ", "Let me think about that."],
       escalated: ["The detailed answer is 42."],
     });
     const { frames, session } = createHarness(starter);
@@ -492,6 +492,42 @@ describe("live-voice triage-and-escalate routing", () => {
     );
     expect(spokenText(frames)).toContain("Give me a moment");
   });
+
+  test.each([
+    "I will highlight the Rotate control on your screen.",
+    "Let me highlight that control",
+  ])(
+    "a terminal verdict hands off without repeating speech: %s",
+    async (bridge) => {
+      const { starter } = scriptedStartVoiceTurn({
+        frontDoor: [bridge, " [", "ESCALATE", "]"],
+        escalated: ["The control is highlighted."],
+      });
+      const speech: string[] = [];
+      const { frames, session } = createHarness(starter, {
+        streamTtsAudio: async (options) => {
+          speech.push(options.text);
+          return {
+            provider: "fish-audio",
+            contentType: "audio/pcm",
+            sampleRate: 24_000,
+            chunks: 0,
+            bytes: 0,
+          };
+        },
+      });
+
+      await driveTurn(session);
+      await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+      expect(starter).toHaveBeenCalledTimes(2);
+      expect(starter.mock.calls[1]?.[0]?.routingLeg).toBe("escalated");
+      expect(starter.mock.calls[1]?.[0]?.spokenEscalationBridge).toBe(bridge);
+      expect(spokenText(frames)).toBe(`${bridge} The control is highlighted.`);
+      expect(speech).toEqual([bridge, "The control is highlighted."]);
+      await session.close("client_end");
+    },
+  );
 
   test("the escalated leg receives the front-door leg's actual spoken bridge", async () => {
     const { starter } = scriptedStartVoiceTurn({

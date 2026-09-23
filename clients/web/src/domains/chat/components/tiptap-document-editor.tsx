@@ -408,7 +408,10 @@ export function TiptapDocumentEditor({
   return (
     <div className={cn("flex flex-col", className)}>
       <style>{editorStyles}</style>
-      <EditorContent editor={editor} className="flex-1 overflow-y-auto" />
+      <EditorContent
+        editor={editor}
+        className="flex flex-1 flex-col overflow-y-auto"
+      />
       {editor && editable ? (
         <BubbleMenu editor={editor} updateDelay={100}>
           <BubbleToolbar
@@ -435,6 +438,8 @@ const editorStyles = /* css */ `
     color: var(--content-default, #1a1a1a);
     padding: 24px 32px;
     outline: none;
+    /* Fill the pane so a click anywhere below short content places the caret. */
+    flex: 1 0 auto;
   }
   .tiptap:focus {
     outline: none;

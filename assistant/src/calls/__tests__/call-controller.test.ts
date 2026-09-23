@@ -4355,6 +4355,24 @@ describe("call-controller", () => {
       controller.destroy();
     });
 
+    test("a terminal verdict hands off without repeating the streamed bridge", async () => {
+      const bridge = "Let me check that.";
+      const { calls } = scriptLegs([
+        [bridge, " [", "ESCALATE", "]"],
+        ["The answer is 42."],
+      ]);
+      const { relay, controller } = setupController();
+
+      await controller.handleCallerUtterance("What is six times seven?");
+
+      expect(calls).toHaveLength(2);
+      expect(calls[1].routingLeg).toBe("escalated");
+      expect(calls[1].spokenEscalationBridge).toBe(bridge);
+      expect(spokenText(relay)).toBe(`${bridge} The answer is 42.`);
+      expect(relay.sentTokens.filter((t) => t.last)).toHaveLength(1);
+      controller.destroy();
+    });
+
     test("a bare escalate verdict speaks the canned bridge, audio-only", async () => {
       const { calls } = scriptLegs([["[1]"], ["Forty-two."]]);
       const { session, relay, controller } = setupController();

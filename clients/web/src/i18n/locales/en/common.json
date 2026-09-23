@@ -156,7 +156,7 @@
       "close": "Close",
       "previewLabel": "Your desktop companion",
       "previewAssistantName": "Quill",
-      "start": "Start the tour",
+      "start": "Let’s go",
       "title": "Meet me where you work"
     },
     "ariaLabel": "Introducing your companion",
@@ -440,6 +440,11 @@
     "discard": "Discard",
     "save": "Save",
     "saving": "Saving…"
+  },
+  "fileViewMode": {
+    "formatted": "Formatted",
+    "modeAria": "How to show this file",
+    "source": "Source"
   },
   "generateInviteLinkDialog": {
     "copyAriaLabel": "Copy invite link",

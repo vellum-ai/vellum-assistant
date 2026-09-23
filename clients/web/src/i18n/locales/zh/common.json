@@ -156,7 +156,7 @@
       "close": "关闭",
       "previewLabel": "你的桌面助手",
       "previewAssistantName": "Quill",
-      "start": "开始导览",
+      "start": "出发吧",
       "title": "在你工作的地方与我相遇"
     },
     "ariaLabel": "介绍您的助手",
@@ -295,7 +295,9 @@
     "workStopped": "已停止",
     "workMore": "还有 {count} 项",
     "workWaiting": "{count, plural, other {# 项等待你的回复}}",
-    "workWaitingStep": "等待你的回复"
+    "workWaitingStep": "等待你的回复",
+    "captureScreenRecordingOff": "屏幕录制已关闭",
+    "captureTurnOnScreenRecording": "开启"
   },
   "companionWatchFramePage": {
     "sharingScreen": "正在分享你的屏幕",
@@ -438,6 +440,11 @@
     "discard": "放弃",
     "save": "保存",
     "saving": "正在保存…"
+  },
+  "fileViewMode": {
+    "formatted": "格式化",
+    "modeAria": "如何显示此文件",
+    "source": "源码"
   },
   "generateInviteLinkDialog": {
     "copyAriaLabel": "复制邀请链接",

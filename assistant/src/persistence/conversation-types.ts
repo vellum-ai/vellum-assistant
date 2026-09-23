@@ -168,6 +168,14 @@ export function isSystemCardMetadata(
 export const NO_RESPONSE_MESSAGE_KIND = "no_response";
 
 /**
+ * Metadata key on an assistant row from a turn that ran on the Auto profile:
+ * the default profile key the router picked for the turn. Projected to
+ * `ConversationMessage.autoRoutedProfile` so clients can show which profile
+ * answered. Absent on every other row.
+ */
+export const AUTO_ROUTED_PROFILE_METADATA_KEY = "autoRoutedProfile";
+
+/**
  * Shared predicate for the deliberate-silence marker, mirroring
  * {@link isSystemCardMetadata} so display merging, transcript rendering, and
  * turn grouping cannot drift.
@@ -430,7 +438,8 @@ function isReplyDeliveredOffApp(
  *
  * - `automated`: a scheduled or background prompt injected into an ordinary
  *   user conversation, which has its own producer (e.g. `schedule.notify`).
- * - Echo-suppressed: internal scaffolding, nobody's prompt awaiting a reply.
+ * - Echo-suppressed: internal scaffolding, except a hidden voice continuation
+ *   result whose finished reply reaches the user through this push.
  * - Voice-session: the reply is spoken back over the still-open session.
  * - Channel-originated: the finished reply is delivered back to the
  *   originating messaging surface (`finalizeEventDelivery`), so the sender
@@ -455,7 +464,10 @@ export function isReplyPushIneligibleUserMessage(
   return (
     metadata?.automated === true ||
     metadata?.pointerInstruction === true ||
-    isEchoSuppressedUserMessage(metadata) ||
+    (isEchoSuppressedUserMessage(metadata) &&
+      !(
+        metadata?.hidden === true && metadata?.voiceContinuationResult === true
+      )) ||
     (!options?.replyDeliveredInAppOnly && isReplyDeliveredOffApp(metadata))
   );
 }

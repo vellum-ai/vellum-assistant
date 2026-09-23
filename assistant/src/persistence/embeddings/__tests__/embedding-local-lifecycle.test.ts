@@ -54,6 +54,62 @@ function brokenPipeProc(pid = 4242) {
   };
 }
 
+/**
+ * A stand-in for a Bun subprocess whose stdin write outruns the pipe buffer:
+ * `write` and `flush` hand back one pending promise, and killing the worker
+ * rejects it with EPIPE, the way Bun settles a pending write once the child
+ * is reaped.
+ */
+function pendingWriteProc(pid = 4244) {
+  const pending = Promise.withResolvers<number>();
+  return {
+    pid,
+    killed: false,
+    exited: Promise.resolve(0),
+    kill() {
+      this.killed = true;
+      pending.reject(
+        Object.assign(new Error("EPIPE: broken pipe, write"), {
+          code: "EPIPE",
+        }),
+      );
+    },
+    stdin: {
+      write: () => pending.promise,
+      flush: () => pending.promise,
+    },
+  };
+}
+
+/**
+ * A subprocess whose stdout the test closes, to drive the reader loop that
+ * settles requests the pipe never reported a failure for.
+ */
+function stdoutProc(pid = 4245) {
+  let closeStdout: () => void = () => {};
+  const stdout = new ReadableStream<Uint8Array>({
+    start(controller) {
+      closeStdout = () => controller.close();
+    },
+  });
+  let resolveExit: (code: number) => void = () => {};
+  const exited = new Promise<number>((r) => {
+    resolveExit = r;
+  });
+  return {
+    pid,
+    killed: false,
+    exited,
+    stdout,
+    closeStdout: () => closeStdout(),
+    kill() {
+      this.killed = true;
+      resolveExit(0);
+    },
+    stdin: { write: () => 0, flush: () => 0 },
+  };
+}
+
 /** A subprocess that stays "alive" until killed, so exit can be observed. */
 function liveProc(pid = 4243) {
   let resolveExit: (code: number) => void = () => {};
@@ -263,28 +319,43 @@ describe("broken worker pipe", () => {
   });
 
   /**
-   * A real pipe, because the failure lives in Bun's behaviour rather than in
-   * ours: a batch larger than the pipe buffer, sent to a worker too busy to
-   * drain stdin, leaves the write pending, and the pending write rejects when
-   * the worker dies. A synchronous guard never sees that rejection.
+   * A batch larger than the pipe buffer, sent to a worker too busy to drain
+   * stdin, leaves the write pending, and the pending write rejects after
+   * `sendRequest` has returned, once the worker dies. A synchronous guard
+   * never sees that rejection.
    */
   test("a write still pending when the worker dies resolves the request as an error", async () => {
     const backend = newBackend();
-    const proc = Bun.spawn({
-      cmd: [process.execPath, "-e", "setTimeout(() => {}, 60_000)"],
-      windowsHide: true,
-      stdin: "pipe",
-      stdout: "ignore",
-      stderr: "ignore",
-    });
-    spawned.push(proc);
+    const proc = pendingWriteProc();
     backend.workerProc = proc;
 
-    const request = backend.sendRequest(["x".repeat(4 * 1024 * 1024)]);
-    proc.kill("SIGKILL");
+    const request = backend.sendRequest(["hello"]);
+    proc.kill();
     const response = await request;
 
     expect(response.error).toContain("worker pipe write failed");
+    expect(backend.pendingRequests.size).toBe(0);
+  });
+
+  /**
+   * Bun does not always report a dead worker through the write: on Linux it
+   * occasionally resolves the pending write with a short count instead of
+   * rejecting it, and `writeWorkerLine` then stays silent. Nothing times a
+   * request out, so the stdout reader ending is the only thing that settles
+   * it.
+   */
+  test("stdout ending settles a request the pipe never reported a failure for", async () => {
+    const backend = newBackend();
+    const proc = stdoutProc();
+    backend.workerProc = proc;
+    backend.startStdoutReader();
+
+    const inFlight = backend.sendRequest(["hello"]);
+    proc.closeStdout();
+
+    await expect(inFlight).resolves.toMatchObject({
+      error: expect.stringContaining("exited unexpectedly"),
+    });
     expect(backend.pendingRequests.size).toBe(0);
   });
 

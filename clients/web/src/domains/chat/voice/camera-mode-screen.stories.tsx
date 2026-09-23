@@ -351,10 +351,11 @@ type Story = StoryObj<typeof CameraModeScreen>;
  * The read to check is the rhythm both ways. Across, the pill shares its line
  * with the two corner controls and holds the screen's centre between them.
  * Every round control on the surface is one circle, the two corners, the two
- * flanks and the four in the session row, and flash and flip sit the same
- * distance in from their edges. Down, the shutter clears the session row by
- * the design's 46px and the bottom scrim reaches above the shutter rather than
- * stopping between the two rows.
+ * flanks and the four in the session row, and flash and flip sit on the
+ * corners' column: the same distance in from their edges as the view options
+ * above the one and the minimize above the other. Down, the shutter clears the
+ * session row by the design's 46px and the bottom scrim reaches above the
+ * shutter rather than stopping between the two rows.
  */
 export const PhotoIdle: Story = {};
 

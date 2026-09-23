@@ -2,10 +2,6 @@
   "askQuestionDetail": {
     "heading": "{count, plural, other {问题}}"
   },
-  "conversationDoneToast": {
-    "message": "已完成",
-    "undo": "撤销"
-  },
   "documentChat": {
     "saveFailed": "无法保存文档。你的消息仍在这里。请重新发送。",
     "viewConversation": "查看对话",
@@ -70,7 +66,7 @@
   },
   "markAllDoneConfirmDialog": {
     "confirm": "全部标记为已完成",
-    "message": "{count, plural, other {将“{groupName}”中的所有 {count} 个对话标记为已完成？它们将从侧边栏移除，并保留在“旧聊天”中，您可以在那里重新打开它们。}}",
+    "message": "{count, plural, other {将“{groupName}”中的所有 {count} 个对话标记为已完成？它们将从侧边栏移除，并保留在“所有聊天”中，您可以在那里重新打开它们。}}",
     "title": "全部标记为已完成"
   },
   "mobileDetailSheet": {
@@ -128,7 +124,7 @@
     "navigate": "导航",
     "terminal": "运行命令"
   },
-  "oldChatsPage": {
+  "allChatsPage": {
     "band": {
       "previous30Days": "过去 30 天",
       "previous7Days": "过去 7 天",
@@ -148,7 +144,7 @@
     "noMatches": "没有与“{query}”匹配的聊天。",
     "retry": "重试",
     "searchPlaceholder": "搜索聊天",
-    "title": "旧聊天"
+    "title": "所有聊天"
   },
   "sessionGroupRow": {
     "mode": {
@@ -404,10 +400,10 @@
   },
   "cameraViewOptions": {
     "buttonAria": "相机显示选项",
-    "gateHudDescription": "用于调整实时模式保留哪些画面的面板。",
-    "gateHudTitle": "帧筛选读数",
-    "keptFrameDescription": "实时模式发送的最近一帧，显示在照片旁边。无论是否显示，都会继续发送。",
-    "keptFrameTitle": "最近一帧",
+    "gateHudDescription": "调试叠加层：实时模式如何挑选要发送的画面。",
+    "gateHudTitle": "帧筛选调校",
+    "keptFrameDescription": "显示实时模式最近发送的画面。",
+    "keptFrameTitle": "最近分享的画面",
     "title": "显示"
   },
   "cardSurface": {
@@ -733,8 +729,6 @@
     "markRead": "标记为已读",
     "markUnread": "标记为未读",
     "moveToGroup": "移动到群组",
-    "newDocument": "新建文档",
-    "newDocumentFailed": "无法创建文档。请重试。",
     "newGroup": "新建群组…",
     "openInNewWindow": "在新窗口中打开",
     "pin": "置顶",
@@ -1307,6 +1301,7 @@
     "title": "文件"
   },
   "messageHoverActions": {
+    "autoRouted": "自动 · {profile}",
     "bookmark": "书签",
     "copied": "已复制",
     "copy": "复制",
@@ -2099,6 +2094,12 @@
   "assistantSection": {
     "emptyBody": "我随时都在思考。当有值得您关注的事情时，我会在这里发起对话。",
     "emptyTitle": "目前还没有任何想法。"
+  },
+  "chatsSection": {
+    "doneEmptyBody": "标记为已完成的聊天会保留在“所有聊天”中。",
+    "doneEmptyTitle": "全部处理完毕。",
+    "emptyBody": "开始新的聊天后，它会显示在这里。",
+    "emptyTitle": "还没有聊天。"
   },
   "sidebarExpandRow": {
     "expand": "展开",

@@ -1,24 +1,27 @@
-import { FileMarkdown, isMarkdown } from "@/components/file-markdown";
+import { isMarkdown } from "@/components/file-markdown";
+import { MarkdownView } from "@/components/markdown-view";
 import { useTranslation } from "@/i18n";
 
 /**
  * Standalone file-content viewer used by the mobile skill-detail view.
  *
- * Mirrors the private `FileContent` in `skill-detail.tsx` (desktop) but adds a
- * `viewMode` prop so callers can toggle between the rendered markdown
- * ("preview") and its raw source ("raw"). Non-markdown files always render as
- * source regardless of `viewMode`.
+ * A markdown file shows formatted with its source one click away, through the
+ * shared `MarkdownView`, so it offers the same choice in the same words as
+ * every other file surface. Anything else is source, which is all it has.
+ *
+ * The caller keys this by the file's path, so opening another file starts
+ * formatted rather than inheriting what the last one was left showing. A
+ * basename cannot carry that: a skill can hold `docs/README.md` and
+ * `examples/README.md`.
  */
 export function SkillFileContent({
   fileName,
   content,
   isBinary,
-  viewMode = "preview",
 }: {
   fileName: string;
   content: string | null;
   isBinary: boolean;
-  viewMode?: "preview" | "raw";
 }) {
   const { t } = useTranslation("intelligence");
   if (isBinary) {
@@ -43,15 +46,8 @@ export function SkillFileContent({
     );
   }
 
-  if (isMarkdown(fileName, undefined) && viewMode === "preview") {
-    return (
-      <div
-        className="h-full overflow-auto px-6 py-4"
-        style={{ color: "var(--content-default)" }}
-      >
-        <FileMarkdown content={content} />
-      </div>
-    );
+  if (isMarkdown(fileName, undefined)) {
+    return <MarkdownView content={content} className="px-6 py-4" />;
   }
 
   return (

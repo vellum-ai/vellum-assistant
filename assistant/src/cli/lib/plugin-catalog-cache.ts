@@ -14,6 +14,7 @@ import {
   readBundledPluginCatalog,
 } from "./plugin-catalog-local.js";
 import { fetchPluginCatalogFromPlatform } from "./plugin-catalog-platform.js";
+import { filterPluginCatalogByFeatureFlags } from "./plugin-catalog-visibility.js";
 import type { PluginCatalog, SearchPluginsDeps } from "./search-plugins.js";
 
 /** How long a fetched catalog is served before a refresh is attempted. */
@@ -23,6 +24,8 @@ interface CacheEntry {
   catalog: PluginCatalog;
   timestamp: number;
 }
+
+type PluginCatalogLoadDeps = Pick<SearchPluginsDeps, "fetch">;
 
 const cache = new Map<string, CacheEntry>();
 
@@ -65,9 +68,9 @@ export function mergePlatformCatalogWithBundledLocals(
  * fetch failure propagates so the caller can surface it (e.g. map a rate-limit
  * to 503) — no stale catalog is ever served.
  */
-export async function getPluginCatalog(
+async function loadPluginCatalog(
   ref: string,
-  deps: SearchPluginsDeps,
+  deps: PluginCatalogLoadDeps,
 ): Promise<PluginCatalog> {
   if (!arePlatformFeaturesEnabled()) {
     return { ...readBundledPluginCatalog(), ref };
@@ -82,6 +85,25 @@ export async function getPluginCatalog(
   const merged = mergePlatformCatalogWithBundledLocals(catalog);
   cache.set(ref, { catalog: merged, timestamp: Date.now() });
   return merged;
+}
+
+/** Installable catalog with feature-flag visibility applied. */
+export async function getPluginCatalog(
+  ref: string,
+  deps: SearchPluginsDeps,
+): Promise<PluginCatalog> {
+  return filterPluginCatalogByFeatureFlags(
+    await loadPluginCatalog(ref, deps),
+    deps.featureFlagEnabled,
+  );
+}
+
+/** Category metadata for plugins already installed, including hidden entries. */
+export async function getPluginCatalogForInstalledMetadata(
+  ref: string,
+  deps: PluginCatalogLoadDeps,
+): Promise<PluginCatalog> {
+  return loadPluginCatalog(ref, deps);
 }
 
 /** Invalidate the cache (for testing or forced refresh). */

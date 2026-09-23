@@ -168,15 +168,20 @@ export interface LiveVoiceClientEndFrame {
 }
 
 /**
- * Mid-session tuning update — retunes "pause before reply" / "interrupt
- * sensitivity" on the running server_vad session without reconnecting. Each
- * field is optional; the daemon applies changes from the next utterance.
+ * Mid-session screen-sharing state and turn-detection tuning. Each field
+ * is optional; the daemon applies changes from the next utterance.
  */
 export interface LiveVoiceClientUpdateConfigFrame {
   readonly type: "update_config";
   readonly silenceThresholdMs?: number;
   readonly bargeInMinSpeechMs?: number;
+  readonly screenSharing?: boolean;
 }
+
+export type LiveVoiceSessionConfig = Omit<
+  LiveVoiceClientUpdateConfigFrame,
+  "type"
+>;
 
 /**
  * A photo taken while the call is running, identified by the id the normal

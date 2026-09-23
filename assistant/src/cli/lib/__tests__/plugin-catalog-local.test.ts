@@ -13,6 +13,7 @@ import bundledManifest from "../bundled-marketplace.json" with { type: "json" };
 import {
   buildBundledPluginCatalog,
   readBundledPluginCatalog,
+  resolveBundledPluginSource,
 } from "../plugin-catalog-local.js";
 import { marketplaceManifestSchema } from "../plugin-marketplace.js";
 import { marketplaceMatch } from "../search-plugins.js";
@@ -94,5 +95,19 @@ describe("buildBundledPluginCatalog", () => {
 describe("readBundledPluginCatalog", () => {
   test("returns a stable memoized reference across calls", () => {
     expect(readBundledPluginCatalog()).toBe(readBundledPluginCatalog());
+  });
+});
+
+describe("resolveBundledPluginSource", () => {
+  test("hides a QA integration while its feature flag is off", () => {
+    expect(resolveBundledPluginSource("gamma", () => false)).toBeNull();
+  });
+
+  test("resolves a QA integration while its feature flag is on", () => {
+    expect(resolveBundledPluginSource("gamma", () => true)).toEqual({
+      kind: "local",
+      path: "plugins/mcp-catalog/gamma",
+      version: "1.0.2",
+    });
   });
 });

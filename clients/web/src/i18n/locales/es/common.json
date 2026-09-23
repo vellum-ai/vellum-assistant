@@ -156,7 +156,7 @@
       "close": "Cerrar",
       "previewLabel": "Tu compañero de escritorio",
       "previewAssistantName": "Quill",
-      "start": "Iniciar el recorrido",
+      "start": "Vamos",
       "title": "Estoy donde tú trabajas"
     },
     "ariaLabel": "Te presento a tu compañero",
@@ -438,6 +438,11 @@
     "discard": "Descartar",
     "save": "Guardar",
     "saving": "Guardando…"
+  },
+  "fileViewMode": {
+    "formatted": "Con formato",
+    "modeAria": "Cómo mostrar este archivo",
+    "source": "Fuente"
   },
   "generateInviteLinkDialog": {
     "copyAriaLabel": "Copiar enlace de invitación",

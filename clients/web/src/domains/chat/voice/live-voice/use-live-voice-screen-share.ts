@@ -135,6 +135,8 @@ export function useLiveVoiceScreenShare(): void {
   const state = useLiveVoiceStore.use.state();
   const assistantId = useLiveVoiceStore.use.assistantId();
   const sightFramesUnsupported = useLiveVoiceStore.use.sightFramesUnsupported();
+  const controls = useLiveVoiceStore.use.controls();
+  const reconnecting = useLiveVoiceStore.use.reconnecting();
   const supportsFrames = useSupportsSightStream(assistantId);
   // Every term, so the share is absent rather than half-present: the ask, a
   // session for the frames to land in, an assistant that understands the
@@ -145,6 +147,15 @@ export function useLiveVoiceScreenShare(): void {
     supportsFrames &&
     assistantId !== null &&
     !sightFramesUnsupported;
+
+  const connectedShare = active && state !== "connecting" && !reconnecting;
+  useEffect(() => {
+    if (!connectedShare || controls === null) {
+      return;
+    }
+    controls.updateConfig({ screenSharing: true });
+    return () => controls.updateConfig({ screenSharing: false });
+  }, [connectedShare, controls]);
 
   // One for the mount: the assistant is handed to each capture by the run
   // that took the frame, and each run re-bases the order on its way out.

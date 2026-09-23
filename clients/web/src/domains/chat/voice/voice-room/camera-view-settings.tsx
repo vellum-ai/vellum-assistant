@@ -54,9 +54,9 @@ import { VoiceRoomControl } from "./voice-room-control";
  * One row: what the switch shows, what it costs, and the switch.
  *
  * The copy goes through the design library's own label and helper slots, so
- * the switch is named by the first and described by the second, and the line
- * saying Live keeps sending is read out with the switch that would hide its
- * signal rather than sitting unattached beside it.
+ * the switch is named by the first and described by the second, and that
+ * description is read out with the switch it belongs to rather than sitting
+ * unattached beside it.
  *
  * Each string carries its own color in a span inside those slots. The slots
  * paint in theme tokens, which is right over a surface the app painted and

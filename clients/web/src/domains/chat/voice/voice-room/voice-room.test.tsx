@@ -2077,6 +2077,7 @@ describe("VoiceRoom: camera", () => {
   }
 
   const viewfinder = () => screen.queryByTestId("voice-room-viewfinder");
+  const look = () => screen.queryByTestId("voice-room-look");
 
   afterEach(() => {
     restoreMediaDevices();
@@ -2346,6 +2347,139 @@ describe("VoiceRoom: camera", () => {
     // The void look's centred avatar renders AFTER the viewfinder in the DOM
     // and sits at z-0, so DOM order alone would let it paint over the feed.
     expect(viewfinder()?.className).toContain("z-[2]");
+  });
+
+  /**
+   * The room keeps exactly one opaque layer under its rounded clip, which is
+   * anti-aliased per painted layer: a second one blends into the first along
+   * the corner arc and draws a fringe around the feed. So the look comes down
+   * only while a decoded frame is on screen, and the feed carries no surface of
+   * its own to take its place.
+   */
+  describe("the look under the viewfinder", () => {
+    async function openRoomCamera(): Promise<void> {
+      stubMediaDevices(async () => fakeStream());
+      seedCameraCapableAssistant();
+      startOwnedSession("listening");
+      render(<VoiceRoom variant="content" />);
+      await act(async () => {
+        fireEvent.click(cameraToggle()!);
+      });
+    }
+
+    test("stands down once the feed has a frame", async () => {
+      await openRoomCamera();
+
+      // The element is up before the stream reaches it, and it is transparent
+      // until then, so the look is still the one thing being seen.
+      expect(look()?.className).not.toContain("invisible");
+      expect(viewfinder()?.style.backgroundColor).toBe("");
+
+      await act(async () => {
+        fireEvent.loadedData(viewfinder()!);
+      });
+
+      expect(look()?.className).toContain("invisible");
+    });
+
+    test("comes back when the feed loses its stream", async () => {
+      // What a flip does: the capture is released before the other camera is
+      // acquired, so the feed is transparent again in between.
+      await openRoomCamera();
+      await act(async () => {
+        fireEvent.loadedData(viewfinder()!);
+      });
+
+      await act(async () => {
+        fireEvent.emptied(viewfinder()!);
+      });
+
+      expect(look()?.className).not.toContain("invisible");
+    });
+
+    test("is painted again after the camera closes and reopens", async () => {
+      // Closing unmounts the element, so no event reports the frame going away.
+      await openRoomCamera();
+      await act(async () => {
+        fireEvent.loadedData(viewfinder()!);
+      });
+
+      await act(async () => {
+        fireEvent.click(cameraToggle()!);
+      });
+      expect(viewfinder()).toBeNull();
+      expect(look()?.className).not.toContain("invisible");
+
+      await act(async () => {
+        fireEvent.click(cameraToggle()!);
+      });
+
+      expect(viewfinder()).not.toBeNull();
+      expect(look()?.className).not.toContain("invisible");
+    });
+
+    test("comes back for the whole of a flip", async () => {
+      // The flip releases the capture synchronously inside the press, so the
+      // commit that press produces already has an element with no stream. The
+      // feed's own `emptied` is a queued task and has not run yet, which is why
+      // this reads the flip flag instead of waiting for the event.
+      let releaseReplacement!: (stream: MediaStream) => void;
+      let calls = 0;
+      stubMediaDevices(async () => {
+        calls += 1;
+        if (calls === 1) {
+          return fakeStream();
+        }
+        return new Promise<MediaStream>((resolve) => {
+          releaseReplacement = resolve;
+        });
+      });
+      seedCameraCapableAssistant();
+      startOwnedSession("listening");
+      render(<VoiceRoom variant="content" />);
+      await act(async () => {
+        fireEvent.click(cameraToggle()!);
+      });
+      await act(async () => {
+        fireEvent.loadedData(viewfinder()!);
+      });
+      expect(look()?.className).toContain("invisible");
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Flip camera" }));
+      });
+
+      // No `emptied` dispatched: the flip alone has to account for this.
+      expect(calls).toBe(2);
+      expect(look()?.className).not.toContain("invisible");
+
+      await act(async () => {
+        releaseReplacement(fakeStream());
+      });
+
+      // The flip has settled and the replacement stream is assigned, but it has
+      // decoded nothing yet, so the feed is still transparent. The flag the
+      // outgoing frame set must not survive the flip to hide the look here,
+      // whichever of `emptied` and the replacement camera arrives first.
+      expect(look()?.className).not.toContain("invisible");
+
+      await act(async () => {
+        fireEvent.loadedData(viewfinder()!);
+      });
+
+      expect(look()?.className).toContain("invisible");
+    });
+
+    test("is left alone over a native preview", async () => {
+      // Nothing of the look is mounted on the native path, and the preview sits
+      // BEHIND the transparent web view, so hiding this wrapper there would
+      // only take the chrome's own surface down with it.
+      nativeShell = true;
+      await openRoomCamera();
+
+      expect(viewfinder()).toBeNull();
+      expect(look()?.className).not.toContain("invisible");
+    });
   });
 
   test("the status pill and the scrims come up with the camera and go with it", async () => {
@@ -3193,11 +3327,11 @@ describe("VoiceRoom: camera", () => {
         expect(flip.className).toContain("size-13");
 
         // The row is what publishes the value, so both flanks have to sit
-        // inside it or their own side resolves to `auto`. 30px is the floor,
-        // which the side safe-area insets only ever deepen.
+        // inside it or their own side resolves to `auto`. The room's corner
+        // gap is the floor, which the side safe-area insets only ever deepen.
         const row = flash.closest("[style*='--camera-flank-inset']");
         expect(row?.getAttribute("style")).toContain(
-          "--camera-flank-inset: max(30px,",
+          "--camera-flank-inset: max(1.25rem,",
         );
         expect(row?.contains(flip)).toBe(true);
       });

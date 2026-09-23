@@ -1,5 +1,5 @@
 /**
- * Route wiring for Old chats (`/assistant/chats`).
+ * Route wiring for All chats (`/assistant/chats`).
  *
  * Resolves what the page cannot know on its own: the history to draw, the
  * groups behind the chips, which chip the URL preselected, and what every row
@@ -27,13 +27,13 @@ import {
   useDeleteConversationConfirmation,
 } from "@/domains/chat/components/delete-conversation-confirm-dialog";
 import { useConversationActions } from "@/domains/chat/hooks/use-conversation-actions";
-import { useOldChatsData } from "@/domains/chat/hooks/use-old-chats-data";
-import { OldChatsPage } from "@/domains/chat/pages/old-chats-page";
+import { useAllChatsData } from "@/domains/chat/hooks/use-all-chats-data";
+import { AllChatsPage } from "@/domains/chat/pages/all-chats-page";
 import {
   filterFromSearchParams,
-  oldChatsSearchFor,
-  type OldChatsFilter,
-} from "@/domains/chat/utils/old-chats-filters";
+  allChatsSearchFor,
+  type AllChatsFilter,
+} from "@/domains/chat/utils/all-chats-filters";
 import {
   useConversationGroupsQuery,
   useConversationListQuery,
@@ -47,7 +47,7 @@ import {
 } from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
 
-export function OldChatsPageRoute() {
+export function AllChatsPageRoute() {
   const navigate = useNavigate();
   const assistantId = useActiveAssistantId();
   const flagsHydrated = useClientFeatureFlagStore.use.hydrated();
@@ -59,7 +59,7 @@ export function OldChatsPageRoute() {
      have issued a whole-history request on its way to the redirect, and an
      unhydrated store reads as off. */
   const live = flagsHydrated && enabled;
-  const history = useOldChatsData(assistantId, live);
+  const history = useAllChatsData(assistantId, live);
   const { conversationGroups } = useConversationGroupsQuery(assistantId, live);
 
   /* The foreground list the sidebar already holds. `useConversationActions`
@@ -163,10 +163,10 @@ export function OldChatsPageRoute() {
   );
 
   const onFilterChange = useCallback(
-    (next: OldChatsFilter) => {
+    (next: AllChatsFilter) => {
       /* Replace rather than push: a chip is a view of one page, and pushing
          would make Back walk every chip the user tried instead of leaving. */
-      setSearchParams(new URLSearchParams(oldChatsSearchFor(next).slice(1)), {
+      setSearchParams(new URLSearchParams(allChatsSearchFor(next).slice(1)), {
         replace: true,
       });
     },
@@ -182,7 +182,7 @@ export function OldChatsPageRoute() {
 
   return (
     <>
-      <OldChatsPage
+      <AllChatsPage
         conversations={history.conversations}
         groups={customGroups}
         filter={filter}

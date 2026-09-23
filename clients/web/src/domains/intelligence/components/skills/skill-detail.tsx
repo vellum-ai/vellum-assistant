@@ -17,6 +17,10 @@ import {
   SourcePre,
 } from "@/components/file-editor";
 import { FileMarkdown, isMarkdown } from "@/components/file-markdown";
+import {
+  FileViewModeControl,
+  type FileViewMode,
+} from "@/components/file-view-mode";
 import { SkillLineageLink } from "@/components/skill-lineage-link";
 import { SkillIcon } from "@/components/skill-icon";
 import { SkillOriginBadge } from "@/domains/intelligence/components/skills/skill-origin-badge";
@@ -361,6 +365,9 @@ function SkillFileContent({
 
   const [isEditing, setIsEditing] = useState(false);
   const [editableContent, setEditableContent] = useState("");
+  // The whole component is keyed by file at its call site, so opening another
+  // file starts formatted rather than inheriting the last file's choice.
+  const [viewMode, setViewMode] = useState<FileViewMode>("formatted");
 
   const workspacePath = `skills/${skillId}/${filePath}`;
 
@@ -462,9 +469,20 @@ function SkillFileContent({
             showEdit={editable}
             isEditing={false}
             onToggleEdit={startEditing}
+            leading={
+              <FileViewModeControl mode={viewMode} onChange={setViewMode} />
+            }
             extraActions={openInWorkspaceButton}
           />
-          <FileMarkdown content={content} />
+          {viewMode === "formatted" ? (
+            <FileMarkdown content={content} />
+          ) : (
+            <SourcePre
+              content={content}
+              readOnly={!editable}
+              onStartEdit={startEditing}
+            />
+          )}
         </div>
       </div>
     );

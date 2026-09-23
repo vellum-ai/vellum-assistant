@@ -140,6 +140,14 @@ export interface SectionConversationsResult {
    */
   hasMore: boolean;
   /**
+   * Whether `conversations` is the section's real membership. `false` while
+   * the section's own query has not answered once (still pending, or its
+   * first fetch failed): the rows are then the derived stand-in, which can be
+   * empty while the section is not. An empty section says so only when this
+   * is `true`.
+   */
+  resolved: boolean;
+  /**
    * Extend the window by one page. Safe to call redundantly: the fetch is
    * guarded per section, and a call against a complete or unfetched cache
    * is a no-op. Failures are recorded, not thrown - the sentinel that
@@ -268,8 +276,18 @@ export function useSectionConversations(
      failed before ever succeeding. */
   const rows = live ? conversations : sectionAll;
   const windowed = live ? hasMore : false;
+  /* The derived rows are the whole membership when the section has no
+     filtered read to wait for (no filter, or the group gate is closed). When
+     it does, only its answer is. */
+  const resolved = live || filter === null || !supportsGroupFilter;
   return useMemo(
-    () => ({ conversations: rows, hasMore: windowed, loadMore, getAllRows }),
-    [rows, windowed, loadMore, getAllRows],
+    () => ({
+      conversations: rows,
+      hasMore: windowed,
+      resolved,
+      loadMore,
+      getAllRows,
+    }),
+    [rows, windowed, resolved, loadMore, getAllRows],
   );
 }

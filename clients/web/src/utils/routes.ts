@@ -58,13 +58,13 @@ export function hasOneShotEntryParam(search: string): boolean {
 }
 
 /**
- * Search params the Old chats page reads to preselect a chip: a channel, a
+ * Search params the All chats page reads to preselect a chip: a channel, a
  * custom group, or one of the two named views. Declared here beside the URL
  * producer so the page and its links cannot spell them differently.
  */
-export const OLD_CHATS_CHANNEL_PARAM = "channel";
-export const OLD_CHATS_GROUP_PARAM = "group";
-export const OLD_CHATS_FILTER_PARAM = "filter";
+export const ALL_CHATS_CHANNEL_PARAM = "channel";
+export const ALL_CHATS_GROUP_PARAM = "group";
+export const ALL_CHATS_FILTER_PARAM = "filter";
 
 export const routes = {
   assistant: r("/assistant"),
@@ -99,15 +99,15 @@ export const routes = {
   credentialEntry: r("/assistant/credentials/enter"),
   quickInput: r("/assistant/quick-input"),
   /**
-   * Old chats: the whole conversation history as one page, banded by date and
+   * All chats: the whole conversation history as one page, banded by date and
    * narrowed with a chip row. Behind the `sidebar-done` flag; the route sends
    * the user to chat when the flag is off.
    *
    * A link that preselects a chip appends the search string
-   * `oldChatsSearchFor` builds (`domains/chat/utils/old-chats-filters.ts`),
+   * `allChatsSearchFor` builds (`domains/chat/utils/all-chats-filters.ts`),
    * so the producer and the page read one spelling of the params.
    */
-  oldChats: r("/assistant/chats"),
+  allChats: r("/assistant/chats"),
   conversations: r("/assistant/conversations"),
   /** Conversation URL, optionally naming the app the viewer keeps on screen.
    *  `appId` is passed through unencoded, like {@link routes.library.app};

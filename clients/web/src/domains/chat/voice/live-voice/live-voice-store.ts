@@ -27,6 +27,7 @@ import type { LiveVoiceSightFrameTiming } from "@/domains/chat/voice/live-voice/
 import type {
   LiveVoiceEntry,
   LiveVoiceMetricsServerFrame,
+  LiveVoiceSessionConfig,
   LiveVoiceSightSource,
 } from "@/domains/chat/voice/live-voice/protocol";
 import type { LiveVoicePlaybackProgress } from "@/domains/chat/voice/live-voice/tts-playback";
@@ -228,15 +229,10 @@ export interface LiveVoiceSessionControls {
    */
   setOutputMuted: (muted: boolean) => void;
   /**
-   * Retune the live session's turn-detection knobs ("pause before reply" /
-   * "interrupt sensitivity") without reconnecting. Each field is optional; the
-   * daemon applies the change from the next utterance. No-op unless the
-   * transport is active.
+   * Update screen-sharing state or turn-detection tuning without reconnecting.
+   * No-op unless the transport is active.
    */
-  updateConfig: (config: {
-    silenceThresholdMs?: number;
-    bargeInMinSpeechMs?: number;
-  }) => void;
+  updateConfig: (config: LiveVoiceSessionConfig) => void;
   /**
    * Tell the session about a photo the user took mid-call, by the id its
    * upload already returned. The daemon persists it into the conversation
@@ -1614,15 +1610,13 @@ export function setLiveVoiceOutputMuted(muted: boolean): void {
 }
 
 /**
- * Retune the active session's "pause before reply" / "interrupt sensitivity"
- * live through the store-registered controls (the in-session voice-room gear).
+ * Update the active session through the store-registered controls.
  * No-op when no session exists or the transport isn't active. Module-level for
  * the same stable-identity reasons as {@link endLiveVoiceSession}.
  */
-export function updateLiveVoiceSessionConfig(config: {
-  silenceThresholdMs?: number;
-  bargeInMinSpeechMs?: number;
-}): void {
+export function updateLiveVoiceSessionConfig(
+  config: LiveVoiceSessionConfig,
+): void {
   useLiveVoiceStore.getState().controls?.updateConfig(config);
 }
 

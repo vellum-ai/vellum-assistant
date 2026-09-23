@@ -12,6 +12,7 @@ let mockKeenableSecureKey: string | undefined;
 let mockFastcrwSecureKey: string | undefined;
 let mockSearxngSecureKey: string | undefined;
 let mockTinyfishSecureKey: string | undefined;
+let mockExaSecureKey: string | undefined;
 let mockManagedSearchProxyResult: any;
 let mockManagedSearchAvailable = true;
 let mockManagedSearchProxyCalls: Array<{
@@ -65,6 +66,9 @@ mock.module("../../../security/secure-keys.js", () => ({
     if (provider === "tinyfish") {
       return mockTinyfishSecureKey;
     }
+    if (provider === "exa") {
+      return mockExaSecureKey;
+    }
     return undefined;
   },
 }));
@@ -111,6 +115,7 @@ describe("web_search tool", () => {
     mockFastcrwSecureKey = undefined;
     mockSearxngSecureKey = undefined;
     mockTinyfishSecureKey = undefined;
+    mockExaSecureKey = undefined;
     mockManagedSearchProxyCalls = [];
     mockManagedSearchAvailable = true;
     mockManagedSearchProxyResult = {
@@ -1344,6 +1349,97 @@ describe("web_search tool", () => {
       expect(result.activityMetadata?.webSearch?.provider).toBe("tinyfish");
     },
   );
+
+  // ---- Exa provider ------------------------------------------------------
+
+  test("Exa search posts the recommended request and maps freshness", async () => {
+    seedWebSearch("your-own", "exa");
+    mockExaSecureKey = "exa_test";
+    let capturedUrl = "";
+    let capturedInit: RequestInit | undefined;
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      capturedUrl = url;
+      capturedInit = init;
+      return new Response(
+        JSON.stringify({
+          requestId: "r1",
+          results: [
+            {
+              title: "Exa Result",
+              url: "https://example.com/exa",
+              publishedDate: "2026-09-18T00:00:00.000Z",
+              highlights: ["Fresh from Exa"],
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as any;
+
+    const result = await execute({
+      query: "fresh tools",
+      freshness: "pw",
+      count: 5,
+    });
+
+    expect(result.isError).toBe(false);
+    expect(capturedUrl).toBe("https://api.exa.ai/search");
+    expect(capturedInit?.method).toBe("POST");
+    const headers = new Headers(capturedInit?.headers);
+    expect(headers.get("x-api-key")).toBe("exa_test");
+    const body = JSON.parse(String(capturedInit?.body));
+    expect(body.query).toBe("fresh tools");
+    expect(body.type).toBe("auto");
+    expect(body.numResults).toBe(5);
+    expect(body.contents.highlights).toBe(true);
+    expect(typeof body.startPublishedDate).toBe("string");
+    const delta = Date.now() - Date.parse(body.startPublishedDate);
+    expect(delta).toBeGreaterThan(7 * 24 * 60 * 60 * 1000 - 60_000);
+    expect(delta).toBeLessThan(7 * 24 * 60 * 60 * 1000 + 60_000);
+    expect(result.content).toContain("Exa Result");
+    expect(result.content).toContain("Fresh from Exa");
+    expect(result.activityMetadata?.webSearch?.provider).toBe("exa");
+  });
+
+  test("Exa omits the date filter without freshness and trims to count", async () => {
+    seedWebSearch("your-own", "exa");
+    mockExaSecureKey = "exa_test";
+    let capturedInit: RequestInit | undefined;
+    globalThis.fetch = (async (_url: string, init?: RequestInit) => {
+      capturedInit = init;
+      return new Response(
+        JSON.stringify({
+          results: [
+            { title: "A", url: "https://a.example.com", highlights: ["a"] },
+            { title: "B", url: "https://b.example.com", highlights: ["b"] },
+            { title: "C", url: "https://c.example.com", highlights: ["c"] },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as any;
+
+    const result = await execute({ query: "test", count: 2 });
+
+    const body = JSON.parse(String(capturedInit?.body));
+    expect(body.startPublishedDate).toBeUndefined();
+    expect(result.content).toContain("A");
+    expect(result.content).toContain("B");
+    expect(result.content).not.toContain("https://c.example.com");
+    expect(result.activityMetadata?.webSearch?.resultCount).toBe(2);
+  });
+
+  test.each([401, 402, 403])("Exa handles %d access error", async (status) => {
+    seedWebSearch("your-own", "exa");
+    mockExaSecureKey = "exa_test";
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ error: "denied" }), { status })) as any;
+
+    const result = await execute({ query: "test" });
+
+    expect(result.isError).toBe(true);
+    expect(result.activityMetadata?.webSearch?.provider).toBe("exa");
+  });
 
   // ---- Provider fallback --------------------------------------------------
 

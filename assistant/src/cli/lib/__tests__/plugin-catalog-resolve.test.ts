@@ -195,6 +195,27 @@ describe("catalog-backed resolvers (bundled, offline)", () => {
       await resolvePluginSourceFromCatalog("no-such-plugin", rejectingDeps),
     ).toBeNull();
   });
+
+  test("does not resolve a QA integration while its feature flag is off", async () => {
+    expect(
+      await resolvePluginSourceFromCatalog("gamma", {
+        ...rejectingDeps,
+        featureFlagEnabled: () => false,
+      }),
+    ).toBeNull();
+  });
+
+  test("resolves a QA integration while its feature flag is on", async () => {
+    expect(
+      await resolvePluginSourceFromCatalog("gamma", {
+        ...rejectingDeps,
+        featureFlagEnabled: () => true,
+      }),
+    ).toMatchObject({
+      kind: "local",
+      path: "plugins/mcp-catalog/gamma",
+    });
+  });
 });
 
 describe("catalog-backed resolvers (platform enabled)", () => {

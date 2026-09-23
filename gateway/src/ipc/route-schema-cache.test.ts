@@ -107,6 +107,32 @@ describe("refreshRouteSchema — happy path", () => {
       pathParams: { provider: "gh", path: "a b" },
     });
   });
+
+  test("matches a multi-segment Gmail upload path on the catch-all", async () => {
+    setSchema([
+      {
+        operationId: "oauth_proxy_post",
+        endpoint: "oauth/proxy/:provider/:path*",
+        method: "POST",
+        policy: {
+          requiredScopes: ["oauth.proxy"],
+          allowedPrincipalTypes: ["local"],
+        },
+      },
+    ]);
+    expect(await refreshRouteSchema()).toBe(true);
+
+    expect(
+      matchRoute("POST", "oauth/proxy/google/upload/gmail/v1/users/me/drafts"),
+    ).toEqual({
+      operationId: "oauth_proxy_post",
+      pathParams: {
+        provider: "google",
+        path: "upload/gmail/v1/users/me/drafts",
+      },
+    });
+    expect(matchRoute("POST", "oauth/proxy/google")).toBeUndefined();
+  });
 });
 
 describe("refreshRouteSchema — validation fails closed", () => {

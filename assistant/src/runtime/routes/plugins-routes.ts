@@ -48,7 +48,10 @@ import {
   type InstalledPluginInfo,
   listInstalledPlugins,
 } from "../../cli/lib/list-installed-plugins.js";
-import { getPluginCatalog } from "../../cli/lib/plugin-catalog-cache.js";
+import {
+  getPluginCatalog,
+  getPluginCatalogForInstalledMetadata,
+} from "../../cli/lib/plugin-catalog-cache.js";
 import { resolvePluginSourceFromCatalog } from "../../cli/lib/plugin-catalog-resolve.js";
 import {
   DEFAULT_PIN_HISTORY_LIMIT,
@@ -969,7 +972,7 @@ export async function loadCategoryMapBounded(
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const catalog = await Promise.race([
-      getPluginCatalog(DEFAULT_PLUGIN_REF, {
+      getPluginCatalogForInstalledMetadata(DEFAULT_PLUGIN_REF, {
         fetch: globalThis.fetch.bind(globalThis),
       }),
       new Promise<null>((resolve) => {

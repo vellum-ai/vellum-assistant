@@ -988,7 +988,7 @@ final class MacHelper: @unchecked Sendable {
             let elements = flattened.compactMap {
                 candidate -> (element: AXElement, frame: CGRect)? in
                 let element = candidate.element
-                guard let title = element.title, !title.isEmpty else { return nil }
+                guard let name = element.annotationName, !name.isEmpty else { return nil }
                 guard element.frame.width > 0, element.frame.height > 0 else { return nil }
                 var seen = element.frame
                 for bound in [candidate.visible, surface] {
@@ -1000,7 +1000,7 @@ final class MacHelper: @unchecked Sendable {
             }
             let outcome = AXTargetMatch.locate(
                 query: query,
-                among: elements.map { AXTargetMatch.Candidate(label: $0.element.title ?? "") }
+                among: elements.map { AXTargetMatch.Candidate(label: $0.element.annotationName ?? "") }
             )
 
             switch outcome {
@@ -1008,7 +1008,7 @@ final class MacHelper: @unchecked Sendable {
                 let (element, frame) = elements[index]
                 self.writeResponse(JsonRpcCodec.successResponse(id: id, result: [
                     "found": true,
-                    "label": AXLabel.singleLine(element.title ?? "", max: Self.labelLength),
+                    "label": AXLabel.singleLine(element.annotationName ?? "", max: Self.labelLength),
                     "role": element.role,
                     "x": Double(frame.origin.x),
                     "y": Double(frame.origin.y),

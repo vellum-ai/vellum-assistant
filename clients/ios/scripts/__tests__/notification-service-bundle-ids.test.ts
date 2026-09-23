@@ -135,7 +135,10 @@ describe("every avatar failure token is documented", () => {
   // The README's `reason=` table is the only place a `nse.avatar_unavailable`
   // line can be decoded, so a token that reaches Console without a row there
   // is a dead end for whoever is holding the device.
-  const source = readFileSync(join(NSE_DIR, "AvatarCache.swift"), "utf8");
+  const source = readFileSync(
+    join(APP_DIR, "Shared/AvatarCache.swift"),
+    "utf8",
+  );
   const body = source.split("enum UnavailableReason")[1] ?? "";
   const tokens = [...body.split("}")[0].matchAll(/case \w+ = "(\w+)"/g)].map(
     (match) => match[1],

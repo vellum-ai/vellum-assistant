@@ -161,7 +161,7 @@ enum AXTreeDiff {
         ElementSnapshot(
             id: element.id,
             role: element.role,
-            title: element.title,
+            title: element.annotationName,
             value: element.value,
             isFocused: element.isFocused,
             isEnabled: element.isEnabled

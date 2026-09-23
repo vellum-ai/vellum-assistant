@@ -963,6 +963,7 @@ export async function runAgentLoopImpl(
   startToolProfilingRequest(ctx.conversationId);
   let turnStarted = false;
   const state = createEventHandlerState();
+  state.autoRoutedProfile = autoRoute?.profile;
   // Publish this turn's flushed-content watermark so the worker → daemon
   // persist hand-off can cap a snapshot anchor at flushed content rather than
   // the live seq counter, which runs ahead while the turn streams. Cleared in
@@ -2240,6 +2241,9 @@ export async function runAgentLoopImpl(
           ...(state.lastAssistantMessageId
             ? { messageId: state.lastAssistantMessageId }
             : {}),
+          ...(state.autoRoutedProfile
+            ? { autoRoutedProfile: state.autoRoutedProfile }
+            : {}),
           modeSession: ctx.modeSessions.getTurnOwner(reqId),
         });
         publishLoopMessagesChanged();
@@ -2267,6 +2271,9 @@ export async function runAgentLoopImpl(
           // per-row treatment the history projection will hand it.
           ...(state.lastAssistantTextVisibility
             ? { assistantTextVisibility: state.lastAssistantTextVisibility }
+            : {}),
+          ...(state.autoRoutedProfile
+            ? { autoRoutedProfile: state.autoRoutedProfile }
             : {}),
         });
         if (shouldEmitQueuedConversationNotices) {

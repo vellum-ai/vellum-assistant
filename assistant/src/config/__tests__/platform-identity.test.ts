@@ -116,6 +116,7 @@ describe("fetchPlatformIdentityIds", () => {
 describe("resolvePlatformAssistantId", () => {
   const originalFetch = globalThis.fetch;
   const originalAssistantApiKeyEnv = process.env.ASSISTANT_API_KEY;
+  const originalPlatformUrlEnv = process.env.VELLUM_PLATFORM_URL;
   const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
   let fetchImpl: (
     input: RequestInfo | URL,
@@ -148,6 +149,11 @@ describe("resolvePlatformAssistantId", () => {
       delete process.env.ASSISTANT_API_KEY;
     } else {
       process.env.ASSISTANT_API_KEY = originalAssistantApiKeyEnv;
+    }
+    if (originalPlatformUrlEnv === undefined) {
+      delete process.env.VELLUM_PLATFORM_URL;
+    } else {
+      process.env.VELLUM_PLATFORM_URL = originalPlatformUrlEnv;
     }
     setPlatformBaseUrl(undefined);
     setPlatformAssistantId(undefined);
@@ -196,6 +202,59 @@ describe("resolvePlatformAssistantId", () => {
     await expect(resolvePlatformAssistantId()).resolves.toBe("");
     await expect(resolvePlatformAssistantId()).resolves.toBe("");
     expect(fetchCalls).toHaveLength(1);
+  });
+
+  test("retries validate inside the cooldown once a different API key is stored", async () => {
+    process.env.ASSISTANT_API_KEY = "rejected-key";
+    setPlatformBaseUrl(BASE_URL);
+    fetchImpl = async () => new Response("no", { status: 401 });
+
+    await expect(resolvePlatformAssistantId()).resolves.toBe("");
+    expect(fetchCalls).toHaveLength(1);
+
+    process.env.ASSISTANT_API_KEY = "replacement-key";
+    fetchImpl = async () =>
+      new Response(
+        JSON.stringify({
+          assistant_id: ASSISTANT_ID,
+          organization_id: ORG_ID,
+          user_id: USER_ID,
+        }),
+        { status: 200 },
+      );
+
+    await expect(resolvePlatformAssistantId()).resolves.toBe(ASSISTANT_ID);
+    expect(fetchCalls).toHaveLength(2);
+    const headers = new Headers(fetchCalls[1]?.init?.headers);
+    expect(headers.get("Authorization")).toBe("Api-Key replacement-key");
+  });
+
+  test("retries validate inside the cooldown once a different base URL is stored", async () => {
+    process.env.ASSISTANT_API_KEY = "assistant-key";
+    // The environment URL outranks the in-memory override (and the test
+    // preload sets one), so the base URL is changed through the environment.
+    process.env.VELLUM_PLATFORM_URL = "https://old.example.com";
+    fetchImpl = async () => new Response("no", { status: 401 });
+
+    await expect(resolvePlatformAssistantId()).resolves.toBe("");
+    expect(fetchCalls).toHaveLength(1);
+
+    process.env.VELLUM_PLATFORM_URL = BASE_URL;
+    fetchImpl = async () =>
+      new Response(
+        JSON.stringify({
+          assistant_id: ASSISTANT_ID,
+          organization_id: ORG_ID,
+          user_id: USER_ID,
+        }),
+        { status: 200 },
+      );
+
+    await expect(resolvePlatformAssistantId()).resolves.toBe(ASSISTANT_ID);
+    expect(fetchCalls).toHaveLength(2);
+    expect(fetchCalls[1]?.url).toBe(
+      `${BASE_URL}${PLATFORM_IDENTITY_VALIDATE_PATH}`,
+    );
   });
 
   test("retries validate after a failed attempt once the cooldown is cleared", async () => {

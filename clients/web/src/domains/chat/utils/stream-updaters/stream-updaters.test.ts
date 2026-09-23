@@ -422,6 +422,49 @@ describe("finalizeMessageComplete", () => {
     });
 
     expect(result[1]!.assistantTextVisibility).toBeUndefined();
+    expect(result[1]!.autoRoutedProfile).toBeUndefined();
+  });
+
+  it("stamps the profile Auto routed the turn to onto the live row", () => {
+    const msg = makeAssistantMsg({ id: "live-row", ...seg("Here you go.") });
+
+    const result = finalizeMessageComplete([userMsg, msg], {
+      type: "message_complete",
+      conversationId: "c-1",
+      messageId: "row-A",
+      autoRoutedProfile: "quality-optimized",
+    } as MessageCompleteEvent);
+
+    expect(result[1]!.autoRoutedProfile).toBe("quality-optimized");
+  });
+
+  it("keeps the routed profile on a reply that hands off to a queued turn", () => {
+    const msg = makeAssistantMsg({ id: "live-row", ...seg("Here you go.") });
+
+    const result = finalizeMessageComplete([userMsg, msg], {
+      type: "generation_handoff",
+      conversationId: "c-1",
+      messageId: "row-A",
+      queuedCount: 1,
+      autoRoutedProfile: "cost-optimized",
+    });
+
+    expect(result[1]!.autoRoutedProfile).toBe("cost-optimized");
+  });
+
+  it("stamps the routed profile on a row the completion itself creates", () => {
+    const result = finalizeMessageComplete([userMsg], {
+      type: "message_complete",
+      conversationId: "c-1",
+      messageId: "row-A",
+      attachments: [
+        { id: "att-1", filename: "a.png", mimeType: "image/png", data: "" },
+      ],
+      autoRoutedProfile: "latency-optimized",
+    });
+
+    expect(result[1]!.role).toBe("assistant");
+    expect(result[1]!.autoRoutedProfile).toBe("latency-optimized");
   });
 
   it("keeps a tool-gated reply, whose only text came from send_user_message", () => {

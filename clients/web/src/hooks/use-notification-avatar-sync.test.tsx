@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { useEffect } from "react";
 
+import { getCharacterComponents } from "@vellumai/avatar-catalog";
 import { NOTIFICATION_AVATAR_MAX_LOCAL_BYTES } from "@vellumai/avatar-manifest/notification-avatar";
 import { NOTIFICATION_AVATAR_BASE64_MAX_CHARS } from "@vellumai/ipc-contract";
 
@@ -162,6 +163,27 @@ afterEach(() => {
 });
 
 describe("useNotificationAvatarSync", () => {
+  test("passes the character layout when saved traits resolve", async () => {
+    renderHook(() =>
+      useNotificationAvatarSync(
+        ASSISTANT_ID,
+        IMAGE_URL,
+        IMAGE_META,
+        getCharacterComponents(),
+        { bodyShape: "blob", eyeStyle: "curious", color: "green" },
+        ACCENT,
+      ),
+    );
+
+    await waitFor(() => {
+      expect(rasterizeNotificationAvatar).toHaveBeenCalledWith(
+        expect.stringContaining("data:image/svg+xml"),
+        ACCENT,
+        "character",
+      );
+    });
+  });
+
   test("connects the iOS identity adapter only while local avatars are enabled", async () => {
     electronHost = false;
     useClientFeatureFlagStore.setState({
@@ -182,7 +204,11 @@ describe("useNotificationAvatarSync", () => {
     await waitFor(() => {
       expect(getNotificationAvatar()).not.toBeNull();
     });
-    expect(rasterizeNotificationAvatar).toHaveBeenCalledWith(IMAGE_URL, ACCENT);
+    expect(rasterizeNotificationAvatar).toHaveBeenCalledWith(
+      IMAGE_URL,
+      ACCENT,
+      "image",
+    );
     expect(getNotificationAvatar()).toEqual({
       assistantId: ASSISTANT_ID,
       avatarBase64: "iVBORw==",
@@ -481,6 +507,7 @@ describe("useNotificationAvatarSync", () => {
     expect(rasterizeNotificationAvatar).toHaveBeenLastCalledWith(
       "blob:avatar-1-refetched",
       ACCENT,
+      "image",
     );
   });
 
@@ -543,6 +570,7 @@ describe("useNotificationAvatarSync", () => {
     expect(rasterizeNotificationAvatar).toHaveBeenLastCalledWith(
       "blob:avatar-2",
       ACCENT,
+      "image",
     );
   });
 
@@ -989,9 +1017,7 @@ describe("scoped notification identity preparation", () => {
       ).toBeDefined();
     });
     expect(resets.length).toBe(1);
-    expect(prepares.at(-1)!.scopeEpoch).toBeGreaterThan(
-      resets[0]!.scopeEpoch,
-    );
+    expect(prepares.at(-1)!.scopeEpoch).toBeGreaterThan(resets[0]!.scopeEpoch);
   });
 
   test("a self-hosted origin change retires the old scope", async () => {
@@ -1045,7 +1071,9 @@ describe("scoped notification identity preparation", () => {
     );
     const firstIdentity = preparedIdentity(ASSISTANT_ID, firstScope);
     await waitFor(() => {
-      expect(getNotificationIdentitySnapshot(firstIdentity)?.avatar).toBeDefined();
+      expect(
+        getNotificationIdentitySnapshot(firstIdentity)?.avatar,
+      ).toBeDefined();
     });
 
     const secondScopeId = resolveNotificationAvatarScope(secondScope)!;
@@ -1064,7 +1092,9 @@ describe("scoped notification identity preparation", () => {
     expect(secondScopeId).not.toBe(firstScopeId);
 
     expect(getNotificationIdentitySnapshot(firstIdentity)).toBeNull();
-    expect(firstIdentity.nativeSenderId).not.toBe(secondIdentity.nativeSenderId);
+    expect(firstIdentity.nativeSenderId).not.toBe(
+      secondIdentity.nativeSenderId,
+    );
     expect(nativeResets).toHaveLength(1);
     expect(nativeResets[0]).toMatchObject({ scopeId: firstScopeId });
     expect(nativeResets[0]).not.toHaveProperty("assistantId");
@@ -1172,9 +1202,9 @@ describe("scoped notification identity preparation", () => {
     expect(nativeScopes).not.toContain(
       JSON.stringify(["account", "user-123", "org-abc"]),
     );
-    expect(nativeScopes.every((scopeId) => /^scope:v1:[a-f0-9]{64}$/.test(scopeId))).toBe(
-      true,
-    );
+    expect(
+      nativeScopes.every((scopeId) => /^scope:v1:[a-f0-9]{64}$/.test(scopeId)),
+    ).toBe(true);
     expect(resolveNotificationAvatarScope(accountScope)).not.toBe(
       resolveNotificationAvatarScope({
         ...accountScope,

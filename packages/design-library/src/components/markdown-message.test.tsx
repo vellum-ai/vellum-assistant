@@ -6,6 +6,7 @@
  */
 
 import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import { Window } from "happy-dom";
 import { act, createElement, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -23,6 +24,21 @@ beforeAll(async () => {
   await preloadMarkdownMath();
 });
 
+/**
+ * The type scale's own step sizes, read from the tokens the utilities are
+ * generated from, so this file asserts the ramp rather than restating it.
+ */
+function typeScaleSizes(): Record<string, number> {
+  const css = readFileSync(new URL("../tokens.css", import.meta.url), "utf8");
+  const sizes: Record<string, number> = {};
+  for (const [, token, px] of css.matchAll(
+    /--text-([a-z-]+)-size:\s*(\d+)px/g,
+  )) {
+    sizes[token!] = Number(px);
+  }
+  return sizes;
+}
+
 describe("MarkdownMessage", () => {
   test("root wrapper carries the chat typography token and data-slot", () => {
     const html = renderToStaticMarkup(
@@ -35,16 +51,61 @@ describe("MarkdownMessage", () => {
     expect(html).toContain("Hi");
   });
 
-  test("heading overrides use the title + body typography scale", () => {
+  test('frontmatter="metadata" draws none of the block, fences and all', () => {
     const html = renderToStaticMarkup(
       createElement(MarkdownMessage, {
-        content: "# H1\n\n## H2\n\n### H3",
+        frontmatter: "metadata",
+        content: "---\ntitle: Notes\nowner: platform\n---\n\n# Body",
       }),
     );
 
-    expect(html).toContain("text-title-medium");
-    expect(html).toContain("text-title-small");
-    expect(html).toContain("text-body-medium-default");
+    // Not just the --- fences: a leading YAML block is what the file says
+    // about itself, and a reader who wanted it opens the source.
+    expect(html).not.toContain("title: Notes");
+    expect(html).not.toContain("owner: platform");
+    expect(html).not.toContain("---");
+    expect(html).toContain("Body");
+  });
+
+  test("a leading YAML block is content by default", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "---\ntitle: Notes\n---\n\n# Body",
+      }),
+    );
+
+    expect(html).toContain("title: Notes");
+  });
+
+  test("headings walk one type-scale step per level", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "# H1\n\n## H2\n\n### H3\n\n#### H4\n\n##### H5\n\n###### H6",
+      }),
+    );
+    const sizes = typeScaleSizes();
+
+    const levels = [1, 2, 3, 4, 5, 6].map((level) => {
+      const tag = html.match(new RegExp(`<h${level}[^>]*>`))?.[0] ?? "";
+      const token = tag.match(/text-((?:title|body)-[a-z-]+)/)?.[1] ?? "";
+      // A level on no scale step at all is the bug this catches: the Tailwind
+      // reset leaves it reading exactly like the paragraph above it.
+      expect({ level, token }).toEqual({ level, token: expect.any(String) });
+      expect(sizes[token]).toBeGreaterThan(0);
+      return { level, tag, size: sizes[token]!, token };
+    });
+
+    // Down the ramp, never up, and never the same step twice over: two levels
+    // rendered alike stop a document's own outline from reading as one.
+    for (let i = 1; i < levels.length; i++) {
+      const above = levels[i - 1]!;
+      const here = levels[i]!;
+      expect(here.size).toBeLessThanOrEqual(above.size);
+      expect(here.tag.slice(3)).not.toBe(above.tag.slice(3));
+    }
+    // The steps' own weights carry the headings: a renderer that overrides
+    // the weight has put its idea of a heading above the scale's.
+    expect(html).not.toContain("font-bold");
   });
 
   test("blockquotes render as universal inset quote blocks", () => {
@@ -282,21 +343,6 @@ describe("MarkdownMessage", () => {
     // table still parses instead of collapsing into a <br>-laden paragraph.
     expect(html).toContain("<table");
     expect(html).not.toContain("<br");
-  });
-
-  test("h4-h6 render with bold typography instead of unstyled defaults", () => {
-    const html = renderToStaticMarkup(
-      createElement(MarkdownMessage, {
-        content: "#### H4\n\n##### H5\n\n###### H6",
-      }),
-    );
-
-    expect(html).toContain("<h4");
-    expect(html).toContain("<h5");
-    expect(html).toContain("<h6");
-    // Every heading override restores bold weight on a canonical size token.
-    expect(html.match(/<h4[^>]*>/)?.[0]).toContain("!font-bold");
-    expect(html.match(/<h6[^>]*>/)?.[0]).toContain("!font-bold");
   });
 
   test("monetary text is not mangled into math typography", () => {

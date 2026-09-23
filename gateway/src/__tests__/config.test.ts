@@ -74,6 +74,41 @@ describe("config: hardcoded defaults", () => {
     }
   });
 
+  test("runtimeProxyRequireAuth is disabled only by RUNTIME_PROXY_REQUIRE_AUTH", () => {
+    const saved = process.env.RUNTIME_PROXY_REQUIRE_AUTH;
+    try {
+      process.env.RUNTIME_PROXY_REQUIRE_AUTH = "false";
+      expect(loadConfig().runtimeProxyRequireAuth).toBe(false);
+
+      process.env.RUNTIME_PROXY_REQUIRE_AUTH = "true";
+      expect(loadConfig().runtimeProxyRequireAuth).toBe(true);
+    } finally {
+      if (saved !== undefined) {
+        process.env.RUNTIME_PROXY_REQUIRE_AUTH = saved;
+      } else {
+        delete process.env.RUNTIME_PROXY_REQUIRE_AUTH;
+      }
+    }
+  });
+
+  test("runtimeProxyRequireAuth ignores workspace config", () => {
+    const saved = process.env.RUNTIME_PROXY_REQUIRE_AUTH;
+    delete process.env.RUNTIME_PROXY_REQUIRE_AUTH;
+    writeFileSync(
+      join(testWorkspaceDir, "config.json"),
+      JSON.stringify({ gateway: { runtimeProxyRequireAuth: false } }),
+    );
+
+    try {
+      expect(loadConfig().runtimeProxyRequireAuth).toBe(true);
+    } finally {
+      if (saved !== undefined) {
+        process.env.RUNTIME_PROXY_REQUIRE_AUTH = saved;
+      }
+      writeFileSync(join(testWorkspaceDir, "config.json"), "{}");
+    }
+  });
+
   test("assistantRuntimeBaseUrl derives from RUNTIME_HTTP_PORT", () => {
     const saved = process.env.RUNTIME_HTTP_PORT;
     process.env.RUNTIME_HTTP_PORT = "9999";
