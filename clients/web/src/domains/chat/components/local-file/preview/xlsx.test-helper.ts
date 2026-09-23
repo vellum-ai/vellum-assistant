@@ -205,8 +205,15 @@ function stylesXml(styles: StyleSpec[]): string {
   return `${DECLARATION}<styleSheet xmlns="${MAIN_NS}"><numFmts count="${customFormats.length}">${customFormats.join("")}</numFmts><cellStyleXfs count="1"><xf numFmtId="0"/></cellStyleXfs><cellXfs count="${styles.length}">${cellXfs}</cellXfs></styleSheet>`;
 }
 
-/** A container holding exactly these parts, deflated like a real workbook. */
-export async function partsBlob(parts: Record<string, string>): Promise<Blob> {
+/**
+ * A container holding exactly these parts, deflated like a real workbook.
+ * `comment` is the trailing zip comment, which a container may carry and the
+ * entry count sits in front of.
+ */
+export async function partsBlob(
+  parts: Record<string, string>,
+  comment?: string,
+): Promise<Blob> {
   const zip = new JSZip();
   for (const [path, xml] of Object.entries(parts)) {
     zip.file(path, xml);
@@ -215,6 +222,7 @@ export async function partsBlob(parts: Record<string, string>): Promise<Blob> {
   const buffer = await zip.generateAsync({
     type: "arraybuffer",
     compression: "DEFLATE",
+    comment,
   });
   return new Blob([buffer]);
 }

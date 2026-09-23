@@ -995,11 +995,12 @@ describe("parseWorkbook", () => {
       },
     );
 
+    // The last style spells a seconds field, so it reads to the second.
     expect(grid.rows).toEqual([
       ["12:00"],
       ["01:02:03"],
       ["2023-03-15 12:00"],
-      ["12:00"],
+      ["12:00:00"],
     ]);
   });
 
@@ -1028,6 +1029,39 @@ describe("parseWorkbook", () => {
       ["01:02:03"],
       ["2023-01-01"],
       ["2023-01-01"],
+    ]);
+  });
+
+  test("prints seconds only when the format spells them", async () => {
+    // 12:00:01, which only a format spelling a seconds field shows.
+    const pastNoon = 0.5000116;
+    const grid = await readOneSheet(
+      [
+        [{ v: pastNoon, s: 0 }],
+        [{ v: pastNoon, s: 1 }],
+        [{ v: 45000 + pastNoon, s: 2 }],
+        [{ v: 0.5, s: 1 }],
+        [{ v: pastNoon, s: 3 }],
+        [{ v: 0.5, s: 4 }],
+      ],
+      {
+        styles: [
+          { numFmtId: 18 },
+          { numFmtId: 21 },
+          { numFmtId: 22 },
+          { formatCode: "h:mm" },
+          { formatCode: "h:mm:ss" },
+        ],
+      },
+    );
+
+    expect(grid.rows).toEqual([
+      ["12:00"],
+      ["12:00:01"],
+      ["2023-03-15 12:00"],
+      ["12:00:00"],
+      ["12:00"],
+      ["12:00:00"],
     ]);
   });
 
@@ -1076,7 +1110,12 @@ describe("parseWorkbook", () => {
       },
     );
 
-    expect(grid.rows).toEqual([["12:00"], ["12:00"], ["12:00"], ["12:00"]]);
+    expect(grid.rows).toEqual([
+      ["12:00"],
+      ["12:00:00"],
+      ["12:00:00"],
+      ["12:00"],
+    ]);
   });
 
   test("renders date-styled numbers from a custom format code", async () => {
@@ -1905,6 +1944,48 @@ describe("parseWorkbook", () => {
         "xl/worksheets/sheet1.xml": sheetXml(rowXml(1, "alpha")),
       }),
     );
+
+    expect((await parsed.sheets[0]!.read()).rows).toEqual([["alpha"]]);
+  });
+
+  test("rejects a container with more entries than the preview reads", async () => {
+    // Four parts and the one folder they sit in, which the container holds an
+    // entry for as well.
+    const parts = {
+      "_rels/.rels": `<Relationships xmlns="${PACKAGE_RELATIONSHIP_NS}"><Relationship Id="rId1" Type="${RELATIONSHIP_NS}/officeDocument" Target="wb.xml"/></Relationships>`,
+      "wb.xml": workbookPartXml(),
+      "_rels/wb.xml.rels": `<Relationships xmlns="${PACKAGE_RELATIONSHIP_NS}"><Relationship Id="rId1" Type="${RELATIONSHIP_NS}/worksheet" Target="s1.xml"/></Relationships>`,
+      "s1.xml": sheetXml(rowXml(1, "alpha")),
+    };
+
+    await expect(
+      parseWorkbook(await partsBlob(parts), { maxZipEntries: 4 }),
+    ).rejects.toThrow("zip entries");
+
+    const parsed = await parseWorkbook(await partsBlob(parts), {
+      maxZipEntries: 5,
+    });
+
+    expect((await parsed.sheets[0]!.read()).rows).toEqual([["alpha"]]);
+  });
+
+  test("reads the entry count through a trailing zip comment", async () => {
+    const blob = await partsBlob(
+      {
+        "xl/workbook.xml": workbookPartXml(),
+        "xl/_rels/workbook.xml.rels": relationshipsXml("worksheets/sheet1.xml"),
+        "xl/worksheets/sheet1.xml": sheetXml(rowXml(1, "alpha")),
+      },
+      "c".repeat(300),
+    );
+
+    // The count sits in front of the comment, so it is read only by scanning
+    // back past it.
+    await expect(parseWorkbook(blob, { maxZipEntries: 1 })).rejects.toThrow(
+      "zip entries",
+    );
+
+    const parsed = await parseWorkbook(blob);
 
     expect((await parsed.sheets[0]!.read()).rows).toEqual([["alpha"]]);
   });

@@ -75,17 +75,31 @@ const ELAPSED_UNIT_BY_LETTER: Record<string, ElapsedUnit> = {
 };
 
 /**
- * What a cell's number format renders its value as. An `elapsed` format keeps
- * the whole span it is handed instead of wrapping at midnight, so it carries
- * the units its fields run between: `[h]:mm:ss` runs from hours to seconds,
- * `[mm]:ss` from minutes to seconds.
+ * What a cell's number format renders its value as. A clock reading carries
+ * whether its format spells a seconds field, since that is what decides the
+ * reading's precision rather than the value behind it. An `elapsed` format
+ * keeps the whole span it is handed instead of wrapping at midnight, so it
+ * carries the units its fields run between: `[h]:mm:ss` runs from hours to
+ * seconds, `[mm]:ss` from minutes to seconds.
  */
 type NumberFormatKind =
-  | { kind: "none" | "date" | "time" | "datetime" }
+  | { kind: "none" }
+  | { kind: "date" }
+  | { kind: "time"; seconds: boolean }
+  | { kind: "datetime"; seconds: boolean }
   | { kind: "elapsed"; from: ElapsedUnit; to: ElapsedUnit };
+
+/** A format that reads a serial as a moment rather than as a number. */
+type SerialFormat = Extract<
+  NumberFormatKind,
+  { kind: "date" | "time" | "datetime" }
+>;
 
 /** What a cell renders as when nothing styles it as a date or a duration. */
 const PLAIN_NUMBER: NumberFormatKind = { kind: "none" };
+
+/** The built-in ids whose own code spells a seconds field. */
+const SECONDS_IN_BUILT_IN = new Set([19, 21, 33, 45, 47]);
 
 /** How a section's condition compares the value against its own number. */
 interface FormatCondition {
@@ -116,7 +130,7 @@ const PLAIN_STYLE: StyleFormat = [{ condition: null, kind: PLAIN_NUMBER }];
  * (`mmss.0`) read the minutes and seconds of a time of day, so they stay
  * clock readings, and so do the East Asian ids 32 (`h"時"mm"分"`) and 33
  * (`h"時"mm"分"ss"秒"`), which sit between the date ids 27 to 31 and 34 to
- * 36.
+ * 36. The ids that spell a seconds field of their own read to the second.
  */
 function builtInFormatKind(id: number): NumberFormatKind {
   if (
@@ -137,9 +151,9 @@ function builtInFormatKind(id: number): NumberFormatKind {
     id === 45 ||
     id === 47
   ) {
-    return { kind: "time" };
+    return { kind: "time", seconds: SECONDS_IN_BUILT_IN.has(id) };
   }
-  return id === 22 ? { kind: "datetime" } : PLAIN_NUMBER;
+  return id === 22 ? { kind: "datetime", seconds: false } : PLAIN_NUMBER;
 }
 
 /** Characters that separate format tokens without spelling one. */
@@ -284,10 +298,11 @@ function formatCodeKind(code: string): NumberFormatKind {
       hasDate = true;
     }
   }
+  const seconds = /s/.test(tokens);
   if (hasDate) {
-    return hasTime ? { kind: "datetime" } : { kind: "date" };
+    return hasTime ? { kind: "datetime", seconds } : { kind: "date" };
   }
-  return hasTime ? { kind: "time" } : PLAIN_NUMBER;
+  return hasTime ? { kind: "time", seconds } : PLAIN_NUMBER;
 }
 
 /**
@@ -483,6 +498,37 @@ const MAX_PART_CHARS = 64 * 1024 * 1024;
  * inflated.
  */
 export const MAX_SHEET_CELLS = 250_000;
+
+/**
+ * How many entries a container the preview opens may hold. A workbook carries
+ * a part per sheet plus a handful for its drawings, tables, and images, so a
+ * real one sits far under this, while a directory of a hundred thousand costs
+ * the zip reader an entry apiece before any workbook limit has run.
+ */
+export const MAX_ZIP_ENTRIES = 10_000;
+
+/** Signature the end of central directory record opens with. */
+const ZIP_DIRECTORY_END = 0x06054b50;
+
+/** The record's own 22 bytes, plus the longest comment one can sit behind. */
+const ZIP_DIRECTORY_END_SEARCH = 22 + 65_535;
+
+/**
+ * How many entries the container's own directory declares, or `null` when the
+ * bytes carry no directory at all, which is a file for the zip reader to turn
+ * down rather than this. A ZIP64 container spells `0xffff` here and holds its
+ * real count elsewhere, which is past anything the preview opens anyway.
+ */
+function zipEntryCount(bytes: ArrayBuffer): number | null {
+  const view = new DataView(bytes);
+  const from = Math.max(0, view.byteLength - ZIP_DIRECTORY_END_SEARCH);
+  for (let at = view.byteLength - 22; at >= from; at -= 1) {
+    if (view.getUint32(at, true) === ZIP_DIRECTORY_END) {
+      return view.getUint16(at + 10, true);
+    }
+  }
+  return null;
+}
 
 /**
  * How much inflated text a streamed read takes in before it looks at it.
@@ -1469,7 +1515,8 @@ function isDateSerial(serial: number, date1904: boolean): boolean {
 /**
  * Render a serial the way its number format reads it: a calendar day, a clock
  * reading, or both. A date format spells the day alone however much of a day
- * the serial carries, which is what Excel shows for one. The 1900 workbook
+ * the serial carries, and a clock reading runs to the second only for a format
+ * that spells one, truncating the fields it has no room for. The 1900 workbook
  * counts a 29 February 1900 that never existed, so serials below 60 sit one day
  * behind the real calendar, and serial 60 is that phantom day itself. Excel
  * shows it as 1900-02-29, so it is written out: no `Date` can hold it, and
@@ -1477,7 +1524,7 @@ function isDateSerial(serial: number, date1904: boolean): boolean {
  */
 function formatSerial(
   serial: number,
-  kind: "date" | "time" | "datetime",
+  format: SerialFormat,
   date1904: boolean,
 ): string {
   const epoch = date1904 ? Date.UTC(1904, 0, 1) : Date.UTC(1899, 11, 30);
@@ -1485,18 +1532,19 @@ function formatSerial(
   const at = epoch + Math.round(days * MS_PER_DAY);
   const moment = new Date(at);
   const clock = `${pad(moment.getUTCHours())}:${pad(moment.getUTCMinutes())}`;
-  const seconds = moment.getUTCSeconds();
-  if (kind === "time") {
-    return seconds === 0 ? clock : `${clock}:${pad(seconds)}`;
+  const reading =
+    format.kind === "date" || !format.seconds
+      ? clock
+      : `${clock}:${pad(moment.getUTCSeconds())}`;
+  if (format.kind === "time") {
+    return reading;
   }
   const day =
     !date1904 && serial >= 60 && serial < 61
       ? "1900-02-29"
       : `${moment.getUTCFullYear()}-${pad(moment.getUTCMonth() + 1)}-${pad(moment.getUTCDate())}`;
-  if (kind === "datetime") {
-    return seconds === 0
-      ? `${day} ${clock}`
-      : `${day} ${clock}:${pad(seconds)}`;
+  if (format.kind === "datetime") {
+    return `${day} ${reading}`;
   }
   return day;
 }
@@ -1628,7 +1676,7 @@ function readCell(
       return formatElapsed(asNumber, format.from, format.to);
     }
     if (format.kind !== "none") {
-      return formatSerial(asNumber, format.kind, date1904);
+      return formatSerial(asNumber, format, date1904);
     }
   }
   return String(asNumber);
@@ -2195,6 +2243,8 @@ export interface ParseWorkbookOptions {
   streamBatchChars?: number;
   /** Shared strings held between sheet reads, which tests lower to a few. */
   maxCachedStrings?: number;
+  /** Entries the container may hold, which tests lower to a handful. */
+  maxZipEntries?: number;
 }
 
 /**
@@ -2222,7 +2272,19 @@ export async function parseWorkbook(
   };
   // An ArrayBuffer rather than the Blob, so one call covers the browser and
   // the test runner.
-  const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+  const bytes = await blob.arrayBuffer();
+  const entries = zipEntryCount(bytes);
+  // Before the reader is handed the bytes, since it holds every entry it
+  // finds whether or not a workbook is among them.
+  if (
+    entries !== null &&
+    entries > (options.maxZipEntries ?? MAX_ZIP_ENTRIES)
+  ) {
+    throw new Error(
+      `Not a workbook: ${entries} zip entries is more than the preview reads`,
+    );
+  }
+  const zip = await JSZip.loadAsync(bytes);
   const workbookPart = readPackageWorkbookPart(
     await readPart(
       zip,
