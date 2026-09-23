@@ -501,6 +501,8 @@ export async function drainQueue(
     requireDurable: conversation.pendingInterruptRepair,
   });
 
+  await dropUnadmittedSharedSenders(conversation);
+
   if (steered) {
     const next = conversation.queue.shift();
     if (!next) {
@@ -532,6 +534,87 @@ export async function drainQueue(
   return dispatchDrainWithRestore(conversation, batch, false, () =>
     drainBatch(conversation, batch, reason),
   );
+}
+
+/**
+ * The principal of a shared-conversation contact who sent this queued
+ * message, or undefined for any other sender. A contact's message is the one
+ * whose author the shared send route stamped on the `vellum-shared` channel;
+ * its principal is the verified actor the route queued it for. A contact
+ * message missing that principal answers the empty string, which no contact
+ * holds, so it is refused rather than run.
+ */
+function sharedSenderPrincipal(queued: QueuedMessage): string | undefined {
+  if (queued.author?.sourceChannel !== "vellum-shared") {
+    return undefined;
+  }
+  return queued.sourceActorPrincipalId ?? "";
+}
+
+/**
+ * Drop queued messages from shared-conversation contacts who lost access
+ * while the message waited: removed from the conversation, revoked, or no
+ * longer admitted on the channel. Runs at the head of every drain, before
+ * anything is dequeued, so neither the single-message nor the batch path can
+ * persist or run one. A batch never mixes senders, so checking each head as it
+ * comes up covers its tail. A read that fails refuses, the same as the route.
+ *
+ * The dropped row gets the terminal `message_queued_deleted` its queued ack
+ * owes, so no client keeps showing it; nothing else is announced.
+ */
+async function dropUnadmittedSharedSenders(
+  conversation: Conversation,
+): Promise<void> {
+  for (;;) {
+    const head = conversation.queue.peek(0);
+    const principalId = head ? sharedSenderPrincipal(head) : undefined;
+    if (!head || principalId === undefined) {
+      return;
+    }
+    let admitted = false;
+    try {
+      const { isSharedSenderAdmitted } =
+        await import("../runtime/shared-sender-admission.js");
+      admitted =
+        principalId !== "" &&
+        (await isSharedSenderAdmitted(
+          conversation.conversationId,
+          principalId,
+        ));
+    } catch (err) {
+      log.warn(
+        { err, conversationId: conversation.conversationId, principalId },
+        "Shared sender admission read failed; refusing the queued message",
+      );
+    }
+    if (admitted) {
+      return;
+    }
+    // The read awaited; a message removed or reordered meanwhile is not the
+    // one this verdict is about, so look at the head again.
+    if (conversation.queue.peek(0) !== head) {
+      continue;
+    }
+    conversation.queue.shift();
+    log.info(
+      {
+        conversationId: conversation.conversationId,
+        principalId,
+        requestId: head.requestId,
+      },
+      "Dropped a queued message: its sender no longer has access to the conversation",
+    );
+    if (!isSuppressedQueuedMessage(head.metadata)) {
+      head.onEvent({
+        type: "message_queued_deleted",
+        conversationId: conversation.conversationId,
+        requestId: head.requestId,
+        ...(head.clientMessageId
+          ? { clientMessageId: head.clientMessageId }
+          : {}),
+      });
+    }
+  }
 }
 
 /**

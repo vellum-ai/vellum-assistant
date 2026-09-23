@@ -47,6 +47,34 @@ const capturedPersistedSeqs: Array<{ id: string; seq: number }> = [];
  */
 const addMessageShouldThrowForContent = new Set<string>();
 
+// Shared-conversation access for the drain-time check: membership and the
+// gateway's verdict on the contact, each controllable per test.
+let aliceIsParticipant = true;
+let aliceStatus = "active";
+const actualParticipants =
+  await import("../persistence/conversation-participants.js");
+mock.module("../persistence/conversation-participants.js", () => ({
+  ...actualParticipants,
+  isParticipant: (_conversationId: string, principalId: string) =>
+    principalId === "principal-alice" && aliceIsParticipant,
+}));
+const actualTrustReader = await import("../calls/inbound-trust-reader.js");
+mock.module("../calls/inbound-trust-reader.js", () => ({
+  ...actualTrustReader,
+  readInboundTrust: async () => ({
+    ok: true,
+    verdict: {
+      trustClass: "trusted_contact",
+      canonicalSenderId: "principal-alice",
+      contactId: "contact-alice",
+      channelId: "channel-alice",
+      status: aliceStatus,
+      policy: "allow",
+    },
+    admissionPolicy: "trusted_contacts",
+  }),
+}));
+
 // A contact's turn joins its contact record for display details; this suite
 // runs without a contacts table.
 const actualContactStore = await import("../contacts/contact-store.js");
@@ -751,6 +779,7 @@ describe("Conversation message queue", () => {
       requestId: "req-contact",
       trustContext: contact,
       author: contact,
+      sourceActorPrincipalId: "principal-alice",
       onEvent: (e) => contactEvents.push(e),
     });
     expect(queued.queued).toBe(true);
@@ -779,6 +808,72 @@ describe("Conversation message queue", () => {
     await resolveRun(1);
     await new Promise((r) => setTimeout(r, 10));
   });
+
+  test.each([
+    {
+      label: "removed from the conversation",
+      lose: () => {
+        aliceIsParticipant = false;
+      },
+    },
+    {
+      label: "revoked",
+      lose: () => {
+        aliceStatus = "revoked";
+      },
+    },
+  ])(
+    "a contact $label while their message waits is dropped at the drain",
+    async ({ lose }) => {
+      const conversation = makeConversation();
+      await conversation.loadFromDb();
+
+      const p1 = conversation.processMessage({
+        content: "msg-1",
+        attachments: [],
+        onEvent: () => {},
+        requestId: "req-1",
+      });
+      await waitForPendingRun(1);
+
+      const contactEvents: AssistantEvent[] = [];
+      const contact = {
+        trustClass: "trusted_contact" as const,
+        sourceChannel: "vellum-shared" as const,
+        requesterExternalUserId: "principal-alice",
+      };
+      conversation.enqueueMessage({
+        content: "<external_content>Still there?</external_content>",
+        displayContent: "Still there?",
+        requestId: "req-contact",
+        trustContext: contact,
+        author: contact,
+        sourceActorPrincipalId: "principal-alice",
+        onEvent: (e) => contactEvents.push(e),
+      });
+      lose();
+
+      try {
+        capturedAddMessages.length = 0;
+        await resolveRun(0);
+        await p1;
+        await new Promise((r) => setTimeout(r, 30));
+
+        expect(pendingRuns.length).toBe(1);
+        expect(conversation.getQueueDepth()).toBe(0);
+        expect(
+          capturedAddMessages.some((m) => m.content.includes("Still there?")),
+        ).toBe(false);
+        expect(contactEvents.map((e) => e.type)).toEqual([
+          "message_queued",
+          "message_queued_deleted",
+        ]);
+      } finally {
+        aliceIsParticipant = true;
+        aliceStatus = "active";
+      }
+    },
+  );
 
   test("the turn-context actor section describes the turn's actor, not the conversation's resting actor", async () => {
     // The drain carries its sender on the per-turn field and leaves the

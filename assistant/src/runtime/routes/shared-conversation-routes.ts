@@ -38,15 +38,12 @@ import {
   isParticipant,
   listConversationIdsForPrincipal,
 } from "../../persistence/conversation-participants.js";
-import {
-  PluginTurnNotAdmittedError,
-  resolvePluginChannelTurnTrust,
-} from "../../plugin-api/plugin-channel-turn-trust.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
 import {
   type RoutePolicy,
   TRUSTED_CONTACT_ONLY,
 } from "../auth/route-policy.js";
+import { resolveSharedSenderTrust } from "../shared-sender-admission.js";
 import { handleSendMessage } from "./conversation-routes.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -228,26 +225,10 @@ function handleListSharedMessages({
   };
 }
 
-/**
- * The contact's own trust on the `vellum-shared` channel, read fresh from the
- * gateway with the channel's admission floor applied. Anything short of an
- * admitted trusted contact is refused as if the conversation did not exist.
- */
+/** The contact's trust, refused as if the conversation did not exist. */
 async function contactTurnTrust(reader: ContactReader): Promise<TrustContext> {
-  let trust: TrustContext;
-  try {
-    trust = await resolvePluginChannelTurnTrust({
-      sourceChannel: "vellum-shared",
-      externalChatId: reader.principalId,
-      externalUserId: reader.principalId,
-    });
-  } catch (err) {
-    if (err instanceof PluginTurnNotAdmittedError) {
-      throw new NotFoundError("Conversation not found");
-    }
-    throw err;
-  }
-  if (trust.trustClass !== "trusted_contact") {
+  const trust = await resolveSharedSenderTrust(reader.principalId);
+  if (!trust) {
     throw new NotFoundError("Conversation not found");
   }
   return trust;
