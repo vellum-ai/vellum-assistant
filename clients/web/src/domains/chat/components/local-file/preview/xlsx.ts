@@ -684,11 +684,30 @@ function resolveZipPath(base: string, target: string): string {
   return segments.join("/");
 }
 
-/** Relationship id to the part path it points at, rooted at the zip. */
-function readRelationshipTargets(xml: string | null): Map<string, string> {
+/** The part a workbook holds its shared string table in by convention. */
+const DEFAULT_SHARED_STRINGS_PART = "xl/sharedStrings.xml";
+
+/**
+ * Last segment of the relationship type that points at a shared string table.
+ * Strict and transitional OOXML root that type at namespaces of their own, so
+ * only the segment they share identifies it.
+ */
+const SHARED_STRINGS_TYPE = "/sharedStrings";
+
+/** What a workbook's relationship part names, rooted at the zip. */
+interface WorkbookRelationships {
+  /** Relationship id to the part path it points at. */
+  targets: Map<string, string>;
+  /** The shared string part the workbook points at, or the conventional one. */
+  sharedStrings: string;
+}
+
+/** The parts a workbook's relationship part points at. */
+function readWorkbookRelationships(xml: string | null): WorkbookRelationships {
   const targets = new Map<string, string>();
+  let sharedStrings = DEFAULT_SHARED_STRINGS_PART;
   if (xml === null) {
-    return targets;
+    return { targets, sharedStrings };
   }
   const root = parseXml(xml, "xl/_rels/workbook.xml.rels");
   for (const relationship of directChildrenNamed(root, "Relationship")) {
@@ -705,14 +724,16 @@ function readRelationshipTargets(xml: string | null): Map<string, string> {
       // Not valid percent-encoding, so the target is a literal name.
     }
     // A relative target is relative to the part that declares it.
-    targets.set(
-      id,
-      decoded.startsWith("/")
-        ? resolveZipPath("", decoded.slice(1))
-        : resolveZipPath("xl/", decoded),
-    );
+    const resolved = decoded.startsWith("/")
+      ? resolveZipPath("", decoded.slice(1))
+      : resolveZipPath("xl/", decoded);
+    targets.set(id, resolved);
+    const type = relationship.getAttribute("Type");
+    if (type !== null && type.endsWith(SHARED_STRINGS_TYPE)) {
+      sharedStrings = resolved;
+    }
   }
-  return targets;
+  return { targets, sharedStrings };
 }
 
 /** Per `cellXfs` index, what cells carrying that style render as. */
@@ -1017,10 +1038,11 @@ interface SharedStringTable {
 /** The shared string table, read only as far as a sheet reaches into it. */
 async function readSharedStringTable(
   zip: JSZip,
+  partPath: string,
   highestIndex: number,
   maxPartChars: number,
 ): Promise<SharedStringTable> {
-  const entry = zip.file("xl/sharedStrings.xml");
+  const entry = zip.file(partPath);
   if (entry === null) {
     return { strings: [], readUpTo: highestIndex, exhausted: true };
   }
@@ -1030,7 +1052,7 @@ async function readSharedStringTable(
     ["sst"],
     maxPartChars,
   );
-  const root = parseXml(closeBoundedPart(part), "xl/sharedStrings.xml");
+  const root = parseXml(closeBoundedPart(part), partPath);
   const table = findNamed(root, "sst");
   return {
     strings:
@@ -1055,6 +1077,7 @@ type SharedStringReader = (highestIndex: number) => Promise<string[]>;
  */
 function createSharedStringReader(
   zip: JSZip,
+  partPath: string,
   maxPartChars: number,
 ): SharedStringReader {
   let table: SharedStringTable | null = null;
@@ -1065,7 +1088,12 @@ function createSharedStringReader(
         table === null ||
         (!table.exhausted && table.readUpTo < highestIndex)
       ) {
-        table = await readSharedStringTable(zip, highestIndex, maxPartChars);
+        table = await readSharedStringTable(
+          zip,
+          partPath,
+          highestIndex,
+          maxPartChars,
+        );
       }
       return table.strings;
     });
@@ -1141,14 +1169,24 @@ async function readSheetGrid(
  */
 export const MAX_CACHED_SHEETS = 3;
 
-/** A sheet's grid promise, and whether that read has settled. */
+/** A sheet's grid promise, whether it has settled, and its place in line. */
 interface CachedGrid {
   grid: Promise<ParsedCsv>;
   settled: boolean;
+  prioritize: () => void;
+}
+
+/**
+ * A queued read's grid, and the request to serve it next among those waiting.
+ */
+interface QueuedGrid {
+  grid: Promise<ParsedCsv>;
+  /** Moves this read to the next turn, or does nothing once it has one. */
+  prioritize: () => void;
 }
 
 /** Runs one workbook's sheet reads, one at a time and newest request first. */
-type ReadQueue = (read: () => Promise<ParsedCsv>) => Promise<ParsedCsv>;
+type ReadQueue = (read: () => Promise<ParsedCsv>) => QueuedGrid;
 
 /** A read waiting its turn, holding the promise its caller already has. */
 interface QueuedRead {
@@ -1163,7 +1201,9 @@ interface QueuedRead {
  * workbook would otherwise inflate and parse 24 capped grids at once. Running
  * one read at a time costs a workbook one grid in flight however fast the
  * tabs are clicked. The newest request runs next because that is the tab
- * being looked at, which waits on nothing but the read already running.
+ * being looked at, which waits on nothing but the read already running. A
+ * read asked for again while it waits takes that turn instead, so a tab
+ * returned to is served before the ones abandoned on the way to it.
  */
 function createReadQueue(): ReadQueue {
   const waiting: QueuedRead[] = [];
@@ -1184,20 +1224,34 @@ function createReadQueue(): ReadQueue {
       runNext();
     })();
   };
-  return (read) =>
-    new Promise<ParsedCsv>((resolve, reject) => {
-      waiting.push({ read, resolve, reject });
+  return (read) => {
+    let queued: QueuedRead | null = null;
+    const grid = new Promise<ParsedCsv>((resolve, reject) => {
+      queued = { read, resolve, reject };
+      waiting.push(queued);
       if (!running) {
         runNext();
       }
     });
+    return {
+      grid,
+      prioritize: () => {
+        if (queued === null) {
+          return;
+        }
+        const at = waiting.indexOf(queued);
+        if (at < 0) {
+          return;
+        }
+        waiting.splice(at, 1);
+        waiting.push(queued);
+      },
+    };
+  };
 }
 
 /** Serves one workbook's sheet grid by index, reading it on a miss. */
-type GridCache = (
-  index: number,
-  read: () => Promise<ParsedCsv>,
-) => Promise<ParsedCsv>;
+type GridCache = (index: number, read: () => QueuedGrid) => Promise<ParsedCsv>;
 
 /**
  * Cache of the {@link MAX_CACHED_SHEETS} most recently read grids of one
@@ -1206,6 +1260,8 @@ type GridCache = (
  * the one inflation of that part. An entry whose read is queued or running
  * holds no grid yet, so one sitting past the cap costs nothing: memory is
  * bounded by the single read the queue lets run plus the grids kept here.
+ * A hit on an entry whose read is still queued moves that read to the next
+ * turn, since the sheet asking again is the one on screen.
  */
 function createGridCache(): GridCache {
   const cached = new Map<number, CachedGrid>();
@@ -1225,9 +1281,15 @@ function createGridCache(): GridCache {
       // Reinsert so the freshest read sits last in eviction order.
       cached.delete(index);
       cached.set(index, hit);
+      hit.prioritize();
       return hit.grid;
     }
-    const entry: CachedGrid = { grid: read(), settled: false };
+    const queued = read();
+    const entry: CachedGrid = {
+      grid: queued.grid,
+      settled: false,
+      prioritize: queued.prioritize,
+    };
     cached.set(index, entry);
     const settle = (): void => {
       entry.settled = true;
@@ -1277,7 +1339,7 @@ export async function parseWorkbook(
   }
 
   const { sheets, date1904 } = readWorkbookStructure(workbookXml);
-  const targets = readRelationshipTargets(
+  const relationships = readWorkbookRelationships(
     await readPart(zip, "xl/_rels/workbook.xml.rels", maxPartChars),
   );
   const context: WorkbookContext = {
@@ -1287,7 +1349,11 @@ export async function parseWorkbook(
     ),
     date1904,
     maxPartChars,
-    sharedStrings: createSharedStringReader(zip, maxPartChars),
+    sharedStrings: createSharedStringReader(
+      zip,
+      relationships.sharedStrings,
+      maxPartChars,
+    ),
   };
 
   // A workbook whose sheets are every one hidden still has something to show.
@@ -1307,7 +1373,7 @@ export async function parseWorkbook(
         sheet.name,
         sheet.relationshipId === null
           ? undefined
-          : targets.get(sheet.relationshipId),
+          : relationships.targets.get(sheet.relationshipId),
       ),
     })),
   };

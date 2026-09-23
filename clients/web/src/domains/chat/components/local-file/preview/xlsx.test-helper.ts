@@ -155,11 +155,17 @@ function workbookXml(spec: WorkbookSpec): string {
   return `${DECLARATION}<workbook xmlns="${MAIN_NS}" xmlns:r="${RELATIONSHIP_NS}">${properties}<sheets>${sheets}</sheets></workbook>`;
 }
 
-function relationshipsXml(sheetCount: number): string {
-  const relationships = Array.from({ length: sheetCount }, (_, index) => {
+function relationshipsXml(spec: WorkbookSpec): string {
+  const relationships = spec.sheets.map((_, index) => {
     return `<Relationship Id="rId${index + 1}" Type="${RELATIONSHIP_NS}/worksheet" Target="worksheets/sheet${index + 1}.xml"/>`;
-  }).join("");
-  return `${DECLARATION}<Relationships xmlns="${PACKAGE_RELATIONSHIP_NS}">${relationships}</Relationships>`;
+  });
+  // A container that carries a shared string table points at it from here.
+  if (spec.sharedStrings !== undefined) {
+    relationships.push(
+      `<Relationship Id="rId${spec.sheets.length + 1}" Type="${RELATIONSHIP_NS}/sharedStrings" Target="sharedStrings.xml"/>`,
+    );
+  }
+  return `${DECLARATION}<Relationships xmlns="${PACKAGE_RELATIONSHIP_NS}">${relationships.join("")}</Relationships>`;
 }
 
 function sharedStringsXml(strings: TextSpec[]): string {
@@ -206,7 +212,7 @@ export async function partsBlob(parts: Record<string, string>): Promise<Blob> {
 export async function workbookBlob(spec: WorkbookSpec): Promise<Blob> {
   const parts: Record<string, string> = {
     "xl/workbook.xml": workbookXml(spec),
-    "xl/_rels/workbook.xml.rels": relationshipsXml(spec.sheets.length),
+    "xl/_rels/workbook.xml.rels": relationshipsXml(spec),
   };
   spec.sheets.forEach((sheet, index) => {
     parts[`xl/worksheets/sheet${index + 1}.xml`] = sheetXml(sheet);

@@ -76,6 +76,20 @@ function relationshipsXml(target: string): string {
   return `<Relationships xmlns="${PACKAGE_RELATIONSHIP_NS}"><Relationship Id="rId1" Type="${RELATIONSHIP_NS}/worksheet" Target="${target}"/></Relationships>`;
 }
 
+/** The namespace strict OOXML roots its relationship types at. */
+const STRICT_RELATIONSHIP_NS =
+  "http://purl.oclc.org/ooxml/officeDocument/relationships";
+
+/** The same part, plus a shared string relationship of `type` and `target`. */
+function sharedStringsRelationshipsXml(type: string, target: string): string {
+  return `<Relationships xmlns="${PACKAGE_RELATIONSHIP_NS}"><Relationship Id="rId1" Type="${RELATIONSHIP_NS}/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="${type}" Target="${target}"/></Relationships>`;
+}
+
+/** A shared string table holding one string, as a raw part. */
+function oneSharedStringXml(text: string): string {
+  return `<sst xmlns="${MAIN_NS}" count="1" uniqueCount="1"><si><t>${text}</t></si></sst>`;
+}
+
 /**
  * A styles table whose `dxfs` block reuses the id its `numFmts` block defines,
  * which is how conditional formatting collides with a real custom format.
@@ -326,6 +340,38 @@ describe("parseWorkbook", () => {
     expect((await running).rows).toEqual([["cell 1"]]);
   });
 
+  test("serves a waiting sheet next when it is asked for again", async () => {
+    const parsed = await workbookOfSheets(4);
+    const settled: number[] = [];
+    const record = (index: number): Promise<void> =>
+      parsed.sheets[index]!.read().then(() => {
+        settled.push(index);
+      });
+
+    const reads = [record(0), record(1), record(2)];
+    // Sheet 1 waits behind the read already running, and sheet 2 is abandoned
+    // on the way back to it, so returning to sheet 1 takes the next turn.
+    const again = parsed.sheets[1]!.read();
+    await Promise.all([...reads, again]);
+
+    expect(settled).toEqual([0, 1, 2]);
+  });
+
+  test("leaves the waiting order alone when the running sheet is asked for again", async () => {
+    const parsed = await workbookOfSheets(4);
+    const settled: number[] = [];
+    const record = (index: number): Promise<void> =>
+      parsed.sheets[index]!.read().then(() => {
+        settled.push(index);
+      });
+
+    const reads = [record(0), record(1), record(2)];
+    const again = parsed.sheets[0]!.read();
+    await Promise.all([...reads, again]);
+
+    expect(settled).toEqual([0, 2, 1]);
+  });
+
   test("settles a sheet queued behind a slower one only after it", async () => {
     const parsed = await parseWorkbook(
       await workbookBlob({
@@ -422,6 +468,67 @@ describe("parseWorkbook", () => {
     );
 
     expect((await parsed.sheets[0]!.read()).rows).toEqual([["alpha"]]);
+  });
+
+  test("resolves the shared string table through its workbook relationship", async () => {
+    for (const target of ["strings.xml", "/xl/strings.xml"]) {
+      const parsed = await parseWorkbook(
+        await workbookBlob({
+          sheets: [{ name: "Sheet1", rows: [[{ t: "s", v: 0 }]] }],
+          parts: {
+            "xl/_rels/workbook.xml.rels": sharedStringsRelationshipsXml(
+              `${RELATIONSHIP_NS}/sharedStrings`,
+              target,
+            ),
+            "xl/strings.xml": oneSharedStringXml("noncanonical"),
+          },
+        }),
+      );
+
+      const grid = await parsed.sheets[0]!.read();
+
+      expect(grid.rows).toEqual([["noncanonical"]]);
+      expect(grid.truncated).toBe(false);
+    }
+  });
+
+  test("resolves a shared string relationship typed in the strict namespace", async () => {
+    const parsed = await parseWorkbook(
+      await workbookBlob({
+        sheets: [{ name: "Sheet1", rows: [[{ t: "s", v: 0 }]] }],
+        parts: {
+          "xl/_rels/workbook.xml.rels": sharedStringsRelationshipsXml(
+            `${STRICT_RELATIONSHIP_NS}/sharedStrings`,
+            "strings.xml",
+          ),
+          "xl/strings.xml": oneSharedStringXml("strict"),
+        },
+      }),
+    );
+
+    const grid = await parsed.sheets[0]!.read();
+
+    expect(grid.rows).toEqual([["strict"]]);
+    expect(grid.truncated).toBe(false);
+  });
+
+  test("reads the conventional shared string part when no relationship names one", async () => {
+    const parsed = await parseWorkbook(
+      await workbookBlob({
+        sheets: [{ name: "Sheet1", rows: [[{ t: "s", v: 0 }]] }],
+        sharedStrings: ["alpha"],
+        parts: {
+          "xl/_rels/workbook.xml.rels": relationshipsXml(
+            "worksheets/sheet1.xml",
+          ),
+        },
+      }),
+    );
+
+    const grid = await parsed.sheets[0]!.read();
+
+    expect(grid.rows).toEqual([["alpha"]]);
+    expect(grid.truncated).toBe(false);
   });
 
   test("reads shared, inline, and rich-run strings", async () => {
