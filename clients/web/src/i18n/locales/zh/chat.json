@@ -391,7 +391,8 @@
     "subtitle": "选择 {name} 如何查看您对准的画面。随时都可以切换。",
     "title": "照片还是实时？",
     "tryLive": "立即试用实时",
-    "tryLiveDesktop": "试用实时"
+    "tryLiveDesktop": "试用实时",
+    "yourAssistant": "您的助手"
   },
   "cameraShutterHint": {
     "live": "实时 · 轻点停止",

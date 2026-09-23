@@ -391,7 +391,8 @@
     "subtitle": "Elige cómo {name} ve lo que estás enfocando. Puedes cambiar cuando quieras.",
     "title": "¿Foto o en vivo?",
     "tryLive": "Probar en vivo ahora",
-    "tryLiveDesktop": "Probar en vivo"
+    "tryLiveDesktop": "Probar en vivo",
+    "yourAssistant": "tu asistente"
   },
   "cameraShutterHint": {
     "live": "En vivo · Toca para detener",

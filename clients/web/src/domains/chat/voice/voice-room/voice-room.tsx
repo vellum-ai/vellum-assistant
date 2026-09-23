@@ -1846,10 +1846,11 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           <CameraExplainer
             open={explainerOpen}
             host={explainerHost}
-            // The explainer puts the name mid-sentence, so the fallback is the
-            // lowercase one rather than the pill's sentence-leading form.
+            // The name lands mid-sentence here, so this fallback is lowercase
+            // where the pill's, which leads one, is not. Blank is the same as
+            // absent, as it is for the pill.
             assistantName={
-              assistantName ?? t("voiceFirstRunCard.yourAssistant")
+              assistantName?.trim() || t("cameraExplainer.yourAssistant")
             }
             tryLiveOffered={!live}
             onDismiss={dismissExplainer}
