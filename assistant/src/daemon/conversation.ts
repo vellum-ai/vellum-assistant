@@ -659,7 +659,7 @@ export class Conversation {
    * @internal
    */
   currentTurnCronRunId?: string | null;
-  pendingScheduledDispatches = new Map<string, Set<AbortController>>();
+  pendingQueuedDispatches = new Map<string | null, Set<AbortController>>();
   /** @internal */ currentTurnIsNonInteractive?: boolean;
   /** @internal */ currentTurnModelProfileNoticeKey?: string;
   /** @internal */ currentTurnRequestOrigin?: string;
@@ -2611,7 +2611,7 @@ export class Conversation {
     return (
       this.isProcessing() ||
       this.hasQueuedMessages() ||
-      this.pendingScheduledDispatches.size > 0 ||
+      this.pendingQueuedDispatches.size > 0 ||
       this.liveVoiceResidencyLeases > 0 ||
       this.modeSessions.hasResidentWork() ||
       getSubagentManager().hasActiveChildren(this.conversationId)

@@ -557,20 +557,17 @@ async function dispatchDrainWithRestore(
   steered: boolean,
   dispatch: (signal?: AbortSignal) => Promise<void>,
 ): Promise<void> {
-  const runId = messages[0]?.cronRunId;
-  const controller = runId ? new AbortController() : undefined;
-  const pending = runId
-    ? ((conversation.pendingScheduledDispatches ??= new Map()).get(runId) ??
-      new Set<AbortController>())
-    : undefined;
-  if (runId && controller && pending) {
-    pending.add(controller);
-    conversation.pendingScheduledDispatches.set(runId, pending);
-  }
+  const runId = messages[0]?.cronRunId ?? null;
+  const controller = new AbortController();
+  const pending =
+    (conversation.pendingQueuedDispatches ??= new Map()).get(runId) ??
+    new Set<AbortController>();
+  pending.add(controller);
+  conversation.pendingQueuedDispatches.set(runId, pending);
   try {
-    return await dispatch(controller?.signal);
+    return await dispatch(controller.signal);
   } catch (err) {
-    if (controller?.signal.aborted) {
+    if (controller.signal.aborted) {
       return;
     }
     const alreadyRestored =
@@ -588,11 +585,9 @@ async function dispatchDrainWithRestore(
     }
     throw err;
   } finally {
-    if (runId && controller && pending) {
-      pending.delete(controller);
-      if (pending.size === 0) {
-        conversation.pendingScheduledDispatches.delete(runId);
-      }
+    pending.delete(controller);
+    if (pending.size === 0) {
+      conversation.pendingQueuedDispatches.delete(runId);
     }
   }
 }

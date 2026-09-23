@@ -58,7 +58,7 @@ function register(
     markedStale: false,
     conversationId: id,
     liveVoiceResidencyLeases: 0,
-    pendingScheduledDispatches: state.scheduledDispatch
+    pendingQueuedDispatches: state.scheduledDispatch
       ? new Map([["run-scheduled", new Set([new AbortController()])]])
       : new Map(),
     isProcessing: () => state.processing,

@@ -338,19 +338,22 @@ describe("run-scoped schedule timeout", () => {
       }
       const ownedDispatch = new AbortController();
       const otherDispatch = new AbortController();
+      const userDispatch = new AbortController();
       const ctx = {
         ...h.ctx,
         queue,
         currentTurnCronRunId: activeRunId,
-        pendingScheduledDispatches: new Map([
+        pendingQueuedDispatches: new Map<string | null, Set<AbortController>>([
           ["run-timeout", new Set([ownedDispatch])],
           ["run-other", new Set([otherDispatch])],
+          [null, new Set([userDispatch])],
         ]),
       };
       const bytesBefore = queue.totalBytes;
       abortScheduledRun(ctx, "run-timeout");
       expect(ownedDispatch.signal.aborted).toBe(true);
       expect(otherDispatch.signal.aborted).toBe(false);
+      expect(userDispatch.signal.aborted).toBe(false);
       expect(queue.snapshot().map((message) => message.requestId)).toEqual([
         "request-0",
         "request-2",

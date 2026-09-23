@@ -1,3 +1,4 @@
+import type { Conversation } from "../daemon/conversation.js";
 import {
   allSubagentConversations,
   findConversation,
@@ -11,6 +12,14 @@ import { TERMINAL_STATUSES } from "../subagent/types.js";
 import { hasBackgroundToolWork } from "../tools/background-tool-registry.js";
 import { isUserFacingSubagent } from "./completion-work.js";
 
+function hasPendingTurn(conversation: Conversation | undefined): boolean {
+  return (
+    conversation?.isProcessing() === true ||
+    conversation?.hasQueuedMessages() === true ||
+    (conversation?.pendingQueuedDispatches?.size ?? 0) > 0
+  );
+}
+
 /** A finished turn can still own delegated work whose result is not ready. */
 export function hasPendingBackgroundWork(
   conversationId: string,
@@ -21,7 +30,7 @@ export function hasPendingBackgroundWork(
   for (const child of allSubagentConversations()) {
     if (
       child.parentConversationId !== conversationId ||
-      (!child.isProcessing() && !child.hasQueuedMessages())
+      !hasPendingTurn(child)
     ) {
       continue;
     }
@@ -36,8 +45,7 @@ export function hasPendingBackgroundWork(
     }
   }
   return (
-    conversation?.isProcessing() === true ||
-    conversation?.hasQueuedMessages() === true ||
+    hasPendingTurn(conversation) ||
     // A newer human turn can finish inside the earlier wake's queue drain.
     (options?.startedAfter === undefined &&
       hasPendingAgentWake(conversationId)) ||

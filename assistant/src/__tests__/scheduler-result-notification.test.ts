@@ -651,9 +651,12 @@ describe("schedule result notification wiring", () => {
         setConversation(id, {
           isProcessing: () => kind === "turn",
           currentTurnCronRunId: undefined,
-          pendingScheduledDispatches:
+          pendingQueuedDispatches:
             kind === "dispatch"
-              ? new Map([["run-other", new Set([new AbortController()])]])
+              ? new Map<string | null, Set<AbortController>>([
+                  ["run-other", new Set([new AbortController()])],
+                  [null, new Set([new AbortController()])],
+                ])
               : new Map(),
           snapshotQueuedMessages: () => queue.snapshot(),
         } as unknown as Conversation);
@@ -790,7 +793,7 @@ describe("schedule result notification wiring", () => {
       setConversation(id, {
         isProcessing: () => false,
         snapshotQueuedMessages: () => [],
-        pendingScheduledDispatches: dispatches,
+        pendingQueuedDispatches: dispatches,
       } as unknown as Conversation);
       entered.resolve(id);
     };

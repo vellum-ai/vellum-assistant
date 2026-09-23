@@ -11,6 +11,9 @@ let tools: unknown[] = [];
 let queued = false;
 let processing = false;
 let liveChild = false;
+let childProcessing = true;
+const parentDispatches = new Map<string | null, Set<AbortController>>();
+const childDispatches = new Map<string | null, Set<AbortController>>();
 let wakeQueued = false;
 mock.module("../../runtime/agent-wake-queue.js", () => ({
   hasPendingAgentWake: () => wakeQueued,
@@ -42,13 +45,15 @@ mock.module("../../daemon/conversation-registry.js", () => ({
           {
             conversationId: "conv-child",
             parentConversationId: "conv-123",
-            isProcessing: () => true,
+            isProcessing: () => childProcessing,
+            pendingQueuedDispatches: childDispatches,
             hasQueuedMessages: () => false,
           },
         ]
       : [],
   findConversation: () => ({
     isProcessing: () => processing,
+    pendingQueuedDispatches: parentDispatches,
     hasQueuedMessages: () => queued,
   }),
 }));
@@ -61,6 +66,9 @@ beforeEach(() => {
   queued = false;
   processing = false;
   liveChild = false;
+  childProcessing = true;
+  parentDispatches.clear();
+  childDispatches.clear();
   wakeQueued = false;
 });
 
@@ -122,4 +130,30 @@ test("a terminal child's queued follow-up must settle before completion", () => 
   expect(hasPendingBackgroundWork("conv-123", { startedAfter: 200 })).toBe(
     false,
   );
+});
+
+test("a dequeued unscheduled continuation suppresses kickoff alerts before its processing claim", () => {
+  parentDispatches.set(null, new Set([new AbortController()]));
+  expect(hasPendingBackgroundWork("conv-123", { startedAfter: 100 })).toBe(
+    true,
+  );
+  expect(hasPendingBackgroundWork("conv-123")).toBe(true);
+  parentDispatches.clear();
+  expect(hasPendingBackgroundWork("conv-123", { startedAfter: 100 })).toBe(
+    false,
+  );
+});
+
+test("a terminal child's dequeued continuation remains pending before its claim", () => {
+  liveChild = true;
+  childProcessing = false;
+  childDispatches.set(null, new Set([new AbortController()]));
+  expect(hasPendingBackgroundWork("conv-123", { startedAfter: 100 })).toBe(
+    true,
+  );
+  expect(hasPendingBackgroundWork("conv-123", { startedAfter: 200 })).toBe(
+    false,
+  );
+  childDispatches.clear();
+  expect(hasPendingBackgroundWork("conv-123")).toBe(false);
 });
