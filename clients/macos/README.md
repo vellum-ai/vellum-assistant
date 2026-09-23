@@ -478,17 +478,19 @@ and its introduction wait for sign-in and assistant selection to finish. Losing
 assistant readiness clears an interrupted tour; an unfinished tour returns to its
 introduction when the assistant is ready again. Talk and voice-key practice are
 rehearsals: neither requests microphone access nor starts a real call. Only the
-final step's explicit call action does that.
+final step's explicit call action does that. The Talk success message stays
+visible until **Next** is pressed.
 
 The guide follows the main Settings window using the helper's window inventory;
 when unavailable it stays near the bottom of the current display. Before a drag
 or Finder reveal it stops following and drops its floating level to leave native
-authentication visible. When a permission requested in the tour is confirmed,
-the guide closes and Vellum comes to the foreground at the same coachmark. This
-waits for the permission request and refreshed status, including recycling the
-screen capture helper when needed. **Back to the tour** also returns to the same
-coachmark. Leaving the lesson, replacing the guide, or a five-minute timeout
-also closes it. Motion respects macOS Reduce Motion.
+authentication visible. A confirmed grant closes the guide without raising the
+companion over Settings. Vellum returns to the same coachmark only after the
+request settles and System Settings leaves the foreground. Settings keeps focus
+through its **Quit & Reopen** confirmation; an unknown foreground application or
+active authentication agent also defers the return. **Back to the tour** returns
+to the same coachmark. Leaving the lesson, replacing the guide, or a five-minute
+timeout also closes it. Motion respects macOS Reduce Motion.
 
 Accessibility, Speech Recognition, Automation, and Notifications serve other app
 features and are not requested by this tour. General Privacy settings retain their

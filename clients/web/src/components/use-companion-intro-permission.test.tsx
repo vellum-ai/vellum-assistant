@@ -48,6 +48,10 @@ let setupSupported = false;
 const cancelGuide = mock(() => undefined);
 const beginGuide = mock(async (kind: SystemPermissionKind) => current[kind]);
 const foreground = mock(async () => undefined);
+const frontmost = mock(async (): Promise<string | null> => "com.example.vellum");
+mock.module("@/runtime/running-apps", () => ({
+  frontmostApp: frontmost,
+}));
 mock.module("@/runtime/main-window", () => ({
   ensureMainWindowVisible: foreground,
 }));
@@ -80,6 +84,8 @@ beforeEach(() => {
   cancelGuide.mockClear();
   foreground.mockReset();
   foreground.mockImplementation(async () => undefined);
+  frontmost.mockReset();
+  frontmost.mockImplementation(async () => "com.example.vellum");
   current = permissions("not-determined");
   read.mockReset();
   read.mockImplementation(async () => current);
@@ -118,11 +124,11 @@ describe("companion tour permission setup", () => {
       expect(request).not.toHaveBeenCalled();
       expect(settings).not.toHaveBeenCalled();
       current = permissions("granted");
-      act(() => listener?.(current));
+      await act(async () => listener?.(current));
       expect(companionIntroNeedsPermission(view.result.current)).toBe(false);
       expect(cancelGuide).toHaveBeenCalledTimes(1);
       expect(foreground).toHaveBeenCalledTimes(1);
-      act(() => listener?.(current));
+      await act(async () => listener?.(current));
       expect(foreground).toHaveBeenCalledTimes(1);
     },
   );
@@ -182,7 +188,7 @@ describe("companion tour permission setup", () => {
       expect(action === "request" ? settings : request).not.toHaveBeenCalled();
       expect(companionIntroNeedsPermission(view.result.current)).toBe(true);
       current = permissions("granted");
-      act(() => listener?.(current));
+      await act(async () => listener?.(current));
       expect(companionIntroNeedsPermission(view.result.current)).toBe(false);
       expect(view.result.current?.kind).toBe(kind);
       expect(foreground).toHaveBeenCalledTimes(1);
@@ -299,7 +305,7 @@ describe("companion tour permission setup", () => {
     });
     await waitFor(() => expect(request).toHaveBeenCalledTimes(1));
     current = permissions("granted");
-    act(() => listener?.(current));
+    await act(async () => listener?.(current));
     expect(view.result.current?.state.phase).toBe("requesting");
     expect(foreground).not.toHaveBeenCalled();
     await act(async () => resolve(item("microphone", "denied")));
@@ -354,16 +360,75 @@ describe("companion tour permission setup", () => {
     act(() => listener?.(permissions("granted")));
     expect(foreground).not.toHaveBeenCalled();
   });
+  test.each(["key", "share", "try"] as const)(
+    "%s waits until Settings leaves the foreground before returning",
+    async (beat) => {
+      jest.useFakeTimers();
+      setupSupported = true;
+      current = permissions("denied");
+      frontmost.mockResolvedValue("com.apple.systempreferences");
+      const view = setup(beat);
+      await act(async () => {});
+      await act(async () => view.result.current?.enable());
+      current = permissions("granted");
+      await act(async () => listener?.(current));
+      await act(async () => jest.advanceTimersByTime(60_000));
+      expect(companionIntroNeedsPermission(view.result.current)).toBe(false);
+      expect(foreground).not.toHaveBeenCalled();
+      frontmost.mockResolvedValue("com.example.vellum");
+      await act(async () => jest.advanceTimersByTime(2_000));
+      expect(foreground).toHaveBeenCalledTimes(1);
+      await act(async () => jest.advanceTimersByTime(2_000));
+      expect(foreground).toHaveBeenCalledTimes(1);
+    },
+  );
+  test.each([null, "com.apple.SecurityAgent"])(
+    "does not take focus while the foreground application is %s",
+    async (bundleId) => {
+      const view = setup("share");
+      await known(view);
+      act(() => view.result.current?.enable());
+      await known(view);
+      frontmost.mockResolvedValue(bundleId);
+      await act(async () => listener?.(permissions("granted")));
+      expect(foreground).not.toHaveBeenCalled();
+    },
+  );
+  test("does not return if the tour is left during a foreground check", async () => {
+    const view = setup("share");
+    await known(view);
+    act(() => view.result.current?.enable());
+    await known(view);
+    const checked = deferred<string | null>();
+    frontmost.mockReturnValueOnce(checked.promise);
+    act(() => listener?.(permissions("granted")));
+    view.rerender({ beat: null });
+    await act(async () => checked.resolve("com.example.vellum"));
+    expect(foreground).not.toHaveBeenCalled();
+  });
+  test("does not return if access is revoked during a foreground check", async () => {
+    const view = setup("share");
+    await known(view);
+    act(() => view.result.current?.enable());
+    await known(view);
+    const checked = deferred<string | null>();
+    frontmost.mockReturnValueOnce(checked.promise);
+    act(() => listener?.(permissions("granted")));
+    act(() => listener?.(permissions("denied")));
+    expect(frontmost).toHaveBeenCalledTimes(1);
+    await act(async () => checked.resolve("com.example.vellum"));
+    expect(foreground).not.toHaveBeenCalled();
+  });
   test("waits for the requested permission rather than an unrelated grant", async () => {
     const view = setup("try");
     await known(view);
     act(() => view.result.current?.enable());
     await known(view);
     current.screen = item("screen", "granted");
-    act(() => listener?.(current));
+    await act(async () => listener?.(current));
     expect(foreground).not.toHaveBeenCalled();
     current.microphone = item("microphone", "granted");
-    act(() => listener?.(current));
+    await act(async () => listener?.(current));
     expect(foreground).toHaveBeenCalledTimes(1);
   });
   test("does not return after leaving a pending permission setup", async () => {
@@ -394,7 +459,7 @@ describe("companion tour permission setup", () => {
     const { promise, resolve } = deferred<SystemPermissionsState>();
     read.mockReturnValueOnce(promise);
     const view = setup("try");
-    act(() => listener?.(current));
+    await act(async () => listener?.(current));
     await act(async () => view.result.current?.enable());
     expect(request).toHaveBeenCalledTimes(1);
     await act(async () => resolve(current));

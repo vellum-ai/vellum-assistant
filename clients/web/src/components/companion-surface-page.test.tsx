@@ -10,6 +10,7 @@ import {
   beforeEach,
   describe,
   expect,
+  jest,
   mock,
   spyOn,
   test,
@@ -189,6 +190,7 @@ const { CompanionSurfacePage } = await import("./companion-surface-page");
 
 afterEach(() => {
   cleanup();
+  jest.useRealTimers();
   resetState();
   moveByMock.mockClear();
   releaseMock.mockClear();
@@ -1444,6 +1446,27 @@ describe("the companion's introduction", () => {
     STATE.intro = "meet";
     const { container } = render(<CompanionSurfacePage />);
     const card = await pinCard(container);
+    const next = Array.from(card.querySelectorAll("button")).find(
+      (button) => button.textContent === "Next",
+    );
+    fireEvent.click(next as HTMLElement);
+    expect(advanceIntroMock.mock.calls).toEqual([["next"]]);
+  });
+
+  test("keeps the avatar's success message until Next is pressed", async () => {
+    STATE.intro = "talk";
+    const { container } = render(<CompanionSurfacePage />);
+    const { avatar } = await pinSurface(container);
+    const card = await pinCard(container);
+    jest.useFakeTimers();
+
+    fireEvent.click(avatar);
+    expect(card.textContent).toContain("You did it!");
+    await act(async () => jest.advanceTimersByTime(60_000));
+    expect(card.textContent).toContain("You did it!");
+    expect(startVoiceMock).not.toHaveBeenCalled();
+    expect(advanceIntroMock).not.toHaveBeenCalled();
+
     const next = Array.from(card.querySelectorAll("button")).find(
       (button) => button.textContent === "Next",
     );

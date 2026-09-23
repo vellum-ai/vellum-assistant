@@ -80,7 +80,7 @@ function publishGuide(): void {
   }
 }
 
-function dismissGuide(returnToOwner?: "active" | "inactive"): void {
+function dismissGuide(returnToOwner = false): void {
   const owner =
     returnToOwner && guideOwner && !guideOwner.isDestroyed()
       ? BrowserWindow.fromWebContents(guideOwner)
@@ -97,11 +97,7 @@ function dismissGuide(returnToOwner?: "active" | "inactive"): void {
   }
   publishGuide();
   if (owner && !owner.isDestroyed()) {
-    if (returnToOwner === "active") {
-      owner.show();
-    } else {
-      owner.showInactive();
-    }
+    owner.show();
   }
 }
 
@@ -269,7 +265,7 @@ async function beginGuide(
         .refresh()
         .then((next) => {
           if (guide === session && next[kind].status === "granted") {
-            dismissGuide("inactive");
+            dismissGuide();
           }
         })
         .catch((error: unknown) =>
@@ -340,7 +336,7 @@ export function installCompanionPermissionGuide(
   );
   on(PERMISSION_GUIDE_DISMISS, z.tuple([idSchema]), ([id], event) => {
     if (guideSender(id, event.sender)) {
-      dismissGuide("active");
+      dismissGuide(true);
     }
   });
   on(PERMISSION_GUIDE_DRAG, z.tuple([idSchema]), ([id], event) => {

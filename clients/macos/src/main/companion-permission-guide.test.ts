@@ -235,7 +235,9 @@ describe("native permission guide", () => {
   });
 
   test("follows Settings after paint and closes when the actual grant arrives", async () => {
-    await begin();
+    const owner = new FakeWindow();
+    windows.set("companion", owner);
+    await begin("screen", owner.webContents);
     const win = windows.get("permission-guide")!;
     listeners.get("vellum:permissions:guide:ready")!([get()!.id, 148], {
       sender: win.webContents,
@@ -247,6 +249,8 @@ describe("native permission guide", () => {
     await flush();
     expect(get()).toBeNull();
     expect(win.destroyed).toBe(true);
+    expect(owner.show).not.toHaveBeenCalled();
+    expect(owner.showInactive).not.toHaveBeenCalled();
   });
 
   test("a replaced guide cannot drag a stale application", async () => {

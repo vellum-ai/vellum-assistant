@@ -12,6 +12,7 @@ import {
 } from "@/runtime/permission-setup";
 import { captureError } from "@/lib/sentry/capture-error";
 import { ensureMainWindowVisible } from "@/runtime/main-window";
+import { frontmostApp } from "@/runtime/running-apps";
 import {
   getSystemPermissionsState,
   openSystemPermissionSettings,
@@ -85,16 +86,34 @@ export function useCompanionIntroPermission(
     let pending = false;
     let revision = 0;
     let reading = false;
+    let checkingReturn = false;
     let returnToApp: "waiting" | "ready" | null = null;
-    const resumeTour = () => {
-      if (!active || pending || returnToApp !== "ready") {
+    const resumeTour = async () => {
+      if (!active || pending || checkingReturn || returnToApp !== "ready") {
         return;
       }
-      returnToApp = null;
-      cancelPermissionGuide();
-      void ensureMainWindowVisible().catch((error: unknown) => {
+      checkingReturn = true;
+      try {
+        // The grant can precede Settings' Quit & Reopen confirmation.
+        const frontmost = await frontmostApp();
+        if (
+          !active ||
+          pending ||
+          returnToApp !== "ready" ||
+          frontmost === null ||
+          frontmost === "com.apple.systempreferences" ||
+          frontmost === "com.apple.SecurityAgent"
+        ) {
+          return;
+        }
+        returnToApp = null;
+        cancelPermissionGuide();
+        await ensureMainWindowVisible();
+      } catch (error) {
         captureError(error, { context: "companionIntro.resumeAfterPermission" });
-      });
+      } finally {
+        checkingReturn = false;
+      }
     };
     const record = (
       state: SystemPermissionsState | null,
@@ -118,7 +137,7 @@ export function useCompanionIntroPermission(
             ? "ready"
             : "waiting"
           : null;
-        resumeTour();
+        void resumeTour();
       }
     };
     const failed = (error: unknown) => {
@@ -204,7 +223,7 @@ export function useCompanionIntroPermission(
           failed(error);
         } finally {
           pending = false;
-          resumeTour();
+          void resumeTour();
         }
       })();
     };
