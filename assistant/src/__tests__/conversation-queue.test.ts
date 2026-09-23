@@ -35,6 +35,7 @@ const capturedAddMessages: Array<{
   role: string;
   content: string;
   metadata?: Record<string, unknown>;
+  clientMessageId?: string;
 }> = [];
 
 /** Snapshot↔stream anchor advances recorded via `recordConversationPersistedSeq`. */
@@ -155,7 +156,7 @@ mock.module("../persistence/conversation-crud.js", () => ({
     _convId: string,
     role: string,
     content: string,
-    options?: { metadata?: Record<string, unknown> },
+    options?: { metadata?: Record<string, unknown>; clientMessageId?: string },
   ) => {
     // Simulate a persist failure for tests that need to exercise the
     // tail-persist-failed path in drainBatch. Triggered by matching any
@@ -171,6 +172,7 @@ mock.module("../persistence/conversation-crud.js", () => ({
       role,
       content,
       metadata: options?.metadata,
+      clientMessageId: options?.clientMessageId,
     });
     return { id };
   },
@@ -798,6 +800,8 @@ describe("Conversation message queue", () => {
       trustContext: contact,
       author: contact,
       sourceActorPrincipalId: "principal-alice",
+      clientMessageId: "nonce-1",
+      storedClientMessageId: "vellum-shared:principal-alice:nonce-1",
       onEvent: (e) => contactEvents.push(e),
     });
     expect(queued.queued).toBe(true);
@@ -816,6 +820,14 @@ describe("Conversation message queue", () => {
     expect(conversation.currentTurnTrustContext?.requesterExternalUserId).toBe(
       "principal-alice",
     );
+    // Events carry the nonce the client sent; the row is stored under the
+    // sender-scoped key.
+    expect(row?.clientMessageId).toBe("vellum-shared:principal-alice:nonce-1");
+    for (const type of ["message_queued", "user_message_echo"]) {
+      expect(contactEvents).toContainEqual(
+        expect.objectContaining({ type, clientMessageId: "nonce-1" }),
+      );
+    }
     expect(contactEvents).toContainEqual(
       expect.objectContaining({
         type: "user_message_echo",
@@ -975,6 +987,49 @@ describe("Conversation message queue", () => {
         "message_queued_deleted",
       ]);
       aliceFailingReads = 0;
+    });
+
+    test("keeps the same sender's later messages behind it", async () => {
+      const conversation = makeConversation();
+      await conversation.loadFromDb();
+      __setSharedSenderRetryDelayForTest(() => 60_000);
+      const { p1 } = await queueBehindRunningTurn(conversation);
+      conversation.enqueueMessage({
+        content: "<external_content>A second thought</external_content>",
+        displayContent: "A second thought",
+        requestId: "req-contact-2",
+        trustContext: ALICE,
+        author: ALICE,
+        sourceActorPrincipalId: "principal-alice",
+      });
+      conversation.enqueueMessage({
+        content: "guardian follow-up",
+        requestId: "req-guardian",
+      });
+      // Only the first read fails, so the second message would verify.
+      aliceFailingReads = 1;
+
+      capturedAddMessages.length = 0;
+      await resolveRun(0);
+      await p1;
+      await waitForPendingRun(2);
+
+      expect(
+        capturedAddMessages.some((m) =>
+          m.content.includes("guardian follow-up"),
+        ),
+      ).toBe(true);
+      expect(
+        capturedAddMessages.some((m) => m.content.includes("A second thought")),
+      ).toBe(false);
+      expect(conversation.queue.snapshot().map((m) => m.requestId)).toEqual([
+        "req-contact",
+        "req-contact-2",
+      ]);
+
+      aliceFailingReads = 0;
+      await resolveRun(1);
+      await new Promise((r) => setTimeout(r, 10));
     });
 
     test("does not hold the guardian's queued messages behind it", async () => {

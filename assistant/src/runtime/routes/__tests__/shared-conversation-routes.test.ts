@@ -558,14 +558,12 @@ describe("POST shared/conversations/:id/messages", () => {
     expect(conversationCount()).toBe(before);
   });
 
-  test("a client message id is scoped to the sender", async () => {
+  test("a client message id reaches the pipeline as the client sent it", async () => {
     const conversationId = newConversation();
     share(conversationId);
     await send(conversationId, { content: "Hi", clientMessageId: "nonce-1" });
 
-    expect(handedOff().args.body?.clientMessageId).toBe(
-      "vellum-shared:principal-alice:nonce-1",
-    );
+    expect(handedOff().args.body?.clientMessageId).toBe("nonce-1");
   });
 
   test("a conversation not shared with the caller is a 404 and sends nothing", async () => {

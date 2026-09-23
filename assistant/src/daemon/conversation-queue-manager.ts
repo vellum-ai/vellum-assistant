@@ -66,6 +66,12 @@ export interface QueuedMessage {
    *  so the originating client can dedupe its optimistic row. */
   clientMessageId?: string;
   /**
+   * The key the persisted row is stored and deduplicated under, when it is
+   * not the client's nonce itself (a shared-conversation contact's nonce is
+   * scoped to its sender). Events keep carrying `clientMessageId`.
+   */
+  storedClientMessageId?: string;
+  /**
    * True once a drain has told clients this message was dequeued and before
    * the turn it was dequeued for actually took over. A drain that sends the
    * message back to the queue after that point owes clients the corrective

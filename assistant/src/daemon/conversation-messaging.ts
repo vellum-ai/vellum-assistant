@@ -822,6 +822,8 @@ export interface EnqueueMessageOptions {
   displayContent?: string;
   transport?: ConversationTransportMetadata;
   clientMessageId?: string;
+  /** See `QueuedMessage.storedClientMessageId`. */
+  storedClientMessageId?: string;
   /** JWT-verified requester principal captured for queued host-proxy routing. */
   sourceActorPrincipalId?: string;
   /** Auth context snapshot captured for queued turn-scoped authorization. */
@@ -873,6 +875,7 @@ export function enqueueMessage(
     displayContent,
     transport,
     clientMessageId,
+    storedClientMessageId,
     authContext,
     author,
     cronRunId,
@@ -918,6 +921,7 @@ export function enqueueMessage(
     displayContent,
     sentAt: Date.now(),
     clientMessageId,
+    ...(storedClientMessageId ? { storedClientMessageId } : {}),
     cronRunId,
   });
   if (!accepted) {

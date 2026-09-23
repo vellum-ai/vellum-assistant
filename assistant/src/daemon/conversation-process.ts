@@ -1097,7 +1097,7 @@ async function drainSingleMessage(
       activeSurfaceId: next.activeSurfaceId,
       metadata: { ...next.metadata, sentAt: next.sentAt },
       displayContent: next.displayContent,
-      clientMessageId: next.clientMessageId,
+      clientMessageId: next.storedClientMessageId ?? next.clientMessageId,
       // Attribute the stored row to the sender this turn runs as, not to
       // whoever happens to occupy the conversation slot at drain time.
       trustContext: next.trustContext,
@@ -1476,7 +1476,7 @@ async function drainBatch(
         activeSurfaceId: qm.activeSurfaceId,
         metadata: { ...qm.metadata, sentAt: qm.sentAt },
         displayContent: qm.displayContent,
-        clientMessageId: qm.clientMessageId,
+        clientMessageId: qm.storedClientMessageId ?? qm.clientMessageId,
         // Same attribution rule as the single-message drain. Batch members
         // share one sender, so every row here names that sender.
         trustContext: qm.trustContext,

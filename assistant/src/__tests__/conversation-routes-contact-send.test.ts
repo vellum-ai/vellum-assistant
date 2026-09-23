@@ -8,6 +8,8 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const CONV_ID = "conv-contact-send";
+/** Rows already stored, by the key they were deduplicated under. */
+const storedKeys = new Map<string, string>();
 
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 
@@ -60,6 +62,8 @@ mock.module("../persistence/conversation-crud.js", () => ({
   getConversation: (id: string) =>
     id === CONV_ID ? { id, conversationType: "standard" } : null,
   hasMessages: () => true,
+  findMessageIdByClientMessageId: (_conversationId: string, key: string) =>
+    storedKeys.get(key),
   getConversationOverrideProfile: () => undefined,
   getMessages: () => [],
   isHiddenMessageMetadata: (meta: Record<string, unknown> | undefined) =>
@@ -255,7 +259,7 @@ function makeConversation(opts: {
   };
 }
 
-function makeRequest(content: string) {
+function makeRequest(content: string, clientMessageId?: string) {
   return new Request("http://localhost/v1/shared/conversations/x/messages", {
     method: "POST",
     headers: {
@@ -268,11 +272,17 @@ function makeRequest(content: string) {
       content,
       sourceChannel: "vellum-shared",
       interface: "web",
+      ...(clientMessageId ? { clientMessageId } : {}),
     }),
   });
 }
 
-async function sendAsContact(spies: Spies, content: string) {
+async function sendAsContact(
+  spies: Spies,
+  content: string,
+  clientMessageId?: string,
+  sender: ContactSender = CONTACT,
+) {
   setConversation(CONV_ID, spies.conversation);
   return callHandler(
     (args) =>
@@ -282,9 +292,9 @@ async function sendAsContact(spies: Spies, content: string) {
           assistantEventHub: { publish: async () => {} } as never,
           resolveAttachments: () => [],
         },
-        contactSender: CONTACT,
+        contactSender: sender,
       }),
-    makeRequest(content),
+    makeRequest(content, clientMessageId),
     undefined,
     202,
   );
@@ -301,6 +311,7 @@ beforeEach(() => {
   registeredRequestIds.push(requestId);
   routeGuardianReply.mockClear();
   broadcasts.length = 0;
+  storedKeys.clear();
 });
 
 afterEach(() => {
@@ -352,6 +363,68 @@ describe("a contact's send into a busy conversation", () => {
 
     expect(res.status).toBe(429);
     expect(await res.json()).toEqual({ accepted: false, error: "queue_full" });
+  });
+});
+
+describe("a contact's client message id", () => {
+  const CAROL: ContactSender = {
+    trustContext: {
+      ...ALICE,
+      requesterExternalUserId: "principal-carol",
+      requesterIdentifier: "principal-carol",
+      requesterContactId: "contact-carol",
+    },
+    principalId: "principal-carol",
+  };
+
+  test("reaches the client unchanged while the row is stored under a sender-scoped key", async () => {
+    const spies = makeConversation({ processing: false });
+
+    await sendAsContact(spies, "Hello", "nonce-1");
+
+    expect(spies.persisted()?.clientMessageId).toBe(
+      "vellum-shared:principal-alice:nonce-1",
+    );
+    expect(broadcasts).toContainEqual(
+      expect.objectContaining({
+        type: "user_message_echo",
+        clientMessageId: "nonce-1",
+      }),
+    );
+  });
+
+  test("queues with the client's nonce for events and the scoped key for storage", async () => {
+    const spies = makeConversation({ processing: true });
+
+    await sendAsContact(spies, "Hello", "nonce-1");
+
+    expect(spies.enqueued()).toMatchObject({
+      clientMessageId: "nonce-1",
+      storedClientMessageId: "vellum-shared:principal-alice:nonce-1",
+    });
+  });
+
+  test("a retry from the same contact is answered from the stored row", async () => {
+    storedKeys.set("vellum-shared:principal-alice:nonce-1", "row-alice");
+    const spies = makeConversation({ processing: true });
+
+    const res = await sendAsContact(spies, "Hello", "nonce-1");
+
+    expect(await res.json()).toMatchObject({ messageId: "row-alice" });
+    expect(spies.enqueued()).toBeUndefined();
+  });
+
+  test("another contact reusing the nonce is not deduplicated against it", async () => {
+    storedKeys.set("vellum-shared:principal-alice:nonce-1", "row-alice");
+    const spies = makeConversation({ processing: true });
+
+    const res = await sendAsContact(spies, "Hello", "nonce-1", CAROL);
+
+    expect(await res.json()).toMatchObject({ queued: true });
+    expect(spies.enqueued()).toMatchObject({
+      clientMessageId: "nonce-1",
+      storedClientMessageId: "vellum-shared:principal-carol:nonce-1",
+    });
   });
 });
 

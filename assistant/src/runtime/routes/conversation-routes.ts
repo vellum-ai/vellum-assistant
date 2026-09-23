@@ -1755,6 +1755,14 @@ export async function handleSendMessage(
       : undefined;
   const clientMessageId =
     typeof body.clientMessageId === "string" ? body.clientMessageId : undefined;
+  // The key the row is stored and deduplicated under. A contact's is scoped
+  // to them, so two senders reusing one nonce never collide; events and
+  // responses still carry the nonce the client sent, which is what it
+  // correlates its optimistic row by.
+  const storedClientMessageId =
+    contact && clientMessageId
+      ? `vellum-shared:${contact.principalId}:${clientMessageId}`
+      : clientMessageId;
   const requestedInferenceProfile =
     typeof body.inferenceProfile === "string"
       ? body.inferenceProfile
@@ -2224,7 +2232,7 @@ export async function handleSendMessage(
         attachments,
         requestId: uuidv7(),
         metadata: greetingMeta,
-        clientMessageId,
+        clientMessageId: storedClientMessageId,
         // This path answers and returns without starting a turn, so it never
         // reaches the stamp below; name the sender on the row directly.
         trustContext: resolvedTrustCtx,
@@ -2514,6 +2522,9 @@ export async function handleSendMessage(
       sourceActorPrincipalId,
       transport,
       clientMessageId,
+      ...(storedClientMessageId !== clientMessageId
+        ? { storedClientMessageId }
+        : {}),
       // The sender's own trust, so the drain runs this message as the actor
       // who sent it rather than as whoever the slot happens to hold when the
       // queue is worked.
@@ -2840,7 +2851,7 @@ export async function handleSendMessage(
             // exists.
             requestId: sendRequestId,
             metadata: withClientMetadata(slashMeta, clientMetadata),
-            clientMessageId,
+            clientMessageId: storedClientMessageId,
             ...(clientOs ? { requestClientOs: clientOs } : {}),
           });
           if (persisted.deduplicated) {
@@ -2957,7 +2968,7 @@ export async function handleSendMessage(
             // advertised on the acceptance, so it has to be the one used here.
             requestId: sendRequestId,
             metadata: withClientMetadata(slashMeta, clientMetadata),
-            clientMessageId,
+            clientMessageId: storedClientMessageId,
             ...(clientOs ? { requestClientOs: clientOs } : {}),
           });
         } catch (err) {
@@ -3067,7 +3078,7 @@ export async function handleSendMessage(
             // exists.
             requestId: sendRequestId,
             metadata: withClientMetadata(slashMeta, clientMetadata),
-            clientMessageId,
+            clientMessageId: storedClientMessageId,
             ...(clientOs ? { requestClientOs: clientOs } : {}),
           });
           if (persisted.deduplicated) {
@@ -3145,7 +3156,7 @@ export async function handleSendMessage(
             clientMetadata,
           ),
           scripted: body.scripted,
-          clientMessageId,
+          clientMessageId: storedClientMessageId,
           ...(contact ? { author: contact.trustContext } : {}),
           ...(displayContent !== undefined ? { displayContent } : {}),
           ...(clientOs ? { requestClientOs: clientOs } : {}),
@@ -3240,8 +3251,8 @@ export async function handleSendMessage(
   // skipped every duplicate check, started a second `completeSend` and could
   // win persistence under its own id, leaving the id the first 202 advertised
   // naming no row at all.
-  const reservedRequestId = clientMessageId
-    ? conversation.inFlightSendRequestIds.get(clientMessageId)
+  const reservedRequestId = storedClientMessageId
+    ? conversation.inFlightSendRequestIds.get(storedClientMessageId)
     : undefined;
   if (reservedRequestId) {
     log.info(
@@ -3272,8 +3283,8 @@ export async function handleSendMessage(
     // and start nothing, so the send is answered by neither. The running turn
     // carries the nonce it was started by, which is what settles it.
     if (
-      clientMessageId &&
-      conversation.currentTurnClientMessageId === clientMessageId
+      storedClientMessageId &&
+      conversation.currentTurnClientMessageId === storedClientMessageId
     ) {
       log.info(
         { conversationId: mapping.conversationId, clientMessageId },
@@ -3303,8 +3314,11 @@ export async function handleSendMessage(
     // a network retry. `addMessage`'s unique constraint stays the authority for
     // the ordinary race; this read only keeps a known duplicate away from the
     // abort.
-    const duplicateMessageId = clientMessageId
-      ? findMessageIdByClientMessageId(mapping.conversationId, clientMessageId)
+    const duplicateMessageId = storedClientMessageId
+      ? findMessageIdByClientMessageId(
+          mapping.conversationId,
+          storedClientMessageId,
+        )
       : undefined;
     if (duplicateMessageId) {
       log.info(
@@ -3369,12 +3383,15 @@ export async function handleSendMessage(
     // retransmission arriving while this runs finds the reservation already
     // there. Released once the handover is over, by which time either a row
     // exists for the durable check to find or the send is on the queue.
-    if (clientMessageId) {
-      conversation.inFlightSendRequestIds.set(clientMessageId, sendRequestId);
+    if (storedClientMessageId) {
+      conversation.inFlightSendRequestIds.set(
+        storedClientMessageId,
+        sendRequestId,
+      );
     }
     const releaseInFlightSend = (): void => {
-      if (clientMessageId) {
-        conversation.inFlightSendRequestIds.delete(clientMessageId);
+      if (storedClientMessageId) {
+        conversation.inFlightSendRequestIds.delete(storedClientMessageId);
       }
     };
 

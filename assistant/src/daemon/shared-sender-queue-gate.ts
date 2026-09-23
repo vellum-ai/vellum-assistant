@@ -9,8 +9,9 @@
  * - denied (no longer a participant, or the gateway refuses them): it is
  *   dropped, never persisted or run.
  * - unverifiable (the trust read failed): it is not run and not dropped. It
- *   steps aside so the messages queued behind it, the guardian's included,
- *   run in order, and a delayed re-drain asks again with backoff. After a few
+ *   steps aside so other senders' messages queued behind it, the guardian's
+ *   included, run in order, while the same sender's later messages stay
+ *   behind it. A delayed re-drain asks again with backoff. After a few
  *   consecutive failures, or once it has waited too long, it is dropped:
  *   a contact who cannot be verified never gets a turn.
  *
@@ -127,11 +128,14 @@ function scheduleRetry(conversation: GatedConversation, attempt: number) {
 export async function gateSharedSenderHead(
   conversation: GatedConversation,
 ): Promise<boolean> {
-  const waiting = new Set<QueuedMessage>();
+  // Senders with a message waiting on a retry. Every later message of theirs
+  // waits behind it, so one sender's messages never run out of order.
+  const waiting = new Set<string>();
   for (;;) {
-    const next = conversation.queue
-      .snapshot()
-      .find((queued) => !waiting.has(queued));
+    const next = conversation.queue.snapshot().find((queued) => {
+      const sender = sharedSenderPrincipal(queued);
+      return sender === undefined || !waiting.has(sender);
+    });
     if (!next) {
       return waiting.size === 0;
     }
@@ -180,7 +184,7 @@ export async function gateSharedSenderHead(
       drop(conversation, next, principalId, "unverifiable");
       continue;
     }
-    waiting.add(next);
+    waiting.add(principalId);
     scheduleRetry(conversation, state.attempts);
   }
 }

@@ -283,12 +283,8 @@ async function handleSendSharedMessage({
         content: body.content,
         sourceChannel: "vellum-shared",
         interface: "web",
-        // Namespaced by sender, so a contact's retry deduplicates against
-        // their own earlier send and never against a row someone else wrote.
         ...(body.clientMessageId
-          ? {
-              clientMessageId: `vellum-shared:${reader.principalId}:${body.clientMessageId}`,
-            }
+          ? { clientMessageId: body.clientMessageId }
           : {}),
       },
       headers,
