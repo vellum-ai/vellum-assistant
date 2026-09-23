@@ -62,7 +62,10 @@ import {
 import { getModelInfo } from "./handlers/config-model.js";
 import { preactivateHostProxySkills } from "./host-proxy-preactivation.js";
 import type { UserMessageAttachment } from "./message-protocol.js";
-import { gateSharedSenderHead } from "./shared-sender-queue-gate.js";
+import {
+  closeOutSharedSenderMessage,
+  gateSharedSenderHead,
+} from "./shared-sender-queue-gate.js";
 import { buildTransportHints } from "./transport-hints.js";
 import { resolveTrustClass } from "./trust-context.js";
 import { sameTrustIdentity, type TrustContext } from "./trust-context-types.js";
@@ -1195,6 +1198,7 @@ async function drainSingleMessage(
       conversationId: conversation.conversationId,
       message,
     });
+    closeOutSharedSenderMessage(conversation.conversationId, next);
     // Continue draining — don't strand remaining messages
     await drainQueue(conversation);
     return;
@@ -1581,6 +1585,7 @@ async function drainBatch(
         conversationId: conversation.conversationId,
         message,
       });
+      closeOutSharedSenderMessage(conversation.conversationId, qm);
 
       if (i === 0) {
         // Head persist failed — processing is not set yet, no in-flight turn

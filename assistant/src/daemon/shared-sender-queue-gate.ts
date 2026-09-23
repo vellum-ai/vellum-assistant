@@ -69,6 +69,36 @@ function sharedSenderPrincipal(queued: QueuedMessage): string | undefined {
   return queued.sourceActorPrincipalId ?? "";
 }
 
+/**
+ * Close out a shared-conversation contact's queued message that will never
+ * run, whether the drain refused it or failed to persist it. The terminal
+ * `message_queued_deleted` goes to every client, and the note lets the
+ * sender's own stream forward it, so the contact's optimistic row ends too.
+ * Does nothing for any other sender's message.
+ */
+export function closeOutSharedSenderMessage(
+  conversationId: string,
+  queued: QueuedMessage,
+): void {
+  const principalId = sharedSenderPrincipal(queued);
+  if (principalId === undefined || isSuppressedQueuedMessage(queued.metadata)) {
+    return;
+  }
+  noteDroppedOwnMessage({
+    requestId: queued.requestId,
+    principalId,
+    conversationId,
+  });
+  queued.onEvent({
+    type: "message_queued_deleted",
+    conversationId,
+    requestId: queued.requestId,
+    ...(queued.clientMessageId
+      ? { clientMessageId: queued.clientMessageId }
+      : {}),
+  });
+}
+
 function drop(
   conversation: GatedConversation,
   queued: QueuedMessage,
@@ -93,21 +123,7 @@ function drop(
       "Dropped a queued message: its sender could not be verified after repeated attempts",
     );
   }
-  if (!isSuppressedQueuedMessage(queued.metadata)) {
-    noteDroppedOwnMessage({
-      requestId: queued.requestId,
-      principalId,
-      conversationId: conversation.conversationId,
-    });
-    queued.onEvent({
-      type: "message_queued_deleted",
-      conversationId: conversation.conversationId,
-      requestId: queued.requestId,
-      ...(queued.clientMessageId
-        ? { clientMessageId: queued.clientMessageId }
-        : {}),
-    });
-  }
+  closeOutSharedSenderMessage(conversation.conversationId, queued);
 }
 
 function scheduleRetry(conversation: GatedConversation, attempt: number) {

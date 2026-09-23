@@ -1100,6 +1100,118 @@ describe("Conversation message queue", () => {
     });
   });
 
+  describe("a queued message whose persist fails", () => {
+    const ALICE = {
+      trustClass: "trusted_contact" as const,
+      sourceChannel: "vellum-shared" as const,
+      requesterExternalUserId: "principal-alice",
+    };
+
+    async function drainWithFailingPersist(
+      queued: Array<{ text: string; requestId: string; contact: boolean }>,
+      failing: string[],
+    ) {
+      const conversation = makeConversation();
+      await conversation.loadFromDb();
+      const p1 = conversation.processMessage({
+        content: "msg-1",
+        attachments: [],
+        onEvent: () => {},
+        requestId: "req-1",
+      });
+      await waitForPendingRun(1);
+      const events = new Map<string, AssistantEvent[]>();
+      for (const { text, requestId, contact } of queued) {
+        const own: AssistantEvent[] = [];
+        events.set(requestId, own);
+        conversation.enqueueMessage({
+          content: text,
+          requestId,
+          clientMessageId: `nonce-${requestId}`,
+          onEvent: (e) => own.push(e),
+          ...(contact
+            ? {
+                trustContext: ALICE,
+                author: ALICE,
+                sourceActorPrincipalId: "principal-alice",
+              }
+            : {}),
+        });
+      }
+      for (const needle of failing) {
+        addMessageShouldThrowForContent.add(needle);
+      }
+      droppedOwnMessages.length = 0;
+      await resolveRun(0);
+      await p1;
+      await new Promise((r) => setTimeout(r, 30));
+      return events;
+    }
+
+    const types = (events: AssistantEvent[] | undefined) =>
+      (events ?? []).map((e) => e.type);
+
+    test("closes out a contact's message for that contact", async () => {
+      const events = await drainWithFailingPersist(
+        [{ text: "contact-fails", requestId: "req-alice", contact: true }],
+        ["contact-fails"],
+      );
+
+      expect(types(events.get("req-alice"))).toContain("error");
+      expect(events.get("req-alice")).toContainEqual(
+        expect.objectContaining({
+          type: "message_queued_deleted",
+          requestId: "req-alice",
+          clientMessageId: "nonce-req-alice",
+        }),
+      );
+      expect(droppedOwnMessages).toEqual([
+        expect.objectContaining({
+          requestId: "req-alice",
+          principalId: "principal-alice",
+        }),
+      ]);
+    });
+
+    test("closes out each failed contact message in a batch", async () => {
+      const events = await drainWithFailingPersist(
+        [
+          { text: "head-fails", requestId: "req-alice-1", contact: true },
+          { text: "tail-runs", requestId: "req-alice-2", contact: true },
+          { text: "tail-fails", requestId: "req-alice-3", contact: true },
+        ],
+        ["head-fails", "tail-fails"],
+      );
+
+      for (const requestId of ["req-alice-1", "req-alice-3"]) {
+        expect(types(events.get(requestId))).toContain(
+          "message_queued_deleted",
+        );
+      }
+      expect(types(events.get("req-alice-2"))).not.toContain(
+        "message_queued_deleted",
+      );
+      expect(droppedOwnMessages.map((note) => note.requestId).sort()).toEqual([
+        "req-alice-1",
+        "req-alice-3",
+      ]);
+      await resolveRun(1);
+    });
+
+    test("leaves a guardian's failed message to its error alone", async () => {
+      const events = await drainWithFailingPersist(
+        [{ text: "guardian-fails", requestId: "req-guardian", contact: false }],
+        ["guardian-fails"],
+      );
+
+      expect(types(events.get("req-guardian"))).toContain("error");
+      expect(types(events.get("req-guardian"))).not.toContain(
+        "message_queued_deleted",
+      );
+      expect(droppedOwnMessages).toEqual([]);
+    });
+  });
+
   describe("notification preferences from queued messages", () => {
     const GUARDIAN = {
       trustClass: "guardian" as const,
