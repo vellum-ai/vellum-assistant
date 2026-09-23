@@ -29,6 +29,11 @@ const capturedRunAgentLoopOptions: CapturedRunAgentLoopOptions[] = [];
 // When set, `runAgentLoop` never settles, so the spawned subagent stays in a
 // non-terminal state and can accept a follow-up `sendMessage`.
 let holdRunAgentLoop = false;
+let queueFollowup = false;
+const capturedQueuedOptions: Array<{
+  content: string;
+  cronRunId?: string | null;
+}> = [];
 
 class FakeConversation {
   constructor() {}
@@ -55,8 +60,9 @@ class FakeConversation {
   setForkPolicy() {}
   setForkParentMessageCount() {}
   setForkParentSystemPrompt() {}
-  enqueueMessage() {
-    return { rejected: false, queued: false };
+  enqueueMessage(options: { content: string; cronRunId?: string | null }) {
+    capturedQueuedOptions.push(options);
+    return { rejected: false, queued: queueFollowup };
   }
   abort() {}
   dispose() {}
@@ -271,6 +277,39 @@ describe("SubagentManager: cronRunId reaches the child's agent loop", () => {
       holdRunAgentLoop = false;
     }
   });
+
+  for (const cronRunId of ["cron-run-message", null, undefined]) {
+    test(`a busy child queues the follow-up's owner (${cronRunId ?? "user"})`, async () => {
+      capturedRunAgentLoopOptions.length = 0;
+      capturedQueuedOptions.length = 0;
+      holdRunAgentLoop = true;
+      queueFollowup = true;
+      try {
+        const manager = new SubagentManager();
+        const subagentId = await manager.spawn(
+          {
+            parentConversationId: "parent-cron-queued",
+            label: "child",
+            objective: "do the thing",
+            cronRunId: "cron-run-spawn",
+          },
+          () => {},
+        );
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(
+          await manager.sendMessage(subagentId, "keep going", { cronRunId }),
+        ).toBe("sent");
+        expect(capturedQueuedOptions).toEqual([
+          { content: "keep going", cronRunId },
+        ]);
+        expect(capturedRunAgentLoopOptions).toHaveLength(1);
+      } finally {
+        holdRunAgentLoop = false;
+        queueFollowup = false;
+      }
+    });
+  }
 
   test("omits cronRunId on a continuation turn no schedule triggered", async () => {
     capturedRunAgentLoopOptions.length = 0;

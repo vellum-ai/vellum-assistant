@@ -1565,9 +1565,8 @@ export class SubagentManager {
    *
    * `opts.cronRunId` is the firing that produced THIS message, not the one the
    * subagent was spawned under: a continuation turn's spend belongs to the
-   * firing that asked for it. Only the immediately-processed turn carries it,
-   * since a queued message drains through the conversation's own queue, which
-   * holds no per-message run options.
+   * firing that asked for it. Both immediate turns and queued messages carry
+   * that ownership through the conversation loop.
    *
    * An advisor takes no follow-up (`one_shot`). A consult answers one question
    * once, and a follow-up would escape the budget its spawn set: the drained
@@ -1598,7 +1597,10 @@ export class SubagentManager {
     }
 
     // If the conversation is busy, queue the message; otherwise process immediately.
-    const result = managed.conversation.enqueueMessage({ content: trimmed });
+    const result = managed.conversation.enqueueMessage({
+      content: trimmed,
+      cronRunId: opts?.cronRunId,
+    });
     if (result.rejected) {
       return "sent"; // error event already delivered via sendToClient
     }
