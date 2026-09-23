@@ -59,6 +59,7 @@ mock.module("@/assistant/operational-status", () => ({
 }));
 mock.module("@/hooks/use-is-org-ready", () => ({
   useIsOrgReady: () => orgIsReady,
+  useOrgHeaderReadiness: () => (orgIsReady ? "ready" : "resolving"),
 }));
 
 /* The drained foreground list never resolves in these tests; the gate is
