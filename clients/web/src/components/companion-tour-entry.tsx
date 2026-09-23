@@ -15,6 +15,7 @@ import {
 } from "@vellumai/ipc-contract";
 
 import { CompanionSurface } from "@/components/companion-surface";
+import { scopedAvatarAccentVars } from "@/hooks/use-avatar-accent-var";
 import { useTranslation } from "@/i18n";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 import { resolveAvatarRender } from "@/utils/avatar-render";
@@ -87,6 +88,7 @@ export function CompanionTourEntryModal({
           setConfirmingDismissal(true);
         }}
         className="max-w-[820px] overflow-hidden"
+        style={scopedAvatarAccentVars(avatar?.accentHex)}
       >
         <div className="relative grid min-h-[500px] md:grid-cols-[1.18fr_0.82fr]">
           {!confirmingDismissal ? (
@@ -231,7 +233,7 @@ function TourValueCard({
 }): ReactNode {
   return (
     <div className="flex items-center gap-3 rounded-xl border border-[var(--border-base)] bg-[var(--surface-base)] p-3">
-      <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-[var(--feed-digest-weak)] text-[var(--feed-digest-strong)]">
+      <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--avatar-accent,var(--surface-lift))_28%,var(--surface-base))] text-[var(--content-default)]">
         <Icon className="size-4" />
       </span>
       <span className="flex min-w-0 flex-col">
