@@ -7,7 +7,9 @@ import {
   type ParsedCsv,
 } from "@/domains/chat/components/local-file/preview/csv";
 import {
+  MAX_CACHED_SHEETS,
   parseWorkbook,
+  type ParsedWorkbook,
   type ParseWorkbookOptions,
 } from "@/domains/chat/components/local-file/preview/xlsx";
 import {
@@ -32,6 +34,18 @@ async function readOneSheet(
     options,
   );
   return parsed.sheets[0]!.read();
+}
+
+/** A workbook of `count` sheets, each holding one cell naming the sheet. */
+async function workbookOfSheets(count: number): Promise<ParsedWorkbook> {
+  return parseWorkbook(
+    await workbookBlob({
+      sheets: Array.from({ length: count }, (_, index) => ({
+        name: `Sheet${index + 1}`,
+        rows: [[`cell ${index + 1}`]],
+      })),
+    }),
+  );
 }
 
 /** The one sheet of a workbook, for a sheet that states its own raw XML. */
@@ -228,6 +242,57 @@ describe("parseWorkbook", () => {
 
     expect(second).toBe(first);
     expect((await second).rows).toEqual([["alpha"]]);
+  });
+
+  test("holds a sheet's grid while it is among the most recent reads", async () => {
+    const parsed = await workbookOfSheets(MAX_CACHED_SHEETS + 2);
+    const first = parsed.sheets[0]!.read();
+    await first;
+    for (let index = 1; index < MAX_CACHED_SHEETS; index += 1) {
+      await parsed.sheets[index]!.read();
+    }
+
+    expect(parsed.sheets[0]!.read()).toBe(first);
+  });
+
+  test("reads a sheet again once newer reads crowd its grid out", async () => {
+    const parsed = await workbookOfSheets(MAX_CACHED_SHEETS + 2);
+    const first = parsed.sheets[0]!.read();
+    const grid = await first;
+    for (let index = 1; index <= MAX_CACHED_SHEETS; index += 1) {
+      await parsed.sheets[index]!.read();
+    }
+
+    const again = parsed.sheets[0]!.read();
+
+    expect(again).not.toBe(first);
+    expect(await again).toEqual(grid);
+  });
+
+  test("shares a read still in flight that newer reads cannot evict", async () => {
+    const parsed = await workbookOfSheets(MAX_CACHED_SHEETS + 2);
+    const first = parsed.sheets[0]!.read();
+    const newer = Array.from({ length: MAX_CACHED_SHEETS }, (_, offset) =>
+      parsed.sheets[offset + 1]!.read(),
+    );
+
+    expect(parsed.sheets[0]!.read()).toBe(first);
+    const [grid] = await Promise.all([first, ...newer]);
+    expect(grid.rows).toEqual([["cell 1"]]);
+  });
+
+  test("keeps a failed sheet read while its entry is cached", async () => {
+    const parsed = await parseWorkbook(
+      await workbookBlob({
+        sheets: [{ name: "Broken", trailing: "<row><c><v>1</v>" }],
+      }),
+    );
+    const sheet = parsed.sheets[0]!;
+
+    const first = sheet.read();
+    await expect(first).rejects.toThrow("Malformed XML");
+
+    expect(sheet.read()).toBe(first);
   });
 
   test("rejects the read of a sheet whose part is missing", async () => {

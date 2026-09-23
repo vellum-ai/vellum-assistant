@@ -28,8 +28,10 @@ export interface WorkbookSheet {
   /** Sheet name as the workbook spells it, which is also the tab label. */
   name: string;
   /**
-   * This sheet's grid, read on first call and cached from then on, so repeat
-   * calls cost nothing and a failed read stays failed. Sheets are lazy because
+   * This sheet's grid, read on demand. A workbook holds the
+   * {@link MAX_CACHED_SHEETS} most recently read grids, so asking again for
+   * one of those costs nothing and a failed read of one stays failed, while a
+   * sheet crowded out by newer reads is read again. Sheets are lazy because
    * the preview shows one at a time: parsing every sheet when the workbook
    * opens would multiply every cap by the sheet count.
    */
@@ -1118,17 +1120,72 @@ async function readSheetGrid(
   );
 }
 
-/** A sheet's `read`, holding the first call's promise for every later one. */
+/**
+ * How many sheet grids one workbook holds. The panel shows one sheet at a
+ * time, so a few recent grids cover tabbing back and forth while a grid of up
+ * to 5000 by 200 cells per visited sheet never piles up.
+ */
+export const MAX_CACHED_SHEETS = 3;
+
+/** A grid the workbook is holding, and whether its read has settled. */
+interface CachedGrid {
+  grid: Promise<ParsedCsv>;
+  settled: boolean;
+}
+
+/** Serves one workbook's sheet grid by index, reading it on a miss. */
+type GridCache = (
+  index: number,
+  read: () => Promise<ParsedCsv>,
+) => Promise<ParsedCsv>;
+
+/**
+ * Cache of the {@link MAX_CACHED_SHEETS} most recently read grids of one
+ * workbook, keyed by sheet index and held in least recently read order. Only a
+ * settled entry is evicted, so every caller of a read still in flight shares
+ * the one inflation of that part.
+ */
+function createGridCache(): GridCache {
+  const cached = new Map<number, CachedGrid>();
+  const evict = (): void => {
+    for (const [index, entry] of cached) {
+      if (cached.size <= MAX_CACHED_SHEETS) {
+        return;
+      }
+      if (entry.settled) {
+        cached.delete(index);
+      }
+    }
+  };
+  return (index, read) => {
+    const hit = cached.get(index);
+    if (hit !== undefined) {
+      // Reinsert so the freshest read sits last in eviction order.
+      cached.delete(index);
+      cached.set(index, hit);
+      return hit.grid;
+    }
+    const entry: CachedGrid = { grid: read(), settled: false };
+    cached.set(index, entry);
+    const settle = (): void => {
+      entry.settled = true;
+      evict();
+    };
+    entry.grid.then(settle, settle);
+    evict();
+    return entry.grid;
+  };
+}
+
+/** A sheet's `read`, served from the grids its workbook is holding. */
 function createSheetReader(
+  cache: GridCache,
+  index: number,
   context: WorkbookContext,
   name: string,
   target: string | undefined,
 ): () => Promise<ParsedCsv> {
-  let pending: Promise<ParsedCsv> | null = null;
-  return () => {
-    pending ??= readSheetGrid(context, name, target);
-    return pending;
-  };
+  return () => cache(index, () => readSheetGrid(context, name, target));
 }
 
 export interface ParseWorkbookOptions {
@@ -1173,10 +1230,13 @@ export async function parseWorkbook(
   const visible = sheets.filter((sheet) => !sheet.hidden);
   const kept = visible.length > 0 ? visible : sheets;
 
+  const grids = createGridCache();
   return {
-    sheets: kept.map((sheet) => ({
+    sheets: kept.map((sheet, index) => ({
       name: sheet.name,
       read: createSheetReader(
+        grids,
+        index,
         context,
         sheet.name,
         sheet.relationshipId === null
