@@ -326,16 +326,25 @@ Examples:
       name: "clear",
       description:
         "Clear all conversations, messages, and vector data (dev only)",
+      options: [
+        {
+          flags: "--yes",
+          description:
+            "Skip the confirmation prompt (required when stdin is not a terminal)",
+        },
+      ],
       helpText: `
 Permanently deletes ALL conversations, messages, and associated data.
-Prompts for confirmation (y/N) before proceeding.
+Prompts for confirmation (y/N) before proceeding unless --yes is passed.
+Without a terminal (e.g. run from a tool or script), --yes is required.
 
 Requires the assistant to be running. Communicates via IPC socket.
 
 Intended for development use. This action cannot be undone.
 
 Examples:
-  $ assistant conversations clear`,
+  $ assistant conversations clear
+  $ assistant conversations clear --yes`,
     },
     {
       name: "wake",
