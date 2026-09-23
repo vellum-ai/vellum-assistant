@@ -1040,7 +1040,6 @@
     "back": "返回導覽",
     "dragInstruction": "將 {app} 拖入列表以允許{permission}。",
     "dragApp": "將 {app} 拖到系統設定，或按一下以在 Finder 中顯示",
-    "thenEnable": "然後在系統設定中開啟其開關。",
     "dragError": "無法拖移。請嘗試從 Finder 中拖移。",
     "showInFinder": "在 Finder 中顯示",
     "inputLabel": "輸入監控"

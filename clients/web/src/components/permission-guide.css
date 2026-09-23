@@ -87,6 +87,9 @@
 .permission-guide-footer span {
   line-height: 1.3;
 }
+.permission-guide-footer > button {
+  margin-left: auto;
+}
 @keyframes permission-point {
   0%,
   100% {

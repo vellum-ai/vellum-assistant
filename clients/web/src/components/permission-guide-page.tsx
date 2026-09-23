@@ -96,16 +96,11 @@ export function PermissionGuidePage() {
           <GripVertical size={18} aria-hidden="true" />
         </button>
         <div className="permission-guide-footer">
-          <Typography
-            variant="body-small-lighter"
-            role={guide.error || failed ? "alert" : undefined}
-          >
-            {t(
-              guide.error || failed
-                ? "permissionGuide.dragError"
-                : "permissionGuide.thenEnable",
-            )}
-          </Typography>
+          {(guide.error || failed) && (
+            <Typography variant="body-small-lighter" role="alert">
+              {t("permissionGuide.dragError")}
+            </Typography>
+          )}
           <Button variant="ghost" size="compact" onClick={reveal}>
             {t("permissionGuide.showInFinder")}
           </Button>

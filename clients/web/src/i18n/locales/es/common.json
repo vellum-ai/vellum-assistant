@@ -1004,7 +1004,6 @@
     "back": "Volver al recorrido",
     "dragInstruction": "Arrastra {app} a la lista para permitir {permission}.",
     "dragApp": "Arrastra {app} a Ajustes del Sistema o pulsa para mostrar en Finder",
-    "thenEnable": "Después activa su interruptor en Ajustes del Sistema.",
     "dragError": "No se puede arrastrar. Inténtalo desde Finder.",
     "showInFinder": "Mostrar en Finder",
     "inputLabel": "Monitorización de entrada"

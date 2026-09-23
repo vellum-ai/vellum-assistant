@@ -1040,7 +1040,6 @@
     "back": "返回引导",
     "dragInstruction": "将 {app} 拖入列表以允许{permission}。",
     "dragApp": "将 {app} 拖到系统设置，或点击以在访达中显示",
-    "thenEnable": "然后在系统设置中打开其开关。",
     "dragError": "无法拖动。请尝试从访达中拖动。",
     "showInFinder": "在访达中显示",
     "inputLabel": "输入监控"
