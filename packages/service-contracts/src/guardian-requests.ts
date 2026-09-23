@@ -49,8 +49,11 @@ export const GUARDIAN_DENYING_ACTION_VALUES = [
 
 /**
  * The denying actions that park the sender at `unverified`: a neutral hold,
- * not a rejection. A parked contact is neither trusted nor kept out, so a
- * resolved card reads it neutrally rather than as a denial.
+ * not a rejection. A parked contact is still admitted under the permissive
+ * admission floors (`any_contact`, `strangers`) and can be trusted or verified
+ * later; contrast `block` (revoked, a hard keep-out) and `reject` (an explicit
+ * decline). All three resolve the request to `denied`, so a resolved card
+ * consults this to read a park neutrally rather than as a denial.
  */
 export const GUARDIAN_PARK_ACTION_VALUES = [
   "leave_unverified",

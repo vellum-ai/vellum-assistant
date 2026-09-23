@@ -16,6 +16,7 @@
  */
 
 import type { CreateOutboundSessionIpcResponse } from "@vellumai/gateway-client";
+import { isDenyingGuardianAction } from "@vellumai/service-contracts/guardian-requests";
 
 import { answerCall } from "../calls/call-domain.js";
 import type {
@@ -40,10 +41,7 @@ import type {
 import type { QuestionBatchSubmission } from "../permissions/question-prompter.js";
 import type { UserDecision } from "../permissions/types.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
-import {
-  type ApprovalAction,
-  DENYING_ACTION_SET,
-} from "../runtime/channel-approval-types.js";
+import { type ApprovalAction } from "../runtime/channel-approval-types.js";
 import { deliverChannelReply } from "../runtime/gateway-client.js";
 import {
   introductionMode,
@@ -365,7 +363,7 @@ const pendingInteractionResolver: GuardianRequestResolver = {
 
     // Map action to the permission system's UserDecision type and notify session.
     // resolveConfirmation() owns pendingInteractions deregistration.
-    const userDecision: UserDecision = DENYING_ACTION_SET.has(decision.action)
+    const userDecision: UserDecision = isDenyingGuardianAction(decision.action)
       ? "deny"
       : "allow";
 
@@ -551,7 +549,7 @@ async function resolveAskQuestionInteraction(
       kind: "free_text",
       text: decision.userText.trim(),
     };
-  } else if (DENYING_ACTION_SET.has(decision.action)) {
+  } else if (isDenyingGuardianAction(decision.action)) {
     submission = { questionId, kind: "skip" };
   } else {
     // Bare approval with no text (e.g. "CODE approve") — affirm without

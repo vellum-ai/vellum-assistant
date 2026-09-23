@@ -247,7 +247,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     requireGuardian: true,
     summary: "Submit guardian decision",
-    description: "Submit a guardian action decision (approve/reject).",
+    description: "Submit a guardian decision on a pending request.",
     tags: ["guardian"],
     requestBody: GuardianActionDecisionRequestSchema,
     responseBody: z.object({
