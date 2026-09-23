@@ -12,8 +12,8 @@
  *   routes show it in. Reasoning, tool calls and their results, and cards
  *   stay out, and the row's metadata is dropped, so nothing injected into the
  *   turn that wrote it (memory, workspace, turn context, NOW.md) is
- *   rehydrated. Injected blocks still embedded in older user rows are
- *   stripped too.
+ *   rehydrated. The projection also drops injected blocks still embedded in
+ *   older user rows.
  * - A row restricted to another reader is left out entirely.
  *
  * Only the conversation's own rows are read, and the compaction summary stays
@@ -22,7 +22,6 @@
  * turn.
  */
 
-import { stripUserTextBlocksByPrefix } from "../context/strip-injections.js";
 import {
   type ContactReader,
   projectRowForContact,
@@ -30,7 +29,6 @@ import {
 } from "../persistence/contact-visible-content.js";
 import type { MessageRow } from "../persistence/conversation-crud.js";
 import { isParticipant } from "../persistence/conversation-participants.js";
-import { PER_TURN_INJECTION_MATCHERS } from "../plugins/defaults/memory/tail-reinjection-strip.js";
 import type { ContentBlock } from "../providers/types.js";
 import { isRowVisibleToUntrustedActor } from "./message-provenance.js";
 import type { TrustContext } from "./trust-context-types.js";
@@ -59,25 +57,6 @@ export function sharedTranscriptReader(
   return { principalId };
 }
 
-/** A row outside the untrusted view, as the reader may see it. */
-function transcriptContent(
-  row: MessageRow,
-  reader: ContactReader,
-): ContentBlock[] {
-  const content: ContentBlock[] = projectRowForContact(row, reader, {
-    keepUntrustedFence: true,
-  });
-  if (row.role !== "user") {
-    return content;
-  }
-  return (
-    stripUserTextBlocksByPrefix(
-      [{ role: "user", content }],
-      PER_TURN_INJECTION_MATCHERS,
-    )[0]?.content ?? []
-  );
-}
-
 /** The rows a shared-conversation participant's turn loads, in order. */
 export function scopeRowsForSharedReader(
   rows: MessageRow[],
@@ -92,7 +71,9 @@ export function scopeRowsForSharedReader(
       continue;
     }
     // The projection applies the audience itself.
-    const content = transcriptContent(row, reader);
+    const content: ContentBlock[] = projectRowForContact(row, reader, {
+      keepUntrustedFence: true,
+    });
     if (content.length > 0) {
       scoped.push({ ...row, content, metadata: null });
     }

@@ -35,7 +35,7 @@ export type InjectionMatcher = string | { prefix: string; suffix: string };
  * string matches by prefix; a `{ prefix, suffix }` wrapper requires both ends
  * so user-authored text merely opening with an injection-like tag is kept.
  */
-function textBlockMatchesInjection(
+export function textBlockMatchesInjection(
   text: string,
   matchers: InjectionMatcher[],
 ): boolean {

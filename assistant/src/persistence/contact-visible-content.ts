@@ -6,6 +6,8 @@
  * allowlist: a block reaches a contact only when its type is named below, so
  * anything else (reasoning, tool calls and their results, UI cards, and any
  * block type added later) stays invisible until it is explicitly allowed.
+ * Blocks injected into a turn never reach a contact either, including those
+ * embedded in an older user row's stored text.
  * {@link contactVisibleBlock} switches exhaustively over the stored block
  * union, so a new variant does not compile until it is classified here.
  *
@@ -14,10 +16,12 @@
 
 import { MessageAudienceSchema } from "@vellumai/gateway-client";
 
+import { textBlockMatchesInjection } from "../context/strip-injections.js";
 import {
   readChannelDeletedAt,
   readProviderMetadata,
 } from "../messaging/read-provider-metadata.js";
+import { PER_TURN_INJECTION_MATCHERS } from "../plugins/defaults/memory/tail-reinjection-strip.js";
 import type {
   ContentBlock,
   TextContent,
@@ -191,6 +195,14 @@ function contactVisibleBlock(
       // The plain-text twin of a UI card, which a contact does not see.
       const extra = block as { _surfaceFallback?: unknown };
       if (typeof block.text !== "string" || extra._surfaceFallback === true) {
+        return null;
+      }
+      // Older user rows can carry the blocks injected into their turn (memory,
+      // turn context, workspace) in the stored text itself.
+      if (
+        !isAssistant &&
+        textBlockMatchesInjection(block.text, PER_TURN_INJECTION_MATCHERS)
+      ) {
         return null;
       }
       // A contact's own message is stored fenced as untrusted input; the
