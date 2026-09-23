@@ -6,10 +6,12 @@
  */
 import { beforeEach, describe, expect, test } from "bun:test";
 
+import type { InterfaceId } from "../channels/types.js";
 import {
   getActivityOverlapping,
   resetActivityTrailForTests,
   trackDaemonActivity,
+  turnActivityLabel,
   turnConversationType,
 } from "./activity-trail.js";
 
@@ -32,7 +34,7 @@ describe("getActivityOverlapping", () => {
         kind: "turn",
         conversationType: "standard",
         callSite: "mainAgent",
-        originInterface: "web",
+        turnInterface: "web",
         interactive: true,
       },
       () => new Promise<void>((resolve) => (release = resolve)),
@@ -49,7 +51,7 @@ describe("getActivityOverlapping", () => {
     expect(groups).toContainEqual(
       expect.objectContaining({
         kind: "turn",
-        originInterface: "web",
+        turnInterface: "web",
         interactive: true,
         running: 1,
       }),
@@ -106,6 +108,91 @@ describe("getActivityOverlapping", () => {
     expect(groups).toEqual([
       expect.objectContaining({ kind: "vbundle_export", running: 0 }),
     ]);
+  });
+});
+
+describe("burst retention", () => {
+  test("a burst of finished work does not evict what overlapped a block", async () => {
+    // GIVEN a user turn that ends, then a burst of 500 short jobs
+    await trackDaemonActivity(
+      { kind: "turn", conversationType: "standard", callSite: "mainAgent" },
+      async () => {},
+    );
+    for (let i = 0; i < 500; i++) {
+      await trackDaemonActivity({ kind: "schedule_tick" }, async () => {});
+    }
+
+    // WHEN the last minute is queried
+    const groups = getActivityOverlapping(60_000);
+
+    // THEN the earlier turn is still attributed
+    expect(groups).toContainEqual(
+      expect.objectContaining({ kind: "turn", count: 1 }),
+    );
+    expect(groups).toContainEqual(
+      expect.objectContaining({ kind: "schedule_tick", count: 500 }),
+    );
+  });
+});
+
+describe("turnActivityLabel", () => {
+  function conversation(opts: {
+    isSubagent?: boolean;
+    originInterface?: InterfaceId;
+    liveInterface?: InterfaceId;
+  }) {
+    return {
+      conversationType: "standard",
+      isSubagent: opts.isSubagent ?? false,
+      originInterface: opts.originInterface,
+      getTurnInterfaceContext: () =>
+        opts.liveInterface
+          ? { userMessageInterface: opts.liveInterface }
+          : null,
+    };
+  }
+
+  test("a subagent turn without an explicit call site is a subagent turn", () => {
+    // GIVEN a subagent conversation and a queue-drained turn with no call site
+    // WHEN its label is built
+    const label = turnActivityLabel(
+      conversation({ isSubagent: true }),
+      undefined,
+      false,
+    );
+    // THEN it matches the call site the loop resolves, not mainAgent
+    expect(label.callSite).toBe("subagentSpawn");
+  });
+
+  test("an explicit call site wins", () => {
+    const label = turnActivityLabel(conversation({}), "heartbeatAgent", false);
+    expect(label.callSite).toBe("heartbeatAgent");
+  });
+
+  test("the turn's own interface wins over the conversation's origin", () => {
+    // GIVEN a conversation started on web, now continued from Slack
+    // WHEN the Slack turn's label is built
+    const label = turnActivityLabel(
+      conversation({ originInterface: "web", liveInterface: "slack" }),
+      undefined,
+      true,
+    );
+    // THEN it is attributed to Slack
+    expect(label.turnInterface).toBe("slack");
+    expect(label.interactive).toBe(true);
+  });
+
+  test("falls back to the origin interface, and omits it when unknown", () => {
+    expect(
+      turnActivityLabel(
+        conversation({ originInterface: "macos" }),
+        undefined,
+        false,
+      ).turnInterface,
+    ).toBe("macos");
+    expect(
+      turnActivityLabel(conversation({}), undefined, false),
+    ).not.toHaveProperty("turnInterface");
   });
 });
 

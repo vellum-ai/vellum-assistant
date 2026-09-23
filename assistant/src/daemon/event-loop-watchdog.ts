@@ -112,6 +112,8 @@ export function detailFitsServerCap(detail: object): boolean {
 type BlockTelemetryDetail = {
   threshold_ms: number;
   tick_interval_ms: number;
+  /** Process uptime at report time; small values mean boot work. */
+  daemon_uptime_ms: number;
   /** Work on this process that overlapped the block, grouped by label. */
   activity: DaemonActivityGroup[];
   section_trail: SectionTrailEntry[];
@@ -199,6 +201,7 @@ const TRIM_STEPS: Array<{
  */
 export function buildBlockTelemetryDetail(input: {
   thresholdMs: number;
+  daemonUptimeMs: number;
   activity: DaemonActivityGroup[];
   sectionTrail: SectionTrailEntry[];
   stallCapture: StallCapture | null;
@@ -217,6 +220,7 @@ export function buildBlockTelemetryDetail(input: {
   const detail: BlockTelemetryDetail = {
     threshold_ms: input.thresholdMs,
     tick_interval_ms: TICK_INTERVAL_MS,
+    daemon_uptime_ms: input.daemonUptimeMs,
     activity: [...input.activity],
     section_trail: [...input.sectionTrail],
     stall_capture: stallCapture,
@@ -316,6 +320,7 @@ async function reportBlock(
       value: blockedMs,
       detail: buildBlockTelemetryDetail({
         thresholdMs,
+        daemonUptimeMs: Math.round(process.uptime() * 1000),
         activity,
         sectionTrail,
         stallCapture,

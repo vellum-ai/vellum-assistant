@@ -81,7 +81,7 @@ const fullActivity: DaemonActivityGroup[] = [
     kind: "turn",
     conversationType: "standard",
     callSite: "mainAgent",
-    originInterface: "web",
+    turnInterface: "web",
     interactive: true,
     count: 1,
     running: 1,
@@ -177,6 +177,7 @@ describe("buildBlockTelemetryDetail", () => {
     // WHEN the telemetry detail is built
     const detail = buildBlockTelemetryDetail({
       thresholdMs: 5_000,
+      daemonUptimeMs: 60_000,
       activity: [],
       sectionTrail: [],
       stallCapture: captureWith(2),
@@ -194,6 +195,7 @@ describe("buildBlockTelemetryDetail", () => {
     // WHEN the telemetry detail is built
     buildBlockTelemetryDetail({
       thresholdMs: 5_000,
+      daemonUptimeMs: 60_000,
       activity: [],
       sectionTrail: trail,
       stallCapture: capture,
@@ -207,6 +209,7 @@ describe("buildBlockTelemetryDetail", () => {
     // WHEN the telemetry detail is built
     const detail = buildBlockTelemetryDetail({
       thresholdMs: 5_000,
+      daemonUptimeMs: 60_000,
       activity: [],
       sectionTrail: trail.slice(0, 2),
       stallCapture: captureWith(1),
@@ -221,6 +224,7 @@ describe("buildBlockTelemetryDetail", () => {
     // WHEN the telemetry detail is built
     const detail = buildBlockTelemetryDetail({
       thresholdMs: 5_000,
+      daemonUptimeMs: 60_000,
       activity: fullActivity,
       sectionTrail: trail,
       stallCapture: captureWith(20),

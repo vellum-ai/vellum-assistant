@@ -2447,7 +2447,10 @@ export const ROUTES: RouteDefinition[] = [
       manifest: z.object({}).passthrough(),
       warnings: z.array(z.unknown()),
     }),
-    handler: handleMigrationImport,
+    handler: (args) =>
+      trackDaemonActivity({ kind: "vbundle_import" }, () =>
+        handleMigrationImport(args),
+      ),
   },
   {
     operationId: "migrations_exporttogcs_post",
