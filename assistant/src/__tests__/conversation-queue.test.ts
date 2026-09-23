@@ -121,6 +121,17 @@ mock.module("../runtime/contact-event-projection.js", () => ({
     droppedOwnMessages.push(note),
 }));
 
+const guardianReplyTexts: string[] = [];
+const actualGuardianReplyRouter =
+  await import("../runtime/guardian-reply-router.js");
+mock.module("../runtime/guardian-reply-router.js", () => ({
+  ...actualGuardianReplyRouter,
+  routeGuardianReply: async (params: { messageText: string }) => {
+    guardianReplyTexts.push(params.messageText);
+    return { consumed: false, decisionApplied: false, type: "not_consumed" };
+  },
+}));
+
 // A contact's turn joins its contact record for display details; this suite
 // runs without a contacts table.
 const actualContactStore = await import("../contacts/contact-store.js");
@@ -444,10 +455,7 @@ mock.module("../agent/loop.js", () => ({
 import type { QueueDrainReason, QueuePolicy } from "../daemon/conversation.js";
 import { Conversation } from "../daemon/conversation.js";
 import { MessageQueue } from "../daemon/conversation-queue-manager.js";
-import {
-  __setSharedSenderRetryDelayForTest,
-  MAX_UNVERIFIABLE_ATTEMPTS,
-} from "../daemon/shared-sender-queue-gate.js";
+import { __setSharedSenderRetryForTest } from "../daemon/shared-sender-queue-gate.js";
 
 type ConversationWithWorkspaceDeps = Conversation & {
   getWorkspaceGitService?: (_workspaceDir: string) => {
@@ -952,12 +960,12 @@ describe("Conversation message queue", () => {
 
     beforeEach(() => {
       aliceTrustReads = 0;
-      __setSharedSenderRetryDelayForTest(() => 5);
+      __setSharedSenderRetryForTest({ delayMs: () => 5 });
     });
 
     afterAll(() => {
       aliceFailingReads = 0;
-      __setSharedSenderRetryDelayForTest();
+      __setSharedSenderRetryForTest();
     });
 
     async function queueBehindRunningTurn(conversation: Conversation) {
@@ -984,18 +992,20 @@ describe("Conversation message queue", () => {
     const contactRows = () =>
       capturedAddMessages.filter((m) => m.content.includes("Are we still on?"));
 
-    test("keeps the message and runs it once a retry verifies the contact", async () => {
+    test("keeps the message through repeated failures and runs it once a retry verifies the contact", async () => {
       const conversation = makeConversation();
       await conversation.loadFromDb();
       const { p1 } = await queueBehindRunningTurn(conversation);
-      aliceFailingReads = 1;
+      // More failures than a routine gateway restart would cause; only the
+      // message's age can drop it.
+      aliceFailingReads = 8;
 
       capturedAddMessages.length = 0;
       await resolveRun(0);
       await p1;
       await waitForPendingRun(2);
 
-      expect(aliceTrustReads).toBe(2);
+      expect(aliceTrustReads).toBe(9);
       expect(contactRows()).toHaveLength(1);
       expect(conversation.getQueueDepth()).toBe(0);
 
@@ -1003,7 +1013,8 @@ describe("Conversation message queue", () => {
       await new Promise((r) => setTimeout(r, 10));
     });
 
-    test("drops the message once retries are exhausted", async () => {
+    test("drops the message once it has been unverifiable too long", async () => {
+      __setSharedSenderRetryForTest({ delayMs: () => 5, maxAgeMs: 40 });
       const conversation = makeConversation();
       await conversation.loadFromDb();
       const { p1, events } = await queueBehindRunningTurn(conversation);
@@ -1012,11 +1023,11 @@ describe("Conversation message queue", () => {
       capturedAddMessages.length = 0;
       await resolveRun(0);
       await p1;
-      for (let i = 0; i < 50 && conversation.getQueueDepth() > 0; i++) {
+      for (let i = 0; i < 100 && conversation.getQueueDepth() > 0; i++) {
         await new Promise((r) => setTimeout(r, 5));
       }
 
-      expect(aliceTrustReads).toBe(MAX_UNVERIFIABLE_ATTEMPTS);
+      expect(aliceTrustReads).toBeGreaterThan(1);
       expect(conversation.getQueueDepth()).toBe(0);
       expect(pendingRuns.length).toBe(1);
       expect(contactRows()).toHaveLength(0);
@@ -1030,7 +1041,7 @@ describe("Conversation message queue", () => {
     test("keeps the same sender's later messages behind it", async () => {
       const conversation = makeConversation();
       await conversation.loadFromDb();
-      __setSharedSenderRetryDelayForTest(() => 60_000);
+      __setSharedSenderRetryForTest({ delayMs: () => 60_000 });
       const { p1 } = await queueBehindRunningTurn(conversation);
       conversation.enqueueMessage({
         content: "<external_content>A second thought</external_content>",
@@ -1073,7 +1084,7 @@ describe("Conversation message queue", () => {
     test("does not hold the guardian's queued messages behind it", async () => {
       const conversation = makeConversation();
       await conversation.loadFromDb();
-      __setSharedSenderRetryDelayForTest(() => 60_000);
+      __setSharedSenderRetryForTest({ delayMs: () => 60_000 });
       const { p1 } = await queueBehindRunningTurn(conversation);
       conversation.enqueueMessage({
         content: "guardian follow-up",
@@ -1097,6 +1108,132 @@ describe("Conversation message queue", () => {
       aliceFailingReads = 0;
       await resolveRun(1);
       await new Promise((r) => setTimeout(r, 10));
+    });
+  });
+
+  describe("guardian-only steps on a contact's text", () => {
+    const GUARDIAN = {
+      trustClass: "guardian" as const,
+      sourceChannel: "vellum" as const,
+    };
+    const ALICE = {
+      trustClass: "trusted_contact" as const,
+      sourceChannel: "vellum-shared" as const,
+      requesterExternalUserId: "principal-alice",
+    };
+
+    const lastUserText = (run: PendingRun) => {
+      const last = [...run.messages].reverse().find((m) => m.role === "user");
+      return JSON.stringify(last?.content ?? "");
+    };
+
+    async function drainOne(
+      text: string,
+      trust: typeof GUARDIAN | typeof ALICE,
+    ) {
+      const conversation = makeConversation();
+      await conversation.loadFromDb();
+      const p1 = conversation.processMessage({
+        content: "msg-1",
+        attachments: [],
+        onEvent: () => {},
+        requestId: "req-1",
+      });
+      await waitForPendingRun(1);
+      conversation.enqueueMessage({
+        content: text,
+        requestId: "req-q",
+        trustContext: trust,
+        ...(trust === ALICE
+          ? { author: ALICE, sourceActorPrincipalId: "principal-alice" }
+          : {}),
+      });
+      capturedAddMessages.length = 0;
+      await resolveRun(0);
+      await p1;
+      await new Promise((r) => setTimeout(r, 20));
+      return conversation;
+    }
+
+    test("a contact's slash command is message text", async () => {
+      const conversation = await drainOne("/commands", ALICE);
+
+      // It runs as an ordinary turn instead of a canned slash exchange.
+      expect(pendingRuns.length).toBe(2);
+      expect(lastUserText(pendingRuns[1])).toContain("/commands");
+      expect(capturedAddMessages.filter((m) => m.role === "assistant")).toEqual(
+        [],
+      );
+      await resolveRun(1);
+      void conversation;
+    });
+
+    test("the guardian's slash command still resolves", async () => {
+      await drainOne("/commands", GUARDIAN);
+
+      expect(pendingRuns.length).toBe(1);
+      expect(capturedAddMessages.some((m) => m.role === "assistant")).toBe(
+        true,
+      );
+    });
+
+    test("a contact asking to become guardian is not steered into verification setup", async () => {
+      const conversation = await drainOne("set me as guardian", ALICE);
+
+      expect(pendingRuns.length).toBe(2);
+      expect(conversation.preactivatedSkillIds ?? []).not.toContain(
+        "guardian-verify-setup",
+      );
+      expect(lastUserText(pendingRuns[1])).toContain("set me as guardian");
+      await resolveRun(1);
+    });
+
+    test("the guardian asking for verification setup still is", async () => {
+      const conversation = await drainOne("set me as guardian", GUARDIAN);
+
+      expect(pendingRuns.length).toBe(2);
+      expect(conversation.preactivatedSkillIds).toContain(
+        "guardian-verify-setup",
+      );
+      await resolveRun(1);
+    });
+
+    test("a contact's turn is not read as a guardian reply", async () => {
+      const conversation = makeConversation();
+      await conversation.loadFromDb();
+      guardianReplyTexts.length = 0;
+
+      const run = conversation.processMessage({
+        content: "approve ABC123",
+        attachments: [],
+        onEvent: () => {},
+        requestId: "req-contact",
+        trustContext: ALICE,
+      });
+      await waitForPendingRun(1);
+
+      expect(guardianReplyTexts).toEqual([]);
+      await resolveRun(0);
+      await run;
+    });
+
+    test("the guardian's turn still is", async () => {
+      const conversation = makeConversation();
+      await conversation.loadFromDb();
+      guardianReplyTexts.length = 0;
+
+      const run = conversation.processMessage({
+        content: "approve ABC123",
+        attachments: [],
+        onEvent: () => {},
+        requestId: "req-guardian",
+        trustContext: GUARDIAN,
+      });
+      await waitForPendingRun(1);
+
+      expect(guardianReplyTexts).toEqual(["approve ABC123"]);
+      await resolveRun(0);
+      await run;
     });
   });
 

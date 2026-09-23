@@ -11,8 +11,9 @@
  * - unverifiable (the trust read failed): it is not run and not dropped. It
  *   steps aside so other senders' messages queued behind it, the guardian's
  *   included, run in order, while the same sender's later messages stay
- *   behind it. A delayed re-drain asks again with backoff. After a few
- *   consecutive failures, or once it has waited too long, it is dropped:
+ *   behind it. A delayed re-drain asks again with backoff, for as long as a
+ *   gateway restart could plausibly last. Once it has waited past that, it
+ *   is dropped:
  *   a contact who cannot be verified never gets a turn.
  *
  * A dropped row gets the terminal `message_queued_deleted` its queued ack
@@ -28,16 +29,17 @@ import type { QueuedMessage } from "./conversation-queue-manager.js";
 
 const log = getLogger("shared-sender-queue-gate");
 
-/** Consecutive unverifiable reads after which a message is dropped. */
-export const MAX_UNVERIFIABLE_ATTEMPTS = 4;
-
 /** How long a message may stay unverifiable before it is dropped. */
-const MAX_UNVERIFIABLE_AGE_MS = 2 * 60 * 1000;
+const DEFAULT_MAX_UNVERIFIABLE_AGE_MS = 30 * 60 * 1000;
+
+/** The longest wait between two checks of an unverifiable message. */
+const MAX_RETRY_DELAY_MS = 60_000;
 
 function defaultRetryDelayMs(attempt: number): number {
-  return Math.min(1000 * 2 ** (attempt - 1), 15_000);
+  return Math.min(1000 * 2 ** (attempt - 1), MAX_RETRY_DELAY_MS);
 }
 
+let maxUnverifiableAgeMs = DEFAULT_MAX_UNVERIFIABLE_AGE_MS;
 let retryDelayMs = defaultRetryDelayMs;
 
 /** Consecutive unverifiable reads per waiting message. */
@@ -120,7 +122,7 @@ function drop(
   } else {
     log.warn(
       fields,
-      "Dropped a queued message: its sender could not be verified after repeated attempts",
+      "Dropped a queued message: its sender could not be verified before it expired",
     );
   }
   closeOutSharedSenderMessage(conversation.conversationId, queued);
@@ -200,10 +202,7 @@ export async function gateSharedSenderHead(
     const state = unverifiable.get(next) ?? { attempts: 0, firstAt: now };
     state.attempts += 1;
     unverifiable.set(next, state);
-    if (
-      state.attempts >= MAX_UNVERIFIABLE_ATTEMPTS ||
-      now - state.firstAt >= MAX_UNVERIFIABLE_AGE_MS
-    ) {
+    if (now - state.firstAt >= maxUnverifiableAgeMs) {
       drop(conversation, next, principalId, "unverifiable");
       continue;
     }
@@ -212,9 +211,14 @@ export async function gateSharedSenderHead(
   }
 }
 
-/** Test-only: replace the retry backoff, or restore it with no argument. */
-export function __setSharedSenderRetryDelayForTest(
-  delay?: (attempt: number) => number,
-): void {
-  retryDelayMs = delay ?? defaultRetryDelayMs;
+/**
+ * Test-only: replace the retry backoff and the age an unverifiable message
+ * is dropped at, or restore both with no argument.
+ */
+export function __setSharedSenderRetryForTest(overrides?: {
+  delayMs?: (attempt: number) => number;
+  maxAgeMs?: number;
+}): void {
+  retryDelayMs = overrides?.delayMs ?? defaultRetryDelayMs;
+  maxUnverifiableAgeMs = overrides?.maxAgeMs ?? DEFAULT_MAX_UNVERIFIABLE_AGE_MS;
 }

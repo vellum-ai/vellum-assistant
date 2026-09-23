@@ -68,6 +68,7 @@ import { findConversation } from "../../daemon/conversation-registry.js";
 import {
   buildSlashContextForContent,
   resolveSlash,
+  type SlashResolution,
 } from "../../daemon/conversation-slash.js";
 import { getOrCreateConversation as getOrCreateConversationInstance } from "../../daemon/conversation-store.js";
 import { canonicalizeTimeZone } from "../../daemon/date-context.js";
@@ -2822,7 +2823,10 @@ export async function handleSendMessage(
         estimatedCost: conversation.usageStats.estimatedCost,
         userMessageInterface: sourceInterface,
       });
-      const slashResult = await resolveSlash(rawContent, slashContext);
+      // A contact's text is message text, never a command.
+      const slashResult: SlashResolution = contact
+        ? { kind: "passthrough", content: rawContent }
+        : await resolveSlash(rawContent, slashContext);
 
       if (slashResult.kind === "unknown") {
         const slashOwner = await conversation.acquireProcessingFenced();
