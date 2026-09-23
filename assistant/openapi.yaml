@@ -14106,7 +14106,7 @@ paths:
     post:
       operationId: guardianactions_decision_post
       summary: Submit guardian decision
-      description: Submit a guardian action decision (approve/reject).
+      description: Submit a guardian decision on a pending request.
       tags:
         - guardian
       requestBody:

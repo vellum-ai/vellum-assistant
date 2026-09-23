@@ -11,8 +11,6 @@
 import type { ApprovalActionOption } from "@vellumai/gateway-client";
 import {
   GUARDIAN_DECISION_ACTION_IDS,
-  GUARDIAN_DENYING_ACTION_VALUES,
-  GUARDIAN_PARK_ACTION_VALUES,
   isParkGuardianAction,
 } from "@vellumai/service-contracts/guardian-requests";
 
@@ -69,33 +67,8 @@ export const INTRODUCTION_ACTION_SET: ReadonlySet<string> = new Set([
   "block",
 ]);
 
-/**
- * Actions that resolve a request to the `denied` terminal status. Everything
- * else resolves to `approved`.
- */
-export const DENYING_ACTION_SET: ReadonlySet<string> = new Set(
-  GUARDIAN_DENYING_ACTION_VALUES,
-);
-
-/**
- * The denying actions that *park* the sender at `unverified` — a neutral hold,
- * not an active rejection. A parked contact is still admitted under the
- * permissive admission floors (`any_contact`, `strangers`) and can be trusted
- * or verified later; contrast `block` (→ revoked, a hard keep-out) and `reject`
- * (an explicit decline). Both resolve the request to `denied`, so the terminal
- * status alone can't tell a park from a rejection — surfaces that present the
- * resolved card consult this to render a park neutrally (see
- * {@link PARK_STATUS_LABEL}) instead of as a denial.
- */
-export const PARK_ACTION_SET: ReadonlySet<string> = new Set(
-  GUARDIAN_PARK_ACTION_VALUES,
-);
-
 /** Completed-card label shown for a parked (leave-unverified) decision. */
 export const PARK_STATUS_LABEL = "Left unverified";
-
-/** True when `action` parks the sender at `unverified` (a neutral hold). */
-export const isParkAction = isParkGuardianAction;
 
 /** Outcome word per terminal guardian-request status on a resolved card. */
 const DECISION_STATUS_WORDS: Record<string, string> = {
@@ -116,7 +89,7 @@ export function resolveDecisionStatusWord(
   status: string,
   decidedAction?: string,
 ): string {
-  if (status === "denied" && isParkAction(decidedAction)) {
+  if (status === "denied" && isParkGuardianAction(decidedAction)) {
     return PARK_STATUS_LABEL;
   }
   return DECISION_STATUS_WORDS[status] ?? "Resolved";

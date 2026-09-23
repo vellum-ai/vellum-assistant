@@ -32,6 +32,8 @@
  *   - Scoped grant minting only on explicit approve for requests with tool metadata
  */
 
+import { isDenyingGuardianAction } from "@vellumai/service-contracts/guardian-requests";
+
 import {
   decideGuardianRequest,
   type DecideGuardianRequestIpcResponse,
@@ -41,7 +43,6 @@ import {
 import {
   APPROVAL_ACTION_SET,
   type ApprovalAction,
-  DENYING_ACTION_SET,
   INTRODUCTION_ACTION_SET,
 } from "../runtime/channel-approval-types.js";
 import { getLogger } from "../util/logger.js";
@@ -383,7 +384,7 @@ export async function applyGuardianDecision(
   // 3. Plan the ACL outcome BEFORE any status write. Kinds without a
   // `prepare` hook decide as a plain status CAS.
   const effectiveAction: ApprovalAction = action;
-  const targetStatus: "approved" | "denied" = DENYING_ACTION_SET.has(
+  const targetStatus: "approved" | "denied" = isDenyingGuardianAction(
     effectiveAction,
   )
     ? "denied"

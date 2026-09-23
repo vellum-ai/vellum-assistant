@@ -15,10 +15,9 @@
  * back to editing the message down to a status-only block — still an edit.
  */
 
-import {
-  isParkAction,
-  resolveDecisionStatusWord,
-} from "../../../runtime/channel-approval-types.js";
+import { isParkGuardianAction } from "@vellumai/service-contracts/guardian-requests";
+
+import { resolveDecisionStatusWord } from "../../../runtime/channel-approval-types.js";
 import { getLogger } from "../../../util/logger.js";
 import { callSlackApi, getSlackMessageBlocks } from "./api.js";
 
@@ -79,7 +78,8 @@ export interface WithdrawSlackApprovalCardParams {
  * Uses Slack's `<!date>` token so the time renders in each viewer's timezone.
  */
 function buildStatusText(params: WithdrawSlackApprovalCardParams): string {
-  const park = params.status === "denied" && isParkAction(params.decidedAction);
+  const park =
+    params.status === "denied" && isParkGuardianAction(params.decidedAction);
   const glyph = park ? PARK_STATUS_GLYPH : (STATUS_GLYPH[params.status] ?? "");
   const word = resolveDecisionStatusWord(params.status, params.decidedAction);
   let line = glyph ? `${glyph} *${word}*` : `*${word}*`;
