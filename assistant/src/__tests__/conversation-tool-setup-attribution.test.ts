@@ -35,10 +35,6 @@ mock.module("../services/published-app-updater.js", () => ({
   updatePublishedAppDeployment: mock(() => Promise.resolve()),
 }));
 
-mock.module("../tools/browser/browser-screencast.js", () => ({
-  registerConversationSender: mock(() => {}),
-}));
-
 mock.module("../apps/app-store.js", () => ({
   getApp: mock(() => null),
   getAppDirPath: mock(() => "/tmp/test-apps/dummy"),

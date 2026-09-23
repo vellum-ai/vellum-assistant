@@ -159,7 +159,7 @@ async function shutdown(): Promise<void> {
   }
 
   await stopRuntimeHttpServer();
-  await browserManager.closeAllPages();
+  browserManager.clearAll();
   stopScheduler();
 
   // The memory jobs worker process is SIGTERM'd by the memory plugin's own

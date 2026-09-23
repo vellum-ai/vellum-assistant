@@ -33,16 +33,9 @@ import {
   detectCaptchaChallenge,
   formatAuthChallenge,
 } from "./auth-detector.js";
-import type { RouteHandler } from "./browser-manager.js";
 import { browserManager } from "./browser-manager.js";
 import { type BrowserMode, normalizeBrowserMode } from "./browser-mode.js";
 import { BROWSER_MODE } from "./browser-mode-constants.js";
-import {
-  ensureScreencast,
-  getSender,
-  stopAllScreencasts,
-  stopBrowserScreencast,
-} from "./browser-screencast.js";
 import {
   BROWSER_STATUS_INPUT_FIELD,
   BROWSER_STATUS_MODE,
@@ -87,7 +80,6 @@ import type {
   InternalBrowserMode,
 } from "./cdp-client/types.js";
 import { clearPinnedTab, getPinnedTab, setPinnedTab } from "./pinned-tabs.js";
-import { checkBrowserRuntime } from "./runtime-check.js";
 
 const log = getLogger("headless-browser");
 
@@ -215,12 +207,7 @@ const MODE_TRADEOFFS: Record<StatusCheckMode, string[]> = {
     "It requires toggling on remote debugging in Chrome Settings",
     "It's prone to phishing attacks from other local processes that may try to do their own remote debugging.",
   ],
-  [BROWSER_STATUS_MODE.LOCAL]: [
-    "The least-preferred approach for all things browser-use.",
-    "Considered a last-resort fallback when the Chrome Extension is not installed, remote debugging in Chrome is not enabled, and neither will be enabled.",
-    "Does not use the existing browser profile, so sessions/cookies may differ.",
-    "Requires that Playwright and Chromium are installed on the host machine,",
-  ],
+  [BROWSER_STATUS_MODE.LOCAL]: [],
 };
 
 interface BrowserStatusModeResult {
@@ -339,7 +326,7 @@ const REMEDIATION_HINTS: Record<string, string[]> = {
   "cdp-inspect:transport_error": [
     "CDP endpoint unreachable. Ensure Chrome is running with --remote-debugging-port.",
     "Verify the configured host:port matches Chrome's DevTools listener.",
-    "Consider using browser_mode: 'extension' or 'local' as an alternative.",
+    "Consider using browser_mode: 'extension' as an alternative.",
   ],
   // Host-bridge backend (desktop SSE bridge → user's Chrome debug port)
   "host-bridge:unreachable": [
@@ -354,11 +341,8 @@ const REMEDIATION_HINTS: Record<string, string[]> = {
     "The desktop app could not reach Chrome's remote-debugging endpoint.",
     "Install the Chrome extension, or enable remote debugging and confirm the desktop app is running.",
   ],
-  // Local/Playwright backend
   "local:transport_error": [
-    "The local Playwright-managed browser failed to start or connect.",
-    "Check that the Playwright browser binary is downloaded (bun run install).",
-    "Try closing any stale Chromium processes and retrying.",
+    "Use assistant browser --virtual-desktop, or connect Chrome with the extension or cdp-inspect.",
   ],
 };
 
@@ -501,7 +485,7 @@ function isRestrictedChromePageProbeError(error: CdpError): boolean {
  * `"auto"` and the conversation has already resolved to a backend
  * kind on a prior call, the factory is pinned to that kind instead
  * of re-running the auto priority list. This prevents
- * `browser_navigate` (e.g. pinned to `local`) and `browser_screenshot`
+ * `browser_navigate` (e.g. pinned to `cdp-inspect`) and `browser_screenshot`
  * (default auto) in the same conversation from landing on different
  * Chrome instances. Explicit non-auto modes override and update the
  * memo; teardown via browser_close / browser_detach clears it.
@@ -712,11 +696,7 @@ function formatBrowserToolFailure(
   return base;
 }
 
-function appendLoginFormGuidance(
-  lines: string[],
-  context: ToolContext,
-  backendKind: string,
-): void {
+function appendLoginFormGuidance(lines: string[], context: ToolContext): void {
   lines.push("Handle this by interacting with the login form:");
   lines.push("1. Take a snapshot to find the sign-in form elements");
   lines.push(
@@ -728,7 +708,7 @@ function appendLoginFormGuidance(
   lines.push(
     "4. Do NOT give up or suggest manual sign-in - handle the login flow yourself",
   );
-  if (backendKind === "local") {
+  if (context.cdpClient) {
     lines.push("");
     lines.push(
       "If this page needs SSO, a company VPN, or a login a fresh browser cannot complete:",
@@ -882,9 +862,7 @@ export async function executeBrowserNavigate(
   //   - `--new-tab` → force a brand-new tab even when one is pinned.
   //   - `--use-active-tab` → opt out and navigate the currently-active
   //     tab instead.
-  // Extension backend only; the local (Playwright) backend manages its
-  // own isolated browser and the cdp-inspect backend connects to a
-  // single tab by URL pattern, so neither has a user tab to disturb.
+  // The extension creates dedicated tabs; cdp-inspect targets an existing tab.
   const useActiveTab = input.use_active_tab === true;
   const forceNewTab = input.new_tab === true;
   const targetClientId =
@@ -982,117 +960,11 @@ export async function executeBrowserNavigate(
     );
   }
 
-  // Screencast + handoff are Playwright-backed and only meaningful
-  // for the local sacrificial-profile path. On the extension path the
-  // user already has their own Chrome window, so both are no-ops.
-  const sender =
-    cdp.kind === "local" ? getSender(context.conversationId) : null;
-  if (cdp.kind === "local" && sender) {
-    await ensureScreencast(context.conversationId);
-  }
-
-  // SSRF route interception uses the Playwright page.route() API to
-  // block redirect-time requests to private networks. This only works
-  // on the local path where Playwright manages the browser; on the
-  // extension/cdp-inspect paths, CDP navigates a different browser so
-  // the Playwright route handler would be a no-op. The post-navigation
-  // final URL check below provides defense-in-depth for all paths.
-  let routeHandler: RouteHandler | null = null;
-  let blockedUrl: string | null = null;
-
   try {
     log.debug(
       { url: safeRequestedUrl, conversationId: context.conversationId },
       "Navigating",
     );
-
-    if (
-      cdp.kind === "local" &&
-      !allowPrivateNetwork &&
-      browserManager.supportsRouteInterception
-    ) {
-      // Cache DNS results per-hostname to avoid redundant lookups on subrequests
-      // (heavy sites like DoorDash fire hundreds of requests to the same CDN hostnames).
-      // Use a short TTL to mitigate DNS rebinding attacks where a hostname first
-      // resolves to a public IP then later to a private one. Blocked results are
-      // never cached so they are always re-resolved.
-      const DNS_CACHE_TTL_MS = 5_000;
-      const dnsCache = new Map<
-        string,
-        { addresses: string[]; blockedAddress?: string; cachedAt: number }
-      >();
-      routeHandler = async (route, request) => {
-        try {
-          const reqUrl = request.url();
-          let reqParsed: URL;
-          try {
-            reqParsed = new URL(reqUrl);
-          } catch {
-            await route.continue();
-            return;
-          }
-
-          // Check hostname against private/local patterns
-          if (isPrivateOrLocalHost(reqParsed.hostname)) {
-            blockedUrl = sanitizeUrlForOutput(reqParsed);
-            log.warn(
-              { blockedUrl },
-              "Blocked navigation to private network target via redirect",
-            );
-            await route.abort("blockedbyclient");
-            return;
-          }
-
-          // Resolve DNS and check resolved addresses (cached per hostname with TTL).
-          // Blocked results are never cached to ensure re-resolution catches
-          // DNS rebinding where a hostname flips from public to private IP.
-          let cached = dnsCache.get(reqParsed.hostname);
-          const now = Date.now();
-          if (cached && now - cached.cachedAt > DNS_CACHE_TTL_MS) {
-            dnsCache.delete(reqParsed.hostname);
-            cached = undefined;
-          }
-          const resolution =
-            cached ??
-            (await (async () => {
-              const res = await resolveRequestAddress(
-                reqParsed.hostname,
-                resolveHostAddresses,
-                false,
-              );
-              // Only cache allowed results; blocked results must be re-resolved
-              if (!res.blockedAddress) {
-                dnsCache.set(reqParsed.hostname, { ...res, cachedAt: now });
-              }
-              return res;
-            })());
-          if (resolution.blockedAddress) {
-            blockedUrl = sanitizeUrlForOutput(reqParsed);
-            log.warn(
-              { blockedUrl, resolvedTo: resolution.blockedAddress },
-              "Blocked navigation: DNS resolves to private address",
-            );
-            await route.abort("blockedbyclient");
-            return;
-          }
-
-          await route.continue();
-        } catch (err) {
-          // Route may already be handled if the page navigated or was closed
-          log.debug(
-            { err },
-            "Route handler error (route likely already handled)",
-          );
-        }
-      };
-      // Bridge through browserManager to reach the Playwright Page for
-      // route installation. The route handler intercepts redirect-time
-      // requests before Page.navigate's network fetches can hit them.
-      const page = await browserManager.getOrCreateSessionPage(
-        context.conversationId,
-      );
-      await page.route("**/*", routeHandler);
-    }
 
     // Read the current URL BEFORE calling navigateAndWait so we can
     // detect the "page never moved" case on timeout. This may fail if
@@ -1120,10 +992,7 @@ export async function executeBrowserNavigate(
       context.signal,
     );
 
-    // Defense-in-depth: check the final URL after navigation completes.
-    // This catches redirect-based SSRF even when Playwright route
-    // interception is unavailable (e.g. extension-backed sessions where
-    // the CDP transport is separate from the Playwright page).
+    // Reject private redirect destinations before exposing page content.
     if (!allowPrivateNetwork) {
       const finalParsed = parseUrl(finalUrl);
       if (
@@ -1151,15 +1020,6 @@ export async function executeBrowserNavigate(
           // Best-effort — if the reset fails, the CDP session will be
           // disposed in the finally block anyway.
         }
-        // Clean up the route handler before returning to avoid leaking
-        // a stale interception handler on the session page.
-        if (routeHandler) {
-          const page = await browserManager.getOrCreateSessionPage(
-            context.conversationId,
-          );
-          await page.unroute("**/*", routeHandler);
-          routeHandler = null;
-        }
         return {
           content: `Error: Navigation blocked. Final URL resolved to a local/private network target (${sanitizeUrlForOutput(finalParsed)}). Set allow_private_network=true if you explicitly need it.`,
           isError: true,
@@ -1178,33 +1038,6 @@ export async function executeBrowserNavigate(
         { url: safeRequestedUrl },
         "Navigation timed out waiting for document.readyState, continuing with partial load",
       );
-    }
-
-    // Remove the Playwright route handler now that navigation is
-    // complete (local path only — route interception is gated above).
-    if (routeHandler) {
-      const page = await browserManager.getOrCreateSessionPage(
-        context.conversationId,
-      );
-      await page.unroute("**/*", routeHandler);
-      routeHandler = null;
-    }
-
-    // Window positioning is a Playwright-internal affordance - on the
-    // extension path the user owns their Chrome window, so positioning
-    // is a no-op.
-    if (
-      cdp.kind === "local" &&
-      !browserManager.isInteractive(context.conversationId)
-    ) {
-      await browserManager.positionWindowSidebar();
-    }
-
-    if (blockedUrl) {
-      return {
-        content: `Error: Navigation blocked. A request targeted a local/private network address (${blockedUrl}). Set allow_private_network=true if you explicitly need it.`,
-        isError: true,
-      };
     }
 
     // Navigation changed the page content, so clear stale snapshot
@@ -1282,56 +1115,13 @@ export async function executeBrowserNavigate(
 
       if (challenge) {
         if (challenge.type === "captcha") {
-          // CAPTCHA persisted after auto-resolve wait - hand off to user
-          // only when we have a local Playwright-managed Chrome window
-          // AND a sender is registered. The extension path falls back
-          // to the text-only "solve manually" branch because the user
-          // already owns their Chrome window.
-          if (cdp.kind === "local" && sender) {
-            const { startHandoff } = await import("./browser-handoff.js");
-            await startHandoff(context.conversationId, {
-              reason: "captcha",
-              message:
-                "Cloudflare verification detected. Please solve the CAPTCHA in the Chrome window. The browser will automatically detect when you're done and resume.",
-              bringToFront: true,
-            });
-            const newUrl = await readPageUrl(cdp, context.signal);
-            const newTitle = await readPageTitle(cdp, context.signal);
-            lines.push("");
-            lines.push("CAPTCHA solved by user. Current page:");
-            lines.push(fencePageContent(`${newTitle} (${newUrl})`, newUrl));
-
-            // Re-check for auth challenges - the page behind the CAPTCHA may have a login form
-            const postCaptchaAuth = await detectAuthChallenge(
-              cdp,
-              context.signal,
-            );
-            if (postCaptchaAuth) {
-              lines.push("");
-              lines.push(
-                fencePageContent(
-                  formatAuthChallenge(postCaptchaAuth),
-                  authChallengeOrigin(postCaptchaAuth, safeFinalUrl),
-                ),
-              );
-              lines.push("");
-              appendLoginFormGuidance(lines, context, cdp.kind);
-            }
-          } else {
-            lines.push("");
-            lines.push(
-              "⚠️ CAPTCHA/Cloudflare verification detected on this page.",
-            );
-            lines.push(
-              context.cdpClient
-                ? DESKTOP_HELP_GUIDANCE
-                : HUMAN_VERIFICATION_GUIDANCE,
-            );
-            if (cdp.kind === "local") {
-              lines.push("");
-              lines.push(formatLoggedInBrowserOffer(context));
-            }
-          }
+          lines.push("");
+          lines.push("CAPTCHA/Cloudflare verification detected on this page.");
+          lines.push(
+            context.cdpClient
+              ? DESKTOP_HELP_GUIDANCE
+              : HUMAN_VERIFICATION_GUIDANCE,
+          );
         } else {
           // Login / 2FA / OAuth - the agent should handle these itself
           // using browser operations + stored credentials. Don't hand off.
@@ -1346,7 +1136,7 @@ export async function executeBrowserNavigate(
             ),
           );
           lines.push("");
-          appendLoginFormGuidance(lines, context, cdp.kind);
+          appendLoginFormGuidance(lines, context);
         }
       }
     } catch {
@@ -1355,28 +1145,6 @@ export async function executeBrowserNavigate(
 
     return { content: lines.join("\n"), isError: false };
   } catch (err) {
-    // Best-effort cleanup of route handler on error (local path only)
-    if (routeHandler) {
-      try {
-        const page = await browserManager.getOrCreateSessionPage(
-          context.conversationId,
-        );
-        await page.unroute("**/*", routeHandler);
-      } catch {
-        /* ignore cleanup errors */
-      }
-    }
-
-    // If the route handler blocked a redirect to a private network address,
-    // Page.navigate throws. Return the clear security message instead of
-    // the raw underlying error (which could leak credentials from the URL).
-    if (blockedUrl) {
-      return {
-        content: `Error: Navigation blocked. A request targeted a local/private network address (${blockedUrl}). Set allow_private_network=true if you explicitly need it.`,
-        isError: true,
-      };
-    }
-
     log.error({ err, url: safeRequestedUrl }, "Navigation failed");
     return {
       content: formatBrowserToolFailure(
@@ -1552,7 +1320,7 @@ export async function executeBrowserAttach(
       };
     }
 
-    // Non-extension backends (local / cdp-inspect): explicit attach is
+    // For cdp-inspect, explicit attach is
     // not required — the backend manages its own connection lifecycle.
     // Return a deterministic no-op success.
     return {
@@ -1641,30 +1409,7 @@ export async function executeBrowserClose(
   }
   const cdp = acquired.cdp;
   try {
-    if (cdp.kind === "local") {
-      // Local/sacrificial-profile path: tear down the Playwright page,
-      // screencast, and associated CDP state for this conversation.
-      const sender = getSender(context.conversationId);
-      if (sender) {
-        await stopBrowserScreencast(context.conversationId);
-      }
-
-      if (input.close_all_pages === true) {
-        await stopAllScreencasts();
-        await browserManager.closeAllPages();
-        return {
-          content: "All browser pages and context closed.",
-          isError: false,
-        };
-      }
-      await browserManager.closeSessionPage(context.conversationId);
-      return {
-        content: "Browser page closed for this conversation.",
-        isError: false,
-      };
-    }
-
-    // Non-local path: the user owns their Chrome tab — we must not
+    // The user owns their Chrome tab, so we must not
     // close it. On the extension backend, detach the debugger (so the
     // Chrome debugging banner clears promptly); other backends have no
     // Vellum.detach. Either way drop the cached snapshot state so stale
@@ -2567,9 +2312,7 @@ function cdpInspectSetupActions(): string[] {
 }
 
 function localSetupActions(): string[] {
-  return [
-    "Ask your assistant to install playwright and chromium on your host machine.",
-  ];
+  return [...REMEDIATION_HINTS["local:transport_error"]];
 }
 
 function extractDiscoveryCodes(error: CdpError): string[] {
@@ -2812,83 +2555,17 @@ async function checkCdpInspectModeStatus(
   };
 }
 
-async function checkLocalModeStatus(
-  context: ToolContext,
-  autoCandidate: boolean,
-  checkLocalLaunch: boolean,
-): Promise<BrowserStatusModeResult> {
-  const runtime = await checkBrowserRuntime();
-  if (!runtime.playwrightAvailable || !runtime.chromiumInstalled) {
-    return {
-      mode: BROWSER_STATUS_MODE.LOCAL,
-      available: false,
-      verified: "preflight",
-      autoCandidate,
-      summary:
-        runtime.error ??
-        "Local mode preflight failed: Playwright Chromium runtime is not ready.",
-      userActions: localSetupActions(),
-      tradeoffs: modeTradeoffs(BROWSER_STATUS_MODE.LOCAL),
-      details: {
-        runtime,
-        launchProbeRequested: checkLocalLaunch,
-      },
-    };
-  }
-
-  if (!checkLocalLaunch) {
-    return {
-      mode: BROWSER_STATUS_MODE.LOCAL,
-      available: true,
-      verified: "preflight",
-      autoCandidate,
-      summary:
-        "Local mode preflight passed (Playwright + Chromium are present). Launch probe was skipped.",
-      userActions: [],
-      tradeoffs: modeTradeoffs(BROWSER_STATUS_MODE.LOCAL),
-      details: {
-        runtime,
-        launchProbeRequested: checkLocalLaunch,
-      },
-    };
-  }
-
-  const probe = await probePinnedBrowserMode(
-    BROWSER_STATUS_MODE.LOCAL,
-    context,
-  );
-  if (probe.ok) {
-    return {
-      mode: BROWSER_STATUS_MODE.LOCAL,
-      available: true,
-      verified: "active_probe",
-      autoCandidate,
-      summary: "Local mode is ready and responded to an active CDP probe.",
-      userActions: [],
-      tradeoffs: modeTradeoffs(BROWSER_STATUS_MODE.LOCAL),
-      details: {
-        runtime,
-        launchProbeRequested: checkLocalLaunch,
-        backendKind: probe.backendKind,
-      },
-    };
-  }
-
+function checkLocalModeStatus(): BrowserStatusModeResult {
   return {
     mode: BROWSER_STATUS_MODE.LOCAL,
     available: false,
-    verified: "active_probe",
-    autoCandidate,
-    summary: `Local mode probe failed: ${probe.error.message}`,
-    userActions: probeFailureActions(BROWSER_STATUS_MODE.LOCAL, probe.error),
-    tradeoffs: modeTradeoffs(BROWSER_STATUS_MODE.LOCAL),
-    details: {
-      runtime,
-      launchProbeRequested: checkLocalLaunch,
-      errorCode: probe.error.code,
-      diagnostic: probe.diagnostic,
-      attemptDiagnostics: probe.error.attemptDiagnostics ?? [],
-    },
+    verified: "preflight",
+    autoCandidate: false,
+    summary:
+      "The local browser runtime has been removed. Use the virtual desktop browser or connect your own Chrome.",
+    userActions: localSetupActions(),
+    tradeoffs: [],
+    details: {},
   };
 }
 
@@ -2937,9 +2614,7 @@ export async function executeBrowserStatus(
           await checkCdpInspectModeStatus(context, autoCandidate),
         );
       } else {
-        modeResults.push(
-          await checkLocalModeStatus(context, autoCandidate, checkLocalLaunch),
-        );
+        modeResults.push(checkLocalModeStatus());
       }
     }
 

@@ -6,7 +6,6 @@ import {
   createCdpInspectBackend,
   createExtensionBackend,
   createHostBridgeBackend,
-  createLocalBackend,
 } from "../../../browser-session/index.js";
 import { getConfig } from "../../../config/loader.js";
 import { HostBrowserProxy } from "../../../daemon/host-browser-proxy.js";
@@ -17,7 +16,6 @@ import { createCdpInspectClient } from "./cdp-inspect-client.js";
 import { CdpError } from "./errors.js";
 import { createExtensionCdpClient } from "./extension-cdp-client.js";
 import { createHostBridgeCdpClient } from "./host-bridge-cdp-client.js";
-import { createLocalCdpClient } from "./local-cdp-client.js";
 import type {
   AttemptDiagnostic,
   BackendCandidate,
@@ -38,7 +36,7 @@ const log = getLogger("cdp-factory");
  * Module-level timestamp (epoch ms) of the last transport-level failure for
  * a desktop-auto cdp-inspect attempt. While `Date.now() - _desktopAutoCooldownSince`
  * is less than the configured `desktopAuto.cooldownMs`, the factory skips the
- * automatic cdp-inspect candidate and goes straight to the local backend.
+ * automatic cdp-inspect candidate.
  *
  * **Process-global scope**: this is a module-level singleton that affects ALL
  * conversations in the process. A cdp-inspect failure on any conversation
@@ -198,7 +196,7 @@ export interface GetCdpClientOptions {
 
 /**
  * Select the appropriate CdpClient implementation for a tool
- * invocation based on the ToolContext and config. Three backends are
+ * invocation based on the ToolContext and config. Host backends are
  * considered in priority order:
  *
  *  1. **Extension** -- When `HostBrowserProxy.instance` is available
@@ -211,9 +209,6 @@ export interface GetCdpClientOptions {
  *     On macOS, cdp-inspect is also included automatically when
  *     `desktopAuto.enabled` is true (the default), even when the
  *     top-level `enabled` flag is false.
- *  3. **Local** -- Default. Drives Playwright's CDPSession against
- *     the sacrificial-profile browser managed by browserManager.
- *
  * When `options.mode` is set to a specific backend kind, the factory
  * builds exactly one candidate and disables failover. If the pinned
  * backend is unavailable (e.g. pinned `extension` without an
@@ -398,22 +393,10 @@ export function buildPinnedCandidateList(
       ];
     }
     case "local": {
-      return [
-        {
-          kind: "local",
-          reason: "pinned mode: local",
-          create() {
-            const client = createLocalCdpClient(conversationId);
-            const backend = createLocalBackend({
-              isAvailable: () => true,
-              sendCdp: (command, signal) =>
-                dispatchThroughClient(client, command, signal),
-              dispose: () => client.dispose(),
-            });
-            return { client, backend };
-          },
-        },
-      ];
+      throw new CdpError(
+        "transport_error",
+        "The local browser runtime has been removed. Use assistant browser --virtual-desktop, or connect your browser with the Chrome extension or cdp-inspect.",
+      );
     }
     default: {
       // Exhaustive check — if new modes are added, TypeScript will
@@ -618,22 +601,6 @@ export function buildCandidateList(
     }
   }
 
-  // 3. Local -- always present as the final fallback.
-  candidates.push({
-    kind: "local",
-    reason: "default Playwright fallback",
-    create() {
-      const client = createLocalCdpClient(conversationId);
-      const backend = createLocalBackend({
-        isAvailable: () => true,
-        sendCdp: (command, signal) =>
-          dispatchThroughClient(client, command, signal),
-        dispose: () => client.dispose(),
-      });
-      return { client, backend };
-    },
-  });
-
   return candidates;
 }
 
@@ -690,7 +657,10 @@ export function buildChainedClient(
   mode: InternalBrowserMode = "auto",
 ): ScopedCdpClient {
   if (candidates.length === 0) {
-    throw new Error("CDP factory: no backend candidates available");
+    throw new CdpError(
+      "transport_error",
+      "No connected browser is available. Use assistant browser --virtual-desktop, connect the Chrome extension, or enable cdp-inspect.",
+    );
   }
 
   /** Active backend state -- populated after first successful command. */
@@ -820,7 +790,7 @@ export function buildChainedClient(
      * Behaviour by state:
      * - Sticky backend already established → forward to
      *   `active.client.setCdpSessionId` if the underlying client
-     *   implements it (extension does; local/cdp-inspect don't and
+     *   implements it (extension does; cdp-inspect doesn't and
      *   the optional chain no-ops).
      * - No sticky backend yet → stash the value; it gets applied
      *   in the `onEstablished` callback when the first send walks
@@ -1130,6 +1100,10 @@ async function sendWithFailover<T>(
         continue;
       }
 
+      if (isTransportFailover(cdpError)) {
+        maybeRecordCandidateCooldown(candidate);
+      }
+
       // Either a CDP protocol error or we've exhausted candidates --
       // propagate the error as-is, attaching diagnostics.
       diagnostics.push({
@@ -1272,9 +1246,8 @@ function extractCdpError(
  *
  * The per-command `command.sessionId` (populated by the manager from
  * a session's opaque `targetId`) is intentionally not forwarded to
- * the underlying CdpClient today -- both LocalCdpClient and
- * ExtensionCdpClient take their CDP sessionId at construction time
- * and tools run one client per invocation. The seam is preserved so
+ * the underlying CdpClient. ExtensionCdpClient takes its session ID at
+ * construction time, and tools run one client per invocation. The seam is preserved so
  * a future multi-target backend can read it off the CdpCommand.
  */
 async function dispatchThroughClient(

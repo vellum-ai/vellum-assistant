@@ -1,3 +1,5 @@
+> The local Playwright backend described in this historical design has been removed. Browser tools use virtual desktop Chrome or a connected host browser.
+
 # Browser Use — `cdp-inspect` Backend
 
 The `cdp-inspect` backend connects the assistant directly to an

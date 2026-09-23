@@ -139,7 +139,6 @@ On macOS-originated turns, the CDP factory (`tools/browser/cdp-client/factory.ts
 | -------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- |
 | 1        | **Extension / host proxy** | Two candidates from the always-present `HostBrowserProxy` singleton: `extension` when `hasExtensionClient(actor)` finds a chrome-extension client on the hub; otherwise `host-bridge` when `isAvailable(actor)` finds any `host_browser` client (the macOS desktop bridge) and that actor's host-bridge cooldown is not active | SSE via `assistantEventHub` with `targetCapability: "host_browser"`, to the chosen client |
 | 2        | **cdp-inspect**            | (a) `hostBrowser.cdpInspect.enabled` is `true` in config, OR (b) `transportInterface === "macos"` AND `desktopAuto.enabled` is `true` (default) AND the cooldown from a prior failure is not active                                                                                                                            | Direct CDP WebSocket to `localhost:9222`                                                  |
-| 3        | **Local**                  | Always present as the final fallback                                                                                                                                                                                                                                                                                           | In-process Playwright CDP via `browserManager`                                            |
 
 **Transport selection for the extension/host-proxy backend:**
 
@@ -150,20 +149,20 @@ The "extension" backend label predates the macOS bridge; two SSE transports powe
 
 In the CDP factory the bridge is the internal `"host-bridge"` candidate kind (`InternalBrowserMode`, never a caller-pinnable `browser_mode`). `browser_status` labels the extension path `details.transport: "extension-ws"`; the label predates the SSE transport and is kept as-is.
 
-**Host-bridge cooldown:** a `host-bridge` transport failure records a per-actor cooldown (`recordHostBridgeCooldown`, keyed by `sourceActorPrincipalId`, `__default__` when unresolved) for the same `desktopAuto.cooldownMs` window; while it is active the factory skips the bridge candidate (log `CDP factory: host-bridge skipped (cooldown active)`) and the turn drops straight to cdp-inspect/local. Per-actor because on a multi-actor cloud daemon the bridge reaches a different desktop per actor, so one actor's missing debug port must not suppress another's only route to their Chrome. Never applies to the `extension` candidate.
+**Host-bridge cooldown:** a `host-bridge` transport failure records a per-actor cooldown (`recordHostBridgeCooldown`, keyed by `sourceActorPrincipalId`, `__default__` when unresolved) for the same `desktopAuto.cooldownMs` window; while it is active the factory skips the bridge candidate (log `CDP factory: host-bridge skipped (cooldown active)`) and the turn drops straight to cdp-inspect. Per-actor because on a multi-actor cloud daemon the bridge reaches a different desktop per actor, so one actor's missing debug port must not suppress another's only route to their Chrome. Never applies to the `extension` candidate.
 
 **Fallback criteria for cdp-inspect (desktop-auto):**
 
 - On macOS, `desktopAuto.enabled` defaults to `true`, so cdp-inspect is attempted even when the top-level `cdpInspect.enabled` is `false`.
 - If the cdp-inspect probe fails (Chrome was not launched with `--remote-debugging-port`, or the endpoint is unreachable), the factory records a cooldown timestamp (`desktopAuto.cooldownMs`, default 30 seconds).
-- While the cooldown is active, subsequent macOS turns skip the cdp-inspect candidate entirely and go straight to local, bounding the per-call latency penalty to one `probeTimeoutMs` (default 500ms) per cooldown window.
+- While the cooldown is active, subsequent macOS turns skip the cdp-inspect candidate entirely and return an availability error if no host backend remains, bounding the per-call latency penalty to one `probeTimeoutMs` (default 500ms) per cooldown window.
 - The cooldown only applies to desktop-auto candidates (reason starts with `"desktopAuto:"`). Explicitly configured cdp-inspect (`enabled: true`) is never cooldown-suppressed.
 
 **After the first successful CDP command**, the selected backend becomes **sticky** for the remainder of the tool invocation. Subsequent commands always route through the same backend so multi-command tool flows do not hop transports mid-step.
 
 ### Browser CLI surface defaults
 
-The browser execute and tab routes share `browser/virtual-desktop-target.ts`. Platform-hosted web guardian conversations use image-provided virtual desktop Chrome by default when enabled. The shared `isVirtualDesktopEnabled` gate requires both `IS_PLATFORM` and `IS_CONTAINERIZED` alongside the `assistant-desktop` flag. Native renderer turns also use the `web` transport, so the frozen turn `clientOs` excludes native apps from automatic streamed-browser selection. Native apps retain their existing backend selection and fallback behavior. Explicit desktop/backend/client targets and existing personal-browser sessions override the surface default. Disabled desktop support retains the existing browser path. Missing image components fail the managed operation without installing dependencies or falling back to a personal browser.
+The browser execute and tab routes share `browser/virtual-desktop-target.ts`. Platform-hosted web guardian conversations use image-provided virtual desktop Chrome by default when enabled. The shared `isVirtualDesktopEnabled` gate requires both `IS_PLATFORM` and `IS_CONTAINERIZED` alongside the `assistant-desktop` flag. Native renderer turns also use the `web` transport, so the frozen turn `clientOs` excludes native apps from automatic streamed-browser selection. Native apps select connected host browsers and report unavailability when none can be reached. Explicit desktop/backend/client targets and existing personal-browser sessions override the surface default. Disabled desktop support retains the existing browser path. Missing image components fail the managed operation without installing dependencies or falling back to a personal browser.
 
 ### Per-tool `browser_mode` override
 
@@ -171,10 +170,10 @@ All CDP-backed browser tools (`browser_navigate`, `browser_snapshot`, `browser_s
 
 | Value            | Behavior                                                                     |
 | ---------------- | ---------------------------------------------------------------------------- |
-| `auto` (default) | Existing priority-ordered fallback: extension -> cdp-inspect -> local        |
+| `auto` (default) | Existing priority-ordered fallback: extension -> cdp-inspect                 |
 | `extension`      | Pin to extension/host-proxy backend. Fails immediately if proxy unavailable. |
 | `cdp-inspect`    | Pin to CDP inspect/debugger backend. Fails if endpoint unreachable.          |
-| `local`          | Pin to local Playwright-managed browser. No fallback.                        |
+| `local`          | Retired; returns guidance to use virtual desktop or connected Chrome.        |
 | `cdp-debugger`   | Alias for `cdp-inspect`.                                                     |
 | `playwright`     | Alias for `local`.                                                           |
 

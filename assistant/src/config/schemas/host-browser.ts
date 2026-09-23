@@ -20,7 +20,7 @@ const DesktopAutoCdpInspectConfigSchema = z
       })
       .default(true)
       .describe(
-        "Whether macOS turns automatically attempt cdp-inspect before falling back to the local Playwright backend. When true (default on macOS), the factory inserts a cdp-inspect candidate between the extension and local backends even when the top-level `cdpInspect.enabled` is false.",
+        "Whether macOS turns automatically attempt cdp-inspect when selecting a connected host browser. When true (default on macOS), the factory inserts a cdp-inspect candidate between the extension and local backends even when the top-level `cdpInspect.enabled` is false.",
       ),
     cooldownMs: z
       .number({
@@ -47,7 +47,7 @@ export type DesktopAutoCdpInspectConfig = z.infer<
  * Configuration for the `cdp-inspect` browser backend — connects directly
  * to a host Chrome instance that was launched with `--remote-debugging-port`
  * (e.g. `chrome://inspect`-style remote debugging) as an alternative to the
- * extension or local Playwright backend.
+ * extension backend.
  */
 const HostBrowserCdpInspectConfigSchema = z
   .object({
@@ -55,7 +55,7 @@ const HostBrowserCdpInspectConfigSchema = z
       .boolean({ error: "hostBrowser.cdpInspect.enabled must be a boolean" })
       .default(false)
       .describe(
-        "Whether the cdp-inspect backend is enabled. When true, the factory will route browser tool calls through the configured host/port instead of the local Playwright backend.",
+        "Whether the cdp-inspect backend is enabled. When true, the factory will route browser tool calls through the configured host/port when no extension backend is available.",
       ),
     host: z
       .string({ error: "hostBrowser.cdpInspect.host must be a string" })

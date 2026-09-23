@@ -2,17 +2,14 @@
  * Markdown to PDF renderer for document export.
  *
  * Converts markdown content to styled HTML via `marked`, then renders
- * the HTML to a PDF buffer using Playwright headless Chromium.
+ * the HTML to a PDF buffer using installed headless Chrome.
  * The HTML template uses print-friendly styling that matches the
  * document editor typography.
  */
 
 import { marked } from "marked";
 
-import {
-  ensureChromiumHeadlessShell,
-  importPlaywright,
-} from "../../tools/browser/runtime-check.js";
+import { withPdfChrome } from "./pdf-chrome.js";
 
 // ---------------------------------------------------------------------------
 // Print template
@@ -25,6 +22,7 @@ function wrapInPrintTemplate(innerHtml: string): string {
 <html>
 <head>
 <meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -133,7 +131,7 @@ ${innerHtml}
  * Convert a markdown string to a PDF buffer.
  *
  * Parses markdown to HTML via `marked`, wraps it in a print-friendly
- * template, then renders to PDF using Playwright headless Chromium.
+ * template, then renders to PDF using installed headless Chrome.
  * The browser is always closed in a `finally` block.
  */
 export async function renderMarkdownToPDF(
@@ -146,28 +144,49 @@ export async function renderMarkdownToPDF(
   }) as string;
   const fullHtml = wrapInPrintTemplate(innerHtml);
 
-  const pw = await importPlaywright();
-  await ensureChromiumHeadlessShell(pw);
-  const browser = await pw.chromium.launch({ headless: true });
-  try {
-    const context = await browser.newContext({
-      javaScriptEnabled: false,
-    });
-    const page = await context.newPage();
-    await page.route("**/*", (route) => route.abort());
-    await page.setContent(fullHtml, { waitUntil: "domcontentloaded" });
-    const pdfBuffer = await page.pdf({
-      format: "A4",
-      margin: {
-        top: "0.75in",
-        bottom: "0.75in",
-        left: "0.75in",
-        right: "0.75in",
+  return withPdfChrome(async (transport, signal) => {
+    const { targetId } = await transport.send<{ targetId: string }>(
+      "Target.createTarget",
+      { url: "about:blank" },
+      { signal },
+    );
+    const { sessionId } = await transport.send<{ sessionId: string }>(
+      "Target.attachToTarget",
+      { targetId, flatten: true },
+      { signal },
+    );
+    const options = { sessionId, signal };
+    await transport.send(
+      "Emulation.setScriptExecutionDisabled",
+      { value: true },
+      options,
+    );
+    await transport.send("Network.enable", {}, options);
+    await transport.send("Network.setBlockedURLs", { urls: ["*"] }, options);
+    const { frameTree } = await transport.send<{
+      frameTree: { frame: { id: string } };
+    }>("Page.getFrameTree", {}, options);
+    await transport.send(
+      "Page.setDocumentContent",
+      {
+        frameId: frameTree.frame.id,
+        html: fullHtml,
       },
-      printBackground: true,
-    });
-    return Buffer.from(pdfBuffer);
-  } finally {
-    await browser.close();
-  }
+      options,
+    );
+    const { data } = await transport.send<{ data: string }>(
+      "Page.printToPDF",
+      {
+        paperWidth: 8.2677165354,
+        paperHeight: 11.6929133858,
+        marginTop: 0.75,
+        marginBottom: 0.75,
+        marginLeft: 0.75,
+        marginRight: 0.75,
+        printBackground: true,
+      },
+      options,
+    );
+    return Buffer.from(data, "base64");
+  });
 }

@@ -58,15 +58,6 @@ mock.module("../cdp-client/factory.js", () => ({
   isDesktopAutoCooldownActive: () => false,
 }));
 
-mock.module("../runtime-check.js", () => ({
-  checkBrowserRuntime: async () => ({
-    playwrightAvailable: true,
-    chromiumInstalled: true,
-    chromiumPath: "/tmp/chromium",
-    error: null,
-  }),
-}));
-
 mock.module("../browser-manager.js", () => ({
   browserManager: {
     getPreferredBackendKind: () => null,
@@ -343,3 +334,21 @@ describe("executeBrowserStatus", () => {
     expect(extension.details.restrictedActiveTab).toBe(true);
   });
 });
+
+test.each(["local", "playwright"])(
+  "%s reports retirement without probing a browser",
+  async (browser_mode) => {
+    getCdpClientMock.mockClear();
+    const result = await executeBrowserStatus(
+      { browser_mode, check_local_launch: true },
+      makeContext(),
+    );
+    const payload = JSON.parse(result.content);
+    expect(payload.modes[0].available).toBe(false);
+    expect(payload.modes[0].autoCandidate).toBe(false);
+    expect(payload.modes[0].userActions.join(" ")).toContain(
+      "--virtual-desktop",
+    );
+    expect(getCdpClientMock).not.toHaveBeenCalled();
+  },
+);

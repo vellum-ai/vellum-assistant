@@ -2,22 +2,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Mocks ────────────────────────────────────────────────────────────
 
-/**
- * Fake CDP session used by every interaction tool that has been
- * migrated to `CdpClient` (click, hover, type, press_key,
- * select_option, scroll). Each `session.send(method, params)` call is
- * recorded in `sendCalls` and routed to `sendHandler`, which tests
- * configure per-case. The handler returns either a CDP response
- * object or an `Error` to simulate transport failure. `detachCalls`
- * counts `session.detach()` invocations so tests can assert that
- * `CdpClient.dispose()` runs in the tool's `finally` block.
- *
- * The fake session is exposed via `mockPage.context().newCDPSession(
- * page)` so the real `LocalCdpClient` drives it. Routing through the
- * production client (instead of mocking the factory / cdp-client
- * submodules) avoids polluting the global module cache that the CDP
- * unit tests rely on.
- */
+// CDP responses and disposal are controlled per test.
 interface SendCall {
   method: string;
   params: Record<string, unknown> | undefined;
@@ -50,20 +35,6 @@ const fakeCdpSession = {
   },
 };
 
-/**
- * The mock page only needs to expose `context().newCDPSession()` so
- * the real `LocalCdpClient` can obtain a CDP session. All interaction
- * tools now route through CDP, so no Playwright `page.*` surface is
- * required.
- */
-let mockPage: {
-  close: () => Promise<void>;
-  isClosed: () => boolean;
-  context: () => {
-    newCDPSession: (page: unknown) => Promise<typeof fakeCdpSession>;
-  };
-};
-
 let snapshotBackendNodeMaps: Map<string, Map<string, number>>;
 
 const preferredBackendKinds = new Map<string, string>();
@@ -73,9 +44,6 @@ mock.module("../tools/browser/browser-manager.js", () => {
   preferredBackendKinds.clear();
   return {
     browserManager: {
-      getOrCreateSessionPage: async () => mockPage,
-      closeSessionPage: async () => {},
-      closeAllPages: async () => {},
       storeSnapshotBackendNodeMap: (
         conversationId: string,
         map: Map<string, number>,
@@ -115,13 +83,6 @@ mock.module("../tools/network/url-safety.js", () => ({
   sanitizeUrlForOutput: (url: URL) => url.href,
 }));
 
-mock.module("../tools/browser/browser-screencast.js", () => ({
-  getSender: () => undefined,
-  stopBrowserScreencast: async () => {},
-  stopAllScreencasts: async () => {},
-  ensureScreencast: async () => {},
-}));
-
 import {
   executeBrowserAttach,
   executeBrowserClick,
@@ -133,6 +94,19 @@ import {
   executeBrowserSelectOption,
   executeBrowserType,
 } from "../tools/browser/browser-execution.js";
+
+mock.module("../tools/browser/cdp-client/factory.js", () => ({
+  getCdpClient: (context: { conversationId: string }) => ({
+    kind: "cdp-inspect",
+    conversationId: context.conversationId,
+    send: (method: string, params?: Record<string, unknown>) =>
+      fakeCdpSession.send(method, params),
+    dispose: () => {
+      void fakeCdpSession.detach();
+    },
+  }),
+}));
+
 import type { ToolContext } from "../tools/types.js";
 
 const ctx: ToolContext = {
@@ -140,19 +114,6 @@ const ctx: ToolContext = {
   workingDir: "/tmp",
   trustClass: "guardian",
 };
-
-function resetMockPage() {
-  mockPage = {
-    close: async () => {},
-    isClosed: () => false,
-    // `LocalCdpClient.ensureSession()` calls `page.context().newCDPSession(
-    // page)` to obtain a CDP session. Return the in-file `fakeCdpSession`
-    // so tests can assert on the exact CDP method sequence.
-    context: () => ({
-      newCDPSession: async (_page: unknown) => fakeCdpSession,
-    }),
-  };
-}
 
 /**
  * Default CDP send handler that answers the common plumbing calls
@@ -258,7 +219,6 @@ function installClickHoverCdpSend(
 
 describe("executeBrowserClick (CDP)", () => {
   beforeEach(() => {
-    resetMockPage();
     resetCdpMock();
     snapshotBackendNodeMaps.clear();
   });
@@ -485,7 +445,6 @@ describe("executeBrowserClick (CDP)", () => {
 
 describe("executeBrowserType", () => {
   beforeEach(() => {
-    resetMockPage();
     resetCdpMock();
     snapshotBackendNodeMaps.clear();
     sendHandler = defaultCdpHandler;
@@ -636,22 +595,17 @@ describe("executeBrowserType", () => {
 
 describe("executeBrowserClose", () => {
   beforeEach(() => {
-    resetMockPage();
     resetCdpMock();
   });
-
-  test("closes session page", async () => {
+  test("close clears conversation state without closing host tabs", async () => {
     const result = await executeBrowserClose({}, ctx);
     expect(result.isError).toBe(false);
-    expect(result.content).toContain(
-      "Browser page closed for this conversation",
-    );
+    expect(result.content).toContain("Browser session cleared");
   });
-
-  test("closes all pages when close_all_pages=true", async () => {
+  test("close clears conversation state without closing host tabs with close_all_pages", async () => {
     const result = await executeBrowserClose({ close_all_pages: true }, ctx);
     expect(result.isError).toBe(false);
-    expect(result.content).toContain("All browser pages and context closed");
+    expect(result.content).toContain("Browser session cleared");
   });
 });
 
@@ -659,11 +613,10 @@ describe("executeBrowserClose", () => {
 
 describe("executeBrowserAttach", () => {
   beforeEach(() => {
-    resetMockPage();
     resetCdpMock();
   });
 
-  test("returns success on non-extension (local) backend", async () => {
+  test("returns success on cdp-inspect backend", async () => {
     const result = await executeBrowserAttach({}, ctx);
     expect(result.isError).toBe(false);
     expect(result.content).toContain("Browser session ready");
@@ -674,7 +627,6 @@ describe("executeBrowserAttach", () => {
 
 describe("executeBrowserDetach", () => {
   beforeEach(() => {
-    resetMockPage();
     resetCdpMock();
   });
 
@@ -685,15 +637,12 @@ describe("executeBrowserDetach", () => {
   });
 });
 
-// browser_extract tests live in headless-browser-read-tools.test.ts
-// because it drives CDP via getCdpClient() rather than the
-// Playwright page mock this file uses.
+// browser_extract tests live in headless-browser-read-tools.test.ts.
 
 // ── browser_press_key ────────────────────────────────────────────────
 
 describe("executeBrowserPressKey", () => {
   beforeEach(() => {
-    resetMockPage();
     resetCdpMock();
     snapshotBackendNodeMaps.clear();
     sendHandler = defaultCdpHandler;
@@ -822,7 +771,6 @@ describe("executeBrowserPressKey", () => {
 
 describe("executeBrowserScroll", () => {
   beforeEach(() => {
-    resetMockPage();
     resetCdpMock();
     sendHandler = defaultCdpHandler;
   });
@@ -959,7 +907,6 @@ function selectOptionHandler(
 
 describe("executeBrowserSelectOption", () => {
   beforeEach(() => {
-    resetMockPage();
     resetCdpMock();
     snapshotBackendNodeMaps.clear();
     sendHandler = selectOptionHandler();
@@ -1101,7 +1048,6 @@ describe("executeBrowserSelectOption", () => {
 
 describe("executeBrowserHover (CDP)", () => {
   beforeEach(() => {
-    resetMockPage();
     resetCdpMock();
     snapshotBackendNodeMaps.clear();
   });
@@ -1204,7 +1150,6 @@ describe("executeBrowserHover (CDP)", () => {
 
 describe("browser execution wrapper contract", () => {
   beforeEach(() => {
-    resetMockPage();
     resetCdpMock();
     sendHandler = defaultCdpHandler;
     snapshotBackendNodeMaps.clear();

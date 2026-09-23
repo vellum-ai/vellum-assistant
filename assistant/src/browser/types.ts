@@ -74,12 +74,6 @@ export interface BrowserOperationMeta {
   /** Ordered list of fields (required first, then optional). */
   fields: readonly OperationField[];
   /**
-   * When set, the operation is restricted to these browser_mode
-   * values. For example, `wait_for_download` only supports
-   * `["auto", "local"]`.
-   */
-  allowedModes?: readonly string[];
-  /**
    * Extended help text appended after the auto-generated options list.
    * Should include behavioral notes and 2-3 concrete examples per
    * CLI AGENTS.md Help Text Standards.

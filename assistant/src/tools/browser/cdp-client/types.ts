@@ -1,6 +1,5 @@
 /**
  * Minimal typed surface over Chrome DevTools Protocol. Implemented by
- * LocalCdpClient (Playwright-backed, same-process Chromium),
  * ExtensionCdpClient (routes through HostBrowserProxy to the user's
  * Chrome via chrome.debugger), and CdpInspectClient (connects to a
  * remote browser over a raw CDP WebSocket URL). Tools call
@@ -48,7 +47,7 @@ export interface CdpClient {
   /**
    * Update the `cdpSessionId` used on subsequent {@link CdpClient.send}
    * calls. Backends that don't multiplex commands across multiple
-   * targets (local Playwright, cdp-inspect) may implement this as a
+   * targets (cdp-inspect) may implement this as a
    * no-op. The extension backend uses this after opening a new tab
    * (via the `Vellum.createTab` pseudo-CDP method) to route
    * follow-on commands to the freshly-created tab instead of the
@@ -114,7 +113,7 @@ export type CdpClientKind =
  *    immediately if the host browser proxy is unavailable.
  *  - `"cdp-inspect"` — pin to the cdp-inspect backend. Fails
  *    immediately if cdp-inspect cannot connect.
- *  - `"local"` — pin to the local Playwright backend. No fallback.
+ *  - `"local"` - retired mode. Returns guidance to use virtual desktop.
  *
  * The `host-bridge` backend (raw CDP to the user's Chrome via the
  * desktop client's SSE bridge) is auto-mode only and not listed here —

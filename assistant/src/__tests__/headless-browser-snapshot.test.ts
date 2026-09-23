@@ -2,19 +2,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Mocks ────────────────────────────────────────────────────────────
 
-/**
- * Shared fake CDP session state. Tests install a custom `cdpSend`
- * implementation in their setup, then assert against `cdpCalls` and
- * `detachCalls` after the tool runs.
- *
- * Rather than mocking `factory.js` or `local-cdp-client.js` directly
- * (both of which would leak module-level mocks into other test files
- * via bun's shared mock registry), we only mock `browser-manager.js`
- * and return a fake Playwright page whose CDP session routes through
- * a programmable handler. That lets the real `LocalCdpClient` +
- * `getCdpClient` factory code run end-to-end, so this file does not
- * interfere with `local-cdp-client.test.ts` or `factory.test.ts`.
- */
+// CDP responses and disposal are controlled per test.
 type CdpCall = { method: string; params: Record<string, unknown> };
 let cdpCalls: CdpCall[] = [];
 let cdpSend: (
@@ -22,9 +10,6 @@ let cdpSend: (
   params?: Record<string, unknown>,
 ) => Promise<unknown>;
 let detachCalls: number;
-
-let closeSessionPageMock: ReturnType<typeof mock>;
-let closeAllPagesMock: ReturnType<typeof mock>;
 let clearSnapshotBackendNodeMapMock: ReturnType<typeof mock>;
 let storeSnapshotBackendNodeMapMock: ReturnType<typeof mock>;
 let storedBackendNodeMaps: Map<string, Map<string, number>>;
@@ -33,8 +18,6 @@ const preferredBackendKinds = new Map<string, string>();
 mock.module("../tools/browser/browser-manager.js", () => {
   storedBackendNodeMaps = new Map();
   preferredBackendKinds.clear();
-  closeSessionPageMock = mock(async () => {});
-  closeAllPagesMock = mock(async () => {});
   clearSnapshotBackendNodeMapMock = mock((conversationId: string) => {
     storedBackendNodeMaps.delete(conversationId);
   });
@@ -43,28 +26,8 @@ mock.module("../tools/browser/browser-manager.js", () => {
       storedBackendNodeMaps.set(conversationId, map);
     },
   );
-  // Fake Playwright page whose CDPSession routes to our per-test
-  // handler. LocalCdpClient lazily creates the session on first send,
-  // which is how the real tool path drives us.
-  const fakeSession = {
-    send: async (method: string, params?: Record<string, unknown>) => {
-      cdpCalls.push({ method, params: params ?? {} });
-      return cdpSend(method, params);
-    },
-    detach: async () => {
-      detachCalls += 1;
-    },
-  };
-  const fakePage = {
-    context: () => ({
-      newCDPSession: async () => fakeSession,
-    }),
-  };
   return {
     browserManager: {
-      getOrCreateSessionPage: async (_conversationId: string) => fakePage,
-      closeSessionPage: closeSessionPageMock,
-      closeAllPages: closeAllPagesMock,
       storeSnapshotBackendNodeMap: storeSnapshotBackendNodeMapMock,
       clearSnapshotBackendNodeMap: clearSnapshotBackendNodeMapMock,
       resolveSnapshotBackendNodeId: (
@@ -101,6 +64,21 @@ import {
   executeBrowserClose,
   executeBrowserSnapshot,
 } from "../tools/browser/browser-execution.js";
+
+mock.module("../tools/browser/cdp-client/factory.js", () => ({
+  getCdpClient: (context: { conversationId: string }) => ({
+    kind: "cdp-inspect",
+    conversationId: context.conversationId,
+    send: (method: string, params?: Record<string, unknown>) => (
+      cdpCalls.push({ method, params: params ?? {} }),
+      cdpSend(method, params)
+    ),
+    dispose: () => {
+      detachCalls += 1;
+    },
+  }),
+}));
+
 import type { ToolContext } from "../tools/types.js";
 
 const ctx: ToolContext = {
@@ -334,35 +312,15 @@ describe("executeBrowserSnapshot (CDP Accessibility.getFullAXTree)", () => {
 describe("executeBrowserClose", () => {
   beforeEach(() => {
     resetCdpState();
-    closeSessionPageMock.mockClear();
-    closeAllPagesMock.mockClear();
   });
-
-  test("closes session page by default", async () => {
+  test("close clears conversation state without closing host tabs", async () => {
     const result = await executeBrowserClose({}, ctx);
     expect(result.isError).toBe(false);
-    expect(result.content).toContain(
-      "Browser page closed for this conversation.",
-    );
-    expect(closeSessionPageMock).toHaveBeenCalledWith("test-conversation");
-    expect(closeAllPagesMock).not.toHaveBeenCalled();
+    expect(result.content).toContain("Browser session cleared");
   });
-
-  test("closes all pages with close_all_pages=true", async () => {
+  test("close clears conversation state without closing host tabs with close_all_pages", async () => {
     const result = await executeBrowserClose({ close_all_pages: true }, ctx);
     expect(result.isError).toBe(false);
-    expect(result.content).toContain("All browser pages and context closed.");
-    expect(closeAllPagesMock).toHaveBeenCalledTimes(1);
-    expect(closeSessionPageMock).not.toHaveBeenCalled();
-  });
-
-  test("handles close error", async () => {
-    closeSessionPageMock.mockImplementation(async () => {
-      throw new Error("close failed");
-    });
-    const result = await executeBrowserClose({}, ctx);
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain("Close failed");
-    expect(result.content).toContain("close failed");
+    expect(result.content).toContain("Browser session cleared");
   });
 });

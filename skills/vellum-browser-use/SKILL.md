@@ -57,7 +57,6 @@ Use `--browser-mode <mode>` on the `assistant browser` parent command to pin the
 | `auto`        | Automatic        | Default. Picks the best available backend based on context.           |
 | `extension`   | Chrome extension | Routes through the user's Chrome browser via the extension debugger.  |
 | `cdp-inspect` | CDP inspect      | Connects to an already-running Chrome instance via DevTools Protocol. |
-| `local`       | Playwright       | Drives a dedicated Playwright-managed Chromium instance.              |
 
 ```bash
 assistant browser --browser-mode extension navigate --url http://www.example.com
@@ -94,9 +93,8 @@ If navigate, curl, or any fetch times out, hits an auth wall, or cannot reach a 
 If the user declines to install the extension:
 
 - **`cdp-inspect`** — Connects to an already-running Chrome instance via DevTools Protocol (Chrome 146+). Requires enabling remote debugging in Chrome settings.
-- **`local`** — Drives a dedicated Playwright-managed Chromium instance. Last resort — does not use the user's browser profile.
 
-Only fall back to these if the user explicitly indicates they do not want to install the extension. Prefer `cdp-inspect` over `local`.
+Use `cdp-inspect` for an existing Chrome session if the user declines to install the extension.
 
 ## Targeting a Specific Client
 
@@ -121,7 +119,7 @@ On the Chrome extension backend, `navigate` opens a dedicated tab the first time
 - `--new-tab` — force a brand-new tab even when one is already pinned.
 - `--use-active-tab` — navigate the user's currently-active tab instead of a dedicated one.
 
-Both flags are ignored on the `local` and `cdp-inspect` backends, which manage their own browser context.
+Both flags are ignored on the `cdp-inspect` backend, which targets an existing tab.
 
 ## Session Management
 

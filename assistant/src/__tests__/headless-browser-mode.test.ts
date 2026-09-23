@@ -119,13 +119,6 @@ mock.module("../tools/browser/browser-manager.js", () => {
   };
 });
 
-mock.module("../tools/browser/browser-screencast.js", () => ({
-  ensureScreencast: async () => {},
-  getSender: () => null,
-  stopAllScreencasts: async () => {},
-  stopBrowserScreencast: async () => {},
-}));
-
 mock.module("../tools/browser/auth-detector.js", () => ({
   detectAuthChallenge: async () => null,
   detectCaptchaChallenge: async () => null,

@@ -131,11 +131,11 @@ Browser operations are executed through the running assistant.
 Virtual desktop is available only for platform-hosted assistants.
 In the web client, automatic selection prefers virtual desktop Chrome when
 its feature is enabled and the conversation has an
-identified guardian. The macOS and Windows apps keep their existing browser
-selection and fallback behavior; use --virtual-desktop to select it there.
+identified guardian. The macOS and Windows apps use connected host browsers;
+use --virtual-desktop to select the managed browser explicitly.
 Existing sessions and explicit backend/client choices take priority.
---browser-mode local (alias playwright) means the assistant's Playwright browser,
-not the user's Chrome. --desktop remains an alias for --virtual-desktop.
+--browser-mode local (alias playwright) is retired and returns migration guidance.
+--desktop remains an alias for --virtual-desktop.
 Use --virtual-desktop for Chrome in the Desktop panel.
 Run navigate --url <url> directly to open a page.
 The assistant-desktop feature flag and a desktop-enabled assistant image are required.
@@ -166,12 +166,12 @@ Each subcommand maps to a browser operation and communicates
 with the assistant process.
 
 The --session flag groups sequential commands so they share browser
-state (same page, cookies, etc.). Different session IDs create
-independent browser contexts.
+conversation state (snapshot element IDs and the selected backend).
+Browser profiles belong to the connected browser or virtual desktop.
 
 The --browser-mode flag pins the browser backend for all operations
-in the invocation. Valid modes: auto (default), extension, cdp-inspect,
-local. Useful for debugging or when deterministic backend selection
+in the invocation. Valid modes: auto (default), extension,
+cdp-inspect. Useful for debugging or when deterministic backend selection
 is required.
 
 Examples:
@@ -183,7 +183,7 @@ Examples:
   $ assistant browser type --text "hello" --element-id e14
   $ assistant browser screenshot --output page.jpg
   $ assistant browser --session myflow navigate --url https://example.com
-  $ assistant browser --browser-mode local navigate --url http://localhost:3000
+  $ assistant browser --virtual-desktop navigate --url https://example.com
   $ assistant browser --json screenshot`,
   subcommands: [
     ...BROWSER_OPERATION_META.map(operationToSubcommand),

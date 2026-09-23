@@ -22,7 +22,7 @@ import type { ContentBlock, Message } from "../providers/types.js";
 import { type TrustClass } from "../runtime/actor-trust-resolver.js";
 import { resolveCapabilities } from "../runtime/capabilities.js";
 import { isAutoAnalysisConversation } from "../runtime/services/auto-analysis-guard.js";
-import { unregisterConversationSender } from "../tools/browser/browser-screencast.js";
+import { browserManager } from "../tools/browser/browser-manager.js";
 import { disposeToolProfiler } from "../tools/tool-profiler.js";
 import {
   type AbortReason,
@@ -415,7 +415,7 @@ export function disposeConversation(ctx: DisposeContext): void {
     ),
   );
   unregisterCallNotifiers(ctx.conversationId);
-  unregisterConversationSender(ctx.conversationId);
+  browserManager.clearConversation(ctx.conversationId);
   resetSkillToolProjection(ctx.skillProjectionState);
 
   // Release heavy in-memory data so GC can reclaim it
