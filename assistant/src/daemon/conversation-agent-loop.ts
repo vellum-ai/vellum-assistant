@@ -643,10 +643,9 @@ export async function runAgentLoopImpl(
   // internal background origin. Unset for normal user turns.
   ctx.currentTurnRequestOrigin = options?.requestOrigin;
 
-  // Firing's run id for this turn's usage attribution. Kept local (not on the
-  // conversation) so a reused conversation attributes each turn to its own
-  // firing.
+  // Ownership covers asynchronous setup as well as the loop and its tools.
   const turnCronRunId = options?.cronRunId ?? null;
+  ctx.currentTurnCronRunId = turnCronRunId;
 
   // Optional per-turn inference-profile override. Plumbed through to every
   // LLM call the loop emits and inherited by any subagents spawned during
@@ -891,11 +890,6 @@ export async function runAgentLoopImpl(
   // this between model calls so a confirmed profile session opened by a tool
   // applies to later tool executions and nested subagents in the same turn.
   ctx.currentTurnOverrideProfile = turnOverrideProfile;
-
-  // Mirrored onto the live conversation for `createToolExecutor` to read into
-  // `ToolContext.cronRunId`, so a tool that delegates LLM work (subagent spawn
-  // or message) stamps the delegated usage with this firing.
-  ctx.currentTurnCronRunId = turnCronRunId;
 
   // Capture the turn channel context *before* any awaits so a second
   // message from a different channel can't overwrite it mid-flight.

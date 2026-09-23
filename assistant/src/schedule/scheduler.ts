@@ -1,7 +1,7 @@
 import { refreshBackgroundWakeIntent } from "../background-wake/publisher.js";
 import { resolveSingleRouteProfileKey } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
-import { findConversation } from "../daemon/conversation-registry.js";
+import { findConversationOrSubagent } from "../daemon/conversation-registry.js";
 import {
   checkDiskPressureBackgroundGate,
   diskPressureBackgroundSkipLogFields,
@@ -96,6 +96,27 @@ const DELEGATED_WORK_POLL_MS = 100;
  */
 const DELEGATED_WORK_QUIET_POLLS = 2;
 
+function hasPendingScheduledWork(
+  conversationId: string,
+  runId: string,
+): boolean {
+  const conversation = findConversationOrSubagent(conversationId);
+  const manager = getSubagentManager();
+  return (
+    (conversation?.isProcessing() === true &&
+      conversation.currentTurnCronRunId === runId) ||
+    conversation
+      ?.snapshotQueuedMessages()
+      .some((message) => message.cronRunId === runId) === true ||
+    hasBackgroundToolWork(conversationId, { cronRunId: runId }) ||
+    hasPendingAgentWake(conversationId, runId) ||
+    manager.hasActiveChildren(conversationId, runId) ||
+    manager
+      .getChildrenOf(conversationId)
+      .some((child) => hasPendingScheduledWork(child.conversationId, runId))
+  );
+}
+
 /**
  * Wait for work a scheduled turn delegated before the run is called done.
  *
@@ -117,17 +138,17 @@ const DELEGATED_WORK_QUIET_POLLS = 2;
 async function awaitDelegatedWork(
   conversationId: string,
   runStartedAt: number,
+  runId: string,
   rlog: typeof log,
 ): Promise<boolean> {
   if (!conversationId || conversationId.startsWith("bootstrap-error:")) {
     return true;
   }
-  const hasPendingToolsOrWakes = () =>
-    hasBackgroundToolWork(conversationId) ||
-    hasPendingAgentWake(conversationId);
   if (
-    getSubagentManager().getChildrenOf(conversationId).length === 0 &&
-    !hasPendingToolsOrWakes()
+    !getSubagentManager()
+      .getChildrenOf(conversationId)
+      .some((child) => child.config.cronRunId === runId) &&
+    !hasPendingScheduledWork(conversationId, runId)
   ) {
     return true;
   }
@@ -136,10 +157,7 @@ async function awaitDelegatedWork(
     runStartedAt + getConfig().timeouts.scheduleTurnTimeoutSec * 1000;
   let quiet = 0;
   while (Date.now() < deadline) {
-    if (
-      findConversation(conversationId)?.hasInFlightWork() ||
-      hasPendingToolsOrWakes()
-    ) {
+    if (hasPendingScheduledWork(conversationId, runId)) {
       quiet = 0;
     } else {
       quiet += 1;
@@ -162,15 +180,15 @@ function cancelTimedOutScheduleWork(
 ): void {
   const manager = getSubagentManager();
   for (const child of manager.getChildrenOf(conversationId)) {
+    cancelTimedOutScheduleWork(child.conversationId, runId);
     if (child.config.cronRunId !== runId) {
       continue;
     }
-    cancelTimedOutScheduleWork(child.conversationId, runId);
     manager.abort(child.config.id, undefined, conversationId, {
       cronRunId: runId,
     });
   }
-  findConversation(conversationId)?.abortScheduledRun(runId);
+  findConversationOrSubagent(conversationId)?.abortScheduledRun(runId);
   cancelBackgroundTools(
     (tool) =>
       tool.conversationId === conversationId && tool.cronRunId === runId,
@@ -1208,7 +1226,10 @@ export async function runDueSchedulesOnce(
       failedTurn = result.turnFailure;
     }
 
-    if (ok && !(await awaitDelegatedWork(conversationId, runStartedAt, log))) {
+    if (
+      ok &&
+      !(await awaitDelegatedWork(conversationId, runStartedAt, runId, log))
+    ) {
       ok = false;
       errorKind = "timeout";
       errorMsg = "Scheduled work did not finish before its time limit";

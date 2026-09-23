@@ -79,12 +79,14 @@ export function removeBackgroundTool(id: string): void {
 /** Includes cancelled processes until their terminal callback has run. */
 export function hasBackgroundToolWork(
   conversationId: string,
-  options?: { startedAfter?: number },
+  options?: { startedAfter?: number; cronRunId?: string },
 ): boolean {
   return [registry, pendingCancellations].some((tools) =>
     Array.from(tools.values()).some(
       (tool) =>
         tool.conversationId === conversationId &&
+        (options?.cronRunId === undefined ||
+          tool.cronRunId === options.cronRunId) &&
         (options?.startedAfter === undefined ||
           tool.startedAt >= options.startedAfter),
     ),

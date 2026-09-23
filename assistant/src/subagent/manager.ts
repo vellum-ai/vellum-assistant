@@ -1776,7 +1776,7 @@ export class SubagentManager {
    * injects into the parent and releases the child's conversation. Evicting the
    * parent in that window would race its own teardown.
    */
-  hasActiveChildren(parentConversationId: string): boolean {
+  hasActiveChildren(parentConversationId: string, cronRunId?: string): boolean {
     const children = this.parentToChildren.get(parentConversationId);
     if (!children) {
       return false;
@@ -1784,6 +1784,12 @@ export class SubagentManager {
     for (const childId of children) {
       const managed = this.subagents.get(childId);
       if (!managed) {
+        continue;
+      }
+      if (
+        cronRunId !== undefined &&
+        managed.state.config.cronRunId !== cronRunId
+      ) {
         continue;
       }
       if (managed.runInFlight || !TERMINAL_STATUSES.has(managed.state.status)) {

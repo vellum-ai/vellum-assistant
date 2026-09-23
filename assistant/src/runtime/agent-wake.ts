@@ -131,7 +131,7 @@ import { stampTurnOutcome } from "../telemetry/turn-outcome.js";
 import type { CompletedBackgroundTool } from "../tools/background-tool-registry.js";
 import { getLogger } from "../util/logger.js";
 import { safeStringSlice } from "../util/unicode.js";
-import { runWakeSingleFlight } from "./agent-wake-queue.js";
+import { runWakeSingleFlight, trackScheduledWake } from "./agent-wake-queue.js";
 
 export { hasPendingAgentWake } from "./agent-wake-queue.js";
 
@@ -763,6 +763,10 @@ export async function wakeAgentForOpportunity(
   let wakeTriggerMessageId: string | undefined;
   let completionAssistantMessageId: string | undefined;
 
+  const finishScheduledWake = trackScheduledWake(
+    conversationId,
+    opts.cronRunId,
+  );
   return runWakeSingleFlight<WakeResult>(conversationId, async () => {
     // Snapshot the conversation's resting trust before the resolver runs, so
     // it can be restored after. The resolver leaves the wake's trust on the
@@ -1969,6 +1973,7 @@ export async function wakeAgentForOpportunity(
       }
     }
   }).finally(() => {
+    finishScheduledWake();
     if (opts.backgroundToolCompletion && wakeTriggerMessageId) {
       void emitBackgroundResultNotification({
         conversationId,

@@ -694,6 +694,51 @@ beforeEach(() => {
 // ── Tests ────────────────────────────────────────────────────────────
 
 describe("wakeAgentForOpportunity", () => {
+  test("tracks each scheduled owner while wakes hydrate and wait behind other wakes", async () => {
+    const firstGate = Promise.withResolvers<void>();
+    const secondGate = Promise.withResolvers<void>();
+    const lastGate = Promise.withResolvers<void>();
+    const conversationId = "conv-scheduled-wakes";
+    const start = (cronRunId: string | undefined, gate: Promise<void>) =>
+      wakeAgentForOpportunity(
+        {
+          conversationId,
+          cronRunId,
+          source: "background-tool",
+          hint: "Command finished",
+        },
+        {
+          resolveTarget: async () => {
+            await gate;
+            return null;
+          },
+        },
+      );
+    const first = start("run-first", firstGate.promise);
+    const second = start("run-second", secondGate.promise);
+    const repeated = start("run-first", lastGate.promise);
+    const userWake = start(undefined, Promise.resolve());
+    try {
+      expect(hasPendingAgentWake(conversationId, "run-first")).toBe(true);
+      expect(hasPendingAgentWake(conversationId, "run-second")).toBe(true);
+      expect(hasPendingAgentWake(conversationId, "run-other")).toBe(false);
+      firstGate.resolve();
+      await first;
+      expect(hasPendingAgentWake(conversationId, "run-first")).toBe(true);
+      secondGate.resolve();
+      await second;
+      expect(hasPendingAgentWake(conversationId, "run-second")).toBe(false);
+      expect(hasPendingAgentWake(conversationId, "run-first")).toBe(true);
+    } finally {
+      firstGate.resolve();
+      secondGate.resolve();
+      lastGate.resolve();
+      await Promise.all([first, second, repeated, userWake]);
+    }
+    expect(hasPendingAgentWake(conversationId)).toBe(false);
+    expect(hasPendingAgentWake(conversationId, "run-first")).toBe(false);
+  });
+
   test("disabled disk pressure flag allows background wakes to pass through", async () => {
     const conversation = makeWakeConversation({
       scriptedAssistant: null,

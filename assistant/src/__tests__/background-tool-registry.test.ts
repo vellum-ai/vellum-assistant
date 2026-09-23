@@ -22,6 +22,7 @@ function makeTool(overrides: Partial<BackgroundTool> = {}): BackgroundTool {
     toolName: overrides.toolName ?? "bash",
     conversationId: overrides.conversationId ?? "conv-xyz",
     command: overrides.command ?? "echo hello",
+    cronRunId: overrides.cronRunId,
     startedAt: overrides.startedAt ?? Date.now(),
     cancel: overrides.cancel ?? mock(() => {}),
   };
@@ -59,6 +60,27 @@ describe("background-tool-registry", () => {
   });
 
   describe("cancelBackgroundTool", () => {
+    test("filters both running and cancelling commands by schedule owner", () => {
+      const owned = makeTool({ id: "bg-owned", cronRunId: "run-owned" });
+      registerBackgroundTool(owned);
+      registerBackgroundTool(makeTool({ id: "bg-user" }));
+      registerBackgroundTool(
+        makeTool({ id: "bg-other", cronRunId: "run-other" }),
+      );
+      expect(
+        hasBackgroundToolWork(owned.conversationId, { cronRunId: "run-owned" }),
+      ).toBe(true);
+      cancelBackgroundTool(owned.id);
+      expect(
+        hasBackgroundToolWork(owned.conversationId, { cronRunId: "run-owned" }),
+      ).toBe(true);
+      removeBackgroundTool(owned.id);
+      expect(
+        hasBackgroundToolWork(owned.conversationId, { cronRunId: "run-owned" }),
+      ).toBe(false);
+      expect(hasBackgroundToolWork(owned.conversationId)).toBe(true);
+    });
+
     test("calls cancel(), removes the entry, and returns true", () => {
       const cancelFn = mock(() => {});
       const tool = makeTool({ id: "bg-cancel-1", cancel: cancelFn });

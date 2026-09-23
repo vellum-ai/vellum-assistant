@@ -41,6 +41,7 @@ import type { SubagentState } from "../subagent/types.js";
 
 /** Minimal shape matching the private ManagedSubagent interface for test injection. */
 interface FakeManagedSubagent {
+  runInFlight?: boolean;
   conversation: {
     abort: () => void;
     abortScheduledRun?: (runId: string) => void;
@@ -626,6 +627,23 @@ describe("SubagentManager hasActiveChildren", () => {
     expect(manager.hasActiveChildren("parent-sess-1")).toBe(true);
 
     asInternals(manager).subagents.get("sub-running")!.state.status = "pending";
+    expect(manager.hasActiveChildren("parent-sess-1")).toBe(true);
+  });
+
+  test("scopes active and unwinding children to their schedule owner", () => {
+    const manager = new SubagentManager();
+    const owned = makeState("sub-owned");
+    owned.config.cronRunId = "run-owned";
+    injectFakeSubagent(manager, "sub-owned", owned);
+    injectFakeSubagent(manager, "sub-user", makeState("sub-user"));
+    expect(manager.hasActiveChildren("parent-sess-1", "run-owned")).toBe(true);
+    expect(manager.hasActiveChildren("parent-sess-1", "run-other")).toBe(false);
+    const managed = asInternals(manager).subagents.get("sub-owned")!;
+    managed.state.status = "completed";
+    managed.runInFlight = true;
+    expect(manager.hasActiveChildren("parent-sess-1", "run-owned")).toBe(true);
+    managed.runInFlight = false;
+    expect(manager.hasActiveChildren("parent-sess-1", "run-owned")).toBe(false);
     expect(manager.hasActiveChildren("parent-sess-1")).toBe(true);
   });
 

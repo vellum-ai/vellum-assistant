@@ -97,6 +97,7 @@ import { MessageQueue } from "../daemon/conversation-queue-manager.js";
 import {
   clearConversations,
   setConversation,
+  setSubagentConversation,
 } from "../daemon/conversation-registry.js";
 import { addMessage } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
@@ -274,12 +275,13 @@ describe("schedule result notification wiring", () => {
       // The turn's own reply, written before the guidance exists.
       addMessage(conversationId, "assistant", "Here is a first pass.");
 
-      const child = attachRunningChild(conversationId);
+      const cronRunId = getScheduleRuns(schedule.id)[0].id;
+      const child = attachRunningChild(conversationId, cronRunId);
       let continuationRunning = false;
       setConversation(conversationId, {
-        hasInFlightWork: () =>
-          getSubagentManager().hasActiveChildren(conversationId) ||
-          continuationRunning,
+        isProcessing: () => continuationRunning,
+        currentTurnCronRunId: cronRunId,
+        snapshotQueuedMessages: () => [],
       } as unknown as Conversation);
 
       // The advisor settles, then its notification starts the continuation
@@ -345,10 +347,12 @@ describe("schedule result notification wiring", () => {
         delegateOnRun = (conversationId) => {
           addMessage(conversationId, "assistant", "The command is running.");
           setConversation(conversationId, {
-            hasInFlightWork: () => false,
+            isProcessing: () => false,
+            snapshotQueuedMessages: () => [],
           } as unknown as Conversation);
           registerBackgroundTool({
             id: "bg-scheduled",
+            cronRunId: getScheduleRuns(schedule.id)[0].id,
             conversationId,
             toolName: "bash",
             command: "generate-report",
@@ -375,6 +379,7 @@ describe("schedule result notification wiring", () => {
         const wake = wakeAgentForOpportunity(
           {
             conversationId,
+            cronRunId: getScheduleRuns(schedule.id)[0].id,
             hint: `Background command ${status}`,
             source: "background-tool",
           },
@@ -432,8 +437,8 @@ describe("schedule result notification wiring", () => {
           );
           const cronRunId = getScheduleRuns(schedule.id)[0].id;
           setConversation(conversationId, {
-            hasInFlightWork: () =>
-              getSubagentManager().hasActiveChildren(conversationId),
+            isProcessing: () => false,
+            snapshotQueuedMessages: () => [],
             abortScheduledRun: (runId: string) => {
               expect(runId).toBe(cronRunId);
               parentAborted = true;
@@ -548,7 +553,7 @@ describe("schedule result notification wiring", () => {
         } as unknown as AbortContext;
         setConversation(id, {
           ...ctx,
-          hasInFlightWork: () => true,
+          snapshotQueuedMessages: () => queue.snapshot(),
           abortScheduledRun: (run: string) => abortScheduledRun(ctx, run),
         } as unknown as Conversation);
         for (const owner of [undefined, runId, "run-other"]) {
@@ -604,6 +609,155 @@ describe("schedule result notification wiring", () => {
         _clearRegistryForTesting();
         setConfig("timeouts", timeouts);
       }
+    });
+  }
+
+  for (const kind of ["turn", "queue", "command", "child", "wake"] as const) {
+    test(`unrelated ${kind} does not keep a settled firing open`, async () => {
+      const timeouts = getConfig().timeouts;
+      setConfig("timeouts", { ...timeouts, scheduleTurnTimeoutSec: 1 });
+      const schedule = await createSchedule({
+        name: "Report",
+        message: "Prepare a report",
+        syntax: "cron",
+        expression: "0 9 * * *",
+      });
+      forceScheduleDue(schedule.id);
+      const delegated = Promise.withResolvers<void>();
+      const releaseWake = Promise.withResolvers<void>();
+      let wake: ReturnType<typeof wakeAgentForOpportunity> | undefined;
+      let userChild: ReturnType<typeof attachRunningChild> | undefined;
+      let conversationId = "";
+      delegateOnRun = (id) => {
+        conversationId = id;
+        const runId = getScheduleRuns(schedule.id)[0].id;
+        const queue = new MessageQueue();
+        if (kind === "queue") {
+          queue.push({
+            content: "User follow-up",
+            attachments: [],
+            requestId: "queued-user",
+            sentAt: Date.now(),
+            onEvent: () => {},
+          });
+        }
+        setConversation(id, {
+          isProcessing: () => kind === "turn",
+          currentTurnCronRunId: undefined,
+          snapshotQueuedMessages: () => queue.snapshot(),
+        } as unknown as Conversation);
+        registerBackgroundTool({
+          id: "owned-command",
+          conversationId: id,
+          cronRunId: runId,
+          toolName: "bash",
+          command: "report",
+          startedAt: Date.now(),
+          cancel: () => {},
+        });
+        if (kind === "command") {
+          registerBackgroundTool({
+            id: "user-command",
+            conversationId: id,
+            toolName: "bash",
+            command: "user-work",
+            startedAt: Date.now(),
+            cancel: () => {},
+          });
+        }
+        if (kind === "child") {
+          userChild = attachRunningChild(id);
+        }
+        if (kind === "wake") {
+          wake = wakeAgentForOpportunity(
+            {
+              conversationId: id,
+              source: "background-tool",
+              hint: "Unrelated result",
+              cronRunId: "run-other",
+            },
+            {
+              resolveTarget: async () => {
+                await releaseWake.promise;
+                return null;
+              },
+            },
+          );
+        }
+        delegated.resolve();
+      };
+      try {
+        const scheduledRun = runDueSchedulesOnce();
+        await delegated.promise;
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        expect(producerCalls).toHaveLength(0);
+        addMessage(conversationId, "assistant", "Report finished.");
+        removeBackgroundTool("owned-command");
+        await scheduledRun;
+        expect(getScheduleRuns(schedule.id)[0].status).toBe("ok");
+        expect(producerSawText).toEqual(["Report finished."]);
+      } finally {
+        releaseWake.resolve();
+        await wake;
+        userChild?.settle();
+        _clearRegistryForTesting();
+        setConfig("timeouts", timeouts);
+      }
+    });
+  }
+
+  for (const location of [
+    "parent",
+    "completed-child",
+    "reused-child",
+  ] as const) {
+    test(`waits for owned queued work in a ${location}`, async () => {
+      const schedule = await createSchedule({
+        name: "Report",
+        message: "Prepare a report",
+        syntax: "cron",
+        expression: "0 9 * * *",
+      });
+      forceScheduleDue(schedule.id);
+      const delegated = Promise.withResolvers<string>();
+      const queue = new MessageQueue();
+      delegateOnRun = (id) => {
+        const runId = getScheduleRuns(schedule.id)[0].id;
+        queue.push({
+          content: "Continue report",
+          attachments: [],
+          requestId: "queued-schedule",
+          sentAt: Date.now(),
+          cronRunId: runId,
+          onEvent: () => {},
+        });
+        const live = {
+          isProcessing: () => false,
+          snapshotQueuedMessages: () => queue.snapshot(),
+        } as unknown as Conversation;
+        if (location === "parent") {
+          setConversation(id, live);
+        } else {
+          attachRunningChild(
+            id,
+            location === "reused-child" ? undefined : runId,
+          ).settle();
+          setSubagentConversation(
+            getSubagentManager().getChildrenOf(id)[0].conversationId,
+            live,
+          );
+        }
+        delegated.resolve(id);
+      };
+      const scheduledRun = runDueSchedulesOnce();
+      const id = await delegated.promise;
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      expect(producerCalls).toHaveLength(0);
+      addMessage(id, "assistant", "Final report.");
+      queue.clear();
+      await scheduledRun;
+      expect(getScheduleRuns(schedule.id)[0].status).toBe("ok");
+      expect(producerSawText).toEqual(["Final report."]);
     });
   }
 
