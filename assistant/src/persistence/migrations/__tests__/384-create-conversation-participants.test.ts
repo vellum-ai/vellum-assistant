@@ -1,5 +1,5 @@
 /**
- * Migration 383 creates `conversation_participants`, which records the
+ * Migration 384 creates `conversation_participants`, which records the
  * principals taking part in a conversation.
  */
 
@@ -10,7 +10,7 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { getSqliteFrom } from "../../db-connection.js";
 import * as schema from "../../schema.js";
-import { migrateCreateConversationParticipants } from "../383-create-conversation-participants.js";
+import { migrateCreateConversationParticipants } from "../384-create-conversation-participants.js";
 
 function createTestDb() {
   const sqlite = new Database(":memory:");

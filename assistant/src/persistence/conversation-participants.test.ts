@@ -9,7 +9,7 @@ import {
   listConversationIdsForPrincipal,
   removeParticipant,
 } from "./conversation-participants.js";
-import { migrateCreateConversationParticipants } from "./migrations/383-create-conversation-participants.js";
+import { migrateCreateConversationParticipants } from "./migrations/384-create-conversation-participants.js";
 import * as schema from "./schema.js";
 
 function createStore() {
