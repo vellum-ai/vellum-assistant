@@ -222,11 +222,11 @@ Schedules (both recurring and one-shot) carry optional routing metadata that con
 
 The `routing_intent` field on each `schedule_jobs` row specifies the desired channel coverage:
 
-| Intent           | Behavior                                              | When to use                                                         |
-| ---------------- | ----------------------------------------------------- | ------------------------------------------------------------------- |
-| `single_channel` | Default LLM-driven routing (no override)              | Standard schedules where the decision engine picks the best channel |
-| `multi_channel`  | Ensures delivery on 2+ channels when 2+ are connected | Important schedules the user wants on both desktop and phone        |
-| `all_channels`   | Forces delivery on every connected channel            | Critical schedules that must reach the user everywhere              |
+| Intent           | Behavior                                              | When to use                                                  |
+| ---------------- | ----------------------------------------------------- | ------------------------------------------------------------ |
+| `single_channel` | Delivers on exactly one channel                       | Schedules that should reach the user in one place            |
+| `multi_channel`  | Ensures delivery on 2+ channels when 2+ are connected | Important schedules the user wants on both desktop and phone |
+| `all_channels`   | Forces delivery on every connected channel            | Critical schedules that must reach the user everywhere       |
 
 The default is `all_channels`. Routing intent is persisted in the `schedule_jobs` table (`routing_intent` column) and carried through the notification signal as `routingIntent`.
 
@@ -254,7 +254,7 @@ The `enforceRoutingIntent()` function in `decision-engine.ts` runs after the LLM
 
 - **`all_channels`**: Replaces `selectedChannels` with all connected channels (from `getConnectedChannels()`).
 - **`multi_channel`**: If the LLM selected fewer than 2 channels but 2+ are connected, expands `selectedChannels` to at least two connected channels.
-- **`single_channel`**: No override -- the LLM's selection stands.
+- **`single_channel`**: Caps delivery to one channel: the signal's source channel when it is connected, otherwise the first channel the LLM selected. A signal with no routing intent keeps the LLM's selection.
 
 When enforcement changes the decision, the updated channel selection is re-persisted to the `notification_decisions` table so the stored decision matches what was actually dispatched. The `reasoningSummary` is annotated with the enforcement action (e.g. `[routing_intent=all_channels enforced: vellum, telegram]`).
 
