@@ -211,7 +211,7 @@ mock.module("../ipc/endpoint.js", () => ({
 }));
 
 // Import after mocks
-const { upsertVerifiedContactChannel } =
+const { upsertVerifiedContactChannel, applyVerifiedChannelGatewayWrites } =
   await import("../verification/contact-helpers.js");
 
 beforeEach(() => {
@@ -238,6 +238,43 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+describe("upsertVerifiedContactChannel: reserved channel types", () => {
+  test("refuses the vellum-shared channel type and writes nothing", async () => {
+    queryRows = [];
+
+    await expect(
+      upsertVerifiedContactChannel({
+        sourceChannel: "vellum-shared",
+        externalUserId: "prin-fake-001",
+        externalChatId: "local",
+      }),
+    ).rejects.toThrow(/reserved/);
+
+    expect(mirrorUpserts()).toHaveLength(0);
+  });
+
+  test("refuses the vellum-shared channel type on the direct write-core path", () => {
+    // Guardian-request outcomes call the write core directly, so the refusal
+    // has to hold there and not just in the wrapper above.
+    queryRows = [];
+
+    expect(() =>
+      applyVerifiedChannelGatewayWrites({
+        sourceChannel: "vellum-shared",
+        externalUserId: "prin-fake-001",
+        externalChatId: "local",
+        verifiedVia: "invite",
+        allowRevokedReactivation: true,
+        existingMirrorChannel: null,
+      }),
+    ).toThrow(/reserved/);
+
+    expect(gwInserts).toHaveLength(0);
+    expect(gwUpdates).toHaveLength(0);
+    expect(mirrorUpserts()).toHaveLength(0);
+  });
+});
 
 describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
   test("skips update when the authoritative gateway channel is revoked", async () => {

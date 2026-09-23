@@ -34,6 +34,7 @@ import {
   upsertVerifiedContactChannel,
 } from "../verification/contact-helpers.js";
 import { canonicalizeInboundIdentity } from "../verification/identity.js";
+import { ipcCallAssistant } from "./assistant-client.js";
 import type { IpcRoute } from "./server.js";
 
 const log = getLogger("contact-handlers");
@@ -65,6 +66,11 @@ const GetContactByChannelParamsSchema = z.object({
 
 const GetChannelsForContactParamsSchema = z.object({
   contactId: z.string(),
+});
+
+const BindContactPrincipalParamsSchema = z.object({
+  contactId: z.string().min(1),
+  principalId: z.string().min(1),
 });
 
 export const contactRoutes: IpcRoute[] = [
@@ -210,6 +216,22 @@ export const contactRoutes: IpcRoute[] = [
       );
 
       return { contactId, channelId };
+    },
+  },
+  {
+    method: "contacts_bind_principal",
+    schema: BindContactPrincipalParamsSchema,
+    handler: (params?: Record<string, unknown>) => {
+      const { contactId, principalId } =
+        BindContactPrincipalParamsSchema.parse(params);
+      // Thrown BindContactPrincipalError carries statusCode/code, which the
+      // IPC server's buildErrorResponse mirrors into the wire envelope.
+      getStore().bindContactPrincipal(contactId, principalId);
+      // Emit contacts_changed so connected clients refresh.
+      void ipcCallAssistant("emit_event", {
+        body: { kind: "contacts_changed" },
+      } as unknown as Record<string, unknown>).catch(() => {});
+      return { ok: true };
     },
   },
   {
