@@ -1179,11 +1179,16 @@ describe("NotificationsBell guardian rows", () => {
     decisionRef.outcome = "applied";
     decisionRef.replyText =
       "Access approved for Alice. Give them this verification code: `424242`.";
-    feedRef.items = [guardianBellItem()];
+    // The canonical guardian item, whose detail is the request card.
+    feedRef.items = [
+      guardianBellItem({ detailPanel: { kind: "permissionChat" } }),
+    ];
 
     const { rerender } = render(<NotificationsBell />);
     await clickTrigger();
-    fireEvent.click(screen.getByRole("button", { name: "Guardian Question" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Needs your approval" }),
+    );
     await act(async () => {});
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
     await act(async () => {});
