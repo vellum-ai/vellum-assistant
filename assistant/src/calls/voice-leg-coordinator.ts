@@ -47,6 +47,8 @@ export interface EscalatedLeg {
    * rule so the quality model does not re-announce it.
    */
   spokenEscalationBridge: string;
+  /** The front door judged the action answerable from the shared screen and context. */
+  screenAction?: boolean;
 }
 
 /**
@@ -196,7 +198,12 @@ export function createFrontDoorLegCoordinator(options: {
     // The bridge is the turn's spoken acknowledgement: narration keeps its
     // minimum gap from it rather than following it back to back.
     host.progress?.noteFloorHolder();
-    host.startEscalatedLeg(escalatedLegFor(bridge.spokenBridge));
+    host.startEscalatedLeg({
+      ...escalatedLegFor(bridge.spokenBridge),
+      ...(verdict.screenAction && !opts.overruled
+        ? { screenAction: true }
+        : {}),
+    });
     // The escalated leg runs the slowest work in the system, and the bridge
     // only covers its first couple of seconds: the dead air narration
     // exists for.

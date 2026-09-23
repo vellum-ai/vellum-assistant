@@ -491,6 +491,8 @@ export async function runAgentLoopImpl(
      * loop defaults to `'mainAgent'` for user-initiated turns.
      */
     callSite?: LLMCallSite;
+    /** Skip fresh retrieval while keeping resident memory and static context. */
+    skipMemoryRetrieval?: boolean;
     /**
      * Provider configuration source when it differs from the turn's semantic
      * call site. The semantic call site still controls tools and UI behavior.
@@ -583,6 +585,7 @@ export async function runAgentLoopImpl(
   // before the prompt sync below: the tool-gated reply section and the tool
   // surface both scope on the turn's call site.
   ctx.currentCallSite = turnCallSite;
+  ctx.currentTurnSkipMemoryRetrieval = options?.skipMemoryRetrieval === true;
 
   // Whether this turn routes its user-facing text through `send_user_message`:
   // the flag is on and the turn is a main-agent turn. Resolved once and pinned
@@ -1122,6 +1125,7 @@ export async function runAgentLoopImpl(
     // a stale value and instead fall back to live client state in the tool
     // context.
     ctx.currentTurnIsNonInteractive = undefined;
+    ctx.currentTurnSkipMemoryRetrieval = undefined;
     // Turn-scoped request origin. Clear so a later turn on a reused
     // conversation cannot inherit a stale origin-scoped permission grant.
     ctx.currentTurnRequestOrigin = undefined;

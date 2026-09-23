@@ -1508,6 +1508,27 @@ describe("session-agent-loop", () => {
   });
 
   describe("user-prompt-submit hook failures", () => {
+    test.each([true, false, undefined])(
+      "fresh memory policy is scoped to the turn (%s)",
+      async (skipMemoryRetrieval) => {
+        const ctx = makeCtx({ providerResponses: [textResponse("ok")] });
+        ctx.currentTurnSkipMemoryRetrieval = true;
+        const seen: Array<boolean | undefined> = [];
+        registerPlugin({
+          manifest: { name: "test-memory-turn-policy", version: "1.0.0" },
+          hooks: {
+            "user-prompt-submit": async () => {
+              seen.push(ctx.currentTurnSkipMemoryRetrieval);
+            },
+          },
+        });
+        await runAgentLoopImpl(ctx, "circle that", "msg-1", () => {}, {
+          skipMemoryRetrieval,
+        });
+        expect(seen).toEqual([skipMemoryRetrieval === true]);
+        expect(ctx.currentTurnSkipMemoryRetrieval).toBeUndefined();
+      },
+    );
     test("passes the effective profile to hooks even when it was already announced", async () => {
       // Both profiles are complete (provider + model) so each is a usable
       // winner: the conversation's pinned "balanced" must win selection over

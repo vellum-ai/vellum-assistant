@@ -263,6 +263,8 @@ export interface TurnContext {
    * absence conservatively.
    */
   callSite?: LLMCallSite;
+  /** Skip fresh retrieval while keeping resident memory and static context. */
+  skipMemoryRetrieval?: boolean;
 }
 
 // ─── Injectors ───────────────────────────────────────────────────────────────

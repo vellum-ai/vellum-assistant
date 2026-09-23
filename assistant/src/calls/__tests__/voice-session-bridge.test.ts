@@ -3158,6 +3158,23 @@ describe("startVoiceTurn with images in history", () => {
 });
 
 describe("startVoiceTurn escalated-leg profile pin", () => {
+  test.each([
+    { screenAction: true, screenSharing: true, expected: true },
+    { screenAction: false, screenSharing: true, expected: false },
+    { screenAction: true, screenSharing: false, expected: false },
+    {
+      screenAction: true,
+      screenSharing: true,
+      routingLeg: "front-door",
+      expected: false,
+    },
+  ])(
+    "skips fresh memory only for an escalated shared-screen action: %j",
+    async ({ expected, ...turn }) => {
+      const options = await runOptionsFor({ turn });
+      expect(options.skipMemoryRetrieval).toBe(expected);
+    },
+  );
   beforeEach(() => {
     unresolvableProviderNames.clear();
   });

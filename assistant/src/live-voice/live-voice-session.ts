@@ -6354,6 +6354,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       frontDoor?: boolean;
       directEscalated?: boolean;
       spokenEscalationBridge?: string;
+      screenAction?: boolean;
       attachments?: readonly string[];
     },
   ): Promise<boolean> {
@@ -6654,6 +6655,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           ? { overrideProfile: leg.overrideProfile }
           : {}),
         ...(leg.routingLeg != null ? { routingLeg: leg.routingLeg } : {}),
+        ...(leg.screenAction === true ? { screenAction: true } : {}),
         ...(leg.spokenEscalationBridge != null
           ? { spokenEscalationBridge: leg.spokenEscalationBridge }
           : {}),
