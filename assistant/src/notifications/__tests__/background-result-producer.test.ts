@@ -173,6 +173,38 @@ function finishSiblingCommand(
   attention.latestAssistantMessageId = "later-result";
   attention.latestAssistantMessageAt = startedAt + 400;
 }
+function batchSuccessfulResultWithSibling(
+  status: "failed" | "cancelled",
+): void {
+  triggerMetadata({
+    ...JSON.parse(rows.get("trigger")!.metadata!),
+    turnOutcome: "batched",
+    turnBatchedInto: "batch-final",
+  });
+  rows.delete("result");
+  rows.set(
+    "batch-final",
+    row("batch-final", "user", "INTERNAL SIBLING FAILURE", 100, {
+      backgroundEventSource: "background-tool",
+      backgroundToolCompletion: {
+        id: "tool-batch-final",
+        toolName: "bash",
+        conversationId,
+        command: "example-command",
+        startedAt,
+        completedAt: startedAt + 100,
+        status,
+        exitCode: 1,
+        output: "raw failure",
+      },
+    }),
+  );
+  rows.set(
+    "result",
+    row("result", "assistant", "The completed portion is ready.", 100),
+  );
+  attention.latestAssistantMessageAt = startedAt + 100;
+}
 const emit = (
   overrides: Partial<
     Parameters<typeof emitBackgroundResultNotification>[0]
@@ -238,6 +270,223 @@ beforeEach(() => {
 });
 
 describe("background result ownership", () => {
+  test.each(["failed", "cancelled"] as const)(
+    "a successful batched child owns the shared result when the final command is %s",
+    async (status) => {
+      batchSuccessfulResultWithSibling(status);
+      queued = true;
+      await emit({ userMessageId: "batch-final" });
+      expect(signals).toHaveLength(0);
+      queued = false;
+      await emit({ userMessageId: "batch-final" });
+
+      expect(signals).toHaveLength(1);
+      expect(signals[0]).toMatchObject({
+        dedupeKey: `activity.complete:${conversationId}:subagent:${task.id}`,
+        contextPayload: {
+          requestedMessage: "The completed portion is ready.",
+          completion: { workId: `subagent:${task.id}` },
+        },
+      });
+    },
+  );
+
+  test("a successful batched command owns the shared result when the final child failed", async () => {
+    batchSuccessfulResultWithSibling("failed");
+    triggerMetadata({
+      ...JSON.parse(rows.get("batch-final")!.metadata!),
+      turnOutcome: "batched",
+      turnBatchedInto: "batch-final",
+      backgroundToolCompletion: {
+        ...JSON.parse(rows.get("batch-final")!.metadata!)
+          .backgroundToolCompletion,
+        id: "tool-success",
+        status: "completed",
+        exitCode: 0,
+      },
+    });
+    rows.get("batch-final")!.metadata = JSON.stringify({
+      subagentNotification: {
+        subagentId: "task-failed",
+        conversationId: "conv-failed",
+        label: "Sibling",
+        status: "failed",
+      },
+    });
+
+    await emit({ userMessageId: "batch-final" });
+
+    expect(signals).toHaveLength(1);
+    expect(signals[0].dedupeKey).toBe(
+      `activity.complete:${conversationId}:tool:tool-success`,
+    );
+  });
+
+  test.each(["failed", "cancelled"] as const)(
+    "a batched successful task cannot make a %s shared synthesis eligible",
+    async (outcome) => {
+      batchSuccessfulResultWithSibling("failed");
+      rows.get("batch-final")!.metadata = JSON.stringify({
+        ...JSON.parse(rows.get("batch-final")!.metadata!),
+        turnOutcome: outcome,
+      });
+
+      await emit({ userMessageId: "batch-final" });
+      finishSiblingCommand("failed");
+      await emit({
+        userMessageId: "later-trigger",
+        assistantMessageId: "later-result",
+      });
+
+      expect(signals).toHaveLength(0);
+    },
+  );
+
+  test("recovery-only skips its current batch but can recover an earlier settled batch", async () => {
+    batchSuccessfulResultWithSibling("failed");
+    await emit({
+      userMessageId: "batch-final",
+      assistantMessageId: undefined,
+      recoverOnly: true,
+    });
+    expect(signals).toHaveLength(0);
+    finishSiblingCommand("cancelled", true);
+    await emit({
+      userMessageId: "later-trigger",
+      assistantMessageId: undefined,
+      recoverOnly: true,
+    });
+    expect(signals).toHaveLength(1);
+    expect(signals[0].contextPayload?.requestedMessage).toBe(
+      "The completed portion is ready.",
+    );
+  });
+
+  test("a successful final batch member keeps sole ownership of the shared result", async () => {
+    batchSuccessfulResultWithSibling("failed");
+    const metadata = JSON.parse(rows.get("batch-final")!.metadata!);
+    rows.get("batch-final")!.metadata = JSON.stringify({
+      ...metadata,
+      backgroundToolCompletion: {
+        ...metadata.backgroundToolCompletion,
+        status: "completed",
+        exitCode: 0,
+      },
+    });
+
+    await emit({ userMessageId: "batch-final" });
+
+    expect(signals).toHaveLength(1);
+    expect(signals[0].dedupeKey).toBe(
+      `activity.complete:${conversationId}:tool:tool-batch-final`,
+    );
+  });
+
+  test("an intervening assistant turn invalidates a batch result association", async () => {
+    batchSuccessfulResultWithSibling("failed");
+    const finalTrigger = rows.get("batch-final")!;
+    const result = rows.get("result")!;
+    rows.delete("batch-final");
+    rows.delete("result");
+    rows.set(
+      "intervening-result",
+      row("intervening-result", "assistant", "Other output", 100),
+    );
+    rows.set(finalTrigger.id, finalTrigger);
+    rows.set(result.id, result);
+
+    await emit({ userMessageId: "batch-final" });
+
+    expect(signals).toHaveLength(0);
+  });
+
+  test.each([undefined, "missing-target", "trigger", 123])(
+    "a batched result needs its actual final trigger, not %s",
+    async (turnBatchedInto) => {
+      batchSuccessfulResultWithSibling("failed");
+      triggerMetadata({
+        ...JSON.parse(rows.get("trigger")!.metadata!),
+        turnBatchedInto,
+      });
+
+      await emit({ userMessageId: "batch-final" });
+
+      expect(signals).toHaveLength(0);
+    },
+  );
+
+  test.each([
+    "quiet child",
+    "wrong parent",
+    "failed child",
+    "seen result",
+    "private result",
+    "parent delivered",
+    "child delivered",
+    "scheduled owner",
+  ])("batch recovery preserves %s suppression", async (reason) => {
+    batchSuccessfulResultWithSibling("failed");
+    switch (reason) {
+      case "quiet child":
+        task.sendResultToUser = false;
+        break;
+      case "wrong parent":
+        task.parentConversationId = "conv-other";
+        break;
+      case "failed child":
+        task.status = "failed";
+        break;
+      case "seen result":
+        attention.lastSeenAssistantMessageAt = startedAt + 100;
+        break;
+      case "private result":
+        rows.get("result")!.metadata = JSON.stringify({
+          assistantTextVisibility: "private",
+        });
+        break;
+      case "parent delivered":
+        notifiedContexts.add(conversationId);
+        break;
+      case "child delivered":
+        notifiedContexts.add(task.conversationId);
+        break;
+    }
+
+    await emit({
+      userMessageId: "batch-final",
+      ...(reason === "scheduled owner" ? { cronRunId: "run-scheduled" } : {}),
+    });
+
+    expect(signals).toHaveLength(0);
+  });
+
+  test("keeps a batch result association across a history page boundary", async () => {
+    batchSuccessfulResultWithSibling("failed");
+    const finalTrigger = rows.get("batch-final")!;
+    const result = rows.get("result")!;
+    rows.delete("batch-final");
+    rows.delete("result");
+    for (let index = 0; index < 210; index++) {
+      rows.set(
+        `batch-member-${index}`,
+        row(`batch-member-${index}`, "user", "INTERNAL FAILURE", 100, {
+          ...JSON.parse(finalTrigger.metadata!),
+          turnOutcome: "batched",
+          turnBatchedInto: finalTrigger.id,
+        }),
+      );
+    }
+    rows.set(finalTrigger.id, finalTrigger);
+    rows.set(result.id, result);
+
+    await emit({ userMessageId: "batch-final" });
+
+    expect(signals).toHaveLength(1);
+    expect(signals[0].dedupeKey).toBe(
+      `activity.complete:${conversationId}:subagent:${task.id}`,
+    );
+  });
+
   test.each([...externalChannels])(
     "an undelivered %s-origin delegated result still emits a completion",
     async (channel) => {

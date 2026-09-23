@@ -47,12 +47,22 @@ interface CompletedWork {
 function resolveCompletedWork(
   conversationId: string,
   trigger: MessageRow,
+  turnTrigger: MessageRow,
 ): CompletedWork | undefined {
   const metadata = parseMessageMetadata(trigger.metadata);
+  const turnMetadata =
+    trigger.id === turnTrigger.id
+      ? metadata
+      : parseMessageMetadata(turnTrigger.metadata);
   if (
     !metadata ||
-    metadata.turnOutcome !== undefined ||
-    metadata.voiceSessionTurn === true
+    !turnMetadata ||
+    turnMetadata.turnOutcome !== undefined ||
+    (trigger.id !== turnTrigger.id &&
+      (metadata.turnOutcome !== "batched" ||
+        metadata.turnBatchedInto !== turnTrigger.id)) ||
+    metadata.voiceSessionTurn === true ||
+    turnMetadata.voiceSessionTurn === true
   ) {
     return undefined;
   }
@@ -97,7 +107,12 @@ function* completionCandidates(
   conversationId: string,
   trigger: MessageRow,
   result: MessageRow | undefined,
-): Generator<{ trigger: MessageRow; result: MessageRow; work: CompletedWork }> {
+): Generator<{
+  trigger: MessageRow;
+  turnTrigger: MessageRow;
+  result: MessageRow;
+  work: CompletedWork;
+}> {
   if (!isCompletionTrigger(trigger)) {
     return;
   }
@@ -105,6 +120,7 @@ function* completionCandidates(
   let foundTrigger = false;
   let resultInCurrentTurn = false;
   let previousResult: MessageRow | undefined;
+  let sharedTurn: { trigger: MessageRow; result: MessageRow } | undefined;
   while (true) {
     const history = getRecentConversationMessages(
       conversationId,
@@ -116,29 +132,49 @@ function* completionCandidates(
       if (!foundTrigger) {
         if (row.id === trigger.id) {
           foundTrigger = true;
-          const work = resolveCompletedWork(conversationId, trigger);
-          if (work && result && resultInCurrentTurn) {
-            yield { trigger, result, work };
+          previousResult = resultInCurrentTurn ? result : undefined;
+        } else {
+          if (row.role === "user" && !isToolResultOnlyUserMessage(row)) {
+            return;
           }
-        } else if (row.role === "user" && !isToolResultOnlyUserMessage(row)) {
-          return;
-        } else if (row.id === result?.id) {
-          resultInCurrentTurn = true;
+          if (row.id === result?.id) {
+            resultInCurrentTurn = true;
+          }
+          continue;
         }
-        continue;
       }
       if (
         row.role === "assistant" &&
         !isStandaloneAssistantMessage(row.role, row.metadata)
       ) {
         previousResult ??= row;
+        sharedTurn = undefined;
       } else if (row.role === "user" && !isToolResultOnlyUserMessage(row)) {
         if (!isCompletionTrigger(row)) {
           return;
         }
-        const priorWork = resolveCompletedWork(conversationId, row);
-        if (priorWork && previousResult) {
-          yield { trigger: row, result: previousResult, work: priorWork };
+        const metadata = parseMessageMetadata(row.metadata);
+        if (metadata?.turnOutcome !== "batched") {
+          sharedTurn = previousResult
+            ? { trigger: row, result: previousResult }
+            : undefined;
+        } else if (metadata.turnBatchedInto !== sharedTurn?.trigger.id) {
+          sharedTurn = undefined;
+        }
+        if (sharedTurn) {
+          const work = resolveCompletedWork(
+            conversationId,
+            row,
+            sharedTurn.trigger,
+          );
+          if (work) {
+            yield {
+              trigger: row,
+              turnTrigger: sharedTurn.trigger,
+              result: sharedTurn.result,
+              work,
+            };
+          }
         }
         previousResult = undefined;
       }
@@ -223,7 +259,12 @@ export async function emitBackgroundResultNotification(params: {
       trigger,
       params.recoverOnly ? undefined : latestResult,
     )) {
-      const { work, result, trigger: successfulTrigger } = candidate;
+      const {
+        work,
+        result,
+        trigger: successfulTrigger,
+        turnTrigger,
+      } = candidate;
       if (
         result.role !== "assistant" ||
         result.finalized !== 1 ||
@@ -249,7 +290,7 @@ export async function emitBackgroundResultNotification(params: {
       const rows = collectRunRows(
         result,
         conversationId,
-        successfulTrigger.createdAt,
+        turnTrigger.createdAt,
       );
       if (deliveredThroughMessagingTool(conversationId, rows)) {
         return;

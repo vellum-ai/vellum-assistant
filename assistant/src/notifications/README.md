@@ -50,6 +50,9 @@ When a sibling fails or is cancelled, settlement can recover an earlier unseen
 successful result from persisted conversation rows in pages of 200. Recovery stops
 at a user prompt and preserves prior delivery and quiet decisions. It uses
 insertion order, so same-millisecond messages stay in their actual turns.
+Coalesced completion messages share their final member's successful synthesis;
+`turnBatchedInto` links that result to a successful member even when the final
+sibling failed or was cancelled. A failed synthesis remains ineligible.
 Failed-only work cannot create a completion candidate. Command wakes check
 settlement after releasing their wake queue entry, including empty or failed
 continuations; pending cancellation callbacks still count as unfinished work.
