@@ -87,13 +87,9 @@ export function useSandboxFetchProxy(
   // discarded with the component on unmount.
   const subscriptionsRef = useRef<Map<string, Set<string>>>(new Map());
 
-  // The route the host is on, held in a ref for the same reason the store is
-  // read at request time: a context request is answered from wherever the
-  // host is when it is asked, and keeping the pathname out of the effect's
-  // dependencies means navigating never re-registers the listener.
+  // Basename relative, unlike `window.location.pathname`, which carries the
+  // public ingress prefix in remote-gateway mode.
   const { pathname } = useLocation();
-  const pathnameRef = useRef(pathname);
-  pathnameRef.current = pathname;
 
   useEffect(() => {
     const subscriptions = subscriptionsRef.current;
@@ -172,29 +168,19 @@ export function useSandboxFetchProxy(
           });
           return;
         }
-        // Read at request time, never at mount: the host's selection moves
-        // while the app stays mounted (a split-view conversation switch), so
-        // a value captured when the effect ran would be stale from then on.
-        // `getState()` is the store's documented read outside the React
-        // render cycle, and reading it here rather than through a prop keeps
-        // the selection out of this effect's dependencies, so a switch never
-        // tears down and re-registers the listener.
+        // Read when asked, not at mount: the selection moves while the app
+        // stays mounted, so anything captured earlier is stale from then on.
         const { activeConversationId, editingConversationId } =
           useConversationStore.getState();
-        // Both ids are selection, not visibility: `activeConversationId`
+        // Both ids are selection, not visibility. `activeConversationId`
         // deliberately survives leaving the conversation area (see
-        // `chat-layout.tsx`), and the split-view binding is cleared by the
-        // paths that dismantle the split rather than by leaving. A Library app
-        // opened after a chat would otherwise be handed the conversation the
-        // user walked away from, which is the most-recently-used guess this
-        // API's contract says it is not.
-        //
-        // The route is what says whether either one is on screen: the split
-        // view and the conversation pane both live under the conversation
-        // routes, so off them neither id describes anything the user can see.
-        // Gating both here keeps that one rule in one place instead of
-        // depending on every navigation path remembering to clear.
-        const conversationVisible = isConversationPath(pathnameRef.current);
+        // `chat-layout.tsx`) and the split binding is cleared by the paths
+        // that dismantle the split, not by leaving, so off these routes
+        // neither describes anything on screen: a library app would otherwise
+        // be handed the conversation the user walked away from. Gating both
+        // on the route keeps that in one place rather than depending on every
+        // navigation path to clear.
+        const conversationVisible = isConversationPath(pathname);
         sendContext({
           type: "vellum_context_response",
           callId,
@@ -423,6 +409,10 @@ export function useSandboxFetchProxy(
     onAction,
     onOpenVellumLink,
     onNavigateAppRoute,
+    // Navigating re-registers the listener so a context request is answered
+    // from the route the host is on now. The subscription map outlives the
+    // restart by design, which is what makes that safe.
+    pathname,
     iframeRef,
   ]);
 }
