@@ -4,7 +4,8 @@
  * The gateway classifies; this module surfaces that classification, caches it
  * per principal, and fails closed. These pin the verdict passthrough for each
  * ACL state, the fail-closed paths (unreachable gateway, could-not-vouch) and
- * that neither is cached, single-flight coalescing, and the fresh bypass.
+ * that neither is cached, single-flight coalescing, and the fresh bypass
+ * superseding the cached entry.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -273,6 +274,46 @@ describe("resolveSharedPrincipalFresh", () => {
     expect(fresh.trustClass).toBe("unknown");
     expect(readCalls).toHaveLength(2);
   });
+
+  test("cached reads made while it is pending share its result", async () => {
+    nextResult = verdict({ trustClass: "trusted_contact" });
+    await resolveSharedPrincipal(PRINCIPAL);
+
+    const refresh = defer();
+    nextResult = verdict({ trustClass: "unknown", status: "revoked" });
+    gate = refresh.promise;
+    const fresh = resolveSharedPrincipalFresh(PRINCIPAL);
+    const cached = resolveSharedPrincipal(PRINCIPAL);
+
+    refresh.release();
+    expect((await fresh).trustClass).toBe("unknown");
+    expect((await cached).trustClass).toBe("unknown");
+    expect(readCalls).toHaveLength(2);
+  });
+
+  test.each([
+    ["an unreachable gateway", { ok: false } as ReadResult],
+    [
+      "a could-not-vouch verdict",
+      verdict({ trustClass: "unknown", resolutionFailed: true }),
+    ],
+  ])(
+    "a refresh that meets %s does not leave the cached verdict in place",
+    async (_label, failure) => {
+      nextResult = verdict({ trustClass: "trusted_contact" });
+      await resolveSharedPrincipal(PRINCIPAL);
+
+      nextResult = failure;
+      expect((await resolveSharedPrincipalFresh(PRINCIPAL)).trustClass).toBe(
+        "unknown",
+      );
+
+      expect((await resolveSharedPrincipal(PRINCIPAL)).trustClass).toBe(
+        "unknown",
+      );
+      expect(readCalls).toHaveLength(3);
+    },
+  );
 
   test("repopulates the cache for later cached reads", async () => {
     nextResult = verdict({ trustClass: "guardian" });

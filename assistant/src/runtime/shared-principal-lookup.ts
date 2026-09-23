@@ -14,7 +14,8 @@
  * single-flight: the callers this exists for run per request, where
  * {@link readInboundTrust} caches nothing because it serves call setup. A
  * revoked contact keeps resolving from cache until the entry expires; callers
- * that cannot tolerate that read {@link resolveSharedPrincipalFresh}.
+ * that cannot tolerate that read {@link resolveSharedPrincipalFresh}, which
+ * also discards the entry for every later caller.
  *
  * Failures resolve `unknown` and are not cached: an unreachable gateway, a
  * malformed response, and the resolver's own could-not-vouch sentinel all
@@ -166,6 +167,12 @@ function read(
 
   evictIfFull(key);
   const state = stateFor(key);
+  if (forceRefresh) {
+    // The forced read supersedes the cached verdict, so a failed refresh
+    // cannot leave the pre-revoke answer serving until the TTL runs out.
+    state.trust = undefined;
+    state.expiresAt = undefined;
+  }
   state.generation += 1;
   state.active += 1;
   const generation = state.generation;
@@ -190,9 +197,7 @@ function read(
       trimTo(MAX_ENTRIES);
     });
 
-  if (!forceRefresh) {
-    state.inFlight = promise;
-  }
+  state.inFlight = promise;
   return promise;
 }
 
@@ -209,7 +214,9 @@ export function resolveSharedPrincipal(
 
 /**
  * Uncached variant of {@link resolveSharedPrincipal}, for callers whose threat
- * model is the stale entry itself. Repopulates the cache on success.
+ * model is the stale entry itself. Discards the cached entry when it starts,
+ * so cached reads made while it is pending share its result, and repopulates
+ * the cache on success.
  */
 export function resolveSharedPrincipalFresh(
   principalId: string,
