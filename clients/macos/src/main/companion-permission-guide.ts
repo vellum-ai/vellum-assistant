@@ -4,6 +4,7 @@ import path from "node:path";
 import {
   app,
   BrowserWindow,
+  nativeImage,
   screen,
   shell,
   systemPreferences,
@@ -28,6 +29,11 @@ import {
   type PermissionSourceRect,
 } from "@vellumai/ipc-contract";
 import { createFloatingWindow } from "@vellumai/electron-desktop/floating-window";
+import {
+  getAccentHex,
+  getAvatarPng,
+  onAvatarChange,
+} from "@vellumai/electron-desktop/avatar";
 
 import { defaultCaptureSourceDeps } from "./companion-capture-sources";
 import { handle, on } from "./ipc";
@@ -58,6 +64,7 @@ interface GuideSession {
   state: PermissionGuideState;
   file: string;
   icon: NativeImage;
+  bundleIcon: NativeImage;
   window: BrowserWindow;
   workArea: Rectangle;
   timers: ReturnType<typeof setInterval>[];
@@ -71,6 +78,17 @@ interface GuideSession {
 let guide: GuideSession | null = null;
 let generation = 0;
 let guideOwner: WebContents | undefined;
+
+function refreshGuideAppearance(session: GuideSession): void {
+  const png = getAvatarPng();
+  const avatar = png ? nativeImage.createFromBuffer(png) : null;
+  session.icon = avatar && !avatar.isEmpty() ? avatar : session.bundleIcon;
+  session.state = {
+    ...session.state,
+    appIcon: session.icon.toDataURL(),
+    accentHex: getAccentHex() ?? undefined,
+  };
+}
 
 function publishGuide(): void {
   for (const win of BrowserWindow.getAllWindows()) {
@@ -224,6 +242,7 @@ async function beginGuide(
     },
     file,
     icon,
+    bundleIcon: icon,
     window: win,
     workArea,
     timers: [],
@@ -232,6 +251,7 @@ async function beginGuide(
     height: GUIDE_HEIGHT,
     startedAt: Date.now(),
   };
+  refreshGuideAppearance(session);
   guide = session;
   win.on("closed", () => {
     if (guide === session) {
@@ -295,6 +315,12 @@ async function beginGuide(
 export function installCompanionPermissionGuide(
   service: PermissionsService,
 ): void {
+  onAvatarChange(() => {
+    if (guide) {
+      refreshGuideAppearance(guide);
+      publishGuide();
+    }
+  });
   on(PERMISSION_GUIDE_CANCEL, z.tuple([]), (_args, event) => {
     if (guideOwner === event.sender) {
       dismissGuide();

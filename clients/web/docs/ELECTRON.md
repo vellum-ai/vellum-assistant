@@ -180,3 +180,9 @@ yields its floating level before either action so it cannot follow an
 authentication dialog or stay above it. Cancellation is scoped to the requesting
 tour renderer. Older shells omit this bridge and keep the existing coachmark
 permission actions. The shared preload factory is installed only by macOS.
+
+The guide uses design-library cards, buttons, typography, and the app's selected
+theme. Its app tile and native drag image track the shared assistant avatar
+cache, with the helper bundle icon as a fallback. The avatar accent tints the
+guide through the same scoped variables as the intro modal. The drag payload
+remains the actual helper app bundle.

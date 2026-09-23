@@ -26,6 +26,10 @@ let restricted = false;
 let settingsOpenFails = false;
 let iconWait: Promise<void> | undefined;
 let iconEmpty = false;
+let avatarPng: Buffer | null = null;
+let accentHex: string | null = null;
+let avatarEmpty = false;
+let avatarChanged = () => {};
 const settingsBounds = { x: 100, y: 50, width: 700, height: 700 };
 const mainSettings = {
   windowId: 1,
@@ -80,10 +84,27 @@ const icon = {
   toDataURL: () => "data:image/png;base64,icon",
   resize: () => icon,
 };
+const avatarIcon = {
+  isEmpty: () => avatarEmpty,
+  toDataURL: () => "data:image/png;base64,avatar",
+  resize: () => avatarIcon,
+};
+mock.module(
+  "@vellumai/electron-desktop/avatar",
+  (): Partial<typeof import("@vellumai/electron-desktop/avatar")> => ({
+    getAvatarPng: () => avatarPng,
+    getAccentHex: () => accentHex,
+    onAvatarChange: (callback: () => void) => {
+      avatarChanged = callback;
+      return () => {};
+    },
+  }),
+);
 mock.module("node:fs/promises", () => ({
   stat: async () => ({ isDirectory: () => true }),
 }));
 mock.module("electron", () => ({
+  nativeImage: { createFromBuffer: () => avatarIcon },
   app: {
     getPath: () => "/Applications/Vellum.app/Contents/MacOS/Vellum",
     getFileIcon: async (_file: string, options: { size: string }) => {
@@ -186,12 +207,55 @@ afterEach(() => {
   settingsOpenFails = false;
   iconWait = undefined;
   iconEmpty = false;
+  avatarPng = null;
+  accentHex = null;
+  avatarEmpty = false;
   settingsWindows = [mainSettings];
   windowsWait = undefined;
   preparePresentation.mockClear();
 });
 
 describe("native permission guide", () => {
+  test("shows and drags the assistant avatar while preserving the helper bundle payload", async () => {
+    avatarPng = Buffer.from("avatar");
+    accentHex = "#e9642f";
+    await begin();
+    const session = get()!;
+    expect(session.appIcon).toBe(avatarIcon.toDataURL());
+    expect(session.accentHex).toBe(accentHex);
+    const win = windows.get("permission-guide")!;
+    listeners.get("vellum:permissions:guide:drag")!([session.id], {
+      sender: win.webContents,
+    });
+    expect(win.webContents.startDrag).toHaveBeenCalledWith({
+      file: "/Applications/Vellum.app/Contents/Resources/bin/Vellum Helper.app",
+      icon: avatarIcon,
+    });
+  });
+
+  test("updates an open guide when the avatar arrives and restores the fallback when cleared", async () => {
+    await begin();
+    expect(get()!.appIcon).toBe(icon.toDataURL());
+    avatarPng = Buffer.from("avatar");
+    accentHex = "#e9642f";
+    avatarChanged();
+    expect(get()!.appIcon).toBe(avatarIcon.toDataURL());
+    expect(get()!.accentHex).toBe(accentHex);
+    expect(events.at(-1)).toEqual(get());
+    avatarPng = null;
+    accentHex = null;
+    avatarChanged();
+    expect(get()!.appIcon).toBe(icon.toDataURL());
+    expect(get()!.accentHex).toBeUndefined();
+  });
+
+  test("falls back to the helper icon when the cached avatar cannot be decoded", async () => {
+    avatarPng = Buffer.from("invalid image");
+    avatarEmpty = true;
+    await begin();
+    expect(get()!.appIcon).toBe(icon.toDataURL());
+  });
+
   test.each([
     "accessibility",
     "microphone",

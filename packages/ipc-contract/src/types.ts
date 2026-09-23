@@ -413,6 +413,7 @@ export interface PermissionGuideState {
   kind: DraggablePermissionKind;
   appName: string;
   appIcon: string;
+  accentHex?: string;
   error: boolean;
 }
 

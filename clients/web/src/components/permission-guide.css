@@ -1,95 +1,15 @@
 .permission-guide {
-  color: var(--content-emphasised);
-  background: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--surface-lift) 94%, transparent),
-    var(--surface-base)
-  );
-  border: 1px solid var(--border-hover);
-  height: 100vh;
-  overflow: hidden;
-  user-select: none;
-  box-shadow: inset 0 1px 0
-    color-mix(in srgb, var(--content-emphasised) 8%, transparent);
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 14px 18px;
-  border-radius: 20px;
   -webkit-app-region: drag;
 }
-.permission-back {
-  flex-shrink: 0;
+
+.permission-guide button {
+  -webkit-app-region: no-drag;
 }
-.permission-guide-content {
-  flex: 1;
-  min-width: 0;
-}
-.permission-guide-heading {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 9px;
-}
-.permission-guide-heading h1 {
-  line-height: 1.3;
-}
+
 .permission-arrow {
-  flex-shrink: 0;
-  color: var(--system-info-strong);
-  filter: drop-shadow(0 1px 1px var(--surface-base));
   animation: permission-point 1.7s ease-in-out infinite;
 }
-.permission-drag-app {
-  display: flex;
-  width: 100%;
-  gap: 12px;
-  align-items: center;
-  padding: 8px 12px;
-  border: 1px solid var(--border-hover);
-  background: var(--surface-lift);
-  border-radius: 12px;
-  cursor: grab;
-  text-align: left;
-  transition:
-    background 150ms,
-    transform 150ms;
-}
-.permission-drag-app:hover {
-  background: var(--surface-overlay);
-  transform: translateY(-1px);
-}
-.permission-drag-app:active {
-  cursor: grabbing;
-}
-.permission-drag-app:focus-visible {
-  outline: 2px solid var(--system-info-strong);
-  outline-offset: 2px;
-}
-.permission-drag-app img {
-  height: 32px;
-  width: 32px;
-}
-.permission-drag-app span {
-  flex: 1;
-}
-.permission-drag-app > svg {
-  color: var(--content-tertiary);
-}
-.permission-guide-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-  margin-top: 3px;
-  color: var(--content-tertiary);
-}
-.permission-guide-footer span {
-  line-height: 1.3;
-}
-.permission-guide-footer > button {
-  margin-left: auto;
-}
+
 @keyframes permission-point {
   0%,
   100% {
@@ -99,13 +19,13 @@
     transform: translateY(-3px);
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  .permission-guide * {
-    animation: none !important;
-    transition: none !important;
-  }
-}
 
-.permission-guide button {
-  -webkit-app-region: no-drag;
+@media (prefers-reduced-motion: reduce) {
+  .permission-arrow {
+    animation: none;
+  }
+
+  .permission-guide button {
+    transition: none;
+  }
 }
