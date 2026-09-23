@@ -625,31 +625,50 @@ describe("trust enforcement", () => {
     },
   );
 
-  test("a contact revoked mid-stream has the stream closed", async () => {
+  test("a contact revoked right after connect is closed on the next heartbeat, even with a warm cache", async () => {
     const hub = new AssistantEventHub();
     const conversationId = newConversation();
     share(conversationId);
     const stream = openOnHub(hub, "principal-alice", 5);
 
+    // The cached verdict still says trusted, as the admission read left it.
+    resolveSharedPrincipalFresh.mockImplementation(async () => ({
+      trustClass: "unknown",
+    }));
+
+    expect(await stream.closed()).toBe(true);
+    expect(hub.subscriberCount()).toBe(0);
+    expect(resolveSharedPrincipalFresh).toHaveBeenCalledWith("principal-alice");
+    expect(resolveSharedPrincipal).not.toHaveBeenCalled();
+  });
+
+  test("a trust read that fails closes the stream", async () => {
+    const hub = new AssistantEventHub();
+    const stream = openOnHub(hub, "principal-alice", 5);
+
+    resolveSharedPrincipalFresh.mockImplementation(async () => {
+      throw new Error("gateway unreachable");
+    });
+
+    expect(await stream.closed()).toBe(true);
+    expect(hub.subscriberCount()).toBe(0);
+  });
+
+  test("a contact still trusted keeps the stream across heartbeats", async () => {
+    const hub = new AssistantEventHub();
+    const conversationId = newConversation();
+    share(conversationId);
+    const stream = openOnHub(hub, "principal-alice", 5);
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
     await emit(
-      {
-        type: "conversation_title_updated",
-        conversationId,
-        title: "Before revoke",
-      },
+      { type: "conversation_title_updated", conversationId, title: "Later" },
       conversationId,
       hub,
     );
-    expect((await stream.next()).message).toMatchObject({
-      title: "Before revoke",
-    });
 
-    resolveSharedPrincipal.mockImplementation(async () => ({
-      trustClass: "unknown",
-    }));
-    expect(await stream.closed()).toBe(true);
-    expect(hub.subscriberCount()).toBe(0);
-    expect(resolveSharedPrincipal).toHaveBeenCalledWith("principal-alice");
+    expect((await stream.next()).message).toMatchObject({ title: "Later" });
+    expect(resolveSharedPrincipalFresh.mock.calls.length).toBeGreaterThan(1);
   });
 
   test("a request without a principal is refused", () => {

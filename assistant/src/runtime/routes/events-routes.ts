@@ -50,7 +50,7 @@ import {
   resolveActorPrincipalIdForLocalGuardian,
   resolveActorPrincipalIdForLocalGuardianSync,
 } from "../local-actor-identity.js";
-import { resolveSharedPrincipal } from "../shared-principal-lookup.js";
+import { resolveSharedPrincipalFresh } from "../shared-principal-lookup.js";
 import {
   BadRequestError,
   NotFoundError,
@@ -631,9 +631,9 @@ export const SHARED_STREAMS_PER_PRINCIPAL = 3;
  * guardian's connection. Each principal's streams form their own pool of
  * {@link SHARED_STREAMS_PER_PRINCIPAL}, outside the hub-wide cap, so opening
  * another evicts only that principal's oldest stream and never a guardian
- * connection. Trust was checked when the stream opened; it is read again on
- * every heartbeat, through the principal's cached verdict, and a contact that
- * no longer resolves as trusted has the stream closed.
+ * connection. Trust was checked when the stream opened and is read again,
+ * uncached, on every heartbeat; a contact that no longer resolves as trusted,
+ * or whose trust cannot be read, has the stream closed.
  */
 export function handleSubscribeSharedEvents(
   { headers, abortSignal }: RouteHandlerArgs,
@@ -653,7 +653,7 @@ export function handleSubscribeSharedEvents(
         limit: SHARED_STREAMS_PER_PRINCIPAL,
       },
       stillAuthorized: async () =>
-        (await resolveSharedPrincipal(principalId)).trustClass ===
+        (await resolveSharedPrincipalFresh(principalId)).trustClass ===
         "trusted_contact",
     },
   );
