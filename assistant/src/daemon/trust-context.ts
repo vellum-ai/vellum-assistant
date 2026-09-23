@@ -63,6 +63,22 @@ export function resolveTrustClass(
 }
 
 /**
+ * Whether a turn's message text may act for the guardian: run a slash
+ * command, start guardian verification setup, answer a guardian request, or
+ * set notification preferences. Refused when the turn's trust names any actor
+ * other than the guardian, so a contact's text is only ever message text. A
+ * turn with no trust of its own (internal and local senders, which carry
+ * none) keeps these steps.
+ */
+export function mayActForGuardian(
+  trustContext: TrustContext | undefined,
+): boolean {
+  return (
+    trustContext === undefined || resolveTrustClass(trustContext) === "guardian"
+  );
+}
+
+/**
  * Whether personal-memory content may be surfaced for the actor described by
  * `trustContext`: the gate admits guardian-class actors and internal/local
  * flows (including turns with no trust context), and blocks remote untrusted

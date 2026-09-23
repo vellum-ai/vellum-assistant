@@ -43,6 +43,12 @@ export interface QueuedMessage {
    * so reading the wrong one misroutes the whole tool-approval path.
    */
   trustContext?: TrustContext;
+  /**
+   * The person whose own message this is, when a route relays one on their
+   * behalf. Names the author on the row the drain persists; see
+   * `PersistMessageOptions.author`.
+   */
+  author?: TrustContext;
   /** Transport metadata snapshot captured at enqueue time, applied when this message becomes active. */
   transport?: ConversationTransportMetadata;
   /** Original user message text to persist to DB when recording intent stripping produced a different `content`. */
@@ -59,6 +65,12 @@ export interface QueuedMessage {
   /** Client-generated correlation nonce. Echoed back on `user_message_echo`
    *  so the originating client can dedupe its optimistic row. */
   clientMessageId?: string;
+  /**
+   * The key the persisted row is stored and deduplicated under, when it is
+   * not the client's nonce itself (a shared-conversation contact's nonce is
+   * scoped to its sender). Events keep carrying `clientMessageId`.
+   */
+  storedClientMessageId?: string;
   /**
    * True once a drain has told clients this message was dequeued and before
    * the turn it was dequeued for actually took over. A drain that sends the

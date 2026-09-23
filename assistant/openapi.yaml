@@ -32862,6 +32862,65 @@ paths:
           description: A query parameter is not a valid number
         "404":
           description: Conversation not found or not shared with the caller
+    post:
+      operationId: shared_conversations_by_id_messages_post
+      summary: Send a message to a shared conversation
+      description:
+        Send a message from the calling contact to a conversation shared with them. The turn runs as that contact
+        and its events stream to the conversation's readers. A message sent while a turn is running is queued behind it.
+        The conversation must already exist; this never creates one.
+      tags:
+        - shared
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                content:
+                  type: string
+                  description: Message text
+                clientMessageId:
+                  description: Client-generated idempotency nonce. A retry with the same value is accepted without running a second turn.
+                  type: string
+              required:
+                - content
+      responses:
+        "202":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accepted:
+                    type: boolean
+                  conversationId:
+                    type: string
+                  messageId:
+                    type: string
+                  queued:
+                    type: boolean
+                  requestId:
+                    type: string
+                required:
+                  - accepted
+                additionalProperties: false
+        "400":
+          description: The message has no content, or is longer than a shared conversation message may be
+        "404":
+          description: Conversation not found or not shared with the caller
+        "422":
+          description: The message contains a secret and was not sent
+        "429":
+          description: Too many messages are already queued
   /v1/shared/events:
     get:
       operationId: shared_events_get

@@ -12,7 +12,6 @@ import { getConfig } from "../config/loader.js";
 import { usesConceptPageMemory } from "../config/memory-v3-gate.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
-import { isSuppressedQueuedMessage } from "../persistence/conversation-types.js";
 import {
   enqueueMemoryJob,
   isMemoryEnabled,
@@ -38,6 +37,7 @@ import type {
 } from "./conversation-queue-manager.js";
 import { resetSkillToolProjection } from "./conversation-skill-tools.js";
 import type { SurfaceData, SurfaceType } from "./message-protocol.js";
+import { announceQueuedMessageDeleted } from "./shared-sender-queue-gate.js";
 
 const log = getLogger("conversation-lifecycle");
 
@@ -275,17 +275,7 @@ function discardQueueOnAbort(ctx: AbortContext): void {
       type: "generation_cancelled",
       conversationId: ctx.conversationId,
     });
-    if (isSuppressedQueuedMessage(queued.metadata)) {
-      continue;
-    }
-    queued.onEvent({
-      type: "message_queued_deleted",
-      conversationId: ctx.conversationId,
-      requestId: queued.requestId,
-      ...(queued.clientMessageId
-        ? { clientMessageId: queued.clientMessageId }
-        : {}),
-    });
+    announceQueuedMessageDeleted(ctx.conversationId, queued);
   }
   ctx.queue.clear();
 }

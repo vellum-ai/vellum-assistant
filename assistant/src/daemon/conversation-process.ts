@@ -40,6 +40,7 @@ import {
   routeGuardianReply,
 } from "../runtime/guardian-reply-router.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
+import { unwrapExternalContentForDisplay } from "../security/untrusted-content.js";
 import { stampTurnOutcome } from "../telemetry/turn-outcome.js";
 import { getLogger } from "../util/logger.js";
 import type { CleanResult, Conversation } from "./conversation.js";
@@ -58,11 +59,17 @@ import {
   classifySlash,
   resolveSlash,
   type SlashContext,
+  type SlashResolution,
 } from "./conversation-slash.js";
 import { getModelInfo } from "./handlers/config-model.js";
 import { preactivateHostProxySkills } from "./host-proxy-preactivation.js";
 import type { UserMessageAttachment } from "./message-protocol.js";
+import {
+  closeOutSharedSenderMessage,
+  gateSharedSenderHead,
+} from "./shared-sender-queue-gate.js";
 import { buildTransportHints } from "./transport-hints.js";
+import { mayActForGuardian } from "./trust-context.js";
 import { sameTrustIdentity, type TrustContext } from "./trust-context-types.js";
 import { restingTrust, turnOrRestingTrust } from "./trust-context-types.js";
 import { resolveVerificationSessionIntent } from "./verification-session-intent.js";
@@ -342,6 +349,100 @@ async function buildPassthroughBatch(
   return conversation.queue.shiftN(matched);
 }
 
+// ── Notification preferences ─────────────────────────────────────────
+
+/**
+ * Detect notification preferences in a user message and persist any found.
+ * Fire-and-forget, so it never blocks the turn.
+ */
+function recordNotificationPreferences(
+  conversation: Conversation,
+  content: string,
+  trustContext: TrustContext | undefined,
+  source?: "queued" | "batched",
+): void {
+  if (!conversation.assistantId || !mayActForGuardian(trustContext)) {
+    return;
+  }
+  const suffix = source ? ` (${source})` : "";
+  extractPreferences(content)
+    .then((result) => {
+      if (!result.detected) {
+        return;
+      }
+      for (const pref of result.preferences) {
+        createPreference({
+          preferenceText: pref.preferenceText,
+          appliesWhen: pref.appliesWhen,
+          priority: pref.priority,
+        });
+      }
+      log.info(
+        {
+          count: result.preferences.length,
+          conversationId: conversation.conversationId,
+        },
+        `Persisted extracted notification preferences${suffix}`,
+      );
+    })
+    .catch((err) => {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      log.warn(
+        { err: errMsg, conversationId: conversation.conversationId },
+        `Background preference extraction failed${suffix}`,
+      );
+    });
+}
+
+// ── Guardian-only steps ──────────────────────────────────────────────
+
+/**
+ * Resolve a turn's slash command, unless the turn's sender may not act for
+ * the guardian ({@link mayActForGuardian}): `/model` rewrites the
+ * assistant's config, and `/compact` and `/clean` rewrite the conversation.
+ * Such a sender's text passes through as message text.
+ */
+async function resolveSlashForTurn(
+  conversation: Conversation,
+  content: string,
+  trustContext: TrustContext | undefined,
+): Promise<SlashResolution> {
+  if (!mayActForGuardian(trustContext)) {
+    return { kind: "passthrough", content };
+  }
+  return resolveSlash(content, buildSlashContext(content, conversation));
+}
+
+/**
+ * The content the agent loop runs for a turn. A request to set up guardian
+ * verification is steered straight into that skill flow, but only from a
+ * sender who may act for the guardian ({@link mayActForGuardian}), since the
+ * flow speaks for the guardian.
+ */
+function interceptVerificationIntent(
+  conversation: Conversation,
+  content: string,
+  trustContext: TrustContext | undefined,
+  logMessage: string,
+): string {
+  if (!mayActForGuardian(trustContext)) {
+    return content;
+  }
+  const verificationIntent = resolveVerificationSessionIntent(content);
+  if (verificationIntent.kind !== "direct_setup") {
+    return content;
+  }
+  log.info(
+    {
+      conversationId: conversation.conversationId,
+      channelHint: verificationIntent.channelHint,
+    },
+    logMessage,
+  );
+  conversation.preactivatedSkillIds = ["guardian-verify-setup"];
+  return verificationIntent.rewrittenContent;
+}
+
 // ── drainQueue ───────────────────────────────────────────────────────
 
 /**
@@ -500,6 +601,10 @@ export async function drainQueue(
   await repairInterruptedToolUseBlocks(conversation, {
     requireDurable: conversation.pendingInterruptRepair,
   });
+
+  if (!(await gateSharedSenderHead(conversation))) {
+    return;
+  }
 
   if (steered) {
     const next = conversation.queue.shift();
@@ -757,9 +862,10 @@ async function drainSingleMessage(
     conversation.channelCapabilities;
 
   // Resolve slash commands for queued messages
-  const slashResult = await resolveSlash(
+  const slashResult = await resolveSlashForTurn(
+    conversation,
     next.content,
-    buildSlashContext(next.content, conversation),
+    turnTrustContext,
   );
 
   // Unknown slash — persist the exchange and continue draining.
@@ -1062,22 +1168,12 @@ async function drainSingleMessage(
   // Guardian verification intent interception for queued messages.
   // Preserve the original user content for persistence; only the agent
   // loop receives the rewritten instruction.
-  let agentLoopContent = resolvedContent;
-  if (slashResult.kind === "passthrough") {
-    const verificationIntent =
-      resolveVerificationSessionIntent(resolvedContent);
-    if (verificationIntent.kind === "direct_setup") {
-      log.info(
-        {
-          conversationId: conversation.conversationId,
-          channelHint: verificationIntent.channelHint,
-        },
-        "Verification session intent intercepted in queue — forcing skill flow",
-      );
-      agentLoopContent = verificationIntent.rewrittenContent;
-      conversation.preactivatedSkillIds = ["guardian-verify-setup"];
-    }
-  }
+  const agentLoopContent = interceptVerificationIntent(
+    conversation,
+    resolvedContent,
+    turnTrustContext,
+    "Verification session intent intercepted in queue, forcing skill flow",
+  );
 
   // Try to persist and run the dequeued message. If persistUserMessage
   // succeeds, runAgentLoop is called and its finally block will drain
@@ -1092,10 +1188,11 @@ async function drainSingleMessage(
       activeSurfaceId: next.activeSurfaceId,
       metadata: { ...next.metadata, sentAt: next.sentAt },
       displayContent: next.displayContent,
-      clientMessageId: next.clientMessageId,
+      clientMessageId: next.storedClientMessageId ?? next.clientMessageId,
       // Attribute the stored row to the sender this turn runs as, not to
       // whoever happens to occupy the conversation slot at drain time.
       trustContext: next.trustContext,
+      ...(next.author ? { author: next.author } : {}),
       ...(next.transport?.clientOs
         ? { requestClientOs: next.transport.clientOs }
         : {}),
@@ -1129,6 +1226,7 @@ async function drainSingleMessage(
       conversationId: conversation.conversationId,
       message,
     });
+    closeOutSharedSenderMessage(conversation.conversationId, next);
     // Continue draining — don't strand remaining messages
     await drainQueue(conversation);
     return;
@@ -1151,7 +1249,10 @@ async function drainSingleMessage(
   if (!isEchoSuppressedUserMessage(next.metadata)) {
     next.onEvent({
       type: "user_message_echo",
-      text: resolvedContent,
+      // The persisted text, so the live row matches what a reload shows.
+      text: unwrapExternalContentForDisplay(
+        next.displayContent ?? resolvedContent,
+      ),
       conversationId: conversation.conversationId,
       messageId: userMessageId,
       requestId: next.requestId,
@@ -1177,39 +1278,16 @@ async function drainSingleMessage(
   conversation.currentActiveSurfaceId = next.activeSurfaceId;
   conversation.currentPage = next.currentPage;
 
-  // Fire-and-forget: detect notification preferences in the queued message
-  // and persist any that are found, mirroring the logic in processMessage.
-  // Hidden rows are machine signals, not user speech — running the detector
+  // Hidden rows are machine signals, not user speech: running the detector
   // on them burns an LLM call per signal and risks persisting a bogus
   // preference from text the user never typed.
-  if (conversation.assistantId && !isHiddenMessageMetadata(next.metadata)) {
-    extractPreferences(resolvedContent)
-      .then((result) => {
-        if (!result.detected) {
-          return;
-        }
-        for (const pref of result.preferences) {
-          createPreference({
-            preferenceText: pref.preferenceText,
-            appliesWhen: pref.appliesWhen,
-            priority: pref.priority,
-          });
-        }
-        log.info(
-          {
-            count: result.preferences.length,
-            conversationId: conversation.conversationId,
-          },
-          "Persisted extracted notification preferences (queued)",
-        );
-      })
-      .catch((err) => {
-        const errMsg = err instanceof Error ? err.message : String(err);
-        log.warn(
-          { err: errMsg, conversationId: conversation.conversationId },
-          "Background preference extraction failed (queued)",
-        );
-      });
+  if (!isHiddenMessageMetadata(next.metadata)) {
+    recordNotificationPreferences(
+      conversation,
+      resolvedContent,
+      next.trustContext,
+      "queued",
+    );
   }
 
   // Fire-and-forget: persistUserMessage set the processing flag to true
@@ -1405,9 +1483,10 @@ async function drainBatch(
     const qm = batch[i];
     announceDequeue(conversation, qm);
 
-    const qmSlash = await resolveSlash(
+    const qmSlash = await resolveSlashForTurn(
+      conversation,
       qm.content,
-      buildSlashContext(qm.content, conversation),
+      turnTrustContext,
     );
     if (qmSlash.kind !== "passthrough") {
       // Defensive recovery. `buildPassthroughBatch` should make this
@@ -1469,10 +1548,11 @@ async function drainBatch(
         activeSurfaceId: qm.activeSurfaceId,
         metadata: { ...qm.metadata, sentAt: qm.sentAt },
         displayContent: qm.displayContent,
-        clientMessageId: qm.clientMessageId,
+        clientMessageId: qm.storedClientMessageId ?? qm.clientMessageId,
         // Same attribution rule as the single-message drain. Batch members
         // share one sender, so every row here names that sender.
         trustContext: qm.trustContext,
+        ...(qm.author ? { author: qm.author } : {}),
         ...(qm.transport?.clientOs
           ? { requestClientOs: qm.transport.clientOs }
           : {}),
@@ -1536,6 +1616,7 @@ async function drainBatch(
         conversationId: conversation.conversationId,
         message,
       });
+      closeOutSharedSenderMessage(conversation.conversationId, qm);
 
       if (i === 0) {
         // Head persist failed — processing is not set yet, no in-flight turn
@@ -1572,7 +1653,7 @@ async function drainBatch(
     if (!isEchoSuppressedUserMessage(qm.metadata)) {
       qm.onEvent({
         type: "user_message_echo",
-        text: qmContent,
+        text: unwrapExternalContentForDisplay(qm.displayContent ?? qmContent),
         conversationId: conversation.conversationId,
         messageId: lastUserMessageId,
         requestId: qm.requestId,
@@ -1597,37 +1678,14 @@ async function drainBatch(
     lastSuccessfulContent = qmContent;
     successfulBatch.push(qm);
 
-    // Fire-and-forget: detect notification preferences in each batched user
-    // message and persist any that are found, mirroring drainSingleMessage
-    // (including its hidden-row exclusion).
-    if (conversation.assistantId && !isHiddenMessageMetadata(qm.metadata)) {
-      extractPreferences(qmContent)
-        .then((result) => {
-          if (!result.detected) {
-            return;
-          }
-          for (const pref of result.preferences) {
-            createPreference({
-              preferenceText: pref.preferenceText,
-              appliesWhen: pref.appliesWhen,
-              priority: pref.priority,
-            });
-          }
-          log.info(
-            {
-              count: result.preferences.length,
-              conversationId: conversation.conversationId,
-            },
-            "Persisted extracted notification preferences (batched)",
-          );
-        })
-        .catch((err) => {
-          const errMsg = err instanceof Error ? err.message : String(err);
-          log.warn(
-            { err: errMsg, conversationId: conversation.conversationId },
-            "Background preference extraction failed (batched)",
-          );
-        });
+    // Same hidden-row exclusion as the single-message drain.
+    if (!isHiddenMessageMetadata(qm.metadata)) {
+      recordNotificationPreferences(
+        conversation,
+        qmContent,
+        qm.trustContext,
+        "batched",
+      );
     }
 
     // If the user hit abort mid-batch, stop persisting remaining tails.
@@ -1908,7 +1966,7 @@ export async function processMessage(
   // Desktop/conversation guardian replies route only through the guardian
   // decision pipeline. Messages consumed by the router never hit the general
   // agent loop.
-  if (trimmedContent.length > 0) {
+  if (trimmedContent.length > 0 && mayActForGuardian(turnTrustContext)) {
     const routerResult = await routeGuardianReply({
       messageText: trimmedContent,
       actor: {
@@ -2003,9 +2061,10 @@ export async function processMessage(
   }
 
   // Resolve slash commands before persistence
-  const slashResult = await resolveSlash(
+  const slashResult = await resolveSlashForTurn(
+    conversation,
     content,
-    buildSlashContext(content, conversation),
+    turnTrustContext,
   );
 
   // Unknown slash command — persist the exchange (user + assistant) so the
@@ -2274,27 +2333,16 @@ export async function processMessage(
 
   const resolvedContent = slashResult.content;
 
-  // Guardian verification intent interception — force direct guardian
-  // verification requests into the guardian-verify-setup skill flow on
-  // the first turn, avoiding conceptual preambles from the agent.
-  // We keep the original user content for persistence and use the
-  // rewritten content only for the agent loop instruction.
-  let agentLoopContent = resolvedContent;
-  if (slashResult.kind === "passthrough") {
-    const verificationIntent =
-      resolveVerificationSessionIntent(resolvedContent);
-    if (verificationIntent.kind === "direct_setup") {
-      log.info(
-        {
-          conversationId: conversation.conversationId,
-          channelHint: verificationIntent.channelHint,
-        },
-        "Verification session intent intercepted — forcing skill flow",
-      );
-      agentLoopContent = verificationIntent.rewrittenContent;
-      conversation.preactivatedSkillIds = ["guardian-verify-setup"];
-    }
-  }
+  // Guardian verification intent interception: steer a guardian's direct
+  // request into the guardian-verify-setup skill flow on the first turn,
+  // avoiding conceptual preambles from the agent. The original content is
+  // kept for persistence; only the agent loop receives the rewrite.
+  const agentLoopContent = interceptVerificationIntent(
+    conversation,
+    resolvedContent,
+    turnTrustContext,
+    "Verification session intent intercepted, forcing skill flow",
+  );
 
   let pmResult: { id: string; deduplicated: boolean };
   try {
@@ -2322,38 +2370,11 @@ export async function processMessage(
 
   const userMessageId = pmResult.id;
 
-  // Fire-and-forget: detect notification preferences in the user message
-  // and persist any that are found. Runs in the background so it doesn't
-  // block the main conversation flow.
-  if (conversation.assistantId) {
-    extractPreferences(resolvedContent)
-      .then((result) => {
-        if (!result.detected) {
-          return;
-        }
-        for (const pref of result.preferences) {
-          createPreference({
-            preferenceText: pref.preferenceText,
-            appliesWhen: pref.appliesWhen,
-            priority: pref.priority,
-          });
-        }
-        log.info(
-          {
-            count: result.preferences.length,
-            conversationId: conversation.conversationId,
-          },
-          "Persisted extracted notification preferences",
-        );
-      })
-      .catch((err) => {
-        const errMsg = err instanceof Error ? err.message : String(err);
-        log.warn(
-          { err: errMsg, conversationId: conversation.conversationId },
-          "Background preference extraction failed",
-        );
-      });
-  }
+  recordNotificationPreferences(
+    conversation,
+    resolvedContent,
+    turnTrustContext,
+  );
 
   const loopOptions: {
     isInteractive?: boolean;

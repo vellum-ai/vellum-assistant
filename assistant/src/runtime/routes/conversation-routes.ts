@@ -48,6 +48,7 @@ import { getConfig } from "../../config/loader.js";
 import { isModeSessionRecoveryHealthy } from "../../config/session-groups-gate.js";
 import { consolidateMessageRows } from "../../conversations/message-consolidation.js";
 import { resolveTurnCommitWaitMs } from "../../daemon/abort-watchdog.js";
+import { scopeHistoryToActor } from "../../daemon/actor-scoped-history.js";
 import { createApprovalConversationGenerator } from "../../daemon/approval-generators.js";
 import type { Conversation } from "../../daemon/conversation.js";
 import {
@@ -68,6 +69,7 @@ import { findConversation } from "../../daemon/conversation-registry.js";
 import {
   buildSlashContextForContent,
   resolveSlash,
+  type SlashResolution,
 } from "../../daemon/conversation-slash.js";
 import { getOrCreateConversation as getOrCreateConversationInstance } from "../../daemon/conversation-store.js";
 import { canonicalizeTimeZone } from "../../daemon/date-context.js";
@@ -161,6 +163,7 @@ import { writeOnboardingSection } from "../../prompts/persona-resolver.js";
 import { getConfiguredProvider } from "../../providers/provider-send-message.js";
 import type { Provider } from "../../providers/types.js";
 import { checkIngressForSecrets } from "../../security/secret-ingress.js";
+import { unwrapExternalContentForDisplay } from "../../security/untrusted-content.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import {
   isHeicFilename,
@@ -197,7 +200,10 @@ import {
   publishConversationListAndMetadataChanged,
   publishConversationMessagesChanged,
 } from "../sync/resource-sync-events.js";
-import { withSourceChannel } from "../trust-context-resolver.js";
+import {
+  resolveRoutingState,
+  withSourceChannel,
+} from "../trust-context-resolver.js";
 import {
   emitCannedMessageComplete,
   persistCannedAssistantCard,
@@ -210,6 +216,7 @@ import {
   NotFoundError,
   RouteError,
 } from "./errors.js";
+import { prepareChannelInboundContent } from "./inbound-stages/inbound-content-prep.js";
 import {
   collectPendingConfirmations,
   enrichToolCallsWithConfirmation,
@@ -815,7 +822,9 @@ function buildQueuedMessagePayloads(
     .snapshotQueuedMessages()
     .filter((item) => !isSuppressedQueuedMessage(item.metadata))
     .map((item, index) => {
-      const text = item.displayContent ?? item.content;
+      const text = unwrapExternalContentForDisplay(
+        item.displayContent ?? item.content,
+      );
       const attachments: RuntimeAttachmentMetadata[] = item.attachments.map(
         (a, idx) => ({
           id: a.id ?? `${item.requestId}:attachment:${idx}`,
@@ -1662,11 +1671,30 @@ function withClientMetadata(
   };
 }
 
+/**
+ * A trusted contact sending into a conversation shared with them. The shared
+ * route resolves membership, the contact's trust and the channel admission
+ * floor before it hands the send to {@link handleSendMessage}, and supplies a
+ * conversation acquire that never creates one. Everything after that is the
+ * one send pipeline, so a contact's message queues, dedups and fails over
+ * exactly as the guardian's does. What differs is only what a contact may
+ * not do: interrupt a running turn, answer or supersede the guardian's
+ * pending interactions, reach the onboarding and greeting paths, or reset
+ * the guardian's heartbeat.
+ */
+export interface ContactSender {
+  /** The contact's own trust on the `vellum-shared` channel. */
+  trustContext: TrustContext;
+  /** The contact's principal, the actor the turn runs as. */
+  principalId: string;
+}
+
 export async function handleSendMessage(
   { body: rawBody, headers }: RouteHandlerArgs,
   deps: {
     sendMessageDeps?: SendMessageDeps;
     approvalConversationGenerator?: ApprovalConversationGenerator;
+    contactSender?: ContactSender;
   },
 ): Promise<unknown> {
   const body = (rawBody ?? {}) as {
@@ -1723,6 +1751,7 @@ export async function handleSendMessage(
   const principalType = headers?.["x-vellum-principal-type"];
   const originClientId = headers?.["x-vellum-client-id"]?.trim() || undefined;
   const clientMetadata = readClientMetadataHeaders(headers);
+  const contact = deps.contactSender;
 
   const { conversationKey, content, attachmentIds } = body;
   const inboundConversationId =
@@ -1731,6 +1760,14 @@ export async function handleSendMessage(
       : undefined;
   const clientMessageId =
     typeof body.clientMessageId === "string" ? body.clientMessageId : undefined;
+  // The key the row is stored and deduplicated under. A contact's is scoped
+  // to them, so two senders reusing one nonce never collide; events and
+  // responses still carry the nonce the client sent, which is what it
+  // correlates its optimistic row by.
+  const storedClientMessageId =
+    contact && clientMessageId
+      ? `vellum-shared:${contact.principalId}:${clientMessageId}`
+      : clientMessageId;
   const requestedInferenceProfile =
     typeof body.inferenceProfile === "string"
       ? body.inferenceProfile
@@ -1892,9 +1929,11 @@ export async function handleSendMessage(
     );
   }
 
-  // Desktop messages are always from the guardian — reset the heartbeat
-  // timer so the next heartbeat is a full interval after this interaction.
-  HeartbeatService.getInstance()?.resetTimer();
+  // Every other send through here is the guardian's, so reset the heartbeat
+  // timer to a full interval after this interaction.
+  if (!contact) {
+    HeartbeatService.getInstance()?.resetTimer();
+  }
 
   // Resolve the target conversation. Fetch by `conversationId` (the
   // assistant-minted internal id) when the client supplies it — clients
@@ -2046,7 +2085,9 @@ export async function handleSendMessage(
   // request commits to running a turn, since that write is what supplies the
   // acting actor for a run and must not fire for a send that merely queues.
   let resolvedTrustCtx: TrustContext;
-  if (actorPrincipalId) {
+  if (contact) {
+    resolvedTrustCtx = contact.trustContext;
+  } else if (actorPrincipalId) {
     // Dev bypass (HTTP auth disabled): the synthetic "dev-bypass" principal
     // won't match any guardian binding. Resolve the real guardian principal and
     // map that through, failing closed to unknown on an empty gateway.
@@ -2118,14 +2159,20 @@ export async function handleSendMessage(
   // actor, live-voice hydration, pointer elevation, the voice bridge).
   const turnTrustContext = resolvedTrustCtx;
 
-  const isInteractive = isInteractiveInterface(sourceInterface);
+  // A contact's turn waits on a prompt only when a guardian can answer it,
+  // the rule every other contact channel follows.
+  const isInteractive = contact
+    ? resolveRoutingState(contact.trustContext).promptWaitingAllowed
+    : isInteractiveInterface(sourceInterface);
   // Translate the dev-bypass actor principal to the real guardian principal
   // before the same-actor host-proxy gate so web/iOS turns match the macOS
   // client's SSE-registered principal. No-op for real JWT principals in
   // non-dev-bypass deployments.
-  const sourceActorPrincipalId = await resolveActorPrincipalIdForLocalGuardian(
-    actorPrincipalId ?? undefined,
-  );
+  const sourceActorPrincipalId = contact
+    ? contact.principalId
+    : await resolveActorPrincipalIdForLocalGuardian(
+        actorPrincipalId ?? undefined,
+      );
   // Delivery needs no wiring: the conversation's sink is the SSE hub for its
   // whole life. Presence travels with the turn (`isInteractive` below), which
   // is what keeps host_bash/host_file/host_cu gated for non-desktop
@@ -2150,10 +2197,9 @@ export async function handleSendMessage(
   const websiteUrl = sanitizeUrl(body.onboarding?.websiteUrl);
   const contentSourceUrl = sanitizeUrl(body.onboarding?.contentSourceUrl);
   const scanUrl = websiteUrl || contentSourceUrl;
-  const isWakeUp = isWakeUpGreeting(
-    trimmedContent,
-    conversation.getMessages().length,
-  );
+  const isWakeUp =
+    !contact &&
+    isWakeUpGreeting(trimmedContent, conversation.getMessages().length);
   const isScanPath = !!scanUrl && isWakeUp;
   // Self-intro path: when we know a name, send a natural introduction on the
   // user's behalf instead of the canned greeting, so the assistant generates a
@@ -2191,7 +2237,7 @@ export async function handleSendMessage(
         attachments,
         requestId: uuidv7(),
         metadata: greetingMeta,
-        clientMessageId,
+        clientMessageId: storedClientMessageId,
         // This path answers and returns without starting a turn, so it never
         // reaches the stamp below; name the sender on the row directly.
         trustContext: resolvedTrustCtx,
@@ -2327,10 +2373,21 @@ export async function handleSendMessage(
     }
   }
 
+  // A contact's text is untrusted input, fenced the way every other contact
+  // channel fences it. The fenced text is what is stored, so the fence
+  // survives a reload; display surfaces unwrap it.
+  const contactContent = contact
+    ? prepareChannelInboundContent({
+        trimmedContent,
+        trustClass: contact.trustContext.trustClass,
+        sourceChannel,
+        requesterIdentifier: contact.trustContext.requesterIdentifier,
+      }).content
+    : undefined;
   // When the scan path rewrote the first message, prefer the rewritten
   // content for all downstream consumers (guardian reply, enqueue, agent
   // loop) so they see the scan instruction rather than the wake-up greeting.
-  const contentAfterScan = effectiveContent ?? content ?? "";
+  const contentAfterScan = contactContent ?? effectiveContent ?? content ?? "";
 
   const attachments = hasAttachments
     ? smDeps.resolveAttachments(attachmentIds)
@@ -2345,40 +2402,43 @@ export async function handleSendMessage(
   // Try to consume the message as a guardian approval/rejection reply.
   // On failure, degrade to the existing queue/auto-deny path rather than
   // surfacing a 500 — mirrors the handler's catch-and-fallback.
-  try {
-    const inlineReplyResult = await tryConsumeGuardianReply({
-      conversationId: mapping.conversationId,
-      sourceChannel,
-      sourceInterface,
-      content: contentAfterScan,
-      attachments,
-      conversation,
-      onEvent: broadcastMessage,
-      // Desktop path: disable NL classification to avoid consuming non-decision
-      // messages while a tool confirmation is pending. Deterministic code-prefix
-      // and callback parsing remain active. Mirrors conversation-process.ts behavior.
-      approvalConversationGenerator:
-        sourceChannel === "vellum"
-          ? undefined
-          : deps.approvalConversationGenerator,
-      verifiedActorExternalUserId,
-      verifiedActorPrincipalId,
-      originClientId,
-    });
-    if (inlineReplyResult.consumed) {
-      return {
-        accepted: true,
+  // Only the guardian answers the guardian's pending requests.
+  if (!contact) {
+    try {
+      const inlineReplyResult = await tryConsumeGuardianReply({
         conversationId: mapping.conversationId,
-        ...(inlineReplyResult.messageId
-          ? { messageId: inlineReplyResult.messageId }
-          : {}),
-      };
+        sourceChannel,
+        sourceInterface,
+        content: contentAfterScan,
+        attachments,
+        conversation,
+        onEvent: broadcastMessage,
+        // Desktop path: disable NL classification to avoid consuming non-decision
+        // messages while a tool confirmation is pending. Deterministic code-prefix
+        // and callback parsing remain active. Mirrors conversation-process.ts behavior.
+        approvalConversationGenerator:
+          sourceChannel === "vellum"
+            ? undefined
+            : deps.approvalConversationGenerator,
+        verifiedActorExternalUserId,
+        verifiedActorPrincipalId,
+        originClientId,
+      });
+      if (inlineReplyResult.consumed) {
+        return {
+          accepted: true,
+          conversationId: mapping.conversationId,
+          ...(inlineReplyResult.messageId
+            ? { messageId: inlineReplyResult.messageId }
+            : {}),
+        };
+      }
+    } catch (err) {
+      log.warn(
+        { err, conversationId: mapping.conversationId },
+        "Inline approval consumption failed, falling through to normal send path",
+      );
     }
-  } catch (err) {
-    log.warn(
-      { err, conversationId: mapping.conversationId },
-      "Inline approval consumption failed, falling through to normal send path",
-    );
   }
 
   /**
@@ -2466,10 +2526,14 @@ export async function handleSendMessage(
       sourceActorPrincipalId,
       transport,
       clientMessageId,
+      ...(storedClientMessageId !== clientMessageId
+        ? { storedClientMessageId }
+        : {}),
       // The sender's own trust, so the drain runs this message as the actor
       // who sent it rather than as whoever the slot happens to hold when the
       // queue is worked.
       trustContext: resolvedTrustCtx,
+      ...(contact ? { author: contact.trustContext } : {}),
       // This helper's whole contract is that the message is queued, and it
       // answers `queued: true`, so it must never take the enqueue's idle fast
       // path, which stores nothing. Every route into here has already decided
@@ -2501,8 +2565,9 @@ export async function handleSendMessage(
     // must not auto-deny live approval prompts or steer a parked
     // ask_question to a message the user never typed. Daemon-injected
     // synthetic messages (subagent/ACP notifications) skip this path the
-    // same way by enqueuing directly.
-    if (body.hidden !== true) {
+    // same way by enqueuing directly. A contact's message is not the
+    // guardian's decision either, so it leaves their interactions alone.
+    if (body.hidden !== true && !contact) {
       try {
         // Supersede interactions left pending by the in-flight turn: auto-deny
         // confirmations (with gateway/client sync) and steer to the enqueued
@@ -2688,8 +2753,13 @@ export async function handleSendMessage(
       // Hidden sends are machine signals, not user decisions — like the queue
       // branch's supersede bypass above, they must not deny confirmations that
       // outlived a turn (e.g. a guardian approval still awaiting a channel
-      // reply). The next visible send performs the cleanup instead.
-      if (body.hidden !== true && conversation.hasAnyPendingConfirmation()) {
+      // reply). The next visible send performs the cleanup instead. A contact's
+      // send is not the guardian's decision and leaves them pending too.
+      if (
+        body.hidden !== true &&
+        !contact &&
+        conversation.hasAnyPendingConfirmation()
+      ) {
         for (const interaction of pendingInteractions.getByConversation(
           mapping.conversationId,
         )) {
@@ -2730,7 +2800,6 @@ export async function handleSendMessage(
       // so it must name whoever this request is about to run as. A request that
       // queues instead returns above without stamping — it is not starting a run,
       // and its actor rides the queue item to the drain.
-      conversation.setTrustContext(resolvedTrustCtx);
       conversation.setTurnChannelContext({
         userMessageChannel: sourceChannel,
         assistantMessageChannel: sourceChannel,
@@ -2741,7 +2810,7 @@ export async function handleSendMessage(
       });
       conversation.currentTurnSourceActorPrincipalId = sourceActorPrincipalId;
 
-      await conversation.ensureActorScopedHistory();
+      await scopeHistoryToActor(conversation, resolvedTrustCtx);
 
       // Resolve slash commands before persisting or running the agent loop.
       // `contentAfterScan` already carries the scan-rewritten content when
@@ -2755,7 +2824,10 @@ export async function handleSendMessage(
         estimatedCost: conversation.usageStats.estimatedCost,
         userMessageInterface: sourceInterface,
       });
-      const slashResult = await resolveSlash(rawContent, slashContext);
+      // A contact's text is message text, never a command.
+      const slashResult: SlashResolution = contact
+        ? { kind: "passthrough", content: rawContent }
+        : await resolveSlash(rawContent, slashContext);
 
       if (slashResult.kind === "unknown") {
         const slashOwner = await conversation.acquireProcessingFenced();
@@ -2784,7 +2856,7 @@ export async function handleSendMessage(
             // exists.
             requestId: sendRequestId,
             metadata: withClientMetadata(slashMeta, clientMetadata),
-            clientMessageId,
+            clientMessageId: storedClientMessageId,
             ...(clientOs ? { requestClientOs: clientOs } : {}),
           });
           if (persisted.deduplicated) {
@@ -2901,7 +2973,7 @@ export async function handleSendMessage(
             // advertised on the acceptance, so it has to be the one used here.
             requestId: sendRequestId,
             metadata: withClientMetadata(slashMeta, clientMetadata),
-            clientMessageId,
+            clientMessageId: storedClientMessageId,
             ...(clientOs ? { requestClientOs: clientOs } : {}),
           });
         } catch (err) {
@@ -3011,7 +3083,7 @@ export async function handleSendMessage(
             // exists.
             requestId: sendRequestId,
             metadata: withClientMetadata(slashMeta, clientMetadata),
-            clientMessageId,
+            clientMessageId: storedClientMessageId,
             ...(clientOs ? { requestClientOs: clientOs } : {}),
           });
           if (persisted.deduplicated) {
@@ -3089,7 +3161,11 @@ export async function handleSendMessage(
             clientMetadata,
           ),
           scripted: body.scripted,
-          clientMessageId,
+          clientMessageId: storedClientMessageId,
+          // The sender this request resolved, not whoever holds the
+          // conversation's slot by the time the row is written.
+          trustContext: resolvedTrustCtx,
+          ...(contact ? { author: contact.trustContext } : {}),
           ...(clientOs ? { requestClientOs: clientOs } : {}),
         });
       } catch (err) {
@@ -3118,7 +3194,7 @@ export async function handleSendMessage(
       if (body.hidden !== true) {
         broadcastMessage({
           type: "user_message_echo",
-          text: resolvedContent,
+          text: unwrapExternalContentForDisplay(resolvedContent),
           conversationId: mapping.conversationId,
           messageId,
           requestId,
@@ -3182,8 +3258,8 @@ export async function handleSendMessage(
   // skipped every duplicate check, started a second `completeSend` and could
   // win persistence under its own id, leaving the id the first 202 advertised
   // naming no row at all.
-  const reservedRequestId = clientMessageId
-    ? conversation.inFlightSendRequestIds.get(clientMessageId)
+  const reservedRequestId = storedClientMessageId
+    ? conversation.inFlightSendRequestIds.get(storedClientMessageId)
     : undefined;
   if (reservedRequestId) {
     log.info(
@@ -3214,8 +3290,8 @@ export async function handleSendMessage(
     // and start nothing, so the send is answered by neither. The running turn
     // carries the nonce it was started by, which is what settles it.
     if (
-      clientMessageId &&
-      conversation.currentTurnClientMessageId === clientMessageId
+      storedClientMessageId &&
+      conversation.currentTurnClientMessageId === storedClientMessageId
     ) {
       log.info(
         { conversationId: mapping.conversationId, clientMessageId },
@@ -3245,8 +3321,11 @@ export async function handleSendMessage(
     // a network retry. `addMessage`'s unique constraint stays the authority for
     // the ordinary race; this read only keeps a known duplicate away from the
     // abort.
-    const duplicateMessageId = clientMessageId
-      ? findMessageIdByClientMessageId(mapping.conversationId, clientMessageId)
+    const duplicateMessageId = storedClientMessageId
+      ? findMessageIdByClientMessageId(
+          mapping.conversationId,
+          storedClientMessageId,
+        )
       : undefined;
     if (duplicateMessageId) {
       log.info(
@@ -3271,10 +3350,12 @@ export async function handleSendMessage(
     };
     // Decided synchronously so this request can be acknowledged before any of
     // the handover happens. Anything not eligible queues, exactly as it does
-    // with the flag off.
+    // with the flag off. A contact never stops a running turn, whoever
+    // started it: their message waits behind it.
     if (
+      contact ||
       classifyInterruptEligibility(conversation, interruptOptions) !==
-      "eligible"
+        "eligible"
     ) {
       return queueSend(contentAfterScan);
     }
@@ -3309,12 +3390,15 @@ export async function handleSendMessage(
     // retransmission arriving while this runs finds the reservation already
     // there. Released once the handover is over, by which time either a row
     // exists for the durable check to find or the send is on the queue.
-    if (clientMessageId) {
-      conversation.inFlightSendRequestIds.set(clientMessageId, sendRequestId);
+    if (storedClientMessageId) {
+      conversation.inFlightSendRequestIds.set(
+        storedClientMessageId,
+        sendRequestId,
+      );
     }
     const releaseInFlightSend = (): void => {
-      if (clientMessageId) {
-        conversation.inFlightSendRequestIds.delete(clientMessageId);
+      if (storedClientMessageId) {
+        conversation.inFlightSendRequestIds.delete(storedClientMessageId);
       }
     };
 

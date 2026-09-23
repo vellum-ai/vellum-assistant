@@ -63,6 +63,7 @@ import {
 } from "../../assistant-event-hub.js";
 import { resolveScopeProfile } from "../../auth/scopes.js";
 import type { AuthContext, ScopeProfile } from "../../auth/types.js";
+import { noteDroppedOwnMessage } from "../../contact-event-projection.js";
 import { HttpRouter } from "../../http-router.js";
 import { publishConversationListAndMetadataChanged } from "../../sync/resource-sync-events.js";
 import {
@@ -87,6 +88,7 @@ function context(principalId: string, scopeProfile: ScopeProfile): AuthContext {
 }
 
 const ALICE = context("principal-alice", "contact_client_v1");
+const CAROL = context("principal-carol", "contact_client_v1");
 const GUARDIAN = context("principal-bob", "actor_client_v1");
 
 let server: ReturnType<typeof Bun.serve>;
@@ -463,6 +465,88 @@ describe("GET shared/events", () => {
       type: "conversation_title_updated",
       title: "Marker",
     });
+  });
+
+  test("a contact's own dropped message reaches them, stripped to what identifies it", async () => {
+    const conversationId = newConversation();
+    share(conversationId);
+    const stream = await openStream();
+
+    removeParticipant(conversationId, "principal-alice");
+    noteDroppedOwnMessage({
+      requestId: "req-alice",
+      principalId: "principal-alice",
+      conversationId,
+    });
+    await emit(
+      {
+        type: "message_queued_deleted",
+        conversationId,
+        requestId: "req-alice",
+        clientMessageId: "nonce-1",
+      },
+      conversationId,
+    );
+
+    const frame = await stream.next();
+    expect(frame.conversationId).toBe(conversationId);
+    expect(frame.message).toEqual({
+      type: "message_queued_deleted",
+      conversationId,
+      requestId: "req-alice",
+      clientMessageId: "nonce-1",
+    });
+  });
+
+  test("another sender's dropped or deleted message reaches no other contact", async () => {
+    const conversationId = newConversation();
+    const other = newConversation();
+    share(conversationId);
+    share(conversationId, "principal-carol");
+    share(other, "principal-carol");
+    const carol = await openStream(CAROL);
+    const alice = await openStream();
+
+    noteDroppedOwnMessage({
+      requestId: "req-alice",
+      principalId: "principal-alice",
+      conversationId,
+    });
+    await emit(
+      {
+        type: "message_queued_deleted",
+        conversationId,
+        requestId: "req-alice",
+        clientMessageId: "nonce-1",
+      },
+      conversationId,
+    );
+    // Neither a guardian's own delete nor a note for another conversation is
+    // forwarded.
+    await emit(
+      {
+        type: "message_queued_deleted",
+        conversationId,
+        requestId: "req-guardian",
+      },
+      conversationId,
+    );
+    await emit(
+      {
+        type: "message_queued_deleted",
+        conversationId: other,
+        requestId: "req-alice",
+      },
+      other,
+    );
+    await emitMarker(conversationId, "Marker");
+
+    expect((await carol.next()).message).toMatchObject({ title: "Marker" });
+    expect((await alice.next()).message).toMatchObject({
+      type: "message_queued_deleted",
+      requestId: "req-alice",
+    });
+    expect((await alice.next()).message).toMatchObject({ title: "Marker" });
   });
 
   test("rebuilds activity state without its status text or request id", async () => {

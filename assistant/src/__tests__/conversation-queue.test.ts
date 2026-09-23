@@ -1,5 +1,13 @@
 import { rmSync, writeFileSync } from "node:fs";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 
 import { CompactionCircuit } from "../agent/compaction-circuit.js";
 import type {
@@ -12,6 +20,7 @@ import type {
 import type { AssistantEvent } from "../api/index.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 import { stampAndBuffer } from "../runtime/assistant-stream-state.js";
+import { wrapUntrustedContent } from "../security/untrusted-content.js";
 import { createAbortReason } from "../util/abort-reasons.js";
 import { setConfig } from "./helpers/set-config.js";
 
@@ -30,11 +39,15 @@ mock.module("../providers/registry.js", () => ({
 setConfig("memory", { enabled: false, v2: { enabled: false } });
 setConfig("timeouts", { permissionTimeoutSec: 1 });
 
+/** Rows a history reload reads; empty unless a test stores some. */
+let storedRows: Array<Record<string, unknown>> = [];
+
 const capturedAddMessages: Array<{
   id: string;
   role: string;
   content: string;
   metadata?: Record<string, unknown>;
+  clientMessageId?: string;
 }> = [];
 
 /** Snapshot↔stream anchor advances recorded via `recordConversationPersistedSeq`. */
@@ -46,6 +59,106 @@ const capturedPersistedSeqs: Array<{ id: string; seq: number }> = [];
  * tail message while its siblings succeed).
  */
 const addMessageShouldThrowForContent = new Set<string>();
+
+// Shared-conversation access for the drain-time check: membership and the
+// gateway's verdict on the contact, each controllable per test.
+let aliceIsParticipant = true;
+let aliceStatus = "active";
+/** How many upcoming trust reads fail as the gateway being unreachable. */
+let aliceFailingReads = 0;
+/** The contact record and policy the gateway currently reports for Alice. */
+let aliceContactId = "contact-alice";
+let alicePolicy = "allow";
+/** Whether a verified guardian route exists for approval prompts. */
+let aliceGuardianRoute = false;
+let aliceTrustReads = 0;
+const actualParticipants =
+  await import("../persistence/conversation-participants.js");
+mock.module("../persistence/conversation-participants.js", () => ({
+  ...actualParticipants,
+  isParticipant: (_conversationId: string, principalId: string) =>
+    principalId === "principal-alice" && aliceIsParticipant,
+}));
+const actualTrustReader = await import("../calls/inbound-trust-reader.js");
+mock.module("../calls/inbound-trust-reader.js", () => ({
+  ...actualTrustReader,
+  readInboundTrust: async () => {
+    aliceTrustReads += 1;
+    if (aliceFailingReads > 0) {
+      aliceFailingReads -= 1;
+      return { ok: false };
+    }
+    return aliceVerdict();
+  },
+}));
+
+function aliceVerdict() {
+  return {
+    ok: true,
+    verdict: {
+      trustClass: "trusted_contact",
+      canonicalSenderId: "principal-alice",
+      contactId: aliceContactId,
+      channelId: "channel-alice",
+      status: aliceStatus,
+      policy: alicePolicy,
+      ...(aliceGuardianRoute
+        ? { guardianExternalUserId: "guardian-user" }
+        : {}),
+    },
+    admissionPolicy: "trusted_contacts",
+  };
+}
+
+// Notification preferences: every message "states" one, so a test can see
+// which turns were allowed to record it.
+const createdPreferences: string[] = [];
+const actualPreferenceExtractor =
+  await import("../notifications/preference-extractor.js");
+mock.module("../notifications/preference-extractor.js", () => ({
+  ...actualPreferenceExtractor,
+  extractPreferences: async (message: string) => ({
+    detected: true,
+    preferences: [{ preferenceText: message, appliesWhen: {}, priority: 0 }],
+  }),
+}));
+const actualPreferencesStore =
+  await import("../notifications/preferences-store.js");
+mock.module("../notifications/preferences-store.js", () => ({
+  ...actualPreferencesStore,
+  createPreference: (pref: { preferenceText: string }) => {
+    createdPreferences.push(pref.preferenceText);
+    return { id: `pref-${createdPreferences.length}` };
+  },
+}));
+
+const droppedOwnMessages: Array<{ requestId: string; principalId: string }> =
+  [];
+const actualProjection = await import("../runtime/contact-event-projection.js");
+mock.module("../runtime/contact-event-projection.js", () => ({
+  ...actualProjection,
+  noteDroppedOwnMessage: (note: { requestId: string; principalId: string }) =>
+    droppedOwnMessages.push(note),
+}));
+
+const guardianReplyTexts: string[] = [];
+const actualGuardianReplyRouter =
+  await import("../runtime/guardian-reply-router.js");
+mock.module("../runtime/guardian-reply-router.js", () => ({
+  ...actualGuardianReplyRouter,
+  routeGuardianReply: async (params: { messageText: string }) => {
+    guardianReplyTexts.push(params.messageText);
+    return { consumed: false, decisionApplied: false, type: "not_consumed" };
+  },
+}));
+
+// A contact's turn joins its contact record for display details; this suite
+// runs without a contacts table.
+const actualContactStore = await import("../contacts/contact-store.js");
+mock.module("../contacts/contact-store.js", () => ({
+  ...actualContactStore,
+  findContactInfoById: () => null,
+}));
 
 mock.module("../prompts/system-prompt.js", () => ({
   buildSystemPrompt: () => "system prompt",
@@ -87,7 +200,7 @@ mock.module("../persistence/conversation-crud.js", () => ({
       : { provenanceTrustClass: "unknown" },
   getConversationOriginInterface: () => null,
   getConversationOriginChannel: () => null,
-  getMessages: () => [],
+  getMessages: () => storedRows,
   // The batched-drain attachment cases put real image blocks in the history,
   // which is what makes the camera-frame retention pass read rows. None of
   // them is tagged, so an empty map is the answer the real accessor gives.
@@ -105,7 +218,7 @@ mock.module("../persistence/conversation-crud.js", () => ({
     _convId: string,
     role: string,
     content: string,
-    options?: { metadata?: Record<string, unknown> },
+    options?: { metadata?: Record<string, unknown>; clientMessageId?: string },
   ) => {
     // Simulate a persist failure for tests that need to exercise the
     // tail-persist-failed path in drainBatch. Triggered by matching any
@@ -121,6 +234,7 @@ mock.module("../persistence/conversation-crud.js", () => ({
       role,
       content,
       metadata: options?.metadata,
+      clientMessageId: options?.clientMessageId,
     });
     return { id };
   },
@@ -361,6 +475,7 @@ mock.module("../agent/loop.js", () => ({
 import type { QueueDrainReason, QueuePolicy } from "../daemon/conversation.js";
 import { Conversation } from "../daemon/conversation.js";
 import { MessageQueue } from "../daemon/conversation-queue-manager.js";
+import { __setSharedSenderRetryForTest } from "../daemon/shared-sender-queue-gate.js";
 
 type ConversationWithWorkspaceDeps = Conversation & {
   getWorkspaceGitService?: (_workspaceDir: string) => {
@@ -713,6 +828,837 @@ describe("Conversation message queue", () => {
 
     await resolveRun(1);
     await new Promise((r) => setTimeout(r, 10));
+  });
+
+  test("a contact's queued message runs after the current turn and names its author", async () => {
+    // A shared-conversation contact's send that lands mid-turn waits in the
+    // queue like any other. When it drains, the row it persists names the
+    // contact as author and keeps the fence around their text, so a reload
+    // restores it fenced, while the live echo shows the text they typed.
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: () => {},
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    const contactEvents: AssistantEvent[] = [];
+    const contact = {
+      trustClass: "trusted_contact" as const,
+      sourceChannel: "vellum-shared" as const,
+      requesterExternalUserId: "principal-alice",
+      requesterContactId: "contact-alice",
+    };
+    const queued = conversation.enqueueMessage({
+      content: wrapUntrustedContent("Is noon fine?", { source: "webhook" }),
+      requestId: "req-contact",
+      trustContext: contact,
+      author: contact,
+      sourceActorPrincipalId: "principal-alice",
+      clientMessageId: "nonce-1",
+      storedClientMessageId: "vellum-shared:principal-alice:nonce-1",
+      onEvent: (e) => contactEvents.push(e),
+    });
+    expect(queued.queued).toBe(true);
+    expect(pendingRuns.length).toBe(1);
+
+    capturedAddMessages.length = 0;
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    const row = capturedAddMessages.find((m) => m.role === "user");
+    expect(row?.content).toContain("Is noon fine?");
+    expect(row?.content).toContain("external_content");
+    expect(row?.metadata?.provenanceContactId).toBe("contact-alice");
+    expect(row?.metadata?.provenanceTrustClass).toBe("trusted_contact");
+    expect(conversation.currentTurnTrustContext?.requesterExternalUserId).toBe(
+      "principal-alice",
+    );
+    // Events carry the nonce the client sent; the row is stored under the
+    // sender-scoped key.
+    expect(row?.clientMessageId).toBe("vellum-shared:principal-alice:nonce-1");
+    for (const type of ["message_queued", "user_message_echo"]) {
+      expect(contactEvents).toContainEqual(
+        expect.objectContaining({ type, clientMessageId: "nonce-1" }),
+      );
+    }
+    expect(contactEvents).toContainEqual(
+      expect.objectContaining({
+        type: "user_message_echo",
+        text: "Is noon fine?",
+      }),
+    );
+
+    await resolveRun(1);
+    await new Promise((r) => setTimeout(r, 10));
+  });
+
+  test.each([
+    {
+      label: "removed from the conversation",
+      lose: () => {
+        aliceIsParticipant = false;
+      },
+    },
+    {
+      label: "revoked",
+      lose: () => {
+        aliceStatus = "revoked";
+      },
+    },
+  ])(
+    "a contact $label while their message waits is dropped at the drain",
+    async ({ lose }) => {
+      const conversation = makeConversation();
+      await conversation.loadFromDb();
+
+      const p1 = conversation.processMessage({
+        content: "msg-1",
+        attachments: [],
+        onEvent: () => {},
+        requestId: "req-1",
+      });
+      await waitForPendingRun(1);
+
+      const contactEvents: AssistantEvent[] = [];
+      const contact = {
+        trustClass: "trusted_contact" as const,
+        sourceChannel: "vellum-shared" as const,
+        requesterExternalUserId: "principal-alice",
+      };
+      conversation.enqueueMessage({
+        content: "<external_content>Still there?</external_content>",
+        displayContent: "Still there?",
+        requestId: "req-contact",
+        trustContext: contact,
+        author: contact,
+        sourceActorPrincipalId: "principal-alice",
+        onEvent: (e) => contactEvents.push(e),
+      });
+      lose();
+
+      try {
+        capturedAddMessages.length = 0;
+        await resolveRun(0);
+        await p1;
+        await new Promise((r) => setTimeout(r, 30));
+
+        expect(pendingRuns.length).toBe(1);
+        expect(conversation.getQueueDepth()).toBe(0);
+        expect(
+          capturedAddMessages.some((m) => m.content.includes("Still there?")),
+        ).toBe(false);
+        expect(contactEvents.map((e) => e.type)).toEqual([
+          "message_queued",
+          "message_queued_deleted",
+        ]);
+        // Noted so the contact's own stream forwards the close-out.
+        expect(droppedOwnMessages).toContainEqual(
+          expect.objectContaining({
+            requestId: "req-contact",
+            principalId: "principal-alice",
+          }),
+        );
+      } finally {
+        aliceIsParticipant = true;
+        aliceStatus = "active";
+      }
+    },
+  );
+
+  describe("a contact whose access cannot be verified at the drain", () => {
+    const ALICE = {
+      trustClass: "trusted_contact" as const,
+      sourceChannel: "vellum-shared" as const,
+      requesterExternalUserId: "principal-alice",
+    };
+
+    beforeEach(() => {
+      aliceTrustReads = 0;
+      __setSharedSenderRetryForTest({ delayMs: () => 5 });
+    });
+
+    afterAll(() => {
+      aliceFailingReads = 0;
+      __setSharedSenderRetryForTest();
+    });
+
+    async function queueBehindRunningTurn(conversation: Conversation) {
+      const p1 = conversation.processMessage({
+        content: "msg-1",
+        attachments: [],
+        onEvent: () => {},
+        requestId: "req-1",
+      });
+      await waitForPendingRun(1);
+      const events: AssistantEvent[] = [];
+      conversation.enqueueMessage({
+        content: "<external_content>Are we still on?</external_content>",
+        displayContent: "Are we still on?",
+        requestId: "req-contact",
+        trustContext: ALICE,
+        author: ALICE,
+        sourceActorPrincipalId: "principal-alice",
+        onEvent: (e) => events.push(e),
+      });
+      return { p1, events };
+    }
+
+    const contactRows = () =>
+      capturedAddMessages.filter((m) => m.content.includes("Are we still on?"));
+
+    test("keeps the message through repeated failures and runs it once a retry verifies the contact", async () => {
+      const conversation = makeConversation();
+      await conversation.loadFromDb();
+      const { p1 } = await queueBehindRunningTurn(conversation);
+      // More failures than a routine gateway restart would cause; only the
+      // message's age can drop it.
+      aliceFailingReads = 8;
+
+      capturedAddMessages.length = 0;
+      await resolveRun(0);
+      await p1;
+      await waitForPendingRun(2);
+
+      expect(aliceTrustReads).toBe(9);
+      expect(contactRows()).toHaveLength(1);
+      expect(conversation.getQueueDepth()).toBe(0);
+
+      await resolveRun(1);
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    test("drops the message once it has been unverifiable too long", async () => {
+      __setSharedSenderRetryForTest({ delayMs: () => 5, maxAgeMs: 40 });
+      const conversation = makeConversation();
+      await conversation.loadFromDb();
+      const { p1, events } = await queueBehindRunningTurn(conversation);
+      aliceFailingReads = Number.POSITIVE_INFINITY;
+
+      capturedAddMessages.length = 0;
+      await resolveRun(0);
+      await p1;
+      for (let i = 0; i < 100 && conversation.getQueueDepth() > 0; i++) {
+        await new Promise((r) => setTimeout(r, 5));
+      }
+
+      expect(aliceTrustReads).toBeGreaterThan(1);
+      expect(conversation.getQueueDepth()).toBe(0);
+      expect(pendingRuns.length).toBe(1);
+      expect(contactRows()).toHaveLength(0);
+      expect(events.map((e) => e.type)).toEqual([
+        "message_queued",
+        "message_queued_deleted",
+      ]);
+      aliceFailingReads = 0;
+    });
+
+    test("keeps the same sender's later messages behind it", async () => {
+      const conversation = makeConversation();
+      await conversation.loadFromDb();
+      __setSharedSenderRetryForTest({ delayMs: () => 60_000 });
+      const { p1 } = await queueBehindRunningTurn(conversation);
+      conversation.enqueueMessage({
+        content: "<external_content>A second thought</external_content>",
+        displayContent: "A second thought",
+        requestId: "req-contact-2",
+        trustContext: ALICE,
+        author: ALICE,
+        sourceActorPrincipalId: "principal-alice",
+      });
+      conversation.enqueueMessage({
+        content: "guardian follow-up",
+        requestId: "req-guardian",
+      });
+      // Only the first read fails, so the second message would verify.
+      aliceFailingReads = 1;
+
+      capturedAddMessages.length = 0;
+      await resolveRun(0);
+      await p1;
+      await waitForPendingRun(2);
+
+      expect(
+        capturedAddMessages.some((m) =>
+          m.content.includes("guardian follow-up"),
+        ),
+      ).toBe(true);
+      expect(
+        capturedAddMessages.some((m) => m.content.includes("A second thought")),
+      ).toBe(false);
+      expect(conversation.queue.snapshot().map((m) => m.requestId)).toEqual([
+        "req-contact",
+        "req-contact-2",
+      ]);
+
+      aliceFailingReads = 0;
+      await resolveRun(1);
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    test("does not hold the guardian's queued messages behind it", async () => {
+      const conversation = makeConversation();
+      await conversation.loadFromDb();
+      __setSharedSenderRetryForTest({ delayMs: () => 60_000 });
+      const { p1 } = await queueBehindRunningTurn(conversation);
+      conversation.enqueueMessage({
+        content: "guardian follow-up",
+        requestId: "req-guardian",
+      });
+      aliceFailingReads = Number.POSITIVE_INFINITY;
+
+      capturedAddMessages.length = 0;
+      await resolveRun(0);
+      await p1;
+      await waitForPendingRun(2);
+
+      expect(
+        capturedAddMessages.some((m) =>
+          m.content.includes("guardian follow-up"),
+        ),
+      ).toBe(true);
+      expect(contactRows()).toHaveLength(0);
+      expect(conversation.queue.peek(0)?.requestId).toBe("req-contact");
+
+      aliceFailingReads = 0;
+      await resolveRun(1);
+      await new Promise((r) => setTimeout(r, 10));
+    });
+  });
+
+  describe("guardian-only steps on a contact's text", () => {
+    const GUARDIAN = {
+      trustClass: "guardian" as const,
+      sourceChannel: "vellum" as const,
+    };
+    const ALICE = {
+      trustClass: "trusted_contact" as const,
+      sourceChannel: "vellum-shared" as const,
+      requesterExternalUserId: "principal-alice",
+    };
+
+    const lastUserText = (run: PendingRun) => {
+      const last = [...run.messages].reverse().find((m) => m.role === "user");
+      return JSON.stringify(last?.content ?? "");
+    };
+
+    async function drainOne(
+      text: string,
+      trust: typeof GUARDIAN | typeof ALICE,
+    ) {
+      const conversation = makeConversation();
+      await conversation.loadFromDb();
+      const p1 = conversation.processMessage({
+        content: "msg-1",
+        attachments: [],
+        onEvent: () => {},
+        requestId: "req-1",
+      });
+      await waitForPendingRun(1);
+      conversation.enqueueMessage({
+        content: text,
+        requestId: "req-q",
+        trustContext: trust,
+        ...(trust === ALICE
+          ? { author: ALICE, sourceActorPrincipalId: "principal-alice" }
+          : {}),
+      });
+      capturedAddMessages.length = 0;
+      await resolveRun(0);
+      await p1;
+      await new Promise((r) => setTimeout(r, 20));
+      return conversation;
+    }
+
+    test("a contact's slash command is message text", async () => {
+      const conversation = await drainOne("/commands", ALICE);
+
+      // It runs as an ordinary turn instead of a canned slash exchange.
+      expect(pendingRuns.length).toBe(2);
+      expect(lastUserText(pendingRuns[1])).toContain("/commands");
+      expect(capturedAddMessages.filter((m) => m.role === "assistant")).toEqual(
+        [],
+      );
+      await resolveRun(1);
+      void conversation;
+    });
+
+    test("the guardian's slash command still resolves", async () => {
+      await drainOne("/commands", GUARDIAN);
+
+      expect(pendingRuns.length).toBe(1);
+      expect(capturedAddMessages.some((m) => m.role === "assistant")).toBe(
+        true,
+      );
+    });
+
+    test("a contact asking to become guardian is not steered into verification setup", async () => {
+      const conversation = await drainOne("set me as guardian", ALICE);
+
+      expect(pendingRuns.length).toBe(2);
+      expect(conversation.preactivatedSkillIds ?? []).not.toContain(
+        "guardian-verify-setup",
+      );
+      expect(lastUserText(pendingRuns[1])).toContain("set me as guardian");
+      await resolveRun(1);
+    });
+
+    test("the guardian asking for verification setup still is", async () => {
+      const conversation = await drainOne("set me as guardian", GUARDIAN);
+
+      expect(pendingRuns.length).toBe(2);
+      expect(conversation.preactivatedSkillIds).toContain(
+        "guardian-verify-setup",
+      );
+      await resolveRun(1);
+    });
+
+    test("a contact's turn is not read as a guardian reply", async () => {
+      const conversation = makeConversation();
+      await conversation.loadFromDb();
+      guardianReplyTexts.length = 0;
+
+      const run = conversation.processMessage({
+        content: "approve ABC123",
+        attachments: [],
+        onEvent: () => {},
+        requestId: "req-contact",
+        trustContext: ALICE,
+      });
+      await waitForPendingRun(1);
+
+      expect(guardianReplyTexts).toEqual([]);
+      await resolveRun(0);
+      await run;
+    });
+
+    test("the guardian's turn still is", async () => {
+      const conversation = makeConversation();
+      await conversation.loadFromDb();
+      guardianReplyTexts.length = 0;
+
+      const run = conversation.processMessage({
+        content: "approve ABC123",
+        attachments: [],
+        onEvent: () => {},
+        requestId: "req-guardian",
+        trustContext: GUARDIAN,
+      });
+      await waitForPendingRun(1);
+
+      expect(guardianReplyTexts).toEqual(["approve ABC123"]);
+      await resolveRun(0);
+      await run;
+    });
+  });
+
+  test("a contact's queued message runs as the contact is now, not as when it was queued", async () => {
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: () => {},
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    const queuedAs = {
+      trustClass: "trusted_contact" as const,
+      sourceChannel: "vellum-shared" as const,
+      requesterExternalUserId: "principal-alice",
+      requesterContactId: "contact-old",
+      memberPolicy: "deny",
+    };
+    conversation.enqueueMessage({
+      content: "<external_content>Still on for noon?</external_content>",
+      displayContent: "Still on for noon?",
+      requestId: "req-contact",
+      trustContext: queuedAs,
+      author: queuedAs,
+      sourceActorPrincipalId: "principal-alice",
+    });
+    aliceContactId = "contact-new";
+    alicePolicy = "allow";
+
+    try {
+      capturedAddMessages.length = 0;
+      await resolveRun(0);
+      await p1;
+      await waitForPendingRun(2);
+
+      expect(conversation.currentTurnTrustContext).toMatchObject({
+        requesterContactId: "contact-new",
+        memberPolicy: "allow",
+      });
+      const row = capturedAddMessages.find((m) => m.role === "user");
+      expect(row?.metadata?.provenanceContactId).toBe("contact-new");
+      await resolveRun(1);
+    } finally {
+      aliceContactId = "contact-alice";
+      alicePolicy = "allow";
+    }
+  });
+
+  test("disposing the conversation closes out a queued contact message for its sender", async () => {
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: () => {},
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    const alice = {
+      trustClass: "trusted_contact" as const,
+      sourceChannel: "vellum-shared" as const,
+      requesterExternalUserId: "principal-alice",
+    };
+    const contactEvents: AssistantEvent[] = [];
+    const guardianEvents: AssistantEvent[] = [];
+    conversation.enqueueMessage({
+      content: "from Alice",
+      requestId: "req-contact",
+      clientMessageId: "nonce-alice",
+      trustContext: alice,
+      author: alice,
+      sourceActorPrincipalId: "principal-alice",
+      onEvent: (e) => contactEvents.push(e),
+    });
+    conversation.enqueueMessage({
+      content: "from the guardian",
+      requestId: "req-guardian",
+      onEvent: (e) => guardianEvents.push(e),
+    });
+    droppedOwnMessages.length = 0;
+
+    conversation.dispose();
+
+    expect(contactEvents).toContainEqual(
+      expect.objectContaining({
+        type: "message_queued_deleted",
+        requestId: "req-contact",
+        clientMessageId: "nonce-alice",
+      }),
+    );
+    expect(guardianEvents.map((e) => e.type)).toContain(
+      "message_queued_deleted",
+    );
+    expect(droppedOwnMessages).toEqual([
+      expect.objectContaining({
+        requestId: "req-contact",
+        principalId: "principal-alice",
+      }),
+    ]);
+  });
+
+  describe("a contact's queued message and the conversation's history scope", () => {
+    const GUARDIAN = {
+      trustClass: "guardian" as const,
+      sourceChannel: "vellum" as const,
+    };
+    const ALICE = {
+      trustClass: "trusted_contact" as const,
+      sourceChannel: "vellum-shared" as const,
+      requesterExternalUserId: "principal-alice",
+    };
+    const row = (
+      id: string,
+      role: string,
+      text: string,
+      trustClass: string,
+    ) => ({
+      id,
+      conversationId: "conv-1",
+      role,
+      content: [{ type: "text", text }],
+      createdAt: 1,
+      metadata: JSON.stringify({ provenanceTrustClass: trustClass }),
+      clientMessageId: null,
+    });
+    const runText = (run: PendingRun) => JSON.stringify(run.messages);
+
+    afterEach(() => {
+      storedRows = [];
+      aliceGuardianRoute = false;
+    });
+
+    test("runs on the contact's scope, then the guardian's again", async () => {
+      storedRows = [
+        row("m-g", "user", "guardian-only notes", "guardian"),
+        row("m-c", "user", "an earlier contact message", "trusted_contact"),
+      ];
+      const conversation = makeConversation();
+      conversation.setTrustContext(GUARDIAN);
+      await conversation.loadFromDb();
+      const p1 = conversation.processMessage({
+        content: "msg-1",
+        attachments: [],
+        onEvent: () => {},
+        requestId: "req-1",
+      });
+      await waitForPendingRun(1);
+      expect(runText(pendingRuns[0])).toContain("guardian-only notes");
+
+      conversation.enqueueMessage({
+        content: "from Alice",
+        requestId: "req-contact",
+        trustContext: ALICE,
+        author: ALICE,
+        sourceActorPrincipalId: "principal-alice",
+      });
+      conversation.enqueueMessage({
+        content: "guardian follow-up",
+        requestId: "req-guardian",
+        trustContext: GUARDIAN,
+      });
+
+      await resolveRun(0);
+      await p1;
+      await waitForPendingRun(2);
+      expect(runText(pendingRuns[1])).not.toContain("guardian-only notes");
+      expect(runText(pendingRuns[1])).toContain("an earlier contact message");
+      expect(conversation.currentTurnTrustContext?.trustClass).toBe(
+        "trusted_contact",
+      );
+
+      await resolveRun(1);
+      await waitForPendingRun(3);
+      expect(runText(pendingRuns[2])).toContain("guardian-only notes");
+      expect(conversation.currentTurnTrustContext?.trustClass).toBe("guardian");
+      await resolveRun(2);
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    test.each([
+      { guardianRoute: true, queuedAs: false, interactive: true },
+      { guardianRoute: false, queuedAs: true, interactive: false },
+    ])(
+      "an admitted contact message is interactive only while a guardian route exists ($guardianRoute)",
+      async ({ guardianRoute, queuedAs, interactive }) => {
+        const conversation = makeConversation();
+        await conversation.loadFromDb();
+        const p1 = conversation.processMessage({
+          content: "msg-1",
+          attachments: [],
+          onEvent: () => {},
+          requestId: "req-1",
+        });
+        await waitForPendingRun(1);
+        conversation.enqueueMessage({
+          content: "from Alice",
+          requestId: "req-contact",
+          trustContext: ALICE,
+          author: ALICE,
+          sourceActorPrincipalId: "principal-alice",
+          isInteractive: queuedAs,
+        });
+        aliceGuardianRoute = guardianRoute;
+
+        await resolveRun(0);
+        await p1;
+        await waitForPendingRun(2);
+
+        expect(conversation.currentTurnIsNonInteractive).toBe(!interactive);
+        await resolveRun(1);
+        await new Promise((r) => setTimeout(r, 10));
+      },
+    );
+  });
+
+  describe("a queued message whose persist fails", () => {
+    const ALICE = {
+      trustClass: "trusted_contact" as const,
+      sourceChannel: "vellum-shared" as const,
+      requesterExternalUserId: "principal-alice",
+    };
+
+    async function drainWithFailingPersist(
+      queued: Array<{ text: string; requestId: string; contact: boolean }>,
+      failing: string[],
+    ) {
+      const conversation = makeConversation();
+      await conversation.loadFromDb();
+      const p1 = conversation.processMessage({
+        content: "msg-1",
+        attachments: [],
+        onEvent: () => {},
+        requestId: "req-1",
+      });
+      await waitForPendingRun(1);
+      const events = new Map<string, AssistantEvent[]>();
+      for (const { text, requestId, contact } of queued) {
+        const own: AssistantEvent[] = [];
+        events.set(requestId, own);
+        conversation.enqueueMessage({
+          content: text,
+          requestId,
+          clientMessageId: `nonce-${requestId}`,
+          onEvent: (e) => own.push(e),
+          ...(contact
+            ? {
+                trustContext: ALICE,
+                author: ALICE,
+                sourceActorPrincipalId: "principal-alice",
+              }
+            : {}),
+        });
+      }
+      for (const needle of failing) {
+        addMessageShouldThrowForContent.add(needle);
+      }
+      droppedOwnMessages.length = 0;
+      await resolveRun(0);
+      await p1;
+      await new Promise((r) => setTimeout(r, 30));
+      return events;
+    }
+
+    const types = (events: AssistantEvent[] | undefined) =>
+      (events ?? []).map((e) => e.type);
+
+    test("closes out a contact's message for that contact", async () => {
+      const events = await drainWithFailingPersist(
+        [{ text: "contact-fails", requestId: "req-alice", contact: true }],
+        ["contact-fails"],
+      );
+
+      expect(types(events.get("req-alice"))).toContain("error");
+      expect(events.get("req-alice")).toContainEqual(
+        expect.objectContaining({
+          type: "message_queued_deleted",
+          requestId: "req-alice",
+          clientMessageId: "nonce-req-alice",
+        }),
+      );
+      expect(droppedOwnMessages).toEqual([
+        expect.objectContaining({
+          requestId: "req-alice",
+          principalId: "principal-alice",
+        }),
+      ]);
+    });
+
+    test("closes out each failed contact message in a batch", async () => {
+      const events = await drainWithFailingPersist(
+        [
+          { text: "head-fails", requestId: "req-alice-1", contact: true },
+          { text: "tail-runs", requestId: "req-alice-2", contact: true },
+          { text: "tail-fails", requestId: "req-alice-3", contact: true },
+        ],
+        ["head-fails", "tail-fails"],
+      );
+
+      for (const requestId of ["req-alice-1", "req-alice-3"]) {
+        expect(types(events.get(requestId))).toContain(
+          "message_queued_deleted",
+        );
+      }
+      expect(types(events.get("req-alice-2"))).not.toContain(
+        "message_queued_deleted",
+      );
+      expect(droppedOwnMessages.map((note) => note.requestId).sort()).toEqual([
+        "req-alice-1",
+        "req-alice-3",
+      ]);
+      await resolveRun(1);
+    });
+
+    test("leaves a guardian's failed message to its error alone", async () => {
+      const events = await drainWithFailingPersist(
+        [{ text: "guardian-fails", requestId: "req-guardian", contact: false }],
+        ["guardian-fails"],
+      );
+
+      expect(types(events.get("req-guardian"))).toContain("error");
+      expect(types(events.get("req-guardian"))).not.toContain(
+        "message_queued_deleted",
+      );
+      expect(droppedOwnMessages).toEqual([]);
+    });
+  });
+
+  describe("notification preferences from queued messages", () => {
+    const GUARDIAN = {
+      trustClass: "guardian" as const,
+      sourceChannel: "vellum" as const,
+    };
+    const ALICE = {
+      trustClass: "trusted_contact" as const,
+      sourceChannel: "vellum-shared" as const,
+      requesterExternalUserId: "principal-alice",
+    };
+
+    async function drainQueued(
+      senders: Array<{ text: string; trust: typeof GUARDIAN | typeof ALICE }>,
+    ) {
+      const conversation = makeConversation();
+      await conversation.loadFromDb();
+      conversation.setAssistantId("self");
+      const p1 = conversation.processMessage({
+        content: "msg-1",
+        attachments: [],
+        onEvent: () => {},
+        requestId: "req-1",
+      });
+      await waitForPendingRun(1);
+      senders.forEach(({ text, trust }, i) => {
+        conversation.enqueueMessage({
+          content: text,
+          requestId: `req-q-${i}`,
+          trustContext: trust,
+          ...(trust === ALICE
+            ? { author: ALICE, sourceActorPrincipalId: "principal-alice" }
+            : {}),
+        });
+      });
+      createdPreferences.length = 0;
+      await resolveRun(0);
+      await p1;
+      await waitForPendingRun(2);
+      await new Promise((r) => setTimeout(r, 10));
+      return conversation;
+    }
+
+    test("a contact's queued message records no preference", async () => {
+      await drainQueued([{ text: "never ping me at night", trust: ALICE }]);
+      expect(createdPreferences).toEqual([]);
+      await resolveRun(1);
+    });
+
+    test("batched contact messages record no preference", async () => {
+      await drainQueued([
+        { text: "never ping me at night", trust: ALICE },
+        { text: "and not on weekends", trust: ALICE },
+      ]);
+      expect(createdPreferences).toEqual([]);
+      await resolveRun(1);
+    });
+
+    test("the guardian's queued message still records one", async () => {
+      await drainQueued([{ text: "only urgent alerts", trust: GUARDIAN }]);
+      expect(createdPreferences).toEqual(["only urgent alerts"]);
+      await resolveRun(1);
+    });
+
+    test("batched guardian messages each record one", async () => {
+      await drainQueued([
+        { text: "only urgent alerts", trust: GUARDIAN },
+        { text: "quiet after ten", trust: GUARDIAN },
+      ]);
+      expect(createdPreferences).toEqual([
+        "only urgent alerts",
+        "quiet after ten",
+      ]);
+      await resolveRun(1);
+    });
   });
 
   test("the turn-context actor section describes the turn's actor, not the conversation's resting actor", async () => {

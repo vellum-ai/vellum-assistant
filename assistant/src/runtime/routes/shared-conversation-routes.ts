@@ -1,21 +1,28 @@
 /**
- * A trusted contact's read routes for the conversations shared with them.
+ * A trusted contact's routes for the conversations shared with them.
  *
- * GET /v1/shared/conversations
- * GET /v1/shared/conversations/:id
- * GET /v1/shared/conversations/:id/messages
+ * GET  /v1/shared/conversations
+ * GET  /v1/shared/conversations/:id
+ * GET  /v1/shared/conversations/:id/messages
+ * POST /v1/shared/conversations/:id/messages
  *
  * Every route resolves the caller's membership before anything else and
  * answers 404 when it is missing, so a contact cannot tell a conversation
  * they were not given from one that does not exist. Conversation metadata
  * is an explicit allowlist, and every message passes through the contact
  * projection, which drops reasoning, tool traffic and anything else a
- * contact may not read. The guardian reads through their own routes and is
- * refused here.
+ * contact may not read. A contact's message runs a turn as that contact on
+ * the `vellum-shared` channel, in a conversation that already exists. The
+ * guardian uses their own routes and is refused here.
  */
 
 import { z } from "zod";
 
+import type { Conversation } from "../../daemon/conversation.js";
+import { getConversationIfExists } from "../../daemon/conversation-store.js";
+import type { ConversationCreateOptions } from "../../daemon/handlers/shared.js";
+import type { TrustContext } from "../../daemon/trust-context-types.js";
+import { resolveAttachmentsForPersist } from "../../persistence/attachments-store.js";
 import {
   type ContactReader,
   type ContactVisibleBlock,
@@ -31,11 +38,18 @@ import {
   isParticipant,
   listConversationIdsForPrincipal,
 } from "../../persistence/conversation-participants.js";
+import { assistantEventHub } from "../assistant-event-hub.js";
 import {
   type RoutePolicy,
   TRUSTED_CONTACT_ONLY,
 } from "../auth/route-policy.js";
+import { resolveSharedSenderTrust } from "../shared-sender-admission.js";
+import { handleSendMessage } from "./conversation-routes.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
+import {
+  channelInboundBudget,
+  fitsChannelInboundBudget,
+} from "./inbound-stages/inbound-content-prep.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const DEFAULT_MESSAGE_LIMIT = 50;
@@ -43,6 +57,12 @@ const MAX_MESSAGE_LIMIT = 500;
 
 export const POLICY: RoutePolicy = {
   requiredScopes: ["shared.read"],
+  allowedPrincipalTypes: ["actor"],
+  allowedTrustClasses: TRUSTED_CONTACT_ONLY,
+};
+
+const WRITE_POLICY: RoutePolicy = {
+  requiredScopes: ["chat.write"],
   allowedPrincipalTypes: ["actor"],
   allowedTrustClasses: TRUSTED_CONTACT_ONLY,
 };
@@ -211,6 +231,91 @@ function handleListSharedMessages({
   };
 }
 
+/** The contact's trust, refused as if the conversation did not exist. */
+async function contactTurnTrust(reader: ContactReader): Promise<TrustContext> {
+  const trust = await resolveSharedSenderTrust(reader.principalId);
+  if (!trust) {
+    throw new NotFoundError("Conversation not found");
+  }
+  return trust;
+}
+
+/**
+ * The conversation acquire a contact's send runs on: it joins a conversation
+ * that exists and never writes one back, so a conversation deleted after the
+ * membership check stays deleted.
+ */
+async function joinExistingConversation(
+  conversationId: string,
+  options?: ConversationCreateOptions,
+): Promise<Conversation> {
+  const conversation = await getConversationIfExists(conversationId, options);
+  if (!conversation) {
+    throw new NotFoundError("Conversation not found");
+  }
+  return conversation;
+}
+
+/**
+ * A contact's entry into the one send pipeline. Membership, the contact's
+ * trust and the admission floor are settled here; queueing, dedup and the
+ * turn itself are `handleSendMessage`'s, the same as for `POST /v1/messages`.
+ */
+async function handleSendSharedMessage({
+  pathParams = {},
+  body = {},
+  headers,
+}: RouteHandlerArgs) {
+  const reader = readerFrom(headers);
+  const { id: conversationId } = sharedConversationOrThrow(
+    pathParams.id!,
+    reader,
+  );
+  if (
+    body.clientMessageId != null &&
+    typeof body.clientMessageId !== "string"
+  ) {
+    throw new BadRequestError("clientMessageId must be a string");
+  }
+  // A contact's text is stored fenced, and the fence truncates past its
+  // budget, so a longer message is refused whole rather than cut.
+  if (
+    typeof body.content === "string" &&
+    !fitsChannelInboundBudget(body.content.trim(), "vellum-shared")
+  ) {
+    throw new BadRequestError(
+      `content is too long: a message holds at most ${channelInboundBudget(
+        "vellum-shared",
+      ).toLocaleString("en-US")} characters`,
+    );
+  }
+
+  const trust = await contactTurnTrust(reader);
+
+  return handleSendMessage(
+    {
+      body: {
+        conversationId,
+        content: body.content,
+        sourceChannel: "vellum-shared",
+        interface: "web",
+        ...(body.clientMessageId
+          ? { clientMessageId: body.clientMessageId }
+          : {}),
+      },
+      headers,
+    },
+    {
+      sendMessageDeps: {
+        getOrCreateConversation: joinExistingConversation,
+        assistantEventHub,
+        resolveAttachments: resolveAttachmentsForPersist,
+      },
+      contactSender: { trustContext: trust, principalId: reader.principalId },
+    },
+  );
+}
+
 const conversationIdParam = { name: "id", type: "uuid" } as const;
 const notFound = {
   "404": {
@@ -294,5 +399,46 @@ export const ROUTES: RouteDefinition[] = [
       "400": { description: "A query parameter is not a valid number" },
     },
     handler: handleListSharedMessages,
+  },
+  {
+    operationId: "sendSharedConversationMessage",
+    endpoint: "shared/conversations/:id/messages",
+    method: "POST",
+    policy: WRITE_POLICY,
+    summary: "Send a message to a shared conversation",
+    description:
+      "Send a message from the calling contact to a conversation shared with them. " +
+      "The turn runs as that contact and its events stream to the conversation's readers. " +
+      "A message sent while a turn is running is queued behind it. " +
+      "The conversation must already exist; this never creates one.",
+    tags: ["shared"],
+    responseStatus: "202",
+    pathParams: [conversationIdParam],
+    requestBody: z.object({
+      content: z.string().describe("Message text"),
+      clientMessageId: z
+        .string()
+        .optional()
+        .describe(
+          "Client-generated idempotency nonce. A retry with the same value is accepted without running a second turn.",
+        ),
+    }),
+    responseBody: z.object({
+      accepted: z.boolean(),
+      conversationId: z.string().optional(),
+      messageId: z.string().optional(),
+      queued: z.boolean().optional(),
+      requestId: z.string().optional(),
+    }),
+    additionalResponses: {
+      ...notFound,
+      "400": {
+        description:
+          "The message has no content, or is longer than a shared conversation message may be",
+      },
+      "422": { description: "The message contains a secret and was not sent" },
+      "429": { description: "Too many messages are already queued" },
+    },
+    handler: handleSendSharedMessage,
   },
 ];
