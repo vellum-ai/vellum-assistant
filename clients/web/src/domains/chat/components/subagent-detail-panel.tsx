@@ -183,6 +183,7 @@ export function SubagentDetailPanel({
     setExpandedSectionKeys(new Set());
   }
 
+
   // The panel is where a settled subagent's timeline is fetched: the
   // conversation-load auto-fetch only covers live rows, so opening one of the
   // many terminal rows reconcile materializes is what pays for its detail.
@@ -323,123 +324,125 @@ export function SubagentDetailPanel({
       {/* Body: swaps to a step's nested detail when one is selected, keeping
           the header above mounted in both views. */}
       <motion.div
-        className="flex flex-col gap-5"
-        key={activeDetail ? "detail" : "list"}
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={
-          reduce ? { duration: 0 } : { duration: 0.18, ease: [0.16, 1, 0.3, 1] }
-        }
-      >
-        {activeDetail ? (
-          <>
-            {/* Navigation back to the timeline lives in the header (Back button)
+          className="flex flex-col gap-5"
+          key={activeDetail ? "detail" : "list"}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={
+            reduce
+              ? { duration: 0 }
+              : { duration: 0.18, ease: [0.16, 1, 0.3, 1] }
+          }
+        >
+          {activeDetail ? (
+            <>
+              {/* Navigation back to the timeline lives in the header (Back button)
               and the breadcrumb; this body only renders the step's detail. A
               thinking step's payload names no chat message, so the shared body
               renders its text as recorded; every tool goes through
               `ToolDetailBody`, which picks its renderer. */}
-            {activeDetail.kind === "thinking" ? (
-              <ThinkingDetailMarkdown
-                detail={activeDetail}
-                assistantId={assistantId}
-              />
-            ) : (
-              <ToolDetailBody
-                detail={activeDetail}
-                source={SNAPSHOT_TOOL_CALL_SOURCE}
-                assistantId={assistantId}
-              />
-            )}
-          </>
-        ) : (
-          <>
-            {/* Metrics row */}
-            <div className="grid grid-cols-2 gap-3">
-              <AnimatedStatSquare
-                icon={<ArrowDownToLine className="h-4 w-4 shrink-0" />}
-                target={entry.inputTokens}
-                format={(n) => formatNumber(Math.round(n))}
-                label={t("subagentDetailPanel.input")}
-              />
-              <AnimatedStatSquare
-                icon={<ArrowUpFromLine className="h-4 w-4 shrink-0" />}
-                target={entry.outputTokens}
-                format={(n) => formatNumber(Math.round(n))}
-                label={t("subagentDetailPanel.output")}
-              />
-            </div>
-
-            {/* Objective section */}
-            {entry.objective && (
-              <div>
-                <SectionLabel as="h3">
-                  {t("subagentDetailPanel.objective")}
-                </SectionLabel>
-                {/* Keyed by subagent so the next subagent's objective is
-                      measured afresh; its open state resets with the switch. */}
-                <ClampedContent
-                  key={entry.subagentId}
-                  label={t("subagentDetailPanel.objective")}
-                  expanded={objectiveExpanded}
-                  onExpandedChange={setObjectiveExpanded}
-                >
-                  <Typography
-                    variant="body-medium-lighter"
-                    as="p"
-                    className="whitespace-pre-wrap break-words leading-relaxed text-[var(--content-default)]"
-                  >
-                    {entry.objective}
-                  </Typography>
-                </ClampedContent>
-                {/* The rule closes the objective, so it sits inside the
-                      section rather than between two of them. */}
-                <div className="mt-5 h-px w-full bg-[var(--border-hover)]" />
-              </div>
-            )}
-
-            {/* Timeline section */}
-            <div>
-              <SectionLabel as="h3">
-                {t("subagentDetailPanel.timeline")}
-              </SectionLabel>
-              {/*
-               * Key by subagent id so the timeline remounts on subagent switch,
-               * resetting the expand/collapse state it holds. The drawer keeps this
-               * component mounted across switches, so without a per-subagent reset
-               * an expanded phase would leak its expanded state onto the next
-               * subagent's same-positioned phase.
-               */}
-              {/*
-               * Gate the empty state on the RAW `entry.events`, not on the
-               * projected `steps`. `computeSubagentSteps` can intentionally
-               * DROP events (e.g. a `tool_result` with no preceding in-flight
-               * `tool_call`), so `entry.events` can be non-empty while `steps`
-               * is empty. Gating on steps would show a false "No events yet"
-               * AND — because `entry.events.length !== 0` — the detail-refetch
-               * effect above wouldn't fire to recover. When the store has events
-               * we render the timeline (which returns null for zero steps, an
-               * acceptable no-op).
-               */}
-              {entry.events.length > 0 ? (
-                <SubagentPhaseTimeline
-                  key={entry.subagentId}
-                  steps={steps}
-                  expandedKeys={expandedSectionKeys}
-                  onExpandedKeysChange={setExpandedSectionKeys}
-                  onStepDetailClick={handleStepDetailClick}
-                  // Keeps the last phase's node pulsing while the subagent is
-                  // still active but its last phase has settled.
-                  isRunning={isRunning}
+              {activeDetail.kind === "thinking" ? (
+                <ThinkingDetailMarkdown
+                  detail={activeDetail}
+                  assistantId={assistantId}
                 />
               ) : (
-                <DetailShellNotice placement="section">
-                  {t("subagentDetailPanel.noEventsYet")}
-                </DetailShellNotice>
+                <ToolDetailBody
+                  detail={activeDetail}
+                  source={SNAPSHOT_TOOL_CALL_SOURCE}
+                  assistantId={assistantId}
+                />
               )}
-            </div>
-          </>
-        )}
-      </motion.div>
+            </>
+          ) : (
+            <>
+              {/* Metrics row */}
+              <div className="grid grid-cols-2 gap-3">
+                <AnimatedStatSquare
+                  icon={<ArrowDownToLine className="h-4 w-4 shrink-0" />}
+                  target={entry.inputTokens}
+                  format={(n) => formatNumber(Math.round(n))}
+                  label={t("subagentDetailPanel.input")}
+                />
+                <AnimatedStatSquare
+                  icon={<ArrowUpFromLine className="h-4 w-4 shrink-0" />}
+                  target={entry.outputTokens}
+                  format={(n) => formatNumber(Math.round(n))}
+                  label={t("subagentDetailPanel.output")}
+                />
+              </div>
+
+              {/* Objective section */}
+              {entry.objective && (
+                <div>
+                  <SectionLabel as="h3">
+                    {t("subagentDetailPanel.objective")}
+                  </SectionLabel>
+                  {/* Keyed by subagent so the next subagent's objective is
+                      measured afresh; its open state resets with the switch. */}
+                  <ClampedContent
+                    key={entry.subagentId}
+                    label={t("subagentDetailPanel.objective")}
+                    expanded={objectiveExpanded}
+                    onExpandedChange={setObjectiveExpanded}
+                  >
+                    <Typography
+                      variant="body-medium-lighter"
+                      as="p"
+                      className="whitespace-pre-wrap break-words leading-relaxed text-[var(--content-default)]"
+                    >
+                      {entry.objective}
+                    </Typography>
+                  </ClampedContent>
+                  {/* The rule closes the objective, so it sits inside the
+                      section rather than between two of them. */}
+                  <div className="mt-5 h-px w-full bg-[var(--border-hover)]" />
+                </div>
+              )}
+
+              {/* Timeline section */}
+              <div>
+                <SectionLabel as="h3">
+                  {t("subagentDetailPanel.timeline")}
+                </SectionLabel>
+                {/*
+                 * Key by subagent id so the timeline remounts on subagent switch,
+                 * resetting the expand/collapse state it holds. The drawer keeps this
+                 * component mounted across switches, so without a per-subagent reset
+                 * an expanded phase would leak its expanded state onto the next
+                 * subagent's same-positioned phase.
+                 */}
+                {/*
+                 * Gate the empty state on the RAW `entry.events`, not on the
+                 * projected `steps`. `computeSubagentSteps` can intentionally
+                 * DROP events (e.g. a `tool_result` with no preceding in-flight
+                 * `tool_call`), so `entry.events` can be non-empty while `steps`
+                 * is empty. Gating on steps would show a false "No events yet"
+                 * AND — because `entry.events.length !== 0` — the detail-refetch
+                 * effect above wouldn't fire to recover. When the store has events
+                 * we render the timeline (which returns null for zero steps, an
+                 * acceptable no-op).
+                 */}
+                {entry.events.length > 0 ? (
+                  <SubagentPhaseTimeline
+                    key={entry.subagentId}
+                    steps={steps}
+                    expandedKeys={expandedSectionKeys}
+                    onExpandedKeysChange={setExpandedSectionKeys}
+                    onStepDetailClick={handleStepDetailClick}
+                    // Keeps the last phase's node pulsing while the subagent is
+                    // still active but its last phase has settled.
+                    isRunning={isRunning}
+                  />
+                ) : (
+                  <DetailShellNotice placement="section">
+                    {t("subagentDetailPanel.noEventsYet")}
+                  </DetailShellNotice>
+                )}
+              </div>
+            </>
+          )}
+        </motion.div>
     </DetailShell>
   );
 }
