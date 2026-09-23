@@ -2456,6 +2456,13 @@ describe("VoiceRoom: camera", () => {
       await act(async () => {
         releaseReplacement(fakeStream());
       });
+
+      // The flip has settled and the replacement stream is assigned, but it has
+      // decoded nothing yet, so the feed is still transparent. The flag the
+      // outgoing frame set must not survive the flip to hide the look here,
+      // whichever of `emptied` and the replacement camera arrives first.
+      expect(look()?.className).not.toContain("invisible");
+
       await act(async () => {
         fireEvent.loadedData(viewfinder()!);
       });
