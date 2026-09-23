@@ -384,11 +384,11 @@ export function finalizeMessageComplete(
   const assistantTextVisibility = readAssistantTextVisibility(event);
   const visibility = assistantTextVisibility ? { assistantTextVisibility } : {};
   // The profile Auto picked for the turn, stamped on the live row from the
-  // same event so it shows without waiting for a history refetch.
-  const autoRoutedProfile =
-    event.type === "message_complete" && event.autoRoutedProfile
-      ? { autoRoutedProfile: event.autoRoutedProfile }
-      : {};
+  // same terminal event (completion or handoff) so it shows without waiting
+  // for a history refetch.
+  const autoRoutedProfile = event.autoRoutedProfile
+    ? { autoRoutedProfile: event.autoRoutedProfile }
+    : {};
   const membership = event.modeSession
     ? { modeSession: event.modeSession }
     : {};
@@ -406,6 +406,7 @@ export function finalizeMessageComplete(
         timestamp: at,
         attachments,
         ...visibility,
+        ...autoRoutedProfile,
         ...membership,
       },
     ];

@@ -1307,6 +1307,7 @@
     "title": "檔案"
   },
   "messageHoverActions": {
+    "autoRouted": "自動 · {profile}",
     "bookmark": "書籤",
     "copied": "已複製",
     "copy": "複製",

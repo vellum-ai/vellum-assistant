@@ -2241,6 +2241,9 @@ export async function runAgentLoopImpl(
           ...(state.lastAssistantMessageId
             ? { messageId: state.lastAssistantMessageId }
             : {}),
+          ...(state.autoRoutedProfile
+            ? { autoRoutedProfile: state.autoRoutedProfile }
+            : {}),
           modeSession: ctx.modeSessions.getTurnOwner(reqId),
         });
         publishLoopMessagesChanged();
