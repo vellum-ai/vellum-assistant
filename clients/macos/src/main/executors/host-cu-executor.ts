@@ -111,18 +111,14 @@ const percent = (fraction: number): string =>
  */
 const CANDIDATES_SHOWN = 24;
 
-/**
- * What a named control that did not resolve is answered with.
- *
- * The labels come back because the whole point of naming rather than guessing
- * is that a miss is recoverable: told what is actually on the surface, the
- * next attempt can name one of those, or say out loud that the thing is not
- * there. Told only "not found", it would guess coordinates again.
- */
+const VISUAL_FALLBACK_GUIDANCE =
+  "If you can confidently identify the intended control in a fresh image of the shared surface, retry with x/y/width/height bounds measured from that image to draw a ring. Otherwise get a fresh view or ask the user to clarify; do not invent coordinates. No mark was drawn by this attempt.";
+
+/** A failed accessibility lookup can be recovered from the shared image. */
 const UNRESOLVED = (unresolved: CoachmarkUnresolved): string => {
   const { target, reason, candidates } = unresolved;
   if (reason === "no-tree") {
-    return `The shared surface exposes no accessibility information, so nothing on it can be found by name. Say where "${target}" is out loud instead of drawing it.`;
+    return `The shared surface exposes no accessibility information, so "${target}" cannot be found by name. ${VISUAL_FALLBACK_GUIDANCE}`;
   }
   const shown = candidates.slice(0, CANDIDATES_SHOWN).join(", ");
   // Counted off what the surface carried rather than off what arrived: the
@@ -132,9 +128,9 @@ const UNRESOLVED = (unresolved: CoachmarkUnresolved): string => {
   const rest =
     total > CANDIDATES_SHOWN ? ` (and ${total - CANDIDATES_SHOWN} more)` : "";
   if (reason === "ambiguous") {
-    return `More than one thing on the shared surface answers to "${target}": ${shown}${rest}. A name is matched whole, so there is no wording of "${target}" that picks one of them out. Point at a nearby control whose name is its own, or say where the thing is out loud.`;
+    return `More than one thing on the shared surface answers to "${target}": ${shown}${rest}. A name is matched whole, so rewording "${target}" cannot select one of them. ${VISUAL_FALLBACK_GUIDANCE}`;
   }
-  return `Nothing on the shared surface is called "${target}". What is there: ${shown}${rest}. These are accessibility names and may differ from the visible labels. If one identifies the intended control in the shared image, retry with that exact name as target and use the visible label in the caption. Otherwise say where the thing is out loud. Do not fall back to guessing bounds for it: a ring drawn at a guess is worse than no ring, because it is followed.`;
+  return `No accessibility name on the shared surface matches "${target}". Available names: ${shown}${rest}. These may differ from the visible labels. If one identifies the intended control in the shared image, retry with that exact name as target and use the visible label in the caption. ${VISUAL_FALLBACK_GUIDANCE}`;
 };
 
 const UNSHARED =
