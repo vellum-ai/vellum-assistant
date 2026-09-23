@@ -45,7 +45,10 @@ import { mintVoiceDraftConversation } from "@/domains/chat/voice/voice-draft-con
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
 import type { DictationPostResponse } from "@/generated/daemon/types.gen";
 import { supportsSelectionRewrite } from "@/lib/backwards-compat/selection-rewrite";
-import { getCompanionState } from "@/runtime/companion-surface";
+import {
+  advanceCompanionIntro,
+  getCompanionState,
+} from "@/runtime/companion-surface";
 import { companionIntroStaged } from "@/runtime/companion-intro-stage";
 import { subscribeToDictationOverlayStop } from "@/runtime/dictation-overlay";
 import { insertTextIntoFrontApp } from "@/runtime/text-insertion";
@@ -408,15 +411,18 @@ export function GlobalPushToTalkBridge({
       }
     },
     onDoubleTap: async () => {
-      if (!enabled || companionIntroStaged()) {
+      if (!enabled) {
         return;
       }
       const state = await getCompanionState();
-      if (
-        !enabledRef.current ||
-        state?.intro != null ||
-        companionIntroStaged()
-      ) {
+      if (!enabledRef.current) {
+        return;
+      }
+      if (state?.intro === "try") {
+        advanceCompanionIntro("try");
+        return;
+      }
+      if (state?.intro != null || companionIntroStaged()) {
         return;
       }
       toggleVoiceFromSurface(

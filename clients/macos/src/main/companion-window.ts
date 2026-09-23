@@ -864,13 +864,6 @@ export const introEndsOnSession = (beat: CompanionIntroBeat | null): boolean =>
  * A real conversation has started, so finish a run whose last beat was the
  * offer of one.
  *
- * **The last card advertises two ways in, and only one of them is a press on
- * it.** A double tap on the key reaches the window that owns the voice key and
- * starts a session directly: nothing about it comes back through the run, so
- * without this the beat survives the call, the card returns when it ends, and
- * the install is never recorded as introduced. Either gesture is the user doing
- * the thing the run exists to teach, so either one finishes it.
- *
  * Only the last beat. A session started from an earlier one is the run being
  * interrupted by the user's own business, and main holds the beat so the card
  * picks up where it left off once the call is over.
@@ -879,10 +872,6 @@ const finishIntroOnSession = (): void => {
   if (!introEndsOnSession(intro)) {
     return;
   }
-  // **The offer taken the other way.** The press on the last beat is counted
-  // where the press lands; this is the same offer accepted by a double tap on
-  // the key, and the beat it names is the same one, so the two read as one
-  // number that the path is not lost from.
   if (intro !== null) {
     reportIntro("offer_taken", intro);
   }

@@ -6603,12 +6603,6 @@ describe("the introduction's reports", () => {
     ]);
   });
 
-  /**
-   * The same offer taken the other way: a double tap on the voice key starts a
-   * session without anything coming back through the run, and main finishes the
-   * run on the session itself. The report has to follow it there, or the only
-   * users counted as having taken the offer are the ones who pressed the card.
-   */
   test("reports a session on the last beat as the offer taken", () => {
     startIntro();
     for (const _beat of COMPANION_INTRO_BEATS.slice(1)) {

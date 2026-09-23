@@ -106,9 +106,11 @@ mock.module("@/domains/chat/voice/use-voice-key", () => ({
  */
 let mainIntro: CompanionIntroBeat | null = null;
 const readCompanionState = mock(async () => ({ intro: mainIntro }));
+const advanceIntro = mock((_action: string) => undefined);
 const forwardOffer = mock((_offer: UnplacedDictationOffer | null) => true);
 mock.module("@/runtime/companion-surface", () => ({
   getCompanionState: readCompanionState,
+  advanceCompanionIntro: advanceIntro,
   forwardUnplacedDictationOffer: forwardOffer,
 }));
 let introStaged = false;
@@ -280,6 +282,7 @@ afterEach(() => {
   useViewerStore.getState().reset();
   useAssistantIdentityStore.getState().clearIdentity();
   introStaged = false;
+  advanceIntro.mockClear();
   localStorage.clear();
 });
 
@@ -1079,12 +1082,62 @@ describe("a hold over an editable selection", () => {
   });
 });
 
-test("tutorial double taps never start a call", async () => {
+test("double taps with only a staged tour never start a call", async () => {
   introStaged = true;
   renderBridge("a1");
   await act(async () => {
     await holdHandlers?.onDoubleTap();
   });
+  expect(toggleVoiceMock).not.toHaveBeenCalled();
+  expect(advanceIntro).not.toHaveBeenCalled();
+});
+
+test.each([true, false])(
+  "the final double tap takes the tour offer when staged=%s",
+  async (staged) => {
+    introStaged = staged;
+    mainIntro = "try";
+    renderBridge("a1");
+    await act(async () => {
+      await holdHandlers?.onDoubleTap();
+    });
+    expect(advanceIntro).toHaveBeenCalledWith("try");
+    expect(advanceIntro).toHaveBeenCalledTimes(1);
+    expect(toggleVoiceMock).not.toHaveBeenCalled();
+  },
+);
+
+test.each(["idle", "meet", "talk", "key", "share", "draw", "mute"] as const)(
+  "a double tap stays a rehearsal on %s",
+  async (beat) => {
+    introStaged = true;
+    mainIntro = beat;
+    renderBridge("a1");
+    await act(async () => {
+      await holdHandlers?.onDoubleTap();
+    });
+    expect(advanceIntro).not.toHaveBeenCalled();
+    expect(toggleVoiceMock).not.toHaveBeenCalled();
+  },
+);
+
+test("ignores the final offer if the voice bridge unmounts during its state read", async () => {
+  let resolve!: (state: { intro: CompanionIntroBeat | null }) => void;
+  readCompanionState.mockReturnValueOnce(new Promise((done) => {
+    resolve = done;
+  }));
+  const view = render(
+    <MemoryRouter>
+      <GlobalPushToTalkBridge assistantId="assistant-1" enabled />
+    </MemoryRouter>,
+  );
+  const pending = holdHandlers?.onDoubleTap();
+  view.unmount();
+  await act(async () => {
+    resolve({ intro: "try" });
+    await pending;
+  });
+  expect(advanceIntro).not.toHaveBeenCalled();
   expect(toggleVoiceMock).not.toHaveBeenCalled();
 });
 
@@ -1114,4 +1167,5 @@ test("voice gestures stay inactive before assistant selection is ready", async (
   });
   expect(toggleVoiceMock).not.toHaveBeenCalled();
   expect(voiceStartMock).not.toHaveBeenCalled();
+  expect(advanceIntro).not.toHaveBeenCalled();
 });

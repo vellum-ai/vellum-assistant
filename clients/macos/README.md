@@ -477,9 +477,10 @@ coachmarks. Closing that introduction dismisses it immediately. Both the compani
 and its introduction wait for sign-in and assistant selection to finish. Losing
 assistant readiness clears an interrupted tour; an unfinished tour returns to its
 introduction when the assistant is ready again. Talk and voice-key practice are
-rehearsals: neither requests microphone access nor starts a real call. Only the
-final step's explicit call action does that. The Talk success message stays
-visible until **Next** is pressed.
+rehearsals: neither requests microphone access nor starts a real call. The final
+step accepts the avatar or a double-tap of the voice key through the same call
+action, with microphone access checked by the native host. The Talk success
+message stays visible until **Next** is pressed.
 
 The guide follows the main Settings window using the helper's window inventory;
 when unavailable it stays near the bottom of the current display. Before a drag
