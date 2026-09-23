@@ -1,5 +1,13 @@
 import { rmSync, writeFileSync } from "node:fs";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 
 import { CompactionCircuit } from "../agent/compaction-circuit.js";
 import type {
@@ -31,6 +39,9 @@ mock.module("../providers/registry.js", () => ({
 setConfig("memory", { enabled: false, v2: { enabled: false } });
 setConfig("timeouts", { permissionTimeoutSec: 1 });
 
+/** Rows a history reload reads; empty unless a test stores some. */
+let storedRows: Array<Record<string, unknown>> = [];
+
 const capturedAddMessages: Array<{
   id: string;
   role: string;
@@ -58,6 +69,8 @@ let aliceFailingReads = 0;
 /** The contact record and policy the gateway currently reports for Alice. */
 let aliceContactId = "contact-alice";
 let alicePolicy = "allow";
+/** Whether a verified guardian route exists for approval prompts. */
+let aliceGuardianRoute = false;
 let aliceTrustReads = 0;
 const actualParticipants =
   await import("../persistence/conversation-participants.js");
@@ -89,6 +102,9 @@ function aliceVerdict() {
       channelId: "channel-alice",
       status: aliceStatus,
       policy: alicePolicy,
+      ...(aliceGuardianRoute
+        ? { guardianExternalUserId: "guardian-user" }
+        : {}),
     },
     admissionPolicy: "trusted_contacts",
   };
@@ -184,7 +200,7 @@ mock.module("../persistence/conversation-crud.js", () => ({
       : { provenanceTrustClass: "unknown" },
   getConversationOriginInterface: () => null,
   getConversationOriginChannel: () => null,
-  getMessages: () => [],
+  getMessages: () => storedRows,
   // The batched-drain attachment cases put real image blocks in the history,
   // which is what makes the camera-frame retention pass read rows. None of
   // them is tagged, so an empty map is the answer the real accessor gives.
@@ -1341,6 +1357,120 @@ describe("Conversation message queue", () => {
         principalId: "principal-alice",
       }),
     ]);
+  });
+
+  describe("a contact's queued message and the conversation's history scope", () => {
+    const GUARDIAN = {
+      trustClass: "guardian" as const,
+      sourceChannel: "vellum" as const,
+    };
+    const ALICE = {
+      trustClass: "trusted_contact" as const,
+      sourceChannel: "vellum-shared" as const,
+      requesterExternalUserId: "principal-alice",
+    };
+    const row = (
+      id: string,
+      role: string,
+      text: string,
+      trustClass: string,
+    ) => ({
+      id,
+      conversationId: "conv-1",
+      role,
+      content: [{ type: "text", text }],
+      createdAt: 1,
+      metadata: JSON.stringify({ provenanceTrustClass: trustClass }),
+      clientMessageId: null,
+    });
+    const runText = (run: PendingRun) => JSON.stringify(run.messages);
+
+    afterEach(() => {
+      storedRows = [];
+      aliceGuardianRoute = false;
+    });
+
+    test("runs on the contact's scope, then the guardian's again", async () => {
+      storedRows = [
+        row("m-g", "user", "guardian-only notes", "guardian"),
+        row("m-c", "user", "an earlier contact message", "trusted_contact"),
+      ];
+      const conversation = makeConversation();
+      conversation.setTrustContext(GUARDIAN);
+      await conversation.loadFromDb();
+      const p1 = conversation.processMessage({
+        content: "msg-1",
+        attachments: [],
+        onEvent: () => {},
+        requestId: "req-1",
+      });
+      await waitForPendingRun(1);
+      expect(runText(pendingRuns[0])).toContain("guardian-only notes");
+
+      conversation.enqueueMessage({
+        content: "from Alice",
+        requestId: "req-contact",
+        trustContext: ALICE,
+        author: ALICE,
+        sourceActorPrincipalId: "principal-alice",
+      });
+      conversation.enqueueMessage({
+        content: "guardian follow-up",
+        requestId: "req-guardian",
+        trustContext: GUARDIAN,
+      });
+
+      await resolveRun(0);
+      await p1;
+      await waitForPendingRun(2);
+      expect(runText(pendingRuns[1])).not.toContain("guardian-only notes");
+      expect(runText(pendingRuns[1])).toContain("an earlier contact message");
+      expect(conversation.currentTurnTrustContext?.trustClass).toBe(
+        "trusted_contact",
+      );
+
+      await resolveRun(1);
+      await waitForPendingRun(3);
+      expect(runText(pendingRuns[2])).toContain("guardian-only notes");
+      expect(conversation.currentTurnTrustContext?.trustClass).toBe("guardian");
+      await resolveRun(2);
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    test.each([
+      { guardianRoute: true, queuedAs: false, interactive: true },
+      { guardianRoute: false, queuedAs: true, interactive: false },
+    ])(
+      "an admitted contact message is interactive only while a guardian route exists ($guardianRoute)",
+      async ({ guardianRoute, queuedAs, interactive }) => {
+        const conversation = makeConversation();
+        await conversation.loadFromDb();
+        const p1 = conversation.processMessage({
+          content: "msg-1",
+          attachments: [],
+          onEvent: () => {},
+          requestId: "req-1",
+        });
+        await waitForPendingRun(1);
+        conversation.enqueueMessage({
+          content: "from Alice",
+          requestId: "req-contact",
+          trustContext: ALICE,
+          author: ALICE,
+          sourceActorPrincipalId: "principal-alice",
+          isInteractive: queuedAs,
+        });
+        aliceGuardianRoute = guardianRoute;
+
+        await resolveRun(0);
+        await p1;
+        await waitForPendingRun(2);
+
+        expect(conversation.currentTurnIsNonInteractive).toBe(!interactive);
+        await resolveRun(1);
+        await new Promise((r) => setTimeout(r, 10));
+      },
+    );
   });
 
   describe("a queued message whose persist fails", () => {

@@ -48,6 +48,7 @@ import { getConfig } from "../../config/loader.js";
 import { isModeSessionRecoveryHealthy } from "../../config/session-groups-gate.js";
 import { consolidateMessageRows } from "../../conversations/message-consolidation.js";
 import { resolveTurnCommitWaitMs } from "../../daemon/abort-watchdog.js";
+import { scopeHistoryToActor } from "../../daemon/actor-scoped-history.js";
 import { createApprovalConversationGenerator } from "../../daemon/approval-generators.js";
 import type { Conversation } from "../../daemon/conversation.js";
 import {
@@ -2799,7 +2800,6 @@ export async function handleSendMessage(
       // so it must name whoever this request is about to run as. A request that
       // queues instead returns above without stamping — it is not starting a run,
       // and its actor rides the queue item to the drain.
-      conversation.setTrustContext(resolvedTrustCtx);
       conversation.setTurnChannelContext({
         userMessageChannel: sourceChannel,
         assistantMessageChannel: sourceChannel,
@@ -2810,7 +2810,7 @@ export async function handleSendMessage(
       });
       conversation.currentTurnSourceActorPrincipalId = sourceActorPrincipalId;
 
-      await conversation.ensureActorScopedHistory();
+      await scopeHistoryToActor(conversation, resolvedTrustCtx);
 
       // Resolve slash commands before persisting or running the agent loop.
       // `contentAfterScan` already carries the scan-rewritten content when

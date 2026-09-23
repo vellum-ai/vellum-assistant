@@ -24,7 +24,9 @@
 import { isSuppressedQueuedMessage } from "../persistence/conversation-types.js";
 import { noteDroppedOwnMessage } from "../runtime/contact-event-projection.js";
 import type { SharedSenderAdmission } from "../runtime/shared-sender-admission.js";
+import { resolveRoutingState } from "../runtime/trust-context-resolver.js";
 import { getLogger } from "../util/logger.js";
+import { scopeHistoryToActor } from "./actor-scoped-history.js";
 import type { Conversation } from "./conversation.js";
 import type { QueuedMessage } from "./conversation-queue-manager.js";
 
@@ -54,7 +56,13 @@ const pendingRetries = new WeakMap<object, ReturnType<typeof setTimeout>>();
 
 type GatedConversation = Pick<
   Conversation,
-  "conversationId" | "queue" | "isProcessing" | "kickDrainQueue"
+  | "conversationId"
+  | "queue"
+  | "isProcessing"
+  | "kickDrainQueue"
+  | "trustContext"
+  | "setTrustContext"
+  | "ensureActorScopedHistory"
 >;
 
 /**
@@ -184,6 +192,18 @@ export async function gateSharedSenderHead(
     }
     const principalId = sharedSenderPrincipal(next);
     if (principalId === undefined) {
+      // A contact's turn left the conversation scoped to them. The next
+      // message from anyone else takes its own sender's scope back before it
+      // runs, so it never runs on the contact's narrower history.
+      if (
+        conversation.trustContext?.sourceChannel === "vellum-shared" &&
+        next.trustContext
+      ) {
+        await scopeHistoryToActor(conversation, next.trustContext);
+        if (conversation.queue.findByRequestId(next.requestId) !== next) {
+          continue;
+        }
+      }
       conversation.queue.promoteToHead(next.requestId);
       return true;
     }
@@ -216,11 +236,21 @@ export async function gateSharedSenderHead(
       // identity can all have changed while it waited. Every queued message
       // of theirs takes the same answer, so a batch of them still runs as
       // one sender.
+      const isInteractive = resolveRoutingState(
+        admission.trust,
+      ).promptWaitingAllowed;
       for (const queued of conversation.queue.snapshot()) {
         if (sharedSenderPrincipal(queued) === principalId) {
           queued.trustContext = admission.trust;
           queued.author = admission.trust;
+          queued.isInteractive = isInteractive;
         }
+      }
+      // The turn runs on history scoped for the contact, exactly as a direct
+      // send does, so nothing only the guardian may see reaches the loop.
+      await scopeHistoryToActor(conversation, admission.trust);
+      if (conversation.queue.findByRequestId(next.requestId) !== next) {
+        continue;
       }
       conversation.queue.promoteToHead(next.requestId);
       return true;
