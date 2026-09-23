@@ -359,7 +359,7 @@ describe("access-request vellum floor", () => {
     );
   });
 
-  test("an all_channels access request the decision engine suppressed still fans out", async () => {
+  test("an all_channels access request the decision engine suppressed reaches routing enforcement as deliverable", async () => {
     evaluateSignalMock.mockResolvedValue({
       shouldNotify: false,
       selectedChannels: [],
