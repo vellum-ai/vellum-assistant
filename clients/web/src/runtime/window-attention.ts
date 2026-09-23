@@ -136,3 +136,8 @@ export function isClientAttended(): boolean {
   }
   return typeof document !== "undefined" && document.hasFocus();
 }
+
+/** Browser directives require attention; native hosts own their handoff. */
+export function canHandleForegroundDirective(isNative: boolean): boolean {
+  return isNative || isElectron() || isClientAttended();
+}

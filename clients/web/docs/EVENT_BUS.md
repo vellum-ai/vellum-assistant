@@ -424,6 +424,13 @@ its main-process attention bridge. All other `app.hidden` consumers still pause
 foreground work, and hidden or blurred browsers report conversation presence as
 away. A long background still triggers connection recovery on resume.
 
+Imperative browser directives (`open_url`, `open_conversation`,
+`navigate_settings`, and `open_panel`) require a visible, focused tab through
+`runtime/window-attention.ts`'s `canHandleForegroundDirective()`. Unattended tabs
+ignore these directives without replaying them on focus or acknowledging panels;
+notification delivery and state synchronization continue through SSE. Capacitor
+and Electron retain their native handoff behavior regardless of browser focus.
+
 Each browser page publishes its attended account/assistant/conversation scope
 before notification intents arrive. Other tabs check that shared attention at
 delivery time, so a hidden tab stays quiet even if it receives the intent first.
