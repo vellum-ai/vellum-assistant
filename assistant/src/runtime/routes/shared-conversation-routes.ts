@@ -46,6 +46,10 @@ import {
 import { resolveSharedSenderTrust } from "../shared-sender-admission.js";
 import { handleSendMessage } from "./conversation-routes.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
+import {
+  channelInboundBudget,
+  fitsChannelInboundBudget,
+} from "./inbound-stages/inbound-content-prep.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const DEFAULT_MESSAGE_LIMIT = 50;
@@ -273,6 +277,18 @@ async function handleSendSharedMessage({
   ) {
     throw new BadRequestError("clientMessageId must be a string");
   }
+  // A contact's text is stored fenced, and the fence truncates past its
+  // budget, so a longer message is refused whole rather than cut.
+  if (
+    typeof body.content === "string" &&
+    !fitsChannelInboundBudget(body.content.trim(), "vellum-shared")
+  ) {
+    throw new BadRequestError(
+      `content is too long: a message holds at most ${channelInboundBudget(
+        "vellum-shared",
+      ).toLocaleString("en-US")} characters`,
+    );
+  }
 
   const trust = await contactTurnTrust(reader);
 
@@ -416,7 +432,10 @@ export const ROUTES: RouteDefinition[] = [
     }),
     additionalResponses: {
       ...notFound,
-      "400": { description: "The message has no content" },
+      "400": {
+        description:
+          "The message has no content, or is longer than a shared conversation message may be",
+      },
       "422": { description: "The message contains a secret and was not sent" },
       "429": { description: "Too many messages are already queued" },
     },

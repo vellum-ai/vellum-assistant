@@ -110,7 +110,10 @@ import {
   canSeePersonalMemory,
 } from "../../effective-capabilities.js";
 import { HttpRouter } from "../../http-router.js";
-import { prepareChannelInboundContent } from "../inbound-stages/inbound-content-prep.js";
+import {
+  channelInboundBudget,
+  prepareChannelInboundContent,
+} from "../inbound-stages/inbound-content-prep.js";
 import { ROUTES } from "../shared-conversation-routes.js";
 
 await initializeDb();
@@ -608,6 +611,34 @@ describe("POST shared/conversations/:id/messages", () => {
   test("an unused conversation id is a 404 and creates nothing", async () => {
     await expectRefusedWithoutSend(UNKNOWN_CONVERSATION);
     expect(getConversation(UNKNOWN_CONVERSATION)).toBeNull();
+  });
+
+  test("a message too long to store whole is refused before anything is accepted", async () => {
+    const conversationId = newConversation();
+    share(conversationId);
+    const limit = channelInboundBudget("vellum-shared");
+
+    const response = await send(conversationId, {
+      content: "x".repeat(limit + 1),
+    });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({
+      error: { code: "BAD_REQUEST" },
+    });
+    expect(handleSendMessage).not.toHaveBeenCalled();
+    expect(getMessages(conversationId)).toEqual([]);
+  });
+
+  test("a message at the limit is handed off whole", async () => {
+    const conversationId = newConversation();
+    share(conversationId);
+    const content = "x".repeat(channelInboundBudget("vellum-shared"));
+
+    const response = await send(conversationId, { content });
+
+    expect(response.status).toBe(202);
+    expect(handedOff().args.body?.content).toBe(content);
   });
 
   test("membership is checked before the body is validated", async () => {

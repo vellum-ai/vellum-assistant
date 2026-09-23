@@ -21,7 +21,12 @@ import type {
   SlackAppContextEntity,
 } from "../../../daemon/handlers/shared.js";
 import type { TrustContext } from "../../../daemon/trust-context-types.js";
-import { wrapUntrustedContent } from "../../../security/untrusted-content.js";
+import {
+  escapeContentBoundaries,
+  untrustedContentBudget,
+  type UntrustedContentSource,
+  wrapUntrustedContent,
+} from "../../../security/untrusted-content.js";
 
 /** Slack `app_context` entity types whose `value` is a plain object id. */
 const SLACK_APP_CONTEXT_ID_LABELS = new Map<string, string>([
@@ -142,6 +147,30 @@ export interface PreparedChannelInboundContent {
   displayContent?: string;
 }
 
+function untrustedSourceFor(sourceChannel: ChannelId): UntrustedContentSource {
+  return sourceChannel === "slack" ? "slack" : "webhook";
+}
+
+/** The most characters a non-guardian sender's fenced text keeps. */
+export function channelInboundBudget(sourceChannel: ChannelId): number {
+  return untrustedContentBudget(untrustedSourceFor(sourceChannel));
+}
+
+/**
+ * Whether a non-guardian sender's text fits the fence without truncation.
+ * The fence cuts anything longer, so a caller that must not lose text
+ * refuses it up front instead.
+ */
+export function fitsChannelInboundBudget(
+  trimmedContent: string,
+  sourceChannel: ChannelId,
+): boolean {
+  return (
+    escapeContentBoundaries(trimmedContent).length <=
+    channelInboundBudget(sourceChannel)
+  );
+}
+
 /**
  * Fence untrusted (non-guardian) channel content and derive the display copy.
  * Pure and side-effect free so both the live ingress path and the retry sweep
@@ -170,7 +199,7 @@ export function prepareChannelInboundContent(params: {
   const messageContent = isGuardian
     ? trimmedContent
     : wrapUntrustedContent(trimmedContent, {
-        source: sourceChannel === "slack" ? "slack" : "webhook",
+        source: untrustedSourceFor(sourceChannel),
         sourceDetail: requesterIdentifier,
       });
 

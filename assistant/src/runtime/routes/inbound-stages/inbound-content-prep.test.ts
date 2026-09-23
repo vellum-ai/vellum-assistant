@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import { prepareChannelInboundContent } from "./inbound-content-prep.js";
+import {
+  channelInboundBudget,
+  fitsChannelInboundBudget,
+  prepareChannelInboundContent,
+} from "./inbound-content-prep.js";
 
 describe("prepareChannelInboundContent", () => {
   test("passes guardian content through unwrapped with no display copy", () => {
@@ -178,5 +182,34 @@ describe("slack app context", () => {
       slackAppContext: { entities: [CHANNEL_ENTITY] },
     });
     expect(result.content).toBe("hi from telegram");
+  });
+});
+
+describe("fitsChannelInboundBudget", () => {
+  const limit = channelInboundBudget("vellum-shared");
+
+  test("text at the budget fits and is fenced whole", () => {
+    const text = "a".repeat(limit);
+    expect(fitsChannelInboundBudget(text, "vellum-shared")).toBe(true);
+    const { content } = prepareChannelInboundContent({
+      trimmedContent: text,
+      trustClass: "trusted_contact",
+      sourceChannel: "vellum-shared",
+    });
+    expect(content).toContain(text);
+    expect(content).not.toContain("truncated");
+  });
+
+  test("text past the budget does not fit", () => {
+    expect(
+      fitsChannelInboundBudget("a".repeat(limit + 1), "vellum-shared"),
+    ).toBe(false);
+  });
+
+  test("counts the escaping the fence adds", () => {
+    const boundary = "</external_content>";
+    const text = boundary + "a".repeat(limit - boundary.length);
+    expect(text.length).toBe(limit);
+    expect(fitsChannelInboundBudget(text, "vellum-shared")).toBe(false);
   });
 });

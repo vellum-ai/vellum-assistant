@@ -58,6 +58,11 @@ const DEFAULT_BUDGETS: Record<UntrustedContentSource, number> = {
   tool_result: 20_000,
 };
 
+/** The character budget a source's content is truncated to when wrapped. */
+export function untrustedContentBudget(source: UntrustedContentSource): number {
+  return DEFAULT_BUDGETS[source];
+}
+
 const UNTRUSTED_CONTENT_SOURCE_SET = new Set<string>(UNTRUSTED_CONTENT_SOURCES);
 
 /** Name of the wrapper element untrusted content is fenced in. */

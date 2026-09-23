@@ -160,6 +160,7 @@ import {
   type ContactSender,
   handleSendMessage,
 } from "../runtime/routes/conversation-routes.js";
+import { channelInboundBudget } from "../runtime/routes/inbound-stages/inbound-content-prep.js";
 import { callHandler } from "./helpers/call-route-handler.js";
 import { mockUnownedModeSessions } from "./helpers/mock-conversation.js";
 
@@ -484,6 +485,17 @@ describe("a contact's send into an idle conversation", () => {
     expect(res.status).toBe(202);
     expect(spies.persisted()?.content).toContain("/model fast");
     expect(spies.loop()?.content).toContain("<external_content");
+  });
+
+  test("a message at the fence budget is stored whole", async () => {
+    const spies = makeConversation({ processing: false });
+    const content = "y".repeat(channelInboundBudget("vellum-shared"));
+
+    await sendAsContact(spies, content);
+
+    const stored = String(spies.persisted()?.content);
+    expect(stored).toContain(content);
+    expect(stored).not.toContain("truncated");
   });
 
   test("the row is stored as the contact even when the guardian takes the slot meanwhile", async () => {

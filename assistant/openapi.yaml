@@ -32914,7 +32914,7 @@ paths:
                   - accepted
                 additionalProperties: false
         "400":
-          description: The message has no content
+          description: The message has no content, or is longer than a shared conversation message may be
         "404":
           description: Conversation not found or not shared with the caller
         "422":
