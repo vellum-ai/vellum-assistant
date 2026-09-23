@@ -1445,8 +1445,12 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
             panelHost={viewOptionsHost}
             // Nothing to reset beside it: the seen flag is already written, and
             // every way out of a re-shown explainer does what it does on the
-            // first.
-            onShowExplainer={() => setExplainerOpen(true)}
+            // first. Offered on the same signal the first open waits for, so
+            // the row is absent while the feed has yet to draw and the sheet
+            // never lands over the look rather than over the camera.
+            onShowExplainer={
+              previewDrawn ? () => setExplainerOpen(true) : undefined
+            }
           />
         </div>
       ) : null}

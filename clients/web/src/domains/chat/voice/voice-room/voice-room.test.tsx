@@ -3701,7 +3701,7 @@ describe("VoiceRoom: camera", () => {
         const viewOptions = () => screen.getByTestId("camera-view-settings");
         const panel = () => screen.queryByTestId("camera-view-settings-panel");
         const howItWorks = () =>
-          screen.getByRole("button", { name: "How Photo and Live work" });
+          screen.queryByRole("button", { name: "How Photo and Live work" });
 
         beforeEach(() => {
           useVoicePrefsStore.setState({ cameraExplainerSeen: true });
@@ -3713,9 +3713,30 @@ describe("VoiceRoom: camera", () => {
             fireEvent.click(viewOptions());
           });
           await act(async () => {
-            fireEvent.click(howItWorks());
+            fireEvent.click(howItWorks()!);
           });
         }
+
+        test("is not on the panel until the browser feed has drawn", async () => {
+          await openLiveCapableCamera();
+          await act(async () => {
+            fireEvent.click(viewOptions());
+          });
+
+          // The same signal the first open waits for: the stream has reached
+          // the element and no frame has decoded, so the room is still
+          // painting the look through a transparent feed, and a sheet raised
+          // here would sit over the look rather than over the camera. The two
+          // switches beside it are offered the whole time.
+          expect(howItWorks()).toBeNull();
+          expect(panel()).not.toBeNull();
+
+          await act(async () => {
+            fireEvent.loadedData(viewfinder()!);
+          });
+
+          expect(howItWorks()).not.toBeNull();
+        });
 
         test("raises it again, and takes the panel down with it", async () => {
           await openCameraWithFrame();
