@@ -3,7 +3,7 @@ import { describe, expect, mock, test } from "bun:test";
 import type {
   CaptureSourceDeps,
   HelperWindow,
-} from "./companion-capture-sources";
+} from "./companion-capture";
 
 // The module reaches Electron for icons and displays, the helper for windows
 // and `osascript` for Chrome, none of which run here. Every case hands in its
@@ -48,7 +48,7 @@ const {
   parseHelperWindows,
   resolveCapturePick,
   windowBoundsFor,
-} = await import("./companion-capture-sources");
+} = await import("./companion-capture");
 
 const SEP = String.fromCharCode(31);
 

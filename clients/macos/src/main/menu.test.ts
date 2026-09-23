@@ -96,7 +96,7 @@ mock.module("@vellumai/electron-desktop/window-state", () => ({
 }));
 
 const setCompanionSurfaceVisibleMock = mock((_visible: boolean) => undefined);
-mock.module("./companion-window", () => ({
+mock.module("./companion", () => ({
   setCompanionSurfaceVisible: setCompanionSurfaceVisibleMock,
 }));
 

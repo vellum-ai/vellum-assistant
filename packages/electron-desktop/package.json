@@ -86,7 +86,13 @@
     "./window-readiness": "./src/window-readiness.ts",
     "./window-state": "./src/window-state.ts",
     "./workos-pkce": "./src/workos-pkce.ts",
-    "./windows": "./src/windows.ts"
+    "./windows": "./src/windows.ts",
+    "./companion-window": "./src/companion-window.ts",
+    "./companion-platform": "./src/companion-platform.ts",
+    "./companion-popover-window": "./src/companion-popover-window.ts",
+    "./companion-capture-sources": "./src/companion-capture-sources.ts",
+    "./companion-preload": "./src/companion-preload.ts",
+    "./host-proxy/point-at-executor": "./src/host-proxy/point-at-executor.ts"
   },
   "scripts": {
     "typecheck": "bunx tsc --noEmit",

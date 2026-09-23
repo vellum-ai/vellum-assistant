@@ -21,10 +21,10 @@ import { hostTransferExecutor } from "@vellumai/electron-desktop/host-proxy/exec
 import { createHostUiSnapshotExecutor } from "@vellumai/electron-desktop/host-proxy/executors/host-ui-snapshot-executor";
 
 import { getDevRendererBase, RENDERER_BASE_PROD } from "./app-config";
-import { showCompanionCoachmarks } from "./companion-window";
+import { showCompanionCoachmarks } from "./companion";
 import { hostAppControlExecutor } from "./executors/host-app-control-executor";
 import { hostBashExecutor } from "./executors/host-bash-adapter";
-import { createHostCuExecutor } from "./executors/host-cu-executor";
+import { createHostCuExecutor } from "./executors/host-cu";
 import {
   getWatchedLockfile,
   onLockfileChange,
