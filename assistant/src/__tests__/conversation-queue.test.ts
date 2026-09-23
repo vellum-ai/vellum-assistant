@@ -51,6 +51,9 @@ const addMessageShouldThrowForContent = new Set<string>();
 // gateway's verdict on the contact, each controllable per test.
 let aliceIsParticipant = true;
 let aliceStatus = "active";
+/** How many upcoming trust reads fail as the gateway being unreachable. */
+let aliceFailingReads = 0;
+let aliceTrustReads = 0;
 const actualParticipants =
   await import("../persistence/conversation-participants.js");
 mock.module("../persistence/conversation-participants.js", () => ({
@@ -61,7 +64,18 @@ mock.module("../persistence/conversation-participants.js", () => ({
 const actualTrustReader = await import("../calls/inbound-trust-reader.js");
 mock.module("../calls/inbound-trust-reader.js", () => ({
   ...actualTrustReader,
-  readInboundTrust: async () => ({
+  readInboundTrust: async () => {
+    aliceTrustReads += 1;
+    if (aliceFailingReads > 0) {
+      aliceFailingReads -= 1;
+      return { ok: false };
+    }
+    return aliceVerdict();
+  },
+}));
+
+function aliceVerdict() {
+  return {
     ok: true,
     verdict: {
       trustClass: "trusted_contact",
@@ -72,8 +86,8 @@ mock.module("../calls/inbound-trust-reader.js", () => ({
       policy: "allow",
     },
     admissionPolicy: "trusted_contacts",
-  }),
-}));
+  };
+}
 
 // A contact's turn joins its contact record for display details; this suite
 // runs without a contacts table.
@@ -397,6 +411,10 @@ mock.module("../agent/loop.js", () => ({
 import type { QueueDrainReason, QueuePolicy } from "../daemon/conversation.js";
 import { Conversation } from "../daemon/conversation.js";
 import { MessageQueue } from "../daemon/conversation-queue-manager.js";
+import {
+  __setSharedSenderRetryDelayForTest,
+  MAX_UNVERIFIABLE_ATTEMPTS,
+} from "../daemon/shared-sender-queue-gate.js";
 
 type ConversationWithWorkspaceDeps = Conversation & {
   getWorkspaceGitService?: (_workspaceDir: string) => {
@@ -874,6 +892,120 @@ describe("Conversation message queue", () => {
       }
     },
   );
+
+  describe("a contact whose access cannot be verified at the drain", () => {
+    const ALICE = {
+      trustClass: "trusted_contact" as const,
+      sourceChannel: "vellum-shared" as const,
+      requesterExternalUserId: "principal-alice",
+    };
+
+    beforeEach(() => {
+      aliceTrustReads = 0;
+      __setSharedSenderRetryDelayForTest(() => 5);
+    });
+
+    afterAll(() => {
+      aliceFailingReads = 0;
+      __setSharedSenderRetryDelayForTest();
+    });
+
+    async function queueBehindRunningTurn(conversation: Conversation) {
+      const p1 = conversation.processMessage({
+        content: "msg-1",
+        attachments: [],
+        onEvent: () => {},
+        requestId: "req-1",
+      });
+      await waitForPendingRun(1);
+      const events: AssistantEvent[] = [];
+      conversation.enqueueMessage({
+        content: "<external_content>Are we still on?</external_content>",
+        displayContent: "Are we still on?",
+        requestId: "req-contact",
+        trustContext: ALICE,
+        author: ALICE,
+        sourceActorPrincipalId: "principal-alice",
+        onEvent: (e) => events.push(e),
+      });
+      return { p1, events };
+    }
+
+    const contactRows = () =>
+      capturedAddMessages.filter((m) => m.content.includes("Are we still on?"));
+
+    test("keeps the message and runs it once a retry verifies the contact", async () => {
+      const conversation = makeConversation();
+      await conversation.loadFromDb();
+      const { p1 } = await queueBehindRunningTurn(conversation);
+      aliceFailingReads = 1;
+
+      capturedAddMessages.length = 0;
+      await resolveRun(0);
+      await p1;
+      await waitForPendingRun(2);
+
+      expect(aliceTrustReads).toBe(2);
+      expect(contactRows()).toHaveLength(1);
+      expect(conversation.getQueueDepth()).toBe(0);
+
+      await resolveRun(1);
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    test("drops the message once retries are exhausted", async () => {
+      const conversation = makeConversation();
+      await conversation.loadFromDb();
+      const { p1, events } = await queueBehindRunningTurn(conversation);
+      aliceFailingReads = Number.POSITIVE_INFINITY;
+
+      capturedAddMessages.length = 0;
+      await resolveRun(0);
+      await p1;
+      for (let i = 0; i < 50 && conversation.getQueueDepth() > 0; i++) {
+        await new Promise((r) => setTimeout(r, 5));
+      }
+
+      expect(aliceTrustReads).toBe(MAX_UNVERIFIABLE_ATTEMPTS);
+      expect(conversation.getQueueDepth()).toBe(0);
+      expect(pendingRuns.length).toBe(1);
+      expect(contactRows()).toHaveLength(0);
+      expect(events.map((e) => e.type)).toEqual([
+        "message_queued",
+        "message_queued_deleted",
+      ]);
+      aliceFailingReads = 0;
+    });
+
+    test("does not hold the guardian's queued messages behind it", async () => {
+      const conversation = makeConversation();
+      await conversation.loadFromDb();
+      __setSharedSenderRetryDelayForTest(() => 60_000);
+      const { p1 } = await queueBehindRunningTurn(conversation);
+      conversation.enqueueMessage({
+        content: "guardian follow-up",
+        requestId: "req-guardian",
+      });
+      aliceFailingReads = Number.POSITIVE_INFINITY;
+
+      capturedAddMessages.length = 0;
+      await resolveRun(0);
+      await p1;
+      await waitForPendingRun(2);
+
+      expect(
+        capturedAddMessages.some((m) =>
+          m.content.includes("guardian follow-up"),
+        ),
+      ).toBe(true);
+      expect(contactRows()).toHaveLength(0);
+      expect(conversation.queue.peek(0)?.requestId).toBe("req-contact");
+
+      aliceFailingReads = 0;
+      await resolveRun(1);
+      await new Promise((r) => setTimeout(r, 10));
+    });
+  });
 
   test("the turn-context actor section describes the turn's actor, not the conversation's resting actor", async () => {
     // The drain carries its sender on the per-turn field and leaves the
