@@ -320,25 +320,40 @@ describe("CameraExplainer", () => {
     });
   });
 
-  test("a press inside the sheet never reaches the room's drag handler", async () => {
-    let ancestorPresses = 0;
-    renderExplainer({
-      touch: true,
-      onAncestorPointerDown: () => {
-        ancestorPresses += 1;
-      },
+  // Both presentations, because the room is the draggable sheet on every
+  // screen: under 768px a fine pointer picks the modal while the room behind it
+  // still starts a minimize drag from a press.
+  describe("a press inside never reaches the room's drag handler", () => {
+    const pressInside = async (touch: boolean): Promise<number> => {
+      let ancestorPresses = 0;
+      renderExplainer({
+        touch,
+        onAncestorPointerDown: () => {
+          ancestorPresses += 1;
+        },
+      });
+
+      await act(async () => {
+        fireEvent.pointerDown(screen.getByRole("button", { name: "Got it" }));
+      });
+      const insidePresses = ancestorPresses;
+
+      // The same ancestor hears a press that did not start inside the dialog,
+      // so the count above is the carve-out rather than a handler that never
+      // ran.
+      await act(async () => {
+        fireEvent.pointerDown(screen.getByTestId("sibling"));
+      });
+      expect(ancestorPresses).toBe(insidePresses + 1);
+      return insidePresses;
+    };
+
+    test("on the sheet", async () => {
+      expect(await pressInside(true)).toBe(0);
     });
 
-    await act(async () => {
-      fireEvent.pointerDown(screen.getByRole("button", { name: "Got it" }));
+    test("on the modal", async () => {
+      expect(await pressInside(false)).toBe(0);
     });
-    expect(ancestorPresses).toBe(0);
-
-    // The same ancestor hears a press that did not start inside the sheet, so
-    // the count above is the carve-out rather than a handler that never ran.
-    await act(async () => {
-      fireEvent.pointerDown(screen.getByTestId("sibling"));
-    });
-    expect(ancestorPresses).toBe(1);
   });
 });

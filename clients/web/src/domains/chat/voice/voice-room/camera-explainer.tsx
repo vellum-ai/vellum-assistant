@@ -40,6 +40,7 @@ import {
   useRef,
   type CSSProperties,
   type KeyboardEvent,
+  type PointerEvent,
   type ReactNode,
   type RefObject,
 } from "react";
@@ -213,6 +214,14 @@ export function CameraExplainer({
     [report],
   );
 
+  // The room's sheet starts its minimize drag from a React `pointerdown` that
+  // only exempts text controls, so a press in here must not reach it. Both
+  // presentations need the carve-out: under 768px with a fine pointer the room
+  // is still the draggable sheet while this is the modal.
+  const stopRoomDrag = useCallback((event: PointerEvent<HTMLElement>) => {
+    event.stopPropagation();
+  }, []);
+
   // Belt to `onEscapeKeyDown`: Radix delivers Escape from a document-level
   // listener that some DOM environments never fire. `report` collapses the two.
   const escapeKeyBelt = useCallback(
@@ -269,10 +278,7 @@ export function CameraExplainer({
             onEscapeKeyDown={escape}
             onKeyDown={escapeKeyBelt}
             onOpenAutoFocus={focusTitle}
-            // The room's sheet starts its minimize drag from a React
-            // `pointerdown` that only exempts text controls, so a press in here
-            // must not reach it.
-            onPointerDown={(event) => event.stopPropagation()}
+            onPointerDown={stopRoomDrag}
           >
             <div className="flex flex-col px-5 pt-3 pb-[calc(30px+var(--safe-area-inset-bottom,env(safe-area-inset-bottom,0px)))]">
               <BottomSheet.Grabber className="mb-[22px] h-[5px] w-[38px] bg-white/22" />
@@ -308,6 +314,7 @@ export function CameraExplainer({
             onKeyDown={escapeKeyBelt}
             onOpenAutoFocus={focusTitle}
             onClickCapture={markInside}
+            onPointerDown={stopRoomDrag}
           >
             <div className="flex min-h-0 flex-col overflow-y-auto px-[34px] pt-[34px] pb-[30px]">
               {body}
@@ -570,24 +577,47 @@ function ThumbnailFrame({
   );
 }
 
+/**
+ * Both illustrations are drawn once, in the design's phone numbers, and scaled
+ * to whatever box they land in. Two sets of pixel geometry would be two
+ * drawings to keep in step, and the fixed one would collapse the frames in a
+ * modal narrowed by a short window.
+ *
+ * Rects are inset by half their stroke, since SVG centres a stroke on the path
+ * where CSS draws a border inside the box.
+ */
+const ART_VIEW_BOX = "0 0 140 78";
+
+function IllustrationCanvas({ children }: { children: ReactNode }): ReactNode {
+  return (
+    <svg
+      aria-hidden
+      className="h-full w-full"
+      viewBox={ART_VIEW_BOX}
+      preserveAspectRatio="xMidYMid meet"
+    >
+      {children}
+    </svg>
+  );
+}
+
 /** Photo: one frame, and the shutter dot under it. */
 function PhotoThumbnail({ sheet }: { sheet: boolean }): ReactNode {
   return (
     <ThumbnailFrame sheet={sheet}>
-      <div
-        className={cn(
-          "absolute border-white",
-          sheet
-            ? "inset-x-[22px] inset-y-[10px] rounded-[6px] border-2"
-            : "inset-x-[60px] inset-y-4 rounded-[8px] border-[2.5px]",
-        )}
-      />
-      <div
-        className={cn(
-          "absolute left-1/2 -translate-x-1/2 rounded-full bg-white",
-          sheet ? "bottom-2 size-4" : "bottom-3 size-[22px]",
-        )}
-      />
+      <IllustrationCanvas>
+        <rect
+          x={23}
+          y={11}
+          width={94}
+          height={56}
+          rx={5}
+          fill="none"
+          stroke="#fff"
+          strokeWidth={2}
+        />
+        <circle cx={70} cy={62} r={8} fill="#fff" />
+      </IllustrationCanvas>
     </ThumbnailFrame>
   );
 }
@@ -595,33 +625,43 @@ function PhotoThumbnail({ sheet }: { sheet: boolean }): ReactNode {
 /** Live: a stack of frames going back, and the tag that says it is streaming. */
 function LiveThumbnail({ sheet }: { sheet: boolean }): ReactNode {
   const { t } = useTranslation("chat");
-  const frame = sheet
-    ? "absolute top-3 h-11 w-[34px] rounded-[5px]"
-    : "absolute top-[22px] h-[72px] w-[60px] rounded-[7px]";
 
   return (
     <ThumbnailFrame sheet={sheet}>
-      <div
-        className={cn(
-          frame,
-          "border-white/35",
-          sheet ? "left-2 border-[1.5px]" : "left-6 border-2",
-        )}
-      />
-      <div
-        className={cn(
-          frame,
-          "border-white/55 bg-[rgba(75,72,68,.8)]",
-          sheet ? "left-[30px] border-[1.5px]" : "left-[66px] border-2",
-        )}
-      />
-      <div
-        className={cn(
-          frame,
-          "border-white bg-[#4b4844]",
-          sheet ? "left-[52px] border-2" : "left-[108px] border-[2.5px]",
-        )}
-      />
+      <IllustrationCanvas>
+        <rect
+          x={8.75}
+          y={12.75}
+          width={32.5}
+          height={42.5}
+          rx={4.25}
+          fill="none"
+          stroke="rgba(255,255,255,.35)"
+          strokeWidth={1.5}
+        />
+        <rect
+          x={30.75}
+          y={12.75}
+          width={32.5}
+          height={42.5}
+          rx={4.25}
+          fill="rgba(75,72,68,.8)"
+          stroke="rgba(255,255,255,.55)"
+          strokeWidth={1.5}
+        />
+        <rect
+          x={53}
+          y={13}
+          width={32}
+          height={42}
+          rx={4}
+          fill="#4b4844"
+          stroke="#fff"
+          strokeWidth={2}
+        />
+      </IllustrationCanvas>
+      {/* Chrome rather than art, so it keeps its own size instead of scaling
+          with the drawing under it. */}
       <span
         className={cn(
           "absolute inline-flex items-center rounded-full",
