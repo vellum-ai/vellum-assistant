@@ -81,3 +81,8 @@ packages/*/.env
 packages/*/.env.*
 
 **/node_modules/
+
+# Combined-process runtime launcher.
+!docker/combined/
+!docker/combined/*.py
+docker/combined/test_*.py

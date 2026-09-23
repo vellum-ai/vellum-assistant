@@ -1,0 +1,12 @@
+# syntax=docker/dockerfile:1.20@sha256:26147acbda4f14c5add9946e2fd2ed543fc402884fd75146bd342a7f6271dc1d
+# combined-base is the combined target in docker-bake.hcl.
+FROM combined-base
+RUN test "$(dpkg --print-architecture)" = amd64 \
+    && curl --fail --location --proto '=https' --proto-redir '=https' \
+      --retry 2 --max-time 300 \
+      https://github.com/blaxel-ai/sandbox/releases/download/v0.2.61/sandbox-api-linux-amd64 \
+      --output /usr/local/bin/sandbox-api \
+    && echo '3f0bdc44467d5f96e055692976f09251320554039a88e55815e265a2cf97027a  /usr/local/bin/sandbox-api' | sha256sum --check - \
+    && chmod 755 /usr/local/bin/sandbox-api
+EXPOSE 8080
+CMD ["serve", "--blaxel"]
