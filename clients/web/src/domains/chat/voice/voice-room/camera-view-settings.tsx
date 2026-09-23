@@ -2,11 +2,15 @@
  * Camera mode's view options: the corner button, and the compact panel it
  * opens.
  *
- * Two rows, and neither changes what the camera does. This is where the
+ * Two switches, and neither changes what the camera does. This is where the
  * frame-gate readout is switched on and off, over the viewfinder its numbers
  * describe; the kept-frame thumbnail is a voice preference of its own. Hiding
  * either one hides a drawing, and Live goes on sampling, sending and recording
  * every kept frame in the transcript.
+ *
+ * Under them, where the room offers it, the one row that opens something: the
+ * camera's "Photo or Live?" explainer, which the first open shows once and
+ * this is the way back to.
  *
  * Anchored on every form factor, a touch phone included. The room is itself a
  * bottom sheet portaled into `#viewport-overlays`, and while the camera is
@@ -33,7 +37,7 @@
 
 import { useId, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { SlidersHorizontal } from "lucide-react";
+import { ChevronRight, SlidersHorizontal } from "lucide-react";
 
 import {
   Popover,
@@ -94,9 +98,17 @@ export interface CameraViewSettingsProps {
    * has committed the element, which no press can beat.
    */
   panelHost: HTMLElement | null;
+  /**
+   * Raise the camera's "Photo or Live?" explainer. Given one, the panel offers
+   * the row that asks for it; left out, it carries switches alone.
+   */
+  onShowExplainer?: () => void;
 }
 
-export function CameraViewSettings({ panelHost }: CameraViewSettingsProps) {
+export function CameraViewSettings({
+  panelHost,
+  onShowExplainer,
+}: CameraViewSettingsProps) {
   const { t } = useTranslation("chat");
   const [open, setOpen] = useState(false);
   const titleId = useId();
@@ -170,6 +182,33 @@ export function CameraViewSettings({ panelHost }: CameraViewSettingsProps) {
             checked={showKeptFrame}
             onChange={setShowKeptFrame}
           />
+          {onShowExplainer ? (
+            // The library's list row paints its title, its chevron and its
+            // hover in theme tokens, and only the first is reachable through a
+            // slot, so over the feed this row is the panel's own element for
+            // the reason the file header gives. Its words are its name.
+            <button
+              type="button"
+              // The panel closes first: the explainer covers the room, and a
+              // popover left open under it is a surface nothing can reach.
+              onClick={() => {
+                setOpen(false);
+                onShowExplainer();
+              }}
+              className={cn(
+                "-mx-1 flex min-h-11 w-full items-center justify-between gap-2.5 rounded-md px-1",
+                "text-body-medium-default text-white",
+                "hover:bg-white/10 active:bg-white/15",
+                "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white",
+              )}
+            >
+              {t("cameraViewOptions.howItWorks")}
+              <ChevronRight
+                aria-hidden
+                className="size-4 shrink-0 text-white/65"
+              />
+            </button>
+          ) : null}
         </Popover.Content>
       </Popover.Root>
     </PortalContainerProvider>

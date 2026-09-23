@@ -431,6 +431,7 @@
     "buttonAria": "Camera view options",
     "gateHudDescription": "Debug overlay for how Live picks which frames to send.",
     "gateHudTitle": "Frame gate tuning",
+    "howItWorks": "How Photo and Live work",
     "keptFrameDescription": "Shows the most recent frame Live sent.",
     "keptFrameTitle": "Latest shared frame",
     "title": "Show"

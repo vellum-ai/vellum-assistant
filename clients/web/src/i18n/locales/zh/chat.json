@@ -417,6 +417,7 @@
     "buttonAria": "相机显示选项",
     "gateHudDescription": "调试叠加层：实时模式如何挑选要发送的画面。",
     "gateHudTitle": "帧筛选调校",
+    "howItWorks": "“照片”和“实时”的运作方式",
     "keptFrameDescription": "显示实时模式最近发送的画面。",
     "keptFrameTitle": "最近分享的画面",
     "title": "显示"

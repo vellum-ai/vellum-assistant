@@ -3690,6 +3690,74 @@ describe("VoiceRoom: camera", () => {
         );
         expect(roomDragStarts).toHaveBeenCalledTimes(1);
       });
+
+      /**
+       * The way back to it, once the device has seen it: a row in the camera's
+       * own view options. The row itself is `camera-view-settings.test.tsx`'s
+       * subject; what is under test here is that the room answers it with the
+       * same sheet the first open raises, on the same terms.
+       */
+      describe("re-showing it from the view options", () => {
+        const viewOptions = () => screen.getByTestId("camera-view-settings");
+        const panel = () => screen.queryByTestId("camera-view-settings-panel");
+        const howItWorks = () =>
+          screen.getByRole("button", { name: "How Photo and Live work" });
+
+        beforeEach(() => {
+          useVoicePrefsStore.setState({ cameraExplainerSeen: true });
+        });
+
+        /** Open the panel over an already-open camera, then press its row. */
+        async function pressHowItWorks(): Promise<void> {
+          await act(async () => {
+            fireEvent.click(viewOptions());
+          });
+          await act(async () => {
+            fireEvent.click(howItWorks());
+          });
+        }
+
+        test("raises it again, and takes the panel down with it", async () => {
+          await openCameraWithFrame();
+          // The device has seen it, so nothing raised it on this open.
+          expect(explainer()).toBeNull();
+
+          await pressHowItWorks();
+
+          expect(panel()).toBeNull();
+          expect(explainerHost()!.contains(explainer())).toBe(true);
+          expect(explainer()?.textContent).toContain("Photo or Live?");
+        });
+
+        test('"Got it" leaves the camera exactly where it found it', async () => {
+          await openCameraWithFrame();
+          await pressHowItWorks();
+
+          await act(async () => {
+            fireEvent.click(gotIt());
+          });
+
+          expect(explainer()).toBeNull();
+          expect(seen()).toBe(true);
+          expect(shutter().getAttribute("data-mode")).toBe("photo");
+        });
+
+        test('"Try Live now" starts Live, as it does on the first open', async () => {
+          await openCameraWithFrame();
+          await pressHowItWorks();
+
+          await act(async () => {
+            fireEvent.click(
+              screen.getByRole("button", { name: "Try Live now" }),
+            );
+          });
+
+          expect(explainer()).toBeNull();
+          expect(seen()).toBe(true);
+          expect(pill().getAttribute("data-camera-mode")).toBe("live");
+          expect(shutter().getAttribute("data-mode")).toBe("live");
+        });
+      });
     });
   });
 });
