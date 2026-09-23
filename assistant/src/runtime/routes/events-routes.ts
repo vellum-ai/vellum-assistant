@@ -35,6 +35,7 @@ import type {
   AssistantEventCallback,
   AssistantEventFilter,
   AssistantEventSubscription,
+  SubscriberPool,
 } from "../assistant-event-hub.js";
 import {
   AssistantEventHub,
@@ -44,7 +45,7 @@ import type { SubscriberIdentity } from "../assistant-event-targeting.js";
 import { getReplayWindow } from "../assistant-stream-state.js";
 import { ACTOR_PRINCIPALS, GATEWAY_PRINCIPALS } from "../auth/route-policy.js";
 import { DEFAULT_HEARTBEAT_INTERVAL_MS } from "../client-health.js";
-import { projectEventForContact } from "../contact-event-projection.js";
+import { createContactEventProjection } from "../contact-event-projection.js";
 import {
   resolveActorPrincipalIdForLocalGuardian,
   resolveActorPrincipalIdForLocalGuardianSync,
@@ -275,6 +276,8 @@ const defaultSseShedReporter: SseShedReporter = (reason, inst) => {
  *                        to sending every event as is.
  *   stillAuthorized   -- checked on every heartbeat; the stream closes when it
  *                        resolves false or rejects.
+ *   pool              -- caps the subscription within its own pool rather
+ *                        than the hub-wide cap (see `SubscriberPool`).
  */
 export function handleSubscribeAssistantEvents(
   args: RouteHandlerArgs,
@@ -284,6 +287,7 @@ export function handleSubscribeAssistantEvents(
     shedReporter?: SseShedReporter;
     project?: (event: AssistantEventEnvelope) => AssistantEventEnvelope[];
     stillAuthorized?: () => Promise<boolean>;
+    pool?: SubscriberPool;
   },
 ): ReadableStream<Uint8Array> {
   const { queryParams, headers, abortSignal } = args;
@@ -445,6 +449,7 @@ export function handleSubscribeAssistantEvents(
       filter,
       callback,
       onEvict: cleanup,
+      pool: options?.pool,
     };
 
     sub =
@@ -611,17 +616,24 @@ export function handleSubscribeAssistantEvents(
   return stream;
 }
 
+/** Concurrent shared event streams one contact may hold. */
+export const SHARED_STREAMS_PER_PRINCIPAL = 3;
+
 /**
  * A trusted contact's event stream: every event of the conversations shared
- * with them, as {@link projectEventForContact} rewrites it, and nothing else.
+ * with them, as {@link createContactEventProjection} rewrites it, and nothing
+ * else.
  *
  * It rides the same subscription as the guardian's stream, registered as a
  * process subscriber with no conversation filter and no replay, whatever the
  * request carries. The contact never registers as a client, so no targeted
  * or host-proxy event can reach them and their client id cannot displace the
- * guardian's connection. Trust was checked when the stream opened; it is read
- * again on every heartbeat, through the principal's cached verdict, and a
- * contact that no longer resolves as trusted has the stream closed.
+ * guardian's connection. Each principal's streams form their own pool of
+ * {@link SHARED_STREAMS_PER_PRINCIPAL}, outside the hub-wide cap, so opening
+ * another evicts only that principal's oldest stream and never a guardian
+ * connection. Trust was checked when the stream opened; it is read again on
+ * every heartbeat, through the principal's cached verdict, and a contact that
+ * no longer resolves as trusted has the stream closed.
  */
 export function handleSubscribeSharedEvents(
   { headers, abortSignal }: RouteHandlerArgs,
@@ -635,7 +647,11 @@ export function handleSubscribeSharedEvents(
     { abortSignal },
     {
       ...options,
-      project: (event) => projectEventForContact(event, principalId),
+      project: createContactEventProjection(principalId),
+      pool: {
+        key: `shared:${principalId}`,
+        limit: SHARED_STREAMS_PER_PRINCIPAL,
+      },
       stillAuthorized: async () =>
         (await resolveSharedPrincipal(principalId)).trustClass ===
         "trusted_contact",

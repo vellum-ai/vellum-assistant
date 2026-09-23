@@ -2,8 +2,10 @@
  * The shared event stream serves a trusted contact the events of the
  * conversations shared with them, through the real router: membership is read
  * as each event is emitted, only allowlisted event types are carried and each
- * is rebuilt from its known fields, no message content travels, and a guardian
- * token is refused.
+ * is rebuilt from its known fields, no message content travels, membership
+ * changes reach the contact even after the membership is gone, a contact's
+ * streams are capped without ever displacing a guardian connection, and a
+ * guardian token is refused.
  */
 
 import {
@@ -43,8 +45,12 @@ import type {
 import {
   conversationMessagesSyncTag,
   conversationMetadataSyncTag,
+  SYNC_TAGS,
 } from "../../../daemon/message-types/sync.js";
-import { createConversation } from "../../../persistence/conversation-crud.js";
+import {
+  createConversation,
+  deleteConversation,
+} from "../../../persistence/conversation-crud.js";
 import {
   addParticipant,
   removeParticipant,
@@ -58,7 +64,11 @@ import {
 import { resolveScopeProfile } from "../../auth/scopes.js";
 import type { AuthContext, ScopeProfile } from "../../auth/types.js";
 import { HttpRouter } from "../../http-router.js";
-import { handleSubscribeSharedEvents } from "../events-routes.js";
+import { publishConversationListAndMetadataChanged } from "../../sync/resource-sync-events.js";
+import {
+  handleSubscribeSharedEvents,
+  SHARED_STREAMS_PER_PRINCIPAL,
+} from "../events-routes.js";
 
 await initializeDb();
 
@@ -105,29 +115,57 @@ afterEach(() => {
   }
 });
 
-async function subscribe(
+async function dispatch(
+  method: string,
+  endpoint: string,
   authContext: AuthContext,
   headers: Record<string, string> = {},
 ) {
   const controller = new AbortController();
   openStreams.push(controller);
-  const url = new URL("http://127.0.0.1/v1/shared/events");
+  const url = new URL(`http://127.0.0.1/v1/${endpoint}`);
   const req = new Request(url, {
-    method: "GET",
+    method,
     headers,
     signal: controller.signal,
   });
   const response = await router.dispatch(
-    "shared/events",
+    endpoint,
     req,
     url,
     server,
     authContext,
   );
   if (!response) {
-    throw new Error("no route matched GET shared/events");
+    throw new Error(`no route matched ${method} ${endpoint}`);
   }
   return response;
+}
+
+function subscribe(
+  authContext: AuthContext,
+  headers: Record<string, string> = {},
+) {
+  return dispatch("GET", "shared/events", authContext, headers);
+}
+
+/** A shared stream opened on `hub` directly, bypassing the router. */
+function openOnHub(
+  hub: AssistantEventHub,
+  principalId = "principal-alice",
+  heartbeatIntervalMs?: number,
+) {
+  const controller = new AbortController();
+  openStreams.push(controller);
+  return frameReader(
+    handleSubscribeSharedEvents(
+      {
+        headers: { "x-vellum-actor-principal-id": principalId },
+        abortSignal: controller.signal,
+      },
+      { hub, heartbeatIntervalMs },
+    ),
+  );
 }
 
 /** Reads SSE frames as they arrive, skipping heartbeats. */
@@ -200,6 +238,16 @@ function messagesChanged(...conversationIds: string[]): AssistantEvent {
   return {
     type: "sync_changed",
     tags: conversationIds.map(conversationMessagesSyncTag),
+  };
+}
+
+function membershipChanged(conversationId: string): AssistantEvent {
+  return {
+    type: "sync_changed",
+    tags: [
+      SYNC_TAGS.sharedConversationsList,
+      conversationMetadataSyncTag(conversationId),
+    ],
   };
 }
 
@@ -284,8 +332,10 @@ describe("GET shared/events", () => {
     share(conversationId);
     await emitMarker(conversationId, "Now shared");
 
-    const frame = await stream.next();
-    expect(frame.message).toEqual({
+    const joined = await stream.next();
+    expect(joined.conversationId).toBe(conversationId);
+    expect(joined.message).toEqual(membershipChanged(conversationId));
+    expect((await stream.next()).message).toEqual({
       type: "conversation_title_updated",
       conversationId,
       title: "Now shared",
@@ -304,12 +354,61 @@ describe("GET shared/events", () => {
 
     removeParticipant(removed, "principal-alice");
     await emit(messagesChanged(removed));
+    await emit(messagesChanged(removed));
     await emitMarker(removed, "After removal");
     await emitMarker(kept, "Still shared");
 
+    const left = await stream.next();
+    expect(left.conversationId).toBe(removed);
+    expect(left.message).toEqual(membershipChanged(removed));
     const frame = await stream.next();
     expect(frame.conversationId).toBe(kept);
     expect(frame.message).toMatchObject({ title: "Still shared" });
+  });
+
+  test("the participant removal route reaches the removed contact", async () => {
+    const conversationId = newConversation();
+    share(conversationId);
+    const stream = await openStream();
+
+    const response = await dispatch(
+      "DELETE",
+      `conversations/${conversationId}/participants/principal-alice`,
+      GUARDIAN,
+    );
+    expect(response.status).toBe(204);
+
+    const frame = await stream.next();
+    expect(frame.conversationId).toBe(conversationId);
+    expect(frame.message).toEqual(membershipChanged(conversationId));
+  });
+
+  test("deleting a shared conversation reaches its contact", async () => {
+    const deleted = newConversation();
+    const kept = newConversation();
+    share(deleted);
+    share(kept);
+    const stream = await openStream();
+
+    deleteConversation(deleted);
+    publishConversationListAndMetadataChanged("deleted", deleted);
+
+    const frame = await stream.next();
+    expect(frame.conversationId).toBe(deleted);
+    expect(frame.message).toEqual(membershipChanged(deleted));
+  });
+
+  test("a membership change for a conversation never shared is not announced", async () => {
+    const neverShared = newConversation();
+    const shared = newConversation();
+    share(shared);
+    const stream = await openStream();
+
+    deleteConversation(neverShared);
+    publishConversationListAndMetadataChanged("deleted", neverShared);
+    await emitMarker(shared, "Marker");
+
+    expect((await stream.next()).message).toMatchObject({ title: "Marker" });
   });
 
   test("drops every event type outside the allowlist", async () => {
@@ -437,6 +536,76 @@ describe("GET shared/events", () => {
   });
 });
 
+describe("connection limits", () => {
+  function guardianClient(hub: AssistantEventHub, clientId: string) {
+    return hub.subscribe({
+      type: "client",
+      clientId,
+      interfaceId: "macos",
+      capabilities: [],
+      callback: () => {},
+    });
+  }
+
+  test("contact streams never evict a guardian subscriber", () => {
+    const hub = new AssistantEventHub({ maxSubscribers: 2 });
+    const guardian = guardianClient(hub, "guardian-mac");
+
+    for (const principalId of ["principal-alice", "principal-carol"]) {
+      for (let i = 0; i < 10; i++) {
+        openOnHub(hub, principalId);
+      }
+    }
+
+    expect(guardian.active).toBe(true);
+    expect(hub.subscriberCount()).toBe(1 + 2 * SHARED_STREAMS_PER_PRINCIPAL);
+  });
+
+  test("a guardian subscriber at the hub cap evicts only another guardian subscriber", () => {
+    const hub = new AssistantEventHub({ maxSubscribers: 2 });
+    for (let i = 0; i < SHARED_STREAMS_PER_PRINCIPAL; i++) {
+      openOnHub(hub);
+    }
+    const first = guardianClient(hub, "guardian-mac");
+    const second = guardianClient(hub, "guardian-phone");
+    expect(first.active).toBe(true);
+
+    const third = guardianClient(hub, "guardian-web");
+
+    expect(first.active).toBe(false);
+    expect(second.active).toBe(true);
+    expect(third.active).toBe(true);
+    expect(hub.subscriberCount()).toBe(2 + SHARED_STREAMS_PER_PRINCIPAL);
+  });
+
+  test("a contact over the per-principal cap loses their own oldest stream", async () => {
+    const hub = new AssistantEventHub();
+    const carols = openOnHub(hub, "principal-carol");
+    const alices = Array.from(
+      { length: SHARED_STREAMS_PER_PRINCIPAL + 1 },
+      () => openOnHub(hub),
+    );
+
+    expect(await alices[0]!.closed()).toBe(true);
+    expect(hub.subscriberCount()).toBe(SHARED_STREAMS_PER_PRINCIPAL + 1);
+
+    const conversationId = newConversation();
+    share(conversationId, "principal-carol");
+    await emit(
+      {
+        type: "conversation_title_updated",
+        conversationId,
+        title: "For Carol",
+      },
+      conversationId,
+      hub,
+    );
+    expect((await carols.next()).message).toEqual(
+      membershipChanged(conversationId),
+    );
+  });
+});
+
 describe("trust enforcement", () => {
   test("a guardian token is refused, even as a participant", async () => {
     share(newConversation(), "principal-bob");
@@ -460,17 +629,7 @@ describe("trust enforcement", () => {
     const hub = new AssistantEventHub();
     const conversationId = newConversation();
     share(conversationId);
-    const controller = new AbortController();
-    openStreams.push(controller);
-    const stream = frameReader(
-      handleSubscribeSharedEvents(
-        {
-          headers: { "x-vellum-actor-principal-id": "principal-alice" },
-          abortSignal: controller.signal,
-        },
-        { hub, heartbeatIntervalMs: 5 },
-      ),
-    );
+    const stream = openOnHub(hub, "principal-alice", 5);
 
     await emit(
       {
