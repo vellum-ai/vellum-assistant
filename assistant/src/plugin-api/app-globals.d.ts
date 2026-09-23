@@ -67,7 +67,10 @@ export interface VellumAppFetchResponse {
  *
  * Both ids are `null` when the host has nothing selected on that axis, which
  * an app must handle: a conversation can be closed, and an app can be open
- * with no conversation beside it.
+ * with no conversation beside it. Both are also `null` whenever the host is
+ * not in its conversation area at all, which is where an app opened from the
+ * library runs, so neither id is ever the conversation a user has walked away
+ * from.
  */
 export interface VellumAppContext {
   /**

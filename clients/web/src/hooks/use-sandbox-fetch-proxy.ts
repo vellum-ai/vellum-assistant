@@ -20,10 +20,12 @@
  */
 
 import { type RefObject, useEffect, useRef } from "react";
+import { useLocation } from "react-router";
 
 import { client } from "@/generated/api/client.gen";
 import { subscribe as busSubscribe } from "@/lib/event-bus";
 import { useConversationStore } from "@/stores/conversation-store";
+import { isConversationPath } from "@/utils/routes";
 import {
   FETCH_PROXY_PATH_RE,
   getRelayableAppRoute,
@@ -84,6 +86,14 @@ export function useSandboxFetchProxy(
   // map would be wiped and later matching events silently dropped. The ref is
   // discarded with the component on unmount.
   const subscriptionsRef = useRef<Map<string, Set<string>>>(new Map());
+
+  // The route the host is on, held in a ref for the same reason the store is
+  // read at request time: a context request is answered from wherever the
+  // host is when it is asked, and keeping the pathname out of the effect's
+  // dependencies means navigating never re-registers the listener.
+  const { pathname } = useLocation();
+  const pathnameRef = useRef(pathname);
+  pathnameRef.current = pathname;
 
   useEffect(() => {
     const subscriptions = subscriptionsRef.current;
@@ -171,11 +181,29 @@ export function useSandboxFetchProxy(
         // tears down and re-registers the listener.
         const { activeConversationId, editingConversationId } =
           useConversationStore.getState();
+        // Both ids are selection, not visibility: `activeConversationId`
+        // deliberately survives leaving the conversation area (see
+        // `chat-layout.tsx`), and the split-view binding is cleared by the
+        // paths that dismantle the split rather than by leaving. A Library app
+        // opened after a chat would otherwise be handed the conversation the
+        // user walked away from, which is the most-recently-used guess this
+        // API's contract says it is not.
+        //
+        // The route is what says whether either one is on screen: the split
+        // view and the conversation pane both live under the conversation
+        // routes, so off them neither id describes anything the user can see.
+        // Gating both here keeps that one rule in one place instead of
+        // depending on every navigation path remembering to clear.
+        const conversationVisible = isConversationPath(pathnameRef.current);
         sendContext({
           type: "vellum_context_response",
           callId,
-          activeConversationId: activeConversationId ?? null,
-          editingConversationId: editingConversationId ?? null,
+          activeConversationId: conversationVisible
+            ? (activeConversationId ?? null)
+            : null,
+          editingConversationId: conversationVisible
+            ? (editingConversationId ?? null)
+            : null,
         });
         return;
       }

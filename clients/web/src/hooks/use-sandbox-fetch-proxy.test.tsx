@@ -3,18 +3,24 @@
  *
  * The behaviour worth pinning is that `vellum_context_request` is answered
  * from the host's live selection rather than from anything captured when the
- * app mounted, and that the answer still passes the frame and source checks
- * every other sandbox message passes.
+ * app mounted, that the selection only counts while the host is in the
+ * conversation area, and that the answer still passes the frame and source
+ * checks every other sandbox message passes.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
-import type { RefObject } from "react";
+import type { ReactNode, RefObject } from "react";
+import { MemoryRouter } from "react-router";
 
 import { useSandboxFetchProxy } from "@/hooks/use-sandbox-fetch-proxy";
 import { useConversationStore } from "@/stores/conversation-store";
 
 const FRAME_ID = "app-under-test";
 const ASSISTANT_ID = "assistant-1";
+/** Where an app opened from a conversation runs. */
+const CONVERSATION_ROUTE = "/assistant/conversations/conv-active";
+/** Where a Library app runs: no conversation on screen behind it. */
+const LIBRARY_ROUTE = "/assistant/library/app-abc";
 
 let iframe: HTMLIFrameElement | undefined;
 let replies: Record<string, unknown>[];
@@ -28,7 +34,7 @@ function mountedFrame(): HTMLIFrameElement {
 }
 
 /** Mount the proxy against a real iframe whose replies are recorded. */
-function mountProxy(options?: { enabled?: boolean }) {
+function mountProxy(options?: { enabled?: boolean; route?: string }) {
   const frame = document.createElement("iframe");
   document.body.appendChild(frame);
   iframe = frame;
@@ -54,7 +60,13 @@ function mountProxy(options?: { enabled?: boolean }) {
     assistantId: ASSISTANT_ID,
     ...(options?.enabled === undefined ? {} : { enabled: options.enabled }),
   };
-  return renderHook(() => useSandboxFetchProxy(iframeRef, proxyOptions));
+  const route = options?.route ?? CONVERSATION_ROUTE;
+  const wrapper = ({ children }: { children: ReactNode }) => (
+    <MemoryRouter initialEntries={[route]}>{children}</MemoryRouter>
+  );
+  return renderHook(() => useSandboxFetchProxy(iframeRef, proxyOptions), {
+    wrapper,
+  });
 }
 
 /**
@@ -180,6 +192,58 @@ describe("useSandboxFetchProxy host context", () => {
     requestContext("c2");
     await waitFor(() => expect(replies).toHaveLength(2));
     expect(replies[1]).toMatchObject({ activeConversationId: "conv-third" });
+  });
+
+  test("reports no conversation off the conversation area, where the selection is only a memory", async () => {
+    // The store keeps the last conversation on purpose when the user leaves
+    // the chat routes, so a Library app would otherwise be told about a
+    // conversation that is not on screen.
+    useConversationStore.setState({ activeConversationId: "conv-walked-away" });
+    mountProxy({ route: LIBRARY_ROUTE });
+
+    requestContext("c1");
+
+    await waitFor(() => expect(replies).toHaveLength(1));
+    expect(replies[0]).toMatchObject({ activeConversationId: null });
+    expect(useConversationStore.getState().activeConversationId).toBe(
+      "conv-walked-away",
+    );
+  });
+
+  test("answers on a conversation subroute, where the conversation is open without a composer", async () => {
+    useConversationStore.setState({ activeConversationId: "conv-active" });
+    mountProxy({ route: "/assistant/conversations/conv-active/inspect" });
+
+    requestContext("c1");
+
+    await waitFor(() => expect(replies).toHaveLength(1));
+    expect(replies[0]).toMatchObject({ activeConversationId: "conv-active" });
+  });
+
+  test("reports no split-view binding off the conversation area either", async () => {
+    // The split view lives under the conversation routes, so off them the
+    // binding describes nothing on screen. Gating it here rather than trusting
+    // every navigation path to clear it means leaving a split view straight
+    // for the Library cannot report the app as docked beside a conversation
+    // the user can no longer see.
+    useConversationStore.setState({
+      activeConversationId: "conv-walked-away",
+      editingConversationId: "conv-editing",
+    });
+    mountProxy({ route: LIBRARY_ROUTE });
+
+    requestContext("c1");
+
+    await waitFor(() => expect(replies).toHaveLength(1));
+    expect(replies[0]).toMatchObject({
+      activeConversationId: null,
+      editingConversationId: null,
+    });
+    // The store is untouched: this is a read that declines to report, not a
+    // write that clears what the chat routes still own.
+    expect(useConversationStore.getState().editingConversationId).toBe(
+      "conv-editing",
+    );
   });
 
   test("ignores a request carrying another frame's id", async () => {
