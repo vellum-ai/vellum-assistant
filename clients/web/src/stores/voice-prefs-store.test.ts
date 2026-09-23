@@ -16,6 +16,7 @@ beforeEach(() => {
     showUserTranscript: false,
     showAssistantTranscript: false,
     firstRunSeen: false,
+    cameraExplainerSeen: false,
     pauseBeforeReplyMs: null,
     interruptSensitivity: null,
     flashMode: "off",
@@ -89,6 +90,15 @@ describe("useVoicePrefsStore — voice-mode preferences", () => {
     expect(persisted.flashMode).toBe("auto");
     expect(persisted.showKeptFrame).toBe(false);
   });
+
+  test("stamps what it writes at this build's schema version", () => {
+    useVoicePrefsStore.getState().setFlashMode("auto");
+
+    const stored = JSON.parse(
+      localStorage.getItem(VOICE_PREFS_STORE_KEY) as string,
+    );
+    expect(stored.version).toBe(2);
+  });
 });
 
 describe("useVoicePrefsStore: the kept-frame thumbnail", () => {
@@ -114,9 +124,9 @@ describe("useVoicePrefsStore: the kept-frame thumbnail", () => {
 });
 
 /**
- * What a stored kept-frame value means. Only a payload at the current version
- * holds a choice; below it, the field reads false whether the payload carries
- * it or not.
+ * What a stored kept-frame value means. A payload at version 1 or later holds a
+ * choice; below that, the field reads false whether the payload carries it or
+ * not.
  */
 describe("useVoicePrefsStore: a stored kept-frame value", () => {
   /** Put a payload on the key at a given version, and read it back in. */
@@ -149,14 +159,25 @@ describe("useVoicePrefsStore: a stored kept-frame value", () => {
     const stored = JSON.parse(
       localStorage.getItem(VOICE_PREFS_STORE_KEY) as string,
     );
-    expect(stored.version).toBe(1);
+    expect(stored.version).toBe(2);
     expect(stored.state.showKeptFrame).toBe(false);
   });
 
   test("a value stored at the current version survives a reload", async () => {
+    await rehydrateFrom({ showKeptFrame: true }, 2);
+
+    expect(useVoicePrefsStore.getState().showKeptFrame).toBe(true);
+  });
+
+  test("a v1 choice survives the migration that re-stamps it", async () => {
     await rehydrateFrom({ showKeptFrame: true }, 1);
 
     expect(useVoicePrefsStore.getState().showKeptFrame).toBe(true);
+    const stored = JSON.parse(
+      localStorage.getItem(VOICE_PREFS_STORE_KEY) as string,
+    );
+    expect(stored.version).toBe(2);
+    expect(stored.state.showKeptFrame).toBe(true);
   });
 
   test("no stored payload at all opens the thumbnail off", async () => {
@@ -179,7 +200,7 @@ describe("useVoicePrefsStore: a payload from a newer build", () => {
       showKeptFrame: true,
       futureOnlyField: "set by a later release",
     },
-    version: 2,
+    version: 3,
   };
 
   const stored = () =>
@@ -231,14 +252,14 @@ describe("useVoicePrefsStore: a payload from a newer build", () => {
   test("a write at this build's own version is not blocked", async () => {
     localStorage.setItem(
       VOICE_PREFS_STORE_KEY,
-      JSON.stringify({ state: { flashMode: "auto" }, version: 1 }),
+      JSON.stringify({ state: { flashMode: "auto" }, version: 2 }),
     );
     await useVoicePrefsStore.persist.rehydrate();
 
     useVoicePrefsStore.getState().setFlashMode("on");
 
     expect(stored().state.flashMode).toBe("on");
-    expect(stored().version).toBe(1);
+    expect(stored().version).toBe(2);
   });
 
   test("a payload nothing can parse does not block the write", async () => {
@@ -249,7 +270,7 @@ describe("useVoicePrefsStore: a payload from a newer build", () => {
     useVoicePrefsStore.getState().setFlashMode("on");
 
     expect(stored().state.flashMode).toBe("on");
-    expect(stored().version).toBe(1);
+    expect(stored().version).toBe(2);
   });
 
   test("a storage event carrying one is not read at all", async () => {
@@ -270,13 +291,13 @@ describe("useVoicePrefsStore: a payload from a newer build", () => {
     expect(useVoicePrefsStore.getState().showKeptFrame).toBe(false);
     expect(useVoicePrefsStore.getState().flashMode).toBe("off");
     // Untouched on disk, so the newer tab still owns it.
-    expect(stored().version).toBe(2);
+    expect(stored().version).toBe(3);
     expect(stored().state.futureOnlyField).toBe("set by a later release");
   });
 
   test("a storage event at this build's own version is read normally", async () => {
     useVoicePrefsStore.setState({ flashMode: "off" });
-    const current = { state: { flashMode: "auto" }, version: 1 };
+    const current = { state: { flashMode: "auto" }, version: 2 };
     localStorage.setItem(VOICE_PREFS_STORE_KEY, JSON.stringify(current));
 
     window.dispatchEvent(
@@ -315,6 +336,73 @@ describe("useVoicePrefsStore: camera flash", () => {
     useVoicePrefsStore.getState().setShowUserTranscript(true);
 
     expect(useVoicePrefsStore.getState().flashMode).toBe("on");
+  });
+});
+
+/**
+ * The flag behind the camera's "Photo or Live?" explainer. One device, one
+ * dismissal: whichever way the user leaves it, it does not come back on its
+ * own.
+ */
+describe("useVoicePrefsStore: the camera explainer", () => {
+  test("ships unseen, so the first camera open explains itself", () => {
+    // The shipped value rather than the reset above, which is a test fixture.
+    expect(useVoicePrefsStore.getInitialState().cameraExplainerSeen).toBe(
+      false,
+    );
+    expect(useVoicePrefsStore.getState().cameraExplainerSeen).toBe(false);
+  });
+
+  test("markCameraExplainerSeen sets only that field", () => {
+    useVoicePrefsStore.getState().markCameraExplainerSeen();
+
+    expect(useVoicePrefsStore.getState().cameraExplainerSeen).toBe(true);
+    expect(useVoicePrefsStore.getState().firstRunSeen).toBe(false);
+  });
+
+  test("a second mark is a no-op", () => {
+    useVoicePrefsStore.getState().markCameraExplainerSeen();
+    const marked = useVoicePrefsStore.getState();
+
+    marked.markCameraExplainerSeen();
+
+    // The same state object, so the guarded set never ran.
+    expect(useVoicePrefsStore.getState()).toBe(marked);
+    expect(useVoicePrefsStore.getState().cameraExplainerSeen).toBe(true);
+  });
+
+  test("the flag persists, and comes back on the next load", async () => {
+    useVoicePrefsStore.getState().markCameraExplainerSeen();
+
+    const raw = localStorage.getItem(VOICE_PREFS_STORE_KEY) as string;
+    expect(JSON.parse(raw).state.cameraExplainerSeen).toBe(true);
+
+    // Clearing the flag persists the cleared payload, so the stored one goes
+    // back before the reload the rehydrate stands in for.
+    useVoicePrefsStore.setState({ cameraExplainerSeen: false });
+    localStorage.setItem(VOICE_PREFS_STORE_KEY, raw);
+    await useVoicePrefsStore.persist.rehydrate();
+
+    expect(useVoicePrefsStore.getState().cameraExplainerSeen).toBe(true);
+  });
+
+  test("a version 1 payload opens the explainer unseen", async () => {
+    // Version 1 omits cameraExplainerSeen and passes through the migration as
+    // written: zustand's merge supplies the flag from the shipped default and
+    // the choices the payload holds stay intact.
+    localStorage.setItem(
+      VOICE_PREFS_STORE_KEY,
+      JSON.stringify({
+        state: { firstRunSeen: true, showKeptFrame: true },
+        version: 1,
+      }),
+    );
+
+    await useVoicePrefsStore.persist.rehydrate();
+
+    expect(useVoicePrefsStore.getState().cameraExplainerSeen).toBe(false);
+    expect(useVoicePrefsStore.getState().firstRunSeen).toBe(true);
+    expect(useVoicePrefsStore.getState().showKeptFrame).toBe(true);
   });
 });
 

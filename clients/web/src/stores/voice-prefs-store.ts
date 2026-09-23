@@ -109,6 +109,15 @@ export interface VoicePrefsState {
   /** True once the user has seen the first-run voice experience. */
   firstRunSeen: boolean;
   /**
+   * True once the camera's "Photo or Live?" explainer has been dismissed on
+   * this device, by any means.
+   *
+   * The room reads it to decide whether the first camera open shows the
+   * explainer; the view-options panel re-shows it regardless. Per device, like
+   * {@link firstRunSeen}.
+   */
+  cameraExplainerSeen: boolean;
+  /**
    * Trailing-silence duration (ms) after the user stops speaking before the
    * assistant replies — the "pause before reply" setting. Sent as the session's
    * `silenceThresholdMs`. A longer pause tolerates mid-thought pauses without
@@ -156,6 +165,8 @@ export interface VoicePrefsActions {
   setShowAssistantTranscript: (next: boolean) => void;
   /** Flip `firstRunSeen` to true on first observation. No-op afterwards. */
   markFirstRunSeen: () => void;
+  /** Record a dismissal. See {@link VoicePrefsState.cameraExplainerSeen}. */
+  markCameraExplainerSeen: () => void;
   /** `null` clears the preference, handing endpointing back to daemon config. */
   setPauseBeforeReplyMs: (next: number | null) => void;
   /** `null` clears the preference, handing barge-in back to daemon config. */
@@ -176,6 +187,7 @@ const INITIAL_STATE: VoicePrefsState = {
   showUserTranscript: false,
   showAssistantTranscript: false,
   firstRunSeen: false,
+  cameraExplainerSeen: false,
   // Unset until the user picks a value — see the field docs. Omitting the
   // override lets the daemon's configured VAD defaults stand.
   pauseBeforeReplyMs: null,
@@ -195,32 +207,39 @@ const VOICE_PREFS_STORE_KEY = "vellum:voice-prefs";
  * older or newer, goes through {@link migrateVoicePrefs} before it reaches the
  * store.
  */
-const VOICE_PREFS_STORE_VERSION = 1;
+const VOICE_PREFS_STORE_VERSION = 2;
 
 /**
  * Normalizes a payload written below {@link VOICE_PREFS_STORE_VERSION}, and
  * hands any other one back untouched.
  *
  * Below 1: `showKeptFrame` reads false whether the payload carries it or omits
- * it, and every other field passes through as written. At or above 1: nothing
- * is rewritten, including fields this build has no name for, which ride through
- * in the object it returns. Zustand runs this for every version that is not its
- * own rather than only for older ones, so a payload from a later release
- * arrives here too, and the build that does not know that schema is not the
- * one to edit it.
+ * it, and every other field passes through as written. At 1: the payload omits
+ * `cameraExplainerSeen` and passes through as written, so the `showKeptFrame`
+ * it holds is the choice its own version stamped and zustand's merge supplies
+ * the explainer flag from {@link INITIAL_STATE}.
+ * At or above 2: nothing is rewritten, including fields this build has no name
+ * for, which ride through in the object it returns. Zustand runs this for every
+ * version that is not its own rather than only for older ones, so a payload
+ * from a later release arrives here too, and the build that does not know that
+ * schema is not the one to edit it.
  *
  * The false is a literal rather than {@link INITIAL_STATE}'s value, because
  * this function is one version's contract and a later default carries its own.
+ * The tier boundary is a literal for the same reason: it names the version from
+ * which `showKeptFrame` is trusted as written, not whichever version this build
+ * happens to be on.
  */
 function migrateVoicePrefs(
   persisted: unknown,
   version: number,
 ): Partial<VoicePrefsState> {
   const saved = persisted as Partial<VoicePrefsState> | undefined;
-  if (version >= VOICE_PREFS_STORE_VERSION) {
-    return { ...saved };
+  if (version < 1) {
+    return { ...saved, showKeptFrame: false };
   }
-  return { ...saved, showKeptFrame: false };
+  // Version 1 and every version past this build's own: untouched.
+  return { ...saved };
 }
 
 /**
@@ -291,6 +310,11 @@ const useVoicePrefsStoreBase = create<VoicePrefsStore>()(
           set({ firstRunSeen: true });
         }
       },
+      markCameraExplainerSeen: () => {
+        if (!get().cameraExplainerSeen) {
+          set({ cameraExplainerSeen: true });
+        }
+      },
       setPauseBeforeReplyMs: (next: number | null) =>
         set({
           pauseBeforeReplyMs:
@@ -310,6 +334,7 @@ const useVoicePrefsStoreBase = create<VoicePrefsStore>()(
         showUserTranscript: state.showUserTranscript,
         showAssistantTranscript: state.showAssistantTranscript,
         firstRunSeen: state.firstRunSeen,
+        cameraExplainerSeen: state.cameraExplainerSeen,
         pauseBeforeReplyMs: state.pauseBeforeReplyMs,
         interruptSensitivity: state.interruptSensitivity,
         flashMode: state.flashMode,
