@@ -1532,6 +1532,7 @@
     "title": "Модальности"
   },
   "profileRow": {
+    "autoRouting": "Направляет каждое сообщение в Balanced, Quality, Budget или Fast с помощью Jev, модели принятия решений TypeSafe",
     "actionsAriaLabel": "Действия для {displayName}",
     "defaultTag": "По умолчанию",
     "delete": "Удалить",

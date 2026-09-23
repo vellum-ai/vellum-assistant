@@ -1527,6 +1527,7 @@
     "title": "模態"
   },
   "profileRow": {
+    "autoRouting": "透過 TypeSafe 的決策模型 Jev，將每則訊息路由到 Balanced、Quality、Budget 或 Fast",
     "actionsAriaLabel": "{displayName} 的動作",
     "defaultTag": "預設",
     "delete": "刪除",

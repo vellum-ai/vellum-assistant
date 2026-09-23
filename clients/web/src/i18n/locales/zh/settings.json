@@ -1527,6 +1527,7 @@
     "title": "模态"
   },
   "profileRow": {
+    "autoRouting": "通过 TypeSafe 的决策模型 Jev，将每条消息路由到 Balanced、Quality、Budget 或 Fast",
     "actionsAriaLabel": "{displayName} 的操作",
     "defaultTag": "默认",
     "delete": "删除",

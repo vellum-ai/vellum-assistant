@@ -123,7 +123,8 @@ function seedVellumConnection(): void {
 
 function persistedProfiles(): Record<string, unknown> {
   const llm = loadRawConfig().llm as
-    { profiles?: Record<string, unknown> } | undefined;
+    | { profiles?: Record<string, unknown> }
+    | undefined;
   return llm?.profiles ?? {};
 }
 
@@ -740,6 +741,25 @@ describe("GET inference/profiles honors llm.defaultProvider", () => {
       expect(names.has(key)).toBe(false);
     }
     expect(names.has("balanced")).toBe(true);
+  });
+
+  test("lists profiles in profileOrder, then the rest alphabetically", async () => {
+    setConfig("llm", {
+      profiles: {
+        "zed-custom": { source: "user", provider: "anthropic" },
+        auto: { source: "managed" },
+        "alpha-custom": { source: "user", provider: "anthropic" },
+      },
+      profileOrder: ["auto", "balanced", "zed-custom"],
+    });
+    const listed = (await call("inference_profiles_list", {})) as {
+      profiles: Array<{ name: string }>;
+    };
+    const names = listed.profiles.map((profile) => profile.name);
+    expect(names.slice(0, 3)).toEqual(["auto", "balanced", "zed-custom"]);
+    const tail = names.slice(3);
+    expect(tail).toEqual([...tail].sort());
+    expect(tail).toContain("alpha-custom");
   });
 
   test("expands balanced through a BYOK default provider, not the vellum column", async () => {

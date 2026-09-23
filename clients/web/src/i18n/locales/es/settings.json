@@ -1549,6 +1549,7 @@
     "title": "Modalidades"
   },
   "profileRow": {
+    "autoRouting": "Dirige cada mensaje a Balanced, Quality, Budget o Fast con Jev, un modelo de decisión de TypeSafe",
     "actionsAriaLabel": "Acciones para {displayName}",
     "defaultTag": "Predeterminado",
     "delete": "Eliminar",
