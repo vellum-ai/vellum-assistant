@@ -214,10 +214,10 @@ const VOICE_PREFS_STORE_VERSION = 2;
  * hands any other one back untouched.
  *
  * Below 1: `showKeptFrame` reads false whether the payload carries it or omits
- * it, and every other field passes through as written. At 1, the shape before
- * `cameraExplainerSeen` existed: the payload passes through as written, so the
- * `showKeptFrame` it holds is the choice its own version stamped and the absent
- * explainer flag falls back to {@link INITIAL_STATE} through zustand's merge.
+ * it, and every other field passes through as written. At 1: the payload omits
+ * `cameraExplainerSeen` and passes through as written, so the `showKeptFrame`
+ * it holds is the choice its own version stamped and zustand's merge supplies
+ * the explainer flag from {@link INITIAL_STATE}.
  * At or above 2: nothing is rewritten, including fields this build has no name
  * for, which ride through in the object it returns. Zustand runs this for every
  * version that is not its own rather than only for older ones, so a payload
@@ -226,8 +226,9 @@ const VOICE_PREFS_STORE_VERSION = 2;
  *
  * The false is a literal rather than {@link INITIAL_STATE}'s value, because
  * this function is one version's contract and a later default carries its own.
- * The tier boundary is a literal for the same reason: it names the version that
- * introduced the field, not whichever version this build happens to be on.
+ * The tier boundary is a literal for the same reason: it names the version from
+ * which `showKeptFrame` is trusted as written, not whichever version this build
+ * happens to be on.
  */
 function migrateVoicePrefs(
   persisted: unknown,
