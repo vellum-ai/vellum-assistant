@@ -99,6 +99,11 @@ const UNCLOSED_CELL = "<c><v>1</v>";
 /** The same cell, spelled with a prefix. */
 const PREFIXED_UNCLOSED_CELL = "<x:c><x:v>1</x:v>";
 
+/** An inline-string cell holding `text` raw, for CDATA and comment content. */
+function rawInlineCellXml(text: string): string {
+  return `<c t="inlineStr"><is><t>${text}</t></is></c>`;
+}
+
 /** A row of `count` numeric cells, followed by the raw XML in `trailing`. */
 function wideRowXml(position: number, count: number, trailing = ""): string {
   return `<row r="${position}">${"<c><v>1</v></c>".repeat(count)}${trailing}</row>`;
@@ -861,6 +866,37 @@ describe("parseWorkbook", () => {
     ]);
   });
 
+  test("classifies a custom format code by its first section", async () => {
+    const grid = await readOneSheet(
+      [
+        [{ v: 44927, s: 0 }],
+        [{ v: 44927, s: 1 }],
+        [{ v: 0.5, s: 2 }],
+        [{ v: 44927, s: 3 }],
+        [{ v: 0.5, s: 4 }],
+      ],
+      {
+        // The sections after the first hold the negative, zero, and text
+        // renderings, which a serial this reads as a date never takes.
+        styles: [
+          { formatCode: "0;0;yyyy-mm-dd" },
+          { formatCode: "yyyy-mm-dd;@" },
+          { formatCode: "[$-409]h:mm;@" },
+          { formatCode: '"a;b"yyyy-mm-dd' },
+          { formatCode: "0.00;[h]:mm" },
+        ],
+      },
+    );
+
+    expect(grid.rows).toEqual([
+      ["44927"],
+      ["2023-01-01"],
+      ["12:00"],
+      ["2023-01-01"],
+      ["0.5"],
+    ]);
+  });
+
   test("ignores a numFmt a dxf declares under a real format's id", async () => {
     const grid = await readOneSheet([[{ v: 44927, s: 0 }]], {
       parts: { "xl/styles.xml": COLLIDING_DXF_STYLES },
@@ -1102,6 +1138,59 @@ describe("parseWorkbook", () => {
 
     expect(grid.rows[0]!.length).toBe(MAX_CSV_COLUMNS);
     expect(grid.truncated).toBe(true);
+  });
+
+  test("leaves a commented-out cell out of the cell count", async () => {
+    const parsed = await parseWorkbook(
+      await workbookBlob({
+        sheets: [{ name: "Sheet1" }],
+        parts: {
+          "xl/worksheets/sheet1.xml": sheetXml(
+            `<row r="1"><c><v>1</v></c><!-- <c/></row> -->${"<c><v>1</v></c>".repeat(
+              MAX_CSV_COLUMNS - 1,
+            )}</row>`,
+          ),
+        },
+      }),
+    );
+
+    const grid = await parsed.sheets[0]!.read();
+
+    expect(grid.rows[0]!.length).toBe(MAX_CSV_COLUMNS);
+    expect(grid.truncated).toBe(false);
+  });
+
+  test("finds the row end outside CDATA, comments, and instructions", async () => {
+    // Each of these sits among the cells past the cap, so the trim drops it
+    // before a DOM is built. happy-dom reads no CDATA section and no
+    // processing instruction, which a browser and a WKWebView both do.
+    for (const hidden of [
+      "<![CDATA[</row>]]>",
+      "<!-- </row> -->",
+      "<?sheet </row> ?>",
+    ]) {
+      const parsed = await parseWorkbook(
+        await workbookBlob({
+          sheets: [{ name: "Sheet1" }],
+          parts: {
+            "xl/worksheets/sheet1.xml": sheetXml(
+              `${wideRowXml(
+                1,
+                MAX_CSV_COLUMNS,
+                `${rawInlineCellXml(hidden)}<c><v>2</v></c>`,
+              )}${rowXml(2, "alpha")}`,
+            ),
+          },
+        }),
+      );
+
+      const grid = await parsed.sheets[0]!.read();
+
+      expect(grid.rows.length).toBe(2);
+      expect(grid.rows[0]!.length).toBe(MAX_CSV_COLUMNS);
+      expect(grid.rows[1]![0]).toBe("alpha");
+      expect(grid.truncated).toBe(true);
+    }
   });
 
   test("decides a header row the same way parseCsv does", async () => {

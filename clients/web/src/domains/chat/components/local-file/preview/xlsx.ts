@@ -173,17 +173,48 @@ function smallestElapsedUnit(units: ReadonlySet<ElapsedUnit>): ElapsedUnit {
 }
 
 /**
- * What a custom format code renders. Quoted literals, bracketed sections, the
- * meridiem tokens, and backslash escapes can each hold a letter that spells no
- * placeholder, so they come out before the placeholders are read: a meridiem
- * leaves a clock reading behind it, a colour or locale bracket leaves nothing,
- * and a bracket spelling nothing but `h`, `m`, or `s` makes the code elapsed
- * time, counted from its largest bracketed unit down to the smallest unit the
- * code spells.
+ * The section of `code` that applies to the values this reader renders. A code
+ * holds one section per sign, in the order positive, negative, zero, text, and
+ * a serial read as a date, a time, or elapsed time is positive. A quoted
+ * literal, a bracket, and a backslash escape can each hold a `;` that
+ * separates nothing.
+ */
+function firstFormatSection(code: string): string {
+  let quoted = false;
+  let bracketed = false;
+  let index = 0;
+  while (index < code.length) {
+    const character = code.charAt(index);
+    if (quoted) {
+      quoted = character !== '"';
+    } else if (bracketed) {
+      bracketed = character !== "]";
+    } else if (character === "\\") {
+      index += 1;
+    } else if (character === '"') {
+      quoted = true;
+    } else if (character === "[") {
+      bracketed = true;
+    } else if (character === ";") {
+      return code.slice(0, index);
+    }
+    index += 1;
+  }
+  return code;
+}
+
+/**
+ * What a custom format code renders, read from the section that applies.
+ * Quoted literals, bracketed sections, the meridiem tokens, and backslash
+ * escapes can each hold a letter that spells no placeholder, so they come out
+ * before the placeholders are read: a meridiem leaves a clock reading behind
+ * it, a colour or locale bracket leaves nothing, and a bracket spelling
+ * nothing but `h`, `m`, or `s` makes the code elapsed time, counted from its
+ * largest bracketed unit down to the smallest unit the code spells.
  */
 function formatCodeKind(code: string): NumberFormatKind {
   const bracketed = new Set<ElapsedUnit>();
-  const placeholders = code
+  const placeholders = firstFormatSection(code)
     .replace(/"[^"]*"/g, "")
     .replace(/\[[^\]]*\]/g, (section) => {
       const elapsed = ELAPSED_BRACKET.exec(section);
@@ -450,6 +481,29 @@ function matchEndTag(buffer: string, at: number, localName: string): boolean {
   return (
     buffer.slice(start, end) === localName && endsTagName(buffer.charAt(end))
   );
+}
+
+/** Constructs that carry text spelling tags of their own, by how each closes. */
+const NON_TAG_CONSTRUCTS = [
+  { opens: "<![CDATA[", closes: "]]>" },
+  { opens: "<!--", closes: "-->" },
+  { opens: "<?", closes: "?>" },
+];
+
+/**
+ * Where the construct opened by the `<` at `at` ends, or -1 when that `<`
+ * opens an ordinary tag. A scan over markup steps past one of these whole,
+ * since the `<c>` an inline string holds inside CDATA opens no cell. An
+ * unterminated construct runs to the end of the buffer.
+ */
+function skipNonTag(buffer: string, at: number): number {
+  for (const { opens, closes } of NON_TAG_CONSTRUCTS) {
+    if (buffer.startsWith(opens, at)) {
+      const ends = buffer.indexOf(closes, at + opens.length);
+      return ends < 0 ? buffer.length : ends + closes.length;
+    }
+  }
+  return -1;
 }
 
 /** How a chunk handler ends a streamed read before the part runs out. */
@@ -1157,6 +1211,11 @@ interface WorkbookContext {
 function findRowEnd(xml: string, at: number): number {
   let scan = xml.indexOf("<", at);
   while (scan >= 0) {
+    const pastConstruct = skipNonTag(xml, scan);
+    if (pastConstruct >= 0) {
+      scan = xml.indexOf("<", pastConstruct);
+      continue;
+    }
     if (matchEndTag(xml, scan, "row")) {
       return scan;
     }
@@ -1171,7 +1230,8 @@ function findRowEnd(xml: string, at: number): number {
  * row. Rows are bounded by the marker the part is read with, while a sheet
  * whose rows run thousands of columns wide inflates well inside the part cap
  * and every one of those cells would otherwise become a node the preview has
- * no room for. Cell text escapes `<` as `&lt;`, so every `<` here opens a tag.
+ * no room for. Cell text escapes `<` as `&lt;`, so the only markup-like text
+ * in a sheet sits inside the constructs {@link skipNonTag} steps over.
  */
 function dropCellsPastCap(xml: string): { xml: string; dropped: boolean } {
   const kept: string[] = [];
@@ -1179,6 +1239,11 @@ function dropCellsPastCap(xml: string): { xml: string; dropped: boolean } {
   let cells = 0;
   let at = xml.indexOf("<");
   while (at >= 0) {
+    const pastConstruct = skipNonTag(xml, at);
+    if (pastConstruct >= 0) {
+      at = xml.indexOf("<", pastConstruct);
+      continue;
+    }
     if (matchStartTag(xml, at, "row").kind === "match") {
       cells = 0;
     } else if (matchStartTag(xml, at, "c").kind === "match") {
