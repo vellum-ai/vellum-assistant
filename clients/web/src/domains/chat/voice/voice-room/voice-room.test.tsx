@@ -3614,6 +3614,7 @@ describe("VoiceRoom: camera", () => {
 
         expect(explainer()).toBeNull();
         expect(seen()).toBe(true);
+        expect(shutter().getAttribute("data-mode")).toBe("photo");
         // The room's own Escape stands down for a dialog layered over it, so
         // one key dismisses one surface.
         expect(useLiveVoiceStore.getState().roomMinimized).toBe(false);
@@ -3661,34 +3662,71 @@ describe("VoiceRoom: camera", () => {
         expect(explainer()).toBeNull();
       });
 
-      test("a press inside it is never handed to the room's drag", async () => {
-        // The sheet is the placement that carries a drag to compete with, and
-        // the room minimizes on a press that turns into one from anywhere in
-        // it.
-        stubMediaDevices(async () => fakeStream());
-        seedLiveCapableAssistant();
-        startOwnedSession("listening");
-        render(<VoiceRoom variant="sheet" />);
-        await act(async () => {
-          fireEvent.click(cameraToggle()!);
-        });
-        await act(async () => {
-          fireEvent.loadedData(viewfinder()!);
-        });
-        roomDragStarts.mockClear();
+      /**
+       * The sheet is the placement that carries a drag to compete with, and the
+       * room minimizes on a press that turns into one from anywhere in it. The
+       * explainer covers the room in two parts, the dialog and the scrim it
+       * dims with, and a swipe that starts on either would otherwise take the
+       * camera down with the room.
+       */
+      describe("a press on it is never handed to the room's drag", () => {
+        /**
+         * The explainer's own scrim. The room's sheet draws one under the same
+         * slot, so the host is what tells the two apart.
+         */
+        const scrim = (slot: string) =>
+          explainerHost()?.querySelector(`[data-slot="${slot}"]`) ?? null;
 
-        fireEvent.pointerDown(gotIt());
-        expect(roomDragStarts).not.toHaveBeenCalled();
+        async function openExplainerOverSheetRoom(): Promise<void> {
+          stubMediaDevices(async () => fakeStream());
+          seedLiveCapableAssistant();
+          startOwnedSession("listening");
+          render(<VoiceRoom variant="sheet" />);
+          await act(async () => {
+            fireEvent.click(cameraToggle()!);
+          });
+          await act(async () => {
+            fireEvent.loadedData(viewfinder()!);
+          });
+          roomDragStarts.mockClear();
+        }
 
-        // And the room still answers a press the explainer is not over, so the
-        // count above is the carve-out rather than a drag that never arms.
-        await act(async () => {
-          fireEvent.click(gotIt());
+        test("not from its body, and the room still answers a press beside it", async () => {
+          await openExplainerOverSheetRoom();
+
+          fireEvent.pointerDown(gotIt());
+          expect(roomDragStarts).not.toHaveBeenCalled();
+
+          // And the room still answers a press the explainer is not over, so
+          // the count above is the carve-out rather than a drag that never
+          // arms.
+          await act(async () => {
+            fireEvent.click(gotIt());
+          });
+          fireEvent.pointerDown(
+            screen.getByRole("dialog", { name: "Voice session" }),
+          );
+          expect(roomDragStarts).toHaveBeenCalledTimes(1);
         });
-        fireEvent.pointerDown(
-          screen.getByRole("dialog", { name: "Voice session" }),
-        );
-        expect(roomDragStarts).toHaveBeenCalledTimes(1);
+
+        test("not from the sheet's scrim, which covers the whole room", async () => {
+          await openExplainerOverSheetRoom();
+
+          fireEvent.pointerDown(scrim("bottom-sheet-overlay")!);
+
+          expect(roomDragStarts).not.toHaveBeenCalled();
+        });
+
+        test("not from the modal's scrim on a pointer surface", async () => {
+          // Under 768px with a fine pointer the room is the draggable sheet
+          // while the explainer is the modal.
+          stubSurface(false);
+          await openExplainerOverSheetRoom();
+
+          fireEvent.pointerDown(scrim("modal-overlay")!);
+
+          expect(roomDragStarts).not.toHaveBeenCalled();
+        });
       });
     });
   });

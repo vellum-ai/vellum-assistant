@@ -366,6 +366,31 @@ function isTextControl(target: EventTarget | null): boolean {
 }
 
 /**
+ * The scrims the design library's overlay primitives draw. Neither is inside
+ * the dialog it dims for, so a press on one reaches none of the handlers that
+ * content carries.
+ */
+const NESTED_DIALOG_SCRIM_SELECTOR = `[data-slot="bottom-sheet-overlay"], [data-slot="modal-overlay"]`;
+
+/**
+ * Whether a press landed on a dialog layered over the room, scrim included.
+ *
+ * The room's own dialog carries {@link ROOM_DIALOG_ATTR} in every variant, so a
+ * `role="dialog"` without it is something over the room. The scrims name
+ * themselves, since neither is inside the dialog it belongs to.
+ */
+function isNestedDialogSurface(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) {
+    return false;
+  }
+  if (target.closest(NESTED_DIALOG_SCRIM_SELECTOR)) {
+    return true;
+  }
+  const owner = target.closest(`[role="dialog"]`);
+  return owner !== null && !owner.hasAttribute(ROOM_DIALOG_ATTR);
+}
+
+/**
  * The element the mobile sheet portals into.
  *
  * `root-layout.tsx` wraps the whole app shell in `isolation: isolate`, so a
@@ -533,6 +558,11 @@ function VoiceRoomSheet({
         dragControls={dragControls}
         onPointerDown={(event: ReactPointerEvent<HTMLElement>) => {
           if (isTextControl(event.target)) {
+            return;
+          }
+          // A dialog layered over the room owns every press on its own
+          // surface, the scrim included, the way it owns Escape.
+          if (isNestedDialogSurface(event.target)) {
             return;
           }
           dragControls.start(event);
@@ -911,6 +941,9 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   // come down with the viewfinder, so nothing about one open reaches the next,
   // and a flip's dropped frame cannot raise it a second time.
   const explainerShown = useRef(false);
+  // The view options ride `liveOffered` alone while this also waits for a drawn
+  // preview, so on the browser path the panel can be open under the explainer,
+  // and it is still open and still working once the explainer goes.
   useEffect(() => {
     if (!cameraOpen) {
       explainerShown.current = false;
