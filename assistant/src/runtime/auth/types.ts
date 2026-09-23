@@ -40,7 +40,8 @@ export type Scope =
   | "feature_flags.write"
   | "speech.relay"
   | "local.all"
-  | "oauth.proxy";
+  | "oauth.proxy"
+  | "shared.read";
 
 // ---------------------------------------------------------------------------
 // Principal types — derived from the sub pattern

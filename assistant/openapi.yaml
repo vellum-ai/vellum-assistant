@@ -32638,6 +32638,230 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/shared/conversations:
+    get:
+      operationId: shared_conversations_get
+      summary: List conversations shared with the caller
+      description: List the conversations the calling contact is a participant of, most recently updated first.
+      tags:
+        - shared
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversations:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        title:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        createdAt:
+                          type: number
+                        updatedAt:
+                          type: number
+                        lastMessageAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                      required:
+                        - id
+                        - title
+                        - createdAt
+                        - updatedAt
+                        - lastMessageAt
+                      additionalProperties: false
+                required:
+                  - conversations
+                additionalProperties: false
+  /v1/shared/conversations/{id}:
+    get:
+      operationId: shared_conversations_by_id_get
+      summary: Get a shared conversation
+      description: Return the metadata of a conversation shared with the calling contact.
+      tags:
+        - shared
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversation:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      title:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      createdAt:
+                        type: number
+                      updatedAt:
+                        type: number
+                      lastMessageAt:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                    required:
+                      - id
+                      - title
+                      - createdAt
+                      - updatedAt
+                      - lastMessageAt
+                    additionalProperties: false
+                required:
+                  - conversation
+                additionalProperties: false
+        "404":
+          description: Conversation not found or not shared with the caller
+  /v1/shared/conversations/{id}/messages:
+    get:
+      operationId: shared_conversations_by_id_messages_get
+      summary: List messages in a shared conversation
+      description:
+        Return the newest page of messages a contact may read in a conversation shared with them, oldest first.
+        Reasoning, tool calls and results, and messages addressed to someone else are never included.
+      tags:
+        - shared
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: beforeTimestamp
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Return messages older than this timestamp (ms since epoch). Used for paging older history.
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Maximum number of messages to return, 1 to 500. Defaults to 50.
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  messages:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        role:
+                          type: string
+                          enum:
+                            - user
+                            - assistant
+                        createdAt:
+                          type: number
+                        content:
+                          type: array
+                          items:
+                            anyOf:
+                              - type: object
+                                properties:
+                                  type:
+                                    type: string
+                                    const: text
+                                  text:
+                                    type: string
+                                  _redactionVersion:
+                                    type: number
+                                required:
+                                  - type
+                                  - text
+                                additionalProperties: false
+                              - type: object
+                                properties:
+                                  type:
+                                    type: string
+                                    enum:
+                                      - image
+                                      - file
+                                  source:
+                                    type: object
+                                    properties:
+                                      type:
+                                        type: string
+                                        const: workspace_ref
+                                      media_type:
+                                        type: string
+                                      attachmentId:
+                                        type: string
+                                      sizeBytes:
+                                        type: number
+                                      filename:
+                                        type: string
+                                      width:
+                                        type: number
+                                      height:
+                                        type: number
+                                    required:
+                                      - type
+                                      - media_type
+                                      - attachmentId
+                                      - sizeBytes
+                                    additionalProperties: false
+                                required:
+                                  - type
+                                  - source
+                                additionalProperties: false
+                      required:
+                        - id
+                        - role
+                        - createdAt
+                        - content
+                      additionalProperties: false
+                  hasMore:
+                    type: boolean
+                    description: Whether older messages exist beyond this page
+                  oldestTimestamp:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                    description: Timestamp to pass as beforeTimestamp for the next older page. Null when there is none.
+                  oldestMessageId:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description: ID of the oldest message in this page
+                required:
+                  - messages
+                  - hasMore
+                  - oldestTimestamp
+                  - oldestMessageId
+                additionalProperties: false
+        "400":
+          description: A query parameter is not a valid number
+        "404":
+          description: Conversation not found or not shared with the caller
   /v1/skills:
     get:
       operationId: skills_get

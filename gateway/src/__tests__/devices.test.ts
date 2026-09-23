@@ -290,7 +290,7 @@ describe("minted token role", () => {
     expect(scopes.has("chat.write")).toBe(true);
   });
 
-  test("a contact token grants no read scope", () => {
+  test("a contact token grants none of the guardian's read scopes", () => {
     // The routes behind these return the guardian's data to any holder, so
     // each one comes back only when its routes filter by caller.
     const scopes = resolveScopeProfile("contact_client_v1");

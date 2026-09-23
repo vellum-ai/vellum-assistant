@@ -3,9 +3,9 @@
  * its trust class, with a 404, and leaves every other token untouched.
  *
  * The real route table is served with stub handlers, so each route's own
- * endpoint and policy are what is exercised without running its handler. A
- * probe route that opts into contacts covers the admitted path, which no
- * shipped route takes yet.
+ * endpoint and policy are what is exercised without running its handler.
+ * Probe routes cover a route admitting both the guardian and contacts, and
+ * one admitting contacts alone.
  */
 
 import {
@@ -38,7 +38,7 @@ mock.module("../shared-principal-lookup.js", () => ({
 }));
 
 const { isContactTrustClass } = await import("../trust-class.js");
-const { CONTACT_ALLOWED, enforcePolicy } =
+const { CONTACT_ALLOWED, enforcePolicy, trustClassAllowed } =
   await import("../auth/route-policy.js");
 const actualRoutes = await import("../routes/index.js");
 type RouteDefinition = (typeof actualRoutes.ROUTES)[number];
@@ -340,14 +340,18 @@ describe("other tokens", () => {
     ["svc_gateway", GATEWAY],
     ["local", LOCAL],
   ] as const)(
-    "a %s token gets what the scope policy alone decides on every route",
+    "a %s token gets 404 from a contact-only route and what the scope policy alone decides elsewhere",
     async (_label, ctx) => {
       const drift: string[] = [];
       for (const route of REAL_ROUTES) {
         reached = undefined;
         const response = await dispatch(route.method, concretePath(route), ctx);
         const denied = enforcePolicy(route.endpoint, route.policy, ctx);
-        const expected = denied ? denied.status : route.operationId;
+        const expected = !trustClassAllowed(route.policy, "guardian")
+          ? 404
+          : denied
+            ? denied.status
+            : route.operationId;
         const actual = reached ?? response.status;
         if (actual !== expected) {
           drift.push(`${route.method} ${route.endpoint}: ${actual}`);

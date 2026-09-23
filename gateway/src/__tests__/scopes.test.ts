@@ -5,6 +5,18 @@ import { isTrustCheckedScopeProfile } from "@vellumai/gateway-client";
 import { isNarrowScopeProfile, resolveScopeProfile } from "../auth/scopes.js";
 import type { ScopeProfile } from "../auth/types.js";
 
+/** Every profile name; the Record keeps this list exhaustive. */
+const KNOWN_PROFILES = Object.keys({
+  actor_client_v1: true,
+  contact_client_v1: true,
+  gateway_ingress_v1: true,
+  gateway_service_v1: true,
+  local_v1: true,
+  oauth_proxy_v1: true,
+  speech_relay_v1: true,
+  ui_page_v1: true,
+} satisfies Record<ScopeProfile, true>) as ScopeProfile[];
+
 describe("resolveScopeProfile", () => {
   test("known profiles resolve to their scopes", () => {
     expect(resolveScopeProfile("speech_relay_v1").has("speech.relay")).toBe(
@@ -21,18 +33,18 @@ describe("resolveScopeProfile", () => {
   });
 
   test("no other profile grants oauth.proxy", () => {
-    // Keyed by Exclude<...> so a new profile fails typecheck until listed.
-    const others: Record<Exclude<ScopeProfile, "oauth_proxy_v1">, true> = {
-      actor_client_v1: true,
-      contact_client_v1: true,
-      gateway_ingress_v1: true,
-      gateway_service_v1: true,
-      local_v1: true,
-      speech_relay_v1: true,
-      ui_page_v1: true,
-    };
-    for (const profile of Object.keys(others) as ScopeProfile[]) {
-      expect(resolveScopeProfile(profile).has("oauth.proxy")).toBe(false);
+    for (const profile of KNOWN_PROFILES) {
+      expect(resolveScopeProfile(profile).has("oauth.proxy")).toBe(
+        profile === "oauth_proxy_v1",
+      );
+    }
+  });
+
+  test("only contact_client_v1 grants shared.read", () => {
+    for (const profile of KNOWN_PROFILES) {
+      expect(resolveScopeProfile(profile).has("shared.read")).toBe(
+        profile === "contact_client_v1",
+      );
     }
   });
 
