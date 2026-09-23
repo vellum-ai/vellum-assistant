@@ -379,6 +379,20 @@
     "unsupported": "Este dispositivo no puede abrir una cámara.",
     "uploadFailed": "No se pudo enviar esa foto."
   },
+  "cameraExplainer": {
+    "gotIt": "Entendido",
+    "liveBody": "{name} mira mientras mueves la cámara. Solo habla de lo que {name} ve.",
+    "liveBodyDesktop": "{name} mira mientras mueves la cámara. Solo habla de lo que {name} ve. Detenlo cuando quieras.",
+    "liveTag": "En vivo",
+    "liveTitle": "En vivo",
+    "photoBody": "Toma una foto. {name} ve solo esa foto.",
+    "photoTitle": "Foto",
+    "privacy": "Todo lo que {name} ve se queda en el espacio de trabajo privado de {name}. El modo en vivo termina cuando cierras la cámara.",
+    "subtitle": "Elige cómo {name} ve lo que estás enfocando. Puedes cambiar cuando quieras.",
+    "title": "¿Foto o en vivo?",
+    "tryLive": "Probar en vivo ahora",
+    "tryLiveDesktop": "Probar en vivo"
+  },
   "cameraShutterHint": {
     "live": "En vivo · Toca para detener",
     "liveDescription": "Toca para detener el video en vivo.",

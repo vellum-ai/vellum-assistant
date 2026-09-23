@@ -379,6 +379,20 @@
     "unsupported": "此裝置無法開啟相機。",
     "uploadFailed": "無法傳送該相片。"
   },
+  "cameraExplainer": {
+    "gotIt": "知道了",
+    "liveBody": "您移動相機時，{name} 會持續觀看。直接聊聊 {name} 看到的內容。",
+    "liveBodyDesktop": "您移動相機時，{name} 會持續觀看。直接聊聊 {name} 看到的內容。隨時都可以停止。",
+    "liveTag": "即時",
+    "liveTitle": "即時",
+    "photoBody": "拍一張照片。{name} 只會看到那一張照片。",
+    "photoTitle": "相片",
+    "privacy": "{name} 看到的一切都留在 {name} 自己的私人工作區。關閉相機時即時模式就會結束。",
+    "subtitle": "選擇 {name} 要如何看您對準的畫面。隨時都可以切換。",
+    "title": "相片還是即時？",
+    "tryLive": "立即試用即時",
+    "tryLiveDesktop": "試用即時"
+  },
   "cameraShutterHint": {
     "live": "即時 · 輕觸停止",
     "liveDescription": "輕觸停止即時視訊。",

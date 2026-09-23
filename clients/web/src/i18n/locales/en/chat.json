@@ -393,6 +393,20 @@
     "unsupported": "This device can't open a camera.",
     "uploadFailed": "Couldn't send that photo."
   },
+  "cameraExplainer": {
+    "gotIt": "Got it",
+    "liveBody": "{name} watches as you move the camera. Just talk about what {name} sees.",
+    "liveBodyDesktop": "{name} watches as you move the camera. Just talk about what {name} sees. Stop whenever you like.",
+    "liveTag": "Live",
+    "liveTitle": "Live",
+    "photoBody": "Take a picture. {name} sees just that one picture.",
+    "photoTitle": "Photo",
+    "privacy": "Everything {name} sees stays in {name}'s own private workspace. Live ends when you close the camera.",
+    "subtitle": "Pick how {name} sees what you're pointing at. You can switch any time.",
+    "title": "Photo or Live?",
+    "tryLive": "Try Live now",
+    "tryLiveDesktop": "Try Live"
+  },
   "cameraShutterHint": {
     "live": "Live · Tap to stop",
     "liveDescription": "Tap to stop live video.",
