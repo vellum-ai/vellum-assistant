@@ -17,6 +17,7 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
 } from "@testing-library/react";
 
 let hudAvailable = false;
@@ -268,7 +269,11 @@ describe("CameraViewSettings", () => {
         fireEvent.click(howItWorks()!);
       });
 
-      expect(show).toHaveBeenCalledTimes(1);
+      // Deferred to the panel's own close, so that the trigger has focus again
+      // by the time the explainer records what to give it back to.
+      await waitFor(() => {
+        expect(show).toHaveBeenCalledTimes(1);
+      });
       // The explainer covers the room, and a panel left open beneath it is a
       // surface nothing can reach.
       expect(panel()).toBeNull();

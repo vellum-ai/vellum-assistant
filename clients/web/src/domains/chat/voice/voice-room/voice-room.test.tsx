@@ -3707,13 +3707,22 @@ describe("VoiceRoom: camera", () => {
           useVoicePrefsStore.setState({ cameraExplainerSeen: true });
         });
 
-        /** Open the panel over an already-open camera, then press its row. */
+        /**
+         * Open the panel over an already-open camera, then press its row.
+         *
+         * The explainer is raised as the panel closes rather than on the press
+         * itself, so that the trigger has focus back before the dialog records
+         * what to return it to.
+         */
         async function pressHowItWorks(): Promise<void> {
           await act(async () => {
             fireEvent.click(viewOptions());
           });
           await act(async () => {
             fireEvent.click(howItWorks()!);
+          });
+          await waitFor(() => {
+            expect(explainer()).not.toBeNull();
           });
         }
 

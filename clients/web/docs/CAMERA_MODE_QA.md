@@ -497,6 +497,10 @@ the dismissals above, on both presentations.
 - [ ] Every way out behaves as it does on the first open. "Got it", a scrim
       press, Escape and the desktop close glyph all leave Photo; "Try Live now"
       enters Live. The row is still there on the next open of the panel.
+- [ ] Keyboard: focus comes back. Reach the row by Tab and activate it with
+      Enter, then dismiss the explainer: focus lands on the view options button,
+      not at the top of the page. happy-dom reports the body for this either
+      way, so no automated test covers it.
 
 ### Deliberate departures from the handoff
 

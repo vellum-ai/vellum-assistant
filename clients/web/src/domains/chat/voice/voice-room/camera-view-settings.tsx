@@ -35,7 +35,7 @@
  * keeps a dismissing tap from reaching the shutter underneath it.
  */
 
-import { useId, useState, type ReactNode } from "react";
+import { useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { ChevronRight, SlidersHorizontal } from "lucide-react";
 
@@ -112,6 +112,9 @@ export function CameraViewSettings({
   const { t } = useTranslation("chat");
   const [open, setOpen] = useState(false);
   const titleId = useId();
+  // Set by the explainer row alone, so a close by Escape or an outside press
+  // never carries one with it.
+  const showExplainerOnClose = useRef(false);
   const hudAvailable = useCameraGateHudAvailable();
   const hudEnabled = useCameraGateDebugStore.use.hudEnabled();
   const setHudEnabled = useCameraGateDebugStore.use.setHudEnabled();
@@ -156,6 +159,19 @@ export function CameraViewSettings({
           // Radix presents this as a dialog, and an unnamed one is announced
           // as nothing. The heading it already carries is the name.
           aria-labelledby={titleId}
+          // The explainer opens from here rather than from the row's own
+          // press. Radix returns focus to the trigger synchronously once this
+          // returns, and the microtask runs after that, so the dialog records
+          // the trigger as the element to hand focus back to. Defaulting the
+          // event rather than preventing it is what makes that restore happen.
+          onCloseAutoFocus={() => {
+            const raise = showExplainerOnClose.current;
+            showExplainerOnClose.current = false;
+            if (!raise || !onShowExplainer) {
+              return;
+            }
+            queueMicrotask(onShowExplainer);
+          }}
           style={cameraModeStyle()}
           className={cn(
             "flex w-72 max-w-[calc(100vw-2rem)] flex-col gap-3 rounded-lg p-3 shadow-lg",
@@ -189,11 +205,11 @@ export function CameraViewSettings({
             // the reason the file header gives. Its words are its name.
             <button
               type="button"
-              // The panel closes first: the explainer covers the room, and a
-              // popover left open under it is a surface nothing can reach.
+              // The panel hands focus back to its trigger before the explainer
+              // mounts, so dismissing the explainer returns to the controls.
               onClick={() => {
+                showExplainerOnClose.current = true;
                 setOpen(false);
-                onShowExplainer();
               }}
               className={cn(
                 "-mx-1 flex min-h-11 w-full items-center justify-between gap-2.5 rounded-md px-1",
