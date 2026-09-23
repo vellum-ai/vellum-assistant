@@ -18,9 +18,11 @@
 
 import { z } from "zod";
 
-import { isConversationBusyError } from "../../daemon/conversation-messaging.js";
-import { processMessageInBackground } from "../../daemon/process-message.js";
+import type { Conversation } from "../../daemon/conversation.js";
+import { getConversationIfExists } from "../../daemon/conversation-store.js";
+import type { ConversationCreateOptions } from "../../daemon/handlers/shared.js";
 import type { TrustContext } from "../../daemon/trust-context-types.js";
+import { resolveAttachmentsForPersist } from "../../persistence/attachments-store.js";
 import {
   type ContactReader,
   type ContactVisibleBlock,
@@ -40,28 +42,17 @@ import {
   PluginTurnNotAdmittedError,
   resolvePluginChannelTurnTrust,
 } from "../../plugin-api/plugin-channel-turn-trust.js";
-import { getLogger } from "../../util/logger.js";
+import { assistantEventHub } from "../assistant-event-hub.js";
 import {
   type RoutePolicy,
   TRUSTED_CONTACT_ONLY,
 } from "../auth/route-policy.js";
-import { resolveRoutingState } from "../trust-context-resolver.js";
+import { handleSendMessage } from "./conversation-routes.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
-import { withChannelTurnAdmission } from "./inbound-stages/channel-turn-admission.js";
-import { prepareChannelInboundContent } from "./inbound-stages/inbound-content-prep.js";
-import { secretBlockedResponse } from "./secret-blocked-response.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
-
-const log = getLogger("shared-conversation-routes");
 
 const DEFAULT_MESSAGE_LIMIT = 50;
 const MAX_MESSAGE_LIMIT = 500;
-
-/**
- * How many times a contact's turn goes back to wait when another turn claims
- * the conversation between admission and the turn taking it.
- */
-const MAX_TURN_START_ATTEMPTS = 3;
 
 const POLICY: RoutePolicy = {
   requiredScopes: ["shared.read"],
@@ -262,41 +253,27 @@ async function contactTurnTrust(reader: ContactReader): Promise<TrustContext> {
   return trust;
 }
 
-type SharedTurnOptions = NonNullable<
-  Parameters<typeof processMessageInBackground>[2]
->;
-
 /**
- * Run the contact's turn once the conversation is free, behind any turn
- * already in flight. A contact removed while it waited is not run at all.
+ * The conversation acquire a contact's send runs on: it joins a conversation
+ * that exists and never writes one back, so a conversation deleted after the
+ * membership check stays deleted.
  */
-async function runSharedTurn(
+async function joinExistingConversation(
   conversationId: string,
-  principalId: string,
-  content: string,
-  options: SharedTurnOptions,
-): Promise<void> {
-  for (let attempt = 1; ; attempt++) {
-    try {
-      await withChannelTurnAdmission(conversationId, async () => {
-        if (!isParticipant(conversationId, principalId)) {
-          log.info(
-            { conversationId, principalId },
-            "Shared turn dropped: the sender is no longer a participant",
-          );
-          return;
-        }
-        await processMessageInBackground(conversationId, content, options);
-      });
-      return;
-    } catch (err) {
-      if (!isConversationBusyError(err) || attempt >= MAX_TURN_START_ATTEMPTS) {
-        throw err;
-      }
-    }
+  options?: ConversationCreateOptions,
+): Promise<Conversation> {
+  const conversation = await getConversationIfExists(conversationId, options);
+  if (!conversation) {
+    throw new NotFoundError("Conversation not found");
   }
+  return conversation;
 }
 
+/**
+ * A contact's entry into the one send pipeline. Membership, the contact's
+ * trust and the admission floor are settled here; queueing, dedup and the
+ * turn itself are `handleSendMessage`'s, the same as for `POST /v1/messages`.
+ */
 async function handleSendSharedMessage({
   pathParams = {},
   body = {},
@@ -307,58 +284,41 @@ async function handleSendSharedMessage({
     pathParams.id!,
     reader,
   );
-
-  if (typeof body.content !== "string" || body.content.trim().length === 0) {
-    throw new BadRequestError("content is required");
-  }
   if (
     body.clientMessageId != null &&
     typeof body.clientMessageId !== "string"
   ) {
     throw new BadRequestError("clientMessageId must be a string");
   }
-  const trimmedContent = body.content.trim();
 
   const trust = await contactTurnTrust(reader);
 
-  const blocked = secretBlockedResponse(trimmedContent);
-  if (blocked) {
-    return blocked;
-  }
-
-  const prepared = prepareChannelInboundContent({
-    trimmedContent,
-    trustClass: trust.trustClass,
-    sourceChannel: "vellum-shared",
-    requesterIdentifier: trust.requesterIdentifier,
-  });
-
-  void runSharedTurn(conversationId, reader.principalId, prepared.content, {
-    existingConversationOnly: true,
-    sourceChannel: "vellum-shared",
-    sourceInterface: "web",
-    trustContext: trust,
-    author: trust,
-    sourceActorPrincipalId: reader.principalId,
-    isInteractive: resolveRoutingState(trust).promptWaitingAllowed,
-    ...(prepared.displayContent !== undefined
-      ? { displayContent: prepared.displayContent }
-      : {}),
-    // Namespaced by sender, so a contact's retry deduplicates against their
-    // own earlier send and never against a row someone else wrote.
-    ...(body.clientMessageId
-      ? {
-          clientMessageId: `vellum-shared:${reader.principalId}:${body.clientMessageId}`,
-        }
-      : {}),
-  }).catch((err) => {
-    log.error(
-      { err, conversationId, principalId: reader.principalId },
-      "Shared conversation turn failed",
-    );
-  });
-
-  return { accepted: true };
+  return handleSendMessage(
+    {
+      body: {
+        conversationId,
+        content: body.content,
+        sourceChannel: "vellum-shared",
+        interface: "web",
+        // Namespaced by sender, so a contact's retry deduplicates against
+        // their own earlier send and never against a row someone else wrote.
+        ...(body.clientMessageId
+          ? {
+              clientMessageId: `vellum-shared:${reader.principalId}:${body.clientMessageId}`,
+            }
+          : {}),
+      },
+      headers,
+    },
+    {
+      sendMessageDeps: {
+        getOrCreateConversation: joinExistingConversation,
+        assistantEventHub,
+        resolveAttachments: resolveAttachmentsForPersist,
+      },
+      contactSender: { trustContext: trust, principalId: reader.principalId },
+    },
+  );
 }
 
 const conversationIdParam = { name: "id", type: "uuid" } as const;
@@ -453,7 +413,8 @@ export const ROUTES: RouteDefinition[] = [
     summary: "Send a message to a shared conversation",
     description:
       "Send a message from the calling contact to a conversation shared with them. " +
-      "The reply runs as that contact and streams to the conversation's readers. " +
+      "The turn runs as that contact and its events stream to the conversation's readers. " +
+      "A message sent while a turn is running is queued behind it. " +
       "The conversation must already exist; this never creates one.",
     tags: ["shared"],
     responseStatus: "202",
@@ -467,11 +428,18 @@ export const ROUTES: RouteDefinition[] = [
           "Client-generated idempotency nonce. A retry with the same value is accepted without running a second turn.",
         ),
     }),
-    responseBody: z.object({ accepted: z.boolean() }),
+    responseBody: z.object({
+      accepted: z.boolean(),
+      conversationId: z.string().optional(),
+      messageId: z.string().optional(),
+      queued: z.boolean().optional(),
+      requestId: z.string().optional(),
+    }),
     additionalResponses: {
       ...notFound,
       "400": { description: "The message has no content" },
       "422": { description: "The message contains a secret and was not sent" },
+      "429": { description: "Too many messages are already queued" },
     },
     handler: handleSendSharedMessage,
   },

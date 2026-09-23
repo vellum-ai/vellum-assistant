@@ -1096,6 +1096,7 @@ async function drainSingleMessage(
       // Attribute the stored row to the sender this turn runs as, not to
       // whoever happens to occupy the conversation slot at drain time.
       trustContext: next.trustContext,
+      ...(next.author ? { author: next.author } : {}),
       ...(next.transport?.clientOs
         ? { requestClientOs: next.transport.clientOs }
         : {}),
@@ -1151,7 +1152,8 @@ async function drainSingleMessage(
   if (!isEchoSuppressedUserMessage(next.metadata)) {
     next.onEvent({
       type: "user_message_echo",
-      text: resolvedContent,
+      // The persisted text, so the live row matches what a reload shows.
+      text: next.displayContent ?? resolvedContent,
       conversationId: conversation.conversationId,
       messageId: userMessageId,
       requestId: next.requestId,
@@ -1473,6 +1475,7 @@ async function drainBatch(
         // Same attribution rule as the single-message drain. Batch members
         // share one sender, so every row here names that sender.
         trustContext: qm.trustContext,
+        ...(qm.author ? { author: qm.author } : {}),
         ...(qm.transport?.clientOs
           ? { requestClientOs: qm.transport.clientOs }
           : {}),
@@ -1572,7 +1575,7 @@ async function drainBatch(
     if (!isEchoSuppressedUserMessage(qm.metadata)) {
       qm.onEvent({
         type: "user_message_echo",
-        text: qmContent,
+        text: qm.displayContent ?? qmContent,
         conversationId: conversation.conversationId,
         messageId: lastUserMessageId,
         requestId: qm.requestId,

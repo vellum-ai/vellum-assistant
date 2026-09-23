@@ -32866,8 +32866,9 @@ paths:
       operationId: shared_conversations_by_id_messages_post
       summary: Send a message to a shared conversation
       description:
-        Send a message from the calling contact to a conversation shared with them. The reply runs as that contact
-        and streams to the conversation's readers. The conversation must already exist; this never creates one.
+        Send a message from the calling contact to a conversation shared with them. The turn runs as that contact
+        and its events stream to the conversation's readers. A message sent while a turn is running is queued behind it.
+        The conversation must already exist; this never creates one.
       tags:
         - shared
       parameters:
@@ -32901,6 +32902,14 @@ paths:
                 properties:
                   accepted:
                     type: boolean
+                  conversationId:
+                    type: string
+                  messageId:
+                    type: string
+                  queued:
+                    type: boolean
+                  requestId:
+                    type: string
                 required:
                   - accepted
                 additionalProperties: false
@@ -32910,6 +32919,8 @@ paths:
           description: Conversation not found or not shared with the caller
         "422":
           description: The message contains a secret and was not sent
+        "429":
+          description: Too many messages are already queued
   /v1/skills:
     get:
       operationId: skills_get

@@ -832,6 +832,8 @@ export interface EnqueueMessageOptions {
    * set to this sender.
    */
   trustContext?: TrustContext;
+  /** The person whose own message this is; see `QueuedMessage.author`. */
+  author?: TrustContext;
   /**
    * Queue the message even when the conversation reads idle, instead of taking
    * the idle fast path that stores nothing.
@@ -872,6 +874,7 @@ export function enqueueMessage(
     transport,
     clientMessageId,
     authContext,
+    author,
     cronRunId,
   } = options;
   const queuedAuthContext =
@@ -910,6 +913,7 @@ export function enqueueMessage(
     sourceActorPrincipalId,
     authContext: queuedAuthContext,
     trustContext: queuedTrustContext,
+    ...(author ? { author } : {}),
     transport,
     displayContent,
     sentAt: Date.now(),

@@ -47,6 +47,14 @@ const capturedPersistedSeqs: Array<{ id: string; seq: number }> = [];
  */
 const addMessageShouldThrowForContent = new Set<string>();
 
+// A contact's turn joins its contact record for display details; this suite
+// runs without a contacts table.
+const actualContactStore = await import("../contacts/contact-store.js");
+mock.module("../contacts/contact-store.js", () => ({
+  ...actualContactStore,
+  findContactInfoById: () => null,
+}));
+
 mock.module("../prompts/system-prompt.js", () => ({
   buildSystemPrompt: () => "system prompt",
 }));
@@ -709,6 +717,63 @@ describe("Conversation message queue", () => {
     );
     expect(conversation.currentTurnTrustContext?.requesterExternalUserId).toBe(
       "U-contact",
+    );
+
+    await resolveRun(1);
+    await new Promise((r) => setTimeout(r, 10));
+  });
+
+  test("a contact's queued message runs after the current turn and names its author", async () => {
+    // A shared-conversation contact's send that lands mid-turn waits in the
+    // queue like any other. When it drains, the row it persists names the
+    // contact as author and keeps the raw text the contact typed.
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: () => {},
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    const contactEvents: AssistantEvent[] = [];
+    const contact = {
+      trustClass: "trusted_contact" as const,
+      sourceChannel: "vellum-shared" as const,
+      requesterExternalUserId: "principal-alice",
+      requesterContactId: "contact-alice",
+    };
+    const queued = conversation.enqueueMessage({
+      content: "<external_content>Is noon fine?</external_content>",
+      displayContent: "Is noon fine?",
+      requestId: "req-contact",
+      trustContext: contact,
+      author: contact,
+      onEvent: (e) => contactEvents.push(e),
+    });
+    expect(queued.queued).toBe(true);
+    expect(pendingRuns.length).toBe(1);
+
+    capturedAddMessages.length = 0;
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    const row = capturedAddMessages.find((m) => m.role === "user");
+    expect(row?.content).toContain("Is noon fine?");
+    expect(row?.content).not.toContain("external_content");
+    expect(row?.metadata?.provenanceContactId).toBe("contact-alice");
+    expect(row?.metadata?.provenanceTrustClass).toBe("trusted_contact");
+    expect(conversation.currentTurnTrustContext?.requesterExternalUserId).toBe(
+      "principal-alice",
+    );
+    expect(contactEvents).toContainEqual(
+      expect.objectContaining({
+        type: "user_message_echo",
+        text: "Is noon fine?",
+      }),
     );
 
     await resolveRun(1);

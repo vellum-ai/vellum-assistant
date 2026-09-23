@@ -43,6 +43,12 @@ export interface QueuedMessage {
    * so reading the wrong one misroutes the whole tool-approval path.
    */
   trustContext?: TrustContext;
+  /**
+   * The person whose own message this is, when a route relays one on their
+   * behalf. Names the author on the row the drain persists; see
+   * `PersistMessageOptions.author`.
+   */
+  author?: TrustContext;
   /** Transport metadata snapshot captured at enqueue time, applied when this message becomes active. */
   transport?: ConversationTransportMetadata;
   /** Original user message text to persist to DB when recording intent stripping produced a different `content`. */

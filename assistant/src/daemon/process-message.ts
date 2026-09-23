@@ -53,7 +53,6 @@ import {
   resolveSlash,
 } from "./conversation-slash.js";
 import {
-  getConversationIfExists,
   getOrCreateConversation as getOrCreateActiveConversation,
   mergeConversationOptions,
 } from "./conversation-store.js";
@@ -144,28 +143,7 @@ type ProcessMessageOptions = ConversationCreateOptions & {
    * envelope; do not extend it.
    */
   slackReactionRowMeta?: string;
-  /**
-   * Run the turn only in a conversation whose row already exists. A missing
-   * or deleted conversation throws {@link ConversationNotFoundError} instead
-   * of being created, for callers whose sender may write into a conversation
-   * but never mint one.
-   */
-  existingConversationOnly?: boolean;
-  /**
-   * Principal of the actor this turn runs as. Stamped as the turn's actor
-   * and used for host-proxy attachment, so a turn never inherits the desktop
-   * of whoever ran the previous one.
-   */
-  sourceActorPrincipalId?: string;
 };
-
-/** Thrown when `existingConversationOnly` finds no conversation to run in. */
-export class ConversationNotFoundError extends Error {
-  constructor(conversationId: string) {
-    super(`Conversation ${conversationId} not found`);
-    this.name = "ConversationNotFoundError";
-  }
-}
 
 /**
  * Derive a stable idempotency key for a server-side ingress turn so an
@@ -351,20 +329,14 @@ async function prepareConversationForMessage(
     requestOrigin: _requestOrigin,
     allowedTools: _allowedTools,
     toolGateMode: _toolGateMode,
-    existingConversationOnly,
-    sourceActorPrincipalId: turnActorPrincipalId,
     ...conversationOptions
   } = options ?? {};
-  const acquireOptions =
+  const conversation = await getOrCreateActiveConversation(
+    conversationId,
     Object.keys(conversationOptions).length > 0
       ? conversationOptions
-      : undefined;
-  const conversation = existingConversationOnly
-    ? await getConversationIfExists(conversationId, acquireOptions)
-    : await getOrCreateActiveConversation(conversationId, acquireOptions);
-  if (!conversation) {
-    throw new ConversationNotFoundError(conversationId);
-  }
+      : undefined,
+  );
 
   if (conversation.isProcessing()) {
     throw new Error(CONVERSATION_BUSY_MESSAGE);
@@ -406,11 +378,7 @@ async function prepareConversationForMessage(
         "wiring in conversation-routes.ts into a shared helper.",
     );
   }
-  const sourceActorPrincipalId =
-    turnActorPrincipalId ?? conversation.authContext?.actorPrincipalId;
-  if (turnActorPrincipalId !== undefined) {
-    conversation.currentTurnSourceActorPrincipalId = turnActorPrincipalId;
-  }
+  const sourceActorPrincipalId = conversation.authContext?.actorPrincipalId;
   // CU is per-conversation (owns step count, AX tree history, loop detection).
   if (
     shouldAttachHostProxyForCapability(
@@ -855,10 +823,6 @@ export async function processMessageInBackground(
   );
   const emitEvent = buildEventEmitter(options?.onEvent);
 
-  // The sender's own trust, held here rather than read back off the
-  // conversation: the slot is writable by other senders across the awaits
-  // below, and neither the persisted row nor the turn may run as them.
-  const turnTrustContext = options?.trustContext;
   const requestId = uuidv7();
   const persistMetadata = buildPersistMetadata(options);
   const ingressKey = deriveIngressIdempotencyKey(options);
@@ -869,7 +833,6 @@ export async function processMessageInBackground(
       requestId,
       metadata: persistMetadata,
       displayContent: options?.displayContent,
-      ...(turnTrustContext ? { trustContext: turnTrustContext } : {}),
       ...(options?.author ? { author: options.author } : {}),
       ...(ingressKey ? { clientMessageId: ingressKey } : {}),
     },
@@ -891,7 +854,6 @@ export async function processMessageInBackground(
       onEvent: emitEvent,
       isInteractive: options?.isInteractive ?? false,
       isUserMessage: true,
-      ...(turnTrustContext ? { turnTrustContext } : {}),
       ...(options?.callSite ? { callSite: options.callSite } : {}),
       ...(options?.overrideProfile
         ? { overrideProfile: options.overrideProfile }
