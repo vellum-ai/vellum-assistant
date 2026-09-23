@@ -56,6 +56,10 @@ import {
 import { watchdogTelemetryEventSchema } from "../telemetry/telemetry-wire.generated.js";
 import { recordWatchdogEvent } from "../telemetry/watchdog-events-store.js";
 import { getLogger } from "../util/logger.js";
+import {
+  type DaemonActivityGroup,
+  getActivityOverlapping,
+} from "./activity-trail.js";
 
 const log = getLogger("event-loop-watchdog");
 
@@ -108,6 +112,8 @@ export function detailFitsServerCap(detail: object): boolean {
 type BlockTelemetryDetail = {
   threshold_ms: number;
   tick_interval_ms: number;
+  /** Work on this process that overlapped the block, grouped by label. */
+  activity: DaemonActivityGroup[];
   section_trail: SectionTrailEntry[];
   stall_capture: StallCapture | null;
   /** Trim steps applied to fit the byte cap, in order. Absent when none. */
@@ -116,8 +122,8 @@ type BlockTelemetryDetail = {
 
 /**
  * Ordered steps that shrink an oversize report, least diagnostic loss first.
- * The newest section-trail entries and the capture's wait state are what
- * attribute a block, so they go last.
+ * The activity groups, the newest section-trail entries, and the capture's
+ * wait state are what attribute a block, so they go last.
  */
 const TRIM_STEPS: Array<{
   name: string;
@@ -168,7 +174,14 @@ const TRIM_STEPS: Array<{
     },
   },
   {
-    // Last resort so the report itself always lands: blockedMs survives.
+    name: "activity_4",
+    apply: (d) => {
+      d.activity = d.activity.slice(0, 4);
+    },
+  },
+  {
+    // Last resort so the report itself always lands: blockedMs and the
+    // longest activity groups survive.
     name: "stall_capture",
     apply: (d) => {
       d.stall_capture = null;
@@ -186,6 +199,7 @@ const TRIM_STEPS: Array<{
  */
 export function buildBlockTelemetryDetail(input: {
   thresholdMs: number;
+  activity: DaemonActivityGroup[];
   sectionTrail: SectionTrailEntry[];
   stallCapture: StallCapture | null;
 }): BlockTelemetryDetail {
@@ -203,6 +217,7 @@ export function buildBlockTelemetryDetail(input: {
   const detail: BlockTelemetryDetail = {
     threshold_ms: input.thresholdMs,
     tick_interval_ms: TICK_INTERVAL_MS,
+    activity: [...input.activity],
     section_trail: [...input.sectionTrail],
     stall_capture: stallCapture,
   };
@@ -257,6 +272,14 @@ async function reportBlock(
   } catch {
     // Diagnostics-only — never let it escape the timer callback.
   }
+  // Work that overlapped the block window. Read before the first await so
+  // work that starts after the loop frees up is not attributed to the block.
+  let activity: DaemonActivityGroup[] = [];
+  try {
+    activity = getActivityOverlapping(blockedMs + TICK_INTERVAL_MS);
+  } catch {
+    // Diagnostics-only; never let it escape the timer callback.
+  }
   // The resource monitor's mid-stall capture of this block, if it took one:
   // the monitor detects the stale heartbeat within its 250ms sampling cadence,
   // so a capture for a threshold-length block exists before this report fires.
@@ -275,6 +298,7 @@ async function reportBlock(
       blockedMs,
       thresholdMs,
       tickIntervalMs: TICK_INTERVAL_MS,
+      activity,
       sectionTrail,
       stallCapture,
     },
@@ -292,6 +316,7 @@ async function reportBlock(
       value: blockedMs,
       detail: buildBlockTelemetryDetail({
         thresholdMs,
+        activity,
         sectionTrail,
         stallCapture,
       }),

@@ -15,6 +15,7 @@
 import type { HookFunction, InitContext } from "@vellumai/plugin-api";
 
 import { getConfig } from "../../../../config/loader.js";
+import { trackDaemonActivity } from "../../../../daemon/activity-trail.js";
 import { registerMemoryPluginJobHandlers } from "../job-handler-registration.js";
 import { getLogger } from "../logging.js";
 import { backfillRetrospectiveCursorTimestamps } from "../memory-retrospective-cursor-backfill.js";
@@ -53,9 +54,9 @@ const init: HookFunction<InitContext> = async () => {
   // background so the daemon keeps accepting requests without waiting on it.
   // Fire-and-forget with a contained failure — a memory-subsystem problem must
   // never block boot.
-  void runMemoryStartup(getConfig()).catch((err) =>
-    log.warn({ err }, "Background memory startup failed"),
-  );
+  void trackDaemonActivity({ kind: "memory_startup" }, () =>
+    runMemoryStartup(getConfig()),
+  ).catch((err) => log.warn({ err }, "Background memory startup failed"));
 };
 
 export default init;

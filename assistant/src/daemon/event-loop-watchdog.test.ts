@@ -14,6 +14,7 @@ import { describe, expect, test } from "bun:test";
 
 import type { StallCapture } from "../monitoring/stall-capture.js";
 import type { SectionTrailEntry } from "../persistence/slow-sync-log.js";
+import type { DaemonActivityGroup } from "./activity-trail.js";
 
 const {
   buildBlockTelemetryDetail,
@@ -73,6 +74,29 @@ function captureWith(conversationCount: number): StallCapture {
     },
   };
 }
+
+/** The report's maximum of 10 activity groups, longest (a user turn) first. */
+const fullActivity: DaemonActivityGroup[] = [
+  {
+    kind: "turn",
+    conversationType: "standard",
+    callSite: "mainAgent",
+    originInterface: "web",
+    interactive: true,
+    count: 1,
+    running: 1,
+    longestMs: 90_000,
+  },
+  ...Array.from({ length: 9 }, (_, i) => ({
+    kind: "turn" as const,
+    conversationType: "background" as const,
+    callSite: "heartbeatAgent" as const,
+    interactive: false,
+    count: i + 1,
+    running: 0,
+    longestMs: 60_000 - i,
+  })),
+];
 
 const trail: SectionTrailEntry[] = Array.from({ length: 16 }, (_, i) => ({
   label: "conversation-crud:get-messages",
@@ -153,6 +177,7 @@ describe("buildBlockTelemetryDetail", () => {
     // WHEN the telemetry detail is built
     const detail = buildBlockTelemetryDetail({
       thresholdMs: 5_000,
+      activity: [],
       sectionTrail: [],
       stallCapture: captureWith(2),
     });
@@ -169,6 +194,7 @@ describe("buildBlockTelemetryDetail", () => {
     // WHEN the telemetry detail is built
     buildBlockTelemetryDetail({
       thresholdMs: 5_000,
+      activity: [],
       sectionTrail: trail,
       stallCapture: capture,
     });
@@ -181,6 +207,7 @@ describe("buildBlockTelemetryDetail", () => {
     // WHEN the telemetry detail is built
     const detail = buildBlockTelemetryDetail({
       thresholdMs: 5_000,
+      activity: [],
       sectionTrail: trail.slice(0, 2),
       stallCapture: captureWith(1),
     });
@@ -194,15 +221,21 @@ describe("buildBlockTelemetryDetail", () => {
     // WHEN the telemetry detail is built
     const detail = buildBlockTelemetryDetail({
       thresholdMs: 5_000,
+      activity: fullActivity,
       sectionTrail: trail,
       stallCapture: captureWith(20),
     });
     // THEN it fits the server cap, records what was trimmed, and still
-    // carries the epoll attribution the report exists for
+    // carries the attribution the report exists for
     expect(detailFitsServerCap(detail)).toBe(true);
     expect(detail.trimmed!.length).toBeGreaterThan(0);
     expect(detail.stall_capture!.waitState!.epoll!.pipes).toBe(1);
     expect(detail.stall_capture!.waitState!.children).toHaveLength(1);
+    expect(detail.activity.length).toBeGreaterThanOrEqual(4);
+    expect(detail.activity[0]).toMatchObject({
+      kind: "turn",
+      conversationType: "standard",
+    });
   });
 });
 

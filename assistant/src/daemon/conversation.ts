@@ -118,6 +118,7 @@ import { getLogger } from "../util/logger.js";
 import { withSqliteRetry } from "../util/sqlite-retry.js";
 import type { WorkspaceGitService } from "../workspace/git-service.js";
 import type { commitTurnChanges } from "../workspace/turn-commit.js";
+import { trackDaemonActivity, turnConversationType } from "./activity-trail.js";
 import type { AssistantAttachmentDraft } from "./assistant-attachments.js";
 import { BrowserModeSessionProducer } from "./browser-mode-session.js";
 import { ComputerUseModeSessionProducer } from "./computer-use-mode-session.js";
@@ -3558,12 +3559,24 @@ export class Conversation {
     },
   ): Promise<void> {
     const { onEvent, ...rest } = options ?? {};
-    return runAgentLoopImpl(
-      this,
-      content,
-      userMessageId,
-      onEvent ?? this.emit,
-      rest,
+    return trackDaemonActivity(
+      {
+        kind: "turn",
+        conversationType: turnConversationType(this.conversationType),
+        callSite: options?.callSite ?? "mainAgent",
+        ...(this.originInterface
+          ? { originInterface: this.originInterface }
+          : {}),
+        interactive: options?.isInteractive ?? false,
+      },
+      () =>
+        runAgentLoopImpl(
+          this,
+          content,
+          userMessageId,
+          onEvent ?? this.emit,
+          rest,
+        ),
     );
   }
 

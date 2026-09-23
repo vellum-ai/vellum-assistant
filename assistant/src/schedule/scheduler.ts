@@ -197,6 +197,7 @@ function cancelTimedOutScheduleWork(
   );
 }
 
+import { trackDaemonActivity } from "../daemon/activity-trail.js";
 import type { ScheduleMessageOptions } from "./scheduler-types.js";
 
 /**
@@ -607,6 +608,14 @@ export async function runScheduleOnce(): Promise<number> {
  */
 export async function runScheduleDueWorkOnce(
   options: SchedulerRunDueWorkOptions = {},
+): Promise<SchedulerDueWorkResult> {
+  return trackDaemonActivity({ kind: "schedule_tick" }, () =>
+    runScheduleDueWork(options),
+  );
+}
+
+async function runScheduleDueWork(
+  options: SchedulerRunDueWorkOptions,
 ): Promise<SchedulerDueWorkResult> {
   const minStartBudgetMs = options.minStartBudgetMs ?? 0;
   const result: SchedulerDueWorkResult = {
