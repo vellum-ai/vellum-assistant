@@ -91,8 +91,19 @@ export interface AssistantEventSubscription {
 
 // ── Subscriber entries (discriminated union) ─────────────────────────────────
 
+/**
+ * A group of subscribers capped on its own. Members never count toward the
+ * hub-wide cap and are never evicted by it; joining a full pool evicts that
+ * pool's oldest member, so a pool can only displace its own connections.
+ */
+export interface SubscriberPool {
+  key: string;
+  limit: number;
+}
+
 interface BaseSubscriberEntry {
   filter: AssistantEventFilter;
+  pool?: SubscriberPool;
   callback: AssistantEventCallback;
   active: boolean;
   onEvict: () => void;
@@ -231,7 +242,8 @@ export class AssistantEventHub {
    *
    * When the subscriber cap (`maxSubscribers`) has been reached, the **oldest**
    * subscriber is evicted to make room: its `onEvict` callback is invoked (so
-   * it can close its SSE stream) and its entry is removed from the hub.
+   * it can close its SSE stream) and its entry is removed from the hub. A
+   * pooled subscriber is capped by its {@link SubscriberPool} instead.
    */
   subscribe(subscriber: SubscriberInput): AssistantEventSubscription {
     // Deduplicate: dispose stale subscribers for the same clientId.
@@ -267,11 +279,16 @@ export class AssistantEventHub {
       }
     }
 
-    if (this.subscribers.size >= this.maxSubscribers) {
-      const [oldest] = this.subscribers;
+    const { pool } = subscriber;
+    const competing = Array.from(this.subscribers).filter((entry) =>
+      pool ? entry.pool?.key === pool.key : !entry.pool,
+    );
+    const limit = pool ? pool.limit : this.maxSubscribers;
+    if (competing.length >= limit) {
+      const [oldest] = competing;
       if (!oldest) {
         throw new RangeError(
-          `AssistantEventHub: subscriber cap reached (${this.maxSubscribers})`,
+          `AssistantEventHub: subscriber cap reached (${limit})`,
         );
       }
       oldest.active = false;
@@ -680,11 +697,6 @@ export class AssistantEventHub {
   /** Number of currently active subscribers (useful for tests and caps). */
   subscriberCount(): number {
     return this.subscribers.size;
-  }
-
-  /** Returns true if the hub can accept a subscriber without evicting anyone. */
-  hasCapacity(): boolean {
-    return this.subscribers.size < this.maxSubscribers;
   }
 }
 
