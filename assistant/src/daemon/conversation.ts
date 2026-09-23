@@ -576,6 +576,8 @@ export class Conversation {
    * @internal
    */
   currentCallSite?: LLMCallSite;
+  /** Skip fresh memory retrieval for this turn, retaining context already in history. */
+  currentTurnSkipMemoryRetrieval?: boolean;
   /**
    * Whether no human is present to see UI or answer prompts. Derived from the
    * in-flight turn's interactivity ({@link currentTurnIsNonInteractive}); a
@@ -3515,6 +3517,8 @@ export class Conversation {
        */
       replyDeliveredInAppOnly?: boolean;
       callSite?: LLMCallSite;
+      /** Skip fresh retrieval while keeping resident memory and static context. */
+      skipMemoryRetrieval?: boolean;
       /** Provider configuration source when distinct from turn semantics. */
       inferenceCallSite?: LLMCallSite;
       /**

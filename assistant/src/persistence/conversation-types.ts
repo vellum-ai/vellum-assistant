@@ -7,11 +7,7 @@
 // `resolveConversationKind` classifier, and the pure predicates over a
 // persisted message's `metadata` record.
 
-import {
-  type ChannelId,
-  parseChannelId,
-  parseClientOs,
-} from "../channels/types.js";
+import { type ChannelId, parseChannelId } from "../channels/types.js";
 
 /**
  * Where a conversation came from, stated by whoever creates it.
@@ -363,36 +359,6 @@ export function messageMetadataIsAmbientSightKeep(
   } catch {
     return false;
   }
-}
-
-/**
- * True when the row that opened the turn was sent from a desktop app, on that
- * row's own evidence.
- *
- * Two markers, both required. The `client` bag's `os` entry is the only
- * per-platform attribution on a message: `userMessageInterface` is `"web"` for
- * the desktop apps, the iOS app, and a desktop browser alike.
- * `clientOsFromRequest` says that `os` was reported by this row's request or
- * transport rather than inherited from the conversation's live client state,
- * which names the surface of an earlier turn. A button tapped on the phone
- * against a conversation last sent to from desktop persists the old OS with no
- * marker.
- *
- * Origin a row did not report itself is origin unknown. Callers gate
- * suppression on this, so unknown has to read as not-desktop.
- */
-export function isDesktopOriginatedUserMessage(
-  metadata: Record<string, unknown> | undefined,
-): boolean {
-  if (metadata?.clientOsFromRequest !== true) {
-    return false;
-  }
-  const client = metadata.client;
-  if (typeof client !== "object" || client === null) {
-    return false;
-  }
-  const clientOs = parseClientOs((client as Record<string, unknown>).os);
-  return clientOs === "macos" || clientOs === "windows" || clientOs === "linux";
 }
 
 /**

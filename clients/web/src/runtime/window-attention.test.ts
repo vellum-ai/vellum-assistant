@@ -11,6 +11,7 @@ import type { WindowAttentionPayload } from "@vellumai/ipc-contract";
 
 import {
   isVisibleToUser,
+  isClientAttended,
   isWindowAttended,
   isWindowOnScreen,
   subscribeToWindowAttention,
@@ -68,7 +69,10 @@ beforeEach(() => {
   listener = null;
 });
 
+const originalHasFocus = document.hasFocus;
+
 afterEach(() => {
+  document.hasFocus = originalHasFocus;
   unsubscribe?.();
   unsubscribe = null;
   delete window.vellum;
@@ -200,5 +204,18 @@ describe("isWindowOnScreen", () => {
 
     send({ minimized: null });
     expect(isWindowOnScreen()).toBe(false);
+  });
+});
+
+describe("isClientAttended", () => {
+  test("visible browser windows require focus for notification attention", () => {
+    setVisibilityState("visible");
+    document.hasFocus = () => false;
+    expect(isVisibleToUser()).toBe(true);
+    expect(isClientAttended()).toBe(false);
+    document.hasFocus = () => true;
+    expect(isClientAttended()).toBe(true);
+    setVisibilityState("hidden");
+    expect(isClientAttended()).toBe(false);
   });
 });

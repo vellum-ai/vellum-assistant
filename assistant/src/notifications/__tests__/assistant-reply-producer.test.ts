@@ -31,7 +31,6 @@ let assistantRow: MessageRow | null = null;
 let initiatingRow: MessageRow | null = null;
 let attentionState: AttentionState | null = null;
 let getConversationShouldThrow = false;
-
 mock.module("../emit-signal.js", () => ({
   emitNotificationSignal: async (params: any) => {
     emitCalls.push(params);
@@ -76,6 +75,23 @@ mock.module("../../persistence/attachments-store.js", () => ({
     attachmentLookups.push(messageId);
     return assistantAttachments;
   },
+}));
+
+let guardianPrincipalId: string | undefined = "guardian-1";
+const realGuardianDelivery =
+  await import("../../contacts/guardian-delivery-reader.js");
+mock.module("../../contacts/guardian-delivery-reader.js", () => ({
+  ...realGuardianDelivery,
+  getGuardianDelivery: async () =>
+    guardianPrincipalId
+      ? [
+          {
+            channelType: "vellum",
+            status: "active",
+            principalId: guardianPrincipalId,
+          },
+        ]
+      : null,
 }));
 
 // Defaults to unattended, so every other case in this file exercises the
@@ -294,6 +310,7 @@ beforeEach(() => {
   warnCalls.length = 0;
   messageLookups.length = 0;
   attachmentLookups.length = 0;
+  guardianPrincipalId = "guardian-1";
   desktopPresenceArgs.length = 0;
   webPresenceArgs.length = 0;
   assistantAttachments = [];
@@ -336,7 +353,7 @@ describe("emitAssistantReplyNotification", () => {
       },
       dedupeKey: `chat.assistant_reply:${CONVERSATION_ID}:${ASSISTANT_MESSAGE_ID}`,
     });
-    // No conversation-creation fields: the platform channel is push-only.
+    // Completion alerts link to the existing conversation.
     expect("requiresConversation" in emitCalls[0]).toBe(false);
     expect("conversationAffinityHint" in emitCalls[0]).toBe(false);
     expect("routingIntent" in emitCalls[0]).toBe(false);
@@ -355,139 +372,34 @@ describe("emitAssistantReplyNotification", () => {
   // so the producer's contract here is the hint it emits, not the silence.
   describe("desktop presence", () => {
     beforeEach(() => {
-      initiatingRow = makeMacOriginatedMessage();
       desktopAttended = true;
     });
 
-    test("marks the signal source-active while a desktop reports itself attended", async () => {
-      await run();
-
-      expect(emitCalls).toHaveLength(1);
-      expect(emitCalls[0].attentionHints.visibleInSourceNow).toBe(true);
-      // Unscoped by design: the push targets the assistant owner, and a pod
-      // has exactly one owner, so no principal filter belongs here.
-      expect(desktopPresenceArgs).toEqual([[]]);
-    });
-
-    test("marks a Windows-originated signal source-active while attended", async () => {
-      initiatingRow = makeWindowsOriginatedMessage();
-
-      await run();
-
-      expect(emitCalls).toHaveLength(1);
-      expect(emitCalls[0].attentionHints.visibleInSourceNow).toBe(true);
-    });
-
-    test("leaves the signal live when no desktop is attended", async () => {
-      desktopAttended = false;
-
-      await run();
-
-      expect(emitCalls).toHaveLength(1);
-      expect(emitCalls[0].attentionHints.visibleInSourceNow).toBe(false);
-    });
-
-    test("leaves the signal live when the presence read throws", async () => {
-      desktopPresenceShouldThrow = true;
-
-      await run();
-
-      expect(emitCalls).toHaveLength(1);
-      expect(emitCalls[0].attentionHints.visibleInSourceNow).toBe(false);
-      expect(warnCalls).toHaveLength(1);
-    });
-
-    // An attended desktop only speaks for a turn that desktop itself opened.
-    // The user can send from the phone minutes after last touching the keyboard,
-    // is exactly the reply this producer exists to push.
-    const NON_DESKTOP_ORIGIN_CASES: Array<{
-      name: string;
-      metadata: unknown;
-    }> = [
-      {
-        name: "the iOS app",
-        metadata: { client: { os: "ios" }, clientOsFromRequest: true },
-      },
-      {
-        name: "a browser",
-        metadata: { client: { os: "web" }, clientOsFromRequest: true },
-      },
-      {
-        name: "a client that reports no OS",
-        metadata: { client: {} },
-      },
-      { name: "a row with no client bag", metadata: {} },
-      {
-        name: "a client reporting an unknown OS",
-        metadata: { client: { os: "bsd" }, clientOsFromRequest: true },
-      },
-      // The fail-closed shape this gate exists to refuse: a surface action
-      // tapped on the phone carries no transport, so persistence stamps the
-      // `macos` the conversation's live client state kept from an earlier
-      // desktop send. Without the marker that OS names an earlier turn, not
-      // this one, and the push the user is waiting for on their phone would
-      // be dropped by the attended desktop.
-      {
-        name: "a row whose macOS OS was inherited, not reported",
-        metadata: { userMessageInterface: "web", client: { os: "macos" } },
-      },
-      // A marker without a matching OS is not evidence of anything.
-      {
-        name: "a row marked request-reported with no client bag",
-        metadata: { clientOsFromRequest: true },
-      },
-    ];
-
-    for (const { name, metadata } of NON_DESKTOP_ORIGIN_CASES) {
-      test(`leaves the signal live for a turn opened from ${name}`, async () => {
-        initiatingRow = makeMessage({ metadata: JSON.stringify(metadata) });
-
+    for (const [name, makeRow] of [
+      ["macOS", makeMacOriginatedMessage],
+      ["Windows", makeWindowsOriginatedMessage],
+    ] as const) {
+      test(`notifies an unseen ${name} reply while the user is in another app`, async () => {
+        initiatingRow = makeRow();
         await run();
 
         expect(emitCalls).toHaveLength(1);
         expect(emitCalls[0].attentionHints.visibleInSourceNow).toBe(false);
-        // The origin check runs first, so a turn no desktop opened never
-        // reaches the presence read.
         expect(desktopPresenceArgs).toEqual([]);
       });
     }
 
-    // The transport interface is "web" for the macOS app, the iOS app, and a
-    // desktop browser alike, so it cannot stand in for the client OS.
-    test("leaves the signal live for a web-interface turn with no client OS", async () => {
-      initiatingRow = makeMessage({
-        metadata: JSON.stringify({
-          userMessageChannel: "vellum",
-          userMessageInterface: "web",
-        }),
-      });
-
+    test("ignores whole-computer presence even when its read would fail", async () => {
+      initiatingRow = makeMacOriginatedMessage();
+      desktopPresenceShouldThrow = true;
       await run();
 
-      expect(emitCalls).toHaveLength(1);
       expect(emitCalls[0].attentionHints.visibleInSourceNow).toBe(false);
-    });
-
-    // An unrecognized channel fails the whole metadata schema, so the origin
-    // read has to answer off the permissive fallback too.
-    test("marks the signal source-active when only the channel is unrecognized", async () => {
-      initiatingRow = makeMessage({
-        metadata: JSON.stringify({
-          userMessageChannel: "not-a-channel",
-          client: { os: "macos" },
-          clientOsFromRequest: true,
-        }),
-      });
-
-      await run();
-
-      expect(emitCalls).toHaveLength(1);
-      expect(emitCalls[0].attentionHints.visibleInSourceNow).toBe(true);
+      expect(desktopPresenceArgs).toEqual([]);
+      expect(warnCalls).toHaveLength(0);
     });
   });
 
-  // Same pre-gate as "desktop presence" above, scoped to a browser tab
-  // instead of the whole app.
   describe("web presence", () => {
     beforeEach(() => {
       initiatingRow = makeWebOriginatedMessage();
@@ -501,7 +413,18 @@ describe("emitAssistantReplyNotification", () => {
       expect(emitCalls[0].attentionHints.visibleInSourceNow).toBe(true);
       // Scoped to this conversation, unlike desktop attendance: a focused tab
       // only speaks for the conversation it is actually looking at.
-      expect(webPresenceArgs).toEqual([[CONVERSATION_ID]]);
+      expect(webPresenceArgs).toEqual([
+        [CONVERSATION_ID, { actorPrincipalId: "guardian-1" }],
+      ]);
+    });
+
+    test("does not suppress without a resolved recipient", async () => {
+      guardianPrincipalId = undefined;
+      await run();
+
+      expect(emitCalls).toHaveLength(1);
+      expect(emitCalls[0].attentionHints.visibleInSourceNow).toBe(false);
+      expect(webPresenceArgs).toEqual([]);
     });
 
     test("leaves the signal live when no web tab is focused on this conversation", async () => {
@@ -540,7 +463,9 @@ describe("emitAssistantReplyNotification", () => {
 
       expect(emitCalls).toHaveLength(1);
       expect(emitCalls[0].attentionHints.visibleInSourceNow).toBe(true);
-      expect(webPresenceArgs).toEqual([[CONVERSATION_ID]]);
+      expect(webPresenceArgs).toEqual([
+        [CONVERSATION_ID, { actorPrincipalId: "guardian-1" }],
+      ]);
     });
   });
 

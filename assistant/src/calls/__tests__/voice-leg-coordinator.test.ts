@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { SCREEN_ACTION_VERDICT_TOKEN } from "../voice-control-protocol.js";
 import {
   createFrontDoorLegCoordinator,
   type EscalatedLeg,
@@ -103,6 +104,33 @@ describe("escalatedLegFor", () => {
 });
 
 describe("createFrontDoorLegCoordinator", () => {
+  test.each(["leading", "terminal", "bare"])(
+    "a %s screen-action verdict survives split deltas and reaches the escalated leg",
+    (position) => {
+      const { coordinator, recorded } = harness();
+      const text =
+        position === "leading"
+          ? `${SCREEN_ACTION_VERDICT_TOKEN} Let me circle that.`
+          : position === "terminal"
+            ? `Let me circle that. ${SCREEN_ACTION_VERDICT_TOKEN}`
+            : SCREEN_ACTION_VERDICT_TOKEN;
+      for (const char of text) {
+        coordinator.push(char);
+      }
+      coordinator.complete();
+      expect(recorded.escalated).toHaveLength(1);
+      expect(recorded.escalated[0]?.screenAction).toBe(true);
+      expect(recorded.bridges[0]?.spokenBridge).not.toContain(
+        SCREEN_ACTION_VERDICT_TOKEN,
+      );
+    },
+  );
+
+  test("ordinary escalation keeps fresh memory retrieval", () => {
+    const { coordinator, recorded } = harness();
+    coordinator.push("[ESCALATE] Let me recall that.");
+    expect(recorded.escalated[0]?.screenAction).toBeUndefined();
+  });
   test("an answer releases the held leading text, then streams", () => {
     const { coordinator, recorded } = harness();
     coordinator.push("[");

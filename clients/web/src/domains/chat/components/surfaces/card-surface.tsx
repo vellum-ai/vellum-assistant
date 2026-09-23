@@ -22,6 +22,7 @@ import {
   wakeCardSource,
   wakeCardTitleKey,
 } from "@/domains/chat/components/surfaces/wake-card-presentation";
+import { openDetailSheetFromTrigger } from "@/domains/chat/utils/open-detail-sheet-from-trigger";
 import { useViewerStore } from "@/stores/viewer-store";
 import { WatchRetroSurface } from "@/domains/chat/components/surfaces/watch-retro-surface";
 import { cn } from "@/utils/misc";
@@ -568,8 +569,10 @@ function WakeCard({
           <Button
             variant="outlined"
             size="compact"
-            onClick={() =>
-              openWakeDetail({ title, body, metadata })
+            onClick={(event) =>
+              openDetailSheetFromTrigger(event, () =>
+                openWakeDetail({ title, body, metadata }),
+              )
             }
           >
             {t("cardSurface.viewDetails")}

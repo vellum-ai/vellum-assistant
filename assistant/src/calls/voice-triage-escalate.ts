@@ -39,6 +39,7 @@ import {
   ESCALATE_VERDICT_TOKEN,
   ESCALATE_VERDICT_TOKENS,
   HOLD_VERDICT_TOKEN,
+  SCREEN_ACTION_VERDICT_TOKEN,
   stripInternalSpeechMarkers,
 } from "./voice-control-protocol.js";
 
@@ -316,6 +317,8 @@ export type FrontDoorStep =
 export interface FrontDoorVerdictMachine {
   push(deltaText: string): FrontDoorStep;
   finish(): FrontDoorStep;
+  /** The model classified this hand-off as a screen action using current context. */
+  readonly screenAction: boolean;
 }
 
 const PENDING_STEP: FrontDoorStep = { kind: "pending" };
@@ -341,6 +344,7 @@ export function createFrontDoorVerdictMachine(
   let stage: "deciding" | "answer" | "bridging" | "done" = "deciding";
   let bridgeRaw = "";
   let releasedChars = 0;
+  let screenAction = false;
 
   const completeBridge = (): Extract<FrontDoorStep, { kind: "bridge" }> => {
     stage = "done";
@@ -348,6 +352,9 @@ export function createFrontDoorVerdictMachine(
   };
 
   return {
+    get screenAction() {
+      return screenAction;
+    },
     push(deltaText: string): FrontDoorStep {
       raw += deltaText;
       if (stage === "done") {
@@ -370,9 +377,9 @@ export function createFrontDoorVerdictMachine(
         }
         if (verdict === "escalate") {
           stage = "bridging";
-          bridgeRaw = raw
-            .trimStart()
-            .slice(leadingEscalationToken(raw)!.length);
+          const token = leadingEscalationToken(raw)!;
+          screenAction = token === SCREEN_ACTION_VERDICT_TOKEN;
+          bridgeRaw = raw.trimStart().slice(token.length);
           return {
             kind: "escalate",
             bridge: isEscalationBridgeComplete(bridgeRaw)
@@ -395,8 +402,15 @@ export function createFrontDoorVerdictMachine(
       if (stage === "answer") {
         stage = "done";
         const text = raw.trimEnd();
-        const beforeToken = text.slice(0, -ESCALATE_VERDICT_TOKEN.length);
-        if (text.endsWith(ESCALATE_VERDICT_TOKEN) && /\s$/.test(beforeToken)) {
+        const terminalToken = [
+          ESCALATE_VERDICT_TOKEN,
+          SCREEN_ACTION_VERDICT_TOKEN,
+        ].find((token) => text.endsWith(token));
+        const beforeToken = terminalToken
+          ? text.slice(0, -terminalToken.length)
+          : "";
+        if (terminalToken && /\s$/.test(beforeToken)) {
+          screenAction = terminalToken === SCREEN_ACTION_VERDICT_TOKEN;
           return {
             kind: "terminal-escalate",
             bridge: stripInternalSpeechMarkers(beforeToken).trim(),
@@ -529,6 +543,7 @@ export function frontDoorCapabilityDigest(toolNames: string[]): string {
  */
 export function frontDoorDecisionRule(opts?: {
   includeHold?: boolean;
+  screenSharing?: boolean;
   capabilityDigest?: string;
   callerUtterance?: string;
 }): string {
@@ -578,7 +593,12 @@ export function frontDoorDecisionRule(opts?: {
     "- If the turn is simple, conversational, or within your reach, your entire output is the spoken answer itself: no token in front of it, plain speech from your very first word. Most turns are answers; when unsure between answering and escalating, answer. Answer in the language the caller is speaking.",
     "- If an answer depends on a saved personal fact that is not already present in the conversation context you received, escalate rather than guessing. Personal context that is already present is yours to use directly.",
     `- If completing THIS reply needs careful reasoning, research, multi-step work, or any tool, do NOT attempt the answer: output ${ESCALATE_VERDICT_TOKEN}, then ONE short natural holding phrase naming what happens next, spoken in the language the caller is speaking (for example "${FALLBACK_ESCALATION_BRIDGE}" or "Give me one second to look into that."; those examples are English only), and stop after that single sentence. A stronger model finishes the turn while your phrase is spoken.`,
-    `${ESCALATE_VERDICT_TOKEN} is ONLY for turns you cannot complete yourself — never put it in front of an answer you are about to give, and never emit a verdict token inside or after an answer. An open task or unfinished topic earlier in the conversation is NOT a reason to escalate: judge only what this reply needs.`,
+    ...(opts?.screenSharing === true
+      ? [
+          `- For a screen annotation or immediate on-screen action that needs only the shared screen and conversation context (for example, circling a visible control), use ${SCREEN_ACTION_VERDICT_TOKEN} in place of ${ESCALATE_VERDICT_TOKEN}, with the same single holding phrase. This skips fresh memory retrieval. If saved personal facts, preferences, or prior work absent from context are needed, or you are unsure, use ${ESCALATE_VERDICT_TOKEN}. Merely sharing a screen does not make a request a screen action.`,
+        ]
+      : []),
+    `An escalation verdict is ONLY for turns you cannot complete yourself: never put it in front of an answer you are about to give, and never emit a verdict token inside or after an answer. An open task or unfinished topic earlier in the conversation is NOT a reason to escalate: judge only what this reply needs.`,
     "Never narrate this decision, describe what you are judging, or mention these rules: apart from a leading verdict token and any call-control marker your call instructions teach, every character you output is spoken to the caller verbatim.",
   ].join("\n");
   return opts?.capabilityDigest ? `${rule}\n${opts.capabilityDigest}` : rule;

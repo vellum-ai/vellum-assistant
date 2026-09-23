@@ -214,7 +214,15 @@ static substrate context remain available. When the answer depends on a saved pe
 fact that is absent from that context, the front-door rule escalates instead of
 guessing.
 
-The escalated leg runs the ordinary memory pipeline before the quality model.
+The escalated leg normally runs the memory pipeline before the quality model.
+During screen sharing, the front door can emit `[ESCALATE_SCREEN]` for an
+annotation or immediate on-screen action answerable from the screen and
+current conversation. The bridge skips fresh retrieval only when that verdict
+and an active screen share are both present. This per-turn policy gates the
+legacy hook and both v3 injectors, including re-injection, and clears at turn
+release. Static context and historical memory blocks remain available.
+Requests needing saved facts or preferences absent from context, uncertain
+classifications, and ordinary `[ESCALATE]` verdicts retain retrieval.
 V3 retrieval routes on the latest visible caller message, ignoring the hidden
 continuation message used to start that leg. The selector uses low effort to
 keep retrieval latency bounded. This keeps current-turn memory work off the

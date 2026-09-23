@@ -137,6 +137,7 @@ function conversationProfileForEscalation(
 function frontDoorRuleWithDigest(
   includeHold: boolean,
   callerUtterance?: string,
+  screenSharing?: boolean,
 ): string {
   let toolNames: string[] = [];
   try {
@@ -148,6 +149,7 @@ function frontDoorRuleWithDigest(
     includeHold,
     capabilityDigest: frontDoorCapabilityDigest(toolNames),
     callerUtterance,
+    screenSharing,
   });
 }
 
@@ -166,6 +168,7 @@ function routingLegRuleFor(
     | "unifiedVerdict"
     | "spokenEscalationBridge"
     | "directEscalated"
+    | "screenSharing"
   >,
   callerUtterance: string,
 ): string | null {
@@ -174,6 +177,7 @@ function routingLegRuleFor(
       return frontDoorRuleWithDigest(
         opts.unifiedVerdict === true,
         callerUtterance,
+        opts.screenSharing,
       );
     case "escalated":
       return opts.directEscalated === true
@@ -458,6 +462,8 @@ export interface VoiceTurnOptions {
   macosDesktopSession?: boolean;
   /** The desktop client currently shares a surface with this voice session. */
   screenSharing?: boolean;
+  /** Front-door verdict: this action needs only the shared screen and current context. */
+  screenAction?: boolean;
   /** Whether this is an inbound call (no outbound task). */
   isInbound: boolean;
   /** The outbound call task, if any. */
@@ -2047,6 +2053,11 @@ export async function startVoiceTurn(
     });
   }
 
+  const skipMemoryRetrieval =
+    opts.routingLeg === "escalated" &&
+    opts.screenSharing === true &&
+    opts.screenAction === true;
+
   // Fire-and-forget the agent loop
   void (async () => {
     const loopEnterAt = Date.now();
@@ -2055,6 +2066,7 @@ export async function startVoiceTurn(
         turnId,
         conversationId: opts.conversationId,
         routingLeg: opts.routingLeg ?? null,
+        skipMemoryRetrieval,
         sinceLaunchMs:
           opts.launchedAtMs != null ? loopEnterAt - opts.launchedAtMs : null,
         bridgeMs: loopEnterAt - dispatch.enteredAt,
@@ -2140,6 +2152,7 @@ export async function startVoiceTurn(
         }
       }
       await conversation.runAgentLoop(persistedContent, messageId, {
+        skipMemoryRetrieval,
         ...(opts.subagentNotification?.cronRunId
           ? { cronRunId: opts.subagentNotification.cronRunId }
           : {}),

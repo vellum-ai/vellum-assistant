@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { DEEPGRAM_MULTI_LANGUAGE_CODES } from "../../providers/speech-to-text/deepgram.js";
+import { SCREEN_ACTION_VERDICT_TOKEN } from "../voice-control-protocol.js";
 import {
   capEscalationBridge,
   classifyFrontDoorLeading,
@@ -48,6 +49,13 @@ describe("frontDoorCapabilityDigest", () => {
 });
 
 describe("front-door decision rule", () => {
+  test("only teaches the screen-action bypass during screen sharing", () => {
+    expect(frontDoorDecisionRule()).not.toContain(SCREEN_ACTION_VERDICT_TOKEN);
+    const rule = frontDoorDecisionRule({ screenSharing: true });
+    expect(rule).toContain(SCREEN_ACTION_VERDICT_TOKEN);
+    expect(rule).toContain("skips fresh memory retrieval");
+    expect(rule).toContain("or you are unsure");
+  });
   const rule = frontDoorDecisionRule();
 
   test("demands a leading verdict and teaches the escalate token", () => {

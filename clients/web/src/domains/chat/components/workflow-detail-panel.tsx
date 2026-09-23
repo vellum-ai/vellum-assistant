@@ -16,9 +16,9 @@ import { AvatarRenderer } from "@/components/avatar-renderer";
 import { DetailShell, DetailShellNotice } from "@/components/detail-shell";
 import { DetailPanelStopButton } from "@/components/detail-panel-stop-button";
 import {
-  AnimatedMetricCard,
+  AnimatedStatSquare,
   formatNumber,
-} from "@/domains/chat/components/metric-card";
+} from "@/domains/chat/components/animated-stat-square";
 import { WorkflowLeafDetail } from "@/domains/chat/components/workflow-leaf-detail";
 import {
   WorkflowLeafStatusBadge,
@@ -208,35 +208,20 @@ export function WorkflowDetailPanel({
             <>
               {/* Metrics row */}
               <div className="grid grid-cols-3 gap-3">
-                <AnimatedMetricCard
-                  icon={
-                    <ArrowDownToLine
-                      className="h-4 w-4 shrink-0"
-                      style={{ color: "var(--content-secondary)" }}
-                    />
-                  }
+                <AnimatedStatSquare
+                  icon={<ArrowDownToLine />}
                   target={entry.inputTokens}
                   format={(n) => formatNumber(Math.round(n))}
                   label={t("workflowDetailPanel.input")}
                 />
-                <AnimatedMetricCard
-                  icon={
-                    <ArrowUpFromLine
-                      className="h-4 w-4 shrink-0"
-                      style={{ color: "var(--content-secondary)" }}
-                    />
-                  }
+                <AnimatedStatSquare
+                  icon={<ArrowUpFromLine />}
                   target={entry.outputTokens}
                   format={(n) => formatNumber(Math.round(n))}
                   label={t("workflowDetailPanel.output")}
                 />
-                <AnimatedMetricCard
-                  icon={
-                    <Users
-                      className="h-4 w-4 shrink-0"
-                      style={{ color: "var(--content-secondary)" }}
-                    />
-                  }
+                <AnimatedStatSquare
+                  icon={<Users />}
                   target={agentCount}
                   format={(n) => formatNumber(Math.round(n))}
                   label={t("workflowDetailPanel.agents")}
