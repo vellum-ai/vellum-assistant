@@ -62,16 +62,11 @@ const SCHEDULE_PREVIEW_COUNT = 3;
 interface UseIdentitySectionStatsOptions {
   /** Skip the plugin fetch on assistants without the plugin routes. */
   supportsPlugins: boolean;
-  /**
-   * Skip the reads behind cards the native mobile shells don't render
-   * (see `NATIVE_MOBILE_HIDDEN_KEYS` in `components/identity-sections.ts`).
-   */
-  isNativeMobile: boolean;
 }
 
 export function useIdentitySectionStats(
   assistantId: string,
-  { supportsPlugins, isNativeMobile }: UseIdentitySectionStatsOptions,
+  { supportsPlugins }: UseIdentitySectionStatsOptions,
 ): Record<string, IdentitySectionStat | undefined> {
   const { t } = useTranslation("intelligence");
   const path = { assistant_id: assistantId };
@@ -107,7 +102,6 @@ export function useIdentitySectionStats(
     ...workspaceTreeQueryOptions({ assistantId }),
     select: (data) => data.entries.length,
     ...common,
-    enabled: !isNativeMobile,
   });
   const contacts = useQuery({
     ...contactsGetOptions({ path }),
