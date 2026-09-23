@@ -23,6 +23,8 @@ let queued = false;
 let notifiedContexts = new Set<string>();
 let recipient: string | undefined = "principal-owner";
 let visible = false;
+let lookupBarrier: (() => Promise<void>) | undefined;
+let deferredLookup: "recipient" | "presence" = "recipient";
 const signals: EmitSignalParams[] = [];
 let resultRows: MessageRow[] = [];
 
@@ -92,8 +94,18 @@ mock.module("../emit-signal.js", () => ({
   },
 }));
 mock.module("../resolve-visible-in-source.js", () => ({
-  resolveCompletionRecipientPrincipalId: async () => recipient,
-  resolveCompletionVisibleInSourceNow: async () => visible,
+  resolveCompletionRecipientPrincipalId: async () => {
+    if (deferredLookup === "recipient") {
+      await lookupBarrier?.();
+    }
+    return recipient;
+  },
+  resolveCompletionVisibleInSourceNow: async () => {
+    if (deferredLookup === "presence") {
+      await lookupBarrier?.();
+    }
+    return visible;
+  },
 }));
 const { emitBackgroundResultNotification } =
   await import("../background-result-producer.js");
@@ -246,6 +258,8 @@ beforeEach(() => {
   resultRows = [];
   recipient = "principal-owner";
   visible = false;
+  lookupBarrier = undefined;
+  deferredLookup = "recipient";
   conversation = {
     id: conversationId,
     source: "web",
@@ -1083,4 +1097,95 @@ describe("background result ownership", () => {
       }
     },
   );
+});
+
+describe("completion eligibility after asynchronous lookups", () => {
+  for (const lookup of ["recipient", "presence"] as const) {
+    for (const change of [
+      "seen",
+      "archived",
+      "deleted",
+      "queued",
+      "tool",
+      "child",
+      "delivered",
+      "new turn",
+    ] as const) {
+      test(`${change} during ${lookup} lookup suppresses the stale alert`, async () => {
+        deferredLookup = lookup;
+        const entered = Promise.withResolvers<void>();
+        const release = Promise.withResolvers<void>();
+        lookupBarrier = () => {
+          entered.resolve();
+          return release.promise;
+        };
+        const notification = emit({ conversation: { ...conversation } });
+        await entered.promise;
+        switch (change) {
+          case "seen":
+            attention.lastSeenAssistantMessageAt =
+              attention.latestAssistantMessageAt;
+            break;
+          case "archived":
+            conversation.archivedAt = startedAt + 500;
+            break;
+          case "deleted":
+            rows.clear();
+            break;
+          case "queued":
+            queued = true;
+            break;
+          case "tool":
+            toolsPending = true;
+            break;
+          case "child":
+            pending = true;
+            break;
+          case "delivered":
+            notifiedContexts.add(conversationId);
+            break;
+          case "new turn":
+            rows.set(
+              "new-user",
+              row("new-user", "user", "Another question", 300),
+            );
+            break;
+        }
+        release.resolve();
+        await notification;
+        expect(signals).toHaveLength(0);
+      });
+    }
+
+    test(`a newer completion supersedes the alert waiting on ${lookup}`, async () => {
+      deferredLookup = lookup;
+      const entered = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      lookupBarrier = () => {
+        entered.resolve();
+        return release.promise;
+      };
+      const oldNotification = emit();
+      await entered.promise;
+      finishSiblingCommand("failed");
+      const trigger = rows.get("later-trigger")!;
+      const metadata = JSON.parse(trigger.metadata!);
+      metadata.backgroundToolCompletion.status = "completed";
+      metadata.backgroundToolCompletion.exitCode = 0;
+      trigger.metadata = JSON.stringify(metadata);
+      rows.get("later-result")!.content = [
+        { type: "text", text: "The newer result is ready." },
+      ];
+      lookupBarrier = undefined;
+      await emit({
+        userMessageId: "later-trigger",
+        assistantMessageId: "later-result",
+      });
+      release.resolve();
+      await oldNotification;
+      expect(
+        signals.map((signal) => signal.contextPayload?.requestedMessage),
+      ).toEqual(["The newer result is ready."]);
+    });
+  }
 });

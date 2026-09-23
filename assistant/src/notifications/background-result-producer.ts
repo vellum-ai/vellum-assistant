@@ -206,6 +206,19 @@ function childDeliveredResult(work: CompletedWork): boolean {
   );
 }
 
+function canNotifyConversation(
+  conversation: ConversationRow | null | undefined,
+): conversation is ConversationRow {
+  return (
+    conversation != null &&
+    conversation.archivedAt == null &&
+    resolveConversationKind(
+      conversation.source,
+      conversation.conversationType,
+    ) === "user"
+  );
+}
+
 /** Notify only after a successful parent turn persists the requested result. */
 export async function emitBackgroundResultNotification(params: {
   conversationId: string;
@@ -221,15 +234,26 @@ export async function emitBackgroundResultNotification(params: {
     if (!userMessageId || params.cronRunId) {
       return;
     }
-    const conversation = params.conversation ?? getConversation(conversationId);
     if (
-      !conversation ||
-      conversation.archivedAt != null ||
-      resolveConversationKind(
-        conversation.source,
-        conversation.conversationType,
-      ) !== "user"
+      !canNotifyConversation(
+        params.conversation ?? getConversation(conversationId),
+      )
     ) {
+      return;
+    }
+    const recipientPrincipalId =
+      await resolveCompletionRecipientPrincipalId(rlog);
+    if (!recipientPrincipalId) {
+      return;
+    }
+    const visibleInSourceNow = await resolveCompletionVisibleInSourceNow({
+      conversationId,
+      actorPrincipalId: recipientPrincipalId,
+      logger: rlog,
+    });
+    // Eligibility reads stay together after all asynchronous lookups.
+    const conversation = getConversation(conversationId);
+    if (!canNotifyConversation(conversation)) {
       return;
     }
     const trigger = getMessageById(userMessageId, conversationId);
@@ -305,11 +329,6 @@ export async function emitBackgroundResultNotification(params: {
       ) {
         return;
       }
-      const recipientPrincipalId =
-        await resolveCompletionRecipientPrincipalId(rlog);
-      if (!recipientPrincipalId) {
-        return;
-      }
       const completion: CompletionContext = {
         workId: work.workId,
         conversationId,
@@ -328,11 +347,7 @@ export async function emitBackgroundResultNotification(params: {
           requiresAction: false,
           urgency: "medium",
           isAsyncBackground: true,
-          visibleInSourceNow: await resolveCompletionVisibleInSourceNow({
-            conversationId,
-            actorPrincipalId: recipientPrincipalId,
-            logger: rlog,
-          }),
+          visibleInSourceNow,
         },
         contextPayload: {
           completion,
