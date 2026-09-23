@@ -53,7 +53,7 @@ import {
   getSectionTrail,
   type SectionTrailEntry,
 } from "../persistence/slow-sync-log.js";
-import { WATCHDOG_DETAIL_MAX_JSON_BYTES } from "../telemetry/telemetry-wire.generated.js";
+import { watchdogTelemetryEventSchema } from "../telemetry/telemetry-wire.generated.js";
 import { recordWatchdogEvent } from "../telemetry/watchdog-events-store.js";
 import { getLogger } from "../util/logger.js";
 
@@ -87,11 +87,22 @@ const REPORT_COOLDOWN_MS = 30_000;
 const STALL_CAPTURE_MATCH_GRACE_MS = 5_000;
 
 /**
- * Byte count as the server measures it: non-ASCII characters count as their
- * six-character JSON escape (mirrors `jsonByteLength` in the wire contract).
+ * Whether ingest accepts `detail`, judged by the generated wire contract so
+ * the byte measurement matches the server's exactly. The detail is checked
+ * as serialized (undefined keys dropped, as on the wire). The other event
+ * fields are fixed valid values; only issues on `detail` count.
  */
-function jsonByteLength(value: unknown): number {
-  return JSON.stringify(value).replace(/[^\x00-\x7e]/g, "\\uxxxx").length;
+export function detailFitsServerCap(detail: object): boolean {
+  const result = watchdogTelemetryEventSchema.safeParse({
+    type: "watchdog",
+    daemon_event_id: "size-check",
+    recorded_at: 0,
+    check_name: EVENT_LOOP_BLOCKED_CHECK_NAME,
+    detail: JSON.parse(JSON.stringify(detail)),
+  });
+  return (
+    result.success || !result.error.issues.some((i) => i.path[0] === "detail")
+  );
 }
 
 type BlockTelemetryDetail = {
@@ -169,7 +180,7 @@ const TRIM_STEPS: Array<{
 /**
  * The telemetry `detail` for a block report. Conversation titles are dropped
  * (the event is metadata only and titles can carry user content), then trim
- * steps apply until the bag fits the server's byte cap — an oversize bag is
+ * steps apply until the bag fits the server's byte cap. An oversize bag is
  * rejected outright, losing the whole report. Pure so the budget
  * logic is unit-testable.
  */
@@ -197,7 +208,7 @@ export function buildBlockTelemetryDetail(input: {
   };
 
   for (const step of TRIM_STEPS) {
-    if (jsonByteLength(detail) <= WATCHDOG_DETAIL_MAX_JSON_BYTES) {
+    if (detailFitsServerCap(detail)) {
       break;
     }
     step.apply(detail);

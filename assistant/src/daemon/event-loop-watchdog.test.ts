@@ -14,10 +14,10 @@ import { describe, expect, test } from "bun:test";
 
 import type { StallCapture } from "../monitoring/stall-capture.js";
 import type { SectionTrailEntry } from "../persistence/slow-sync-log.js";
-import { WATCHDOG_DETAIL_MAX_JSON_BYTES } from "../telemetry/telemetry-wire.generated.js";
 
 const {
   buildBlockTelemetryDetail,
+  detailFitsServerCap,
   evaluateTick,
   startEventLoopWatchdog,
   stopEventLoopWatchdog,
@@ -79,10 +79,6 @@ const trail: SectionTrailEntry[] = Array.from({ length: 16 }, (_, i) => ({
   startedAgoMs: 100_000 + i * 1_000,
   endedAgoMs: 99_000 + i * 1_000,
 }));
-
-function serializedLength(value: unknown): number {
-  return JSON.stringify(value).replace(/[^\x00-\x7e]/g, "\\uxxxx").length;
-}
 
 describe("evaluateTick", () => {
   const INTERVAL = 1_000;
@@ -203,11 +199,25 @@ describe("buildBlockTelemetryDetail", () => {
     });
     // THEN it fits the server cap, records what was trimmed, and still
     // carries the epoll attribution the report exists for
-    expect(serializedLength(detail)).toBeLessThanOrEqual(
-      WATCHDOG_DETAIL_MAX_JSON_BYTES,
-    );
+    expect(detailFitsServerCap(detail)).toBe(true);
     expect(detail.trimmed!.length).toBeGreaterThan(0);
     expect(detail.stall_capture!.waitState!.epoll!.pipes).toBe(1);
     expect(detail.stall_capture!.waitState!.children).toHaveLength(1);
+  });
+});
+
+describe("detailFitsServerCap", () => {
+  test("ignores undefined keys, which serialization drops", () => {
+    // GIVEN a small detail with an undefined field
+    // WHEN it is checked against the server cap
+    // THEN the undefined key does not count as an invalid payload
+    expect(detailFitsServerCap({ a: 1, b: undefined })).toBe(true);
+  });
+
+  test("rejects a detail over the server cap", () => {
+    // GIVEN a detail larger than 4096 serialized bytes
+    // WHEN it is checked against the server cap
+    // THEN it does not fit
+    expect(detailFitsServerCap({ blob: "x".repeat(5_000) })).toBe(false);
   });
 });

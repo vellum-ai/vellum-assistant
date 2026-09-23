@@ -9,8 +9,8 @@
  * module reads what tells them apart:
  *
  * - the main thread's blocking syscall (raw number, host-kernel numbering)
- *   and, for an epoll wait, what the waited epoll set watches — the daemon's
- *   loop set contains its HTTP listening socket, a nested set does not;
+ *   and, for an epoll wait, what the waited epoll set watches. The daemon's
+ *   loop set contains its HTTP listening socket; a nested set does not.
  * - the daemon's direct children, since a synchronous child wait keeps its
  *   child alive for the length of the stall;
  * - every daemon thread's kernel wait channel.
