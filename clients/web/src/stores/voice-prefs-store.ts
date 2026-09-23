@@ -109,6 +109,15 @@ export interface VoicePrefsState {
   /** True once the user has seen the first-run voice experience. */
   firstRunSeen: boolean;
   /**
+   * True once the camera's "Photo or Live?" explainer has been dismissed on
+   * this device, by any means.
+   *
+   * The room reads it to decide whether the first camera open shows the
+   * explainer; the view-options panel re-shows it regardless. Per device, like
+   * {@link firstRunSeen}.
+   */
+  cameraExplainerSeen: boolean;
+  /**
    * Trailing-silence duration (ms) after the user stops speaking before the
    * assistant replies — the "pause before reply" setting. Sent as the session's
    * `silenceThresholdMs`. A longer pause tolerates mid-thought pauses without
@@ -156,6 +165,8 @@ export interface VoicePrefsActions {
   setShowAssistantTranscript: (next: boolean) => void;
   /** Flip `firstRunSeen` to true on first observation. No-op afterwards. */
   markFirstRunSeen: () => void;
+  /** Record a dismissal. See {@link VoicePrefsState.cameraExplainerSeen}. */
+  markCameraExplainerSeen: () => void;
   /** `null` clears the preference, handing endpointing back to daemon config. */
   setPauseBeforeReplyMs: (next: number | null) => void;
   /** `null` clears the preference, handing barge-in back to daemon config. */
@@ -176,6 +187,7 @@ const INITIAL_STATE: VoicePrefsState = {
   showUserTranscript: false,
   showAssistantTranscript: false,
   firstRunSeen: false,
+  cameraExplainerSeen: false,
   // Unset until the user picks a value — see the field docs. Omitting the
   // override lets the daemon's configured VAD defaults stand.
   pauseBeforeReplyMs: null,
@@ -291,6 +303,11 @@ const useVoicePrefsStoreBase = create<VoicePrefsStore>()(
           set({ firstRunSeen: true });
         }
       },
+      markCameraExplainerSeen: () => {
+        if (!get().cameraExplainerSeen) {
+          set({ cameraExplainerSeen: true });
+        }
+      },
       setPauseBeforeReplyMs: (next: number | null) =>
         set({
           pauseBeforeReplyMs:
@@ -310,6 +327,7 @@ const useVoicePrefsStoreBase = create<VoicePrefsStore>()(
         showUserTranscript: state.showUserTranscript,
         showAssistantTranscript: state.showAssistantTranscript,
         firstRunSeen: state.firstRunSeen,
+        cameraExplainerSeen: state.cameraExplainerSeen,
         pauseBeforeReplyMs: state.pauseBeforeReplyMs,
         interruptSensitivity: state.interruptSensitivity,
         flashMode: state.flashMode,

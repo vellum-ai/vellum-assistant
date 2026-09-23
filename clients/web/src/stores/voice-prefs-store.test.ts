@@ -16,6 +16,7 @@ beforeEach(() => {
     showUserTranscript: false,
     showAssistantTranscript: false,
     firstRunSeen: false,
+    cameraExplainerSeen: false,
     pauseBeforeReplyMs: null,
     interruptSensitivity: null,
     flashMode: "off",
@@ -315,6 +316,68 @@ describe("useVoicePrefsStore: camera flash", () => {
     useVoicePrefsStore.getState().setShowUserTranscript(true);
 
     expect(useVoicePrefsStore.getState().flashMode).toBe("on");
+  });
+});
+
+/**
+ * The flag behind the camera's "Photo or Live?" explainer. One device, one
+ * dismissal: whichever way the user leaves it, it does not come back on its
+ * own.
+ */
+describe("useVoicePrefsStore: the camera explainer", () => {
+  test("ships unseen, so the first camera open explains itself", () => {
+    // The shipped value rather than the reset above, which is a test fixture.
+    expect(useVoicePrefsStore.getInitialState().cameraExplainerSeen).toBe(
+      false,
+    );
+    expect(useVoicePrefsStore.getState().cameraExplainerSeen).toBe(false);
+  });
+
+  test("markCameraExplainerSeen sets only that field", () => {
+    useVoicePrefsStore.getState().markCameraExplainerSeen();
+
+    expect(useVoicePrefsStore.getState().cameraExplainerSeen).toBe(true);
+    expect(useVoicePrefsStore.getState().firstRunSeen).toBe(false);
+  });
+
+  test("a second mark is a no-op", () => {
+    useVoicePrefsStore.getState().markCameraExplainerSeen();
+    const marked = useVoicePrefsStore.getState();
+
+    marked.markCameraExplainerSeen();
+
+    // The same state object, so the guarded set never ran.
+    expect(useVoicePrefsStore.getState()).toBe(marked);
+    expect(useVoicePrefsStore.getState().cameraExplainerSeen).toBe(true);
+  });
+
+  test("the flag persists, and comes back on the next load", async () => {
+    useVoicePrefsStore.getState().markCameraExplainerSeen();
+
+    const raw = localStorage.getItem(VOICE_PREFS_STORE_KEY) as string;
+    expect(JSON.parse(raw).state.cameraExplainerSeen).toBe(true);
+
+    // Clearing the flag persists the cleared payload, so the stored one goes
+    // back before the reload the rehydrate stands in for.
+    useVoicePrefsStore.setState({ cameraExplainerSeen: false });
+    localStorage.setItem(VOICE_PREFS_STORE_KEY, raw);
+    await useVoicePrefsStore.persist.rehydrate();
+
+    expect(useVoicePrefsStore.getState().cameraExplainerSeen).toBe(true);
+  });
+
+  test("a payload written before the flag existed opens it unseen", async () => {
+    // Stamped at the current version, so nothing migrates it: the field is
+    // simply absent and falls back to the shipped default.
+    localStorage.setItem(
+      VOICE_PREFS_STORE_KEY,
+      JSON.stringify({ state: { firstRunSeen: true }, version: 1 }),
+    );
+
+    await useVoicePrefsStore.persist.rehydrate();
+
+    expect(useVoicePrefsStore.getState().cameraExplainerSeen).toBe(false);
+    expect(useVoicePrefsStore.getState().firstRunSeen).toBe(true);
   });
 });
 
