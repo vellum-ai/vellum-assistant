@@ -16,6 +16,7 @@ const externalChannels = ["slack", "telegram", "discord"] as const;
 const rows = new Map<string, MessageRow>();
 let conversation: ConversationRow;
 let task: SubagentRecord;
+const siblingTasks = new Map<string, SubagentRecord>();
 let attention: AttentionState;
 let pending = false;
 let toolsPending = false;
@@ -74,7 +75,7 @@ mock.module("../../persistence/conversation-attention-store.js", () => ({
     new Map(ids[0] === conversationId ? [[conversationId, attention]] : []),
 }));
 mock.module("../../persistence/subagent-store.js", () => ({
-  getSubagentRecordById: () => task,
+  getSubagentRecordById: (id: string) => siblingTasks.get(id) ?? task,
   getSubagentRecordByConversationId: () => task,
   getSubagentRecordsByParent: () =>
     pending ? [{ ...task, status: "running" }] : [],
@@ -250,6 +251,7 @@ const emit = (
 
 beforeEach(() => {
   rows.clear();
+  siblingTasks.clear();
   signals.length = 0;
   pending = false;
   toolsPending = false;
@@ -722,6 +724,58 @@ describe("background result ownership", () => {
       expect(signals[0].dedupeKey).toBe(
         `activity.complete:${conversationId}:subagent:${task.id}`,
       );
+    },
+  );
+  test.each(["child", "parent"] as const)(
+    "a later %s delivery only covers results in its own conversation",
+    async (deliveryContext) => {
+      pending = true;
+      await emit();
+      expect(signals).toHaveLength(0);
+      pending = false;
+      const sibling = {
+        ...task,
+        id: "task-sibling",
+        conversationId: "conv-sibling",
+      };
+      siblingTasks.set(sibling.id, sibling);
+      rows.set(
+        "later-trigger",
+        row("later-trigger", "user", "INTERNAL COMPLETION", 300, {
+          subagentNotification: {
+            subagentId: sibling.id,
+            label: "Other task",
+            status: "completed",
+            conversationId: sibling.conversationId,
+          },
+        }),
+      );
+      rows.set(
+        "later-result",
+        row("later-result", "assistant", "The other task is ready.", 400),
+      );
+      attention.latestAssistantMessageId = "later-result";
+      attention.latestAssistantMessageAt = startedAt + 400;
+      notifiedContexts.add(
+        deliveryContext === "child" ? sibling.conversationId : conversationId,
+      );
+
+      await emit({
+        userMessageId: "later-trigger",
+        assistantMessageId: "later-result",
+      });
+
+      if (deliveryContext === "parent") {
+        expect(signals).toHaveLength(0);
+      } else {
+        expect(signals).toHaveLength(1);
+        expect(signals[0]).toMatchObject({
+          dedupeKey: `activity.complete:${conversationId}:subagent:${task.id}`,
+          contextPayload: {
+            requestedMessage: "Here are the completed findings.",
+          },
+        });
+      }
     },
   );
   test("a private-only or empty final wake can flush the earlier successful result", async () => {

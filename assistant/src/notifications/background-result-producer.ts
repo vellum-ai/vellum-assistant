@@ -306,10 +306,12 @@ export async function emitBackgroundResultNotification(params: {
           conversationId,
           successfulTrigger.createdAt,
           RESULT_EVENT_NAMES,
-        ) ||
-        childDeliveredResult(work)
+        )
       ) {
         return;
+      }
+      if (childDeliveredResult(work)) {
+        continue;
       }
       const rows = collectRunRows(
         result,
