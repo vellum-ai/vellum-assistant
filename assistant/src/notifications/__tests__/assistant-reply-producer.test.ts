@@ -33,6 +33,8 @@ let attentionState: AttentionState | null = null;
 let getConversationShouldThrow = false;
 let pendingBackgroundWork = false;
 let firstAssistantRow: MessageRow | null = null;
+let persistedRows: MessageRow[] | undefined;
+const recentHistoryPages: Array<string | undefined> = [];
 const pendingWorkArgs: unknown[][] = [];
 
 mock.module("../has-pending-background-work.js", () => ({
@@ -79,6 +81,22 @@ mock.module("../../persistence/conversation-crud.js", () => ({
     firstAssistantRow
       ? [firstAssistantRow.id, ASSISTANT_MESSAGE_ID]
       : [ASSISTANT_MESSAGE_ID],
+  getRecentConversationMessages: (
+    _conversationId: string,
+    limit: number,
+    beforeMessageId?: string,
+  ) => {
+    recentHistoryPages.push(beforeMessageId);
+    const history =
+      persistedRows ??
+      [initiatingRow, firstAssistantRow, assistantRow].filter(
+        (row): row is MessageRow => row !== null,
+      );
+    const end = beforeMessageId
+      ? history.findIndex((row) => row.id === beforeMessageId)
+      : history.length;
+    return history.slice(Math.max(0, end - limit), end);
+  },
 }));
 
 // Attachments the assistant row carries. Linked by the agent loop before the
@@ -96,12 +114,18 @@ mock.module("../../persistence/attachments-store.js", () => ({
 }));
 
 let guardianPrincipalId: string | undefined = "guardian-1";
+let guardianLookupGate: Promise<void> | undefined;
+let onGuardianLookup = () => {};
 const realGuardianDelivery =
   await import("../../contacts/guardian-delivery-reader.js");
 mock.module("../../contacts/guardian-delivery-reader.js", () => ({
   ...realGuardianDelivery,
-  getGuardianDelivery: async () =>
-    guardianPrincipalId
+  getGuardianDelivery: async () => {
+    onGuardianLookup();
+    if (guardianLookupGate) {
+      await guardianLookupGate;
+    }
+    return guardianPrincipalId
       ? [
           {
             channelType: "vellum",
@@ -109,7 +133,8 @@ mock.module("../../contacts/guardian-delivery-reader.js", () => ({
             principalId: guardianPrincipalId,
           },
         ]
-      : null,
+      : null;
+  },
 }));
 
 // Defaults to unattended, so every other case in this file exercises the
@@ -326,12 +351,16 @@ async function run(
 beforeEach(() => {
   pendingBackgroundWork = false;
   firstAssistantRow = null;
+  persistedRows = undefined;
+  recentHistoryPages.length = 0;
   pendingWorkArgs.length = 0;
   emitCalls.length = 0;
   warnCalls.length = 0;
   messageLookups.length = 0;
   attachmentLookups.length = 0;
   guardianPrincipalId = "guardian-1";
+  guardianLookupGate = undefined;
+  onGuardianLookup = () => {};
   desktopPresenceArgs.length = 0;
   webPresenceArgs.length = 0;
   assistantAttachments = [];
@@ -354,6 +383,200 @@ beforeEach(() => {
 // ── Tests ──────────────────────────────────────────────────────────────
 
 describe("emitAssistantReplyNotification", () => {
+  function appendCompletedContinuation(): void {
+    persistedRows = [
+      ...(persistedRows ?? [initiatingRow!, assistantRow!]),
+      makeMessage({
+        id: "msg-completed-trigger",
+        createdAt: assistantRow!.createdAt,
+        metadata: JSON.stringify({
+          backgroundEventSource: "background-tool",
+          backgroundToolCompletion: {
+            id: "tool-completed",
+            toolName: "bash",
+            conversationId: CONVERSATION_ID,
+            command: "example-command",
+            startedAt: assistantRow!.createdAt,
+            completedAt: assistantRow!.createdAt,
+            status: "completed",
+            exitCode: 0,
+            output: "completed",
+          },
+        }),
+      }),
+      makeMessage({
+        id: "msg-completed-result",
+        role: "assistant",
+        createdAt: assistantRow!.createdAt,
+        content: [{ type: "text", text: "The requested work is finished." }],
+      }),
+    ];
+  }
+
+  test.each([false, true])(
+    "suppresses a stale kickoff after fast completion with projected=%s and timestamp ties",
+    async (projected) => {
+      assistantRow!.content = [{ type: "text", text: "The work is started." }];
+      appendCompletedContinuation();
+      if (projected) {
+        attentionState!.latestAssistantMessageId = "msg-completed-result";
+      }
+
+      await run();
+
+      expect(pendingBackgroundWork).toBe(false);
+      expect(emitCalls).toHaveLength(0);
+    },
+  );
+
+  test.each(["new continuation", "reply seen"])(
+    "rechecks freshness after presence lookup when there is a %s",
+    async (change) => {
+      const { promise: lookupStarted, resolve: markLookupStarted } =
+        Promise.withResolvers<void>();
+      const { promise: lookupReady, resolve: releaseLookup } =
+        Promise.withResolvers<void>();
+      onGuardianLookup = markLookupStarted;
+      guardianLookupGate = lookupReady;
+      const notification = run();
+      await lookupStarted;
+      if (change === "new continuation") {
+        appendCompletedContinuation();
+      } else {
+        attentionState!.lastSeenAssistantMessageAt = assistantRow!.createdAt;
+      }
+      releaseLookup();
+      await notification;
+
+      expect(emitCalls).toHaveLength(0);
+    },
+  );
+
+  test.each(["text", "media"])(
+    "keeps an unseen public %s reply with a same-turn private wrap-up across history pages",
+    async (replyType) => {
+      if (replyType === "media") {
+        assistantRow!.content = [];
+        assistantAttachments = [{ originalFilename: "report.pdf" }];
+      }
+      persistedRows = [initiatingRow!, assistantRow!];
+      for (let index = 0; index < 110; index++) {
+        persistedRows.push(
+          makeMessage({
+            id: `msg-private-${index}`,
+            role: "assistant",
+            content: [
+              {
+                type: "tool_use",
+                id: `tool-${index}`,
+                name: "bash",
+                input: {},
+              },
+            ],
+            metadata: JSON.stringify({ assistantTextVisibility: "private" }),
+            createdAt: assistantRow!.createdAt + index + 1,
+          }),
+          makeMessage({
+            id: `msg-tool-result-${index}`,
+            content: [
+              {
+                type: "tool_result",
+                tool_use_id: `tool-${index}`,
+                content: "ok",
+              },
+            ],
+            createdAt: assistantRow!.createdAt + index + 1,
+          }),
+        );
+      }
+      const wrapUp = makeMessage({
+        id: "msg-private-wrap-up",
+        role: "assistant",
+        content: [{ type: "text", text: "Private working notes." }],
+        metadata: JSON.stringify({ assistantTextVisibility: "private" }),
+        createdAt: assistantRow!.createdAt + 200,
+      });
+      persistedRows.push(wrapUp);
+      attentionState!.latestAssistantMessageId = wrapUp.id;
+      attentionState!.latestAssistantMessageAt = wrapUp.createdAt;
+
+      await run();
+
+      expect(recentHistoryPages).toHaveLength(2);
+      expect(emitCalls).toHaveLength(1);
+      expect(emitCalls[0].contextPayload.requestedMessage).toBe(
+        replyType === "media" ? "Sent report.pdf" : "Sure, here is the plan.",
+      );
+    },
+  );
+
+  test("does not reuse a seen public reply because a private wrap-up is unseen", async () => {
+    const wrapUp = makeMessage({
+      id: "msg-private-wrap-up",
+      role: "assistant",
+      metadata: JSON.stringify({ assistantTextVisibility: "private" }),
+      createdAt: assistantRow!.createdAt + 1,
+    });
+    persistedRows = [initiatingRow!, assistantRow!, wrapUp];
+    attentionState!.latestAssistantMessageId = wrapUp.id;
+    attentionState!.latestAssistantMessageAt = wrapUp.createdAt;
+    attentionState!.lastSeenAssistantMessageAt = assistantRow!.createdAt;
+
+    await run();
+
+    expect(emitCalls).toHaveLength(0);
+  });
+
+  test("keeps a later human reply eligible after old background completion", async () => {
+    appendCompletedContinuation();
+    persistedRows = persistedRows!.map((row) => ({
+      ...row,
+      id: `old-${row.id}`,
+      createdAt: row.createdAt - 1000,
+    }));
+    persistedRows!.push(initiatingRow!, assistantRow!);
+
+    await run();
+
+    expect(emitCalls).toHaveLength(1);
+  });
+
+  test.each([false, true])(
+    "preserves a mixed human/hidden batch unless a later continuation exists=%s",
+    async (laterContinuation) => {
+      initiatingRow!.metadata = JSON.stringify({
+        turnOutcome: "batched",
+        turnBatchedInto: "msg-hidden-batch-tail",
+      });
+      const hiddenTail = makeMessage({
+        id: "msg-hidden-batch-tail",
+        metadata: JSON.stringify({ hidden: true }),
+      });
+      persistedRows = [initiatingRow!, hiddenTail, assistantRow!];
+      if (laterContinuation) {
+        appendCompletedContinuation();
+      }
+
+      await run();
+
+      expect(emitCalls).toHaveLength(laterContinuation ? 0 : 1);
+    },
+  );
+
+  test.each([undefined, "", 123, "msg-missing-target"])(
+    "rejects a malformed or missing batch target %s",
+    async (turnBatchedInto) => {
+      initiatingRow!.metadata = JSON.stringify({
+        turnOutcome: "batched",
+        turnBatchedInto,
+      });
+
+      await run();
+
+      expect(emitCalls).toHaveLength(0);
+    },
+  );
+
   test("scopes unfinished work to this reply's turn, including its tool-call rows", async () => {
     firstAssistantRow = makeMessage({
       id: "msg-first-assistant",

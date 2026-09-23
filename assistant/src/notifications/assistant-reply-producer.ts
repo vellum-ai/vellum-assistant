@@ -10,6 +10,7 @@
 import type pino from "pino";
 
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
+import { isToolResultOnlyUserMessage } from "../conversations/message-consolidation.js";
 import { getAttachmentMetadataForMessage } from "../persistence/attachments-store.js";
 import {
   getAttentionStateByConversationIds,
@@ -20,6 +21,8 @@ import {
   getAssistantMessageIdsInTurn,
   getConversation,
   getMessageById,
+  getRecentConversationMessages,
+  type MessageRow,
   parseMessageMetadata,
 } from "../persistence/conversation-crud.js";
 import { isReplaceableTitle } from "../persistence/conversation-title-placeholders.js";
@@ -44,6 +47,48 @@ import { resolveCompletionVisibleInSourceNow } from "./resolve-visible-in-source
 
 /** Kill switch for this producer, on by default. */
 const ASSISTANT_REPLY_PUSH_FLAG = "assistant-reply-push" as const;
+const REPLY_HISTORY_PAGE_SIZE = 200;
+
+function isCurrentUnseenReply(
+  conversationId: string,
+  assistantRow: MessageRow,
+  turnBoundaryId: string,
+): boolean {
+  const attention = getAttentionStateByConversationIds([conversationId]).get(
+    conversationId,
+  );
+  if (
+    !hasUnseenLatestAssistantMessage(attention) ||
+    assistantRow.createdAt <=
+      (attention?.lastSeenAssistantMessageAt ?? -Infinity)
+  ) {
+    return false;
+  }
+  let beforeMessageId: string | undefined;
+  let foundReply = false;
+  let foundLatestAttention = false;
+  // A same-turn private wrap-up can own attention while the public reply is earlier.
+  // Persisted turn boundaries also supersede replies whose projection is delayed.
+  while (true) {
+    const history = getRecentConversationMessages(
+      conversationId,
+      REPLY_HISTORY_PAGE_SIZE,
+      beforeMessageId,
+    );
+    for (let index = history.length - 1; index >= 0; index--) {
+      const row = history[index];
+      foundReply ||= row.id === assistantRow.id;
+      foundLatestAttention ||= row.id === attention?.latestAssistantMessageId;
+      if (row.role === "user" && !isToolResultOnlyUserMessage(row)) {
+        return row.id === turnBoundaryId && foundReply && foundLatestAttention;
+      }
+    }
+    if (history.length < REPLY_HISTORY_PAGE_SIZE) {
+      return false;
+    }
+    beforeMessageId = history[0].id;
+  }
+}
 
 /**
  * Flatten a title onto one line. Notification titles cannot wrap, and
@@ -179,6 +224,16 @@ export async function emitAssistantReplyNotification(params: {
     ) {
       return;
     }
+    let turnBoundaryId = userMessageId;
+    if (initiatingMetadata?.turnOutcome === "batched") {
+      if (
+        typeof initiatingMetadata.turnBatchedInto !== "string" ||
+        !initiatingMetadata.turnBatchedInto
+      ) {
+        return;
+      }
+      turnBoundaryId = initiatingMetadata.turnBatchedInto;
+    }
 
     const firstAssistantMessageId =
       getAssistantMessageIdsInTurn(assistantMessageId)[0];
@@ -232,6 +287,9 @@ export async function emitAssistantReplyNotification(params: {
       conversationId,
       logger: rlog,
     });
+    if (!isCurrentUnseenReply(conversationId, assistantRow, turnBoundaryId)) {
+      return;
+    }
 
     await emitNotificationSignal({
       sourceEventName: "chat.assistant_reply",
