@@ -212,6 +212,8 @@
     },
     "permission": {
       "microphoneAction": "Enable microphone",
+      "microphoneSettingsHint": "Turn on Vellum’s microphone switch in System Settings, then return here.",
+      "microphonePromptHint": "macOS will ask you to allow microphone access.",
       "microphoneBody": "Let me use your microphone for voice conversations.",
       "shortcutBody": "Let me hear the shortcut while you use other apps.",
       "screenAction": "Enable screen sharing",

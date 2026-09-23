@@ -212,6 +212,8 @@
     },
     "permission": {
       "microphoneAction": "启用麦克风",
+      "microphoneSettingsHint": "在系统设置中打开 Vellum 的麦克风开关，然后返回这里。",
+      "microphonePromptHint": "macOS 会请求你允许使用麦克风。",
       "microphoneBody": "允许我使用你的麦克风进行语音对话。",
       "shortcutBody": "允许我在你使用其他应用时识别快捷键。",
       "screenAction": "启用屏幕共享",

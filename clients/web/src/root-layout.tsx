@@ -733,7 +733,7 @@ export function RootLayout() {
       <TimezoneSync />
       <GlobalPushToTalkBridge assistantId={assistantId} />
 
-      <CompanionTourEntry />
+      <CompanionTourEntry avatar={avatar} />
 
       {/* The app dimmed while the companion introduces itself over this
           window. Inert off Electron and on the shells with no surface. */}

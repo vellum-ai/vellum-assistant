@@ -212,6 +212,8 @@
     },
     "permission": {
       "microphoneAction": "Activar micrófono",
+      "microphoneSettingsHint": "Activa el interruptor del micrófono de Vellum en Ajustes del Sistema y vuelve aquí.",
+      "microphonePromptHint": "macOS te pedirá permiso para acceder al micrófono.",
       "microphoneBody": "Permíteme usar tu micrófono para conversar por voz.",
       "shortcutBody": "Permíteme detectar el atajo mientras usas otras apps.",
       "screenAction": "Activar pantalla compartida",

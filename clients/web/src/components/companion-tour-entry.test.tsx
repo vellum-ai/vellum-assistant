@@ -6,6 +6,51 @@ import { CompanionTourEntryModal } from "./companion-tour-entry";
 afterEach(cleanup);
 
 describe("CompanionTourEntryModal", () => {
+  test("previews the assistant's own image and updates when it changes", () => {
+    const avatar = {
+      customImageUrl: "https://example.com/assistant-avatar.png",
+      components: null,
+      traits: null,
+      accentHex: "#e7652a",
+    };
+    const view = render(
+      <CompanionTourEntryModal
+        open
+        avatar={avatar}
+        assistantName="Example Assistant"
+        onStart={() => {}}
+        onDismiss={() => {}}
+      />,
+    );
+    expect(
+      view
+        .getByRole("dialog")
+        .querySelector(`img[src="${avatar.customImageUrl}"]`),
+    ).not.toBeNull();
+    expect(view.getByRole("dialog").innerHTML).toContain(avatar.accentHex);
+    view.rerender(
+      <CompanionTourEntryModal
+        open
+        avatar={{
+          ...avatar,
+          customImageUrl: "https://example.com/updated-avatar.png",
+        }}
+        onStart={() => {}}
+        onDismiss={() => {}}
+      />,
+    );
+    expect(
+      view
+        .getByRole("dialog")
+        .querySelector('img[src="https://example.com/updated-avatar.png"]'),
+    ).not.toBeNull();
+    expect(
+      view
+        .getByRole("dialog")
+        .querySelector(`img[src="${avatar.customImageUrl}"]`),
+    ).toBeNull();
+  });
+
   test("moves focus inside the dialog when it opens", async () => {
     const view = render(
       <>

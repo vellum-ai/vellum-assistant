@@ -72,10 +72,16 @@ export function CompanionIntroPermission({
           : error
             ? t("companionIntro.permission.error")
             : settings
-              ? t("companionIntro.permission.settingsHint")
+              ? t(
+                  permission.kind === "microphone"
+                    ? "companionIntro.permission.microphoneSettingsHint"
+                    : "companionIntro.permission.settingsHint",
+                )
               : busy
                 ? t("companionIntro.permission.waiting")
-                : null}
+                : permission.kind === "microphone"
+                  ? t("companionIntro.permission.microphonePromptHint")
+                  : null}
       </p>
     </div>
   );

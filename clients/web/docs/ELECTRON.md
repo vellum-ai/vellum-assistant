@@ -118,6 +118,9 @@ window retains the full transcript in its saved draft.
 
 ## Companion introduction permissions
 
+The tour announcement previews the same active-assistant avatar source as the
+Dock and main app, including character traits, uploaded images, and accent color.
+
 The macOS companion tour offers microphone setup on Talk, Input Monitoring on
 its voice-key lesson, and Screen Recording on Share. Setup is explicit and
 skippable. The permission bridge reads the capturing helper's Screen Recording

@@ -16,22 +16,41 @@ import {
 
 import { CompanionSurface } from "@/components/companion-surface";
 import { useTranslation } from "@/i18n";
+import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
+import { resolveAvatarRender } from "@/utils/avatar-render";
 
 const AVATAR_BOX = companionBoxFor("avatar", DEFAULT_COMPANION_SIZE);
 const OPTIONS_BOX = companionBoxFor("options", DEFAULT_COMPANION_SIZE);
 
 export interface CompanionTourEntryModalProps {
+  avatar?: {
+    customImageUrl: string | null;
+    components: CharacterComponents | null;
+    traits: CharacterTraits | null;
+    accentHex: string | null;
+  };
+  assistantName?: string;
   open: boolean;
   onStart: () => void;
   onDismiss: () => void;
 }
 
 export function CompanionTourEntryModal({
+  avatar,
+  assistantName,
   open,
   onStart,
   onDismiss,
 }: CompanionTourEntryModalProps): ReactNode {
   const { t } = useTranslation();
+  const renderedAvatar = avatar
+    ? resolveAvatarRender(
+        avatar.customImageUrl,
+        avatar.components,
+        avatar.traits,
+        AVATAR_BOX,
+      )
+    : null;
   const [confirmingDismissal, setConfirmingDismissal] = useState(false);
 
   useEffect(() => {
@@ -154,8 +173,7 @@ export function CompanionTourEntryModal({
             <div
               className="absolute inset-0 opacity-80"
               style={{
-                background:
-                  "radial-gradient(circle at 68% 22%, rgba(94,234,212,.2), transparent 34%), linear-gradient(145deg, #252a32 0%, #15171b 72%)",
+                background: `radial-gradient(circle at 68% 22%, color-mix(in srgb, ${avatar?.accentHex ?? "var(--content-tertiary)"} 20%, transparent), transparent 34%), linear-gradient(145deg, #252a32 0%, #15171b 72%)`,
               }}
             />
             <div className="absolute top-10 right-8 left-8 h-60 overflow-hidden rounded-xl border border-white/10 bg-white/8 shadow-2xl shadow-black/30">
@@ -176,15 +194,21 @@ export function CompanionTourEntryModal({
                 phase="hover"
                 hovered
                 spotlight="talk"
-                assistantName={t(
-                  "companionIntro.announcement.previewAssistantName",
-                )}
-                accentHex="#5eead4"
-                character={{
-                  bodyShape: "burst",
-                  eyeStyle: "curious",
-                  color: "teal",
-                }}
+                assistantName={
+                  assistantName ??
+                  t("companionIntro.announcement.previewAssistantName")
+                }
+                accentHex={avatar?.accentHex ?? undefined}
+                character={
+                  renderedAvatar?.kind === "character"
+                    ? renderedAvatar.traits
+                    : undefined
+                }
+                avatarSrc={
+                  renderedAvatar?.kind === "image"
+                    ? renderedAvatar.url
+                    : undefined
+                }
                 avatarBox={AVATAR_BOX}
                 optionsBox={OPTIONS_BOX}
               />
