@@ -48,6 +48,20 @@ mock.module("../../persistence/conversation-crud.js", () => ({
       .sort((left, right) => left.createdAt - right.createdAt)
       .map((row) => row.id),
   getMessagesAfter: () => resultRows,
+  getRecentConversationMessages: (
+    _conversationId: string,
+    limit: number,
+    beforeMessageId?: string,
+  ) => {
+    let history = [...rows.values()];
+    if (beforeMessageId) {
+      history = history.slice(
+        0,
+        history.findIndex((row) => row.id === beforeMessageId),
+      );
+    }
+    return history.slice(-limit);
+  },
 }));
 const attentionStore =
   await import("../../persistence/conversation-attention-store.js");
@@ -63,7 +77,10 @@ mock.module("../../persistence/subagent-store.js", () => ({
     pending ? [{ ...task, status: "running" }] : [],
 }));
 mock.module("../../tools/background-tool-registry.js", () => ({
-  listBackgroundTools: () => (toolsPending ? [{}] : []),
+  hasBackgroundToolWork: () => toolsPending,
+}));
+mock.module("../../runtime/agent-wake-queue.js", () => ({
+  hasPendingAgentWake: () => false,
 }));
 mock.module("../events-store.js", () => ({
   hasNotifiedSourceContextSince: (id: string) => notifiedContexts.has(id),
@@ -105,6 +122,40 @@ function triggerMetadata(metadata: Record<string, unknown>): void {
   });
 }
 const rlog = getLogger("background-result-producer-test");
+function finishSiblingCommand(
+  status: "failed" | "cancelled",
+  privateResult = false,
+): void {
+  rows.set(
+    "later-trigger",
+    row("later-trigger", "user", "INTERNAL FAILURE", 300, {
+      backgroundEventSource: "background-tool",
+      backgroundToolCompletion: {
+        id: "tool-sibling",
+        toolName: "bash",
+        conversationId,
+        command: "example-command",
+        startedAt,
+        completedAt: startedAt + 300,
+        status,
+        exitCode: 1,
+        output: "raw failure",
+      },
+    }),
+  );
+  rows.set(
+    "later-result",
+    row(
+      "later-result",
+      "assistant",
+      "The other command failed.",
+      400,
+      privateResult ? { assistantTextVisibility: "private" } : undefined,
+    ),
+  );
+  attention.latestAssistantMessageId = "later-result";
+  attention.latestAssistantMessageAt = startedAt + 400;
+}
 const emit = (
   overrides: Partial<
     Parameters<typeof emitBackgroundResultNotification>[0]
@@ -170,6 +221,182 @@ beforeEach(() => {
 });
 
 describe("background result ownership", () => {
+  test.each(["failed", "cancelled"] as const)(
+    "recovers a deferred successful child result when the last command is %s",
+    async (status) => {
+      toolsPending = true;
+      await emit();
+      expect(signals).toHaveLength(0);
+      toolsPending = false;
+      finishSiblingCommand(status);
+      await emit({
+        userMessageId: "later-trigger",
+        assistantMessageId: "later-result",
+      });
+      expect(signals).toHaveLength(1);
+      expect(signals[0].contextPayload?.requestedMessage).toBe(
+        "Here are the completed findings.",
+      );
+      expect(signals[0].dedupeKey).toBe(
+        `activity.complete:${conversationId}:subagent:${task.id}`,
+      );
+    },
+  );
+  test("a private-only or empty final wake can flush the earlier successful result", async () => {
+    finishSiblingCommand("failed", true);
+    await emit({
+      userMessageId: "later-trigger",
+      assistantMessageId: "later-result",
+    });
+    expect(signals[0].contextPayload?.requestedMessage).toBe(
+      "Here are the completed findings.",
+    );
+    signals.length = 0;
+    rows.delete("later-result");
+    attention.latestAssistantMessageId = "result";
+    attention.latestAssistantMessageAt = startedAt + 200;
+    await emit({
+      userMessageId: "later-trigger",
+      assistantMessageId: undefined,
+      recoverOnly: true,
+    });
+    expect(signals).toHaveLength(1);
+  });
+  test("a successful result viewed before the last failure is not reannounced", async () => {
+    finishSiblingCommand("failed");
+    attention.lastSeenAssistantMessageAt = startedAt + 200;
+    await emit({
+      userMessageId: "later-trigger",
+      assistantMessageId: "later-result",
+    });
+    expect(signals).toHaveLength(0);
+  });
+  test("a later user request ends recovery of earlier completion results", async () => {
+    rows.set("new-request", row("new-request", "user", "Another request", 250));
+    finishSiblingCommand("failed");
+    await emit({
+      userMessageId: "later-trigger",
+      assistantMessageId: "later-result",
+    });
+    expect(signals).toHaveLength(0);
+  });
+  test("recovery preserves explicit delivery and quiet decisions", async () => {
+    finishSiblingCommand("failed");
+    notifiedContexts.add(conversationId);
+    await emit({
+      userMessageId: "later-trigger",
+      assistantMessageId: "later-result",
+    });
+    expect(signals).toHaveLength(0);
+  });
+  test("a failed synthesis of a successful task is not a recoverable result", async () => {
+    const metadata = JSON.parse(rows.get("trigger")!.metadata!);
+    triggerMetadata({ ...metadata, turnOutcome: "failed" });
+    finishSiblingCommand("failed");
+    await emit({
+      userMessageId: "later-trigger",
+      assistantMessageId: "later-result",
+    });
+    expect(signals).toHaveLength(0);
+  });
+  test("recovery includes successful output written in the same millisecond as the next trigger", async () => {
+    finishSiblingCommand("failed");
+    rows.get("result")!.createdAt = rows.get("later-trigger")!.createdAt;
+    await emit({
+      userMessageId: "later-trigger",
+      assistantMessageId: "later-result",
+    });
+    expect(signals).toHaveLength(1);
+  });
+  test("recovers a successful result across history pages", async () => {
+    for (let index = 0; index < 210; index++) {
+      rows.set(`tool-result-${index}`, {
+        ...row(`tool-result-${index}`, "user", "", 250),
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: `tool-${index}`,
+            content: "intermediate output",
+          },
+        ],
+      });
+    }
+    finishSiblingCommand("failed");
+    await emit({
+      userMessageId: "later-trigger",
+      assistantMessageId: "later-result",
+    });
+    expect(signals).toHaveLength(1);
+    expect(signals[0].contextPayload?.requestedMessage).toBe(
+      "Here are the completed findings.",
+    );
+  });
+  test("a final failed child continuation flushes a successful sibling", async () => {
+    finishSiblingCommand("failed");
+    rows.get("later-trigger")!.metadata = JSON.stringify({
+      subagentNotification: {
+        subagentId: "task-sibling",
+        label: "Sibling",
+        status: "failed",
+        conversationId: "conv-sibling",
+      },
+    });
+    await emit({
+      userMessageId: "later-trigger",
+      assistantMessageId: undefined,
+      recoverOnly: true,
+    });
+    expect(signals).toHaveLength(1);
+    expect(signals[0].contextPayload?.requestedMessage).toBe(
+      "Here are the completed findings.",
+    );
+  });
+  test("a standalone card cannot become an earlier task's recovered result", async () => {
+    rows.set(
+      "card",
+      row("card", "assistant", "System card text", 250, {
+        messageKind: "system_card",
+      }),
+    );
+    finishSiblingCommand("failed");
+    await emit({
+      userMessageId: "later-trigger",
+      assistantMessageId: "later-result",
+    });
+    expect(signals[0].contextPayload?.requestedMessage).toBe(
+      "Here are the completed findings.",
+    );
+  });
+  test("seen public output is not reannounced through a later private wrap-up", async () => {
+    rows.delete("result");
+    rows.set(
+      "visible-result",
+      row("visible-result", "assistant", "Visible findings", 150),
+    );
+    rows.set(
+      "result",
+      row("result", "assistant", "Private wrap-up", 200, {
+        assistantTextVisibility: "private",
+      }),
+    );
+    attention.lastSeenAssistantMessageAt = startedAt + 150;
+    finishSiblingCommand("failed");
+    await emit({
+      userMessageId: "later-trigger",
+      assistantMessageId: "later-result",
+    });
+    expect(signals).toHaveLength(0);
+  });
+  test("a newer human prompt prevents a stale wake from recovering an old result", async () => {
+    finishSiblingCommand("failed");
+    rows.set("new-request", row("new-request", "user", "Another request", 500));
+    await emit({
+      userMessageId: "later-trigger",
+      assistantMessageId: undefined,
+      recoverOnly: true,
+    });
+    expect(signals).toHaveLength(0);
+  });
   test("queued continuations settle before the parent announces completion", async () => {
     queued = true;
     await emit();

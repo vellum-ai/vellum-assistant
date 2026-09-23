@@ -43,6 +43,13 @@ and skill-update receipts retain their existing feed behavior.
 and background-tool completion wakes in user conversations. It waits for
 user-facing work and queued continuations to settle, preserves scheduled-run
 ownership, and reads the same public-result projection as scheduled delivery.
+When a sibling fails or is cancelled, settlement can recover an earlier unseen
+successful result from persisted conversation rows in pages of 200. Recovery stops
+at a user prompt and preserves prior delivery and quiet decisions. It uses
+insertion order, so same-millisecond messages stay in their actual turns.
+Failed-only work cannot create a completion candidate. Command wakes check
+settlement after releasing their wake queue entry, including empty or failed
+continuations; pending cancellation callbacks still count as unfinished work.
 Approval prompts do not count as prior result delivery. Internal jobs and
 workflow-manager wakes retain their existing behavior; workflow wakes need
 explicit run and quiet-mode provenance before they can use this producer.

@@ -11,6 +11,10 @@ let tools: unknown[] = [];
 let queued = false;
 let processing = false;
 let liveChild = false;
+let wakeQueued = false;
+mock.module("../../runtime/agent-wake-queue.js", () => ({
+  hasPendingAgentWake: () => wakeQueued,
+}));
 mock.module("../../persistence/subagent-store.js", () => ({
   getSubagentRecordsByParent: () => tasks,
   getSubagentRecordByConversationId: () => ({
@@ -21,7 +25,15 @@ mock.module("../../persistence/subagent-store.js", () => ({
   }),
 }));
 mock.module("../../tools/background-tool-registry.js", () => ({
-  listBackgroundTools: () => tools,
+  hasBackgroundToolWork: (
+    _conversationId: string,
+    options?: { startedAfter?: number },
+  ) =>
+    tools.some(
+      (tool) =>
+        options?.startedAfter === undefined ||
+        (tool as { startedAt: number }).startedAt >= options.startedAfter,
+    ),
 }));
 mock.module("../../daemon/conversation-registry.js", () => ({
   allSubagentConversations: () =>
@@ -49,6 +61,7 @@ beforeEach(() => {
   queued = false;
   processing = false;
   liveChild = false;
+  wakeQueued = false;
 });
 
 test("internal advisor and silent-fork work cannot suppress the user's reply", () => {
@@ -75,6 +88,11 @@ test("a pending user-facing child, command, or parent continuation delays comple
   expect(hasPendingBackgroundWork("conv-123")).toBe(true);
   processing = false;
   expect(hasPendingBackgroundWork("conv-123")).toBe(false);
+  wakeQueued = true;
+  expect(hasPendingBackgroundWork("conv-123")).toBe(true);
+  expect(hasPendingBackgroundWork("conv-123", { startedAfter: 200 })).toBe(
+    false,
+  );
 });
 
 test("a later ordinary reply ignores pending work from an earlier turn", () => {

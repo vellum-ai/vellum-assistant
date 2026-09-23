@@ -126,10 +126,13 @@ import {
   type UntrustedContentSource,
   wrapUntrustedContent,
 } from "../security/untrusted-content.js";
+import { stampTurnOutcome } from "../telemetry/turn-outcome.js";
 import type { CompletedBackgroundTool } from "../tools/background-tool-registry.js";
 import { getLogger } from "../util/logger.js";
-import { createKeyedSingleFlight } from "../util/single-flight.js";
 import { safeStringSlice } from "../util/unicode.js";
+import { runWakeSingleFlight } from "./agent-wake-queue.js";
+
+export { hasPendingAgentWake } from "./agent-wake-queue.js";
 
 const log = getLogger("agent-wake");
 
@@ -621,24 +624,10 @@ async function kickWakeDrainQueue(
   }
 }
 
-// ── Per-conversation single-flight lock ───────────────────────────────
-//
-// When a wake arrives and another run is in flight for the same
-// conversation, we chain onto its tail so the wake runs *after* the current
-// work completes. `createKeyedSingleFlight` owns the tail-chaining and
-// bounded-map bookkeeping; wakes serialize on their own chain, independent of
-// any other single-flight consumer.
-
-const runWakeSingleFlight = createKeyedSingleFlight();
-
-export function hasPendingAgentWake(conversationId: string): boolean {
-  return runWakeSingleFlight.isPending(conversationId);
-}
-
 /**
  * How long a wake waits for an in-flight turn to release the conversation's
  * processing lock before skipping with reason "timeout". We rely primarily
- * on the single-flight chain above to serialize *wakes*; the pre-run
+ * on the single-flight chain to serialize *wakes*; the pre-run
  * `waitForIdle` gate catches the case where a user turn started
  * independently while our wake was queued.
  */
@@ -767,8 +756,10 @@ export async function wakeAgentForOpportunity(
   const resolveTarget = deps?.resolveTarget ?? defaultResolveTarget;
   const nowFn = deps?.now ?? Date.now;
   const startedAt = nowFn();
+  let wakeTriggerMessageId: string | undefined;
+  let completionAssistantMessageId: string | undefined;
 
-  return runWakeSingleFlight(conversationId, async () => {
+  return runWakeSingleFlight<WakeResult>(conversationId, async () => {
     // Snapshot the conversation's resting trust before the resolver runs, so
     // it can be restored after. The resolver leaves the wake's trust on the
     // conversation, and a following no-trust wake would otherwise pick it up
@@ -976,7 +967,6 @@ export async function wakeAgentForOpportunity(
     // failure is non-fatal — the in-memory push keeps this run's prompt
     // consistent. The trigger is part of `baseline`, so `flushPendingTail`
     // never re-persists it.
-    let wakeTriggerMessageId: string | undefined;
     if (opts.persistTriggerAsEvent) {
       const triggerMessage: Message = {
         role: "user",
@@ -1842,17 +1832,11 @@ export async function wakeAgentForOpportunity(
       if (
         !tailPersistenceFailed &&
         lastPersistedAssistantMessageId &&
-        opts.backgroundToolCompletion?.status === "completed" &&
+        opts.backgroundToolCompletion &&
         (terminalExitReason === "no_tool_calls" ||
           terminalExitReason === "yield_to_user")
       ) {
-        void emitBackgroundResultNotification({
-          conversationId,
-          assistantMessageId: lastPersistedAssistantMessageId,
-          userMessageId: wakeTriggerMessageId,
-          cronRunId: opts.cronRunId,
-          rlog: log,
-        });
+        completionAssistantMessageId = lastPersistedAssistantMessageId;
       }
       await kickWakeDrainQueue(conversation, "agent_wake_tail", {
         conversationId,
@@ -1862,6 +1846,22 @@ export async function wakeAgentForOpportunity(
 
       return { invoked: true, producedToolCalls, ...exitReasonField() };
     } finally {
+      if (
+        opts.backgroundToolCompletion &&
+        wakeTriggerMessageId &&
+        (runError ||
+          (terminalExitReason !== null &&
+            terminalExitReason !== "no_tool_calls" &&
+            terminalExitReason !== "yield_to_user"))
+      ) {
+        stampTurnOutcome(
+          wakeTriggerMessageId,
+          String(terminalExitReason).startsWith("aborted_") ||
+            terminalExitReason === "checkpoint_handoff"
+            ? "cancelled"
+            : "failed",
+        );
+      }
       // Put the conversation's resting trust back on every exit path.
       restorePersistentWakeTrust();
       // The success path (above) already called setProcessing(false) and
@@ -1936,6 +1936,17 @@ export async function wakeAgentForOpportunity(
           "agent-wake: produced output",
         );
       }
+    }
+  }).finally(() => {
+    if (opts.backgroundToolCompletion && wakeTriggerMessageId) {
+      void emitBackgroundResultNotification({
+        conversationId,
+        assistantMessageId: completionAssistantMessageId,
+        recoverOnly: completionAssistantMessageId === undefined,
+        userMessageId: wakeTriggerMessageId,
+        cronRunId: opts.cronRunId,
+        rlog: log,
+      });
     }
   });
 }

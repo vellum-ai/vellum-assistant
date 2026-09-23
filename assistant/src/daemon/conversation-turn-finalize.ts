@@ -366,15 +366,18 @@ export async function runDeferredTurnTail(params: {
       rlog,
       conversation,
     });
-    void emitBackgroundResultNotification({
-      conversationId,
-      assistantMessageId: state.lastAssistantMessageId,
-      userMessageId,
-      cronRunId: params.cronRunId,
-      conversation,
-      rlog,
-    });
   }
+  void emitBackgroundResultNotification({
+    conversationId,
+    assistantMessageId: turnCompleted
+      ? (state.lastAssistantMessageId ?? undefined)
+      : undefined,
+    userMessageId,
+    recoverOnly: !turnCompleted,
+    cronRunId: params.cronRunId,
+    conversation,
+    rlog,
+  });
 
   rlog.info(
     {

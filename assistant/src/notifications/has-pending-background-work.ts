@@ -6,8 +6,9 @@ import {
   getSubagentRecordByConversationId,
   getSubagentRecordsByParent,
 } from "../persistence/subagent-store.js";
+import { hasPendingAgentWake } from "../runtime/agent-wake-queue.js";
 import { TERMINAL_STATUSES } from "../subagent/types.js";
-import { listBackgroundTools } from "../tools/background-tool-registry.js";
+import { hasBackgroundToolWork } from "../tools/background-tool-registry.js";
 import { isUserFacingSubagent } from "./completion-work.js";
 
 /** A finished turn can still own delegated work whose result is not ready. */
@@ -37,6 +38,9 @@ export function hasPendingBackgroundWork(
   return (
     conversation?.isProcessing() === true ||
     conversation?.hasQueuedMessages() === true ||
+    // A newer human turn can finish inside the earlier wake's queue drain.
+    (options?.startedAfter === undefined &&
+      hasPendingAgentWake(conversationId)) ||
     getSubagentRecordsByParent(conversationId, {
       terminalStatuses: [...TERMINAL_STATUSES],
       maxTerminal: 0,
@@ -46,10 +50,6 @@ export function hasPendingBackgroundWork(
         (options?.startedAfter === undefined ||
           task.createdAt >= options.startedAfter),
     ) ||
-    listBackgroundTools(conversationId).some(
-      (tool) =>
-        options?.startedAfter === undefined ||
-        tool.startedAt >= options.startedAfter,
-    )
+    hasBackgroundToolWork(conversationId, options)
   );
 }

@@ -1,5 +1,6 @@
 import type pino from "pino";
 
+import { isToolResultOnlyUserMessage } from "../conversations/message-consolidation.js";
 import {
   getAttentionStateByConversationIds,
   hasUnseenLatestAssistantMessage,
@@ -8,6 +9,8 @@ import {
   type ConversationRow,
   getConversation,
   getMessageById,
+  getRecentConversationMessages,
+  isStandaloneAssistantMessage,
   type MessageRow,
   parseMessageMetadata,
 } from "../persistence/conversation-crud.js";
@@ -28,10 +31,11 @@ import {
   collectRunRows,
   deliveredThroughMessagingTool,
   resolveLatestRunRow,
-  resolveRunOutput,
+  resolveRunResult,
 } from "./result-output.js";
 
 const RESULT_EVENT_NAMES = ["assistant.share", "activity.complete"] as const;
+const COMPLETION_HISTORY_LIMIT = 200;
 
 interface CompletedWork {
   workId: string;
@@ -47,6 +51,7 @@ function resolveCompletedWork(
   const metadata = parseMessageMetadata(trigger.metadata);
   if (
     !metadata ||
+    metadata.turnOutcome !== undefined ||
     metadata.voiceSessionTurn === true ||
     (metadata.assistantMessageChannel &&
       metadata.assistantMessageChannel !== "vellum")
@@ -82,6 +87,71 @@ function resolveCompletedWork(
   return undefined;
 }
 
+function isCompletionTrigger(row: MessageRow): boolean {
+  const metadata = parseMessageMetadata(row.metadata);
+  return (
+    metadata?.subagentNotification !== undefined ||
+    metadata?.backgroundEventSource === "background-tool"
+  );
+}
+
+function* completionCandidates(
+  conversationId: string,
+  trigger: MessageRow,
+  result: MessageRow | undefined,
+): Generator<{ trigger: MessageRow; result: MessageRow; work: CompletedWork }> {
+  if (!isCompletionTrigger(trigger)) {
+    return;
+  }
+  let beforeMessageId: string | undefined;
+  let foundTrigger = false;
+  let resultInCurrentTurn = false;
+  let previousResult: MessageRow | undefined;
+  while (true) {
+    const history = getRecentConversationMessages(
+      conversationId,
+      COMPLETION_HISTORY_LIMIT,
+      beforeMessageId,
+    );
+    for (let index = history.length - 1; index >= 0; index--) {
+      const row = history[index];
+      if (!foundTrigger) {
+        if (row.id === trigger.id) {
+          foundTrigger = true;
+          const work = resolveCompletedWork(conversationId, trigger);
+          if (work && result && resultInCurrentTurn) {
+            yield { trigger, result, work };
+          }
+        } else if (row.role === "user" && !isToolResultOnlyUserMessage(row)) {
+          return;
+        } else if (row.id === result?.id) {
+          resultInCurrentTurn = true;
+        }
+        continue;
+      }
+      if (
+        row.role === "assistant" &&
+        !isStandaloneAssistantMessage(row.role, row.metadata)
+      ) {
+        previousResult ??= row;
+      } else if (row.role === "user" && !isToolResultOnlyUserMessage(row)) {
+        if (!isCompletionTrigger(row)) {
+          return;
+        }
+        const priorWork = resolveCompletedWork(conversationId, row);
+        if (priorWork && previousResult) {
+          yield { trigger: row, result: previousResult, work: priorWork };
+        }
+        previousResult = undefined;
+      }
+    }
+    if (history.length < COMPLETION_HISTORY_LIMIT) {
+      return;
+    }
+    beforeMessageId = history[0].id;
+  }
+}
+
 function childDeliveredResult(work: CompletedWork): boolean {
   const childId = work.childConversationId;
   if (!childId) {
@@ -105,8 +175,9 @@ function childDeliveredResult(work: CompletedWork): boolean {
 /** Notify only after a successful parent turn persists the requested result. */
 export async function emitBackgroundResultNotification(params: {
   conversationId: string;
-  assistantMessageId: string;
+  assistantMessageId?: string;
   userMessageId: string | undefined;
+  recoverOnly?: boolean;
   cronRunId?: string | null;
   conversation?: ConversationRow | null;
   rlog: pino.Logger;
@@ -119,6 +190,7 @@ export async function emitBackgroundResultNotification(params: {
     const conversation = params.conversation ?? getConversation(conversationId);
     if (
       !conversation ||
+      conversation.archivedAt != null ||
       resolveConversationKind(
         conversation.source,
         conversation.conversationType,
@@ -127,18 +199,7 @@ export async function emitBackgroundResultNotification(params: {
       return;
     }
     const trigger = getMessageById(userMessageId, conversationId);
-    const result = getMessageById(assistantMessageId, conversationId);
-    if (
-      !trigger ||
-      !result ||
-      result.role !== "assistant" ||
-      result.finalized !== 1 ||
-      result.createdAt < trigger.createdAt
-    ) {
-      return;
-    }
-    const work = resolveCompletedWork(conversationId, trigger);
-    if (!work) {
+    if (!trigger) {
       return;
     }
     // A parent that only launched more work has not produced the final result.
@@ -150,64 +211,99 @@ export async function emitBackgroundResultNotification(params: {
     );
     if (
       !hasUnseenLatestAssistantMessage(attention) ||
-      attention?.latestAssistantMessageId !== assistantMessageId
+      (assistantMessageId !== undefined &&
+        attention?.latestAssistantMessageId !== assistantMessageId)
     ) {
       return;
     }
-    if (
-      hasNotifiedSourceContextSince(
-        conversationId,
-        trigger.createdAt,
-        RESULT_EVENT_NAMES,
-      ) ||
-      childDeliveredResult(work)
-    ) {
-      return;
-    }
-    const rows = collectRunRows(result, conversationId, trigger.createdAt);
-    if (deliveredThroughMessagingTool(conversationId, rows)) {
-      return;
-    }
-    const body = resolveRunOutput(rows);
-    if (!body) {
-      return;
-    }
-    const recipientPrincipalId =
-      await resolveCompletionRecipientPrincipalId(rlog);
-    if (!recipientPrincipalId) {
-      return;
-    }
-    const completion: CompletionContext = {
-      workId: work.workId,
+    const latestId = assistantMessageId ?? attention?.latestAssistantMessageId;
+    const latestResult = latestId
+      ? (getMessageById(latestId, conversationId) ?? undefined)
+      : undefined;
+    for (const candidate of completionCandidates(
       conversationId,
-      recipientPrincipalId,
-      owner: "parent_continuation",
-    };
-    const storedTitle = conversation.title?.trim() ?? "";
-    const requestedTitle = isReplaceableTitle(storedTitle)
-      ? undefined
-      : sanitizeNotificationTitle(storedTitle.replace(/\s+/g, " "));
-    await emitNotificationSignal({
-      sourceEventName: "activity.complete",
-      sourceChannel: "assistant_tool",
-      sourceContextId: conversationId,
-      attentionHints: {
-        requiresAction: false,
-        urgency: "medium",
-        isAsyncBackground: true,
-        visibleInSourceNow: await resolveCompletionVisibleInSourceNow({
+      trigger,
+      params.recoverOnly ? undefined : latestResult,
+    )) {
+      const { work, result, trigger: successfulTrigger } = candidate;
+      if (
+        result.role !== "assistant" ||
+        result.finalized !== 1 ||
+        isStandaloneAssistantMessage(result.role, result.metadata)
+      ) {
+        continue;
+      }
+      if (
+        result.createdAt <= (attention?.lastSeenAssistantMessageAt ?? -Infinity)
+      ) {
+        return;
+      }
+      if (
+        hasNotifiedSourceContextSince(
           conversationId,
-          actorPrincipalId: recipientPrincipalId,
-          logger: rlog,
-        }),
-      },
-      contextPayload: {
-        completion,
-        ...(requestedTitle ? { requestedTitle } : {}),
-        requestedMessage: body,
-      },
-      dedupeKey: `activity.complete:${conversationId}:${work.workId}`,
-    });
+          successfulTrigger.createdAt,
+          RESULT_EVENT_NAMES,
+        ) ||
+        childDeliveredResult(work)
+      ) {
+        return;
+      }
+      const rows = collectRunRows(
+        result,
+        conversationId,
+        successfulTrigger.createdAt,
+      );
+      if (deliveredThroughMessagingTool(conversationId, rows)) {
+        return;
+      }
+      const output = resolveRunResult(rows);
+      if (!output) {
+        continue;
+      }
+      if (
+        output.row.createdAt <=
+        (attention?.lastSeenAssistantMessageAt ?? -Infinity)
+      ) {
+        return;
+      }
+      const recipientPrincipalId =
+        await resolveCompletionRecipientPrincipalId(rlog);
+      if (!recipientPrincipalId) {
+        return;
+      }
+      const completion: CompletionContext = {
+        workId: work.workId,
+        conversationId,
+        recipientPrincipalId,
+        owner: "parent_continuation",
+      };
+      const storedTitle = conversation.title?.trim() ?? "";
+      const requestedTitle = isReplaceableTitle(storedTitle)
+        ? undefined
+        : sanitizeNotificationTitle(storedTitle.replace(/\s+/g, " "));
+      await emitNotificationSignal({
+        sourceEventName: "activity.complete",
+        sourceChannel: "assistant_tool",
+        sourceContextId: conversationId,
+        attentionHints: {
+          requiresAction: false,
+          urgency: "medium",
+          isAsyncBackground: true,
+          visibleInSourceNow: await resolveCompletionVisibleInSourceNow({
+            conversationId,
+            actorPrincipalId: recipientPrincipalId,
+            logger: rlog,
+          }),
+        },
+        contextPayload: {
+          completion,
+          ...(requestedTitle ? { requestedTitle } : {}),
+          requestedMessage: output.body,
+        },
+        dedupeKey: `activity.complete:${conversationId}:${work.workId}`,
+      });
+      return;
+    }
   } catch (err) {
     rlog.warn(
       { err, conversationId, assistantMessageId },

@@ -78,9 +78,9 @@ export function collectRunRows(
 
 /** Read the persisted user-facing result, walking back through private wrap-up
  * rows. Keep markdown for the feed detail panel; flatten only to check emptiness. */
-export function resolveRunOutput(
+export function resolveRunResult(
   runRows: readonly MessageRow[],
-): string | undefined {
+): { body: string; row: MessageRow } | undefined {
   for (let i = runRows.length - 1; i >= 0; i--) {
     const row = runRows[i];
     const text = stringifyMessageContent(
@@ -88,16 +88,25 @@ export function resolveRunOutput(
     );
     const flattened = stripMarkdownForPreview(text).replace(/\s+/g, " ").trim();
     if (flattened) {
-      return truncate(
-        decodeLiteralLineBreaks(text.trim()),
-        MAX_RESULT_BODY_CHARS,
-      );
+      return {
+        body: truncate(
+          decodeLiteralLineBreaks(text.trim()),
+          MAX_RESULT_BODY_CHARS,
+        ),
+        row,
+      };
     }
     if (!isPrivateAssistantText(row.metadata)) {
       return undefined;
     }
   }
   return undefined;
+}
+
+export function resolveRunOutput(
+  runRows: readonly MessageRow[],
+): string | undefined {
+  return resolveRunResult(runRows)?.body;
 }
 
 /** Read the final assistant row only when it belongs to this run. */

@@ -22,6 +22,7 @@ import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 
 import type { DiskPressureStatus } from "../../daemon/disk-pressure-guard.js";
 import { desktopAutomationLease } from "../../desktop/desktop-automation-lease.js";
+import { hasPendingAgentWake } from "../agent-wake-queue.js";
 
 // ── Per-conversation capture registry ────────────────────────────────
 //
@@ -133,16 +134,22 @@ interface WakeConversationProbe {
 const wakeConvRegistry = new Map<string, WakeConversationProbe>();
 const backgroundNotificationCalls: Array<{
   conversationId: string;
-  assistantMessageId: string;
+  assistantMessageId?: string;
   userMessageId?: string;
+  recoverOnly?: boolean;
+  pendingWake: boolean;
 }> = [];
 mock.module("../../notifications/background-result-producer.js", () => ({
   emitBackgroundResultNotification: async (params: {
     conversationId: string;
-    assistantMessageId: string;
+    assistantMessageId?: string;
     userMessageId?: string;
+    recoverOnly?: boolean;
   }) => {
-    backgroundNotificationCalls.push(params);
+    backgroundNotificationCalls.push({
+      ...params,
+      pendingWake: hasPendingAgentWake(params.conversationId),
+    });
     wakeConvRegistry.get(params.conversationId)?.callSequence.push("notify");
   },
 }));
@@ -159,8 +166,18 @@ mock.module("../../notifications/background-result-producer.js", () => ({
 let mockGetConversationOverrideProfile: (
   conversationId: string,
 ) => string | undefined = () => undefined;
+const wakeOutcomeStamps: Array<{
+  messageId: string;
+  metadata: Record<string, unknown>;
+}> = [];
 
 mock.module("../../persistence/conversation-crud.js", () => ({
+  updateMessageMetadata: (
+    messageId: string,
+    metadata: Record<string, unknown>,
+  ) => {
+    wakeOutcomeStamps.push({ messageId, metadata });
+  },
   getConversationOverrideProfile: (conversationId: string) =>
     mockGetConversationOverrideProfile(conversationId),
   getConversation: () => ({
@@ -640,6 +657,7 @@ function makeWakeConversation(options: {
 let wakeSightFrameCaptureTimes = new Map<string, number>();
 
 beforeEach(() => {
+  wakeOutcomeStamps.length = 0;
   backgroundNotificationCalls.length = 0;
   __resetWakeChainForTests();
   wakeSightFrameCaptureTimes = new Map();
@@ -3813,61 +3831,68 @@ describe("wakeAgentForOpportunity", () => {
 });
 
 describe("background command completion notification wiring", () => {
-  test.each([
-    "no_tool_calls",
-    "error",
-    "aborted_pre_call",
-    "checkpoint_handoff",
-  ] as const)(
-    "%s wake only announces a persisted successful result",
-    async (reason) => {
-      const conversation = makeWakeConversation({
-        conversationId: "conv-command-result",
-        runImpl: async (input, onEvent) => {
-          await onEvent({ type: "agent_loop_exit", reason });
-          return runResult([
-            ...input,
-            {
-              role: "assistant",
-              content: [
-                { type: "text", text: "The requested export is ready." },
-              ],
-            },
-          ]);
-        },
-      });
-      await wakeAgentForOpportunity(
-        {
-          conversationId: conversation.conversationId,
-          hint: "Background command completed",
-          source: "background-tool",
-          persistTriggerAsEvent: true,
-          backgroundToolCompletion: {
-            id: "tool-123",
-            toolName: "bash",
-            conversationId: conversation.conversationId,
-            command: "example-command",
-            startedAt: 1,
-            completedAt: 2,
-            status: "completed",
-            exitCode: 0,
-            output: "file exported",
+  for (const status of ["completed", "failed", "cancelled"] as const) {
+    test.each([
+      "no_tool_calls",
+      "error",
+      "aborted_pre_call",
+      "checkpoint_handoff",
+    ] as const)(
+      `%s wake settles a ${status} command after releasing the wake queue`,
+      async (reason) => {
+        const conversation = makeWakeConversation({
+          conversationId: "conv-command-result",
+          runImpl: async (input, onEvent) => {
+            await onEvent({ type: "agent_loop_exit", reason });
+            return runResult([
+              ...input,
+              {
+                role: "assistant",
+                content: [
+                  { type: "text", text: "The requested export is ready." },
+                ],
+              },
+            ]);
           },
-        },
-        { resolveTarget: async () => conversation },
-      );
-      expect(backgroundNotificationCalls).toHaveLength(
-        reason === "no_tool_calls" ? 1 : 0,
-      );
-      if (reason === "no_tool_calls") {
-        expect(backgroundNotificationCalls[0]).toMatchObject({
-          userMessageId: "msg-1",
-          assistantMessageId: "msg-2",
         });
-        expect(conversation.callSequence.lastIndexOf("persist")).toBeLessThan(
-          conversation.callSequence.indexOf("notify"),
+        await wakeAgentForOpportunity(
+          {
+            conversationId: conversation.conversationId,
+            hint: "Background command completed",
+            source: "background-tool",
+            persistTriggerAsEvent: true,
+            backgroundToolCompletion: {
+              id: "tool-123",
+              toolName: "bash",
+              conversationId: conversation.conversationId,
+              command: "example-command",
+              startedAt: 1,
+              completedAt: 2,
+              status,
+              exitCode: 0,
+              output: "file exported",
+            },
+          },
+          { resolveTarget: async () => conversation },
         );
-      }
-    },
-  );
+        expect(backgroundNotificationCalls).toHaveLength(1);
+        expect(backgroundNotificationCalls[0].pendingWake).toBe(false);
+        expect(backgroundNotificationCalls[0].recoverOnly).toBe(
+          reason !== "no_tool_calls",
+        );
+        expect(wakeOutcomeStamps).toHaveLength(
+          reason === "no_tool_calls" ? 0 : 1,
+        );
+        if (reason === "no_tool_calls") {
+          expect(backgroundNotificationCalls[0]).toMatchObject({
+            userMessageId: "msg-1",
+            assistantMessageId: "msg-2",
+          });
+          expect(conversation.callSequence.lastIndexOf("persist")).toBeLessThan(
+            conversation.callSequence.indexOf("notify"),
+          );
+        }
+      },
+    );
+  }
 });

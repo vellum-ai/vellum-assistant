@@ -3985,7 +3985,9 @@ describe("session-agent-loop", () => {
 
       expect(addMessageMock).toHaveBeenCalled();
       expect(emitAssistantReplyNotificationMock).not.toHaveBeenCalled();
-      expect(emitBackgroundResultNotificationMock).not.toHaveBeenCalled();
+      expect(emitBackgroundResultNotificationMock.mock.calls).toMatchObject([
+        [{ recoverOnly: true, assistantMessageId: undefined }],
+      ]);
     });
   });
 
