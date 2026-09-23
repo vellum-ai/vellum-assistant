@@ -17,6 +17,7 @@ import {
   companionCapturePickSchema,
   companionContextSchema,
   COMPANION_DICTATION_OFFER_MAX,
+  DEFAULT_COMPANION_SIZE,
   COMPANION_SET_UNPLACED_DICTATION_OFFER,
   companionPickerSchema,
   companionPopoverAnswerSchema,
@@ -374,7 +375,7 @@ let cardGrowth: CompanionCardGrowth = "up";
  * a fact about where the window is put, and the renderer has to be told it to
  * draw the bar the way the window was placed for.
  */
-let dock: CompanionDock = readCompanionCallDock();
+let dock: CompanionDock = "bottom";
 
 /**
  * The edge a call's drag would drop the bar on if the hand let go now, or
@@ -412,8 +413,8 @@ let dockDragTravel = 0;
  * running, and the canvas a side dock needs is the call's alone.
  */
 let geometry: CompanionGeometry = geometryFor(
-  readCompanionSize("avatar"),
-  readCompanionSize("options"),
+  DEFAULT_COMPANION_SIZE,
+  DEFAULT_COMPANION_SIZE,
 );
 
 /**
@@ -3582,6 +3583,12 @@ export const installCompanionWindow = (): void => {
     return;
   }
   installed = true;
+  // Resolve storage after the shell selects its release-channel userData path.
+  dock = readCompanionCallDock();
+  geometry = geometryFor(
+    readCompanionSize("avatar"),
+    readCompanionSize("options"),
+  );
 
   platform().on(
     "vellum:companion:setInteractive",

@@ -1,5 +1,7 @@
-import { PointAtExecutor } from "@vellumai/electron-desktop/host-proxy/point-at-executor";
-import { showCompanionCoachmarks } from "@vellumai/electron-desktop/companion-window";
+import {
+  PointAtExecutor,
+  type CoachmarkPainter,
+} from "@vellumai/electron-desktop/host-proxy/point-at-executor";
 /**
  * Computer-use action executor backed by the Windows native helper. `host_cu`
  * proxies `cu.perform`; the helper owns the verify, execute, settle, observe
@@ -126,18 +128,19 @@ export const shutdownSharedCuHelper = (): void => {
 
 export interface WindowsCuExecutorDeps {
   helper?: CuHelperClient;
+  showCoachmarks?: CoachmarkPainter;
 }
 
 export const createWindowsHostCuExecutor = (
   deps: WindowsCuExecutorDeps = {},
 ): HostProxyExecutor => {
-  const { helper } = deps;
+  const { helper, showCoachmarks } = deps;
   return new PointAtExecutor(
     createCuHelperProxyExecutor({
       logger: log,
       resolveHelper: helper ? () => helper : getProtectedSharedCuHelper,
     }),
-    showCompanionCoachmarks,
+    showCoachmarks,
     log,
   );
 };
@@ -146,7 +149,14 @@ const computerUseActionsFeature: CapabilityModule<DesktopCapabilityRegistry> = {
   id: "computer-use-actions",
   install: (capabilities) => {
     capabilities.provide(COMPUTER_USE_ACTION_EXECUTORS, {
-      host_cu: createWindowsHostCuExecutor(),
+      host_cu: createWindowsHostCuExecutor({
+        showCoachmarks: async (...args) => {
+          const { showCompanionCoachmarks } = await import(
+            "@vellumai/electron-desktop/companion-window"
+          );
+          return showCompanionCoachmarks(...args);
+        },
+      }),
       teardown: shutdownSharedCuHelper,
     });
   },
