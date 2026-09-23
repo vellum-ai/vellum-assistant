@@ -152,7 +152,7 @@ export function BillingPanel() {
     return (
       <div className="mt-4">
         <StatSquare
-          icon={<Coins className="h-4 w-4" aria-hidden />}
+          icon={<Coins />}
           value={<span data-testid="effective-balance">{display}</span>}
           label={t("billingPanel.balanceLabel")}
           tone={effectiveNeg ? "negative" : "default"}

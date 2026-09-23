@@ -29,7 +29,7 @@ export function AcpModelStatCard({
   const value = named ?? model;
   return (
     <StatSquare
-      icon={<Sparkles className="h-4 w-4 shrink-0" />}
+      icon={<Sparkles />}
       value={value}
       // A model id is longer than the tile, which cuts it; the tooltip is how
       // the rest of it is still readable.

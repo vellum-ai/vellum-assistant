@@ -209,19 +209,19 @@ export function WorkflowDetailPanel({
               {/* Metrics row */}
               <div className="grid grid-cols-3 gap-3">
                 <AnimatedStatSquare
-                  icon={<ArrowDownToLine className="h-4 w-4 shrink-0" />}
+                  icon={<ArrowDownToLine />}
                   target={entry.inputTokens}
                   format={(n) => formatNumber(Math.round(n))}
                   label={t("workflowDetailPanel.input")}
                 />
                 <AnimatedStatSquare
-                  icon={<ArrowUpFromLine className="h-4 w-4 shrink-0" />}
+                  icon={<ArrowUpFromLine />}
                   target={entry.outputTokens}
                   format={(n) => formatNumber(Math.round(n))}
                   label={t("workflowDetailPanel.output")}
                 />
                 <AnimatedStatSquare
-                  icon={<Users className="h-4 w-4 shrink-0" />}
+                  icon={<Users />}
                   target={agentCount}
                   format={(n) => formatNumber(Math.round(n))}
                   label={t("workflowDetailPanel.agents")}

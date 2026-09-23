@@ -200,8 +200,9 @@ function StatCards({ usage }: { usage: ScheduleRowUsage }) {
     return (
       <div className="grid grid-cols-2 gap-3 pt-2">
         {Array.from({ length: 2 }, (_, i) => (
-          // 64px is a `StatSquare`: its 40px icon chip inside 12px of padding.
-          <Skeleton key={i} className="h-16 rounded-xl" />
+          // 60px is a `StatSquare`: a 20px value line and a 12px label,
+          // 4px apart, inside 12px of padding.
+          <Skeleton key={i} className="h-15 rounded-xl" />
         ))}
       </div>
     );
@@ -212,14 +213,14 @@ function StatCards({ usage }: { usage: ScheduleRowUsage }) {
   return (
     <div className="grid grid-cols-2 gap-3 pt-2">
       <StatSquare
-        icon={<Coins className="h-4 w-4" />}
+        icon={<Coins />}
         value={formatScheduleCost(usage.summary.totalEstimatedCostUsd)}
         label={t("scheduleDetail.costLabel", {
           days: SCHEDULE_USAGE_WINDOW_DAYS,
         })}
       />
       <StatSquare
-        icon={<Repeat className="h-4 w-4" />}
+        icon={<Repeat />}
         value={formatScheduleRunCount(usage.summary.runCount)}
         label={t("scheduleDetail.runsLabel", {
           days: SCHEDULE_USAGE_WINDOW_DAYS,

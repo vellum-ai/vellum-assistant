@@ -55,19 +55,19 @@ export const Tones: Story = {
   render: () => (
     <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
       <StatSquare
-        icon={<Zap className="h-5 w-5" />}
+        icon={<Zap />}
         value="42 ms"
         label="Median latency"
         tone="default"
       />
       <StatSquare
-        icon={<TrendingDown className="h-5 w-5" />}
+        icon={<TrendingDown />}
         value="-12%"
         label="Error rate change"
         tone="negative"
       />
       <StatSquare
-        icon={<Clock className="h-5 w-5" />}
+        icon={<Clock />}
         value="—"
         label="Last sync (never)"
         tone="muted"
@@ -80,16 +80,8 @@ export const Tones: Story = {
 export const Row: Story = {
   render: () => (
     <div style={{ display: "flex", gap: "0.75rem" }}>
-      <StatSquare
-        icon={<MessageSquare className="h-5 w-5" />}
-        value="1,284"
-        label="Messages"
-      />
-      <StatSquare
-        icon={<Zap className="h-5 w-5" />}
-        value="42 ms"
-        label="Latency"
-      />
+      <StatSquare icon={<MessageSquare />} value="1,284" label="Messages" />
+      <StatSquare icon={<Zap />} value="42 ms" label="Latency" />
     </div>
   ),
 };

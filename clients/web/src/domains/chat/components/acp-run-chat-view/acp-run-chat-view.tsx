@@ -284,13 +284,13 @@ export function AcpRunChatView({
                 {showsUsage && (
                   <>
                     <AnimatedStatSquare
-                      icon={<ArrowDownToLine className="h-4 w-4 shrink-0" />}
+                      icon={<ArrowDownToLine />}
                       target={entry.inputTokens ?? 0}
                       format={(n) => formatNumber(Math.round(n))}
                       label={t("acpRunChatView.inputLabel")}
                     />
                     <AnimatedStatSquare
-                      icon={<ArrowUpFromLine className="h-4 w-4 shrink-0" />}
+                      icon={<ArrowUpFromLine />}
                       target={entry.outputTokens ?? 0}
                       format={(n) => formatNumber(Math.round(n))}
                       label={t("acpRunChatView.outputLabel")}

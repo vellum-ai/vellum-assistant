@@ -58,13 +58,13 @@ export function WorkflowLeafDetail({ leaf }: { leaf: WorkflowLeaf }) {
     <div className="flex flex-col gap-5">
       <div className="grid grid-cols-2 gap-3">
         <AnimatedStatSquare
-          icon={<ArrowDownToLine className="h-4 w-4 shrink-0" />}
+          icon={<ArrowDownToLine />}
           target={leaf.inputTokens ?? 0}
           format={(n) => formatNumber(Math.round(n))}
           label={t("workflowLeafDetail.input")}
         />
         <AnimatedStatSquare
-          icon={<ArrowUpFromLine className="h-4 w-4 shrink-0" />}
+          icon={<ArrowUpFromLine />}
           target={leaf.outputTokens ?? 0}
           format={(n) => formatNumber(Math.round(n))}
           label={t("workflowLeafDetail.output")}

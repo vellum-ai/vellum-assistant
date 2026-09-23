@@ -1,6 +1,7 @@
 import { type ComponentProps, type ReactNode } from "react";
 
 import { cn } from "../utils/cn";
+import { Typography } from "./typography";
 
 export type StatSquareTone = "default" | "negative" | "muted";
 
@@ -37,33 +38,35 @@ export function StatSquare({
       )}
     >
       {icon ? (
+        // The chip sizes and colours its own glyph, so a caller passes a bare
+        // icon. 32px with a 14px glyph is `Button`'s regular icon box.
         <span
           aria-hidden
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[var(--surface-lift)] text-[var(--content-emphasised)]"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--surface-lift)] text-[var(--content-emphasised)] [&_svg]:size-3.5"
         >
           {icon}
         </span>
       ) : null}
       <div className="flex min-w-0 flex-col">
-        <span
-          className={cn(
-            // A tile is a fixed cell, so a value too long for it is cut rather
-            // than allowed to wrap the tile taller or spill past its edge. Pass
-            // `title` when a value can run long: the cut is then recoverable.
-            //
-            // The step's own `line-height: 1` leaves no room under the
-            // baseline, so cutting it would clip the tails of g, y and p.
-            // Rebinding the step's leading is what the style guide asks for
-            // here, rather than padding the box back out from under a crop.
-            "block truncate text-title-small [--text-title-small-line-height:20px]",
-            VALUE_TONE_CLASSES[tone],
-          )}
+        {/* A value can outrun the tile (a model id), so it is cut rather than
+            left to spill, and a caller whose value can run long passes
+            `title`. `body-large-default` is the 16/500 step with leading: the
+            cut needs a line box its descenders fit inside. */}
+        <Typography
+          variant="body-large-default"
+          className={cn("block truncate", VALUE_TONE_CLASSES[tone])}
         >
           {value}
-        </span>
-        <span className="mt-1 truncate text-body-small-default text-[var(--content-tertiary)]">
+        </Typography>
+        {/* A label, on the label step: one line, never cut. Cutting a
+            `line-height: 1` step clips its descenders, and a label is short
+            copy the tile is laid out to fit. */}
+        <Typography
+          variant="body-small-default"
+          className="mt-1 whitespace-nowrap text-[var(--content-tertiary)]"
+        >
           {label}
-        </span>
+        </Typography>
       </div>
     </div>
   );
