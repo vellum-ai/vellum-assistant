@@ -41,6 +41,7 @@ interface SchemaEntry {
   policy: {
     requiredScopes: string[];
     allowedPrincipalTypes: string[];
+    allowedTrustClasses: string[];
   } | null;
 }
 
@@ -130,6 +131,7 @@ describe("routeDefinitionsToIpcMethods — schema shape", () => {
         .object({
           requiredScopes: z.array(z.string()),
           allowedPrincipalTypes: z.array(z.string()),
+          allowedTrustClasses: z.array(z.string()),
         })
         .nullable(),
     });
@@ -240,5 +242,43 @@ describe("routeDefinitionsToIpcMethods — policy serialization", () => {
     const schema = await getSchema(routes);
     expect(schema[0].policy?.requiredScopes).toEqual(["settings.write"]);
     expect(schema[1].policy?.requiredScopes).toEqual(["settings.write"]);
+  });
+
+  test("a policy declaring no trust classes ships guardian only", async () => {
+    // The gateway is the sole policy check on the IPC path, so the
+    // effective value must cross the wire rather than be re-derived
+    // there from an absent field.
+    const routes: RouteDefinition[] = [
+      defineRoute({
+        operationId: "settings_read",
+        endpoint: "settings",
+        policy: {
+          requiredScopes: ["settings.read"],
+          allowedPrincipalTypes: ["actor"],
+        },
+      }),
+    ];
+    const schema = await getSchema(routes);
+    expect(schema[0].policy?.allowedTrustClasses).toEqual(["guardian"]);
+  });
+
+  test("declared trust classes ship verbatim", async () => {
+    const routes: RouteDefinition[] = [
+      defineRoute({
+        operationId: "chat_send",
+        endpoint: "chat",
+        method: "POST",
+        policy: {
+          requiredScopes: ["chat.write"],
+          allowedPrincipalTypes: ["actor"],
+          allowedTrustClasses: ["guardian", "trusted_contact"],
+        },
+      }),
+    ];
+    const schema = await getSchema(routes);
+    expect(schema[0].policy?.allowedTrustClasses).toEqual([
+      "guardian",
+      "trusted_contact",
+    ]);
   });
 });
