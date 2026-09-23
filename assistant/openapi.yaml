@@ -9013,6 +9013,142 @@ paths:
                 required:
                   - ok
                 additionalProperties: false
+  /v1/conversations/{id}/participants:
+    get:
+      operationId: conversations_by_id_participants_get
+      summary: List conversation participants
+      description: List the principals a conversation is currently shared with, earliest added first.
+      tags:
+        - conversations
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  participants:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        principalId:
+                          type: string
+                        role:
+                          type: string
+                          enum:
+                            - creator
+                            - participant
+                        addedBy:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        addedAt:
+                          type: number
+                      required:
+                        - principalId
+                        - role
+                        - addedBy
+                        - addedAt
+                      additionalProperties: false
+                required:
+                  - participants
+                additionalProperties: false
+        "404":
+          description: Conversation not found
+    post:
+      operationId: conversations_by_id_participants_post
+      summary: Share a conversation with a contact
+      description:
+        Add a principal holding an active shared-conversation contact to a conversation. Adding a principal who is
+        already a participant leaves their entry unchanged.
+      tags:
+        - conversations
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                principalId:
+                  type: string
+                  minLength: 1
+              required:
+                - principalId
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  participant:
+                    type: object
+                    properties:
+                      principalId:
+                        type: string
+                      role:
+                        type: string
+                        enum:
+                          - creator
+                          - participant
+                      addedBy:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      addedAt:
+                        type: number
+                    required:
+                      - principalId
+                      - role
+                      - addedBy
+                      - addedAt
+                    additionalProperties: false
+                required:
+                  - participant
+                additionalProperties: false
+        "404":
+          description: Conversation not found
+        "422":
+          description: Principal is not an active contact
+  /v1/conversations/{id}/participants/{principalId}:
+    delete:
+      operationId: conversations_by_id_participants_by_principalId_delete
+      summary: Stop sharing a conversation with a participant
+      description: Remove a principal from a conversation. The record of their participation is kept.
+      tags:
+        - conversations
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: principalId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Successful response
+        "404":
+          description: Conversation or participant not found
   /v1/conversations/{id}/playground/compact:
     post:
       operationId: conversations_by_id_playground_compact_post

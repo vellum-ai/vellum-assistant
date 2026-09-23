@@ -52,6 +52,7 @@ import { ROUTES as CONVERSATION_CLI_ROUTES } from "./conversation-cli-routes.js"
 import { ROUTES as CONVERSATION_COMPACTION_ROUTES } from "./conversation-compaction-routes.js";
 import { ROUTES as CONVERSATION_LIST_ROUTES } from "./conversation-list-routes.js";
 import { ROUTES as CONVERSATION_MANAGEMENT_ROUTES } from "./conversation-management-routes.js";
+import { ROUTES as CONVERSATION_PARTICIPANT_ROUTES } from "./conversation-participant-routes.js";
 import { ROUTES as CONVERSATION_QUERY_ROUTES } from "./conversation-query-routes.js";
 import { ROUTES as CONVERSATION_MESSAGE_ROUTES } from "./conversation-routes.js";
 import { ROUTES as CONVERSATION_STARTER_ROUTES } from "./conversation-starter-routes.js";
@@ -206,6 +207,7 @@ export const ROUTES: RouteDefinition[] = [
   ...CONVERSATION_CLI_ROUTES,
   ...CONVERSATION_LIST_ROUTES,
   ...CONVERSATION_MANAGEMENT_ROUTES,
+  ...CONVERSATION_PARTICIPANT_ROUTES,
   ...CONVERSATIONS_IMPORT_ROUTES,
   ...CONVERSATION_MESSAGE_ROUTES,
   ...CONSOLIDATION_ROUTES,
