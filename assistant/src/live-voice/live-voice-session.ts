@@ -914,6 +914,9 @@ function describeInterruptedRequest(request: string): string {
 
 // A bounded wait to resume the caller request from a fresh view.
 interface PendingLook extends LookFollowUp {
+  // The reply that asked for the look. Talking over its acknowledgement
+  // withdraws the look, even when the frame was already asked for.
+  askedBy: ActiveAssistantTurn;
   armedAtMs: number;
   timer: ReturnType<typeof setTimeout>;
   frameLanded: boolean;
@@ -4610,6 +4613,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.pendingLook = {
       action,
       callerUtterance: this.foregroundTaskRequestForTurn(turn),
+      askedBy: turn,
       armedAtMs: Date.now(),
       timer,
       frameLanded: false,
@@ -4677,9 +4681,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     const { action, callerUtterance, armedAtMs } = look;
     // A turn launched since the frame landed read it already. Speech that
     // never became a turn (a cough, noise that transcribed to nothing) is only
-    // waited out.
-    const blockedBy =
-      this.turnsLaunched > turnsAtFrame
+    // waited out. An acknowledgement the user talked over withdraws the look:
+    // they carried on instead, so the answer would reply to nothing.
+    const blockedBy = look.askedBy.abortController.signal.aborted
+      ? "look_turn_cancelled"
+      : this.turnsLaunched > turnsAtFrame
         ? "turn_since_look"
         : this.sessionTurnFloorBlocker();
     if (blockedBy === null) {
@@ -4697,7 +4703,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       return;
     }
     const waitable =
-      blockedBy !== "turn_since_look" && blockedBy !== "session_unavailable";
+      blockedBy !== "turn_since_look" &&
+      blockedBy !== "look_turn_cancelled" &&
+      blockedBy !== "session_unavailable";
     if (!waitable || Date.now() - armedAtMs >= LOOK_ANSWER_DEADLINE_MS) {
       this.clearPendingLook();
       log.info(
@@ -6531,6 +6539,17 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           );
         } else if (request?.action === "task_stop") {
           this.stopOutstandingInterruptedWork("spoken_task_stop");
+        } else if (
+          request !== null &&
+          this.refreshesRunningShare(request, current)
+        ) {
+          // The screen is already shared, so the look only asks for a fresh
+          // frame of it: nothing starts on screen and nothing asks the user
+          // anything. Asking now lets the capture and its upload overlap the
+          // acknowledgement instead of queueing behind it. The turn that
+          // answers the look still waits for the acknowledgement to be heard
+          // (see answerLookWhenFloorIsFree).
+          void this.deliverSessionControl(current, request);
         } else {
           if (request?.action === "end") {
             this.clearForegroundTask("call_end_requested");
@@ -7171,38 +7190,19 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         // below: after the acknowledgement has been spoken, never for a
         // barged-in turn (talking over "okay, bye" means they are not
         // leaving), at most once per turn. Ending the call makes revealing
-        // the screen moot, so an end takes the minimize's place.
+        // the screen moot, so an end takes the minimize's place. A look that
+        // only refreshes a running share went out when the reply completed
+        // instead (see refreshesRunningShare), so it is not latched here.
         const sessionControl = currentTurn.sessionControlRequested;
         currentTurn.sessionControlRequested = null;
         if (
           sessionControl !== null &&
           !currentTurn.abortController.signal.aborted
         ) {
-          log.info(
-            { turnId: currentTurn.turnId, action: sessionControl.action },
-            "Live voice reply requested a session control",
-          );
           if (sessionControl.action === "end") {
             currentTurn.minimizeRequested = false;
           }
-          // Armed before the send, so a client quick enough to answer with
-          // its frame before this await resolves still finds the look waiting.
-          // Never from the turn that answers a look: that turn is the answer,
-          // and a marker it emits anyway must not chain another.
-          if (
-            isLookSessionControl(sessionControl.action) &&
-            currentTurn.lookFollowUp === null
-          ) {
-            this.awaitLookFrame(sessionControl.action, currentTurn);
-          }
-          await this.sendFrame(
-            {
-              type: "session_control",
-              turnId: currentTurn.turnId,
-              ...sessionControl,
-            },
-            () => !this.isClosed,
-          );
+          await this.deliverSessionControl(currentTurn, sessionControl);
         }
 
         // Drain-scoped minimize: the latched marker is consumed here, after
@@ -7233,6 +7233,60 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       .finally(() => {
         this.releaseModeSessionDelivery(activeTurn);
       });
+  }
+
+  /**
+   * Whether a reply's control only refreshes a screen share that is already
+   * running, and so can go to the client while the acknowledgement is still
+   * being spoken rather than after it drains.
+   *
+   * Only a look at the screen, only for a client that answers looks with a
+   * fresh frame, and only while a share is up. A look that starts a share
+   * still waits for the drain: the share picker or permission prompt it can
+   * raise must not cut in over the assistant. The turn that answers a look
+   * keeps the drain too, since its marker must not chain another look.
+   */
+  private refreshesRunningShare(
+    control: ClientSessionControlRequest,
+    turn: ActiveAssistantTurn,
+  ): boolean {
+    return (
+      control.action === "look_screen" &&
+      this.lookFrames &&
+      this.screenSharing &&
+      turn.lookFollowUp === null &&
+      !turn.abortController.signal.aborted &&
+      !this.isClosed
+    );
+  }
+
+  private async deliverSessionControl(
+    turn: ActiveAssistantTurn,
+    control: ClientSessionControlRequest,
+  ): Promise<void> {
+    log.info(
+      {
+        turnId: turn.turnId,
+        action: control.action,
+        beforeDrain: !turn.ttsDone,
+      },
+      "Live voice reply requested a session control",
+    );
+    // Armed before the send, so a client quick enough to answer with its
+    // frame before this await resolves still finds the look waiting. Never
+    // from the turn that answers a look: that turn is the answer, and a
+    // marker it emits anyway must not chain another.
+    if (isLookSessionControl(control.action) && turn.lookFollowUp === null) {
+      this.awaitLookFrame(control.action, turn);
+    }
+    await this.sendFrame(
+      {
+        type: "session_control",
+        turnId: turn.turnId,
+        ...control,
+      },
+      () => !this.isClosed,
+    );
   }
 
   private flushTtsBuffer(token: symbol, force: boolean): void {
