@@ -20,7 +20,9 @@ spyOn(Capacitor, "getPlatform").mockImplementation(() =>
 const startSpy = mock(async () => {});
 const stopSpy = mock(async () => {});
 const captureSpy = mock(async () => ({ value: "jpeg-base64" }));
-const captureSampleSpy = mock(async () => ({ value: "sample-base64" }));
+const captureSampleSpy = mock(
+  async (): Promise<Record<string, unknown>> => ({ value: "sample-base64" }),
+);
 const flipSpy = mock(async () => {});
 
 mock.module("@capacitor-community/camera-preview", () => ({
@@ -192,6 +194,160 @@ describe("native voice camera", () => {
       throw new Error("camera stopping");
     });
     expect(await captureNativeVoiceCameraSample(60)).toBe(null);
+    debugSpy.mockRestore();
+  });
+
+  test("requests a native sample pair and preserves its capture times", async () => {
+    nativeMobile = true;
+    const pair = {
+      value: "second-sample-base64",
+      primer: "first-sample-base64",
+      firstCapturedAfterMs: 12,
+      secondCapturedAfterMs: 78,
+    };
+    captureSampleSpy.mockResolvedValue(pair);
+
+    expect(await captureNativeVoiceCameraSample(60, 60)).toEqual(pair);
+    expect(captureSampleSpy).toHaveBeenCalledWith({
+      quality: 60,
+      pairSpacingMs: 60,
+    });
+  });
+
+  test("accepts a legacy sample from a shell that ignores pair spacing", async () => {
+    nativeMobile = true;
+
+    expect(await captureNativeVoiceCameraSample(60, 60)).toBe("sample-base64");
+    expect(captureSampleSpy).toHaveBeenCalledWith({
+      quality: 60,
+      pairSpacingMs: 60,
+    });
+  });
+
+  test.each([
+    [
+      "missing primer",
+      {
+        firstCapturedAfterMs: 10,
+        secondCapturedAfterMs: 70,
+      },
+    ],
+    [
+      "empty primer",
+      {
+        primer: "",
+        firstCapturedAfterMs: 10,
+        secondCapturedAfterMs: 70,
+      },
+    ],
+    [
+      "missing first capture time",
+      {
+        primer: "first",
+        secondCapturedAfterMs: 70,
+      },
+    ],
+    [
+      "missing second capture time",
+      {
+        primer: "first",
+        firstCapturedAfterMs: 10,
+      },
+    ],
+    [
+      "non-numeric first capture time",
+      {
+        primer: "first",
+        firstCapturedAfterMs: "10",
+        secondCapturedAfterMs: 70,
+      },
+    ],
+    [
+      "non-numeric second capture time",
+      {
+        primer: "first",
+        firstCapturedAfterMs: 10,
+        secondCapturedAfterMs: "70",
+      },
+    ],
+    [
+      "NaN first capture time",
+      {
+        primer: "first",
+        firstCapturedAfterMs: Number.NaN,
+        secondCapturedAfterMs: 70,
+      },
+    ],
+    [
+      "NaN second capture time",
+      {
+        primer: "first",
+        firstCapturedAfterMs: 10,
+        secondCapturedAfterMs: Number.NaN,
+      },
+    ],
+    [
+      "infinite first capture time",
+      {
+        primer: "first",
+        firstCapturedAfterMs: Number.POSITIVE_INFINITY,
+        secondCapturedAfterMs: 70,
+      },
+    ],
+    [
+      "infinite second capture time",
+      {
+        primer: "first",
+        firstCapturedAfterMs: 10,
+        secondCapturedAfterMs: Number.POSITIVE_INFINITY,
+      },
+    ],
+    [
+      "negative first capture time",
+      {
+        primer: "first",
+        firstCapturedAfterMs: -1,
+        secondCapturedAfterMs: 70,
+      },
+    ],
+    [
+      "negative second capture time",
+      {
+        primer: "first",
+        firstCapturedAfterMs: 0,
+        secondCapturedAfterMs: -1,
+      },
+    ],
+    [
+      "reversed capture times",
+      {
+        primer: "first",
+        firstCapturedAfterMs: 70,
+        secondCapturedAfterMs: 10,
+      },
+    ],
+    [
+      "equal capture times",
+      {
+        primer: "first",
+        firstCapturedAfterMs: 10,
+        secondCapturedAfterMs: 10,
+      },
+    ],
+  ])("rejects a sample pair with %s", async (_reason, fields) => {
+    nativeMobile = true;
+    captureSampleSpy.mockResolvedValue({ value: "second", ...fields });
+
+    expect(await captureNativeVoiceCameraSample(60, 60)).toBeNull();
+  });
+
+  test("answers null when the native pair request fails", async () => {
+    nativeMobile = true;
+    const debugSpy = spyOn(console, "debug").mockImplementation(() => {});
+    captureSampleSpy.mockRejectedValue(new Error("camera stopping"));
+
+    expect(await captureNativeVoiceCameraSample(60, 60)).toBeNull();
+    expect(captureSampleSpy).toHaveBeenCalledTimes(1);
     debugSpy.mockRestore();
   });
 

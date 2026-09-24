@@ -111,6 +111,7 @@ import {
 import { createFrameSampler } from "@/lib/camera/frame-sampler";
 import {
   createNativeFrameSource,
+  NATIVE_PAIR_SPACING_MS,
   type NativeFrameSource,
 } from "@/lib/camera/native-frame-source";
 import { recordLifecycleDiagnostic } from "@/lib/diagnostics";
@@ -586,7 +587,10 @@ export function useVoiceRoomSight(
           currentRunRef.current !== null &&
           !useLiveVoiceStore.getState().reconnecting,
         captureSample: () =>
-          captureNativeVoiceCameraSample(NATIVE_CAPTURE_QUALITY),
+          captureNativeVoiceCameraSample(
+            NATIVE_CAPTURE_QUALITY,
+            NATIVE_PAIR_SPACING_MS,
+          ),
         onDecision: (decision, nowMs, sample) => {
           recordFrameGateDecision("voice", decision, nowMs);
           const run = currentRunRef.current;

@@ -228,9 +228,9 @@ scrim.
       transcript; move to a new subject and another follows. Nothing ever
       pulsing is the slow-bridge case in the section below, not a hang.
 
-### Live on iPhone
+### Live on native mobile
 
-Live runs behind either viewfinder. In mobile Safari it samples the room's own
+Live runs behind either viewfinder. In mobile browsers it samples the room's own
 `<video>`; in the installed app, where the Capacitor plugin draws its preview
 behind the web view and there is no element to read, it polls the plugin for a
 sample instead. Run this section in both: they are two different samplers
@@ -240,8 +240,23 @@ The native path takes a PAIR of samples about 60ms apart on every poll. The
 first is only a motion baseline and is never kept; the second is the one judged
 and, on a keep, the exact frame uploaded. That is what lets the gate tell a
 steady camera from a moving one, which on a handheld phone is also the blur
-check. It costs two bridge round trips a second for as long as the hold lasts,
-which is the thing to watch for battery and heat below.
+check. Android shells with paired capture collect both preview buffers before
+encoding and return their native timing in one bridge call. iOS and older Android
+shells take two bridge round trips and bound the gap from request/answer times.
+
+- [ ] **Android native pair timing.** Install the APK with paired capture and
+      load the matching web UI. Hold a detailed subject steady in Live, then pan
+      and settle on a different subject. Feedback should show `decisions` and
+      `keeps` increasing, with pair gaps at or below 120 ms even when capture
+      duration is several hundred milliseconds. `captureRequests` counts bridge
+      calls, so paired capture normally has one request per attempt. Genuinely
+      distant pairs must still increment `pairGapRejections`.
+- [ ] **Native lifecycle and compatibility.** During Live, flip the camera,
+      background and resume the app, and close/reopen the camera. Frames from
+      the retired camera must not appear afterward. Ask a question while a pair
+      is being encoded and verify that a fresh pair answers it. A normal shutter
+      photo must still work. Repeat on iOS and an older Android shell to verify
+      the single-sample bridge contract still works.
 
 - [ ] **Slow-bridge signature, if Live keeps nothing.** A pair whose two
       captures land further apart than the gate's motion window is discarded
@@ -252,9 +267,9 @@ which is the thing to watch for battery and heat below.
       readout whose decision count sits still while the camera is plainly open.
       That is the expected refusal, not a hang. Each discarded pair logs
       `[native-frame-source] pair outside the motion window, skipped:` with the
-      gap it measured and the limit; capture that number in the report, since it
-      is what decides whether the pairing needs retuning or the poll needs a
-      native sampler.
+      gap it measured and the limit; capture that number and the installed APK
+      version in the report. On paired Android capture this gap measures native
+      preview delivery, independent of JPEG encoding and bridge latency.
 - [ ] **Sampling diagnostics in feedback.** Reproduce with Live enabled for at
       least 30 seconds, close the camera, and export feedback in the same app
       session. `web-chat-diagnostics.json` includes `native_camera_sampling`

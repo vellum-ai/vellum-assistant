@@ -37,6 +37,10 @@ import {
   type FrameGrid,
 } from "./frame-gate";
 import type { FrameSource } from "./frame-sampler";
+import type {
+  NativeFrameCapture,
+  NativeFramePair,
+} from "./native-frame-capture";
 import {
   createNativeFrameSource,
   NATIVE_CAPTURE_SLOT_RELEASE_MS,
@@ -200,10 +204,10 @@ async function pollTimes(count: number): Promise<void> {
 
 interface CaptureStub {
   /** What the source is constructed with. */
-  readonly captureSample: () => Promise<string | null>;
+  readonly captureSample: () => Promise<NativeFrameCapture | null>;
   callCount(): number;
-  /** Base64 the next capture resolves with. */
-  setSample(base64: string): void;
+  /** Sample the next capture resolves with. */
+  setSample(sample: NativeFrameCapture): void;
   /** Hold the next capture open until {@link CaptureStub.releaseHeld}. */
   holdNext(): void;
   releaseHeld(): void;
@@ -240,8 +244,8 @@ function createCaptureStub(): CaptureStub {
   let calls = 0;
   let inFlight = 0;
   let maxConcurrent = 0;
-  let sample = btoa("jpeg-bytes");
-  let held: ((value: string | null) => void) | null = null;
+  let sample: NativeFrameCapture = btoa("jpeg-bytes");
+  let held: ((value: NativeFrameCapture | null) => void) | null = null;
   let holdNext = false;
   let rejectNext = false;
   let emptyNext = false;
@@ -249,7 +253,9 @@ function createCaptureStub(): CaptureStub {
   let latencyOnce: number | null = null;
 
   /** Count this call as outstanding until its promise settles. */
-  function tracked(promise: Promise<string | null>): Promise<string | null> {
+  function tracked(
+    promise: Promise<NativeFrameCapture | null>,
+  ): Promise<NativeFrameCapture | null> {
     inFlight += 1;
     maxConcurrent = Math.max(maxConcurrent, inFlight);
     return promise.then(
@@ -278,7 +284,7 @@ function createCaptureStub(): CaptureStub {
       if (holdNext) {
         holdNext = false;
         return tracked(
-          new Promise<string | null>((resolve) => {
+          new Promise<NativeFrameCapture | null>((resolve) => {
             held = resolve;
           }),
         );
@@ -287,7 +293,7 @@ function createCaptureStub(): CaptureStub {
       latencyOnce = null;
       if (takes > 0) {
         return tracked(
-          new Promise<string | null>((resolve) => {
+          new Promise<NativeFrameCapture | null>((resolve) => {
             setTimeout(() => resolve(sample), takes);
           }),
         );
@@ -659,6 +665,233 @@ afterEach(async () => {
   captureStubs = [];
   jest.useRealTimers();
   HTMLCanvasElement.prototype.getContext = realGetContext;
+});
+
+describe("native frame source native pairs", () => {
+  const nativePair: NativeFramePair = {
+    primer: btoa("first-preview-jpeg"),
+    value: btoa("second-preview-jpeg"),
+    firstCapturedAfterMs: 10,
+    secondCapturedAfterMs: 70,
+  };
+
+  function setup(pair: NativeFramePair = nativePair) {
+    const { gate, offers, observed } = createRecordingGate();
+    const capture = createCaptureStub();
+    capture.setSample(pair);
+    capture.setLatency(700);
+    const decode = createDecodeStub();
+    const reports: NativeFrameDiagnostics[] = [];
+    const decisions: FrameGateDecision[] = [];
+    const samples: Blob[] = [];
+    const options: NativeFrameSourceOptions = {
+      gate,
+      captureSample: capture.captureSample,
+      decode: decode.decode,
+      intervalMs: 5000,
+      onDecision: (decision, _nowMs, sample) => {
+        decisions.push(decision);
+        samples.push(sample);
+      },
+      onDiagnostics: (report) => reports.push(report),
+      now: () => clock,
+    };
+    return {
+      capture,
+      decode,
+      offers,
+      observed,
+      reports,
+      decisions,
+      samples,
+      options,
+    };
+  }
+
+  test("uses native capture timing despite a slow bridge and returns the exact judged JPEG", async () => {
+    const { capture, decode, offers, observed, reports, samples, options } =
+      setup();
+    const source = createNativeFrameSource(options);
+    source.start();
+    await advance(300);
+    source.sampleNow();
+    await settle();
+    await advance(700);
+    source.stop();
+
+    expect(capture.callCount()).toBe(1);
+    expect(observed).toHaveLength(1);
+    expect(offers).toHaveLength(1);
+    expect(observed[0]?.nowMs).toBe(310);
+    expect(offers[0]?.nowMs).toBe(370);
+    expect(decode.decodeCount()).toBe(2);
+    expect(decode.releaseCount()).toBe(2);
+    expect(samples).toHaveLength(1);
+    expect(samples[0]?.type).toBe("image/jpeg");
+    expect(await samples[0]?.text()).toBe("second-preview-jpeg");
+    expect(reports.at(-1)).toMatchObject({
+      attempts: 1,
+      captureRequests: 1,
+      lastCaptureMs: 700,
+      lastPairGapMs: 60,
+      pairGapRejections: 0,
+      decisions: 1,
+      keeps: 1,
+    });
+  });
+
+  test.each([
+    ["negative first timestamp", { firstCapturedAfterMs: -1 }],
+    ["non-finite first timestamp", { firstCapturedAfterMs: NaN }],
+    ["non-finite second timestamp", { secondCapturedAfterMs: Infinity }],
+    ["equal timestamps", { secondCapturedAfterMs: 10 }],
+    ["reversed timestamps", { secondCapturedAfterMs: 9 }],
+    ["timestamp after bridge response", { secondCapturedAfterMs: 701 }],
+    ["missing primer JPEG", { primer: "" }],
+    ["missing judged JPEG", { value: "" }],
+  ] satisfies [string, Partial<NativeFramePair>][])(
+    "discards a native pair with %s",
+    async (_description, invalidFields) => {
+      const { capture, offers, observed, samples, options } = setup({
+        ...nativePair,
+        ...invalidFields,
+      });
+      const source = createNativeFrameSource(options);
+      source.start();
+      source.sampleNow();
+      await settle();
+      await advance(700);
+      source.stop();
+
+      expect(capture.callCount()).toBe(1);
+      expect(observed).toHaveLength(0);
+      expect(offers).toHaveLength(0);
+      expect(samples).toHaveLength(0);
+    },
+  );
+
+  test("rejects a native pair whose actual capture spacing exceeds the motion window", async () => {
+    const { offers, samples, reports, options } = setup({
+      ...nativePair,
+      secondCapturedAfterMs:
+        nativePair.firstCapturedAfterMs + NATIVE_PAIR_MAX_GAP_MS + 1,
+    });
+    const source = createNativeFrameSource(options);
+    source.start();
+    source.sampleNow();
+    await settle();
+    await advance(700);
+    source.stop();
+
+    expect(offers).toHaveLength(0);
+    expect(samples).toHaveLength(0);
+    expect(reports.at(-1)).toMatchObject({
+      captureRequests: 1,
+      pairGapRejections: 1,
+      lastPairGapMs: NATIVE_PAIR_MAX_GAP_MS + 1,
+      decisions: 0,
+      keeps: 0,
+    });
+  });
+
+  test("preserves the motion check for native pairs and keeps a settled follow-up", async () => {
+    const { decisions, options } = setup();
+    const stationary = grayReadback((cell) => cell);
+    const panned = grayReadback((cell) => 255 - cell);
+    const frames = [stationary, panned, panned, panned];
+    stubCanvasContexts(() => frames.shift() ?? panned);
+    const source = createNativeFrameSource({
+      ...options,
+      gate: createFrameGate({
+        ...DEFAULT_FRAME_GATE_OPTIONS,
+        warmupMs: 0,
+        settleDwellMs: 0,
+      }),
+    });
+    source.start();
+    source.sampleNow();
+    await settle();
+    await advance(700);
+
+    expect(decisions).toHaveLength(1);
+    expect(decisions[0]?.motion).not.toBeNull();
+    expect(decisions[0]).toMatchObject({ keep: false, reason: "moving" });
+
+    source.sampleNow();
+    await settle();
+    await advance(700);
+    source.stop();
+    expect(decisions).toHaveLength(2);
+    expect(decisions[1]).toMatchObject({ keep: true, motion: 0 });
+  });
+
+  test.each(["stop", "invalidate", "reconnect"] as const)(
+    "discards an outstanding native pair across %s",
+    async (boundary) => {
+      const { capture, decode, offers, observed, options } = setup();
+      let available = true;
+      const source = createNativeFrameSource({
+        ...options,
+        canCapture: () => available,
+      });
+      source.start();
+      source.sampleNow();
+      await settle();
+      await advance(100);
+      if (boundary === "reconnect") {
+        available = false;
+      } else {
+        source[boundary]();
+      }
+      await advance(600);
+
+      expect(capture.callCount()).toBe(1);
+      expect(decode.decodeCount()).toBe(0);
+      expect(observed).toHaveLength(0);
+      expect(offers).toHaveLength(0);
+
+      available = true;
+      if (boundary === "stop") {
+        source.start();
+      }
+      source.sampleNow();
+      await settle();
+      await advance(700);
+      source.stop();
+      expect(capture.callCount()).toBe(2);
+      expect(offers).toHaveLength(1);
+    },
+  );
+
+  test("a native pair requested before the forced arm leaves it for the fresh follow-up", async () => {
+    const { capture, decisions, options } = setup();
+    const gate = createFrameGate({
+      ...DEFAULT_FRAME_GATE_OPTIONS,
+      warmupMs: 0,
+      settleDwellMs: 0,
+      forcedNoveltyThreshold: 0,
+    });
+    gate.reset(0);
+    const source = createNativeFrameSource({ ...options, gate });
+    source.start();
+    source.sampleNow();
+    await settle();
+    await advance(5);
+    gate.armForcedKeep(clock);
+    source.sampleNow();
+    await advance(695);
+
+    expect(decisions).toHaveLength(1);
+    expect(decisions[0]?.reason).toBe("first");
+    expect(capture.callCount()).toBe(2);
+    expect(capture.maxConcurrent()).toBe(1);
+
+    await advance(700);
+    source.stop();
+    expect(decisions).toHaveLength(2);
+    expect(decisions[1]?.reason).toBe("forced");
+    expect(capture.callCount()).toBe(2);
+  });
 });
 
 describe("native frame source cadence", () => {
@@ -2189,4 +2422,58 @@ describe("native frame source out-of-cycle sample", () => {
     expect(capture.callCount()).toBe(0);
     expect(offers).toHaveLength(0);
   });
+});
+
+describe("native frame source asynchronous failures", () => {
+  test.each(["fails", "is pending"] as const)(
+    "handles a rejected second capture when the primer decode %s",
+    async (primerState) => {
+      const debug = spyOn(console, "debug").mockImplementation(() => {});
+      const { gate, offers } = createRecordingGate();
+      const capture = createCaptureStub();
+      const decode = createDecodeStub();
+      const reports: NativeFrameDiagnostics[] = [];
+      let firstDecode = true;
+      if (primerState === "is pending") {
+        decode.holdNext();
+      }
+      const source = createNativeFrameSource({
+        gate,
+        captureSample: capture.captureSample,
+        onDecision: () => {},
+        onDiagnostics: (report) => reports.push(report),
+        decode: async (blob) => {
+          if (firstDecode) {
+            firstDecode = false;
+            if (primerState === "fails") {
+              throw new Error("primer decode failed");
+            }
+          }
+          return decode.decode(blob);
+        },
+        now: () => clock,
+      });
+
+      try {
+        source.start();
+        await startPair();
+        capture.rejectNext();
+        await finishPair();
+        decode.releaseHeld();
+        await settle();
+
+        expect(capture.callCount()).toBe(2);
+        expect(offers).toHaveLength(0);
+        expect(reports.at(-1)).toMatchObject({ sampleErrors: 1, decisions: 0 });
+
+        await pollTimes(1);
+        expect(capture.callCount()).toBe(4);
+        expect(offers).toHaveLength(1);
+      } finally {
+        decode.releaseHeld();
+        source.stop();
+        debug.mockRestore();
+      }
+    },
+  );
 });

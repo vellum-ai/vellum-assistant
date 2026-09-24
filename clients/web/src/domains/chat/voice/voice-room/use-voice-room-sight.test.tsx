@@ -49,6 +49,7 @@ const nativeStop = mock(() => {});
 const nativeInvalidate = mock(() => {});
 const nativeSampleNow = mock(() => {});
 mock.module("@/lib/camera/native-frame-source", () => ({
+  NATIVE_PAIR_SPACING_MS: 60,
   createNativeFrameSource: (options: NativeFrameSourceOptions) => {
     nativeSourceOptions = options;
     return {
@@ -1817,7 +1818,7 @@ describe("useVoiceRoomSight: the native preview", () => {
     return sample;
   }
 
-  test("asks the bridge for a sample at the shared capture quality", async () => {
+  test("asks the bridge for a native pair at the shared capture quality", async () => {
     renderSight({ nativePreview: true, live: true });
 
     await nativeSourceOptions!.captureSample();
@@ -1826,6 +1827,7 @@ describe("useVoiceRoomSight: the native preview", () => {
     // photo off the same camera are encoded alike.
     expect(captureNativeVoiceCameraSample).toHaveBeenCalledWith(
       NATIVE_CAPTURE_QUALITY,
+      60,
     );
   });
 
