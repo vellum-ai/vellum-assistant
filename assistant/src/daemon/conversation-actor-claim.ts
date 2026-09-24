@@ -7,14 +7,16 @@ import type { QueueDrainReason } from "./conversation-queue-manager.js";
 import type { TrustContext } from "./trust-context-types.js";
 
 /**
- * A claim still preparing its turn: taken, but with no agent loop and no abort
- * controller behind it yet. It covers everything a sender does before its turn
- * starts (the history reload, slash resolution, a canned reply's writes), and
- * ends in exactly two places: the persist that installs the turn's abort
- * controller ({@link endPreparingClaim}), and the release of the claim
+ * A claim still preparing its turn: taken, with no agent loop behind it yet.
+ * It covers everything a sender does before its turn starts (the history
+ * reload, slash resolution, a canned reply's writes, the user-row insert), and
+ * ends in exactly two places: the persist whose user row lands
+ * ({@link endPreparingClaim}), and the release of the claim
  * ({@link releasePreparingClaim}). `cancelled` is set by a Stop or steer that
- * lands in that window; the holder checks it with {@link isClaimLive} before
- * each write and gives the claim back instead of writing.
+ * lands while no abort controller is installed; the holder checks it with
+ * {@link isClaimLive} before each write and gives the claim back instead of
+ * writing. Once the persist installs its controller, a Stop signals that
+ * instead.
  */
 export interface PreparingClaim {
   readonly owner: number;
@@ -148,7 +150,7 @@ export function isClaimLive(
 
 /**
  * End the preparing window of `owner`'s claim, if it is still open, because
- * its turn has started.
+ * its turn's user row has landed.
  */
 export function endPreparingClaim(
   ctx: { preparingClaim?: PreparingClaim | null },

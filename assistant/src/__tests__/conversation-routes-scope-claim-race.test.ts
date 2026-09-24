@@ -387,6 +387,7 @@ describe("POST /v1/messages racing another sender to an idle conversation", () =
     async (outcome) => {
       const conversation = makeConversation();
       setConversation(CONV_ID, conversation as unknown as Conversation);
+      conversation.trustContext = RESTING_OWNER;
       const aliceReload = conversation.holdNextReload();
 
       const alice = send(conversation, "alice-principal", "from Alice").then(
@@ -418,6 +419,11 @@ describe("POST /v1/messages racing another sender to an idle conversation", () =
       expect(conversation.turns).toHaveLength(0);
       expect(conversation.isProcessing()).toBe(false);
       expect(conversation.drained).toEqual(["from Bob"]);
+      // A failed insert landed nothing, so the resting trust is put back; a
+      // duplicate is a row this sender already wrote, so it stays theirs.
+      expect(conversation.trustContext).toBe(
+        outcome === "throw" ? RESTING_OWNER : ALICE,
+      );
     },
   );
   test("a Stop during slash resolution queues the send and writes nothing", async () => {
@@ -492,5 +498,32 @@ describe("POST /v1/messages racing another sender to an idle conversation", () =
     expect(insertedRoles).toEqual(["user"]);
     expect(conversation.turns).toHaveLength(0);
     expect(conversation.isProcessing()).toBe(false);
+  });
+  test("a queued send persisting after a cancelled reload is scoped for the restored owner", async () => {
+    const conversation = makeConversation();
+    setConversation(CONV_ID, conversation as unknown as Conversation);
+    const restingContact: TrustContext = {
+      trustClass: "unknown",
+      sourceChannel: "vellum",
+    };
+    conversation.trustContext = restingContact;
+    const aliceReload = conversation.holdNextReload();
+
+    const alice = send(conversation, "alice-principal", "from Alice");
+    await aliceReload.entered;
+    conversation.stop();
+    aliceReload.release();
+    expect(await (await alice).json()).toMatchObject({ queued: true });
+    // Alice's reload finished before the cancel was seen, so the resident
+    // history is hers while the slot is back to the owner's.
+    expect(conversation.trustContext).toBe(restingContact);
+    expect(conversation.messages).toEqual(historyScopedFor(ALICE));
+
+    // The queue drain persists without a claim, which scopes first.
+    await conversation.persistUserMessage({
+      trustContext: BOB,
+      requestId: "queued-alice",
+    });
+    expect(conversation.messages).toEqual(historyScopedFor(restingContact));
   });
 });

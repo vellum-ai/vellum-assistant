@@ -73,16 +73,19 @@ its path's busy handling (the queue, or the channel's defer-until-idle) without
 writing either. The persist and the loop then run on the trust read under the
 claim, not on a later read of the slot.
 
-Until the turn's abort controller is installed, the claim has none behind it,
-so it is published as preparing (`conversation-actor-claim.ts`) from the
-acquire until the persist installs that controller or the claim is released.
-A Stop or a steer in that window cancels it instead of force-clearing the
-flag. The holder checks the claim before each write it makes ahead of the turn
+Until the persist installs the turn's abort controller, the claim has none
+behind it, so it is published as preparing (`conversation-actor-claim.ts`)
+from the acquire until the turn's user row lands or the claim is released. A
+Stop or a steer before the controller is installed cancels it instead of
+force-clearing the flag. The holder checks the claim before each write it makes ahead of the turn
 (the reload's result, a slash command's rows, the user row) and gives it back
 instead of writing. A message cancelled before anything was written takes the
 same busy path as a second sender, so it is queued or deferred rather than
 dropped, and the release of its claim puts back the resting trust it replaced,
-so the cancelled sender is not left as the conversation's owner. A slash
+so the cancelled sender is not left as the conversation's owner. A user-row
+insert that fails is released the same way. The next scoped consumer (the
+queue drain's persist scopes before it claims) then finds the resident history
+scoped for the cancelled sender rather than the restored owner, and reloads. A slash
 command whose user row already landed keeps that row and writes no reply.
 
 The queue drains are deliberately not in that set. `drainSingleMessage` and

@@ -266,6 +266,7 @@ describe("channel ingress racing another sender to an idle conversation", () => 
     "a message queued behind the claim still runs when the persist answers %s",
     async (outcome) => {
       const conversation = activeConversation;
+      conversation.trustContext = RESTING_OWNER;
       const aliceReload = conversation.holdNextReload();
 
       const alice = settled(send("from Alice", ALICE));
@@ -294,6 +295,11 @@ describe("channel ingress racing another sender to an idle conversation", () => 
       expect(conversation.turns).toHaveLength(0);
       expect(conversation.isProcessing()).toBe(false);
       expect(conversation.drained).toEqual(["from Bob"]);
+      // A failed insert landed nothing, so the resting trust is put back; a
+      // duplicate is a row this sender already wrote, so it stays theirs.
+      expect(conversation.trustContext).toBe(
+        outcome === "throw" ? RESTING_OWNER : ALICE,
+      );
     },
   );
   test("a Stop during slash resolution turns the message away as busy and writes nothing", async () => {
@@ -368,5 +374,31 @@ describe("channel ingress racing another sender to an idle conversation", () => 
     expect(insertedRoles).toEqual(["user"]);
     expect(conversation.turns).toHaveLength(0);
     expect(conversation.isProcessing()).toBe(false);
+  });
+  test("a queued message persisting after a cancelled reload is scoped for the restored owner", async () => {
+    const conversation = activeConversation;
+    const restingContact: TrustContext = {
+      trustClass: "unknown",
+      sourceChannel: "slack",
+    };
+    conversation.trustContext = restingContact;
+    const aliceReload = conversation.holdNextReload();
+
+    const alice = settled(send("from Alice", ALICE));
+    await aliceReload.entered;
+    conversation.stop();
+    aliceReload.release();
+    expect(isConversationBusyError(await alice)).toBe(true);
+    // Alice's reload finished before the cancel was seen, so the resident
+    // history is hers while the slot is back to the owner's.
+    expect(conversation.trustContext).toBe(restingContact);
+    expect(conversation.messages).toEqual(historyScopedFor(ALICE));
+
+    // The queue drain persists without a claim, which scopes first.
+    await conversation.persistUserMessage({
+      trustContext: BOB,
+      requestId: "queued-bob",
+    });
+    expect(conversation.messages).toEqual(historyScopedFor(restingContact));
   });
 });

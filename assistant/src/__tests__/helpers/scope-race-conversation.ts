@@ -217,10 +217,10 @@ export function createScopeRaceConversation(
       } else if (!claims.isClaimLive(conversation, options.processingClaim)) {
         throw new Error(busyMessage);
       }
+      conversation.abortController = new AbortController();
       conversation.persistedTrust.push(
         options.trustContext ?? conversation.trustContext,
       );
-      conversation.abortController = new AbortController();
       if (options.processingClaim !== undefined) {
         claims.endPreparingClaim(conversation, options.processingClaim);
       }

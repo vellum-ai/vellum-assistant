@@ -1152,11 +1152,6 @@ export async function persistUserMessage(
   ctx.currentTurnClientMessageId = options.clientMessageId;
   const controller = new AbortController();
   ctx.abortController = controller;
-  // The turn is abortable from here, so a Stop signals it rather than
-  // cancelling a claim still preparing.
-  if (processingClaim !== undefined) {
-    endPreparingClaim(ctx, processingClaim);
-  }
   ctx.currentTurnCronRunId = options.cronRunId ?? null;
   ctx.currentTurnWorkOrigins = [
     {
@@ -1197,6 +1192,13 @@ export async function persistUserMessage(
       attachments,
       requestId: reqId,
     });
+    // The row has landed, so the claim is no longer preparing. The abort
+    // controller installed above already makes a Stop signal the turn; the
+    // marker stays until here so a failed insert's release still puts back
+    // the trust the claim stamped.
+    if (processingClaim !== undefined) {
+      endPreparingClaim(ctx, processingClaim);
+    }
     options.signal?.throwIfAborted();
     if (result.deduplicated) {
       if (processingClaim === undefined) {
