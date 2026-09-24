@@ -145,7 +145,7 @@ mock.module("./ipc", () => ({
   on: (channel: string, _schema: unknown, fn: Function) =>
     listeners.set(channel, fn),
 }));
-mock.module("./companion-capture-sources", () => ({
+mock.module("./companion-capture", () => ({
   defaultCaptureSourceDeps: {
     listWindows: async () => {
       await windowsWait;

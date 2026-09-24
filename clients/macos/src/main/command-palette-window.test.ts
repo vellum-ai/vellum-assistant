@@ -260,7 +260,7 @@ mock.module("@vellumai/electron-desktop/window-state", () => ({
 // Stubbed so `./menu`, imported below for `dispatchMenuCommand`, doesn't drag
 // the real companion surface into this file's module graph, along with the
 // rest of `window-state` that the mock above deliberately doesn't cover.
-mock.module("./companion-window", () => ({
+mock.module("./companion", () => ({
   setCompanionSurfaceVisible: () => undefined,
 }));
 

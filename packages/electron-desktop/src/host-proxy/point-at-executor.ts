@@ -1,16 +1,5 @@
-/**
- * macOS binding of the shared computer-use host-proxy executor: it resolves the
- * mac-helper sidecar as the `cu.perform` transport.
- *
- * One tool never reaches the helper. `computer_use_point_at` draws on the
- * frame around the surface a call is being shown, and that frame is a window
- * this process opened: the helper has no idea it exists. So the request is
- * answered here and everything else is forwarded, which keeps the assistant's
- * one path to this machine the path it already has.
- */
+/** Draws coachmarks in the shell and forwards other computer-use tools to its helper. */
 
-import { createCuHelperProxyExecutor } from "@vellumai/electron-desktop/host-proxy/cu-executor";
-import type { CuHelperClient } from "@vellumai/electron-desktop/host-proxy/helper-proxy-executor";
 import type { HostProxyPoster } from "@vellumai/electron-desktop/host-proxy/poster";
 import type { HostProxyExecutor } from "@vellumai/electron-desktop/host-proxy/router";
 import type { HostProxySseMessage } from "@vellumai/electron-desktop/host-proxy/sse";
@@ -23,9 +12,6 @@ import {
   type CoachmarkUnresolved,
 } from "@vellumai/ipc-contract";
 import { z } from "zod";
-
-import log from "../logger";
-import { getSharedCuHelper } from "../sidecar/shared-cu-helper";
 
 /** The one tool answered here rather than by the helper. */
 export const POINT_AT_TOOL = "computer_use_point_at";
@@ -228,7 +214,7 @@ const answerFor = (
  * is the transport to the native helper and is used by every desktop client,
  * and the frame it would be drawing on is this client's alone.
  */
-class PointAtExecutor implements HostProxyExecutor {
+export class PointAtExecutor implements HostProxyExecutor {
   /**
    * Point-at requests still resolving a name.
    *
@@ -244,6 +230,7 @@ class PointAtExecutor implements HostProxyExecutor {
   constructor(
     private readonly helper: HostProxyExecutor,
     private readonly paint: CoachmarkPainter | undefined,
+    private readonly log: Pick<Console, "warn">,
   ) {}
 
   handleRequest(message: HostProxySseMessage, poster: HostProxyPoster): void {
@@ -253,7 +240,7 @@ class PointAtExecutor implements HostProxyExecutor {
     }
     const requestId = message.requestId as string | undefined;
     if (!requestId) {
-      log.warn("[host-cu-executor] point_at message missing requestId");
+      this.log.warn("[host-cu-executor] point_at message missing requestId");
       return;
     }
     const parsed = POINT_AT_INPUT.safeParse(message.input ?? {});
@@ -292,7 +279,7 @@ class PointAtExecutor implements HostProxyExecutor {
         // A painter that threw drew nothing, and the assistant has to hear
         // that rather than carry on describing a ring: it is not looking at
         // the screen it asked to draw on.
-        log.warn("[host-cu-executor] point_at failed:", err);
+        this.log.warn("[host-cu-executor] point_at failed:", err);
         if (this.settle(requestId)) {
           return;
         }
@@ -336,25 +323,4 @@ class PointAtExecutor implements HostProxyExecutor {
     }
     this.helper.handleCancel(message, poster);
   }
-}
-
-export interface HostCuExecutorDeps {
-  helper?: CuHelperClient;
-  /** What draws the marks. Absent means this client answers that it cannot. */
-  showCoachmarks?: CoachmarkPainter;
-}
-
-export function createHostCuExecutor(
-  deps: HostCuExecutorDeps = {},
-): HostProxyExecutor {
-  const { helper, showCoachmarks } = deps;
-  return new PointAtExecutor(
-    createCuHelperProxyExecutor({
-      logger: log,
-      supportsWindowCapture: true,
-      supportsSequence: true,
-      resolveHelper: helper ? () => helper : getSharedCuHelper,
-    }),
-    showCoachmarks,
-  );
 }

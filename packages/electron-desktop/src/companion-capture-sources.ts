@@ -36,9 +36,16 @@ import type {
   WatchCaptureTarget,
 } from "@vellumai/ipc-contract";
 
-import { runAppleScript } from "./appleScriptExecutor";
-import log from "./logger";
-import { getSharedCuHelper } from "./sidecar/shared-cu-helper";
+import { createModuleConfiguration } from "./module-configuration";
+
+export interface CompanionCapturePlatform {
+  call(method: string, params?: Record<string, unknown>): Promise<unknown>;
+  runChromeAppleScript(script: string): Promise<string>;
+  log: Pick<Console, "warn" | "info">;
+}
+const configuration =
+  createModuleConfiguration<CompanionCapturePlatform>("Companion capture");
+export const configureCompanionCapture = configuration.configure;
 
 /** Chrome, as `NSRunningApplication` names it and as AppleScript addresses it. */
 export const CHROME_BUNDLE_ID = "com.google.Chrome";
@@ -276,10 +283,12 @@ const readIcon = (appPath: string): Promise<string | undefined> => {
 export const defaultCaptureSourceDeps: CaptureSourceDeps = {
   listWindows: async (includeOffscreen = false) =>
     parseHelperWindows(
-      await getSharedCuHelper().call(
-        "captureSources.list",
-        includeOffscreen ? { includeOffscreen: true } : undefined,
-      ),
+      await configuration
+        .get()
+        .call(
+          "captureSources.list",
+          includeOffscreen ? { includeOffscreen: true } : undefined,
+        ),
     ),
   listDisplays: () => {
     const primaryId = screen.getPrimaryDisplay().id;
@@ -292,13 +301,19 @@ export const defaultCaptureSourceDeps: CaptureSourceDeps = {
   pointerDisplayId: () =>
     screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).id,
   listChromeTabs: async () =>
-    parseChromeTabs(await runAppleScript(LIST_CHROME_TABS_SCRIPT)),
+    parseChromeTabs(
+      await configuration.get().runChromeAppleScript(LIST_CHROME_TABS_SCRIPT),
+    ),
   activateChromeTab: async (chromeWindowId, tabIndex) =>
     parseChromeWindowPlacement(
-      await runAppleScript(activateChromeTabScript(chromeWindowId, tabIndex)),
+      await configuration
+        .get()
+        .runChromeAppleScript(
+          activateChromeTabScript(chromeWindowId, tabIndex),
+        ),
     ),
   raiseWindow: async (windowId) => {
-    const answer = await getSharedCuHelper().call("captureSources.raise", {
+    const answer = await configuration.get().call("captureSources.raise", {
       windowId,
     });
     const { raised, reason } =
@@ -308,9 +323,11 @@ export const defaultCaptureSourceDeps: CaptureSourceDeps = {
     // The helper says why it left the window where it was, and this is the
     // log someone reads first: the pick was made from here.
     if (raised !== true && typeof reason === "string") {
-      log.warn(
-        `[companion] helper did not raise window ${windowId}: ${reason}`,
-      );
+      configuration
+        .get()
+        .log.warn(
+          `[companion] helper did not raise window ${windowId}: ${reason}`,
+        );
     }
     return raised === true;
   },
@@ -337,7 +354,9 @@ export async function listCaptureSources(
 ): Promise<CompanionCaptureSources> {
   const [windows, displays] = await Promise.all([
     deps.listWindows().catch((err: unknown) => {
-      log.warn("[companion] could not list windows for the picker:", err);
+      configuration
+        .get()
+        .log.warn("[companion] could not list windows for the picker:", err);
       return [] as HelperWindow[];
     }),
     Promise.resolve(deps.listDisplays()),
@@ -349,7 +368,12 @@ export async function listCaptureSources(
     try {
       tabs = await deps.listChromeTabs();
     } catch (err) {
-      log.info("[companion] Chrome did not list its tabs for the picker:", err);
+      configuration
+        .get()
+        .log.info(
+          "[companion] Chrome did not list its tabs for the picker:",
+          err,
+        );
     }
   }
 
@@ -494,30 +518,40 @@ export const bringForward = async (
     const raise = deps.raiseWindow(windowId);
     const outcome = await Promise.race([raise, expiry]);
     if (outcome === "expired") {
-      log.warn(
-        `[companion] window ${windowId} is still coming to the front after ${waitMs}ms; not waiting`,
-      );
+      configuration
+        .get()
+        .log.warn(
+          `[companion] window ${windowId} is still coming to the front after ${waitMs}ms; not waiting`,
+        );
       // The late answer is only worth a line in the log, and its rejection
       // is caught so it never surfaces as an unhandled one.
       raise.then(
         (raised) => {
           if (!raised) {
-            log.warn(
-              `[companion] window ${windowId} would not come to the front`,
-            );
+            configuration
+              .get()
+              .log.warn(
+                `[companion] window ${windowId} would not come to the front`,
+              );
           }
         },
         (err) =>
-          log.warn(
-            "[companion] could not bring the picked window forward:",
-            err,
-          ),
+          configuration
+            .get()
+            .log.warn(
+              "[companion] could not bring the picked window forward:",
+              err,
+            ),
       );
     } else if (!outcome) {
-      log.warn(`[companion] window ${windowId} would not come to the front`);
+      configuration
+        .get()
+        .log.warn(`[companion] window ${windowId} would not come to the front`);
     }
   } catch (err) {
-    log.warn("[companion] could not bring the picked window forward:", err);
+    configuration
+      .get()
+      .log.warn("[companion] could not bring the picked window forward:", err);
   } finally {
     clearTimeout(timer);
   }
@@ -558,7 +592,7 @@ export async function resolveCapturePick(
         t.tabIndex === pick.tabIndex,
     );
     if (tab === undefined) {
-      log.warn("[companion] the picked Chrome tab is gone");
+      configuration.get().log.warn("[companion] the picked Chrome tab is gone");
       return null;
     }
     title = tab.title;
@@ -567,7 +601,9 @@ export async function resolveCapturePick(
       pick.tabIndex,
     );
   } catch (err) {
-    log.warn("[companion] Chrome would not show the picked tab:", err);
+    configuration
+      .get()
+      .log.warn("[companion] Chrome would not show the picked tab:", err);
     return null;
   }
   let windows: HelperWindow[];
@@ -576,12 +612,19 @@ export async function resolveCapturePick(
     // match rather than hiding behind the on-screen list.
     windows = await deps.listWindows(true);
   } catch (err) {
-    log.warn("[companion] could not list windows after showing the tab:", err);
+    configuration
+      .get()
+      .log.warn(
+        "[companion] could not list windows after showing the tab:",
+        err,
+      );
     return null;
   }
   const window = chromeWindowFor(windows, title, placement);
   if (window === undefined) {
-    log.warn("[companion] no Chrome window on screen for the picked tab");
+    configuration
+      .get()
+      .log.warn("[companion] no Chrome window on screen for the picked tab");
     return null;
   }
   // Raised after Chrome has finished its own activation (the script above
@@ -645,14 +688,16 @@ async function frameOf(
       : { windowId: target.windowId };
   try {
     return capturedFrameSchema.parse(
-      await getSharedCuHelper().call("capture.frame", {
+      await configuration.get().call("capture.frame", {
         ...params,
         maxWidth,
         maxHeight,
       }),
     );
   } catch (err) {
-    log.warn(`[companion] could not take a frame of ${what}:`, err);
+    configuration
+      .get()
+      .log.warn(`[companion] could not take a frame of ${what}:`, err);
     onError?.(err);
     return null;
   }
@@ -818,10 +863,12 @@ export async function locateOnTarget(
       : { windowId: target.windowId };
   try {
     return locatedElementSchema.parse(
-      await getSharedCuHelper().call("ax.locate", { ...params, query }),
+      await configuration.get().call("ax.locate", { ...params, query }),
     );
   } catch (err) {
-    log.warn(`[companion] could not locate ${JSON.stringify(query)}:`, err);
+    configuration
+      .get()
+      .log.warn(`[companion] could not locate ${JSON.stringify(query)}:`, err);
     return { found: false, reason: "no-tree" };
   }
 }

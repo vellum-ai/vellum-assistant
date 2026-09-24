@@ -27,7 +27,7 @@ import {
   replayCompanionIntro,
   setCompanionSurfaceSize,
   setCompanionSurfaceVisible,
-} from "./companion-window";
+} from "./companion";
 import { getWatchedLockfile } from "./lockfile-watcher.client";
 import { dispatchToMain } from "./main-window";
 import { menuIcon } from "./menu-icon";

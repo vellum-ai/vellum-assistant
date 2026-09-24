@@ -5,7 +5,6 @@ import {
   clipboard,
   screen,
   shell,
-  systemPreferences,
   type Display,
   type MenuItemConstructorOptions,
   type Rectangle,
@@ -105,20 +104,6 @@ import {
   getFloatingWindow,
 } from "@vellumai/electron-desktop/floating-window";
 import {
-  captureSourceThumbnail,
-  captureTargetFrame,
-  locateOnTarget,
-  listCaptureSources,
-  resolveCapturePick,
-  windowBoundsFor,
-} from "./companion-capture-sources";
-import {
-  unwatchCoachmarkPress,
-  watchCoachmarkPress,
-  type CoachmarkPressRect,
-} from "./coachmark-press-watch";
-import { setPointerOnCompanion } from "./companion-pointer";
-import {
   closeCompanionPopover,
   POPOVER_KIND,
   setCompanionPopoverSize,
@@ -126,25 +111,8 @@ import {
   type CompanionPopoverAnchor,
   type PopoverSide,
 } from "./companion-popover-window";
-import { unwatchFrameScroll, watchFrameScroll } from "./frame-scroll-watch";
-import { handle, on } from "./ipc";
-import log from "./logger";
-import {
-  getPermissionsService,
-  onPermissionPresentation,
-} from "./permissions-service";
-import {
-  answerScreenRecordingRefusal,
-  isScreenRecordingRefusal,
-  screenRecordingGranted,
-} from "./screen-recording-permission";
-import {
-  current as currentMainWindow,
-  dispatchToMain,
-  ensureVisible as ensureMainWindowVisible,
-  onMainWindowVisibilityChange,
-} from "./main-window";
-
+import { companionPlatform as platform } from "./companion-platform";
+import type { CoachmarkPressRect } from "./companion-platform";
 /**
 /**
  * The flag Watch is behind.
@@ -681,7 +649,7 @@ const reportIntro = (
     // place.
     at: Date.now(),
   };
-  const win = currentMainWindow();
+  const win = platform().currentMainWindow();
   // Held unless the window that is here is the one that said it is listening.
   // `null` fails that on its own, so an unarmed push needs no case of its own.
   if (win === null || win.isDestroyed() || win.webContents !== introReportsTo) {
@@ -701,7 +669,7 @@ const reportIntro = (
  */
 const setIntroScrim = (on: boolean): void => {
   introScrim = on;
-  const win = currentMainWindow();
+  const win = platform().currentMainWindow();
   if (win === null || win.isDestroyed()) {
     return;
   }
@@ -714,7 +682,7 @@ const setIntroAnnouncement = (open: boolean): void => {
     return;
   }
   introAnnouncement = open;
-  const win = currentMainWindow();
+  const win = platform().currentMainWindow();
   if (win === null || win.isDestroyed()) {
     return;
   }
@@ -769,7 +737,7 @@ const setIntroBeat = (next: CompanionIntroBeat | null): void => {
     return;
   }
   introChordAsked = control;
-  const win = currentMainWindow();
+  const win = platform().currentMainWindow();
   if (win === null || win.isDestroyed()) {
     return;
   }
@@ -1118,8 +1086,7 @@ const cancelGlide = (): void => {
  * during one lands the glide in flight on its timetable and decides how the
  * next move happens.
  */
-const prefersReducedMotion = (): boolean =>
-  systemPreferences.getAnimationSettings().prefersReducedMotion;
+const prefersReducedMotion = (): boolean => platform().prefersReducedMotion();
 
 /**
  * What the app's window last published about the assistant: its name, whether
@@ -1517,7 +1484,7 @@ const defaultCanvasOrigin = (): { x: number; y: number } => {
  * a real state: the tray can ask for a replay with the window closed.
  */
 const stagedCanvasOrigin = (): { x: number; y: number } => {
-  const win = currentMainWindow();
+  const win = platform().currentMainWindow();
   if (win === null || win.isDestroyed()) {
     return defaultCanvasOrigin();
   }
@@ -1547,8 +1514,7 @@ const startAnnouncedIntro = (): void => {
 
   setIntroAnnouncement(false);
   setIntroBeat(COMPANION_INTRO_BEATS[0]);
-  introMicGranted =
-    systemPreferences.getMediaAccessStatus("microphone") === "granted";
+  introMicGranted = platform().microphoneGranted();
   introStaged = true;
 
   const origin = stagedCanvasOrigin();
@@ -2241,7 +2207,7 @@ const setAnnotating = (next: boolean): void => {
   }
   annotating = resolved;
   frameScrolling = false;
-  unwatchFrameScroll();
+  platform().unwatchFrameScroll();
   applyFrameMouse();
   pushState();
 };
@@ -2269,9 +2235,9 @@ const setFrameScrolling = (next: boolean): void => {
   }
   frameScrolling = resolved;
   if (resolved) {
-    watchFrameScroll(() => setFrameScrolling(false));
+    platform().watchFrameScroll(() => setFrameScrolling(false));
   } else {
-    unwatchFrameScroll();
+    platform().unwatchFrameScroll();
   }
   applyFrameMouse();
 };
@@ -2399,10 +2365,10 @@ const armCoachmarkPressWatch = (): void => {
   const presses = coachmarkPresses;
   const surface = getFloatingWindow(WATCH_FRAME_KIND)?.getBounds() ?? null;
   if (surface === null || presses.length === 0) {
-    unwatchCoachmarkPress();
+    platform().unwatchCoachmarkPress();
     return;
   }
-  watchCoachmarkPress(
+  platform().watchCoachmarkPress(
     presses.map((press) => ({
       x: surface.x + press.rect.x * surface.width,
       y: surface.y + press.rect.y * surface.height,
@@ -2430,7 +2396,7 @@ const armCoachmarkPressWatch = (): void => {
  */
 const onCoachmarkPressed = (press: CoachmarkPress): void => {
   setCoachmarks(NO_COACHMARKS);
-  dispatchToMain({ kind: "coachmarkPressed", label: press.label });
+  platform().dispatchToMain({ kind: "coachmarkPressed", label: press.label });
 };
 
 /**
@@ -2708,7 +2674,7 @@ const placeOnNamedTarget = async (
   share: WatchCaptureTarget,
   request: { target: string; caption?: string },
 ): Promise<LocatedCoachmark | CoachmarkUnresolved> => {
-  const located = await locateOnTarget(share, request.target);
+  const located = await platform().locateOnTarget(share, request.target);
   if (!located.found) {
     return {
       target: request.target,
@@ -2773,7 +2739,7 @@ const surfaceBounds = async (
       null
     );
   }
-  return windowBoundsFor(share.windowId);
+  return platform().windowBoundsFor(share.windowId);
 };
 
 /**
@@ -2852,7 +2818,7 @@ const placeWatchFrame = (bounds: Rectangle): void => {
   // does not: this window's renderer has seen no scroll and would never ask
   // for a mouse it does not know it gave up.
   frameScrolling = false;
-  unwatchFrameScroll();
+  platform().unwatchFrameScroll();
   applyFrameMouse();
   // Marks still up are drawn on this window from here on, so the presses
   // they can be heard as are measured out on it.
@@ -2945,7 +2911,8 @@ const followWindow = (windowId: number): void => {
       return;
     }
     busy = true;
-    void windowBoundsFor(windowId)
+    void platform()
+      .windowBoundsFor(windowId)
       .then((bounds) => {
         // The session may have ended, or moved to another target, while the
         // helper was answering. A frame placed for it would be for nothing.
@@ -2965,7 +2932,10 @@ const followWindow = (windowId: number): void => {
         placeWatchFrame(bounds);
       })
       .catch((err: unknown) => {
-        log.warn("[companion] could not place the frame on its window:", err);
+        platform().log.warn(
+          "[companion] could not place the frame on its window:",
+          err,
+        );
       })
       .finally(() => {
         busy = false;
@@ -3335,7 +3305,7 @@ const dropOnDock = (next: CompanionDock): void => {
 const setInteractive = (interactive: boolean): void => {
   // Read by the input-activity forwarder, which must not read a press on
   // these controls as an edit in the user's document.
-  setPointerOnCompanion(interactive);
+  platform().setPointerOnCompanion?.(interactive);
   const win = getFloatingWindow(COMPANION_KIND);
   if (!win || win.isDestroyed()) {
     return;
@@ -3385,7 +3355,7 @@ let surfaceAway = false;
  * surface is what stands in for it then.
  */
 const mainWindowShowing = (): boolean => {
-  const win = currentMainWindow();
+  const win = platform().currentMainWindow();
   return win !== null && !win.isDestroyed() && win.isVisible();
 };
 
@@ -3458,19 +3428,21 @@ const syncFrontmost = (): void => {
 export const dispatchWithoutRaising = (
   command: VellumCommand,
 ): Promise<boolean> => {
-  if (currentMainWindow() !== null) {
-    dispatchToMain(command);
+  if (platform().currentMainWindow() !== null) {
+    platform().dispatchToMain(command);
     return Promise.resolve(true);
   }
   // Resolves once the renderer has loaded and the window has shown, so the
   // command arrives at a page that can receive it.
-  return ensureMainWindowVisible().then(() => {
-    if (currentMainWindow() === null) {
-      return false;
-    }
-    dispatchToMain(command);
-    return true;
-  });
+  return platform()
+    .ensureMainWindowVisible()
+    .then(() => {
+      if (platform().currentMainWindow() === null) {
+        return false;
+      }
+      platform().dispatchToMain(command);
+      return true;
+    });
 };
 
 /**
@@ -3484,9 +3456,11 @@ export const dispatchWithoutRaising = (
  * surface's menu.
  */
 const openVellum = (): void => {
-  void ensureMainWindowVisible().then(() => {
-    dispatchToMain({ kind: "currentConversation" });
-  });
+  void platform()
+    .ensureMainWindowVisible()
+    .then(() => {
+      platform().dispatchToMain({ kind: "currentConversation" });
+    });
 };
 
 let installed = false;
@@ -3560,10 +3534,15 @@ export const companionContextMenuTemplate = (
  * run is no reason to refuse a share that might work.
  */
 const screenRecordingAllowed = (): Promise<boolean> =>
-  screenRecordingGranted().catch((err: unknown) => {
-    log.warn("[companion] could not read the Screen Recording grant:", err);
-    return true;
-  });
+  platform()
+    .screenRecordingGranted()
+    .catch((err: unknown) => {
+      platform().log.warn(
+        "[companion] could not read the Screen Recording grant:",
+        err,
+      );
+      return true;
+    });
 
 /**
  * Send the user to Screen Recording in System Settings, with the helper
@@ -3572,9 +3551,12 @@ const screenRecordingAllowed = (): Promise<boolean> =>
  */
 const askForScreenRecording = async (): Promise<void> => {
   try {
-    await getPermissionsService()?.openSettings("screen");
+    await platform().openScreenSettings();
   } catch (err) {
-    log.warn("[companion] could not open Screen Recording settings:", err);
+    platform().log.warn(
+      "[companion] could not open Screen Recording settings:",
+      err,
+    );
   }
 };
 
@@ -3584,9 +3566,13 @@ export const installCompanionWindow = (): void => {
   }
   installed = true;
 
-  on("vellum:companion:setInteractive", z.tuple([z.boolean()]), ([next]) => {
-    setInteractive(next);
-  });
+  platform().on(
+    "vellum:companion:setInteractive",
+    z.tuple([z.boolean()]),
+    ([next]) => {
+      setInteractive(next);
+    },
+  );
 
   // Dragging the surface. The renderer sends deltas rather than absolute
   // positions because it is the side holding the pointer, and main is the side
@@ -3598,7 +3584,7 @@ export const installCompanionWindow = (): void => {
   // or one whose release this window never saw, arrives here as a single huge
   // jump, and unclamped that jump puts the surface somewhere the user cannot
   // reach it. See `placeCanvas`.
-  on(
+  platform().on(
     "vellum:companion:moveBy",
     z.tuple([z.number(), z.number()]),
     ([dx, dy]) => {
@@ -3637,7 +3623,7 @@ export const installCompanionWindow = (): void => {
   // The hand letting go. Sent after every press, and what it settles is
   // main's to know: a drag during a call docks the bar to the edge it was
   // heading for, and every other release has nothing to do.
-  on("vellum:companion:release", z.tuple([]), () => {
+  platform().on("vellum:companion:release", z.tuple([]), () => {
     dockDragTravel = 0;
     if (docking === null) {
       return;
@@ -3655,7 +3641,7 @@ export const installCompanionWindow = (): void => {
    * window and no other, and the press arrives while the user is working in
    * some other app entirely, so "focused" would name the wrong target.
    */
-  on("vellum:companion:startVoice", z.tuple([]), () => {
+  platform().on("vellum:companion:startVoice", z.tuple([]), () => {
     if (introAnnouncement || intro !== null) {
       return;
     }
@@ -3681,7 +3667,7 @@ export const installCompanionWindow = (): void => {
    * else, and here that work is the subject of the session: bringing Vellum
    * forward would cover the very thing the session exists to watch.
    */
-  on(
+  platform().on(
     "vellum:companion:toggleWatch",
     // An empty tuple is a press with no pick: the stop edge, or a start from
     // a surface with no picker. Two shapes rather than an optional element,
@@ -3705,12 +3691,14 @@ export const installCompanionWindow = (): void => {
       // beside the first: two toggles, one of which ends the session the
       // other started. A press with no pick supersedes a pending one too.
       const generation = ++pickGeneration;
-      void resolveCapturePick(pick).then((target) => {
-        if (target === null || generation !== pickGeneration) {
-          return;
-        }
-        void dispatchWithoutRaising({ kind: "toggleWatch", target });
-      });
+      void platform()
+        .resolveCapturePick(pick)
+        .then((target) => {
+          if (target === null || generation !== pickGeneration) {
+            return;
+          }
+          void dispatchWithoutRaising({ kind: "toggleWatch", target });
+        });
     },
   );
 
@@ -3719,18 +3707,22 @@ export const installCompanionWindow = (): void => {
    * on demand: the desktop changes under every push, and the list is only
    * worth anything at the moment it is drawn.
    */
-  handle("vellum:companion:listCaptureSources", z.tuple([]), async () => {
-    // A picker opening again is the user starting over: whatever pick was
-    // still resolving belonged to the choice they just left.
-    pickGeneration += 1;
-    // Read beside the list so the picker can ask for the grant in place of
-    // tiles nothing could be shown from.
-    const [sources, granted] = await Promise.all([
-      listCaptureSources(),
-      screenRecordingAllowed(),
-    ]);
-    return { ...sources, screenRecordingGranted: granted };
-  });
+  platform().handle(
+    "vellum:companion:listCaptureSources",
+    z.tuple([]),
+    async () => {
+      // A picker opening again is the user starting over: whatever pick was
+      // still resolving belonged to the choice they just left.
+      pickGeneration += 1;
+      // Read beside the list so the picker can ask for the grant in place of
+      // tiles nothing could be shown from.
+      const [sources, granted] = await Promise.all([
+        platform().listCaptureSources(),
+        screenRecordingAllowed(),
+      ]);
+      return { ...sources, screenRecordingGranted: granted };
+    },
+  );
 
   /**
    * Share, delivered to the renderer holding the session the way Watch is.
@@ -3743,7 +3735,7 @@ export const installCompanionWindow = (): void => {
    * pick still resolving when the other control is pressed belonged to a
    * choice the user has left.
    */
-  on(
+  platform().on(
     "vellum:companion:setScreenShare",
     z.union([z.tuple([]), z.tuple([companionCapturePickSchema])]),
     ([pick]) => {
@@ -3767,14 +3759,14 @@ export const installCompanionWindow = (): void => {
             await askForScreenRecording();
             return;
           }
-          const target = await resolveCapturePick(pick);
+          const target = await platform().resolveCapturePick(pick);
           if (target === null || generation !== pickGeneration) {
             return;
           }
           void dispatchWithoutRaising({ kind: "setScreenShare", target });
         })
         .catch((err: unknown) => {
-          log.warn("[companion] could not start the share:", err);
+          platform().log.warn("[companion] could not start the share:", err);
         });
     },
   );
@@ -3791,9 +3783,13 @@ export const installCompanionWindow = (): void => {
    * remembered ({@link framesTheShare}), so the mode can never be armed
    * ahead of a share and take a display's clicks the moment one starts.
    */
-  on("vellum:companion:setAnnotating", z.tuple([z.boolean()]), ([next]) => {
-    setAnnotating(next);
-  });
+  platform().on(
+    "vellum:companion:setAnnotating",
+    z.tuple([z.boolean()]),
+    ([next]) => {
+      setAnnotating(next);
+    },
+  );
 
   /**
    * Draw, from the keyboard: the same mode, flipped rather than set.
@@ -3808,7 +3804,7 @@ export const installCompanionWindow = (): void => {
    * ({@link canAnnotate}), and refused the same way: nothing changes, and the
    * next push says the mode is off, which is what the desktop is doing.
    */
-  on("vellum:companion:toggleAnnotating", z.tuple([]), () => {
+  platform().on("vellum:companion:toggleAnnotating", z.tuple([]), () => {
     setAnnotating(!annotating);
   });
 
@@ -3817,7 +3813,7 @@ export const installCompanionWindow = (): void => {
    * the share goes on. The frame's drawing layer drops its ink off the count
    * this steps on the pushed state.
    */
-  on("vellum:companion:clearMarks", z.tuple([]), () => {
+  platform().on("vellum:companion:clearMarks", z.tuple([]), () => {
     clearMarks();
   });
 
@@ -3826,7 +3822,7 @@ export const installCompanionWindow = (): void => {
    * the strip it is chosen from is drawn only while the mode is, but a choice
    * that crossed a share ending is still the user's choice for the next one.
    */
-  on(
+  platform().on(
     "vellum:companion:setAnnotationTool",
     z.tuple([companionAnnotationToolSchema]),
     ([tool]) => {
@@ -3844,16 +3840,20 @@ export const installCompanionWindow = (): void => {
    * reaches the app underneath, and on the first forwarded move it takes the
    * mouse back. See {@link frameScrolling}.
    */
-  on("vellum:companion:setFrameScrolling", z.tuple([z.boolean()]), ([next]) => {
-    setFrameScrolling(next);
-  });
+  platform().on(
+    "vellum:companion:setFrameScrolling",
+    z.tuple([z.boolean()]),
+    ([next]) => {
+      setFrameScrolling(next);
+    },
+  );
 
   /**
    * The frame's page has drawn the border, from the frame's own window. Taken
    * only from the window waiting on it, so another page cannot show the frame
    * early.
    */
-  on("vellum:companion:frameDrawn", z.tuple([]), (_args, event) => {
+  platform().on("vellum:companion:frameDrawn", z.tuple([]), (_args, event) => {
     const frame = frameAwaitingDraw;
     if (
       frame !== null &&
@@ -3886,7 +3886,7 @@ export const installCompanionWindow = (): void => {
    * It carries no coordinates, so there is nothing in it for the mode to make
    * sense of.
    */
-  on(
+  platform().on(
     "vellum:companion:annotateShare",
     z.tuple([
       companionAnnotationPhaseSchema,
@@ -3916,16 +3916,16 @@ export const installCompanionWindow = (): void => {
    * told it is sharing, and a refusal comes back as null rather than as an
    * error, since one missed frame is not something the call should notice.
    */
-  handle(
+  platform().handle(
     "vellum:companion:captureScreen",
     z.tuple([watchCaptureTargetSchema]),
     ([target]) =>
       // A refusal for want of the grant is the one miss the user must hear
       // about: every frame after it would be refused too. The renderer still
       // gets its null and stops the share.
-      captureTargetFrame(target, (err) => {
-        if (isScreenRecordingRefusal(err)) {
-          void answerScreenRecordingRefusal(askForScreenRecording);
+      platform().captureTargetFrame(target, (err) => {
+        if (platform().isScreenRecordingRefusal?.(err)) {
+          void platform().answerScreenRecordingRefusal?.(askForScreenRecording);
         }
       }),
   );
@@ -3946,7 +3946,7 @@ export const installCompanionWindow = (): void => {
    * Only the window holding the session knows the frame landed, so this is
    * told rather than settled here.
    */
-  on(
+  platform().on(
     "vellum:companion:sharedFrame",
     z.tuple([watchCaptureTargetSchema]),
     ([target]) => {
@@ -3960,10 +3960,10 @@ export const installCompanionWindow = (): void => {
    * is paced in `captureSourceThumbnail` rather than here: this handler is
    * reached once per tile and knows nothing of the others.
    */
-  handle(
+  platform().handle(
     "vellum:companion:captureSourceThumbnail",
     z.tuple([watchCaptureTargetSchema]),
-    ([target]) => captureSourceThumbnail(target),
+    ([target]) => platform().captureSourceThumbnail(target),
   );
 
   /**
@@ -3977,20 +3977,26 @@ export const installCompanionWindow = (): void => {
    * renderer that ran the retrospective, and the answer has to reach it either
    * way or it will ask again on its next push.
    */
-  on("vellum:companion:answerWatchRetro", z.tuple([z.boolean()]), ([open]) => {
-    if (!open) {
-      void dispatchWithoutRaising({ kind: "answerWatchRetro", open: false });
-      return;
-    }
-    // The same shape `activate` takes, because it is the same request: bring
-    // the app forward first, then tell it where to go. Dispatching before the
-    // window is visible would navigate a page the user is not looking at.
-    void ensureMainWindowVisible().then(() => {
-      dispatchToMain({ kind: "answerWatchRetro", open: true });
-    });
-  });
+  platform().on(
+    "vellum:companion:answerWatchRetro",
+    z.tuple([z.boolean()]),
+    ([open]) => {
+      if (!open) {
+        void dispatchWithoutRaising({ kind: "answerWatchRetro", open: false });
+        return;
+      }
+      // The same shape `activate` takes, because it is the same request: bring
+      // the app forward first, then tell it where to go. Dispatching before the
+      // window is visible would navigate a page the user is not looking at.
+      void platform()
+        .ensureMainWindowVisible()
+        .then(() => {
+          platform().dispatchToMain({ kind: "answerWatchRetro", open: true });
+        });
+    },
+  );
 
-  on(
+  platform().on(
     COMPANION_SET_UNPLACED_DICTATION_OFFER,
     z.tuple([
       z
@@ -4022,7 +4028,7 @@ export const installCompanionWindow = (): void => {
    * either way, and travels named, because the window publishing the offer
    * has the same gap to guard against.
    */
-  on(
+  platform().on(
     "vellum:companion:answerDictationOffer",
     z.tuple([z.enum(["use", "quit", "copy", "dismiss"]), z.string()]),
     ([answer, offerId]) => {
@@ -4047,7 +4053,7 @@ export const installCompanionWindow = (): void => {
    * raises the app, since going to the app is what it asks for; the answer
    * still travels so the window stops offering a surface the user went to.
    */
-  on(
+  platform().on(
     "vellum:companion:answerPopover",
     z.tuple([companionPopoverAnswerSchema, z.string()]),
     ([answer, popoverId]) => {
@@ -4080,14 +4086,16 @@ export const installCompanionWindow = (): void => {
         void dispatchWithoutRaising(command);
         return;
       }
-      void ensureMainWindowVisible().then(() => {
-        dispatchToMain(command);
-        dispatchToMain({ kind: "currentConversation" });
-      });
+      void platform()
+        .ensureMainWindowVisible()
+        .then(() => {
+          platform().dispatchToMain(command);
+          platform().dispatchToMain({ kind: "currentConversation" });
+        });
     },
   );
 
-  on(
+  platform().on(
     "vellum:companion:setPopoverSize",
     z.tuple([z.string(), z.number().finite(), z.number().finite()]),
     ([popoverId, width, height]) => {
@@ -4106,7 +4114,7 @@ export const installCompanionWindow = (): void => {
    * surface's window, which is the one drawing it. The canvas is rebuilt to
    * hold it.
    */
-  on(
+  platform().on(
     "vellum:companion:setAttachedPopoverHeight",
     z.tuple([z.string(), z.number().finite().nonnegative().max(4000)]),
     ([popoverId, height]) => {
@@ -4129,7 +4137,7 @@ export const installCompanionWindow = (): void => {
    * bar and the popover's window both draw it. A press for a popover no
    * longer standing is dropped.
    */
-  on(
+  platform().on(
     "vellum:companion:setPopoverView",
     z.tuple([z.string(), z.enum(["row", "expanded", "deferred"])]),
     ([popoverId, view]) => {
@@ -4147,7 +4155,7 @@ export const installCompanionWindow = (): void => {
    * picker in the popover or close it. Never raises the app: choosing a mic
    * or a voice is something the user does without leaving their work.
    */
-  on(
+  platform().on(
     "vellum:companion:togglePicker",
     z.tuple([companionPickerSchema]),
     ([picker]) => {
@@ -4162,27 +4170,31 @@ export const installCompanionWindow = (): void => {
    * any other scheme hands the press to whatever claims it: `file:` opens
    * anything readable on disk.
    */
-  on("vellum:companion:openLink", z.tuple([z.string().max(4096)]), ([url]) => {
-    let parsed: URL;
-    try {
-      parsed = new URL(url);
-    } catch {
-      return;
-    }
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-      return;
-    }
-    void shell.openExternal(parsed.toString()).catch((err: unknown) => {
-      log.warn("[companion] could not open a popover link:", err);
-    });
-  });
+  platform().on(
+    "vellum:companion:openLink",
+    z.tuple([z.string().max(4096)]),
+    ([url]) => {
+      let parsed: URL;
+      try {
+        parsed = new URL(url);
+      } catch {
+        return;
+      }
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+        return;
+      }
+      void shell.openExternal(parsed.toString()).catch((err: unknown) => {
+        platform().log.warn("[companion] could not open a popover link:", err);
+      });
+    },
+  );
 
   /**
    * Whether a prompt can be shown beside the surface: there is one on screen
    * to draw it beside. The app's window asks before bringing itself forward
    * for an approval.
    */
-  handle("vellum:companion:takesPrompts", z.tuple([]), () => {
+  platform().handle("vellum:companion:takesPrompts", z.tuple([]), () => {
     return popoverAnchor() !== null;
   });
 
@@ -4198,7 +4210,7 @@ export const installCompanionWindow = (): void => {
    * `watching` beside a fresh name is exactly the skew independently-pushed
    * facts would produce.
    */
-  on(
+  platform().on(
     "vellum:companion:setContext",
     z.tuple([companionContextSchema]),
     ([next]) => {
@@ -4229,7 +4241,7 @@ export const installCompanionWindow = (): void => {
    * whose entire purpose is to go back to Vellum.
    */
   // The app answers the announcement before any introduction beat exists.
-  on(
+  platform().on(
     "vellum:companion:answerIntroAnnouncement",
     z.tuple([z.enum(COMPANION_INTRO_ANNOUNCEMENT_ACTIONS)]),
     ([action]) => {
@@ -4243,7 +4255,7 @@ export const installCompanionWindow = (): void => {
 
   // Main resolves introduction presses rather than taking a beat from the
   // renderer, so a stale press cannot jump the run backwards.
-  on(
+  platform().on(
     "vellum:companion:advanceIntro",
     z.tuple([z.enum(COMPANION_INTRO_ACTIONS)]),
     ([action]) => {
@@ -4253,8 +4265,7 @@ export const installCompanionWindow = (): void => {
       // Only the final offer can open a call, with a current microphone grant.
       if (
         action === "try" &&
-        (intro !== "try" ||
-          systemPreferences.getMediaAccessStatus("microphone") !== "granted")
+        (intro !== "try" || !platform().microphoneGranted())
       ) {
         return;
       }
@@ -4319,7 +4330,7 @@ export const installCompanionWindow = (): void => {
     },
   );
 
-  on("vellum:companion:contextMenu", z.tuple([]), () => {
+  platform().on("vellum:companion:contextMenu", z.tuple([]), () => {
     const win = getFloatingWindow(COMPANION_KIND);
     if (!win || win.isDestroyed()) {
       return;
@@ -4343,7 +4354,7 @@ export const installCompanionWindow = (): void => {
     menu.popup({ window: win });
   });
 
-  on("vellum:companion:activate", z.tuple([]), openVellum);
+  platform().on("vellum:companion:activate", z.tuple([]), openVellum);
 
   // -------------------------------------------------------------------------
   // The running session
@@ -4354,7 +4365,7 @@ export const installCompanionWindow = (): void => {
   // types live in the contract package rather than here.
   // -------------------------------------------------------------------------
 
-  on(
+  platform().on(
     "vellum:voiceActivity:start",
     z.tuple([voiceActivityStartSchema]),
     ([start], event) => {
@@ -4378,7 +4389,7 @@ export const installCompanionWindow = (): void => {
     },
   );
 
-  on(
+  platform().on(
     "vellum:voiceActivity:update",
     z.tuple([voiceActivityContentSchema]),
     ([content]) => {
@@ -4391,7 +4402,7 @@ export const installCompanionWindow = (): void => {
     },
   );
 
-  on("vellum:voiceActivity:end", z.tuple([]), () => {
+  platform().on("vellum:voiceActivity:end", z.tuple([]), () => {
     // With no session running this is the window asked for one saying no: a
     // first-run card to answer, an assistant with no voice, a request spent
     // some other way. Each has shown the user something else, so the dial ends
@@ -4413,7 +4424,7 @@ export const installCompanionWindow = (): void => {
    * press with no owner lands nowhere rather than being misrouted. The surface
    * is excluded because it is the sender.
    */
-  on(
+  platform().on(
     "vellum:voiceActivity:control",
     z.tuple([voiceActivityControlSchema]),
     ([control]) => {
@@ -4425,8 +4436,8 @@ export const installCompanionWindow = (): void => {
       // the root layout, which is mounted wherever the request was parked.
       if (control.action === "endSession" && dialing) {
         setDialing(false);
-        if (currentMainWindow() !== null) {
-          dispatchToMain({ kind: "cancelVoiceStart" });
+        if (platform().currentMainWindow() !== null) {
+          platform().dispatchToMain({ kind: "cancelVoiceStart" });
         }
       }
       const surface = getFloatingWindow(COMPANION_KIND);
@@ -4456,7 +4467,7 @@ export const installCompanionWindow = (): void => {
    * capturing, until some later window happens to publish over it.
    *
    * Fired on show, hide, and destroy alike, so the destroyed case is the one
-   * where `currentMainWindow()` has already been cleared. Hiding the window
+   * where `platform().currentMainWindow()` has already been cleared. Hiding the window
    * leaves the renderer alive and its session running, and must not clear
    * anything.
    *
@@ -4465,8 +4476,8 @@ export const installCompanionWindow = (): void => {
    * tail are a record of what was said and this surface is still where it is
    * read, the same bargain `working` is given by `clearCompanionWorking`.
    */
-  onMainWindowVisibilityChange(() => {
-    if (currentMainWindow() !== null) {
+  platform().onMainWindowVisibilityChange(() => {
+    if (platform().currentMainWindow() !== null) {
       return;
     }
     // A dial is a claim on that window too: the request it carries is gone
@@ -4506,7 +4517,7 @@ export const installCompanionWindow = (): void => {
     pushState();
   });
 
-  onPermissionPresentation(() => {
+  platform().onPermissionPresentation(() => {
     if (intro === null || introPermissionLowered) {
       return;
     }
@@ -4530,7 +4541,7 @@ export const installCompanionWindow = (): void => {
     syncFrontmost();
   });
   app.on("browser-window-focus", (_event, win) => {
-    if (win !== currentMainWindow()) {
+    if (win !== platform().currentMainWindow()) {
       return;
     }
     restoreIntroWindowLevel();
@@ -4540,7 +4551,7 @@ export const installCompanionWindow = (): void => {
   // The app's window being shown, put away or closed moves the answer without
   // the app's activation changing at all: a window hidden from the tray leaves
   // Vellum active with nothing of its own on screen.
-  onMainWindowVisibilityChange(syncFrontmost);
+  platform().onMainWindowVisibilityChange(syncFrontmost);
 
   // One avatar feeds every surface, so a change to the Dock icon is a change
   // here too. Repaint only: whether there is a surface to repaint is a question
@@ -4564,11 +4575,13 @@ export const installCompanionWindow = (): void => {
 
   // The route loads lazily after the window is created, so a state pushed
   // before its subscription registers is dropped. It pulls this once mounted.
-  handle("vellum:companion:getState", z.tuple([]), () => currentState());
+  platform().handle("vellum:companion:getState", z.tuple([]), () =>
+    currentState(),
+  );
 
   // A due run waits in the app until the user accepts or skips its
   // announcement. Pulled on mount because the push may predate the renderer.
-  handle(
+  platform().handle(
     "vellum:companion:getIntroAnnouncement",
     z.tuple([]),
     () => introAnnouncement,
@@ -4580,13 +4593,17 @@ export const installCompanionWindow = (): void => {
   // pulls this on mount, and what it pulls is the dimming rather than the
   // staging: a window that mounts while the surface is flying home is owed
   // "not dimmed", because it is not.
-  handle("vellum:companion:getIntroStage", z.tuple([]), () => introScrim);
+  platform().handle(
+    "vellum:companion:getIntroStage",
+    z.tuple([]),
+    () => introScrim,
+  );
 
   // Which chord the run is asking for, pulled by the app's window on mount for
   // the reason the staging is pulled: that window reloads, and a push made
   // while it was away is gone. Read off the beat rather than off what was last
   // pushed, since the beat is the fact and the push is only how it travelled.
-  handle("vellum:companion:getIntroChord", z.tuple([]), () =>
+  platform().handle("vellum:companion:getIntroChord", z.tuple([]), () =>
     introChordFor(intro),
   );
 
@@ -4594,10 +4611,14 @@ export const installCompanionWindow = (): void => {
   // window makes once it is listening. Taken rather than read: a report handed
   // over twice is a funnel row counted twice, and the window that asked is the
   // one that is now subscribed for the rest, which is what arms pushing.
-  handle("vellum:companion:takeIntroReports", z.tuple([]), (_args, event) => {
-    armIntroReports(event.sender);
-    return introReports.splice(0, introReports.length);
-  });
+  platform().handle(
+    "vellum:companion:takeIntroReports",
+    z.tuple([]),
+    (_args, event) => {
+      armIntroReports(event.sender);
+      return introReports.splice(0, introReports.length);
+    },
+  );
 
   // Registered once here rather than per window: `refreshGrowth` no-ops
   // while no surface exists, and the surface can be closed and reopened from

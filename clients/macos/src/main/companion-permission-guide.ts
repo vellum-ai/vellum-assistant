@@ -35,7 +35,7 @@ import {
   onAvatarChange,
 } from "@vellumai/electron-desktop/avatar";
 
-import { defaultCaptureSourceDeps } from "./companion-capture-sources";
+import { defaultCaptureSourceDeps } from "./companion-capture";
 import { handle, on } from "./ipc";
 import log from "./logger";
 import {
