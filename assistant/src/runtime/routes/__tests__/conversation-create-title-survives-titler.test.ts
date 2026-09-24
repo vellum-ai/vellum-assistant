@@ -171,6 +171,25 @@ for (const path of CREATE_PATHS) {
       });
     });
 
+    test("an explicit title that matches a placeholder is kept", async () => {
+      const conversationId = await path.create("New Conversation");
+      const { provider, sendMessage } = makeTitleProvider();
+
+      await generateAndPersistConversationTitle({
+        conversationId,
+        provider,
+        userMessage: "Check the build queue",
+      });
+      // An empty prompt takes the deterministic fallback path.
+      await generateAndPersistConversationTitle({ conversationId, provider });
+
+      expect(sendMessage).not.toHaveBeenCalled();
+      expect(readTitle(conversationId)).toEqual({
+        title: "New Conversation",
+        isAutoTitle: 0,
+      });
+    });
+
     test("an untitled conversation is still auto-titled", async () => {
       const conversationId = await path.create();
       const { provider, sendMessage } = makeTitleProvider();
