@@ -18,11 +18,27 @@
 import JSZip from "jszip";
 
 import {
-  MAX_CSV_COLUMNS,
   MAX_CSV_ROWS,
   shapeRecords,
   type ParsedCsv,
 } from "@/domains/chat/components/local-file/preview/csv";
+
+export interface SheetExtent {
+  /** The last row number the sheet's dimension record states. */
+  rows: number;
+  /** The last column that record names, counted from one. */
+  columns: number;
+}
+
+export interface SheetGrid extends ParsedCsv {
+  /**
+   * The used range the sheet states, or `null` when it states none this
+   * reader can read. It says how much of the sheet a cut left out and feeds
+   * nothing else: a producer may leave the record out, spell it as one cell,
+   * or state a range its own cells contradict.
+   */
+  extent: SheetExtent | null;
+}
 
 export interface WorkbookSheet {
   /** Sheet name as the workbook spells it, which is also the tab label. */
@@ -38,7 +54,7 @@ export interface WorkbookSheet {
    * the preview shows one at a time: parsing every sheet when the workbook
    * opens would multiply every cap by the sheet count.
    */
-  read(): Promise<ParsedCsv>;
+  read(): Promise<SheetGrid>;
 }
 
 export interface ParsedWorkbook {
@@ -511,11 +527,17 @@ const MAX_PART_CHARS = 64 * 1024 * 1024;
  * How many cells of one sheet are read. A cell costs three nodes in the DOM a
  * part is parsed into (the cell, its value, and the text inside it), and the
  * grid it becomes is held for as many as {@link MAX_CACHED_SHEETS} sheets, so
- * the row and column caps alone would let one sheet build a million of them
+ * the row and column caps alone would let one sheet build millions of them
  * for a preview that shows a screenful. The rows past the budget are never
  * inflated.
  */
 export const MAX_SHEET_CELLS = 250_000;
+
+/**
+ * How many columns of a row are kept. Rows are virtualized and columns are
+ * not, so this is what bounds the cells a visible row builds.
+ */
+export const MAX_SHEET_COLUMNS = 1000;
 
 /**
  * How many entries a container the preview opens may hold. A workbook carries
@@ -1911,7 +1933,7 @@ function readSheetRows(
     let column = -1;
     for (const cell of directChildrenNamed(row, "c")) {
       column = columnIndexFromRef(cell.getAttribute("r")) ?? column + 1;
-      if (column >= MAX_CSV_COLUMNS) {
+      if (column >= MAX_SHEET_COLUMNS) {
         truncated = true;
         continue;
       }
@@ -1928,6 +1950,32 @@ function readSheetRows(
     rows.push(cells);
   }
   return { rows, truncated, sharedIndices };
+}
+
+/** The end cell of a range, as `A1:KN20` and `A1` spell one. */
+const RANGE_END = /^([A-Za-z]+)([0-9]+)$/;
+
+/**
+ * The used range the sheet declares, which sits before its rows as
+ * `<dimension ref="A1:KN20"/>`. A worksheet may leave the record out, spell a
+ * single cell, or spell a range nothing can be read from, and any of those
+ * reads as no extent rather than as a range to defend.
+ */
+function readSheetExtent(root: Element): SheetExtent | null {
+  const declared = directChildrenNamed(root, "dimension").find(
+    (element) => element.namespaceURI === root.namespaceURI,
+  );
+  if (declared === undefined) {
+    return null;
+  }
+  const end = (declared.getAttribute("ref") ?? "").split(":")[1] ?? "";
+  const match = RANGE_END.exec(end);
+  const column = match === null ? null : columnIndexFromRef(match[1]!);
+  const rows = Number(match?.[2] ?? "0");
+  if (column === null || !Number.isSafeInteger(rows) || rows === 0) {
+    return null;
+  }
+  return { rows, columns: column + 1 };
 }
 
 /** What one read of the shared string part took out of it. */
@@ -2151,7 +2199,7 @@ interface WorkbookContext {
 
 /**
  * The same sheet XML with the cells past the column cap dropped from every
- * row, so the DOM built over it holds at most {@link MAX_CSV_COLUMNS} cells a
+ * row, so the DOM built over it holds at most {@link MAX_SHEET_COLUMNS} cells a
  * row. Rows are bounded by the marker the part is read with, while a sheet
  * whose rows run thousands of columns wide inflates well inside the part cap
  * and every one of those cells would otherwise become a node the preview has
@@ -2173,7 +2221,7 @@ function dropCellsPastCap(xml: string): { xml: string; dropped: boolean } {
       cells = 0;
     } else if (matchStartTag(xml, at, "c").kind === "match") {
       cells += 1;
-      if (cells > MAX_CSV_COLUMNS) {
+      if (cells > MAX_SHEET_COLUMNS) {
         const rowEnd = findEndTag(xml, at, "row");
         kept.push(xml.slice(copiedTo, at));
         copiedTo = rowEnd;
@@ -2196,7 +2244,7 @@ async function readSheetGrid(
   context: WorkbookContext,
   name: string,
   target: string | undefined,
-): Promise<ParsedCsv> {
+): Promise<SheetGrid> {
   const entry = target === undefined ? null : context.zip.file(target);
   if (entry === null) {
     throw new Error(`Sheet "${name}" points at no worksheet part`);
@@ -2213,11 +2261,8 @@ async function readSheetGrid(
     context.limits.streamBatchChars,
   );
   const trimmed = dropCellsPastCap(closeBoundedPart(part));
-  const read = readSheetRows(
-    parseXml(trimmed.xml, entry.name),
-    context.styleFormats,
-    context.date1904,
-  );
+  const root = parseXml(trimmed.xml, entry.name);
+  const read = readSheetRows(root, context.styleFormats, context.date1904);
   const strings =
     read.sharedIndices.size === 0
       ? NO_SHARED_STRINGS
@@ -2238,11 +2283,14 @@ async function readSheetGrid(
       return text;
     }),
   );
-  return shapeRecords(
-    records,
-    records.reduce((max, row) => Math.max(max, row.length), 0),
-    part.truncated || trimmed.dropped || read.truncated || lostSharedString,
-  );
+  return {
+    ...shapeRecords(
+      records,
+      records.reduce((max, row) => Math.max(max, row.length), 0),
+      part.truncated || trimmed.dropped || read.truncated || lostSharedString,
+    ),
+    extent: readSheetExtent(root),
+  };
 }
 
 /**
@@ -2263,7 +2311,7 @@ export const MAX_WORKBOOK_SHEETS = 100;
 
 /** A sheet's grid promise, whether it has settled, and its place in line. */
 interface CachedGrid {
-  grid: Promise<ParsedCsv>;
+  grid: Promise<SheetGrid>;
   settled: boolean;
   prioritize: () => void;
 }
@@ -2272,18 +2320,18 @@ interface CachedGrid {
  * A queued read's grid, and the request to serve it next among those waiting.
  */
 interface QueuedGrid {
-  grid: Promise<ParsedCsv>;
+  grid: Promise<SheetGrid>;
   /** Moves this read to the next turn, or does nothing once it has one. */
   prioritize: () => void;
 }
 
 /** Runs one workbook's sheet reads, one at a time and newest request first. */
-type ReadQueue = (read: () => Promise<ParsedCsv>) => QueuedGrid;
+type ReadQueue = (read: () => Promise<SheetGrid>) => QueuedGrid;
 
 /** A read waiting its turn, holding the promise its caller already has. */
 interface QueuedRead {
-  read: () => Promise<ParsedCsv>;
-  resolve: (grid: ParsedCsv) => void;
+  read: () => Promise<SheetGrid>;
+  resolve: (grid: SheetGrid) => void;
   reject: (reason: unknown) => void;
 }
 
@@ -2318,7 +2366,7 @@ function createReadQueue(): ReadQueue {
   };
   return (read) => {
     let queued: QueuedRead | null = null;
-    const grid = new Promise<ParsedCsv>((resolve, reject) => {
+    const grid = new Promise<SheetGrid>((resolve, reject) => {
       queued = { read, resolve, reject };
       waiting.push(queued);
       if (!running) {
@@ -2343,7 +2391,7 @@ function createReadQueue(): ReadQueue {
 }
 
 /** Serves one workbook's sheet grid by index, reading it on a miss. */
-type GridCache = (index: number, read: () => QueuedGrid) => Promise<ParsedCsv>;
+type GridCache = (index: number, read: () => QueuedGrid) => Promise<SheetGrid>;
 
 /**
  * Cache of the {@link MAX_CACHED_SHEETS} most recently read grids of one
@@ -2401,7 +2449,7 @@ function createSheetReader(
   context: WorkbookContext,
   name: string,
   target: string | undefined,
-): () => Promise<ParsedCsv> {
+): () => Promise<SheetGrid> {
   return () =>
     cache(index, () => queue(() => readSheetGrid(context, name, target)));
 }

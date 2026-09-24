@@ -18,7 +18,6 @@ import { useId, useState, type ReactNode } from "react";
 
 import { ScrollShadow, Tabs, Typography } from "@vellumai/design-library";
 
-import type { ParsedCsv } from "@/domains/chat/components/local-file/preview/csv";
 import { PreviewError } from "@/domains/chat/components/local-file/preview/preview-error";
 import { PreviewNotice } from "@/domains/chat/components/local-file/preview/preview-notice";
 import { PreviewSkeleton } from "@/domains/chat/components/local-file/preview/preview-skeleton";
@@ -29,6 +28,7 @@ import {
 import { useAsyncRead } from "@/domains/chat/components/local-file/preview/use-async-read";
 import {
   parseWorkbook,
+  type SheetGrid,
   type WorkbookSheet,
 } from "@/domains/chat/components/local-file/preview/xlsx";
 import { useTranslation } from "@/i18n";
@@ -39,14 +39,88 @@ interface XlsxPreviewProps {
 }
 
 /** What a workbook with no sheet to open reads to. */
-const NO_GRID: ParsedCsv = { headers: null, rows: [], truncated: false };
+const NO_GRID: SheetGrid = {
+  headers: null,
+  rows: [],
+  truncated: false,
+  extent: null,
+};
 
 /**
  * The grid a sheet reads to. An absent sheet resolves to an empty one so the
  * read runs unconditionally, ahead of the lookup it depends on.
  */
-function readSheetGrid(sheet: WorkbookSheet | undefined): Promise<ParsedCsv> {
+function readSheetGrid(sheet: WorkbookSheet | undefined): Promise<SheetGrid> {
   return sheet === undefined ? Promise.resolve(NO_GRID) : sheet.read();
+}
+
+/** Which sentence a sheet's counts read as. */
+type SummaryShape =
+  | "plain"
+  | "truncated"
+  | "columnsCut"
+  | "rowsCut"
+  | "bothCut";
+
+/** The sentence naming the sheet, one key per shape. */
+const SHEET_SUMMARY_KEYS = {
+  plain: "xlsxPreview.summary",
+  truncated: "xlsxPreview.summaryTruncated",
+  columnsCut: "xlsxPreview.summaryColumnsCut",
+  rowsCut: "xlsxPreview.summaryRowsCut",
+  bothCut: "xlsxPreview.summaryBothCut",
+} as const;
+
+/** The same sentences for the bar, where the tab beside it does the naming. */
+const BAR_SUMMARY_KEYS = {
+  plain: "csvPreview.summary",
+  truncated: "csvPreview.summaryTruncated",
+  columnsCut: "xlsxPreview.countsColumnsCut",
+  rowsCut: "xlsxPreview.countsRowsCut",
+  bothCut: "xlsxPreview.countsBothCut",
+} as const;
+
+/**
+ * The shape a sheet's sentence takes and the counts it names. A cut sheet
+ * names what it left out by measuring what the grid shows against the range
+ * the file states, so a sheet stating none keeps the sentence that can only
+ * say it was cut. A detected header row is a sheet row too, so it counts
+ * toward what is shown.
+ */
+function summarize(grid: SheetGrid): {
+  shape: SummaryShape;
+  values: Record<string, number>;
+} {
+  const columns = columnCountOf(grid);
+  const shown = { rows: grid.rows.length, columns };
+  const extent = grid.extent;
+  if (!grid.truncated || extent === null) {
+    return { shape: grid.truncated ? "truncated" : "plain", values: shown };
+  }
+  const rows = grid.rows.length + (grid.headers === null ? 0 : 1);
+  const rowsCut = extent.rows > rows;
+  const columnsCut = extent.columns > columns;
+  if (rowsCut && columnsCut) {
+    return {
+      shape: "bothCut",
+      values: {
+        rows,
+        columns,
+        totalRows: extent.rows,
+        totalColumns: extent.columns,
+      },
+    };
+  }
+  if (rowsCut) {
+    return { shape: "rowsCut", values: { rows, columns, total: extent.rows } };
+  }
+  if (columnsCut) {
+    return {
+      shape: "columnsCut",
+      values: { rows, columns, total: extent.columns },
+    };
+  }
+  return { shape: "truncated", values: shown };
 }
 
 /**
@@ -58,7 +132,7 @@ function SheetPanel({
   readFailed,
   summary,
 }: {
-  grid: ParsedCsv | null;
+  grid: SheetGrid | null;
   readFailed: boolean;
   summary: string | null;
 }): ReactNode {
@@ -78,9 +152,11 @@ function SheetPanel({
     return <PreviewNotice>{t("xlsxPreview.beyondPreviewLimit")}</PreviewNotice>;
   }
 
+  // The extent says what a cut left out, which the sentence already carries.
+  const { extent: _extent, ...tabular } = grid;
   return (
     <TabularGrid
-      {...grid}
+      {...tabular}
       emptyLabel={t("xlsxPreview.emptySheet")}
       summary={summary}
     />
@@ -124,25 +200,19 @@ export function WorkbookGrid({
 
   // A sheet still being read, or holding nothing the grid can draw, shows the
   // skeleton or the empty notice in place of a sentence.
-  const columns = grid === null ? 0 : columnCountOf(grid);
+  const counts =
+    grid === null || columnCountOf(grid) === 0 ? null : summarize(grid);
   const sheetSummary =
-    grid === null || columns === 0
+    counts === null
       ? null
-      : t(
-          grid.truncated
-            ? "xlsxPreview.summaryTruncated"
-            : "xlsxPreview.summary",
-          { sheet: active.name, rows: grid.rows.length, columns },
-        );
+      : t(SHEET_SUMMARY_KEYS[counts.shape], {
+          sheet: active.name,
+          ...counts.values,
+        });
   // The bar's sentence counts without naming, because the tab beside it
   // already names the sheet.
   const barSummary =
-    grid === null || columns === 0
-      ? null
-      : t(
-          grid.truncated ? "csvPreview.summaryTruncated" : "csvPreview.summary",
-          { rows: grid.rows.length, columns },
-        );
+    counts === null ? null : t(BAR_SUMMARY_KEYS[counts.shape], counts.values);
 
   return (
     <div className="flex h-full min-h-0 flex-col">

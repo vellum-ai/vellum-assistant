@@ -2,19 +2,19 @@ import { describe, expect, spyOn, test } from "bun:test";
 import JSZip from "jszip";
 
 import {
-  MAX_CSV_COLUMNS,
   MAX_CSV_ROWS,
   parseCsv,
-  type ParsedCsv,
 } from "@/domains/chat/components/local-file/preview/csv";
 import {
   MAX_CACHED_SHEETS,
   MAX_CELL_FORMATS,
   MAX_SHEET_CELLS,
+  MAX_SHEET_COLUMNS,
   MAX_WORKBOOK_SHEETS,
   parseWorkbook,
   type ParsedWorkbook,
   type ParseWorkbookOptions,
+  type SheetGrid,
 } from "@/domains/chat/components/local-file/preview/xlsx";
 import {
   MAIN_NS,
@@ -32,7 +32,7 @@ async function readOneSheet(
   rows: CellInput[][],
   extras: Omit<WorkbookSpec, "sheets"> = {},
   options?: ParseWorkbookOptions,
-): Promise<ParsedCsv> {
+): Promise<SheetGrid> {
   const parsed = await parseWorkbook(
     await workbookBlob({ sheets: [{ name: "Sheet1", rows }], ...extras }),
     options,
@@ -53,7 +53,7 @@ async function workbookOfSheets(count: number): Promise<ParsedWorkbook> {
 }
 
 /** The one sheet of a workbook, for a sheet that states its own raw XML. */
-async function readSheetSpec(sheet: SheetSpec): Promise<ParsedCsv> {
+async function readSheetSpec(sheet: SheetSpec): Promise<SheetGrid> {
   const parsed = await parseWorkbook(await workbookBlob({ sheets: [sheet] }));
   return parsed.sheets[0]!.read();
 }
@@ -69,6 +69,11 @@ function rowXml(position: number, text: string): string {
 /** A worksheet part holding exactly these rows. */
 function sheetXml(rows: string): string {
   return `<worksheet xmlns="${MAIN_NS}"><sheetData>${rows}</sheetData></worksheet>`;
+}
+
+/** A worksheet part that states `ref` as its used range before its rows. */
+function dimensionSheetXml(ref: string, rows: string): string {
+  return `<worksheet xmlns="${MAIN_NS}"><dimension ref="${ref}"/><sheetData>${rows}</sheetData></worksheet>`;
 }
 
 /** The section a worksheet writes after its rows, whose name starts with `row`. */
@@ -297,7 +302,7 @@ const SLOW_SHEET_ROWS: CellInput[][] = Array.from(
 
 /** `rows` rows that each fill the column cap, as a raw worksheet part. */
 function wideSheetXml(rows: number): string {
-  const cells = "<c/>".repeat(MAX_CSV_COLUMNS);
+  const cells = "<c/>".repeat(MAX_SHEET_COLUMNS);
   return sheetXml(
     Array.from(
       { length: rows },
@@ -1641,21 +1646,101 @@ describe("parseWorkbook", () => {
 
   test("clamps a wide sheet to the column cap and says so", async () => {
     const wide: CellInput[] = Array.from(
-      { length: MAX_CSV_COLUMNS + 3 },
+      { length: MAX_SHEET_COLUMNS + 3 },
       (_, index) => index,
     );
 
     const grid = await readOneSheet([wide, wide]);
 
-    expect(grid.rows[0]!.length).toBe(MAX_CSV_COLUMNS);
+    expect(grid.rows[0]!.length).toBe(MAX_SHEET_COLUMNS);
     expect(grid.truncated).toBe(true);
   });
 
+  test("keeps a thousand columns of a row and cuts the rest", async () => {
+    const wide: CellInput[] = Array.from(
+      { length: 1_200 },
+      (_, index) => index + 1,
+    );
+
+    const grid = await readOneSheet([wide]);
+
+    expect(grid.rows[0]!.length).toBe(MAX_SHEET_COLUMNS);
+    expect(grid.rows[0]![MAX_SHEET_COLUMNS - 1]).toBe(
+      String(MAX_SHEET_COLUMNS),
+    );
+    expect(grid.truncated).toBe(true);
+  });
+
+  test("reads the extent the dimension record states", async () => {
+    const parsed = await parseWorkbook(
+      await workbookBlob({
+        sheets: [{ name: "Sheet1" }],
+        parts: {
+          "xl/worksheets/sheet1.xml": dimensionSheetXml(
+            "A1:KN20",
+            rowXml(1, "alpha"),
+          ),
+        },
+      }),
+    );
+
+    const grid = await parsed.sheets[0]!.read();
+
+    expect(grid.extent).toEqual({ rows: 20, columns: 300 });
+  });
+
+  test("reads no extent from a one-cell dimension", async () => {
+    const parsed = await parseWorkbook(
+      await workbookBlob({
+        sheets: [{ name: "Sheet1" }],
+        parts: {
+          "xl/worksheets/sheet1.xml": dimensionSheetXml(
+            "A1",
+            rowXml(1, "alpha"),
+          ),
+        },
+      }),
+    );
+
+    const grid = await parsed.sheets[0]!.read();
+
+    expect(grid.extent).toBeNull();
+  });
+
+  test("reads no extent from a range it cannot read", async () => {
+    // An end cell with no row, no column, a row of zero, and a range with no
+    // end at all: each one reads as no extent rather than as a range to
+    // measure a cut against.
+    for (const ref of ["A1:20", "A1:KN", "A1:KN0", "A1:", ""]) {
+      const parsed = await parseWorkbook(
+        await workbookBlob({
+          sheets: [{ name: "Sheet1" }],
+          parts: {
+            "xl/worksheets/sheet1.xml": dimensionSheetXml(
+              ref,
+              rowXml(1, "alpha"),
+            ),
+          },
+        }),
+      );
+
+      const grid = await parsed.sheets[0]!.read();
+
+      expect(grid.extent).toBeNull();
+    }
+  });
+
+  test("reads no extent from a sheet that states no dimension", async () => {
+    const grid = await readOneSheet([["alpha"]]);
+
+    expect(grid.extent).toBeNull();
+  });
+
   test("keeps a sheet whose only cell sits past the column cap truncated", async () => {
-    // One cell at `r="KN1"`, which is column 300, so the preview window holds
-    // nothing and the grid has to say the sheet was cut.
+    // One cell at `r="ALM1"`, which is column 1001, so the preview window
+    // holds nothing and the grid has to say the sheet was cut.
     const sparse: CellInput[] = [
-      ...Array.from({ length: 299 }, () => null),
+      ...Array.from({ length: MAX_SHEET_COLUMNS }, () => null),
       { v: 42 },
     ];
 
@@ -1674,7 +1759,7 @@ describe("parseWorkbook", () => {
           // The cell past the cap never closes, so a DOM built over it rejects
           // the part.
           "xl/worksheets/sheet1.xml": sheetXml(
-            wideRowXml(1, MAX_CSV_COLUMNS, UNCLOSED_CELL),
+            wideRowXml(1, MAX_SHEET_COLUMNS, UNCLOSED_CELL),
           ),
         },
       }),
@@ -1682,7 +1767,7 @@ describe("parseWorkbook", () => {
 
     const grid = await parsed.sheets[0]!.read();
 
-    expect(grid.rows[0]!.length).toBe(MAX_CSV_COLUMNS);
+    expect(grid.rows[0]!.length).toBe(MAX_SHEET_COLUMNS);
     expect(grid.truncated).toBe(true);
   });
 
@@ -1692,9 +1777,9 @@ describe("parseWorkbook", () => {
         sheets: [{ name: "Sheet1" }],
         parts: {
           "xl/worksheets/sheet1.xml": sheetXml(
-            `${wideRowXml(1, MAX_CSV_COLUMNS, UNCLOSED_CELL)}${wideRowXml(
+            `${wideRowXml(1, MAX_SHEET_COLUMNS, UNCLOSED_CELL)}${wideRowXml(
               2,
-              MAX_CSV_COLUMNS,
+              MAX_SHEET_COLUMNS,
               UNCLOSED_CELL,
             )}${rowXml(3, "alpha")}`,
           ),
@@ -1705,7 +1790,7 @@ describe("parseWorkbook", () => {
     const grid = await parsed.sheets[0]!.read();
 
     expect(grid.rows.length).toBe(3);
-    expect(grid.rows[1]!.length).toBe(MAX_CSV_COLUMNS);
+    expect(grid.rows[1]!.length).toBe(MAX_SHEET_COLUMNS);
     expect(grid.rows[2]![0]).toBe("alpha");
     expect(grid.truncated).toBe(true);
   });
@@ -1716,7 +1801,7 @@ describe("parseWorkbook", () => {
         sheets: [{ name: "Sheet1" }],
         parts: {
           "xl/worksheets/sheet1.xml": prefixedSheetPartXml(
-            prefixedWideRowXml(1, MAX_CSV_COLUMNS, prefixedUnclosedCell()),
+            prefixedWideRowXml(1, MAX_SHEET_COLUMNS, prefixedUnclosedCell()),
           ),
         },
       }),
@@ -1724,7 +1809,7 @@ describe("parseWorkbook", () => {
 
     const grid = await parsed.sheets[0]!.read();
 
-    expect(grid.rows[0]!.length).toBe(MAX_CSV_COLUMNS);
+    expect(grid.rows[0]!.length).toBe(MAX_SHEET_COLUMNS);
     expect(grid.truncated).toBe(true);
   });
 
@@ -1735,7 +1820,7 @@ describe("parseWorkbook", () => {
         parts: {
           "xl/worksheets/sheet1.xml": sheetXml(
             `<row r="1"><c><v>1</v></c><!-- <c/></row> -->${"<c><v>1</v></c>".repeat(
-              MAX_CSV_COLUMNS - 1,
+              MAX_SHEET_COLUMNS - 1,
             )}</row>`,
           ),
         },
@@ -1744,7 +1829,7 @@ describe("parseWorkbook", () => {
 
     const grid = await parsed.sheets[0]!.read();
 
-    expect(grid.rows[0]!.length).toBe(MAX_CSV_COLUMNS);
+    expect(grid.rows[0]!.length).toBe(MAX_SHEET_COLUMNS);
     expect(grid.truncated).toBe(false);
   });
 
@@ -1764,7 +1849,7 @@ describe("parseWorkbook", () => {
             "xl/worksheets/sheet1.xml": sheetXml(
               `${wideRowXml(
                 1,
-                MAX_CSV_COLUMNS,
+                MAX_SHEET_COLUMNS,
                 `${rawInlineCellXml(hidden)}<c><v>2</v></c>`,
               )}${rowXml(2, "alpha")}`,
             ),
@@ -1775,7 +1860,7 @@ describe("parseWorkbook", () => {
       const grid = await parsed.sheets[0]!.read();
 
       expect(grid.rows.length).toBe(2);
-      expect(grid.rows[0]!.length).toBe(MAX_CSV_COLUMNS);
+      expect(grid.rows[0]!.length).toBe(MAX_SHEET_COLUMNS);
       expect(grid.rows[1]![0]).toBe("alpha");
       expect(grid.truncated).toBe(true);
     }
@@ -1788,7 +1873,10 @@ describe("parseWorkbook", () => {
       ["beta", "2"],
     ]);
 
-    expect(grid).toEqual(parseCsv("name,count\nalpha,1\nbeta,2\n"));
+    expect(grid).toEqual({
+      ...parseCsv("name,count\nalpha,1\nbeta,2\n"),
+      extent: null,
+    });
   });
 
   test("reads an empty sheet as no rows", async () => {
@@ -1800,6 +1888,7 @@ describe("parseWorkbook", () => {
       headers: null,
       rows: [],
       truncated: false,
+      extent: null,
     });
   });
 
@@ -1842,7 +1931,7 @@ describe("parseWorkbook", () => {
     const parsed = await parseWorkbook(
       await workbookBlob({
         sheets: [{ name: "Wide" }],
-        parts: { "xl/worksheets/sheet1.xml": wideSheetXml(2_000) },
+        parts: { "xl/worksheets/sheet1.xml": wideSheetXml(400) },
       }),
     );
 
@@ -1850,8 +1939,8 @@ describe("parseWorkbook", () => {
 
     // The budget runs out inside a row, and that row is left out whole, so
     // what the grid holds is the budget to the cell.
-    expect(grid.rows.length).toBe(MAX_SHEET_CELLS / MAX_CSV_COLUMNS);
-    expect(grid.rows[0]!.length).toBe(MAX_CSV_COLUMNS);
+    expect(grid.rows.length).toBe(MAX_SHEET_CELLS / MAX_SHEET_COLUMNS);
+    expect(grid.rows[0]!.length).toBe(MAX_SHEET_COLUMNS);
     expect(grid.truncated).toBe(true);
   });
 
@@ -1872,7 +1961,7 @@ describe("parseWorkbook", () => {
     const grid = await parsed.sheets[0]!.read();
 
     expect(grid.rows.length).toBe(1);
-    expect(grid.rows[0]!.length).toBe(MAX_CSV_COLUMNS);
+    expect(grid.rows[0]!.length).toBe(MAX_SHEET_COLUMNS);
     expect(grid.truncated).toBe(true);
   }, 60_000);
 
@@ -1880,14 +1969,14 @@ describe("parseWorkbook", () => {
     const parsed = await parseWorkbook(
       await workbookBlob({
         sheets: [{ name: "Wide" }],
-        parts: { "xl/worksheets/sheet1.xml": wideSheetXml(300) },
+        parts: { "xl/worksheets/sheet1.xml": wideSheetXml(200) },
       }),
     );
 
     const grid = await parsed.sheets[0]!.read();
 
-    expect(grid.rows.length).toBe(300);
-    expect(grid.rows[0]!.length).toBe(MAX_CSV_COLUMNS);
+    expect(grid.rows.length).toBe(200);
+    expect(grid.rows[0]!.length).toBe(MAX_SHEET_COLUMNS);
     expect(grid.truncated).toBe(false);
   });
 

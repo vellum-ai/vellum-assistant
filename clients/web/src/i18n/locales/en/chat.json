@@ -2077,7 +2077,13 @@
     "sheetsAria": "Sheets",
     "sheetsOmitted": "{count, plural, one {# more sheet is not shown} other {# more sheets are not shown}}",
     "summary": "{sheet}: {rows, plural, one {# row} other {# rows}} x {columns, plural, one {# column} other {# columns}}",
-    "summaryTruncated": "{sheet}: {rows, plural, one {# row} other {# rows}} x {columns, plural, one {# column} other {# columns}} (truncated)"
+    "summaryTruncated": "{sheet}: {rows, plural, one {# row} other {# rows}} x {columns, plural, one {# column} other {# columns}} (truncated)",
+    "summaryColumnsCut": "{sheet}: {rows, plural, one {# row} other {# rows}} x {columns, number} of {total, plural, one {# column} other {# columns}}",
+    "summaryRowsCut": "{sheet}: {rows, number} of {total, plural, one {# row} other {# rows}} x {columns, plural, one {# column} other {# columns}}",
+    "summaryBothCut": "{sheet}: {rows, number} of {totalRows, plural, one {# row} other {# rows}} x {columns, number} of {totalColumns, plural, one {# column} other {# columns}}",
+    "countsColumnsCut": "{rows, plural, one {# row} other {# rows}} x {columns, number} of {total, plural, one {# column} other {# columns}}",
+    "countsRowsCut": "{rows, number} of {total, plural, one {# row} other {# rows}} x {columns, plural, one {# column} other {# columns}}",
+    "countsBothCut": "{rows, number} of {totalRows, plural, one {# row} other {# rows}} x {columns, number} of {totalColumns, plural, one {# column} other {# columns}}"
   },
   "transcript": {
     "noResponse": "Chose not to respond",

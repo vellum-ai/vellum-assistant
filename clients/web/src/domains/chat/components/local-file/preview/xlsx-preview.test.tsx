@@ -18,6 +18,7 @@ import {
 } from "@/domains/chat/components/local-file/preview/xlsx-preview.test-helper";
 import {
   MAX_WORKBOOK_SHEETS,
+  type SheetGrid,
   type WorkbookSheet,
 } from "@/domains/chat/components/local-file/preview/xlsx";
 import { workbookBlob } from "@/domains/chat/components/local-file/preview/xlsx.test-helper";
@@ -37,6 +38,37 @@ const INCOME = sheet(
   grid([["Salary", "4000"]], ["source", "amount"]),
 );
 const NOTES = sheet("Notes", grid([["Renew the lease"]]));
+
+/** The columns the cap keeps of a sheet whose file states half again as many. */
+const WIDE_CUT_GRID: SheetGrid = {
+  ...grid(
+    Array.from({ length: 19 }, (_, row) =>
+      Array.from({ length: 200 }, (_, column) => `${row + 1}-${column + 1}`),
+    ),
+    Array.from({ length: 200 }, (_, column) => `q${column + 1}`),
+  ),
+  truncated: true,
+  extent: { rows: 20, columns: 300 },
+};
+
+const WIDE_CUT = sheet("Survey", WIDE_CUT_GRID);
+
+const BOTH_CUT = sheet("Survey", {
+  ...WIDE_CUT_GRID,
+  extent: { rows: 20_000, columns: 300 },
+});
+
+const ROWS_CUT = sheet("Ledger", {
+  ...grid(
+    Array.from({ length: 5 }, (_, row) => [
+      `entry ${row + 1}`,
+      String(row + 1),
+    ]),
+    ["item", "amount"],
+  ),
+  truncated: true,
+  extent: { rows: 20_000, columns: 2 },
+});
 
 /** A workbook of `count` one-cell sheets, for driving the tab cap. */
 function numberedSheets(count: number): WorkbookSheet[] {
@@ -133,6 +165,71 @@ describe("WorkbookGrid", () => {
     expect(sentence.closest('[data-slot="tabular-grid"]')).toBeTruthy();
   });
 
+  test("a cut sheet names the columns left out", async () => {
+    render(<WorkbookGrid sheets={[WIDE_CUT]} />);
+
+    expect(
+      await screen.findByText("Survey: 20 rows x 200 of 300 columns"),
+    ).toBeTruthy();
+  });
+
+  test("a cut sheet names the rows left out", async () => {
+    render(<WorkbookGrid sheets={[ROWS_CUT]} />);
+
+    expect(
+      await screen.findByText("Ledger: 6 of 20,000 rows x 2 columns"),
+    ).toBeTruthy();
+  });
+
+  test("a sheet cut both ways names both", async () => {
+    render(<WorkbookGrid sheets={[BOTH_CUT]} />);
+
+    expect(
+      await screen.findByText("Survey: 20 of 20,000 rows x 200 of 300 columns"),
+    ).toBeTruthy();
+  });
+
+  test("a cut sheet whose file states no range only says it was cut", async () => {
+    const unstated = sheet("Readings", {
+      ...grid([["Rent", "1200"]], ["item", "amount"]),
+      truncated: true,
+    });
+    render(<WorkbookGrid sheets={[unstated]} />);
+
+    expect(
+      await screen.findByText("Readings: 1 row x 2 columns (truncated)"),
+    ).toBeTruthy();
+  });
+
+  test("a detected header row counts toward the rows shown", async () => {
+    // The file states three rows and the grid shows two plus the header it
+    // found, so only the columns were cut.
+    const headed = sheet("Expenses", {
+      ...grid(
+        [
+          ["Rent", "1200"],
+          ["Coffee", "48"],
+        ],
+        ["item", "amount"],
+      ),
+      truncated: true,
+      extent: { rows: 3, columns: 300 },
+    });
+    render(<WorkbookGrid sheets={[headed]} />);
+
+    expect(
+      await screen.findByText("Expenses: 3 rows x 2 of 300 columns"),
+    ).toBeTruthy();
+  });
+
+  test("the bar counts what a cut left out without naming the sheet", async () => {
+    render(<WorkbookGrid sheets={[WIDE_CUT, INCOME]} />);
+
+    expect(
+      await screen.findByText("20 rows x 200 of 300 columns"),
+    ).toBeTruthy();
+  });
+
   test("an empty sheet says so and leaves the other tabs usable", async () => {
     const user = userEvent.setup();
     const empty = sheet("Blank", grid([]));
@@ -152,7 +249,13 @@ describe("WorkbookGrid", () => {
     const user = userEvent.setup();
     const beyond: WorkbookSheet = {
       name: "Sparse",
-      read: () => Promise.resolve({ headers: null, rows: [], truncated: true }),
+      read: () =>
+        Promise.resolve({
+          headers: null,
+          rows: [],
+          truncated: true,
+          extent: null,
+        }),
     };
     render(<WorkbookGrid sheets={[beyond, INCOME]} />);
 

@@ -9,20 +9,23 @@
  * stated as the grid it reads to rather than as a binary workbook. They cover
  * one sheet (no bar), a few sheets, enough sheets to scroll the row sideways,
  * more sheets than the switcher mounts, names long enough to truncate, an
- * empty sheet, a capped sheet, a sheet that cannot be read, and the mobile
- * width.
+ * empty sheet, a capped sheet, a sheet wide enough to lose columns, a sheet
+ * that cannot be read, and the mobile width.
  */
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
-import type { ParsedCsv } from "./csv";
-import { MAX_WORKBOOK_SHEETS, type WorkbookSheet } from "./xlsx";
+import {
+  MAX_WORKBOOK_SHEETS,
+  type SheetGrid,
+  type WorkbookSheet,
+} from "./xlsx";
 import { WorkbookGrid } from "./xlsx-preview";
 import { grid, sheet } from "./xlsx-preview.test-helper";
 
 const EXPENSE_HEADERS = ["category", "budget", "spent", "remaining"];
 
 /** One month of a household budget, short enough to fit without scrolling. */
-function expenseGrid(month: string): ParsedCsv {
+function expenseGrid(month: string): SheetGrid {
   const categories = [
     ["Rent", "1800", "1800"],
     ["Groceries", "520", "487"],
@@ -42,7 +45,7 @@ function expenseGrid(month: string): ParsedCsv {
 }
 
 /** A long sheet, so the grid virtualizes and the footer counts into the tens. */
-const READINGS_GRID: ParsedCsv = grid(
+const READINGS_GRID: SheetGrid = grid(
   Array.from({ length: 240 }, (_, index) => [
     `2026-09-${String(1 + Math.floor(index / 24)).padStart(2, "0")} ${String(index % 24).padStart(2, "0")}:00`,
     `sensor_${String((index % 6) + 1).padStart(2, "0")}`,
@@ -93,6 +96,23 @@ const EMPTY_SHEETS = [
 const TRUNCATED_SHEETS = [
   sheet("Readings", { ...READINGS_GRID, truncated: true }),
   sheet("Budget", expenseGrid("September")),
+];
+
+/**
+ * A sheet whose columns run past the cap, as wide as the grid keeps them and
+ * with the range the file states beside it.
+ */
+const WIDE_CUT_SHEETS = [
+  sheet("Survey", {
+    ...grid(
+      Array.from({ length: 19 }, (_, row) =>
+        Array.from({ length: 200 }, (_, column) => `${row + 1}-${column + 1}`),
+      ),
+      Array.from({ length: 200 }, (_, column) => `q${column + 1}`),
+    ),
+    truncated: true,
+    extent: { rows: 20, columns: 300 },
+  }),
 ];
 
 const UNREADABLE_SHEETS: WorkbookSheet[] = [
@@ -162,9 +182,20 @@ export const EmptySheet: Story = {
   args: { sheets: EMPTY_SHEETS },
 };
 
-/** A sheet cut short by the row cap says so in the bar. */
+/**
+ * A sheet cut short by the row cap, whose file states no range to measure the
+ * cut against, so the bar can only say the sheet was cut.
+ */
 export const TruncatedSheet: Story = {
   args: { sheets: TRUNCATED_SHEETS },
+};
+
+/**
+ * A sheet wider than the column cap, whose footer names the columns the cap
+ * left out rather than only saying the sheet was cut.
+ */
+export const WideSheetCut: Story = {
+  args: { sheets: WIDE_CUT_SHEETS },
 };
 
 /** A sheet whose part cannot be read fails alone, leaving the tabs usable. */

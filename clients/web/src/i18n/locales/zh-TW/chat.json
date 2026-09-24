@@ -2059,7 +2059,13 @@
     "sheetsAria": "工作表",
     "sheetsOmitted": "{count, plural, other {另有 # 個工作表未顯示}}",
     "summary": "{sheet}：{rows, plural, other {# 列}} x {columns, plural, other {# 欄}}",
-    "summaryTruncated": "{sheet}：{rows, plural, other {# 列}} x {columns, plural, other {# 欄}} (已截斷)"
+    "summaryTruncated": "{sheet}：{rows, plural, other {# 列}} x {columns, plural, other {# 欄}} (已截斷)",
+    "summaryColumnsCut": "{sheet}：{rows, plural, other {# 列}} x {columns, number} / {total, plural, other {# 欄}}",
+    "summaryRowsCut": "{sheet}：{rows, number} / {total, plural, other {# 列}} x {columns, plural, other {# 欄}}",
+    "summaryBothCut": "{sheet}：{rows, number} / {totalRows, plural, other {# 列}} x {columns, number} / {totalColumns, plural, other {# 欄}}",
+    "countsColumnsCut": "{rows, plural, other {# 列}} x {columns, number} / {total, plural, other {# 欄}}",
+    "countsRowsCut": "{rows, number} / {total, plural, other {# 列}} x {columns, plural, other {# 欄}}",
+    "countsBothCut": "{rows, number} / {totalRows, plural, other {# 列}} x {columns, number} / {totalColumns, plural, other {# 欄}}"
   },
   "transcript": {
     "noResponse": "決定不回覆",
