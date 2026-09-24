@@ -153,8 +153,7 @@ stubModule(
 
 const billingRef = {
   data: undefined as
-    | { effective_balance: string; available_usage_balance?: string }
-    | undefined,
+    { effective_balance: string; available_usage_balance?: string } | undefined,
 };
 
 /**
