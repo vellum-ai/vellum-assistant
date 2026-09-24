@@ -2682,8 +2682,19 @@ describe("the introduction announcement", () => {
     setName(null);
   });
 
-  test("does not announce an introduction the install has seen", () => {
+  test("announces the modal after the previous introduction was seen", () => {
     companionOpen = false;
+    introSeen = 2;
+    openCompanionWindowImpl();
+
+    expect(introAnnouncement()).toBe(true);
+    send("vellum:companion:answerIntroAnnouncement", "dismiss");
+    expect(introSeen).toBe(COMPANION_INTRO_VERSION);
+  });
+
+  test("does not announce the current introduction twice", () => {
+    companionOpen = false;
+    introSeen = COMPANION_INTRO_VERSION;
     openCompanionWindowImpl();
 
     expect(introAnnouncement()).toBe(false);
