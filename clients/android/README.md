@@ -56,6 +56,29 @@ The launch screen uses a centered white Vellum wordmark on black. The Android
 Both surfaces share the same drawable and colors. Android 11 and older skip the
 OS preview window so the native overlay is the first app frame.
 
+## Live Camera Sampling
+
+Live vision requests `CameraPreview.captureSample({ quality, pairSpacingMs })`.
+The Android plugin copies two preview buffers at least `pairSpacingMs` apart,
+records their monotonic callback offsets from the native request, then encodes
+both JPEGs on a worker. Encoding and bridge delivery do not contribute to the
+frame-pair gap. The response contains `primer`, `value`,
+`firstCapturedAfterMs`, and `secondCapturedAfterMs`; `value` is the exact JPEG
+the web frame gate judges and uploads when kept.
+
+The web sampler retains its 120 ms maximum gap and its motion, detail, novelty,
+and forced-keep checks. It anchors native offsets at the JS request time and
+uses that request as the lower bound for answering a newly asked question.
+Preview callback times describe frame delivery, not sensor exposure times.
+Stop, flip, pause, and a bounded native timeout cancel the request. Completion
+belongs to the individual request, so a late worker cannot resolve a replacement.
+
+Older Android shells and iOS ignore `pairSpacingMs` and return a single `value`.
+The web sampler accepts that response through its serial two-capture path.
+Calling `captureSample` without spacing and taking a shutter photo retain their
+existing contracts. Paired capture requires both an updated Android APK and the
+updated hosted web UI. See the [camera QA guide](../web/docs/CAMERA_MODE_QA.md).
+
 ## Launcher Icons
 
 The default launcher icon is the `quirky` eye pair from the avatar library in
