@@ -66,7 +66,8 @@ Check the metadata the way the SDK does:
 | `grant_types_supported`            | Should include `refresh_token`. Without it, users sign in again each time the access token ends. |
 
 Do not judge `token_endpoint_auth_methods_supported` from the metadata. The
-registration in step 3 shows which method the server gives our public client.
+registration in step 3 shows which client auth method the server issues, and
+the SDK uses whichever one it gets.
 
 Pick the setup mode:
 
@@ -74,10 +75,9 @@ Pick the setup mode:
 - **DCR works, but the vendor must allowlist our redirect URI first:** `manual`.
   `ramp` is the example. Its `setup.instructions` tell the user what to ask
   the vendor for.
-- **No `registration_endpoint`, or step 3 only returns a confidential client
-  (a `client_secret` and a `client_secret_*` auth method):** not a catalog
-  addition. It needs a pre-registered client, which the MCP OAuth flow does
-  not support. Stop and report this.
+- **No `registration_endpoint`, or step 3 returns no `client_id`:** not a
+  catalog addition. It needs a client registered ahead of time, which the MCP
+  OAuth flow does not support. Stop and report this.
 
 Also check whether the vendor already has a main OAuth provider in
 `assistant/src/oauth/seed-providers.ts`. If it does, set `integration.oauthProvider` so the
@@ -94,8 +94,11 @@ curl -sS -X POST <registration_endpoint> -H 'content-type: application/json' \
   -d '{"client_name":"Vellum Assistant (registration probe)","redirect_uris":["https://example.com/webhooks/oauth/callback"],"token_endpoint_auth_method":"none","grant_types":["authorization_code","refresh_token"],"response_types":["code"],"logo_uri":"https://www.vellum.ai/favicon.ico","software_version":"0.0.0"}'
 ```
 
-A `client_id` with `token_endpoint_auth_method: "none"` in the response means
-the server registers public clients.
+A `client_id` in the response means registration works. The server can issue
+a public client (`token_endpoint_auth_method: "none"`) or one with a
+`client_secret` and a `client_secret_*` method. Both work: the SDK's
+`selectClientAuthMethod` uses an issued secret, and
+`McpOAuthProvider.saveClientInformation` stores the whole response.
 
 This probe does not prove the vendor accepts our real redirect URI. Each
 assistant resolves its own callback (`resolveOauthCallbackUrl` in
@@ -117,10 +120,13 @@ Source, in order of preference:
 2. Simple Icons, pinned to a commit URL, rasterized in the brand color.
 
 ```bash
-magick <source> -resize 128x128 -background white -alpha remove -alpha off -strip PNG24:plugins/mcp-catalog/<name>/icon.png
+magick <source> -resize 128x128 -background white -alpha remove -alpha off -gravity center -extent 128x128 -strip PNG24:plugins/mcp-catalog/<name>/icon.png
+magick identify plugins/mcp-catalog/<name>/icon.png   # must say 128x128
 ```
 
-Look at the result with the Read tool before you continue.
+`-resize` keeps the aspect ratio, so `-extent` pads a non-square source onto
+the white 128x128 canvas. Look at the result with the Read tool before you
+continue.
 
 Write `ICON_ATTRIBUTION.md` beside it in the same form as the others: source
 link, what was done to it, and "It is a trademark of <Vendor> and is used only
