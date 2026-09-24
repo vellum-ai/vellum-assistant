@@ -19,6 +19,8 @@ let heldSlash: ReturnType<typeof createHold> | null = null;
 let heldAssistantRetry: ReturnType<typeof createHold> | null = null;
 // Conversations whose messages-changed invalidation went out, in order.
 const messagesChangedPublishes: string[] = [];
+// Conversation-level origin writes and disk-meta updates, in order.
+const originWrites: string[] = [];
 
 mock.module("../persistence/attachments-store.js", () => ({
   getAttachmentsByIds: () => [],
@@ -58,16 +60,22 @@ mock.module("../persistence/conversation-crud.js", () => ({
     }
     return { id: "persisted-id", deduplicated: insertOutcome === "duplicate" };
   },
-  getConversation: () => null,
+  getConversation: (id: string) => ({ id, createdAt: 100 }),
   getMessageById: () => null,
   provenanceFromTrustContext: () => ({}),
-  setConversationOriginChannelIfUnset: () => {},
-  setConversationOriginInterfaceIfUnset: () => {},
+  setConversationOriginChannelIfUnset: (_id: string, channel: string) => {
+    originWrites.push(`channel:${channel}`);
+  },
+  setConversationOriginInterfaceIfUnset: (_id: string, iface: string) => {
+    originWrites.push(`interface:${iface}`);
+  },
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 mock.module("../persistence/conversation-disk-view.js", () => ({
-  updateMetaFile: () => {},
+  updateMetaFile: () => {
+    originWrites.push("meta");
+  },
 }));
 
 mock.module("../runtime/assistant-event-hub.js", () => ({
@@ -180,10 +188,16 @@ function makeConversation() {
       setHostAppControlProxy: () => {},
       addPreactivatedSkillId: () => {},
       setCommandIntent: () => {},
-      setTurnChannelContext: () => {},
-      getTurnChannelContext: () => null,
-      setTurnInterfaceContext: () => {},
-      getTurnInterfaceContext: () => null,
+      turnChannelContext: null as unknown,
+      turnInterfaceContext: null as unknown,
+      setTurnChannelContext(ctx: unknown) {
+        conversation.turnChannelContext = ctx;
+      },
+      getTurnChannelContext: () => conversation.turnChannelContext,
+      setTurnInterfaceContext(ctx: unknown) {
+        conversation.turnInterfaceContext = ctx;
+      },
+      getTurnInterfaceContext: () => conversation.turnInterfaceContext,
       acquireProcessingForActor: (trust: TrustContext | null | undefined) =>
         acquireProcessingForActor(
           conversation as unknown as ActorClaimContext,
@@ -224,6 +238,7 @@ describe("channel ingress racing another sender to an idle conversation", () => 
     heldSlash = null;
     heldAssistantRetry = null;
     messagesChangedPublishes.length = 0;
+    originWrites.length = 0;
   });
 
   test("the sender inside the history reload keeps its trust and history, and the other is turned away as busy", async () => {
@@ -311,11 +326,9 @@ describe("channel ingress racing another sender to an idle conversation", () => 
       expect(conversation.turns).toHaveLength(0);
       expect(conversation.isProcessing()).toBe(false);
       expect(conversation.drained).toEqual(["from Bob"]);
-      // A failed insert landed nothing, so the resting trust is put back; a
-      // duplicate is a row this sender already wrote, so it stays theirs.
-      expect(conversation.trustContext).toBe(
-        outcome === "throw" ? RESTING_OWNER : ALICE,
-      );
+      // Neither a failed insert nor a duplicate lands a row for this request,
+      // so the resting trust Alice replaced is put back either way.
+      expect(conversation.trustContext).toBe(RESTING_OWNER);
     },
   );
   test("a Stop during slash resolution turns the message away as busy and writes nothing", async () => {
@@ -374,6 +387,8 @@ describe("channel ingress racing another sender to an idle conversation", () => 
       ),
     ).toHaveLength(1);
     expect(messagesChangedPublishes).toContain(CONV_ID);
+    // The conversation-level origin a landed row records is written too.
+    expect(originWrites).toEqual(["channel:slack", "interface:slack", "meta"]);
     expect(conversation.turns).toHaveLength(0);
     expect(conversation.isProcessing()).toBe(false);
   });

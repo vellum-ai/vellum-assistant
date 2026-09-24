@@ -594,7 +594,7 @@ async function runClaimedMessage(
     role: "user" | "assistant",
     body: string,
     metadata: Record<string, unknown>,
-  ): Promise<{ id: string } | null> => {
+  ): Promise<{ id: string; deduplicated?: boolean } | null> => {
     try {
       return await addMessage(conversationId, role, body, {
         metadata,
@@ -642,7 +642,9 @@ async function runClaimedMessage(
     if (!persisted) {
       throw new Error(CONVERSATION_BUSY_MESSAGE);
     }
-    commitPreparingClaim(conversation, processingClaim);
+    if (!persisted.deduplicated) {
+      commitPreparingClaim(conversation, processingClaim);
+    }
     return persisted;
   };
 
@@ -695,10 +697,9 @@ async function runClaimedMessage(
     );
     const cleanMsg = await createUserMessage(content, attachments);
     const llmMsg = enrichMessageWithSourcePaths(cleanMsg, attachments);
+    // The row has landed, so it is seated and its conversation-level origin
+    // recorded whether or not a Stop then skips the reply below.
     const persisted = await persistSlashUserRow(userMetaWithSlack);
-    if (!claimLive()) {
-      return finishSlashWithoutReply(persisted.id, llmMsg);
-    }
     conversation.getMessages().push(llmMsg);
 
     if (serverTurnCtx) {

@@ -2823,6 +2823,9 @@ export async function handleSendMessage(
           messageId,
           clientMessageId,
         });
+        // The echoed row is durable, so the snapshot anchor advances to the
+        // echo's seq, as it does on the ordinary send path.
+        recordConversationPersistedSeq(mapping.conversationId, getCurrentSeq());
         publishConversationMessagesChanged(
           mapping.conversationId,
           originClientId,
@@ -2857,7 +2860,7 @@ export async function handleSendMessage(
             ...(clientOs ? { requestClientOs: clientOs } : {}),
           }),
         );
-        if (row) {
+        if (row && !row.deduplicated) {
           commitPreparingClaim(conversation, turnClaim);
         }
         return row;

@@ -1192,11 +1192,12 @@ export async function persistUserMessage(
       attachments,
       requestId: reqId,
     });
-    // The row has landed, so the claim is no longer preparing. The abort
-    // controller installed above already makes a Stop signal the turn; the
-    // marker stays until here so a failed insert's release still puts back
-    // the trust the claim stamped.
-    if (processingClaim !== undefined) {
+    // A newly landed row ends the claim's preparation. The abort controller
+    // installed above already makes a Stop signal the turn; the record stays
+    // until here, and through a duplicate (which lands nothing for this
+    // request), so the release of a claim whose row never landed still puts
+    // back the trust it stamped.
+    if (processingClaim !== undefined && !result.deduplicated) {
       endPreparingClaim(ctx, processingClaim);
     }
     options.signal?.throwIfAborted();

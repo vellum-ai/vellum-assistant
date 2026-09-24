@@ -20,6 +20,8 @@ let heldSlash: ReturnType<typeof createHold> | null = null;
 let heldAssistantRetry: ReturnType<typeof createHold> | null = null;
 // Conversations whose messages-changed invalidation went out, in order.
 const messagesChangedPublishes: string[] = [];
+// Conversations whose snapshot anchor advanced, in order.
+const persistedSeqAnchors: string[] = [];
 
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => false }));
 
@@ -95,7 +97,9 @@ mock.module("../persistence/conversation-crud.js", () => ({
   setConversationInferenceProfile: () => {},
   setConversationEnabledPlugins: () => {},
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
-  recordConversationPersistedSeq: () => {},
+  recordConversationPersistedSeq: (conversationId: string) => {
+    persistedSeqAnchors.push(conversationId);
+  },
 }));
 
 mock.module("../persistence/conversation-disk-view.js", () => ({
@@ -324,6 +328,7 @@ afterEach(() => {
   heldSlash = null;
   heldAssistantRetry = null;
   messagesChangedPublishes.length = 0;
+  persistedSeqAnchors.length = 0;
 });
 
 describe("POST /v1/messages racing another sender to an idle conversation", () => {
@@ -435,11 +440,9 @@ describe("POST /v1/messages racing another sender to an idle conversation", () =
       expect(conversation.turns).toHaveLength(0);
       expect(conversation.isProcessing()).toBe(false);
       expect(conversation.drained).toEqual(["from Bob"]);
-      // A failed insert landed nothing, so the resting trust is put back; a
-      // duplicate is a row this sender already wrote, so it stays theirs.
-      expect(conversation.trustContext).toBe(
-        outcome === "throw" ? RESTING_OWNER : ALICE,
-      );
+      // Neither a failed insert nor a duplicate lands a row for this request,
+      // so the resting trust Alice replaced is put back either way.
+      expect(conversation.trustContext).toBe(RESTING_OWNER);
     },
   );
   test("a Stop during slash resolution queues the send and writes nothing", async () => {
@@ -498,6 +501,7 @@ describe("POST /v1/messages racing another sender to an idle conversation", () =
       ),
     ).toHaveLength(1);
     expect(messagesChangedPublishes).toContain(CONV_ID);
+    expect(persistedSeqAnchors).toContain(CONV_ID);
     expect(conversation.turns).toHaveLength(0);
     expect(conversation.isProcessing()).toBe(false);
     expect(conversation.drained).toEqual(["from Bob"]);
@@ -528,6 +532,7 @@ describe("POST /v1/messages racing another sender to an idle conversation", () =
       ),
     ).toHaveLength(1);
     expect(messagesChangedPublishes).toContain(CONV_ID);
+    expect(persistedSeqAnchors).toContain(CONV_ID);
     expect(conversation.turns).toHaveLength(0);
     expect(conversation.isProcessing()).toBe(false);
   });
@@ -557,5 +562,20 @@ describe("POST /v1/messages racing another sender to an idle conversation", () =
       requestId: "queued-alice",
     });
     expect(conversation.messages).toEqual(historyScopedFor(restingContact));
+  });
+  test("a duplicate slash command under another actor puts the resting trust back", async () => {
+    const conversation = makeConversation();
+    setConversation(CONV_ID, conversation as unknown as Conversation);
+    conversation.trustContext = RESTING_OWNER;
+    insertOutcome = "duplicate";
+
+    const response = await send(conversation, "alice-principal", "/commands");
+    expect(await response.json()).toMatchObject({
+      accepted: true,
+      messageId: "persisted-id",
+    });
+    // The row belongs to an earlier send, so nothing of Alice's landed.
+    expect(conversation.trustContext).toBe(RESTING_OWNER);
+    expect(conversation.isProcessing()).toBe(false);
   });
 });
