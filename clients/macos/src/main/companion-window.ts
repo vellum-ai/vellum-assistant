@@ -53,6 +53,7 @@ import {
   type CoachmarkUnresolved,
   namesATarget,
   type PlacedCoachmark,
+  type ShareTargetSnapshot,
   type CompanionAnnotationTool,
   type CompanionCardGrowth,
   type CompanionCoachmark,
@@ -109,6 +110,7 @@ import {
   captureTargetFrame,
   locateOnTarget,
   listCaptureSources,
+  readTargetElements,
   resolveCapturePick,
   windowBoundsFor,
 } from "./companion-capture-sources";
@@ -129,6 +131,7 @@ import {
 import { unwatchFrameScroll, watchFrameScroll } from "./frame-scroll-watch";
 import { handle, on } from "./ipc";
 import log from "./logger";
+import { buildShareTargetSnapshot } from "./share-targets";
 import {
   getPermissionsService,
   onPermissionPresentation,
@@ -2777,6 +2780,23 @@ const surfaceBounds = async (
 };
 
 /**
+ * The controls `share` offers to be pointed at, or null when there is no tree
+ * to read or no surface to measure against.
+ */
+const readShareTargets = async (
+  share: WatchCaptureTarget,
+): Promise<ShareTargetSnapshot | null> => {
+  const [read, bounds] = await Promise.all([
+    readTargetElements(share),
+    surfaceBounds(share),
+  ]);
+  if (read === null || bounds === null) {
+    return null;
+  }
+  return buildShareTargetSnapshot(read.elements, bounds, read.candidateCount);
+};
+
+/**
  * Frame a rectangle of the desktop, or move the frame to it.
  *
  * For a display, its whole bounds rather than its work area, the way a shared
@@ -3928,6 +3948,18 @@ export const installCompanionWindow = (): void => {
           void answerScreenRecordingRefusal(askForScreenRecording);
         }
       }),
+  );
+
+  /**
+   * The controls the shared surface offers to be pointed at, for the renderer
+   * holding the session to hand to it beside its frames. Measured against the
+   * same rectangle a mark is drawn on, so the fractions agree with the ones
+   * {@link showCompanionCoachmarks} reports.
+   */
+  handle(
+    "vellum:companion:shareTargets",
+    z.tuple([watchCaptureTargetSchema]),
+    ([target]) => readShareTargets(target),
   );
 
   /**

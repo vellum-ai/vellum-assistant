@@ -25,6 +25,7 @@ import type {
   DictationOfferAnswer,
   UnplacedDictationOffer,
   ScreenCaptureFrame,
+  ShareTargetSnapshot,
   WatchCaptureTarget,
 } from "@vellumai/ipc-contract";
 
@@ -281,6 +282,25 @@ export function captureCompanionScreen(
     return Promise.resolve(null);
   }
   return companion.captureScreen(target).catch(() => null);
+}
+
+/**
+ * The controls the user's shared surface offers to be pointed at, read from
+ * its accessibility tree, for the session to offer the assistant before it
+ * names one.
+ *
+ * Resolves to nothing off Electron, on a shell that predates it, and when the
+ * surface has no tree to read, and the caller reads every one of those as a
+ * surface with no names to offer.
+ */
+export function readCompanionShareTargets(
+  target: WatchCaptureTarget,
+): Promise<ShareTargetSnapshot | null> {
+  const companion = bridge();
+  if (!companion?.shareTargets) {
+    return Promise.resolve(null);
+  }
+  return companion.shareTargets(target).catch(() => null);
 }
 
 /**

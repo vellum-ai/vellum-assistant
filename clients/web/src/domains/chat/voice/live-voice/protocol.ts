@@ -5,8 +5,8 @@
  * `assistant/src/live-voice/protocol.ts`. Field names and shapes mirror that
  * module exactly so the browser client and daemon agree on the wire format.
  *
- * Pure module: no DOM / WebSocket imports. The one import below is a `type`,
- * so it is erased at build time and the module stays side-effect free.
+ * Pure module: no DOM / WebSocket imports. The imports below are types, so
+ * they are erased at build time and the module stays side-effect free.
  *
  * ## Framing
  *
@@ -19,6 +19,7 @@
  */
 
 import type { ClientOs } from "@/runtime/platform-detection";
+import type { ShareTargetSnapshot } from "@vellumai/ipc-contract";
 
 // ---------------------------------------------------------------------------
 // Client frames (text/JSON control frames; audio goes over binary frames)
@@ -176,6 +177,12 @@ export interface LiveVoiceClientUpdateConfigFrame {
   readonly silenceThresholdMs?: number;
   readonly bargeInMinSpeechMs?: number;
   readonly screenSharing?: boolean;
+  /**
+   * The controls the shared surface offers to be pointed at, from its
+   * accessibility tree. `null` clears what the session holds. An assistant
+   * that predates the field ignores it.
+   */
+  readonly shareTargets?: ShareTargetSnapshot | null;
 }
 
 export type LiveVoiceSessionConfig = Omit<

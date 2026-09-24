@@ -22,6 +22,7 @@ import type {
   CompanionCaptureSources,
   CompanionContext,
   ScreenCaptureFrame,
+  ShareTargetSnapshot,
   WatchCaptureTarget,
   CompanionIntroAction,
   CompanionIntroAnnouncementAction,
@@ -673,6 +674,13 @@ const bridge: VellumBridge = {
         "vellum:companion:captureScreen",
         target,
       ) as Promise<ScreenCaptureFrame | null>,
+    shareTargets: (
+      target: WatchCaptureTarget,
+    ): Promise<ShareTargetSnapshot | null> =>
+      ipcRenderer.invoke(
+        "vellum:companion:shareTargets",
+        target,
+      ) as Promise<ShareTargetSnapshot | null>,
     captureSourceThumbnail: (
       target: WatchCaptureTarget,
     ): Promise<string | null> =>
