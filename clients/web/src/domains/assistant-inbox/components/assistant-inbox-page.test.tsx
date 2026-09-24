@@ -42,7 +42,9 @@ const CARRIED: InboxEmail = {
 
 function renderPage(props: {
   inbox: InboxEmail[];
+  sent?: InboxEmail[];
   loadDetail?: (email: InboxEmail) => Promise<EmailDetailData>;
+  onLaunchPrompt?: (prompt: string) => void;
 }) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -62,9 +64,10 @@ function renderPage(props: {
           assistantName="Velly"
           address="hi@velly.vellum.me"
           inbox={props.inbox}
-          sent={[]}
+          sent={props.sent ?? []}
           now={NOW}
           loadDetail={props.loadDetail}
+          onLaunchPrompt={props.onLaunchPrompt}
         />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -156,5 +159,70 @@ describe("AssistantInboxPage", () => {
 
     expect(screen.queryByText("maya@northwind.co")).toBeNull();
     expect(screen.getByText("Sam Okafor")).toBeTruthy();
+  });
+
+  test("a search with no matches keeps the list and the reading pane", () => {
+    renderPage({ inbox: [LISTED] });
+
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Search this folder" }),
+      { target: { value: "zzz" } },
+    );
+
+    expect(screen.getByText("No matches")).toBeTruthy();
+    expect(screen.getByText("Pick an email to read it.")).toBeTruthy();
+    expect(screen.queryByText("Nothing here yet")).toBeNull();
+  });
+
+  test("an empty inbox offers the tips and hands its recipe to chat", () => {
+    const prompts: string[] = [];
+    renderPage({ inbox: [], onLaunchPrompt: (prompt) => prompts.push(prompt) });
+
+    // One card across the page: no search box, no reading-pane prompt.
+    expect(screen.getByText("Nothing here yet")).toBeTruthy();
+    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(screen.queryByText("Pick an email to read it.")).toBeNull();
+
+    // The address to share, the forwarding tip, and the chat recipe.
+    expect(
+      screen.getByRole("button", { name: /Share the address/ }),
+    ).toBeTruthy();
+    expect(screen.getByText("Forward me anything long")).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: /Forward me anything long/ }),
+    ).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /Send a test email/ }));
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0]).toContain("hello");
+  });
+
+  test("without a way to reach chat the recipes are left out", () => {
+    renderPage({ inbox: [] });
+
+    expect(
+      screen.getByRole("button", { name: /Share the address/ }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: /Send a test email/ }),
+    ).toBeNull();
+  });
+
+  test("an empty Sent folder offers the sending recipe", () => {
+    const prompts: string[] = [];
+    renderPage({
+      inbox: [LISTED],
+      sent: [],
+      onLaunchPrompt: (prompt) => prompts.push(prompt),
+    });
+
+    fireEvent.click(screen.getByRole("radio", { name: "Sent" }));
+
+    expect(screen.getByText("No sent mail yet")).toBeTruthy();
+    expect(screen.getByText("Replies start in Received")).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("button", { name: /Have me send an email/ }),
+    );
+    expect(prompts).toHaveLength(1);
   });
 });

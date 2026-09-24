@@ -437,7 +437,11 @@ export const InboxFetchedBodies: Story = {
   ),
 };
 
-/** The mailbox the moment the address exists and nothing has arrived. */
+/**
+ * The mailbox the moment the address exists and nothing has arrived: the
+ * two cards give way to one, with the address as a copy control, a tip on
+ * forwarding, and a recipe that has the assistant write to the user.
+ */
 export const InboxEmpty: Story = {
   name: "3d · Inbox, empty",
   render: () => (
@@ -449,6 +453,25 @@ export const InboxEmpty: Story = {
       sent={[]}
       usage={{ sentToday: 0, receivedToday: 0, dailyLimit: 100 }}
       now={MOCK_NOW}
+      onLaunchPrompt={fn().mockName("onLaunchPrompt")}
+    />
+  ),
+};
+
+/** The Sent folder before the assistant has sent anything: the recipe that fills it, and where replies go. */
+export const SentEmpty: Story = {
+  name: "3f · Sent, empty",
+  render: () => (
+    <AssistantInboxPage
+      assistantId={ASSISTANT_ID}
+      assistantName={MOCK_ASSISTANT_NAME}
+      address={MOCK_ADDRESS}
+      inbox={MOCK_INBOX}
+      sent={[]}
+      usage={{ sentToday: 0, receivedToday: 3, dailyLimit: 100 }}
+      now={MOCK_NOW}
+      initialFolder="sent"
+      onLaunchPrompt={fn().mockName("onLaunchPrompt")}
     />
   ),
 };
