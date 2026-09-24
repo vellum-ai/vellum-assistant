@@ -12,7 +12,7 @@
  * Its name is in a tooltip, as the New Chat button's is.
  */
 
-import { ArrowUpRight } from "lucide-react";
+import { List } from "lucide-react";
 import { Link } from "react-router";
 
 import { SECTION_HEADER_CONTROL_CLASSES } from "@/components/section-actions-button";
@@ -31,7 +31,7 @@ export function SectionViewAllLink({ to }: { to: string }) {
         onClick={(event) => event.stopPropagation()}
         className={SECTION_HEADER_CONTROL_CLASSES}
       >
-        <ArrowUpRight
+        <List
           size={14}
           aria-hidden
           className="max-md:h-[21px] max-md:w-[21px]"

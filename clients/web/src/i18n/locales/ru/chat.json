@@ -1,4 +1,13 @@
 {
+  "allChatsPage": {
+    "close": "Закрыть все чаты",
+    "openChat": "Перейти к чату",
+    "doneLabel": "{title}, завершён",
+    "unread": "Не прочитано",
+    "running": "Выполняется",
+    "needsAttention": "Требует внимания",
+    "runningCount": "{count, plural, one {# задача выполняется} few {# задачи выполняются} many {# задач выполняются} other {# задачи выполняются}}"
+  },
   "askQuestionDetail": {
     "heading": "{count, plural, one {Вопрос} few {Вопроса} many {Вопросов} other {Вопроса}}"
   },

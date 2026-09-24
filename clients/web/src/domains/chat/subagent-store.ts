@@ -847,6 +847,8 @@ async function runReconcile(
   parentConversationId: string,
 ): Promise<void> {
   const generation = resetGeneration;
+  const assistantAtFetch =
+    useResolvedAssistantsStore.getState().activeAssistantId;
   // Absence from the response is only evidence about rows the daemon could
   // have reported, the ones this conversation already held, still active,
   // when the request went out. Captured before the await rather than inferred
@@ -879,7 +881,10 @@ async function runReconcile(
   // A `reset()` during the round-trip means these rows describe a context the
   // user has already left, drop the whole step rather than repopulate a fresh
   // store with the previous chat's subagents.
-  if (generation !== resetGeneration) {
+  if (
+    generation !== resetGeneration ||
+    assistantAtFetch !== useResolvedAssistantsStore.getState().activeAssistantId
+  ) {
     return;
   }
 

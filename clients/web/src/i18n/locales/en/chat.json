@@ -136,15 +136,21 @@
       "background": "Background",
       "done": "Done"
     },
-    "doneMeta": "Done · {time}",
     "empty": "No chats here yet.",
     "filterAria": "Filter chats",
     "loadError": "Could not load your chats.",
     "loading": "Loading chats",
     "noMatches": "No chats match “{query}”.",
     "retry": "Try again",
-    "searchPlaceholder": "Search chats",
-    "title": "All chats"
+    "searchPlaceholder": "Find chats",
+    "title": "All Chats",
+    "close": "Close all chats",
+    "openChat": "Go to thread",
+    "doneLabel": "{title}, done",
+    "unread": "Unread",
+    "running": "Running",
+    "needsAttention": "Needs attention",
+    "runningCount": "{count, plural, one {# running task} other {# running tasks}}"
   },
   "sessionGroupRow": {
     "mode": {

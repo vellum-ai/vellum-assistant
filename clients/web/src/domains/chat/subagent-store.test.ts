@@ -2785,6 +2785,26 @@ describe("reconcileFromDaemon", () => {
     expect(getState().orderedIds).toEqual([]);
   });
 
+  it("discards a snapshot when the assistant changes without a conversation reset", async () => {
+    const previous = useResolvedAssistantsStore.getState().activeAssistantId;
+    useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-1" });
+    try {
+      reconcileReply = {
+        ok: true,
+        subagents: { "sa-old": { status: "running" } },
+      };
+      const pending = getState().reconcileFromDaemon(
+        "assistant-1",
+        "conv-parent",
+      );
+      useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-2" });
+      await pending;
+      expect(getState().byId["sa-old"]).toBeUndefined();
+    } finally {
+      useResolvedAssistantsStore.setState({ activeAssistantId: previous });
+    }
+  });
+
   it("does not settle orphans against a store reset mid-flight", async () => {
     getState().spawnSubagent({
       subagentId: "sa-old",

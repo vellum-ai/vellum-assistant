@@ -28,6 +28,9 @@ import {
 } from "@/domains/chat/components/delete-conversation-confirm-dialog";
 import { useConversationActions } from "@/domains/chat/hooks/use-conversation-actions";
 import { useAllChatsData } from "@/domains/chat/hooks/use-all-chats-data";
+import { useAllChatsActivityRefresh } from "@/domains/chat/hooks/use-all-chats-activity-refresh";
+import { AllChatsLiveActivity } from "@/domains/chat/components/all-chats-live-activity";
+import type { Conversation } from "@/types/conversation-types";
 import { AllChatsPage } from "@/domains/chat/pages/all-chats-page";
 import {
   filterFromSearchParams,
@@ -47,6 +50,10 @@ import {
 } from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
 
+function renderActivity(conversation: Conversation) {
+  return <AllChatsLiveActivity conversation={conversation} />;
+}
+
 export function AllChatsPageRoute() {
   const navigate = useNavigate();
   const assistantId = useActiveAssistantId();
@@ -59,6 +66,7 @@ export function AllChatsPageRoute() {
      have issued a whole-history request on its way to the redirect, and an
      unhydrated store reads as off. */
   const live = flagsHydrated && enabled;
+  const registerActivity = useAllChatsActivityRefresh(assistantId, live);
   const history = useAllChatsData(assistantId, live);
   const { conversationGroups } = useConversationGroupsQuery(assistantId, live);
 
@@ -193,6 +201,15 @@ export function AllChatsPageRoute() {
         isLoading={history.isLoading}
         isError={history.isError}
         onRetry={history.retry}
+        renderActivity={renderActivity}
+        onRowMount={registerActivity}
+        onClose={() => {
+          if (activeConversationId) {
+            switchConversation(activeConversationId);
+          } else {
+            navigate(routes.assistant);
+          }
+        }}
       />
       <DeleteConversationConfirmDialog
         pending={deleteGate.pending}

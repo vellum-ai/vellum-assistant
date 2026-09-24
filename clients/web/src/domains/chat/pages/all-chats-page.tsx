@@ -8,12 +8,12 @@
  * read, so this page's right-click menu is the sidebar's menu rather than a
  * second copy of it.
  *
- * Quiet by intent: one glyph per row, a muted band label, no colour beyond
- * the selected chip. The list is virtualized and pages on scroll, so the band
+ * Quiet by intent: muted band labels and compact unread/activity indicators.
+ * The list is virtualized and pages on scroll, so the band
  * headings travel with their rows instead of sticking.
  */
 
-import { RotateCcw, Search } from "lucide-react";
+import { ArrowRight, MoreHorizontal, RotateCcw, Search, X } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -29,11 +29,12 @@ import {
   FilterChip,
   Input,
   PanelItem,
+  Typography,
   VirtualList,
 } from "@vellumai/design-library";
 import { cn } from "@vellumai/design-library/utils/cn";
 
-import { PageShell } from "@/components/page-shell";
+import { usePublishPageSurface } from "@/stores/page-surface-store";
 import {
   ConversationListProvider,
   useConversationListContext,
@@ -45,6 +46,7 @@ import {
 } from "@/domains/chat/components/conversation-row";
 import {
   ConversationActionsSheet,
+  ConversationActionsMenu,
   renderConversationMenuItems,
 } from "@/domains/chat/components/conversation-actions-menu";
 import { conversationDoneLabels } from "@/utils/done-labels";
@@ -69,7 +71,8 @@ import {
 } from "@/utils/bucket-by-date";
 import { ChannelIcon, getChannelLabel } from "@/utils/channel-presentation";
 import { useDisplayConversationTitle } from "@/utils/conversation-title";
-import { isPointerCoarse } from "@/utils/pointer";
+import { usePointerCoarse } from "@/utils/pointer";
+import { useHoverCapable } from "@/hooks/use-hover-affordance";
 
 export interface AllChatsPageProps {
   /** Every row loaded so far, unfiltered and recency-ordered. */
@@ -86,6 +89,9 @@ export interface AllChatsPageProps {
   isLoading: boolean;
   isError: boolean;
   onRetry: () => void;
+  onClose?: () => void;
+  renderActivity?: (conversation: Conversation) => ReactNode;
+  onRowMount?: (conversationId: string) => () => void;
   /** The instant the date bands are measured against. Defaults to now. */
   now?: Date;
 }
@@ -130,7 +136,7 @@ function rowTime(conversation: Conversation): number | undefined {
 }
 
 /**
- * The row's timestamp, and the "Done" that precedes it. Metadata, so it is
+ * The row's timestamp. Metadata, so it is
  * drawn at the size and tone the rest of the page gives secondary text rather
  * than at the title's weight: this page is a long column of near-identical
  * rows, and the title is the only thing in one worth reading first.
@@ -221,14 +227,25 @@ export function useBackfillUntilMatch({
 export function AllChatsRow({
   conversation,
   now,
+  activity,
+  onMount,
 }: {
   conversation: Conversation;
   now: Date;
+  activity?: ReactNode;
+  onMount?: (conversationId: string) => () => void;
 }) {
   const { t } = useTranslation("chat");
   const displayTitle = useDisplayConversationTitle();
   const ctx = useConversationListContext();
   const done = isDoneConversation(conversation);
+  const title = displayTitle(conversation.title);
+  const isTouch = usePointerCoarse();
+  const canHover = useHoverCapable();
+  useEffect(
+    () => onMount?.(conversation.conversationId),
+    [onMount, conversation.conversationId],
+  );
   const timestamp = rowTime(conversation);
   /* Measured against the same `now` the bands are, so the label and the
      heading above it are two readings of one decision. */
@@ -244,6 +261,8 @@ export function AllChatsRow({
 
   const longPress = useLongPressSheet({ shouldSkip: skipNestedControls });
   const menuProps = buildMenuProps(ctx, conversation);
+  const canToggleDone =
+    !menuProps.isReadonly && Boolean(done ? ctx.onUnarchive : ctx.onArchive);
   const toggleDone = useCallback(() => {
     if (done) {
       ctx.onUnarchive?.(conversation);
@@ -254,39 +273,95 @@ export function AllChatsRow({
 
   const row = (
     <PanelItem
-      label={displayTitle(conversation.title)}
-      aria-label={displayTitle(conversation.title)}
+      label={
+        <span className="flex min-w-0 items-center gap-2">
+          <span
+            className={cn(
+              "min-w-0 truncate",
+              done && "text-[var(--content-tertiary)] line-through",
+            )}
+          >
+            {title}
+          </span>
+          {conversation.hasUnseenLatestAssistantMessage && (
+            <span
+              className="size-1.5 shrink-0 rounded-full bg-[var(--system-mid-strong)]"
+              aria-label={t("allChatsPage.unread")}
+            />
+          )}
+          <span className="ml-auto flex shrink-0 items-center">{activity}</span>
+        </span>
+      }
+      aria-label={done ? t("allChatsPage.doneLabel", { title }) : title}
+      aria-description={
+        conversation.hasUnseenLatestAssistantMessage
+          ? t("allChatsPage.unread")
+          : undefined
+      }
       leadingSlot={
         <ChannelIcon
           channelId={conversation.originChannel}
-          className="size-4 shrink-0 text-[color:var(--content-tertiary)]"
+          className={cn(
+            "size-5 shrink-0",
+            done
+              ? "text-[color:var(--content-disabled)]"
+              : "text-[color:var(--content-tertiary)]",
+          )}
         />
       }
-      badge={
-        <span className={ROW_META_CLASSES}>
-          {done ? t("allChatsPage.doneMeta", { time: when }) : when}
-        </span>
-      }
+      badge={<span className={ROW_META_CLASSES}>{when}</span>}
       badgeBare
       onSelect={() => ctx.onSelect(conversation.conversationId)}
       trailingAction={
-        <Button
-          variant="ghost"
-          size="compact"
-          iconOnly={
-            done ? (
-              <doneLabels.unarchiveIcon aria-hidden />
-            ) : (
-              <doneLabels.archiveIcon aria-hidden />
-            )
-          }
-          aria-label={toggleLabel}
-          tooltip={toggleLabel}
-          onClick={toggleDone}
-        />
+        <span
+          className="flex items-center"
+          onKeyDown={(event) => event.stopPropagation()}
+        >
+          {canHover && canToggleDone && (
+            <Button
+              variant="ghost"
+              size="compact"
+              iconOnly={
+                done ? (
+                  <doneLabels.unarchiveIcon aria-hidden />
+                ) : (
+                  <doneLabels.archiveIcon aria-hidden />
+                )
+              }
+              aria-label={toggleLabel}
+              tooltip={toggleLabel}
+              onClick={toggleDone}
+            />
+          )}
+          {canHover && (
+            <Button
+              variant="ghost"
+              size="compact"
+              iconOnly={<ArrowRight aria-hidden />}
+              aria-label={t("allChatsPage.openChat")}
+              tooltip={t("allChatsPage.openChat")}
+              onClick={() => ctx.onSelect(conversation.conversationId)}
+            />
+          )}
+          <ConversationActionsMenu
+            {...menuProps}
+            doneLabels={doneLabels}
+            side="bottom"
+            align="end"
+            trigger={
+              <Button
+                variant="ghost"
+                size="compact"
+                className="[@media(pointer:coarse)]:size-11"
+                iconOnly={<MoreHorizontal aria-hidden />}
+                aria-label={t("conversationActions.triggerAriaLabel")}
+              />
+            }
+          />
+        </span>
       }
       className={cn(
-        "min-h-[36px] px-2 text-[var(--content-default)]",
+        "min-h-11 px-2 py-2 max-md:py-2! text-[var(--content-default)]",
         META_SLOT_CLASSES,
       )}
       title={
@@ -301,7 +376,7 @@ export function AllChatsRow({
      pointer-positioned context popover, matching the sidebar's rows. The
      wrapper adds no layout box and the sheet is its sibling, which is what
      `useLongPressSheet` requires. */
-  if (isPointerCoarse()) {
+  if (isTouch) {
     return (
       <>
         <div {...longPress.wrapperProps}>{row}</div>
@@ -341,8 +416,12 @@ export function AllChatsPage({
   isLoading,
   isError,
   onRetry,
+  onClose,
+  renderActivity,
+  onRowMount,
   now,
 }: AllChatsPageProps) {
+  usePublishPageSurface("var(--surface-base)");
   const { t } = useTranslation("chat");
   const displayTitle = useDisplayConversationTitle();
   const [searchText, setSearchText] = useState("");
@@ -419,9 +498,14 @@ export function AllChatsPage({
           {item.label}
         </h2>
       ) : (
-        <AllChatsRow conversation={item.conversation} now={bandedAt} />
+        <AllChatsRow
+          conversation={item.conversation}
+          now={bandedAt}
+          activity={renderActivity?.(item.conversation)}
+          onMount={item.conversation.draft ? undefined : onRowMount}
+        />
       ),
-    [bandedAt],
+    [bandedAt, renderActivity, onRowMount],
   );
 
   const endReached = useCallback(() => {
@@ -439,56 +523,87 @@ export function AllChatsPage({
   });
 
   return (
-    <PageShell>
-      <h1 className="mb-4 shrink-0 text-title-large text-[var(--content-default)]">
-        {t("allChatsPage.title")}
-      </h1>
+    <section
+      className="flex min-h-0 min-w-0 flex-1 flex-col px-3 pt-5 md:px-0 md:pt-6"
+      aria-label={t("allChatsPage.title")}
+    >
+      {/* The desktop shell ends 16px from the window edge. Center against the
+          window while clamping the column inside the available main pane. */}
+      <div className="flex min-h-0 w-full max-w-[600px] flex-1 flex-col self-center md:self-start md:ml-[max(0px,calc(100%_-_50vw_-_284px))]">
+        <div className="mb-8 flex shrink-0 items-center justify-between gap-3">
+          <Typography
+            as="h1"
+            variant="title-large"
+            className="text-[var(--content-default)] [--font-sans:var(--font-serif)] [--text-title-large-size:32px] [--text-title-large-weight:400]"
+          >
+            {t("allChatsPage.title")}
+          </Typography>
+          {onClose && (
+            <Button
+              variant="ghost"
+              size="compact"
+              className="[@media(pointer:coarse)]:size-11"
+              iconOnly={<X aria-hidden />}
+              aria-label={t("allChatsPage.close")}
+              tooltip={t("allChatsPage.close")}
+              onClick={onClose}
+            />
+          )}
+        </div>
 
-      <Input
-        fullWidth
-        wrapperClassName="shrink-0"
-        type="text"
-        placeholder={t("allChatsPage.searchPlaceholder")}
-        value={searchText}
-        onChange={(event: ChangeEvent<HTMLInputElement>) =>
-          setSearchText(event.target.value)
-        }
-        leftIcon={<Search size={16} />}
-      />
-
-      <div
-        role="group"
-        aria-label={t("allChatsPage.filterAria")}
-        className="mt-4 mb-2 flex shrink-0 gap-2 overflow-x-auto pb-1"
-      >
-        {chips.map((chip) => {
-          const key = allChatsFilterKey(chip);
-          return (
-            <FilterChip
-              key={key}
-              selected={key === allChatsFilterKey(filter)}
-              onClick={() => onFilterChange(chip)}
-            >
-              {chipLabel(chip)}
-            </FilterChip>
-          );
-        })}
-      </div>
-
-      <div className="min-h-0 flex-1">
-        <AllChatsBody
-          items={items}
-          isLoading={isLoading}
-          isError={isError}
-          onRetry={onRetry}
-          searchText={searchText}
-          listContext={listContext}
-          renderItem={renderItem}
-          hasMore={hasMore}
-          endReached={endReached}
+        <Input
+          fullWidth
+          wrapperClassName="shrink-0"
+          type="text"
+          placeholder={t("allChatsPage.searchPlaceholder")}
+          aria-label={t("allChatsPage.searchPlaceholder")}
+          value={searchText}
+          onChange={(event: ChangeEvent<HTMLInputElement>) =>
+            setSearchText(event.target.value)
+          }
+          leftIcon={<Search size={16} />}
         />
+
+        <div
+          role="group"
+          aria-label={t("allChatsPage.filterAria")}
+          className="mt-4 mb-2 flex shrink-0 gap-2 overflow-x-auto pb-1"
+        >
+          {chips.map((chip) => {
+            const key = allChatsFilterKey(chip);
+            return (
+              <FilterChip
+                key={key}
+                selected={key === allChatsFilterKey(filter)}
+                className={cn(
+                  "border-transparent [--text-body-medium-default-weight:400]",
+                  key === allChatsFilterKey(filter)
+                    ? "bg-[var(--surface-active)] text-[var(--content-default)]"
+                    : "bg-transparent hover:border-transparent",
+                )}
+                onClick={() => onFilterChange(chip)}
+              >
+                {chipLabel(chip)}
+              </FilterChip>
+            );
+          })}
+        </div>
+
+        <div className="min-h-0 flex-1">
+          <AllChatsBody
+            items={items}
+            isLoading={isLoading}
+            isError={isError}
+            onRetry={onRetry}
+            searchText={searchText}
+            listContext={listContext}
+            renderItem={renderItem}
+            hasMore={hasMore}
+            endReached={endReached}
+          />
+        </div>
       </div>
-    </PageShell>
+    </section>
   );
 }
 

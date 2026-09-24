@@ -15,8 +15,10 @@
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useArgs } from "storybook/preview-api";
+import { SubagentAvatarChip } from "@/components/avatar/subagent-avatar-chip";
 
 import { ConversationListProvider } from "@/domains/chat/components/conversation-list-context";
+import { AllChatsActivityBadge } from "@/domains/chat/components/all-chats-activity-badge";
 import {
   AllChatsPage,
   type AllChatsPageProps,
@@ -164,6 +166,7 @@ const meta = {
     isLoading: false,
     isError: false,
     onRetry: () => {},
+    onClose: () => {},
     now: NOW,
   },
   argTypes: {
@@ -171,6 +174,8 @@ const meta = {
     groups: { control: false },
     listContext: { control: false },
     filter: { control: false },
+    renderActivity: { control: false },
+    onRowMount: { control: false },
   },
   /* The chip row is a controlled selection, so the story writes the choice
      back into its own args and the canvas stays live (design-library story
@@ -178,7 +183,7 @@ const meta = {
   render: function Render(args) {
     const [{ filter }, updateArgs] = useArgs<AllChatsPageProps>();
     return (
-      <div className="flex h-screen flex-col p-4">
+      <div className="flex h-screen flex-col p-4 max-md:p-0">
         <AllChatsPage
           {...args}
           filter={filter}
@@ -254,9 +259,45 @@ export const LoadFailed: Story = {
 
 /**
  * Phone width. The row's title has less room, the chip row scrolls sideways
- * rather than wrapping, and the check is present outright because the device
- * cannot hover.
+ * rather than wrapping, and a visible menu reaches every action on touch.
  */
 export const Mobile: Story = {
+  globals: { viewport: { value: "sbMobile", isRotated: false } },
+};
+
+/** Unread, Done, and task status share the row without hiding one another. */
+export const WithActivity: Story = {
+  args: {
+    conversations: HISTORY.slice(0, 12).map((conversation, index) => ({
+      ...conversation,
+      hasUnseenLatestAssistantMessage: index % 3 === 0,
+    })),
+    renderActivity: (conversation) => {
+      if (conversation.conversationId === "conv-2") {
+        return (
+          <AllChatsActivityBadge status="running" count={2}>
+            <span className="inline-flex">
+              <SubagentAvatarChip subagentId="agent-review" />
+              <SubagentAvatarChip subagentId="agent-research" />
+            </span>
+          </AllChatsActivityBadge>
+        );
+      }
+      if (conversation.conversationId === "conv-4") {
+        return <AllChatsActivityBadge status="attention" count={1} />;
+      }
+      if (
+        conversation.conversationId === "conv-5" ||
+        conversation.conversationId === "conv-12"
+      ) {
+        return <AllChatsActivityBadge status="running" count={1} />;
+      }
+      return null;
+    },
+  },
+};
+
+export const MobileWithActivity: Story = {
+  args: WithActivity.args,
   globals: { viewport: { value: "sbMobile", isRotated: false } },
 };
