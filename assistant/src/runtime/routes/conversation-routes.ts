@@ -50,7 +50,10 @@ import { consolidateMessageRows } from "../../conversations/message-consolidatio
 import { resolveTurnCommitWaitMs } from "../../daemon/abort-watchdog.js";
 import { createApprovalConversationGenerator } from "../../daemon/approval-generators.js";
 import type { Conversation } from "../../daemon/conversation.js";
-import { isClaimLive } from "../../daemon/conversation-actor-claim.js";
+import {
+  commitPreparingClaim,
+  isClaimLive,
+} from "../../daemon/conversation-actor-claim.js";
 import {
   classifyInterruptEligibility,
   interruptRunningTurn,
@@ -2810,8 +2813,10 @@ export async function handleSendMessage(
        * landed, which the branch answers by queueing, since nothing was
        * written.
        */
-      const persistCannedUserRow = (metadata: Record<string, unknown>) =>
-        writeWhileClaimLive((insertPrecondition) =>
+      const persistCannedUserRow = async (
+        metadata: Record<string, unknown>,
+      ) => {
+        const row = await writeWhileClaimLive((insertPrecondition) =>
           persistQueuedMessageBody(conversation, {
             content: rawContent,
             attachments,
@@ -2827,6 +2832,11 @@ export async function handleSendMessage(
             ...(clientOs ? { requestClientOs: clientOs } : {}),
           }),
         );
+        if (row) {
+          commitPreparingClaim(conversation, turnClaim);
+        }
+        return row;
+      };
 
       if (slashResult.kind === "unknown") {
         // Released by this branch on every path.

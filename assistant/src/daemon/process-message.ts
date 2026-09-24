@@ -37,7 +37,10 @@ import {
 } from "../telemetry/turn-outcome.js";
 import { getLogger } from "../util/logger.js";
 import type { Conversation } from "./conversation.js";
-import { isClaimLive } from "./conversation-actor-claim.js";
+import {
+  commitPreparingClaim,
+  isClaimLive,
+} from "./conversation-actor-claim.js";
 import {
   buildProviderMetaForPersistence,
   buildSlackMetaForPersistence,
@@ -622,6 +625,7 @@ async function runClaimedMessage(
     if (!persisted) {
       throw new Error(CONVERSATION_BUSY_MESSAGE);
     }
+    commitPreparingClaim(conversation, processingClaim);
     return persisted;
   };
 

@@ -81,8 +81,9 @@ flag. The holder checks the claim before each write it makes ahead of the turn
 (the reload's result, a slash command's rows, the user row) and gives it back
 instead of writing. A message cancelled before anything was written takes the
 same busy path as a second sender, so it is queued or deferred rather than
-dropped; a slash command whose user row already landed keeps that row and
-writes no reply.
+dropped, and the release of its claim puts back the resting trust it replaced,
+so the cancelled sender is not left as the conversation's owner. A slash
+command whose user row already landed keeps that row and writes no reply.
 
 The queue drains are deliberately not in that set. `drainSingleMessage` and
 `drainBatch` carry the queued sender on the per-turn field and into the run,

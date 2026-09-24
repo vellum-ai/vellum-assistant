@@ -132,6 +132,11 @@ const BOB: TrustContext = {
   sourceChannel: "vellum",
   requesterExternalUserId: "bob-principal",
 };
+// The actor the conversation rests at before either sender arrives.
+const RESTING_OWNER: TrustContext = {
+  trustClass: "guardian",
+  sourceChannel: "vellum",
+};
 const TRUST_BY_PRINCIPAL: Record<string, TrustContext> = {
   "alice-principal": ALICE,
   "bob-principal": BOB,
@@ -157,11 +162,18 @@ mock.module("../ipc/gateway-client.js", () => ({
 }));
 
 import type { Conversation } from "../daemon/conversation.js";
-import { acquireProcessingForActor } from "../daemon/conversation-actor-claim.js";
+import {
+  acquireProcessingForActor,
+  type ActorClaimContext,
+  endPreparingClaim,
+  isClaimLive,
+  releasePreparingClaim,
+} from "../daemon/conversation-actor-claim.js";
 import { abortConversation } from "../daemon/conversation-lifecycle.js";
 import {
   CONVERSATION_BUSY_MESSAGE,
   type MessagingConversationContext,
+  type PersistMessageOptions,
   persistUserMessage,
 } from "../daemon/conversation-messaging.js";
 import {
@@ -200,7 +212,11 @@ const CONV_ID = "conv-route-race";
 function makeConversation() {
   const enqueued: Array<{ content: string; trustContext?: TrustContext }> = [];
   const conversation = Object.assign(
-    createScopeRaceConversation(CONV_ID, CONVERSATION_BUSY_MESSAGE),
+    createScopeRaceConversation(CONV_ID, CONVERSATION_BUSY_MESSAGE, {
+      isClaimLive,
+      endPreparingClaim,
+      releasePreparingClaim,
+    }),
     {
       enqueued,
       modeSessions: mockUnownedModeSessions(),
@@ -233,7 +249,10 @@ function makeConversation() {
       addPreactivatedSkillId: () => {},
       warmPromptCache: () => {},
       acquireProcessingForActor: (trust: TrustContext | null | undefined) =>
-        acquireProcessingForActor(conversation, trust),
+        acquireProcessingForActor(
+          conversation as unknown as ActorClaimContext,
+          trust,
+        ),
       stop: () =>
         abortConversation(
           conversation as unknown as Parameters<typeof abortConversation>[0],
@@ -383,7 +402,10 @@ describe("POST /v1/messages racing another sender to an idle conversation", () =
       conversation.persistUserMessage = (options) =>
         persistUserMessage(
           conversation as unknown as MessagingConversationContext,
-          { content: "from Alice", ...options },
+          {
+            content: "from Alice",
+            ...(options as Omit<PersistMessageOptions, "content">),
+          },
         );
 
       aliceReload.release();
@@ -401,6 +423,7 @@ describe("POST /v1/messages racing another sender to an idle conversation", () =
   test("a Stop during slash resolution queues the send and writes nothing", async () => {
     const conversation = makeConversation();
     setConversation(CONV_ID, conversation as unknown as Conversation);
+    conversation.trustContext = RESTING_OWNER;
     const slash = createHold();
     heldSlash = slash;
 
@@ -418,6 +441,8 @@ describe("POST /v1/messages racing another sender to an idle conversation", () =
     expect(conversation.persistedTrust).toEqual([]);
     expect(conversation.turns).toHaveLength(0);
     expect(conversation.isProcessing()).toBe(false);
+    // Nothing of Alice's landed, so the conversation rests where it was.
+    expect(conversation.trustContext).toBe(RESTING_OWNER);
     expect(conversation.drained).toEqual(["from Bob", "from Alice"]);
   });
 

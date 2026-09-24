@@ -17,7 +17,6 @@
 
 import type { Conversation } from "../../daemon/conversation.js";
 import type { ChannelCapabilities } from "../../daemon/conversation-runtime-assembly.js";
-import type { TrustContext } from "../../daemon/trust-context-types.js";
 
 /** Build a coordinator double representing a turn with no mode owner. */
 export function mockUnownedModeSessions(): Conversation["modeSessions"] {
@@ -95,7 +94,7 @@ export async function acquireProcessingForActorDouble(
       "acquireProcessingFenced" | "setTrustContext" | "ensureActorScopedHistory"
     >
   >,
-  trustContext: TrustContext | null | undefined,
+  trustContext: Parameters<Conversation["acquireProcessingForActor"]>[0],
 ): Promise<number | null> {
   const owner = this.acquireProcessingFenced
     ? await this.acquireProcessingFenced()

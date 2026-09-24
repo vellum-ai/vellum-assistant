@@ -10,15 +10,28 @@ import type { TrustContext } from "./trust-context-types.js";
  * A claim still preparing its turn: taken, but with no agent loop and no abort
  * controller behind it yet. It covers everything a sender does before its turn
  * starts (the history reload, slash resolution, a canned reply's writes), and
- * ends in exactly two places, both through {@link endPreparingClaim}: the
- * persist that installs the turn's abort controller, and the release of the
- * claim. `cancelled` is set by a Stop or steer that lands in that window; the
- * holder checks it with {@link isClaimLive} before each write and gives the
- * claim back instead of writing.
+ * ends in exactly two places: the persist that installs the turn's abort
+ * controller ({@link endPreparingClaim}), and the release of the claim
+ * ({@link releasePreparingClaim}). `cancelled` is set by a Stop or steer that
+ * lands in that window; the holder checks it with {@link isClaimLive} before
+ * each write and gives the claim back instead of writing.
  */
 export interface PreparingClaim {
   readonly owner: number;
   cancelled: boolean;
+  /**
+   * The trust this claim stamped on the conversation and the trust it
+   * replaced, when it stamped one. A release that finds the claim still
+   * preparing and nothing committed puts the replaced trust back, so a sender
+   * whose message never landed is not left as the conversation's resting
+   * actor.
+   */
+  stamp?: {
+    readonly stamped: TrustContext | undefined;
+    readonly prior: TrustContext | undefined;
+  };
+  /** Set once a row this claim's sender wrote has landed. */
+  committed: boolean;
 }
 
 /** The conversation surface {@link acquireProcessingForActor} needs. */
@@ -51,9 +64,8 @@ export interface ActorClaimContext {
  * An undefined `trustContext` keeps the conversation's current trust. Null is
  * a conversation this sender cannot have: busy when asked, or cancelled or
  * claimed away during the reload. In the last two cases the claim is given
- * back and the trust this call stamped is put back, so a sender that runs no
- * turn leaves nothing behind. A reload that throws does the same before the
- * error propagates.
+ * back, and its release puts back the trust this call stamped. A reload that
+ * throws does the same before the error propagates.
  */
 export async function acquireProcessingForActor(
   ctx: ActorClaimContext,
@@ -63,18 +75,26 @@ export async function acquireProcessingForActor(
   if (owner === null) {
     return null;
   }
-  const priorTrust = ctx.trustContext;
-  const preparation: PreparingClaim = { owner, cancelled: false };
+  const preparation: PreparingClaim = {
+    owner,
+    cancelled: false,
+    committed: false,
+    ...(trustContext !== undefined
+      ? {
+          stamp: {
+            stamped: trustContext ?? undefined,
+            prior: ctx.trustContext,
+          },
+        }
+      : {}),
+  };
   ctx.preparingClaim = preparation;
   const giveBack = (origin: string): void => {
-    if (
-      trustContext !== undefined &&
-      ctx.trustContext === (trustContext ?? undefined)
-    ) {
-      ctx.setTrustContext(priorTrust ?? null);
-    }
     if (ctx.releaseProcessing(owner)) {
       void ctx.kickDrainQueue("loop_complete", origin);
+    } else {
+      // Claimed away: the slot is no longer this sender's to put back.
+      endPreparingClaim(ctx, owner);
     }
   };
   try {
@@ -126,12 +146,51 @@ export function isClaimLive(
   );
 }
 
-/** End the preparing window of `owner`'s claim, if it is still open. */
+/**
+ * End the preparing window of `owner`'s claim, if it is still open, because
+ * its turn has started.
+ */
 export function endPreparingClaim(
   ctx: { preparingClaim?: PreparingClaim | null },
   owner: number,
 ): void {
   if (ctx.preparingClaim?.owner === owner) {
     ctx.preparingClaim = null;
+  }
+}
+
+/** Record that a row `owner`'s sender wrote has landed. */
+export function commitPreparingClaim(
+  ctx: { preparingClaim?: PreparingClaim | null },
+  owner: number,
+): void {
+  if (ctx.preparingClaim?.owner === owner) {
+    ctx.preparingClaim.committed = true;
+  }
+}
+
+/**
+ * End the preparing window of `owner`'s claim as the claim is released.
+ *
+ * A claim released while still preparing started no turn. When nothing it
+ * wrote landed either, the trust it stamped is put back, but only while the
+ * slot still holds that stamp: a writer that moved the slot since keeps it.
+ */
+export function releasePreparingClaim(
+  ctx: {
+    preparingClaim?: PreparingClaim | null;
+    trustContext?: TrustContext;
+    setTrustContext(ctx: TrustContext | null): void;
+  },
+  owner: number,
+): void {
+  const preparation = ctx.preparingClaim;
+  if (preparation?.owner !== owner) {
+    return;
+  }
+  ctx.preparingClaim = null;
+  const { stamp } = preparation;
+  if (!preparation.committed && stamp && ctx.trustContext === stamp.stamped) {
+    ctx.setTrustContext(stamp.prior ?? null);
   }
 }

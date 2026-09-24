@@ -124,8 +124,8 @@ import { BrowserModeSessionProducer } from "./browser-mode-session.js";
 import { ComputerUseModeSessionProducer } from "./computer-use-mode-session.js";
 import {
   acquireProcessingForActor as acquireProcessingForActorImpl,
-  endPreparingClaim,
   type PreparingClaim,
+  releasePreparingClaim,
 } from "./conversation-actor-claim.js";
 import type { AssistantSurface } from "./conversation-agent-loop.js";
 import {
@@ -2404,7 +2404,7 @@ export class Conversation {
       );
       return false;
     }
-    endPreparingClaim(this, owner);
+    releasePreparingClaim(this, owner);
     this.setProcessing(false);
     return true;
   }

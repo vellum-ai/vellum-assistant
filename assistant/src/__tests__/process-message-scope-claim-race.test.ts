@@ -89,12 +89,19 @@ mock.module("../daemon/conversation-store.js", () => ({
   mergeConversationOptions: () => {},
 }));
 
-import { acquireProcessingForActor } from "../daemon/conversation-actor-claim.js";
+import {
+  acquireProcessingForActor,
+  type ActorClaimContext,
+  endPreparingClaim,
+  isClaimLive,
+  releasePreparingClaim,
+} from "../daemon/conversation-actor-claim.js";
 import { abortConversation } from "../daemon/conversation-lifecycle.js";
 import {
   CONVERSATION_BUSY_MESSAGE,
   isConversationBusyError,
   type MessagingConversationContext,
+  type PersistMessageOptions,
   persistUserMessage,
 } from "../daemon/conversation-messaging.js";
 import * as slashModule from "../daemon/conversation-slash.js";
@@ -135,10 +142,19 @@ const BOB: TrustContext = {
   sourceChannel: "slack",
   requesterExternalUserId: "U-bob",
 };
+// The actor the conversation rests at before either sender arrives.
+const RESTING_OWNER: TrustContext = {
+  trustClass: "guardian",
+  sourceChannel: "slack",
+};
 
 function makeConversation() {
   const conversation = Object.assign(
-    createScopeRaceConversation(CONV_ID, CONVERSATION_BUSY_MESSAGE),
+    createScopeRaceConversation(CONV_ID, CONVERSATION_BUSY_MESSAGE, {
+      isClaimLive,
+      endPreparingClaim,
+      releasePreparingClaim,
+    }),
     {
       authContext: undefined,
       usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
@@ -154,7 +170,10 @@ function makeConversation() {
       setTurnInterfaceContext: () => {},
       getTurnInterfaceContext: () => null,
       acquireProcessingForActor: (trust: TrustContext | null | undefined) =>
-        acquireProcessingForActor(conversation, trust),
+        acquireProcessingForActor(
+          conversation as unknown as ActorClaimContext,
+          trust,
+        ),
       stop: () =>
         abortConversation(
           conversation as unknown as Parameters<typeof abortConversation>[0],
@@ -259,7 +278,10 @@ describe("channel ingress racing another sender to an idle conversation", () => 
       conversation.persistUserMessage = (options) =>
         persistUserMessage(
           conversation as unknown as MessagingConversationContext,
-          { content: "from Alice", ...options },
+          {
+            content: "from Alice",
+            ...(options as Omit<PersistMessageOptions, "content">),
+          },
         );
 
       aliceReload.release();
@@ -276,6 +298,7 @@ describe("channel ingress racing another sender to an idle conversation", () => 
   );
   test("a Stop during slash resolution turns the message away as busy and writes nothing", async () => {
     const conversation = activeConversation;
+    conversation.trustContext = RESTING_OWNER;
     const slash = createHold();
     heldSlash = slash;
 
@@ -294,6 +317,8 @@ describe("channel ingress racing another sender to an idle conversation", () => 
     expect(conversation.persistedTrust).toEqual([]);
     expect(conversation.turns).toHaveLength(0);
     expect(conversation.isProcessing()).toBe(false);
+    // Nothing of Alice's landed, so the conversation rests where it was.
+    expect(conversation.trustContext).toBe(RESTING_OWNER);
   });
 
   test("a Stop during a slash command's user-row insert writes no reply", async () => {

@@ -13,13 +13,31 @@
  * whether two turns ever overlapped.
  *
  * It carries the fields an abort reads as plain stubs, so a test can run the
- * real abort against it. `busyMessage` is the error text the persist throws
- * for a conversation it cannot have, which callers match on; the claim a
- * sender takes before scoping is left to the test to wire, so this helper
- * imports nothing at runtime.
+ * real abort against it. The test passes in what the double must not
+ * reimplement: the busy error text callers match on, and the claim module's
+ * own lifecycle functions, which the double's persist and release call as the
+ * real conversation does. The claim a sender takes before scoping is left to
+ * the test to wire. This helper imports nothing.
  */
 
-import type { TrustContext } from "../../daemon/trust-context-types.js";
+/**
+ * The trust a sender carries, as far as this double reads it. Tests pass the
+ * daemon's own trust contexts, which have this shape.
+ */
+export interface RaceTrust {
+  readonly trustClass: string;
+}
+
+/**
+ * The claim module's lifecycle functions, handed in by the test. Declared as
+ * methods so the real functions, typed against the daemon's conversation
+ * shape, can be passed in directly.
+ */
+export interface ClaimLifecycle {
+  isClaimLive(ctx: object, owner: number): boolean;
+  endPreparingClaim(ctx: object, owner: number): void;
+  releasePreparingClaim(ctx: object, owner: number): void;
+}
 
 export interface HeldReload {
   /** Resolves once a reload is waiting on this hold. */
@@ -28,7 +46,7 @@ export interface HeldReload {
 }
 
 export interface RecordedTurn {
-  trust: TrustContext | undefined;
+  trust: RaceTrust | undefined;
   historyAtStart: string[];
   historyAtEnd?: string[];
 }
@@ -58,13 +76,14 @@ export function createHold(): HeldReload & { wait(): Promise<void> } {
 }
 
 /** The history a reload scoped for `trust` leaves resident. */
-export function historyScopedFor(trust: TrustContext | undefined): string[] {
+export function historyScopedFor(trust: RaceTrust | undefined): string[] {
   return [`history visible to ${trust?.trustClass ?? "nobody"}`];
 }
 
 export function createScopeRaceConversation(
   conversationId: string,
   busyMessage: string,
+  claims: ClaimLifecycle,
 ) {
   let processing = false;
   let owner = 0;
@@ -72,13 +91,6 @@ export function createScopeRaceConversation(
   let loadedFor: string | null = null;
   const holds: Array<{ gate: Promise<void>; enter: () => void }> = [];
   let running = 0;
-  // A claim's preparing window ends when its turn becomes abortable or the
-  // claim is released, as the real conversation's does.
-  const endPreparing = (claim: number) => {
-    if (conversation.preparingClaim?.owner === claim) {
-      conversation.preparingClaim = null;
-    }
-  };
   const queued: unknown[] = [];
   const queue = {
     get length() {
@@ -96,13 +108,10 @@ export function createScopeRaceConversation(
 
   const conversation = {
     conversationId,
-    trustContext: undefined as TrustContext | undefined,
+    trustContext: undefined as RaceTrust | undefined,
     messages: [] as string[],
     abortController: null as AbortController | null,
-    preparingClaim: null as {
-      readonly owner: number;
-      cancelled: boolean;
-    } | null,
+    preparingClaim: null as unknown,
     drainKicks: [] as Array<string | undefined>,
     /** Messages a drain picked up, in the order it ran them. */
     drained: [] as unknown[],
@@ -114,8 +123,8 @@ export function createScopeRaceConversation(
     surfaceActionRequestIds: new Set<string>(),
     surfaceState: new Map(),
     accumulatedSurfaceState: new Map(),
-    trustWrites: [] as Array<TrustContext | undefined>,
-    persistedTrust: [] as Array<TrustContext | undefined>,
+    trustWrites: [] as Array<RaceTrust | undefined>,
+    persistedTrust: [] as Array<RaceTrust | undefined>,
     turns: [] as RecordedTurn[],
     maxConcurrentTurns: 0,
 
@@ -154,7 +163,7 @@ export function createScopeRaceConversation(
       if (owner !== claim) {
         return false;
       }
-      endPreparing(claim);
+      claims.releasePreparingClaim(conversation, claim);
       processing = false;
       owner = 0;
       return true;
@@ -171,7 +180,7 @@ export function createScopeRaceConversation(
       }
     },
 
-    setTrustContext(ctx: TrustContext | null) {
+    setTrustContext(ctx: RaceTrust | null) {
       conversation.trustContext = ctx ?? undefined;
       conversation.trustWrites.push(ctx ?? undefined);
     },
@@ -193,7 +202,7 @@ export function createScopeRaceConversation(
     getMessages: () => conversation.messages,
 
     async persistUserMessage(options: {
-      trustContext?: TrustContext;
+      trustContext?: RaceTrust;
       processingClaim?: number;
       requestId?: string;
     }): Promise<{ id: string; deduplicated: boolean }> {
@@ -205,11 +214,7 @@ export function createScopeRaceConversation(
         if (claim === null) {
           throw new Error(busyMessage);
         }
-      } else if (
-        owner !== options.processingClaim ||
-        (conversation.preparingClaim?.owner === options.processingClaim &&
-          conversation.preparingClaim.cancelled)
-      ) {
+      } else if (!claims.isClaimLive(conversation, options.processingClaim)) {
         throw new Error(busyMessage);
       }
       conversation.persistedTrust.push(
@@ -217,7 +222,7 @@ export function createScopeRaceConversation(
       );
       conversation.abortController = new AbortController();
       if (options.processingClaim !== undefined) {
-        endPreparing(options.processingClaim);
+        claims.endPreparingClaim(conversation, options.processingClaim);
       }
       return {
         id: options.requestId ?? `row-${conversation.persistedTrust.length}`,
@@ -228,7 +233,7 @@ export function createScopeRaceConversation(
     async runAgentLoop(
       _content: string,
       _messageId: string,
-      options?: { turnTrustContext?: TrustContext },
+      options?: { turnTrustContext?: RaceTrust },
     ): Promise<void> {
       running += 1;
       conversation.maxConcurrentTurns = Math.max(
