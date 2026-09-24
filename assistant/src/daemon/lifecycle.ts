@@ -57,6 +57,7 @@ import { startScheduler } from "../schedule/scheduler.js";
 import { getSubagentManager } from "../subagent/index.js";
 import { startUsageTelemetryReporter } from "../telemetry/usage-telemetry-reporter.js";
 import { getLogger, initLogger } from "../util/logger.js";
+import { DAEMON_OOM_SCORE_ADJ, setOomScoreAdj } from "../util/oom-priority.js";
 import {
   ensureDataDir,
   getDotEnvPath,
@@ -114,6 +115,9 @@ export async function runDaemon(): Promise<void> {
   // the event hub real clients subscribe to, so plugin-facing publishes made
   // here fan out locally rather than routing to a daemon over IPC.
   markCurrentProcessAsMainDaemon();
+  // Before the first spawn: every child inherits this value and resets its
+  // own, so the kernel OOM killer takes a tool or worker before the daemon.
+  const oomProtected = setOomScoreAdj(DAEMON_OOM_SCORE_ADJ);
 
   const startupStartedAt = Date.now();
   // dotenv loads before the first log call so the lazy root logger
@@ -121,7 +125,13 @@ export async function runDaemon(): Promise<void> {
   // whatever was in the live environment at process spawn.
   loadDotEnv();
   validateEnv();
-  log.info({ version: APP_VERSION }, "Daemon starting");
+  log.info(
+    {
+      version: APP_VERSION,
+      oomScoreAdj: oomProtected ? DAEMON_OOM_SCORE_ADJ : undefined,
+    },
+    "Daemon starting",
+  );
 
   // Signal handlers install before any blocking startup work — a boot that
   // inherits a large WAL can spend minutes inside `initializeDb()`, and

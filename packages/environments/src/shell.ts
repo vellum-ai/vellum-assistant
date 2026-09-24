@@ -24,6 +24,21 @@ if (-not $__vellumCommandSucceeded) {
 }
 exit 0`;
 
+/**
+ * `oom_score_adj` for assistant-owned tool processes. Any positive value
+ * outranks a 0-scored process; 1000 makes a tool the kernel's first choice
+ * whenever the container runs out of memory, so the assistant itself is never
+ * the victim of a runaway command.
+ */
+export const CHILD_OOM_SCORE_ADJ = 1000;
+
+/**
+ * Prefix for a Bash `-c` script that raises the shell's own OOM-kill priority
+ * before the command runs. Every process the command forks inherits it. Bash
+ * performs a builtin's redirection itself, so `/proc/self` is the shell.
+ */
+const LINUX_OOM_SCORE_ADJ_PREFIX = `echo ${CHILD_OOM_SCORE_ADJ} >/proc/self/oom_score_adj 2>/dev/null; `;
+
 export function buildShellInvocation(
   command: string,
   hostPlatform: NodeJS.Platform = process.platform,
@@ -45,7 +60,11 @@ export function buildShellInvocation(
       ],
     };
   }
-  return { command: "bash", args: ["-c", "--", command] };
+  const script =
+    hostPlatform === "linux"
+      ? `${LINUX_OOM_SCORE_ADJ_PREFIX}${command}`
+      : command;
+  return { command: "bash", args: ["-c", "--", script] };
 }
 
 /**

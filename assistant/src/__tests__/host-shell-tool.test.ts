@@ -45,6 +45,8 @@ mock.module("../daemon/host-bash-proxy.js", () => ({
   },
 }));
 
+import { buildShellInvocation } from "@vellumai/environments/shell";
+
 import { hostShellTool } from "../tools/host-terminal/host-shell.js";
 import type { ToolContext, ToolExecutionResult } from "../tools/types.js";
 
@@ -139,7 +141,7 @@ describe("host_bash tool", () => {
     // Verify spawn was called with 'bash' directly — not 'bwrap' or 'sandbox-exec'
     expect(spawnCalls.length).toBe(1);
     expect(spawnCalls[0].command).toBe("bash");
-    expect(spawnCalls[0].args).toEqual(["-c", "--", "echo hello"]);
+    expect(spawnCalls[0].args).toEqual(buildShellInvocation("echo hello").args);
   });
 });
 

@@ -45,6 +45,10 @@ Resource pressure monitoring reports sustained CPU/memory pressure on platform-h
 
 **Lifecycle:** `src/daemon/resource-pressure-guard-lifecycle.ts` starts the guard at daemon boot with the first sample deferred onto a macrotask so it never blocks startup, and stops the guard (cancelling any pending deferred sample) on shutdown. The web chat banner built on this status is documented in the repo-level [`/ARCHITECTURE.md`](../ARCHITECTURE.md) "Resource Pressure Monitoring" section.
 
+### OOM Priority
+
+When the container hits its memory limit, the kernel kills the process with the highest `oom_score` (memory share plus `oom_score_adj`). `src/util/oom-priority.ts` steers that choice so the assistant is never the victim of a runaway tool: the daemon sets itself to -700 as the first thing in `runDaemon`, before any spawn. Children inherit the parent's value at fork, so every spawn path resets its child: shell children get +1000 from the Linux prefix in `buildShellInvocation` (`packages/environments`), desktop children get +1000 from the `sh -c ... exec` wrapper in `src/desktop/desktop-session-manager.ts`, and workers, the embedding worker, and Qdrant get 0 from a parent-side write right after spawn (the resource monitor gets -500 so it outlives everything but the daemon and records the kill). Raising never needs a capability; lowering needs `CAP_SYS_RESOURCE`, which the platform grants and self-hosted Docker does not, where the daemon simply stays at 0. Nothing here caps a single process or acts early: it only decides who dies once the kernel has to kill.
+
 ### Single-Header JWT Auth Model
 
 All HTTP API requests use a single `Authorization: Bearer <jwt>` header for authentication. The JWT carries identity, permissions, and policy versioning in a unified token.
