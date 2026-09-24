@@ -1,6 +1,49 @@
+import type { AuthContext } from "../runtime/auth/types.js";
 import type { Conversation } from "./conversation.js";
 import { findConversationOrSubagent } from "./conversation-registry.js";
 import type { TrustCarrier, TrustContext } from "./trust-context-types.js";
+import { turnActorPrincipalId, type TurnActorSource } from "./turn-actor.js";
+
+/**
+ * Who a turn runs as, taken together: the trust that governs its permissions
+ * and the principal and auth context that decide whose client its host tools
+ * reach. Applied as one, so a turn never pairs one actor's trust with
+ * another's principal.
+ */
+export interface TurnActor {
+  trustContext?: TrustContext;
+  sourceActorPrincipalId?: string;
+  authContext?: AuthContext;
+}
+
+/** The actor of the turn that started some work, captured when it started. */
+export interface WorkStarter extends TurnActor {
+  trustContext: TrustContext;
+}
+
+/**
+ * The starter each live conversation a turn spawned (a subagent's) was
+ * started by, for notifications read off the conversation rather than the
+ * spawner's own records.
+ */
+const startersByConversation = new WeakMap<object, WorkStarter>();
+
+/** Record who started the work a spawned conversation runs. */
+export function recordWorkStarter(
+  conversation: object,
+  starter: WorkStarter | undefined,
+): void {
+  if (starter) {
+    startersByConversation.set(conversation, starter);
+  }
+}
+
+/** Who started the work a spawned conversation runs, if recorded. */
+export function workStarterOf(
+  conversation: object | undefined,
+): WorkStarter | undefined {
+  return conversation ? startersByConversation.get(conversation) : undefined;
+}
 
 type ScopedConversation = Pick<
   Conversation,
@@ -48,16 +91,51 @@ export function isContactInvolved(
 }
 
 /**
- * The trust of the turn running on a conversation, captured by work that turn
+ * The actor of the turn running on a conversation, captured by work that turn
  * starts and that reports back after it (a subagent, an ACP session, a
  * background command). When a contact is involved (see `isContactInvolved`),
  * the report runs as this actor, not as whoever the conversation rests on by
- * the time it arrives.
+ * the time it arrives. Undefined when the conversation has no actor at all.
  */
-export function trustOfStartingTurn(
-  conversationId: string,
-): TrustContext | undefined {
-  return findConversationOrSubagent(conversationId)?.getTurnOrRestingTrust();
+export function startingTurn(conversationId: string): WorkStarter | undefined {
+  const conversation = findConversationOrSubagent(conversationId);
+  return conversation ? starterOfTurn(conversation) : undefined;
+}
+
+/** The actor of the turn running on `conversation`, as a starter. */
+export function starterOfTurn(
+  conversation: TrustCarrier & TurnActorSource,
+): WorkStarter | undefined {
+  const trustContext =
+    conversation.currentTurnTrustContext ?? conversation.trustContext;
+  if (!trustContext) {
+    return undefined;
+  }
+  return {
+    trustContext,
+    sourceActorPrincipalId: turnActorPrincipalId(conversation),
+    authContext: (conversation.currentTurnAuthContext ??
+      conversation.authContext) as AuthContext | undefined,
+  };
+}
+
+/**
+ * Stamp a turn's actor on the conversation's per-turn slots before work runs
+ * outside the ordinary send path, so tool setup reads one actor's trust,
+ * principal and auth context together.
+ */
+export function stampTurnActor(
+  conversation: Pick<
+    Conversation,
+    | "currentTurnTrustContext"
+    | "currentTurnSourceActorPrincipalId"
+    | "currentTurnAuthContext"
+  >,
+  actor: TurnActor,
+): void {
+  conversation.currentTurnTrustContext = actor.trustContext;
+  conversation.currentTurnSourceActorPrincipalId = actor.sourceActorPrincipalId;
+  conversation.currentTurnAuthContext = actor.authContext;
 }
 
 /**
@@ -97,6 +175,22 @@ export function actorForWorkWithoutSender(
     return actorBeforeContact.get(conversation);
   }
   return conversation.trustContext;
+}
+
+/**
+ * The whole actor work that no turn started runs as while a contact is
+ * involved: the trust from {@link actorForWorkWithoutSender}, with the
+ * conversation's resting auth context rather than the principal of whatever
+ * turn ran last, which may be the contact's.
+ */
+export function actorWithoutSender(
+  conversation: Pick<Conversation, "trustContext" | "authContext">,
+): TurnActor {
+  return {
+    trustContext: actorForWorkWithoutSender(conversation),
+    sourceActorPrincipalId: conversation.authContext?.actorPrincipalId,
+    authContext: conversation.authContext,
+  };
 }
 
 /**

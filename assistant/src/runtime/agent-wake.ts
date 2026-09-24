@@ -86,10 +86,13 @@ import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { isSidebarDoneEnabled } from "../config/sidebar-done-gate.js";
 import {
-  actorForWorkWithoutSender,
+  actorWithoutSender,
   isContactInvolved,
   isContactTrust,
   scopeHistoryToActor,
+  stampTurnActor,
+  type TurnActor,
+  type WorkStarter,
 } from "../daemon/actor-scoped-history.js";
 import { conversationSupportsDynamicUi } from "../daemon/channel-ui-capability.js";
 import type { Conversation } from "../daemon/conversation.js";
@@ -231,13 +234,14 @@ export interface WakeOptions {
    */
   trustContext?: TrustContext;
   /**
-   * The trust of the turn that started the work this wake reports on (a
-   * background command), captured when it started. The wake runs as that
-   * actor when a shared-conversation contact is involved: a contact's work
-   * completes as that contact, on their history, and only while they are
-   * still admitted. Absent for work no turn started.
+   * The actor of the turn that started the work this wake reports on (a
+   * background command), captured when it started: its trust, principal and
+   * auth context together. The wake runs as that actor when a
+   * shared-conversation contact is involved: a contact's work completes as
+   * that contact, on their history, and only while they are still admitted.
+   * Absent for work no turn started.
    */
-  startedBy?: TrustContext;
+  startedBy?: WorkStarter;
   /**
    * Explicit local-owner metadata for rare direct wakes that are allowed to run
    * in cleanup mode. Omit for background jobs; they are paused under disk
@@ -759,8 +763,11 @@ async function prepareWakeActor(
 ): Promise<WakeActorOutcome> {
   const { conversationId, source } = opts;
   let starter = opts.startedBy;
-  if (starter && isContactTrust(starter)) {
-    const admission = await checkStarterAdmission(conversationId, starter);
+  if (starter && isContactTrust(starter.trustContext)) {
+    const admission = await checkStarterAdmission(
+      conversationId,
+      starter.trustContext,
+    );
     if (admission.outcome === "unverifiable") {
       let retrying = false;
       try {
@@ -787,30 +794,32 @@ async function prepareWakeActor(
       );
       return { ok: false, reason: "starter_not_admitted" };
     }
-    starter = admission.trust;
+    starter = { ...starter, trustContext: admission.trust };
   }
-  if (!isContactInvolved(conversation, starter)) {
+  if (!isContactInvolved(conversation, starter?.trustContext)) {
     return { ok: true };
   }
   const prior = conversation.trustContext;
-  const actor = starter ?? actorForWorkWithoutSender(conversation);
+  const actor: TurnActor = starter ?? actorWithoutSender(conversation);
   try {
     // Always asked, even when the slot already names the actor: a wake that
     // carries its own trust is stamped on the slot by its resolver without a
     // reload, so the resident history can still be the contact's. The load
     // compares against the scope that history was loaded for.
-    await scopeHistoryToActor(conversation, actor);
+    await scopeHistoryToActor(conversation, actor.trustContext);
   } catch (err) {
     log.warn(
       { conversationId, source, err },
       "agent-wake: failed to load history for the actor this wake runs as; skipping",
     );
-    if (conversation.trustContext === actor) {
+    if (conversation.trustContext === actor.trustContext) {
       conversation.setTrustContext(prior ?? null);
     }
     return { ok: false, reason: "actor_scope_failed" };
   }
-  conversation.currentTurnTrustContext = actor;
+  // Trust, principal and auth context from the same actor, so the wake's
+  // tools never pair one actor's permissions with another's client.
+  stampTurnActor(conversation, actor);
   return { ok: true };
 }
 

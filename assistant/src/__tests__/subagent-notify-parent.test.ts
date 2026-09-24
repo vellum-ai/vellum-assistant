@@ -45,7 +45,7 @@ const capturedEnqueueCronRunIds: (string | null | undefined)[] = [];
 const capturedQueueOptions: {
   queueWhenIdle: boolean;
   metadata?: Record<string, unknown>;
-  trustContext?: TrustContext;
+  starter?: TurnActor;
 }[] = [];
 const drainedParents: string[] = [];
 let parentAcceptsEnqueue = true;
@@ -58,7 +58,6 @@ const liveSubagents = new Map<
   {
     parentConversationId: string;
     subagentSuppressParentNotifications?: boolean;
-    trustContext?: TrustContext;
   }
 >();
 
@@ -77,7 +76,7 @@ mock.module("../daemon/conversation-registry.js", () => ({
         queueWhenIdle: boolean;
         metadata?: Record<string, unknown>;
         cronRunId?: string | null;
-        trustContext?: TrustContext;
+        starter?: TurnActor;
       }) => {
         capturedMessages.push(options.content);
         capturedQueueOptions.push(options);
@@ -90,8 +89,7 @@ mock.module("../daemon/conversation-registry.js", () => ({
     };
   },
   findConversationOrSubagent: (id: string) => {
-    const live = liveSubagents.get(id);
-    return live ? { ...live } : undefined;
+    return liveSubagents.get(id);
   },
 }));
 
@@ -108,6 +106,10 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
   broadcastMessage: () => {},
 }));
 
+import {
+  recordWorkStarter,
+  type TurnActor,
+} from "../daemon/actor-scoped-history.js";
 import type { Conversation } from "../daemon/conversation.js";
 import { isToolActiveForContext } from "../daemon/conversation-tool-setup.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
@@ -337,18 +339,22 @@ describe("voice delivery and shared-conversation contacts", () => {
         { sendFrame: () => {} },
       );
 
+      const aliceStarter = {
+        trustContext: alice,
+        sourceActorPrincipalId: "principal-alice",
+      };
       injectMessageIntoParent("parent-voice", "Alice's task done", metadata, {
-        startedBy: alice,
+        startedBy: aliceStarter,
       });
       expect(received).toEqual([]);
       expect(capturedMessages).toEqual(["Alice's task done"]);
-      expect(capturedQueueOptions.at(-1)?.trustContext).toBe(alice);
+      expect(capturedQueueOptions.at(-1)?.starter).toBe(aliceStarter);
 
       // The parent now rests on Alice after her turn; guardian work still
       // goes to the call.
       parentTrustContext = alice;
       injectMessageIntoParent("parent-voice", "Guardian task done", metadata, {
-        startedBy: guardian,
+        startedBy: { trustContext: guardian },
       });
       expect(received.map((n) => n.message)).toEqual(["Guardian task done"]);
       expect(capturedMessages).toEqual(["Alice's task done"]);
@@ -429,13 +435,16 @@ describe("voice delivery and contacts on other channels", () => {
               conversationId: "child-1",
             },
           },
-          { startedBy: bob },
+          { startedBy: { trustContext: bob, sourceActorPrincipalId: "U-bob" } },
         );
 
         if (toQueue) {
           expect(received).toEqual([]);
           expect(capturedMessages).toEqual(["Bob's task done"]);
-          expect(capturedQueueOptions.at(-1)?.trustContext).toBe(bob);
+          expect(capturedQueueOptions.at(-1)?.starter?.trustContext).toBe(bob);
+          expect(
+            capturedQueueOptions.at(-1)?.starter?.sourceActorPrincipalId,
+          ).toBe("U-bob");
         } else {
           expect(received.map((n) => n.message)).toEqual(["Bob's task done"]);
           expect(capturedMessages).toEqual([]);
@@ -628,24 +637,31 @@ describe("notifyParentFromChild", () => {
       trustClass: "trusted_contact",
       requesterExternalUserId: "principal-alice",
     };
-    liveSubagents.get(conversationId)!.trustContext = alice;
+    const starter = {
+      trustContext: alice,
+      sourceActorPrincipalId: "principal-alice",
+    };
+    recordWorkStarter(liveSubagents.get(conversationId)!, starter);
 
     expect(notifyParentFromChild(conversationId, "Halfway", "info")).toBe(true);
-    expect(capturedQueueOptions.at(-1)?.trustContext).toBe(alice);
+    expect(capturedQueueOptions.at(-1)?.starter).toBe(starter);
   });
 
   test("an update from a Slack contact's child resolves as before", () => {
     clearCaptured();
     const conversationId = "conv-slack-started";
     seedSubagent(conversationId);
-    liveSubagents.get(conversationId)!.trustContext = {
-      sourceChannel: "slack",
-      trustClass: "trusted_contact",
-      requesterExternalUserId: "U-bob",
-    };
+    recordWorkStarter(liveSubagents.get(conversationId)!, {
+      trustContext: {
+        sourceChannel: "slack",
+        trustClass: "trusted_contact",
+        requesterExternalUserId: "U-bob",
+      },
+      sourceActorPrincipalId: "U-bob",
+    });
 
     expect(notifyParentFromChild(conversationId, "Halfway", "info")).toBe(true);
-    expect(capturedQueueOptions.at(-1)?.trustContext).toBeUndefined();
+    expect(capturedQueueOptions.at(-1)?.starter).toBeUndefined();
   });
 
   test("an update from a child with no spawning turn carries no trust", () => {
@@ -654,7 +670,7 @@ describe("notifyParentFromChild", () => {
     seedSubagent(conversationId);
 
     expect(notifyParentFromChild(conversationId, "Halfway", "info")).toBe(true);
-    expect(capturedQueueOptions.at(-1)?.trustContext).toBeUndefined();
+    expect(capturedQueueOptions.at(-1)?.starter).toBeUndefined();
   });
 
   test("returns false for a synchronous child that suppresses parent notifications", () => {

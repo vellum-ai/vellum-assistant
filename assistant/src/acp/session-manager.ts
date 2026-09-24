@@ -12,14 +12,16 @@ import { eq, inArray } from "drizzle-orm";
 import type { AcpSessionUpdateEvent } from "../api/events/acp-session-update.js";
 import type { AssistantEvent } from "../api/index.js";
 import {
+  actorWithoutSender,
   isContactInvolved,
   isContactTrust,
   restoreActorBeforeContact,
   scopeHistoryToActor,
+  stampTurnActor,
+  type WorkStarter,
 } from "../daemon/actor-scoped-history.js";
 import { findConversation } from "../daemon/conversation-registry.js";
 import { SYNC_TAGS } from "../daemon/message-types/sync.js";
-import type { TrustContext } from "../daemon/trust-context-types.js";
 import { getDb } from "../persistence/db-connection.js";
 import { acpSessionHistory } from "../persistence/schema/index.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
@@ -141,7 +143,7 @@ interface SessionEntry {
    * the parent notification for that instruction runs as. Absent when no turn
    * did (a route call), in which case it runs as sender-less work.
    */
-  startedBy?: TrustContext;
+  startedBy?: WorkStarter;
   /** Resolved adapter command basename (e.g. "claude-agent-acp"). Used to
    *  gate resume hints to the only adapter (claude-agent-acp) whose CLI
    *  accepts `--resume`. */
@@ -197,8 +199,8 @@ export interface AcpCancellationOptions {
 }
 
 export interface AcpSteerOptions extends AcpCancellationOptions {
-  /** The trust of the turn giving the instruction; see `SessionEntry.startedBy`. */
-  startedBy?: TrustContext;
+  /** The actor of the turn giving the instruction; see `SessionEntry.startedBy`. */
+  startedBy?: WorkStarter;
 }
 
 export class AcpSessionManager {
@@ -318,7 +320,7 @@ export class AcpSessionManager {
     options?: {
       parentToolUseId?: string;
       model?: string;
-      startedBy?: TrustContext;
+      startedBy?: WorkStarter;
     },
     cancellation?: AcpCancellationOptions,
   ): Promise<{
@@ -1835,15 +1837,17 @@ export class AcpSessionManager {
     // denied rather than left waiting on a prompt nobody may answer. It runs as
     // the turn that gave the instruction it reports on when a
     // shared-conversation contact is involved, and as before otherwise.
-    const startedBy = isContactInvolved(parentConversation, entry.startedBy)
-      ? entry.startedBy
-      : undefined;
+    const contactInvolved = isContactInvolved(
+      parentConversation,
+      entry.startedBy?.trustContext,
+    );
+    const starter = contactInvolved ? entry.startedBy : undefined;
     const enqueue = (queueWhenIdle: boolean) =>
       parentConversation.enqueueMessage({
         content: message,
         metadata: { acpNotification },
         isInteractive: false,
-        ...(startedBy ? { trustContext: startedBy } : {}),
+        ...(starter ? { starter } : {}),
         ...(queueWhenIdle ? { queueWhenIdle: true } : {}),
       });
     const enqueueResult = enqueue(false);
@@ -1864,16 +1868,24 @@ export class AcpSessionManager {
         "acp_notification",
       );
     };
-    if (isContactTrust(startedBy)) {
+    if (isContactTrust(starter?.trustContext)) {
       queueForDrain();
       return;
     }
-    const scope = startedBy
-      ? scopeHistoryToActor(parentConversation, startedBy)
+    const scope = starter
+      ? scopeHistoryToActor(parentConversation, starter.trustContext)
       : restoreActorBeforeContact(parentConversation);
     scope.then(
-      () =>
-        parentConversation
+      () => {
+        // With a contact involved, the turn's principal and auth context
+        // belong to the same actor as its trust, not to the last turn's.
+        if (contactInvolved) {
+          stampTurnActor(
+            parentConversation,
+            starter ?? actorWithoutSender(parentConversation),
+          );
+        }
+        return parentConversation
           .persistUserMessage({
             content: message,
             metadata: { acpNotification },
@@ -1888,7 +1900,8 @@ export class AcpSessionManager {
               { parentConversationId: entry.parentConversationId, err },
               "Failed to process ACP notification in parent",
             );
-          }),
+          });
+      },
       (err) => {
         log.warn(
           { parentConversationId: entry.parentConversationId, err },

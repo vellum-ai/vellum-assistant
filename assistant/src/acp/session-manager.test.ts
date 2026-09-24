@@ -2,7 +2,11 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import { RequestError } from "@agentclientprotocol/sdk";
 
-import { scopeHistoryToActor } from "../daemon/actor-scoped-history.js";
+import {
+  scopeHistoryToActor,
+  type TurnActor,
+  type WorkStarter,
+} from "../daemon/actor-scoped-history.js";
 import type { Conversation } from "../daemon/conversation.js";
 import {
   deleteConversation,
@@ -321,16 +325,20 @@ describe("AcpSessionManager parent notification", () => {
         "parent-alice-acp",
         proc,
       );
-      (entry as { startedBy?: TrustContext }).startedBy = ALICE;
+      const aliceStarter = {
+        trustContext: ALICE,
+        sourceActorPrincipalId: "principal-alice",
+      };
+      (entry as { startedBy?: WorkStarter }).startedBy = aliceStarter;
 
       await fire(manager, "sess-alice", entry);
       await new Promise((r) => setTimeout(r, 10));
 
       const calls = enqueueMessage.mock.calls as unknown as Array<
-        [{ trustContext?: TrustContext; queueWhenIdle?: boolean }]
+        [{ starter?: TurnActor; queueWhenIdle?: boolean }]
       >;
       expect(calls).toHaveLength(2);
-      expect(calls[1][0].trustContext).toBe(ALICE);
+      expect(calls[1][0].starter).toBe(aliceStarter);
       expect(calls[1][0].queueWhenIdle).toBe(true);
       expect(kickDrainQueue).toHaveBeenCalledTimes(1);
       expect(persistUserMessage).not.toHaveBeenCalled();
@@ -341,8 +349,15 @@ describe("AcpSessionManager parent notification", () => {
       const { parent, persistUserMessage, loopRan, reloadedFor } =
         await parentAfterContactTurn("parent-guardian-acp");
       let trustAtPersist: TrustContext | undefined;
+      let principalAtPersist: string | undefined;
+      const turnSlots = parent as unknown as {
+        currentTurnSourceActorPrincipalId?: string;
+      };
+      // Alice's turn was the last to run.
+      turnSlots.currentTurnSourceActorPrincipalId = "principal-alice";
       persistUserMessage.mockImplementation(async () => {
         trustAtPersist = parent.trustContext;
+        principalAtPersist = turnSlots.currentTurnSourceActorPrincipalId;
         return { id: "msg-1", deduplicated: false };
       });
       const proc = fakeProcess(() =>
@@ -355,12 +370,16 @@ describe("AcpSessionManager parent notification", () => {
         proc,
       );
       const guardianTurn = { ...GUARDIAN };
-      (entry as { startedBy?: TrustContext }).startedBy = guardianTurn;
+      (entry as { startedBy?: WorkStarter }).startedBy = {
+        trustContext: guardianTurn,
+        sourceActorPrincipalId: "principal-guardian",
+      };
 
       await fire(manager, "sess-guardian", entry);
       await loopRan;
 
       expect(trustAtPersist).toBe(guardianTurn);
+      expect(principalAtPersist).toBe("principal-guardian");
       expect(reloadedFor).toEqual([guardianTurn]);
     });
 
@@ -427,16 +446,19 @@ describe("AcpSessionManager parent notification", () => {
         Promise.resolve({ stopReason: "end_turn" }),
       );
       const entry = injectSession(manager, "sess-slack", "parent-slack", proc);
-      (entry as { startedBy?: TrustContext }).startedBy = slackContact;
+      (entry as { startedBy?: WorkStarter }).startedBy = {
+        trustContext: slackContact,
+        sourceActorPrincipalId: "U-bob",
+      };
 
       await fire(manager, "sess-slack", entry);
       await loopRan;
 
       const calls = enqueueMessage.mock.calls as unknown as Array<
-        [{ trustContext?: TrustContext }]
+        [{ starter?: TurnActor }]
       >;
       expect(calls).toHaveLength(1);
-      expect(calls[0][0].trustContext).toBeUndefined();
+      expect(calls[0][0].starter).toBeUndefined();
       expect(persistUserMessage).toHaveBeenCalledTimes(1);
       expect(trustWrites).toEqual([]);
       expect(reloads).toBe(0);
@@ -481,11 +503,18 @@ describe("AcpSessionManager parent notification", () => {
       await parentAfterContactTurn("parent-steer");
       const proc = fakeProcess(() => new Promise(() => {}));
       const entry = injectSession(manager, "sess-steer", "parent-steer", proc);
-      (entry as { startedBy?: TrustContext }).startedBy = GUARDIAN;
+      (entry as { startedBy?: WorkStarter }).startedBy = {
+        trustContext: GUARDIAN,
+      };
+      const aliceStarter = { trustContext: ALICE };
 
-      await manager.steer("sess-steer", "look again", { startedBy: ALICE });
+      await manager.steer("sess-steer", "look again", {
+        startedBy: aliceStarter,
+      });
 
-      expect((entry as { startedBy?: TrustContext }).startedBy).toBe(ALICE);
+      expect((entry as { startedBy?: WorkStarter }).startedBy).toBe(
+        aliceStarter,
+      );
     });
   });
 

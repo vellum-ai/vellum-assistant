@@ -485,6 +485,7 @@ import {
 } from "../daemon/shared-sender-queue-gate.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import { injectMessageIntoParent } from "../subagent/notify.js";
+import { mockAuthContext } from "./helpers/mock-actor-context.js";
 
 type ConversationWithWorkspaceDeps = Conversation & {
   getWorkspaceGitService?: (_workspaceDir: string) => {
@@ -1492,6 +1493,12 @@ describe("Conversation message queue", () => {
         capturedAddMessages.length = 0;
         const conversation = makeConversation();
         conversation.setTrustContext(GUARDIAN);
+        conversation.setAuthContext(
+          mockAuthContext({
+            subject: "local:self:guardian",
+            actorPrincipalId: "principal-guardian",
+          }),
+        );
         await conversation.loadFromDb();
         const p1 = conversation.processMessage({
           content: "msg-1",
@@ -1514,6 +1521,7 @@ describe("Conversation message queue", () => {
         await waitForPendingRun(2);
         expect(runText(pendingRuns[1])).not.toContain("guardian-only notes");
         expect(conversation.trustContext?.sourceChannel).toBe("vellum-shared");
+        expect(conversation.getTurnActorPrincipalId()).toBe("principal-alice");
         // Injected while the contact's turn runs, as a completion would be.
         conversation.enqueueMessage({
           content,
@@ -1527,6 +1535,10 @@ describe("Conversation message queue", () => {
         expect(runText(pendingRuns[2])).toContain("guardian-only notes");
         expect(conversation.trustContext).toBe(GUARDIAN);
         expect(conversation.currentTurnTrustContext).toBe(GUARDIAN);
+        // The guardian's identity too, not the contact's from the turn before.
+        expect(conversation.getTurnActorPrincipalId()).toBe(
+          "principal-guardian",
+        );
         const internalRow = capturedAddMessages.find((m) =>
           m.content.includes(content),
         );
@@ -1795,7 +1807,7 @@ describe("Conversation message queue", () => {
               status: "completed",
             },
           },
-          { startedBy: slackContact },
+          { startedBy: { trustContext: slackContact } },
         );
 
         await resolveRun(0);
@@ -1812,6 +1824,105 @@ describe("Conversation message queue", () => {
         deleteConversation("conv-1");
       }
     });
+
+    test.each([
+      {
+        order: "a contact starts work and the guardian's turn is running",
+        starter: {
+          trustContext: ALICE,
+          sourceActorPrincipalId: "principal-alice",
+        },
+        contactTurnFirst: false,
+        expectedTrustClass: "trusted_contact",
+      },
+      {
+        order: "the guardian starts work and a contact's turn is running",
+        starter: {
+          trustContext: GUARDIAN,
+          sourceActorPrincipalId: "principal-guardian",
+        },
+        contactTurnFirst: true,
+        expectedTrustClass: "guardian",
+      },
+    ])(
+      "a completion runs as its starter's whole identity when $order",
+      async ({ starter, contactTurnFirst, expectedTrustClass }) => {
+        storedRows = guardianAndContactRows();
+        const conversation = makeConversation();
+        conversation.setTrustContext(GUARDIAN);
+        await conversation.loadFromDb();
+        setConversation("conv-1", conversation);
+        const hostProxyPrincipals: Array<string | undefined> = [];
+        const realEnsureHostProxies =
+          conversation.ensureHostProxiesForTurn.bind(conversation);
+        conversation.ensureHostProxiesForTurn = (
+          sourceInterface,
+          sourceActorPrincipalId,
+        ) => {
+          hostProxyPrincipals.push(sourceActorPrincipalId);
+          return realEnsureHostProxies(sourceInterface, sourceActorPrincipalId);
+        };
+        try {
+          const p1 = conversation.processMessage({
+            content: "msg-1",
+            attachments: [],
+            onEvent: () => {},
+            requestId: "req-1",
+            sourceActorPrincipalId: "principal-guardian",
+          });
+          await waitForPendingRun(1);
+          if (contactTurnFirst) {
+            conversation.enqueueMessage({
+              content: "from Alice",
+              requestId: "req-contact",
+              trustContext: ALICE,
+              author: ALICE,
+              sourceActorPrincipalId: "principal-alice",
+            });
+            await resolveRun(0);
+            await p1;
+            await waitForPendingRun(2);
+          }
+          const runningTurn = contactTurnFirst ? 1 : 0;
+          // The other actor's turn is in flight when the completion arrives.
+          expect(conversation.getTurnActorPrincipalId()).toBe(
+            contactTurnFirst ? "principal-alice" : "principal-guardian",
+          );
+          injectMessageIntoParent(
+            "conv-1",
+            "[Subagent research completed]",
+            {
+              subagentNotification: {
+                subagentId: "sub-1",
+                label: "research",
+                status: "completed",
+              },
+            },
+            { startedBy: starter },
+          );
+          const proxiesBefore = hostProxyPrincipals.length;
+
+          await resolveRun(runningTurn);
+          if (!contactTurnFirst) {
+            await p1;
+          }
+          await waitForPendingRun(runningTurn + 2);
+          expect(conversation.currentTurnTrustContext?.trustClass).toBe(
+            expectedTrustClass,
+          );
+          expect(conversation.getTurnActorPrincipalId()).toBe(
+            starter.sourceActorPrincipalId,
+          );
+          // A machine turn attaches no host proxy, least of all the other
+          // actor's.
+          expect(hostProxyPrincipals.slice(proxiesBefore)).toEqual([]);
+          await resolveRun(runningTurn + 1);
+          await new Promise((r) => setTimeout(r, 10));
+        } finally {
+          deleteConversation("conv-1");
+        }
+      },
+    );
 
     test("a guardian message after the slot was restamped over a contact's history runs on the guardian's", async () => {
       storedRows = guardianAndContactRows();

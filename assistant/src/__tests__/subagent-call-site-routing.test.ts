@@ -371,7 +371,16 @@ describe("SubagentManager — provider call-site routing", () => {
       asConversation({
         trustContext: guardian,
         currentTurnTrustContext: alice,
-        getAuthContext: () => undefined,
+        currentTurnSourceActorPrincipalId: "principal-alice",
+        authContext: mockAuthContext({
+          subject: "local:self:guardian",
+          actorPrincipalId: "guardian-1",
+        }),
+        getAuthContext: () =>
+          mockAuthContext({
+            subject: "local:self:guardian",
+            actorPrincipalId: "guardian-1",
+          }),
         assistantId: "self",
         getCurrentSystemPrompt: () => "parent system",
       }),
@@ -388,10 +397,20 @@ describe("SubagentManager — provider call-site routing", () => {
 
     const managed = (
       manager as unknown as {
-        subagents: Map<string, { startedBy?: TrustContext }>;
+        subagents: Map<
+          string,
+          {
+            startedBy?: {
+              trustContext: TrustContext;
+              sourceActorPrincipalId?: string;
+            };
+          }
+        >;
       }
     ).subagents.get(subagentId);
-    expect(managed?.startedBy).toBe(alice);
+    // The spawning turn's trust and principal, not the resting guardian's.
+    expect(managed?.startedBy?.trustContext).toBe(alice);
+    expect(managed?.startedBy?.sourceActorPrincipalId).toBe("principal-alice");
   });
 
   test("copies the parent's plugin scope into the spawned conversation (by value)", async () => {

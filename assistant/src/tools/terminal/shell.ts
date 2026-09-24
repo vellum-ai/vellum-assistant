@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import type { BackgroundToolCompletedEvent } from "../../api/events/background-tool-completed.js";
 import { getConfig } from "../../config/loader.js";
-import { trustOfStartingTurn } from "../../daemon/actor-scoped-history.js";
+import { startingTurn } from "../../daemon/actor-scoped-history.js";
 import { RiskLevel } from "../../permissions/types.js";
 import { applyActivePluginName } from "../../plugins/active-plugin-env.js";
 import { wakeAgentForOpportunity } from "../../runtime/agent-wake.js";
@@ -324,7 +324,7 @@ export const shellTool = {
 
       // Its completion wakes the conversation as the turn that started it.
 
-      const startedBy = trustOfStartingTurn(context.conversationId);
+      const startedBy = startingTurn(context.conversationId);
       let timedOut = false;
       let aborted = false;
       const startedAt = Date.now();

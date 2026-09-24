@@ -15,7 +15,7 @@ import { z } from "zod";
 
 import { supportsHostProxy } from "../../channels/types.js";
 import { getConfig } from "../../config/loader.js";
-import { trustOfStartingTurn } from "../../daemon/actor-scoped-history.js";
+import { startingTurn } from "../../daemon/actor-scoped-history.js";
 import { HostBashProxy } from "../../daemon/host-bash-proxy.js";
 import { RiskLevel } from "../../permissions/types.js";
 import { applyActivePluginName } from "../../plugins/active-plugin-env.js";
@@ -259,7 +259,7 @@ export const hostShellTool = {
 
         // Its completion wakes the conversation as the turn that started it.
 
-        const startedBy = trustOfStartingTurn(context.conversationId);
+        const startedBy = startingTurn(context.conversationId);
         const abortController = new AbortController();
         const startedAt = Date.now();
         const proxyPromise = HostBashProxy.instance.request(
@@ -463,7 +463,7 @@ export const hostShellTool = {
 
       // Its completion wakes the conversation as the turn that started it.
 
-      const startedBy = trustOfStartingTurn(context.conversationId);
+      const startedBy = startingTurn(context.conversationId);
       const startedAt = Date.now();
 
       const wrapped = buildShellInvocation(command);

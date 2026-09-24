@@ -13,13 +13,17 @@ import { v4 as uuid } from "uuid";
 import type { AssistantEvent } from "../api/index.js";
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
+import {
+  recordWorkStarter,
+  type WorkStarter,
+} from "../daemon/actor-scoped-history.js";
 import { Conversation } from "../daemon/conversation.js";
 import {
   findConversation,
   removeSubagentConversation,
   setSubagentConversation,
 } from "../daemon/conversation-registry.js";
-import type { TrustContext } from "../daemon/trust-context-types.js";
+import { turnActorPrincipalId } from "../daemon/turn-actor.js";
 import { bootstrapConversation } from "../persistence/conversation-bootstrap.js";
 import {
   deleteAllSubagentRecords,
@@ -422,7 +426,7 @@ interface ManagedSubagent {
    * The trust of the turn that spawned this child, which its notifications
    * to the parent run as. Absent for a child rebuilt from a durable row.
    */
-  startedBy?: TrustContext;
+  startedBy?: WorkStarter;
   /**
    * One-shot delivery latch for the budget-stop notification: which budget
    * stopped this child, set when the ceiling is hit and consumed by the run's
@@ -781,7 +785,21 @@ export class SubagentManager {
     } else if (parentTurnTrust) {
       conversation.setTrustContext({ ...parentTurnTrust });
     }
-    managed.startedBy = config.trustContext ?? parentTurnTrust;
+    // Who spawned the child, trust and identity together, for its
+    // notifications to the parent.
+    const startedByTrust = config.trustContext ?? parentTurnTrust;
+    managed.startedBy = startedByTrust
+      ? {
+          trustContext: startedByTrust,
+          sourceActorPrincipalId: parentConversation
+            ? turnActorPrincipalId(parentConversation)
+            : undefined,
+          authContext:
+            parentConversation?.currentTurnAuthContext ??
+            parentConversation?.getAuthContext(),
+        }
+      : undefined;
+    recordWorkStarter(conversation, managed.startedBy);
     const parentAuthContext = parentConversation?.getAuthContext();
     if (parentAuthContext) {
       conversation.setAuthContext({ ...parentAuthContext });

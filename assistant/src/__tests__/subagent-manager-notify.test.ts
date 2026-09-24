@@ -10,7 +10,7 @@ const capturedNotifications: {
   parentConversationId: string;
   message: string;
   cronRunId?: string | null;
-  trustContext?: TrustContext;
+  starter?: TurnActor;
 }[] = [];
 
 mock.module("../daemon/conversation-registry.js", () => ({
@@ -20,13 +20,13 @@ mock.module("../daemon/conversation-registry.js", () => ({
     enqueueMessage: (options: {
       content: string;
       cronRunId?: string | null;
-      trustContext?: TrustContext;
+      starter?: TurnActor;
     }) => {
       capturedNotifications.push({
         parentConversationId: id,
         message: options.content,
         cronRunId: options.cronRunId,
-        trustContext: options.trustContext,
+        starter: options.starter,
       });
       return { queued: true };
     },
@@ -39,6 +39,7 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
 }));
 
 import type { AssistantEvent } from "../api/index.js";
+import type { TurnActor, WorkStarter } from "../daemon/actor-scoped-history.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import { SubagentManager } from "../subagent/manager.js";
 import type { SubagentState } from "../subagent/types.js";
@@ -73,7 +74,7 @@ interface FakeManagedSubagent {
   /** Sticky marker that a follow-up turn was queued during the run. */
   hadEnqueuedMessages?: boolean;
   /** The trust of the turn that spawned the child. */
-  startedBy?: TrustContext;
+  startedBy?: WorkStarter;
 }
 
 /** Type-safe accessor for SubagentManager's private internals via bracket notation. */
@@ -378,7 +379,11 @@ describe("SubagentManager notifyParent (via runSubagent)", () => {
     const manager = new SubagentManager();
     injectFakeSubagent(manager, "sub-done", makeState("sub-done"));
     const done = asInternals(manager).subagents.get("sub-done")!;
-    done.startedBy = alice;
+    const aliceStarter = {
+      trustContext: alice,
+      sourceActorPrincipalId: "principal-alice",
+    };
+    done.startedBy = aliceStarter;
     done.conversation!.persistUserMessage = () => ({
       id: "msg-1",
       deduplicated: false,
@@ -387,12 +392,12 @@ describe("SubagentManager notifyParent (via runSubagent)", () => {
     await asInternals(manager).runSubagent("sub-done", "Do something");
 
     injectFakeSubagent(manager, "sub-stop", makeState("sub-stop"));
-    asInternals(manager).subagents.get("sub-stop")!.startedBy = alice;
+    asInternals(manager).subagents.get("sub-stop")!.startedBy = aliceStarter;
     manager.abort("sub-stop", () => {});
 
     expect(capturedNotifications).toHaveLength(2);
-    expect(capturedNotifications[0].trustContext).toBe(alice);
-    expect(capturedNotifications[1].trustContext).toBe(alice);
+    expect(capturedNotifications[0].starter).toBe(aliceStarter);
+    expect(capturedNotifications[1].starter).toBe(aliceStarter);
     asInternals(manager).stopSweep();
   });
 
@@ -409,7 +414,7 @@ describe("SubagentManager notifyParent (via runSubagent)", () => {
     await asInternals(manager).runSubagent("sub-rebuilt", "Do something");
 
     expect(capturedNotifications).toHaveLength(1);
-    expect(capturedNotifications[0].trustContext).toBeUndefined();
+    expect(capturedNotifications[0].starter).toBeUndefined();
     asInternals(manager).stopSweep();
   });
 

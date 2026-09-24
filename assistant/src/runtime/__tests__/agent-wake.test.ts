@@ -366,6 +366,7 @@ mock.module("../../persistence/llm-request-log-store.js", () => ({
   backfillMessageIdOnLogs: () => {},
 }));
 
+import { mockAuthContext } from "../../__tests__/helpers/mock-actor-context.js";
 import type {
   AgentEvent,
   AgentLoopRunOptions,
@@ -886,14 +887,23 @@ describe("wakeAgentForOpportunity", () => {
     test("a wake runs as the conversation did before the contact's turn", async () => {
       let turnTrustAtRun: unknown;
       let restingTrustAtRun: unknown;
+      let principalAtRun: unknown;
       const conversation = await afterContactTurn(async (input) => {
         turnTrustAtRun = conversation.currentTurnTrustContext;
         restingTrustAtRun = conversation.trustContext;
+        principalAtRun = conversation.currentTurnSourceActorPrincipalId;
         return runResult([
           ...input,
           { role: "assistant", content: [{ type: "text", text: "done." }] },
         ]);
       });
+      conversation.currentTurnSourceActorPrincipalId = "principal-alice";
+      (conversation as { authContext?: unknown }).authContext = mockAuthContext(
+        {
+          subject: "local:self:guardian",
+          actorPrincipalId: "principal-guardian",
+        },
+      );
 
       const result = await wakeAgentForOpportunity(
         {
@@ -907,6 +917,7 @@ describe("wakeAgentForOpportunity", () => {
 
       expect(result.invoked).toBe(true);
       expect(turnTrustAtRun).toBe(GUARDIAN);
+      expect(principalAtRun).toBe("principal-guardian");
       expect(restingTrustAtRun).toBe(GUARDIAN);
       expect(conversation.trustContext).toBe(GUARDIAN);
       // The history is reloaded for the guardian before compaction and the run.
@@ -927,15 +938,25 @@ describe("wakeAgentForOpportunity", () => {
       const aliceNow: TrustContext = { ...ALICE, requesterContactId: "c-1" };
       mockStarterAdmissions = [{ outcome: "admitted", trust: aliceNow }];
       let turnTrustAtRun: unknown;
+      let principalAtRun: unknown;
+      let authAtRun: unknown;
       const conversation = makeWakeConversation({
         initialTrustContext: GUARDIAN,
         runImpl: async (input) => {
           turnTrustAtRun = conversation.currentTurnTrustContext;
+          principalAtRun = conversation.currentTurnSourceActorPrincipalId;
+          authAtRun = conversation.currentTurnAuthContext;
           return runResult([
             ...input,
             { role: "assistant", content: [{ type: "text", text: "done." }] },
           ]);
         },
+      });
+      // The guardian's turn ran last, so its identity is on the turn slots.
+      conversation.currentTurnSourceActorPrincipalId = "principal-guardian";
+      const aliceAuth = mockAuthContext({
+        subject: "shared:principal-alice",
+        actorPrincipalId: "principal-alice",
       });
 
       const result = await wakeAgentForOpportunity(
@@ -944,7 +965,11 @@ describe("wakeAgentForOpportunity", () => {
           hint: "Background command completed",
           source: "background-tool",
           persistTriggerAsEvent: true,
-          startedBy: ALICE,
+          startedBy: {
+            trustContext: ALICE,
+            sourceActorPrincipalId: "principal-alice",
+            authContext: aliceAuth,
+          },
         },
         { resolveTarget: async () => conversation },
       );
@@ -957,6 +982,8 @@ describe("wakeAgentForOpportunity", () => {
         },
       ]);
       expect(turnTrustAtRun).toBe(aliceNow);
+      expect(principalAtRun).toBe("principal-alice");
+      expect(authAtRun).toBe(aliceAuth);
       expect(conversation.trustContext).toBe(aliceNow);
       expect(conversation.callSequence).toContain("ensureHistory");
       for (const trust of provenanceTrusts) {
@@ -980,7 +1007,7 @@ describe("wakeAgentForOpportunity", () => {
           hint: "Background command completed",
           source: "background-tool",
           persistTriggerAsEvent: true,
-          startedBy: ALICE,
+          startedBy: { trustContext: ALICE },
         },
         { resolveTarget: async () => conversation },
       );
@@ -1021,7 +1048,7 @@ describe("wakeAgentForOpportunity", () => {
           hint: "Background command completed",
           source: "background-tool",
           persistTriggerAsEvent: true,
-          startedBy: ALICE,
+          startedBy: { trustContext: ALICE },
         },
         deps,
       );
@@ -1062,7 +1089,7 @@ describe("wakeAgentForOpportunity", () => {
           hint: "Background command completed",
           source: "background-tool",
           persistTriggerAsEvent: true,
-          startedBy: ALICE,
+          startedBy: { trustContext: ALICE },
         },
         { resolveTarget: async () => conversation },
       );
@@ -1094,7 +1121,7 @@ describe("wakeAgentForOpportunity", () => {
           hint: "Background command completed",
           source: "background-tool",
           persistTriggerAsEvent: true,
-          startedBy: ALICE,
+          startedBy: { trustContext: ALICE },
         },
         { resolveTarget: async () => conversation },
       );
@@ -1128,7 +1155,7 @@ describe("wakeAgentForOpportunity", () => {
           hint: "Background command completed",
           source: "background-tool",
           persistTriggerAsEvent: true,
-          startedBy: ALICE,
+          startedBy: { trustContext: ALICE },
         },
         { resolveTarget: async () => conversation },
       );
@@ -1163,7 +1190,7 @@ describe("wakeAgentForOpportunity", () => {
             hint: "Background command completed",
             source: "background-tool",
             persistTriggerAsEvent: true,
-            ...(startedBy ? { startedBy } : {}),
+            ...(startedBy ? { startedBy: { trustContext: startedBy } } : {}),
           },
           { resolveTarget: async () => conversation },
         );
@@ -1199,7 +1226,7 @@ describe("wakeAgentForOpportunity", () => {
           hint: "Background command completed",
           source: "background-tool",
           persistTriggerAsEvent: true,
-          startedBy: ALICE,
+          startedBy: { trustContext: ALICE },
         },
         { resolveTarget: async () => conversation },
       );
@@ -1282,13 +1309,17 @@ describe("wakeAgentForOpportunity", () => {
 
     test("a wake for work the guardian's turn started runs as the guardian after a contact's turn", async () => {
       let turnTrustAtRun: unknown;
+      let principalAtRun: unknown;
       const conversation = await afterContactTurn(async (input) => {
         turnTrustAtRun = conversation.currentTurnTrustContext;
+        principalAtRun = conversation.currentTurnSourceActorPrincipalId;
         return runResult([
           ...input,
           { role: "assistant", content: [{ type: "text", text: "done." }] },
         ]);
       });
+      // Alice's turn ran last, so her identity is on the turn slots.
+      conversation.currentTurnSourceActorPrincipalId = "principal-alice";
       const guardianTurn: TrustContext = { ...GUARDIAN };
 
       await wakeAgentForOpportunity(
@@ -1297,13 +1328,17 @@ describe("wakeAgentForOpportunity", () => {
           hint: "Background command completed",
           source: "background-tool",
           persistTriggerAsEvent: true,
-          startedBy: guardianTurn,
+          startedBy: {
+            trustContext: guardianTurn,
+            sourceActorPrincipalId: "principal-guardian",
+          },
         },
         { resolveTarget: async () => conversation },
       );
 
       expect(starterAdmissionChecks).toEqual([]);
       expect(turnTrustAtRun).toBe(guardianTurn);
+      expect(principalAtRun).toBe("principal-guardian");
       expect(conversation.trustContext).toBe(guardianTurn);
       for (const trust of provenanceTrusts) {
         expect(trust).toBe(guardianTurn);
@@ -1332,7 +1367,7 @@ describe("wakeAgentForOpportunity", () => {
             hint: "Background command completed",
             source: "background-tool",
             persistTriggerAsEvent: true,
-            ...(startedBy ? { startedBy } : {}),
+            ...(startedBy ? { startedBy: { trustContext: startedBy } } : {}),
           },
           { resolveTarget: async () => conversation },
         );

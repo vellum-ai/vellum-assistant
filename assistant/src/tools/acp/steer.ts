@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { getAcpSessionManager } from "../../acp/index.js";
-import { trustOfStartingTurn } from "../../daemon/actor-scoped-history.js";
+import { startingTurn } from "../../daemon/actor-scoped-history.js";
 import { isAbortLikeError, throwIfCancelled } from "../shared/abort.js";
 import {
   invalidToolInputResult,
@@ -42,7 +42,7 @@ export async function executeAcpSteer(
 
   const manager = getAcpSessionManager();
   const sendToClient = getSendToClient(context);
-  const startedBy = trustOfStartingTurn(context.conversationId);
+  const startedBy = startingTurn(context.conversationId);
 
   try {
     if (!sendToClient) {
