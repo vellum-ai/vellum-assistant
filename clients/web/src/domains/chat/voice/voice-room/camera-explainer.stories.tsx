@@ -12,13 +12,11 @@
  *
  * `useTouchSurface` is a narrow viewport AND a coarse pointer, so a phone-width
  * story in a desktop browser still draws the modal. The sheet stories force the
- * query, the way the activation modal's stories do.
+ * query through `withTouchSurface`.
  */
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-
-import { TOUCH_SURFACE_MEDIA_QUERY } from "@vellumai/design-library";
 
 // The reduced-motion fade the sheet swaps its entrance for is a hand-written
 // keyframe in the app stylesheet, which Storybook's preview.css does not pull
@@ -29,49 +27,9 @@ import {
   CAMERA_STORY_FEED,
   CAMERA_STORY_FEED_DIM,
 } from "@/domains/chat/voice/camera-story-feed";
+import { withTouchSurface } from "@/lib/story-touch-surface";
 
 import { CameraExplainer } from "./camera-explainer";
-
-/** Swap `window.matchMedia`; `configurable` so the teardown can put it back. */
-function setMatchMedia(impl: typeof window.matchMedia): void {
-  Object.defineProperty(window, "matchMedia", {
-    value: impl,
-    configurable: true,
-    writable: true,
-  });
-}
-
-/**
- * Forces the sheet branch of `useTouchSurface` for the duration of the story.
- *
- * Installed from a `useState` initializer, which runs once and during this
- * component's render, so no child has sampled the query yet.
- */
-function ForceTouchSurface({ children }: { children: ReactNode }): ReactNode {
-  const [original] = useState(() => {
-    const saved = window.matchMedia.bind(window);
-    setMatchMedia(((query: string) => {
-      const result = saved(query);
-      if (query !== TOUCH_SURFACE_MEDIA_QUERY) {
-        return result;
-      }
-      return {
-        ...result,
-        media: query,
-        matches: true,
-        onchange: null,
-        addEventListener: () => {},
-        removeEventListener: () => {},
-        addListener: () => {},
-        removeListener: () => {},
-        dispatchEvent: () => false,
-      } as MediaQueryList;
-    }) as typeof window.matchMedia);
-    return saved;
-  });
-  useEffect(() => () => setMatchMedia(original), [original]);
-  return <>{children}</>;
-}
 
 interface FakeRoomProps {
   /** Which frame the explainer is read against. */
@@ -151,13 +109,7 @@ type Story = StoryObj<typeof FakeRoom>;
 /** The touch-surface query plus the phone viewport the design is drawn at. */
 const phone = {
   globals: { viewport: { value: "sbMobile", isRotated: false } },
-  decorators: [
-    (Story: () => ReactNode) => (
-      <ForceTouchSurface>
-        <Story />
-      </ForceTouchSurface>
-    ),
-  ],
+  decorators: [withTouchSurface],
 } satisfies Partial<Story>;
 
 /**
