@@ -1,5 +1,7 @@
 import { Plus } from "lucide-react";
 
+import type { ReactNode } from "react";
+
 import { Button } from "@vellumai/design-library/components/button";
 import { ProgressBar } from "@vellumai/design-library/components/progress-bar";
 import { Typography } from "@vellumai/design-library/components/typography";
@@ -8,7 +10,7 @@ import { type TFunction, useTranslation } from "@/i18n";
 import { formatMonthDay } from "@/utils/format-date";
 
 /**
- * The end of the billing cycle the panel dates itself by. A sub holding a
+ * The end of the billing cycle the reading dates itself by. A sub holding a
  * credit bundle sees that bundle reset then: the platform expires each
  * bundle grant at its period end and burns it before any other grant, so the
  * bar returns to zero for a sub that never ran its bundle out. A sub holding
@@ -22,31 +24,37 @@ export interface UsagePeriodEnd {
 }
 
 export interface UsageBalancePanelProps {
+  /** One or more {@link UsageBalanceReading} rows. */
+  children: ReactNode;
+}
+
+export interface UsageBalanceReadingProps {
   /** Used share of the granted usage credit, already clamped to 0..1. */
   ratio: number;
+  /** The reading's name, over the line under it. */
+  title: string;
   /**
    * The cycle end printed under the title; see {@link UsagePeriodEnd}.
    * Omitted for the free plan and for a sub that is not renewing.
    */
   periodEnd?: UsagePeriodEnd;
+  /** The line under the title. Falls back to the cycle-end wording. */
+  line?: string;
+  /**
+   * The bar's accessible name. Falls back to the cycle-end wording, then to
+   * the title.
+   */
+  barLabel?: string;
   /**
    * The wallet behind the spent bundle is empty too, so the next turn has
    * nothing to draw on. Raises the add-credits strip, and only that: the bar
    * and the percentage read the negative state off `ratio` alone.
    */
   exhausted?: boolean;
+  /** The strip's message. Falls back to the overall wording. */
+  exhaustedMessage?: string;
   /** Opens the add-credits checkout. Omitted, the strip states its case only. */
   onAddCredits?: () => void;
-  /**
-   * Wording overrides for a second reading on the same tile, such as the
-   * free-tier daily bar: its own title, the line under it, the bar's
-   * accessible name, the strip's message, and a test id. Each falls back to
-   * the Current Usage wording, so the default panel is unchanged.
-   */
-  title?: string;
-  line?: string;
-  barLabel?: string;
-  exhaustedMessage?: string;
   testId?: string;
   lineTestId?: string;
 }
@@ -58,7 +66,7 @@ export interface UsagePeriodEndLabels {
 }
 
 /**
- * The cycle-end wording the panel and the tile's price row share, so the
+ * The cycle-end wording the reading and the tile's price row share, so the
  * label reads the same whether or not a usage reading loaded, and follows
  * `periodEnd.kind` in one place. Null when there is no instant to date, or
  * one that will not parse, so a caller drops the line.
@@ -87,24 +95,47 @@ export function usagePeriodEndLabels(
 }
 
 /**
- * The current-plan tile's footer, in place of the price row: how much of the
- * usage credit the account was granted it has already used, over the date its
- * cycle ends on.
+ * The current-plan tile's footer, in place of the price row: one bordered
+ * block holding every usage reading the tile charts, one row each. The rows
+ * share a label column, so their bars start on the same line and run the
+ * same length whatever each title measures.
  */
-export function UsageBalancePanel({
+export function UsageBalancePanel({ children }: UsageBalancePanelProps) {
+  return (
+    // One surface step above the tile's base, so the panel reads as its own
+    // block. Container query, not a viewport breakpoint: the tile is half a
+    // card beside a next tile and the whole card without one, so the viewport
+    // says nothing about the panel's width. The threshold is the content box,
+    // about 514px of panel, above which the bars take a 64px gap after the
+    // label column and stretch to the percentage. Below it the gap tightens
+    // so the bars keep their length on phones.
+    <div
+      className="@container grid w-full grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-3 rounded-[10px] border border-[var(--border-base)] bg-[var(--surface-overlay)] px-4 py-3 @min-[30rem]:gap-x-16"
+      data-testid="plan-usage-panel"
+    >
+      {children}
+    </div>
+  );
+}
+
+/**
+ * One row of the panel: how much of a usage grant the account has already
+ * used, over the date it turns over, with the add-credits strip beneath once
+ * the grant is exhausted.
+ */
+export function UsageBalanceReading({
   ratio,
+  title,
   periodEnd,
-  exhausted = false,
-  onAddCredits,
-  title: titleOverride,
   line: lineOverride,
   barLabel: barLabelOverride,
+  exhausted = false,
   exhaustedMessage,
+  onAddCredits,
   testId = "plan-usage-balance",
   lineTestId = "plan-usage-period-end",
-}: UsageBalancePanelProps) {
+}: UsageBalanceReadingProps) {
   const { t } = useTranslation("settings");
-  const title = titleOverride ?? t("planCard.usageBalanceTitle");
   const periodEndLabels = usagePeriodEndLabels(periodEnd, t);
   const line = lineOverride ?? periodEndLabels?.line;
   // The bar's accessible name is one complete message per variant rather than
@@ -117,62 +148,53 @@ export function UsageBalancePanel({
   const spent = ratio >= 1;
 
   return (
-    // One surface step above the tile's base, so the panel reads as its own block.
+    // Subgrid: the row lays its label and bar on the panel's two columns, so
+    // every reading's bar starts where the widest label ends.
     <div
       data-testid={testId}
-      className="@container flex w-full flex-col gap-3 rounded-[10px] border border-[var(--border-base)] bg-[var(--surface-overlay)] px-4 py-3"
+      className="col-span-2 grid grid-cols-subgrid items-center gap-y-3"
     >
-      {/*
-        Container query, not a viewport breakpoint: the tile is half a card
-        beside a next tile and the whole card without one, so the viewport says
-        nothing about the panel's width. The threshold is the content box,
-        about 514px of panel, above which the bar takes a 64px gap after the
-        title and stretches to the percentage. Below it the gap tightens so
-        the bar keeps its length on phones.
-      */}
-      <div className="flex w-full items-center gap-3 @min-[30rem]:gap-16">
-        <div className="flex min-w-0 flex-col">
-          <Typography
-            as="span"
-            variant="body-large-default"
-            className="text-[var(--content-emphasised)]"
-          >
-            {title}
-          </Typography>
-          {line ? (
-            <Typography
-              as="span"
-              variant="body-small-default"
-              className="text-[var(--content-tertiary)]"
-              data-testid={lineTestId}
-            >
-              {line}
-            </Typography>
-          ) : null}
-        </div>
-        <div className="flex min-w-0 flex-1 items-center gap-3">
-          <ProgressBar
-            value={ratio}
-            height={8}
-            aria-label={barLabel}
-            fillColor={spent ? "var(--system-negative-strong)" : undefined}
-            className="w-full min-w-0 rounded-full border border-[var(--border-base)] bg-[var(--surface-overlay)]"
-          />
+      <div className="flex min-w-0 flex-col">
+        <Typography
+          as="span"
+          variant="body-large-default"
+          className="text-[var(--content-emphasised)]"
+        >
+          {title}
+        </Typography>
+        {line ? (
           <Typography
             as="span"
             variant="body-small-default"
-            className={
-              spent
-                ? "whitespace-nowrap text-[var(--system-negative-strong)]"
-                : "whitespace-nowrap text-[var(--content-secondary)]"
-            }
+            className="text-[var(--content-tertiary)]"
+            data-testid={lineTestId}
           >
-            {t("planCard.usageBalancePctUsed", { pct })}
+            {line}
           </Typography>
-        </div>
+        ) : null}
+      </div>
+      <div className="flex min-w-0 items-center gap-3">
+        <ProgressBar
+          value={ratio}
+          height={8}
+          aria-label={barLabel}
+          fillColor={spent ? "var(--system-negative-strong)" : undefined}
+          className="w-full min-w-0 rounded-full border border-[var(--border-base)] bg-[var(--surface-overlay)]"
+        />
+        <Typography
+          as="span"
+          variant="body-small-default"
+          className={
+            spent
+              ? "whitespace-nowrap text-[var(--system-negative-strong)]"
+              : "whitespace-nowrap text-[var(--content-secondary)]"
+          }
+        >
+          {t("planCard.usageBalancePctUsed", { pct })}
+        </Typography>
       </div>
       {exhausted ? (
-        <div className="flex min-h-8 w-full items-center justify-between gap-2 rounded-md bg-[var(--system-negative-weak)] px-2 py-1">
+        <div className="col-span-2 flex min-h-8 items-center justify-between gap-2 rounded-md bg-[var(--system-negative-weak)] px-2 py-1">
           <Typography
             as="span"
             variant="body-medium-default"
