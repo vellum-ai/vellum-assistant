@@ -56,9 +56,9 @@ import { useStickToBottom } from "@/domains/chat/components/acp-run-chat-view/us
 import { AcpAgentIcon } from "@/domains/chat/components/acp-run-inline-card/acp-agent-icon";
 import { DetailPanelStopButton } from "@/components/detail-panel-stop-button";
 import {
-  AnimatedMetricCard,
+  AnimatedStatSquare,
   formatNumber,
-} from "@/domains/chat/components/metric-card";
+} from "@/domains/chat/components/animated-stat-square";
 import { StatusBadgePill } from "@/domains/chat/components/status-badge-pill";
 import { steerAcpRun, stopAcpRun } from "@/domains/chat/utils/acp-run-actions";
 import { acpRunStatusBadge, isActiveAcpStatus } from "@/utils/acp-run-status";
@@ -283,24 +283,14 @@ export function AcpRunChatView({
               >
                 {showsUsage && (
                   <>
-                    <AnimatedMetricCard
-                      icon={
-                        <ArrowDownToLine
-                          className="h-4 w-4 shrink-0"
-                          style={{ color: "var(--content-secondary)" }}
-                        />
-                      }
+                    <AnimatedStatSquare
+                      icon={<ArrowDownToLine />}
                       target={entry.inputTokens ?? 0}
                       format={(n) => formatNumber(Math.round(n))}
                       label={t("acpRunChatView.inputLabel")}
                     />
-                    <AnimatedMetricCard
-                      icon={
-                        <ArrowUpFromLine
-                          className="h-4 w-4 shrink-0"
-                          style={{ color: "var(--content-secondary)" }}
-                        />
-                      }
+                    <AnimatedStatSquare
+                      icon={<ArrowUpFromLine />}
                       target={entry.outputTokens ?? 0}
                       format={(n) => formatNumber(Math.round(n))}
                       label={t("acpRunChatView.outputLabel")}

@@ -651,6 +651,7 @@
     "warningTitle": "这看起来像一个 API 密钥"
   },
   "composerSettingsMenu": {
+    "autoPreview": "自动 · {profile}",
     "accessAria": "助手访问权限：{label}",
     "assistantAccess": "助手访问权限",
     "assistantAccessTitle": "助手访问权限",
@@ -1317,6 +1318,7 @@
     "title": "文件"
   },
   "messageHoverActions": {
+    "autoRouted": "自动 · {profile}",
     "bookmark": "书签",
     "copied": "已复制",
     "copy": "复制",

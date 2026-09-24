@@ -29,9 +29,11 @@ export const TASK_UPDATE_SILENT_MARKER = "[TASK_UPDATE:SILENT]";
  */
 export const HOLD_VERDICT_TOKEN = "[0]";
 export const ESCALATE_VERDICT_TOKEN = "[ESCALATE]";
+export const SCREEN_ACTION_VERDICT_TOKEN = "[ESCALATE_SCREEN]";
 const LEGACY_ESCALATE_VERDICT_TOKEN = "[1]";
 export const ESCALATE_VERDICT_TOKENS = [
   ESCALATE_VERDICT_TOKEN,
+  SCREEN_ACTION_VERDICT_TOKEN,
   LEGACY_ESCALATE_VERDICT_TOKEN,
 ] as const;
 
@@ -228,6 +230,7 @@ export function stripInternalSpeechMarkers(text: string): string {
     .replaceAll(TASK_UPDATE_SILENT_MARKER, "")
     .replace(HOLD_VERDICT_TOKEN_REGEX, "")
     .replaceAll(ESCALATE_VERDICT_TOKEN, "")
+    .replaceAll(SCREEN_ACTION_VERDICT_TOKEN, "")
     .replaceAll(LEGACY_ESCALATE_VERDICT_TOKEN, "")
     .replace(MINIMIZE_ROOM_MARKER_REGEX, "")
     .replace(MUTE_MARKER_REGEX, "")

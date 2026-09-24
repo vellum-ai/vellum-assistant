@@ -2,6 +2,77 @@
 
 Signal-driven notification architecture where producers emit free-form events and an LLM-backed decision engine determines whether, where, and how to notify the user.
 
+## Completion alerts
+
+`chat.assistant_reply`, `schedule.result`, and explicitly user-facing
+`activity.complete` signals use the available subset of `vellum` and
+`platform`. A self-hosted assistant can deliver through `vellum` without
+mobile push. `completion-policy.ts` owns local presentation: selected
+completions can banner at medium urgency, unrelated low/medium notifications
+remain silent, and explicitly quiet work stays silent. The broadcaster resolves
+the existing `silent` contract once for the local intent and paired-conversation
+event; clients continue honoring it.
+
+Local completion delivery requires the active Vellum guardian principal from
+the resolved destination. The broadcaster checks that identity before pairing,
+and the adapter targets the event hub's `targetActorPrincipalId` before sending
+title or body. Missing identity, or a background completion naming a different
+recipient, fails closed without an unrestricted broadcast. The
+`targetGuardianPrincipalId` payload marker is reserved for guardian-sensitive
+cards, whose legacy client gate rejects unknown and local assistant versions.
+Completion intents use the authenticated event-hub scope without that marker,
+so self-hosted assistants can deliver alerts before version hydration.
+
+Background completions opt in with typed `contextPayload.completion` provenance:
+the stable work ID, result conversation ID, recipient principal ID, and owning
+path (`parent_continuation`). Ordinary maintenance events
+without that context retain their existing policy. Declared ownership must
+validate before pairing or delivery. Owned completions can only reach `vellum`
+and `platform` with a matching recipient; channel allowlists and model routing
+cannot widen that scope. Producers persist the
+user-facing result before emitting. Reply previews and these explicit background
+previews link to that result without appending another transcript row.
+Recipient-owned `activity.complete` signals do not mirror into the Home feed or
+notification bell, regardless of whether scoped delivery succeeds. The feed is
+assistant-wide and has no per-recipient read policy, so confirming the active
+guardian alone does not make a shared preview private. A declared but malformed
+completion ownership payload is excluded too. Ordinary activity notifications
+and skill-update receipts retain their existing feed behavior.
+
+`background-result-producer.ts` owns successful subagent parent continuations
+and background-tool completion wakes in user conversations. It waits for
+user-facing work and queued continuations to settle, preserves scheduled-run
+ownership, and reads the same public-result projection as scheduled delivery.
+An external-origin continuation remains eligible: its inherited channel metadata
+does not acknowledge a channel delivery. Recorded result notifications and
+successful messaging-tool deliveries suppress the completion fallback.
+When a sibling fails or is cancelled, settlement can recover an earlier unseen
+successful result from persisted conversation rows in pages of 200. Recovery stops
+at a user prompt and preserves prior delivery and quiet decisions. It uses
+insertion order, so same-millisecond messages stay in their actual turns.
+Coalesced completion messages share their final member's successful synthesis;
+`turnBatchedInto` links that result to a successful member even when the final
+sibling failed, was cancelled, or is another internal or automated trigger.
+Only a validated completed task or command owns the shared result. A failed
+synthesis remains ineligible.
+Failed-only work cannot create a completion candidate. Command wakes check
+settlement after releasing their wake queue entry, including empty or failed
+continuations; pending cancellation callbacks still count as unfinished work.
+Approval prompts do not count as prior result delivery. Internal jobs and
+workflow-manager wakes retain their existing behavior; workflow wakes need
+explicit run and quiet-mode provenance before they can use this producer.
+
+The recipient is the assistant's active Vellum guardian, as for ordinary
+replies. Completion signals retain the pipeline's permanent deduplication
+claims and existing best-effort delivery semantics. There is no new retry
+queue for a signal whose transports all fail.
+
+The local send waits for the bounded platform outcome and carries its accepted
+mobile platforms, preserving remote/local mobile deduplication. A successful
+local adapter send means the scoped intent was handed to the event hub; it is
+not proof that an OS banner appeared. Client delivery acknowledgements retain
+their existing handled/suppressed semantics.
+
 ## Lifecycle
 
 ```
@@ -222,11 +293,11 @@ Schedules (both recurring and one-shot) carry optional routing metadata that con
 
 The `routing_intent` field on each `schedule_jobs` row specifies the desired channel coverage:
 
-| Intent           | Behavior                                              | When to use                                                         |
-| ---------------- | ----------------------------------------------------- | ------------------------------------------------------------------- |
-| `single_channel` | Default LLM-driven routing (no override)              | Standard schedules where the decision engine picks the best channel |
-| `multi_channel`  | Ensures delivery on 2+ channels when 2+ are connected | Important schedules the user wants on both desktop and phone        |
-| `all_channels`   | Forces delivery on every connected channel            | Critical schedules that must reach the user everywhere              |
+| Intent           | Behavior                                              | When to use                                                  |
+| ---------------- | ----------------------------------------------------- | ------------------------------------------------------------ |
+| `single_channel` | Delivers on exactly one channel                       | Schedules that should reach the user in one place            |
+| `multi_channel`  | Ensures delivery on 2+ channels when 2+ are connected | Important schedules the user wants on both desktop and phone |
+| `all_channels`   | Forces delivery on every connected channel            | Critical schedules that must reach the user everywhere       |
 
 The default is `all_channels`. Routing intent is persisted in the `schedule_jobs` table (`routing_intent` column) and carried through the notification signal as `routingIntent`.
 
@@ -254,7 +325,7 @@ The `enforceRoutingIntent()` function in `decision-engine.ts` runs after the LLM
 
 - **`all_channels`**: Replaces `selectedChannels` with all connected channels (from `getConnectedChannels()`).
 - **`multi_channel`**: If the LLM selected fewer than 2 channels but 2+ are connected, expands `selectedChannels` to at least two connected channels.
-- **`single_channel`**: No override -- the LLM's selection stands.
+- **`single_channel`**: Caps delivery to one channel: the signal's source channel when it is connected, otherwise the first channel the LLM selected. A signal with no routing intent keeps the LLM's selection.
 
 When enforcement changes the decision, the updated channel selection is re-persisted to the `notification_decisions` table so the stored decision matches what was actually dispatched. The `reasoningSummary` is annotated with the enforcement action (e.g. `[routing_intent=all_channels enforced: vellum, telegram]`).
 

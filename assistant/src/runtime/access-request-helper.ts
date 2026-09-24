@@ -326,14 +326,17 @@ export async function notifyGuardianOfAccessRequest(
   });
 
   let vellumDeliveryIdPromise: Promise<string | undefined> | undefined;
-  // When the access request originates from a text channel with
-  // notification delivery support (Slack, Telegram) and the guardian was
-  // resolved via a verified same-channel contact, route the notification
-  // only to that channel to reduce noise. Phone is excluded because it
-  // is not a deliverable notification channel.
-  // When the guardian was NOT verified on the source channel (e.g. resolved
-  // via vellum anchor), route to all channels so the guardian can see
-  // the request on desktop/other channels where they ARE verified.
+  // Where the card goes:
+  // - Slack or Telegram with the guardian verified on that same channel: only
+  //   that channel, where the card is answered in place.
+  // - Email, for a sender who was denied: every channel the guardian is
+  //   connected on. The card cannot be delivered or answered by email, and
+  //   the in-app copy alone is easy to miss for a guardian who handles
+  //   requests in a chat app. An admitted sender's nudge blocks nobody, so it
+  //   takes the default below.
+  // - Anywhere else: the channels the decision engine selects. The in-app
+  //   card is always among them (`emit-signal.ts` forces it for access
+  //   requests).
   const TEXT_CHANNELS_WITH_DELIVERY: ReadonlySet<string> = new Set([
     "slack",
     "telegram",
@@ -355,7 +358,11 @@ export async function notifyGuardianOfAccessRequest(
     sourceContextId: `access-req-${sourceChannel}-${actorExternalId}`,
     requiresConversation: true,
     ...(vellumConversationAffinity ?? {}),
-    ...(sameChannelOnly ? { routingIntent: "single_channel" as const } : {}),
+    ...(sameChannelOnly
+      ? { routingIntent: "single_channel" as const }
+      : sourceChannel === "email" && trigger === "denied"
+        ? { routingIntent: "all_channels" as const }
+        : {}),
     attentionHints: {
       requiresAction: true,
       // An admitted sender is already conversing — the guardian should

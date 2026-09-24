@@ -772,6 +772,10 @@ export {
   DictationRequestSchema,
 } from "./requests/dictation.js";
 export {
+  type GuardianActionDecisionRequest,
+  GuardianActionDecisionRequestSchema,
+} from "./requests/guardian-actions.js";
+export {
   type BackgroundToolCompletion,
   type ConversationAttachmentBlock,
   ConversationAttachmentBlockSchema,

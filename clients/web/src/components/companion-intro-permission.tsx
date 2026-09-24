@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { Button } from "@vellumai/design-library/components/button";
 
 import { useTranslation } from "@/i18n";
@@ -27,6 +28,7 @@ export function CompanionIntroPermission({
   permission: Permission;
 }) {
   const { t } = useTranslation();
+  const sourceRef = useRef<HTMLDivElement>(null);
   const { state } = permission;
   const item = state.phase === "known" ? state.item : null;
   const busy = state.phase === "checking" || state.phase === "requesting";
@@ -35,7 +37,10 @@ export function CompanionIntroPermission({
   const error = state.phase === "error" || item?.error !== undefined;
   const copy = COPY[permission.kind];
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
+    <div
+      ref={sourceRef}
+      className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto"
+    >
       <p className="text-[14px] leading-[1.45] text-white/70">{t(copy.body)}</p>
       <Button
         size="compact"
@@ -43,7 +48,19 @@ export function CompanionIntroPermission({
         className="self-start bg-white/15 text-white hover:bg-white/25"
         loading={busy}
         disabled={restricted || state.phase === "checking"}
-        onClick={permission.enable}
+        onClick={() => {
+          const bounds = sourceRef.current?.getBoundingClientRect();
+          permission.enable(
+            bounds
+              ? {
+                  x: bounds.x,
+                  y: bounds.y,
+                  width: bounds.width,
+                  height: bounds.height,
+                }
+              : undefined,
+          );
+        }}
       >
         {settings
           ? t("companionIntro.permission.openSettings")
@@ -55,10 +72,16 @@ export function CompanionIntroPermission({
           : error
             ? t("companionIntro.permission.error")
             : settings
-              ? t("companionIntro.permission.settingsHint")
+              ? t(
+                  permission.kind === "microphone"
+                    ? "companionIntro.permission.microphoneSettingsHint"
+                    : "companionIntro.permission.settingsHint",
+                )
               : busy
                 ? t("companionIntro.permission.waiting")
-                : null}
+                : permission.kind === "microphone"
+                  ? t("companionIntro.permission.microphonePromptHint")
+                  : null}
       </p>
     </div>
   );

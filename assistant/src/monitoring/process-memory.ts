@@ -17,9 +17,10 @@ import {
   type ProcessTableRow,
 } from "../util/process-table.js";
 import { deriveName, readProcessCommand } from "../util/process-tree.js";
+import { readKernelPageSizeBytes } from "./proc-wait-state.js";
 
-/** Linux page size assumed when converting `/proc/<pid>/statm` pages to bytes. */
-const PAGE_SIZE_BYTES = 4096;
+/** Kernel page size for `/proc/<pid>/statm` pages, read on first use. */
+let pageSizeBytes: number | undefined;
 
 export interface SmapsRollup {
   rssBytes: number | null;
@@ -74,7 +75,7 @@ function readProcessMemory(pid: number): SmapsRollup | null {
       return null;
     }
     return {
-      rssBytes: residentPages * PAGE_SIZE_BYTES,
+      rssBytes: residentPages * (pageSizeBytes ??= readKernelPageSizeBytes()),
       pssBytes: null,
       pssAnonBytes: null,
       pssFileBytes: null,

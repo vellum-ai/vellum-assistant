@@ -6,6 +6,7 @@ import {
   isHandshakeOffered,
   isWorkspaceVouchedIdentity,
   parseRequesterSignals,
+  requesterCanCompleteHandshake,
   resolveTrustBinding,
   serializeRequesterSignals,
   VERIFIED_VIA_CHANNEL_CLAIM,
@@ -117,13 +118,18 @@ describe("handshake policy", () => {
     expect(isHandshakeOffered("phone", {})).toBe(false);
   });
 
+  test("not offered on email: the code has no route to the sender", () => {
+    expect(requesterCanCompleteHandshake("email", {})).toBe(false);
+    expect(isHandshakeOffered("email", {})).toBe(false);
+    expect(isHandshakeOffered("email", { isStranger: true })).toBe(false);
+  });
+
   test("leads for externals, strangers, and identity-less channels", () => {
     expect(isHandshakeOffered("slack", { isStranger: true })).toBe(true);
     expect(isHandshakeOffered("slack", { isRestricted: true })).toBe(true);
     // Unknown signals (users.info failure) fail toward the handshake.
     expect(isHandshakeOffered("slack", {})).toBe(true);
     expect(isHandshakeOffered("telegram", {})).toBe(true);
-    expect(isHandshakeOffered("email", {})).toBe(true);
   });
 });
 
@@ -143,6 +149,16 @@ describe("introduction action lists", () => {
       expect(ids).not.toContain("verify_code");
       expect(ids).toEqual(["trust", "leave_unverified", "block"]);
     }
+  });
+
+  test("email sender: direct trust leads, no code option", () => {
+    const actions = buildIntroductionActions("email", {});
+    expect(actions.map((a) => a.id)).toEqual([
+      "trust",
+      "leave_unverified",
+      "block",
+    ]);
+    expect(actions[0].label).toBe("Trust");
   });
 
   test("external: handshake leads, trust is 'Trust anyway'", () => {

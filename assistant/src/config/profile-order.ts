@@ -16,7 +16,13 @@ export function orderProfileKeys(
   const seen = new Set<string>();
   const ordered: string[] = [];
   for (const name of profileOrder ?? []) {
-    if (profiles[name] != null && !seen.has(name)) {
+    // Own properties only: a persisted name such as `constructor` would
+    // otherwise resolve through `Object.prototype` and surface a phantom.
+    if (
+      Object.prototype.hasOwnProperty.call(profiles, name) &&
+      profiles[name] != null &&
+      !seen.has(name)
+    ) {
       ordered.push(name);
       seen.add(name);
     }

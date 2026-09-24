@@ -359,6 +359,68 @@ describe("access-request vellum floor", () => {
     );
   });
 
+  test("an all_channels access request the decision engine suppressed still fans out", async () => {
+    evaluateSignalMock.mockResolvedValue({
+      shouldNotify: false,
+      selectedChannels: [],
+      reasoningSummary: "LLM suppressed",
+      renderedCopy: {},
+      dedupeKey: "dedupe-ar-email",
+      confidence: 0.9,
+      fallbackUsed: false,
+      persistedDecisionId: "dec-ar-email",
+    });
+    // The real enforcement leaves a suppressed decision alone and replaces
+    // the selection with every connected channel otherwise.
+    enforceRoutingIntentMock.mockImplementation(
+      (
+        decision: { shouldNotify: boolean; selectedChannels: string[] },
+        intent: string | undefined,
+        connected: string[],
+      ) =>
+        intent === "all_channels" && decision.shouldNotify
+          ? { ...decision, selectedChannels: [...connected] }
+          : decision,
+    );
+
+    await emitNotificationSignal({
+      sourceEventName: "ingress.access_request",
+      sourceChannel: "email",
+      sourceContextId: "access-req-email-stranger",
+      requiresConversation: true,
+      routingIntent: "all_channels",
+      attentionHints: {
+        requiresAction: true,
+        urgency: "high",
+        isAsyncBackground: false,
+        visibleInSourceNow: false,
+      },
+      contextPayload: {
+        requestId: "req-email",
+        requestCode: "EM12CD",
+        sourceChannel: "email",
+        conversationExternalId: "<thread-1@example.com>",
+        actorExternalId: "stranger@example.com",
+        actorDisplayName: null,
+        actorUsername: null,
+        senderIdentifier: "stranger@example.com",
+        guardianBindingChannel: null,
+        guardianResolutionSource: "vellum-anchor",
+        previousMemberStatus: null,
+        messagePreview: null,
+      },
+    });
+
+    const enforced = enforceRoutingIntentMock.mock.calls[0][0] as {
+      shouldNotify: boolean;
+    };
+    expect(enforced.shouldNotify).toBe(true);
+    const dispatched = dispatchDecisionMock.mock.calls[0][1] as {
+      selectedChannels: string[];
+    };
+    expect(dispatched.selectedChannels).toContain("vellum");
+  });
+
   test("re-adds vellum when single_channel routing enforcement strips it", async () => {
     evaluateSignalMock.mockResolvedValue({
       shouldNotify: true,

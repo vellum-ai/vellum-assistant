@@ -29,6 +29,7 @@ This file is the cross-system architecture index. Detailed designs live in domai
 | Workflow orchestration engine               | [Workflow Orchestration Engine](#workflow-orchestration-engine) (this file)                        |
 | Watch sessions                              | [Watch Sessions](#watch-sessions) (this file)                                                      |
 | Screen annotation                           | [Screen Annotation](#screen-annotation) (this file)                                                |
+| Completion notifications                    | [Completion Notifications](#completion-notifications) (this file)                                 |
 | Notification sender avatars                 | [Notification Sender Avatars](#notification-sender-avatars) (this file)                            |
 | Workflow authoring guide                    | [`assistant/docs/workflows.md`](assistant/docs/workflows.md)                                       |
 | Workflow manual testing runbook             | [`assistant/docs/workflows-testing.md`](assistant/docs/workflows-testing.md)                       |
@@ -812,6 +813,45 @@ See [Voice input diagnostics](assistant/docs/voice-input-diagnostics.md) for the
 
 With Flux turn detection enabled, microphone audio passes through for one second after locally detected speech, then room audio becomes digital silence. A bounded 200 ms buffer preserves the lead-in to resumed speech without replaying already-submitted audio. Confirmed playback echo becomes silence before buffering. Flux retains an elapsed-audio timeline through pauses. In hands-free Flux sessions, provider `StartOfTurn` owns interruption: local energy alone cannot emit `speech_started` or cancel a reply, even when provider end-of-turn handling is disabled. Other providers retain the local sustained-speech guard, and manual sessions retain client-owned interruption. Gate transitions, submission cadence, interruption source, and provider turn-end confidence, trigger, and audio position are logged for correlation with the input measurements.
 
+## macOS Companion Tour Permissions
+
+The existing companion coachmarks request Microphone for calls, Input Monitoring
+for the voice key, and Screen Recording for sharing, only when their lesson needs
+access. Microphone uses its native prompt. Input Monitoring and Screen Recording
+can detach from the coachmark into a guide beside System Settings, with a native
+file drag of the capturing Vellum Helper application. Other app permissions stay
+outside the companion tour.
+
+The informational introduction waits for an active assistant before offering the
+coachmarks. Losing assistant readiness clears an interrupted tour and its dimming
+without completing it. Talk and voice-key practice cannot start a call; microphone
+setup belongs to the final, explicit call action.
+
+Main resolves the app-owned drag path and accepts drag and Finder actions only
+from the current guide's WebContents. The guide follows the main Settings window
+by its pinned window id. Before dragging or revealing in Finder it stops following
+and yields its floating level so authentication dialogs remain accessible. The
+same coachmark resumes on an actual permission grant or Back; leaving the lesson
+cancels its guide, including pending app lookups.
+
+```mermaid
+flowchart LR
+    TOUR["Companion permission coachmark"] --> GUIDE["Native drag guide"]
+    TOUR --> SERVICE["PermissionsService"]
+    GUIDE --> SETTINGS["System Settings helper app list"]
+    HELPER["Native helper window inventory"] --> GUIDE
+    SERVICE -->|actual OS grant| STATE["Permission state broadcast"]
+    STATE --> TOUR
+    STATE -->|dismiss guide| GUIDE
+```
+
+The helper's existing window inventory provides Settings bounds without taking
+a screenshot or requesting Accessibility. The guide polls actual permission
+state, follows Settings across displays, and tears down its timers when dismissed,
+replaced, granted, or expired. Native prompt permissions retain their existing
+request path. The optional setup bridge preserves older-shell and other-platform
+behavior. See [the macOS client](clients/macos/README.md).
+
 ## Watch Sessions
 
 A watch session records what the user narrates while they work and reads their screen around it. The microphone and the socket live in the browser (`clients/web/src/domains/chat/watch/watch-controller.ts`); the cadence, the observations, and the timeline live in the daemon (`assistant/src/watch/watch-session-manager.ts`). The client draws nothing during a session: frames going the other way are lifecycle only, and the retrospective is a conversational turn after the socket is gone.
@@ -910,7 +950,7 @@ An automation slot keeps the desktop alive independently of the viewer. The pict
 
 ## Screen Annotation
 
-Voice escalation normally starts with `[ESCALATE]` before a holding phrase. The shared voice verdict parser also recovers a standalone `[ESCALATE]` at the end of a completed front-door reply. This starts the tool-capable leg using the already streamed speech as its acknowledgement, without repeating it or delaying normal answer streaming. The numeric `[1]` verdict remains supported only at the start of a reply, so numbered references in ordinary answers cannot trigger terminal recovery. Interior or incomplete markers do not trigger this recovery, and cancelled turns cannot hand off.
+Voice escalation normally starts with `[ESCALATE]` before a holding phrase. During screen sharing, the front door can choose `[ESCALATE_SCREEN]` for an annotation or immediate screen action requiring only the visible screen and conversation. With an active share, that verdict skips fresh memory retrieval on the escalated leg while retaining resident history and static context. Ordinary escalations keep retrieval enabled. The shared parser also recovers either explicit verdict at the end of a completed front-door reply, using already streamed speech as its acknowledgement without repeating it or delaying answer streaming. The numeric `[1]` verdict remains supported only at the start of a reply. Interior or incomplete markers do not trigger terminal recovery, and cancelled turns cannot hand off.
 
 The assistant points at things on the screen the user is sharing with a call, so they can go and do the thing themselves. It is the opposite errand from computer use and shares none of its actions: nothing here clicks, types or takes the mouse. The bundled `screen-annotation` skill (`assistant/src/config/bundled-skills/screen-annotation/`) offers two tools, `screen_point_at` and `screen_clear_marks`, and a request replaces whatever is currently drawn. Clearing is its own tool because it is a thing the model decides to do rather than an argument shape it has to remember; on the wire it is the same request carrying no marks.
 
@@ -961,6 +1001,28 @@ graph LR
     PRESS -->|"input.pressed · index"| PAINT
     PAINT -->|"coachmarkPressed · label"| TURN["root layout<br/>coachmark-press-turn · sendText"]
 ```
+
+## Completion Notifications
+
+Unseen replies, non-quiet scheduled results, and explicitly identified background results enter the existing `emitNotificationSignal()` pipeline. Completion presentation is resolved independently of urgency: ordinary completions can produce a local banner without becoming high-priority alerts. Local previews require the canonical recipient principal and use targeted `notification_intent` delivery. The existing platform route retains mobile push ownership and acknowledgement handling.
+
+Completion suppression uses the intended recipient's fresh presence in the result conversation. Browser presence requires a visible, focused window; Electron supplies its authoritative window attention. Activity elsewhere on the computer does not count as attending the result. Parent continuations own delegated task and background-tool completion alerts after the user-facing result is persisted. Scheduled runs retain their existing owner, while private output, silent work, and pending child work do not announce completion.
+
+Open desktop-browser tabs keep their existing event stream connected while hidden. Notification permission is requested through an explicit settings action. Same-origin browser tabs coordinate posting through Web Locks and a bounded receipt ledger scoped to account, assistant, and delivery identity. Where those APIs are unavailable, page-local deduplication and a stable OS tag provide best-effort delivery. Closing, freezing, or discarding the tab stops the live-delivery guarantee; reconnect restores normal conversation and feed state.
+
+```mermaid
+flowchart LR
+    Reply[Final unseen reply] --> Signal[Notification signal]
+    Schedule[Scheduled result] --> Signal
+    Parent[Persisted parent continuation] --> Signal
+    Signal --> Policy[Presence and completion policy]
+    Policy --> Local[Recipient-targeted local intent]
+    Policy --> Platform[Existing mobile push route]
+    Local --> Desktop[Electron notification owner]
+    Local --> Browser[Browser tab delivery owner]
+```
+
+See [notification delivery](assistant/src/notifications/README.md) and [web lifecycle events](clients/web/docs/EVENT_BUS.md).
 
 ## Notification Sender Avatars
 

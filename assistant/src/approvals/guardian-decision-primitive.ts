@@ -32,6 +32,8 @@
  *   - Scoped grant minting only on explicit approve for requests with tool metadata
  */
 
+import { isDenyingGuardianAction } from "@vellumai/service-contracts/guardian-requests";
+
 import {
   decideGuardianRequest,
   type DecideGuardianRequestIpcResponse,
@@ -41,7 +43,6 @@ import {
 import {
   APPROVAL_ACTION_SET,
   type ApprovalAction,
-  DENYING_ACTION_SET,
   INTRODUCTION_ACTION_SET,
 } from "../runtime/channel-approval-types.js";
 import { getLogger } from "../util/logger.js";
@@ -383,7 +384,7 @@ export async function applyGuardianDecision(
   // 3. Plan the ACL outcome BEFORE any status write. Kinds without a
   // `prepare` hook decide as a plain status CAS.
   const effectiveAction: ApprovalAction = action;
-  const targetStatus: "approved" | "denied" = DENYING_ACTION_SET.has(
+  const targetStatus: "approved" | "denied" = isDenyingGuardianAction(
     effectiveAction,
   )
     ? "denied"
@@ -528,12 +529,13 @@ export async function applyGuardianDecision(
   // never throws; the `.catch` is a defensive backstop.
   // For access requests the resolver folds the generic decision pair onto the
   // introduction outcomes (`reject` → `leave_unverified`, `approve_once` →
-  // `verify_code`), so the resolved card must reflect the OUTCOME, not the raw
+  // `verify_code`, or `trust` for a requester who cannot complete a code
+  // handshake), so the resolved card must reflect the OUTCOME, not the raw
   // button — otherwise a `reject` that actually parked the contact at
   // `unverified` would still render "Denied". Other kinds have no such mapping.
   const cardAction =
     request.kind === "access_request"
-      ? introductionOutcomeForAction(effectiveAction)
+      ? introductionOutcomeForAction(resolved, effectiveAction)
       : effectiveAction;
   void withdrawGuardianRequestCards({
     request: resolved,

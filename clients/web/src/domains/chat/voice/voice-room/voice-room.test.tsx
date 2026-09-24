@@ -2447,6 +2447,58 @@ describe("VoiceRoom: camera", () => {
       expect(look()?.className).not.toContain("invisible");
     });
 
+    test("comes back for the whole of a flip", async () => {
+      // The flip releases the capture synchronously inside the press, so the
+      // commit that press produces already has an element with no stream. The
+      // feed's own `emptied` is a queued task and has not run yet, which is why
+      // this reads the flip flag instead of waiting for the event.
+      let releaseReplacement!: (stream: MediaStream) => void;
+      let calls = 0;
+      stubMediaDevices(async () => {
+        calls += 1;
+        if (calls === 1) {
+          return fakeStream();
+        }
+        return new Promise<MediaStream>((resolve) => {
+          releaseReplacement = resolve;
+        });
+      });
+      seedCameraCapableAssistant();
+      startOwnedSession("listening");
+      render(<VoiceRoom variant="content" />);
+      await act(async () => {
+        fireEvent.click(cameraToggle()!);
+      });
+      await act(async () => {
+        fireEvent.loadedData(viewfinder()!);
+      });
+      expect(look()?.className).toContain("invisible");
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Flip camera" }));
+      });
+
+      // No `emptied` dispatched: the flip alone has to account for this.
+      expect(calls).toBe(2);
+      expect(look()?.className).not.toContain("invisible");
+
+      await act(async () => {
+        releaseReplacement(fakeStream());
+      });
+
+      // The flip has settled and the replacement stream is assigned, but it has
+      // decoded nothing yet, so the feed is still transparent. The flag the
+      // outgoing frame set must not survive the flip to hide the look here,
+      // whichever of `emptied` and the replacement camera arrives first.
+      expect(look()?.className).not.toContain("invisible");
+
+      await act(async () => {
+        fireEvent.loadedData(viewfinder()!);
+      });
+
+      expect(look()?.className).toContain("invisible");
+    });
+
     test("is left alone over a native preview", async () => {
       // Nothing of the look is mounted on the native path, and the preview sits
       // BEHIND the transparent web view, so hiding this wrapper there would

@@ -37,19 +37,25 @@
     "deleteFolderMessage": "确定要删除 <name>{name}</name> 及其所有内容吗？此操作无法撤消。",
     "deleting": "正在删除…"
   },
-  "workspaceBrowser": {
-    "drawerTitle": "文件"
-  },
   "workspaceFileViewer": {
     "download": "下载",
     "downloading": "正在下载…",
     "downloadFailed": "下载失败。请重试。",
     "modifiedLabel": "修改时间：",
     "selectAFile": "选择一个文件以查看",
-    "browseFiles": "浏览文件",
     "fileNotFound": "文件未找到",
     "saveFailed": "保存失败",
     "unknownSize": "大小未知",
-    "downloadAria": "下载 {name}"
+    "downloadAria": "下载 {name}",
+    "emptyTitle": "尚未打开任何文件",
+    "emptyHint": "点击上方的<strong>选择文件</strong> <arrow/>"
+  },
+  "workspaceFileTitle": {
+    "eyebrow": "工作区",
+    "chooseFile": "选择文件",
+    "openHint": "打开文件列表"
+  },
+  "workspaceFilePicker": {
+    "dismiss": "关闭文件列表"
   }
 }

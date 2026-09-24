@@ -1,33 +1,12 @@
 /**
- * Reports client visibility and focused-conversation state to the daemon, so
- * a `chat.assistant_reply` APNs push can be suppressed when the reply's own
- * conversation is already open and visible here (see
- * `assistant/src/runtime/web-presence.ts`).
+ * Reports attended-conversation state to the assistant so redundant completion
+ * notifications can be suppressed. Browser and Electron windows each register
+ * as a separate web client; the server reads presence for the intended recipient
+ * regardless of which device started the turn.
  *
- * Runs in a browser tab and in the Electron desktop renderer alike. Both
- * register as interface `"web"` with their own client id
- * (`lib/telemetry/client-identity.ts` hardcodes it on purpose), and the
- * daemon consults the gate this feeds for every reply whatever device sent
- * the turn: `assistant/src/notifications/assistant-reply-producer.ts` calls
- * `isWebConversationFocused` unconditionally, and only the desktop read
- * beside it is `clientOs`-gated. Reporting from the desktop is therefore what
- * suppresses a push to a window already showing the conversation when the
- * turn was sent from the phone. Desktop host-proxy attendance answers a
- * different question, whether the user is at that computer at all, so never
- * reuse that path for this.
- *
- * `isVisibleToUser()` from `runtime/window-attention.ts` answers "is this
- * client on screen" on every platform, and `use-notification-intent-sync`
- * asks it the same way. Under Electron the answer comes from the main
- * process rather than the DOM: Vellum windows disable background throttling,
- * which disables the Page Visibility API with it, so
- * `document.visibilityState` is pinned to `"visible"` in that renderer and
- * reading it would report a minimized window as watched. That read requires
- * focus as well as being on screen, because main can see both. A browser tab
- * keeps visibility-only semantics: `document.hasFocus()` is window-level and
- * can be false for a visible tab in an unfocused browser window, while
- * visibility is the existing contract for whether the conversation is on
- * screen.
+ * `isClientAttended()` requires Electron host attention or browser visibility
+ * plus window focus. Capacitor keeps native foreground visibility because DOM
+ * focus is not authoritative inside the mobile shell.
  *
  * Every desktop window reports for itself, and a conversation pop-out is a
  * separate page load, so it is its own `"web"` client with its own report.
@@ -96,7 +75,8 @@ import { client as daemonClient } from "@/generated/daemon/client.gen";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { useSupportsWebPresence } from "@/lib/backwards-compat/use-supports-web-presence";
 import { isElectron } from "@/runtime/is-electron";
-import { isVisibleToUser } from "@/runtime/window-attention";
+import { isNativePlatform } from "@/runtime/native-auth";
+import { isClientAttended } from "@/runtime/window-attention";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { isConversationChatPath } from "@/utils/routes";
@@ -186,7 +166,7 @@ function isMachineAway(): boolean {
  */
 function isPresent(lastInteractionAt: number): boolean {
   return (
-    !isMachineAway() && isVisibleToUser() && hasRecentInput(lastInteractionAt)
+    !isMachineAway() && isClientAttended() && hasRecentInput(lastInteractionAt)
   );
 }
 
@@ -379,16 +359,11 @@ export function useWebPresenceReport(assistantId: string | null): void {
       reportPresence();
       return;
     }
-    // In a browser the edge is the evidence, not `visibilityState`. On iOS
-    // the Capacitor app-state source and the DOM event describe one physical
-    // edge and `lifecycle-edge.ts` publishes only the first to arrive, so the
-    // DOM can still read stale here and the losing source never fires to
-    // correct it. The desktop publishes no lifecycle edge, so one arriving
-    // under Electron came from the DOM source, which cannot see where a
-    // Vellum window is; real window state decides there.
+    // Native app-state can arrive before DOM visibility catches up. Browsers
+    // and Electron require their current attention state as well as this edge.
     lastInteractionAtRef.current = Date.now();
     reportWebPresence(assistantId!, buildKey, {
-      visible: isElectron() ? isVisibleToUser() : true,
+      visible: isNativePlatform() ? true : isClientAttended(),
       focusedConversationId,
     });
   });
@@ -460,7 +435,7 @@ export function useWebPresenceReport(assistantId: string | null): void {
     const onInteraction = () => {
       const wasIdle = !isPresent(lastInteractionAtRef.current);
       lastInteractionAtRef.current = Date.now();
-      if (wasIdle && isVisibleToUser()) {
+      if (wasIdle && isClientAttended()) {
         reportWebPresence(assistantId!, buildKeyRef.current, {
           visible: true,
           focusedConversationId: focusedConversationIdRef.current,

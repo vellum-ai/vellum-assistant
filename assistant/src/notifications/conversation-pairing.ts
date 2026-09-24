@@ -57,6 +57,10 @@ import {
 import { getLogger } from "../util/logger.js";
 import { withSqliteRetry } from "../util/sqlite-retry.js";
 import {
+  hasPersistedCompletionResult,
+  notificationConversationId,
+} from "./completion-policy.js";
+import {
   composeConversationSeed,
   isConversationSeedSane,
 } from "./conversation-seed-composer.js";
@@ -131,7 +135,6 @@ export interface PairingOptions {
  * transactional request or a system alert.
  */
 const ASSISTANT_SHARE_EVENT = "assistant.share";
-const ASSISTANT_REPLY_EVENT = "chat.assistant_reply";
 
 /**
  * Promote a background share into an assistant-initiated thread, under the
@@ -265,14 +268,14 @@ export async function pairDeliveryWithConversation(
     // notification can appear. The home feed aims its "Go to Conversation"
     // button at the same row whenever it mirrors the signal.
     //
-    // `chat.assistant_reply` already has its complete reply in that transcript.
-    // Its notification body is a lock-screen preview, so appending it would
+    // Reply and explicit background completions have their result persisted.
+    // Their notification body is a lock-screen preview, so appending it would
     // create a second, truncated assistant row. Keep the conversation target
     // for deep links without writing the preview into the transcript.
     if (
       strategy === "start_new_conversation" &&
       !signal.requiresConversation &&
-      signal.sourceEventName === ASSISTANT_REPLY_EVENT
+      hasPersistedCompletionResult(signal)
     ) {
       return {
         conversationId: resolveSourceConversation(signal)?.id ?? null,
@@ -771,11 +774,12 @@ async function resolveChannelDeliveryHome(params: {
 function resolveSourceConversation(
   signal: NotificationSignal,
 ): { id: string; conversationType?: string } | null {
-  if (!signal.sourceContextId) {
+  const conversationId = notificationConversationId(signal);
+  if (!conversationId) {
     return null;
   }
   try {
-    const row = getConversation(signal.sourceContextId);
+    const row = getConversation(conversationId);
     return row ? { id: row.id, conversationType: row.conversationType } : null;
   } catch {
     return null;

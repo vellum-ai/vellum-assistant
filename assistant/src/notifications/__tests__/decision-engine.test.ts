@@ -433,6 +433,44 @@ describe("assistant_tool pass-through in notification decision engine", () => {
   });
 });
 
+describe("background completion pass-through in notification decision engine", () => {
+  test("explicit user-facing completion selects local and mobile delivery", async () => {
+    const decision = await evaluateSignal(
+      makeAssistantToolSignal({
+        sourceEventName: "activity.complete",
+        contextPayload: {
+          requestedMessage: "The completed report is ready.",
+          completion: {
+            workId: "task-1",
+            conversationId: "conv-1",
+            recipientPrincipalId: "principal-1",
+            owner: "parent_continuation",
+          },
+        },
+      }),
+      ["vellum", "platform", "telegram"],
+    );
+
+    expect(decision.selectedChannels).toEqual(["vellum", "platform"]);
+    expect(decision.renderedCopy.vellum?.body).toBe(
+      "The completed report is ready.",
+    );
+    expect(decision.reasoningSummary).toBe("background_result pass-through");
+  });
+
+  test("ordinary maintenance completion keeps assistant-tool routing", async () => {
+    const decision = await evaluateSignal(
+      makeAssistantToolSignal({
+        sourceEventName: "activity.complete",
+      }),
+      ["vellum", "platform"],
+    );
+
+    expect(decision.reasoningSummary).toBe("assistant_tool pass-through");
+    expect(decision.selectedChannels).toEqual(["vellum"]);
+  });
+});
+
 describe("chat.assistant_reply pass-through in notification decision engine", () => {
   beforeEach(() => {
     persistedDecisions = [];
@@ -454,29 +492,38 @@ describe("chat.assistant_reply pass-through in notification decision engine", ()
     expect(decision.confidence).toBe(1.0);
   });
 
-  test("selects exactly the platform channel when platform is available", async () => {
+  test("selects local and mobile completion delivery when both are available", async () => {
     const decision = await evaluateSignal(makeAssistantReplySignal(), [
       "vellum",
       "telegram",
       "platform",
     ] as NotificationChannel[]);
 
-    expect(decision.selectedChannels).toEqual(["platform"]);
+    expect(decision.selectedChannels).toEqual(["vellum", "platform"]);
     expect(decision.shouldNotify).toBe(true);
   });
 
-  test("selects nothing and suppresses when platform is unavailable", async () => {
+  test("delivers locally when mobile push is unavailable", async () => {
     const decision = await evaluateSignal(makeAssistantReplySignal(), [
       "vellum",
       "telegram",
     ] as NotificationChannel[]);
+
+    expect(decision.selectedChannels).toEqual(["vellum"]);
+    expect(decision.shouldNotify).toBe(true);
+  });
+
+  test("does not reroute a completion to unrelated external channels", async () => {
+    const decision = await evaluateSignal(makeAssistantReplySignal(), [
+      "telegram",
+    ]);
 
     expect(decision.selectedChannels).toEqual([]);
     expect(decision.shouldNotify).toBe(false);
   });
 
   test("seeds rendered copy for every available channel, not just the selected one", async () => {
-    // A future channel added to ASSISTANT_REPLY_CHANNELS (or appended by a
+    // A channel added to COMPLETION_CHANNELS (or appended by a
     // downstream guard) inherits the verbatim copy instead of falling back.
     const available = [
       "vellum",

@@ -4443,6 +4443,34 @@ paths:
           description: ''
       x-vellum-api-clients:
       - platform
+  /v1/organizations/billing/free-tier-daily-limit/:
+    get:
+      operationId: organizations_billing_free_tier_daily_limit_retrieve
+      description: Return enrollment, enforcement, and today's usage-credit spend.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - organizations
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      - AssistantAPIKey: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FreeTierDailyLimitResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
   /v1/organizations/billing/invoices/:
     get:
       operationId: organizations_billing_invoices_retrieve
@@ -6772,6 +6800,30 @@ components:
           description: True when the daily limit has been skipped for the current
             UTC day, so it is not enforced until the next reset. Auto top-up is unaffected
             and keeps charging.
+        free_tier_daily_limit_enrolled:
+          type: boolean
+          description: True when the organization was enrolled at signup in the free-tier
+            daily usage-credit limit cohort.
+        free_tier_daily_limit_enforced:
+          type: boolean
+          description: 'True when the free-tier daily limit currently applies: enrolled,
+            no active Pro subscription, and the platform kill switch is on.'
+        free_tier_daily_limit_usd:
+          type: string
+          description: Per-UTC-day cap on usage-credit spend (initial credit, Pro
+            bundle, conversion incentive) as a decimal string. Only meaningful when
+            free_tier_daily_limit_enforced.
+        free_tier_daily_spend_usd:
+          type: string
+          description: Today's (UTC) spend drawn from usage-credit grants as a decimal
+            string. Reported as "0.00" when the stored counter is from a prior UTC
+            day. Purchased/extra credit spend is never included.
+        free_tier_daily_limit_reached:
+          type: boolean
+          description: True when the free-tier daily limit is enforced and today's
+            usage-credit spend has reached it, so usage credit is unspendable until
+            the next UTC day while purchased/extra credit remains spendable. Drives
+            the in-app free-tier banner.
         low_balance_threshold_usd:
           type: string
           description: Effective low-balance alert threshold in USD as a decimal string
@@ -6811,6 +6863,11 @@ components:
       - daily_spend_usd
       - effective_balance
       - effective_balance_usd
+      - free_tier_daily_limit_enforced
+      - free_tier_daily_limit_enrolled
+      - free_tier_daily_limit_reached
+      - free_tier_daily_limit_usd
+      - free_tier_daily_spend_usd
       - is_degraded
       - low_balance_threshold_usd
       - low_balance_warning
@@ -6947,6 +7004,7 @@ components:
       - oauth_start_failed
       - insufficient_balance
       - daily_limit_reached
+      - free_tier_daily_limit_reached
       - missing_price
       - assistant_not_live
       type: string
@@ -6968,6 +7026,7 @@ components:
         * `oauth_start_failed` - oauth_start_failed
         * `insufficient_balance` - insufficient_balance
         * `daily_limit_reached` - daily_limit_reached
+        * `free_tier_daily_limit_reached` - free_tier_daily_limit_reached
         * `missing_price` - missing_price
         * `assistant_not_live` - assistant_not_live
     ComputeTierChangeRequestRequest:
@@ -7859,6 +7918,51 @@ components:
         * `mp3` - mp3
         * `wav_8000` - wav_8000
         * `pcm_16000` - pcm_16000
+    FreeTierDailyLimitResponse:
+      type: object
+      description: |-
+        GET /…/free-tier-daily-limit/ response shape.
+
+        Daily information only: the cohort's larger initial-credit grant is the
+        "lifetime" allowance and is reported through the credits/summary APIs.
+      properties:
+        enrolled:
+          type: boolean
+          description: True when the organization was enrolled at signup in the free-tier
+            daily usage-credit limit cohort. Sticky for the life of the organization.
+        enforced:
+          type: boolean
+          description: 'True when the limit currently applies: enrolled, no active
+            Pro subscription, and the platform kill switch is on. False for every
+            non-enrolled organization.'
+        daily_limit_usd:
+          type: string
+          description: Per-UTC-day cap on usage-credit spend as a decimal string.
+            Reported for every organization; only meaningful when enforced.
+        current_day_spent_usd:
+          type: string
+          description: Today's (UTC) spend drawn from usage-credit grants (initial
+            credit, Pro bundle, conversion incentive) as a decimal string. Reported
+            as "0.00" when the stored counter is from a prior UTC day. Purchased/extra
+            credit spend is never included.
+        day_bucket:
+          type: string
+          nullable: true
+          description: The UTC day the stored counter belongs to ('YYYY-MM-DD'), or
+            null when no usage-credit spend has been recorded yet.
+        limit_reached:
+          type: boolean
+          description: True when the limit is enforced and today's usage-credit spend
+            has reached it, so usage credit is unspendable until the next UTC day.
+            Purchased/extra credit remains spendable. Drives the in-app free-tier
+            daily-limit banner.
+      required:
+      - current_day_spent_usd
+      - daily_limit_usd
+      - day_bucket
+      - enforced
+      - enrolled
+      - limit_reached
     FrequencyEnum:
       enum:
       - daily

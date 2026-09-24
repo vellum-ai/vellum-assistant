@@ -49,29 +49,26 @@ export function createChannelSocketHealthRoutes(
         const { channel } = ChannelSocketHealthIpcParamsSchema.parse(params);
         const source = sources[channel];
         if (!source) {
-          const response: ChannelSocketHealthIpcResponse = {
+          return {
             channel,
             status: "unsupported",
-          };
-          return response;
+          } satisfies ChannelSocketHealthIpcResponse;
         }
         const client = source();
         if (!client) {
-          const response: ChannelSocketHealthIpcResponse = {
+          return {
             channel,
             status: "not_configured",
-          };
-          return response;
+          } satisfies ChannelSocketHealthIpcResponse;
         }
         const health = client.getConnectionHealth();
-        const response: ChannelSocketHealthIpcResponse = {
+        return {
           channel,
           status: health.connected ? "connected" : "disconnected",
           ...(health.lastLivenessAt === undefined
             ? {}
             : { lastLivenessAt: health.lastLivenessAt }),
-        };
-        return response;
+        } satisfies ChannelSocketHealthIpcResponse;
       },
     },
   ];

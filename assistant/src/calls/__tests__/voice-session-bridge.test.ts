@@ -2388,7 +2388,9 @@ describe("desktop skill preactivation", () => {
     });
     expect(result.skillIdsDuringLoop).toContain("screen-annotation");
     expect(result.promptDuringLoop).toContain("ID: screen-annotation");
-    expect(result.promptDuringLoop).toContain("Name the thing.");
+    expect(result.promptDuringLoop).toContain(
+      "Use the picture when names cannot identify the control.",
+    );
     expect(result.promptDuringLoop).toContain("screen_point_at");
     expect(result.promptDuringLoop).toContain("screen_clear_marks");
     expect(result.promptDuringLoop).toContain('"target"');
@@ -3156,6 +3158,23 @@ describe("startVoiceTurn with images in history", () => {
 });
 
 describe("startVoiceTurn escalated-leg profile pin", () => {
+  test.each([
+    { screenAction: true, screenSharing: true, expected: true },
+    { screenAction: false, screenSharing: true, expected: false },
+    { screenAction: true, screenSharing: false, expected: false },
+    {
+      screenAction: true,
+      screenSharing: true,
+      routingLeg: "front-door",
+      expected: false,
+    },
+  ])(
+    "skips fresh memory only for an escalated shared-screen action: %j",
+    async ({ expected, ...turn }) => {
+      const options = await runOptionsFor({ turn });
+      expect(options.skipMemoryRetrieval).toBe(expected);
+    },
+  );
   beforeEach(() => {
     unresolvableProviderNames.clear();
   });

@@ -1,3 +1,4 @@
+import { createPermissionSetupBridge } from "@vellumai/electron-desktop/preload";
 import {
   contextBridge,
   ipcRenderer,
@@ -287,6 +288,7 @@ const bridge: VellumBridge = {
     },
   },
   permissions: {
+    setup: createPermissionSetupBridge(ipcRenderer),
     getState: (): Promise<SystemPermissionsState> =>
       ipcRenderer.invoke(
         "vellum:permissions:getState",

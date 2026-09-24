@@ -154,12 +154,6 @@
         }
       },
       "close": "Close",
-      "confirm": {
-        "body": "It’ll take about a minute. I’m excited to show you what I can do from your desktop.",
-        "keep": "Take the tour",
-        "skip": "Skip for now",
-        "title": "Skip the tour?"
-      },
       "previewLabel": "Your desktop companion",
       "previewAssistantName": "Quill",
       "start": "Let’s go",
@@ -212,6 +206,8 @@
     },
     "permission": {
       "microphoneAction": "Enable microphone",
+      "microphoneSettingsHint": "Turn on Vellum’s microphone switch in System Settings, then return here.",
+      "microphonePromptHint": "macOS will ask you to allow microphone access.",
       "microphoneBody": "Let me use your microphone for voice conversations.",
       "shortcutBody": "Let me hear the shortcut while you use other apps.",
       "screenAction": "Enable screen sharing",
@@ -1046,5 +1042,13 @@
     "close": "Close",
     "closePanel": "Close panel",
     "loading": "Loading…"
+  },
+  "permissionGuide": {
+    "back": "Back to the tour",
+    "dragInstruction": "Drag {app} into the list to allow {permission}.",
+    "dragApp": "Drag {app} to System Settings, or press to show in Finder",
+    "dragError": "Drag unavailable. Try dragging from Finder.",
+    "showInFinder": "Show in Finder",
+    "inputLabel": "Input Monitoring"
   }
 }

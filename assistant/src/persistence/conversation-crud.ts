@@ -3208,6 +3208,30 @@ export function getMessagesAfter(
     .map(parseMessage);
 }
 
+/** Read a bounded conversation window in insertion order, including timestamp ties. */
+export function getRecentConversationMessages(
+  conversationId: string,
+  limit: number,
+  beforeMessageId?: string,
+): MessageRow[] {
+  return getDb()
+    .select()
+    .from(messages)
+    .where(
+      and(
+        eq(messages.conversationId, conversationId),
+        beforeMessageId === undefined
+          ? undefined
+          : sql`rowid < (SELECT rowid FROM messages WHERE id = ${beforeMessageId} AND conversation_id = ${conversationId})`,
+      ),
+    )
+    .orderBy(sql`rowid DESC`)
+    .limit(limit)
+    .all()
+    .reverse()
+    .map(parseMessage);
+}
+
 /**
  * Efficient existence check — returns true if the conversation has at least
  * one message row. Uses `LIMIT 1` + `select({ 1 })` to avoid loading and

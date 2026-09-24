@@ -779,6 +779,15 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
       setFeedHasFrame(false);
     }
   }, [cameraOpen]);
+  // A flip takes the stream away before it asks for the other camera, so the
+  // frame the flag stands for is gone the moment the flip starts. Keyed on the
+  // flag rather than hung off the flip control, so a flip started anywhere
+  // reaches it.
+  useEffect(() => {
+    if (camera.flipping) {
+      setFeedHasFrame(false);
+    }
+  }, [camera.flipping]);
   // Sight rides the viewfinder the shutter already put on screen: while Live is
   // running the gate keeps the frames worth keeping and sends each one as it
   // lands, and the daemon persists it as its own message, so the call can be
@@ -1248,6 +1257,16 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           and a flip's release makes it transparent again, so the look is the
           one layer there and stays up.
 
+          A flip is read from `camera.flipping` rather than from the feed's own
+          events, because it clears `srcObject` synchronously inside the press
+          and `emptied` is only delivered as a queued media task after it: the
+          flag is what is already true in the first commit the press produces,
+          and it stands until the replacement stream is assigned. The start of a
+          flip also drops `feedHasFrame` itself, so the two terms do not depend
+          on `emptied` beating the replacement camera's arrival: the frame flag
+          is already false by the commit that clears `flipping`, whichever of
+          the two lands first.
+
           `visibility` rather than an unmount, because mounting is what plays the
           entrance and the look has to come back without replaying it. The
           wrapper carries no z-index, so it opens no stacking context and the
@@ -1259,7 +1278,11 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
         data-testid="voice-room-look"
         className={cn(
           "absolute inset-0",
-          cameraOpen && !camera.native && feedHasFrame && "invisible",
+          cameraOpen &&
+            !camera.native &&
+            feedHasFrame &&
+            !camera.flipping &&
+            "invisible",
         )}
       >
         {!camera.native && look ? (

@@ -24,6 +24,18 @@ interface EmitCall {
 }
 
 const emitCalls: EmitCall[] = [];
+const backgroundCalls: Array<{
+  recoverOnly?: boolean;
+  assistantMessageId?: string;
+}> = [];
+mock.module("../../notifications/background-result-producer.js", () => ({
+  emitBackgroundResultNotification: async (params: {
+    recoverOnly?: boolean;
+    assistantMessageId?: string;
+  }) => {
+    backgroundCalls.push(params);
+  },
+}));
 /** Ordered trace of the tail's deferred work, for the ordering assertion. */
 const trace: string[] = [];
 let producerBehavior: "resolve" | "reject" | "hang" = "resolve";
@@ -98,6 +110,7 @@ async function runTail(overrides: {
 
 beforeEach(() => {
   emitCalls.length = 0;
+  backgroundCalls.length = 0;
   trace.length = 0;
   producerBehavior = "resolve";
 });
@@ -138,6 +151,9 @@ describe("runDeferredTurnTail assistant-reply notification", () => {
     await runTail({ turnCompleted: false });
 
     expect(emitCalls).toEqual([]);
+    expect(backgroundCalls).toMatchObject([
+      { recoverOnly: true, assistantMessageId: undefined },
+    ]);
   });
 
   test("stays silent when the turn produced no assistant row", async () => {

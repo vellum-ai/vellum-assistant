@@ -46,6 +46,7 @@ const capturedPersistedSeqs: Array<{ id: string; seq: number }> = [];
  * tail message while its siblings succeed).
  */
 const addMessageShouldThrowForContent = new Set<string>();
+let beforeMessageInsert: ((requestId?: string) => Promise<void>) | undefined;
 
 mock.module("../prompts/system-prompt.js", () => ({
   buildSystemPrompt: () => "system prompt",
@@ -101,12 +102,20 @@ mock.module("../persistence/conversation-crud.js", () => ({
     totalEstimatedCost: 0,
   }),
   createConversation: () => ({ id: "conv-1" }),
-  addMessage: (
+  addMessage: async (
     _convId: string,
     role: string,
     content: string,
-    options?: { metadata?: Record<string, unknown> },
+    options?: {
+      id?: string;
+      metadata?: Record<string, unknown>;
+      insertPrecondition?: () => boolean;
+    },
   ) => {
+    await beforeMessageInsert?.(options?.id);
+    if (options?.insertPrecondition && !options.insertPrecondition()) {
+      throw new Error("Message insert cancelled");
+    }
     // Simulate a persist failure for tests that need to exercise the
     // tail-persist-failed path in drainBatch. Triggered by matching any
     // registered substring against the serialized content payload.
@@ -115,7 +124,7 @@ mock.module("../persistence/conversation-crud.js", () => ({
         throw new Error(`Simulated addMessage failure for content: ${needle}`);
       }
     }
-    const id = `msg-${Date.now()}-${capturedAddMessages.length}`;
+    const id = options?.id ?? `msg-${Date.now()}-${capturedAddMessages.length}`;
     capturedAddMessages.push({
       id,
       role,
@@ -126,7 +135,8 @@ mock.module("../persistence/conversation-crud.js", () => ({
   },
   updateConversationUsage: () => {},
   updateConversationTitle: () => {},
-  getMessageById: () => null,
+  getMessageById: (id: string) =>
+    capturedAddMessages.find((message) => message.id === id) ?? null,
   getLastUserTimestampBefore: () => 0,
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
   updateMessageContent: mock(() => {}),
@@ -481,10 +491,12 @@ async function resolveRun(index: number) {
 }
 
 beforeEach(() => {
+  capturedAddMessages.length = 0;
   turnCommitCalls.length = 0;
   turnCommitHangForever = false;
   linkAttachmentShouldThrow = false;
   addMessageShouldThrowForContent.clear();
+  beforeMessageInsert = undefined;
 });
 
 afterAll(() => {
@@ -1048,6 +1060,247 @@ describe("Conversation message queue", () => {
     // Three runs total (msg-1, msg-2, msg-3) — msg-3 was not batched with msg-2.
     expect(pendingRuns.length).toBe(3);
   });
+
+  for (const cronRunId of ["run-scheduled", null]) {
+    for (const batchSize of [1, 2]) {
+      for (const cancel of [
+        false,
+        "schedule",
+        "stop",
+        "signal",
+        "dispose",
+      ] as const) {
+        if (cronRunId === null && cancel === "schedule") {
+          continue;
+        }
+        for (const claimed of [false, true]) {
+          test(`queued dispatch stays tracked during persistence (owner=${cronRunId}, batch=${batchSize}, cancel=${cancel}, claimed=${claimed})`, async () => {
+            const conversation = makeConversation();
+            await conversation.loadFromDb();
+            const persistedBefore = capturedAddMessages.length;
+            const entered = Promise.withResolvers<void>();
+            const release = Promise.withResolvers<void>();
+            const acquire =
+              conversation.acquireProcessingFenced.bind(conversation);
+            conversation.acquireProcessingFenced = async () => {
+              const owner = claimed ? await acquire() : undefined;
+              entered.resolve();
+              await release.promise;
+              return owner === undefined ? acquire() : owner;
+            };
+            const events: AssistantEvent[] = [];
+            conversation.setProcessing(true);
+            for (let i = 0; i < batchSize; i++) {
+              conversation.enqueueMessage({
+                content: `Queued continuation ${i}`,
+                requestId: `queued-${i}`,
+                clientMessageId: `client-queued-${i}`,
+                cronRunId,
+                onEvent: (event) => events.push(event),
+              });
+            }
+            conversation.setProcessing(false);
+            const drain = conversation.drainQueue();
+            try {
+              await entered.promise;
+              expect(conversation.getQueueDepth()).toBe(0);
+              expect(conversation.isProcessing()).toBe(claimed);
+              expect(
+                conversation.pendingQueuedDispatches.get(cronRunId)?.size,
+              ).toBe(1);
+              expect(conversation.hasInFlightWork()).toBe(true);
+              if (cancel === "schedule") {
+                conversation.abortScheduledRun("run-scheduled");
+              } else if (cancel === "stop" || cancel === "signal") {
+                conversation.abort(
+                  createAbortReason(
+                    cancel === "stop" ? "user_cancel" : "signal_cancel",
+                    "test",
+                  ),
+                );
+              } else if (cancel === "dispose") {
+                conversation.dispose();
+              }
+            } finally {
+              release.resolve();
+              await drain;
+            }
+            expect(conversation.pendingQueuedDispatches.size).toBe(0);
+            const preserved =
+              cronRunId === null && (cancel === "stop" || cancel === "signal");
+            if (cancel && !preserved) {
+              expect(pendingRuns).toHaveLength(0);
+              expect(capturedAddMessages).toHaveLength(persistedBefore);
+              expect(conversation.isProcessing()).toBe(false);
+              expect(conversation.currentTurnCronRunId).toBeUndefined();
+              expect(conversation.getQueueDepth()).toBe(0);
+              expect(
+                events.filter((event) => event.type === "generation_cancelled"),
+              ).toHaveLength(batchSize);
+              for (let i = 0; i < batchSize; i++) {
+                const queueEvents = events.filter(
+                  (event) =>
+                    "requestId" in event && event.requestId === `queued-${i}`,
+                );
+                expect(queueEvents.map((event) => event.type)).toEqual(
+                  i === 0
+                    ? [
+                        "message_queued",
+                        "message_dequeued",
+                        "message_requeued",
+                        "message_queued_deleted",
+                      ]
+                    : ["message_queued", "message_queued_deleted"],
+                );
+                expect(queueEvents.at(-1)).toMatchObject({
+                  clientMessageId: `client-queued-${i}`,
+                });
+              }
+            } else {
+              await waitForPendingRun(1);
+              expect(conversation.currentTurnCronRunId).toBe(cronRunId);
+              expect(conversation.currentTurnWorkOrigins).toHaveLength(
+                batchSize,
+              );
+              if (preserved) {
+                expect(capturedAddMessages.length).toBe(
+                  persistedBefore + batchSize,
+                );
+                expect(
+                  events.filter((event) => event.type === "user_message_echo"),
+                ).toHaveLength(batchSize);
+                expect(
+                  events.some(
+                    (event) => event.type === "message_queued_deleted",
+                  ),
+                ).toBe(false);
+              }
+              await resolveRun(0);
+            }
+          });
+        }
+      }
+    }
+  }
+
+  for (const cancel of ["schedule", "dispose"] as const) {
+    test(`${cancel} cancels an unpersisted batch tail without deleting its persisted head`, async () => {
+      const conversation = makeConversation();
+      await conversation.loadFromDb();
+      const entered = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      beforeMessageInsert = async (requestId) => {
+        if (requestId === "queued-tail") {
+          entered.resolve();
+          await release.promise;
+        }
+      };
+      const events: AssistantEvent[] = [];
+      conversation.setProcessing(true);
+      for (const requestId of ["queued-head", "queued-tail"]) {
+        conversation.enqueueMessage({
+          content: requestId,
+          requestId,
+          clientMessageId: `client-${requestId}`,
+          cronRunId: "run-scheduled",
+          onEvent: (event) => events.push(event),
+        });
+      }
+      conversation.setProcessing(false);
+      const drain = conversation.drainQueue();
+      try {
+        await entered.promise;
+        expect(
+          events.some(
+            (event) =>
+              event.type === "user_message_echo" &&
+              event.requestId === "queued-head",
+          ),
+        ).toBe(true);
+        if (cancel === "schedule") {
+          conversation.abortScheduledRun("run-scheduled");
+          conversation.abortScheduledRun("run-scheduled");
+        } else {
+          conversation.dispose();
+        }
+        expect(
+          events.filter((event) => event.type === "generation_cancelled"),
+        ).toHaveLength(2);
+      } finally {
+        release.resolve();
+        await drain;
+      }
+      expect(
+        events
+          .filter((event) => event.type === "message_queued_deleted")
+          .map((event) => event.requestId),
+      ).toEqual(["queued-tail"]);
+      expect(capturedAddMessages.map((message) => message.id)).toEqual([
+        "queued-head",
+      ]);
+      expect(conversation.getQueueDepth()).toBe(0);
+      expect(conversation.pendingQueuedDispatches.size).toBe(0);
+      if (pendingRuns.length > 0) {
+        await resolveRun(0);
+      }
+    });
+  }
+
+  for (const cancel of ["user_cancel", "signal_cancel"] as const) {
+    for (const batchSize of [1, 2]) {
+      test(`${cancel} preserves an accepted queued prompt after persistence (batch=${batchSize})`, async () => {
+        const conversation = makeConversation();
+        await conversation.loadFromDb();
+        const persistedBefore = capturedAddMessages.length;
+        const entered = Promise.withResolvers<void>();
+        const release = Promise.withResolvers<void>();
+        const persist = conversation.persistUserMessage.bind(conversation);
+        let paused = false;
+        conversation.persistUserMessage = async (options) => {
+          const result = await persist(options);
+          if (!paused) {
+            paused = true;
+            entered.resolve();
+            await release.promise;
+          }
+          return result;
+        };
+        const events: AssistantEvent[] = [];
+        conversation.setProcessing(true);
+        for (let i = 0; i < batchSize; i++) {
+          conversation.enqueueMessage({
+            content: `User prompt ${i}`,
+            requestId: `request-${i}`,
+            clientMessageId: `client-${i}`,
+            onEvent: (event) => events.push(event),
+          });
+        }
+        conversation.setProcessing(false);
+        const drain = conversation.drainQueue();
+        try {
+          await entered.promise;
+          expect(capturedAddMessages.length).toBe(persistedBefore + 1);
+          conversation.abort(createAbortReason(cancel, "test"));
+          expect(conversation.abortController?.signal.aborted).toBe(false);
+        } finally {
+          release.resolve();
+          await drain;
+        }
+        await waitForPendingRun(1);
+        expect(
+          events.filter((event) => event.type === "user_message_echo"),
+        ).toHaveLength(batchSize);
+        expect(
+          events.some((event) => event.type === "message_queued_deleted"),
+        ).toBe(false);
+        expect(capturedAddMessages.length).toBe(persistedBefore + batchSize);
+        expect(conversation.pendingQueuedDispatches.size).toBe(0);
+        conversation.abort(createAbortReason(cancel, "test:active-turn"));
+        expect(conversation.abortController?.signal.aborted).toBe(true);
+        await resolveRun(0);
+      });
+    }
+  }
 
   test("[experimental] batched siblings run under their firing's cron run id", async () => {
     // A batched drain runs after the enqueuing turn has ended, so the firing's

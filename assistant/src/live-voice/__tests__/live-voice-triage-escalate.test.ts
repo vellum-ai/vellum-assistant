@@ -198,6 +198,17 @@ function spokenText(frames: LiveVoiceServerFrame[]): string {
 }
 
 describe("live-voice triage-and-escalate routing", () => {
+  test("screen-action escalation carries its retrieval policy without speaking the marker", async () => {
+    const { starter } = scriptedStartVoiceTurn({
+      frontDoor: ["[ESCALATE_", "SCREEN] Let me circle that."],
+      escalated: ["There it is."],
+    });
+    const { frames, session } = createHarness(starter);
+    await driveTurn(session);
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+    expect(starter.mock.calls[1]?.[0]?.screenAction).toBe(true);
+    expect(spokenText(frames)).not.toContain("ESCALATE");
+  });
   test("simple turn: only the fast front-door leg runs", async () => {
     const { starter } = scriptedStartVoiceTurn({
       frontDoor: ["Sure, it's Tuesday."],

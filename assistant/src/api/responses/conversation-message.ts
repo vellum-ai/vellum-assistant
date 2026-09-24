@@ -624,6 +624,10 @@ export const ConversationMessageSchema = z.object({
    *  sentinel text, and treat the row as the turn's reply so nothing keeps
    *  waiting for one. */
   noResponse: z.boolean().optional(),
+  /** The default profile key the Auto profile routed this turn to
+   *  (`metadata.autoRoutedProfile`). Set only on an assistant row produced by
+   *  a turn that ran on Auto; clients show which profile answered. */
+  autoRoutedProfile: z.string().optional(),
   /** Set only on standalone ambient camera-frame rows, derived from
    *  `messageMetadataIsAmbientSightKeep`. Clients may fold consecutive frames
    *  into the following user message. Absent on shutter photos, spoken turns

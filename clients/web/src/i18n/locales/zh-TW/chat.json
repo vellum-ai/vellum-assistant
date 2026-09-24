@@ -651,6 +651,7 @@
     "warningTitle": "這看起來像一個 API 金鑰"
   },
   "composerSettingsMenu": {
+    "autoPreview": "自動 · {profile}",
     "accessAria": "助理存取權限：{label}",
     "assistantAccess": "助理存取權限",
     "assistantAccessTitle": "助理存取權限",
@@ -1317,6 +1318,7 @@
     "title": "檔案"
   },
   "messageHoverActions": {
+    "autoRouted": "自動 · {profile}",
     "bookmark": "書籤",
     "copied": "已複製",
     "copy": "複製",

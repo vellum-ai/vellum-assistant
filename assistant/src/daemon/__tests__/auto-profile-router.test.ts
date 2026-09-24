@@ -9,10 +9,16 @@ import type {
 } from "../../providers/types.js";
 import {
   AUTO_PROFILE_FALLBACK,
+  AUTO_PROFILE_PREVIEW_REUSE_MS,
   autoProfileCandidates,
   autoProfileFallback,
+  autoProfilePreviewContext,
+  type AutoProfileRoute,
+  clearAutoProfilePreviewsForTesting,
   recentConversationForRouter,
+  rememberAutoProfilePreview,
   routeAutoProfile,
+  takeAutoProfilePreview,
 } from "../auto-profile-router.js";
 
 function text(role: "user" | "assistant", body: string): Message {
@@ -53,6 +59,17 @@ const profiles: Record<string, ProfileEntry> = {
   "cost-optimized": managed("Budget"),
   "latency-optimized": managed("Fast"),
 };
+
+const contextFor = (
+  history: readonly Message[],
+  userMessage: string,
+  candidatesFrom: Record<string, ProfileEntry>,
+) =>
+  autoProfilePreviewContext(
+    history,
+    userMessage,
+    autoProfileCandidates(candidatesFrom),
+  );
 
 const base = {
   conversationId: "conv-1",
@@ -224,5 +241,140 @@ describe("routeAutoProfile", () => {
       outcome: "fallback",
     });
     expect(autoProfileFallback([])).toBe(AUTO_PROFILE_FALLBACK);
+  });
+});
+
+describe("draft preview reuse", () => {
+  const routed: AutoProfileRoute = {
+    profile: "quality-optimized",
+    outcome: "routed",
+    confidence: 0.9,
+    latencyMs: 120,
+  };
+  const history = [text("user", "hi"), text("assistant", "hello")];
+  const context = (h: Message[] = history) =>
+    contextFor(h, "Refactor the auth module", profiles);
+  const take = (
+    overrides: Partial<Parameters<typeof takeAutoProfilePreview>[0]> = {},
+  ) =>
+    takeAutoProfilePreview({
+      conversationId: "conv-1",
+      text: "Refactor the auth module",
+      history,
+      profiles,
+      ...overrides,
+    });
+
+  test("a routed preview is reused once by the turn that sends the same text", () => {
+    clearAutoProfilePreviewsForTesting();
+    rememberAutoProfilePreview(
+      "conv-1",
+      "Refactor  the auth\nmodule",
+      routed,
+      context(),
+    );
+    expect(take()).toEqual(routed);
+    expect(take()).toBeUndefined();
+  });
+
+  test("a different draft, another conversation, or an expired preview is not reused", () => {
+    clearAutoProfilePreviewsForTesting();
+    const at = Date.now();
+    rememberAutoProfilePreview("conv-1", "hello", routed, context(), at);
+    expect(take({ text: "hello there" })).toBeUndefined();
+    expect(take({ text: "hello", conversationId: "conv-2" })).toBeUndefined();
+    expect(
+      take({ text: "hello", now: at + AUTO_PROFILE_PREVIEW_REUSE_MS + 1 }),
+    ).toBeUndefined();
+  });
+
+  test("a preview is not reused once the conversation or the candidates moved on", () => {
+    clearAutoProfilePreviewsForTesting();
+    rememberAutoProfilePreview("conv-1", "do that too", routed, context());
+    expect(
+      take({
+        text: "do that too",
+        history: [...history, text("assistant", "Anything else?")],
+      }),
+    ).toBeUndefined();
+    rememberAutoProfilePreview("conv-1", "do that too", routed, context());
+    expect(
+      take({
+        text: "do that too",
+        profiles: {
+          ...profiles,
+          "cost-optimized": managed("Budget", "disabled"),
+        },
+      }),
+    ).toBeUndefined();
+  });
+
+  test("a preview made before the conversation existed fits only a turn with no history", () => {
+    clearAutoProfilePreviewsForTesting();
+    rememberAutoProfilePreview(
+      undefined,
+      "first message",
+      routed,
+      contextFor([], "first message", profiles),
+    );
+    expect(
+      take({ conversationId: "conv-old", text: "first message" }),
+    ).toBeUndefined();
+    expect(
+      take({ conversationId: "conv-new", text: "first message", history: [] }),
+    ).toEqual(routed);
+  });
+
+  test("a fallback is not remembered, so the turn asks Jev again", () => {
+    clearAutoProfilePreviewsForTesting();
+    rememberAutoProfilePreview(
+      "conv-1",
+      "hi",
+      { profile: AUTO_PROFILE_FALLBACK, outcome: "timeout", latencyMs: 1000 },
+      contextFor(history, "hi", profiles),
+    );
+    expect(take({ text: "hi" })).toBeUndefined();
+  });
+
+  test("abandoned previews expire and the map stays bounded", () => {
+    clearAutoProfilePreviewsForTesting();
+    const at = Date.now();
+    rememberAutoProfilePreview(
+      "conv-stale",
+      "old draft",
+      routed,
+      context(),
+      at,
+    );
+    for (let i = 0; i < 250; i += 1) {
+      rememberAutoProfilePreview(
+        `conv-${i}`,
+        "draft",
+        routed,
+        context(),
+        at + AUTO_PROFILE_PREVIEW_REUSE_MS + 1,
+      );
+    }
+    expect(
+      take({
+        conversationId: "conv-stale",
+        text: "old draft",
+        now: at + AUTO_PROFILE_PREVIEW_REUSE_MS + 2,
+      }),
+    ).toBeUndefined();
+    expect(
+      take({
+        conversationId: "conv-0",
+        text: "draft",
+        now: at + AUTO_PROFILE_PREVIEW_REUSE_MS + 2,
+      }),
+    ).toBeUndefined();
+    expect(
+      take({
+        conversationId: "conv-249",
+        text: "draft",
+        now: at + AUTO_PROFILE_PREVIEW_REUSE_MS + 2,
+      }),
+    ).toEqual(routed);
   });
 });

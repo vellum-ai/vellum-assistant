@@ -16,6 +16,7 @@
  */
 
 import type { CreateOutboundSessionIpcResponse } from "@vellumai/gateway-client";
+import { isDenyingGuardianAction } from "@vellumai/service-contracts/guardian-requests";
 
 import { answerCall } from "../calls/call-domain.js";
 import type {
@@ -40,14 +41,12 @@ import type {
 import type { QuestionBatchSubmission } from "../permissions/question-prompter.js";
 import type { UserDecision } from "../permissions/types.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
-import {
-  type ApprovalAction,
-  DENYING_ACTION_SET,
-} from "../runtime/channel-approval-types.js";
+import { type ApprovalAction } from "../runtime/channel-approval-types.js";
 import { deliverChannelReply } from "../runtime/gateway-client.js";
 import {
   introductionMode,
   parseRequesterSignals,
+  requesterCanCompleteHandshake,
   type RequesterIdentitySignals,
   resolveTrustBinding,
 } from "../runtime/introduction-policy.js";
@@ -365,7 +364,7 @@ const pendingInteractionResolver: GuardianRequestResolver = {
 
     // Map action to the permission system's UserDecision type and notify session.
     // resolveConfirmation() owns pendingInteractions deregistration.
-    const userDecision: UserDecision = DENYING_ACTION_SET.has(decision.action)
+    const userDecision: UserDecision = isDenyingGuardianAction(decision.action)
       ? "deny"
       : "allow";
 
@@ -551,7 +550,7 @@ async function resolveAskQuestionInteraction(
       kind: "free_text",
       text: decision.userText.trim(),
     };
-  } else if (DENYING_ACTION_SET.has(decision.action)) {
+  } else if (isDenyingGuardianAction(decision.action)) {
     submission = { questionId, kind: "skip" };
   } else {
     // Bare approval with no text (e.g. "CODE approve") — affirm without
@@ -621,20 +620,33 @@ const OUTCOME_BY_ACTION = {
 } as const satisfies Record<ApprovalAction, IntroductionOutcome>;
 
 /**
- * The introduction outcome a decision action resolves to for an access request.
- * The generic decision pair folds onto the card outcomes (`reject` →
- * `leave_unverified`, `approve_once` → `verify_code`); the introduction actions
- * map to themselves. Every outcome is itself an `ApprovalAction`, so a caller
- * that must reflect the resolved *outcome* rather than the raw button — the
- * resolved-card projection, so a `reject` that parked the contact at
- * `unverified` reads as the neutral "Left unverified" and not "Denied" — can
- * normalize through this. It does not apply the bot handshake→trust coercion,
- * which does not affect the park/deny distinction the card cares about.
+ * The introduction outcome a decision action resolves to for an access
+ * request. The generic decision pair folds onto the card outcomes (`reject` →
+ * `leave_unverified`, `approve_once` → `verify_code`) and the introduction
+ * actions map to themselves, except that a handshake approval on a requester
+ * who can never complete the handshake (a bot, an email sender) resolves to
+ * direct trust: the guardian's intent ("let them in") is unambiguous.
+ *
+ * The one derivation of the outcome: the resolver plans and follows through on
+ * it, and the decision primitive reports it (`decidedAction`) and projects it
+ * onto the resolved cards, so a `reject` that parked the contact reads as the
+ * neutral "Left unverified" and a coerced approval reads as the trust it was.
  */
 export function introductionOutcomeForAction(
+  request: Pick<GuardianRequestWire, "sourceChannel" | "requesterSignals">,
   action: ApprovalAction,
-): ApprovalAction {
-  return OUTCOME_BY_ACTION[action];
+): IntroductionOutcome {
+  const outcome = OUTCOME_BY_ACTION[action];
+  if (
+    outcome === "verify_code" &&
+    !requesterCanCompleteHandshake(
+      request.sourceChannel ?? undefined,
+      parseRequesterSignals(request.requesterSignals),
+    )
+  ) {
+    return "trust";
+  }
+  return outcome;
 }
 
 /** Derived access-request decision facts shared by `prepare` and `resolve`. */
@@ -677,15 +689,7 @@ function deriveAccessRequestDecision(
     requesterContactResult?.contact.displayName ?? null;
 
   const signals = parseRequesterSignals(request.requesterSignals);
-  let outcome: IntroductionOutcome = OUTCOME_BY_ACTION[action];
-
-  // A bot cannot return a verification code, so a handshake approval on a
-  // bot requester can never complete. Coerce it to direct trust — the
-  // guardian's intent ("let it in") is unambiguous. Logged once, in
-  // `prepare` (this derivation runs again in `resolve`).
-  if (outcome === "verify_code" && signals.isBot === true) {
-    outcome = "trust";
-  }
+  const outcome = introductionOutcomeForAction(request, action);
 
   return {
     channel,
@@ -887,8 +891,8 @@ async function notifyRequesterOfDenial(params: {
  * follow-through (requester/guardian notices, verification-code delivery
  * from the decide's `mintedSession`, lifecycle signals).
  *
- * A bot requester can never return a code, so handshake approvals are
- * coerced to direct trust.
+ * A requester who can never complete the handshake (a bot, an email
+ * sender) has handshake approvals coerced to direct trust.
  */
 const accessRequestResolver: GuardianRequestResolver = {
   kind: "access_request",
@@ -907,11 +911,12 @@ const accessRequestResolver: GuardianRequestResolver = {
     if (outcome !== OUTCOME_BY_ACTION[decision.action]) {
       log.info(
         {
-          event: "resolver_access_request_bot_coercion",
+          event: "resolver_access_request_trust_coercion",
           requestId: request.id,
           action: decision.action,
+          channel,
         },
-        "Access request resolver: handshake approval on a bot coerced to direct trust",
+        "Access request resolver: handshake approval coerced to direct trust (requester cannot complete a handshake)",
       );
     }
 

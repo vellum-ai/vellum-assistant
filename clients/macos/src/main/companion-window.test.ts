@@ -137,6 +137,14 @@ const surface = {
   on: (event: string, listener: () => void) => {
     surfaceListeners.push({ event, listener });
   },
+  once: (event: string, listener: () => void) => {
+    const once = () => {
+      const index = surfaceListeners.findIndex((entry) => entry.listener === once);
+      surfaceListeners.splice(index, 1);
+      listener();
+    };
+    surfaceListeners.push({ event, listener: once });
+  },
   isDestroyed: () => false,
   setAlwaysOnTop: (floating: boolean, level?: string) => {
     surfaceLevels.push({ floating, level });
@@ -752,6 +760,7 @@ const {
   introEndsOnSession,
   introOnAdvance,
   openCompanionWindow: openCompanionWindowImpl,
+  replayCompanionIntro,
   setCompanionSurfaceVisible,
   resetCompanionSurfacePosition,
   setCompanionSurfaceSize,
@@ -2625,6 +2634,8 @@ describe("the introduction announcement", () => {
     expect(introAnnouncement()).toBe(true);
     expect(state().intro).toBeNull();
     expect(introStage()).toBe(false);
+    send("vellum:companion:startVoice");
+    expect(mainTimeline).not.toContain("command:startVoice");
   });
 
   test("starts and stages the run after the user accepts", () => {
@@ -2649,11 +2660,55 @@ describe("the introduction announcement", () => {
     expect(introSeen).toBe(COMPANION_INTRO_VERSION);
   });
 
+  test("clears an interrupted run when assistant readiness is lost", () => {
+    setName("Example Assistant");
+    openDueAnnouncement();
+    acceptIntroAnnouncement();
+    send("vellum:companion:advanceIntro", "next");
+    expect(state().intro).not.toBeNull();
+
+    setName(null);
+
+    expect(companionOpen).toBe(false);
+    expect(state().intro).toBeNull();
+    expect(introStage()).toBe(false);
+    expect(introAnnouncement()).toBe(false);
+    expect(introSeen).toBe(0);
+
+    setName("Example Assistant");
+    expect(introAnnouncement()).toBe(true);
+    expect(state().intro).toBeNull();
+    expect(introStage()).toBe(false);
+    setName(null);
+  });
+
   test("does not announce an introduction the install has seen", () => {
     companionOpen = false;
     openCompanionWindowImpl();
 
     expect(introAnnouncement()).toBe(false);
+  });
+
+  test("replay returns to the informational introduction before any coachmarks", () => {
+    setName("Example Assistant");
+    openDueAnnouncement();
+    acceptIntroAnnouncement();
+    send("vellum:companion:advanceIntro", "next");
+
+    replayCompanionIntro();
+    for (const entry of [...surfaceListeners]) {
+      if (entry.event === "closed") {
+        entry.listener();
+      }
+    }
+
+    expect(introAnnouncement()).toBe(true);
+    expect(state().intro).toBeNull();
+    expect(introStage()).toBe(false);
+    acceptIntroAnnouncement();
+    expect(state().intro).toBe("idle");
+    expect(introStage()).toBe(true);
+    setName(null);
   });
 });
 
@@ -2699,6 +2754,18 @@ describe("taking the introduction's last offer", () => {
     closeSurface();
     reducedMotion = true;
   });
+
+  test.each([...COMPANION_INTRO_BEATS])(
+    "the ordinary avatar call path is blocked during %s",
+    async (beat) => {
+      openStagedRun(beat);
+      send("vellum:companion:startVoice");
+      await settleHandoff();
+      expect(mainTimeline).not.toContain("command:startVoice");
+      expect(state().dialing).not.toBe(true);
+      expect(state().intro).toBe(beat);
+    },
+  );
 
   test("asks for the session before it says the run is over", async () => {
     openStagedRun("try");
@@ -5831,11 +5898,8 @@ describe("companion window: pointing at what is shared", () => {
       ]);
     });
 
-    /**
-     * A ring drawn from bounds the model gave is an extent someone means, not
-     * a button: a press inside it says nothing about a step.
-     */
-    test("an extent given as bounds is not something to press", async () => {
+    /** Image bounds do not establish a control's hit area. */
+    test("bounds alone do not arm a control press watch", async () => {
       await shareAndSee();
       await showCompanionCoachmarks([MARK], CALL);
 
@@ -6536,12 +6600,6 @@ describe("the introduction's reports", () => {
     ]);
   });
 
-  /**
-   * The same offer taken the other way: a double tap on the voice key starts a
-   * session without anything coming back through the run, and main finishes the
-   * run on the session itself. The report has to follow it there, or the only
-   * users counted as having taken the offer are the ones who pressed the card.
-   */
   test("reports a session on the last beat as the offer taken", () => {
     startIntro();
     for (const _beat of COMPANION_INTRO_BEATS.slice(1)) {

@@ -217,6 +217,7 @@ export function RootLayout() {
     (s) => s.assistantState.kind,
   );
   const isAssistantActive = assistantStateKind === "active";
+  const companionReady = isAssistantActive && !isSessionInitializing;
   useClientFeatureFlagSync(!isSessionInitializing, isAssistantActive);
   // Hydrate the assistant identity store (name + version) at the app root so
   // the name is ready on every authenticated route — chat, settings, logs —
@@ -340,7 +341,7 @@ export function RootLayout() {
     },
   );
   useElectronStatusSync();
-  useElectronIdentitySync();
+  useElectronIdentitySync(companionReady);
   useLockfileIdentitySync();
   useElectronFeatureFlagBridge();
 
@@ -731,9 +732,12 @@ export function RootLayout() {
       {/* Headless: keeps daemon config.ui.detectedTimezone fresh on
           focus/zone change. No-ops until an assistant id resolves. */}
       <TimezoneSync />
-      <GlobalPushToTalkBridge assistantId={assistantId} />
+      <GlobalPushToTalkBridge
+        assistantId={assistantId}
+        enabled={companionReady}
+      />
 
-      <CompanionTourEntry />
+      <CompanionTourEntry avatar={avatar} ready={companionReady} />
 
       {/* The app dimmed while the companion introduces itself over this
           window. Inert off Electron and on the shells with no surface. */}

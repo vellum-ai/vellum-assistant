@@ -44,6 +44,12 @@ import {
   withRegisteredPlus,
 } from "@/domains/intelligence/intelligence-layout-story-fixtures";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { WorkspaceBrowser } from "@/domains/workspace/components/workspace-browser";
+import {
+  seedWorkspaceStory,
+  WORKSPACE_STORY_ASSISTANT_ID,
+} from "@/domains/workspace/workspace-story-fixtures";
+import { withQueryCache } from "@/lib/story-query-cache";
 
 interface MobileSectionScreenProps {
   /** The child route the section's page mounts at, under the layout. */
@@ -185,9 +191,28 @@ export const MobileMemoryScreen: Story = {
 /** Workspace, the other section the native overview hides. */
 export const MobileWorkspaceScreen: Story = {
   parameters: { router: { initialEntries: ["/assistant/workspace"] } },
+  decorators: [withQueryCache(seedWorkspaceStory)],
   args: {
     path: "/assistant/workspace",
-    outlet: <OutletStub label="workspace browser (outlet content)" />,
+    outlet: <WorkspaceBrowser assistantId={WORKSPACE_STORY_ASSISTANT_ID} />,
+  },
+};
+
+export const MobileWorkspaceFile: Story = {
+  ...MobileWorkspaceScreen,
+  parameters: {
+    router: { initialEntries: ["/assistant/workspace?file=README.md"] },
+  },
+};
+
+export const MobileWorkspaceLongFilename: Story = {
+  ...MobileWorkspaceScreen,
+  parameters: {
+    router: {
+      initialEntries: [
+        "/assistant/workspace?file=notes/project-plan-with-a-long-descriptive-filename.md",
+      ],
+    },
   },
 };
 

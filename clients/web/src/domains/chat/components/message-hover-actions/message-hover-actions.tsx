@@ -14,6 +14,7 @@ import {
 import { useCallback, useMemo, useState } from "react";
 
 import { ExternalAnchor } from "@/components/external-anchor";
+import { useProfileLabel } from "@/assistant/use-profile-label";
 import { useMessageReadAloudStore } from "@/domains/chat/message-read-aloud-store";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import { messageCopyText } from "@/domains/chat/utils/message-plain-text";
@@ -47,6 +48,25 @@ export type MessageHoverActionsProps = {
    *  regenerates it. */
   onRetry?: () => void;
 };
+
+/**
+ * Which default profile the Auto profile picked for this row. Its own
+ * component so the profile-label query mounts only for Auto rows, keeping
+ * the rest of the hover row free of any query client (same reason the
+ * bookmark toggle lives in `MessageBookmarkButton`).
+ */
+function AutoRoutedProfileBadge({ profileKey }: { profileKey: string }) {
+  const { t } = useTranslation("chat");
+  const label = useProfileLabel(profileKey);
+  return (
+    <span
+      data-slot="auto-routed-profile"
+      className="select-none px-1 text-body-small-default text-[var(--content-tertiary)]"
+    >
+      {t("messageHoverActions.autoRouted", { profile: label })}
+    </span>
+  );
+}
 
 const ACTION_BUTTON_CLASS =
   "flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-active)] hover:text-[var(--content-default)]";
@@ -167,6 +187,9 @@ export function MessageHoverActions({
       >
         {formatTimestamp(displayTimestamp)}
       </span>
+      {message.autoRoutedProfile && (
+        <AutoRoutedProfileBadge profileKey={message.autoRoutedProfile} />
+      )}
 
       {hasCopyableText && (
         <button

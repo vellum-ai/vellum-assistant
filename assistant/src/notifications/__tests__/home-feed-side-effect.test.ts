@@ -183,6 +183,80 @@ beforeEach(() => {
 });
 
 describe("writeHomeFeedItemForSignal", () => {
+  test.each([undefined, "sent", "failed", "skipped"] as const)(
+    "recipient-owned completion stays out of the shared feed with delivery %s",
+    async (status) => {
+      conversationRowsById.set("conv-source", { conversationType: "standard" });
+      conversationRowsById.set("conv-result", {
+        conversationType: "background",
+      });
+      const item = await writeHomeFeedItemForSignal(
+        makeSignal({
+          sourceChannel: "assistant_tool",
+          sourceContextId: "conv-source",
+          sourceEventName: "activity.complete",
+          contextPayload: {
+            title: "Result ready",
+            body: "Private result preview.",
+            completion: {
+              workId: "task-1",
+              conversationId: "conv-result",
+              recipientPrincipalId: "principal-1",
+              owner: "parent_continuation",
+            },
+          },
+          attentionHints: {
+            requiresAction: false,
+            urgency: "medium",
+            isAsyncBackground: true,
+            visibleInSourceNow: false,
+          },
+        }),
+        makeDecision({
+          selectedChannels: ["platform"],
+          renderedCopy: {
+            platform: { title: "Result ready", body: "The report is ready." },
+          },
+        }),
+        status === undefined
+          ? undefined
+          : makeVellumDelivery({
+              status,
+              ...(status === "failed"
+                ? { errorMessage: "completion recipient unavailable" }
+                : {}),
+            }),
+      );
+
+      expect(item).toBeNull();
+      expect(appendCalls).toEqual([]);
+      expect(messageAppends).toEqual([]);
+      expect(messagesInvalidated).toEqual([]);
+    },
+  );
+
+  test.each([null, {}, { recipientPrincipalId: "principal-1" }])(
+    "malformed completion ownership cannot fall back to the assistant-wide feed (%j)",
+    async (completion) => {
+      conversationRow = { conversationType: "background" };
+      const item = await writeHomeFeedItemForSignal(
+        makeSignal({
+          sourceChannel: "assistant_tool",
+          sourceEventName: "activity.complete",
+          contextPayload: {
+            title: "Result ready",
+            body: "Private result preview.",
+            completion,
+          },
+        }),
+        makeDecision(),
+      );
+      expect(item).toBeNull();
+      expect(appendCalls).toEqual([]);
+      expect(messageAppends).toEqual([]);
+    },
+  );
+
   test("background conversation signal writes a feed item with payload title + rendered body", async () => {
     conversationRow = { conversationType: "background" };
     const signal = makeSignal({

@@ -11,6 +11,14 @@ import type {
   WindowAttentionPayload,
 } from "@vellumai/ipc-contract";
 import {
+  PERMISSION_GUIDE_CANCEL,
+  PERMISSION_SETUP_BEGIN,
+  PERMISSION_GUIDE_GET,
+  PERMISSION_GUIDE_STATE,
+  PERMISSION_GUIDE_READY,
+  PERMISSION_GUIDE_DISMISS,
+  PERMISSION_GUIDE_DRAG,
+  PERMISSION_GUIDE_REVEAL,
   COMPANION_SET_UNPLACED_DICTATION_OFFER,
   DOWNLOADS_DONE_EVENT,
   DOWNLOADS_REVEAL,
@@ -200,3 +208,17 @@ export function createWindowAttentionSubscriber(
 ): VellumBridge["notifications"]["onWindowAttention"] {
   return subscribeWithReplay<WindowAttentionPayload>(ipc, WINDOW_ATTENTION);
 }
+
+/** Optional macOS permission setup and native app drag bridge. */
+export const createPermissionSetupBridge = (
+  ipc: RendererIpc,
+): NonNullable<VellumBridge["permissions"]["setup"]> => ({
+  cancel: () => ipc.send(PERMISSION_GUIDE_CANCEL),
+  begin: (kind, source) => ipc.invoke(PERMISSION_SETUP_BEGIN, kind, source),
+  getGuide: () => ipc.invoke(PERMISSION_GUIDE_GET),
+  onGuide: subscribe(ipc, PERMISSION_GUIDE_STATE),
+  ready: (id, height) => ipc.send(PERMISSION_GUIDE_READY, id, height),
+  dismiss: (id) => ipc.send(PERMISSION_GUIDE_DISMISS, id),
+  startDrag: (id) => ipc.send(PERMISSION_GUIDE_DRAG, id),
+  revealApp: (id) => ipc.invoke(PERMISSION_GUIDE_REVEAL, id),
+});

@@ -1,21 +1,25 @@
 /**
  * Top-level workspace browser layout. Renders a file tree sidebar (hidden on
- * mobile behind a drawer) and a file viewer pane side-by-side.
+ * compact layouts behind a bottom sheet) and a file viewer pane side-by-side.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 
 import { useSearchParams } from "react-router";
 
 import type { FileViewMode } from "@/components/file-view-mode";
-import { SideListDrawer, SideListTrigger } from "@/components/side-list-drawer";
+import { isMarkdown } from "@/components/file-markdown";
+import { useIntelligenceLayoutSlotsStore } from "@/components/layout/intelligence-layout-slots-store";
 import { useSideListRoom } from "@/hooks/use-side-list-room";
-import { useTranslation } from "@/i18n";
 import { WorkspaceFileViewer } from "@/domains/workspace/components/workspace-file-viewer";
 import {
   WorkspaceTree,
   type WorkspaceSortMode,
 } from "@/domains/workspace/components/workspace-tree";
+
+import { WorkspaceFilePicker } from "./workspace-file-picker";
+import { WorkspaceFileTitle } from "./workspace-file-title";
+import "./workspace-browser.css";
 
 /**
  * Returns the set of ancestor directory paths that must be expanded to reveal
@@ -31,8 +35,11 @@ function getAncestorPaths(filePath: string): Set<string> {
   return ancestors;
 }
 
+function defaultFileViewMode(path: string | null): FileViewMode {
+  return isMarkdown(path ?? "", undefined) ? "formatted" : "source";
+}
+
 export function WorkspaceBrowser({ assistantId }: { assistantId: string }) {
-  const { t } = useTranslation("workspace");
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => {
@@ -46,32 +53,9 @@ export function WorkspaceBrowser({ assistantId }: { assistantId: string }) {
   const [sortMode, setSortMode] = useState<WorkspaceSortMode>(() =>
     searchParams.get("sort") === "size" ? "size" : "name",
   );
-  const [viewMode, setViewMode] = useState<FileViewMode>("formatted");
-
-  // Apply ?file= deep links (initial mount and later in-page navigations),
-  // then strip the param so tree selection owns the state again.
-  useEffect(() => {
-    const filePath = searchParams.get("file");
-    if (!filePath) {
-      return;
-    }
-    setSelectedPath(filePath);
-    setExpandedPaths((prev) => {
-      const next = new Set(prev);
-      for (const ancestor of getAncestorPaths(filePath)) {
-        next.add(ancestor);
-      }
-      return next.size === prev.size ? prev : next;
-    });
-    setSearchParams(
-      (prev) => {
-        const next = new URLSearchParams(prev);
-        next.delete("file");
-        return next;
-      },
-      { replace: true },
-    );
-  }, [searchParams, setSearchParams]);
+  const [viewMode, setViewMode] = useState<FileViewMode>(() =>
+    defaultFileViewMode(searchParams.get("file")),
+  );
 
   const handleToggleExpand = useCallback((path: string) => {
     setExpandedPaths((prev) => {
@@ -98,18 +82,69 @@ export function WorkspaceBrowser({ assistantId }: { assistantId: string }) {
 
   const { paneRef, hasRoomForList, drawerOpen, openDrawer, closeDrawer } =
     useSideListRoom();
-  // Above the inline/drawer branch below, which remounts whichever tree
-  // surface it swaps to. Sits with the expansion and selection state already
-  // lifted here for the same reason.
+  // Keep search and expansion above the inline/sheet branch so they survive
+  // the tree remounting when the pane changes width.
   const [treeSearch, setTreeSearch] = useState("");
+  const pickerId = useId();
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const setHeaderTitle = useIntelligenceLayoutSlotsStore.use.setHeaderTitle();
+
+  useEffect(() => {
+    setHeaderTitle(
+      hasRoomForList ? null : (
+        <WorkspaceFileTitle
+          selectedPath={selectedPath}
+          open={drawerOpen}
+          onOpen={openDrawer}
+          pickerId={pickerId}
+          buttonRef={triggerRef}
+        />
+      ),
+    );
+    return () => setHeaderTitle(null);
+  }, [
+    hasRoomForList,
+    selectedPath,
+    drawerOpen,
+    openDrawer,
+    pickerId,
+    setHeaderTitle,
+  ]);
 
   const handleSelectPath = useCallback(
     (path: string) => {
       setSelectedPath(path);
+      setViewMode(defaultFileViewMode(path));
+      setTreeSearch("");
       closeDrawer();
     },
     [closeDrawer],
   );
+
+  // Apply ?file= deep links (initial mount and later in-page navigations),
+  // then strip the param so tree selection owns the state again.
+  useEffect(() => {
+    const filePath = searchParams.get("file");
+    if (!filePath) {
+      return;
+    }
+    handleSelectPath(filePath);
+    setExpandedPaths((prev) => {
+      const next = new Set(prev);
+      for (const ancestor of getAncestorPaths(filePath)) {
+        next.add(ancestor);
+      }
+      return next.size === prev.size ? prev : next;
+    });
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("file");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [searchParams, setSearchParams, handleSelectPath]);
 
   const [lastDelete, setLastDelete] = useState<{ path: string } | null>(null);
 
@@ -171,19 +206,14 @@ export function WorkspaceBrowser({ assistantId }: { assistantId: string }) {
   return (
     <div ref={paneRef} className="flex h-full min-h-0 flex-col gap-4">
       {!hasRoomForList ? (
-        <>
-          <div className="flex items-center">
-            <SideListTrigger onClick={openDrawer} />
-          </div>
-
-          <SideListDrawer
-            open={drawerOpen}
-            onClose={closeDrawer}
-            title={t("workspaceBrowser.drawerTitle")}
-          >
-            <WorkspaceTree {...treeProps} />
-          </SideListDrawer>
-        </>
+        <WorkspaceFilePicker
+          open={drawerOpen}
+          onClose={closeDrawer}
+          pickerId={pickerId}
+          triggerRef={triggerRef}
+        >
+          <WorkspaceTree {...treeProps} presentation="sheet" />
+        </WorkspaceFilePicker>
       ) : null}
 
       <div
@@ -203,7 +233,8 @@ export function WorkspaceBrowser({ assistantId }: { assistantId: string }) {
           </div>
         ) : null}
         <div
-          className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border"
+          className="workspace-viewer-card flex min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border"
+          data-compact={!hasRoomForList}
           style={{
             backgroundColor: "var(--surface-overlay)",
             borderColor: "var(--border-base)",
@@ -215,7 +246,7 @@ export function WorkspaceBrowser({ assistantId }: { assistantId: string }) {
             showHidden={showHidden}
             viewMode={viewMode}
             onChangeViewMode={setViewMode}
-            onBrowse={hasRoomForList ? undefined : openDrawer}
+            pickerAvailable={!hasRoomForList}
             pathRename={lastRename}
             pathDelete={lastDelete}
           />

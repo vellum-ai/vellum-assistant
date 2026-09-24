@@ -17,7 +17,7 @@ import type {
 } from "@/generated/daemon/types.gen";
 
 /** The managed profile the assistant routes per message (`AUTO_PROFILE_KEY`). */
-const AUTO_PROFILE_NAME = "auto";
+export const AUTO_PROFILE_NAME = "auto";
 
 /**
  * The subset of a profile a picker needs. Fields are typed from the generated
