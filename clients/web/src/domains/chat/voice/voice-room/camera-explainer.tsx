@@ -199,11 +199,35 @@ export function CameraExplainer({
     });
   }, []);
 
-  const focusTitle = useCallback((event: Event) => {
+  // Where focus was when this opened. The primitive's own restore reaches for
+  // a `Dialog.Trigger`, and this dialog is `open`-controlled with none, so
+  // without this a dismissal leaves focus on the body and the next Tab walks
+  // the page behind the room.
+  const focusOnClose = useRef<HTMLElement | null>(null);
+
+  const openAutoFocus = useCallback((event: Event) => {
     // Radix would otherwise land on the first tabbable, which is a button. The
     // title is what says where the user is.
     event.preventDefault();
+    // Read here rather than from an effect: the focus scope dispatches this
+    // before it moves focus, which is the last moment the reading is true.
+    focusOnClose.current =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
     titleRef.current?.focus();
+  }, []);
+
+  const closeAutoFocus = useCallback((event: Event) => {
+    // Defaulting would hand focus to a trigger that does not exist. Skipped
+    // once the element is gone, since the room can take its chrome down while
+    // this is still up.
+    event.preventDefault();
+    const restore = focusOnClose.current;
+    focusOnClose.current = null;
+    if (restore?.isConnected) {
+      restore.focus();
+    }
   }, []);
 
   const escape = useCallback(
@@ -214,10 +238,11 @@ export function CameraExplainer({
     [report],
   );
 
-  // The room's sheet starts its minimize drag from a React `pointerdown` that
-  // only exempts text controls, so a press in here must not reach it. Both
-  // presentations need the carve-out: under 768px with a fine pointer the room
-  // is still the draggable sheet while this is the modal.
+  // Belt to the room's own rule, which stands down for any dialog layered over
+  // it: the press is stopped here as well, so the carve-out holds wherever
+  // this content is mounted. Both presentations need it, since under 768px
+  // with a fine pointer the room is the draggable sheet while this is the
+  // modal.
   const stopRoomDrag = useCallback((event: PointerEvent<HTMLElement>) => {
     event.stopPropagation();
   }, []);
@@ -277,7 +302,8 @@ export function CameraExplainer({
             )}
             onEscapeKeyDown={escape}
             onKeyDown={escapeKeyBelt}
-            onOpenAutoFocus={focusTitle}
+            onOpenAutoFocus={openAutoFocus}
+            onCloseAutoFocus={closeAutoFocus}
             onPointerDown={stopRoomDrag}
           >
             <div className="flex flex-col px-5 pt-3 pb-[calc(30px+var(--safe-area-inset-bottom,env(safe-area-inset-bottom,0px)))]">
@@ -312,7 +338,8 @@ export function CameraExplainer({
             className="pointer-events-auto max-h-full max-w-[640px] rounded-[28px] border-0 p-0 shadow-[0_30px_80px_rgba(0,0,0,.6)]"
             onEscapeKeyDown={escape}
             onKeyDown={escapeKeyBelt}
-            onOpenAutoFocus={focusTitle}
+            onOpenAutoFocus={openAutoFocus}
+            onCloseAutoFocus={closeAutoFocus}
             onClickCapture={markInside}
             onPointerDown={stopRoomDrag}
           >

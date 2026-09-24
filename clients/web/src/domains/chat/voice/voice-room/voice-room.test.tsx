@@ -1474,11 +1474,11 @@ describe("VoiceRoom: the chrome band's corners", () => {
    */
   describe("the view-options panel's host", () => {
     /** Open the camera and then the panel. */
-    async function openViewOptions(): Promise<void> {
+    async function openViewOptions(variant?: VoiceRoomVariant): Promise<void> {
       stubMediaDevices(async () => fakeStream());
       seedLiveCapableAssistant();
       startOwnedSession("listening");
-      render(<VoiceRoom />);
+      render(<VoiceRoom variant={variant} />);
       await act(async () => {
         fireEvent.click(cameraToggle()!);
       });
@@ -1555,6 +1555,28 @@ describe("VoiceRoom: the chrome band's corners", () => {
           .getByTestId("camera-view-settings-host")
           .querySelector(".fixed.inset-0"),
       ).toBeNull();
+    });
+
+    /**
+     * The backdrop fills the room and dismisses the panel, so a swipe that
+     * starts on it is aimed at the panel rather than at the call underneath.
+     */
+    test("a press on the backdrop is never handed to the room's drag", async () => {
+      await openViewOptions("sheet");
+      roomDragStarts.mockClear();
+
+      fireEvent.pointerDown(
+        screen.getByTestId("camera-view-settings-backdrop"),
+      );
+      expect(roomDragStarts).not.toHaveBeenCalled();
+
+      // And the room still answers a press the backdrop is not over, so the
+      // count above is the carve-out rather than a drag that never arms.
+      await act(async () => {
+        fireEvent.click(screen.getByTestId("camera-view-settings-backdrop"));
+      });
+      fireEvent.pointerDown(roomDialog()!);
+      expect(roomDragStarts).toHaveBeenCalledTimes(1);
     });
   });
 });
@@ -3671,8 +3693,9 @@ describe("VoiceRoom: camera", () => {
        */
       describe("a press on it is never handed to the room's drag", () => {
         /**
-         * The explainer's own scrim. The room's sheet draws one under the same
-         * slot, so the host is what tells the two apart.
+         * The explainer's own scrim, which sits outside the dialog it dims
+         * rather than inside it. The host is the portal both halves land in,
+         * so scoping the query to it is what names this explainer's.
          */
         const scrim = (slot: string) =>
           explainerHost()?.querySelector(`[data-slot="${slot}"]`) ?? null;

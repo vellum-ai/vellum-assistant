@@ -366,18 +366,23 @@ function isTextControl(target: EventTarget | null): boolean {
 }
 
 /**
- * The scrims the design library's overlay primitives draw. Neither is inside
- * the dialog it dims for, so a press on one reaches none of the handlers that
- * content carries.
+ * What a dialog layered over the room dims it with: the two scrims the design
+ * library's overlay primitives draw, and the dismiss backdrop the camera's view
+ * options portal beside their panel. None of them is inside the dialog it
+ * belongs to, so a press on one reaches none of the handlers that content
+ * carries.
+ *
+ * The backdrop is named by the test id it already carries, which is the only
+ * stable hook on it.
  */
-const NESTED_DIALOG_SCRIM_SELECTOR = `[data-slot="bottom-sheet-overlay"], [data-slot="modal-overlay"]`;
+const NESTED_DIALOG_SCRIM_SELECTOR = `[data-slot="bottom-sheet-overlay"], [data-slot="modal-overlay"], [data-testid="camera-view-settings-backdrop"]`;
 
 /**
  * Whether a press landed on a dialog layered over the room, scrim included.
  *
  * The room's own dialog carries {@link ROOM_DIALOG_ATTR} in every variant, so a
  * `role="dialog"` without it is something over the room. The scrims name
- * themselves, since neither is inside the dialog it belongs to.
+ * themselves, since none of them is inside the dialog it belongs to.
  */
 function isNestedDialogSurface(target: EventTarget | null): boolean {
   if (!(target instanceof Element)) {

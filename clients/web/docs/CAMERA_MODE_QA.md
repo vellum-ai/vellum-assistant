@@ -490,7 +490,7 @@ The way back to the sheet once the device has seen it. Run these after one of
 the dismissals above, on both presentations.
 
 - [ ] The row is there. Open the camera's view options from the top-left corner:
-      under the two switches sits "How Photo and Live work", white on the same
+      under the switches sits "How Photo and Live work", white on the same
       glass, with a chevron closing the row.
 - [ ] Pressing it swaps one surface for the other. The panel goes and the sheet
       or modal arrives in its place, over the running preview, with the camera
