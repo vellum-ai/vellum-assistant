@@ -135,6 +135,7 @@ Three ways through it, best first:
 
   `--outdir` has to differ from the input's directory, and LibreOffice is not
   installed everywhere. Verify the output rather than assuming it worked.
+
 - Write the literal computed value instead of a formula, when the user does
   not need the formula itself.
 
