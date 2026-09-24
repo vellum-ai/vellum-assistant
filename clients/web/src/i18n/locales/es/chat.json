@@ -417,6 +417,7 @@
     "buttonAria": "Opciones de vista de la cámara",
     "gateHudDescription": "Superposición de depuración: cómo el modo en vivo elige qué fotogramas enviar.",
     "gateHudTitle": "Ajuste del filtro de fotogramas",
+    "howItWorks": "Cómo funcionan Foto y En vivo",
     "keptFrameDescription": "Muestra el fotograma más reciente que envió el modo en vivo.",
     "keptFrameTitle": "Último fotograma compartido",
     "title": "Mostrar"

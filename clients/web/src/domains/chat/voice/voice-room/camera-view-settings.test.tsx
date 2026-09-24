@@ -17,6 +17,7 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
 } from "@testing-library/react";
 
 let hudAvailable = false;
@@ -37,9 +38,17 @@ const row = (name: string) => screen.queryByRole("switch", { name });
 /** Stands in for the element the room owns and hands down. */
 let panelHost: HTMLDivElement | null = null;
 
+/** Stands in for the room's own way of raising the explainer; unset is a room that offers none. */
+let showExplainer: (() => void) | undefined;
+
 /** Render the control with a host to put its panel in. */
 function renderSettings(): void {
-  render(<CameraViewSettings panelHost={panelHost} />);
+  render(
+    <CameraViewSettings
+      panelHost={panelHost}
+      onShowExplainer={showExplainer}
+    />,
+  );
 }
 
 /** Open the panel the way a user does. */
@@ -52,6 +61,7 @@ async function openPanel(): Promise<void> {
 
 beforeEach(() => {
   hudAvailable = false;
+  showExplainer = undefined;
   panelHost = document.createElement("div");
   document.body.appendChild(panelHost);
   useCameraGateDebugStore.setState({ hudEnabled: false });
@@ -229,6 +239,45 @@ describe("CameraViewSettings", () => {
     expect(row("Latest shared frame")?.getAttribute("aria-checked")).toBe(
       "true",
     );
+  });
+
+  /**
+   * The one row that opens something rather than switching something. What it
+   * opens is the room's, so all this row owes is the ask and the panel's own
+   * exit.
+   */
+  describe("the explainer row", () => {
+    const howItWorks = () =>
+      screen.queryByRole("button", { name: "How Photo and Live work" });
+
+    test("is absent where the room has no explainer to raise", async () => {
+      await openPanel();
+
+      expect(howItWorks()).toBeNull();
+    });
+
+    test("asks for the explainer, and closes so nothing is left under it", async () => {
+      const show = mock(() => {});
+      showExplainer = show;
+      await openPanel();
+
+      // Found by the words on it: a button rather than a third switch, and
+      // named by its own text rather than by a label something else carries.
+      expect(howItWorks()).not.toBeNull();
+
+      await act(async () => {
+        fireEvent.click(howItWorks()!);
+      });
+
+      // Deferred to the panel's own close, so that the trigger has focus again
+      // by the time the explainer records what to give it back to.
+      await waitFor(() => {
+        expect(show).toHaveBeenCalledTimes(1);
+      });
+      // The explainer covers the room, and a panel left open beneath it is a
+      // surface nothing can reach.
+      expect(panel()).toBeNull();
+    });
   });
 
   test("the readout row writes the persisted switch", async () => {

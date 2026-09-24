@@ -1441,7 +1441,17 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           style={{ left: VOICE_ROOM_CORNER_LEFT }}
           className="absolute top-[var(--room-chrome-top)] z-10 flex"
         >
-          <CameraViewSettings panelHost={viewOptionsHost} />
+          <CameraViewSettings
+            panelHost={viewOptionsHost}
+            // Nothing to reset beside it: the seen flag is already written, and
+            // every way out of a re-shown explainer does what it does on the
+            // first. Offered on the same signal the first open waits for, so
+            // the row is absent while the feed has yet to draw and the sheet
+            // never lands over the look rather than over the camera.
+            onShowExplainer={
+              previewDrawn ? () => setExplainerOpen(true) : undefined
+            }
+          />
         </div>
       ) : null}
 
