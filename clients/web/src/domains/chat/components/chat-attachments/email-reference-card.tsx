@@ -1,9 +1,8 @@
 import { Mail, Send } from "lucide-react";
 import { Link } from "react-router";
 
-import { cn, Typography } from "@vellumai/design-library";
+import { cn } from "@vellumai/design-library";
 
-import { ATTACHMENT_TILE_BOX_CLASS } from "@/domains/chat/components/chat-attachments/message-attachment-square";
 import { useTranslation } from "@/i18n";
 import type {
   EmailReference,
@@ -32,9 +31,10 @@ export interface EmailReferenceCardProps {
 }
 
 /**
- * One email in a sent bubble, drawn the way the bubble draws a file: the
- * attachment tile's box with the mail's glyph in it, a caption beside it,
- * and the whole card a link back to the message in the Assistant Inbox.
+ * One email in a sent bubble, at the composer's attachment chip scale: the
+ * chip's 40px thumb box with the mail's glyph in it, the subject and a
+ * caption beside it, and the whole card a link back to the message in the
+ * Assistant Inbox.
  * The tile's wash and the caption's first word both say received or sent,
  * as the composer chip does, so the two read as the same thing before and
  * after the send.
@@ -65,7 +65,8 @@ export function EmailReferenceCard({
       aria-label={t("emailReferenceCard.openAria", { subject })}
       title={`${subject}\n${caption}`}
       className={cn(
-        "group/email flex w-fit max-w-full items-center gap-3 rounded-lg outline-none",
+        "group/email flex w-fit max-w-full items-center gap-3 rounded-lg bg-[var(--surface-base)] py-1 pl-1 pr-3 outline-none transition-colors",
+        "[@media(hover:hover)]:hover:bg-[var(--surface-hover)]",
         "keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]",
         className,
       )}
@@ -73,29 +74,21 @@ export function EmailReferenceCard({
       <span
         aria-hidden="true"
         className={cn(
-          ATTACHMENT_TILE_BOX_CLASS,
-          "flex items-center justify-center border border-[var(--border-element)] transition-colors",
+          "flex h-10 w-10 shrink-0 items-center justify-center rounded-md",
           inbound
             ? "bg-[var(--system-info-weak)]"
             : "bg-[var(--system-positive-weak)]",
-          "group-hover/email:border-[var(--border-hover)]",
         )}
       >
-        <Icon className="h-6 w-6 text-[var(--content-default)]" />
+        <Icon className="h-4 w-4 text-[var(--content-default)]" />
       </span>
       <span className="flex min-w-0 flex-col gap-0.5">
-        <Typography
-          variant="label-small-default"
-          className="max-w-[240px] truncate text-[var(--content-default)] group-hover/email:underline"
-        >
+        <span className="max-w-[260px] truncate text-body-small-default leading-4 text-[var(--content-default)]">
           {subject}
-        </Typography>
-        <Typography
-          variant="label-small-default"
-          className="max-w-[240px] truncate text-[var(--content-tertiary)]"
-        >
+        </span>
+        <span className="max-w-[260px] truncate text-label-small-default leading-3 text-[var(--content-tertiary)]">
           {caption}
-        </Typography>
+        </span>
       </span>
     </Link>
   );
