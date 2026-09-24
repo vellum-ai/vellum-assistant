@@ -372,10 +372,9 @@ function isTextControl(target: EventTarget | null): boolean {
  * belongs to, so a press on one reaches none of the handlers that content
  * carries.
  *
- * The backdrop is named by the test id it already carries, which is the only
- * stable hook on it.
+ * Each names itself with a slot, the way the library's own overlays do.
  */
-const NESTED_DIALOG_SCRIM_SELECTOR = `[data-slot="bottom-sheet-overlay"], [data-slot="modal-overlay"], [data-testid="camera-view-settings-backdrop"]`;
+const NESTED_DIALOG_SCRIM_SELECTOR = `[data-slot="bottom-sheet-overlay"], [data-slot="modal-overlay"], [data-slot="camera-view-settings-backdrop"]`;
 
 /**
  * Whether a press landed on a dialog layered over the room, scrim included.

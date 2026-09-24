@@ -127,6 +127,7 @@ export function CameraViewSettings({
         ? createPortal(
             <div
               aria-hidden
+              data-slot="camera-view-settings-backdrop"
               data-testid="camera-view-settings-backdrop"
               className="fixed inset-0"
               onClick={() => setOpen(false)}
