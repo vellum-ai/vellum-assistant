@@ -18,6 +18,13 @@ export const LS_EMAIL_BYO_PROVIDER = "vellum:ai:emailByoProvider";
  * the entry returns the moment there is an inbox to open.
  */
 export const LS_ASSISTANT_INBOX_HIDDEN = "vellum:ui:assistantInboxHidden";
+/**
+ * Prefix, completed with the assistant id: a JSON array of message ids the
+ * user deleted from that assistant's inbox on this device. The platform keeps
+ * no delete for a single message, so the inbox hides them here instead.
+ */
+export const LS_ASSISTANT_INBOX_DELETED_EMAILS_PREFIX =
+  "vellum:ui:assistantInboxDeletedEmails:";
 
 export const LS_TTS_PROVIDER = "vellum:voice:ttsProvider";
 export const LS_TTS_API_KEY_PREFIX = "vellum:voice:ttsApiKey:";

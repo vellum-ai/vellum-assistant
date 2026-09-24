@@ -1,5 +1,5 @@
 import { Loader2 } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Navigate, useNavigate } from "react-router";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -15,7 +15,9 @@ import { AssistantInboxSetupCard } from "@/domains/assistant-inbox/components/as
 import { AssistantInboxShell } from "@/domains/assistant-inbox/components/assistant-inbox-shell";
 import { AssistantInboxUpgradeState } from "@/domains/assistant-inbox/components/assistant-inbox-upgrade-state";
 import { useAssistantInboxState } from "@/domains/assistant-inbox/hooks/use-assistant-inbox-state";
+import { useDeletedEmails } from "@/domains/assistant-inbox/hooks/use-deleted-emails";
 import { useInboxMail } from "@/domains/assistant-inbox/hooks/use-inbox-mail";
+import { toEmailReference } from "@/domains/assistant-inbox/to-email-reference";
 import type {
   HandleCheckResult,
   InboxEmail,
@@ -43,6 +45,7 @@ import { useTranslation } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
+import { usePendingDeepLinkStore } from "@/stores/pending-deep-link-store";
 import { extractErrorMessage } from "@/utils/api-errors";
 import { navigateToNewConversation } from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
@@ -80,6 +83,40 @@ function Mailbox({
   const { t } = useTranslation("assistant-inbox");
   const navigate = useNavigate();
   const mail = useInboxMail(assistantId, platformAssistantId, addressId);
+  const { deletedIds, deleteEmails } = useDeletedEmails(assistantId);
+  const received = useMemo(
+    () => mail.received.filter((email) => !deletedIds.has(email.id)),
+    [mail.received, deletedIds],
+  );
+  const sent = useMemo(
+    () => mail.sent.filter((email) => !deletedIds.has(email.id)),
+    [mail.sent, deletedIds],
+  );
+
+  /* The checked messages go to a new chat as staged attachments. The draft
+     is minted here and the selection parked for it: the composer resets its
+     attachments on the switch into the draft, so staging them now would lose
+     them (see `usePendingEmailReferences`). */
+  const startChatWithEmails = useCallback(
+    (emails: InboxEmail[]) => {
+      const draftId = navigateToNewConversation(navigate);
+      usePendingDeepLinkStore.getState().setPendingComposerEmails({
+        threadId: draftId,
+        emails: emails.map(toEmailReference),
+      });
+    },
+    [navigate],
+  );
+
+  const removeEmails = useCallback(
+    (emails: InboxEmail[]) => {
+      deleteEmails(emails.map((email) => email.id));
+      toast.success(
+        t("assistantInboxRoute.deletedToast", { count: emails.length }),
+      );
+    },
+    [deleteEmails, t],
+  );
 
   const askToReply = useCallback(
     (email: InboxEmail) => {
@@ -125,11 +162,13 @@ function Mailbox({
       assistantId={assistantId}
       assistantName={assistantName}
       address={address}
-      inbox={mail.received}
-      sent={mail.sent}
+      inbox={received}
+      sent={sent}
       usage={mail.usage}
       loadDetail={mail.loadDetail}
       onAskToReply={askToReply}
+      onStartChat={startChatWithEmails}
+      onDeleteEmails={removeEmails}
     />
   );
 }

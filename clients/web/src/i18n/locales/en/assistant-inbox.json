@@ -31,7 +31,22 @@
   "emailListRow": {
     "toPrefix": "To {name}",
     "attachments": "{count, plural, one {# attachment} other {# attachments}}",
-    "noSubject": "(no subject)"
+    "noSubject": "(no subject)",
+    "selectAria": "Select \"{subject}\""
+  },
+  "emailSelectionBar": {
+    "ariaLabel": "Selected emails",
+    "count": "{count, plural, one {# email selected} other {# emails selected}}",
+    "mixed": "{received, plural, one {# received} other {# received}} · {sent, plural, one {# sent} other {# sent}}",
+    "startChat": "Start a new chat",
+    "delete": "Delete from inbox",
+    "clear": "Clear selection"
+  },
+  "deleteEmailsDialog": {
+    "title": "Delete {count, plural, one {this email} other {# emails}}?",
+    "message": "{count, plural, one {It disappears from your inbox on this device.} other {They disappear from your inbox on this device.}}",
+    "confirm": "Delete",
+    "cancel": "Cancel"
   },
   "emailDetail": {
     "from": "From",
@@ -74,7 +89,8 @@
     "setupSucceeded": "{address} is ready.",
     "replyPrompt": "Reply to the email with id {id} in your inbox (from {sender}, subject \"{subject}\"). Read it with `assistant email download {id}` first, then draft a reply and show it to me before sending.",
     "mailFailed": "Couldn't load the mail.",
-    "retry": "Try again"
+    "retry": "Try again",
+    "deletedToast": "{count, plural, one {Email deleted.} other {# emails deleted.}}"
   },
   "inboxRailRestore": {
     "hiddenNote": "Assistant Inbox is hidden from your side menu.",

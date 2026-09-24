@@ -465,6 +465,14 @@
     "dismiss": "关闭",
     "removeAria": "移除 {filename}"
   },
+  "emailReferenceChip": {
+    "received": "已接收",
+    "sent": "已发送",
+    "from": "来自 {name}",
+    "to": "发给 {name}",
+    "noSubject": "(无主题)",
+    "removeAria": "移除邮件 {subject}"
+  },
   "chatBody": {
     "dropFiles": "拖放文件以附加"
   },

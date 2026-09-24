@@ -31,7 +31,22 @@
   "emailListRow": {
     "toPrefix": "发给 {name}",
     "attachments": "{count, plural, other {# 个附件}}",
-    "noSubject": "（无主题）"
+    "noSubject": "（无主题）",
+    "selectAria": "选择“{subject}”"
+  },
+  "emailSelectionBar": {
+    "ariaLabel": "已选邮件",
+    "count": "{count, plural, other {已选择 # 封邮件}}",
+    "mixed": "{received, plural, other {# 封已接收}} · {sent, plural, other {# 封已发送}}",
+    "startChat": "开始新聊天",
+    "delete": "从收件箱删除",
+    "clear": "清除选择"
+  },
+  "deleteEmailsDialog": {
+    "title": "{count, plural, one {删除这封邮件？} other {删除 # 封邮件？}}",
+    "message": "{count, plural, one {它将从此设备上的收件箱中消失。} other {它们将从此设备上的收件箱中消失。}}",
+    "confirm": "删除",
+    "cancel": "取消"
   },
   "emailDetail": {
     "from": "发件人",
@@ -74,7 +89,8 @@
     "setupSucceeded": "{address} 已就绪。",
     "replyPrompt": "回复你收件箱中 id 为 {id} 的邮件（来自 {sender}，主题为“{subject}”）。请先用 `assistant email download {id}` 读取它，然后起草回复并在发送前给我看。",
     "mailFailed": "无法加载邮件。",
-    "retry": "重试"
+    "retry": "重试",
+    "deletedToast": "{count, plural, one {邮件已删除。} other {已删除 # 封邮件。}}"
   },
   "inboxRailRestore": {
     "hiddenNote": "助手收件箱已从侧边菜单中隐藏。",

@@ -717,7 +717,10 @@ describe("addFiles image byte validation", () => {
 
     // THEN only the corrupt one is refused, and the readable ones upload
     const kinds = new Map(
-      getStore().attachments.map((att) => [att.filename, att.kind]),
+      getStore().attachments.map((att) => [
+        att.kind === "email-reference" ? att.email.subject : att.filename,
+        att.kind,
+      ]),
     );
     expect(kinds.get("bad.png")).toBe("failed");
     expect(kinds.get("good-1.png")).toBe("uploaded");

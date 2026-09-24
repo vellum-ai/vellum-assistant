@@ -28,6 +28,16 @@ const LISTED: InboxEmail = {
 };
 
 /** A row that already carries its body, as the fixtures do. */
+/** A copy the assistant sent, for the Sent folder. */
+const SENT: InboxEmail = {
+  id: "m-3",
+  direction: "outbound",
+  from: { name: "Velly", address: "hi@velly.vellum.me" },
+  to: [{ name: "Sam Okafor", address: "sam@example.com" }],
+  subject: "Re: Dinner?",
+  createdAt: "2026-09-14T11:30:00Z",
+};
+
 const CARRIED: InboxEmail = {
   id: "m-2",
   direction: "inbound",
@@ -42,7 +52,10 @@ const CARRIED: InboxEmail = {
 
 function renderPage(props: {
   inbox: InboxEmail[];
+  sent?: InboxEmail[];
   loadDetail?: (email: InboxEmail) => Promise<EmailDetailData>;
+  onStartChat?: (emails: InboxEmail[]) => void;
+  onDeleteEmails?: (emails: InboxEmail[]) => void;
 }) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -62,9 +75,11 @@ function renderPage(props: {
           assistantName="Velly"
           address="hi@velly.vellum.me"
           inbox={props.inbox}
-          sent={[]}
+          sent={props.sent ?? []}
           now={NOW}
           loadDetail={props.loadDetail}
+          onStartChat={props.onStartChat}
+          onDeleteEmails={props.onDeleteEmails}
         />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -141,6 +156,94 @@ describe("AssistantInboxPage", () => {
 
     await waitFor(() => {
       expect(screen.getByText("Couldn't load this message.")).toBeTruthy();
+    });
+  });
+
+  test("rows offer no checkbox unless something acts on a selection", () => {
+    renderPage({ inbox: [LISTED] });
+    expect(screen.queryByRole("checkbox")).toBeNull();
+  });
+
+  test("checking rows raises the bar, and Start a new chat hands over the checked mail", async () => {
+    const started: InboxEmail[][] = [];
+    renderPage({
+      inbox: [LISTED, CARRIED],
+      onStartChat: (emails) => started.push(emails),
+    });
+    expect(screen.queryByTestId("email-selection-bar")).toBeNull();
+
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: 'Select "Q4 vendor contract"' }),
+    );
+    expect(screen.getByText("1 email selected")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("checkbox", { name: 'Select "Dinner?"' }));
+    expect(screen.getByText("2 emails selected")).toBeTruthy();
+
+    // Unchecking narrows the count again.
+    fireEvent.click(screen.getByRole("checkbox", { name: 'Select "Dinner?"' }));
+    expect(screen.getByText("1 email selected")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Start a new chat" }));
+    expect(started).toHaveLength(1);
+    expect(started[0]!.map((email) => email.id)).toEqual(["m-1"]);
+    // The selection is spent by the hand-off; the bar leaves once its exit
+    // animation has run.
+    await waitFor(() => {
+      expect(screen.queryByText("1 email selected")).toBeNull();
+    });
+  });
+
+  test("checked mail survives the folder switch and the bar says which folder it came from", () => {
+    renderPage({
+      inbox: [LISTED],
+      sent: [SENT],
+      onStartChat: () => {},
+    });
+
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: 'Select "Q4 vendor contract"' }),
+    );
+    fireEvent.click(screen.getByRole("radio", { name: "Sent" }));
+    expect(screen.getByText("1 email selected")).toBeTruthy();
+
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: 'Select "Re: Dinner?"' }),
+    );
+    expect(screen.getByText("2 emails selected")).toBeTruthy();
+    expect(screen.getByText("1 received · 1 sent")).toBeTruthy();
+  });
+
+  test("Delete asks first, then hands over the checked mail and clears the selection", async () => {
+    const deleted: InboxEmail[][] = [];
+    renderPage({
+      inbox: [LISTED, CARRIED],
+      onDeleteEmails: (emails) => deleted.push(emails),
+    });
+
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: 'Select "Q4 vendor contract"' }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Delete from inbox" }));
+    expect(screen.getByText("Delete this email?")).toBeTruthy();
+    expect(deleted).toHaveLength(0);
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    expect(deleted).toHaveLength(1);
+    expect(deleted[0]!.map((email) => email.id)).toEqual(["m-1"]);
+    await waitFor(() => {
+      expect(screen.queryByText("1 email selected")).toBeNull();
+    });
+  });
+
+  test("clearing the selection lowers the bar", async () => {
+    renderPage({ inbox: [LISTED], onStartChat: () => {} });
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: 'Select "Q4 vendor contract"' }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Clear selection" }));
+    await waitFor(() => {
+      expect(screen.queryByText("1 email selected")).toBeNull();
     });
   });
 

@@ -31,7 +31,22 @@
   "emailListRow": {
     "toPrefix": "Para {name}",
     "attachments": "{count, plural, one {# adjunto} other {# adjuntos}}",
-    "noSubject": "(sin asunto)"
+    "noSubject": "(sin asunto)",
+    "selectAria": "Seleccionar \"{subject}\""
+  },
+  "emailSelectionBar": {
+    "ariaLabel": "Correos seleccionados",
+    "count": "{count, plural, one {# correo seleccionado} other {# correos seleccionados}}",
+    "mixed": "{received, plural, one {# recibido} other {# recibidos}} · {sent, plural, one {# enviado} other {# enviados}}",
+    "startChat": "Iniciar un chat nuevo",
+    "delete": "Eliminar de la bandeja",
+    "clear": "Borrar selección"
+  },
+  "deleteEmailsDialog": {
+    "title": "¿Eliminar {count, plural, one {este correo} other {# correos}}?",
+    "message": "{count, plural, one {Desaparecerá de tu bandeja en este dispositivo.} other {Desaparecerán de tu bandeja en este dispositivo.}}",
+    "confirm": "Eliminar",
+    "cancel": "Cancelar"
   },
   "emailDetail": {
     "from": "De",
@@ -74,7 +89,8 @@
     "setupSucceeded": "{address} está lista.",
     "replyPrompt": "Responde al correo con id {id} de tu bandeja (de {sender}, asunto \"{subject}\"). Léelo primero con `assistant email download {id}`, redacta una respuesta y muéstramela antes de enviarla.",
     "mailFailed": "No se pudo cargar el correo.",
-    "retry": "Reintentar"
+    "retry": "Reintentar",
+    "deletedToast": "{count, plural, one {Correo eliminado.} other {# correos eliminados.}}"
   },
   "inboxRailRestore": {
     "hiddenNote": "La bandeja del asistente está oculta en tu menú lateral.",

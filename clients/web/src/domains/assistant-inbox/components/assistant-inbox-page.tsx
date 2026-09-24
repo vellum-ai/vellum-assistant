@@ -3,7 +3,13 @@ import { useCallback, useMemo, useState } from "react";
 
 import { useQuery } from "@tanstack/react-query";
 
-import { Card, cn, Input, SegmentControl } from "@vellumai/design-library";
+import {
+  Card,
+  cn,
+  ConfirmDialog,
+  Input,
+  SegmentControl,
+} from "@vellumai/design-library";
 
 import { useTranslation } from "@/i18n";
 
@@ -17,6 +23,7 @@ import { AssistantInboxHeader } from "./assistant-inbox-header";
 import { AssistantInboxShell } from "./assistant-inbox-shell";
 import { EmailDetail, type EmailDetailState } from "./email-detail";
 import { EmailList } from "./email-list";
+import { EmailSelectionBar } from "./email-selection-bar";
 
 /** The same rounded, unbordered surface the sidebar's section cards use. */
 const CARD_CLASSES =
@@ -98,17 +105,31 @@ export interface AssistantInboxPageProps {
    */
   loadDetail?: EmailDetailLoader;
   onAskToReply?: (email: InboxEmail) => void;
+  /** Messages to open checked, for a story or a test. */
+  initialCheckedIds?: string[];
+  /**
+   * Starts a chat with the checked messages staged in its composer. Without
+   * it the selection bar offers no chat action.
+   */
+  onStartChat?: (emails: InboxEmail[]) => void;
+  /**
+   * Removes the checked messages from the inbox, once the user has
+   * confirmed. Without it the selection bar offers no delete action.
+   */
+  onDeleteEmails?: (emails: InboxEmail[]) => void;
 }
 
 /**
  * The inbox when the assistant has an address: masthead, a folder switch,
  * and two cards on the page ground, the list with its search and the
  * reading pane. Below the `md` breakpoint the two cards take turns instead,
- * list first, with a back control on the message. Selection is local;
- * changing folder clears it so a message from Received is never left open
- * over the Sent list. Search is a plain substring match over sender,
- * recipient, subject, and preview, run on the client over the folder
- * already loaded.
+ * list first, with a back control on the message. The open message is
+ * local; changing folder clears it so a message from Received is never left
+ * open over the Sent list. Checked messages are kept across the folder
+ * switch, since a chat may want mail from both, and the bar that rises over
+ * the cards while any are checked is where the selection is acted on.
+ * Search is a plain substring match over sender, recipient, subject, and
+ * preview, run on the client over the folder already loaded.
  */
 export function AssistantInboxPage({
   assistantId,
@@ -122,6 +143,9 @@ export function AssistantInboxPage({
   initialSelectedId = null,
   loadDetail,
   onAskToReply,
+  initialCheckedIds,
+  onStartChat,
+  onDeleteEmails,
 }: AssistantInboxPageProps) {
   const { t } = useTranslation("assistant-inbox");
   const [folder, setFolder] = useState<InboxFolder>(initialFolder);
@@ -129,6 +153,12 @@ export function AssistantInboxPage({
     initialSelectedId,
   );
   const [query, setQuery] = useState("");
+  const [checkedIds, setCheckedIds] = useState<ReadonlySet<string>>(
+    () => new Set(initialCheckedIds),
+  );
+  /* The messages awaiting the user's confirmation to delete, or none. */
+  const [pendingDelete, setPendingDelete] = useState<InboxEmail[] | null>(null);
+  const selectable = onStartChat !== undefined || onDeleteEmails !== undefined;
   const clock = useMemo(() => now ?? new Date(), [now]);
 
   const trimmedQuery = query.trim().toLowerCase();
@@ -172,6 +202,47 @@ export function AssistantInboxPage({
     setSelectedId(null);
   }, []);
 
+  /* Checked messages resolve against both folders, so a row checked in
+     Received stays counted while the Sent list is showing. */
+  const checkedEmails = useMemo(
+    () => [...inbox, ...sent].filter((email) => checkedIds.has(email.id)),
+    [inbox, sent, checkedIds],
+  );
+  const toggleChecked = useCallback((id: string) => {
+    setCheckedIds((previous) => {
+      const next = new Set(previous);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }, []);
+  const clearChecked = useCallback(() => setCheckedIds(new Set()), []);
+
+  const startChat = useCallback(
+    (emails: InboxEmail[]) => {
+      onStartChat?.(emails);
+      setCheckedIds(new Set());
+    },
+    [onStartChat],
+  );
+  const confirmDelete = useCallback(() => {
+    if (!pendingDelete) {
+      return;
+    }
+    onDeleteEmails?.(pendingDelete);
+    const removed = new Set(pendingDelete.map((email) => email.id));
+    setCheckedIds(
+      (previous) => new Set([...previous].filter((id) => !removed.has(id))),
+    );
+    setSelectedId((current) =>
+      current !== null && removed.has(current) ? null : current,
+    );
+    setPendingDelete(null);
+  }, [onDeleteEmails, pendingDelete]);
+
   const folderItems = useMemo(
     () => [
       {
@@ -207,7 +278,7 @@ export function AssistantInboxPage({
         />
       </div>
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 px-2 pb-2 md:grid-cols-[minmax(280px,360px)_1fr]">
+      <div className="relative grid min-h-0 flex-1 grid-cols-1 gap-4 px-2 pb-2 md:grid-cols-[minmax(280px,360px)_1fr]">
         {/* The list card owns the search: it filters this folder and
             nothing else, so it sits at the head of the rows it narrows. */}
         <Card
@@ -240,6 +311,8 @@ export function AssistantInboxPage({
               selectedId={selectedId}
               now={clock}
               onSelect={setSelectedId}
+              checkedIds={selectable ? checkedIds : undefined}
+              onToggleChecked={selectable ? toggleChecked : undefined}
             />
           )}
         </Card>
@@ -264,7 +337,37 @@ export function AssistantInboxPage({
             </div>
           )}
         </Card>
+
+        {/* Rises over the foot of both cards while anything is checked. The
+            wrapper lets clicks through to the cards around the bar. */}
+        {selectable ? (
+          <div className="pointer-events-none absolute inset-x-0 bottom-4 z-10 flex justify-center px-4">
+            <EmailSelectionBar
+              emails={checkedEmails}
+              onClear={clearChecked}
+              onStartChat={onStartChat ? startChat : undefined}
+              onDelete={onDeleteEmails ? setPendingDelete : undefined}
+            />
+          </div>
+        ) : null}
       </div>
+
+      {onDeleteEmails ? (
+        <ConfirmDialog
+          open={pendingDelete !== null}
+          destructive
+          title={t("deleteEmailsDialog.title", {
+            count: pendingDelete?.length ?? 0,
+          })}
+          message={t("deleteEmailsDialog.message", {
+            count: pendingDelete?.length ?? 0,
+          })}
+          confirmLabel={t("deleteEmailsDialog.confirm")}
+          cancelLabel={t("deleteEmailsDialog.cancel")}
+          onConfirm={confirmDelete}
+          onCancel={() => setPendingDelete(null)}
+        />
+      ) : null}
     </AssistantInboxShell>
   );
 }

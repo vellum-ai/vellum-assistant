@@ -465,6 +465,14 @@
     "dismiss": "Descartar",
     "removeAria": "Quitar {filename}"
   },
+  "emailReferenceChip": {
+    "received": "Recibido",
+    "sent": "Enviado",
+    "from": "De {name}",
+    "to": "Para {name}",
+    "noSubject": "(sin asunto)",
+    "removeAria": "Quitar el correo {subject}"
+  },
   "chatBody": {
     "dropFiles": "Suelta archivos para adjuntarlos"
   },

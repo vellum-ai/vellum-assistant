@@ -63,6 +63,7 @@ import { useActiveAppPinSync } from "@/domains/chat/hooks/use-active-app-pin-syn
 import { useAcpAutoContinue } from "@/domains/chat/hooks/use-acp-auto-continue";
 import { useDeepLinkConsumer } from "@/domains/chat/hooks/use-deep-link-consumer";
 import { useDeepLinkThreadSend } from "@/domains/chat/hooks/use-deep-link-thread-send";
+import { usePendingEmailReferences } from "@/domains/chat/hooks/use-pending-email-references";
 import { useShareInboxSend } from "@/domains/chat/hooks/use-share-inbox-send";
 import { ACP_CONNECT_CONTINUE_PROMPT } from "@/domains/chat/utils/acp-connect";
 
@@ -370,6 +371,9 @@ export function ActiveChatView() {
     conversationExistsOnServer,
     sendMessage,
   });
+  // Emails picked on the Assistant Inbox page, parked for the draft it minted;
+  // staged as composer attachments once that draft is on screen.
+  usePendingEmailReferences({ activeConversationId });
 
   // Auto-send: URL ?prompt=, pre-chat reachability probe, onboarding message.
   useAutoSendEffects({

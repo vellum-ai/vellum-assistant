@@ -479,6 +479,14 @@
     "dismiss": "Dismiss",
     "removeAria": "Remove {filename}"
   },
+  "emailReferenceChip": {
+    "received": "Received",
+    "sent": "Sent",
+    "from": "From {name}",
+    "to": "To {name}",
+    "noSubject": "(no subject)",
+    "removeAria": "Remove email {subject}"
+  },
   "chatBody": {
     "dropFiles": "Drop files to attach"
   },

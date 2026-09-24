@@ -31,7 +31,22 @@
   "emailListRow": {
     "toPrefix": "Кому: {name}",
     "attachments": "{count, plural, one {# вложение} few {# вложения} many {# вложений} other {# вложения}}",
-    "noSubject": "(без темы)"
+    "noSubject": "(без темы)",
+    "selectAria": "Выбрать «{subject}»"
+  },
+  "emailSelectionBar": {
+    "ariaLabel": "Выбранные письма",
+    "count": "{count, plural, one {Выбрано # письмо} few {Выбрано # письма} many {Выбрано # писем} other {Выбрано # письма}}",
+    "mixed": "{received, plural, one {# полученное} few {# полученных} many {# полученных} other {# полученных}} · {sent, plural, one {# отправленное} few {# отправленных} many {# отправленных} other {# отправленных}}",
+    "startChat": "Начать новый чат",
+    "delete": "Удалить из почты",
+    "clear": "Снять выбор"
+  },
+  "deleteEmailsDialog": {
+    "title": "Удалить {count, plural, one {это письмо} few {# письма} many {# писем} other {# письма}}?",
+    "message": "{count, plural, one {Оно исчезнет из почты на этом устройстве.} other {Они исчезнут из почты на этом устройстве.}}",
+    "confirm": "Удалить",
+    "cancel": "Отмена"
   },
   "emailDetail": {
     "from": "От",
@@ -74,7 +89,8 @@
     "setupSucceeded": "Адрес {address} готов.",
     "replyPrompt": "Ответь на письмо с id {id} из твоей почты (от {sender}, тема \"{subject}\"). Сначала прочитай его командой `assistant email download {id}`, затем подготовь ответ и покажи мне перед отправкой.",
     "mailFailed": "Не удалось загрузить почту.",
-    "retry": "Повторить"
+    "retry": "Повторить",
+    "deletedToast": "{count, plural, one {Письмо удалено.} few {Удалено # письма.} many {Удалено # писем.} other {Удалено # письма.}}"
   },
   "inboxRailRestore": {
     "hiddenNote": "Почта ассистента скрыта из бокового меню.",

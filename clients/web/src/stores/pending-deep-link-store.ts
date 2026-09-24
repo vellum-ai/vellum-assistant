@@ -24,6 +24,7 @@
 import { create } from "zustand";
 
 import type { LiveVoiceEntry } from "@/domains/chat/voice/live-voice/protocol";
+import type { EmailReference } from "@/types/email-reference";
 import { createSelectors } from "@/utils/create-selectors";
 
 export interface PendingDeepLinkState {
@@ -99,6 +100,24 @@ export interface PendingDeepLinkState {
    * bound how long a park that never drains stays a send.
    */
   pendingShareSend: PendingShareSend | null;
+  /**
+   * Emails the Assistant Inbox asked to stage in a conversation's composer
+   * (its "Start a new chat" over a selection), or `null` if none. The inbox
+   * mints the draft with `navigateToNewConversation` and parks the selection
+   * here because the composer store resets its attachments on the switch
+   * into that draft; the chat domain stages them once the draft is the
+   * active conversation (`usePendingEmailReferences`). A pre-fill, not a
+   * send: the user says what they want done with the mail.
+   */
+  pendingComposerEmails: PendingComposerEmails | null;
+}
+
+/** A parked stage-these-emails request; see `pendingComposerEmails`. */
+export interface PendingComposerEmails {
+  /** The conversation whose composer takes the emails. */
+  threadId: string;
+  emails: EmailReference[];
+  parkedAt: number;
 }
 
 /** A proven send-into-thread request; see `pendingThreadSend`. */
@@ -219,6 +238,19 @@ export interface PendingDeepLinkActions {
    * request is demoted to a composer pre-fill rather than dropped.
    */
   consumePendingShareSend: () => PendingShareSend | null;
+  /**
+   * Park emails for a conversation's composer. A newer request replaces an
+   * older one: the most recent selection wins, same as the composer message.
+   */
+  setPendingComposerEmails: (
+    request: Omit<PendingComposerEmails, "parkedAt">,
+  ) => void;
+  /**
+   * Read and clear the parked emails. Returns `null` when none are parked.
+   * The drain (`usePendingEmailReferences`) owns the address check and the
+   * age bound.
+   */
+  consumePendingComposerEmails: () => PendingComposerEmails | null;
 }
 
 export type PendingDeepLinkStore = PendingDeepLinkState &
@@ -234,6 +266,7 @@ const usePendingDeepLinkStoreBase = create<PendingDeepLinkStore>()(
     pendingCamera: null,
     pendingConversationListAt: null,
     pendingShareSend: null,
+    pendingComposerEmails: null,
     setPendingComposerMessage: (message) =>
       set({ pendingComposerMessage: message }),
     consumePendingComposerMessage: () => {
@@ -297,6 +330,15 @@ const usePendingDeepLinkStoreBase = create<PendingDeepLinkStore>()(
       }
       return parked;
     },
+    setPendingComposerEmails: (request) =>
+      set({ pendingComposerEmails: { ...request, parkedAt: Date.now() } }),
+    consumePendingComposerEmails: () => {
+      const parked = get().pendingComposerEmails;
+      if (parked !== null) {
+        set({ pendingComposerEmails: null });
+      }
+      return parked;
+    },
   }),
 );
 
@@ -317,5 +359,6 @@ export function __resetPendingDeepLinkForTesting(): void {
     pendingCamera: null,
     pendingConversationListAt: null,
     pendingShareSend: null,
+    pendingComposerEmails: null,
   });
 }

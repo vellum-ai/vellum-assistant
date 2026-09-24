@@ -31,7 +31,22 @@
   "emailListRow": {
     "toPrefix": "寄給 {name}",
     "attachments": "{count, plural, other {# 個附件}}",
-    "noSubject": "（無主旨）"
+    "noSubject": "（無主旨）",
+    "selectAria": "選取「{subject}」"
+  },
+  "emailSelectionBar": {
+    "ariaLabel": "已選取的郵件",
+    "count": "{count, plural, other {已選取 # 封郵件}}",
+    "mixed": "{received, plural, other {# 封已接收}} · {sent, plural, other {# 封已寄出}}",
+    "startChat": "開始新聊天",
+    "delete": "從收件匣刪除",
+    "clear": "清除選取"
+  },
+  "deleteEmailsDialog": {
+    "title": "{count, plural, one {刪除這封郵件？} other {刪除 # 封郵件？}}",
+    "message": "{count, plural, one {它會從此裝置上的收件匣消失。} other {它們會從此裝置上的收件匣消失。}}",
+    "confirm": "刪除",
+    "cancel": "取消"
   },
   "emailDetail": {
     "from": "寄件者",
@@ -74,7 +89,8 @@
     "setupSucceeded": "{address} 已就緒。",
     "replyPrompt": "回覆你收件匣中 id 為 {id} 的郵件（來自 {sender}，主旨為「{subject}」）。請先用 `assistant email download {id}` 讀取它，然後草擬回覆並在寄出前給我看。",
     "mailFailed": "無法載入郵件。",
-    "retry": "重試"
+    "retry": "重試",
+    "deletedToast": "{count, plural, one {郵件已刪除。} other {已刪除 # 封郵件。}}"
   },
   "inboxRailRestore": {
     "hiddenNote": "助理收件匣已從側邊選單隱藏。",
