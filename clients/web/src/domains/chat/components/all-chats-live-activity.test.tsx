@@ -11,6 +11,9 @@ const { useAcpRunStore } = await import("@/domains/chat/acp-run-store");
 const { useBackgroundTaskStore } =
   await import("@/domains/chat/background-task-store");
 const { useConversationStore } = await import("@/stores/conversation-store");
+const { AllChatsRow } = await import("@/domains/chat/pages/all-chats-page");
+const { ConversationListProvider } =
+  await import("./conversation-list-context");
 
 afterEach(() => {
   cleanup();
@@ -33,6 +36,56 @@ function spawn(id: string, parentConversationId?: string) {
     status: "running",
   });
 }
+
+test("focused rows describe unread state and current activity, including completion", () => {
+  spawn("agent-1", "conv-1");
+  spawn("agent-2", "conv-1");
+  const conversation = {
+    conversationId: "conv-1",
+    title: "Example chat",
+    hasUnseenLatestAssistantMessage: true,
+  };
+  const view = render(
+    <ConversationListProvider value={{ onSelect: () => {} }}>
+      <AllChatsRow
+        conversation={conversation}
+        now={new Date(2026, 8, 24)}
+        activity={<AllChatsLiveActivity conversation={conversation} />}
+      />
+    </ConversationListProvider>,
+  );
+  const row = view.getByRole("button", {
+    name: "Example chat",
+    description: "Unread 2 running tasks",
+  });
+  row.focus();
+  act(() =>
+    useSubagentStore.getState().changeStatus({
+      subagentId: "agent-1",
+      status: "awaiting_input",
+    }),
+  );
+  expect(
+    view.getByRole("button", {
+      name: "Example chat",
+      description: "Unread Needs attention",
+    }),
+  ).toBe(row);
+  act(() => {
+    for (const subagentId of ["agent-1", "agent-2"]) {
+      useSubagentStore
+        .getState()
+        .changeStatus({ subagentId, status: "completed" });
+    }
+  });
+  expect(
+    view.getByRole("button", {
+      name: "Example chat",
+      description: /^Unread\s*$/,
+    }),
+  ).toBe(row);
+  expect(document.activeElement).toBe(row);
+});
 
 test("shows only the owning chat's tasks, excluding unknown parents", () => {
   spawn("agent-1", "conv-1");

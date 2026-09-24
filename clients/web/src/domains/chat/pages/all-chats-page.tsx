@@ -17,6 +17,7 @@ import { ArrowRight, MoreHorizontal, RotateCcw, Search, X } from "lucide-react";
 import {
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useState,
   type ChangeEvent,
@@ -240,6 +241,8 @@ export function AllChatsRow({
   const ctx = useConversationListContext();
   const done = isDoneConversation(conversation);
   const title = displayTitle(conversation.title);
+  const activityDescriptionId = useId();
+  const unreadDescriptionId = useId();
   const isTouch = usePointerCoarse();
   const canHover = useHoverCapable();
   useEffect(
@@ -285,19 +288,27 @@ export function AllChatsRow({
           </span>
           {conversation.hasUnseenLatestAssistantMessage && (
             <span
+              id={unreadDescriptionId}
               className="size-1.5 shrink-0 rounded-full bg-[var(--system-mid-strong)]"
-              aria-label={t("allChatsPage.unread")}
-            />
+            >
+              <span className="sr-only">{t("allChatsPage.unread")}</span>
+            </span>
           )}
-          <span className="ml-auto flex shrink-0 items-center">{activity}</span>
+          <span
+            id={activityDescriptionId}
+            className="ml-auto flex shrink-0 items-center"
+          >
+            {activity}
+          </span>
         </span>
       }
       aria-label={done ? t("allChatsPage.doneLabel", { title }) : title}
-      aria-description={
-        conversation.hasUnseenLatestAssistantMessage
-          ? t("allChatsPage.unread")
-          : undefined
-      }
+      aria-describedby={[
+        conversation.hasUnseenLatestAssistantMessage && unreadDescriptionId,
+        activityDescriptionId,
+      ]
+        .filter(Boolean)
+        .join(" ")}
       leadingSlot={
         <ChannelIcon
           channelId={conversation.originChannel}
