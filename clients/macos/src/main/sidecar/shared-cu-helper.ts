@@ -5,9 +5,11 @@
  * This is a separate `MacHelperClient` from the hotkey/dictation client in
  * `hotkey-helper.ts`: the two drive disjoint JSON-RPC surfaces, and keeping
  * them apart means a crash in one supervisor circuit never tears down the
- * other. The underlying process is the same signed binary. Screen Recording
- * is checked through a fresh launch of this executable and against the app's
- * own permission entry (see
+ * other. The underlying process is the same signed binary, so the two share
+ * the helper's Accessibility and Screen Recording grants. Those are the
+ * helper's own, not the app's: the helper disclaims TCC responsibility, so
+ * macOS lists and checks it apart from Vellum, and the app being allowed says
+ * nothing about whether a capture here will be (see
  * `screen-recording-permission.ts`). The process is not
  * spawned until the first `cu.perform` / `appControl.perform` call, so users
  * who never invoke computer use pay nothing.

@@ -48,7 +48,6 @@ class FakeElectronNotification {
 /** The helper launches and Settings opens, in the order they happened. */
 const helperCalls: string[] = [];
 let helperScreenStatus = "denied";
-let appScreenStatus = "denied";
 let helperInputMonitoringStatus = "denied";
 
 mock.module("electron", () => ({
@@ -72,8 +71,9 @@ mock.module("electron", () => ({
       helperCalls.push("request microphone");
       return true;
     },
-    getMediaAccessStatus: (kind: string) =>
-      kind === "screen" ? appScreenStatus : "granted",
+    // The app's own grant, which says nothing about the helper's: granted
+    // here so a screen status that followed it would be caught.
+    getMediaAccessStatus: () => "granted",
   },
 }));
 
@@ -115,14 +115,7 @@ mock.module("./hotkey-helper", () => ({
 }));
 
 mock.module("./screen-recording-permission", () => ({
-  readAppScreenRecordingPermission: () => appScreenStatus,
-  readScreenRecordingPermission: async () =>
-    appScreenStatus === "granted" && helperScreenStatus === "granted"
-      ? "granted"
-      : "denied",
-  requestAppScreenRecordingPermission: () => {
-    helperCalls.push("request app screen");
-  },
+  readScreenRecordingPermission: async () => helperScreenStatus,
 }));
 
 let notifier: Notifier | null = null;
@@ -454,12 +447,10 @@ describe("permission setup", () => {
   beforeEach(() => {
     helperCalls.length = 0;
     helperScreenStatus = "denied";
-    appScreenStatus = "denied";
     helperInputMonitoringStatus = "denied";
   });
 
-  test("requires both Screen Recording entries", async () => {
-    helperScreenStatus = "granted";
+  test("reports the helper's grant, not the app's", async () => {
     const state = await new PermissionsService().state();
 
     expect(state.screen.status).toBe("denied");
@@ -476,12 +467,12 @@ describe("permission setup", () => {
       expect(helperCalls).toEqual([]);
       expect(initial.screen.canRequest).toBe(true);
       const requested = await service.openSettings("screen");
-      expect(helperCalls).toEqual(["yield tour", "request app screen"]);
+      expect(helperCalls).toEqual(["yield tour", "request screen"]);
       expect(requested.canRequest).toBe(false);
       await service.openSettings("screen");
       expect(helperCalls).toEqual([
         "yield tour",
-        "request app screen",
+        "request screen",
         "yield tour",
         "open x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
       ]);
@@ -513,35 +504,13 @@ describe("permission setup", () => {
     ]);
   });
 
-  test("does not open Settings for a Screen Recording grant that already arrived", async () => {
-    appScreenStatus = "granted";
+  test("does not open Settings for a helper grant that already arrived", async () => {
     helperScreenStatus = "granted";
     await new PermissionsService().openSettings("screen");
     expect(helperCalls).toEqual([]);
   });
 
-  test("a request asks for the app grant first", async () => {
-    helperScreenStatus = "granted";
-
-    const item = await new PermissionsService().request("screen");
-
-    expect(helperCalls).toEqual(["request app screen"]);
-    expect(item.status).toBe("denied");
-  });
-
-  test("asks the helper after the app grant arrives", async () => {
-    const service = new PermissionsService();
-    await service.request("screen");
-
-    appScreenStatus = "granted";
-    const item = await service.openSettings("screen");
-
-    expect(helperCalls).toEqual(["request app screen", "request screen"]);
-    expect(item.canRequest).toBe(false);
-  });
-
-  test("a request asks the capturing helper once the app is granted", async () => {
-    appScreenStatus = "granted";
+  test("a request asks the helper", async () => {
     helperScreenStatus = "granted";
 
     const item = await new PermissionsService().request("screen");

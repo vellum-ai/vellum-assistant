@@ -127,10 +127,9 @@ an interrupted native tour without marking it complete.
 
 The macOS companion tour offers microphone setup on its final call step, Input Monitoring on
 its voice-key lesson, and Screen Recording on Share. Setup is explicit and
-skippable. Screen Recording checks the app's grant and launches the helper
-executable the same way as the capture process to check its grant. The two
-entries can differ in macOS Settings. Setup requests the missing app grant
-first, then the helper grant.
+skippable. Screen Recording probes and requests through the helper executable
+that takes captures. This matches the capture process's launch path. macOS
+Settings can also show a separate entry for the app.
 
 The tour stays on its current step while Settings is open and observes permission
 updates before restoring the rehearsal controls. Global keyboard registration

@@ -467,11 +467,10 @@ their current lesson. Every permission step is skippable.
 | Share | Screen Recording | Share a screen or window through Vellum Helper |
 
 Microphone and Screen Recording use native prompts. Screen Recording setup
-checks both the app's grant and a fresh launch of the executable that takes
-captures. It asks for the missing app grant first, then the helper grant, so
-the tour does not report success until Share can capture. A separate explicit
-action opens Settings after a native prompt. Input Monitoring lifts the coachmark's
-permission control into a guide beside System Settings. Drag Vellum Helper into
+checks a fresh launch of the executable that takes captures and requests access
+through that executable. A separate explicit action opens Settings after a
+native prompt. Input Monitoring lifts the coachmark's permission control into a
+guide beside System Settings. Drag Vellum Helper into
 the privacy list and authenticate if asked. **Show in Finder** provides a
 keyboard and manual-drag alternative. The bundle label and icon reflect the
 actual installed helper, including development builds.

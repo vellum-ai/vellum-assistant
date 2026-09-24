@@ -140,8 +140,6 @@ module.exports = {
         "Vellum uses the microphone to record voice input for chat.",
       NSCameraUsageDescription:
         "Vellum uses the camera to capture photos when you ask your assistant to use the camera.",
-      NSScreenCaptureUsageDescription:
-        "Vellum captures the screen when you share it with your assistant or ask it to use your computer.",
       NSSpeechRecognitionUsageDescription:
         "Vellum uses speech recognition to transcribe dictated voice input.",
       NSAppleEventsUsageDescription:

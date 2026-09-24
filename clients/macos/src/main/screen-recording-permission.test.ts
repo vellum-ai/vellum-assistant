@@ -3,20 +3,8 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { JsonRpcHelperError } from "./sidecar/mac-helper.client";
 
 let helperStatus = "denied";
-let appStatus = "denied";
 let helperReads = 0;
 let helperShutdowns = 0;
-let appRequests = 0;
-
-mock.module("electron", () => ({
-  desktopCapturer: {
-    getSources: async () => {
-      appRequests += 1;
-      return [];
-    },
-  },
-  systemPreferences: { getMediaAccessStatus: () => appStatus },
-}));
 
 mock.module("./hotkey-helper", () => ({
   queryFreshMacHelperPermission: async (kind: string) => {
@@ -42,17 +30,14 @@ const {
   isScreenRecordingRefusal,
   JSON_RPC_PERMISSION_DENIED,
   readScreenRecordingPermission,
-  requestAppScreenRecordingPermission,
   screenRecordingGranted,
 } = await import("./screen-recording-permission");
 
 beforeEach(() => {
   __resetScreenRecordingPermissionForTesting();
   helperStatus = "denied";
-  appStatus = "denied";
   helperReads = 0;
   helperShutdowns = 0;
-  appRequests = 0;
 });
 
 describe("isScreenRecordingRefusal", () => {
@@ -85,7 +70,6 @@ describe("readScreenRecordingPermission", () => {
     expect(helperShutdowns).toBe(0);
 
     helperStatus = "granted";
-    appStatus = "granted";
     expect(await readScreenRecordingPermission()).toBe("granted");
     expect(helperShutdowns).toBe(1);
 
@@ -96,45 +80,22 @@ describe("readScreenRecordingPermission", () => {
 
   test("a first read that finds the grant leaves the helper alone", async () => {
     helperStatus = "granted";
-    appStatus = "granted";
     await readScreenRecordingPermission();
     expect(helperShutdowns).toBe(0);
-  });
-
-  test("does not report granted when only the helper is allowed", async () => {
-    helperStatus = "granted";
-    expect(await readScreenRecordingPermission()).toBe("denied");
-
-    appStatus = "granted";
-    expect(await readScreenRecordingPermission()).toBe("granted");
   });
 });
 
 describe("screenRecordingGranted", () => {
-  test("blocks Share when the helper is allowed but the app is not", async () => {
-    helperStatus = "granted";
-    expect(await screenRecordingGranted()).toBe(false);
-
-    appStatus = "granted";
-    expect(await screenRecordingGranted()).toBe(true);
-  });
-
   test("trusts a grant it has seen, and reads again until it has", async () => {
     expect(await screenRecordingGranted()).toBe(false);
     expect(await screenRecordingGranted()).toBe(false);
     expect(helperReads).toBe(2);
 
     helperStatus = "granted";
-    appStatus = "granted";
     expect(await screenRecordingGranted()).toBe(true);
     expect(await screenRecordingGranted()).toBe(true);
     expect(helperReads).toBe(3);
   });
-});
-
-test("requests the app's Screen Recording entry without waiting for capture sources", () => {
-  requestAppScreenRecordingPermission();
-  expect(appRequests).toBe(1);
 });
 
 describe("answerScreenRecordingRefusal", () => {
@@ -171,7 +132,6 @@ describe("answerScreenRecordingRefusal", () => {
 
   test("a helper refusing a grant it has is let go instead", async () => {
     helperStatus = "granted";
-    appStatus = "granted";
     let asks = 0;
 
     await answerScreenRecordingRefusal(async () => {

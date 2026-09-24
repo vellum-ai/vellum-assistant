@@ -430,7 +430,7 @@ mock.module("./companion-capture-sources", () => ({
   },
 }));
 
-/** Whether the app and capturing helper hold Screen Recording, as main reads it. */
+/** Whether the helper holds Screen Recording, as main reads it. */
 let screenGranted = true;
 /** What a frame was refused with, or null when frames come back. */
 let frameError: unknown = null;

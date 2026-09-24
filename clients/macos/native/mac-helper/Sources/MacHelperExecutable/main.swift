@@ -1608,10 +1608,9 @@ final class MacHelper: @unchecked Sendable {
         }
     }
 
-    /// Screen Recording as this process holds it. The caller launches this
-    /// executable as it launches the process that takes captures, so the
-    /// status follows the same macOS attribution for this executable. The app's
-    /// separate Screen Recording entry is checked by Electron.
+    /// Screen Recording as this process holds it. The helper disclaims
+    /// responsibility, so this is the helper's own grant and not the app's:
+    /// the two are separate rows in System Settings.
     ///
     /// Never "not-determined": the preflight answers only yes or no, and a
     /// helper that has never asked reads the same as one that was refused.

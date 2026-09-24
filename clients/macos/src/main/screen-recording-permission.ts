@@ -1,13 +1,11 @@
 /**
- * Screen Recording, as the app and capturing process hold it.
+ * Screen Recording, as the process that captures holds it.
  *
  * Every capture this app takes on macOS runs in the mac helper: a shared call's
  * frames, the picker's previews, and computer-use screenshots. The permission
- * probe launches that executable the same way as a capture. The app can also
- * have a separate Screen Recording row, so both grants are checked.
+ * probe launches that executable the same way as a capture. The app can have
+ * a separate Screen Recording row; this probe reports the helper's status.
  */
-
-import { desktopCapturer, systemPreferences } from "electron";
 
 import {
   queryFreshMacHelperPermission,
@@ -34,25 +32,12 @@ let lastStatus: MacHelperPermissionStatus | null = null;
 let answering = false;
 let lastAskedAtMs = Number.NEGATIVE_INFINITY;
 
-export const readAppScreenRecordingPermission = (): MacHelperPermissionStatus =>
-  systemPreferences.getMediaAccessStatus("screen");
-
-export const requestAppScreenRecordingPermission = (): void => {
-  // Electron prompts for the app's Screen Recording entry when it lists sources.
-  // Do not wait for this promise: it can remain pending until Settings changes.
-  void desktopCapturer
-    .getSources({ types: ["screen"], thumbnailSize: { width: 0, height: 0 } })
-    .catch((err: unknown) => {
-      log.warn("[screen recording] could not request the app grant:", err);
-    });
-};
-
 /** Whether a helper call failed because Screen Recording is not granted. */
 export const isScreenRecordingRefusal = (err: unknown): boolean =>
   err instanceof JsonRpcHelperError && err.code === JSON_RPC_PERMISSION_DENIED;
 
 /**
- * The app's and capturing process's grants. The helper is read from a fresh launch.
+ * The helper's grant, read from a fresh launch of it.
  *
  * Fresh because a process reads its grant once: a helper that was running
  * when the user allowed it still answers no. For the same reason the
@@ -60,18 +45,7 @@ export const isScreenRecordingRefusal = (err: unknown): boolean =>
  * the grant newly given, so the next capture starts one that can see it.
  */
 export async function readScreenRecordingPermission(): Promise<MacHelperPermissionStatus> {
-  const helperStatus = await queryFreshMacHelperPermission("screen");
-  const appStatus = readAppScreenRecordingPermission();
-  const status: MacHelperPermissionStatus =
-    helperStatus === "granted" && appStatus === "granted"
-      ? "granted"
-      : helperStatus === "restricted" || appStatus === "restricted"
-        ? "restricted"
-        : helperStatus === "denied" || appStatus === "denied"
-          ? "denied"
-          : helperStatus === "not-determined" || appStatus === "not-determined"
-            ? "not-determined"
-            : "unknown";
+  const status = await queryFreshMacHelperPermission("screen");
   if (status === "granted" && lastStatus !== null && lastStatus !== "granted") {
     shutdownSharedCuHelper();
   }
