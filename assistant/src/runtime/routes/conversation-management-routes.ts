@@ -66,6 +66,7 @@ import {
 import type { NonScheduledConversationType } from "../../persistence/conversation-types.js";
 import { enqueueMemoryJob } from "../../persistence/jobs-store.js";
 import { linkRequestLogsToMessage } from "../../persistence/llm-request-log-store.js";
+import { ProcessingHeldElsewhereError } from "../../persistence/processing-claim.js";
 import { deleteSchedule, getSchedule } from "../../schedule/schedule-store.js";
 import { UserError } from "../../util/errors.js";
 import { safeParseRecord } from "../../util/json.js";
@@ -96,6 +97,13 @@ import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 import { resolveVellumActorTrustContext } from "./vellum-actor-trust.js";
 
 const log = getLogger("conversation-management-routes");
+
+/** The busy answer for a turn already running, here or in another process. */
+function respondingConflict(): ConflictError {
+  return new ConflictError(
+    "The assistant is currently responding. Try again when it finishes.",
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -262,11 +270,16 @@ async function handleSummarizeConversation({ body = {} }: RouteHandlerArgs) {
   // Synchronous check-then-claim (no await between them) so a concurrent
   // request cannot slip past the busy gate.
   if (conversation.isProcessing()) {
-    throw new ConflictError(
-      "The assistant is currently responding — try again when it finishes",
-    );
+    throw respondingConflict();
   }
-  conversation.setProcessing(true);
+  try {
+    conversation.setProcessing(true);
+  } catch (err) {
+    if (err instanceof ProcessingHeldElsewhereError) {
+      throw respondingConflict();
+    }
+    throw err;
+  }
   // Install an abort controller before the long summary call so Stop can
   // actually cancel it — mirroring the send path (`persistUserMessage`).
   // Without one, `abortConversation` finds no live controller, force-clears the
@@ -706,11 +719,16 @@ async function handleRetryLastAssistantTurn({
   // request cannot slip past the busy gate. Everything through the tail
   // deletion below is synchronous, so the claim can't be raced.
   if (conversation.isProcessing()) {
-    throw new ConflictError(
-      "The assistant is currently responding — try again when it finishes",
-    );
+    throw respondingConflict();
   }
-  conversation.setProcessing(true);
+  try {
+    conversation.setProcessing(true);
+  } catch (err) {
+    if (err instanceof ProcessingHeldElsewhereError) {
+      throw respondingConflict();
+    }
+    throw err;
+  }
 
   // Bind the requesting actor's trust for the turn we just claimed. A freshly
   // hydrated conversation has no trust context, and `loadFromDb` under an

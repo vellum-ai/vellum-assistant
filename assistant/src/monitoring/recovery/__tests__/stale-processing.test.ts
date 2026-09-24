@@ -35,6 +35,12 @@ function readRow(id: string): {
   return row;
 }
 
+/**
+ * The rows below are stamped with this test process's pid, which is alive.
+ * The sweep is told the holder is dead, as the previous daemon would be.
+ */
+const previousDaemonIsDead = () => false;
+
 describe("clearStaleProcessing", () => {
   beforeEach(() => {
     getDb().run("DELETE FROM messages");
@@ -54,7 +60,7 @@ describe("clearStaleProcessing", () => {
     setConversationProcessingStartedAt("conv-live", bootTime + 5_000);
     createConversation({ id: "conv-idle" });
 
-    clearStaleProcessing();
+    clearStaleProcessing(previousDaemonIsDead);
 
     expect(readRow("conv-stale").processing_started_at).toBeNull();
     expect(readRow("conv-live").processing_started_at).toBe(bootTime + 5_000);
@@ -70,7 +76,7 @@ describe("clearStaleProcessing", () => {
     incrementProcessingResumeAttempts("conv-stale");
     incrementProcessingResumeAttempts("conv-stale");
 
-    clearStaleProcessing();
+    clearStaleProcessing(previousDaemonIsDead);
 
     expect(readRow("conv-stale").processing_started_at).toBeNull();
     expect(readRow("conv-stale").processing_resume_attempts).toBe(2);
@@ -83,8 +89,21 @@ describe("clearStaleProcessing", () => {
     createConversation({ id: "conv-stale" });
     setConversationProcessingStartedAt("conv-stale", startedAt);
 
-    clearStaleProcessing();
+    clearStaleProcessing(previousDaemonIsDead);
 
     expect(readRow("conv-stale").processing_started_at).toBe(startedAt);
+  });
+  test("keeps a claim from before boot whose holder is still alive", () => {
+    // GIVEN a schedule worker that outlived the previous daemon is mid-turn
+    const bootTime = Date.now();
+    recordDaemonBootTime(bootTime);
+    createConversation({ id: "conv-worker" });
+    setConversationProcessingStartedAt("conv-worker", bootTime - 5_000);
+
+    // WHEN the sweep runs and the holder is alive
+    clearStaleProcessing(() => true);
+
+    // THEN the worker's claim is left in place
+    expect(readRow("conv-worker").processing_started_at).toBe(bootTime - 5_000);
   });
 });

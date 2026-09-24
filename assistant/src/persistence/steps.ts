@@ -494,6 +494,7 @@ import {
 } from "./migrations/381-create-conversation-mode-sessions.js";
 import { migrateCreateClientConnectionEvents } from "./migrations/382-create-client-connection-events.js";
 import { migrateNormalizeOpencodeHostConnections } from "./migrations/383-normalize-opencode-host-connections.js";
+import { migrateAddConversationProcessingPid } from "./migrations/384-add-conversation-processing-pid.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1661,4 +1662,5 @@ export const migrationSteps: MigrationStep[] = [
       "migrateProviderConnectionBaseUrlAndModels",
     ],
   },
+  migrateAddConversationProcessingPid,
 ];

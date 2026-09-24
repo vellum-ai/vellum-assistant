@@ -59,6 +59,7 @@ import {
   setConversationProcessingStartedAt,
 } from "../persistence/conversation-crud.js";
 import { getResolvedConversationDirPath } from "../persistence/conversation-directories.js";
+import { ProcessingHeldElsewhereError } from "../persistence/processing-claim.js";
 import { reportSlowSync } from "../persistence/slow-sync-log.js";
 import { userFacingTextOfRow } from "../persistence/user-facing-content.js";
 import { defaultCompact } from "../plugins/defaults/compaction/compact.js";
@@ -106,7 +107,9 @@ import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import type { AuthContext } from "../runtime/auth/types.js";
 import { resolveCapabilities } from "../runtime/capabilities.js";
 import type { InteractiveUiResult } from "../runtime/interactive-ui.js";
+import { isMainDaemonProcess } from "../runtime/process-role.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
+import { notifyDaemonConversationReleased } from "../runtime/sync/worker-daemon-notify.js";
 import { getSubagentManager } from "../subagent/index.js";
 import type { SubagentState } from "../subagent/types.js";
 import { ToolExecutor } from "../tools/executor.js";
@@ -2348,7 +2351,10 @@ export class Conversation {
       // A no-op when the claim is already gone, which is exactly the case
       // this is here to make harmless.
       this.releaseProcessing(owner);
-      if (err instanceof ProcessingClaimLostError) {
+      if (
+        err instanceof ProcessingClaimLostError ||
+        err instanceof ProcessingHeldElsewhereError
+      ) {
         return null;
       }
       throw err;
@@ -2422,6 +2428,16 @@ export class Conversation {
     // The caller awaits this, but only on its own next tick, so subscribe now
     // rather than let a rejection land with nothing attached to it.
     landed.catch((err: unknown) => {
+      if (err instanceof ProcessingHeldElsewhereError) {
+        log.info(
+          {
+            conversationId: this.conversationId,
+            heldByPid: err.heldByPid,
+          },
+          "Conversation is processing in another process; the claim is given back",
+        );
+        return;
+      }
       log.error(
         { err, conversationId: this.conversationId },
         "Failed to persist the processing marker; the claim holding this conversation is given back",
@@ -2453,12 +2469,20 @@ export class Conversation {
         op: "conversation:clearProcessing",
         context: { conversationId: this.conversationId },
       },
-    ).catch((err: unknown) => {
-      log.error(
-        { err, conversationId: this.conversationId },
-        "Failed to clear the persisted processing marker; the conversation is released in memory and the boot-time stale-processing sweep recovers the column",
-      );
-    });
+    )
+      .then(() => {
+        // A worker's release frees a conversation the daemon may have queued
+        // sends behind, and only the daemon can drain that queue.
+        if (!isMainDaemonProcess()) {
+          void notifyDaemonConversationReleased(this.conversationId);
+        }
+      })
+      .catch((err: unknown) => {
+        log.error(
+          { err, conversationId: this.conversationId },
+          "Failed to clear the persisted processing marker; the conversation is released in memory and the boot-time stale-processing sweep recovers the column",
+        );
+      });
   }
 
   /**

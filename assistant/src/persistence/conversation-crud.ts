@@ -137,6 +137,11 @@ import {
 } from "./message-cursor.js";
 import { mergeMessageMetadata } from "./message-metadata.js";
 import {
+  isProcessAlive,
+  PROCESSING_CLAIM_MAX_AGE_MS,
+  ProcessingHeldElsewhereError,
+} from "./processing-claim.js";
+import {
   rawAll,
   rawExec,
   rawGet,
@@ -3658,29 +3663,160 @@ export function resurfaceArchivedConversation(
 }
 
 /**
- * Persist the processing-start timestamp for a conversation. Called by
- * `Conversation.setProcessing(true)` so out-of-process callers can detect
- * mid-turn state by reading the `conversations` row directly. Pass `null`
- * to clear (turn ended); a clean turn end also closes any interruption
- * streak, so the startup auto-resume budget refills.
+ * Persist the processing-start timestamp for a conversation, as an atomic
+ * claim by this process. Called by `Conversation.setProcessing(true)` and the
+ * fenced acquire, so a turn in another process finds the row held. Throws
+ * {@link ProcessingHeldElsewhereError} when another live process holds it.
+ * Pass `null` to clear (turn ended): only this process's own claim is
+ * cleared, and a clean turn end also closes any interruption streak, so the
+ * startup auto-resume budget refills.
  */
 export function setConversationProcessingStartedAt(
   id: string,
   startedAt: number | null,
 ): void {
   if (startedAt == null) {
-    rawRun(
-      "conversation:setProcessingStartedAt",
-      "UPDATE conversations SET processing_started_at = NULL, processing_resume_attempts = 0 WHERE id = ?",
-      id,
-    );
+    clearConversationProcessing(id, process.pid);
     return;
   }
-  rawRun(
-    "conversation:setProcessingStartedAt",
-    "UPDATE conversations SET processing_started_at = ? WHERE id = ?",
+  const result = claimConversationProcessing(id, startedAt, process.pid);
+  if (!result.claimed) {
+    throw new ProcessingHeldElsewhereError(
+      id,
+      result.heldByPid,
+      result.heldSince,
+    );
+  }
+}
+
+export type ProcessingClaimResult =
+  | { claimed: true }
+  | { claimed: false; heldByPid: number | null; heldSince: number | null };
+
+/**
+ * Take the processing claim on `id` for `pid`, or report who holds it.
+ *
+ * One `UPDATE` claims a free row or re-claims this pid's own (the in-memory
+ * flag orders turns within a process). A held row is taken over when its
+ * holder is not alive, has no pid (a claim from before the column existed),
+ * or is older than {@link PROCESSING_CLAIM_MAX_AGE_MS}; the takeover matches
+ * the values just read, so two takers cannot both win. A missing row claims
+ * nothing and reports claimed, as the ephemeral conversations expect.
+ */
+export function claimConversationProcessing(
+  id: string,
+  startedAt: number,
+  pid: number,
+  isAlive: (pid: number) => boolean = isProcessAlive,
+): ProcessingClaimResult {
+  const claimed = rawRun(
+    "conversation:claimProcessing",
+    `UPDATE conversations SET processing_started_at = ?, processing_pid = ?
+      WHERE id = ? AND (processing_started_at IS NULL OR processing_pid = ?)`,
     startedAt,
+    pid,
     id,
+    pid,
+  );
+  if (claimed > 0) {
+    return { claimed: true };
+  }
+  const held = rawGet<{
+    processing_started_at: number | null;
+    processing_pid: number | null;
+  }>(
+    "conversation:claimProcessing",
+    "SELECT processing_started_at, processing_pid FROM conversations WHERE id = ?",
+    id,
+  );
+  if (held == null || held.processing_started_at == null) {
+    // No row, or released between the two statements: nothing holds it.
+    return held == null
+      ? { claimed: true }
+      : claimConversationProcessing(id, startedAt, pid, isAlive);
+  }
+  const stale =
+    held.processing_pid == null ||
+    !isAlive(held.processing_pid) ||
+    startedAt - held.processing_started_at > PROCESSING_CLAIM_MAX_AGE_MS;
+  if (!stale) {
+    return {
+      claimed: false,
+      heldByPid: held.processing_pid,
+      heldSince: held.processing_started_at,
+    };
+  }
+  const takeover = rawRun(
+    "conversation:claimProcessing",
+    `UPDATE conversations SET processing_started_at = ?, processing_pid = ?
+      WHERE id = ? AND processing_started_at = ? AND processing_pid IS ?`,
+    startedAt,
+    pid,
+    id,
+    held.processing_started_at,
+    held.processing_pid,
+  );
+  return takeover > 0
+    ? { claimed: true }
+    : {
+        claimed: false,
+        heldByPid: held.processing_pid,
+        heldSince: held.processing_started_at,
+      };
+}
+
+/**
+ * Release `pid`'s claim on `id`. A claim another process took since is left
+ * alone, so a late clear cannot release a turn that is still running there.
+ * A claim with no pid is a legacy one and is cleared too.
+ */
+export function clearConversationProcessing(id: string, pid: number): boolean {
+  const result = rawRun(
+    "conversation:setProcessingStartedAt",
+    `UPDATE conversations
+        SET processing_started_at = NULL, processing_pid = NULL, processing_resume_attempts = 0
+      WHERE id = ? AND (processing_pid = ? OR processing_pid IS NULL)`,
+    id,
+    pid,
+  );
+  return result > 0;
+}
+
+/**
+ * Whether another live process holds the processing claim on `id`. Reads
+ * only the row, so it is the check for a conversation this process sees as
+ * idle in memory. Best-effort: the in-memory flag is the primary gate and
+ * the claim itself refuses a second turn, so a failed read answers false
+ * rather than failing the send.
+ */
+export function isConversationHeldByOtherProcess(
+  id: string,
+  pid: number = process.pid,
+  isAlive: (pid: number) => boolean = isProcessAlive,
+): boolean {
+  let held: {
+    processing_started_at: number | null;
+    processing_pid: number | null;
+  } | null;
+  try {
+    held = rawGet<{
+      processing_started_at: number | null;
+      processing_pid: number | null;
+    }>(
+      "conversation:isHeldElsewhere",
+      "SELECT processing_started_at, processing_pid FROM conversations WHERE id = ?",
+      id,
+    );
+  } catch {
+    return false;
+  }
+  if (held?.processing_started_at == null || held.processing_pid == null) {
+    return false;
+  }
+  return (
+    held.processing_pid !== pid &&
+    isAlive(held.processing_pid) &&
+    Date.now() - held.processing_started_at <= PROCESSING_CLAIM_MAX_AGE_MS
   );
 }
 
