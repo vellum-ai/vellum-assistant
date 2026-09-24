@@ -16,6 +16,7 @@ const insertedRoles: string[] = [];
 // Holds the next user-row insert or slash resolution open when set.
 let heldUserInsert: ReturnType<typeof createHold> | null = null;
 let heldSlash: ReturnType<typeof createHold> | null = null;
+let heldAssistantRetry: ReturnType<typeof createHold> | null = null;
 
 mock.module("../persistence/attachments-store.js", () => ({
   getAttachmentsByIds: () => [],
@@ -35,8 +36,20 @@ mock.module("../persistence/conversation-crud.js", () => ({
       throw new Error("insert precondition failed");
     }
     const hold = role === "user" ? heldUserInsert : null;
-    heldUserInsert = null;
-    await hold?.wait();
+    if (hold) {
+      heldUserInsert = null;
+      await hold.wait();
+    }
+    // An assistant insert held here lost its first attempt to contention and
+    // asks its precondition again before the retry, as the real insert does.
+    const retry = role === "assistant" ? heldAssistantRetry : null;
+    if (retry) {
+      heldAssistantRetry = null;
+      await retry.wait();
+      if (options?.insertPrecondition && !options.insertPrecondition()) {
+        throw new Error("insert precondition failed");
+      }
+    }
     insertedRoles.push(role);
     if (insertOutcome === "throw") {
       throw new Error("persist failed");
@@ -175,6 +188,7 @@ describe("channel ingress racing another sender to an idle conversation", () => 
     insertedRoles.length = 0;
     heldUserInsert = null;
     heldSlash = null;
+    heldAssistantRetry = null;
   });
 
   test("the sender inside the history reload keeps its trust and history, and the other is turned away as busy", async () => {
@@ -301,6 +315,28 @@ describe("channel ingress racing another sender to an idle conversation", () => 
 
     insert.release();
     // The row the insert was already writing stays; nothing follows it.
+    const result = await alice;
+    expect(result.messageId).toBe("persisted-id");
+    expect(result.assistantMessageId).toBeUndefined();
+    expect(insertedRoles).toEqual(["user"]);
+    expect(conversation.turns).toHaveLength(0);
+    expect(conversation.isProcessing()).toBe(false);
+  });
+  test("a Stop while a slash command's reply insert is retrying writes no reply", async () => {
+    const conversation = activeConversation;
+    const retry = createHold();
+    heldAssistantRetry = retry;
+
+    const alice = processMessage(CONV_ID, "/commands", {
+      trustContext: ALICE,
+      sourceChannel: "slack",
+      sourceInterface: "slack",
+    });
+    await retry.entered;
+    conversation.stop();
+    expect(conversation.isProcessing()).toBe(true);
+
+    retry.release();
     const result = await alice;
     expect(result.messageId).toBe("persisted-id");
     expect(result.assistantMessageId).toBeUndefined();

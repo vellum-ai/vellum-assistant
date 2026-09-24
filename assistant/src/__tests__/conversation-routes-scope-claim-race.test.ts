@@ -17,6 +17,7 @@ const insertedRoles: string[] = [];
 // Holds the next user-row insert or slash resolution open when set.
 let heldUserInsert: ReturnType<typeof createHold> | null = null;
 let heldSlash: ReturnType<typeof createHold> | null = null;
+let heldAssistantRetry: ReturnType<typeof createHold> | null = null;
 
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => false }));
 
@@ -61,8 +62,20 @@ mock.module("../persistence/conversation-crud.js", () => ({
       throw new Error("insert precondition failed");
     }
     const hold = role === "user" ? heldUserInsert : null;
-    heldUserInsert = null;
-    await hold?.wait();
+    if (hold) {
+      heldUserInsert = null;
+      await hold.wait();
+    }
+    // An assistant insert held here lost its first attempt to contention and
+    // asks its precondition again before the retry, as the real insert does.
+    const retry = role === "assistant" ? heldAssistantRetry : null;
+    if (retry) {
+      heldAssistantRetry = null;
+      await retry.wait();
+      if (options?.insertPrecondition && !options.insertPrecondition()) {
+        throw new Error("insert precondition failed");
+      }
+    }
     insertedRoles.push(role);
     if (insertOutcome === "throw") {
       throw new Error("persist failed");
@@ -275,6 +288,7 @@ afterEach(() => {
   insertedRoles.length = 0;
   heldUserInsert = null;
   heldSlash = null;
+  heldAssistantRetry = null;
 });
 
 describe("POST /v1/messages racing another sender to an idle conversation", () => {
@@ -432,5 +446,26 @@ describe("POST /v1/messages racing another sender to an idle conversation", () =
     expect(conversation.turns).toHaveLength(0);
     expect(conversation.isProcessing()).toBe(false);
     expect(conversation.drained).toEqual(["from Bob"]);
+  });
+  test("a Stop while a slash command's reply insert is retrying writes no reply", async () => {
+    const conversation = makeConversation();
+    setConversation(CONV_ID, conversation as unknown as Conversation);
+    const retry = createHold();
+    heldAssistantRetry = retry;
+
+    const alice = send(conversation, "alice-principal", "/commands");
+    await retry.entered;
+    conversation.stop();
+    expect(conversation.isProcessing()).toBe(true);
+
+    retry.release();
+    const aliceBody = await (await alice).json();
+    expect(aliceBody).toMatchObject({
+      accepted: true,
+      messageId: "persisted-id",
+    });
+    expect(insertedRoles).toEqual(["user"]);
+    expect(conversation.turns).toHaveLength(0);
+    expect(conversation.isProcessing()).toBe(false);
   });
 });

@@ -582,29 +582,47 @@ async function runClaimedMessage(
     throw new Error(CONVERSATION_BUSY_MESSAGE);
   }
   /**
-   * The user row of a slash command answered without a turn, inserted only
-   * while the claim is live. A claim cancelled before the insert answers busy,
-   * as a busy acquire does, since nothing has been written for it.
+   * A row of a slash command answered without a turn, inserted only while the
+   * claim is live: every insert attempt, retries included, asks first. Null is
+   * a claim cancelled before the row landed, and nothing more is written.
    */
-  const persistSlashUserRow = async (
+  const insertWhileClaimLive = async (
+    role: "user" | "assistant",
+    body: string,
     metadata: Record<string, unknown>,
-  ): Promise<{ id: string }> => {
-    const body = await serializePersistedUserMessageContent(
-      content,
-      options?.displayContent,
-      attachments,
-    );
+  ): Promise<{ id: string } | null> => {
     try {
-      return await addMessage(conversationId, "user", body, {
+      return await addMessage(conversationId, role, body, {
         metadata,
         insertPrecondition: claimLive,
       });
     } catch (err) {
       if (!claimLive()) {
-        throw new Error(CONVERSATION_BUSY_MESSAGE);
+        return null;
       }
       throw err;
     }
+  };
+  /**
+   * The user row of a slash command. A claim cancelled before it lands answers
+   * busy, as a busy acquire does, since nothing has been written for it.
+   */
+  const persistSlashUserRow = async (
+    metadata: Record<string, unknown>,
+  ): Promise<{ id: string }> => {
+    const persisted = await insertWhileClaimLive(
+      "user",
+      await serializePersistedUserMessageContent(
+        content,
+        options?.displayContent,
+        attachments,
+      ),
+      metadata,
+    );
+    if (!persisted) {
+      throw new Error(CONVERSATION_BUSY_MESSAGE);
+    }
+    return persisted;
   };
 
   const turnChannel = conversation.getTurnChannelContext()?.userMessageChannel;
@@ -704,12 +722,14 @@ async function runClaimedMessage(
     }
 
     const assistantMsg = createAssistantMessage(slashResult.message);
-    const persistedAssistant = await addMessage(
-      conversationId,
+    const persistedAssistant = await insertWhileClaimLive(
       "assistant",
       JSON.stringify(assistantMsg.content),
-      { metadata: serverChannelMeta },
+      serverChannelMeta,
     );
+    if (!persistedAssistant) {
+      return { messageId: persisted.id };
+    }
     conversation.getMessages().push(assistantMsg);
     publishConversationMessagesChanged(conversationId);
     return {
@@ -756,17 +776,16 @@ async function runClaimedMessage(
 
     conversation.emitActivityState("thinking", "context_compacting");
     const result = await conversation.forceCompact();
-    if (!claimLive()) {
-      return { messageId: persisted.id };
-    }
     const responseText = formatCompactResult(result);
     const assistantMsg = createAssistantMessage(responseText);
-    const persistedAssistant = await addMessage(
-      conversationId,
+    const persistedAssistant = await insertWhileClaimLive(
       "assistant",
       JSON.stringify(assistantMsg.content),
-      { metadata: compactChannelMeta },
+      compactChannelMeta,
     );
+    if (!persistedAssistant) {
+      return { messageId: persisted.id };
+    }
     conversation.getMessages().push(assistantMsg);
     publishConversationMessagesChanged(conversationId);
     return {
@@ -812,17 +831,16 @@ async function runClaimedMessage(
     conversation.getMessages().push(cleanMsg);
 
     const result = await conversation.forceClean();
-    if (!claimLive()) {
-      return { messageId: persisted.id };
-    }
     const responseText = formatCleanResult(result);
     const assistantMsg = createAssistantMessage(responseText);
-    const persistedAssistant = await addMessage(
-      conversationId,
+    const persistedAssistant = await insertWhileClaimLive(
       "assistant",
       JSON.stringify(assistantMsg.content),
-      { metadata: cleanChannelMeta },
+      cleanChannelMeta,
     );
+    if (!persistedAssistant) {
+      return { messageId: persisted.id };
+    }
     conversation.getMessages().push(assistantMsg);
     publishConversationMessagesChanged(conversationId);
     return {

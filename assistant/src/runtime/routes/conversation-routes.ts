@@ -2788,17 +2788,31 @@ export async function handleSendMessage(
         return queueFallback(rawContent, "lock_race");
       }
       /**
-       * The user row of a slash command answered without a turn, inserted only
-       * while the claim is live. Null is a claim cancelled before the insert,
-       * which the branch answers by queueing, since nothing was written.
+       * A row of a slash command answered without a turn, written only while
+       * the claim is live: every insert attempt, retries included, asks first.
+       * Null is a claim cancelled before the row landed, and nothing more is
+       * written.
        */
-      const persistCannedUserRow = async (
-        metadata: Record<string, unknown>,
-      ): Promise<Awaited<
-        ReturnType<typeof persistQueuedMessageBody>
-      > | null> => {
+      const writeWhileClaimLive = async <T>(
+        write: (insertPrecondition: () => boolean) => Promise<T>,
+      ): Promise<T | null> => {
         try {
-          return await persistQueuedMessageBody(conversation, {
+          return await write(claimLive);
+        } catch (err) {
+          if (!claimLive()) {
+            return null;
+          }
+          throw err;
+        }
+      };
+      /**
+       * The user row of a slash command. Null is a claim cancelled before it
+       * landed, which the branch answers by queueing, since nothing was
+       * written.
+       */
+      const persistCannedUserRow = (metadata: Record<string, unknown>) =>
+        writeWhileClaimLive((insertPrecondition) =>
+          persistQueuedMessageBody(conversation, {
             content: rawContent,
             attachments,
             // The send's own id, not a fresh one: an interrupting send is
@@ -2809,16 +2823,10 @@ export async function handleSendMessage(
             requestId: sendRequestId,
             metadata: withClientMetadata(metadata, clientMetadata),
             clientMessageId,
-            insertPrecondition: claimLive,
+            insertPrecondition,
             ...(clientOs ? { requestClientOs: clientOs } : {}),
-          });
-        } catch (err) {
-          if (!claimLive()) {
-            return null;
-          }
-          throw err;
-        }
-      };
+          }),
+        );
 
       if (slashResult.kind === "unknown") {
         // Released by this branch on every path.
@@ -2856,12 +2864,22 @@ export async function handleSendMessage(
             },
           );
           const assistantMsg = createAssistantMessage(slashResult.message);
-          const persistedAssistant = await addMessage(
-            mapping.conversationId,
-            "assistant",
-            JSON.stringify(assistantMsg.content),
-            { metadata: channelMeta },
+          const persistedAssistant = await writeWhileClaimLive(
+            (insertPrecondition) =>
+              addMessage(
+                mapping.conversationId,
+                "assistant",
+                JSON.stringify(assistantMsg.content),
+                { metadata: channelMeta, insertPrecondition },
+              ),
           );
+          if (!persistedAssistant) {
+            return {
+              accepted: true,
+              messageId: persisted.id,
+              conversationId: mapping.conversationId,
+            };
+          }
           conversation.getMessages().push(assistantMsg);
 
           // Snapshot model info now so the deferred callback cannot observe
@@ -2997,15 +3015,18 @@ export async function handleSendMessage(
             // Same sink the result card below goes out on, so the indicator and
             // the card can never be delivered to different places.
             const result = await conversation.forceCompact(broadcastMessage);
-            if (!claimLive()) {
+            const cardId = await writeWhileClaimLive((insertPrecondition) =>
+              persistCannedAssistantCard({
+                conversation,
+                conversationId,
+                text: formatCompactResult(result),
+                metadata: channelMeta,
+                insertPrecondition,
+              }),
+            );
+            if (cardId === null) {
               return;
             }
-            const cardId = await persistCannedAssistantCard({
-              conversation,
-              conversationId,
-              text: formatCompactResult(result),
-              metadata: channelMeta,
-            });
             // Attribute the compaction LLM call to the card it produced — same
             // linkage as the summarize-up-to route.
             if (result.summaryRequestLogId) {
@@ -3082,19 +3103,15 @@ export async function handleSendMessage(
             publishConversationMessagesChanged(conversationId, originClientId);
 
             const result = await conversation.forceClean();
-            if (!claimLive()) {
-              return {
-                accepted: true,
-                messageId: persisted.id,
+            await writeWhileClaimLive((insertPrecondition) =>
+              persistCannedAssistantCard({
+                conversation,
                 conversationId,
-              };
-            }
-            await persistCannedAssistantCard({
-              conversation,
-              conversationId,
-              text: formatCleanResult(result),
-              metadata: channelMeta,
-            });
+                text: formatCleanResult(result),
+                metadata: channelMeta,
+                insertPrecondition,
+              }),
+            );
           } catch (err) {
             log.error({ err, conversationId }, "Clean command failed");
             broadcastMessage({
