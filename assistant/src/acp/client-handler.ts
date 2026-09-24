@@ -38,6 +38,7 @@ import { redactJsonStringLeaves } from "../security/redact-json.js";
 import { redactSensitiveFields } from "../security/redaction.js";
 import { redactSecrets } from "../security/secret-scanner.js";
 import { getLogger } from "../util/logger.js";
+import { CHILD_OOM_SCORE_ADJ, withOomScoreAdj } from "../util/oom-priority.js";
 
 const log = getLogger("acp:client-handler");
 
@@ -389,7 +390,11 @@ export class VellumAcpClientHandler implements Client {
       }
     }
 
-    const proc = spawn(params.command, args, {
+    const [command, ...wrappedArgs] = withOomScoreAdj(
+      [params.command, ...args],
+      CHILD_OOM_SCORE_ADJ,
+    );
+    const proc = spawn(command, wrappedArgs, {
       cwd: params.cwd ?? undefined,
       stdio: ["ignore", "pipe", "pipe"],
       env,

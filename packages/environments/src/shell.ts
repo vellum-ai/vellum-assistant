@@ -36,8 +36,10 @@ export const CHILD_OOM_SCORE_ADJ = 1000;
  * Prefix for a Bash `-c` script that raises the shell's own OOM-kill priority
  * before the command runs. Every process the command forks inherits it. Bash
  * performs a builtin's redirection itself, so `/proc/self` is the shell.
+ * Redirections apply left to right, so stderr goes to /dev/null before the
+ * procfs open can fail and complain about it.
  */
-const LINUX_OOM_SCORE_ADJ_PREFIX = `echo ${CHILD_OOM_SCORE_ADJ} >/proc/self/oom_score_adj 2>/dev/null; `;
+const LINUX_OOM_SCORE_ADJ_PREFIX = `echo ${CHILD_OOM_SCORE_ADJ} 2>/dev/null >/proc/self/oom_score_adj; `;
 
 export function buildShellInvocation(
   command: string,

@@ -22,7 +22,7 @@ describe("buildShellInvocation", () => {
       args: [
         "-c",
         "--",
-        `echo ${CHILD_OOM_SCORE_ADJ} >/proc/self/oom_score_adj 2>/dev/null; printf hello`,
+        `echo ${CHILD_OOM_SCORE_ADJ} 2>/dev/null >/proc/self/oom_score_adj; printf hello`,
       ],
     });
   });

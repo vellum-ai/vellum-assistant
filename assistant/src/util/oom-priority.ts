@@ -31,6 +31,30 @@ export const MONITOR_OOM_SCORE_ADJ = -500;
 export const WORKER_OOM_SCORE_ADJ = 0;
 
 /**
+ * Wrap a command so the child raises its own `oom_score_adj` before it execs.
+ * `exec` keeps the pid and process group, so callers that track or kill the
+ * child see no difference. Deterministic where a parent-side write after
+ * spawn is not: the child may already have forked (Chrome's zygote, a coding
+ * agent's tools) before the parent's write lands, and those grandchildren
+ * would keep the inherited value. Identity on non-Linux hosts.
+ */
+export function withOomScoreAdj(
+  cmd: readonly string[],
+  value: number,
+  platform: NodeJS.Platform = process.platform,
+): string[] {
+  if (platform !== "linux") {
+    return [...cmd];
+  }
+  return [
+    "sh",
+    "-c",
+    `echo ${value} 2>/dev/null >/proc/self/oom_score_adj; exec "$0" "$@"`,
+    ...cmd,
+  ];
+}
+
+/**
  * Write `oom_score_adj` for `pid` (or this process). Returns false where it
  * cannot apply: non-Linux hosts, a process that already exited, or lowering
  * without CAP_SYS_RESOURCE.

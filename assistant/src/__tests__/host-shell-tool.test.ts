@@ -207,7 +207,9 @@ describe("host_bash — baseline: no sandbox isolation", () => {
     expect(spawnCalls[0].command).toBe("bash");
     expect(spawnCalls[0].args[0]).toBe("-c");
     expect(spawnCalls[0].args[1]).toBe("--");
-    expect(spawnCalls[0].args[2]).toBe("ls -la /tmp");
+    expect(spawnCalls[0].args[2]).toBe(
+      buildShellInvocation("ls -la /tmp").args[2],
+    );
   });
 
   test("host_bash always spawns plain bash without wrapCommand", async () => {

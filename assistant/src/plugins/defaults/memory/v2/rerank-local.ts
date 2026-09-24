@@ -4,6 +4,10 @@ import { existsSync } from "node:fs";
 import type { RerankDtype } from "../../../../config/schemas/memory-v2.js";
 import { EmbeddingRuntimeManager } from "../../../../persistence/embeddings/embedding-runtime-manager.js";
 import {
+  setOomScoreAdj,
+  WORKER_OOM_SCORE_ADJ,
+} from "../../../../util/oom-priority.js";
+import {
   PromiseGuard,
   workerComputeEnv,
   workerMemoryEnv,
@@ -171,6 +175,7 @@ export class LocalRerankBackend {
       stderr: "pipe",
       cwd: embeddingModelsDir,
     });
+    setOomScoreAdj(WORKER_OOM_SCORE_ADJ, proc.pid);
 
     this.workerProc = proc;
     this.startStdoutReader();
