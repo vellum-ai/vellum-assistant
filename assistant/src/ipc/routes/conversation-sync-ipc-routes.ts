@@ -25,6 +25,7 @@
 
 import { z } from "zod";
 
+import { findConversation } from "../../daemon/conversation-registry.js";
 import { getInflightFlushedContentSeq } from "../../daemon/inflight-turn-registry.js";
 import { recordConversationPersistedSeq } from "../../persistence/conversation-crud.js";
 import { getCurrentSeq } from "../../runtime/assistant-stream-state.js";
@@ -36,6 +37,7 @@ import {
 import {
   NOTIFY_CONVERSATION_LIST_CHANGED_IPC_METHOD,
   NOTIFY_CONVERSATION_PERSISTED_IPC_METHOD,
+  NOTIFY_CONVERSATION_RELEASED_IPC_METHOD,
 } from "../../runtime/sync/worker-daemon-notify.js";
 
 const NotifyConversationPersistedParamsSchema = z.object({
@@ -79,6 +81,23 @@ export function handleNotifyConversationPersisted({
 }
 
 /**
+ * Drain sends the daemon queued while a worker held the conversation's
+ * processing claim. `kickDrainQueue` is a no-op on an empty queue or a busy
+ * conversation, and a conversation not resident here has nothing queued.
+ */
+export function handleNotifyConversationReleased({
+  body = {},
+}: RouteHandlerArgs) {
+  const { conversationId } =
+    NotifyConversationPersistedParamsSchema.parse(body);
+  void findConversation(conversationId)?.kickDrainQueue(
+    "loop_complete",
+    "external_release",
+  );
+  return { ok: true };
+}
+
+/**
  * Republish a worker's conversation-list-and-metadata invalidation on the
  * daemon's hub, where the SSE subscribers live.
  *
@@ -104,6 +123,7 @@ export const CONVERSATION_SYNC_IPC_METHODS: Record<
   (args: RouteHandlerArgs) => unknown
 > = {
   [NOTIFY_CONVERSATION_PERSISTED_IPC_METHOD]: handleNotifyConversationPersisted,
+  [NOTIFY_CONVERSATION_RELEASED_IPC_METHOD]: handleNotifyConversationReleased,
   [NOTIFY_CONVERSATION_LIST_CHANGED_IPC_METHOD]:
     handleNotifyConversationListChanged,
 };

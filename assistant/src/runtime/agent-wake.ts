@@ -120,6 +120,7 @@ import {
   recordRequestLog,
   setAgentLoopExitReasonOnLatestLog,
 } from "../persistence/llm-request-log-store.js";
+import { ProcessingHeldElsewhereError } from "../persistence/processing-claim.js";
 import type { SystemPromptPersonaOverride } from "../prompts/system-prompt.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
 import { getScheduleRunStatus } from "../schedule/schedule-store.js";
@@ -455,6 +456,8 @@ export type WakeSkipReason =
   | "not_found"
   | "archived"
   | "timeout"
+  /** Another process holds the conversation's processing claim. */
+  | "busy"
   | "no_resolver"
   | "disk_pressure"
   /**
@@ -960,7 +963,27 @@ export async function wakeAgentForOpportunity(
       conversation.abortController = scheduleAbortController;
       conversation.currentTurnCronRunId = opts.cronRunId;
     }
-    conversation.setProcessing(true);
+    try {
+      conversation.setProcessing(true);
+    } catch (err) {
+      if (!(err instanceof ProcessingHeldElsewhereError)) {
+        throw err;
+      }
+      // The idle gate above saw this process's flag free, but another
+      // process (the daemon, for a wake running in the schedule worker) is
+      // mid-turn on this conversation. Skip rather than run a second loop.
+      log.info(
+        { conversationId, source, heldByPid: err.heldByPid },
+        "agent-wake: conversation is processing in another process; skipping",
+      );
+      conversation.currentTurnWorkOrigins = priorWorkOrigins;
+      if (scheduleAbortController) {
+        conversation.abortController = null;
+        conversation.currentTurnCronRunId = priorScheduledRunId;
+      }
+      restorePersistentWakeTrust();
+      return { invoked: false, producedToolCalls: false, reason: "busy" };
+    }
 
     // ── Pre-run auto-compaction gate ──────────────────────────────────
     // The wake invokes `conversation.agentLoop.run()` with the loop's

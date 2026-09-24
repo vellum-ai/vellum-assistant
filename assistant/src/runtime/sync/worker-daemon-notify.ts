@@ -24,6 +24,13 @@ export const NOTIFY_CONVERSATION_PERSISTED_IPC_METHOD =
   "notify_conversation_persisted_externally";
 
 /**
+ * A worker released its processing claim on a conversation. The daemon may
+ * have queued user sends behind that claim, and only it can drain them.
+ */
+export const NOTIFY_CONVERSATION_RELEASED_IPC_METHOD =
+  "notify_conversation_released_externally";
+
+/**
  * IPC method the daemon exposes for the documents-changed hand-off. Shared by
  * the worker caller and the daemon route registration so the wire name cannot
  * drift.
@@ -83,6 +90,37 @@ export async function notifyDaemonConversationPersisted(
     log.debug(
       { err, conversationId },
       "daemon conversation-persisted notify failed",
+    );
+  }
+}
+
+/**
+ * Tell the daemon a worker's turn on `conversationId` has ended and its
+ * processing claim is released, so the daemon drains any sends it queued
+ * while the worker held the conversation.
+ *
+ * Best-effort, like the other hand-offs: if the daemon is unreachable the
+ * queued sends wait for the next drain trigger, as they do today.
+ */
+export async function notifyDaemonConversationReleased(
+  conversationId: string,
+): Promise<void> {
+  try {
+    const result = await cliIpcCall(
+      NOTIFY_CONVERSATION_RELEASED_IPC_METHOD,
+      { body: { conversationId } },
+      { timeoutMs: NOTIFY_TIMEOUT_MS },
+    );
+    if (!result.ok) {
+      log.debug(
+        { conversationId, error: result.error },
+        "daemon conversation-released notify was not acknowledged",
+      );
+    }
+  } catch (err) {
+    log.debug(
+      { err, conversationId },
+      "daemon conversation-released notify failed",
     );
   }
 }

@@ -33,7 +33,7 @@ export function clearStaleProcessing(): void {
     const result = db
       .query(
         `UPDATE conversations
-            SET processing_started_at = NULL
+            SET processing_started_at = NULL, processing_pid = NULL
           WHERE processing_started_at IS NOT NULL
             AND processing_started_at < ?`,
       )

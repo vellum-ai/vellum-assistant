@@ -106,6 +106,11 @@ export const conversations = sqliteTable(
      */
     processingStartedAt: integer("processing_started_at"),
     /**
+     * Pid of the process whose turn set `processing_started_at`. Lets another
+     * process tell a live claim from one left by a process that has exited.
+     */
+    processingPid: integer("processing_pid"),
+    /**
      * Count of consecutive startup auto-resume attempts for this
      * conversation's interrupted turn. Incremented by the startup reconciler
      * when it wakes a conversation whose `processing_started_at` survived the

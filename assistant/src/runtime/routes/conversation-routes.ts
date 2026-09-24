@@ -125,6 +125,7 @@ import {
   getMessagesPaginated,
   hasMessages,
   isBackgroundEventMetadata,
+  isConversationHeldByOtherProcess,
   isConversationProcessing,
   isHiddenMessageMetadata,
   isProviderErrorMetadata,
@@ -3215,7 +3216,12 @@ export async function handleSendMessage(
     };
   }
 
-  if (conversation.isProcessing()) {
+  // Held in this process, or by another one (a schedule worker mid-wake on
+  // this conversation): both queue the send behind the running turn.
+  if (
+    conversation.isProcessing() ||
+    isConversationHeldByOtherProcess(mapping.conversationId)
+  ) {
     // The narrowest form of the same retransmission problem, and it has to be
     // checked ahead of the row lookup below: a turn arms its abort controller
     // and takes the processing lock BEFORE it inserts its row
