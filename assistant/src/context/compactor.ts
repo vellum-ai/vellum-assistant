@@ -22,23 +22,23 @@ import { repairHistory } from "../agent/history-repair/history-repair.js";
 import { optimizeImageForTransport } from "../agent/image-optimize.js";
 import type { CompactionConfig } from "../config/schemas/compaction.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
-import { filterMessagesForUntrustedActor } from "../daemon/message-provenance.js";
+import { scopeRowsForTurn } from "../daemon/shared-conversation-history.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import {
   getAttachmentContent,
   getAttachmentMetadataForMessage,
 } from "../persistence/attachments-store.js";
 import { getMessages } from "../persistence/conversation-crud.js";
 import { recordRequestLog } from "../persistence/llm-request-log-store.js";
-import type {
-  ContentBlock,
-  ImageContent,
-  Message,
-  Provider,
-  ProviderResponse,
-  ToolDefinition,
+import {
+  type ContentBlock,
+  type ImageContent,
+  mediaBlockAttachmentId,
+  type Message,
+  type Provider,
+  type ProviderResponse,
+  type ToolDefinition,
 } from "../providers/types.js";
-import { type TrustClass } from "../runtime/actor-trust-resolver.js";
-import { resolveCapabilities } from "../runtime/capabilities.js";
 import {
   hasValidJpegStructure,
   sniffImageMimeType,
@@ -316,12 +316,11 @@ export interface CompactionRunArgs {
   signal?: AbortSignal;
   overrideProfile?: string | null;
   /**
-   * Trust class of the actor whose turn triggered compaction. When the
-   * actor is untrusted, the image manifest is filtered to exclude
-   * guardian-only attachments so they cannot be retained back into the
-   * untrusted actor's context.
+   * Trust of the actor whose turn triggered compaction. The image manifest
+   * offers only the images that actor's history holds, so nothing it could
+   * not see is retained back into its context.
    */
-  actorTrustClass?: TrustClass;
+  actorTrust?: TrustContext;
   /**
    * Number of leading non-persisted messages (e.g. inherited summary from a
    * parent fork). Compacted-persisted-count subtracts this so the DB
@@ -566,33 +565,43 @@ interface ManifestEntry {
  * messages are kept as separate entries (the model can disambiguate via
  * the timestamp it sees in the manifest).
  *
- * For untrusted actors the rows are first filtered through
- * {@link filterMessagesForUntrustedActor} — the same provenance filter
- * `loadFromDb` applies when assembling history — so guardian-only images
- * never enter the manifest and therefore can never be retained back into
- * an untrusted actor's view.
+ * The rows are the ones the actor's turn loads as its history
+ * ({@link scopeRowsForTurn}), so an image enters the manifest only from a row
+ * the actor can see and can never be retained back into a view that lacked
+ * it. A shared-conversation participant sees other turns' rows as their
+ * contact projection, which keeps some of a row's images and drops the rest
+ * (a tool result's screenshot, for one), so their manifest is further limited
+ * to the images the loaded rows still carry.
  *
  * `endRowIndex` (exclusive, row-space) bounds the walk to rows before a
  * caller-fixed compaction boundary — images in the kept tail survive
  * verbatim and must not be offered for retention. The slice happens before
- * the trust filter because the boundary indexes the full row list.
+ * the trust scoping because the boundary indexes the full row list.
  */
 export function collectImageManifest(
   conversationId: string,
-  actorTrustClass?: TrustClass,
+  actorTrust?: TrustContext,
   endRowIndex?: number,
 ): ManifestEntry[] {
   const allRows = getMessages(conversationId);
   const boundedRows =
     endRowIndex != null ? allRows.slice(0, endRowIndex) : allRows;
-  const rows = !resolveCapabilities(actorTrustClass).canAccessMemory
-    ? filterMessagesForUntrustedActor(boundedRows)
-    : boundedRows;
+  const { rows, sharedReader } = scopeRowsForTurn(
+    conversationId,
+    boundedRows,
+    actorTrust,
+  );
   const entries: ManifestEntry[] = [];
   for (const row of rows) {
+    const carried = sharedReader
+      ? carriedImageAttachmentIds(row.content)
+      : null;
     const atts = getAttachmentMetadataForMessage(row.id);
     for (const att of atts) {
       if (att.kind !== "image") {
+        continue;
+      }
+      if (carried && !carried.has(att.id)) {
         continue;
       }
       entries.push({
@@ -604,6 +613,32 @@ export function collectImageManifest(
     }
   }
   return entries;
+}
+
+/**
+ * Attachment ids of the image blocks in `content`, including those nested in
+ * a tool result.
+ */
+function carriedImageAttachmentIds(content: ContentBlock[]): Set<string> {
+  const ids = new Set<string>();
+  const visit = (blocks: ContentBlock[]): void => {
+    for (const block of blocks) {
+      // guard:allow-tool-result-only: web_search_tool_result has no contentBlocks to hold an image.
+      if (block.type === "tool_result" && block.contentBlocks) {
+        visit(block.contentBlocks);
+        continue;
+      }
+      if (block.type !== "image") {
+        continue;
+      }
+      const id = mediaBlockAttachmentId(block);
+      if (id !== undefined) {
+        ids.add(id);
+      }
+    }
+  };
+  visit(content);
+  return ids;
 }
 
 export function renderImageManifest(entries: ManifestEntry[]): string {
@@ -1347,12 +1382,12 @@ export async function runAssistantDrivenCompaction(
 
   // Build image manifest from the DB before invoking the model so the
   // instruction message carries a faithful picture of available images.
-  // Filtered by actor trust so untrusted turns never see guardian-only
-  // attachments, and bounded to pre-boundary rows on fixed-boundary runs
+  // Scoped to the actor's own history so a turn is never offered an image
+  // it could not see, and bounded to pre-boundary rows on fixed-boundary runs
   // so kept-tail images are never offered for retention.
   const manifest = collectImageManifest(
     args.conversationId,
-    args.actorTrustClass,
+    args.actorTrust,
     fixedTailStartIndex != null ? args.fixedBoundaryRowIndex : undefined,
   );
   const manifestText = renderImageManifest(manifest);

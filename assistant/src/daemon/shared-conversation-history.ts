@@ -34,7 +34,9 @@ import {
 import type { MessageRow } from "../persistence/conversation-crud.js";
 import { isParticipant } from "../persistence/conversation-participants.js";
 import type { ContentBlock } from "../providers/types.js";
+import { resolveCapabilities } from "../runtime/capabilities.js";
 import { isPlainObject } from "../util/object.js";
+import { filterMessagesForUntrustedActor } from "./message-provenance.js";
 import type { TrustContext } from "./trust-context-types.js";
 
 /**
@@ -86,7 +88,7 @@ function isReadersOwnRow(
 }
 
 /** The rows a shared-conversation participant's turn loads, in order. */
-export function scopeRowsForSharedReader(
+function scopeRowsForSharedReader(
   rows: MessageRow[],
   reader: ContactReader,
 ): MessageRow[] {
@@ -107,4 +109,33 @@ export function scopeRowsForSharedReader(
     }
   }
   return scoped;
+}
+
+/** The rows a turn loads as its history, and the reader they were scoped for. */
+export interface TurnHistoryRows {
+  rows: MessageRow[];
+  sharedReader: ContactReader | null;
+}
+
+/**
+ * The rows a turn under `trustContext` is given as its history, in order. A
+ * turn with memory access gets every row, a shared-conversation participant
+ * gets the shared transcript, and any other turn gets only the rows untrusted
+ * turns wrote.
+ */
+export function scopeRowsForTurn(
+  conversationId: string,
+  rows: MessageRow[],
+  trustContext: TrustContext | undefined,
+): TurnHistoryRows {
+  const sharedReader = sharedTranscriptReader(conversationId, trustContext);
+  if (resolveCapabilities(trustContext?.trustClass).canAccessMemory) {
+    return { rows, sharedReader };
+  }
+  return {
+    rows: sharedReader
+      ? scopeRowsForSharedReader(rows, sharedReader)
+      : filterMessagesForUntrustedActor(rows),
+    sharedReader,
+  };
 }

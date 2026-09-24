@@ -1335,18 +1335,18 @@ export class AgentLoop {
     // The compaction module owns the per-conversation manager; pass the
     // conversation id and let `defaultCompact` resolve it from the store.
     // The budget gate is reached only when this turn decides to compact in
-    // place, so `force` past the auto-threshold check. `actorTrustClass` comes
-    // from the turn's trust snapshot (the actor whose turn triggered
-    // compaction) so the compactor's image manifest excludes guardian-only
-    // attachments for untrusted actors. `overrideProfile` is the turn's
-    // resolved inference-profile override for the summary call. `overflowSignal`
-    // routes the request through the reduction ladder when present.
+    // place, so `force` past the auto-threshold check. `actorTrust` is the
+    // turn's trust snapshot (the actor whose turn triggered compaction) so the
+    // compactor's image manifest offers only images that actor can see.
+    // `overrideProfile` is the turn's resolved inference-profile override for
+    // the summary call. `overflowSignal` routes the request through the
+    // reduction ladder when present.
     const compactResult = await defaultCompact({
       conversationId: this.conversationId,
       messages: history,
       signal,
       force: true,
-      actorTrustClass: trust.trustClass,
+      actorTrust: trust,
       overrideProfile,
       overflowSignal,
     });
