@@ -21,11 +21,12 @@ import {
   packageSpecs,
 } from "@/domains/settings/billing/plan-spec";
 import { PlanTile } from "@/domains/settings/billing/plan-tile";
+import { UsageBalancePanel } from "@/domains/settings/billing/usage-balance-panel";
 import {
-  UsageBalancePanel,
+  UsageBalanceReading,
   type UsagePeriodEnd,
   usagePeriodEndLabels,
-} from "@/domains/settings/billing/usage-balance-panel";
+} from "@/domains/settings/billing/usage-balance-reading";
 import { useCheckoutDismissRefresh } from "@/domains/settings/billing/use-checkout-dismiss-refresh";
 import {
   formatGraceDate,
@@ -539,33 +540,42 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
   // for chat banners, where a BYOK route never spends the managed wallet.
   const walletEmpty = balance != null && Number(balance) <= 0;
   const creditsExhausted = usage != null && usage.ratio >= 1 && walletEmpty;
-  const usagePanel = usage ? (
-    <UsageBalancePanel
+  const openAddCredits = () => setAddCreditsOpen(true);
+  // The free plan's one-time grant is the account's whole allowance, so its
+  // reading is the overall one; a sub's grant turns over each cycle, so its
+  // reading is the month's.
+  const usageReading = usage ? (
+    <UsageBalanceReading
       ratio={usage.ratio}
+      title={
+        isFreePlan
+          ? t("planCard.usageBalanceTitleOverall")
+          : t("planCard.usageBalanceTitleMonthly")
+      }
       periodEnd={usagePeriodEnd}
       exhausted={creditsExhausted}
-      onAddCredits={() => setAddCreditsOpen(true)}
+      onAddCredits={openAddCredits}
     />
   ) : null;
-  // The free-tier daily bar, above Current Usage, only for an org the
+  // The free-tier daily reading, above the overall one, only for an org the
   // platform is enforcing the cap on. Reads as fully used once the overall
   // grant is spent, so the two bars never disagree about today. Its strip,
   // which says today's free usage is used up, raises only on the platform's
-  // own daily-reached flag (a pinned bar over an empty grant is the Current
-  // Usage strip's story) and only while nothing but frozen usage credit is
-  // left in the wallet, which is when the platform rejects the next send.
+  // own daily-reached flag (a pinned bar over an empty grant is the overall
+  // strip's story) and only while nothing but frozen usage credit is left in
+  // the wallet, which is when the platform rejects the next send.
   const dailyRatio = freeTierDailyRatio(balanceStatus, usage?.ratio ?? null);
   const dailyExhausted =
     dailyRatio != null &&
     freeTierDailyLimitReached &&
     !hasExtraCredit(balanceStatus);
   const resetPhrase = dailyResetTimePhrase();
-  const dailyPanel =
+  const dailyReading =
     dailyRatio != null ? (
-      <UsageBalancePanel
+      <UsageBalanceReading
         ratio={dailyRatio}
         exhausted={dailyExhausted}
-        onAddCredits={() => setAddCreditsOpen(true)}
+        onAddCredits={openAddCredits}
         title={t("planCard.dailyUsageTitle")}
         line={t("planCard.dailyUsageResets", { resetPhrase })}
         barLabel={t("planCard.dailyUsageBar", { resetPhrase })}
@@ -574,17 +584,18 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
         lineTestId="plan-daily-usage-resets"
       />
     ) : null;
-  // The tile trades its price for the usage balance, so the two never state
-  // the same allowance twice. With no bar to trade for (a free account that
-  // was never granted usage, or a platform whose summary reports no grant
-  // figures), the footer row stays rather than leaving the tile with an empty
-  // bottom slot.
+  // The tile trades its price for the usage panel, so the two never state
+  // the same allowance twice. Both readings share the one panel, so their
+  // bars line up. With no reading to chart (a free account that was never
+  // granted usage, or a platform whose summary reports no grant figures),
+  // the footer row stays rather than leaving the tile with an empty bottom
+  // slot.
   const currentFooter: ReactNode =
-    dailyPanel || usagePanel ? (
-      <>
-        {dailyPanel}
-        {usagePanel}
-      </>
+    dailyReading || usageReading ? (
+      <UsageBalancePanel>
+        {dailyReading}
+        {usageReading}
+      </UsageBalancePanel>
     ) : (
       footerRow
     );

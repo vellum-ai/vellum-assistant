@@ -30,11 +30,12 @@ import {
   PLAN_TILE_WIDTH_PX,
   STORY_PERIOD_END,
 } from "@/domains/settings/billing/billing-story-frame";
+import { UsageBalancePanel } from "@/domains/settings/billing/usage-balance-panel";
 import {
-  UsageBalancePanel,
+  UsageBalanceReading,
   type UsagePeriodEnd,
   usagePeriodEndLabels,
-} from "@/domains/settings/billing/usage-balance-panel";
+} from "@/domains/settings/billing/usage-balance-reading";
 import {
   makeProPackage,
   makeSuperPackage,
@@ -146,7 +147,15 @@ function PlanRow() {
         nameTestId="plan-card-name"
         tag={CURRENT_TAG}
         specs={packageSpecs(MIGHTY, `${MIGHTY.name} usage, reset monthly`)}
-        footer={<UsageBalancePanel ratio={0.42} periodEnd={STORY_PERIOD_END} />}
+        footer={
+          <UsageBalancePanel>
+            <UsageBalanceReading
+              ratio={0.42}
+              title="Monthly Usage"
+              periodEnd={STORY_PERIOD_END}
+            />
+          </UsageBalancePanel>
+        }
       />
       <PlanTile
         theme={inverted}
@@ -194,7 +203,7 @@ export const CurrentFree: Story = {
 };
 
 /**
- * The same free tile with a usage grant to chart: the Current Usage bar takes
+ * The same free tile with a usage grant to chart: the Overall Usage bar takes
  * the footer over from "Free Forever", so the tile never states its allowance
  * twice. A free account that was never granted any usage has no bar, and
  * keeps the price row above. The grant is one-time, so the title carries no
@@ -203,13 +212,17 @@ export const CurrentFree: Story = {
 export const CurrentFreeUsageBalance: Story = {
   args: {
     ...CurrentFree.args,
-    footer: <UsageBalancePanel ratio={0.68} />,
+    footer: (
+      <UsageBalancePanel>
+        <UsageBalanceReading ratio={0.68} title="Overall Usage" />
+      </UsageBalancePanel>
+    ),
   },
 };
 
 /**
  * A subscriber's current-plan tile, on the catalog's Mighty package, when the
- * platform reports no grant figures to chart: with no Current Usage reading
+ * platform reports no grant figures to chart: with no Monthly Usage reading
  * the footer keeps the price row, dated with the renewal the subscription
  * itself carries. The price is the fixture's own
  * `total_price_cents` run through the shared `priceLabelFromCents` formatter,
@@ -236,13 +249,21 @@ export const CurrentPaid: Story = {
  * The paid tile with a usage reading. At a half-card tile this wide the usage
  * sentence drops to its own line below the machine and storage chips;
  * `SideBySideWide` shows the inline case. The price footer gives way to the
- * Current Usage bar, dated with the day the sub's bundle resets. Props
+ * Monthly Usage bar, dated with the day the sub's bundle resets. Props
  * only, so the ratio here is a fixture rather than a live usage read.
  */
 export const CurrentPaidUsageBalance: Story = {
   args: {
     ...CurrentPaid.args,
-    footer: <UsageBalancePanel ratio={0.42} periodEnd={STORY_PERIOD_END} />,
+    footer: (
+      <UsageBalancePanel>
+        <UsageBalanceReading
+          ratio={0.42}
+          title="Monthly Usage"
+          periodEnd={STORY_PERIOD_END}
+        />
+      </UsageBalancePanel>
+    ),
   },
 };
 
@@ -266,12 +287,15 @@ export const CurrentPaidExhausted: Story = {
   args: {
     ...CurrentPaid.args,
     footer: (
-      <UsageBalancePanel
-        ratio={1}
-        periodEnd={STORY_PERIOD_END}
-        exhausted
-        onAddCredits={() => {}}
-      />
+      <UsageBalancePanel>
+        <UsageBalanceReading
+          ratio={1}
+          title="Monthly Usage"
+          periodEnd={STORY_PERIOD_END}
+          exhausted
+          onAddCredits={() => {}}
+        />
+      </UsageBalancePanel>
     ),
   },
 };

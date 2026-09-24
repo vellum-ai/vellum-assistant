@@ -1,8 +1,9 @@
 /**
- * The Current Usage panel on its own, one story per reading it draws. Pure
- * props, so every reading below is a fixture rather than a live usage read;
- * `PlanTile` mounts it as a footer, and `Settings/Billing/PlanTile` carries
- * that composition.
+ * The usage panel on its own, one story per reading it draws. Pure props, so
+ * every reading below is a fixture rather than a live usage read; `PlanTile`
+ * mounts the panel as a footer, and `Settings/Billing/PlanTile` carries that
+ * composition. Every story mounts its reading inside the panel, since the
+ * reading lays itself out on the panel's columns.
  */
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
@@ -11,20 +12,29 @@ import {
   STORY_PERIOD_END,
 } from "@/domains/settings/billing/billing-story-frame";
 import { UsageBalancePanel } from "@/domains/settings/billing/usage-balance-panel";
+import { UsageBalanceReading } from "@/domains/settings/billing/usage-balance-reading";
 
 const meta = {
   title: "Settings/Billing/UsageBalancePanel",
-  component: UsageBalancePanel,
+  component: UsageBalanceReading,
   parameters: { layout: "centered" },
   args: {
     ratio: 0.68,
+    title: "Overall Usage",
     exhausted: false,
   },
   argTypes: {
     ratio: { control: { type: "range", min: 0, max: 1, step: 0.01 } },
   },
-  decorators: [frameWidthDecorator],
-} satisfies Meta<typeof UsageBalancePanel>;
+  decorators: [
+    (Story) => (
+      <UsageBalancePanel>
+        <Story />
+      </UsageBalancePanel>
+    ),
+    frameWidthDecorator,
+  ],
+} satisfies Meta<typeof UsageBalanceReading>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;
@@ -33,12 +43,12 @@ type Story = StoryObj<typeof meta>;
 export const MidCycle: Story = {};
 
 /**
- * A bundled subscriber's panel: the title carries the date the bundle resets
- * beneath it. The free plan's grant is one-time, so its panel has no such
- * line.
+ * A bundled subscriber's reading: the month's, with the date the bundle
+ * resets beneath the title. The free plan's grant is one-time, so its
+ * reading is the overall one and has no such line.
  */
 export const Subscriber: Story = {
-  args: { periodEnd: STORY_PERIOD_END },
+  args: { title: "Monthly Usage", periodEnd: STORY_PERIOD_END },
 };
 
 /**
@@ -47,7 +57,10 @@ export const Subscriber: Story = {
  */
 export const SubscriberNoBundle: Story = {
   name: "Subscriber without a bundle",
-  args: { periodEnd: { ...STORY_PERIOD_END, kind: "renews" } },
+  args: {
+    title: "Monthly Usage",
+    periodEnd: { ...STORY_PERIOD_END, kind: "renews" },
+  },
 };
 
 /**
@@ -79,10 +92,34 @@ export const ExhaustedWithoutCta: Story = {
 };
 
 /**
- * The subscriber's panel at full card width, which is what a current plan with
- * no next tile beside it gets. The bar sits a fixed gap after the title and
- * stretches to the percentage, and the reset line makes the title block two
- * lines that the bar centres against.
+ * A free-tier account under the platform's daily cap: today's reading above
+ * the overall one, in the one panel. The labels and the percentages differ in
+ * width, and the shared columns keep both bars starting and ending on the
+ * same lines.
+ */
+export const FreeTierDaily: Story = {
+  name: "Free tier, daily and overall",
+  args: {
+    ratio: 0.4,
+    title: "Daily Usage",
+    line: "Resets at 5:00 PM",
+    barLabel: "Daily Usage, resets at 5:00 PM",
+    testId: "plan-daily-usage",
+    lineTestId: "plan-daily-usage-resets",
+  },
+  render: (args) => (
+    <>
+      <UsageBalanceReading {...args} />
+      <UsageBalanceReading ratio={1} title="Overall Usage" />
+    </>
+  ),
+};
+
+/**
+ * The subscriber's reading at full card width, which is what a current plan
+ * with no next tile beside it gets. The bar sits a fixed gap after the title
+ * and stretches to the percentage, and the reset line makes the title block
+ * two lines that the bar centres against.
  */
 export const WideTile: Story = {
   ...Subscriber,

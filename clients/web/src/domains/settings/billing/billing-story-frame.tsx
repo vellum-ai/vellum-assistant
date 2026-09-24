@@ -7,7 +7,7 @@
  */
 import type { Decorator } from "@storybook/react-vite";
 
-import type { UsagePeriodEnd } from "@/domains/settings/billing/usage-balance-panel";
+import type { UsagePeriodEnd } from "@/domains/settings/billing/usage-balance-reading";
 
 /** The width the billing Plan row gives a single tile (roughly half a card). */
 export const PLAN_TILE_WIDTH_PX = 420;
