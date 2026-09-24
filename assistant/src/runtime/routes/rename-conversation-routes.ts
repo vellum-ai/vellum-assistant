@@ -13,6 +13,7 @@ import {
   getConversation,
   updateConversationTitle,
 } from "../../persistence/conversation-crud.js";
+import { TITLE_USER_SET } from "../../persistence/conversation-title-service.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { publishConversationTitleChanged } from "../sync/resource-sync-events.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
@@ -54,7 +55,7 @@ export const ROUTES: RouteDefinition[] = [
         throw new NotFoundError(`Conversation ${conversationId} not found`);
       }
 
-      updateConversationTitle(conversationId, title, 0);
+      updateConversationTitle(conversationId, title, TITLE_USER_SET);
 
       publishConversationTitleChanged(
         conversationId,
