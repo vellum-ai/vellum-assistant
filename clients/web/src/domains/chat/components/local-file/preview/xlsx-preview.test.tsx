@@ -201,6 +201,22 @@ describe("WorkbookGrid", () => {
     ).toBeTruthy();
   });
 
+  test("a stated extent no larger than the grid keeps the truncated sentence", async () => {
+    // A file stating a range smaller than what the cut grid shows cannot name
+    // what was left out, so the sentence only says the sheet was cut.
+    const lying = sheet("Lying", {
+      ...grid([["one", "two"]], ["x", "y"]),
+      truncated: true,
+      extent: { rows: 1, columns: 1 },
+    });
+    render(<WorkbookGrid sheets={[lying]} />);
+
+    expect(
+      await screen.findByText("Lying: 1 row x 2 columns (truncated)"),
+    ).toBeTruthy();
+    expect(screen.queryAllByText(/ of /).length).toBe(0);
+  });
+
   test("a detected header row counts toward the rows shown", async () => {
     // The file states three rows and the grid shows two plus the header it
     // found, so only the columns were cut.

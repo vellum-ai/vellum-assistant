@@ -1952,8 +1952,8 @@ function readSheetRows(
   return { rows, truncated, sharedIndices };
 }
 
-/** The end cell of a range, as `A1:KN20` and `A1` spell one. */
-const RANGE_END = /^([A-Za-z]+)([0-9]+)$/;
+/** The end cell of a range, as `A1:KN20`, `A1`, and `$A$1:$KN$20` spell one. */
+const RANGE_END = /^\$?([A-Za-z]+)\$?([0-9]+)$/;
 
 /**
  * The used range the sheet declares, which sits before its rows as

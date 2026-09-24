@@ -1689,6 +1689,24 @@ describe("parseWorkbook", () => {
     expect(grid.extent).toEqual({ rows: 20, columns: 300 });
   });
 
+  test("reads the extent from an absolute dimension ref", async () => {
+    const parsed = await parseWorkbook(
+      await workbookBlob({
+        sheets: [{ name: "Sheet1" }],
+        parts: {
+          "xl/worksheets/sheet1.xml": dimensionSheetXml(
+            "$A$1:$KN$20",
+            rowXml(1, "alpha"),
+          ),
+        },
+      }),
+    );
+
+    const grid = await parsed.sheets[0]!.read();
+
+    expect(grid.extent).toEqual({ rows: 20, columns: 300 });
+  });
+
   test("reads no extent from a one-cell dimension", async () => {
     const parsed = await parseWorkbook(
       await workbookBlob({
