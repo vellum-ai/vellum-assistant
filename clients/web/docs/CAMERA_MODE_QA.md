@@ -477,8 +477,9 @@ by clearing the app's site data, or by deleting `cameraExplainerSeen` from
       and turn a phone to landscape: the modal is what shows on a fine pointer,
       its body scrolls rather than clipping, its footer wraps the privacy line
       above the buttons, and the close glyph stays in the corner.
-- [ ] Reduced motion. With Reduce Motion on, the sheet fades in rather than
-      sliding up, and the modal does the same.
+- [ ] Reduced motion. With Reduce Motion on, the phone's sheet fades in rather
+      than sliding up. The desktop modal has no entrance to swap: it is drawn
+      in place either way, so check only that it still appears.
 - [ ] Locale sweep. In Spanish and Russian the title, both cards, the privacy
       line and both buttons read in that language, with the assistant's name
       interpolated and no key names on screen.
@@ -489,7 +490,7 @@ The way back to the sheet once the device has seen it. Run these after one of
 the dismissals above, on both presentations.
 
 - [ ] The row is there. Open the camera's view options from the top-left corner:
-      under the two switches sits "How Photo and Live work", white on the same
+      under the switches sits "How Photo and Live work", white on the same
       glass, with a chevron closing the row.
 - [ ] Pressing it swaps one surface for the other. The panel goes and the sheet
       or modal arrives in its place, over the running preview, with the camera

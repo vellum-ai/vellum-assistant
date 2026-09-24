@@ -16,6 +16,7 @@
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
+import { useState, type ReactNode } from "react";
 import {
   act,
   cleanup,
@@ -354,6 +355,76 @@ describe("CameraExplainer", () => {
 
     test("on the modal", async () => {
       expect(await pressInside(false)).toBe(0);
+    });
+  });
+
+  /**
+   * The dialog is `open`-controlled and renders no `Dialog.Trigger`, so the
+   * primitive's own restore reaches for an element that does not exist and
+   * would leave focus on the body. What a dismissal returns to is whatever
+   * held focus when the explainer opened.
+   */
+  describe("a dismissal hands focus back to where it came from", () => {
+    function Harness(): ReactNode {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button
+            type="button"
+            data-testid="opener"
+            onClick={() => setOpen(true)}
+          >
+            {"opener"}
+          </button>
+          <CameraExplainer
+            open={open}
+            host={host}
+            assistantName={ASSISTANT_NAME}
+            tryLiveOffered
+            onDismiss={(how) => {
+              dismissals.push(how);
+              setOpen(false);
+            }}
+          />
+        </>
+      );
+    }
+
+    async function openAndDismiss(touch: boolean): Promise<HTMLElement> {
+      stubSurface(touch);
+      render(<Harness />);
+      const opener = screen.getByTestId("opener");
+      opener.focus();
+      expect(document.activeElement).toBe(opener);
+
+      await act(async () => {
+        fireEvent.click(opener);
+      });
+      expect(dialog()).not.toBeNull();
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Got it" }));
+      });
+      // The focus scope dispatches its close event from a zero timeout, so the
+      // restore lands a tick after the dialog goes.
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      return opener;
+    }
+
+    test("on the sheet", async () => {
+      const opener = await openAndDismiss(true);
+
+      expect(dialog()).toBeNull();
+      expect(document.activeElement).toBe(opener);
+    });
+
+    test("on the modal", async () => {
+      const opener = await openAndDismiss(false);
+
+      expect(dialog()).toBeNull();
+      expect(document.activeElement).toBe(opener);
     });
   });
 });

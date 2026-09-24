@@ -366,6 +366,46 @@ function isTextControl(target: EventTarget | null): boolean {
 }
 
 /**
+ * What a dialog layered over the room dims it with: the two scrims the design
+ * library's overlay primitives draw, and the dismiss backdrop the camera's view
+ * options portal beside their panel. None of them is inside the dialog it
+ * belongs to, so a press on one reaches none of the handlers that content
+ * carries.
+ *
+ * Each names itself with a slot, the way the library's own overlays do.
+ */
+const NESTED_DIALOG_SCRIM_SELECTOR = `[data-slot="bottom-sheet-overlay"], [data-slot="modal-overlay"], [data-slot="camera-view-settings-backdrop"]`;
+
+/**
+ * Whether an element sits inside a dialog layered over the room.
+ *
+ * The room's own dialog carries {@link ROOM_DIALOG_ATTR} in every variant, so a
+ * `role="dialog"` ancestor without it is something above the room, and what is
+ * above the room owns what lands on it. The pointer and the key ask the same
+ * question, so they ask it here.
+ */
+function isInsideLayeredDialog(element: Element | null): boolean {
+  const owner = element?.closest(`[role="dialog"]`) ?? null;
+  return owner !== null && !owner.hasAttribute(ROOM_DIALOG_ATTR);
+}
+
+/**
+ * Whether a press landed on a dialog layered over the room, scrim included.
+ *
+ * The scrims name themselves, since none of them is inside the dialog it
+ * belongs to; anything else is placed by {@link isInsideLayeredDialog}.
+ */
+function isNestedDialogSurface(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) {
+    return false;
+  }
+  if (target.closest(NESTED_DIALOG_SCRIM_SELECTOR)) {
+    return true;
+  }
+  return isInsideLayeredDialog(target);
+}
+
+/**
  * The element the mobile sheet portals into.
  *
  * `root-layout.tsx` wraps the whole app shell in `isolation: isolate`, so a
@@ -533,6 +573,11 @@ function VoiceRoomSheet({
         dragControls={dragControls}
         onPointerDown={(event: ReactPointerEvent<HTMLElement>) => {
           if (isTextControl(event.target)) {
+            return;
+          }
+          // A dialog layered over the room owns every press on its own
+          // surface, the scrim included, the way it owns Escape.
+          if (isNestedDialogSurface(event.target)) {
             return;
           }
           dragControls.start(event);
@@ -911,6 +956,9 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   // come down with the viewfinder, so nothing about one open reaches the next,
   // and a flip's dropped frame cannot raise it a second time.
   const explainerShown = useRef(false);
+  // The view options ride `liveOffered` alone while this also waits for a drawn
+  // preview, so on the browser path the panel can be open under the explainer,
+  // and it is still open and still working once the explainer goes.
   useEffect(() => {
     if (!cameraOpen) {
       explainerShown.current = false;
@@ -1083,13 +1131,9 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
       // Keyed on the focused dialog rather than the event target, which is what
       // keeps the unguarded behavior the room needs: the key still reaches us
       // when the composer textarea holds focus as the room opens, since that is
-      // inside no dialog at all. The room's own dialog carries
-      // {@link ROOM_DIALOG_ATTR} in every variant, including the sheet, whose
-      // Radix content is the dialog and takes focus on open.
+      // inside no dialog at all.
       const active = document.activeElement;
-      const owner =
-        active instanceof Element ? active.closest(`[role="dialog"]`) : null;
-      if (owner && !owner.hasAttribute(ROOM_DIALOG_ATTR)) {
+      if (isInsideLayeredDialog(active instanceof Element ? active : null)) {
         return;
       }
       event.preventDefault();
