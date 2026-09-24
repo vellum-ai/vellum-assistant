@@ -1,8 +1,9 @@
 /**
  * The drain's check on queued messages from shared-conversation contacts.
  *
- * A contact's message can wait in the queue long after the route accepted
- * it, and the contact can be removed or revoked meanwhile. Before the drain
+ * A contact's message, or the completion of work their turn started, can
+ * wait in the queue long after it was accepted, and the contact can be
+ * removed or revoked meanwhile. Before the drain
  * dequeues anything, the message about to run is checked again:
  *
  * - admitted: it runs.
@@ -26,7 +27,11 @@ import { noteDroppedOwnMessage } from "../runtime/contact-event-projection.js";
 import type { SharedSenderAdmission } from "../runtime/shared-sender-admission.js";
 import { resolveRoutingState } from "../runtime/trust-context-resolver.js";
 import { getLogger } from "../util/logger.js";
-import { scopeHistoryToActor } from "./actor-scoped-history.js";
+import {
+  isContactInvolved,
+  restoreActorBeforeContact,
+  scopeHistoryToActor,
+} from "./actor-scoped-history.js";
 import type { Conversation } from "./conversation.js";
 import type { QueuedMessage } from "./conversation-queue-manager.js";
 
@@ -61,6 +66,8 @@ type GatedConversation = Pick<
   | "isProcessing"
   | "kickDrainQueue"
   | "trustContext"
+  | "currentTurnTrustContext"
+  | "loadedHistoryScope"
   | "setTrustContext"
   | "ensureActorScopedHistory"
 >;
@@ -69,15 +76,20 @@ type GatedConversation = Pick<
  * The principal of a shared-conversation contact who sent this queued
  * message, or undefined for any other sender. A contact's message is the one
  * whose author the shared send route stamped on the `vellum-shared` channel;
- * its principal is the verified actor the route queued it for. A contact
- * message missing that principal answers the empty string, which the check
+ * its principal is the verified actor the route queued it for. Work a
+ * contact's turn started (a subagent's or ACP session's completion) carries
+ * that contact's trust instead of an author, and is theirs too. A contact
+ * message missing its principal answers the empty string, which the check
  * refuses.
  */
 function sharedSenderPrincipal(queued: QueuedMessage): string | undefined {
-  if (queued.author?.sourceChannel !== "vellum-shared") {
-    return undefined;
+  if (queued.author?.sourceChannel === "vellum-shared") {
+    return queued.sourceActorPrincipalId ?? "";
   }
-  return queued.sourceActorPrincipalId ?? "";
+  if (queued.trustContext?.sourceChannel === "vellum-shared") {
+    return queued.trustContext.requesterExternalUserId ?? "";
+  }
+  return undefined;
 }
 
 /**
@@ -192,14 +204,20 @@ export async function gateSharedSenderHead(
     }
     const principalId = sharedSenderPrincipal(next);
     if (principalId === undefined) {
-      // A contact's turn left the conversation scoped to them. The next
-      // message from anyone else takes its own sender's scope back before it
-      // runs, so it never runs on the contact's narrower history.
-      if (
-        conversation.trustContext?.sourceChannel === "vellum-shared" &&
-        next.trustContext
-      ) {
-        await scopeHistoryToActor(conversation, next.trustContext);
+      // A contact's turn left the conversation, or just its resident
+      // history, scoped to them. The next message from anyone else takes its
+      // own sender's scope back before it runs, so it never runs on the
+      // contact's narrower history; the load compares against the scope the
+      // history was loaded for, so a matching one is not reloaded. A message
+      // no turn started runs as the conversation did before the contact's
+      // turn. While a turn is running it is left alone: the drain requeues it
+      // behind that turn.
+      if (isContactInvolved(conversation, undefined)) {
+        if (next.trustContext) {
+          await scopeHistoryToActor(conversation, next.trustContext);
+        } else if (!conversation.isProcessing()) {
+          await restoreActorBeforeContact(conversation);
+        }
         if (conversation.queue.findByRequestId(next.requestId) !== next) {
           continue;
         }
@@ -240,8 +258,13 @@ export async function gateSharedSenderHead(
         admission.trust,
       ).promptWaitingAllowed;
       for (const queued of conversation.queue.snapshot()) {
-        if (sharedSenderPrincipal(queued) === principalId) {
-          queued.trustContext = admission.trust;
+        if (sharedSenderPrincipal(queued) !== principalId) {
+          continue;
+        }
+        queued.trustContext = admission.trust;
+        // Work their turn started stays machine-authored and
+        // non-interactive; only their own messages take both.
+        if (queued.author) {
           queued.author = admission.trust;
           queued.isInteractive = isInteractive;
         }
@@ -270,6 +293,18 @@ export async function gateSharedSenderHead(
     waiting.add(principalId);
     scheduleRetry(conversation, state.attempts);
   }
+}
+
+/**
+ * How long to wait before asking again about a contact who could not be
+ * verified, and how long they may stay unverifiable before their work is
+ * dropped. Shared with wakes for work a contact's turn started.
+ */
+export function unverifiableSenderRetryPolicy(): {
+  delayMs: (attempt: number) => number;
+  maxAgeMs: number;
+} {
+  return { delayMs: retryDelayMs, maxAgeMs: maxUnverifiableAgeMs };
 }
 
 /**

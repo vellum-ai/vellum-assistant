@@ -17,9 +17,16 @@
 import { getConfig } from "../config/loader.js";
 import { resolveTurnCommitWaitMs } from "../daemon/abort-watchdog.js";
 import {
+  isContactInvolved,
+  type TurnActor,
+  type WorkStarter,
+  workStarterOf,
+} from "../daemon/actor-scoped-history.js";
+import {
   findConversation,
   findConversationOrSubagent,
 } from "../daemon/conversation-registry.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import { startAfterTurnFinalization } from "../daemon/turn-finalization.js";
 import { deliverSubagentNotificationToLiveVoice } from "../live-voice/live-voice-manager.js";
 import { getSubagentRecordByConversationId } from "../persistence/subagent-store.js";
@@ -41,12 +48,29 @@ export function injectMessageIntoParent(
   parentConversationId: string,
   message: string,
   metadata?: Record<string, unknown>,
-  opts?: { cronRunId?: string | null; bypassLiveVoice?: boolean },
+  opts?: {
+    cronRunId?: string | null;
+    bypassLiveVoice?: boolean;
+    /** The actor of the turn that spawned the subagent; see `startingTurn`. */
+    startedBy?: WorkStarter;
+  },
 ): void {
   const notification = metadata?.subagentNotification;
+  const existing = findConversation(parentConversationId);
+  // A live voice session delivers as its own actor. When a shared-conversation
+  // contact is involved, a notification for work any contact started goes
+  // through the queue instead, where it runs as that contact (and a shared
+  // contact is checked first). Guardian-started and sender-less work still
+  // goes to the call.
+  const startedBy = opts?.startedBy?.trustContext;
+  const contactStarted =
+    startedBy !== undefined &&
+    startedBy.trustClass !== "guardian" &&
+    isContactInvolved(existing ?? {}, startedBy);
   // The live child's conversation ID is stable even if its cosmetic record changes.
   if (
     !opts?.bypassLiveVoice &&
+    !contactStarted &&
     notification !== null &&
     typeof notification === "object" &&
     "subagentId" in notification &&
@@ -65,7 +89,6 @@ export function injectMessageIntoParent(
   ) {
     return;
   }
-  const existing = findConversation(parentConversationId);
   if (!existing) {
     log.warn(
       { parentConversationId },
@@ -104,18 +127,32 @@ function deliverToParent(
       isInteractive: boolean;
       queueWhenIdle: boolean;
       cronRunId?: string | null;
+      starter?: TurnActor;
     }) => { queued: boolean; rejected?: boolean };
+    trustContext?: TrustContext;
+    currentTurnTrustContext?: TrustContext;
+    loadedHistoryScope?: { trustContext: TrustContext | undefined };
     kickDrainQueue: (reason: "loop_complete", origin: string) => Promise<void>;
   },
   parentConversationId: string,
   message: string,
   metadata?: Record<string, unknown>,
-  opts?: { cronRunId?: string | null },
+  opts?: { cronRunId?: string | null; startedBy?: WorkStarter },
 ): void {
   // The continuation this notification starts is still the scheduled firing's
   // work, so it carries the same run id as the child whose result triggered it.
   // The queue drains after the enqueuing turn, so the id travels on the message.
   const cronRunId = opts?.cronRunId ?? null;
+  // The notification runs as the turn that spawned the child, trust and
+  // identity together, when a shared-conversation contact is involved, so a
+  // contact's work never finishes as anyone else and nobody else's finishes
+  // as them.
+  const starter = isContactInvolved(
+    parentConversation,
+    opts?.startedBy?.trustContext,
+  )
+    ? opts?.startedBy
+    : undefined;
   // Machine-injected with no human asserted present, so the notification
   // turn runs non-interactive; it still streams to whoever is watching
   // through the parent's sink.
@@ -125,6 +162,7 @@ function deliverToParent(
     isInteractive: false,
     queueWhenIdle: true,
     ...(cronRunId ? { cronRunId } : {}),
+    ...(starter ? { starter } : {}),
   });
   if (enqueueResult.queued) {
     startAfterTurnFinalization(
@@ -191,14 +229,21 @@ export function notifyParentFromChild(
     notificationString += `\nUse subagent_message to send guidance to this ${prefix.toLowerCase()}.`;
   }
 
-  injectMessageIntoParent(parentConversationId, notificationString, {
-    subagentNotification: {
-      subagentId: record?.id ?? childConversationId,
-      label,
-      status: "running" as const,
-      conversationId: childConversationId,
-      objective: record?.objective ?? "",
+  // Updates run in the parent as the turn that spawned the child.
+  const startedBy = workStarterOf(child);
+  injectMessageIntoParent(
+    parentConversationId,
+    notificationString,
+    {
+      subagentNotification: {
+        subagentId: record?.id ?? childConversationId,
+        label,
+        status: "running" as const,
+        conversationId: childConversationId,
+        objective: record?.objective ?? "",
+      },
     },
-  });
+    startedBy ? { startedBy } : undefined,
+  );
   return true;
 }

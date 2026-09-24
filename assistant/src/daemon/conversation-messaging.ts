@@ -75,6 +75,12 @@ import {
 import type { AuthContext } from "../runtime/auth/types.js";
 import { INTERRUPTED_TURN_NOTE_TEXT } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
+import {
+  actorForWorkWithoutSender,
+  actorWithoutSender,
+  isContactInvolved,
+  type TurnActor,
+} from "./actor-scoped-history.js";
 import type { ConversationModeSessionCoordinator } from "./conversation-mode-session.js";
 import type { MessageQueue } from "./conversation-queue-manager.js";
 import type { SlackInboundMessageMetadata } from "./handlers/shared.js";
@@ -245,6 +251,8 @@ export interface MessagingConversationContext {
   currentTurnClientMessageId?: string;
   readonly queue: MessageQueue;
   trustContext?: TrustContext;
+  currentTurnTrustContext?: TrustContext;
+  loadedHistoryScope?: { trustContext: TrustContext | undefined };
   authContext?: AuthContext;
   currentTurnAuthContext?: AuthContext;
   currentTurnSourceActorPrincipalId?: string;
@@ -837,6 +845,13 @@ export interface EnqueueMessageOptions {
   /** The person whose own message this is; see `QueuedMessage.author`. */
   author?: TrustContext;
   /**
+   * The actor of the turn that started the work this message reports on. Its
+   * trust, principal and auth context are queued together, with nothing
+   * filled in from whichever turn is running now, so the drain never pairs
+   * the starter's trust with another actor's principal.
+   */
+  starter?: TurnActor;
+  /**
    * Queue the message even when the conversation reads idle, instead of taking
    * the idle fast path that stores nothing.
    *
@@ -880,15 +895,32 @@ export function enqueueMessage(
     author,
     cronRunId,
   } = options;
-  const queuedAuthContext =
-    authContext ?? ctx.currentTurnAuthContext ?? ctx.authContext;
-  const sourceActorPrincipalId =
-    options.sourceActorPrincipalId ??
-    ctx.currentTurnSourceActorPrincipalId ??
-    queuedAuthContext?.actorPrincipalId;
+  // A message no turn sent, arriving while a shared-conversation contact is
+  // involved, runs as the actor from before the contact's turn, and takes
+  // that actor's identity too rather than the principal of the turn in
+  // flight, which may be the contact's.
+  const withoutSender =
+    !options.starter &&
+    !options.trustContext &&
+    !authContext &&
+    !options.sourceActorPrincipalId &&
+    isContactInvolved(ctx, undefined)
+      ? actorWithoutSender(ctx)
+      : undefined;
+  const actor = options.starter ?? withoutSender;
+  const queuedAuthContext = actor
+    ? actor.authContext
+    : (authContext ?? ctx.currentTurnAuthContext ?? ctx.authContext);
+  const sourceActorPrincipalId = actor
+    ? actor.sourceActorPrincipalId
+    : (options.sourceActorPrincipalId ??
+      ctx.currentTurnSourceActorPrincipalId ??
+      queuedAuthContext?.actorPrincipalId);
   // Deliberately not falling back to `currentTurnTrustContext`: that is the
   // in-flight turn's actor, which is precisely who this message is not from.
-  const queuedTrustContext = options.trustContext ?? ctx.trustContext;
+  const queuedTrustContext = actor
+    ? actor.trustContext
+    : (options.trustContext ?? actorForWorkWithoutSender(ctx));
 
   if (!ctx.isProcessing() && options.queueWhenIdle !== true) {
     return { queued: false, requestId };

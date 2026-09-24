@@ -13,12 +13,17 @@ import { v4 as uuid } from "uuid";
 import type { AssistantEvent } from "../api/index.js";
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
+import {
+  recordWorkStarter,
+  type WorkStarter,
+} from "../daemon/actor-scoped-history.js";
 import { Conversation } from "../daemon/conversation.js";
 import {
   findConversation,
   removeSubagentConversation,
   setSubagentConversation,
 } from "../daemon/conversation-registry.js";
+import { turnActorPrincipalId } from "../daemon/turn-actor.js";
 import { bootstrapConversation } from "../persistence/conversation-bootstrap.js";
 import {
   deleteAllSubagentRecords,
@@ -418,6 +423,11 @@ interface ManagedSubagent {
   /** Cleared when the run settles; fires the `maxRuntimeMs` stop. */
   runtimeTimer?: ReturnType<typeof setTimeout>;
   /**
+   * The trust of the turn that spawned this child, which its notifications
+   * to the parent run as. Absent for a child rebuilt from a durable row.
+   */
+  startedBy?: WorkStarter;
+  /**
    * One-shot delivery latch for the budget-stop notification: which budget
    * stopped this child, set when the ceiling is hit and consumed by the run's
    * teardown, which is the first moment the child's output is on disk for the
@@ -775,6 +785,21 @@ export class SubagentManager {
     } else if (parentTurnTrust) {
       conversation.setTrustContext({ ...parentTurnTrust });
     }
+    // Who spawned the child, trust and identity together, for its
+    // notifications to the parent.
+    const startedByTrust = config.trustContext ?? parentTurnTrust;
+    managed.startedBy = startedByTrust
+      ? {
+          trustContext: startedByTrust,
+          sourceActorPrincipalId: parentConversation
+            ? turnActorPrincipalId(parentConversation)
+            : undefined,
+          authContext:
+            parentConversation?.currentTurnAuthContext ??
+            parentConversation?.getAuthContext(),
+        }
+      : undefined;
+    recordWorkStarter(conversation, managed.startedBy);
     const parentAuthContext = parentConversation?.getAuthContext();
     if (parentAuthContext) {
       conversation.setAuthContext({ ...parentAuthContext });
@@ -1319,7 +1344,10 @@ export class SubagentManager {
           conversationId: managed.state.conversationId,
         },
       },
-      { cronRunId: managed.state.config.cronRunId },
+      {
+        cronRunId: managed.state.config.cronRunId,
+        startedBy: managed.startedBy,
+      },
     );
   }
 
@@ -1405,7 +1433,10 @@ export class SubagentManager {
               conversationId: managed.state.conversationId,
             },
           },
-          { cronRunId: managed.state.config.cronRunId },
+          {
+            cronRunId: managed.state.config.cronRunId,
+            startedBy: managed.startedBy,
+          },
         );
       }
     } else {
@@ -2193,7 +2224,7 @@ export class SubagentManager {
       { subagentNotification: notification },
       // The parent turn this notification starts is the same firing's work as
       // the child that just finished, so its spend is attributed there too.
-      { cronRunId: config.cronRunId },
+      { cronRunId: config.cronRunId, startedBy: managed.startedBy },
     );
   }
 }

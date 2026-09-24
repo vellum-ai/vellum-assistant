@@ -85,6 +85,15 @@ import {
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { isSidebarDoneEnabled } from "../config/sidebar-done-gate.js";
+import {
+  actorWithoutSender,
+  isContactInvolved,
+  isContactTrust,
+  scopeHistoryToActor,
+  stampTurnActor,
+  type TurnActor,
+  type WorkStarter,
+} from "../daemon/actor-scoped-history.js";
 import { conversationSupportsDynamicUi } from "../daemon/channel-ui-capability.js";
 import type { Conversation } from "../daemon/conversation.js";
 import type { QueueDrainReason } from "../daemon/conversation-queue-manager.js";
@@ -129,6 +138,7 @@ import type { CompletedBackgroundTool } from "../tools/background-tool-registry.
 import { getLogger } from "../util/logger.js";
 import { createKeyedSingleFlight } from "../util/single-flight.js";
 import { safeStringSlice } from "../util/unicode.js";
+import type { SharedSenderAdmission } from "./shared-sender-admission.js";
 
 const log = getLogger("agent-wake");
 
@@ -223,6 +233,15 @@ export interface WakeOptions {
    * assistant-self-maintenance jobs.
    */
   trustContext?: TrustContext;
+  /**
+   * The actor of the turn that started the work this wake reports on (a
+   * background command), captured when it started: its trust, principal and
+   * auth context together. The wake runs as that actor when a
+   * shared-conversation contact is involved: a contact's work completes as
+   * that contact, on their history, and only while they are still admitted.
+   * Absent for work no turn started.
+   */
+  startedBy?: WorkStarter;
   /**
    * Explicit local-owner metadata for rare direct wakes that are allowed to run
    * in cleanup mode. Omit for background jobs; they are paused under disk
@@ -449,6 +468,25 @@ export type WakeSkipReason =
   | "no_resolver"
   | "disk_pressure"
   /**
+   * The wake reports on work a shared-conversation contact's turn started,
+   * and that contact is no longer admitted, or stayed unverifiable past the
+   * cutoff. It never runs as anyone else instead.
+   */
+  | "starter_not_admitted"
+  /**
+   * A shared-conversation contact is involved and the history for the actor
+   * the wake must run as could not be loaded. Running anyway would pair that
+   * actor's trust with history scoped for someone else.
+   */
+  | "actor_scope_failed"
+  /**
+   * The wake reports on work a shared-conversation contact's turn started,
+   * and the contact could not be verified. The same wake is asked again with
+   * the backoff queued contact messages use, and dropped once the contact has
+   * stayed unverifiable as long as a queued message may.
+   */
+  | "starter_unverifiable"
+  /**
    * The wake input exceeds the effective context window and the caller
    * suppressed auto-compaction (`suppressAutoCompaction: true`), so the
    * run cannot proceed without the compaction it was told not to perform.
@@ -618,6 +656,171 @@ async function kickWakeDrainQueue(
       "agent-wake: kickDrainQueue threw; continuing",
     );
   }
+}
+
+// ── Starting actor ────────────────────────────────────────────────────
+
+/** Whether the contact who started a wake's work may still act in it. */
+async function checkStarterAdmission(
+  conversationId: string,
+  contact: TrustContext,
+): Promise<SharedSenderAdmission> {
+  try {
+    const { checkSharedSender } = await import("./shared-sender-admission.js");
+    return await checkSharedSender(
+      conversationId,
+      contact.requesterExternalUserId ?? "",
+    );
+  } catch (err) {
+    log.warn(
+      { err, conversationId },
+      "agent-wake: shared sender admission check failed",
+    );
+    return { outcome: "unverifiable" };
+  }
+}
+
+/** Consecutive unverifiable checks per wake waiting on its contact. */
+const unverifiableStarters = new WeakMap<
+  WakeOptions,
+  { attempts: number; firstAt: number }
+>();
+
+/**
+ * Ask again later about the contact who started a wake's work, with the
+ * backoff and cutoff a queued message from an unverifiable contact gets.
+ * Answers false once the cutoff has passed and the wake is dropped. A retry
+ * that finds the conversation still busy never reaches the contact check, so
+ * it is asked again on the same schedule until it runs, the contact is
+ * denied, or the cutoff passes.
+ */
+async function retryWakeForUnverifiableStarter(
+  opts: WakeOptions,
+  deps: WakeDeps | undefined,
+  now: number,
+): Promise<boolean> {
+  const { unverifiableSenderRetryPolicy } =
+    await import("../daemon/shared-sender-queue-gate.js");
+  const policy = unverifiableSenderRetryPolicy();
+  const state = unverifiableStarters.get(opts) ?? { attempts: 0, firstAt: now };
+  state.attempts += 1;
+  unverifiableStarters.set(opts, state);
+  if (now - state.firstAt >= policy.maxAgeMs) {
+    unverifiableStarters.delete(opts);
+    return false;
+  }
+  const timer = setTimeout(() => {
+    void wakeAgentForOpportunity(opts, deps)
+      .then(async (result) => {
+        if (result.reason !== "timeout" || !unverifiableStarters.has(opts)) {
+          return;
+        }
+        const now = (deps?.now ?? Date.now)();
+        if (!(await retryWakeForUnverifiableStarter(opts, deps, now))) {
+          log.warn(
+            { conversationId: opts.conversationId, source: opts.source },
+            "agent-wake: the contact who started this work stayed unverifiable past the cutoff; dropping",
+          );
+        }
+      })
+      .catch((err) => {
+        log.warn(
+          { conversationId: opts.conversationId, source: opts.source, err },
+          "agent-wake: retrying a wake for an unverifiable contact failed",
+        );
+      });
+  }, policy.delayMs(state.attempts));
+  timer.unref?.();
+  return true;
+}
+
+type WakeActorOutcome =
+  | { ok: true }
+  | {
+      ok: false;
+      reason:
+        | "starter_not_admitted"
+        | "starter_unverifiable"
+        | "actor_scope_failed";
+    };
+
+/**
+ * Settle who the wake runs as, once it holds the conversation. Work a
+ * contact's turn started runs as that contact only while they may still act
+ * in the conversation, and as they are now: a denied contact's wake is
+ * dropped, and an unverifiable one is asked again later. When a contact is
+ * involved at all, the wake is put on its actor's history and trust (the
+ * starter, or, when no turn started the work, the actor before the contact's
+ * turn); a conversation no contact has touched is left exactly as it is.
+ * A history that cannot be loaded fails the wake and puts the trust slot
+ * back, so no actor ever runs on history scoped for someone else.
+ */
+async function prepareWakeActor(
+  conversation: Conversation,
+  opts: WakeOptions,
+  deps: WakeDeps | undefined,
+  now: number,
+): Promise<WakeActorOutcome> {
+  const { conversationId, source } = opts;
+  let starter = opts.startedBy;
+  if (starter && isContactTrust(starter.trustContext)) {
+    const admission = await checkStarterAdmission(
+      conversationId,
+      starter.trustContext,
+    );
+    if (admission.outcome === "unverifiable") {
+      let retrying = false;
+      try {
+        retrying = await retryWakeForUnverifiableStarter(opts, deps, now);
+      } catch (err) {
+        log.warn(
+          { conversationId, source, err },
+          "agent-wake: failed to schedule a check of the contact who started this work",
+        );
+      }
+      if (retrying) {
+        log.info(
+          { conversationId, source },
+          "agent-wake: the contact who started this work could not be verified; asking again later",
+        );
+        return { ok: false, reason: "starter_unverifiable" };
+      }
+    }
+    unverifiableStarters.delete(opts);
+    if (admission.outcome !== "admitted") {
+      log.info(
+        { conversationId, source, outcome: admission.outcome },
+        "agent-wake: the contact who started this work is no longer admitted; skipping",
+      );
+      return { ok: false, reason: "starter_not_admitted" };
+    }
+    starter = { ...starter, trustContext: admission.trust };
+  }
+  if (!isContactInvolved(conversation, starter?.trustContext)) {
+    return { ok: true };
+  }
+  const prior = conversation.trustContext;
+  const actor: TurnActor = starter ?? actorWithoutSender(conversation);
+  try {
+    // Always asked, even when the slot already names the actor: a wake that
+    // carries its own trust is stamped on the slot by its resolver without a
+    // reload, so the resident history can still be the contact's. The load
+    // compares against the scope that history was loaded for.
+    await scopeHistoryToActor(conversation, actor.trustContext);
+  } catch (err) {
+    log.warn(
+      { conversationId, source, err },
+      "agent-wake: failed to load history for the actor this wake runs as; skipping",
+    );
+    if (conversation.trustContext === actor.trustContext) {
+      conversation.setTrustContext(prior ?? null);
+    }
+    return { ok: false, reason: "actor_scope_failed" };
+  }
+  // Trust, principal and auth context from the same actor, so the wake's
+  // tools never pair one actor's permissions with another's client.
+  stampTurnActor(conversation, actor);
+  return { ok: true };
 }
 
 // ── Per-conversation single-flight lock ───────────────────────────────
@@ -929,6 +1132,36 @@ export async function wakeAgentForOpportunity(
     // check and this acquisition awaits — keep that stretch await-free so
     // the lock cannot change hands in between.
     conversation.setProcessing(true);
+
+    // Settled only now that the wake holds the conversation, so a contact
+    // removed while it waited for the lock does not get it, and nothing can
+    // move the trust slot between this and the run.
+    const actorOutcome = await prepareWakeActor(
+      conversation,
+      opts,
+      deps,
+      nowFn(),
+    );
+    if (!actorOutcome.ok) {
+      try {
+        conversation.setProcessing(false);
+      } catch (err) {
+        log.warn(
+          { conversationId, source, err },
+          "agent-wake: setProcessing(false) threw; continuing",
+        );
+      }
+      restorePersistentWakeTrust();
+      await kickWakeDrainQueue(conversation, "agent_wake_cleanup", {
+        conversationId,
+        source,
+      });
+      return {
+        invoked: false,
+        producedToolCalls: false,
+        reason: actorOutcome.reason,
+      };
+    }
 
     // ── Pre-run auto-compaction gate ──────────────────────────────────
     // The wake invokes `conversation.agentLoop.run()` with the loop's

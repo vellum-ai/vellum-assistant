@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import type { BackgroundToolCompletedEvent } from "../../api/events/background-tool-completed.js";
 import { getConfig } from "../../config/loader.js";
+import { startingTurn } from "../../daemon/actor-scoped-history.js";
 import { RiskLevel } from "../../permissions/types.js";
 import { applyActivePluginName } from "../../plugins/active-plugin-env.js";
 import { wakeAgentForOpportunity } from "../../runtime/agent-wake.js";
@@ -320,6 +321,10 @@ export const shellTool = {
       }
 
       const bgId = generateBackgroundToolId();
+
+      // Its completion wakes the conversation as the turn that started it.
+
+      const startedBy = startingTurn(context.conversationId);
       let timedOut = false;
       let aborted = false;
       const startedAt = Date.now();
@@ -412,6 +417,7 @@ export const shellTool = {
           conversationId: context.conversationId,
           hint: framing,
           source: "background-tool",
+          startedBy,
           persistTriggerAsEvent: true,
           backgroundToolCompletion: completion,
           untrustedOutput: {
@@ -475,6 +481,7 @@ export const shellTool = {
           conversationId: context.conversationId,
           hint: framing,
           source: "background-tool",
+          startedBy,
           persistTriggerAsEvent: true,
           backgroundToolCompletion: completion,
         });

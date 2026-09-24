@@ -17,6 +17,7 @@ import {
 } from "../../acp/prepare-agent-env.js";
 import { formatResolveFailure } from "../../acp/resolve-agent.js";
 import { claudeResumeHint } from "../../acp/resume-hint.js";
+import { startingTurn } from "../../daemon/actor-scoped-history.js";
 import { FailedDependencyError } from "../../runtime/routes/errors.js";
 import { isAbortLikeError, throwIfCancelled } from "../shared/abort.js";
 import {
@@ -139,7 +140,11 @@ export async function executeAcpSpawn(
       cwd,
       context.conversationId,
       sendToClient,
-      { parentToolUseId: context.toolUseId, model },
+      {
+        parentToolUseId: context.toolUseId,
+        model,
+        startedBy: startingTurn(context.conversationId),
+      },
       // The manager rechecks after its own protocol handshake and session
       // creation, so a turn stopped in that window tears the child process
       // down instead of handing it the task.

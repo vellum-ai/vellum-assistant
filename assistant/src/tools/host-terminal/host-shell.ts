@@ -15,6 +15,7 @@ import { z } from "zod";
 
 import { supportsHostProxy } from "../../channels/types.js";
 import { getConfig } from "../../config/loader.js";
+import { startingTurn } from "../../daemon/actor-scoped-history.js";
 import { HostBashProxy } from "../../daemon/host-bash-proxy.js";
 import { RiskLevel } from "../../permissions/types.js";
 import { applyActivePluginName } from "../../plugins/active-plugin-env.js";
@@ -255,6 +256,10 @@ export const hostShellTool = {
         }
 
         const bgId = generateBackgroundToolId();
+
+        // Its completion wakes the conversation as the turn that started it.
+
+        const startedBy = startingTurn(context.conversationId);
         const abortController = new AbortController();
         const startedAt = Date.now();
         const proxyPromise = HostBashProxy.instance.request(
@@ -319,6 +324,7 @@ export const hostShellTool = {
               conversationId: context.conversationId,
               hint: framing,
               source: "background-tool",
+              startedBy,
               persistTriggerAsEvent: true,
               backgroundToolCompletion: completion,
               untrustedOutput: {
@@ -370,6 +376,7 @@ export const hostShellTool = {
                   ? `Background host command cancelled (id=${bgId}):`
                   : `Background host command failed (id=${bgId}): ${err instanceof Error ? err.message : String(err)}`,
               source: "background-tool",
+              startedBy,
               persistTriggerAsEvent: true,
               backgroundToolCompletion: completion,
             });
@@ -453,6 +460,10 @@ export const hostShellTool = {
       }
 
       const bgId = generateBackgroundToolId();
+
+      // Its completion wakes the conversation as the turn that started it.
+
+      const startedBy = startingTurn(context.conversationId);
       const startedAt = Date.now();
 
       const wrapped = buildShellInvocation(command);
@@ -538,6 +549,7 @@ export const hostShellTool = {
           conversationId: context.conversationId,
           hint: framing,
           source: "background-tool",
+          startedBy,
           persistTriggerAsEvent: true,
           backgroundToolCompletion: completion,
           untrustedOutput: {
@@ -592,6 +604,7 @@ export const hostShellTool = {
               ? `Background host command cancelled (id=${bgId}):`
               : `Background host command failed (id=${bgId}): ${err.message}`,
           source: "background-tool",
+          startedBy,
           persistTriggerAsEvent: true,
           backgroundToolCompletion: completion,
         });
