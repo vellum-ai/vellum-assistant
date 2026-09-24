@@ -875,6 +875,25 @@ describe("parseWorkbook", () => {
     expect(grid.truncated).toBe(false);
   });
 
+  test("keeps a self-closing item as an empty string", async () => {
+    const grid = await readOneSheet(
+      [
+        [
+          { t: "s", v: 0 },
+          { t: "s", v: 1 },
+        ],
+      ],
+      {
+        sharedStrings: ["", "beta"],
+        parts: {
+          "xl/sharedStrings.xml": `<sst xmlns="${MAIN_NS}" count="2" uniqueCount="2"><si/><si><t>beta</t></si></sst>`,
+        },
+      },
+    );
+
+    expect(grid.rows).toEqual([["", "beta"]]);
+  });
+
   test("leaves shared string markers inside a comment out of the string count", async () => {
     const grid = await readOneSheet([[{ t: "s", v: 1 }]], {
       parts: {

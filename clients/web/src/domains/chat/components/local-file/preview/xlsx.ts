@@ -838,8 +838,8 @@ function findEndTag(xml: string, at: number, localName: string): number {
 /**
  * Where the element opened at `at` ends, past its close tag or past a
  * self-closing start tag, and the end of `xml` when it never closes. A cut
- * here keeps the element whole and leaves what follows out, which a retained
- * item needs because the markup after it belongs to another element.
+ * here keeps the element whole and leaves out the markup after it, which
+ * belongs to another element.
  */
 function elementEndsAt(xml: string, at: number, localName: string): number {
   const opening = tagEndsAt(xml, at);
@@ -1025,15 +1025,7 @@ function captureOne(xml: string, spec: CaptureSpec): CapturedElements {
       matchStartTag(xml, at, spec.localName).kind === "match"
     ) {
       const tag = xml.slice(at, end + 1);
-      // A span runs through the tag that closes the element, or through the
-      // end of the part when nothing does.
-      let spansTo = end + 1;
-      if (opensLevel) {
-        const closesAt = findEndTag(xml, end + 1, spec.localName);
-        const closeEnds =
-          closesAt >= xml.length ? -1 : tagEndsAt(xml, closesAt);
-        spansTo = closeEnds < 0 ? xml.length : closeEnds + 1;
-      }
+      const spansTo = elementEndsAt(xml, at, spec.localName);
       seen += 1;
       if (spec.keep === undefined || spec.keep(tag)) {
         matched += 1;
@@ -1203,10 +1195,12 @@ function readWholePart(
  * Inflate `entry` only until `marker` has been seen past its limit, its budget
  * has been counted past its own, or the text passes `maxChars`, then cut it
  * there and abandon the rest of the stream.
- * Either cut lands on the `<` of a marker, so the text ends on a complete
- * element and only `ancestors`, innermost first, are left open around it. This
- * is what keeps a sheet with a million rows from being decompressed whole for
- * a preview that shows five thousand. A cap reached before a second marker
+ * A cut past the first marker lands on the `<` of a marker, so the text ends
+ * on a complete element; a budget cut inside the first lands on the `<` of the
+ * counted element, which leaves that marker open ahead of the ancestors.
+ * `stillOpen` names everything the cut leaves open, innermost first. This is
+ * what keeps a sheet with a million rows from being decompressed whole for a
+ * preview that shows five thousand. A cap reached before a second marker
  * would leave nothing complete behind, so the read rejects rather than
  * resolving a part that reads as empty.
  */
