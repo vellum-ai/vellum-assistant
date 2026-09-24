@@ -21,7 +21,8 @@
     "inboxEmptyBody": "把 {address} 分享出去，寄到這裡的郵件都會顯示在這裡。",
     "sentEmptyTitle": "還沒有寄出的郵件",
     "sentEmptyBody": "請我寄信給某人，我會在這裡保留一份副本。",
-    "selectPrompt": "選擇一封郵件來閱讀。",
+    "selectPromptTitle": "選擇一封郵件來閱讀",
+    "selectPromptBody": "從清單中選擇一封郵件。勾選多封可以帶著它們開始新聊天，或將其刪除。",
     "backToList": "返回清單",
     "searchPlaceholder": "搜尋郵件",
     "searchAriaLabel": "在此資料夾中搜尋",
@@ -49,13 +50,15 @@
     "cancel": "取消"
   },
   "emailDetail": {
-    "from": "寄件者",
-    "to": "收件者",
-    "sentBy": "由 {name} 寄出",
+    "from": "寄件者：",
+    "to": "收件者：",
     "attachments": "附件",
     "askToReply": "請 {name} 回覆",
     "loading": "正在載入郵件…",
-    "loadFailed": "無法載入這封郵件。"
+    "loadFailed": "無法載入這封郵件。",
+    "copyEmail": "複製郵件",
+    "copied": "已複製",
+    "copyFailed": "無法複製這封郵件。"
   },
   "emailAddressFields": {
     "prefixLabel": "前綴",

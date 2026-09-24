@@ -21,7 +21,8 @@
     "inboxEmptyBody": "Share {address} and anything sent there shows up here.",
     "sentEmptyTitle": "No sent mail yet",
     "sentEmptyBody": "Ask me to email someone and I'll keep a copy here.",
-    "selectPrompt": "Pick an email to read it.",
+    "selectPromptTitle": "Pick an email to read it",
+    "selectPromptBody": "Choose a message from the list. Check several to start a chat with them attached, or to delete them.",
     "backToList": "Back to list",
     "searchPlaceholder": "Search mail",
     "searchAriaLabel": "Search this folder",
@@ -49,13 +50,15 @@
     "cancel": "Cancel"
   },
   "emailDetail": {
-    "from": "From",
-    "to": "To",
-    "sentBy": "Sent by {name}",
+    "from": "From:",
+    "to": "To:",
     "attachments": "Attachments",
     "askToReply": "Ask {name} to reply",
     "loading": "Loading the message…",
-    "loadFailed": "Couldn't load this message."
+    "loadFailed": "Couldn't load this message.",
+    "copyEmail": "Copy email",
+    "copied": "Copied",
+    "copyFailed": "Couldn't copy the email."
   },
   "emailAddressFields": {
     "prefixLabel": "Prefix",

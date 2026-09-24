@@ -21,7 +21,8 @@
     "inboxEmptyBody": "把 {address} 分享出去，发到这里的邮件都会显示在这里。",
     "sentEmptyTitle": "还没有已发送的邮件",
     "sentEmptyBody": "让我给某人发邮件，我会在这里保留一份副本。",
-    "selectPrompt": "选择一封邮件来阅读。",
+    "selectPromptTitle": "选择一封邮件来阅读",
+    "selectPromptBody": "从列表中选择一封邮件。勾选多封可以带着它们开始新聊天，或将其删除。",
     "backToList": "返回列表",
     "searchPlaceholder": "搜索邮件",
     "searchAriaLabel": "在此文件夹中搜索",
@@ -49,13 +50,15 @@
     "cancel": "取消"
   },
   "emailDetail": {
-    "from": "发件人",
-    "to": "收件人",
-    "sentBy": "由 {name} 发送",
+    "from": "发件人：",
+    "to": "收件人：",
     "attachments": "附件",
     "askToReply": "让 {name} 回复",
     "loading": "正在加载邮件…",
-    "loadFailed": "无法加载这封邮件。"
+    "loadFailed": "无法加载这封邮件。",
+    "copyEmail": "复制邮件",
+    "copied": "已复制",
+    "copyFailed": "无法复制这封邮件。"
   },
   "emailAddressFields": {
     "prefixLabel": "前缀",

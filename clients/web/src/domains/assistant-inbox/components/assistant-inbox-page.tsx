@@ -24,6 +24,7 @@ import { AssistantInboxShell } from "./assistant-inbox-shell";
 import { EmailDetail, type EmailDetailState } from "./email-detail";
 import { EmailList } from "./email-list";
 import { EmailSelectionBar } from "./email-selection-bar";
+import { ReadingPaneEmptyState } from "./reading-pane-empty-state";
 
 /** The same rounded, unbordered surface the sidebar's section cards use. */
 const CARD_CLASSES =
@@ -332,9 +333,7 @@ export function AssistantInboxPage({
               onAskToReply={onAskToReply}
             />
           ) : (
-            <div className="flex flex-1 items-center justify-center p-8 text-body-small-lighter text-[var(--content-tertiary)]">
-              {t("assistantInboxPage.selectPrompt")}
-            </div>
+            <ReadingPaneEmptyState />
           )}
         </Card>
 

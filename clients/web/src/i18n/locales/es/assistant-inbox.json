@@ -21,7 +21,8 @@
     "inboxEmptyBody": "Comparte {address} y todo lo que llegue aparecerá aquí.",
     "sentEmptyTitle": "Aún no hay correos enviados",
     "sentEmptyBody": "Pídeme que escriba a alguien y guardaré una copia aquí.",
-    "selectPrompt": "Elige un correo para leerlo.",
+    "selectPromptTitle": "Elige un correo para leerlo",
+    "selectPromptBody": "Elige un mensaje de la lista. Marca varios para iniciar un chat con ellos adjuntos, o para eliminarlos.",
     "backToList": "Volver a la lista",
     "searchPlaceholder": "Buscar correo",
     "searchAriaLabel": "Buscar en esta carpeta",
@@ -49,13 +50,15 @@
     "cancel": "Cancelar"
   },
   "emailDetail": {
-    "from": "De",
-    "to": "Para",
-    "sentBy": "Enviado por {name}",
+    "from": "De:",
+    "to": "Para:",
     "attachments": "Adjuntos",
     "askToReply": "Pedir a {name} que responda",
     "loading": "Cargando el mensaje…",
-    "loadFailed": "No se pudo cargar este mensaje."
+    "loadFailed": "No se pudo cargar este mensaje.",
+    "copyEmail": "Copiar correo",
+    "copied": "Copiado",
+    "copyFailed": "No se pudo copiar el correo."
   },
   "emailAddressFields": {
     "prefixLabel": "Prefijo",
