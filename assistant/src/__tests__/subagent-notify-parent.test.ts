@@ -62,10 +62,14 @@ const liveSubagents = new Map<
   }
 >();
 
+/** The resting trust the parent double reports. */
+let parentTrustContext: TrustContext | undefined;
+
 mock.module("../daemon/conversation-registry.js", () => ({
   findConversation: (id: string) => {
     capturedParentIds.push(id);
     return {
+      trustContext: parentTrustContext,
       isStale: () => false,
       hasInFlightWork: () => false,
       enqueueMessage: (options: {
@@ -286,7 +290,7 @@ describe("voice parent notification routing", () => {
 });
 
 describe("voice delivery and shared-conversation contacts", () => {
-  test("a contact-started completion goes through the queue as the contact; a guardian-started one still goes to the call", async () => {
+  test("a contact-started completion goes through the queue as the contact; a guardian-started one still goes to the call after a contact's turn", async () => {
     clearCaptured();
     const received: SubagentParentNotification[] = [];
     const manager = new LiveVoiceSessionManager({
@@ -340,12 +344,16 @@ describe("voice delivery and shared-conversation contacts", () => {
       expect(capturedMessages).toEqual(["Alice's task done"]);
       expect(capturedQueueOptions.at(-1)?.trustContext).toBe(alice);
 
+      // The parent now rests on Alice after her turn; guardian work still
+      // goes to the call.
+      parentTrustContext = alice;
       injectMessageIntoParent("parent-voice", "Guardian task done", metadata, {
         startedBy: guardian,
       });
       expect(received.map((n) => n.message)).toEqual(["Guardian task done"]);
       expect(capturedMessages).toEqual(["Alice's task done"]);
     } finally {
+      parentTrustContext = undefined;
       await manager.endActiveSession("manager_shutdown");
       setLiveVoiceSessionManagerForTesting(null);
       clearCaptured();
