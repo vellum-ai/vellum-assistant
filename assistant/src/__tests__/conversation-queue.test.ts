@@ -479,7 +479,11 @@ import {
   deleteConversation,
   setConversation,
 } from "../daemon/conversation-registry.js";
-import { __setSharedSenderRetryForTest } from "../daemon/shared-sender-queue-gate.js";
+import {
+  __setSharedSenderRetryForTest,
+  gateSharedSenderHead,
+} from "../daemon/shared-sender-queue-gate.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import { injectMessageIntoParent } from "../subagent/notify.js";
 
 type ConversationWithWorkspaceDeps = Conversation & {
@@ -1807,6 +1811,84 @@ describe("Conversation message queue", () => {
       } finally {
         deleteConversation("conv-1");
       }
+    });
+
+    test("a guardian message after the slot was restamped over a contact's history runs on the guardian's", async () => {
+      storedRows = guardianAndContactRows();
+      const conversation = makeConversation();
+      conversation.setTrustContext(GUARDIAN);
+      await conversation.loadFromDb();
+      const p1 = conversation.processMessage({
+        content: "msg-1",
+        attachments: [],
+        onEvent: () => {},
+        requestId: "req-1",
+      });
+      await waitForPendingRun(1);
+      conversation.enqueueMessage({
+        content: "from Alice",
+        requestId: "req-contact",
+        trustContext: ALICE,
+        author: ALICE,
+        sourceActorPrincipalId: "principal-alice",
+      });
+      await resolveRun(0);
+      await p1;
+      await waitForPendingRun(2);
+      await resolveRun(1);
+      await waitForCondition(() => !conversation.isProcessing());
+      expect(conversation.loadedHistoryScope?.trustContext?.sourceChannel).toBe(
+        "vellum-shared",
+      );
+      // A wake stamped the guardian over the contact's history and failed
+      // before reloading it, leaving no contact on either trust slot.
+      conversation.setTrustContext(GUARDIAN);
+      conversation.currentTurnTrustContext = GUARDIAN;
+
+      conversation.enqueueMessage({
+        content: "guardian follow-up",
+        requestId: "req-guardian",
+        trustContext: GUARDIAN,
+        queueWhenIdle: true,
+      });
+      void conversation.kickDrainQueue("loop_complete", "test");
+      await waitForPendingRun(3);
+      expect(runText(pendingRuns[2])).toContain("guardian-only notes");
+      await resolveRun(2);
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    test("the drain gate reloads for the next sender when only the resident history is a contact's", async () => {
+      const queue = new MessageQueue(10_000);
+      queue.push({
+        content: "guardian follow-up",
+        attachments: [],
+        requestId: "req-guardian",
+        onEvent: () => {},
+        trustContext: GUARDIAN,
+        sentAt: Date.now(),
+      });
+      const reloadedFor: unknown[] = [];
+      const gated = {
+        conversationId: "conv-1",
+        queue,
+        isProcessing: () => false,
+        kickDrainQueue: async () => {},
+        trustContext: GUARDIAN as TrustContext | undefined,
+        currentTurnTrustContext: GUARDIAN as TrustContext | undefined,
+        loadedHistoryScope: { trustContext: ALICE as TrustContext | undefined },
+        setTrustContext(ctx: TrustContext | null) {
+          gated.trustContext = ctx ?? undefined;
+        },
+        async ensureActorScopedHistory() {
+          reloadedFor.push(gated.trustContext);
+        },
+      };
+
+      expect(await gateSharedSenderHead(gated as unknown as Conversation)).toBe(
+        true,
+      );
+      expect(reloadedFor).toEqual([GUARDIAN]);
     });
 
     test("a subagent completion with no contact turn before it runs as it always has", async () => {

@@ -28,6 +28,7 @@ import type { SharedSenderAdmission } from "../runtime/shared-sender-admission.j
 import { resolveRoutingState } from "../runtime/trust-context-resolver.js";
 import { getLogger } from "../util/logger.js";
 import {
+  isContactInvolved,
   restoreActorBeforeContact,
   scopeHistoryToActor,
 } from "./actor-scoped-history.js";
@@ -65,6 +66,8 @@ type GatedConversation = Pick<
   | "isProcessing"
   | "kickDrainQueue"
   | "trustContext"
+  | "currentTurnTrustContext"
+  | "loadedHistoryScope"
   | "setTrustContext"
   | "ensureActorScopedHistory"
 >;
@@ -201,13 +204,15 @@ export async function gateSharedSenderHead(
     }
     const principalId = sharedSenderPrincipal(next);
     if (principalId === undefined) {
-      // A contact's turn left the conversation scoped to them. The next
-      // message from anyone else takes its own sender's scope back before it
-      // runs, so it never runs on the contact's narrower history. A message
+      // A contact's turn left the conversation, or just its resident
+      // history, scoped to them. The next message from anyone else takes its
+      // own sender's scope back before it runs, so it never runs on the
+      // contact's narrower history; the load compares against the scope the
+      // history was loaded for, so a matching one is not reloaded. A message
       // no turn started runs as the conversation did before the contact's
       // turn. While a turn is running it is left alone: the drain requeues it
       // behind that turn.
-      if (conversation.trustContext?.sourceChannel === "vellum-shared") {
+      if (isContactInvolved(conversation, undefined)) {
         if (next.trustContext) {
           await scopeHistoryToActor(conversation, next.trustContext);
         } else if (!conversation.isProcessing()) {

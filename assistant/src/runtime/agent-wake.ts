@@ -685,7 +685,10 @@ const unverifiableStarters = new WeakMap<
 /**
  * Ask again later about the contact who started a wake's work, with the
  * backoff and cutoff a queued message from an unverifiable contact gets.
- * Answers false once the cutoff has passed and the wake is dropped.
+ * Answers false once the cutoff has passed and the wake is dropped. A retry
+ * that finds the conversation still busy never reaches the contact check, so
+ * it is asked again on the same schedule until it runs, the contact is
+ * denied, or the cutoff passes.
  */
 async function retryWakeForUnverifiableStarter(
   opts: WakeOptions,
@@ -703,7 +706,25 @@ async function retryWakeForUnverifiableStarter(
     return false;
   }
   const timer = setTimeout(() => {
-    void wakeAgentForOpportunity(opts, deps);
+    void wakeAgentForOpportunity(opts, deps)
+      .then(async (result) => {
+        if (result.reason !== "timeout" || !unverifiableStarters.has(opts)) {
+          return;
+        }
+        const now = (deps?.now ?? Date.now)();
+        if (!(await retryWakeForUnverifiableStarter(opts, deps, now))) {
+          log.warn(
+            { conversationId: opts.conversationId, source: opts.source },
+            "agent-wake: the contact who started this work stayed unverifiable past the cutoff; dropping",
+          );
+        }
+      })
+      .catch((err) => {
+        log.warn(
+          { conversationId: opts.conversationId, source: opts.source, err },
+          "agent-wake: retrying a wake for an unverifiable contact failed",
+        );
+      });
   }, policy.delayMs(state.attempts));
   timer.unref?.();
   return true;

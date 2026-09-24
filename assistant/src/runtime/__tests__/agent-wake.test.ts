@@ -1039,6 +1039,44 @@ describe("wakeAgentForOpportunity", () => {
       expect(conversation.runCalls).toHaveLength(1);
     });
 
+    test("a retry that finds the conversation busy is asked again and eventually runs", async () => {
+      mockStarterAdmissions = [
+        { outcome: "unverifiable" },
+        { outcome: "admitted", trust: ALICE },
+      ];
+      // First wake gets the conversation; the first retry times out waiting
+      // for it; the one after gets it.
+      const idleAnswers = [true, false];
+      const conversation = makeWakeConversation({
+        initialTrustContext: GUARDIAN,
+        scriptedAssistant: {
+          role: "assistant",
+          content: [{ type: "text", text: "done." }],
+        },
+        waitForIdleImpl: async () => idleAnswers.shift() ?? true,
+      });
+
+      const first = await wakeAgentForOpportunity(
+        {
+          conversationId: conversation.conversationId,
+          hint: "Background command completed",
+          source: "background-tool",
+          persistTriggerAsEvent: true,
+          startedBy: ALICE,
+        },
+        { resolveTarget: async () => conversation },
+      );
+
+      expect(first.reason).toBe("starter_unverifiable");
+      const start = Date.now();
+      while (conversation.runCalls.length === 0 && Date.now() - start < 2000) {
+        await new Promise((r) => setTimeout(r, 5));
+      }
+      expect(conversation.waitForIdleCalls).toHaveLength(3);
+      expect(starterAdmissionChecks).toHaveLength(2);
+      expect(conversation.runCalls).toHaveLength(1);
+    });
+
     test("a wake for a contact who stays unverifiable past the cutoff is dropped", async () => {
       mockStarterAdmissions = [{ outcome: "unverifiable" }];
       mockRetryPolicy = { delayMs: () => 5, maxAgeMs: 0 };
