@@ -56,6 +56,13 @@ function Trigger(props: ComponentProps<typeof Dialog.Trigger>) {
 interface ModalContentProps extends ComponentProps<typeof Dialog.Content> {
   size?: ModalSize;
   hideCloseButton?: boolean;
+  /**
+   * Accessible name for the close glyph in the corner. Defaults to the
+   * untranslated "Close", which carries surfaces that sit outside a locale
+   * catalog; a caller on a path that enforces translated copy hands in its own
+   * `t()`'d string so the dialog announces one language throughout.
+   */
+  closeLabel?: string;
   overlayClassName?: string;
   /**
    * When `false`, the backdrop no longer dismisses the modal. It is the whole
@@ -70,6 +77,7 @@ interface ModalContentProps extends ComponentProps<typeof Dialog.Content> {
 function Content({
   size = "md",
   hideCloseButton = false,
+  closeLabel = "Close",
   overlayClassName,
   dismissOnOverlayClick = true,
   className,
@@ -122,7 +130,7 @@ function Content({
             <Dialog.Close asChild>
               <button
                 type="button"
-                aria-label="Close"
+                aria-label={closeLabel}
                 className="absolute top-3 right-3 flex h-6 w-6 cursor-pointer items-center justify-center rounded bg-transparent text-[var(--content-secondary)] transition-colors hover:text-[var(--content-default)]"
               >
                 <X className="h-4 w-4" />

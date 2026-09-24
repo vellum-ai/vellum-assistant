@@ -194,6 +194,15 @@ describe("CameraExplainer", () => {
     ).toBeNull();
   });
 
+  // The library's own default for that glyph is an untranslated "Close", so a
+  // dialog whose every other word comes from the catalog would announce one
+  // English control. The name is passed in, and this pins that it lands.
+  test("the modal's close glyph is named from the catalog", () => {
+    renderExplainer({ touch: false });
+
+    expect(screen.getByRole("button", { name: "Close" })).not.toBeNull();
+  });
+
   test("the sheet says what each mode does, in the assistant's name", () => {
     renderExplainer({ touch: true });
 

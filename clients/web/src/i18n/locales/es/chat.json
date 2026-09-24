@@ -380,6 +380,7 @@
     "uploadFailed": "No se pudo enviar esa foto."
   },
   "cameraExplainer": {
+    "close": "Cerrar",
     "gotIt": "Entendido",
     "liveBody": "{name} mira mientras mueves la cámara. Solo habla de lo que {name} ve.",
     "liveBodyDesktop": "{name} mira mientras mueves la cámara. Solo habla de lo que {name} ve. Detenlo cuando quieras.",

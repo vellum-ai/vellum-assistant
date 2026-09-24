@@ -394,6 +394,7 @@
     "uploadFailed": "Couldn't send that photo."
   },
   "cameraExplainer": {
+    "close": "Close",
     "gotIt": "Got it",
     "liveBody": "{name} watches as you move the camera. Just talk about what {name} sees.",
     "liveBodyDesktop": "{name} watches as you move the camera. Just talk about what {name} sees. Stop whenever you like.",

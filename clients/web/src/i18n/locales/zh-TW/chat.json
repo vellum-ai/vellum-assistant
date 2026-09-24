@@ -380,6 +380,7 @@
     "uploadFailed": "無法傳送該相片。"
   },
   "cameraExplainer": {
+    "close": "關閉",
     "gotIt": "知道了",
     "liveBody": "您移動相機時，{name} 會持續觀看。直接聊聊 {name} 看到的內容。",
     "liveBodyDesktop": "您移動相機時，{name} 會持續觀看。直接聊聊 {name} 看到的內容。隨時都可以停止。",

@@ -163,6 +163,7 @@ export function CameraExplainer({
   tryLiveOffered,
   onDismiss,
 }: CameraExplainerProps): ReactNode {
+  const { t } = useTranslation("chat");
   const sheet = useTouchSurface();
   const reduce = useReducedMotion();
   const titleRef = useRef<HTMLHeadingElement>(null);
@@ -324,6 +325,7 @@ export function CameraExplainer({
           <Modal.Content
             data-testid="camera-explainer"
             size="md"
+            closeLabel={t("cameraExplainer.close")}
             overlayClassName={SCRIM_CLASS}
             style={MODAL_SURFACE_STYLE}
             // The dialog is centred by the overlay it sits inside and is
