@@ -20,7 +20,10 @@
  * one the turn will read, since the daemon snapshots the conversation the
  * instant the utterance closes (see `use-voice-room-sight.ts`); the end is
  * the view the user left behind, for the turn after. Nothing in between and
- * nothing while nobody is talking.
+ * nothing while nobody is talking, except a frame someone is waiting on: a
+ * look the assistant asked for, and a turn that reports something the user
+ * did without saying a word (a press on a pointed-at control), which has no
+ * speech edge to take a frame on and is held until this one is sent.
  *
  * Asked for is not sent. Every frame the cadence takes is judged by the gate
  * the camera runs (`frame-gate.ts`), against the last frame the call was
@@ -75,6 +78,7 @@ import { annotateSharedFrame } from "@/domains/chat/voice/live-voice/annotate-sh
 import {
   createSightCapture,
   LOOK_FRAME_REASON,
+  PRESS_FRAME_REASON,
   type SightKeepOrigin,
 } from "@/domains/chat/voice/live-voice/sight-capture";
 import { useSupportsSightStream } from "@/lib/backwards-compat/use-supports-sight-stream";
@@ -95,6 +99,12 @@ import type { CompanionAnnotationStroke } from "@vellumai/ipc-contract";
 
 /** Where a failure is filed, so the tag says which source it came from. */
 const ERROR_CONTEXT = "live-voice screen share: capture/upload frame";
+
+/**
+ * Why a frame is taken fresh and sent unjudged: the assistant asked to look,
+ * or a turn about to go out asked for the view it reports.
+ */
+type FreshFrameReason = typeof LOOK_FRAME_REASON | typeof PRESS_FRAME_REASON;
 
 /** A mark the user finished on the shared surface, and the colour of it. */
 type SharedDrawing = {
@@ -295,21 +305,27 @@ export function useLiveVoiceScreenShare(): void {
      * picture is judged, so a later question's ask cannot overwrite this
      * one's while this one's picture still waits its turn.
      *
-     * `look` marks the frame the assistant asked for by looking. Like a
-     * drawing it is not judged: the session answers the look from this frame
-     * and says nothing until it lands, so a view the call already has is
-     * still sent. The gate adopts it, so the cadence after it is judged
-     * against the view the call was just given.
+     * `fresh` marks a frame someone is waiting on: the assistant asked to
+     * look (the session answers the look from this frame and says nothing
+     * until it lands), or a turn about to go out asked for the view it
+     * reports. Like a drawing it is not judged, so a view the call already
+     * has is still sent. The gate adopts it, so the cadence after it is
+     * judged against the view the call was just given.
+     *
+     * `onSettled` is told once the capture is done with a frame it was
+     * handed: sent or dropped. Resolves whether it was handed one at all, so
+     * the caller can settle an occasion that never got that far.
      */
     const take = async (
       drawing: SharedDrawing | null,
       run: number,
       askedAtMs: number | null,
-      look: boolean,
-    ): Promise<void> => {
+      fresh: FreshFrameReason | null,
+      onSettled: (() => void) | null,
+    ): Promise<boolean> => {
       const stale = (): boolean => cancelled || generation !== run;
       if (stale()) {
-        return;
+        return false;
       }
       // The picture's lower bound. The gate must not spend a question's arm
       // on a picture taken before the question, and the helper's answer time
@@ -317,22 +333,22 @@ export function useLiveVoiceScreenShare(): void {
       const requestedAtMs = performance.now();
       const frame = await captureCompanionScreen(target);
       if (stale()) {
-        return;
+        return false;
       }
       if (frame === null) {
         lowerShare();
-        return;
+        return false;
       }
       const bytes = decodeBase64Payload(frame.jpegBase64);
       if (bytes === null) {
         console.warn(
           "[live-voice screen share] the helper's frame is not a picture; skipped",
         );
-        return;
+        return false;
       }
       const grid = await stillFrameGrid(bytes, grids);
       if (stale()) {
-        return;
+        return false;
       }
       const nowMs = performance.now();
       // What this occasion is about to make the gate's baseline, copied out
@@ -343,16 +359,17 @@ export function useLiveVoiceScreenShare(): void {
         grid === null
           ? null
           : { grid: new Uint8Array(grid), atMs: nowMs, seq: judgedSeq };
+      // A drawing on the frame outranks the look it was taken for: the marks
+      // are what the user pointed at, and the session answers a look only
+      // from a frame reported as one.
+      const unjudged = drawing !== null ? "drawing" : fresh;
       let keep: SightKeepOrigin;
-      if (drawing !== null || look) {
+      if (unjudged !== null) {
         if (grid !== null) {
           gate.adopt(grid, nowMs);
           baseline = judged;
         }
-        // A drawing on the frame outranks the look it was taken for: the
-        // marks are what the user pointed at, and the session answers a look
-        // only from a frame reported as one.
-        keep = { reason: drawing !== null ? "drawing" : LOOK_FRAME_REASON };
+        keep = { reason: unjudged };
       } else {
         // A frame the gate cannot read is not sent unjudged: that is the
         // second frame of one view this file exists to stop, and a share
@@ -361,7 +378,7 @@ export function useLiveVoiceScreenShare(): void {
           console.warn(
             "[live-voice screen share] frame could not be judged; skipped",
           );
-          return;
+          return false;
         }
         if (askedAtMs !== null) {
           // The ask stands from when the question started: the picture was
@@ -375,7 +392,7 @@ export function useLiveVoiceScreenShare(): void {
             reason: decision.reason,
             novelty: decision.novelty,
           });
-          return;
+          return false;
         }
         keep =
           decision.reason === "forced" && armedAtMs !== null
@@ -413,6 +430,7 @@ export function useLiveVoiceScreenShare(): void {
             arrived(judged);
           }
           reportCompanionSharedFrame(target);
+          onSettled?.();
         },
         // A run that has since ended has nothing to put back, and a drawing
         // the gate could not read never moved it.
@@ -420,29 +438,46 @@ export function useLiveVoiceScreenShare(): void {
           if (judged !== null && !stale()) {
             lost(judged);
           }
+          onSettled?.();
         },
       });
+      return true;
     };
 
     const share = (
       drawing: SharedDrawing | null = null,
       askedAtMs: number | null = null,
-      look = false,
+      fresh: FreshFrameReason | null = null,
+      onSettled: (() => void) | null = null,
     ): void => {
       // Stamped now rather than when the occasion is dequeued, so a stop or
       // a reconnect that lands while it waits is one it cannot outlive.
       const run = generation;
       queue = queue
-        .then(() => take(drawing, run, askedAtMs, look))
-        .catch((err: unknown) => {
-          // One occasion, filed. The queue goes on, so a decode that threw
-          // cannot hold every later frame behind it.
-          captureError(err, { context: ERROR_CONTEXT, bestEffort: true });
-        });
+        .then(() => take(drawing, run, askedAtMs, fresh, onSettled))
+        .then(
+          (handedOff) => {
+            // Stale, not taken, not readable: nothing will come of it, and
+            // whoever waits on it can go now.
+            if (!handedOff) {
+              onSettled?.();
+            }
+          },
+          (err: unknown) => {
+            // One occasion, filed. The queue goes on, so a decode that threw
+            // cannot hold every later frame behind it.
+            captureError(err, { context: ERROR_CONTEXT, bestEffort: true });
+            onSettled?.();
+          },
+        );
     };
 
     // A share a look started owes that look its first frame.
-    share(null, null, takeLiveVoiceLookFrame("screen"));
+    share(
+      null,
+      null,
+      takeLiveVoiceLookFrame("screen") ? LOOK_FRAME_REASON : null,
+    );
     let speaking = isLiveVoiceUserSpeaking(useLiveVoiceStore.getState());
     let reconnecting = useLiveVoiceStore.getState().reconnecting;
     // The drawing this run has already sent. A run that starts with one
@@ -450,6 +485,9 @@ export function useLiveVoiceScreenShare(): void {
     // it names are long since faded off the shared surface, and a frame taken
     // for them now would be of a screen with nothing on it.
     let annotation = useLiveVoiceStore.getState().shareAnnotation?.id ?? 0;
+    // The newest fresh-frame ask this run has taken up. One made before the
+    // run is not its to answer: its waiter gives up on its own clock.
+    let screenFrameAsk = useLiveVoiceStore.getState().screenFrameAsked;
     const unsubscribe = useLiveVoiceStore.subscribe((session) => {
       // **The stop is honoured here, not in the cleanup below.** A store
       // subscriber runs inside the `set` that ends the share; the cleanup is
@@ -504,7 +542,19 @@ export function useLiveVoiceScreenShare(): void {
         session.lookFrameRequested.screen &&
         takeLiveVoiceLookFrame("screen")
       ) {
-        share(null, null, true);
+        share(null, null, LOOK_FRAME_REASON);
+        return;
+      }
+      // **So does a turn waiting on the view it reports**, a press on a
+      // pointed-at control above all: the click has changed the screen, and
+      // the turn saying so is held until this frame is in, so the assistant
+      // answers from the new view rather than asking to look first.
+      if (session.screenFrameAsked !== screenFrameAsk) {
+        const ask = session.screenFrameAsked;
+        screenFrameAsk = ask;
+        share(null, null, PRESS_FRAME_REASON, () => {
+          useLiveVoiceStore.getState().answerScreenFrame(ask);
+        });
         return;
       }
       // The hand is still down. Whatever moved, it is not worth a frame: the

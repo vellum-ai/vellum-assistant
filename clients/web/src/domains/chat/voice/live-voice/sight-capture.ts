@@ -88,6 +88,13 @@ export interface SightSharedFrame {
  */
 export const LOOK_FRAME_REASON = "look";
 
+/**
+ * The keep reason of the fresh frame taken for a turn about to report
+ * something the user did on screen (a press on a pointed-at control). The
+ * daemon only logs it: the turn that follows reads the frame like any other.
+ */
+export const PRESS_FRAME_REASON = "press";
+
 /** Why a frame was kept, for the timing it reports. */
 export interface SightKeepOrigin {
   /**

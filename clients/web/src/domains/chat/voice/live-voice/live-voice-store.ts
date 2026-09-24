@@ -562,6 +562,19 @@ export interface LiveVoiceState {
    */
   lookFrameRequested: { readonly screen: boolean; readonly camera: boolean };
   /**
+   * Fresh frames of the shared screen asked for by a turn about to go out,
+   * counted: `screenFrameAsked` is the newest ask and `screenFrameAnswered`
+   * the newest one the share is done with, sent or not. The turn waits for
+   * its ask to be answered, so the view it is read against is one taken
+   * after the thing it reports. See {@link requestLiveVoiceScreenFrame}.
+   *
+   * Monotonic across sessions, like `sessionGeneration`, so an ask from one
+   * session can never be mistaken for an answer in the next.
+   */
+  screenFrameAsked: number;
+  /** See {@link screenFrameAsked}. */
+  screenFrameAnswered: number;
+  /**
    * Whether the user has the mouse down on the shared surface, drawing.
    *
    * The reason it is here rather than left to the drawing itself: while it is
@@ -786,6 +799,10 @@ export interface LiveVoiceActions {
   setCameraLookRequest: (cameraLookRequest: CameraLookRequest | null) => void;
   /** Raise or take a look's frame ask. See `lookFrameRequested`. */
   setLookFrameRequested: (source: LookFrameSource, requested: boolean) => void;
+  /** Raise a fresh screen frame ask and return its number. */
+  askScreenFrame: () => number;
+  /** Record that the share is done with ask `ask`. */
+  answerScreenFrame: (ask: number) => void;
   /**
    * Record a mark the user is making on the shared surface: the hand going
    * down, or coming off with the strokes it left.
@@ -1007,11 +1024,15 @@ export function isLiveVoiceSessionOwnedBy(
 
 /**
  * Session-scoped fields restored by `reset()`. Excludes `starter`
- * (mount-scoped) and `sessionGeneration` (monotonic across sessions).
+ * (mount-scoped) and the counters that are monotonic across sessions.
  */
 const INITIAL_SESSION_STATE: Omit<
   LiveVoiceState,
-  "starter" | "sessionGeneration" | "sightFramesToReclaim"
+  | "starter"
+  | "sessionGeneration"
+  | "sightFramesToReclaim"
+  | "screenFrameAsked"
+  | "screenFrameAnswered"
 > = {
   state: "idle",
   firstRunCardOpen: false,
@@ -1177,6 +1198,8 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
   starter: null,
   sessionGeneration: 0,
   sightFramesToReclaim: [],
+  screenFrameAsked: 0,
+  screenFrameAnswered: 0,
 
   setState: (state) => set({ state }),
   setAssistantAudioActive: (assistantAudioActive) =>
@@ -1355,6 +1378,18 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
     set((s) => ({
       lookFrameRequested: { ...s.lookFrameRequested, [source]: requested },
     })),
+  askScreenFrame: () => {
+    let ask = 0;
+    set((s) => {
+      ask = s.screenFrameAsked + 1;
+      return { screenFrameAsked: ask };
+    });
+    return ask;
+  },
+  answerScreenFrame: (ask) =>
+    set((s) =>
+      ask > s.screenFrameAnswered ? { screenFrameAnswered: ask } : {},
+    ),
   setScreenShareTarget: (screenShareTarget) =>
     set((s) => ({
       screenShareTarget,
@@ -1714,6 +1749,50 @@ export function takeLiveVoiceLookFrame(source: LookFrameSource): boolean {
   }
   state.setLookFrameRequested(source, false);
   return true;
+}
+
+/**
+ * Take a fresh frame of the shared screen now, and resolve once the share is
+ * done with it: sent to the session, or given up on. Resolves at once when
+ * nothing is being shared, and after `timeoutMs` at the latest, so a caller
+ * waiting to send a turn behind the frame never waits on a frame that cannot
+ * come.
+ *
+ * Like a look's frame, it is not judged by the gate: the caller is about to
+ * say something happened on screen, and the turn has to read a view taken
+ * after it, not the last keep from before.
+ *
+ * Sent before anything the caller sends next, on the same socket, which is
+ * what has the daemon hold that turn for the frame's persist.
+ */
+export function requestLiveVoiceScreenFrame(timeoutMs: number): Promise<void> {
+  const state = useLiveVoiceStore.getState();
+  if (
+    state.screenShareTarget === null ||
+    !isLiveVoiceSessionActive(state.state) ||
+    state.sightFramesUnsupported
+  ) {
+    return Promise.resolve();
+  }
+  const generation = state.sessionGeneration;
+  const ask = state.askScreenFrame();
+  return new Promise((resolve) => {
+    const done = (): void => {
+      clearTimeout(timer);
+      unsubscribe();
+      resolve();
+    };
+    const timer = setTimeout(done, timeoutMs);
+    const unsubscribe = useLiveVoiceStore.subscribe((s) => {
+      if (
+        s.screenFrameAnswered >= ask ||
+        s.screenShareTarget === null ||
+        s.sessionGeneration !== generation
+      ) {
+        done();
+      }
+    });
+  });
 }
 
 /**
