@@ -876,22 +876,24 @@ describe("parseWorkbook", () => {
   });
 
   test("keeps a self-closing item as an empty string", async () => {
+    // The item after the self-closing one is unwanted, so a scan that runs
+    // past `<si/>` pairs index 2 with `beta` rather than `gamma`.
     const grid = await readOneSheet(
       [
         [
           { t: "s", v: 0 },
-          { t: "s", v: 1 },
+          { t: "s", v: 2 },
         ],
       ],
       {
-        sharedStrings: ["", "beta"],
+        sharedStrings: ["", "beta", "gamma"],
         parts: {
-          "xl/sharedStrings.xml": `<sst xmlns="${MAIN_NS}" count="2" uniqueCount="2"><si/><si><t>beta</t></si></sst>`,
+          "xl/sharedStrings.xml": `<sst xmlns="${MAIN_NS}" count="3" uniqueCount="3"><si/><si><t>beta</t></si><si><t>gamma</t></si></sst>`,
         },
       },
     );
 
-    expect(grid.rows).toEqual([["", "beta"]]);
+    expect(grid.rows).toEqual([["", "gamma"]]);
   });
 
   test("leaves shared string markers inside a comment out of the string count", async () => {
