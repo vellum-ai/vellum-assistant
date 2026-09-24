@@ -17,7 +17,6 @@
     "folderAriaLabel": "郵件資料夾",
     "inboxTab": "已接收",
     "sentTab": "寄件備份",
-    "count": "{count, plural, other {# 封郵件}}",
     "inboxEmptyTitle": "還沒有郵件",
     "inboxEmptyBody": "把 {address} 分享出去，寄到這裡的郵件都會顯示在這裡。",
     "sentEmptyTitle": "還沒有寄出的郵件",

@@ -17,7 +17,6 @@
     "folderAriaLabel": "Carpeta de correo",
     "inboxTab": "Recibidos",
     "sentTab": "Enviados",
-    "count": "{count, plural, one {# correo} other {# correos}}",
     "inboxEmptyTitle": "Todavía no hay nada",
     "inboxEmptyBody": "Comparte {address} y todo lo que llegue aparecerá aquí.",
     "sentEmptyTitle": "Aún no hay correos enviados",

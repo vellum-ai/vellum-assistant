@@ -17,7 +17,6 @@
     "folderAriaLabel": "Mail folder",
     "inboxTab": "Inbox",
     "sentTab": "Sent",
-    "count": "{count, plural, one {# email} other {# emails}}",
     "inboxEmptyTitle": "Nothing here yet",
     "inboxEmptyBody": "Share {address} and anything sent there shows up here.",
     "sentEmptyTitle": "No sent mail yet",

@@ -257,8 +257,8 @@ export function AssistantInboxPage({
       />
 
       <div className="relative grid min-h-0 flex-1 grid-cols-1 gap-4 px-2 pb-2 pt-1 md:grid-cols-[minmax(280px,360px)_1fr]">
-        {/* The list card owns the folder switch, the count, and the search:
-            all three are about the rows under them and nothing else. */}
+        {/* The list card owns the folder switch and the search: both are
+            about the rows under them and nothing else. */}
         <Card
           bordered={false}
           noPadding
@@ -281,9 +281,6 @@ export function AssistantInboxPage({
                   {t("assistantInboxPage.sentTab")}
                 </TabsTrigger>
               </TabsList>
-              <h2 className="text-title-medium text-[var(--content-emphasised)]">
-                {t("assistantInboxPage.count", { count: folderEmails.length })}
-              </h2>
               {folderEmails.length > 0 ? (
                 <Input
                   type="text"

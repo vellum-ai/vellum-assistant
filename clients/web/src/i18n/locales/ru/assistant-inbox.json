@@ -17,7 +17,6 @@
     "folderAriaLabel": "Папка почты",
     "inboxTab": "Полученные",
     "sentTab": "Отправленные",
-    "count": "{count, plural, one {# письмо} few {# письма} many {# писем} other {# письма}}",
     "inboxEmptyTitle": "Пока пусто",
     "inboxEmptyBody": "Поделитесь адресом {address}, и всё, что на него придёт, появится здесь.",
     "sentEmptyTitle": "Отправленных писем пока нет",
