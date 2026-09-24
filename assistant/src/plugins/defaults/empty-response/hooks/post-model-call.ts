@@ -203,12 +203,17 @@ const postModelCall: HookFunction<PostModelCallContext> = async (ctx) => {
     !priorAssistantHadVisibleText;
 
   if (isEmptyTurnAfterTools) {
-    // Only the user-facing reply gets the re-query nudge. Background, subagent,
-    // and compaction calls have no user awaiting a summary, and the
-    // post-model-call contract requires self-gating on call site to avoid
-    // re-querying them. The refusal-rewrite above is a user-facing terminal
-    // fallback, not a re-query, so it stays ungated.
-    if (ctx.callSite !== "mainAgent") {
+    // Only the user-facing reply and subagent runs get the re-query nudge.
+    // Background and compaction calls have no consumer awaiting a summary, and
+    // the post-model-call contract requires self-gating on call site to avoid
+    // re-querying them. Subagents DO need the nudge: without it, an empty
+    // model response after a tool result makes the agent loop exit via
+    // "no_tool_calls" and the runner reports the subagent as `completed` with
+    // empty output — a silent failure the parent can't distinguish from a
+    // real result (see vellum-ai/vellum-assistant#43327). The refusal-rewrite
+    // above is a user-facing terminal fallback, not a re-query, so it stays
+    // ungated.
+    if (ctx.callSite !== "mainAgent" && ctx.callSite !== "subagentSpawn") {
       return;
     }
 
