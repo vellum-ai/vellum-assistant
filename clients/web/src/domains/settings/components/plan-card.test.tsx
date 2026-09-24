@@ -1168,11 +1168,14 @@ describe("PlanCard usage balance", () => {
       "Resets at",
     );
     const overall = getByTestId("plan-usage-balance");
-    expect(overall.textContent).toContain("Current Usage");
+    expect(overall.textContent).toContain("Monthly Usage");
     // Above, not below: the daily bar leads the tile's footer.
     expect(
       daily.compareDocumentPosition(overall) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
+    // Both readings sit in the one bordered panel, not a block each.
+    expect(daily.parentElement).toBe(getByTestId("plan-usage-panel"));
+    expect(overall.parentElement).toBe(daily.parentElement);
   });
 
   test("no daily bar outside the free-tier cohort", async () => {
@@ -1255,7 +1258,7 @@ describe("PlanCard usage balance", () => {
 
     // $10 of the $25 the cycle granted is gone.
     const panel = await findByTestId("plan-usage-balance");
-    expect(panel.textContent).toContain("Current Usage");
+    expect(panel.textContent).toContain("Monthly Usage");
     expect(panel.textContent).toContain("Resets on Aug 10");
     expect(panel.textContent).toContain("40% used");
     // The bar is the replacement, so the monthly price must not stand beside
@@ -1565,7 +1568,7 @@ describe("PlanCard usage balance", () => {
     );
 
     const panel = await findByTestId("plan-usage-balance");
-    expect(panel.textContent).toContain("Current Usage");
+    expect(panel.textContent).toContain("Overall Usage");
     expect(panel.textContent).toContain("68% used");
     // The base fixture carries a `current_period_end`, so this proves the gate
     // is the plan rather than the field.
