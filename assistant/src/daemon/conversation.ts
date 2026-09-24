@@ -124,6 +124,7 @@ import { ComputerUseModeSessionProducer } from "./computer-use-mode-session.js";
 import type { AssistantSurface } from "./conversation-agent-loop.js";
 import {
   applyCompactionResult,
+  compactedHistoryTrust,
   runAgentLoopImpl,
 } from "./conversation-agent-loop.js";
 import type { HistoryConversationContext } from "./conversation-history.js";
@@ -193,7 +194,6 @@ import { HostAppControlProxy } from "./host-app-control-proxy.js";
 import { HostCuProxy } from "./host-cu-proxy.js";
 import { shouldAttachHostProxyForCapability } from "./host-proxy-preactivation.js";
 import type { SurfaceType, UsageStats } from "./message-protocol.js";
-import { filterMessagesForUntrustedActor } from "./message-provenance.js";
 import type { ConversationTransportMetadata } from "./message-types/conversations.js";
 import { isHostProxyTransport } from "./message-types/conversations.js";
 import { conversationMetadataSyncTag } from "./message-types/sync.js";
@@ -201,7 +201,7 @@ import { bestEffortModeSessionTracking } from "./mode-session-tracking.js";
 import { renderReactionHistoryText } from "./reaction-history-render.js";
 import type { QueuedReactionRecord } from "./reaction-record.js";
 import {
-  scopeRowsForSharedReader,
+  scopeRowsForTurn,
   sharedTranscriptReader,
 } from "./shared-conversation-history.js";
 import {
@@ -713,6 +713,12 @@ export class Conversation {
   /** @internal */ loadedHistoryTrustClass?: TrustClass;
   /** @internal */ loadedHistoryPersonalMemoryAllowed?: boolean;
   /** @internal */ loadedHistorySharedReader?: string;
+  /**
+   * @internal The trust the resident history was loaded under, absent before
+   * the first load. Compaction reads it rather than the resting slot, which
+   * another sender can restamp after the load.
+   */
+  loadedHistoryScope?: { trustContext: TrustContext | undefined };
   /** @internal */ loadedHistoryStale = false;
   /**
    * @internal Reactions the current turn delivered, awaiting their durable
@@ -1366,16 +1372,12 @@ export class Conversation {
     this.loadedHistoryStale = false;
     const trustClass = this.trustContext?.trustClass;
     const canAccessMemory = resolveCapabilities(trustClass).canAccessMemory;
-    const sharedReader = sharedTranscriptReader(
+    const allDbMessages = getMessages(this.conversationId);
+    const { rows: dbMessages, sharedReader } = scopeRowsForTurn(
       this.conversationId,
+      allDbMessages,
       this.trustContext,
     );
-    const allDbMessages = getMessages(this.conversationId);
-    const dbMessages = canAccessMemory
-      ? allDbMessages
-      : sharedReader
-        ? scopeRowsForSharedReader(allDbMessages, sharedReader)
-        : filterMessagesForUntrustedActor(allDbMessages);
 
     // Rehydrate the in-memory turn counter from persisted history. `turnCount`
     // is otherwise a fresh-zero field, so a reloaded conversation (eviction,
@@ -1935,6 +1937,7 @@ export class Conversation {
     this.loadedHistoryTrustClass = trustClass;
     this.loadedHistoryPersonalMemoryAllowed = personalMemoryAllowed;
     this.loadedHistorySharedReader = sharedReader?.principalId;
+    this.loadedHistoryScope = { trustContext: this.trustContext };
 
     const loadElapsedMs = performance.now() - loadStartedAt;
     log.info(
@@ -3204,7 +3207,7 @@ export class Conversation {
       signal: this.abortController?.signal ?? undefined,
       force,
       overrideProfile,
-      actorTrustClass: this.trustContext?.trustClass,
+      actorTrust: compactedHistoryTrust(this),
       fixedTailStartIndex: opts?.fixedTailStartIndex,
       fixedBoundaryRowIndex: opts?.fixedBoundaryRowIndex,
     });

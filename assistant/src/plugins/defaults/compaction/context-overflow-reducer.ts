@@ -39,7 +39,7 @@ import {
   stripMediaPayloadsForRetry,
 } from "../../../daemon/conversation-media-retry.js";
 import type { InjectionMode } from "../../../daemon/conversation-runtime-assembly.js";
-import type { TrustClass } from "../../../runtime/actor-trust-resolver.js";
+import type { TrustContext } from "../../../daemon/trust-context-types.js";
 import { getLogger } from "../../../util/logger.js";
 import { defaultCompact, defaultEmergencyCompact } from "./compact.js";
 import type {
@@ -130,8 +130,8 @@ export interface ReducerConfig {
   conversationId: string;
   /** Per-conversation inference-profile override for the summary call. */
   overrideProfile?: string | null;
-  /** Trust class of the actor whose turn triggered overflow recovery. */
-  actorTrustClass?: TrustClass;
+  /** Trust of the actor whose turn triggered overflow recovery. */
+  actorTrust?: TrustContext;
   /**
    * The provider-reported estimate at the overflow that triggered recovery.
    * Sizes the emergency summarize-around-last-tool-pair cut.
@@ -337,7 +337,7 @@ async function applyForcedCompaction(
     signal,
     ...compactionOptions,
     overrideProfile: config.overrideProfile ?? null,
-    actorTrustClass: config.actorTrustClass,
+    actorTrust: config.actorTrust,
   });
   const nextMessages = result.compacted ? result.messages : messages;
   const estimatedTokens = result.compacted
@@ -528,7 +528,7 @@ async function applyAutoCompressLatestTurn(
     signal,
     ...compactionOptions,
     overrideProfile: config.overrideProfile ?? null,
-    actorTrustClass: config.actorTrustClass,
+    actorTrust: config.actorTrust,
   });
   const nextMessages = result.compacted ? result.messages : messages;
   const estimatedTokens = result.compacted

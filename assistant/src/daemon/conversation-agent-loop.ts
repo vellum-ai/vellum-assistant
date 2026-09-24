@@ -113,6 +113,7 @@ import {
   dispatchAgentEvent,
   type EventHandlerDeps,
   finalizePendingToolResultRow,
+  isSharedTranscriptHistory,
   resetInjectionLedgersForStrip,
   selectFinalComputerUseScreenshotCandidate,
   settlePendingPartialFlush,
@@ -2642,12 +2643,30 @@ export interface CompactionApplyContext {
   readonly provider: Provider;
   usageStats: UsageStats;
   trustContext?: TrustContext;
+  /** The trust the resident history was loaded under, absent before a load. */
+  readonly loadedHistoryScope?: { trustContext: TrustContext | undefined };
+  /** Principal the resident history was loaded for as a shared transcript. */
+  readonly loadedHistorySharedReader?: string;
+}
+
+/**
+ * The trust the history being compacted was loaded under. The resting slot is
+ * only the fallback for a history that was never loaded, because another
+ * sender can restamp it after the load.
+ */
+export function compactedHistoryTrust(
+  ctx: Pick<CompactionApplyContext, "loadedHistoryScope" | "trustContext">,
+): TrustContext | undefined {
+  return ctx.loadedHistoryScope
+    ? ctx.loadedHistoryScope.trustContext
+    : ctx.trustContext;
 }
 
 /**
  * Applies a successful `ContextWindowResult` to a conversation: updates the
- * in-memory message buffer and compaction counters, notifies the graph memory
- * and conversation-summary store, emits the
+ * in-memory message buffer and, except on a shared-conversation participant's
+ * turn, the persisted compaction state, notifies the graph memory and
+ * conversation-summary store, emits the
  * `context_compacted` event, and records a `context_compactor` usage event.
  *
  * The emitted `usage_update` intentionally omits `contextWindow` — the
@@ -2695,45 +2714,57 @@ export async function applyCompactionResult(
   } = {},
 ): Promise<void> {
   ctx.messages = result.messages;
-  // Compaction operates on the in-context history. Untrusted actor views
-  // render that history unsliced (boundary 0); trusted views start past the
-  // already-compacted prefix (the mirrored DB count). Advance from that
-  // in-context boundary rather than the raw mirror so the persisted count
-  // stays consistent with what the new summary represents and never
-  // double-counts an unsliced untrusted view.
-  const inContextCompactedCount = !resolveCapabilities(
-    ctx.trustContext?.trustClass,
-  ).canAccessMemory
-    ? 0
-    : ctx.contextCompactedMessageCount;
-  ctx.contextCompactedMessageCount =
-    inContextCompactedCount + result.compactedPersistedMessages;
-  ctx.contextSummary = result.summaryText;
-  const compactedAt = Date.now();
-  ctx.contextCompactedAt = compactedAt;
-  updateConversationContextWindow(
-    ctx.conversationId,
-    result.summaryText,
-    ctx.contextCompactedMessageCount,
-  );
-  if (options.slackContextCompactionWatermarkTs) {
-    updateConversationSlackContextWatermark(
+  // A shared transcript's row count indexes nothing in the guardian's rows and
+  // its summary leaves out what the projection drops, so its compaction stays
+  // in this resident history and nothing persisted changes.
+  const persistsCompaction = !isSharedTranscriptHistory(ctx);
+  if (persistsCompaction) {
+    // Compaction operates on the in-context history. Untrusted actor views
+    // render that history unsliced (boundary 0); trusted views start past the
+    // already-compacted prefix (the mirrored DB count). Advance from that
+    // in-context boundary rather than the raw mirror so the persisted count
+    // stays consistent with what the new summary represents and never
+    // double-counts an unsliced untrusted view.
+    const inContextCompactedCount = !resolveCapabilities(
+      compactedHistoryTrust(ctx)?.trustClass,
+    ).canAccessMemory
+      ? 0
+      : ctx.contextCompactedMessageCount;
+    ctx.contextCompactedMessageCount =
+      inContextCompactedCount + result.compactedPersistedMessages;
+    ctx.contextSummary = result.summaryText;
+    const compactedAt = Date.now();
+    ctx.contextCompactedAt = compactedAt;
+    updateConversationContextWindow(
       ctx.conversationId,
-      options.slackContextCompactionWatermarkTs,
-      compactedAt,
+      result.summaryText,
+      ctx.contextCompactedMessageCount,
     );
-    ctx.slackContextCompactionWatermarkTs =
-      options.slackContextCompactionWatermarkTs;
+    if (options.slackContextCompactionWatermarkTs) {
+      updateConversationSlackContextWatermark(
+        ctx.conversationId,
+        options.slackContextCompactionWatermarkTs,
+        compactedAt,
+      );
+      ctx.slackContextCompactionWatermarkTs =
+        options.slackContextCompactionWatermarkTs;
+    }
   }
   // The ledgers reset only once the compaction commit above has landed: a
   // commit that throws aborts the turn with the ledgers untouched, so a reload
   // of the un-compacted history finds its frozen blocks still claimed. The
   // compacted history is the summary plus the compactor's stripped tail, so
   // the reset then runs even when the marker cannot be made durable.
-  await resetInjectionLedgersForStrip(ctx, result.compactedPersistedMessages, {
-    historyStripMarkerDurable: options.historyStripMarkerDurable,
-    historyAlreadyStripped: true,
-  });
+  if (persistsCompaction) {
+    await resetInjectionLedgersForStrip(
+      ctx,
+      result.compactedPersistedMessages,
+      {
+        historyStripMarkerDurable: options.historyStripMarkerDurable,
+        historyAlreadyStripped: true,
+      },
+    );
+  }
   enqueueMemoryRetrospectiveOnCompaction(
     ctx.conversationId,
     ctx.trustContext?.trustClass,

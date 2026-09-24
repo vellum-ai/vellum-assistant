@@ -12,6 +12,8 @@
 
 import { describe, expect, mock, test } from "bun:test";
 
+import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../daemon/trust-context.js";
+
 // `defaultCompact` resolves the manager from the per-conversation compaction
 // store. Register each test's canned stub in a map the mocked store reads from.
 const fakeContextWindowManagers = new Map<string, unknown>();
@@ -129,7 +131,7 @@ describe("defaultCompact", () => {
       overrideProfile: "fast-profile",
       precomputedEstimate: 1234,
       minKeepRecentUserTurns: 0,
-      actorTrustClass: "guardian",
+      actorTrust: INTERNAL_GUARDIAN_TRUST_CONTEXT,
     });
 
     // THEN the manager received exactly those options, and the conversation id,
@@ -140,7 +142,7 @@ describe("defaultCompact", () => {
       overrideProfile: "fast-profile",
       precomputedEstimate: 1234,
       minKeepRecentUserTurns: 0,
-      actorTrustClass: "guardian",
+      actorTrust: INTERNAL_GUARDIAN_TRUST_CONTEXT,
     });
   });
 
