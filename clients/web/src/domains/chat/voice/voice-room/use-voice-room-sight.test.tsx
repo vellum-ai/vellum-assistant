@@ -29,6 +29,7 @@ import type { UploadAttachmentResult } from "@/domains/chat/api/messages";
 import type { ForcedKeepOptions } from "@/lib/camera/frame-gate";
 import type { FrameSamplerOptions } from "@/lib/camera/frame-sampler";
 import type { NativeFrameSourceOptions } from "@/lib/camera/native-frame-source";
+import { buildDiagnosticsSnapshot } from "@/lib/diagnostics";
 
 import type { VoiceRoomSight } from "./use-voice-room-sight";
 
@@ -1768,6 +1769,43 @@ describe("useVoiceRoomSight: closing and flipping", () => {
 });
 
 describe("useVoiceRoomSight: the native preview", () => {
+  test("includes native sampling failures in exported feedback diagnostics", () => {
+    renderSight({ nativePreview: true, live: true });
+    nativeSourceOptions!.onDiagnostics!({
+      event: "sampling",
+      attempts: 2,
+      captureRequests: 4,
+      emptyCaptures: 0,
+      captureTimeouts: 0,
+      decodeFailures: 0,
+      sampleErrors: 0,
+      pairGapRejections: 2,
+      decisions: 0,
+      keeps: 0,
+      lastCaptureMs: 80,
+      maxCaptureMs: 85,
+      lastPairGapMs: 165,
+      maxPairGapMs: 170,
+      pairGapLimitMs: 120,
+    });
+    const snapshot = buildDiagnosticsSnapshot(null);
+    expect(snapshot.lifecycleEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "native_camera_sampling",
+          details: expect.objectContaining({
+            assistantId: ASSISTANT_ID,
+            conversationId: useLiveVoiceStore.getState().conversationId,
+            pairGapRejections: 2,
+            decisions: 0,
+            lastPairGapMs: 165,
+            pairGapLimitMs: 120,
+          }),
+        }),
+      ]),
+    );
+  });
+
   /** Offer one kept frame to the running poll and settle the upload. */
   async function keepNativeFrame(bytes: number[]): Promise<Blob> {
     const sample = new Blob([new Uint8Array(bytes)], { type: "image/jpeg" });

@@ -218,6 +218,46 @@ export interface DecodedFrame {
 /** Turns sampled JPEG bytes into something the downscale chain can draw. */
 export type FrameDecoder = (blob: Blob) => Promise<DecodedFrame | null>;
 
+/** Per-run sampling totals. Contains no images or raw bridge errors. */
+export interface NativeFrameDiagnostics {
+  readonly event: "started" | "sampling" | "stopped";
+  readonly attempts: number;
+  readonly captureRequests: number;
+  readonly emptyCaptures: number;
+  readonly captureTimeouts: number;
+  readonly decodeFailures: number;
+  readonly sampleErrors: number;
+  readonly pairGapRejections: number;
+  readonly decisions: number;
+  readonly keeps: number;
+  readonly lastCaptureMs: number | null;
+  readonly maxCaptureMs: number;
+  readonly lastPairGapMs: number | null;
+  readonly maxPairGapMs: number;
+  readonly pairGapLimitMs: number;
+}
+
+const DIAGNOSTICS_INTERVAL_MS = 30_000;
+
+function emptyDiagnostics(): Omit<NativeFrameDiagnostics, "event"> {
+  return {
+    attempts: 0,
+    captureRequests: 0,
+    emptyCaptures: 0,
+    captureTimeouts: 0,
+    decodeFailures: 0,
+    sampleErrors: 0,
+    pairGapRejections: 0,
+    decisions: 0,
+    keeps: 0,
+    lastCaptureMs: null,
+    maxCaptureMs: 0,
+    lastPairGapMs: null,
+    maxPairGapMs: 0,
+    pairGapLimitMs: NATIVE_PAIR_MAX_GAP_MS,
+  };
+}
+
 export interface NativeFrameSourceOptions {
   readonly gate: FrameGate;
   /**
@@ -235,6 +275,8 @@ export interface NativeFrameSourceOptions {
     nowMs: number,
     sample: Blob,
   ) => void;
+  /** Reports start, first attempt, periodic totals and stop, outside capture timing. */
+  readonly onDiagnostics?: (diagnostics: NativeFrameDiagnostics) => void;
   /** Gap between samples, defaulting to {@link NATIVE_FRAME_SAMPLE_INTERVAL_MS}. */
   readonly intervalMs?: number;
   /** Decode step, defaulting to the platform image decoder. */
@@ -331,6 +373,27 @@ export function createNativeFrameSource(
   const decode = options.decode ?? decodeWithImageBitmap;
   const now = options.now ?? (() => performance.now());
   const grids = createFrameGridProducer();
+
+  let diagnostics = emptyDiagnostics();
+  let lastDiagnosticsAtMs = -Infinity;
+
+  function reportDiagnostics(event: NativeFrameDiagnostics["event"]): void {
+    if (!options.onDiagnostics) {
+      return;
+    }
+    const atMs = now();
+    if (event === "sampling") {
+      if (atMs - lastDiagnosticsAtMs < DIAGNOSTICS_INTERVAL_MS) {
+        return;
+      }
+      lastDiagnosticsAtMs = atMs;
+    }
+    try {
+      options.onDiagnostics({ ...diagnostics, event });
+    } catch {
+      // Diagnostic consumers cannot interrupt capture or teardown.
+    }
+  }
 
   let timer: ReturnType<typeof setInterval> | null = null;
   /**
@@ -436,7 +499,22 @@ export function createNativeFrameSource(
         return null;
       }
       const requestedAtMs = now();
+      diagnostics = {
+        ...diagnostics,
+        captureRequests: diagnostics.captureRequests + 1,
+      };
       const { answered, encoded } = await withReleaseDeadline(captureSample());
+      if (generation === run) {
+        const durationMs = now() - requestedAtMs;
+        diagnostics = {
+          ...diagnostics,
+          lastCaptureMs: durationMs,
+          maxCaptureMs: Math.max(diagnostics.maxCaptureMs, durationMs),
+          captureTimeouts: diagnostics.captureTimeouts + Number(!answered),
+          emptyCaptures:
+            diagnostics.emptyCaptures + Number(answered && !encoded),
+        };
+      }
       // Abandoned. The queue moves on, this tick produces nothing, and the
       // next one asks a camera that may since have come back.
       return answered ? { encoded, requestedAtMs } : null;
@@ -474,23 +552,32 @@ export function createNativeFrameSource(
     sample: CapturedSample,
     run: number,
   ): Promise<DecodedSample | null> {
+    const failed = (): null => {
+      if (generation === run) {
+        diagnostics = {
+          ...diagnostics,
+          decodeFailures: diagnostics.decodeFailures + 1,
+        };
+      }
+      return null;
+    };
     // The bridge answers with bare base64, and the shared decoder also takes
     // the data URI a plugin might send instead.
     const bytes = decodeBase64Payload(sample.encoded);
     if (!bytes) {
-      return null;
+      return failed();
     }
     const blob = new Blob([bytes], { type: "image/jpeg" });
     const frame = await decode(blob);
     if (!frame) {
-      return null;
+      return failed();
     }
     try {
       if (generation !== run) {
         return null;
       }
       const grid = grids.gridFrom(frame.image);
-      return grid ? { grid, blob } : null;
+      return grid ? { grid, blob } : failed();
     } finally {
       frame.release();
     }
@@ -519,6 +606,7 @@ export function createNativeFrameSource(
       return;
     }
     samplingGeneration = run;
+    diagnostics = { ...diagnostics, attempts: diagnostics.attempts + 1 };
     try {
       // The primer. Its bytes are never offered and never uploaded: it exists
       // so the frame that IS offered has something recent to measure motion
@@ -566,7 +654,16 @@ export function createNativeFrameSource(
       // feature that visibly does nothing rather than one that quietly sends
       // the wrong picture.
       const gapMs = second.capturedAtMs - first.capturedAtMs;
+      diagnostics = {
+        ...diagnostics,
+        lastPairGapMs: gapMs,
+        maxPairGapMs: Math.max(diagnostics.maxPairGapMs, gapMs),
+      };
       if (gapMs > NATIVE_PAIR_MAX_GAP_MS) {
+        diagnostics = {
+          ...diagnostics,
+          pairGapRejections: diagnostics.pairGapRejections + 1,
+        };
         console.debug(
           "[native-frame-source] pair outside the motion window, skipped:",
           { gapMs, limitMs: NATIVE_PAIR_MAX_GAP_MS },
@@ -578,19 +675,34 @@ export function createNativeFrameSource(
       if (!judged || generation !== run) {
         return;
       }
-      onDecision(
-        // The request time rides along as the capture's lower bound: the
-        // answer-time stamp can postdate a forced-keep arm that the picture
-        // itself predates, and the arm must not be spent on it.
-        gate.offer(judged.grid, second.capturedAtMs, second.requestedAtMs),
+      // The request time rides along as the capture's lower bound: the
+      // answer-time stamp can postdate a forced-keep arm that the picture
+      // itself predates, and the arm must not be spent on it.
+      const decision = gate.offer(
+        judged.grid,
         second.capturedAtMs,
-        judged.blob,
+        second.requestedAtMs,
       );
+      diagnostics = {
+        ...diagnostics,
+        decisions: diagnostics.decisions + 1,
+        keeps: diagnostics.keeps + Number(decision.keep),
+      };
+      onDecision(decision, second.capturedAtMs, judged.blob);
     } catch (err) {
+      if (generation === run) {
+        diagnostics = {
+          ...diagnostics,
+          sampleErrors: diagnostics.sampleErrors + 1,
+        };
+      }
       // A camera that stops answering is the common case, and the next tick is
       // its retry. Nothing a single sample can do is worth ending the poll.
       console.debug("[native-frame-source] sample failed:", err);
     } finally {
+      if (generation === run) {
+        reportDiagnostics("sampling");
+      }
       // Only this run's claim, and it spans the whole pair: a tick that lands
       // between the two samples must not start a second pair beside this one.
       // A newer run holds its own claim, and clearing that would let a second
@@ -631,15 +743,19 @@ export function createNativeFrameSource(
     invalidate();
     if (timer !== null) {
       clearInterval(timer);
+      reportDiagnostics("stopped");
     }
     timer = null;
   }
 
   function start(): void {
     stop();
+    diagnostics = emptyDiagnostics();
+    lastDiagnosticsAtMs = -Infinity;
     timer = setInterval(() => {
       void sampleOnce();
     }, intervalMs);
+    reportDiagnostics("started");
   }
 
   return { start, sampleNow, invalidate, stop };

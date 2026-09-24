@@ -255,6 +255,17 @@ which is the thing to watch for battery and heat below.
       gap it measured and the limit; capture that number in the report, since it
       is what decides whether the pairing needs retuning or the poll needs a
       native sampler.
+- [ ] **Sampling diagnostics in feedback.** Reproduce with Live enabled for at
+      least 30 seconds, close the camera, and export feedback in the same app
+      session. `web-chat-diagnostics.json` includes `native_camera_sampling`
+      lifecycle events on iOS and Android, even with the frame gate readout off.
+      These carry capture durations, measured pair gaps and the gap limit, plus
+      counts of empty captures, timeouts, decode failures, sample errors,
+      rejected pairs, decisions and keeps. Rising `pairGapRejections` with zero
+      `decisions` identifies rejection before the gate; rising `keeps` without
+      delivered frames points downstream. Totals are emitted on start, after
+      the first attempt, at most once every 30 seconds while sampling, and on
+      stop. Images and raw bridge errors are not included.
 - [ ] **Battery and thermals over a ten-minute call.** Hold Live for a sustained
       stretch and note case temperature and battery drain against the same call
       without Live. Two captures a second is the cost being measured, plus at

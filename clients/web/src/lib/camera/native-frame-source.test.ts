@@ -41,6 +41,7 @@ import {
   createNativeFrameSource,
   NATIVE_CAPTURE_SLOT_RELEASE_MS,
   type NativeFrameSourceOptions,
+  type NativeFrameDiagnostics,
   NATIVE_FRAME_SAMPLE_INTERVAL_MS,
   NATIVE_PAIR_MAX_GAP_MS,
   NATIVE_PAIR_SPACING_MS,
@@ -386,6 +387,165 @@ function createDecodeStub(): DecodeStub {
 
 let readback: Uint8ClampedArray;
 let canvasContexts: FakeContext[];
+
+describe("native frame source diagnostics", () => {
+  function setup() {
+    const { gate, offers } = createRecordingGate();
+    const capture = createCaptureStub();
+    const decode = createDecodeStub();
+    const reports: NativeFrameDiagnostics[] = [];
+    const options: NativeFrameSourceOptions = {
+      gate,
+      captureSample: capture.captureSample,
+      decode: decode.decode,
+      onDecision: () => {},
+      onDiagnostics: (report) => reports.push(report),
+      now: () => clock,
+    };
+    return { capture, decode, offers, reports, options };
+  }
+
+  test("exports timing rejections even when no frame reaches the gate", async () => {
+    const { capture, offers, reports, options } = setup();
+    const source = createNativeFrameSource(options);
+    source.start();
+    await startPair();
+    capture.latencyNext(NATIVE_PAIR_MAX_GAP_MS);
+    await advanceInSteps(NATIVE_PAIR_SPACING_MS);
+    await advanceInSteps(NATIVE_PAIR_MAX_GAP_MS);
+    source.stop();
+
+    expect(offers).toHaveLength(0);
+    expect(reports.map((report) => report.event)).toEqual([
+      "started",
+      "sampling",
+      "stopped",
+    ]);
+    expect(reports.at(-1)).toMatchObject({
+      attempts: 1,
+      captureRequests: 2,
+      emptyCaptures: 0,
+      captureTimeouts: 0,
+      decodeFailures: 0,
+      sampleErrors: 0,
+      pairGapRejections: 1,
+      decisions: 0,
+      keeps: 0,
+      lastCaptureMs: NATIVE_PAIR_MAX_GAP_MS,
+      maxCaptureMs: NATIVE_PAIR_MAX_GAP_MS,
+      lastPairGapMs: NATIVE_PAIR_SPACING_MS + NATIVE_PAIR_MAX_GAP_MS,
+      pairGapLimitMs: NATIVE_PAIR_MAX_GAP_MS,
+    });
+    expect(JSON.stringify(reports)).not.toContain(btoa("jpeg-bytes"));
+  });
+
+  test("separates empty captures, decode failures and thrown errors", async () => {
+    const { capture, reports, options } = setup();
+    const source = createNativeFrameSource({
+      ...options,
+      decode: async () => null,
+    });
+    source.start();
+    capture.emptyNext();
+    await startPair();
+    capture.rejectNext();
+    await startPair();
+    await startPair();
+    await finishPair();
+    source.stop();
+
+    expect(reports.at(-1)).toMatchObject({
+      attempts: 3,
+      captureRequests: 4,
+      emptyCaptures: 1,
+      decodeFailures: 1,
+      sampleErrors: 1,
+      pairGapRejections: 0,
+      decisions: 0,
+    });
+    expect(JSON.stringify(reports)).not.toContain("camera stopping");
+  });
+
+  test("distinguishes an unanswered bridge call from an empty capture", async () => {
+    const { capture, reports, options } = setup();
+    const source = createNativeFrameSource({
+      ...options,
+      intervalMs: NATIVE_CAPTURE_SLOT_RELEASE_MS + 1,
+    });
+    source.start();
+    capture.holdNext();
+    source.sampleNow();
+    await settle();
+    await advance(NATIVE_CAPTURE_SLOT_RELEASE_MS);
+    source.stop();
+
+    expect(reports.at(-1)).toMatchObject({
+      captureRequests: 1,
+      captureTimeouts: 1,
+      emptyCaptures: 0,
+      decisions: 0,
+      maxCaptureMs: NATIVE_CAPTURE_SLOT_RELEASE_MS,
+    });
+  });
+
+  test("bounds periodic reports and flushes cumulative counts on stop", async () => {
+    const { reports, options } = setup();
+    const source = createNativeFrameSource(options);
+    source.start();
+    await pollTimes(29);
+    expect(reports.map((report) => report.event)).toEqual([
+      "started",
+      "sampling",
+    ]);
+    await pollTimes(1);
+    expect(reports.at(-1)?.event).toBe("sampling");
+    expect(reports).toHaveLength(3);
+    expect(reports[1]?.attempts).toBe(1);
+    source.stop();
+    const final = reports.at(-1)!;
+    expect(final.event).toBe("stopped");
+    expect(final.attempts).toBeGreaterThanOrEqual(30);
+    expect(final.decisions).toBe(final.keeps);
+    expect(final.keeps).toBeGreaterThan(0);
+    source.stop();
+    expect(reports).toHaveLength(4);
+  });
+
+  test("does not attribute a retired capture to a replacement run", async () => {
+    const { capture, reports, options } = setup();
+    const source = createNativeFrameSource(options);
+    source.start();
+    capture.holdNext();
+    await startPair();
+    source.start();
+    capture.releaseHeld();
+    await settle();
+    await pollTimes(1);
+    source.stop();
+
+    expect(reports.at(-1)).toMatchObject({
+      attempts: 1,
+      captureRequests: 2,
+      decisions: 1,
+      keeps: 1,
+      maxCaptureMs: 0,
+    });
+  });
+
+  test("a diagnostic consumer failure cannot stop capture or teardown", async () => {
+    const { offers, options } = setup();
+    const source = createNativeFrameSource({
+      ...options,
+      onDiagnostics: () => {
+        throw new Error("diagnostic storage unavailable");
+      },
+    });
+    source.start();
+    await pollTimes(2);
+    source.stop();
+    expect(offers).toHaveLength(2);
+  });
+});
 
 beforeEach(() => {
   jest.useFakeTimers();
