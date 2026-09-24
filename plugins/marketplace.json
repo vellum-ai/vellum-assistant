@@ -1364,6 +1364,17 @@
       }
     },
     {
+      "name": "runway-plugin",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/runway-plugin",
+        "ref": "2a642f14ee8ca5032efefae06b6a610dec13e1a1"
+      },
+      "description": "Collaboratively direct, approve, create, track, cancel, and download Runway Gen-4.5 videos.",
+      "category": "other",
+      "submittedBy": "marina"
+    },
+    {
       "name": "semrush",
       "source": {
         "source": "local",
