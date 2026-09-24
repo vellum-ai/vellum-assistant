@@ -223,6 +223,7 @@ export interface NativeFrameDiagnostics {
   readonly event: "started" | "sampling" | "stopped";
   readonly attempts: number;
   readonly captureRequests: number;
+  readonly suppressedCaptures: number;
   readonly emptyCaptures: number;
   readonly captureTimeouts: number;
   readonly decodeFailures: number;
@@ -243,6 +244,7 @@ function emptyDiagnostics(): Omit<NativeFrameDiagnostics, "event"> {
   return {
     attempts: 0,
     captureRequests: 0,
+    suppressedCaptures: 0,
     emptyCaptures: 0,
     captureTimeouts: 0,
     decodeFailures: 0,
@@ -265,6 +267,8 @@ export interface NativeFrameSourceOptions {
    * cannot serve one. Must not reject.
    */
   readonly captureSample: () => Promise<string | null>;
+  /** Owner availability, checked when the bridge slot opens and when it answers. */
+  readonly canCapture?: () => boolean;
   /**
    * Called for every frame the gate judges, kept or skipped. `sample` is the
    * exact JPEG the decision was made on, so a keep can be persisted without
@@ -498,6 +502,13 @@ export function createNativeFrameSource(
       if (generation !== run) {
         return null;
       }
+      if (options.canCapture?.() === false) {
+        diagnostics = {
+          ...diagnostics,
+          suppressedCaptures: diagnostics.suppressedCaptures + 1,
+        };
+        return null;
+      }
       const requestedAtMs = now();
       diagnostics = {
         ...diagnostics,
@@ -541,7 +552,7 @@ export function createNativeFrameSource(
     const capturedAtMs = bound === "earliest" ? requestedAtMs : now();
     // A stop, a flip, or a camera mid-teardown answers with nothing. That is
     // the ordinary shape of this call and not a reason to end the poll.
-    if (!encoded || generation !== run) {
+    if (!encoded || generation !== run || options.canCapture?.() === false) {
       return null;
     }
     return { encoded, capturedAtMs, requestedAtMs };

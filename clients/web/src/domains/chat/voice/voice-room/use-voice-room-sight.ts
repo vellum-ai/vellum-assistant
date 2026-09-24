@@ -582,19 +582,11 @@ export function useVoiceRoomSight(
             ...diagnostics,
           });
         },
-        captureSample: async () => {
-          const run = currentRunRef.current;
-          if (!run || useLiveVoiceStore.getState().reconnecting) {
-            return null;
-          }
-          const sample = await captureNativeVoiceCameraSample(
-            NATIVE_CAPTURE_QUALITY,
-          );
-          return currentRunRef.current === run &&
-            !useLiveVoiceStore.getState().reconnecting
-            ? sample
-            : null;
-        },
+        canCapture: () =>
+          currentRunRef.current !== null &&
+          !useLiveVoiceStore.getState().reconnecting,
+        captureSample: () =>
+          captureNativeVoiceCameraSample(NATIVE_CAPTURE_QUALITY),
         onDecision: (decision, nowMs, sample) => {
           recordFrameGateDecision("voice", decision, nowMs);
           const run = currentRunRef.current;

@@ -488,6 +488,101 @@ describe("native frame source diagnostics", () => {
     });
   });
 
+  test("separates reconnect suppression from actual empty bridge responses", async () => {
+    const { capture, reports, options } = setup();
+    let available = false;
+    const source = createNativeFrameSource({
+      ...options,
+      canCapture: () => available,
+    });
+    source.start();
+    await pollTimes(3);
+    expect(capture.callCount()).toBe(0);
+    expect(reports.at(-1)).toMatchObject({
+      captureRequests: 0,
+      suppressedCaptures: 1,
+      emptyCaptures: 0,
+    });
+
+    available = true;
+    capture.emptyNext();
+    await startPair();
+    await pollTimes(1);
+    source.stop();
+    expect(reports.at(-1)).toMatchObject({
+      captureRequests: 3,
+      suppressedCaptures: 3,
+      emptyCaptures: 1,
+      captureTimeouts: 0,
+      sampleErrors: 0,
+      keeps: 1,
+    });
+  });
+
+  test("checks availability after waiting for the shared bridge slot", async () => {
+    const first = setup();
+    const blocker = createNativeFrameSource(first.options);
+    first.capture.holdNext();
+    blocker.start();
+    blocker.sampleNow();
+    await settle();
+
+    const { capture, reports, options } = setup();
+    let available = true;
+    const source = createNativeFrameSource({
+      ...options,
+      canCapture: () => available,
+    });
+    source.start();
+    source.sampleNow();
+    await settle();
+    available = false;
+    blocker.stop();
+    first.capture.releaseHeld();
+    await settle();
+    source.stop();
+
+    expect(capture.callCount()).toBe(0);
+    expect(reports.at(-1)).toMatchObject({
+      attempts: 1,
+      suppressedCaptures: 1,
+      captureRequests: 0,
+      emptyCaptures: 0,
+      maxCaptureMs: 0,
+    });
+  });
+
+  test("does not classify a capture suppressed in flight as an empty response", async () => {
+    const { capture, reports, offers, options } = setup();
+    let available = true;
+    const source = createNativeFrameSource({
+      ...options,
+      canCapture: () => available,
+    });
+    source.start();
+    capture.holdNext();
+    await startPair();
+    available = false;
+    capture.releaseHeld();
+    await settle();
+    expect(offers).toHaveLength(0);
+    expect(reports.at(-1)).toMatchObject({
+      captureRequests: 1,
+      suppressedCaptures: 0,
+      emptyCaptures: 0,
+      keeps: 0,
+    });
+
+    available = true;
+    await pollTimes(1);
+    source.stop();
+    expect(reports.at(-1)).toMatchObject({
+      captureRequests: 3,
+      emptyCaptures: 0,
+      keeps: 1,
+    });
+  });
+
   test("bounds periodic reports and flushes cumulative counts on stop", async () => {
     const { reports, options } = setup();
     const source = createNativeFrameSource(options);

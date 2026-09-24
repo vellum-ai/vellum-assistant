@@ -1775,6 +1775,7 @@ describe("useVoiceRoomSight: the native preview", () => {
       event: "sampling",
       attempts: 2,
       captureRequests: 4,
+      suppressedCaptures: 0,
       emptyCaptures: 0,
       captureTimeouts: 0,
       decodeFailures: 0,
@@ -1983,39 +1984,49 @@ describe("useVoiceRoomSight: refusing the native sample a change caught in fligh
     expect(nativeStart).toHaveBeenCalledTimes(1);
   });
 
-  test("drops a native bridge sample from the old run and pauses bridge calls during reconnect", async () => {
+  test("gates bridge calls during reconnect and invalidates the outgoing samples", async () => {
     const start = mock((_epoch: number, _source: "live" | "ambient") => true);
     Object.assign(controls, { startSightSession: start });
     useLiveVoiceStore.getState().setControls(controls);
     const { view } = renderSight({ nativePreview: true, live: true });
-    let resolveSample!: (value: string) => void;
-    captureNativeVoiceCameraSample.mockImplementationOnce(
-      () =>
-        new Promise<string>((resolve) => {
-          resolveSample = resolve;
-        }),
-    );
-    const sample = nativeSourceOptions!.captureSample();
+    expect(nativeSourceOptions!.canCapture!()).toBe(true);
+    nativeInvalidate.mockClear();
     act(() => {
       useLiveVoiceStore.getState().setState("connecting");
       useLiveVoiceStore.getState().setReconnecting(true);
+      expect(nativeSourceOptions!.canCapture!()).toBe(false);
     });
-    expect(await nativeSourceOptions!.captureSample()).toBeNull();
-    expect(captureNativeVoiceCameraSample).toHaveBeenCalledTimes(1);
+    expect(nativeSourceOptions!.canCapture!()).toBe(false);
+    expect(nativeInvalidate).toHaveBeenCalledTimes(1);
+    expect(captureNativeVoiceCameraSample).not.toHaveBeenCalled();
     act(() => {
       useLiveVoiceStore.getState().setState("listening");
       useLiveVoiceStore.getState().setReconnecting(false);
     });
     expect(start).toHaveBeenCalledTimes(2);
     expect(start.mock.calls[1]![0]).not.toBe(start.mock.calls[0]![0]);
-    resolveSample(btoa("old-sample"));
-    expect(await sample).toBeNull();
+    expect(nativeSourceOptions!.canCapture!()).toBe(true);
     expect(await nativeSourceOptions!.captureSample()).toBe(
       btoa("native-sample"),
     );
     expect(view.result.current.live).toBe(true);
     expect(uploadChatAttachment).not.toHaveBeenCalled();
     expect(nativeStart).toHaveBeenCalledTimes(1);
+  });
+
+  test("returns actual bridge responses to the sampler for accurate accounting", async () => {
+    renderSight({ nativePreview: true, live: true });
+    captureNativeVoiceCameraSample.mockImplementationOnce(async () => {
+      useLiveVoiceStore.getState().setReconnecting(true);
+      return btoa("native-sample");
+    });
+    await act(async () => {
+      expect(await nativeSourceOptions!.captureSample()).toBe(
+        btoa("native-sample"),
+      );
+      expect(nativeSourceOptions!.canCapture!()).toBe(false);
+    });
+    expect(uploadChatAttachment).not.toHaveBeenCalled();
   });
 
   test("tells the running poll when the transport reconnects", () => {
