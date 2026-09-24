@@ -10,15 +10,16 @@ import { safeStringSlice } from "../util/unicode.js";
 
 const MAX_METADATA_VALUE_LENGTH = 128;
 
+/** `profileSource` reported for a turn whose profile the Auto router chose. */
+export const AUTO_PROFILE_SOURCE = "auto";
+
 export type UsageAttributionProfileSource =
   | "call_site"
   | "conversation"
   | "active"
   | "default"
+  | typeof AUTO_PROFILE_SOURCE
   | "unknown";
-
-/** `profileSource` reported for a turn whose profile the Auto router chose. */
-export const AUTO_PROFILE_SOURCE = "auto";
 
 export interface UsageAttributionInput {
   callSite: LLMCallSite | null;
