@@ -127,8 +127,9 @@ an interrupted native tour without marking it complete.
 
 The macOS companion tour offers microphone setup on its final call step, Input Monitoring on
 its voice-key lesson, and Screen Recording on Share. Setup is explicit and
-skippable. The permission bridge reads the capturing helper's Screen Recording
-grant; the Electron app's grant is not interchangeable with it.
+skippable. Screen Recording probes and requests through the helper executable
+that takes captures. This matches the capture process's launch path. macOS
+Settings can also show a separate entry for the app.
 
 The tour stays on its current step while Settings is open and observes permission
 updates before restoring the rehearsal controls. Global keyboard registration
@@ -148,11 +149,11 @@ latest result across steps and background checks. An initial check keeps the
 card shell visible without showing a permission action before it is needed. Its
 size and the perched avatar's clearance share constants with the native canvas,
 so larger cards fit at every companion size. Shells with `permissions.setup`
-open the detachable drag guide from the permission coachmark bounds for Input
-Monitoring and Screen Recording. Back returns to that coachmark; changing the
-permission lesson or closing the tour cancels its active or pending guide.
-Older shells request the native alert first; Settings opens through that alert
-or a separate explicit action, so the two windows do not compete for attention.
+open the detachable drag guide from the Input Monitoring coachmark bounds.
+Back returns to that coachmark; changing the permission lesson or closing the
+tour cancels its active or pending guide. Screen Recording uses the native
+prompt first, then Settings on a separate explicit action, so the two windows
+do not compete for attention.
 
 When resetting local development grants, reset `PostEvent` as well as
 `ListenEvent` and `Accessibility` for the helper bundle. A cached denial of the
@@ -167,10 +168,10 @@ alone is reset.
 
 ## macOS companion permission guide
 
-The optional `permissions.setup` bridge lets the existing companion tour detach
-its permission coachmark into the internal `/assistant/floating/permission-guide`
-route outside authentication middleware. `usePermissionGuide` mirrors main's
-guide state. The tour stays on its current lesson and observes actual OS grants
+The optional `permissions.setup` bridge lets the companion's Input Monitoring
+coachmark detach into the internal `/assistant/floating/permission-guide` route
+outside authentication middleware. `usePermissionGuide` mirrors main's guide
+state. The tour stays on its current lesson and observes actual OS grants
 through the existing system-permissions subscription.
 
 The guide reports its measured height for translated copy, honors reduced motion,
