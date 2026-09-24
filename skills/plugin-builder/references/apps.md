@@ -51,6 +51,32 @@ App discovery mirrors the plugin loader's own scan, so an app is visible on exac
 
 This reference covers how an app is packaged, compiled, and served as a plugin surface. The _authoring_ contract for the app itself — the design system and `--v-*` tokens, the widget library, responsive rules, the `window.vellum` bridge (`fetch`, `asset`, `subscribe`, `sendAction`), and how an app reaches backend data through routes — is owned by the **app-builder** skill, with design quality delegated to **frontend-design**. Build the app's UI by those skills, then drop the resulting `src/` under your plugin's `apps/`. A plugin that also ships `routes/` can back its app's data with its own namespaced HTTP routes (see [routes.md](routes.md)) — the app reaches them through `window.vellum.fetch` at `/x/plugins/<name>/…` (the wrapper prepends the `/v1` API prefix), **never the global `fetch`**, which fails from the app's sandboxed origin.
 
+### The sandbox an app runs in
+
+The host renders the app in an iframe sandboxed as `allow-scripts allow-popups allow-popups-to-escape-sandbox`. Those three tokens are the whole grant: scripts run, `window.open` works, and a popup escapes the sandbox — everything else the attribute gates is denied, including the same origin (which is why raw `fetch` fails above).
+
+The denial that bites hardest is `allow-forms`. **A `<form>` inside an app cannot submit: the browser blocks the submission and the `onSubmit` handler never runs.** There is no exception, no UI error, and no failing test — only a console line the user never sees:
+
+```
+Blocked form submission to '' because the form's frame is sandboxed and the 'allow-forms' permission is not set.
+```
+
+So an ordinary `<form onSubmit={save}>` with a `<button type="submit">` ships a Save button that does nothing. Wire the action to the button's `onClick` instead, and restore keyboard submit with an Enter handler on the inputs — that is what the form element was actually buying:
+
+```tsx
+<input
+  value={name}
+  onInput={(e) => setName(e.currentTarget.value)}
+  onKeyDown={(e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      save();
+    }
+  }}
+/>
+<button type="button" onClick={save}>Save</button>
+```
+
 ## Anatomy of an app
 
 ```
