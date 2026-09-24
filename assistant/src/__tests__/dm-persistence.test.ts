@@ -108,6 +108,7 @@ function createSlackTurnContext(): MessagingConversationContext {
       owner += 1;
       return owner;
     },
+    holdsProcessingClaim: (claim: number) => processing && claim === owner,
     releaseProcessing: (claim: number) => {
       if (claim !== owner) {
         return false;

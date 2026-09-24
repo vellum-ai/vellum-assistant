@@ -75,6 +75,11 @@ import {
 import type { AuthContext } from "../runtime/auth/types.js";
 import { INTERRUPTED_TURN_NOTE_TEXT } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
+import {
+  endPreparingClaim,
+  isClaimLive,
+  type PreparingClaim,
+} from "./conversation-actor-claim.js";
 import type { ConversationModeSessionCoordinator } from "./conversation-mode-session.js";
 import type {
   MessageQueue,
@@ -236,7 +241,10 @@ export interface MessagingConversationContext {
   isProcessing(): boolean;
   setProcessing(value: boolean): void;
   acquireProcessingFenced(): Promise<number | null>;
+  holdsProcessingClaim(owner: number): boolean;
   releaseProcessing(owner: number): boolean;
+  /** See {@link PreparingClaim}. */
+  preparingClaim?: PreparingClaim | null;
   abortController: AbortController | null;
   currentTurnCronRunId?: string | null;
   currentTurnWorkOrigins?: readonly TurnWorkOrigin[];
@@ -976,6 +984,15 @@ export interface PersistMessageOptions {
    */
   trustContext?: TrustContext;
   /**
+   * A processing claim the caller already holds, taken with
+   * `Conversation.acquireProcessingForActor` so the history was scoped under
+   * it. The persist runs under that claim instead of taking its own, and
+   * reports busy when it is no longer the live one. The claim stays the
+   * caller's: a persist that fails or deduplicates leaves it held, and the
+   * caller releases it and drains what queued behind it.
+   */
+  processingClaim?: number;
+  /**
    * The person whose own inbound message this row records, passed only by a
    * caller relaying one (channel ingress and its retry replay). It names the
    * row's author (`actorAuthorProvenance`). Machine-authored callers omit it,
@@ -1109,9 +1126,16 @@ export async function persistUserMessage(
   ctx: MessagingConversationContext,
   options: PersistMessageOptions,
 ): Promise<{ id: string; deduplicated: boolean }> {
-  const { content, attachments = [] } = options;
+  const { content, attachments = [], processingClaim } = options;
 
-  if (ctx.isProcessing()) {
+  // A claim the caller holds is checked here, before the per-turn fields
+  // below are written: a lost one belongs to another turn, whose fields they
+  // are.
+  if (
+    processingClaim === undefined
+      ? ctx.isProcessing()
+      : !isClaimLive(ctx, processingClaim)
+  ) {
     throw new Error(CONVERSATION_BUSY_MESSAGE);
   }
 
@@ -1156,8 +1180,9 @@ export async function persistUserMessage(
     // retrospective worker read that marker to decide a turn is live. Null is
     // a conversation that belongs to someone else, whether it was already held
     // or was claimed away while the marker landed. A throw is the marker
-    // refusing to persist, with the claim already given back.
-    owner = await ctx.acquireProcessingFenced();
+    // refusing to persist, with the claim already given back. A claim the
+    // caller already holds was fenced when it was taken.
+    owner = processingClaim ?? (await ctx.acquireProcessingFenced());
     if (owner === null) {
       throw new Error(CONVERSATION_BUSY_MESSAGE);
     }
@@ -1167,9 +1192,19 @@ export async function persistUserMessage(
       attachments,
       requestId: reqId,
     });
+    // A newly landed row ends the claim's preparation. The abort controller
+    // installed above already makes a Stop signal the turn; the record stays
+    // until here, and through a duplicate (which lands nothing for this
+    // request), so the release of a claim whose row never landed still puts
+    // back the trust it stamped.
+    if (processingClaim !== undefined && !result.deduplicated) {
+      endPreparingClaim(ctx, processingClaim);
+    }
     options.signal?.throwIfAborted();
     if (result.deduplicated) {
-      ctx.releaseProcessing(owner);
+      if (processingClaim === undefined) {
+        ctx.releaseProcessing(owner);
+      }
       ctx.abortController = null;
       ctx.currentRequestId = undefined;
       ctx.currentTurnClientMessageId = undefined;
@@ -1183,7 +1218,7 @@ export async function persistUserMessage(
     // claimed since is left alone, and one this call never took is nothing to
     // release.
     try {
-      if (owner !== null) {
+      if (owner !== null && processingClaim === undefined) {
         ctx.releaseProcessing(owner);
       }
     } catch (clearErr) {

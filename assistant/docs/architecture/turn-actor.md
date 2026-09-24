@@ -62,6 +62,32 @@ and restore the prior value afterwards, each guarding the restore so a turn that
 started in between is not clobbered. They are supplying the acting actor for
 their run, and are covered by this contract.
 
+Ingress that starts a turn on an idle conversation (channel ingress through
+`prepareConversationForMessage`, and the idle `POST /v1/messages` path) stamps
+the slot and scopes the history through `Conversation.acquireProcessingForActor`,
+which takes the processing claim first. Scoping awaits a history reload, and a
+second sender reaching the same conversation inside that await would otherwise
+overwrite the slot or replace the resident history under the first sender's
+turn. Under the claim, the second sender finds the conversation busy and takes
+its path's busy handling (the queue, or the channel's defer-until-idle) without
+writing either. The persist and the loop then run on the trust read under the
+claim, not on a later read of the slot.
+
+Until the persist installs the turn's abort controller, the claim has none
+behind it, so it is published as preparing (`conversation-actor-claim.ts`)
+from the acquire until the turn's user row lands or the claim is released. A
+Stop or a steer before the controller is installed cancels it instead of
+force-clearing the flag. The holder checks the claim before each write it makes ahead of the turn
+(the reload's result, a slash command's rows, the user row) and gives it back
+instead of writing. A message cancelled before anything was written takes the
+same busy path as a second sender, so it is queued or deferred rather than
+dropped, and the release of its claim puts back the resting trust it replaced,
+so the cancelled sender is not left as the conversation's owner. A user-row
+insert that fails is released the same way. The next scoped consumer (the
+queue drain's persist scopes before it claims) then finds the resident history
+scoped for the cancelled sender rather than the restored owner, and reloads. A slash
+command whose user row already landed keeps that row and writes no reply.
+
 The queue drains are deliberately not in that set. `drainSingleMessage` and
 `drainBatch` carry the queued sender on the per-turn field and into the run,
 and leave the resting slot alone: at the point they stamp, the drain has not

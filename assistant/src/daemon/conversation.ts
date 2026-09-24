@@ -122,6 +122,11 @@ import { trackDaemonActivity, turnActivityLabel } from "./activity-trail.js";
 import type { AssistantAttachmentDraft } from "./assistant-attachments.js";
 import { BrowserModeSessionProducer } from "./browser-mode-session.js";
 import { ComputerUseModeSessionProducer } from "./computer-use-mode-session.js";
+import {
+  acquireProcessingForActor as acquireProcessingForActorImpl,
+  type PreparingClaim,
+  releasePreparingClaim,
+} from "./conversation-actor-claim.js";
 import type { AssistantSurface } from "./conversation-agent-loop.js";
 import {
   applyCompactionResult,
@@ -362,6 +367,8 @@ export class Conversation {
    * {@link releaseProcessing} refuse to release someone else's.
    */
   private processingOwner = 0;
+  /** @internal See {@link PreparingClaim}. */
+  preparingClaim: PreparingClaim | null = null;
   private nextProcessingOwner = 0;
   /** The live claim's marker write, awaited through the fence below. */
   private processingMarker: { owner: number; landed: Promise<void> } | null =
@@ -2356,6 +2363,13 @@ export class Conversation {
     return owner;
   }
 
+  /** See {@link acquireProcessingForActorImpl}. */
+  acquireProcessingForActor(
+    trustContext: TrustContext | null | undefined,
+  ): Promise<number | null> {
+    return acquireProcessingForActorImpl(this, trustContext);
+  }
+
   /**
    * Whether this claim is still the live hold on the conversation.
    *
@@ -2390,6 +2404,7 @@ export class Conversation {
       );
       return false;
     }
+    releasePreparingClaim(this, owner);
     this.setProcessing(false);
     return true;
   }

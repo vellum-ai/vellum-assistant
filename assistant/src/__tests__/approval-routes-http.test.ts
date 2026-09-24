@@ -9,7 +9,10 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import type { AssistantEvent } from "../api/index.js";
 import type { Conversation } from "../daemon/conversation.js";
 import type { SecretPromptResult } from "../permissions/secret-prompt-types.js";
-import { mockUnownedModeSessions } from "./helpers/mock-conversation.js";
+import {
+  acquireProcessingForActorDouble,
+  mockUnownedModeSessions,
+} from "./helpers/mock-conversation.js";
 
 mock.module("../config/env.js", () => ({
   isHttpAuthDisabled: () => true,
@@ -112,6 +115,8 @@ function makeIdleSession(opts?: {
     setTurnChannelContext: () => {},
     setTurnInterfaceContext: () => {},
     ensureActorScopedHistory: async () => {},
+    acquireProcessingForActor: acquireProcessingForActorDouble,
+    releaseProcessing: () => false,
     getMessages: () => [],
     usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
     replayActivityState: () => {},
@@ -176,6 +181,8 @@ function makeConfirmationEmittingSession(opts?: {
     setTurnChannelContext: () => {},
     setTurnInterfaceContext: () => {},
     ensureActorScopedHistory: async () => {},
+    acquireProcessingForActor: acquireProcessingForActorDouble,
+    releaseProcessing: () => false,
     getMessages: () => [],
     usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
     replayActivityState: () => {},

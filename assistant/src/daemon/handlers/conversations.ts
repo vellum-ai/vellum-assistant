@@ -15,6 +15,7 @@ import { getSubagentManager } from "../../subagent/index.js";
 import { createAbortReason } from "../../util/abort-reasons.js";
 import { UserError } from "../../util/errors.js";
 import type { Conversation } from "../conversation.js";
+import { cancelPreparingClaim } from "../conversation-actor-claim.js";
 import { touchConversation } from "../conversation-evictor.js";
 import { forceClearStaleProcessing } from "../conversation-lifecycle.js";
 import {
@@ -458,6 +459,9 @@ export function steerToMessage(
   );
   if (conversation.abortController) {
     conversation.abortController.abort(reason);
+  } else if (cancelPreparingClaim(conversation)) {
+    // A send still preparing its turn gives its claim back, and kicks the
+    // drain, once its history reload settles.
   } else {
     // Processing is latched with no live turn to abort, so nothing is going to
     // reach a drain on its own and the message promoted above would sit at the

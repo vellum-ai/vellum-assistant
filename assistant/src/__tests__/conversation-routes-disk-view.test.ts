@@ -32,7 +32,10 @@ import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { handleSendMessage } from "../runtime/routes/conversation-routes.js";
 import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 import { callHandler } from "./helpers/call-route-handler.js";
-import { mockUnownedModeSessions } from "./helpers/mock-conversation.js";
+import {
+  acquireProcessingForActorDouble,
+  mockUnownedModeSessions,
+} from "./helpers/mock-conversation.js";
 import { setConfig } from "./helpers/set-config.js";
 
 const testDir = process.env.VELLUM_WORKSPACE_DIR!;
@@ -140,6 +143,12 @@ function createFakeConversation(conversationId: string): Conversation {
       this.owner += 1;
       return this.owner;
     },
+    holdsProcessingClaim(
+      this: { processing: boolean; owner: number },
+      claim: number,
+    ) {
+      return this.processing && claim === this.owner;
+    },
     releaseProcessing(
       this: { processing: boolean; owner: number },
       claim: number,
@@ -200,6 +209,7 @@ function createFakeConversation(conversationId: string): Conversation {
       return this.turnInterfaceContext;
     },
     ensureActorScopedHistory: async () => {},
+    acquireProcessingForActor: acquireProcessingForActorDouble,
     replayActivityState: () => {},
 
     setHostCuProxy(this: { hostCuProxy: unknown }, proxy: unknown) {
