@@ -1723,6 +1723,7 @@ export async function runAgentLoopImpl(
           supportsDynamicUi: conversationSupportsDynamicUi(ctx),
           trust: loopTrust,
           overrideProfile: turnOverrideProfile,
+          ...(autoRoute ? { overrideProfileOrigin: "auto" as const } : {}),
           ...(forceOverrideProfile ? { forceOverrideProfile: true } : {}),
           resolveOverrideProfile: refreshCurrentProfileState,
           ...(onModelCallPrepared !== undefined ? { onModelCallPrepared } : {}),
@@ -2180,7 +2181,9 @@ export async function runAgentLoopImpl(
           null,
         ...(state.exchangeInferenceProfile !== undefined
           ? { forceOverrideProfile: true }
-          : {}),
+          : autoRoute
+            ? { overrideProfileOrigin: "auto" as const }
+            : {}),
       },
       turnCronRunId,
     );

@@ -748,6 +748,12 @@ interface AgentLoopRunOptionsBase {
    */
   overrideProfile?: string;
   /**
+   * Who chose `overrideProfile`: `"auto"` when the Auto profile's router
+   * picked it for this turn. Threaded onto each send's config so usage
+   * attribution reports the routed profile under the `auto` source.
+   */
+  overrideProfileOrigin?: "auto";
+  /**
    * Float the override profile above the call-site layers (named site
    * profile + call-site override) for non-main-agent call sites — the
    * resolver's `forceOverrideProfile` escape hatch. Threaded onto each
@@ -1454,6 +1460,7 @@ export class AgentLoop {
       supportsDynamicUi = true,
       trust,
       overrideProfile,
+      overrideProfileOrigin,
       forceOverrideProfile = false,
       resolveOverrideProfile,
       onModelCallPrepared,
@@ -2036,6 +2043,9 @@ export class AgentLoop {
         const effectiveOverrideProfile = resolveEffectiveOverrideProfile();
         if (effectiveOverrideProfile) {
           providerConfig.overrideProfile = effectiveOverrideProfile;
+          if (overrideProfileOrigin) {
+            providerConfig.overrideProfileOrigin = overrideProfileOrigin;
+          }
           if (forceOverrideProfile) {
             providerConfig.forceOverrideProfile = true;
           }
@@ -2236,7 +2246,9 @@ export class AgentLoop {
           // resolver layers `llm.profiles[overrideProfile]` at the top of
           // precedence for the user-facing call, so a model router can pick
           // the profile per message; clearing it drops any seeded override.
+          // A hook-chosen profile is the hook's pick, not the router's.
           const hookModelProfile = finalPreModelCtx.modelProfile?.trim();
+          delete providerConfig.overrideProfileOrigin;
           if (hookModelProfile) {
             providerConfig.overrideProfile = hookModelProfile;
             if (forceOverrideProfile) {
