@@ -361,6 +361,95 @@ describe("voice delivery and shared-conversation contacts", () => {
   });
 });
 
+describe("voice delivery and contacts on other channels", () => {
+  test.each([
+    {
+      when: "a shared contact is involved",
+      resting: {
+        sourceChannel: "vellum-shared",
+        trustClass: "trusted_contact",
+        requesterExternalUserId: "principal-alice",
+      } as TrustContext,
+      toQueue: true,
+    },
+    {
+      when: "no shared contact is involved",
+      resting: {
+        sourceChannel: "slack",
+        trustClass: "guardian",
+      } as TrustContext,
+      toQueue: false,
+    },
+  ])(
+    "a Slack contact's completion during a call when $when",
+    async ({ resting, toQueue }) => {
+      clearCaptured();
+      const received: SubagentParentNotification[] = [];
+      const manager = new LiveVoiceSessionManager({
+        createSession: (context) => ({
+          start: async () => {
+            await context.sendFrame({
+              type: "ready",
+              sessionId: context.sessionId,
+              conversationId: "parent-voice",
+            });
+          },
+          handleClientFrame: () => {},
+          handleBinaryAudio: () => {},
+          close: async () => {},
+          receiveSubagentNotification: (notification) => {
+            received.push(notification);
+            return true;
+          },
+        }),
+      });
+      setLiveVoiceSessionManagerForTesting(manager);
+      const bob: TrustContext = {
+        sourceChannel: "slack",
+        trustClass: "trusted_contact",
+        requesterExternalUserId: "U-bob",
+      };
+      try {
+        await manager.startSession(
+          {
+            type: "start",
+            audio: { mimeType: "audio/pcm", sampleRate: 24_000, channels: 1 },
+          },
+          { sendFrame: () => {} },
+        );
+        parentTrustContext = resting;
+
+        injectMessageIntoParent(
+          "parent-voice",
+          "Bob's task done",
+          {
+            subagentNotification: {
+              subagentId: "task-1",
+              status: "completed",
+              conversationId: "child-1",
+            },
+          },
+          { startedBy: bob },
+        );
+
+        if (toQueue) {
+          expect(received).toEqual([]);
+          expect(capturedMessages).toEqual(["Bob's task done"]);
+          expect(capturedQueueOptions.at(-1)?.trustContext).toBe(bob);
+        } else {
+          expect(received.map((n) => n.message)).toEqual(["Bob's task done"]);
+          expect(capturedMessages).toEqual([]);
+        }
+      } finally {
+        parentTrustContext = undefined;
+        await manager.endActiveSession("manager_shutdown");
+        setLiveVoiceSessionManagerForTesting(null);
+        clearCaptured();
+      }
+    },
+  );
+});
+
 describe("notify_parent tool definition", () => {
   test("has correct core tool definition", () => {
     const def = notifyParentTool;

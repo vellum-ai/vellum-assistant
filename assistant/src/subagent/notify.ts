@@ -16,10 +16,7 @@
 
 import { getConfig } from "../config/loader.js";
 import { resolveTurnCommitWaitMs } from "../daemon/abort-watchdog.js";
-import {
-  isContactInvolved,
-  isContactTrust,
-} from "../daemon/actor-scoped-history.js";
+import { isContactInvolved } from "../daemon/actor-scoped-history.js";
 import {
   findConversation,
   findConversationOrSubagent,
@@ -54,10 +51,17 @@ export function injectMessageIntoParent(
   },
 ): void {
   const notification = metadata?.subagentNotification;
-  // A live voice session delivers as its own actor, so a notification for
-  // work a shared-conversation contact started goes through the queue, where
-  // the contact is checked and runs as themselves.
-  const contactStarted = isContactTrust(opts?.startedBy);
+  const existing = findConversation(parentConversationId);
+  // A live voice session delivers as its own actor. When a shared-conversation
+  // contact is involved, a notification for work any contact started goes
+  // through the queue instead, where it runs as that contact (and a shared
+  // contact is checked first). Guardian-started and sender-less work still
+  // goes to the call.
+  const startedBy = opts?.startedBy;
+  const contactStarted =
+    startedBy !== undefined &&
+    startedBy.trustClass !== "guardian" &&
+    isContactInvolved(existing ?? {}, startedBy);
   // The live child's conversation ID is stable even if its cosmetic record changes.
   if (
     !opts?.bypassLiveVoice &&
@@ -80,7 +84,6 @@ export function injectMessageIntoParent(
   ) {
     return;
   }
-  const existing = findConversation(parentConversationId);
   if (!existing) {
     log.warn(
       { parentConversationId },
