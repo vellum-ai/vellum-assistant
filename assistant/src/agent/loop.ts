@@ -2043,7 +2043,14 @@ export class AgentLoop {
         const effectiveOverrideProfile = resolveEffectiveOverrideProfile();
         if (effectiveOverrideProfile) {
           providerConfig.overrideProfile = effectiveOverrideProfile;
-          if (overrideProfileOrigin) {
+          // The origin describes the turn-start override. A profile switched
+          // in mid-turn (a confirmed profile session) is the user's pick, so
+          // the origin applies only while the effective override is still
+          // the one the turn started with.
+          if (
+            overrideProfileOrigin &&
+            effectiveOverrideProfile === overrideProfile
+          ) {
             providerConfig.overrideProfileOrigin = overrideProfileOrigin;
           }
           if (forceOverrideProfile) {
@@ -2246,9 +2253,13 @@ export class AgentLoop {
           // resolver layers `llm.profiles[overrideProfile]` at the top of
           // precedence for the user-facing call, so a model router can pick
           // the profile per message; clearing it drops any seeded override.
-          // A hook-chosen profile is the hook's pick, not the router's.
+          // The hook context is seeded with the effective override, so an
+          // unchanged profile is still the router's pick and keeps its
+          // origin; a profile the hook changed or cleared is the hook's.
           const hookModelProfile = finalPreModelCtx.modelProfile?.trim();
-          delete providerConfig.overrideProfileOrigin;
+          if (hookModelProfile !== effectiveOverrideProfile) {
+            delete providerConfig.overrideProfileOrigin;
+          }
           if (hookModelProfile) {
             providerConfig.overrideProfile = hookModelProfile;
             if (forceOverrideProfile) {

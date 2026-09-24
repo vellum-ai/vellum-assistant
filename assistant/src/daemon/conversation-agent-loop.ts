@@ -2148,6 +2148,9 @@ export async function runAgentLoopImpl(
     // path to the terminal SSE that re-enables the composer.
     ctx.messages = restoredHistory;
 
+    // The row's override is whichever profile served the last call.
+    const mainRowOverrideProfile =
+      state.exchangeInferenceProfile ?? refreshCurrentProfileState() ?? null;
     emitUsage(
       ctx,
       state.exchangeInputTokens,
@@ -2172,16 +2175,15 @@ export async function runAgentLoopImpl(
       // backup (via `state.exchangeProviderName` / `state.model`), so
       // attributing the profile from the primary would write a row that
       // contradicts itself. `forceOverrideProfile` floats it above the
-      // call-site profile exactly as the fallback dispatch did.
+      // call-site profile exactly as the fallback dispatch did. The Auto
+      // origin applies only while the row's override is still the router's
+      // pick: a profile switched in mid-turn is the user's.
       {
         callSite: inferenceCallSite,
-        overrideProfile:
-          state.exchangeInferenceProfile ??
-          refreshCurrentProfileState() ??
-          null,
+        overrideProfile: mainRowOverrideProfile,
         ...(state.exchangeInferenceProfile !== undefined
           ? { forceOverrideProfile: true }
-          : autoRoute
+          : autoRoute && mainRowOverrideProfile === autoRoute.profile
             ? { overrideProfileOrigin: "auto" as const }
             : {}),
       },
