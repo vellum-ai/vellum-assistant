@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { organizationsBillingSummaryRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
 import { useByokCreditRouteVerdict } from "@/hooks/use-byok-credit-banner-gate";
+import { hasExtraCredit } from "@/hooks/use-plan-usage-balance";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import {
   useActiveAssistantIsPlatformHosted,
@@ -50,6 +51,14 @@ export interface BillingBalanceStatus {
    * send; pair it with the wallet's extra credit to know whether one fails.
    */
   freeTierDailyLimitReached: boolean;
+  /**
+   * The free-tier cap is reached, the wallet holds no extra (purchased)
+   * credit to fall back on, and the active route burns managed credit: the
+   * next send on this conversation would be rejected. Rides the same BYOK
+   * suppression as {@link BillingBalanceStatus.isExhausted}, so a chat
+   * dispatching on the user's own key never sees the daily wall.
+   */
+  freeTierDailyLimitBlocked: boolean;
   /** The free-tier per-day usage-credit cap as a decimal string, or null when unknown. */
   freeTierDailyLimit: string | null;
   /** Today's (UTC) usage-credit spend under the free-tier cap, or null when unknown. */
@@ -88,6 +97,7 @@ const INERT_STATUS: Omit<BillingBalanceStatus, "enabled" | "settled"> = {
   dailySpend: null,
   freeTierDailyLimitEnforced: false,
   freeTierDailyLimitReached: false,
+  freeTierDailyLimitBlocked: false,
   freeTierDailyLimit: null,
   freeTierDailySpend: null,
   balance: null,
@@ -145,8 +155,15 @@ export function useBillingBalanceStatus(
   });
   const isExhausted = !!summary && Number(summary.effective_balance) <= 0;
   const isLowBalance = !!summary && summary.low_balance_warning === true;
+  const freeTierBlocked =
+    !!summary &&
+    summary.free_tier_daily_limit_reached === true &&
+    !hasExtraCredit({
+      balance: summary.effective_balance,
+      availableUsageBalance: summary.available_usage_balance ?? null,
+    });
   const { suppress: suppressed, settled } = useByokCreditRouteVerdict(
-    enabled && (isExhausted || isLowBalance),
+    enabled && (isExhausted || isLowBalance || freeTierBlocked),
     opts.conversationId,
     opts.draftProfile,
   );
@@ -166,6 +183,7 @@ export function useBillingBalanceStatus(
     // which reads as no cap rather than an enforced one.
     freeTierDailyLimitEnforced: summary.free_tier_daily_limit_enforced === true,
     freeTierDailyLimitReached: summary.free_tier_daily_limit_reached === true,
+    freeTierDailyLimitBlocked: freeTierBlocked && !suppressed,
     freeTierDailyLimit: summary.free_tier_daily_limit_usd ?? null,
     freeTierDailySpend: summary.free_tier_daily_spend_usd ?? null,
     balance: summary.effective_balance,

@@ -56,6 +56,7 @@ mock.module("@/hooks/use-billing-balance-status", () => ({
     dailySpend: null,
     freeTierDailyLimitEnforced: freeTierEnforced,
     freeTierDailyLimitReached: false,
+    freeTierDailyLimitBlocked: false,
     freeTierDailyLimit: freeTierLimit,
     freeTierDailySpend: freeTierSpend,
     balance: effectiveBalance,
@@ -161,7 +162,7 @@ afterEach(() => {
 
 describe("usePreferencesUsage", () => {
   test("reads the free-tier day when it has the least left", async () => {
-    // 40% of the grant used against 60% of today's free usage.
+    // $3 left on the grant against $2 left today.
     availableUsageBalance = "3.00";
     freeTierEnforced = true;
     freeTierLimit = "5.00";
@@ -175,7 +176,7 @@ describe("usePreferencesUsage", () => {
   });
 
   test("reads the overall grant once it has less left than the day", async () => {
-    // 80% of the grant used against 60% of the day.
+    // $1 left on the grant against $2 left today.
     availableUsageBalance = "1.00";
     freeTierEnforced = true;
     freeTierLimit = "5.00";

@@ -16,6 +16,7 @@ import { useBillingBalanceStatus } from "@/hooks/use-billing-balance-status";
 import { awaitsAnswer } from "@/lib/query-awaits-answer";
 import { useByokCreditRouteVerdict } from "@/hooks/use-byok-credit-banner-gate";
 import {
+  freeTierDailyLeftUsd,
   freeTierDailyRatio,
   hasExtraCredit as walletHasExtraCredit,
   usageGrantRatio,
@@ -102,9 +103,18 @@ export function usePreferencesUsage(
   // applies. Reads as fully used once the overall grant is, so the two never
   // disagree about whether today has anything left.
   const dailyRatio = freeTierDailyRatio(balanceStatus, usage?.ratio ?? null);
-  // The bar with the least left wins the menu's one slot.
+  // The allowance with the least left wins the menu's one slot, compared in
+  // dollars rather than in each bar's own percentage: the day is capped at
+  // a few dollars while the grant is worth many more, so a lower percentage
+  // can still be the allowance that runs out first. A tie goes to the
+  // overall reading, whose exhausted strip is the honest one when both are
+  // at zero because the grant itself is spent.
+  const dailyLeft = freeTierDailyLeftUsd(balanceStatus, usage?.ratio ?? null);
+  const overallLeft = parseUsd(availableUsageBalance);
   const showDaily =
-    dailyRatio != null && (usage == null || dailyRatio > usage.ratio);
+    dailyRatio != null &&
+    dailyLeft != null &&
+    (usage == null || overallLeft == null || dailyLeft < overallLeft);
   const ratio = showDaily ? dailyRatio : (usage?.ratio ?? null);
   const spent = ratio != null && ratio >= 1;
   // The raw balance rather than `isExhausted`, which stays down on a

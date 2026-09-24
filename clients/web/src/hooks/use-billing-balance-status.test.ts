@@ -162,6 +162,7 @@ describe("useBillingBalanceStatus", () => {
       dailySpend: "0.00",
       freeTierDailyLimitEnforced: false,
       freeTierDailyLimitReached: false,
+      freeTierDailyLimitBlocked: false,
       freeTierDailyLimit: "5.00",
       freeTierDailySpend: "0.00",
       balance: "20.00",
@@ -204,6 +205,7 @@ describe("useBillingBalanceStatus", () => {
       dailySpend: "0.00",
       freeTierDailyLimitEnforced: false,
       freeTierDailyLimitReached: false,
+      freeTierDailyLimitBlocked: false,
       freeTierDailyLimit: "5.00",
       freeTierDailySpend: "0.00",
       balance: "3.00",
@@ -260,6 +262,7 @@ describe("useBillingBalanceStatus", () => {
       dailySpend: "0.00",
       freeTierDailyLimitEnforced: false,
       freeTierDailyLimitReached: false,
+      freeTierDailyLimitBlocked: false,
       freeTierDailyLimit: "5.00",
       freeTierDailySpend: "0.00",
       balance: "20.00",
@@ -287,6 +290,46 @@ describe("useBillingBalanceStatus", () => {
     expect(result.current.freeTierDailySpend).toBe("5.00");
     // The cap is orthogonal to the wallet: credits remain, nothing is exhausted.
     expect(result.current.isExhausted).toBe(false);
+  });
+
+  test("free tier: blocked only with no extra credit behind the frozen grant", () => {
+    const reached = {
+      free_tier_daily_limit_enrolled: true,
+      free_tier_daily_limit_enforced: true,
+      free_tier_daily_limit_usd: "5.00",
+      free_tier_daily_spend_usd: "5.00",
+      free_tier_daily_limit_reached: true,
+      available_usage_balance: "12.00",
+    };
+    // Nothing but the grant's own remainder: the next managed send fails.
+    const frozenOnly = setup({
+      seed: summary({ ...reached, effective_balance: "12.00" }),
+    });
+    expect(frozenOnly.result.current.freeTierDailyLimitBlocked).toBe(true);
+    // $8 bought on top of the $12 grant: the platform keeps admitting sends.
+    const withExtra = setup({
+      seed: summary({ ...reached, effective_balance: "20.00" }),
+    });
+    expect(withExtra.result.current.freeTierDailyLimitBlocked).toBe(false);
+  });
+
+  test("free tier: a proven BYOK route holds the block down like the other credit walls", () => {
+    byokSuppression = true;
+    const { result } = setup({
+      seed: summary({
+        free_tier_daily_limit_enrolled: true,
+        free_tier_daily_limit_enforced: true,
+        free_tier_daily_limit_usd: "5.00",
+        free_tier_daily_spend_usd: "5.00",
+        free_tier_daily_limit_reached: true,
+        available_usage_balance: "12.00",
+        effective_balance: "12.00",
+      }),
+    });
+    expect(result.current.freeTierDailyLimitReached).toBe(true);
+    expect(result.current.freeTierDailyLimitBlocked).toBe(false);
+    // The block was a candidate for the verdict, like exhaustion is.
+    expect(byokGateCandidates).toContain(true);
   });
 
   test("daily limit drives the composer banner with no chat error present", () => {
@@ -381,6 +424,7 @@ describe("useBillingBalanceStatus", () => {
       dailySpend: null,
       freeTierDailyLimitEnforced: false,
       freeTierDailyLimitReached: false,
+      freeTierDailyLimitBlocked: false,
       freeTierDailyLimit: null,
       freeTierDailySpend: null,
       balance: null,
@@ -432,6 +476,7 @@ describe("useBillingBalanceStatus", () => {
       dailySpend: null,
       freeTierDailyLimitEnforced: false,
       freeTierDailyLimitReached: false,
+      freeTierDailyLimitBlocked: false,
       freeTierDailyLimit: null,
       freeTierDailySpend: null,
       balance: null,
@@ -459,6 +504,7 @@ describe("useBillingBalanceStatus", () => {
       dailySpend: "0.00",
       freeTierDailyLimitEnforced: false,
       freeTierDailyLimitReached: false,
+      freeTierDailyLimitBlocked: false,
       freeTierDailyLimit: "5.00",
       freeTierDailySpend: "0.00",
       balance: "0.00",
@@ -505,6 +551,7 @@ describe("useBillingBalanceStatus", () => {
       dailySpend: null,
       freeTierDailyLimitEnforced: false,
       freeTierDailyLimitReached: false,
+      freeTierDailyLimitBlocked: false,
       freeTierDailyLimit: null,
       freeTierDailySpend: null,
       balance: null,

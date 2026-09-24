@@ -166,6 +166,7 @@ mock.module("@/hooks/use-billing-balance-status", () => ({
         freeTierLimit != null &&
         freeTierSpend != null &&
         Number(freeTierSpend) >= Number(freeTierLimit),
+      freeTierDailyLimitBlocked: false,
       freeTierDailyLimit: freeTierLimit,
       freeTierDailySpend: freeTierSpend,
       balance: walletBalance,
@@ -1203,6 +1204,9 @@ describe("PlanCard usage balance", () => {
 
     const daily = await findByTestId("plan-daily-usage");
     expect(daily.textContent).toContain("100% used");
+    // Today's counter is under its cap, so the day is not what ran out: the
+    // pinned bar carries no strip of its own.
+    expect(daily.textContent).not.toContain("You've used today's free usage");
   });
 
   test("a used-up day backed only by frozen credit raises the daily strip", async () => {

@@ -549,14 +549,15 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
   ) : null;
   // The free-tier daily bar, above Current Usage, only for an org the
   // platform is enforcing the cap on. Reads as fully used once the overall
-  // grant is spent, so the two bars never disagree about today. Its strip
-  // raises once the day is used up and nothing but frozen usage credit is
+  // grant is spent, so the two bars never disagree about today. Its strip,
+  // which says today's free usage is used up, raises only on the platform's
+  // own daily-reached flag (a pinned bar over an empty grant is the Current
+  // Usage strip's story) and only while nothing but frozen usage credit is
   // left in the wallet, which is when the platform rejects the next send.
   const dailyRatio = freeTierDailyRatio(balanceStatus, usage?.ratio ?? null);
   const dailyExhausted =
     dailyRatio != null &&
-    dailyRatio >= 1 &&
-    (freeTierDailyLimitReached || creditsExhausted) &&
+    freeTierDailyLimitReached &&
     !hasExtraCredit(balanceStatus);
   const resetPhrase = dailyResetTimePhrase();
   const dailyPanel =

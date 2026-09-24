@@ -86,6 +86,32 @@ export function freeTierDailyRatio(
 }
 
 /**
+ * Dollars of today's free-tier allowance still unspent, or null outside the
+ * cohort. Zero once the overall grant is spent, whatever the counter says:
+ * there is no usage credit left for today to draw on.
+ */
+export function freeTierDailyLeftUsd(
+  status: Pick<
+    BillingBalanceStatus,
+    "freeTierDailyLimitEnforced" | "freeTierDailyLimit" | "freeTierDailySpend"
+  >,
+  overallRatio: number | null,
+): number | null {
+  if (!status.freeTierDailyLimitEnforced) {
+    return null;
+  }
+  if (overallRatio != null && overallRatio >= 1) {
+    return 0;
+  }
+  const limit = parseUsd(status.freeTierDailyLimit);
+  const spend = parseUsd(status.freeTierDailySpend);
+  if (limit == null || spend == null) {
+    return null;
+  }
+  return Math.max(0, limit - spend);
+}
+
+/**
  * Whether the wallet holds credit bought or earned on top of the usage
  * grants. Under the free-tier cap that is the only credit that spends today:
  * the grants' own remainder is frozen until the UTC reset, so a wallet holding

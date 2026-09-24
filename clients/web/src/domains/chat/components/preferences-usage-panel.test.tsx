@@ -56,6 +56,7 @@ mock.module("@/hooks/use-billing-balance-status", () => ({
         freeTierLimit != null &&
         freeTierSpend != null &&
         Number(freeTierSpend) >= Number(freeTierLimit),
+      freeTierDailyLimitBlocked: false,
       freeTierDailyLimit: freeTierLimit,
       freeTierDailySpend: freeTierSpend,
       balance: effectiveBalance,
@@ -260,8 +261,8 @@ describe("PreferencesUsagePanel", () => {
   });
 
   test("shows the free-tier daily reading when it has the least left", async () => {
-    // 20% of the grant is used, but 60% of today's free usage: the day is
-    // the tighter allowance, so the day is what the menu shows.
+    // $12 left on the grant against $2 left today: the day is the tighter
+    // allowance, so the day is what the menu shows.
     totalUsageBalance = "15.00";
     availableUsageBalance = "12.00";
     freeTierEnforced = true;
@@ -274,8 +275,9 @@ describe("PreferencesUsagePanel", () => {
     expect(panel.textContent).toContain("60% used");
   });
 
-  test("shows the overall reading once it has less left than the day", async () => {
-    // 80% of the grant is used against 60% of the day.
+  test("compares dollars left, not each bar's own percentage", async () => {
+    // The grant is 80% used but still holds $3; the day is only 60% used
+    // but holds $2, so the day runs out first and is what the menu shows.
     totalUsageBalance = "15.00";
     availableUsageBalance = "3.00";
     freeTierEnforced = true;
@@ -284,9 +286,23 @@ describe("PreferencesUsagePanel", () => {
     const { findByTestId } = renderPanel();
 
     const panel = await findByTestId("preferences-usage");
+    expect(panel.textContent).toContain("Daily usage");
+    expect(panel.textContent).toContain("60% used");
+  });
+
+  test("shows the overall reading once it has less left than the day", async () => {
+    // $1 left on the grant against $2 left today.
+    totalUsageBalance = "15.00";
+    availableUsageBalance = "1.00";
+    freeTierEnforced = true;
+    freeTierLimit = "5.00";
+    freeTierSpend = "3.00";
+    const { findByTestId } = renderPanel();
+
+    const panel = await findByTestId("preferences-usage");
     expect(panel.textContent).toContain("Usage");
     expect(panel.textContent).not.toContain("Daily usage");
-    expect(panel.textContent).toContain("80% used");
+    expect(panel.textContent).toContain("93% used");
   });
 
   test("a used-up day backed only by frozen credit raises the daily strip", async () => {

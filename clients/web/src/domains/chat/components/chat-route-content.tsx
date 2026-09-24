@@ -137,7 +137,6 @@ import {
 } from "@/domains/chat/utils/error-classification";
 import { openUrlInPopupOrTab } from "@/domains/chat/utils/oauth-popup-links";
 import { useBillingBalanceStatus } from "@/hooks/use-billing-balance-status";
-import { hasExtraCredit } from "@/hooks/use-plan-usage-balance";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import type {
   DisplayAttachment,
@@ -1326,15 +1325,13 @@ export function ChatMainPanel({
     // A skip clears the banner even when the error that raised it is still the
     // last thing that happened on this conversation.
     dailyLimitSnoozed: balanceStatus.dailyLimitSnoozed,
-    // The free-tier cap only blocks a send once the wallet holds no extra
-    // (purchased) credit to fall back on; with some left the platform keeps
-    // admitting turns, so no banner claims otherwise. Unknown until the
-    // summary has landed, so a banner raised by a failed send is neither
-    // retired nor invented off a summary that is still loading.
+    // The hook's gated verdict: cap reached, no extra credit to fall back on,
+    // and this conversation's route burns managed credit. Unknown until the
+    // summary and that verdict have settled, so a banner raised by a failed
+    // send is neither retired nor invented off a status still loading.
     freeTierDailyLimitBlocked:
       balanceStatus.enabled && balanceStatus.settled
-        ? balanceStatus.freeTierDailyLimitReached &&
-          !hasExtraCredit(balanceStatus)
+        ? balanceStatus.freeTierDailyLimitBlocked
         : undefined,
   });
 
