@@ -51,6 +51,12 @@ afterEach(() => {
 });
 
 describe("useAsyncRead", () => {
+  test("renders once on mount before the read resolves", () => {
+    render(<Probe source="a" />);
+
+    expect(frames).toEqual([{ source: "a", value: null, failed: false }]);
+  });
+
   test("never hands a new source the previous source's value", async () => {
     readers = { a: () => Promise.resolve("A") };
 

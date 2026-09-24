@@ -41,8 +41,14 @@ export function useAsyncRead<S, T>(
 
   useEffect(() => {
     let cancelled = false;
-    // Releases the previous source's value while the new read is in flight.
-    setState({ source, value: null, failed: false });
+    // Releases the previous source's value while the new read is in flight. A
+    // state already pending for this source is kept, so a mount renders once
+    // before its read resolves.
+    setState((current) =>
+      current.source === source && current.value === null && !current.failed
+        ? current
+        : { source, value: null, failed: false },
+    );
     latestRead.current(source).then(
       (value) => {
         if (!cancelled) {
@@ -60,8 +66,8 @@ export function useAsyncRead<S, T>(
     };
   }, [source]);
 
-  // A reply that belongs to a source no longer current reads as pending, so
-  // the render right after the source changes never shows the previous
+  // A state that belongs to a source other than the current one reads as
+  // pending, so the render after a source change never shows the previous
   // source's value.
   return state.source === source ? state : PENDING;
 }
