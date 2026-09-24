@@ -774,9 +774,11 @@ async function prepareWakeActor(
   const prior = conversation.trustContext;
   const actor = starter ?? actorForWorkWithoutSender(conversation);
   try {
-    if (starter || actor !== prior) {
-      await scopeHistoryToActor(conversation, actor);
-    }
+    // Always asked, even when the slot already names the actor: a wake that
+    // carries its own trust is stamped on the slot by its resolver without a
+    // reload, so the resident history can still be the contact's. The load
+    // compares against the scope that history was loaded for.
+    await scopeHistoryToActor(conversation, actor);
   } catch (err) {
     log.warn(
       { conversationId, source, err },

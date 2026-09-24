@@ -1178,6 +1178,70 @@ describe("wakeAgentForOpportunity", () => {
       expect(conversation.drainQueueCalls).toBe(1);
     });
 
+    test.each([
+      { lastTurn: "the contact's", lastTurnTrust: ALICE },
+      { lastTurn: "the guardian's", lastTurnTrust: GUARDIAN },
+    ])(
+      "a wake with its own guardian trust runs on guardian-scoped history after a contact's turn ($lastTurn turn last)",
+      async ({ lastTurnTrust }) => {
+        const wakeTrust: TrustContext = {
+          sourceChannel: "vellum",
+          trustClass: "guardian",
+        };
+        let scopeAtRun: unknown;
+        let turnTrustAtRun: unknown;
+        const conversation = await afterContactTurn(async (input) => {
+          scopeAtRun = conversation.loadedHistoryScope?.trustContext;
+          turnTrustAtRun = conversation.currentTurnTrustContext;
+          return runResult(input);
+        });
+        // The resident history was loaded for Alice's turn.
+        conversation.loadedHistoryScope = { trustContext: ALICE };
+        conversation.currentTurnTrustContext = lastTurnTrust;
+        // Mirrors Conversation.ensureActorScopedHistory: reloads when the
+        // history was loaded for a different scope than the slot names.
+        const reloadedFor: unknown[] = [];
+        (
+          conversation as unknown as {
+            ensureActorScopedHistory: () => Promise<void>;
+          }
+        ).ensureActorScopedHistory = async () => {
+          if (
+            conversation.loadedHistoryScope?.trustContext ===
+            conversation.trustContext
+          ) {
+            return;
+          }
+          reloadedFor.push(conversation.trustContext);
+          conversation.loadedHistoryScope = {
+            trustContext: conversation.trustContext,
+          };
+        };
+
+        const result = await wakeAgentForOpportunity(
+          {
+            conversationId: conversation.conversationId,
+            hint: "scheduled triage",
+            source: "schedule",
+            trustContext: wakeTrust,
+          },
+          {
+            // Like the default resolver, stamps the wake's trust on the
+            // resident conversation without reloading its history.
+            resolveTarget: async () => {
+              conversation.setTrustContext(wakeTrust);
+              return conversation;
+            },
+          },
+        );
+
+        expect(result.invoked).toBe(true);
+        expect(reloadedFor).toEqual([wakeTrust]);
+        expect(scopeAtRun).toBe(wakeTrust);
+        expect(turnTrustAtRun).toBe(wakeTrust);
+      },
+    );
+
     test("a wake for work the guardian's turn started runs as the guardian after a contact's turn", async () => {
       let turnTrustAtRun: unknown;
       const conversation = await afterContactTurn(async (input) => {

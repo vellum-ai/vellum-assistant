@@ -443,6 +443,39 @@ describe("AcpSessionManager parent notification", () => {
       expect(parent.trustContext).toBe(slackGuardian);
     });
 
+    test("a notification no turn started reloads history still loaded for a contact", async () => {
+      const manager = new AcpSessionManager(1);
+      const { parent, persistUserMessage, loopRan, reloadedFor } =
+        await parentAfterContactTurn("parent-restamped");
+      // Restamped to the guardian without a reload; the history is Alice's.
+      parent.trustContext = GUARDIAN;
+      (
+        parent as unknown as {
+          loadedHistoryScope?: { trustContext: TrustContext | undefined };
+        }
+      ).loadedHistoryScope = { trustContext: ALICE };
+      let reloadsAtPersist = -1;
+      persistUserMessage.mockImplementation(async () => {
+        reloadsAtPersist = reloadedFor.length;
+        return { id: "msg-1", deduplicated: false };
+      });
+      const proc = fakeProcess(() =>
+        Promise.resolve({ stopReason: "end_turn" }),
+      );
+      const entry = injectSession(
+        manager,
+        "sess-restamped",
+        "parent-restamped",
+        proc,
+      );
+
+      await fire(manager, "sess-restamped", entry);
+      await loopRan;
+
+      expect(reloadedFor).toEqual([GUARDIAN]);
+      expect(reloadsAtPersist).toBe(1);
+    });
+
     test("a steer records the steering turn for the notification it leads to", async () => {
       const manager = new AcpSessionManager(1);
       await parentAfterContactTurn("parent-steer");

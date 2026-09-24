@@ -4,8 +4,15 @@ import type { TrustCarrier, TrustContext } from "./trust-context-types.js";
 
 type ScopedConversation = Pick<
   Conversation,
-  "trustContext" | "setTrustContext" | "ensureActorScopedHistory"
+  | "trustContext"
+  | "setTrustContext"
+  | "ensureActorScopedHistory"
+  | "loadedHistoryScope"
 >;
+
+/** A conversation's actor slots plus the scope its resident history was loaded for. */
+type ContactCarrier = TrustCarrier &
+  Partial<Pick<Conversation, "loadedHistoryScope">>;
 
 /**
  * The actor each live conversation rested on when a shared-conversation
@@ -23,18 +30,20 @@ export function isContactTrust(
 
 /**
  * Whether a shared-conversation contact is involved in work reporting back to
- * a conversation: its starter, the actor the conversation rests on, or the
- * turn it last ran is a contact's. Only then does the work run as the turn
- * that started it; otherwise it resolves its actor as it always has.
+ * a conversation: its starter, the actor the conversation rests on, the turn
+ * it last ran, or the scope its resident history was loaded for is a
+ * contact's. Only then does the work run as the turn that started it;
+ * otherwise it resolves its actor as it always has.
  */
 export function isContactInvolved(
-  conversation: TrustCarrier,
+  conversation: ContactCarrier,
   startedBy: TrustContext | undefined,
 ): boolean {
   return (
     isContactTrust(startedBy) ||
     isContactTrust(conversation.trustContext) ||
-    isContactTrust(conversation.currentTurnTrustContext)
+    isContactTrust(conversation.currentTurnTrustContext) ||
+    isContactTrust(conversation.loadedHistoryScope?.trustContext)
   );
 }
 
@@ -93,13 +102,18 @@ export function actorForWorkWithoutSender(
 /**
  * Put back the actor and history a conversation had before a
  * shared-conversation contact's turn left it resting on the contact, for work
- * that no turn started and that is about to run. Does nothing otherwise.
+ * that no turn started and that is about to run. Also reloads when the slot
+ * already names that actor but the resident history was loaded for a
+ * contact. Does nothing otherwise.
  */
 export async function restoreActorBeforeContact(
   conversation: ScopedConversation,
 ): Promise<void> {
   const actor = actorForWorkWithoutSender(conversation);
-  if (actor !== conversation.trustContext) {
+  if (
+    actor !== conversation.trustContext ||
+    isContactTrust(conversation.loadedHistoryScope?.trustContext)
+  ) {
     await scopeHistoryToActor(conversation, actor);
   }
 }
