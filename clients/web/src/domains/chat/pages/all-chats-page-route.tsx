@@ -205,9 +205,11 @@ export function AllChatsPageRoute() {
         onRowMount={registerActivity}
         onClose={() => {
           if (activeConversationId) {
-            switchConversation(activeConversationId);
+            navigateToConversation(navigate, activeConversationId, {
+              replace: true,
+            });
           } else {
-            navigate(routes.assistant);
+            navigate(routes.assistant, { replace: true });
           }
         }}
       />
