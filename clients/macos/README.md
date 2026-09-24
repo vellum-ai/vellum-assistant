@@ -466,11 +466,15 @@ their current lesson. Every permission step is skippable.
 | Voice key | Input Monitoring | Detect the global voice-key shortcut |
 | Share | Screen Recording | Share a screen or window through Vellum Helper |
 
-Microphone uses the native prompt. Input Monitoring and Screen Recording lift
-the coachmark's permission control into a guide beside System Settings. Drag
-Vellum Helper into the privacy list and authenticate if asked.
-**Show in Finder** provides a keyboard and manual-drag alternative. The bundle
-label and icon reflect the actual installed helper, including development builds.
+Microphone and Screen Recording use native prompts. Screen Recording setup
+checks both the app's grant and a fresh launch of the executable that takes
+captures. It asks for the missing app grant first, then the helper grant, so
+the tour does not report success until Share can capture. A separate explicit
+action opens Settings after a native prompt. Input Monitoring lifts the coachmark's
+permission control into a guide beside System Settings. Drag Vellum Helper into
+the privacy list and authenticate if asked. **Show in Finder** provides a
+keyboard and manual-drag alternative. The bundle label and icon reflect the
+actual installed helper, including development builds.
 
 The informational introduction and **Start the tour** button appear before the
 coachmarks. Closing that introduction dismisses it immediately. Both the companion
@@ -497,8 +501,9 @@ Accessibility, Speech Recognition, Automation, and Notifications serve other app
 features and are not requested by this tour. General Privacy settings retain their
 existing controls.
 
-Implementation: `companion-permission-guide.ts` owns the native guide, helper app
-drag, Finder fallback, and polling. `permissions-service.ts` owns permission state.
-The tour uses the optional `permissions.setup` bridge; its detached guide renders
-at the internal `/assistant/floating/permission-guide` route. There is no separate
-permission setup page or menu entry.
+Implementation: `companion-permission-guide.ts` owns the Input Monitoring guide,
+helper app drag, Finder fallback, and polling. `permissions-service.ts` owns
+permission state. The tour uses the optional `permissions.setup` bridge for Input
+Monitoring; its detached guide renders at the internal
+`/assistant/floating/permission-guide` route. There is no separate permission
+setup page or menu entry.

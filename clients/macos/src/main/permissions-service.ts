@@ -35,7 +35,11 @@ import {
   requestNotifierAuthorization,
   type NotifierAuthorizationResult,
 } from "./notifier";
-import { readScreenRecordingPermission } from "./screen-recording-permission";
+import {
+  readAppScreenRecordingPermission,
+  readScreenRecordingPermission,
+  requestAppScreenRecordingPermission,
+} from "./screen-recording-permission";
 
 export const PERMISSION_KINDS = [
   "accessibility",
@@ -300,6 +304,7 @@ export class PermissionsService {
   private lastStateJson: string | null = null;
 
   private helperRequests = new Set<PermissionKind>();
+  private appScreenRequested = false;
   private pollTimers = new Map<PermissionKind, ReturnType<typeof setInterval>>();
   private automationStatus: PermissionStatus = "unknown";
   private notificationStatus: PermissionStatus = initialNotificationStatus();
@@ -334,8 +339,13 @@ export class PermissionsService {
           await systemPreferences.askForMediaAccess("microphone");
           break;
         case "screen":
-          await requestMacHelperScreenRecordingPermission();
-          this.helperRequests.add(kind);
+          if (readAppScreenRecordingPermission() !== "granted") {
+            requestAppScreenRecordingPermission();
+            this.appScreenRequested = true;
+          } else {
+            await requestMacHelperScreenRecordingPermission();
+            this.helperRequests.add(kind);
+          }
           break;
         case "speechRecognition":
           await requestMacHelperSpeechRecognitionPermission();
@@ -378,7 +388,7 @@ export class PermissionsService {
         kind === "screen" ||
         item.status === "unknown" ||
         item.status === "not-determined";
-      if (canShowNativeAlert && !this.helperRequests.has(kind)) {
+      if (canShowNativeAlert && item.canRequest) {
         return this.request(kind, sender);
       }
     }
@@ -411,8 +421,7 @@ export class PermissionsService {
       status,
       canRequest: this.canRequest(kind, status),
       canOpenSettings: status !== "granted",
-      // No grant needs the app relaunched. Screen Recording is the helper's,
-      // and a read that finds it newly granted lets the helper go.
+      // The capture process is relaunched when Screen Recording arrives.
       requiresRestart: false,
       ...(error ? { error } : {}),
     };
@@ -427,7 +436,7 @@ export class PermissionsService {
         return systemPreferences.isTrustedAccessibilityClient(false)
           ? "granted"
           : "denied";
-      // The helper's grant, not the app's: the helper takes every capture.
+      // Both the app and the capturing helper need Screen Recording access.
       case "screen":
         return await readScreenRecordingPermission();
       case "microphone":
@@ -452,7 +461,9 @@ export class PermissionsService {
       return false;
     }
     if (kind === "screen") {
-      return !this.helperRequests.has(kind);
+      return readAppScreenRecordingPermission() === "granted"
+        ? !this.helperRequests.has(kind)
+        : !this.appScreenRequested;
     }
     return true;
   }

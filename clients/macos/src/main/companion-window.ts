@@ -3566,9 +3566,8 @@ const screenRecordingAllowed = (): Promise<boolean> =>
   });
 
 /**
- * Send the user to Screen Recording in System Settings, with the helper
- * listed there to turn on. Settings opening is itself the message: the share
- * cannot happen until that row is on.
+ * Request the missing Screen Recording grant or open its Settings pane.
+ * Sharing requires both the app and capturing helper to be allowed.
  */
 const askForScreenRecording = async (): Promise<void> => {
   try {
