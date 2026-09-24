@@ -6,7 +6,6 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { collectImageManifest } from "../context/compactor.js";
 import { resolveAssistantAttachments } from "../daemon/conversation-attachments.js";
 import { settleTurnContent } from "../daemon/conversation-turn-finalize.js";
-import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../daemon/trust-context.js";
 import {
   createInlineAttachment,
   getAttachmentsForMessage,
@@ -136,10 +135,9 @@ describe("computer-use screenshot reply placement", () => {
     );
     expect(physicalCount?.count).toBe(2);
 
-    const manifestIds = collectImageManifest(
-      conversation.id,
-      INTERNAL_GUARDIAN_TRUST_CONTEXT,
-    ).map((entry) => entry.attachmentId);
+    const manifestIds = collectImageManifest(conversation.id, "guardian").map(
+      (entry) => entry.attachmentId,
+    );
     expect(manifestIds).toEqual([earlier.id, final.id, final.id]);
     expect(new Set(manifestIds)).toEqual(new Set([earlier.id, final.id]));
 

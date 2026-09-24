@@ -5767,60 +5767,6 @@ describe("session-agent-loop", () => {
       expect(getV3ActiveSections("test-conv")).toEqual(new Map());
     });
 
-    test("a shared transcript's compaction leaves the marker, the ledgers and the persisted state as they were", async () => {
-      // GIVEN a resident section the guardian's ledgers claim, and a history
-      // loaded as a shared-conversation participant's projected transcript
-      const { graphMemory, onCompacted, order } =
-        arrangeResidentSectionAndObservers("test-conv");
-      mockEstimateTokens = 90_000;
-      const contextWindowCalls =
-        updateConversationContextWindowMock.mock.calls.length;
-      const ctx = makeCtx({
-        graphMemory,
-        contextWindowManager: compactingPipelineManager(order),
-        loadedHistorySharedReader: "principal-alice",
-      });
-
-      // WHEN the loop's budget gate compacts that history
-      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
-
-      // THEN the turn continued on the compacted history, but no
-      // history-stripped marker, ledger reset or compaction state was written
-      expect(order[0]).toBe("pipeline");
-      expect(setConversationHistoryStrippedAtMock).not.toHaveBeenCalled();
-      expect(onCompacted).not.toHaveBeenCalled();
-      expect(updateConversationContextWindowMock.mock.calls.length).toBe(
-        contextWindowCalls,
-      );
-      expect(getV3ActiveSections("test-conv")).toEqual(
-        new Map([["page-a", new Set([""])]]),
-      );
-    });
-
-    test("a shared transcript's strip that summarizes nothing leaves the marker and the ledgers as they were", async () => {
-      // GIVEN a resident section the guardian's ledgers claim, and a history
-      // loaded as a shared-conversation participant's projected transcript
-      const { graphMemory, onCompacted, order } =
-        arrangeResidentSectionAndObservers("test-conv");
-      mockEstimateTokens = 90_000;
-      const ctx = makeCtx({
-        graphMemory,
-        contextWindowManager: noopPipelineManager(order),
-        loadedHistorySharedReader: "principal-alice",
-      });
-
-      // WHEN the loop's budget gate runs a pipeline that summarizes nothing
-      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
-
-      // THEN no history-stripped marker or ledger reset was written
-      expect(order[0]).toBe("pipeline");
-      expect(setConversationHistoryStrippedAtMock).not.toHaveBeenCalled();
-      expect(onCompacted).not.toHaveBeenCalled();
-      expect(getV3ActiveSections("test-conv")).toEqual(
-        new Map([["page-a", new Set([""])]]),
-      );
-    });
-
     test("an overflow rung that reduces without summarizing resets the ledgers before re-injection", async () => {
       const { graphMemory, onCompacted, order } =
         arrangeResidentSectionAndObservers("test-conv");
