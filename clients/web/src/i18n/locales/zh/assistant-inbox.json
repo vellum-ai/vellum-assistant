@@ -79,6 +79,8 @@
     "changeHandle": "更改用户名"
   },
   "assistantInboxSetupCard": {
+    "pageTitle": "邮件",
+    "back": "返回",
     "title": "助手邮箱",
     "subtitle": "为你的助手设置一个邮箱。",
     "getStarted": "开始使用",

@@ -79,6 +79,8 @@
     "changeHandle": "Cambiar identificador"
   },
   "assistantInboxSetupCard": {
+    "pageTitle": "Correo",
+    "back": "Atrás",
     "title": "Correo del asistente",
     "subtitle": "Configura un correo para tu asistente.",
     "getStarted": "Empezar",

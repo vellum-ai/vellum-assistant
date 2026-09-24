@@ -1,3 +1,4 @@
+import { ArrowLeft } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { Button, Notice } from "@vellumai/design-library";
@@ -8,7 +9,6 @@ import type { HandleCheckResult } from "../types";
 import { AddressPill } from "./address-pill";
 import { AssistantInboxShell } from "./assistant-inbox-shell";
 import { EmailAddressFields } from "./email-address-fields";
-import { InboxCard } from "./inbox-card";
 
 /** Long enough that a probe is not fired per keystroke. */
 const HANDLE_CHECK_DELAY_MS = 400;
@@ -43,6 +43,8 @@ export interface AssistantInboxSetupCardProps {
   onConfirm: (draft: { prefix: string; handle: string }) => void;
   /** The registration is in flight; the action holds. */
   busy?: boolean;
+  /** Leaves the setup without an address. Without it no back control is drawn. */
+  onBack?: () => void;
 }
 
 /**
@@ -55,8 +57,11 @@ export interface AssistantInboxSetupCardProps {
  * what a subdomain allows, probed as it is typed, with the warning that it
  * cannot be changed afterwards. Beneath the fields the address they produce
  * is drawn as the identity pill, so the preview reads as the assistant.
- * There is one way out, forward: skipping would leave the inbox with
- * nothing to show.
+ *
+ * Drawn as a page rather than a card in the middle of one, as the design
+ * has it: a header row with the way back and the page's name, and the form
+ * on a surface below it, so setting up reads as a step of the inbox rather
+ * than a dialog over it.
  */
 export function AssistantInboxSetupCard({
   assistantId,
@@ -68,6 +73,7 @@ export function AssistantInboxSetupCard({
   onDraftChange,
   onConfirm,
   busy = false,
+  onBack,
 }: AssistantInboxSetupCardProps) {
   const { t } = useTranslation("assistant-inbox");
   const [prefix, setPrefix] = useState("hi");
@@ -117,27 +123,35 @@ export function AssistantInboxSetupCard({
 
   return (
     <AssistantInboxShell>
-      <div className="flex flex-1 items-center justify-center overflow-y-auto p-6">
-        <InboxCard
-          title={t("assistantInboxSetupCard.title")}
-          subtitle={
-            handleEditable
-              ? t("assistantInboxSetupCard.subtitleChooseHandle")
-              : t("assistantInboxSetupCard.subtitle")
-          }
-          footerAlign="center"
-          footer={
-            <Button
-              variant="primary"
-              disabled={!prefix || !handle || busy || checkMessage !== null}
-              onClick={() => onConfirm({ prefix, handle })}
-            >
-              {t("assistantInboxSetupCard.getStarted")}
-            </Button>
-          }
-        >
-          <div className="flex flex-col items-center gap-4">
-            <div className="flex max-w-full flex-col items-center gap-1.5">
+      <header className="flex items-center gap-3 px-2 pb-4 pt-2">
+        {onBack ? (
+          <Button
+            variant="outlined"
+            iconOnly={<ArrowLeft />}
+            onClick={onBack}
+            aria-label={t("assistantInboxSetupCard.back")}
+          />
+        ) : null}
+        <h1 className="min-w-0 truncate text-title-large text-[var(--content-emphasised)]">
+          {t("assistantInboxSetupCard.pageTitle")}
+        </h1>
+      </header>
+
+      <div className="mx-2 mb-2 flex min-h-0 flex-1 flex-col overflow-y-auto rounded-[16px] bg-[var(--surface-lift)] px-6 py-6">
+        <div className="flex w-full max-w-[560px] flex-col gap-6">
+          <div className="flex flex-col gap-1">
+            <h2 className="text-title-medium text-[var(--content-emphasised)]">
+              {t("assistantInboxSetupCard.title")}
+            </h2>
+            <p className="text-body-medium-lighter text-[var(--content-secondary)]">
+              {handleEditable
+                ? t("assistantInboxSetupCard.subtitleChooseHandle")
+                : t("assistantInboxSetupCard.subtitle")}
+            </p>
+          </div>
+
+          <div className="flex flex-col items-start gap-4">
+            <div className="flex max-w-full flex-col items-start gap-1.5">
               <EmailAddressFields
                 prefix={prefix}
                 handle={handle}
@@ -162,7 +176,7 @@ export function AssistantInboxSetupCard({
               {problem ? (
                 <p
                   role="alert"
-                  className="text-center text-body-small-default text-[var(--system-negative-strong)]"
+                  className="text-body-small-default text-[var(--system-negative-strong)]"
                 >
                   {problem}
                 </p>
@@ -183,7 +197,17 @@ export function AssistantInboxSetupCard({
               </Notice>
             ) : null}
           </div>
-        </InboxCard>
+
+          <div>
+            <Button
+              variant="primary"
+              disabled={!prefix || !handle || busy || checkMessage !== null}
+              onClick={() => onConfirm({ prefix, handle })}
+            >
+              {t("assistantInboxSetupCard.getStarted")}
+            </Button>
+          </div>
+        </div>
       </div>
     </AssistantInboxShell>
   );

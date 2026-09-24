@@ -385,6 +385,7 @@ export function AssistantInboxPageRoute() {
           onDraftChange={() => setSetupError(null)}
           onConfirm={(draft) => void confirmSetup(draft)}
           busy={settling}
+          onBack={() => navigate("/")}
         />
       );
     case "ready":

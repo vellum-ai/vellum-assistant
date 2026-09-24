@@ -79,6 +79,8 @@
     "changeHandle": "變更使用者名稱"
   },
   "assistantInboxSetupCard": {
+    "pageTitle": "郵件",
+    "back": "返回",
     "title": "助理電子郵件",
     "subtitle": "為你的助理設定一個電子郵件。",
     "getStarted": "開始使用",

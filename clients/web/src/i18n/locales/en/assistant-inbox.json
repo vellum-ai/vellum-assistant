@@ -79,6 +79,8 @@
     "changeHandle": "Change handle"
   },
   "assistantInboxSetupCard": {
+    "pageTitle": "Email",
+    "back": "Back",
     "title": "Assistant Email",
     "subtitle": "Set up an email for your assistant.",
     "getStarted": "Get started",

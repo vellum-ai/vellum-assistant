@@ -79,6 +79,8 @@
     "changeHandle": "Изменить имя"
   },
   "assistantInboxSetupCard": {
+    "pageTitle": "Почта",
+    "back": "Назад",
     "title": "Почта ассистента",
     "subtitle": "Настройте почту для вашего ассистента.",
     "getStarted": "Начать",

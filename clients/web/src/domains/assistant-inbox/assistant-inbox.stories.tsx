@@ -304,6 +304,7 @@ export const SetUpEmail: Story = {
       handle={MOCK_ASSISTANT_HANDLE}
       rootDomain={MOCK_ROOT_DOMAIN}
       onConfirm={fn().mockName("onConfirm")}
+      onBack={fn().mockName("onBack")}
     />
   ),
 };
@@ -327,6 +328,7 @@ export const SetUpEmailChooseHandle: Story = {
           : { available: true }
       }
       onConfirm={fn().mockName("onConfirm")}
+      onBack={fn().mockName("onBack")}
     />
   ),
 };
@@ -345,6 +347,7 @@ export const SetUpEmailRefused: Story = {
       rootDomain={MOCK_ROOT_DOMAIN}
       error="That address is already taken on this domain."
       onConfirm={fn().mockName("onConfirm")}
+      onBack={fn().mockName("onBack")}
     />
   ),
 };

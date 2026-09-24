@@ -1,19 +1,8 @@
-import type { CSSProperties } from "react";
-
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { useTranslation } from "@/i18n";
 
 import type { InboxUsage } from "../types";
 import { AddressPill } from "./address-pill";
-
-/** Instrument Serif, the same face the onboarding cards set their titles in. */
-const TITLE_STYLE: CSSProperties = {
-  fontFamily: "var(--font-serif)",
-  fontSize: "28px",
-  fontWeight: 400,
-  lineHeight: 1.15,
-  letterSpacing: "0.4px",
-};
 
 export interface AssistantInboxHeaderProps {
   assistantId: string;
@@ -23,7 +12,7 @@ export interface AssistantInboxHeaderProps {
 }
 
 /**
- * The inbox masthead: whose inbox this is, in serif, with the line that says
+ * The inbox masthead: whose inbox this is, with the line that says
  * what it holds on the leading edge, and on the trailing edge the address as
  * the identity pill over the day's counts. The pill is the copy control, so
  * the address is one click to take anywhere, and the counts keep the daily
@@ -46,10 +35,7 @@ export function AssistantInboxHeader({
       className="flex flex-wrap items-start gap-4 px-2 pb-4 pt-2"
     >
       <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <h1
-          className="min-w-0 truncate text-[var(--content-emphasised)]"
-          style={TITLE_STYLE}
-        >
+        <h1 className="min-w-0 truncate text-title-large text-[var(--content-emphasised)]">
           {t("assistantInboxHeader.title", { name: assistantName })}
         </h1>
         <p className="text-body-medium-lighter text-[var(--content-secondary)]">
