@@ -21,12 +21,12 @@ import {
   packageSpecs,
 } from "@/domains/settings/billing/plan-spec";
 import { PlanTile } from "@/domains/settings/billing/plan-tile";
+import { UsageBalancePanel } from "@/domains/settings/billing/usage-balance-panel";
 import {
-  UsageBalancePanel,
   UsageBalanceReading,
   type UsagePeriodEnd,
   usagePeriodEndLabels,
-} from "@/domains/settings/billing/usage-balance-panel";
+} from "@/domains/settings/billing/usage-balance-reading";
 import { useCheckoutDismissRefresh } from "@/domains/settings/billing/use-checkout-dismiss-refresh";
 import {
   formatGraceDate,

@@ -11,10 +11,8 @@ import {
   frameWidthDecorator,
   STORY_PERIOD_END,
 } from "@/domains/settings/billing/billing-story-frame";
-import {
-  UsageBalancePanel,
-  UsageBalanceReading,
-} from "@/domains/settings/billing/usage-balance-panel";
+import { UsageBalancePanel } from "@/domains/settings/billing/usage-balance-panel";
+import { UsageBalanceReading } from "@/domains/settings/billing/usage-balance-reading";
 
 const meta = {
   title: "Settings/Billing/UsageBalancePanel",

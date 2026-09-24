@@ -30,12 +30,12 @@ import {
   PLAN_TILE_WIDTH_PX,
   STORY_PERIOD_END,
 } from "@/domains/settings/billing/billing-story-frame";
+import { UsageBalancePanel } from "@/domains/settings/billing/usage-balance-panel";
 import {
-  UsageBalancePanel,
   UsageBalanceReading,
   type UsagePeriodEnd,
   usagePeriodEndLabels,
-} from "@/domains/settings/billing/usage-balance-panel";
+} from "@/domains/settings/billing/usage-balance-reading";
 import {
   makeProPackage,
   makeSuperPackage,

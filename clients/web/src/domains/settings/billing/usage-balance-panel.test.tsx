@@ -14,7 +14,8 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 
-import { UsageBalancePanel, UsageBalanceReading } from "./usage-balance-panel";
+import { UsageBalancePanel } from "./usage-balance-panel";
+import { UsageBalanceReading } from "./usage-balance-reading";
 
 afterEach(() => {
   cleanup();
