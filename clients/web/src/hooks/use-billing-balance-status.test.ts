@@ -160,6 +160,10 @@ describe("useBillingBalanceStatus", () => {
       dailyLimitSnoozed: false,
       dailyLimit: null,
       dailySpend: "0.00",
+      freeTierDailyLimitEnforced: false,
+      freeTierDailyLimitReached: false,
+      freeTierDailyLimit: "5.00",
+      freeTierDailySpend: "0.00",
       balance: "20.00",
       availableUsageBalance: null,
       totalUsageBalance: null,
@@ -198,6 +202,10 @@ describe("useBillingBalanceStatus", () => {
       dailyLimitSnoozed: false,
       dailyLimit: null,
       dailySpend: "0.00",
+      freeTierDailyLimitEnforced: false,
+      freeTierDailyLimitReached: false,
+      freeTierDailyLimit: "5.00",
+      freeTierDailySpend: "0.00",
       balance: "3.00",
       availableUsageBalance: null,
       totalUsageBalance: null,
@@ -250,12 +258,35 @@ describe("useBillingBalanceStatus", () => {
       dailyLimitSnoozed: false,
       dailyLimit: null,
       dailySpend: "0.00",
+      freeTierDailyLimitEnforced: false,
+      freeTierDailyLimitReached: false,
+      freeTierDailyLimit: "5.00",
+      freeTierDailySpend: "0.00",
       balance: "20.00",
       availableUsageBalance: null,
       totalUsageBalance: null,
       enabled: true,
       settled: true,
     });
+  });
+
+  test("free tier: reflects the server-computed cap fields", () => {
+    const { result } = setup({
+      seed: summary({
+        effective_balance: "12.00",
+        free_tier_daily_limit_enrolled: true,
+        free_tier_daily_limit_enforced: true,
+        free_tier_daily_limit_usd: "5.00",
+        free_tier_daily_spend_usd: "5.00",
+        free_tier_daily_limit_reached: true,
+      }),
+    });
+    expect(result.current.freeTierDailyLimitEnforced).toBe(true);
+    expect(result.current.freeTierDailyLimitReached).toBe(true);
+    expect(result.current.freeTierDailyLimit).toBe("5.00");
+    expect(result.current.freeTierDailySpend).toBe("5.00");
+    // The cap is orthogonal to the wallet: credits remain, nothing is exhausted.
+    expect(result.current.isExhausted).toBe(false);
   });
 
   test("daily limit drives the composer banner with no chat error present", () => {
@@ -348,6 +379,10 @@ describe("useBillingBalanceStatus", () => {
       dailyLimitSnoozed: false,
       dailyLimit: null,
       dailySpend: null,
+      freeTierDailyLimitEnforced: false,
+      freeTierDailyLimitReached: false,
+      freeTierDailyLimit: null,
+      freeTierDailySpend: null,
       balance: null,
       availableUsageBalance: null,
       totalUsageBalance: null,
@@ -395,6 +430,10 @@ describe("useBillingBalanceStatus", () => {
       dailyLimitSnoozed: false,
       dailyLimit: null,
       dailySpend: null,
+      freeTierDailyLimitEnforced: false,
+      freeTierDailyLimitReached: false,
+      freeTierDailyLimit: null,
+      freeTierDailySpend: null,
       balance: null,
       availableUsageBalance: null,
       totalUsageBalance: null,
@@ -418,6 +457,10 @@ describe("useBillingBalanceStatus", () => {
       dailyLimitSnoozed: false,
       dailyLimit: null,
       dailySpend: "0.00",
+      freeTierDailyLimitEnforced: false,
+      freeTierDailyLimitReached: false,
+      freeTierDailyLimit: "5.00",
+      freeTierDailySpend: "0.00",
       balance: "0.00",
       availableUsageBalance: null,
       totalUsageBalance: null,
@@ -460,6 +503,10 @@ describe("useBillingBalanceStatus", () => {
       dailyLimitSnoozed: false,
       dailyLimit: null,
       dailySpend: null,
+      freeTierDailyLimitEnforced: false,
+      freeTierDailyLimitReached: false,
+      freeTierDailyLimit: null,
+      freeTierDailySpend: null,
       balance: null,
       availableUsageBalance: null,
       totalUsageBalance: null,

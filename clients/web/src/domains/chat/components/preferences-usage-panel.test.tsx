@@ -29,6 +29,10 @@ let creditsExhausted = false;
 let effectiveBalance: string | null = null;
 let availableUsageBalance: string | null = null;
 let totalUsageBalance: string | null = null;
+/** The free-tier daily cap, where the platform is enforcing one. */
+let freeTierEnforced = false;
+let freeTierLimit: string | null = null;
+let freeTierSpend: string | null = null;
 /** What the panel asked the wallet status to classify against. */
 let balanceStatusOpts: unknown;
 // Whether the route classification behind the panel's colours has landed.
@@ -46,6 +50,14 @@ mock.module("@/hooks/use-billing-balance-status", () => ({
       dailyLimitSnoozed: false,
       dailyLimit: null,
       dailySpend: null,
+      freeTierDailyLimitEnforced: freeTierEnforced,
+      freeTierDailyLimitReached:
+        freeTierEnforced &&
+        freeTierLimit != null &&
+        freeTierSpend != null &&
+        Number(freeTierSpend) >= Number(freeTierLimit),
+      freeTierDailyLimit: freeTierLimit,
+      freeTierDailySpend: freeTierSpend,
       balance: effectiveBalance,
       availableUsageBalance,
       totalUsageBalance,
@@ -132,6 +144,9 @@ beforeEach(() => {
   effectiveBalance = null;
   availableUsageBalance = null;
   totalUsageBalance = null;
+  freeTierEnforced = false;
+  freeTierLimit = null;
+  freeTierSpend = null;
   route = "managed";
   balanceStatusOpts = undefined;
 });
@@ -242,6 +257,84 @@ describe("PreferencesUsagePanel", () => {
     expect(panel.textContent).toContain("100% used");
     expect(queryByText("Add credits to continue.")).toBeNull();
     expect(queryByTestId("preferences-usage-add-credits")).toBeNull();
+  });
+
+  test("shows the free-tier daily reading when it has the least left", async () => {
+    // 20% of the grant is used, but 60% of today's free usage: the day is
+    // the tighter allowance, so the day is what the menu shows.
+    totalUsageBalance = "15.00";
+    availableUsageBalance = "12.00";
+    freeTierEnforced = true;
+    freeTierLimit = "5.00";
+    freeTierSpend = "3.00";
+    const { findByTestId } = renderPanel();
+
+    const panel = await findByTestId("preferences-usage");
+    expect(panel.textContent).toContain("Daily usage");
+    expect(panel.textContent).toContain("60% used");
+  });
+
+  test("shows the overall reading once it has less left than the day", async () => {
+    // 80% of the grant is used against 60% of the day.
+    totalUsageBalance = "15.00";
+    availableUsageBalance = "3.00";
+    freeTierEnforced = true;
+    freeTierLimit = "5.00";
+    freeTierSpend = "3.00";
+    const { findByTestId } = renderPanel();
+
+    const panel = await findByTestId("preferences-usage");
+    expect(panel.textContent).toContain("Usage");
+    expect(panel.textContent).not.toContain("Daily usage");
+    expect(panel.textContent).toContain("80% used");
+  });
+
+  test("a used-up day backed only by frozen credit raises the daily strip", async () => {
+    // The wallet holds nothing but the grant's own remainder, which the cap
+    // freezes until the reset, so the next send would be rejected.
+    totalUsageBalance = "15.00";
+    availableUsageBalance = "12.00";
+    effectiveBalance = "12.00";
+    freeTierEnforced = true;
+    freeTierLimit = "5.00";
+    freeTierSpend = "5.00";
+    const { findByTestId } = renderPanel();
+
+    const panel = await findByTestId("preferences-usage");
+    expect(panel.textContent).toContain("Daily usage");
+    expect(panel.textContent).toContain("100% used");
+    expect(panel.textContent).toContain(
+      "Daily usage used up. Add credits to continue.",
+    );
+  });
+
+  test("a used-up day with extra credit behind it names the extra credits", async () => {
+    totalUsageBalance = "15.00";
+    availableUsageBalance = "12.00";
+    // $12 of frozen grant plus $8 bought on top.
+    effectiveBalance = "20.00";
+    freeTierEnforced = true;
+    freeTierLimit = "5.00";
+    freeTierSpend = "5.00";
+    const { findByTestId } = renderPanel();
+
+    const panel = await findByTestId("preferences-usage");
+    expect(panel.textContent).toContain("Now using extra usage credits");
+    expect(panel.textContent).not.toContain("Daily usage used up");
+  });
+
+  test("a spent grant pins the day at 100% and the overall reading wins the tie", async () => {
+    totalUsageBalance = "15.00";
+    availableUsageBalance = "0.00";
+    freeTierEnforced = true;
+    freeTierLimit = "5.00";
+    freeTierSpend = "1.00";
+    const { findByTestId } = renderPanel();
+
+    const panel = await findByTestId("preferences-usage");
+    expect(panel.textContent).toContain("Usage");
+    expect(panel.textContent).not.toContain("Daily usage");
+    expect(panel.textContent).toContain("100% used");
   });
 
   test("the gear hands the billing page to its caller", async () => {

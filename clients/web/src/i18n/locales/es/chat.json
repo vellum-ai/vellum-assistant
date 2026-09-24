@@ -1434,6 +1434,8 @@
   },
   "preferencesUsagePanel": {
     "addCreditsAriaLabel": "Añadir créditos",
+    "dailyExhausted": "Uso diario agotado. Añade créditos para continuar.",
+    "dailyTitle": "Uso diario",
     "exhausted": "Añade créditos para continuar.",
     "extraCredits": "Usando créditos de uso adicional",
     "pctUsed": "{pct}% usado",
@@ -2081,5 +2083,11 @@
   "recallLabels": {
     "source": "{source, select, memory {Memoria} conversations {Conversaciones} workspace {Archivos del espacio de trabajo} other {{source}}}",
     "depth": "{depth, select, fast {Búsqueda rápida} standard {Búsqueda estándar} deep {Búsqueda profunda} other {Búsqueda}}"
+  },
+  "freeTierDailyLimitBanner": {
+    "addCredits": "Añadir créditos",
+    "subtitle": "Has usado el uso gratuito de hoy. Se reinicia a las {resetPhrase}. Mejora tu plan o añade créditos para continuar.",
+    "title": "Uso gratuito diario agotado",
+    "viewPlans": "Ver planes"
   }
 }

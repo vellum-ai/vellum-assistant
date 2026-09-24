@@ -463,6 +463,18 @@ describe("deriveReason", () => {
     expect(deriveReason(n(), 402)).toBe("insufficient_credits");
   });
 
+  test("free-tier daily-limit body code → free_tier_daily_limit_reached (before insufficient_credits)", () => {
+    expect(
+      deriveReason(
+        n({
+          rawBody:
+            '{"code":"free_tier_daily_limit_reached","detail":"free usage"}',
+        }),
+        402,
+      ),
+    ).toBe("free_tier_daily_limit_reached");
+  });
+
   test("daily-limit body code → daily_limit_reached (before insufficient_credits)", () => {
     // Both are 402s from the managed proxy; the specific daily-limit code must
     // win over the generic status-402 → insufficient_credits mapping.

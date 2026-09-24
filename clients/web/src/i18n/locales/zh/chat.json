@@ -1472,6 +1472,8 @@
   },
   "preferencesUsagePanel": {
     "addCreditsAriaLabel": "添加额度",
+    "dailyExhausted": "今日用量已用完。添加额度以继续。",
+    "dailyTitle": "每日用量",
     "exhausted": "添加额度以继续。",
     "extraCredits": "正在使用额外用量额度",
     "pctUsed": "已使用 {pct}%",
@@ -2146,5 +2148,11 @@
   "recallLabels": {
     "source": "{source, select, memory {记忆} conversations {对话} workspace {工作区文件} other {{source}}}",
     "depth": "{depth, select, fast {快速搜索} standard {标准搜索} deep {深度搜索} other {搜索}}"
+  },
+  "freeTierDailyLimitBanner": {
+    "addCredits": "添加额度",
+    "subtitle": "您已用完今日的免费用量，将在{resetPhrase}重置。升级或添加额度以继续。",
+    "title": "今日免费用量已用完",
+    "viewPlans": "查看方案"
   }
 }

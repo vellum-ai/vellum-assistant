@@ -1489,6 +1489,8 @@
   },
   "preferencesUsagePanel": {
     "addCreditsAriaLabel": "Add credits",
+    "dailyExhausted": "Daily usage used up. Add credits to continue.",
+    "dailyTitle": "Daily usage",
     "exhausted": "Add credits to continue.",
     "extraCredits": "Now using extra usage credits",
     "pctUsed": "{pct}% used",
@@ -2147,5 +2149,11 @@
   "recallLabels": {
     "source": "{source, select, memory {Memory} conversations {Conversations} workspace {Workspace files} other {{source}}}",
     "depth": "{depth, select, fast {Quick search} standard {Standard search} deep {Deep search} other {Search}}"
+  },
+  "freeTierDailyLimitBanner": {
+    "addCredits": "Add credits",
+    "subtitle": "You've used today's free usage. It resets at {resetPhrase}. Upgrade or add credits to keep going.",
+    "title": "Daily free usage used up",
+    "viewPlans": "View plans"
   }
 }

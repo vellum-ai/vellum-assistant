@@ -101,6 +101,7 @@ import { ComposerSecretNotice } from "@/domains/chat/components/composer-secret-
 import { ComposerSettingsMenu } from "@/domains/chat/components/composer-settings-menu";
 import { ContextWindowIndicator } from "@/domains/chat/components/context-window-indicator";
 import { DailyLimitBanner } from "@/domains/chat/components/daily-limit-banner";
+import { FreeTierDailyLimitBanner } from "@/domains/chat/components/free-tier-daily-limit-banner";
 import { LowBalanceBanner } from "@/domains/chat/components/low-balance-banner";
 import { MicPermissionPrimer } from "@/domains/chat/components/mic-permission-primer";
 import { OnboardingChoiceCard } from "@/domains/chat/components/onboarding-choice-card";
@@ -136,6 +137,7 @@ import {
 } from "@/domains/chat/utils/error-classification";
 import { openUrlInPopupOrTab } from "@/domains/chat/utils/oauth-popup-links";
 import { useBillingBalanceStatus } from "@/hooks/use-billing-balance-status";
+import { hasExtraCredit } from "@/hooks/use-plan-usage-balance";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import type {
   DisplayAttachment,
@@ -1324,6 +1326,11 @@ export function ChatMainPanel({
     // A skip clears the banner even when the error that raised it is still the
     // last thing that happened on this conversation.
     dailyLimitSnoozed: balanceStatus.dailyLimitSnoozed,
+    // The free-tier cap only blocks a send once the wallet holds no extra
+    // (purchased) credit to fall back on; with some left the platform keeps
+    // admitting turns, so no banner claims otherwise.
+    freeTierDailyLimitBlocked:
+      balanceStatus.freeTierDailyLimitReached && !hasExtraCredit(balanceStatus),
   });
 
   // -------------------------------------------------------------------------
@@ -1505,6 +1512,8 @@ export function ChatMainPanel({
             billingBannerSlot={
               composerBillingBanner === "daily_limit" ? (
                 <DailyLimitBanner onAdjustLimit={pushToDailyLimitSettings} />
+              ) : composerBillingBanner === "free_tier_daily_limit" ? (
+                <FreeTierDailyLimitBanner />
               ) : composerBillingBanner === "provider_billing" ? (
                 <ProviderBillingBanner onOpenSettings={pushToAiSettings} />
               ) : composerBillingBanner === "low_balance" ? (

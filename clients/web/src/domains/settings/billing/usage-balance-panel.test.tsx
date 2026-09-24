@@ -42,6 +42,35 @@ describe("UsageBalancePanel", () => {
     );
   });
 
+  test("wording overrides give a second reading its own title, line, label, strip, and ids", () => {
+    const { getByRole, getByTestId, getByText, queryByTestId } = render(
+      <UsageBalancePanel
+        ratio={1}
+        exhausted
+        title="Daily Usage"
+        line="Resets at 5:00 PM"
+        barLabel="Daily Usage, resets at 5:00 PM"
+        exhaustedMessage="You've used today's free usage"
+        testId="plan-daily-usage"
+        lineTestId="plan-daily-usage-resets"
+      />,
+    );
+
+    const panel = getByTestId("plan-daily-usage");
+    expect(panel.textContent).toContain("Daily Usage");
+    expect(panel.textContent).toContain("100% used");
+    expect(getByTestId("plan-daily-usage-resets").textContent).toBe(
+      "Resets at 5:00 PM",
+    );
+    expect(getByRole("progressbar").getAttribute("aria-label")).toBe(
+      "Daily Usage, resets at 5:00 PM",
+    );
+    expect(getByText("You've used today's free usage")).toBeTruthy();
+    // The default ids belong to the Current Usage panel alone.
+    expect(queryByTestId("plan-usage-balance")).toBeNull();
+    expect(queryByTestId("plan-usage-period-end")).toBeNull();
+  });
+
   test("prints the reset date under the title for a bundled subscription", () => {
     const { getByRole, getByTestId } = render(
       <UsageBalancePanel

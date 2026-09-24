@@ -1356,6 +1356,24 @@ describe("classifyConversationError", () => {
       expect(result.userMessage).toContain("Billing settings");
     });
 
+    it("routes reason=free_tier_daily_limit_reached to PROVIDER_BILLING/free_tier_daily_limit_reached", () => {
+      providerRoutingSources.openai = "user-key";
+      const err = new ProviderError(
+        'OpenAI API error (402): {"code":"free_tier_daily_limit_reached","detail":"free usage"}',
+        "openai",
+        402,
+        { reason: "free_tier_daily_limit_reached" },
+      );
+
+      const result = classifyConversationError(err, baseCtx);
+
+      expect(result.code).toBe("PROVIDER_BILLING");
+      expect(result.errorCategory).toBe("free_tier_daily_limit_reached");
+      expect(result.retryable).toBe(false);
+      expect(result.userMessage).toContain("today's free usage");
+      expect(result.userMessage).toContain("midnight UTC");
+    });
+
     it("classifies reason=daily_limit_reached as daily_limit_reached even when the routing map says user-key", () => {
       // Per-connection platform-auth routes can leave the global routing map
       // at user-key; the stamped reason comes only from the platform proxy's
