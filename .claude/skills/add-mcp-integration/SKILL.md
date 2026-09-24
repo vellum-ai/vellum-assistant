@@ -67,7 +67,7 @@ Check the metadata the way the SDK does:
 
 Do not judge `token_endpoint_auth_methods_supported` from the metadata. The
 registration in step 3 shows which client auth method the server issues, and
-the SDK uses whichever one it gets.
+step 3 lists the ones the SDK can use.
 
 Pick the setup mode:
 
@@ -75,9 +75,9 @@ Pick the setup mode:
 - **DCR works, but the vendor must allowlist our redirect URI first:** `manual`.
   `ramp` is the example. Its `setup.instructions` tell the user what to ask
   the vendor for.
-- **No `registration_endpoint`, or step 3 returns no `client_id`:** not a
-  catalog addition. It needs a client registered ahead of time, which the MCP
-  OAuth flow does not support. Stop and report this.
+- **No `registration_endpoint`, or step 3 does not return a usable client:**
+  not a catalog addition. The MCP OAuth flow cannot connect it. Stop and
+  report this.
 
 Also check whether the vendor already has a main OAuth provider in
 `assistant/src/oauth/seed-providers.ts`. If it does, set `integration.oauthProvider` so the
@@ -94,11 +94,19 @@ curl -sS -X POST <registration_endpoint> -H 'content-type: application/json' \
   -d '{"client_name":"Vellum Assistant (registration probe)","redirect_uris":["https://example.com/webhooks/oauth/callback"],"token_endpoint_auth_method":"none","grant_types":["authorization_code","refresh_token"],"response_types":["code"],"logo_uri":"https://www.vellum.ai/favicon.ico","software_version":"0.0.0"}'
 ```
 
-A `client_id` in the response means registration works. The server can issue
-a public client (`token_endpoint_auth_method: "none"`) or one with a
-`client_secret` and a `client_secret_*` method. Both work: the SDK's
-`selectClientAuthMethod` uses an issued secret, and
-`McpOAuthProvider.saveClientInformation` stores the whole response.
+Registration works only when the response has a `client_id` and a
+`token_endpoint_auth_method` the SDK can use:
+
+| Issued method                                               | Usable                         |
+| ----------------------------------------------------------- | ------------------------------ |
+| `none`                                                      | Yes                            |
+| `client_secret_basic` or `client_secret_post`               | Yes, if `client_secret` is set |
+| Anything else (`private_key_jwt`, `client_secret_jwt`, ...) | No                             |
+
+`McpOAuthProvider.saveClientInformation` stores the whole response, and the
+SDK's `selectClientAuthMethod` (in `client/auth.js`) supports only those three
+methods. For any other method it falls back to one the server rejects, so the
+token exchange fails.
 
 This probe does not prove the vendor accepts our real redirect URI. Each
 assistant resolves its own callback (`resolveOauthCallbackUrl` in
