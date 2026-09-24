@@ -1095,7 +1095,84 @@ describe("wakeAgentForOpportunity", () => {
         { resolveTarget: async () => conversation },
       );
 
+      expect(result.reason).toBe("actor_scope_failed");
+      expect(conversation.runCalls).toHaveLength(0);
+      expect(conversation.isProcessing()).toBe(false);
+      expect(conversation.drainQueueCalls).toBe(1);
+      expect(conversation.trustContext).toBe(GUARDIAN);
+    });
+
+    test.each([
+      { starter: "no turn", startedBy: undefined },
+      { starter: "the guardian's turn", startedBy: { ...GUARDIAN } },
+    ])(
+      "a wake for work $starter started does not run when the history for its actor cannot load after a contact's turn",
+      async ({ startedBy }) => {
+        const conversation = await afterContactTurn(async (input) =>
+          runResult(input),
+        );
+        (
+          conversation as unknown as {
+            ensureActorScopedHistory: () => Promise<void>;
+          }
+        ).ensureActorScopedHistory = async () => {
+          throw new Error("db unavailable");
+        };
+
+        const result = await wakeAgentForOpportunity(
+          {
+            conversationId: conversation.conversationId,
+            hint: "Background command completed",
+            source: "background-tool",
+            persistTriggerAsEvent: true,
+            ...(startedBy ? { startedBy } : {}),
+          },
+          { resolveTarget: async () => conversation },
+        );
+
+        expect(result).toEqual({
+          invoked: false,
+          producedToolCalls: false,
+          reason: "actor_scope_failed",
+        });
+        expect(conversation.runCalls).toHaveLength(0);
+        expect(conversation.persistedTailCalls).toHaveLength(0);
+        expect(conversation.isProcessing()).toBe(false);
+        expect(conversation.drainQueueCalls).toBe(1);
+        // The slot is put back on the contact it held, matching the history.
+        expect(conversation.trustContext).toBe(ALICE);
+      },
+    );
+
+    test("a contact removed while the wake waits for the conversation does not get it", async () => {
+      mockStarterAdmissions = [{ outcome: "admitted", trust: ALICE }];
+      const conversation = makeWakeConversation({
+        initialTrustContext: GUARDIAN,
+        isProcessing: true,
+        scriptedAssistant: {
+          role: "assistant",
+          content: [{ type: "text", text: "done." }],
+        },
+      });
+
+      const pending = wakeAgentForOpportunity(
+        {
+          conversationId: conversation.conversationId,
+          hint: "Background command completed",
+          source: "background-tool",
+          persistTriggerAsEvent: true,
+          startedBy: ALICE,
+        },
+        { resolveTarget: async () => conversation },
+      );
+      await new Promise((r) => setTimeout(r, 10));
+      expect(starterAdmissionChecks).toHaveLength(0);
+      mockStarterAdmissions = [{ outcome: "denied" }];
+      conversation.setProcessing(false);
+      const result = await pending;
+
       expect(result.reason).toBe("starter_not_admitted");
+      expect(starterAdmissionChecks).toHaveLength(1);
       expect(conversation.runCalls).toHaveLength(0);
       expect(conversation.isProcessing()).toBe(false);
       expect(conversation.drainQueueCalls).toBe(1);

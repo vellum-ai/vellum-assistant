@@ -86,9 +86,9 @@ import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { isSidebarDoneEnabled } from "../config/sidebar-done-gate.js";
 import {
+  actorForWorkWithoutSender,
   isContactInvolved,
   isContactTrust,
-  restoreActorBeforeContact,
   scopeHistoryToActor,
 } from "../daemon/actor-scoped-history.js";
 import { conversationSupportsDynamicUi } from "../daemon/channel-ui-capability.js";
@@ -465,10 +465,16 @@ export type WakeSkipReason =
   | "disk_pressure"
   /**
    * The wake reports on work a shared-conversation contact's turn started,
-   * and that contact is no longer admitted, could not be verified, or their
-   * history could not be loaded. It never runs as anyone else instead.
+   * and that contact is no longer admitted, or stayed unverifiable past the
+   * cutoff. It never runs as anyone else instead.
    */
   | "starter_not_admitted"
+  /**
+   * A shared-conversation contact is involved and the history for the actor
+   * the wake must run as could not be loaded. Running anyway would pair that
+   * actor's trust with history scoped for someone else.
+   */
+  | "actor_scope_failed"
   /**
    * The wake reports on work a shared-conversation contact's turn started,
    * and the contact could not be verified. The same wake is asked again with
@@ -703,38 +709,86 @@ async function retryWakeForUnverifiableStarter(
   return true;
 }
 
+type WakeActorOutcome =
+  | { ok: true }
+  | {
+      ok: false;
+      reason:
+        | "starter_not_admitted"
+        | "starter_unverifiable"
+        | "actor_scope_failed";
+    };
+
 /**
- * Put the wake on its starting actor's history and trust when a
- * shared-conversation contact is involved; a conversation no contact has
- * touched is left exactly as it is. Answers false when a contact's own work
- * could not be put on their history, which must not run on anyone else's.
+ * Settle who the wake runs as, once it holds the conversation. Work a
+ * contact's turn started runs as that contact only while they may still act
+ * in the conversation, and as they are now: a denied contact's wake is
+ * dropped, and an unverifiable one is asked again later. When a contact is
+ * involved at all, the wake is put on its actor's history and trust (the
+ * starter, or, when no turn started the work, the actor before the contact's
+ * turn); a conversation no contact has touched is left exactly as it is.
+ * A history that cannot be loaded fails the wake and puts the trust slot
+ * back, so no actor ever runs on history scoped for someone else.
  */
-async function scopeWakeToStarter(
+async function prepareWakeActor(
   conversation: Conversation,
-  starter: TrustContext | undefined,
-  conversationId: string,
-  source: string,
-): Promise<boolean> {
-  if (!isContactInvolved(conversation, starter)) {
-    return true;
+  opts: WakeOptions,
+  deps: WakeDeps | undefined,
+  now: number,
+): Promise<WakeActorOutcome> {
+  const { conversationId, source } = opts;
+  let starter = opts.startedBy;
+  if (starter && isContactTrust(starter)) {
+    const admission = await checkStarterAdmission(conversationId, starter);
+    if (admission.outcome === "unverifiable") {
+      let retrying = false;
+      try {
+        retrying = await retryWakeForUnverifiableStarter(opts, deps, now);
+      } catch (err) {
+        log.warn(
+          { conversationId, source, err },
+          "agent-wake: failed to schedule a check of the contact who started this work",
+        );
+      }
+      if (retrying) {
+        log.info(
+          { conversationId, source },
+          "agent-wake: the contact who started this work could not be verified; asking again later",
+        );
+        return { ok: false, reason: "starter_unverifiable" };
+      }
+    }
+    unverifiableStarters.delete(opts);
+    if (admission.outcome !== "admitted") {
+      log.info(
+        { conversationId, source, outcome: admission.outcome },
+        "agent-wake: the contact who started this work is no longer admitted; skipping",
+      );
+      return { ok: false, reason: "starter_not_admitted" };
+    }
+    starter = admission.trust;
   }
+  if (!isContactInvolved(conversation, starter)) {
+    return { ok: true };
+  }
+  const prior = conversation.trustContext;
+  const actor = starter ?? actorForWorkWithoutSender(conversation);
   try {
-    if (starter) {
-      await scopeHistoryToActor(conversation, starter);
-    } else {
-      await restoreActorBeforeContact(conversation);
+    if (starter || actor !== prior) {
+      await scopeHistoryToActor(conversation, actor);
     }
   } catch (err) {
     log.warn(
       { conversationId, source, err },
-      "agent-wake: failed to load history for the actor that started this work",
+      "agent-wake: failed to load history for the actor this wake runs as; skipping",
     );
-    if (isContactTrust(starter)) {
-      return false;
+    if (conversation.trustContext === actor) {
+      conversation.setTrustContext(prior ?? null);
     }
+    return { ok: false, reason: "actor_scope_failed" };
   }
-  conversation.currentTurnTrustContext = starter ?? conversation.trustContext;
-  return true;
+  conversation.currentTurnTrustContext = actor;
+  return { ok: true };
 }
 
 // ── Per-conversation single-flight lock ───────────────────────────────
@@ -951,42 +1005,6 @@ export async function wakeAgentForOpportunity(
       };
     }
 
-    // Work a contact's turn started completes as that contact only while
-    // they may still act in the conversation, and as they are now.
-    let starter = opts.startedBy;
-    if (starter && isContactTrust(starter)) {
-      const admission = await checkStarterAdmission(conversationId, starter);
-      if (
-        admission.outcome === "unverifiable" &&
-        (await retryWakeForUnverifiableStarter(opts, deps, nowFn()))
-      ) {
-        log.info(
-          { conversationId, source },
-          "agent-wake: the contact who started this work could not be verified; asking again later",
-        );
-        restorePersistentWakeTrust();
-        return {
-          invoked: false,
-          producedToolCalls: false,
-          reason: "starter_unverifiable" as const,
-        };
-      }
-      unverifiableStarters.delete(opts);
-      if (admission.outcome !== "admitted") {
-        log.info(
-          { conversationId, source, outcome: admission.outcome },
-          "agent-wake: the contact who started this work is no longer admitted; skipping",
-        );
-        restorePersistentWakeTrust();
-        return {
-          invoked: false,
-          producedToolCalls: false,
-          reason: "starter_not_admitted" as const,
-        };
-      }
-      starter = admission.trust;
-    }
-
     // Wait for any independently started user turn to release the processing
     // lock so we don't run a second agent loop concurrently. With no abort
     // signal, waitForIdle never rejects — `false` means the budget elapsed
@@ -1083,14 +1101,16 @@ export async function wakeAgentForOpportunity(
     // the lock cannot change hands in between.
     conversation.setProcessing(true);
 
-    // After a shared-conversation contact's turn, the wake runs as the actor
-    // that started its work, or, when no turn did, as the conversation did
-    // before the contact's turn. Either way it never inherits the contact's
-    // trust from the turn that just ended. A contact's own work that cannot
-    // be put on their history does not run.
-    if (
-      !(await scopeWakeToStarter(conversation, starter, conversationId, source))
-    ) {
+    // Settled only now that the wake holds the conversation, so a contact
+    // removed while it waited for the lock does not get it, and nothing can
+    // move the trust slot between this and the run.
+    const actorOutcome = await prepareWakeActor(
+      conversation,
+      opts,
+      deps,
+      nowFn(),
+    );
+    if (!actorOutcome.ok) {
       try {
         conversation.setProcessing(false);
       } catch (err) {
@@ -1107,7 +1127,7 @@ export async function wakeAgentForOpportunity(
       return {
         invoked: false,
         producedToolCalls: false,
-        reason: "starter_not_admitted" as const,
+        reason: actorOutcome.reason,
       };
     }
 
