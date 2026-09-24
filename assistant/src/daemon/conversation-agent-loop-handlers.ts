@@ -167,20 +167,6 @@ function shouldPersistProviderErrorAsAssistantMessage(classified: {
 }
 
 /**
- * Whether the resident history was loaded as a shared-conversation
- * participant's projected transcript. Compaction of such a history stays in
- * memory: the persisted compaction state, the history-stripped marker and the
- * memory-injection ledgers all describe the guardian's full history. Read from
- * the load rather than the resting trust slot, which another sender can
- * restamp mid-turn.
- */
-export function isSharedTranscriptHistory(ctx: {
-  readonly loadedHistorySharedReader?: string;
-}): boolean {
-  return ctx.loadedHistorySharedReader !== undefined;
-}
-
-/**
  * Persist the history-stripped marker after the loop strips runtime injections
  * for compaction / overflow recovery. The marker is a durability hint, not
  * turn-critical state: a transient SQLite write failure (SQLITE_BUSY,
@@ -3876,11 +3862,6 @@ export async function dispatchAgentEvent(
             strippedBase,
             historyStripMarkerDurable,
           );
-        } else if (isSharedTranscriptHistory(deps.ctx)) {
-          // A shared transcript's strip stays in memory and leaves the
-          // guardian's ledgers claiming their blocks, so the turn continues
-          // from the unstripped shape, as it does after a skipped reset.
-          deps.ctx.messages = startMessages ?? event.messages;
         } else {
           // The strip alone leaves durable history without the frozen memory
           // blocks the injection ledgers claim (nothing eligible to summarize,
@@ -3916,10 +3897,7 @@ export async function dispatchAgentEvent(
         // for the pair so the `compaction_completed` dispatch resets the
         // injection ledgers without a second write; a failure here only defers
         // the marker to the re-attempt there.
-        if (
-          !isSharedTranscriptHistory(deps.ctx) &&
-          markHistoryStrippedBestEffort(deps.ctx.conversationId)
-        ) {
+        if (markHistoryStrippedBestEffort(deps.ctx.conversationId)) {
           state.durableHistoryStripMarkers.add(event.compactionId);
         }
         break;
