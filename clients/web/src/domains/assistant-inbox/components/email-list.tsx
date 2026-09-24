@@ -75,7 +75,7 @@ function EmailListRow({
       )}
     >
       {selectable ? (
-        <CrossfadeStack className="mt-0.5 min-h-9 min-w-9">
+        <CrossfadeStack className="min-w-9 self-stretch">
           <span data-reveal-yield="">
             <SenderDisc participant={counterpart} />
           </span>
@@ -84,12 +84,12 @@ function EmailListRow({
               checked={checked}
               onCheckedChange={() => onToggleChecked(email.id)}
               aria-label={t("emailListRow.selectAria", { subject })}
-              className="size-[18px] rounded-[5px]"
+              className="flex"
             />
           </span>
         </CrossfadeStack>
       ) : (
-        <SenderDisc participant={counterpart} className="mt-0.5" />
+        <SenderDisc participant={counterpart} className="self-center" />
       )}
       <button
         type="button"

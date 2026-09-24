@@ -14,6 +14,8 @@ import {
 } from "react";
 
 import { BubbleAttachments } from "@/domains/chat/components/chat-attachments/bubble-attachments";
+import { MessageEmailReferences } from "@/domains/chat/components/chat-attachments/message-email-references";
+import { extractEmailReferences } from "@/domains/chat/email-reference";
 import { CameraFrameGrid } from "@/domains/chat/components/chat-attachments/camera-frame-grid";
 import { getMessageRenderKind } from "@/domains/chat/transcript/message-render-kind";
 import { resolveAttachmentFilename } from "@vellumai/service-contracts/attachment-naming";
@@ -629,11 +631,33 @@ export function TranscriptMessageBody({
   );
 
   const renderTextWithInlineSurfaces = (
-    text: string,
+    rawText: string,
     key: string,
     streamWordFade?: "revealing" | "caughtUp",
     collapsed = false,
   ) => {
+    // Emails the user staged from the inbox ride in their message as
+    // delimited blocks (see `email-reference.ts`). Those are for the
+    // assistant; the user sees them as the cards they attached, with only
+    // what they typed drawn as text.
+    const { emails, rest: text } = isUser
+      ? extractEmailReferences(rawText)
+      : { emails: [], rest: rawText };
+    if (emails.length > 0) {
+      return (
+        <div key={key} className="flex w-full flex-col gap-2">
+          <MessageEmailReferences emails={emails} />
+          {text
+            ? renderTextWithInlineSurfaces(
+                text,
+                `${key}-text`,
+                streamWordFade,
+                collapsed,
+              )
+            : null}
+        </div>
+      );
+    }
     const textClass = collapsed ? collapsedSegmentClass : segmentClass;
     // `MarkdownMessage` sets its own `text-chat text-[var(--content-default)]`
     // on its container, so a color on the wrapper alone never reaches the
@@ -1024,7 +1048,8 @@ export function TranscriptMessageBody({
     items: Array<{ kind: "text" | "nonText"; node: ReactNode }>,
   ): ReactNode => {
     type Slot =
-      { kind: "bubble"; nodes: ReactNode[] } | { kind: "raw"; node: ReactNode };
+      | { kind: "bubble"; nodes: ReactNode[] }
+      | { kind: "raw"; node: ReactNode };
     const slots: Slot[] = [];
     let textRun: ReactNode[] = [];
 

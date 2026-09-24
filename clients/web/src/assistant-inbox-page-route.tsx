@@ -1,6 +1,6 @@
 import { Loader2 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
-import { Navigate, useNavigate } from "react-router";
+import { Navigate, useNavigate, useSearchParams } from "react-router";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
@@ -21,6 +21,7 @@ import { toEmailReference } from "@/domains/assistant-inbox/to-email-reference";
 import type {
   HandleCheckResult,
   InboxEmail,
+  InboxFolder,
 } from "@/domains/assistant-inbox/types";
 import {
   checkAssistantHandleAvailable,
@@ -84,6 +85,12 @@ function Mailbox({
   const navigate = useNavigate();
   const mail = useInboxMail(assistantId, platformAssistantId, addressId);
   const { deletedIds, deleteEmails } = useDeletedEmails(assistantId);
+  /* A deep link from a sent message's email card names the folder and the
+     message to open on (`routes.assistantInboxMessage`). */
+  const [searchParams] = useSearchParams();
+  const linkedMessageId = searchParams.get("message");
+  const linkedFolder: InboxFolder =
+    searchParams.get("folder") === "sent" ? "sent" : "inbox";
   const received = useMemo(
     () => mail.received.filter((email) => !deletedIds.has(email.id)),
     [mail.received, deletedIds],
@@ -159,12 +166,17 @@ function Mailbox({
 
   return (
     <AssistantInboxPage
+      /* Keyed on the link so a second card opens its message rather than
+         leaving the first one up. */
+      key={linkedMessageId ?? ""}
       assistantId={assistantId}
       assistantName={assistantName}
       address={address}
       inbox={received}
       sent={sent}
       usage={mail.usage}
+      initialFolder={linkedMessageId ? linkedFolder : undefined}
+      initialSelectedId={linkedMessageId}
       loadDetail={mail.loadDetail}
       onAskToReply={askToReply}
       onStartChat={startChatWithEmails}

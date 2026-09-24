@@ -91,3 +91,96 @@ export function prependEmailReferences(
   const blocks = emails.map(formatEmailReference).join("\n\n");
   return content ? `${blocks}\n\n${content}` : blocks;
 }
+
+/** What {@link extractEmailReferences} hands back: the emails and the rest of the text. */
+export interface ExtractedEmailReferences {
+  emails: EmailReference[];
+  /** The message with the blocks removed, trimmed. */
+  rest: string;
+}
+
+function parseParticipant(value: string): EmailReferenceParticipant {
+  const match = value.match(/^(.*?)\s*<([^<>]+)>$/);
+  if (match) {
+    const name = match[1]!.trim();
+    return name
+      ? { name, address: match[2]!.trim() }
+      : { address: match[2]!.trim() };
+  }
+  return { address: value.trim() };
+}
+
+function parseBlock(lines: string[]): EmailReference | null {
+  const fields = new Map<string, string>();
+  for (const line of lines) {
+    const separator = line.indexOf(": ");
+    if (separator === -1) {
+      continue;
+    }
+    fields.set(line.slice(0, separator), line.slice(separator + 2).trim());
+  }
+  const id = fields.get("message-id");
+  if (!id) {
+    return null;
+  }
+  const reference: EmailReference = {
+    id,
+    direction: fields.get("direction") === "sent" ? "outbound" : "inbound",
+    from: parseParticipant(fields.get("from") ?? ""),
+    to: (fields.get("to") ?? "")
+      .split(/,\s+/)
+      .filter((part) => part.length > 0)
+      .map(parseParticipant),
+    subject: fields.get("subject") ?? "",
+    createdAt: fields.get("sent-at") ?? "",
+  };
+  const snippet = fields.get("snippet");
+  if (snippet) {
+    reference.snippet = snippet;
+  }
+  return reference;
+}
+
+/**
+ * Read the blocks {@link formatEmailReference} wrote back out of a message,
+ * so the transcript can draw the emails as cards and the text the user typed
+ * as text. The inverse of the formatter for the fields the card needs;
+ * anything that is not a complete block is left in the text untouched.
+ */
+export function extractEmailReferences(
+  content: string,
+): ExtractedEmailReferences {
+  const lines = content.split("\n");
+  const emails: EmailReference[] = [];
+  const kept: string[] = [];
+  let index = 0;
+  while (index < lines.length) {
+    const unquoted = lines[index]!.replace(/^>\s?/, "").trim();
+    if (unquoted !== REFERENCE_OPEN) {
+      kept.push(lines[index]!);
+      index += 1;
+      continue;
+    }
+    const body: string[] = [];
+    let cursor = index + 1;
+    let closed = false;
+    while (cursor < lines.length) {
+      const inner = lines[cursor]!.replace(/^>\s?/, "").trim();
+      if (inner === REFERENCE_CLOSE) {
+        closed = true;
+        break;
+      }
+      body.push(inner);
+      cursor += 1;
+    }
+    const email = closed ? parseBlock(body) : null;
+    if (!email) {
+      kept.push(lines[index]!);
+      index += 1;
+      continue;
+    }
+    emails.push(email);
+    index = cursor + 1;
+  }
+  return { emails, rest: kept.join("\n").trim() };
+}

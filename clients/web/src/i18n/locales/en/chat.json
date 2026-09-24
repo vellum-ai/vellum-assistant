@@ -487,6 +487,9 @@
     "noSubject": "(no subject)",
     "removeAria": "Remove email {subject}"
   },
+  "emailReferenceCard": {
+    "openAria": "Open email {subject} in the inbox"
+  },
   "chatBody": {
     "dropFiles": "Drop files to attach"
   },

@@ -4,6 +4,7 @@ import type { EmailReference } from "@/types/email-reference";
 
 import {
   EMAIL_REFERENCE_SNIPPET_MAX,
+  extractEmailReferences,
   formatEmailReference,
   prependEmailReferences,
 } from "./email-reference";
@@ -88,5 +89,47 @@ describe("prependEmailReferences", () => {
   test("with no remark the blocks are the whole message", () => {
     const result = prependEmailReferences("", [RECEIVED]);
     expect(result).toBe(formatEmailReference(RECEIVED));
+  });
+});
+
+describe("extractEmailReferences", () => {
+  test("reads the blocks back out and leaves the remark", () => {
+    const content = prependEmailReferences("what do these say?", [
+      RECEIVED,
+      SENT,
+    ]);
+    const { emails, rest } = extractEmailReferences(content);
+    expect(rest).toBe("what do these say?");
+    expect(emails).toHaveLength(2);
+    expect(emails[0]).toMatchObject({
+      id: "msg_in_1",
+      direction: "inbound",
+      from: { name: "Maya Chen", address: "maya@northwind.co" },
+      to: [{ address: "hi@velly.vellum.me" }],
+      subject: "Q4 vendor contract",
+      createdAt: "2026-09-16T09:52:00Z",
+      snippet: "Attaching the redline for a look before Friday.",
+    });
+    expect(emails[1]).toMatchObject({
+      id: "msg_out_1",
+      direction: "outbound",
+      to: [{ name: "Sam Okafor", address: "sam@example.com" }],
+      subject: "",
+    });
+  });
+
+  test("a message with no blocks comes back whole", () => {
+    expect(extractEmailReferences("plain text")).toEqual({
+      emails: [],
+      rest: "plain text",
+    });
+  });
+
+  test("an unclosed or id-less block stays in the text", () => {
+    const unclosed = "> [vellum:email-reference]\n> subject: x\n\nhello";
+    expect(extractEmailReferences(unclosed)).toEqual({
+      emails: [],
+      rest: unclosed,
+    });
   });
 });

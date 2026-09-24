@@ -257,6 +257,9 @@ export const routes = {
    * the flag is off.
    */
   assistantInbox: r("/assistant/inbox"),
+  /** The inbox open on one message: the folder it is in, and its id. */
+  assistantInboxMessage: (id: string, folder: "received" | "sent") =>
+    `${r("/assistant/inbox")}?folder=${folder}&message=${encodeURIComponent(id)}` as const,
 
   /**
    * Contacts surface, a drill-down section under the assistant overview

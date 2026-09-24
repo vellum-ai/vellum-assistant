@@ -473,6 +473,9 @@
     "noSubject": "(無主旨)",
     "removeAria": "移除郵件 {subject}"
   },
+  "emailReferenceCard": {
+    "openAria": "在收件匣中開啟郵件 {subject}"
+  },
   "chatBody": {
     "dropFiles": "拖曳檔案以附加"
   },

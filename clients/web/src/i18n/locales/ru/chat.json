@@ -1186,5 +1186,8 @@
     "to": "Кому: {name}",
     "noSubject": "(без темы)",
     "removeAria": "Убрать письмо {subject}"
+  },
+  "emailReferenceCard": {
+    "openAria": "Открыть письмо {subject} в почте"
   }
 }

@@ -473,6 +473,9 @@
     "noSubject": "(sin asunto)",
     "removeAria": "Quitar el correo {subject}"
   },
+  "emailReferenceCard": {
+    "openAria": "Abrir el correo {subject} en la bandeja"
+  },
   "chatBody": {
     "dropFiles": "Suelta archivos para adjuntarlos"
   },
