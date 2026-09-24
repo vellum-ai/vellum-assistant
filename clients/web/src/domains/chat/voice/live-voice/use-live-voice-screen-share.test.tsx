@@ -828,6 +828,120 @@ describe("useLiveVoiceScreenShare: a look the assistant asked for", () => {
   });
 });
 
+describe("useLiveVoiceScreenShare: a turn waiting on the view it reports", () => {
+  function ask(): number {
+    let asked = 0;
+    act(() => {
+      asked = useLiveVoiceStore.getState().askScreenFrame();
+    });
+    return asked;
+  }
+
+  const answered = (): number =>
+    useLiveVoiceStore.getState().screenFrameAnswered;
+
+  // The press is silent, so no speech edge takes a frame for it, and the
+  // screen the click changed can read to the gate as the view it has.
+  test("sends a fresh frame, unjudged, and answers the ask once it is sent", async () => {
+    renderShare();
+    share(WINDOW);
+    await flush();
+    expect(controls.sightFrame).toHaveBeenCalledTimes(1);
+
+    const asked = ask();
+    await flush();
+
+    expect(captureCompanionScreen).toHaveBeenCalledTimes(2);
+    expect(controls.sightFrame).toHaveBeenCalledTimes(2);
+    expect(controls.sightFrame).toHaveBeenLastCalledWith(
+      "att-2",
+      expect.objectContaining({ reason: "press" }),
+    );
+    expect(answered()).toBe(asked);
+  });
+
+  // The n-1 trap: answering on a frame from before the ask would let the
+  // turn go against the view the click replaced.
+  test("holds the answer until the frame taken for it is sent", async () => {
+    renderShare();
+    share(WINDOW);
+    await flush();
+
+    const upload = holdNextUpload();
+    show("b");
+    const asked = ask();
+    await flush();
+    expect(answered()).toBeLessThan(asked);
+
+    upload.finish();
+    await flush();
+    expect(controls.sightFrame).toHaveBeenLastCalledWith(
+      "att-2",
+      expect.objectContaining({ reason: "press" }),
+    );
+    expect(answered()).toBe(asked);
+  });
+
+  test("answers the ask when the frame is lost, so the turn is not held for it", async () => {
+    renderShare();
+    share(WINDOW);
+    await flush();
+
+    uploadChatAttachment.mockImplementationOnce(async () => ({
+      ok: false,
+      status: 500,
+      error: {},
+    }));
+    const asked = ask();
+    await flush();
+
+    expect(controls.sightFrame).toHaveBeenCalledTimes(1);
+    expect(answered()).toBe(asked);
+  });
+
+  test("answers the ask when the helper handed back no picture", async () => {
+    renderShare();
+    share(WINDOW);
+    await flush();
+
+    answerFrame = async () => ({ jpegBase64: "", width: 1, height: 1 });
+    const asked = ask();
+    await flush();
+
+    expect(controls.sightFrame).toHaveBeenCalledTimes(1);
+    expect(answered()).toBe(asked);
+  });
+
+  test("is what the cadence's next frame is judged against", async () => {
+    renderShare();
+    share(WINDOW);
+    await flush();
+    show("b");
+    ask();
+    await flush();
+    expect(controls.sightFrame).toHaveBeenCalledTimes(2);
+
+    speak(true);
+    await flush();
+    expect(captureCompanionScreen).toHaveBeenCalledTimes(3);
+    expect(controls.sightFrame).toHaveBeenCalledTimes(2);
+  });
+
+  test("takes nothing for an ask made before the share ran", async () => {
+    ask();
+    renderShare();
+    share(WINDOW);
+    await flush();
+
+    expect(captureCompanionScreen).toHaveBeenCalledTimes(1);
+    expect(controls.sightFrame).toHaveBeenCalledTimes(1);
+    expect(controls.sightFrame).toHaveBeenLastCalledWith(
+      "att-1",
+      expect.not.objectContaining({ reason: "press" }),
+    );
+  });
+});
+
 describe("useLiveVoiceScreenShare: stopping", () => {
   test("a frame the helper could not take lowers the share", async () => {
     answerFrame = async () => null;

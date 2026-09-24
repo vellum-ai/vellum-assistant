@@ -562,7 +562,7 @@ export function RootLayout() {
       if (command.kind !== "coachmarkPressed") {
         return;
       }
-      reportCoachmarkPressed(command.label);
+      void reportCoachmarkPressed(command.label);
     },
     // The flag gate and the toggle both live in `watch-command.ts`. This is the
     // one command registered here that can start reading the user's screen, so
