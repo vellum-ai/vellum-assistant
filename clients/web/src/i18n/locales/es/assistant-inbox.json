@@ -17,6 +17,7 @@
     "folderAriaLabel": "Carpeta de correo",
     "inboxTab": "Recibidos",
     "sentTab": "Enviados",
+    "count": "{count, plural, one {# correo} other {# correos}}",
     "inboxEmptyTitle": "Todavía no hay nada",
     "inboxEmptyBody": "Comparte {address} y todo lo que llegue aparecerá aquí.",
     "sentEmptyTitle": "Aún no hay correos enviados",
@@ -24,7 +25,7 @@
     "selectPromptTitle": "Elige un correo para leerlo",
     "selectPromptBody": "Elige un mensaje de la lista. Marca varios para iniciar un chat con ellos adjuntos, o para eliminarlos.",
     "backToList": "Volver a la lista",
-    "searchPlaceholder": "Buscar correo",
+    "searchPlaceholder": "Buscar correos",
     "searchAriaLabel": "Buscar en esta carpeta",
     "searchEmptyTitle": "Sin resultados",
     "searchEmptyBody": "Nada en esta carpeta coincide con tu búsqueda."

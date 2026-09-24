@@ -17,6 +17,7 @@
     "folderAriaLabel": "邮件文件夹",
     "inboxTab": "已接收",
     "sentTab": "已发送",
+    "count": "{count, plural, other {# 封邮件}}",
     "inboxEmptyTitle": "还没有邮件",
     "inboxEmptyBody": "把 {address} 分享出去，发到这里的邮件都会显示在这里。",
     "sentEmptyTitle": "还没有已发送的邮件",
@@ -24,7 +25,7 @@
     "selectPromptTitle": "选择一封邮件来阅读",
     "selectPromptBody": "从列表中选择一封邮件。勾选多封可以带着它们开始新聊天，或将其删除。",
     "backToList": "返回列表",
-    "searchPlaceholder": "搜索邮件",
+    "searchPlaceholder": "查找邮件",
     "searchAriaLabel": "在此文件夹中搜索",
     "searchEmptyTitle": "没有匹配项",
     "searchEmptyBody": "此文件夹中没有与你的搜索匹配的邮件。"

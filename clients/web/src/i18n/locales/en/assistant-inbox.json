@@ -15,8 +15,9 @@
   },
   "assistantInboxPage": {
     "folderAriaLabel": "Mail folder",
-    "inboxTab": "Received",
+    "inboxTab": "Inbox",
     "sentTab": "Sent",
+    "count": "{count, plural, one {# email} other {# emails}}",
     "inboxEmptyTitle": "Nothing here yet",
     "inboxEmptyBody": "Share {address} and anything sent there shows up here.",
     "sentEmptyTitle": "No sent mail yet",
@@ -24,7 +25,7 @@
     "selectPromptTitle": "Pick an email to read it",
     "selectPromptBody": "Choose a message from the list. Check several to start a chat with them attached, or to delete them.",
     "backToList": "Back to list",
-    "searchPlaceholder": "Search mail",
+    "searchPlaceholder": "Find emails",
     "searchAriaLabel": "Search this folder",
     "searchEmptyTitle": "No matches",
     "searchEmptyBody": "Nothing in this folder matches your search."

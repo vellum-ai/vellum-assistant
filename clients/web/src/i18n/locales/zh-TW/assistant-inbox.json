@@ -17,6 +17,7 @@
     "folderAriaLabel": "郵件資料夾",
     "inboxTab": "已接收",
     "sentTab": "寄件備份",
+    "count": "{count, plural, other {# 封郵件}}",
     "inboxEmptyTitle": "還沒有郵件",
     "inboxEmptyBody": "把 {address} 分享出去，寄到這裡的郵件都會顯示在這裡。",
     "sentEmptyTitle": "還沒有寄出的郵件",
@@ -24,7 +25,7 @@
     "selectPromptTitle": "選擇一封郵件來閱讀",
     "selectPromptBody": "從清單中選擇一封郵件。勾選多封可以帶著它們開始新聊天，或將其刪除。",
     "backToList": "返回清單",
-    "searchPlaceholder": "搜尋郵件",
+    "searchPlaceholder": "尋找郵件",
     "searchAriaLabel": "在此資料夾中搜尋",
     "searchEmptyTitle": "沒有符合的項目",
     "searchEmptyBody": "此資料夾中沒有符合你搜尋的郵件。"

@@ -164,7 +164,7 @@ describe("AssistantInboxPage", () => {
     expect(screen.queryByRole("checkbox")).toBeNull();
   });
 
-  test("checking rows raises the bar, and Start a new chat hands over the checked mail", async () => {
+  test("checking rows raises the bar, and Start a new chat hands over the checked mail", () => {
     const started: InboxEmail[][] = [];
     renderPage({
       inbox: [LISTED, CARRIED],
@@ -187,11 +187,13 @@ describe("AssistantInboxPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Start a new chat" }));
     expect(started).toHaveLength(1);
     expect(started[0]!.map((email) => email.id)).toEqual(["m-1"]);
-    // The selection is spent by the hand-off; the bar leaves once its exit
-    // animation has run.
-    await waitFor(() => {
-      expect(screen.queryByText("1 email selected")).toBeNull();
-    });
+    // The selection is spent by the hand-off. (The bar's own exit is an
+    // animation, so the state is read off the row rather than the bar.)
+    expect(
+      screen
+        .getByRole("checkbox", { name: 'Select "Q4 vendor contract"' })
+        .getAttribute("aria-checked"),
+    ).toBe("false");
   });
 
   test("checked mail survives the folder switch and the bar says which folder it came from", () => {
@@ -204,7 +206,8 @@ describe("AssistantInboxPage", () => {
     fireEvent.click(
       screen.getByRole("checkbox", { name: 'Select "Q4 vendor contract"' }),
     );
-    fireEvent.click(screen.getByRole("radio", { name: "Sent" }));
+    // Radix tabs switch on the press, not the click.
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Sent" }));
     expect(screen.getByText("1 email selected")).toBeTruthy();
 
     fireEvent.click(
@@ -214,7 +217,7 @@ describe("AssistantInboxPage", () => {
     expect(screen.getByText("1 received · 1 sent")).toBeTruthy();
   });
 
-  test("Delete asks first, then hands over the checked mail and clears the selection", async () => {
+  test("Delete asks first, then hands over the checked mail and clears the selection", () => {
     const deleted: InboxEmail[][] = [];
     renderPage({
       inbox: [LISTED, CARRIED],
@@ -231,20 +234,24 @@ describe("AssistantInboxPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
     expect(deleted).toHaveLength(1);
     expect(deleted[0]!.map((email) => email.id)).toEqual(["m-1"]);
-    await waitFor(() => {
-      expect(screen.queryByText("1 email selected")).toBeNull();
-    });
+    expect(
+      screen
+        .getByRole("checkbox", { name: 'Select "Q4 vendor contract"' })
+        .getAttribute("aria-checked"),
+    ).toBe("false");
   });
 
-  test("clearing the selection lowers the bar", async () => {
+  test("clearing the selection lowers the bar", () => {
     renderPage({ inbox: [LISTED], onStartChat: () => {} });
     fireEvent.click(
       screen.getByRole("checkbox", { name: 'Select "Q4 vendor contract"' }),
     );
     fireEvent.click(screen.getByRole("button", { name: "Clear selection" }));
-    await waitFor(() => {
-      expect(screen.queryByText("1 email selected")).toBeNull();
-    });
+    expect(
+      screen
+        .getByRole("checkbox", { name: 'Select "Q4 vendor contract"' })
+        .getAttribute("aria-checked"),
+    ).toBe("false");
   });
 
   test("search narrows the folder to matching rows", () => {

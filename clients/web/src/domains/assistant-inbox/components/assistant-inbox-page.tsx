@@ -8,7 +8,10 @@ import {
   cn,
   ConfirmDialog,
   Input,
-  SegmentControl,
+  TabsList,
+  TabsPanel,
+  TabsRoot,
+  TabsTrigger,
 } from "@vellumai/design-library";
 
 import { useTranslation } from "@/i18n";
@@ -244,22 +247,6 @@ export function AssistantInboxPage({
     setPendingDelete(null);
   }, [onDeleteEmails, pendingDelete]);
 
-  const folderItems = useMemo(
-    () => [
-      {
-        value: "inbox" as const,
-        label: t("assistantInboxPage.inboxTab"),
-        icon: <Inbox className="size-3.5 shrink-0" aria-hidden="true" />,
-      },
-      {
-        value: "sent" as const,
-        label: t("assistantInboxPage.sentTab"),
-        icon: <Send className="size-3.5 shrink-0" aria-hidden="true" />,
-      },
-    ],
-    [t],
-  );
-
   return (
     <AssistantInboxShell>
       <AssistantInboxHeader
@@ -269,53 +256,70 @@ export function AssistantInboxPage({
         usage={usage}
       />
 
-      <div className="px-2 pb-3">
-        <SegmentControl
-          items={folderItems}
-          value={folder}
-          onChange={handleFolderChange}
-          ariaLabel={t("assistantInboxPage.folderAriaLabel")}
-          className="w-auto"
-        />
-      </div>
-
-      <div className="relative grid min-h-0 flex-1 grid-cols-1 gap-4 px-2 pb-2 md:grid-cols-[minmax(280px,360px)_1fr]">
-        {/* The list card owns the search: it filters this folder and
-            nothing else, so it sits at the head of the rows it narrows. */}
+      <div className="relative grid min-h-0 flex-1 grid-cols-1 gap-4 px-2 pb-2 pt-1 md:grid-cols-[minmax(280px,360px)_1fr]">
+        {/* The list card owns the folder switch, the count, and the search:
+            all three are about the rows under them and nothing else. */}
         <Card
           bordered={false}
           noPadding
           className={cn(CARD_CLASSES, selected && "max-md:hidden")}
         >
-          {folderEmails.length > 0 ? (
-            <div className="px-3 pt-3 pb-1">
-              <Input
-                type="text"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder={t("assistantInboxPage.searchPlaceholder")}
-                aria-label={t("assistantInboxPage.searchAriaLabel")}
-                leftIcon={<Search className="h-3.5 w-3.5" aria-hidden />}
-                fullWidth
-              />
+          <TabsRoot
+            value={folder}
+            onValueChange={(next) => handleFolderChange(next as InboxFolder)}
+            className="flex min-h-0 flex-1 flex-col"
+          >
+            <div className="flex flex-col gap-4 px-4 pt-4 pb-1">
+              <TabsList
+                aria-label={t("assistantInboxPage.folderAriaLabel")}
+                className="border-b-2 border-[var(--border-hover)]"
+              >
+                <TabsTrigger value="inbox" className="-mb-0.5">
+                  {t("assistantInboxPage.inboxTab")}
+                </TabsTrigger>
+                <TabsTrigger value="sent" className="-mb-0.5">
+                  {t("assistantInboxPage.sentTab")}
+                </TabsTrigger>
+              </TabsList>
+              <h2 className="text-title-medium text-[var(--content-emphasised)]">
+                {t("assistantInboxPage.count", { count: folderEmails.length })}
+              </h2>
+              {folderEmails.length > 0 ? (
+                <Input
+                  type="text"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder={t("assistantInboxPage.searchPlaceholder")}
+                  aria-label={t("assistantInboxPage.searchAriaLabel")}
+                  leftIcon={<Search className="h-3.5 w-3.5" aria-hidden />}
+                  fullWidth
+                  /* Filled rather than outlined, as the design draws it. */
+                  className="rounded-lg border-transparent bg-[var(--surface-active)] focus-visible:border-[var(--border-active)]"
+                />
+              ) : null}
             </div>
-          ) : null}
-          {emails.length === 0 ? (
-            <FolderEmptyState
-              folder={folder}
-              address={address}
-              searching={trimmedQuery.length > 0}
-            />
-          ) : (
-            <EmailList
-              emails={emails}
-              selectedId={selectedId}
-              now={clock}
-              onSelect={setSelectedId}
-              checkedIds={selectable ? checkedIds : undefined}
-              onToggleChecked={selectable ? toggleChecked : undefined}
-            />
-          )}
+            <TabsPanel
+              value={folder}
+              className="flex min-h-0 flex-1 flex-col outline-none"
+            >
+              {emails.length === 0 ? (
+                <FolderEmptyState
+                  folder={folder}
+                  address={address}
+                  searching={trimmedQuery.length > 0}
+                />
+              ) : (
+                <EmailList
+                  emails={emails}
+                  selectedId={selectedId}
+                  now={clock}
+                  onSelect={setSelectedId}
+                  checkedIds={selectable ? checkedIds : undefined}
+                  onToggleChecked={selectable ? toggleChecked : undefined}
+                />
+              )}
+            </TabsPanel>
+          </TabsRoot>
         </Card>
 
         <Card
