@@ -377,11 +377,23 @@ function isTextControl(target: EventTarget | null): boolean {
 const NESTED_DIALOG_SCRIM_SELECTOR = `[data-slot="bottom-sheet-overlay"], [data-slot="modal-overlay"], [data-slot="camera-view-settings-backdrop"]`;
 
 /**
- * Whether a press landed on a dialog layered over the room, scrim included.
+ * Whether an element sits inside a dialog layered over the room.
  *
  * The room's own dialog carries {@link ROOM_DIALOG_ATTR} in every variant, so a
- * `role="dialog"` without it is something over the room. The scrims name
- * themselves, since none of them is inside the dialog it belongs to.
+ * `role="dialog"` ancestor without it is something above the room, and what is
+ * above the room owns what lands on it. The pointer and the key ask the same
+ * question, so they ask it here.
+ */
+function isInsideLayeredDialog(element: Element | null): boolean {
+  const owner = element?.closest(`[role="dialog"]`) ?? null;
+  return owner !== null && !owner.hasAttribute(ROOM_DIALOG_ATTR);
+}
+
+/**
+ * Whether a press landed on a dialog layered over the room, scrim included.
+ *
+ * The scrims name themselves, since none of them is inside the dialog it
+ * belongs to; anything else is placed by {@link isInsideLayeredDialog}.
  */
 function isNestedDialogSurface(target: EventTarget | null): boolean {
   if (!(target instanceof Element)) {
@@ -390,8 +402,7 @@ function isNestedDialogSurface(target: EventTarget | null): boolean {
   if (target.closest(NESTED_DIALOG_SCRIM_SELECTOR)) {
     return true;
   }
-  const owner = target.closest(`[role="dialog"]`);
-  return owner !== null && !owner.hasAttribute(ROOM_DIALOG_ATTR);
+  return isInsideLayeredDialog(target);
 }
 
 /**
@@ -1120,13 +1131,9 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
       // Keyed on the focused dialog rather than the event target, which is what
       // keeps the unguarded behavior the room needs: the key still reaches us
       // when the composer textarea holds focus as the room opens, since that is
-      // inside no dialog at all. The room's own dialog carries
-      // {@link ROOM_DIALOG_ATTR} in every variant, including the sheet, whose
-      // Radix content is the dialog and takes focus on open.
+      // inside no dialog at all.
       const active = document.activeElement;
-      const owner =
-        active instanceof Element ? active.closest(`[role="dialog"]`) : null;
-      if (owner && !owner.hasAttribute(ROOM_DIALOG_ATTR)) {
+      if (isInsideLayeredDialog(active instanceof Element ? active : null)) {
         return;
       }
       event.preventDefault();
