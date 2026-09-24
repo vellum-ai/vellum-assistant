@@ -156,7 +156,9 @@ export function usePreferencesUsage(
         spent,
         // A used-up day alarms once nothing but frozen usage credit is left in
         // the wallet: that is exactly when the platform rejects the next send.
-        exhausted: settled && spent && !hasExtraCredit,
+        // Only on a managed route, though: a BYOK conversation dispatches on
+        // the user's own key and never meets the cap.
+        exhausted: settled && routeBurnsManaged && spent && !hasExtraCredit,
         // With extra credit behind the spent day, the next turn draws on it.
         usingExtraCredits:
           settled && routeBurnsManaged && spent && hasExtraCredit,

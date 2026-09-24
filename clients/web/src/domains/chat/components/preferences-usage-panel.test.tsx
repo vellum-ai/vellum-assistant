@@ -308,6 +308,23 @@ describe("PreferencesUsagePanel", () => {
     );
   });
 
+  test("a used-up day on a BYOK route raises no daily strip", async () => {
+    // The conversation dispatches on the user's own key, so the cap never
+    // meets its next turn: the bar reads full, but nothing is blocked.
+    totalUsageBalance = "15.00";
+    availableUsageBalance = "12.00";
+    effectiveBalance = "12.00";
+    freeTierEnforced = true;
+    freeTierLimit = "5.00";
+    freeTierSpend = "5.00";
+    route = "byok";
+    const { findByTestId } = renderPanel();
+
+    const panel = await findByTestId("preferences-usage");
+    expect(panel.textContent).toContain("100% used");
+    expect(panel.textContent).not.toContain("Daily usage used up");
+  });
+
   test("a used-up day with extra credit behind it names the extra credits", async () => {
     totalUsageBalance = "15.00";
     availableUsageBalance = "12.00";

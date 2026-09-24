@@ -1328,9 +1328,14 @@ export function ChatMainPanel({
     dailyLimitSnoozed: balanceStatus.dailyLimitSnoozed,
     // The free-tier cap only blocks a send once the wallet holds no extra
     // (purchased) credit to fall back on; with some left the platform keeps
-    // admitting turns, so no banner claims otherwise.
+    // admitting turns, so no banner claims otherwise. Unknown until the
+    // summary has landed, so a banner raised by a failed send is neither
+    // retired nor invented off a summary that is still loading.
     freeTierDailyLimitBlocked:
-      balanceStatus.freeTierDailyLimitReached && !hasExtraCredit(balanceStatus),
+      balanceStatus.enabled && balanceStatus.settled
+        ? balanceStatus.freeTierDailyLimitReached &&
+          !hasExtraCredit(balanceStatus)
+        : undefined,
   });
 
   // -------------------------------------------------------------------------

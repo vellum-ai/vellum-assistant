@@ -137,12 +137,19 @@ export type ComposerBillingBanner =
  * send. Like the error-driven daily-limit banner it is not dismissible, since
  * the cap blocks every send until it is raised or the UTC day rolls over.
  *
- * `free_tier_daily_limit` sits beside `daily_limit` with the same shape: an
- * error-driven decision wins outright, and with no error the summary's
- * `freeTierDailyLimitBlocked` (the cap is reached AND the wallet holds no
- * extra credit to fall back on, which is exactly when the platform rejects
- * a send) renders it state-driven. The free-tier cap has no skip, so nothing
- * overrides it.
+ * `free_tier_daily_limit` is driven by the summary's `freeTierDailyLimitBlocked`
+ * (the cap is reached AND the wallet holds no extra credit to fall back on,
+ * which is exactly when the platform rejects a send) as much as by the error:
+ *
+ * - An error-driven free-tier decision renders while the summary agrees or is
+ *   not read (`undefined`). Once it says `false`, adding credits or upgrading
+ *   has resolved the very condition the error described, so the stale error
+ *   retires without waiting for another send. The free-tier cap has no skip.
+ * - A `true` summary also overrides a `managed_credits` decision. An assistant
+ *   from before the daemon learned the free-tier code classifies the same 402
+ *   as generic credit exhaustion; the summary is authoritative that the
+ *   wallet's usage credit is frozen for the day rather than gone, so the
+ *   daily banner is the honest surface even against an older daemon.
  *
  * `dailyLimitSnoozed` overrides both daily-limit legs, including the
  * error-driven one that otherwise wins outright. While a skip is active the
@@ -174,12 +181,16 @@ export function resolveComposerBillingBanner(args: {
   dailyLimitSnoozed?: boolean;
   /**
    * The free-tier daily cap is reached and no extra credit remains, so the
-   * next send would be rejected. Absent wherever the summary is not read.
+   * next send would be rejected. `undefined` wherever the summary is not read
+   * or has not landed, which neither raises nor retires the banner.
    */
   freeTierDailyLimitBlocked?: boolean;
 }): ComposerBillingBanner | null {
   const dailyLimitEnforced = args.dailyLimitSnoozed !== true;
-  if (args.billingBannerDecision === "free_tier_daily_limit") {
+  if (
+    args.billingBannerDecision === "free_tier_daily_limit" &&
+    args.freeTierDailyLimitBlocked !== false
+  ) {
     return "free_tier_daily_limit";
   }
   if (args.billingBannerDecision === "daily_limit" && dailyLimitEnforced) {
@@ -188,11 +199,11 @@ export function resolveComposerBillingBanner(args: {
   if (args.billingBannerDecision === "provider_billing") {
     return "provider_billing";
   }
-  if (args.billingBannerDecision === "managed_credits") {
-    return null;
-  }
   if (args.freeTierDailyLimitBlocked === true) {
     return "free_tier_daily_limit";
+  }
+  if (args.billingBannerDecision === "managed_credits") {
+    return null;
   }
   if (args.dailyLimitReached === true && dailyLimitEnforced) {
     return "daily_limit";
