@@ -17,6 +17,8 @@ const insertedRoles: string[] = [];
 let heldUserInsert: ReturnType<typeof createHold> | null = null;
 let heldSlash: ReturnType<typeof createHold> | null = null;
 let heldAssistantRetry: ReturnType<typeof createHold> | null = null;
+// Conversations whose messages-changed invalidation went out, in order.
+const messagesChangedPublishes: string[] = [];
 
 mock.module("../persistence/attachments-store.js", () => ({
   getAttachmentsByIds: () => [],
@@ -107,6 +109,7 @@ import {
 import * as slashModule from "../daemon/conversation-slash.js";
 import { processMessage } from "../daemon/process-message.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
+import * as syncEventsModule from "../runtime/sync/resource-sync-events.js";
 import { createAbortReason } from "../util/abort-reasons.js";
 import {
   createHold,
@@ -126,6 +129,18 @@ mock.module("../daemon/conversation-slash.js", () => ({
     heldSlash = null;
     await hold?.wait();
     return realSlash.resolveSlash(...args);
+  },
+}));
+const realSyncEvents = { ...syncEventsModule };
+mock.module("../runtime/sync/resource-sync-events.js", () => ({
+  ...realSyncEvents,
+  publishConversationMessagesChanged: (
+    ...args: Parameters<
+      typeof realSyncEvents.publishConversationMessagesChanged
+    >
+  ) => {
+    messagesChangedPublishes.push(args[0]);
+    realSyncEvents.publishConversationMessagesChanged(...args);
   },
 }));
 import { setConfig } from "./helpers/set-config.js";
@@ -208,6 +223,7 @@ describe("channel ingress racing another sender to an idle conversation", () => 
     heldUserInsert = null;
     heldSlash = null;
     heldAssistantRetry = null;
+    messagesChangedPublishes.length = 0;
   });
 
   test("the sender inside the history reload keeps its trust and history, and the other is turned away as busy", async () => {
@@ -350,6 +366,14 @@ describe("channel ingress racing another sender to an idle conversation", () => 
     expect(result.messageId).toBe("persisted-id");
     expect(result.assistantMessageId).toBeUndefined();
     expect(insertedRoles).toEqual(["user"]);
+    // The row that landed is still finalized: seated in the resident history
+    // and announced to other clients.
+    expect(
+      (conversation.messages as unknown[]).filter(
+        (message) => (message as { role?: string }).role === "user",
+      ),
+    ).toHaveLength(1);
+    expect(messagesChangedPublishes).toContain(CONV_ID);
     expect(conversation.turns).toHaveLength(0);
     expect(conversation.isProcessing()).toBe(false);
   });
@@ -372,6 +396,14 @@ describe("channel ingress racing another sender to an idle conversation", () => 
     expect(result.messageId).toBe("persisted-id");
     expect(result.assistantMessageId).toBeUndefined();
     expect(insertedRoles).toEqual(["user"]);
+    // The row that landed is still finalized: seated in the resident history
+    // and announced to other clients.
+    expect(
+      (conversation.messages as unknown[]).filter(
+        (message) => (message as { role?: string }).role === "user",
+      ),
+    ).toHaveLength(1);
+    expect(messagesChangedPublishes).toContain(CONV_ID);
     expect(conversation.turns).toHaveLength(0);
     expect(conversation.isProcessing()).toBe(false);
   });

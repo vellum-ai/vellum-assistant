@@ -2809,6 +2809,31 @@ export async function handleSendMessage(
         }
       };
       /**
+       * End a slash command whose user row landed but whose reply will not be
+       * written because its claim was cancelled. The persist already seated
+       * the row in the resident history; it is announced like any landed row,
+       * with the echo the sender reconciles on and the invalidation other
+       * clients refetch on.
+       */
+      const finishCannedWithoutReply = (messageId: string) => {
+        broadcastMessage({
+          type: "user_message_echo",
+          text: rawContent,
+          conversationId: mapping.conversationId,
+          messageId,
+          clientMessageId,
+        });
+        publishConversationMessagesChanged(
+          mapping.conversationId,
+          originClientId,
+        );
+        return {
+          accepted: true,
+          messageId,
+          conversationId: mapping.conversationId,
+        };
+      };
+      /**
        * The user row of a slash command. Null is a claim cancelled before it
        * landed, which the branch answers by queueing, since nothing was
        * written.
@@ -2858,12 +2883,15 @@ export async function handleSendMessage(
           if (!persisted) {
             return queueFallback(rawContent, "lock_race");
           }
-          if (persisted.deduplicated || !claimLive()) {
+          if (persisted.deduplicated) {
             return {
               accepted: true,
               messageId: persisted.id,
               conversationId: mapping.conversationId,
             };
+          }
+          if (!claimLive()) {
+            return finishCannedWithoutReply(persisted.id);
           }
 
           const channelMeta = buildChannelMetadata(
@@ -2884,11 +2912,7 @@ export async function handleSendMessage(
               ),
           );
           if (!persistedAssistant) {
-            return {
-              accepted: true,
-              messageId: persisted.id,
-              conversationId: mapping.conversationId,
-            };
+            return finishCannedWithoutReply(persisted.id);
           }
           conversation.getMessages().push(assistantMsg);
 
@@ -2989,7 +3013,7 @@ export async function handleSendMessage(
           void conversation.kickDrainQueue("loop_complete", "compact_command");
           return queued;
         }
-        if (persisted.deduplicated || !claimLive()) {
+        if (persisted.deduplicated) {
           conversation.releaseProcessing(compactOwner);
           void conversation.kickDrainQueue("loop_complete", "compact_dedup");
           return {
@@ -2997,6 +3021,12 @@ export async function handleSendMessage(
             messageId: persisted.id,
             conversationId: mapping.conversationId,
           };
+        }
+        if (!claimLive()) {
+          const finished = finishCannedWithoutReply(persisted.id);
+          conversation.releaseProcessing(compactOwner);
+          void conversation.kickDrainQueue("loop_complete", "compact_command");
+          return finished;
         }
 
         const conversationId = mapping.conversationId;
@@ -3087,12 +3117,15 @@ export async function handleSendMessage(
           if (!persisted) {
             return queueFallback(rawContent, "lock_race");
           }
-          if (persisted.deduplicated || !claimLive()) {
+          if (persisted.deduplicated) {
             return {
               accepted: true,
               messageId: persisted.id,
               conversationId,
             };
+          }
+          if (!claimLive()) {
+            return finishCannedWithoutReply(persisted.id);
           }
 
           const channelMeta = buildChannelMetadata(

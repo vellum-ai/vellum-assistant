@@ -28,6 +28,7 @@ import {
   setConversationOriginInterfaceIfUnset,
 } from "../persistence/conversation-crud.js";
 import { updateMetaFile } from "../persistence/conversation-disk-view.js";
+import type { Message } from "../providers/types.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
@@ -607,6 +608,22 @@ async function runClaimedMessage(
     }
   };
   /**
+   * End a slash command whose user row landed but whose reply will not be
+   * written because its claim was cancelled. A landed row is finalized like
+   * any other: seated in the resident history (when the branch has not seated
+   * it yet) and announced to other clients.
+   */
+  const finishSlashWithoutReply = (
+    messageId: string,
+    unseatedUserMessage?: Message,
+  ): { messageId: string } => {
+    if (unseatedUserMessage) {
+      conversation.getMessages().push(unseatedUserMessage);
+    }
+    publishConversationMessagesChanged(conversationId);
+    return { messageId };
+  };
+  /**
    * The user row of a slash command. A claim cancelled before it lands answers
    * busy, as a busy acquire does, since nothing has been written for it.
    */
@@ -680,7 +697,7 @@ async function runClaimedMessage(
     const llmMsg = enrichMessageWithSourcePaths(cleanMsg, attachments);
     const persisted = await persistSlashUserRow(userMetaWithSlack);
     if (!claimLive()) {
-      return { messageId: persisted.id };
+      return finishSlashWithoutReply(persisted.id, llmMsg);
     }
     conversation.getMessages().push(llmMsg);
 
@@ -732,7 +749,7 @@ async function runClaimedMessage(
       serverChannelMeta,
     );
     if (!persistedAssistant) {
-      return { messageId: persisted.id };
+      return finishSlashWithoutReply(persisted.id);
     }
     conversation.getMessages().push(assistantMsg);
     publishConversationMessagesChanged(conversationId);
@@ -774,7 +791,7 @@ async function runClaimedMessage(
     const cleanMsg = await createUserMessage(content, attachments);
     const persisted = await persistSlashUserRow(compactUserMeta);
     if (!claimLive()) {
-      return { messageId: persisted.id };
+      return finishSlashWithoutReply(persisted.id, cleanMsg);
     }
     conversation.getMessages().push(cleanMsg);
 
@@ -788,7 +805,7 @@ async function runClaimedMessage(
       compactChannelMeta,
     );
     if (!persistedAssistant) {
-      return { messageId: persisted.id };
+      return finishSlashWithoutReply(persisted.id);
     }
     conversation.getMessages().push(assistantMsg);
     publishConversationMessagesChanged(conversationId);
@@ -830,7 +847,7 @@ async function runClaimedMessage(
     const cleanMsg = await createUserMessage(content, attachments);
     const persisted = await persistSlashUserRow(cleanUserMeta);
     if (!claimLive()) {
-      return { messageId: persisted.id };
+      return finishSlashWithoutReply(persisted.id, cleanMsg);
     }
     conversation.getMessages().push(cleanMsg);
 
@@ -843,7 +860,7 @@ async function runClaimedMessage(
       cleanChannelMeta,
     );
     if (!persistedAssistant) {
-      return { messageId: persisted.id };
+      return finishSlashWithoutReply(persisted.id);
     }
     conversation.getMessages().push(assistantMsg);
     publishConversationMessagesChanged(conversationId);

@@ -18,6 +18,8 @@ const insertedRoles: string[] = [];
 let heldUserInsert: ReturnType<typeof createHold> | null = null;
 let heldSlash: ReturnType<typeof createHold> | null = null;
 let heldAssistantRetry: ReturnType<typeof createHold> | null = null;
+// Conversations whose messages-changed invalidation went out, in order.
+const messagesChangedPublishes: string[] = [];
 
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => false }));
 
@@ -183,6 +185,7 @@ import {
 import * as slashModule from "../daemon/conversation-slash.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import { handleSendMessage } from "../runtime/routes/conversation-routes.js";
+import * as syncEventsModule from "../runtime/sync/resource-sync-events.js";
 import { createAbortReason } from "../util/abort-reasons.js";
 import { callHandler } from "./helpers/call-route-handler.js";
 import { mockUnownedModeSessions } from "./helpers/mock-conversation.js";
@@ -204,6 +207,18 @@ mock.module("../daemon/conversation-slash.js", () => ({
     heldSlash = null;
     await hold?.wait();
     return realSlash.resolveSlash(...args);
+  },
+}));
+const realSyncEvents = { ...syncEventsModule };
+mock.module("../runtime/sync/resource-sync-events.js", () => ({
+  ...realSyncEvents,
+  publishConversationMessagesChanged: (
+    ...args: Parameters<
+      typeof realSyncEvents.publishConversationMessagesChanged
+    >
+  ) => {
+    messagesChangedPublishes.push(args[0]);
+    realSyncEvents.publishConversationMessagesChanged(...args);
   },
 }));
 
@@ -308,6 +323,7 @@ afterEach(() => {
   heldUserInsert = null;
   heldSlash = null;
   heldAssistantRetry = null;
+  messagesChangedPublishes.length = 0;
 });
 
 describe("POST /v1/messages racing another sender to an idle conversation", () => {
@@ -474,6 +490,14 @@ describe("POST /v1/messages racing another sender to an idle conversation", () =
     });
     expect(aliceBody.queued).toBeUndefined();
     expect(insertedRoles).toEqual(["user"]);
+    // The row that landed is still finalized: seated in the resident history
+    // and announced to other clients.
+    expect(
+      (conversation.messages as unknown[]).filter(
+        (message) => (message as { role?: string }).role === "user",
+      ),
+    ).toHaveLength(1);
+    expect(messagesChangedPublishes).toContain(CONV_ID);
     expect(conversation.turns).toHaveLength(0);
     expect(conversation.isProcessing()).toBe(false);
     expect(conversation.drained).toEqual(["from Bob"]);
@@ -496,6 +520,14 @@ describe("POST /v1/messages racing another sender to an idle conversation", () =
       messageId: "persisted-id",
     });
     expect(insertedRoles).toEqual(["user"]);
+    // The row that landed is still finalized: seated in the resident history
+    // and announced to other clients.
+    expect(
+      (conversation.messages as unknown[]).filter(
+        (message) => (message as { role?: string }).role === "user",
+      ),
+    ).toHaveLength(1);
+    expect(messagesChangedPublishes).toContain(CONV_ID);
     expect(conversation.turns).toHaveLength(0);
     expect(conversation.isProcessing()).toBe(false);
   });
