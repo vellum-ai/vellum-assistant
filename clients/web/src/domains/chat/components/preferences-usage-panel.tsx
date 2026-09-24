@@ -36,7 +36,10 @@ export function PreferencesUsagePanel({
     return null;
   }
 
-  const title = t("preferencesUsagePanel.title");
+  const title =
+    usage.kind === "daily"
+      ? t("preferencesUsagePanel.dailyTitle")
+      : t("preferencesUsagePanel.title");
   const pct = Math.round(usage.ratio * 100);
   // Used-up grants with credit still behind them are not an alarm: the
   // percentage keeps its neutral color and the amber line below names the
@@ -119,7 +122,9 @@ export function PreferencesUsagePanel({
             variant="body-medium-default"
             className="min-w-0 text-[var(--system-negative-strong)]"
           >
-            {t("preferencesUsagePanel.exhausted")}
+            {usage.kind === "daily"
+              ? t("preferencesUsagePanel.dailyExhausted")
+              : t("preferencesUsagePanel.exhausted")}
           </Typography>
           {onAddCredits ? (
             <div className="flex shrink-0 items-center gap-2">

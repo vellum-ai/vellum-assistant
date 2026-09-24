@@ -46,7 +46,12 @@ import type {
 import { useTranslation } from "@/i18n";
 import { useBillingBalanceStatus } from "@/hooks/use-billing-balance-status";
 import { useDocumentTheme } from "@/hooks/use-document-theme";
-import { usePlanUsageBalance } from "@/hooks/use-plan-usage-balance";
+import {
+  freeTierDailyRatio,
+  hasExtraCredit,
+  usePlanUsageBalance,
+} from "@/hooks/use-plan-usage-balance";
+import { dailyResetTimePhrase } from "@/utils/daily-reset-time";
 import { openBillingPathInBrowser } from "@/lib/billing/android-billing-handoff";
 import { saveCheckoutIntent } from "@/lib/billing/checkout-intent";
 import { checkoutReturnTarget } from "@/lib/billing/checkout-return-target";
@@ -353,8 +358,13 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
     organizationsBillingSubscriptionRetrieveOptions(),
   );
   const plansQuery = useQuery(organizationsBillingPlansRetrieveOptions());
-  const { balance, availableUsageBalance, totalUsageBalance } =
-    useBillingBalanceStatus();
+  const balanceStatus = useBillingBalanceStatus();
+  const {
+    balance,
+    availableUsageBalance,
+    totalUsageBalance,
+    freeTierDailyLimitReached,
+  } = balanceStatus;
   const [addCreditsOpen, setAddCreditsOpen] = useState(false);
   // Resolved before the early returns below so the usage hook is never
   // conditional; both tolerate data that has not landed yet.
@@ -537,12 +547,47 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
       onAddCredits={() => setAddCreditsOpen(true)}
     />
   ) : null;
+  // The free-tier daily bar, above Current Usage, only for an org the
+  // platform is enforcing the cap on. Reads as fully used once the overall
+  // grant is spent, so the two bars never disagree about today. Its strip,
+  // which says today's free usage is used up, raises only on the platform's
+  // own daily-reached flag (a pinned bar over an empty grant is the Current
+  // Usage strip's story) and only while nothing but frozen usage credit is
+  // left in the wallet, which is when the platform rejects the next send.
+  const dailyRatio = freeTierDailyRatio(balanceStatus, usage?.ratio ?? null);
+  const dailyExhausted =
+    dailyRatio != null &&
+    freeTierDailyLimitReached &&
+    !hasExtraCredit(balanceStatus);
+  const resetPhrase = dailyResetTimePhrase();
+  const dailyPanel =
+    dailyRatio != null ? (
+      <UsageBalancePanel
+        ratio={dailyRatio}
+        exhausted={dailyExhausted}
+        onAddCredits={() => setAddCreditsOpen(true)}
+        title={t("planCard.dailyUsageTitle")}
+        line={t("planCard.dailyUsageResets", { resetPhrase })}
+        barLabel={t("planCard.dailyUsageBar", { resetPhrase })}
+        exhaustedMessage={t("planCard.dailyUsageExhausted")}
+        testId="plan-daily-usage"
+        lineTestId="plan-daily-usage-resets"
+      />
+    ) : null;
   // The tile trades its price for the usage balance, so the two never state
   // the same allowance twice. With no bar to trade for (a free account that
   // was never granted usage, or a platform whose summary reports no grant
   // figures), the footer row stays rather than leaving the tile with an empty
   // bottom slot.
-  const currentFooter: ReactNode = usagePanel ?? footerRow;
+  const currentFooter: ReactNode =
+    dailyPanel || usagePanel ? (
+      <>
+        {dailyPanel}
+        {usagePanel}
+      </>
+    ) : (
+      footerRow
+    );
 
   return (
     <Card padding="md">

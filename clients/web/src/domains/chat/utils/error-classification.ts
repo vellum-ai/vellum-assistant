@@ -9,7 +9,10 @@ export interface ChatErrorLike {
 }
 
 export type ChatBillingBannerDecision =
-  "managed_credits" | "provider_billing" | "daily_limit";
+  | "managed_credits"
+  | "provider_billing"
+  | "daily_limit"
+  | "free_tier_daily_limit";
 
 const PROVIDER_BILLING_CODE = "PROVIDER_BILLING";
 const PROVIDER_NOT_CONFIGURED_CODE = "PROVIDER_NOT_CONFIGURED";
@@ -17,6 +20,7 @@ const MANAGED_KEY_INVALID_CODE = "MANAGED_KEY_INVALID";
 const MANAGED_CREDITS_EXHAUSTED_CATEGORY = "credits_exhausted";
 const PROVIDER_BILLING_CATEGORY = "provider_billing";
 const DAILY_LIMIT_REACHED_CATEGORY = "daily_limit_reached";
+const FREE_TIER_DAILY_LIMIT_REACHED_CATEGORY = "free_tier_daily_limit_reached";
 
 /**
  * Whether a provider-error marker denotes managed-credits exhaustion. The
@@ -60,12 +64,27 @@ function isProviderBilling(error: ChatErrorLike | null | undefined): boolean {
   return error.errorCategory.endsWith(PROVIDER_BILLING_CATEGORY);
 }
 
+function isFreeTierDailyLimitReached(
+  error: ChatErrorLike | null | undefined,
+): boolean {
+  if (!error?.errorCategory) {
+    return false;
+  }
+
+  return error.errorCategory.endsWith(FREE_TIER_DAILY_LIMIT_REACHED_CATEGORY);
+}
+
 function isDailyLimitReached(error: ChatErrorLike | null | undefined): boolean {
   if (!error?.errorCategory) {
     return false;
   }
 
-  return error.errorCategory.endsWith(DAILY_LIMIT_REACHED_CATEGORY);
+  // `free_tier_daily_limit_reached` ends with `daily_limit_reached` too; it
+  // is the platform's cap, not the user's, and must not read as the latter.
+  return (
+    error.errorCategory.endsWith(DAILY_LIMIT_REACHED_CATEGORY) &&
+    !isFreeTierDailyLimitReached(error)
+  );
 }
 
 /**
@@ -77,6 +96,10 @@ function isDailyLimitReached(error: ChatErrorLike | null | undefined): boolean {
 export function getChatBillingBannerDecision(
   error: ChatErrorLike | null | undefined,
 ): ChatBillingBannerDecision | null {
+  if (isFreeTierDailyLimitReached(error)) {
+    return "free_tier_daily_limit";
+  }
+
   if (isDailyLimitReached(error)) {
     return "daily_limit";
   }
@@ -93,7 +116,7 @@ export function getChatBillingBannerDecision(
 }
 
 export type ComposerBillingBanner =
-  "daily_limit" | "provider_billing" | "low_balance";
+  "daily_limit" | "free_tier_daily_limit" | "provider_billing" | "low_balance";
 
 /**
  * Which banner the composer's billing slot renders, from three inputs in
@@ -113,6 +136,20 @@ export type ComposerBillingBanner =
  * away, and the banner appears on their return instead of waiting for a failed
  * send. Like the error-driven daily-limit banner it is not dismissible, since
  * the cap blocks every send until it is raised or the UTC day rolls over.
+ *
+ * `free_tier_daily_limit` is driven by the summary's `freeTierDailyLimitBlocked`
+ * (the cap is reached AND the wallet holds no extra credit to fall back on,
+ * which is exactly when the platform rejects a send) as much as by the error:
+ *
+ * - An error-driven free-tier decision renders while the summary agrees or is
+ *   not read (`undefined`). Once it says `false`, adding credits or upgrading
+ *   has resolved the very condition the error described, so the stale error
+ *   retires without waiting for another send. The free-tier cap has no skip.
+ * - A `true` summary also overrides a `managed_credits` decision. An assistant
+ *   from before the daemon learned the free-tier code classifies the same 402
+ *   as generic credit exhaustion; the summary is authoritative that the
+ *   wallet's usage credit is frozen for the day rather than gone, so the
+ *   daily banner is the honest surface even against an older daemon.
  *
  * `dailyLimitSnoozed` overrides both daily-limit legs, including the
  * error-driven one that otherwise wins outright. While a skip is active the
@@ -142,13 +179,28 @@ export function resolveComposerBillingBanner(args: {
    * is not read (gated-off queries, callers that only classify an error).
    */
   dailyLimitSnoozed?: boolean;
+  /**
+   * The free-tier daily cap is reached and no extra credit remains, so the
+   * next send would be rejected. `undefined` wherever the summary is not read
+   * or has not landed, which neither raises nor retires the banner.
+   */
+  freeTierDailyLimitBlocked?: boolean;
 }): ComposerBillingBanner | null {
   const dailyLimitEnforced = args.dailyLimitSnoozed !== true;
+  if (
+    args.billingBannerDecision === "free_tier_daily_limit" &&
+    args.freeTierDailyLimitBlocked !== false
+  ) {
+    return "free_tier_daily_limit";
+  }
   if (args.billingBannerDecision === "daily_limit" && dailyLimitEnforced) {
     return "daily_limit";
   }
   if (args.billingBannerDecision === "provider_billing") {
     return "provider_billing";
+  }
+  if (args.freeTierDailyLimitBlocked === true) {
+    return "free_tier_daily_limit";
   }
   if (args.billingBannerDecision === "managed_credits") {
     return null;

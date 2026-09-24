@@ -208,6 +208,15 @@ describe("AnthropicProvider — semantic reason stamping", () => {
       reason: "insufficient_credits",
     },
     {
+      name: "free-tier daily-limit body code → free_tier_daily_limit_reached (before insufficient_credits)",
+      error: new FakeAPIError(
+        402,
+        '{"code":"free_tier_daily_limit_reached","detail":"free usage"}',
+        anthropicBody("invalid_request_error"),
+      ),
+      reason: "free_tier_daily_limit_reached",
+    },
+    {
       name: "daily-limit body code → daily_limit_reached (before insufficient_credits)",
       error: new FakeAPIError(
         402,

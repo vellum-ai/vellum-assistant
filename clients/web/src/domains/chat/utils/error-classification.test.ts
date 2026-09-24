@@ -57,6 +57,23 @@ describe("chat error classification", () => {
     ).toBe("daily_limit");
   });
 
+  test("classifies free_tier_daily_limit_reached as the free-tier cap, not the user's daily limit", () => {
+    const error = {
+      code: "PROVIDER_BILLING",
+      errorCategory: "free_tier_daily_limit_reached",
+    };
+
+    // Ends with `daily_limit_reached` too, so the suffix match for the user's
+    // own limit must yield to the more specific category.
+    expect(getChatBillingBannerDecision(error)).toBe("free_tier_daily_limit");
+    expect(shouldSuppressGenericChatErrorNotice(error)).toBe(true);
+    expect(
+      getChatBillingBannerDecision({
+        errorCategory: "billing.free_tier_daily_limit_reached",
+      }),
+    ).toBe("free_tier_daily_limit");
+  });
+
   test("falls back to managed credits for legacy errors with no category", () => {
     const error = { code: "PROVIDER_BILLING" };
 
@@ -187,6 +204,86 @@ describe("resolveComposerBillingBanner", () => {
         billingBannerDecision: null,
         isLowBalance: true,
         dismissed: true,
+      }),
+    ).toBeNull();
+  });
+
+  test("a free-tier daily-limit error wins outright, skip or no skip", () => {
+    expect(
+      resolveComposerBillingBanner({
+        billingBannerDecision: "free_tier_daily_limit",
+        isLowBalance: true,
+        dismissed: false,
+        dailyLimitSnoozed: true,
+      }),
+    ).toBe("free_tier_daily_limit");
+  });
+
+  test("a free-tier error stays up while the summary is unread, and retires once it says the block is gone", () => {
+    // Summary not read (or still loading): the failed send is the only
+    // evidence, so it stands.
+    expect(
+      resolveComposerBillingBanner({
+        billingBannerDecision: "free_tier_daily_limit",
+        isLowBalance: false,
+        dismissed: false,
+        freeTierDailyLimitBlocked: undefined,
+      }),
+    ).toBe("free_tier_daily_limit");
+    // Credits added or plan upgraded: the refreshed summary retires the stale
+    // error without waiting for another send.
+    expect(
+      resolveComposerBillingBanner({
+        billingBannerDecision: "free_tier_daily_limit",
+        isLowBalance: false,
+        dismissed: false,
+        freeTierDailyLimitBlocked: false,
+      }),
+    ).toBeNull();
+  });
+
+  test("the summary's free-tier block overrides an older daemon's credits-exhausted classification", () => {
+    // A daemon from before the free-tier code classifies the same 402 as
+    // generic credit exhaustion; the summary knows the credit is frozen for
+    // the day, not gone.
+    expect(
+      resolveComposerBillingBanner({
+        billingBannerDecision: "managed_credits",
+        isLowBalance: false,
+        dismissed: false,
+        freeTierDailyLimitBlocked: true,
+      }),
+    ).toBe("free_tier_daily_limit");
+    // Without the block the legacy decision keeps its no-banner answer.
+    expect(
+      resolveComposerBillingBanner({
+        billingBannerDecision: "managed_credits",
+        isLowBalance: false,
+        dismissed: false,
+        freeTierDailyLimitBlocked: false,
+      }),
+    ).toBeNull();
+  });
+
+  test("the summary's free-tier block renders the banner with no error, above the other state-driven legs", () => {
+    expect(
+      resolveComposerBillingBanner({
+        billingBannerDecision: null,
+        isLowBalance: true,
+        dismissed: false,
+        dailyLimitReached: true,
+        freeTierDailyLimitBlocked: true,
+      }),
+    ).toBe("free_tier_daily_limit");
+  });
+
+  test("a reached free-tier cap with extra credit to fall back on raises no banner", () => {
+    expect(
+      resolveComposerBillingBanner({
+        billingBannerDecision: null,
+        isLowBalance: false,
+        dismissed: false,
+        freeTierDailyLimitBlocked: false,
       }),
     ).toBeNull();
   });

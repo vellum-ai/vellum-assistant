@@ -101,6 +101,7 @@ import { ComposerSecretNotice } from "@/domains/chat/components/composer-secret-
 import { ComposerSettingsMenu } from "@/domains/chat/components/composer-settings-menu";
 import { ContextWindowIndicator } from "@/domains/chat/components/context-window-indicator";
 import { DailyLimitBanner } from "@/domains/chat/components/daily-limit-banner";
+import { FreeTierDailyLimitBanner } from "@/domains/chat/components/free-tier-daily-limit-banner";
 import { LowBalanceBanner } from "@/domains/chat/components/low-balance-banner";
 import { MicPermissionPrimer } from "@/domains/chat/components/mic-permission-primer";
 import { OnboardingChoiceCard } from "@/domains/chat/components/onboarding-choice-card";
@@ -1324,6 +1325,14 @@ export function ChatMainPanel({
     // A skip clears the banner even when the error that raised it is still the
     // last thing that happened on this conversation.
     dailyLimitSnoozed: balanceStatus.dailyLimitSnoozed,
+    // The hook's gated verdict: cap reached, no extra credit to fall back on,
+    // and this conversation's route burns managed credit. Unknown until the
+    // summary and that verdict have settled, so a banner raised by a failed
+    // send is neither retired nor invented off a status still loading.
+    freeTierDailyLimitBlocked:
+      balanceStatus.enabled && balanceStatus.settled
+        ? balanceStatus.freeTierDailyLimitBlocked
+        : undefined,
   });
 
   // -------------------------------------------------------------------------
@@ -1505,6 +1514,8 @@ export function ChatMainPanel({
             billingBannerSlot={
               composerBillingBanner === "daily_limit" ? (
                 <DailyLimitBanner onAdjustLimit={pushToDailyLimitSettings} />
+              ) : composerBillingBanner === "free_tier_daily_limit" ? (
+                <FreeTierDailyLimitBanner />
               ) : composerBillingBanner === "provider_billing" ? (
                 <ProviderBillingBanner onOpenSettings={pushToAiSettings} />
               ) : composerBillingBanner === "low_balance" ? (

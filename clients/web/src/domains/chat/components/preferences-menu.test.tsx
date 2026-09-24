@@ -388,6 +388,7 @@ async function openMenu(
 function usage(ratio: number, walletEmpty = false): PreferencesUsage {
   const spent = ratio >= 1;
   return {
+    kind: "overall",
     ratio,
     spent,
     exhausted: spent && walletEmpty,
@@ -816,6 +817,7 @@ describe("PreferencesMenu credits row", () => {
     // The whole usage grant is gone and the panel names the extra credits
     // covering the next turn, so the row has nothing left to add.
     usageRef.value = {
+      kind: "overall",
       ratio: 1,
       spent: true,
       exhausted: false,

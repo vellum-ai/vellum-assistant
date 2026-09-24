@@ -23,7 +23,7 @@ export function ConceptGraphIntroBanner({
   return (
     <div
       data-graph-control
-      className="pointer-events-auto absolute left-1/2 top-4 z-10 flex w-[min(30rem,calc(100%-6rem))] -translate-x-1/2 items-start gap-3 rounded-xl px-4 py-3"
+      className="pointer-events-auto flex w-full max-w-[30rem] self-center items-start gap-3 rounded-xl px-4 py-3"
       style={{
         backgroundColor: "var(--surface-lift)",
         border: "1px solid var(--border-base)",

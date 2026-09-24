@@ -54,6 +54,11 @@ mock.module("@/hooks/use-billing-balance-status", () => ({
     dailyLimitSnoozed: false,
     dailyLimit: null,
     dailySpend: null,
+    freeTierDailyLimitEnforced: freeTierEnforced,
+    freeTierDailyLimitReached: false,
+    freeTierDailyLimitBlocked: false,
+    freeTierDailyLimit: freeTierLimit,
+    freeTierDailySpend: freeTierSpend,
     balance: effectiveBalance,
     availableUsageBalance,
     totalUsageBalance,
@@ -61,6 +66,11 @@ mock.module("@/hooks/use-billing-balance-status", () => ({
     settled: true,
   }),
 }));
+
+/** The free-tier daily cap, where the platform is enforcing one. */
+let freeTierEnforced = false;
+let freeTierLimit: string | null = null;
+let freeTierSpend: string | null = null;
 
 /**
  * Every `candidate` the hook has asked the classifier with, in render order.
@@ -141,6 +151,9 @@ beforeEach(() => {
   candidates = [];
   classifierArmed = false;
   classifierAnswered = false;
+  freeTierEnforced = false;
+  freeTierLimit = null;
+  freeTierSpend = null;
 });
 
 afterEach(() => {
@@ -148,6 +161,64 @@ afterEach(() => {
 });
 
 describe("usePreferencesUsage", () => {
+  test("reads the free-tier day when it has the least left", async () => {
+    // $3 left on the grant against $2 left today.
+    availableUsageBalance = "3.00";
+    freeTierEnforced = true;
+    freeTierLimit = "5.00";
+    freeTierSpend = "3.00";
+    const { result } = renderUsage();
+
+    await settle();
+    expect(result.current.usage?.kind).toBe("daily");
+    expect(result.current.usage?.ratio).toBeCloseTo(0.6);
+    expect(result.current.usage?.spent).toBe(false);
+  });
+
+  test("reads the overall grant once it has less left than the day", async () => {
+    // $1 left on the grant against $2 left today.
+    availableUsageBalance = "1.00";
+    freeTierEnforced = true;
+    freeTierLimit = "5.00";
+    freeTierSpend = "3.00";
+    const { result } = renderUsage();
+
+    await settle();
+    expect(result.current.usage?.kind).toBe("overall");
+    expect(result.current.usage?.ratio).toBeCloseTo(0.8);
+  });
+
+  test("a used-up day arms the classifier over the extra credit behind it", async () => {
+    availableUsageBalance = "3.00";
+    // $3 of frozen grant plus $9 bought on top.
+    effectiveBalance = "12.00";
+    freeTierEnforced = true;
+    freeTierLimit = "5.00";
+    freeTierSpend = "5.00";
+    const { result } = renderUsage();
+
+    await settle();
+    expect(candidates).toContain(true);
+    expect(result.current.usage?.kind).toBe("daily");
+    expect(result.current.usage?.spent).toBe(true);
+    expect(result.current.usage?.usingExtraCredits).toBe(true);
+    expect(result.current.usage?.exhausted).toBe(false);
+  });
+
+  test("a used-up day backed only by frozen credit reads as exhausted", async () => {
+    availableUsageBalance = "3.00";
+    effectiveBalance = "3.00";
+    freeTierEnforced = true;
+    freeTierLimit = "5.00";
+    freeTierSpend = "5.00";
+    const { result } = renderUsage();
+
+    await settle();
+    expect(result.current.usage?.kind).toBe("daily");
+    expect(result.current.usage?.exhausted).toBe(true);
+    expect(result.current.usage?.usingExtraCredits).toBe(false);
+  });
+
   test("arms the route classifier before the subscription answers", async () => {
     holdSubscription = true;
     const { result } = renderUsage();

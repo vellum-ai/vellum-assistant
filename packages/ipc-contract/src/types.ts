@@ -2612,17 +2612,20 @@ export const companionIntroCallControlFor = (
  * `tray`): the creature, a voice conversation, a composer the surface no
  * longer draws, and where to switch the thing off.
  *
- * **2** is this run. It keeps only the first of those subjects and adds what a
+ * **2** covers only the first of those subjects, what a
  * call can do (the screen, the marks, the mutes), the key that starts a
- * conversation from anywhere, and a press that starts one for real. Nobody who
- * saw the first run has been told any of that, so they are shown this one.
+ * conversation from anywhere, and a press that starts one for real.
+ *
+ * **3** opens with an in-app modal that explains the companion's capabilities
+ * before the user chooses whether to start the guided tour. An install recorded
+ * at version 2 is offered this introduction once.
  *
  * The desktop records the highest version it has run (`window-state.ts`), so a
  * bump is the whole of what it takes to introduce the surface again. Bumping it
  * for a copy edit would be re-explaining the desktop to someone who understood
  * it the first time, which is the cost this number exists to make deliberate.
  */
-export const COMPANION_INTRO_VERSION = 2;
+export const COMPANION_INTRO_VERSION = 3;
 
 /**
  * The subjects the beats belong to, in order, which is what the run's progress

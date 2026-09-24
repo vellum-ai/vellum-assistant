@@ -114,6 +114,7 @@ export type ProviderErrorReason =
   | "model_not_found"
   | "insufficient_credits"
   | "daily_limit_reached"
+  | "free_tier_daily_limit_reached"
   | "rate_limited"
   | "overloaded"
   | "context_overflow"

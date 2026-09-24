@@ -212,6 +212,13 @@ const DAILY_LIMIT_REACHED_ASSISTANT_REPLY =
   "I had to stop because you hit your daily credit limit. Raise the limit in Settings → Billing and we can pick up where we left off, or I can continue once it resets.";
 
 /**
+ * The free-tier counterpart: the cap is the platform's, not a setting, so the
+ * ways forward are the UTC reset, an upgrade, or extra credits.
+ */
+const FREE_TIER_DAILY_LIMIT_REACHED_ASSISTANT_REPLY =
+  "I had to stop because you've used today's free usage. It resets at midnight UTC, or you can upgrade or add credits in Settings → Billing and we can pick up where we left off.";
+
+/**
  * The assistant-voice text a managed-billing failure persists in place of the
  * classification's own `userMessage`, or `null` when the classification copy is
  * already right for a transcript row.
@@ -228,6 +235,8 @@ function managedBillingAssistantReply(
       return OUT_OF_CREDITS_ASSISTANT_REPLY;
     case "daily_limit_reached":
       return DAILY_LIMIT_REACHED_ASSISTANT_REPLY;
+    case "free_tier_daily_limit_reached":
+      return FREE_TIER_DAILY_LIMIT_REACHED_ASSISTANT_REPLY;
     default:
       return null;
   }

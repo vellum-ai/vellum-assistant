@@ -37,6 +37,18 @@ export interface UsageBalancePanelProps {
   exhausted?: boolean;
   /** Opens the add-credits checkout. Omitted, the strip states its case only. */
   onAddCredits?: () => void;
+  /**
+   * Wording overrides for a second reading on the same tile, such as the
+   * free-tier daily bar: its own title, the line under it, the bar's
+   * accessible name, the strip's message, and a test id. Each falls back to
+   * the Current Usage wording, so the default panel is unchanged.
+   */
+  title?: string;
+  line?: string;
+  barLabel?: string;
+  exhaustedMessage?: string;
+  testId?: string;
+  lineTestId?: string;
 }
 
 /** The cycle-end wording: the line under the title, and the bar's accessible name folding it in. */
@@ -84,14 +96,21 @@ export function UsageBalancePanel({
   periodEnd,
   exhausted = false,
   onAddCredits,
+  title: titleOverride,
+  line: lineOverride,
+  barLabel: barLabelOverride,
+  exhaustedMessage,
+  testId = "plan-usage-balance",
+  lineTestId = "plan-usage-period-end",
 }: UsageBalancePanelProps) {
   const { t } = useTranslation("settings");
-  const title = t("planCard.usageBalanceTitle");
+  const title = titleOverride ?? t("planCard.usageBalanceTitle");
   const periodEndLabels = usagePeriodEndLabels(periodEnd, t);
+  const line = lineOverride ?? periodEndLabels?.line;
   // The bar's accessible name is one complete message per variant rather than
   // the title and the date line joined here: the joining punctuation is the
   // translator's, not ours.
-  const barLabel = periodEndLabels?.barLabel ?? title;
+  const barLabel = barLabelOverride ?? periodEndLabels?.barLabel ?? title;
   const pct = Math.round(ratio * 100);
   // Spending the whole bundle is the negative reading in its own right,
   // whatever the wallet behind it still holds.
@@ -100,7 +119,7 @@ export function UsageBalancePanel({
   return (
     // One surface step above the tile's base, so the panel reads as its own block.
     <div
-      data-testid="plan-usage-balance"
+      data-testid={testId}
       className="@container flex w-full flex-col gap-3 rounded-[10px] border border-[var(--border-base)] bg-[var(--surface-overlay)] px-4 py-3"
     >
       {/*
@@ -120,14 +139,14 @@ export function UsageBalancePanel({
           >
             {title}
           </Typography>
-          {periodEndLabels ? (
+          {line ? (
             <Typography
               as="span"
               variant="body-small-default"
               className="text-[var(--content-tertiary)]"
-              data-testid="plan-usage-period-end"
+              data-testid={lineTestId}
             >
-              {periodEndLabels.line}
+              {line}
             </Typography>
           ) : null}
         </div>
@@ -159,7 +178,7 @@ export function UsageBalancePanel({
             variant="body-medium-default"
             className="min-w-0 text-[var(--system-negative-strong)]"
           >
-            {t("planCard.usageBalanceExhausted")}
+            {exhaustedMessage ?? t("planCard.usageBalanceExhausted")}
           </Typography>
           {onAddCredits ? (
             <div className="flex shrink-0 items-center gap-2">
