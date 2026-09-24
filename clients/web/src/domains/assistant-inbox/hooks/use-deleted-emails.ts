@@ -2,6 +2,7 @@ import { useCallback, useMemo, useSyncExternalStore } from "react";
 
 import {
   getLocalSetting,
+  notifySettingChange,
   setLocalSetting,
   watchSetting,
 } from "@/utils/local-settings";
@@ -18,9 +19,22 @@ function keyFor(assistantId: string): string {
   return `${LS_ASSISTANT_INBOX_DELETED_EMAILS_PREFIX}${assistantId}`;
 }
 
+/**
+ * The entry as last written, for a device where the write did not reach
+ * storage (private browsing, a full quota, a policy block). The rows the
+ * user deleted stay hidden for the session either way; only the persistence
+ * is lost.
+ */
+const unpersisted = new Map<string, string>();
+
+/** The raw entry: what storage holds, else what this session wrote. */
+function readRaw(key: string): string {
+  return getLocalSetting(key, "") || (unpersisted.get(key) ?? "");
+}
+
 /** The stored ids, or none for an absent or unreadable entry. */
 export function readDeletedEmailIds(assistantId: string): string[] {
-  const raw = getLocalSetting(keyFor(assistantId), "");
+  const raw = readRaw(keyFor(assistantId));
   if (!raw) {
     return [];
   }
@@ -44,7 +58,16 @@ export function appendDeletedEmailIds(
     merged.add(id);
   }
   const bounded = [...merged].slice(-MAX_DELETED_IDS);
-  setLocalSetting(keyFor(assistantId), JSON.stringify(bounded));
+  const key = keyFor(assistantId);
+  const serialized = JSON.stringify(bounded);
+  if (setLocalSetting(key, serialized)) {
+    unpersisted.delete(key);
+    return;
+  }
+  // A refused write fires no notification of its own, so the subscribers
+  // are told here, and the read falls back to what was written.
+  unpersisted.set(key, serialized);
+  notifySettingChange(key, serialized);
 }
 
 export interface DeletedEmails {
@@ -74,7 +97,7 @@ export function useDeletedEmails(assistantId: string): DeletedEmails {
   );
   const raw = useSyncExternalStore(
     subscribe,
-    () => getLocalSetting(key, ""),
+    () => readRaw(key),
     () => "",
   );
   const deletedIds = useMemo(

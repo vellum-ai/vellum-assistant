@@ -56,13 +56,17 @@ export function EmailReferenceChip({
   const inbound = email.direction === "inbound";
   const counterpart = inbound ? email.from : (email.to[0] ?? email.from);
   const subject = email.subject.trim() || t("emailReferenceChip.noSubject");
-  const who = inbound
-    ? t("emailReferenceChip.from", { name: displayName(counterpart) })
-    : t("emailReferenceChip.to", { name: displayName(counterpart) });
-  const direction = inbound
-    ? t("emailReferenceChip.received")
-    : t("emailReferenceChip.sent");
-  const when = shortDate(email.createdAt, i18n.language);
+  const name = displayName(counterpart);
+  const date = shortDate(email.createdAt, i18n.language);
+  /* One whole message per shape, so a translation owns the order and the
+     separators, rather than pieces joined in code. */
+  const caption = inbound
+    ? date
+      ? t("emailReferenceChip.captionReceived", { name, date })
+      : t("emailReferenceChip.captionReceivedUndated", { name })
+    : date
+      ? t("emailReferenceChip.captionSent", { name, date })
+      : t("emailReferenceChip.captionSentUndated", { name });
   const Icon = inbound ? Mail : Send;
 
   return (
@@ -73,7 +77,7 @@ export function EmailReferenceChip({
         "flex max-w-[300px] shrink-0 items-center gap-2 rounded-lg bg-[var(--surface-base)] py-1 pl-1 pr-1",
         className,
       )}
-      title={`${direction} · ${who}${when ? ` · ${when}` : ""}\n${subject}`}
+      title={t("emailReferenceChip.tooltip", { subject, caption })}
     >
       <span
         aria-hidden="true"
@@ -90,22 +94,8 @@ export function EmailReferenceChip({
         <span className="min-w-0 truncate text-body-small-default leading-4 text-[var(--content-default)]">
           {subject}
         </span>
-        <span className="flex min-w-0 items-center gap-1 text-label-small-default leading-3 text-[var(--content-tertiary)]">
-          <span className="shrink-0 font-medium text-[var(--content-secondary)]">
-            {direction}
-          </span>
-          <span aria-hidden="true" className="shrink-0">
-            ·
-          </span>
-          <span className="min-w-0 truncate">{who}</span>
-          {when ? (
-            <>
-              <span aria-hidden="true" className="shrink-0">
-                ·
-              </span>
-              <span className="shrink-0">{when}</span>
-            </>
-          ) : null}
+        <span className="min-w-0 truncate text-label-small-default leading-3 text-[var(--content-tertiary)]">
+          {caption}
         </span>
       </div>
       <Button

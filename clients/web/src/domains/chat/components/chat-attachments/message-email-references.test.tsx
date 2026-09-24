@@ -9,8 +9,8 @@ import { MessageEmailReferences } from "./message-email-references";
 const RECEIVED: EmailReference = {
   id: "msg in 1",
   direction: "inbound",
-  from: { name: "Maya Chen", address: "maya@northwind.co" },
-  to: [{ address: "hi@velly.vellum.me" }],
+  from: { name: "Maya Chen", address: "maya@example.com" },
+  to: [{ address: "velly@example.org" }],
   subject: "Q4 vendor contract",
   createdAt: "2026-09-16T09:52:00Z",
 };
@@ -18,7 +18,7 @@ const RECEIVED: EmailReference = {
 const SENT: EmailReference = {
   id: "msg_out_1",
   direction: "outbound",
-  from: { address: "hi@velly.vellum.me" },
+  from: { address: "velly@example.org" },
   to: [{ name: "Sam Okafor", address: "sam@example.com" }],
   subject: "",
   createdAt: "2026-09-12T18:04:00Z",

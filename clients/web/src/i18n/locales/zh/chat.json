@@ -466,14 +466,21 @@
     "removeAria": "移除 {filename}"
   },
   "emailReferenceChip": {
-    "received": "已接收",
-    "sent": "已发送",
-    "from": "来自 {name}",
-    "to": "发给 {name}",
     "noSubject": "(无主题)",
+    "captionReceived": "已接收 · 来自 {name} · {date}",
+    "captionReceivedUndated": "已接收 · 来自 {name}",
+    "captionSent": "已发送 · 发给 {name} · {date}",
+    "captionSentUndated": "已发送 · 发给 {name}",
+    "tooltip": "{subject}\n{caption}",
     "removeAria": "移除邮件 {subject}"
   },
   "emailReferenceCard": {
+    "noSubject": "(无主题)",
+    "captionReceived": "已接收 · 来自 {name} · {date}",
+    "captionReceivedUndated": "已接收 · 来自 {name}",
+    "captionSent": "已发送 · 发给 {name} · {date}",
+    "captionSentUndated": "已发送 · 发给 {name}",
+    "tooltip": "{subject}\n{caption}",
     "openAria": "在收件箱中打开邮件 {subject}"
   },
   "chatBody": {

@@ -316,8 +316,8 @@ describe("useComposerSubmit beforeSend gate", () => {
 const stagedEmail: EmailReference = {
   id: "msg_in_1",
   direction: "inbound",
-  from: { name: "Maya Chen", address: "maya@northwind.co" },
-  to: [{ address: "hi@velly.vellum.me" }],
+  from: { name: "Maya Chen", address: "maya@example.com" },
+  to: [{ address: "velly@example.org" }],
   subject: "Q4 vendor contract",
   createdAt: "2026-09-16T09:52:00Z",
 };

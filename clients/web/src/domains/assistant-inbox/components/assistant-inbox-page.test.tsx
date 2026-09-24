@@ -21,8 +21,8 @@ const NOW = new Date("2026-09-16T15:40:00");
 const LISTED: InboxEmail = {
   id: "m-1",
   direction: "inbound",
-  from: { address: "maya@northwind.co" },
-  to: [{ address: "hi@velly.vellum.me" }],
+  from: { address: "maya@example.com" },
+  to: [{ address: "velly@example.org" }],
   subject: "Q4 vendor contract",
   createdAt: "2026-09-16T09:52:00Z",
 };
@@ -32,7 +32,7 @@ const LISTED: InboxEmail = {
 const SENT: InboxEmail = {
   id: "m-3",
   direction: "outbound",
-  from: { name: "Velly", address: "hi@velly.vellum.me" },
+  from: { name: "Velly", address: "velly@example.org" },
   to: [{ name: "Sam Okafor", address: "sam@example.com" }],
   subject: "Re: Dinner?",
   createdAt: "2026-09-14T11:30:00Z",
@@ -42,7 +42,7 @@ const CARRIED: InboxEmail = {
   id: "m-2",
   direction: "inbound",
   from: { name: "Sam Okafor", address: "sam@example.com" },
-  to: [{ address: "hi@velly.vellum.me" }],
+  to: [{ address: "velly@example.org" }],
   subject: "Dinner?",
   snippet: "Saturday works.",
   body: "Saturday works.\n\nSam",
@@ -73,7 +73,7 @@ function renderPage(props: {
         <AssistantInboxPage
           assistantId={ASSISTANT_ID}
           assistantName="Velly"
-          address="hi@velly.vellum.me"
+          address="velly@example.org"
           inbox={props.inbox}
           sent={props.sent ?? []}
           now={NOW}
@@ -112,11 +112,11 @@ describe("AssistantInboxPage", () => {
     });
 
     // Sender line and subject, and nothing where a preview would be.
-    expect(screen.getByText("maya@northwind.co")).toBeTruthy();
+    expect(screen.getByText("maya@example.com")).toBeTruthy();
     expect(screen.getAllByText("Q4 vendor contract").length).toBeGreaterThan(0);
     expect(screen.queryByText("Attaching the redline.")).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: /maya@northwind.co/ }));
+    fireEvent.click(screen.getByRole("button", { name: /maya@example.com/ }));
 
     await waitFor(() => {
       expect(screen.getByText("Attaching the redline.")).toBeTruthy();
@@ -152,7 +152,7 @@ describe("AssistantInboxPage", () => {
       },
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /maya@northwind.co/ }));
+    fireEvent.click(screen.getByRole("button", { name: /maya@example.com/ }));
 
     await waitFor(() => {
       expect(screen.getByText("Couldn't load this message.")).toBeTruthy();
@@ -264,7 +264,7 @@ describe("AssistantInboxPage", () => {
       },
     );
 
-    expect(screen.queryByText("maya@northwind.co")).toBeNull();
+    expect(screen.queryByText("maya@example.com")).toBeNull();
     expect(screen.getByText("Sam Okafor")).toBeTruthy();
   });
 });

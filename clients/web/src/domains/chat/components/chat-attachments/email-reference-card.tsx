@@ -46,16 +46,19 @@ export function EmailReferenceCard({
   const { t, i18n } = useTranslation("chat");
   const inbound = email.direction === "inbound";
   const counterpart = inbound ? email.from : (email.to[0] ?? email.from);
-  const subject = email.subject.trim() || t("emailReferenceChip.noSubject");
-  const who = inbound
-    ? t("emailReferenceChip.from", { name: displayName(counterpart) })
-    : t("emailReferenceChip.to", { name: displayName(counterpart) });
-  const direction = inbound
-    ? t("emailReferenceChip.received")
-    : t("emailReferenceChip.sent");
-  const when = shortDate(email.createdAt, i18n.language);
+  const subject = email.subject.trim() || t("emailReferenceCard.noSubject");
+  const name = displayName(counterpart);
+  const date = shortDate(email.createdAt, i18n.language);
+  /* One whole message per shape, so a translation owns the order and the
+     separators, rather than pieces joined in code. */
+  const caption = inbound
+    ? date
+      ? t("emailReferenceCard.captionReceived", { name, date })
+      : t("emailReferenceCard.captionReceivedUndated", { name })
+    : date
+      ? t("emailReferenceCard.captionSent", { name, date })
+      : t("emailReferenceCard.captionSentUndated", { name });
   const Icon = inbound ? Mail : Send;
-  const caption = [direction, who, when].filter(Boolean).join(" · ");
 
   return (
     <Link
@@ -63,7 +66,7 @@ export function EmailReferenceCard({
       data-testid="email-reference-card"
       data-direction={email.direction}
       aria-label={t("emailReferenceCard.openAria", { subject })}
-      title={`${subject}\n${caption}`}
+      title={t("emailReferenceCard.tooltip", { subject, caption })}
       className={cn(
         "group/email flex w-fit max-w-full items-center gap-3 rounded-lg bg-[var(--surface-base)] py-1 pl-1 pr-3 outline-none transition-colors",
         "[@media(hover:hover)]:hover:bg-[var(--surface-hover)]",

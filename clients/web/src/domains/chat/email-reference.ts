@@ -10,6 +10,7 @@
  * fetched on its side rather than pasted into the user's turn.
  */
 
+import { truncate } from "@/domains/chat/utils/truncate";
 import type {
   EmailReference,
   EmailReferenceParticipant,
@@ -34,15 +35,17 @@ function participantLabel(participant: EmailReferenceParticipant): string {
   return name ? `${name} <${participant.address}>` : participant.address;
 }
 
+/**
+ * Cut through `truncate`, which steps back off a split surrogate pair: this
+ * text goes out to the model, and a lone half is invalid JSON to a strict
+ * provider parser.
+ */
 function boundedSnippet(value: string | undefined): string | undefined {
   const collapsed = value?.replace(/\s+/g, " ").trim();
   if (!collapsed) {
     return undefined;
   }
-  if (collapsed.length <= EMAIL_REFERENCE_SNIPPET_MAX) {
-    return collapsed;
-  }
-  return `${collapsed.slice(0, EMAIL_REFERENCE_SNIPPET_MAX).trimEnd()}…`;
+  return truncate(collapsed, EMAIL_REFERENCE_SNIPPET_MAX);
 }
 
 /**

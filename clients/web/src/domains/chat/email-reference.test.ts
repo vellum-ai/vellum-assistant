@@ -12,8 +12,8 @@ import {
 const RECEIVED: EmailReference = {
   id: "msg_in_1",
   direction: "inbound",
-  from: { name: "Maya Chen", address: "maya@northwind.co" },
-  to: [{ address: "hi@velly.vellum.me" }],
+  from: { name: "Maya Chen", address: "maya@example.com" },
+  to: [{ address: "velly@example.org" }],
   subject: "Q4 vendor contract",
   createdAt: "2026-09-16T09:52:00Z",
   snippet: "Attaching the redline for a look before Friday.",
@@ -22,7 +22,7 @@ const RECEIVED: EmailReference = {
 const SENT: EmailReference = {
   id: "msg_out_1",
   direction: "outbound",
-  from: { name: "Velly", address: "hi@velly.vellum.me" },
+  from: { name: "Velly", address: "velly@example.org" },
   to: [{ name: "Sam Okafor", address: "sam@example.com" }],
   subject: "",
   createdAt: "2026-09-15T18:00:00Z",
@@ -36,8 +36,8 @@ describe("formatEmailReference", () => {
     expect(lines.every((line) => line.startsWith("> "))).toBe(true);
     expect(lines).toContain("> message-id: msg_in_1");
     expect(lines).toContain("> direction: received");
-    expect(lines).toContain("> from: Maya Chen <maya@northwind.co>");
-    expect(lines).toContain("> to: hi@velly.vellum.me");
+    expect(lines).toContain("> from: Maya Chen <maya@example.com>");
+    expect(lines).toContain("> to: velly@example.org");
     expect(lines).toContain("> subject: Q4 vendor contract");
     expect(lines).toContain("> sent-at: 2026-09-16T09:52:00Z");
     expect(lines).toContain(
@@ -68,6 +68,26 @@ describe("formatEmailReference", () => {
     expect(snippet.startsWith("line one line two")).toBe(true);
     expect(snippet.endsWith("…")).toBe(true);
     expect(snippet.length).toBeLessThanOrEqual(EMAIL_REFERENCE_SNIPPET_MAX + 1);
+  });
+
+  test("never cuts a snippet inside a surrogate pair", () => {
+    // An emoji straddles the cut: 278 plain characters, then two code units.
+    const block = formatEmailReference({
+      ...RECEIVED,
+      snippet: `${"a".repeat(EMAIL_REFERENCE_SNIPPET_MAX - 2)}😀${"b".repeat(20)}`,
+    });
+    const snippet = block
+      .split("\n")
+      .find((line) => line.startsWith("> snippet: "))!
+      .slice("> snippet: ".length);
+    // A high surrogate with no low half after it, or a low half with no high
+    // half before it, is the orphan a strict parser rejects.
+    expect(
+      /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(
+        snippet,
+      ),
+    ).toBe(false);
+    expect(snippet.endsWith("…")).toBe(true);
   });
 });
 
@@ -104,8 +124,8 @@ describe("extractEmailReferences", () => {
     expect(emails[0]).toMatchObject({
       id: "msg_in_1",
       direction: "inbound",
-      from: { name: "Maya Chen", address: "maya@northwind.co" },
-      to: [{ address: "hi@velly.vellum.me" }],
+      from: { name: "Maya Chen", address: "maya@example.com" },
+      to: [{ address: "velly@example.org" }],
       subject: "Q4 vendor contract",
       createdAt: "2026-09-16T09:52:00Z",
       snippet: "Attaching the redline for a look before Friday.",

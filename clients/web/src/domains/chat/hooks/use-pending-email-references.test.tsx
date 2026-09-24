@@ -30,8 +30,8 @@ import type { EmailReference } from "@/types/email-reference";
 const EMAIL: EmailReference = {
   id: "msg_1",
   direction: "inbound",
-  from: { address: "maya@northwind.co" },
-  to: [{ address: "hi@velly.vellum.me" }],
+  from: { address: "maya@example.com" },
+  to: [{ address: "velly@example.org" }],
   subject: "Q4 vendor contract",
   createdAt: "2026-09-16T09:52:00Z",
 };

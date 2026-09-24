@@ -480,14 +480,21 @@
     "removeAria": "Remove {filename}"
   },
   "emailReferenceChip": {
-    "received": "Received",
-    "sent": "Sent",
-    "from": "From {name}",
-    "to": "To {name}",
     "noSubject": "(no subject)",
+    "captionReceived": "Received · From {name} · {date}",
+    "captionReceivedUndated": "Received · From {name}",
+    "captionSent": "Sent · To {name} · {date}",
+    "captionSentUndated": "Sent · To {name}",
+    "tooltip": "{subject}\n{caption}",
     "removeAria": "Remove email {subject}"
   },
   "emailReferenceCard": {
+    "noSubject": "(no subject)",
+    "captionReceived": "Received · From {name} · {date}",
+    "captionReceivedUndated": "Received · From {name}",
+    "captionSent": "Sent · To {name} · {date}",
+    "captionSentUndated": "Sent · To {name}",
+    "tooltip": "{subject}\n{caption}",
     "openAria": "Open email {subject} in the inbox"
   },
   "chatBody": {

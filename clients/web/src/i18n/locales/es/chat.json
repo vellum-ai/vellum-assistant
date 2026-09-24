@@ -466,14 +466,21 @@
     "removeAria": "Quitar {filename}"
   },
   "emailReferenceChip": {
-    "received": "Recibido",
-    "sent": "Enviado",
-    "from": "De {name}",
-    "to": "Para {name}",
     "noSubject": "(sin asunto)",
+    "captionReceived": "Recibido · De {name} · {date}",
+    "captionReceivedUndated": "Recibido · De {name}",
+    "captionSent": "Enviado · Para {name} · {date}",
+    "captionSentUndated": "Enviado · Para {name}",
+    "tooltip": "{subject}\n{caption}",
     "removeAria": "Quitar el correo {subject}"
   },
   "emailReferenceCard": {
+    "noSubject": "(sin asunto)",
+    "captionReceived": "Recibido · De {name} · {date}",
+    "captionReceivedUndated": "Recibido · De {name}",
+    "captionSent": "Enviado · Para {name} · {date}",
+    "captionSentUndated": "Enviado · Para {name}",
+    "tooltip": "{subject}\n{caption}",
     "openAria": "Abrir el correo {subject} en la bandeja"
   },
   "chatBody": {

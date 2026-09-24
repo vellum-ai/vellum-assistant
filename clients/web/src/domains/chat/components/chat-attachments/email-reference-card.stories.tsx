@@ -15,15 +15,15 @@ const EMAILS: EmailReference[] = [
   {
     id: "msg_in_1",
     direction: "inbound",
-    from: { name: "Maya Chen", address: "maya@northwind.co" },
-    to: [{ address: "hi@velly.vellum.me" }],
+    from: { name: "Maya Chen", address: "maya@example.com" },
+    to: [{ address: "velly@example.org" }],
     subject: "Q4 vendor contract",
     createdAt: "2026-09-16T09:52:00Z",
   },
   {
     id: "msg_out_1",
     direction: "outbound",
-    from: { name: "Velly", address: "hi@velly.vellum.me" },
+    from: { name: "Velly", address: "velly@example.org" },
     to: [{ name: "Sam Okafor", address: "sam@example.com" }],
     subject: "Re: Dinner on Saturday, and the thing about the car",
     createdAt: "2026-09-12T18:04:00Z",

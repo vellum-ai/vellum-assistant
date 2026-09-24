@@ -1180,14 +1180,21 @@
     "viewPlans": "Посмотреть планы"
   },
   "emailReferenceChip": {
-    "received": "Получено",
-    "sent": "Отправлено",
-    "from": "От {name}",
-    "to": "Кому: {name}",
     "noSubject": "(без темы)",
+    "captionReceived": "Получено · От {name} · {date}",
+    "captionReceivedUndated": "Получено · От {name}",
+    "captionSent": "Отправлено · Кому: {name} · {date}",
+    "captionSentUndated": "Отправлено · Кому: {name}",
+    "tooltip": "{subject}\n{caption}",
     "removeAria": "Убрать письмо {subject}"
   },
   "emailReferenceCard": {
+    "noSubject": "(без темы)",
+    "captionReceived": "Получено · От {name} · {date}",
+    "captionReceivedUndated": "Получено · От {name}",
+    "captionSent": "Отправлено · Кому: {name} · {date}",
+    "captionSentUndated": "Отправлено · Кому: {name}",
+    "tooltip": "{subject}\n{caption}",
     "openAria": "Открыть письмо {subject} в почте"
   }
 }
