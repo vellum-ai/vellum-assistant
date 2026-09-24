@@ -25,6 +25,7 @@ import { createPreference } from "../notifications/preferences-store.js";
 import {
   addMessage,
   getMessageById,
+  isConversationHeldByOtherProcess,
   isEchoSuppressedUserMessage,
   isHiddenMessageMetadata,
   isSuppressedQueuedMessage,
@@ -478,10 +479,33 @@ function requeueDrainedMessages(
  * block, we must explicitly continue draining on failure — otherwise
  * remaining queued messages would be stranded.
  */
+/**
+ * Whether another live process holds the conversation's persisted processing
+ * claim. Best-effort: the claim itself refuses a second turn, so a failed
+ * read answers false rather than stranding the queue.
+ */
+function heldByOtherProcess(conversation: Conversation): boolean {
+  try {
+    return isConversationHeldByOtherProcess(conversation.conversationId);
+  } catch {
+    return false;
+  }
+}
+
 export async function drainQueue(
   conversation: Conversation,
   reason: QueueDrainReason = "loop_complete",
 ): Promise<void> {
+  // A queue behind a claim another process holds waits for that process's
+  // release notify. Slash commands in the drain path mutate the conversation
+  // before any claim is taken, so the drain itself has to stay dormant.
+  if (heldByOtherProcess(conversation)) {
+    log.debug(
+      { conversationId: conversation.conversationId, reason },
+      "drainQueue: conversation is processing in another process; leaving the queue for its release",
+    );
+    return;
+  }
   // After a steer, drain only the promoted head message — don't batch
   // the remaining queue items into the same turn.
   const steered = conversation.pendingSteerRepair;

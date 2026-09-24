@@ -82,18 +82,23 @@ export function handleNotifyConversationPersisted({
 
 /**
  * Drain sends the daemon queued while a worker held the conversation's
- * processing claim. `kickDrainQueue` is a no-op on an empty queue or a busy
- * conversation, and a conversation not resident here has nothing queued.
+ * processing claim, after marking the resident history stale so the drained
+ * turn sees the worker's rows. `kickDrainQueue` is a no-op on an empty queue
+ * or a busy conversation, and a conversation not resident here has nothing
+ * queued.
  */
 export function handleNotifyConversationReleased({
   body = {},
 }: RouteHandlerArgs) {
   const { conversationId } =
     NotifyConversationPersistedParamsSchema.parse(body);
-  void findConversation(conversationId)?.kickDrainQueue(
-    "loop_complete",
-    "external_release",
-  );
+  const conversation = findConversation(conversationId);
+  if (conversation) {
+    // The worker's turn wrote rows this process's resident history does not
+    // have; the next turn here must reload before it builds its prompt.
+    conversation.markHistoryStale();
+    void conversation.kickDrainQueue("loop_complete", "external_release");
+  }
   return { ok: true };
 }
 

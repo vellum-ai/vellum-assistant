@@ -926,9 +926,13 @@ export async function runDueSchedulesOnce(
           buildWakeScheduleOptions(job, wakeConversationId),
         );
 
-        if (result.reason === "timeout" && isOneShot) {
-          // The conversation is busy processing a tool call. Retry on
-          // the next scheduler tick unless we've exceeded the retry cap.
+        if (
+          (result.reason === "timeout" || result.reason === "busy") &&
+          isOneShot
+        ) {
+          // The conversation is busy: mid-turn in this process, or held by
+          // another one. Retry on the next scheduler tick unless we've
+          // exceeded the retry cap.
           if (job.retryCount >= WAKE_MAX_RETRIES) {
             log.warn(
               {

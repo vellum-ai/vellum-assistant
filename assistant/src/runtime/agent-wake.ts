@@ -981,6 +981,7 @@ export async function wakeAgentForOpportunity(
         conversation.abortController = null;
         conversation.currentTurnCronRunId = priorScheduledRunId;
       }
+      clearWakePersonaOverride();
       restorePersistentWakeTrust();
       return { invoked: false, producedToolCalls: false, reason: "busy" };
     }

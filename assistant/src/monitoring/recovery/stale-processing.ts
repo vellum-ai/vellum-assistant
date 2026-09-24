@@ -23,24 +23,44 @@
  * `processing_started_at` "is this a live turn" guard reads the cleared state.
  */
 
+import { isProcessAlive } from "../../persistence/processing-claim.js";
 import { getLogger } from "../../util/logger.js";
 import { withBootFencedRecoveryDb } from "./db.js";
 
 const log = getLogger("recovery-stale-processing");
 
-export function clearStaleProcessing(): void {
+export function clearStaleProcessing(
+  isAlive: (pid: number) => boolean = isProcessAlive,
+): void {
   withBootFencedRecoveryDb("stale-processing", (db, bootTime) => {
-    const result = db
+    // A flag from before boot is stale unless a live process still holds it:
+    // a schedule worker that outlived the previous daemon can be mid-turn,
+    // and clearing its claim would let the new daemon start a second turn.
+    const rows = db
       .query(
-        `UPDATE conversations
-            SET processing_started_at = NULL, processing_pid = NULL
+        `SELECT id, processing_pid FROM conversations
           WHERE processing_started_at IS NOT NULL
             AND processing_started_at < ?`,
       )
-      .run(bootTime);
-    if (result.changes > 0) {
+      .all(bootTime) as Array<{ id: string; processing_pid: number | null }>;
+    const clear = db.query(
+      `UPDATE conversations
+          SET processing_started_at = NULL, processing_pid = NULL
+        WHERE id = ?`,
+    );
+    let cleared = 0;
+    let kept = 0;
+    for (const row of rows) {
+      if (row.processing_pid != null && isAlive(row.processing_pid)) {
+        kept++;
+        continue;
+      }
+      clear.run(row.id);
+      cleared++;
+    }
+    if (cleared > 0 || kept > 0) {
       log.info(
-        { cleared: result.changes, bootTime },
+        { cleared, kept, bootTime },
         "Cleared stale conversation processing flags from a previous process",
       );
     }

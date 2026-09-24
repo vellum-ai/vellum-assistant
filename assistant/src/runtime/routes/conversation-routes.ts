@@ -2551,7 +2551,12 @@ export async function handleSendMessage(
     // the working tree. A drain that started now would have the drained turn's
     // first file writes swept into the previous turn's commit. Nothing waits on
     // the response for this, which has already been sent.
-    if (!conversation.isProcessing()) {
+    // A claim held by another process is left to that process's release
+    // notify, which kicks the drain.
+    if (
+      !conversation.isProcessing() &&
+      !isConversationHeldByOtherProcess(mapping.conversationId)
+    ) {
       startAfterTurnFinalization(
         mapping.conversationId,
         resolveTurnCommitWaitMs(getConfig().workspaceGit?.turnCommitMaxWaitMs),
