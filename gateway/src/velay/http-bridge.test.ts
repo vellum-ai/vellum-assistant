@@ -205,15 +205,22 @@ describe("Velay HTTP bridge", () => {
     expect(decodeBase64(response.body_base64)).toBe("audio-bytes");
   });
 
-  test("forwards the credential entry page and its API paths to the loopback listener", async () => {
+  test("forwards exact public HTTP paths to the loopback listener", async () => {
     for (const path of [
       "/assistant/credentials/enter",
+      "/oauth/client-metadata.json",
       "/v1/credential-requests/peek",
       "/v1/credential-requests/submit",
     ]) {
       fetchMock = mock(async () => new Response("ok", { status: 200 }));
       const response = await bridgeVelayHttpRequest(
-        makeFrame({ path, method: path.endsWith("enter") ? "GET" : "POST" }),
+        makeFrame({
+          path,
+          method:
+            path.endsWith("enter") || path === "/oauth/client-metadata.json"
+              ? "GET"
+              : "POST",
+        }),
         "http://127.0.0.1:7830",
       );
       expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -313,6 +320,7 @@ describe("Velay HTTP bridge webhook ingress registry", () => {
     TWILIO_EXAMPLE_PATH,
     "/v1/audio/550e8400-e29b-41d4-a716-446655440000",
     "/assistant/credentials/enter",
+    "/oauth/client-metadata.json",
     "/v1/credential-requests/peek",
     "/v1/credential-requests/submit",
   ];

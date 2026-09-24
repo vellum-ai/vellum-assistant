@@ -27,6 +27,7 @@ import type {
   OAuthClientMetadata,
   OAuthTokens,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
+import { buildMcpOAuthClientMetadata } from "@vellumai/service-contracts/mcp-oauth";
 
 import { getPlatformAssistantId } from "../config/env.js";
 import { getAssistantName } from "../daemon/identity-helpers.js";
@@ -49,26 +50,16 @@ import {
 const log = getLogger("mcp-oauth");
 
 /**
- * Logo shown on an authorization server's consent screen.
+ * What stored client information was made against.
  *
- * Anonymously fetchable, which is the requirement: the server loads it
- * without credentials. It identifies Vellum rather than the individual
- * assistant, so every assistant a person runs presents the same mark.
- */
-const CLIENT_LOGO_URI = "https://www.vellum.ai/favicon.svg";
-
-/**
- * What a stored client registration was made against.
- *
- * A client identifier belongs to the authorization server that issued it and
- * is registered for one set of redirect URIs, so reusing a registration after
- * either changes is invalid. Recording both is what lets a registration be
- * reused when they still hold, which is the difference between registering
- * once per assistant and registering once per attempt.
+ * A client identifier applies to one authorization server and one set of
+ * redirect URIs, so reusing it after either changes is invalid. Recording both
+ * avoids selecting the client again on every connection attempt.
  */
 interface ClientRegistrationBinding {
   issuer: string | null;
   redirectUri: string;
+  clientMetadataUrl?: string;
 }
 
 export interface McpOAuthCallbackResult {
@@ -96,6 +87,7 @@ export class McpOAuthProvider implements OAuthClientProvider {
   private _codeVerifier: string | undefined;
   private _state: string | undefined;
   private _redirectUrl: string | undefined;
+  private _clientMetadataUrl: string | undefined;
   private _codePromise: Promise<string> | null = null;
   /** Deferred resolver/rejector for the callback code promise. */
   private _codeResolve: ((code: string) => void) | undefined;
@@ -127,6 +119,10 @@ export class McpOAuthProvider implements OAuthClientProvider {
     return this._redirectUrl;
   }
 
+  get clientMetadataUrl(): string | undefined {
+    return this._clientMetadataUrl;
+  }
+
   // --- clientMetadata ---
 
   /**
@@ -143,23 +139,17 @@ export class McpOAuthProvider implements OAuthClientProvider {
    * `logo_uri` is the Vellum mark rather than the assistant's own avatar.
    * An authorization server fetching a logo is anonymous, and the avatar is
    * served only behind authentication, so there is no per-assistant URL to
-   * give it. A stable public identity per assistant is what would supply
-   * one, and the same prerequisite would let this move to Client ID
-   * Metadata Documents and drop registration altogether.
+   * give it.
    */
   get clientMetadata(): OAuthClientMetadata {
     const assistantName = getAssistantName();
     const assistantId = getPlatformAssistantId().trim();
-    return {
-      client_name: assistantName ?? "Vellum Assistant",
-      logo_uri: CLIENT_LOGO_URI,
-      redirect_uris: this._redirectUrl ? [this._redirectUrl] : [],
-      token_endpoint_auth_method: "none",
-      grant_types: ["authorization_code", "refresh_token"],
-      response_types: ["code"],
-      ...(assistantId.length > 0 && { software_id: assistantId }),
-      software_version: APP_VERSION,
-    };
+    return buildMcpOAuthClientMetadata({
+      clientName: assistantName ?? "Vellum Assistant",
+      redirectUris: this._redirectUrl ? [this._redirectUrl] : [],
+      softwareId: assistantId.length > 0 ? assistantId : undefined,
+      softwareVersion: APP_VERSION,
+    });
   }
 
   // --- Tokens ---
@@ -254,15 +244,12 @@ export class McpOAuthProvider implements OAuthClientProvider {
   // --- Client Information ---
 
   /**
-   * The stored registration, or `undefined` to make the SDK register a new
-   * one.
+   * The stored client information, or `undefined` to make the SDK select a
+   * client through CIMD or DCR.
    *
-   * Returning the stored value is the normal case: dynamic registration
-   * writes a record on the authorization server, so re-registering per
-   * attempt accumulates records nobody cleans up. It is withheld only when
-   * the registration provably no longer applies, because the redirect URI
-   * it was made for changed or because a different authorization server now
-   * fronts the resource.
+   * Returning the stored value is the normal case. It is withheld only when
+   * the client information provably no longer applies because its redirect
+   * URI, metadata URL, or authorization server changed.
    */
   async clientInformation(): Promise<OAuthClientInformationMixed | undefined> {
     const raw = await getSecureKeyAsync(
@@ -287,7 +274,7 @@ export class McpOAuthProvider implements OAuthClientProvider {
     if (stale) {
       log.info(
         { serverId: this.serverId, reason: stale },
-        "Stored client registration no longer applies; registering again",
+        "Stored OAuth client information no longer applies; selecting a client again",
       );
       return undefined;
     }
@@ -309,12 +296,16 @@ export class McpOAuthProvider implements OAuthClientProvider {
       return;
     }
 
-    // Record what the registration was made against, so a later run can tell
+    // Record what the client information applies to, so a later run can tell
     // whether reusing it is still valid.
     if (this._redirectUrl) {
       const binding: ClientRegistrationBinding = {
         issuer: await this.currentIssuer(),
         redirectUri: this._redirectUrl,
+        ...(this._clientMetadataUrl &&
+          info.client_id === this._clientMetadataUrl && {
+            clientMetadataUrl: this._clientMetadataUrl,
+          }),
       };
       const boundOk = await setSecureKeyAsync(
         mcpOAuthCredentialKey(this.credentialTarget, "client_binding"),
@@ -323,7 +314,7 @@ export class McpOAuthProvider implements OAuthClientProvider {
       if (!boundOk) {
         log.warn(
           { serverId: this.serverId },
-          "Failed to persist OAuth client binding; the registration will be remade on the next flow",
+          "Failed to persist OAuth client binding; the client will be selected again on the next flow",
         );
       }
     }
@@ -342,14 +333,14 @@ export class McpOAuthProvider implements OAuthClientProvider {
   }
 
   /**
-   * Why the stored registration cannot be reused, or null when it can.
+   * Why the stored client information cannot be reused, or null when it can.
    *
    * The redirect URI is only checked while a flow is being prepared:
    * outside one there is no redirect URI to compare against, and a silent
-   * reconnect must not be turned into a registration.
+   * reconnect must not trigger client selection.
    *
    * The issuer is only checked when discovery has run. An unverifiable
-   * issuer keeps the registration rather than discarding it, since the
+   * issuer keeps the client information rather than discarding it, since the
    * redirect check already covers the case this plugin actually changes.
    */
   private async describeStaleBinding(): Promise<string | null> {
@@ -357,8 +348,8 @@ export class McpOAuthProvider implements OAuthClientProvider {
       mcpOAuthCredentialKey(this.credentialTarget, "client_binding"),
     );
     if (!raw) {
-      // Registered before the binding was recorded. Keep it: discarding
-      // every pre-existing registration would remake all of them at once.
+      // Saved before the binding was recorded. Keep it: discarding every
+      // pre-existing client would recreate all of them at once.
       return null;
     }
 
@@ -371,6 +362,14 @@ export class McpOAuthProvider implements OAuthClientProvider {
 
     if (this._redirectUrl && binding.redirectUri !== this._redirectUrl) {
       return "redirect URI changed";
+    }
+
+    if (
+      this._redirectUrl &&
+      binding.clientMetadataUrl &&
+      binding.clientMetadataUrl !== this._clientMetadataUrl
+    ) {
+      return "client metadata URL changed";
     }
 
     const issuer = await this.currentIssuer();
@@ -536,9 +535,9 @@ export class McpOAuthProvider implements OAuthClientProvider {
           "OAuth client information key not found in secure storage (already removed)",
         );
       }
-      // The binding describes the registration being dropped, so it goes
-      // with it. Leaving it would let a later registration inherit the
-      // previous one's issuer and redirect URI.
+      // The binding describes the client information being dropped, so it
+      // goes with it. Leaving it would let a later client inherit the previous
+      // one's issuer and redirect URI.
       await deleteSecureKeyAsync(
         mcpOAuthCredentialKey(this.credentialTarget, "client_binding"),
       );
@@ -580,10 +579,13 @@ export class McpOAuthProvider implements OAuthClientProvider {
    * the first point at which the SDK-generated `state` is known.
    */
   async startCallbackServer(): Promise<McpOAuthCallbackResult> {
-    const { resolveOauthCallbackUrl } =
+    const { resolveMcpOAuthClientMetadataUrl, resolveOauthCallbackUrl } =
       await import("../inbound/oauth-callback-url.js");
 
     this._redirectUrl = await resolveOauthCallbackUrl();
+    this._clientMetadataUrl = resolveMcpOAuthClientMetadataUrl(
+      this._redirectUrl,
+    );
 
     const codePromise = new Promise<string>((resolve, reject) => {
       this._codeResolve = resolve;
@@ -598,7 +600,11 @@ export class McpOAuthProvider implements OAuthClientProvider {
     void codePromise.catch(() => {});
 
     log.info(
-      { serverId: this.serverId, redirectUrl: this._redirectUrl },
+      {
+        serverId: this.serverId,
+        redirectUrl: this._redirectUrl,
+        clientMetadataUrl: this._clientMetadataUrl,
+      },
       "MCP OAuth callback prepared (awaiting state from auth URL)",
     );
 

@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { setIngressPublicBaseUrl } from "../config/env.js";
 import { IngressConfigSchema } from "../config/schemas/ingress.js";
 import {
+  getMcpOAuthClientMetadataUrl,
   getOAuthCallbackUrl,
   getPublicBaseUrl,
   getTelegramWebhookUrl,
@@ -306,6 +307,16 @@ describe("getOAuthCallbackUrl", () => {
       ingress: { publicBaseUrl: "https://example.com" },
     });
     expect(url).toBe("https://example.com/webhooks/oauth/callback");
+  });
+});
+
+describe("getMcpOAuthClientMetadataUrl", () => {
+  test("builds the public metadata URL", () => {
+    expect(
+      getMcpOAuthClientMetadataUrl({
+        ingress: { publicBaseUrl: "https://example.com/assistant-123/" },
+      }),
+    ).toBe("https://example.com/assistant-123/oauth/client-metadata.json");
   });
 });
 

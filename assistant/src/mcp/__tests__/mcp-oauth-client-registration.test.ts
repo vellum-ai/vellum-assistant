@@ -11,21 +11,29 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
+
 const CALLBACK_URL =
   "https://platform.example/v1/gateway/callbacks/abc/webhooks/oauth/callback/";
+const PUBLIC_BASE_URL = "https://velay.example/assistant-123";
+const DIRECT_CALLBACK_URL = `${PUBLIC_BASE_URL}/webhooks/oauth/callback`;
+const CLIENT_METADATA_URL = `${PUBLIC_BASE_URL}/oauth/client-metadata.json`;
 
 let resolvedCallbackUrl = CALLBACK_URL;
+let publicBaseUrl: string | undefined = PUBLIC_BASE_URL;
 
 mock.module("../../inbound/platform-callback-registration.js", () => ({
   resolveCallbackUrl: async () => resolvedCallbackUrl,
 }));
 
 mock.module("../../inbound/public-ingress-urls.js", () => ({
-  getOAuthCallbackUrl: () => resolvedCallbackUrl,
+  getOAuthCallbackUrl: () => `${publicBaseUrl}/webhooks/oauth/callback`,
+  getMcpOAuthClientMetadataUrl: () =>
+    `${publicBaseUrl}/oauth/client-metadata.json`,
 }));
 
 mock.module("../../config/loader.js", () => ({
-  loadConfig: () => ({}),
+  loadConfig: () => ({ ingress: { publicBaseUrl } }),
 }));
 
 /** In-memory stand-in for the credential store. */
@@ -84,6 +92,7 @@ async function register(issuer = "https://mcp.unabyss.com"): Promise<void> {
 beforeEach(() => {
   store.clear();
   resolvedCallbackUrl = CALLBACK_URL;
+  publicBaseUrl = PUBLIC_BASE_URL;
 });
 
 describe("McpOAuthProvider client registration reuse", () => {
@@ -196,5 +205,97 @@ describe("McpOAuthProvider client metadata", () => {
     const provider = newProvider();
     await provider.startCallbackServer();
     expect(provider.clientMetadata.redirect_uris).toEqual([CALLBACK_URL]);
+  });
+
+  test("advertises a URL-based client id for a direct HTTPS callback", async () => {
+    resolvedCallbackUrl = DIRECT_CALLBACK_URL;
+    const provider = newProvider();
+
+    await provider.startCallbackServer();
+
+    expect(provider.clientMetadataUrl).toBe(CLIENT_METADATA_URL);
+  });
+
+  test("preserves DCR fallback for a platform-relayed callback", async () => {
+    const provider = newProvider();
+
+    await provider.startCallbackServer();
+
+    expect(provider.clientMetadataUrl).toBeUndefined();
+  });
+
+  test("preserves DCR fallback when direct ingress is not HTTPS", async () => {
+    publicBaseUrl = "http://localhost:8501/assistant-123";
+    resolvedCallbackUrl = `${publicBaseUrl}/webhooks/oauth/callback`;
+    const provider = newProvider();
+
+    await provider.startCallbackServer();
+
+    expect(provider.clientMetadataUrl).toBeUndefined();
+  });
+});
+
+describe("MCP SDK URL-based client selection", () => {
+  test("uses the metadata URL as client_id without calling DCR", async () => {
+    resolvedCallbackUrl = DIRECT_CALLBACK_URL;
+    let authorizationUrl: URL | undefined;
+    const provider = new McpOAuthProvider(
+      "upwork",
+      "https://mcp.upwork.test/mcp",
+      false,
+      {
+        onAuthorizationUrl: (url) => {
+          authorizationUrl = new URL(url);
+        },
+      },
+    );
+    await provider.startCallbackServer();
+    await provider.saveDiscoveryState({
+      authorizationServerUrl: "https://www.upwork.test",
+      authorizationServerMetadata: {
+        issuer: "https://www.upwork.test",
+        authorization_endpoint: "https://www.upwork.test/authorize",
+        token_endpoint: "https://www.upwork.test/token",
+        registration_endpoint: "https://www.upwork.test/register",
+        response_types_supported: ["code"],
+        code_challenge_methods_supported: ["S256"],
+        client_id_metadata_document_supported: true,
+      },
+    });
+
+    const requests: Array<{ method: string; url: string }> = [];
+    const fetchFn = mock(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        requests.push({
+          method: init?.method ?? "GET",
+          url:
+            input instanceof Request
+              ? input.url
+              : input instanceof URL
+                ? input.toString()
+                : input,
+        });
+        return new Response("not found", { status: 404 });
+      },
+    );
+
+    await expect(
+      auth(provider, {
+        serverUrl: "https://mcp.upwork.test/mcp",
+        fetchFn,
+      }),
+    ).resolves.toBe("REDIRECT");
+
+    expect(
+      requests.some(
+        ({ method, url }) => method === "POST" || url.endsWith("/register"),
+      ),
+    ).toBe(false);
+    expect(authorizationUrl?.searchParams.get("client_id")).toBe(
+      CLIENT_METADATA_URL,
+    );
+    expect(JSON.parse(store.get("mcp:upwork:client_info") ?? "null")).toEqual({
+      client_id: CLIENT_METADATA_URL,
+    });
   });
 });

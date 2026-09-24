@@ -26,6 +26,7 @@ const VELAY_ALLOWED_HTTP_PATH_PREFIXES = [
 /** Exact-match HTTP paths (no trailing segments). */
 const VELAY_ALLOWED_HTTP_EXACT_PATHS = [
   "/assistant/credentials/enter",
+  "/oauth/client-metadata.json",
   "/v1/credential-requests/peek",
   "/v1/credential-requests/submit",
 ] as const;

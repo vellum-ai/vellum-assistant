@@ -17,6 +17,7 @@ Internet
   |
   +-- Twilio ----------> Gateway POST /webhooks/twilio/*    --> Runtime /v1/internal/twilio/*
   +-- OAuth Provider ---> Gateway GET  /webhooks/oauth/callback --> Runtime /v1/internal/oauth/callback
+  +-- MCP Auth Server --> Gateway GET  /oauth/client-metadata.json
   +-- Telegram --------> Gateway POST /webhooks/telegram    --> Runtime /v1/channels/inbound
   +-- Slack ------------> Gateway (Socket Mode WebSocket)   --> Runtime /v1/channels/inbound
   |
@@ -290,10 +291,10 @@ Channel bindings follow a three-phase lifecycle:
 
 The public URL where the gateway is reachable is configured via:
 
-| Source                                              | Description                                                                                                                                             |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ingress.publicBaseUrl` (workspace config)          | Canonical public ingress URL for Telegram webhooks, OAuth callbacks, email callbacks, generic JSON webhooks, Twilio webhooks, and Twilio WebSocket URLs |
-| `ingress.publicBaseUrlManagedBy` (workspace config) | Ownership marker used when Velay published `ingress.publicBaseUrl`; lets the gateway clear stale Velay-managed URLs without disturbing manual URLs      |
+| Source                                              | Description                                                                                                                                                                 |
+| --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ingress.publicBaseUrl` (workspace config)          | Canonical public ingress URL for Telegram webhooks, OAuth callbacks and client metadata, email callbacks, generic JSON webhooks, Twilio webhooks, and Twilio WebSocket URLs |
+| `ingress.publicBaseUrlManagedBy` (workspace config) | Ownership marker used when Velay published `ingress.publicBaseUrl`; lets the gateway clear stale Velay-managed URLs without disturbing manual URLs                          |
 
 ### Tunnel-Agnostic Setup
 
@@ -329,7 +330,7 @@ Local platform smoke-test flow:
 3. Start or complete Twilio setup in the workspace so the gateway is allowed to connect the tunnel.
 4. Re-hatch or restart the assistant so the gateway receives the new environment.
 5. Confirm gateway logs show `Velay tunnel connected` and `Velay tunnel registered`.
-6. Verify HTTP forwarding by requesting `${VELAY_PUBLIC_BASE_URL}/<assistant-id>/healthz` and `${VELAY_PUBLIC_BASE_URL}/<assistant-id>/schema`. When validating a JSON webhook route under active development, POST a small JSON body through the same Velay public URL and confirm it reaches the loopback gateway.
+6. Verify HTTP forwarding by requesting `${VELAY_PUBLIC_BASE_URL}/<assistant-id>/healthz` and `${VELAY_PUBLIC_BASE_URL}/<assistant-id>/schema`. For MCP OAuth testing, request `${VELAY_PUBLIC_BASE_URL}/<assistant-id>/oauth/client-metadata.json` and confirm its `redirect_uris` entry points at the same public assistant URL. When validating a JSON webhook route under active development, POST a small JSON body through the same Velay public URL and confirm it reaches the loopback gateway.
 7. Verify Twilio WebSocket forwarding with a synthetic local WebSocket client against `${VELAY_PUBLIC_BASE_URL}/<assistant-id>/webhooks/twilio/media-stream/<callSessionId>/<token>`, then with a real Twilio call after the gateway has registered with Velay.
 
 ### Webhook Ingress Route Registry
@@ -354,14 +355,15 @@ The whole `/webhooks/` namespace used to be reachable through the tunnel as one 
 
 All public-facing URLs are constructed by `assistant/src/inbound/public-ingress-urls.ts`:
 
-| Function                       | URL Pattern                                                                                                                                                      |
-| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `getPublicBaseUrl()`           | Resolves the canonical base URL from `ingress.publicBaseUrl` in workspace config or module-level state (assistant-side; the gateway reads via `ConfigFileCache`) |
-| `getTwilioVoiceWebhookUrl()`   | `${base}/webhooks/twilio/voice?callSessionId=...`, using `ingress.publicBaseUrl`                                                                                 |
-| `getTwilioStatusCallbackUrl()` | `${base}/webhooks/twilio/status`, using `ingress.publicBaseUrl`                                                                                                  |
-| `getTwilioMediaStreamUrl()`    | `ws(s)://.../webhooks/twilio/media-stream`, using `ingress.publicBaseUrl` (per-call path segments appended at TwiML build time)                                  |
-| `getOAuthCallbackUrl()`        | `${base}/webhooks/oauth/callback`                                                                                                                                |
-| `getTelegramWebhookUrl()`      | `${base}/webhooks/telegram`                                                                                                                                      |
+| Function                         | URL Pattern                                                                                                                                                      |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `getPublicBaseUrl()`             | Resolves the canonical base URL from `ingress.publicBaseUrl` in workspace config or module-level state (assistant-side; the gateway reads via `ConfigFileCache`) |
+| `getTwilioVoiceWebhookUrl()`     | `${base}/webhooks/twilio/voice?callSessionId=...`, using `ingress.publicBaseUrl`                                                                                 |
+| `getTwilioStatusCallbackUrl()`   | `${base}/webhooks/twilio/status`, using `ingress.publicBaseUrl`                                                                                                  |
+| `getTwilioMediaStreamUrl()`      | `ws(s)://.../webhooks/twilio/media-stream`, using `ingress.publicBaseUrl` (per-call path segments appended at TwiML build time)                                  |
+| `getOAuthCallbackUrl()`          | `${base}/webhooks/oauth/callback`                                                                                                                                |
+| `getMcpOAuthClientMetadataUrl()` | `${base}/oauth/client-metadata.json`                                                                                                                             |
+| `getTelegramWebhookUrl()`        | `${base}/webhooks/telegram`                                                                                                                                      |
 
 ### Telegram Messaging Flow
 
