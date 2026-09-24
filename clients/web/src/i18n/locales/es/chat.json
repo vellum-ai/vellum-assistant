@@ -797,8 +797,8 @@
   },
   "csvPreview": {
     "emptyFile": "Este archivo está vacío",
-    "summary": "{rows} filas x {columns} columnas",
-    "summaryTruncated": "{rows} filas x {columns} columnas (truncado)"
+    "summary": "{rows, plural, one {# fila} other {# filas}} x {columns, plural, one {# columna} other {# columnas}}",
+    "summaryTruncated": "{rows, plural, one {# fila} other {# filas}} x {columns, plural, one {# columna} other {# columnas}} (truncado)"
   },
   "dailyLimitBanner": {
     "skipConfirmTitle": "¿Omitir el límite de créditos de hoy?",

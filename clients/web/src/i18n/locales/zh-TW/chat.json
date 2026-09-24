@@ -794,8 +794,8 @@
   },
   "csvPreview": {
     "emptyFile": "此檔案為空",
-    "summary": "{rows} 列 x {columns} 欄",
-    "summaryTruncated": "{rows} 列 x {columns} 欄 (已截斷)"
+    "summary": "{rows, plural, other {# 列}} x {columns, plural, other {# 欄}}",
+    "summaryTruncated": "{rows, plural, other {# 列}} x {columns, plural, other {# 欄}} (已截斷)"
   },
   "dailyLimitBanner": {
     "skipConfirmTitle": "略過今日點數限制？",

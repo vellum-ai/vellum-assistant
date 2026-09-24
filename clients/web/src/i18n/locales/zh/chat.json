@@ -794,8 +794,8 @@
   },
   "csvPreview": {
     "emptyFile": "此文件为空",
-    "summary": "{rows} 行 x {columns} 列",
-    "summaryTruncated": "{rows} 行 x {columns} 列（已截断）"
+    "summary": "{rows, plural, other {# 行}} x {columns, plural, other {# 列}}",
+    "summaryTruncated": "{rows, plural, other {# 行}} x {columns, plural, other {# 列}}（已截断）"
   },
   "dailyLimitBanner": {
     "skipConfirmTitle": "跳过今日积分限制？",

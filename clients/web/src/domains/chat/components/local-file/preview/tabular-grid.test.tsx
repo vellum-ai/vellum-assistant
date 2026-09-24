@@ -60,7 +60,7 @@ describe("TabularGrid", () => {
     );
 
     await waitFor(() =>
-      expect(screen.getByText("1 rows x 2 columns (truncated)")).toBeTruthy(),
+      expect(screen.getByText("1 row x 2 columns (truncated)")).toBeTruthy(),
     );
   });
 
@@ -75,7 +75,7 @@ describe("TabularGrid", () => {
     );
 
     await waitFor(() => expect(screen.getByText("Sheet 1 of 3")).toBeTruthy());
-    expect(screen.queryByText("1 rows x 2 columns")).toBeNull();
+    expect(screen.queryByText("1 row x 2 columns")).toBeNull();
   });
 
   test("a null summary draws no footer at all", async () => {

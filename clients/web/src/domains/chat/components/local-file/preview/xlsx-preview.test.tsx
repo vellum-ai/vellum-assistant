@@ -81,7 +81,7 @@ describe("WorkbookGrid", () => {
     await user.click(screen.getAllByRole("tab")[1]);
 
     await waitFor(() => expect(screen.getByText("Salary")).toBeTruthy());
-    expect(screen.getByText("1 rows x 2 columns")).toBeTruthy();
+    expect(screen.getByText("1 row x 2 columns")).toBeTruthy();
     expect(screen.getAllByRole("tab")[1].getAttribute("aria-selected")).toBe(
       "true",
     );

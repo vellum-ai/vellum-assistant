@@ -811,8 +811,8 @@
   },
   "csvPreview": {
     "emptyFile": "This file is empty",
-    "summary": "{rows} rows x {columns} columns",
-    "summaryTruncated": "{rows} rows x {columns} columns (truncated)"
+    "summary": "{rows, plural, one {# row} other {# rows}} x {columns, plural, one {# column} other {# columns}}",
+    "summaryTruncated": "{rows, plural, one {# row} other {# rows}} x {columns, plural, one {# column} other {# columns}} (truncated)"
   },
   "dailyLimitBanner": {
     "skipConfirmTitle": "Skip today's credit limit?",
