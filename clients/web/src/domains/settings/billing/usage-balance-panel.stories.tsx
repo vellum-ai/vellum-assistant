@@ -95,9 +95,9 @@ export const ExhaustedWithoutCta: Story = {
 
 /**
  * A free-tier account under the platform's daily cap: today's reading above
- * the overall one, in the one panel. The two labels differ in width, and the
- * shared label column keeps both bars starting on the same line and running
- * the same length.
+ * the overall one, in the one panel. The labels and the percentages differ in
+ * width, and the shared columns keep both bars starting and ending on the
+ * same lines.
  */
 export const FreeTierDaily: Story = {
   name: "Free tier, daily and overall",
@@ -112,7 +112,7 @@ export const FreeTierDaily: Story = {
   render: (args) => (
     <>
       <UsageBalanceReading {...args} />
-      <UsageBalanceReading ratio={0.68} title="Overall Usage" />
+      <UsageBalanceReading ratio={1} title="Overall Usage" />
     </>
   ),
 };

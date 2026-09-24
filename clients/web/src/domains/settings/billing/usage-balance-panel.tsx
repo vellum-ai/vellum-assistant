@@ -97,20 +97,15 @@ export function usagePeriodEndLabels(
 /**
  * The current-plan tile's footer, in place of the price row: one bordered
  * block holding every usage reading the tile charts, one row each. The rows
- * share a label column, so their bars start on the same line and run the
- * same length whatever each title measures.
+ * share a label column and a percentage column, so their bars start and end
+ * on the same lines whatever each title and percentage measure.
  */
 export function UsageBalancePanel({ children }: UsageBalancePanelProps) {
   return (
     // One surface step above the tile's base, so the panel reads as its own
-    // block. Container query, not a viewport breakpoint: the tile is half a
-    // card beside a next tile and the whole card without one, so the viewport
-    // says nothing about the panel's width. The threshold is the content box,
-    // about 514px of panel, above which the bars take a 64px gap after the
-    // label column and stretch to the percentage. Below it the gap tightens
-    // so the bars keep their length on phones.
+    // block. `@container` is for the bar's wide-tile margin below.
     <div
-      className="@container grid w-full grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-3 rounded-[10px] border border-[var(--border-base)] bg-[var(--surface-overlay)] px-4 py-3 @min-[30rem]:gap-x-16"
+      className="@container grid w-full grid-cols-[auto_minmax(0,1fr)_auto] gap-3 rounded-[10px] border border-[var(--border-base)] bg-[var(--surface-overlay)] px-4 py-3"
       data-testid="plan-usage-panel"
     >
       {children}
@@ -148,11 +143,12 @@ export function UsageBalanceReading({
   const spent = ratio >= 1;
 
   return (
-    // Subgrid: the row lays its label and bar on the panel's two columns, so
-    // every reading's bar starts where the widest label ends.
+    // Subgrid: the row lays its label, bar, and percentage on the panel's
+    // three columns, so every reading's bar starts where the widest label ends
+    // and ends where the widest percentage starts.
     <div
       data-testid={testId}
-      className="col-span-2 grid grid-cols-subgrid items-center gap-y-3"
+      className="col-span-3 grid grid-cols-subgrid items-center gap-y-3"
     >
       <div className="flex min-w-0 flex-col">
         <Typography
@@ -173,28 +169,35 @@ export function UsageBalanceReading({
           </Typography>
         ) : null}
       </div>
-      <div className="flex min-w-0 items-center gap-3">
-        <ProgressBar
-          value={ratio}
-          height={8}
-          aria-label={barLabel}
-          fillColor={spent ? "var(--system-negative-strong)" : undefined}
-          className="w-full min-w-0 rounded-full border border-[var(--border-base)] bg-[var(--surface-overlay)]"
-        />
-        <Typography
-          as="span"
-          variant="body-small-default"
-          className={
-            spent
-              ? "whitespace-nowrap text-[var(--system-negative-strong)]"
-              : "whitespace-nowrap text-[var(--content-secondary)]"
-          }
-        >
-          {t("planCard.usageBalancePctUsed", { pct })}
-        </Typography>
-      </div>
+      {/*
+        Container query, not a viewport breakpoint: the tile is half a card
+        beside a next tile and the whole card without one, so the viewport says
+        nothing about the panel's width. The threshold is the content box,
+        about 514px of panel, above which the bar takes a 64px gap after the
+        label column (the grid's 12px plus this margin) and stretches to the
+        percentage. Below it the gap tightens so the bar keeps its length on
+        phones.
+      */}
+      <ProgressBar
+        value={ratio}
+        height={8}
+        aria-label={barLabel}
+        fillColor={spent ? "var(--system-negative-strong)" : undefined}
+        className="min-w-0 rounded-full border border-[var(--border-base)] bg-[var(--surface-overlay)] @min-[30rem]:ml-13"
+      />
+      <Typography
+        as="span"
+        variant="body-small-default"
+        className={
+          spent
+            ? "whitespace-nowrap text-[var(--system-negative-strong)]"
+            : "whitespace-nowrap text-[var(--content-secondary)]"
+        }
+      >
+        {t("planCard.usageBalancePctUsed", { pct })}
+      </Typography>
       {exhausted ? (
-        <div className="col-span-2 flex min-h-8 items-center justify-between gap-2 rounded-md bg-[var(--system-negative-weak)] px-2 py-1">
+        <div className="col-span-3 flex min-h-8 items-center justify-between gap-2 rounded-md bg-[var(--system-negative-weak)] px-2 py-1">
           <Typography
             as="span"
             variant="body-medium-default"

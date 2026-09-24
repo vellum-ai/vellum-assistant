@@ -62,6 +62,14 @@ describe("UsageBalancePanel", () => {
     const overall = getByTestId("plan-usage-balance");
     expect(daily.parentElement).toBe(panel);
     expect(overall.parentElement).toBe(panel);
+    // Label, bar, and percentage are each a cell on the panel's columns, so
+    // a wider percentage on one row cannot shorten that row's bar alone.
+    for (const row of [daily, overall]) {
+      const bar = row.querySelector('[data-slot="progress-bar"]');
+      expect(bar?.parentElement).toBe(row);
+      expect(bar?.nextElementSibling?.parentElement).toBe(row);
+      expect(bar?.nextElementSibling?.textContent).toMatch(/% used$/);
+    }
     expect(
       daily.compareDocumentPosition(overall) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
