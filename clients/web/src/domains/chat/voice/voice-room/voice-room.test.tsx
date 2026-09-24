@@ -3728,6 +3728,104 @@ describe("VoiceRoom: camera", () => {
           expect(roomDragStarts).not.toHaveBeenCalled();
         });
       });
+
+      /**
+       * The way back to it, once the device has seen it: a row in the camera's
+       * own view options. The row itself is `camera-view-settings.test.tsx`'s
+       * subject; what is under test here is that the room answers it with the
+       * same sheet the first open raises, on the same terms.
+       */
+      describe("re-showing it from the view options", () => {
+        const viewOptions = () => screen.getByTestId("camera-view-settings");
+        const panel = () => screen.queryByTestId("camera-view-settings-panel");
+        const howItWorks = () =>
+          screen.queryByRole("button", { name: "How Photo and Live work" });
+
+        beforeEach(() => {
+          useVoicePrefsStore.setState({ cameraExplainerSeen: true });
+        });
+
+        /**
+         * Open the panel over an already-open camera, then press its row.
+         *
+         * The explainer is raised as the panel closes rather than on the press
+         * itself, so that the trigger has focus back before the dialog records
+         * what to return it to.
+         */
+        async function pressHowItWorks(): Promise<void> {
+          await act(async () => {
+            fireEvent.click(viewOptions());
+          });
+          await act(async () => {
+            fireEvent.click(howItWorks()!);
+          });
+          await waitFor(() => {
+            expect(explainer()).not.toBeNull();
+          });
+        }
+
+        test("is not on the panel until the browser feed has drawn", async () => {
+          await openLiveCapableCamera();
+          await act(async () => {
+            fireEvent.click(viewOptions());
+          });
+
+          // The same signal the first open waits for: the stream has reached
+          // the element and no frame has decoded, so the room is still
+          // painting the look through a transparent feed, and a sheet raised
+          // here would sit over the look rather than over the camera. The two
+          // switches beside it are offered the whole time.
+          expect(howItWorks()).toBeNull();
+          expect(panel()).not.toBeNull();
+
+          await act(async () => {
+            fireEvent.loadedData(viewfinder()!);
+          });
+
+          expect(howItWorks()).not.toBeNull();
+        });
+
+        test("raises it again, and takes the panel down with it", async () => {
+          await openCameraWithFrame();
+          // The device has seen it, so nothing raised it on this open.
+          expect(explainer()).toBeNull();
+
+          await pressHowItWorks();
+
+          expect(panel()).toBeNull();
+          expect(explainerHost()!.contains(explainer())).toBe(true);
+          expect(explainer()?.textContent).toContain("Photo or Live?");
+        });
+
+        test('"Got it" leaves the camera exactly where it found it', async () => {
+          await openCameraWithFrame();
+          await pressHowItWorks();
+
+          await act(async () => {
+            fireEvent.click(gotIt());
+          });
+
+          expect(explainer()).toBeNull();
+          expect(seen()).toBe(true);
+          expect(shutter().getAttribute("data-mode")).toBe("photo");
+        });
+
+        test('"Try Live now" starts Live, as it does on the first open', async () => {
+          await openCameraWithFrame();
+          await pressHowItWorks();
+
+          await act(async () => {
+            fireEvent.click(
+              screen.getByRole("button", { name: "Try Live now" }),
+            );
+          });
+
+          expect(explainer()).toBeNull();
+          expect(seen()).toBe(true);
+          expect(pill().getAttribute("data-camera-mode")).toBe("live");
+          expect(shutter().getAttribute("data-mode")).toBe("live");
+        });
+      });
     });
   });
 });
