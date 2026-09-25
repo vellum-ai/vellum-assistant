@@ -45,10 +45,17 @@ export const ChatSettingsPatchSchema = z.object({
 });
 
 export function scrubNulledChatSettings(raw: Record<string, unknown>): void {
+  for (const key of ["conversations", "notifications"]) {
+    if (raw[key] === null) {
+      delete raw[key];
+    }
+  }
   const conversations = raw.conversations;
   if (isPlainObject(conversations)) {
     const autoArchive = conversations.autoArchive;
-    if (isPlainObject(autoArchive)) {
+    if (autoArchive === null) {
+      delete conversations.autoArchive;
+    } else if (isPlainObject(autoArchive)) {
       for (const key of ["enabled", "afterDays"]) {
         if (autoArchive[key] === null) {
           delete autoArchive[key];

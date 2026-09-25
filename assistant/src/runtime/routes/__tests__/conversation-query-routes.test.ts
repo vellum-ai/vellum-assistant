@@ -2193,6 +2193,59 @@ describe("persisted chat settings", () => {
     },
   );
 
+  test.each([false, "legacy", [], null])(
+    "PATCH null resets a malformed stored autoArchive subtree: %j",
+    async (autoArchive) => {
+      rawConfigFixture = {
+        conversations: { skipAutoRetitling: true, autoArchive },
+        notifications: { newMessageEnabled: false },
+        maxStepsPerSession: 75,
+      };
+      seedRawConfig();
+      invalidateConfigCache();
+
+      const result = await patchRoute.handler({
+        body: { conversations: { autoArchive: null } },
+      });
+
+      expect(result).toMatchObject({
+        conversations: {
+          skipAutoRetitling: true,
+          autoArchive: { enabled: false, afterDays: 7 },
+        },
+        notifications: { newMessageEnabled: false },
+      });
+      expect(loadRawConfig()).toEqual({
+        conversations: { skipAutoRetitling: true },
+        notifications: { newMessageEnabled: false },
+        maxStepsPerSession: 75,
+      });
+    },
+  );
+
+  test.each([false, "legacy", [], null])(
+    "PATCH null resets malformed stored settings sections: %j",
+    async (value) => {
+      rawConfigFixture = {
+        conversations: value,
+        notifications: value,
+        maxStepsPerSession: 75,
+      };
+      seedRawConfig();
+      invalidateConfigCache();
+
+      const result = await patchRoute.handler({
+        body: { conversations: null, notifications: null },
+      });
+
+      expect(result).toMatchObject({
+        conversations: { autoArchive: { enabled: false, afterDays: 7 } },
+        notifications: { newMessageEnabled: true },
+      });
+      expect(loadRawConfig()).toEqual({ maxStepsPerSession: 75 });
+    },
+  );
+
   test("SET persists valid preferences through the same writer", async () => {
     await setRoute.handler({
       body: { path: "notifications.newMessageEnabled", value: true },
