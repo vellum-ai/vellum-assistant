@@ -663,16 +663,16 @@ export function SectionCard({
             ref={linkRef}
             onMouseEnter={() => onHoverChange?.(true)}
             onMouseLeave={() => onHoverChange?.(false)}
-            className={`relative flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 py-2.5 pl-4 pr-3 transition-all duration-150 active:scale-[0.99] ${
+            className={`relative flex min-w-0 flex-1 cursor-pointer items-center gap-2 py-1.5 pl-3 pr-2 transition-all duration-150 active:scale-[0.99] ${
               hoverFill ? "hover:bg-[var(--card-hover)]" : ""
             }`}
           >
             <Icon
-              className={`relative h-5 w-5 shrink-0 transition-colors duration-300 ${fgStrong}`}
+              className={`relative h-4 w-4 shrink-0 transition-colors duration-300 ${fgStrong}`}
               aria-hidden
             />
             <span
-              className={`relative flex min-w-0 items-center gap-1.5 truncate text-body-medium-default transition-colors duration-300 ${fgStrong}`}
+              className={`relative flex min-w-0 items-center gap-1.5 truncate text-body-small-default transition-colors duration-300 ${fgStrong}`}
             >
               {section.label}
               {lockBadge}
@@ -686,7 +686,7 @@ export function SectionCard({
             )}
           </Link>
           {trailing ? (
-            <span className="relative flex shrink-0 items-center pr-2">
+            <span className="relative flex shrink-0 items-center pr-1">
               {trailing}
             </span>
           ) : null}
@@ -1347,26 +1347,38 @@ function OverviewBento({
               </Link>
             </Card.Root>
           )}
-          {emailSection && (
-            <SectionCard
-              section={emailSection}
-              stat={stats[emailSection.key]}
-              hoverFill
-              slim
-              trailing={emailTrailing}
-            />
-          )}
           <div className="grid grid-cols-2 gap-2">
-            {gridSections.map((section) => (
-              <SectionCard
-                key={section.key}
-                section={section}
-                stat={stats[section.key]}
-                hoverFill
-                mini
-                compact
-              />
-            ))}
+            {gridSections.map((section) =>
+              section.key === "channels" && emailSection ? (
+                /* Email is a channel with a page of its own: its row sits
+                   just over the Channels tile, in the tile's cell. */
+                <div key={section.key} className="flex flex-col gap-1">
+                  <SectionCard
+                    section={emailSection}
+                    stat={stats[emailSection.key]}
+                    hoverFill
+                    slim
+                    trailing={emailTrailing}
+                  />
+                  <SectionCard
+                    section={section}
+                    stat={stats[section.key]}
+                    hoverFill
+                    mini
+                    compact
+                  />
+                </div>
+              ) : (
+                <SectionCard
+                  key={section.key}
+                  section={section}
+                  stat={stats[section.key]}
+                  hoverFill
+                  mini
+                  compact
+                />
+              ),
+            )}
           </div>
         </div>
       </div>
@@ -1391,12 +1403,7 @@ function OverviewBento({
   // Schedules' AREA runs a row deeper than Personality, but the card
   // self-sizes from the top with Personality's row height as its minimum
   // — so the two match until the schedule tiles (3 max) need more room.
-  // The Email row, when there is one, takes a slim band of its own between
-  // the open middle and the strip: a single line's height, so the strip
-  // keeps its share.
-  const BENTO_ROWS = emailSection
-    ? [1.15, 1, 0.3, 0.15, 0.3]
-    : [1.15, 1, 0.45, 0.3];
+  const BENTO_ROWS = [1.15, 1, 0.45, 0.3];
   const BENTO_GAP_PX = 12;
   const rowUnit =
     (size.h - (BENTO_ROWS.length - 1) * BENTO_GAP_PX) /
@@ -1405,21 +1412,18 @@ function OverviewBento({
 
   // Character avatars float behind the open middle rows; a custom image
   // gets its own centered cell right under the greeting instead.
-  const emailRow = emailSection ? [`"email email email email email"`] : [];
   const gridTemplateAreas = (
     hasCharacter
       ? [
           `"personality greeting greeting greeting schedules"`,
           `". . . . schedules"`,
           `". . . . ."`,
-          ...emailRow,
           `"smalls smalls smalls smalls smalls"`,
         ]
       : [
           `"personality greeting greeting greeting schedules"`,
           `". avatar avatar avatar schedules"`,
           `". avatar avatar avatar ."`,
-          ...emailRow,
           `"smalls smalls smalls smalls smalls"`,
         ]
   ).join(" ");
@@ -1580,25 +1584,33 @@ function OverviewBento({
           }
         />
       ))}
-      {/* Mapped like its neighbours, so the card's props are built the same
-          way for every tile (the compiler lint reads a direct call here as
-          a ref read during render). */}
-      {(emailSection ? [emailSection] : []).map((section) => (
-        <SectionCard
-          key={section.key}
-          {...cardProps(section)}
-          gridArea="email"
-          slim
-          trailing={emailTrailing}
-        />
-      ))}
       <div
         className="flex min-h-0 items-stretch gap-3"
         style={{ gridArea: "smalls" }}
       >
-        {miniSections.map((section) => (
-          <SectionCard key={section.key} {...cardProps(section)} mini />
-        ))}
+        {miniSections.map((section) =>
+          section.key === "channels" && emailSection ? (
+            /* Email is a channel with a page of its own, so its row hangs
+               just over the Channels tile, at the tile's width, rather than
+               standing across the strip. Anchored above the tile so the
+               strip's tiles keep one height. */
+            <div key={section.key} className="relative flex min-w-0 flex-1">
+              <div className="absolute inset-x-0 bottom-full mb-1">
+                {[emailSection].map((email) => (
+                  <SectionCard
+                    key={email.key}
+                    {...cardProps(email)}
+                    slim
+                    trailing={emailTrailing}
+                  />
+                ))}
+              </div>
+              <SectionCard {...cardProps(section)} mini />
+            </div>
+          ) : (
+            <SectionCard key={section.key} {...cardProps(section)} mini />
+          ),
+        )}
       </div>
     </div>
   );
