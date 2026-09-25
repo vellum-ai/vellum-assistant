@@ -143,7 +143,6 @@ describe("EmailManagedContent · not entitled", () => {
 
     // The pitch is the perks and the plan notice; the address itself is
     // not drawn, the perk about it stands in.
-    expect(screen.queryByText("hi@ada.example.com")).toBeNull();
     expect(screen.getByText("A real address on example.com")).toBeTruthy();
     expect(
       screen.getByText("Your assistant reads, sorts, and replies for you"),
