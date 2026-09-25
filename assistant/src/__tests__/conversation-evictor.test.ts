@@ -12,6 +12,7 @@ mock.module("../subagent/index.js", () => ({
 
 import {
   ConversationEvictor,
+  defaultMemoryThresholdBytes,
   type EvictableConversation,
 } from "../daemon/conversation-evictor.js";
 
@@ -324,5 +325,18 @@ describe("ConversationEvictor", () => {
       evictor.stop();
       expect(evictor.trackedCount).toBe(0);
     });
+  });
+});
+
+describe("defaultMemoryThresholdBytes", () => {
+  const GIB = 1024 * 1024 * 1024;
+
+  test("is half the container limit", () => {
+    expect(defaultMemoryThresholdBytes(3 * GIB)).toBe(1.5 * GIB);
+    expect(defaultMemoryThresholdBytes(8 * GIB)).toBe(4 * GIB);
+  });
+
+  test("falls back to 3 GiB without a limit", () => {
+    expect(defaultMemoryThresholdBytes(null)).toBe(3 * GIB);
   });
 });

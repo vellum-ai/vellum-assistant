@@ -1,4 +1,5 @@
 import { getSubagentManager } from "../subagent/index.js";
+import { getContainerMemoryLimitBytes } from "../util/cgroup-memory.js";
 import { getLogger } from "../util/logger.js";
 import { getConversationMap } from "./conversation-registry.js";
 
@@ -15,7 +16,7 @@ export interface EvictorOptions {
   ttlMs?: number;
   /** Max number of in-memory conversations before LRU eviction kicks in. Default: 100. */
   maxConversations?: number;
-  /** RSS threshold (bytes) above which idle conversations are aggressively evicted. Default: 3 GB. */
+  /** RSS threshold (bytes) above which idle conversations are aggressively evicted. Default: {@link defaultMemoryThresholdBytes}. */
   memoryThresholdBytes?: number;
   /** Interval between periodic sweeps (ms). Default: 60 s. */
   sweepIntervalMs?: number;
@@ -34,8 +35,26 @@ export interface EvictionResult {
 
 const DEFAULT_TTL_MS = 30 * 60 * 1000; // 30 minutes
 const DEFAULT_MAX_CONVERSATIONS = 100;
-const DEFAULT_MEMORY_THRESHOLD_BYTES = 3072 * 1024 * 1024; // 3 GB
+/** Threshold when no container limit is known (local hosts). */
+const FALLBACK_MEMORY_THRESHOLD_BYTES = 3072 * 1024 * 1024; // 3 GiB
+/**
+ * Share of the container memory limit the daemon's own RSS may reach before
+ * idle conversations are evicted. The rest of the limit is Qdrant, the
+ * workers, and tool children, so the daemon cannot have it all.
+ */
+const MEMORY_THRESHOLD_LIMIT_FRACTION = 0.5;
 const DEFAULT_SWEEP_INTERVAL_MS = 60 * 1000; // 60 seconds
+
+/**
+ * Default memory-pressure threshold: half the container limit, or 3 GiB when
+ * there is no limit. A fixed 3 GiB is the whole limit on the default 3 GiB
+ * tier, where the phase would never run before the kernel OOM killer does.
+ */
+export function defaultMemoryThresholdBytes(limitBytes: number | null): number {
+  return limitBytes != null
+    ? Math.floor(limitBytes * MEMORY_THRESHOLD_LIMIT_FRACTION)
+    : FALLBACK_MEMORY_THRESHOLD_BYTES;
+}
 
 export class ConversationEvictor {
   private readonly ttlMs: number;
@@ -58,7 +77,8 @@ export class ConversationEvictor {
     this.maxConversations =
       options?.maxConversations ?? DEFAULT_MAX_CONVERSATIONS;
     this.memoryThresholdBytes =
-      options?.memoryThresholdBytes ?? DEFAULT_MEMORY_THRESHOLD_BYTES;
+      options?.memoryThresholdBytes ??
+      defaultMemoryThresholdBytes(getContainerMemoryLimitBytes());
     this.sweepIntervalMs =
       options?.sweepIntervalMs ?? DEFAULT_SWEEP_INTERVAL_MS;
   }
