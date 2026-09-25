@@ -1,4 +1,4 @@
-import { utimesSync, writeFileSync } from "node:fs";
+import { readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -58,6 +58,7 @@ import {
   invalidateConfigCache,
   loadConfig,
   loadRawConfig,
+  setNestedValue,
 } from "../../../config/loader.js";
 import { AssistantConfigSchema } from "../../../config/schema.js";
 import { LLMConfigBase } from "../../../config/schemas/llm.js";
@@ -2070,6 +2071,141 @@ describe("persisted chat settings", () => {
     };
     seedRawConfig();
     invalidateConfigCache();
+  });
+
+  const writers = ["PATCH", "SET", "canonical"] as const;
+  async function writeSetting(
+    writer: (typeof writers)[number],
+    path: string,
+    value: unknown,
+  ): Promise<unknown> {
+    if (writer === "SET") {
+      return setRoute.handler({ body: { path, value } });
+    }
+    const raw = writer === "canonical" ? loadRawConfig() : {};
+    setNestedValue(raw, path, value);
+    return writer === "PATCH"
+      ? patchRoute.handler({ body: raw })
+      : commitConfigWrite(raw, "test");
+  }
+
+  for (const writer of writers) {
+    test.each([
+      { conversations: false },
+      { conversations: [] },
+      { conversations: null },
+      { conversations: { autoArchive: "legacy" } },
+      { conversations: { autoArchive: [] } },
+      { conversations: { autoArchive: null } },
+      { conversations: { autoArchive: { enabled: "true", afterDays: 2 } } },
+      { conversations: { autoArchive: { enabled: null, afterDays: null } } },
+      { notifications: "legacy" },
+      { notifications: [] },
+      { notifications: null },
+      { notifications: { newMessageEnabled: "false" } },
+      { notifications: { newMessageEnabled: null } },
+    ])(
+      `${writer} unrelated writes preserve untouched legacy values: %j`,
+      async (legacy) => {
+        rawConfigFixture = { ...legacy, maxStepsPerSession: 75 };
+        seedRawConfig();
+        invalidateConfigCache();
+
+        await writeSetting(writer, "maxStepsPerSession", 100);
+
+        expect(loadRawConfig()).toEqual({
+          ...rawConfigFixture,
+          maxStepsPerSession: 100,
+        });
+        expect(initializeProvidersCalls).toBe(1);
+        expect(clearEmbeddingBackendCacheCalls).toBe(1);
+      },
+    );
+
+    test(`${writer} can repair one leaf without changing other legacy values`, async () => {
+      rawConfigFixture = {
+        conversations: { autoArchive: { enabled: "true", afterDays: 2 } },
+        notifications: null,
+      };
+      seedRawConfig();
+      invalidateConfigCache();
+
+      await writeSetting(writer, "conversations.autoArchive.enabled", true);
+
+      expect(loadRawConfig()).toEqual({
+        conversations: { autoArchive: { enabled: true, afterDays: 2 } },
+        notifications: null,
+      });
+    });
+
+    test(`${writer} rejects an invalid leaf change beside an unchanged invalid sibling`, async () => {
+      rawConfigFixture = {
+        conversations: { autoArchive: { enabled: "true", afterDays: 2 } },
+      };
+      seedRawConfig();
+      invalidateConfigCache();
+      const configPath = join(process.env.VELLUM_WORKSPACE_DIR!, "config.json");
+      const originalBytes = readFileSync(configPath, "utf-8");
+
+      await expect(
+        writeSetting(writer, "conversations.autoArchive.afterDays", 3),
+      ).rejects.toMatchObject({ statusCode: 400 });
+
+      expect(readFileSync(configPath, "utf-8")).toBe(originalBytes);
+      expect(initializeProvidersCalls).toBe(0);
+    });
+
+    test.each([
+      ["conversations", []],
+      ["conversations.autoArchive", { enabled: "true" }],
+      ["conversations.autoArchive", { afterDays: 2 }],
+      ["notifications.newMessageEnabled", "true"],
+      ["notifications.newMessageEnabled", 1],
+    ])(
+      `${writer} rejects changed invalid settings at %s over legacy config`,
+      async (path, value) => {
+        rawConfigFixture = {
+          conversations: false,
+          notifications: { newMessageEnabled: "false" },
+          maxStepsPerSession: 75,
+        };
+        seedRawConfig();
+        invalidateConfigCache();
+        const configPath = join(
+          process.env.VELLUM_WORKSPACE_DIR!,
+          "config.json",
+        );
+        const originalBytes = readFileSync(configPath, "utf-8");
+
+        await expect(
+          writeSetting(writer, path as string, value),
+        ).rejects.toMatchObject({
+          statusCode: 400,
+        });
+
+        expect(readFileSync(configPath, "utf-8")).toBe(originalBytes);
+        expect(initializeProvidersCalls).toBe(0);
+        expect(clearEmbeddingBackendCacheCalls).toBe(0);
+      },
+    );
+  }
+
+  test("PATCH resets only the explicitly nulled legacy leaf", async () => {
+    rawConfigFixture = {
+      conversations: { autoArchive: { enabled: null, afterDays: null } },
+      notifications: { newMessageEnabled: null },
+    };
+    seedRawConfig();
+    invalidateConfigCache();
+
+    await patchRoute.handler({
+      body: { conversations: { autoArchive: { enabled: null } } },
+    });
+
+    expect(loadRawConfig()).toEqual({
+      conversations: { autoArchive: { afterDays: null } },
+      notifications: { newMessageEnabled: null },
+    });
   });
 
   test("sparse GET exposes effective defaults without materializing unrelated fields", async () => {
