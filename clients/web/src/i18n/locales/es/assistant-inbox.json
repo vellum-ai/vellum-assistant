@@ -5,8 +5,7 @@
   },
   "assistantInboxHeader": {
     "title": "Correo",
-    "settingsAria": "Ajustes del correo",
-    "usage": "{sent, plural, one {# enviado} other {# enviados}} hoy · {received, plural, one {# recibido} other {# recibidos}} hoy"
+    "settingsAria": "Ajustes del correo"
   },
   "addressPill": {
     "copyAddress": "Copiar dirección de correo",
@@ -33,7 +32,8 @@
     "toPrefix": "Para {name}",
     "attachments": "{count, plural, one {# adjunto} other {# adjuntos}}",
     "noSubject": "(sin asunto)",
-    "selectAria": "Seleccionar \"{subject}\""
+    "selectAria": "Seleccionar \"{subject}\"",
+    "unread": "No leído"
   },
   "emailSelectionBar": {
     "ariaLabel": "Correos seleccionados",

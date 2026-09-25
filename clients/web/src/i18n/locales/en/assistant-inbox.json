@@ -5,8 +5,7 @@
   },
   "assistantInboxHeader": {
     "title": "Email",
-    "settingsAria": "Email settings",
-    "usage": "{sent, plural, one {# sent} other {# sent}} today · {received, plural, one {# received} other {# received}} today"
+    "settingsAria": "Email settings"
   },
   "addressPill": {
     "copyAddress": "Copy email address",
@@ -33,7 +32,8 @@
     "toPrefix": "To {name}",
     "attachments": "{count, plural, one {# attachment} other {# attachments}}",
     "noSubject": "(no subject)",
-    "selectAria": "Select \"{subject}\""
+    "selectAria": "Select \"{subject}\"",
+    "unread": "Unread"
   },
   "emailSelectionBar": {
     "ariaLabel": "Selected emails",

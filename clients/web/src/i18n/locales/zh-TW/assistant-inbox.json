@@ -5,8 +5,7 @@
   },
   "assistantInboxHeader": {
     "title": "郵件",
-    "settingsAria": "郵件設定",
-    "usage": "今天已寄出 {sent, plural, other {# 封}} · 已收到 {received, plural, other {# 封}}"
+    "settingsAria": "郵件設定"
   },
   "addressPill": {
     "copyAddress": "複製電子郵件地址",
@@ -33,7 +32,8 @@
     "toPrefix": "寄給 {name}",
     "attachments": "{count, plural, other {# 個附件}}",
     "noSubject": "（無主旨）",
-    "selectAria": "選取「{subject}」"
+    "selectAria": "選取「{subject}」",
+    "unread": "未讀"
   },
   "emailSelectionBar": {
     "ariaLabel": "已選取的郵件",

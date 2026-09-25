@@ -5,8 +5,7 @@
   },
   "assistantInboxHeader": {
     "title": "邮件",
-    "settingsAria": "邮件设置",
-    "usage": "今天已发送 {sent, plural, other {# 封}} · 已收到 {received, plural, other {# 封}}"
+    "settingsAria": "邮件设置"
   },
   "addressPill": {
     "copyAddress": "复制邮箱地址",
@@ -33,7 +32,8 @@
     "toPrefix": "发给 {name}",
     "attachments": "{count, plural, other {# 个附件}}",
     "noSubject": "（无主题）",
-    "selectAria": "选择“{subject}”"
+    "selectAria": "选择“{subject}”",
+    "unread": "未读"
   },
   "emailSelectionBar": {
     "ariaLabel": "已选邮件",
