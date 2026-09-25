@@ -26,11 +26,12 @@ mock.module("../ipc/socket-path.js", () => ({
 // ---------------------------------------------------------------------------
 let refreshCallCount = 0;
 let refreshReturnsLoaded = true;
+let pendingRefresh: Promise<boolean> | undefined;
 
 mock.module("../config/assistant-feature-flags.js", () => ({
   refreshOverridesFromGateway: async () => {
     refreshCallCount++;
-    return refreshReturnsLoaded;
+    return pendingRefresh ?? refreshReturnsLoaded;
   },
   initFeatureFlagOverrides: async () => true,
   clearFeatureFlagOverridesCache: () => {},
@@ -136,6 +137,7 @@ describe("gateway-flag-listener", () => {
     mkdirSync(testRoot, { recursive: true });
     refreshCallCount = 0;
     refreshReturnsLoaded = true;
+    pendingRefresh = undefined;
     publishedTagSets = [];
     reconcileCallCount = 0;
     reconcileReturns = false;
@@ -177,7 +179,7 @@ describe("gateway-flag-listener", () => {
     expect(refreshCallCount).toBe(2);
   });
 
-  test("broadcasts feature-flags sync_changed when flags change", async () => {
+  test("broadcasts feature-flags sync_changed after connect and flag changes", async () => {
     await new Promise<void>((resolve) => {
       testServer.server.listen(socketPath, resolve);
     });
@@ -186,16 +188,56 @@ describe("gateway-flag-listener", () => {
     await testServer.waitForClient();
     await new Promise((r) => setTimeout(r, 100));
 
-    // Connect refresh should not broadcast — only an actual change does.
-    expect(publishedTagSets.length).toBe(0);
+    expect(publishedTagSets.length).toBe(1);
 
     testServer.emit("feature_flags_changed");
     await new Promise((r) => setTimeout(r, 100));
 
-    expect(publishedTagSets.length).toBe(1);
-    expect(publishedTagSets[0]).toEqual([
+    expect(publishedTagSets.length).toBe(2);
+    expect(publishedTagSets[1]).toEqual([
       "feature-flags:client",
       "feature-flags:assistant",
+    ]);
+  });
+
+  test("defers invalidation until the flag-change refresh settles", async () => {
+    await new Promise<void>((resolve) => {
+      testServer.server.listen(socketPath, resolve);
+    });
+    startGatewayFlagListener();
+    await testServer.waitForClient();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    publishedTagSets = [];
+    const refresh = Promise.withResolvers<boolean>();
+    pendingRefresh = refresh.promise;
+    testServer.emit("feature_flags_changed");
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(refreshCallCount).toBe(2);
+    expect(publishedTagSets).toEqual([]);
+    expect(reconcileCallCount).toBe(1);
+    refresh.resolve(true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(publishedTagSets).toEqual([
+      ["feature-flags:client", "feature-flags:assistant"],
+    ]);
+    expect(reconcileCallCount).toBe(2);
+  });
+
+  test("defers connection invalidation until the refreshed cache is available", async () => {
+    const refresh = Promise.withResolvers<boolean>();
+    pendingRefresh = refresh.promise;
+    await new Promise<void>((resolve) => {
+      testServer.server.listen(socketPath, resolve);
+    });
+    startGatewayFlagListener();
+    await testServer.waitForClient();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(refreshCallCount).toBe(1);
+    expect(publishedTagSets).toEqual([]);
+    refresh.resolve(true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(publishedTagSets).toEqual([
+      ["feature-flags:client", "feature-flags:assistant"],
     ]);
   });
 
@@ -251,12 +293,22 @@ describe("gateway-flag-listener", () => {
     // The profile reconcile/broadcast are gated on flags actually loading.
     expect(reconcileCallCount).toBe(0);
     expect(configChangedCount).toBe(0);
+    expect(publishedTagSets).toEqual([]);
 
     testServer.emit("feature_flags_changed");
     await new Promise((r) => setTimeout(r, 100));
 
     expect(reconcileCallCount).toBe(0);
     expect(configChangedCount).toBe(0);
+    expect(publishedTagSets).toEqual([]);
+    refreshReturnsLoaded = true;
+    testServer.emit("feature_flags_changed");
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(reconcileCallCount).toBe(1);
+    expect(configChangedCount).toBe(1);
+    expect(publishedTagSets).toEqual([
+      ["feature-flags:client", "feature-flags:assistant"],
+    ]);
   });
 
   test("reconciles profiles when the refresh reports flags loaded", async () => {
@@ -318,6 +370,7 @@ describe("gateway-flag-listener", () => {
     await new Promise((r) => setTimeout(r, 100));
     const countAfterReconnect = refreshCallCount;
     expect(countAfterReconnect).toBeGreaterThan(0);
+    expect(publishedTagSets).toHaveLength(countAfterReconnect);
 
     const payload = JSON.stringify({ event: "feature_flags_changed" }) + "\n";
     secondClient!.write(payload);

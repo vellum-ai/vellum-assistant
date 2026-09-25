@@ -26,6 +26,13 @@ function refreshFlagsAndReconcileProfiles(context: string): void {
       if (!loaded) {
         return;
       }
+      // Consumers read the synchronous flag cache in response to this event.
+      void publishSyncInvalidation([
+        SYNC_TAGS.featureFlagsClient,
+        SYNC_TAGS.featureFlagsAssistant,
+      ]).catch((err) => {
+        log.warn({ err }, "Failed to broadcast feature-flags sync_changed");
+      });
       if (reconcileFlagGatedProfiles()) {
         // Reuse the config-changed broadcast clients already consume: web
         // routes the `assistant:self:config` sync tag to the effective profile
@@ -65,16 +72,6 @@ function handleData(chunk: Buffer): void {
       if (msg.event === "feature_flags_changed") {
         log.info("Received feature_flags_changed event — refreshing overrides");
         refreshFlagsAndReconcileProfiles("flags-changed event");
-        // Fan out to every connected web client so React Query caches
-        // for `/v1/feature-flags/client-flag-values/` and
-        // `/v1/assistants/:id/feature-flags` invalidate immediately
-        // instead of waiting on a 5s polling tick.
-        publishSyncInvalidation([
-          SYNC_TAGS.featureFlagsClient,
-          SYNC_TAGS.featureFlagsAssistant,
-        ]).catch((err) => {
-          log.warn({ err }, "Failed to broadcast feature-flags sync_changed");
-        });
       }
     } catch {
       // Ignore non-JSON lines (e.g. IPC responses on a shared socket)
