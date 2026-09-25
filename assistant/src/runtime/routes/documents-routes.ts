@@ -12,10 +12,10 @@ import {
   DEFAULT_DOCUMENT_TITLE,
   getDocumentById,
   getDocumentsForConversation,
+  listAllDocuments,
   saveDocument,
 } from "../../documents/document-store.js";
 import { getConversation } from "../../persistence/conversation-crud.js";
-import { rawAll } from "../../persistence/raw-query.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
@@ -23,53 +23,16 @@ import {
   publishDocumentsChanged,
 } from "../sync/resource-sync-events.js";
 import { renderMarkdownToPDF } from "./document-pdf-renderer.js";
-import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
+import {
+  BadRequestError,
+  ConflictError,
+  InternalError,
+  NotFoundError,
+} from "./errors.js";
 import type { RouteDefinition } from "./types.js";
 import { RouteResponse } from "./types.js";
 
 const log = getLogger("documents-routes");
-
-interface DocumentListRow {
-  surface_id: string;
-  conversation_id: string;
-  title: string;
-  word_count: number;
-  created_at: number;
-  updated_at: number;
-}
-
-function listAllDocuments(): Array<{
-  surfaceId: string;
-  conversationId: string;
-  title: string;
-  wordCount: number;
-  createdAt: number;
-  updatedAt: number;
-}> {
-  try {
-    const results = rawAll<DocumentListRow>(
-      "documents:listAllDocuments",
-      /*sql*/ `
-      SELECT surface_id, conversation_id, title, word_count, created_at, updated_at
-      FROM documents
-      ORDER BY updated_at DESC
-      `,
-    );
-
-    log.info({ count: results.length }, "Listed documents");
-    return results.map((row) => ({
-      surfaceId: row.surface_id,
-      conversationId: row.conversation_id,
-      title: row.title,
-      wordCount: row.word_count,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    }));
-  } catch (error) {
-    log.error({ err: error }, "List error");
-    return [];
-  }
-}
 
 /** The document payload shape returned by `GET documents/{id}`. */
 const documentPayloadSchema = z.object({
@@ -81,6 +44,12 @@ const documentPayloadSchema = z.object({
   wordCount: z.number(),
   createdAt: z.number(),
   updatedAt: z.number(),
+  revision: z
+    .number()
+    .optional()
+    .describe(
+      "Bumped by one on every write. Absent from assistants that predate document revisions.",
+    ),
 });
 
 // ---------------------------------------------------------------------------
@@ -115,6 +84,12 @@ export const ROUTES: RouteDefinition[] = [
           wordCount: z.number(),
           createdAt: z.number(),
           updatedAt: z.number(),
+          revision: z
+            .number()
+            .optional()
+            .describe(
+              "Bumped by one on every write. Absent from assistants that predate document revisions.",
+            ),
         }),
       ),
     }),
@@ -157,7 +132,8 @@ export const ROUTES: RouteDefinition[] = [
       allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
     summary: "Save a document",
-    description: "Create or upsert a document (by surfaceId).",
+    description:
+      "Create or upsert a document (by surfaceId). With `baseRevision`, an existing document is only overwritten while its revision still equals `baseRevision`; otherwise the save is rejected with 409 CONFLICT and `error.details` carries the current `revision`, `title`, and `content`.",
     tags: ["documents"],
     requestBody: z.object({
       surfaceId: z.string().describe("Surface ID (unique key)"),
@@ -165,19 +141,40 @@ export const ROUTES: RouteDefinition[] = [
       title: z.string().describe("Document title"),
       content: z.string().describe("Document content"),
       wordCount: z.number().describe("Word count"),
+      baseRevision: z
+        .number()
+        .int()
+        .nonnegative()
+        .optional()
+        .describe(
+          "The revision this save was edited from. When set and the stored revision differs, nothing is written and the request fails with 409. Omit for an unconditional write.",
+        ),
     }),
     responseBody: z.object({
       success: z.literal(true),
       surfaceId: z.string(),
+      revision: z
+        .number()
+        .optional()
+        .describe(
+          "The document's revision after the save. Absent from assistants that predate document revisions.",
+        ),
     }),
     handler: ({ body, headers }) => {
-      const { surfaceId, conversationId, title, content, wordCount } = (body ??
-        {}) as {
+      const {
+        surfaceId,
+        conversationId,
+        title,
+        content,
+        wordCount,
+        baseRevision,
+      } = (body ?? {}) as {
         surfaceId?: string;
         conversationId?: string;
         title?: string;
         content?: string;
         wordCount?: number;
+        baseRevision?: number | null;
       };
 
       if (!surfaceId || typeof surfaceId !== "string") {
@@ -195,6 +192,14 @@ export const ROUTES: RouteDefinition[] = [
       if (typeof wordCount !== "number") {
         throw new BadRequestError("wordCount is required");
       }
+      if (
+        baseRevision != null &&
+        (!Number.isInteger(baseRevision) || baseRevision < 0)
+      ) {
+        throw new BadRequestError(
+          "baseRevision must be a non-negative integer",
+        );
+      }
 
       const result = saveDocument({
         surfaceId,
@@ -202,9 +207,13 @@ export const ROUTES: RouteDefinition[] = [
         title,
         content,
         wordCount,
+        baseRevision: baseRevision ?? undefined,
       });
 
       if (!result.success) {
+        if (result.conflict) {
+          throw new ConflictError(result.error, result.conflict);
+        }
         throw new InternalError(result.error);
       }
       // Every save moves `updated_at`, which both document lists order by and

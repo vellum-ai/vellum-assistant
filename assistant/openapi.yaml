@@ -12482,6 +12482,9 @@ paths:
                           type: number
                         updatedAt:
                           type: number
+                        revision:
+                          description: Bumped by one on every write. Absent from assistants that predate document revisions.
+                          type: number
                       required:
                         - surfaceId
                         - conversationId
@@ -12496,7 +12499,10 @@ paths:
     post:
       operationId: documents_post
       summary: Save a document
-      description: Create or upsert a document (by surfaceId).
+      description:
+        Create or upsert a document (by surfaceId). With `baseRevision`, an existing document is only overwritten
+        while its revision still equals `baseRevision`; otherwise the save is rejected with 409 CONFLICT and
+        `error.details` carries the current `revision`, `title`, and `content`.
       tags:
         - documents
       requestBody:
@@ -12521,6 +12527,13 @@ paths:
                 wordCount:
                   type: number
                   description: Word count
+                baseRevision:
+                  description:
+                    The revision this save was edited from. When set and the stored revision differs, nothing is written and
+                    the request fails with 409. Omit for an unconditional write.
+                  type: integer
+                  minimum: 0
+                  maximum: 9007199254740991
               required:
                 - surfaceId
                 - conversationId
@@ -12540,6 +12553,9 @@ paths:
                     const: true
                   surfaceId:
                     type: string
+                  revision:
+                    description: The document's revision after the save. Absent from assistants that predate document revisions.
+                    type: number
                 required:
                   - success
                   - surfaceId
@@ -12580,6 +12596,9 @@ paths:
                   createdAt:
                     type: number
                   updatedAt:
+                    type: number
+                  revision:
+                    description: Bumped by one on every write. Absent from assistants that predate document revisions.
                     type: number
                 required:
                   - success
@@ -13052,6 +13071,9 @@ paths:
                   createdAt:
                     type: number
                   updatedAt:
+                    type: number
+                  revision:
+                    description: Bumped by one on every write. Absent from assistants that predate document revisions.
                     type: number
                 required:
                   - success

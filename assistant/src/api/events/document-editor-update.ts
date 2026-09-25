@@ -20,6 +20,11 @@ export const DocumentEditorUpdateEventSchema = z.object({
   surfaceId: z.string(),
   markdown: z.string(),
   mode: z.string(),
+  /**
+   * The document's revision once this content is in place. A client that
+   * saves with `baseRevision` adopts it as its new base.
+   */
+  revision: z.number().optional(),
 });
 
 export type DocumentEditorUpdateEvent = z.infer<
