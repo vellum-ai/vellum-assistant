@@ -61,11 +61,7 @@ export function deriveAssistantStatus({
   }
 
   // Active + connected: a turn in flight pulses `thinking`, otherwise idle.
-  if (
-    turnPhase === "queued" ||
-    turnPhase === "thinking" ||
-    turnPhase === "streaming"
-  ) {
+  if (turnPhase === "thinking" || turnPhase === "streaming") {
     return "thinking";
   }
 

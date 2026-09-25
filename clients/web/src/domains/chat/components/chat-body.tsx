@@ -43,7 +43,7 @@ import { useTranslation } from "@/i18n";
  *
  * Both the main chat path and the app-editing side panel render this
  * exact component. Differences between the two — mobile-app nudge
- * banners, the queued-messages drawer, container variant — are passed in
+ * banners, container variant — are passed in
  * as optional slot props or a `variant` enum, so the composer itself is
  * a single mounted instance across both paths (LUM-1516).
  *
@@ -139,13 +139,6 @@ export interface ChatBodyProps {
   bannerSlot?: ReactNode;
 
   /**
-   * Optional pre-rendered queued-messages drawer rendered inside the
-   * max-width wrapper above the composer. Omitted by the app-editing
-   * side panel.
-   */
-  queuedDrawerSlot?: ReactNode;
-
-  /**
    * Optional pre-rendered footer rendered inside the max-width wrapper
    * immediately above the composer.
    */
@@ -234,7 +227,6 @@ export function ChatBody({
   genericChatError,
   onDismissChatError,
   bannerSlot,
-  queuedDrawerSlot,
   channelFooterSlot,
   startersSlot,
   pluginPillsSlot,
@@ -398,7 +390,6 @@ export function ChatBody({
             </Notice>
           </div>
         )}
-        {queuedDrawerSlot}
         <AcpConnectSlot />
         <QuestionPromptSlot
           onViewConversation={showingDocument ? onViewConversation : undefined}

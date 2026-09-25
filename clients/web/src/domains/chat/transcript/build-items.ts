@@ -140,7 +140,7 @@ const PROACTIVE_CREDITS_UPSELL_ITEM: CreditsUpsellItem = {
  *
  * Rules:
  *
- *   1. Hidden notifications and queued user rows neither render nor split runs.
+ *   1. Hidden notifications neither render nor split runs.
  *      Consecutive camera frames join the next user row that renders normal
  *      user content. A visible incompatible row or list end leaves the run on
  *      its first frame. All source messages remain intact.
@@ -188,14 +188,6 @@ export function buildTranscriptItems(
       message.isAcpNotification ||
       message.isBackgroundEventNotification
     ) {
-      continue;
-    }
-
-    // Queued user messages surface via the queue drawer, not the transcript.
-    const isQueuedUser =
-      message.role === "user" && message.queueStatus === "queued";
-
-    if (isQueuedUser) {
       continue;
     }
 

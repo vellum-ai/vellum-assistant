@@ -14,7 +14,7 @@
  * - `useComposerSubmit` — submit logic, focus management
  * - `DiskPressureBannerSlot` — localStorage-backed dismiss/suppress
  * - `useRuleEditorBridge` — viewer-store → rule-editor bridge
- * - `useChatBannerSlots` — nudge/queued banner assembly
+ * - `useChatBannerSlots` — nudge banner assembly
  */
 
 import {
@@ -198,18 +198,13 @@ import { useLowBalanceBannerStore } from "@/stores/low-balance-banner-store";
 // ---------------------------------------------------------------------------
 
 export interface ChatMainPanelProps {
-  // Send message (orchestration owns the SSE / queue lifecycle)
+  // Send message (orchestration owns the SSE lifecycle)
   sendMessage: (
     content: string,
     attachments?: DisplayAttachment[],
     opts?: SendChatMessageOptions,
   ) => Promise<void>;
   handleStopGenerating: () => Promise<void>;
-  queuedMessages: DisplayMessage[];
-  handleCancelQueuedMessage: (messageId: string) => void;
-  handleCancelAllQueued: () => void;
-  handleSteerMessage: (messageId: string) => void;
-  handleEditQueueTail: () => void;
 
   // Conversation secondary actions (orchestration dependency)
   /** Forks through a message. Omitted unless the viewer passes the
@@ -305,11 +300,6 @@ const REPROVISION_ASSISTANT_KEY_COMMAND =
 export function ChatMainPanel({
   sendMessage,
   handleStopGenerating,
-  queuedMessages,
-  handleCancelQueuedMessage,
-  handleCancelAllQueued,
-  handleSteerMessage,
-  handleEditQueueTail,
   handleForkConversation,
   onSummarizeUpToHere,
   onRetryLatestTurn,
@@ -1278,16 +1268,9 @@ export function ChatMainPanel({
   });
 
   // -------------------------------------------------------------------------
-  // Banner slots (nudge, queued)
+  // Banner slots (nudge)
   // -------------------------------------------------------------------------
-  const { mainBannerSlot, mainQueuedDrawerSlot } = useChatBannerSlots({
-    nudges,
-    queuedMessages,
-    onCancelQueuedMessage: handleCancelQueuedMessage,
-    onCancelAllQueued: handleCancelAllQueued,
-    onSteerMessage: handleSteerMessage,
-    onEditQueueTail: handleEditQueueTail,
-  });
+  const { mainBannerSlot } = useChatBannerSlots({ nudges });
 
   // A conversation whose branch parent was deleted renders its own messages
   // and nothing before them. Composed into the banner slot rather than
@@ -1660,7 +1643,6 @@ export function ChatMainPanel({
       genericChatError={genericChatBanner}
       onDismissChatError={handleDismissChatError}
       bannerSlot={isSidePanel ? undefined : mainBannerWithNotices}
-      queuedDrawerSlot={isSidePanel ? undefined : mainQueuedDrawerSlot}
       startersSlot={startersSlot}
       belowFoldSlot={belowFoldSlot}
       dockStartersToBottom={dockStartersToBottom}

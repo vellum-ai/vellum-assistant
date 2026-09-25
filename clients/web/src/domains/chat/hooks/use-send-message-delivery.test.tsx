@@ -33,13 +33,10 @@ let postChatMessageMock = mock(async (): Promise<PostMessageResult> => ({
   conversationId: "conv-A",
   messageId: "user-msg-1",
 }));
-let deleteQueuedMessageMock = mock(async () => true);
 
 mock.module("@/domains/chat/api/messages", () => ({
   ...realMessages,
   postChatMessage: (...args: unknown[]) => postChatMessageMock(...(args as [])),
-  deleteQueuedMessage: (...args: unknown[]) =>
-    deleteQueuedMessageMock(...(args as [])),
 }));
 
 // Server-mint gating reads a backwards-compat store; force the legacy path so
@@ -113,7 +110,6 @@ beforeEach(() => {
     conversationId: "conv-A",
     messageId: "user-msg-1",
   }));
-  deleteQueuedMessageMock = mock(async () => true);
   // Scope check: the send's assistant/conversation must be the active ones so
   // the fallback branch is reached (not short-circuited as inactive).
   useResolvedAssistantsStore.getState().setActiveAssistantId("asst-1");
@@ -122,13 +118,11 @@ beforeEach(() => {
     snapshot: null,
     optimisticSends: [],
     error: null,
-    pendingQueuedMessageIds: [],
     requestIdToMessageId: new Map(),
-    pendingLocalDeletions: new Set(),
   });
   // Reset turn phase to idle so a prior test's hidden send (which never calls
-  // `endTurn`) can't leave the store "sending" and push the next send onto the
-  // queue path instead of the active-send path under test.
+  // `endTurn`) can't leave the store "sending" and mark the next send as
+  // interrupting a turn that is not running.
   useTurnStore.getState().resetTurn();
 });
 
@@ -169,81 +163,53 @@ describe("useSendMessage — SSE + reconciliation own delivery (no poll)", () =>
     expect(useChatSessionStore.getState().error).toBeNull();
   });
 
-  test("an early queue cancellation deletes after the POST supplies its request id", async () => {
-    let resolvePost: (result: PostMessageResult) => void = () => {};
-    postChatMessageMock = mock(
-      () =>
-        new Promise<PostMessageResult>((resolve) => {
-          resolvePost = resolve;
-        }),
-    );
-    useTurnStore.setState({
-      phase: "streaming",
-      activeTurnId: "turn-1",
-    });
+  test("a send during a turn marks itself as interrupting that turn", async () => {
+    useTurnStore.setState({ phase: "streaming", activeTurnId: "turn-1" });
     const { result } = renderSend(() => {});
-    let sendPromise: Promise<void> = Promise.resolve();
 
     await act(async () => {
-      sendPromise = result.current.sendMessage("cancel this queued message");
-      await Promise.resolve();
-    });
-    const messageId = useChatSessionStore.getState().optimisticSends[0]?.id;
-    if (!messageId) {
-      throw new Error("Expected an optimistic queued message");
-    }
-
-    act(() => {
-      result.current.handleCancelQueuedMessage(messageId);
+      await result.current.sendMessage("actually, do this instead");
     });
 
-    expect(useChatSessionStore.getState().optimisticSends).toHaveLength(1);
-    expect(
-      useChatSessionStore.getState().pendingLocalDeletions.has(messageId),
-    ).toBe(true);
-
-    await act(async () => {
-      resolvePost({
-        ok: true,
-        queued: true,
-        assistantId: "asst-1",
-        conversationId: "conv-A",
-        requestId: "request-1",
-      });
-      await sendPromise;
-    });
-
-    expect(deleteQueuedMessageMock).toHaveBeenCalledWith(
-      "asst-1",
-      "conv-A",
-      "request-1",
-    );
-    expect(useChatSessionStore.getState().optimisticSends).toHaveLength(0);
-    expect(useChatSessionStore.getState().requestIdToMessageId.size).toBe(0);
+    const turn = useTurnStore.getState();
+    expect(turn.activeTurnId).not.toBe("turn-1");
+    expect(turn.interruptingTurnId).toBe(turn.activeTurnId);
+    expect(postChatMessageMock).toHaveBeenCalledTimes(1);
   });
 
-  test("a hidden send on the queue path leaves the pending FIFO untouched", async () => {
-    // A hidden send renders no row and receives no queued ack, so tracking
-    // it would park a dead FIFO entry that the next visible send's ack
-    // would bind to instead of its own row.
+  test("a send while idle does not mark itself as interrupting", async () => {
+    const { result } = renderSend(() => {});
+
+    await act(async () => {
+      await result.current.sendMessage("hello");
+    });
+
+    expect(useTurnStore.getState().interruptingTurnId).toBeNull();
+  });
+
+  test("an older assistant's queued acceptance keeps the row and its request id", async () => {
     postChatMessageMock = mock(async (): Promise<PostMessageResult> => ({
       ok: true as const,
       queued: true,
       assistantId: "asst-1",
       conversationId: "conv-A",
-      requestId: "request-hidden",
+      requestId: "request-1",
     }));
-    useTurnStore.setState({
-      phase: "streaming",
-      activeTurnId: "turn-1",
-    });
-    const { result } = renderSend(() => {});
+    const startReconciliationLoop = mock(() => {});
+    const { result } = renderSend(startReconciliationLoop);
 
     await act(async () => {
-      await result.current.sendMessage("machine signal", [], { hidden: true });
+      await result.current.sendMessage("sent to an older assistant");
     });
 
-    expect(useChatSessionStore.getState().pendingQueuedMessageIds).toEqual([]);
-    expect(useChatSessionStore.getState().optimisticSends).toHaveLength(0);
+    const [row] = useChatSessionStore.getState().optimisticSends;
+    expect(row?.textSegments).toEqual(["sent to an older assistant"]);
+    expect(
+      useChatSessionStore.getState().requestIdToMessageId.get("request-1"),
+    ).toBe(row?.id);
+    expect(useChatSessionStore.getState().error).toBeNull();
+    // Nothing was aborted, so no cancel is owed to this send: a Stop during
+    // the queued message's turn must read as terminal, not as the handoff.
+    expect(useTurnStore.getState().interruptingTurnId).toBeNull();
   });
 });

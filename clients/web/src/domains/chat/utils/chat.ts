@@ -191,19 +191,16 @@ export function isConversationScopedStreamEvent(
 export function hasPendingAssistantResponse(
   messages: DisplayMessage[],
 ): boolean {
-  let lastNonQueuedUserIndex = -1;
-
   for (let i = messages.length - 1; i >= 0; i--) {
-    const msg = messages[i]!;
-    if (msg.role === "assistant") {
-      return lastNonQueuedUserIndex > i;
+    const role = messages[i]!.role;
+    if (role === "assistant") {
+      return false;
     }
-    if (msg.role === "user" && msg.queueStatus !== "queued") {
-      lastNonQueuedUserIndex = i;
+    if (role === "user") {
+      return true;
     }
   }
-
-  return lastNonQueuedUserIndex !== -1;
+  return false;
 }
 
 /** Whether any message carries a surface that still accepts user input. */

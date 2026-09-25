@@ -10,8 +10,8 @@
  * The message still goes to the conversation it was written in, because the
  * POST targets the id this call carries. What must not happen is the send
  * writing into the stores that describe the ONE thread on screen: the
- * optimistic row and the queue FIFO, which nothing would take back out (a
- * switch clears them, and these arrive after that); the turn phase, whose
+ * optimistic row, which nothing would take back out (a switch clears it, and
+ * this arrives after that); the turn phase, whose
  * matching `acceptSend` is scope-checked and would leave the composer disabled;
  * and the interactive surfaces, which belong to the thread the user is reading.
  *
@@ -49,14 +49,14 @@ let capturedBody: Record<string, unknown> | null = null;
 let postResponse: Record<string, unknown> = {};
 const originalPost = daemonClient.post;
 
-/** The daemon accepted the message and ran it directly (no queue). */
+/** The daemon accepted the message and ran it. */
 const ACCEPTED_DIRECTLY = {
   accepted: true,
   conversationId: SEND_CONVERSATION,
   messageId: "m1",
 };
 
-/** The daemon parked the message behind the turn already running. */
+/** An older assistant parked the message behind the turn already running. */
 const ACCEPTED_QUEUED = {
   accepted: true,
   conversationId: SEND_CONVERSATION,
@@ -199,7 +199,7 @@ beforeEach(() => {
   useChatSessionStore.setState({
     optimisticSends: [],
     error: null,
-    pendingQueuedMessageIds: [],
+    requestIdToMessageId: new Map(),
     ephemeralMetaResults: [],
     contextWindowUsage: null,
   });
@@ -246,21 +246,20 @@ describe("useSendMessage: a send whose thread is no longer open", () => {
     expect(postedConversationId()).toBe(SEND_CONVERSATION);
   });
 
-  test("the queue path leaves the open transcript alone too", async () => {
-    // The queue path posts and returns without ever reaching the send's
-    // post-POST scope check, so its row would otherwise stay put for good.
+  test("a send while the open thread is answering leaves it alone too", async () => {
+    // The open thread's busy phase makes a send interrupting, which is a claim
+    // on that thread's turn. A stale send has no turn there to replace.
     useTurnStore.setState({ phase: "streaming", activeTurnId: "turn-1" });
     useConversationStore.getState().setActiveConversationId(OPEN_CONVERSATION);
     const { result } = renderSendFor(SEND_CONVERSATION);
 
     await act(async () => {
-      await result.current.sendMessage("queue this one");
+      await result.current.sendMessage("interrupt with this one");
     });
 
     expect(useChatSessionStore.getState().optimisticSends).toEqual([]);
-    // The pending FIFO is held in the same store, and an ack for a thread it
-    // does not describe would bind to the next visible send's row.
-    expect(useChatSessionStore.getState().pendingQueuedMessageIds).toEqual([]);
+    expect(turnState()).toEqual({ phase: "streaming", activeTurnId: "turn-1" });
+    expect(useTurnStore.getState().interruptingTurnId).toBeNull();
     expect(postedConversationId()).toBe(SEND_CONVERSATION);
   });
 
@@ -315,13 +314,13 @@ describe("useSendMessage: a send whose thread is no longer open", () => {
 });
 
 /**
- * The queue branch is reachable for a stale send because `willQueue` reads the
- * OPEN thread's phase: a thread answering on screen sends every message written
- * anywhere down this path, including one whose own conversation was idle. Its
- * responses then carry writes that describe the thread on screen.
+ * The turn store reads the OPEN thread's phase, so a thread answering on screen
+ * makes every message written anywhere look like an interrupt, including one
+ * whose own conversation was idle. Its responses then carry writes that
+ * describe the thread on screen.
  */
-describe("useSendMessage: a stale send through the queue branch", () => {
-  /** The open thread is mid-answer, which is what puts a send on this path. */
+describe("useSendMessage: a stale send while the open thread is answering", () => {
+  /** The open thread is mid-answer. */
   const OPEN_THREAD_TURN = {
     phase: "streaming" as const,
     activeTurnId: "open-turn",
@@ -334,7 +333,7 @@ describe("useSendMessage: a stale send through the queue branch", () => {
 
   test("a directly-processed response leaves the open thread's turn alone", async () => {
     // GIVEN the send's own thread turned out to be idle, so the daemon ran the
-    // message rather than queueing it. The fallback that follows claims a turn.
+    // message straight away.
     postResponse = ACCEPTED_DIRECTLY;
     const { result } = renderSendFor(SEND_CONVERSATION);
 
@@ -347,22 +346,21 @@ describe("useSendMessage: a stale send through the queue branch", () => {
     expect(postedConversationId()).toBe(SEND_CONVERSATION);
   });
 
-  test("a queued response leaves the open thread's turn and FIFO alone", async () => {
+  test("a queued response leaves the open thread's turn and mapping alone", async () => {
     postResponse = ACCEPTED_QUEUED;
     const { result } = renderSendFor(SEND_CONVERSATION);
 
     await act(async () => {
-      await result.current.sendMessage("queue this one");
+      await result.current.sendMessage("sent to an older assistant");
     });
 
     expect(turnState()).toEqual(OPEN_THREAD_TURN);
-    expect(useChatSessionStore.getState().pendingQueuedMessageIds).toEqual([]);
-    // The mapping binds a deletion broadcast to a rendered row, and this send
+    // The mapping binds a delivery failure to a rendered row, and this send
     // has none on screen to bind to.
     expect(useChatSessionStore.getState().requestIdToMessageId.size).toBe(0);
   });
 
-  test("a failed queue POST raises no error over the open thread", async () => {
+  test("a failed POST raises no error over the open thread", async () => {
     postResponse = {};
     daemonClient.post = mock(async () => ({
       data: null,
@@ -380,7 +378,7 @@ describe("useSendMessage: a stale send through the queue branch", () => {
   });
 
   test("the same response drives the turn while the thread is still open", async () => {
-    // The control: on screen, the fallback claims its turn exactly as before.
+    // The control: on screen, the send claims its turn.
     useConversationStore.getState().setActiveConversationId(SEND_CONVERSATION);
     postResponse = ACCEPTED_DIRECTLY;
     const { result } = renderSendFor(SEND_CONVERSATION);
@@ -397,8 +395,7 @@ describe("useSendMessage: a stale send through the queue branch", () => {
 
 /**
  * A send that fails after the user has moved on has nowhere on screen to report
- * itself: the streaming path classifies it `ignored` and the queue path's
- * banner is scoped to the thread the failure happened in. The text still has to
+ * itself: the streaming path classifies it `ignored`. The text still has to
  * survive, so it goes back to its own conversation's draft slot and is handed
  * over the next time that thread is opened.
  */
@@ -429,15 +426,15 @@ describe("useSendMessage: a stale send that fails", () => {
     expect(draftFor(OPEN_CONVERSATION)).toBe("");
   });
 
-  test("the queue path parks it too", async () => {
+  test("a send while the open thread is answering parks it too", async () => {
     useTurnStore.setState({ phase: "streaming", activeTurnId: "open-turn" });
     const { result } = renderSendFor(SEND_CONVERSATION);
 
     await act(async () => {
-      await result.current.sendMessage("queued and lost");
+      await result.current.sendMessage("interrupted and lost");
     });
 
-    expect(draftFor(SEND_CONVERSATION)).toBe("queued and lost");
+    expect(draftFor(SEND_CONVERSATION)).toBe("interrupted and lost");
     expect(draftFor(OPEN_CONVERSATION)).toBe("");
   });
 
@@ -495,11 +492,20 @@ describe("useSendMessage: a switch during the POST", () => {
     useConversationStore.getState().setActiveConversationId(SEND_CONVERSATION);
   });
 
-  test("a directly-processed response does not claim the newly opened turn", async () => {
-    // `willQueue` is read pre-POST, so a streaming thread puts this send on the
-    // queue path; the daemon then reports it ran the message straight away.
-    useTurnStore.setState(OPEN_THREAD_TURN);
-    switchWhileAnswering(ACCEPTED_DIRECTLY);
+  test("a response does not claim the newly opened thread's turn", async () => {
+    // The send claims its own thread's turn before the POST; the thread the
+    // user opens during it has an answer of its own running.
+    daemonClient.post = mock(async () => {
+      useConversationStore
+        .getState()
+        .setActiveConversationId(OPEN_CONVERSATION);
+      useTurnStore.setState(OPEN_THREAD_TURN);
+      return {
+        data: ACCEPTED_DIRECTLY,
+        error: null,
+        response: new Response(null, { status: 200 }),
+      };
+    }) as typeof daemonClient.post;
     const { result } = renderSendFor(SEND_CONVERSATION);
 
     await act(async () => {
@@ -732,38 +738,12 @@ describe("useSendMessage: a switch during the POST", () => {
     expect(currentLocation).toBe(START_LOCATION);
   });
 
-  test("a queue-branch failure banners nowhere and parks the text", async () => {
-    // The same window on the path that posts for itself: `willQueue` was read
-    // before the POST, so this send is on the queue branch when the switch
-    // lands and its own failure handling has to notice.
-    useTurnStore.setState(OPEN_THREAD_TURN);
-    daemonClient.post = mock(async () => {
-      useConversationStore
-        .getState()
-        .setActiveConversationId(OPEN_CONVERSATION);
-      return {
-        data: null,
-        error: { detail: "nope" },
-        response: new Response(null, { status: 500 }),
-      };
-    }) as typeof daemonClient.post;
-    const { result } = renderSendFor(SEND_CONVERSATION);
-
-    await act(async () => {
-      await result.current.sendMessage("queued and lost");
-    });
-
-    expect(useChatSessionStore.getState().error).toBeNull();
-    expect(draftFor(SEND_CONVERSATION)).toBe("queued and lost");
-  });
-
   test("a queued response leaves the newly opened thread's mapping empty", async () => {
-    useTurnStore.setState(OPEN_THREAD_TURN);
     switchWhileAnswering(ACCEPTED_QUEUED);
     const { result } = renderSendFor(SEND_CONVERSATION);
 
     await act(async () => {
-      await result.current.sendMessage("queue this one");
+      await result.current.sendMessage("sent to an older assistant");
     });
 
     expect(useChatSessionStore.getState().requestIdToMessageId.size).toBe(0);
@@ -867,22 +847,6 @@ describe("useSendMessage: a send whose POST throws", () => {
     expect(draftFor(SEND_CONVERSATION)).toBe("");
   });
 
-  test("the queue branch's own catch parks it too", async () => {
-    // `willQueue` is read pre-POST, so a thread already answering puts this
-    // send on the queue path; its catch is a separate handler from the one
-    // above and needs the same split.
-    useConversationStore.getState().setActiveConversationId(SEND_CONVERSATION);
-    useTurnStore.setState({ phase: "streaming", activeTurnId: "own-turn" });
-    throwWhileAnswering({ switchFirst: true });
-    const { result } = renderSendFor(SEND_CONVERSATION);
-
-    await act(async () => {
-      await result.current.sendMessage("queued and thrown");
-    });
-
-    expect(useChatSessionStore.getState().error).toBeNull();
-    expect(draftFor(SEND_CONVERSATION)).toBe("queued and thrown");
-  });
 });
 
 /**

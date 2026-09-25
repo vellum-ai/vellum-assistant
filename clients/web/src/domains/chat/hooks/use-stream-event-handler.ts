@@ -25,7 +25,6 @@ import {
   handleAssistantActivityState,
   handleMessageComplete,
   handleUserMessageEcho,
-  handleGenerationHandoff,
   handleGenerationCancelled,
 } from "@/domains/chat/utils/stream-handlers/message-handlers";
 import {
@@ -59,13 +58,6 @@ import {
   handleCompactionCircuitOpen,
   handleCompactionCircuitClosed,
 } from "@/domains/chat/utils/stream-handlers/metadata-handlers";
-import {
-  handleMessageQueued,
-  handleMessageDequeued,
-  handleMessageQueuedDeleted,
-  handleMessageRequeued,
-  handleMessageRequestComplete,
-} from "@/domains/chat/utils/stream-handlers/queue-handlers";
 import {
   handleSubagentSpawned,
   handleSubagentStatusChanged,
@@ -264,10 +256,6 @@ export function useStreamEventHandler(
         assistantId: useResolvedAssistantsStore.getState().activeAssistantId,
         composerSessionGeneration: composerSessionGenerationRef.current,
         setOptimisticSends: store.setOptimisticSends,
-        // Read live rather than closing over `store`: a queue ack can arrive
-        // after later sends have already changed the list.
-        getOptimisticSends: () =>
-          useChatSessionStore.getState().optimisticSends,
         turnActions: useTurnStore.getState(),
         getTurnState: () => useTurnStore.getState(),
         endTurn,
@@ -284,11 +272,7 @@ export function useStreamEventHandler(
         setContextWindowUsage: store.setContextWindowUsage,
         queryClient,
         setCompactionCircuitOpenUntil: store.setCompactionCircuitOpenUntil,
-        shiftPendingQueuedMessageId: store.shiftPendingQueuedMessageId,
-        takePendingQueuedMessageId: store.takePendingQueuedMessageId,
-        setRequestIdMapping: store.setRequestIdMapping,
         popRequestIdMapping: store.popRequestIdMapping,
-        consumePendingLocalDeletion: store.consumePendingLocalDeletion,
         lastActivityVersionRef,
         currentAssistantMessageIdRef,
         lastCompletedToolNameRef,
@@ -324,9 +308,6 @@ export function useStreamEventHandler(
           break;
         case "user_message_echo":
           handleUserMessageEcho(event, ctx);
-          break;
-        case "generation_handoff":
-          handleGenerationHandoff(event, ctx);
           break;
         case "error":
           handleStreamError(event, ctx);
@@ -413,22 +394,6 @@ export function useStreamEventHandler(
           break;
         case "compaction_circuit_closed":
           handleCompactionCircuitClosed(event, ctx);
-          break;
-
-        case "message_queued":
-          handleMessageQueued(event, ctx);
-          break;
-        case "message_dequeued":
-          handleMessageDequeued(event, ctx);
-          break;
-        case "message_requeued":
-          handleMessageRequeued(event, ctx);
-          break;
-        case "message_queued_deleted":
-          handleMessageQueuedDeleted(event, ctx);
-          break;
-        case "message_request_complete":
-          handleMessageRequestComplete(event, ctx);
           break;
 
         case "subagent_spawned":
@@ -522,12 +487,23 @@ export function useStreamEventHandler(
         case "hook_event":
           break;
         // Conversation-scoped signals the web chat view does not render:
-        // streaming tool-input deltas, steer acks, authoritative confirmation
-        // state transitions, and inference-profile override changes.
+        // streaming tool-input deltas, authoritative confirmation state
+        // transitions, and inference-profile override changes.
         case "tool_input_delta":
-        case "message_steered":
         case "confirmation_state_changed":
         case "conversation_inference_profile_updated":
+          break;
+        // Message-queue signals from an assistant that queues a send made
+        // during a busy turn. The web renders no queue: the queued message
+        // arrives through `user_message_echo` and its turn through the
+        // ordinary turn events.
+        case "message_queued":
+        case "message_dequeued":
+        case "message_requeued":
+        case "message_queued_deleted":
+        case "message_steered":
+        case "message_request_complete":
+        case "generation_handoff":
           break;
         // Daemon status / model-catalog / compaction / schedule- and
         // heartbeat-created signals. The web chat handler is a no-op — these are

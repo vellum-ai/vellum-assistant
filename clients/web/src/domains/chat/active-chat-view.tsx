@@ -333,15 +333,7 @@ export function ActiveChatView() {
   // -------------------------------------------------------------------------
   // Send message
   // -------------------------------------------------------------------------
-  const {
-    sendMessage,
-    handleStopGenerating,
-    queuedMessages,
-    handleCancelQueuedMessage,
-    handleCancelAllQueued,
-    handleSteerMessage,
-    handleEditQueueTail,
-  } = useSendMessage({
+  const { sendMessage, handleStopGenerating } = useSendMessage({
     assistantId,
     activeConversationId,
     diskPressureChatBlockReason,
@@ -642,14 +634,9 @@ export function ActiveChatView() {
   // Props assembly — only values ChatMainPanel can't own locally
   // -------------------------------------------------------------------------
   const chatRouteProps: ChatMainPanelProps = {
-    // Send message (orchestration owns SSE / queue lifecycle)
+    // Send message (orchestration owns SSE lifecycle)
     sendMessage,
     handleStopGenerating,
-    queuedMessages,
-    handleCancelQueuedMessage,
-    handleCancelAllQueued,
-    handleSteerMessage,
-    handleEditQueueTail,
 
     // Conversation secondary actions
     handleForkConversation: canUseInternalActions

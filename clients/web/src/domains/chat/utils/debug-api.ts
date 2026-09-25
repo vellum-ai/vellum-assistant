@@ -81,7 +81,7 @@ import type { SleepStageScene } from "@/stores/assistant-sleep-stage-store";
  * to see exactly which clauses blocked the indicator.
  */
 export interface ChatDebugThinkingConditions {
-  /** {@link isSending} — phase is queued/thinking/streaming/awaiting_user_input. */
+  /** {@link isSending} — phase is thinking/streaming/awaiting_user_input. */
   isSending: boolean;
   /** {@link isThinking} — phase === "thinking". */
   isThinking: boolean;
@@ -294,7 +294,7 @@ export interface ChatDebugApi {
   getTranscriptItems(): TranscriptItem[];
   /**
    * Current turn phase — the `phase` field of the turn-store state
-   * machine (`useTurnStore`). One of `idle`, `queued`, `thinking`,
+   * machine (`useTurnStore`). One of `idle`, `thinking`,
    * `streaming`, `awaiting_user_input`, or `errored`.
    *
    * Console-callable mirror of the `useTurnStore.use.phase()` render hook:
@@ -836,7 +836,7 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
       "",
       "  .getClientMessages(n?)     last N DisplayMessage[] the UI is rendering (post-sanitize)",
       "  .getTranscriptItems()      full virtualized row list — messages + thinking + pending prompts",
-      "  .getPhase()                current turn phase (idle/queued/thinking/streaming/awaiting_user_input/errored)",
+      "  .getPhase()                current turn phase (idle/thinking/streaming/awaiting_user_input/errored)",
       "  .thinkingIndicator()       live evaluation of the `...` predicate + done signal",
       "                              .visible / .failingConditions tell you why dots are or aren't showing",
       "                              .done.terminal / .done.lastTerminalReason tell you if the turn is finished",
