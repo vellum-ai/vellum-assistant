@@ -308,6 +308,21 @@ describe("getOAuthCallbackUrl", () => {
     });
     expect(url).toBe("https://example.com/webhooks/oauth/callback");
   });
+
+  test("canonicalizes the base before building OAuth URLs", () => {
+    const config = {
+      ingress: {
+        publicBaseUrl: "https://EXAMPLE.com:443/a/../assistant-123///",
+      },
+    };
+
+    expect(getOAuthCallbackUrl(config)).toBe(
+      "https://example.com/assistant-123/webhooks/oauth/callback",
+    );
+    expect(getMcpOAuthClientMetadataUrl(config)).toBe(
+      "https://example.com/assistant-123/oauth/client-metadata.json",
+    );
+  });
 });
 
 describe("getMcpOAuthClientMetadataUrl", () => {

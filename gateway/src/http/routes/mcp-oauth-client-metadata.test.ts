@@ -36,6 +36,26 @@ describe("MCP OAuth client metadata", () => {
     });
   });
 
+  test("publishes canonical URLs for equivalent ingress spellings", async () => {
+    const handle = createMcpOAuthClientMetadataHandler(
+      config({
+        enabled: true,
+        publicBaseUrl: "https://VELAY.EXAMPLE:443/a/../assistant-123///",
+      }),
+    );
+
+    const response = handle();
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      client_id:
+        "https://velay.example/assistant-123/oauth/client-metadata.json",
+      redirect_uris: [
+        "https://velay.example/assistant-123/webhooks/oauth/callback",
+      ],
+    });
+  });
+
   test("does not publish a document without HTTPS ingress", async () => {
     const handle = createMcpOAuthClientMetadataHandler(
       config({ publicBaseUrl: "http://localhost:8501/assistant-123" }),

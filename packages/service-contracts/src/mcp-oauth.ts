@@ -1,4 +1,4 @@
-import { normalizePublicBaseUrl } from "./ingress.js";
+import { normalizeHttpPublicBaseUrlWithoutTrailingSlash } from "./ingress.js";
 
 export const MCP_OAUTH_CALLBACK_PATH = "/webhooks/oauth/callback";
 export const MCP_OAUTH_CLIENT_METADATA_PATH = "/oauth/client-metadata.json";
@@ -51,9 +51,10 @@ export function buildMcpOAuthClientMetadataUrl(publicBaseUrl: string): string {
 }
 
 function normalizeBaseUrl(publicBaseUrl: string): string {
-  const normalized = normalizePublicBaseUrl(publicBaseUrl);
+  const normalized =
+    normalizeHttpPublicBaseUrlWithoutTrailingSlash(publicBaseUrl);
   if (!normalized) {
-    throw new Error("MCP OAuth public base URL must not be empty");
+    throw new Error("MCP OAuth public base URL must be an absolute HTTP URL");
   }
   return normalized;
 }

@@ -39,4 +39,15 @@ describe("MCP OAuth client metadata", () => {
       "https://velay.example/assistant-123/oauth/client-metadata.json",
     );
   });
+
+  test("canonicalizes equivalent public base URL spellings", () => {
+    const baseUrl = " https://VELAY.EXAMPLE:443/a/../assistant-123/// ";
+
+    expect(buildMcpOAuthCallbackUrl(baseUrl)).toBe(
+      "https://velay.example/assistant-123/webhooks/oauth/callback",
+    );
+    expect(buildMcpOAuthClientMetadataUrl(baseUrl)).toBe(
+      "https://velay.example/assistant-123/oauth/client-metadata.json",
+    );
+  });
 });
