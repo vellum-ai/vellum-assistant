@@ -13,6 +13,7 @@ import {
 } from "../config/loader.js";
 import { seedInferenceProfiles } from "../config/seed-inference-profiles.js";
 import { reconcileFlagGatedProfiles } from "../config/sync-gated-profiles.js";
+import { startConversationAutoArchive } from "../conversations/auto-archive.js";
 import { startCes } from "../credential-execution/ces-runtime.js";
 import { refreshManagedConnectionCache } from "../credential-execution/managed-catalog.js";
 import { startHeartbeatService } from "../heartbeat/heartbeat-service.js";
@@ -860,13 +861,15 @@ export async function runDaemon(): Promise<void> {
   // CES, which the startup sequence above just brought up. Fire-and-forget:
   // the resumes run sequentially in the background while the daemon serves
   // requests; per-conversation failures are logged inside.
+  let startupRecovery = Promise.resolve();
   if (conversationsToResume.length > 0) {
     log.info(
       { count: conversationsToResume.length },
       "Resuming conversations interrupted by the previous process",
     );
-    void resumeInterruptedConversations(conversationsToResume);
+    startupRecovery = resumeInterruptedConversations(conversationsToResume);
   }
+  startConversationAutoArchive(startupRecovery);
 
   log.info(
     {
