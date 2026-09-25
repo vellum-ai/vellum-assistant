@@ -73,10 +73,16 @@ function newProvider() {
 async function seedDiscovery(
   provider: InstanceType<typeof McpOAuthProvider>,
   issuer: string,
+  clientMetadataDocumentSupported?: boolean,
 ): Promise<void> {
   await provider.saveDiscoveryState({
     authorizationServerUrl: issuer,
-    authorizationServerMetadata: { issuer },
+    authorizationServerMetadata: {
+      issuer,
+      ...(clientMetadataDocumentSupported !== undefined && {
+        client_id_metadata_document_supported: clientMetadataDocumentSupported,
+      }),
+    },
   } as never);
 }
 
@@ -133,6 +139,40 @@ describe("McpOAuthProvider client registration reuse", () => {
     const next = newProvider();
     await next.startCallbackServer();
     await seedDiscovery(next, "https://different-auth.example");
+
+    expect(await next.clientInformation()).toBeUndefined();
+  });
+
+  test("a stored metadata client is reused while the server advertises support", async () => {
+    resolvedCallbackUrl = DIRECT_CALLBACK_URL;
+    const first = newProvider();
+    await first.startCallbackServer();
+    await seedDiscovery(first, "https://mcp.unabyss.com", true);
+    await first.saveClientInformation({
+      client_id: CLIENT_METADATA_URL,
+    } as never);
+
+    const next = newProvider();
+    await next.startCallbackServer();
+    await seedDiscovery(next, "https://mcp.unabyss.com", true);
+
+    expect(await next.clientInformation()).toEqual({
+      client_id: CLIENT_METADATA_URL,
+    } as never);
+  });
+
+  test("a stored metadata client falls back when the server stops advertising support", async () => {
+    resolvedCallbackUrl = DIRECT_CALLBACK_URL;
+    const first = newProvider();
+    await first.startCallbackServer();
+    await seedDiscovery(first, "https://mcp.unabyss.com", true);
+    await first.saveClientInformation({
+      client_id: CLIENT_METADATA_URL,
+    } as never);
+
+    const next = newProvider();
+    await next.startCallbackServer();
+    await seedDiscovery(next, "https://mcp.unabyss.com", false);
 
     expect(await next.clientInformation()).toBeUndefined();
   });

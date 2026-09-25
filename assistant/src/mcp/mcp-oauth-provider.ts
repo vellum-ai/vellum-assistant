@@ -372,6 +372,17 @@ export class McpOAuthProvider implements OAuthClientProvider {
       return "client metadata URL changed";
     }
 
+    if (this._redirectUrl && binding.clientMetadataUrl) {
+      const discovery = await this.discoveryState();
+      if (
+        discovery &&
+        discovery.authorizationServerMetadata
+          ?.client_id_metadata_document_supported !== true
+      ) {
+        return "authorization server no longer supports client metadata documents";
+      }
+    }
+
     const issuer = await this.currentIssuer();
     if (issuer && binding.issuer && binding.issuer !== issuer) {
       return "authorization server changed";
