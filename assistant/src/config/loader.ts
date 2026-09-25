@@ -17,6 +17,7 @@ import {
   getConfigValidationResetNoticePath,
   getWorkspaceConfigPath,
 } from "../util/platform.js";
+import { ChatSettingsConfigSchema } from "./chat-settings.js";
 import { pruneSeededCallsiteDefaultsFromConfig } from "./prune-seeded-callsite-defaults.js";
 import { AssistantConfigSchema } from "./schema.js";
 import type { AssistantConfig } from "./types.js";
@@ -1364,6 +1365,7 @@ function describeJsonShape(value: unknown): string {
 }
 
 export function saveRawConfig(config: Record<string, unknown>): void {
+  ChatSettingsConfigSchema.parse(config);
   ensureDataDir();
   const configPath = getWorkspaceConfigPath();
 
