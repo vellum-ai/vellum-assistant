@@ -174,9 +174,11 @@ describe("the minted grant", () => {
   });
 
   test("a grant for a second account gets a subject of its own", async () => {
+    // generic-examples:ignore-next-line — reason: deliberately different accounts to test distinct subjects
     const first = await grant({ provider: "stripe_link", account: "a@x.test" });
     const second = await grant({
       provider: "stripe_link",
+      // generic-examples:ignore-next-line — reason: deliberately different accounts to test distinct subjects
       account: "b@x.test",
     });
 
