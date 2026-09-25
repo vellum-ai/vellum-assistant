@@ -111,7 +111,10 @@
     "setUpSchedule": "Crear una",
     "updateAvatarAndName": "Actualizar avatar y nombre",
     "viewMoreSchedules": "{count, plural, one {Ver # más…} other {Ver # más…}}",
-    "lockedBadge": "Requiere el plan Super"
+    "lockedBadge": "Requiere el plan Super",
+    "pinEmail": "Fijar Correo al menú lateral",
+    "unpinEmail": "Quitar Correo del menú lateral",
+    "dismissEmail": "Cerrar"
   },
   "identitySections": {
     "channels": {

@@ -2107,5 +2107,9 @@
     "subtitle": "Has usado el uso gratuito de hoy. Se reinicia a las {resetPhrase}. Mejora tu plan o añade créditos para continuar.",
     "title": "Uso gratuito diario agotado",
     "viewPlans": "Ver planes"
+  },
+  "emailNavItem": {
+    "label": "Correo",
+    "unpin": "Quitar Correo"
   }
 }

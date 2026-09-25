@@ -111,7 +111,10 @@
     "setUpSchedule": "Создать расписание",
     "updateAvatarAndName": "Изменить аватар и имя",
     "viewMoreSchedules": "{count, plural, one {Показать ещё #…} few {Показать ещё #…} many {Показать ещё #…} other {Показать ещё #…}}",
-    "lockedBadge": "Нужен план Super"
+    "lockedBadge": "Нужен план Super",
+    "pinEmail": "Закрепить Почту в боковом меню",
+    "unpinEmail": "Открепить Почту от бокового меню",
+    "dismissEmail": "Закрыть"
   },
   "identitySections": {
     "channels": {

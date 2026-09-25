@@ -69,14 +69,13 @@
     "perkReads": "{name} lee, ordena y responde por ti",
     "perkHistory": "Cada mensaje guardado aquí, recibidos y enviados",
     "upgradeButton": "Mejorar a Super",
-    "seePlans": "Ver planes",
+    "seePlans": "Planes",
     "titleNoName": "Dale una bandeja de entrada a tu asistente",
     "perkReadsNoName": "Tu asistente lee, ordena y responde por ti",
-    "changeHandle": "Cambiar identificador"
+    "changeHandle": "Cambiar handle ({address})",
+    "planNotice": "El correo no está incluido en el plan Free. Pasa a Super u otro plan con correo."
   },
   "assistantInboxSetupCard": {
-    "pageTitle": "Correo",
-    "back": "Atrás",
     "title": "Correo del asistente",
     "subtitle": "Configura un correo para tu asistente.",
     "getStarted": "Empezar",
@@ -87,10 +86,19 @@
     "loading": "Abriendo la bandeja…",
     "setupFailed": "No se pudo configurar la dirección.",
     "setupIncomplete": "No se creó la dirección. Inténtalo de nuevo en un momento.",
-    "setupSucceeded": "{address} está lista.",
     "replyPrompt": "Responde al correo con id {id} de tu bandeja (de {sender}, asunto \"{subject}\"). Léelo primero con `assistant email download {id}`, redacta una respuesta y muéstramela antes de enviarla.",
     "mailFailed": "No se pudo cargar el correo.",
     "retry": "Reintentar",
     "deletedToast": "{count, plural, one {Correo eliminado.} other {# correos eliminados.}}"
+  },
+  "assistantInboxPageFrame": {
+    "title": "Correo",
+    "back": "Atrás"
+  },
+  "assistantInboxSetupSuccess": {
+    "title": "{name} ya tiene bandeja.",
+    "titleNoName": "Tu asistente ya tiene bandeja.",
+    "body": "Comparte la dirección y todo lo que llegue aparecerá aquí.",
+    "openInbox": "Abrir bandeja"
   }
 }

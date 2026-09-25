@@ -1,11 +1,17 @@
 import type { ReactNode } from "react";
 
 import { SIDEBAR_STACK_GAP } from "@/components/sidebar-nav-geometry";
+import { useNavigate } from "react-router";
+
 import { AssistantSwitcher } from "@/domains/chat/components/assistant-switcher";
+import { EmailNavItem } from "@/domains/chat/components/email-nav-item";
 import { PinnedAppNavItem } from "@/domains/chat/components/pinned-app-nav-item";
+import { useEmailPinned } from "@/hooks/use-email-pinned";
 import { usePinnedApps } from "@/hooks/use-pinned-apps";
 import { cn } from "@vellumai/design-library";
 import { useTranslation } from "@/i18n";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
+import { routes } from "@/utils/routes";
 
 export interface SideMenuBuiltInNavProps {
   assistantId: string | null;
@@ -51,7 +57,13 @@ export function SideMenuBuiltInNav({
   assistantBeneath,
 }: SideMenuBuiltInNavProps) {
   const { t } = useTranslation("chat");
+  const navigate = useNavigate();
   const { pinnedApps, unpin, setColor } = usePinnedApps(assistantId);
+  /* The Email pin, set from the profile's Email card. Behind the inbox's
+     flag, since it opens the inbox. */
+  const inboxEnabled = useClientFeatureFlagStore.use.assistantInbox();
+  const emailPin = useEmailPinned(assistantId);
+  const showsEmailPin = inboxEnabled && emailPin.pinned;
 
   /* One column at a single gap, rather than each cluster spacing itself.
      `SideMenu.Header` puts its own gap between its children, so a margin
@@ -98,8 +110,19 @@ export function SideMenuBuiltInNav({
           beneath={assistantBeneath}
         />
       </div>
-      {pinnedApps.length > 0 ? (
+      {pinnedApps.length > 0 || showsEmailPin ? (
         <div className={cn("flex flex-col", SIDEBAR_STACK_GAP)}>
+          {showsEmailPin ? (
+            <EmailNavItem
+              assistantId={assistantId}
+              collapsed={collapsed}
+              onSelect={() => {
+                navigate(routes.assistantInbox);
+                onClose?.();
+              }}
+              onUnpin={emailPin.unpin}
+            />
+          ) : null}
           {pinnedApps.map((app) => (
             <PinnedAppNavItem
               key={app.id}

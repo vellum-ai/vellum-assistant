@@ -12,6 +12,7 @@ import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { AssistantInboxPage } from "@/domains/assistant-inbox/components/assistant-inbox-page";
 import { useAssistantHandleModal } from "@/components/assistant-handle-modal";
 import { AssistantInboxSetupCard } from "@/domains/assistant-inbox/components/assistant-inbox-setup-card";
+import { AssistantInboxSetupSuccess } from "@/domains/assistant-inbox/components/assistant-inbox-setup-success";
 import { AssistantInboxShell } from "@/domains/assistant-inbox/components/assistant-inbox-shell";
 import { AssistantInboxUpgradeState } from "@/domains/assistant-inbox/components/assistant-inbox-upgrade-state";
 import { useAssistantInboxState } from "@/domains/assistant-inbox/hooks/use-assistant-inbox-state";
@@ -226,6 +227,9 @@ export function AssistantInboxPageRoute() {
   const state = useAssistantInboxState(assistantId, identityName ?? "");
   const [settling, setSettling] = useState(false);
   const [setupError, setSetupError] = useState<string | null>(null);
+  /* The address just created, shown on the success screen until the user
+     goes on to the mailbox. */
+  const [justCreated, setJustCreated] = useState<string | null>(null);
   /* The upgrade pitch's "Change handle": the same modal the assistant page
      opens from its @handle line. */
   const handleModal = useAssistantHandleModal(assistantId);
@@ -336,9 +340,7 @@ export function AssistantInboxPageRoute() {
           setSetupError(readableSetupError(reason));
           return;
         }
-        toast.success(
-          t("assistantInboxRoute.setupSucceeded", { address: registered }),
-        );
+        setJustCreated(registered);
       } catch (err) {
         captureError(err, { context: "assistant_inbox_setup" });
         // Under the fields rather than in a toast: the refusal is usually
@@ -390,6 +392,7 @@ export function AssistantInboxPageRoute() {
             onEditHandle={handleModal.openModal ?? undefined}
             onUpgrade={() => navigate(routes.plans)}
             onSeePlans={() => navigate(routes.plans)}
+            onBack={() => navigate("/")}
           />
           {handleModal.modal}
         </>
@@ -410,6 +413,17 @@ export function AssistantInboxPageRoute() {
         />
       );
     case "ready":
+      if (justCreated !== null) {
+        return (
+          <AssistantInboxSetupSuccess
+            assistantId={assistantId}
+            assistantName={state.assistantName}
+            address={justCreated}
+            onContinue={() => setJustCreated(null)}
+            onBack={() => navigate("/")}
+          />
+        );
+      }
       return (
         <Mailbox
           assistantId={assistantId}

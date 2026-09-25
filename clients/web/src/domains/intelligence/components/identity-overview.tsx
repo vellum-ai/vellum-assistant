@@ -20,13 +20,22 @@ import {
   LayoutGrid,
   Mail,
   Pencil,
+  Pin,
+  PinOff,
   Radio,
   Sparkles,
   Users,
+  X,
   Zap,
   type LucideIcon,
 } from "lucide-react";
-import { useCallback, useRef, useState, type CSSProperties } from "react";
+import {
+  useCallback,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { Link } from "react-router";
 
@@ -39,6 +48,8 @@ import { PageShell } from "@/components/page-shell";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useElementSize } from "@/hooks/use-element-size";
 import { useTranslation } from "@/i18n";
+import { useEmailCardDismissed } from "@/hooks/use-email-card-dismissed";
+import { useEmailPinned } from "@/hooks/use-email-pinned";
 import { usePlatformGateWithPending } from "@/hooks/use-platform-gate";
 import { organizationsBillingSubscriptionRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
 import { useSupportsPluginsSurface } from "@/lib/backwards-compat/plugins-surface";
@@ -112,7 +123,6 @@ const MINI_SECTION_KEYS = [
   "library",
   "workspace",
   "contacts",
-  "email",
   "channels",
 ];
 
@@ -319,9 +329,51 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
     | Record<string, unknown>
     | undefined;
   const emailLocked = !!entitlements && entitlements.managed_email !== true;
+  /* A locked card is a pitch, so it can be closed; the closing stops
+     applying once the plan has email, since then the card is the way in.
+     An open card can be pinned to the side menu instead. */
+  const emailCard = useEmailCardDismissed(assistantId);
+  const emailPin = useEmailPinned(assistantId);
   const sections = buildIdentitySections({
-    email: showsEmail ? { locked: emailLocked } : undefined,
+    email:
+      showsEmail && !(emailLocked && emailCard.dismissed)
+        ? { locked: emailLocked }
+        : undefined,
   });
+  const emailTrailing = emailLocked ? (
+    <button
+      type="button"
+      aria-label={t("identityOverview.dismissEmail")}
+      title={t("identityOverview.dismissEmail")}
+      onClick={emailCard.dismiss}
+      className="flex size-7 items-center justify-center rounded-md text-[var(--content-secondary)] transition-colors hover:bg-[var(--card-hover)] hover:text-[var(--content-strong)] outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]"
+    >
+      <X className="h-4 w-4" aria-hidden />
+    </button>
+  ) : (
+    <button
+      type="button"
+      aria-label={
+        emailPin.pinned
+          ? t("identityOverview.unpinEmail")
+          : t("identityOverview.pinEmail")
+      }
+      title={
+        emailPin.pinned
+          ? t("identityOverview.unpinEmail")
+          : t("identityOverview.pinEmail")
+      }
+      aria-pressed={emailPin.pinned}
+      onClick={emailPin.toggle}
+      className="flex size-7 items-center justify-center rounded-md text-[var(--content-secondary)] transition-colors hover:bg-[var(--card-hover)] hover:text-[var(--content-strong)] outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]"
+    >
+      {emailPin.pinned ? (
+        <PinOff className="h-4 w-4" aria-hidden />
+      ) : (
+        <Pin className="h-4 w-4" aria-hidden />
+      )}
+    </button>
+  );
   const isLoading = isAvatarLoading || identityQuery.isLoading;
   // Custom image: the page background becomes the photo itself, blown up and
   // heavily blurred behind the content, which says more about the assistant
@@ -382,6 +434,7 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
           }
           sections={sections}
           stats={sectionStats}
+          emailTrailing={emailTrailing}
           avatarHex={avatarHex}
           photoBackdrop={photoBackdrop}
           isRenaming={isRenaming}
@@ -483,6 +536,8 @@ export function SectionCard({
   hoverFill,
   mini,
   compact = false,
+  slim = false,
+  trailing,
   flooded = false,
   floodOrigin,
   photoBackdrop = false,
@@ -507,6 +562,14 @@ export function SectionCard({
    * separately and a shared edit would quietly restyle the desktop strip.
    */
   compact?: boolean;
+  /**
+   * A one-line, full-width row: the glyph and the title on one baseline
+   * with only the row's own top and bottom padding around them. The Email
+   * card's shape, standing over the strip rather than in it.
+   */
+  slim?: boolean;
+  /** A control on the slim row's trailing edge, outside the card's link. */
+  trailing?: ReactNode;
   /** The avatar has poured itself over this card — fill it with the
    *  avatar color and flip the content to the contrast tone. */
   flooded?: boolean;
@@ -573,28 +636,76 @@ export function SectionCard({
     </span>
   ) : null;
 
-  if (mini) {
-    // Bottom-strip tile per Figma (New-App 6944-89405): left-aligned,
-    // 12px radius, 40px icon slot in the secondary tone, 16px title over
-    // an 11px tertiary stat. The Email tile wears the feature cards' wash
-    // of the avatar colour, so it reads with Personality and Schedules
-    // rather than with the plain tiles beside it.
-    const featureWash = section.key === "email";
+  if (slim) {
+    // The Email row: the feature cards' wash of the avatar colour, so it
+    // reads with Personality and Schedules rather than with the plain
+    // tiles under it, at a single line's height. The glyph takes the
+    // strong tone rather than the tiles' muted one.
     return (
       <Card.Root
         asChild
-        bordered={featureWash}
-        elevated={!featureWash}
+        bordered
+        elevated={false}
         clipContents
-        className={
-          featureWash
-            ? `rounded-[12px] border bg-[var(--card-feature-bg,var(--card-bg))] ${
-                photoBackdrop
-                  ? "border-transparent backdrop-blur-[32px]"
-                  : "border-[var(--border-base)]"
-              }`
-            : "rounded-[12px] border-0 bg-[var(--card-bg)]"
-        }
+        className={`rounded-[12px] border bg-[var(--card-feature-bg,var(--card-bg))] ${
+          photoBackdrop
+            ? "border-transparent backdrop-blur-[32px]"
+            : "border-[var(--border-base)]"
+        }`}
+        style={gridArea ? { gridArea } : undefined}
+      >
+        {/* The row is a link with a control beside it, not inside it: a
+            button cannot nest in an anchor. */}
+        <div className="relative flex items-center">
+          {floodOverlay}
+          <Link
+            to={section.to}
+            ref={linkRef}
+            onMouseEnter={() => onHoverChange?.(true)}
+            onMouseLeave={() => onHoverChange?.(false)}
+            className={`relative flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 py-2.5 pl-4 pr-3 transition-all duration-150 active:scale-[0.99] ${
+              hoverFill ? "hover:bg-[var(--card-hover)]" : ""
+            }`}
+          >
+            <Icon
+              className={`relative h-5 w-5 shrink-0 transition-colors duration-300 ${fgStrong}`}
+              aria-hidden
+            />
+            <span
+              className={`relative flex min-w-0 items-center gap-1.5 truncate text-body-medium-default transition-colors duration-300 ${fgStrong}`}
+            >
+              {section.label}
+              {lockBadge}
+            </span>
+            {stat?.text && (
+              <span
+                className={`relative ml-auto truncate text-[12px] transition-colors duration-300 ${fgMuted}`}
+              >
+                {stat.text}
+              </span>
+            )}
+          </Link>
+          {trailing ? (
+            <span className="relative flex shrink-0 items-center pr-2">
+              {trailing}
+            </span>
+          ) : null}
+        </div>
+      </Card.Root>
+    );
+  }
+
+  if (mini) {
+    // Bottom-strip tile per Figma (New-App 6944-89405): left-aligned,
+    // 12px radius, 40px icon slot in the secondary tone, 16px title over
+    // an 11px tertiary stat.
+    return (
+      <Card.Root
+        asChild
+        bordered={false}
+        elevated
+        clipContents
+        className="rounded-[12px] border-0 bg-[var(--card-bg)]"
       >
         <Link
           to={section.to}
@@ -932,6 +1043,7 @@ function OverviewBento({
   customImageUrl,
   name,
   sections,
+  emailTrailing,
   stats,
   avatarHex,
   photoBackdrop,
@@ -944,6 +1056,8 @@ function OverviewBento({
   customImageUrl: string | null;
   name: string;
   sections: IdentitySection[];
+  /** The Email row's trailing control (pin, or close for a locked card). */
+  emailTrailing?: ReactNode;
   stats: Record<string, IdentitySectionStat | undefined>;
   avatarHex: string | null;
   /** The page sits on the blurred custom photo — use the overlay palette. */
@@ -1105,8 +1219,10 @@ function OverviewBento({
     // grid of mini tiles.
     const schedulesSection = sections.find((s) => s.key === "schedules");
     const personalitySection = sections.find((s) => s.key === "personality");
+    const emailSection = sections.find((s) => s.key === "email");
     const gridSections = sections.filter(
-      (s) => s.key !== "schedules" && s.key !== "personality",
+      (s) =>
+        s.key !== "schedules" && s.key !== "personality" && s.key !== "email",
     );
     const schedulesStat = stats["schedules"]?.schedules;
     const scheduleCount = schedulesStat
@@ -1231,6 +1347,15 @@ function OverviewBento({
               </Link>
             </Card.Root>
           )}
+          {emailSection && (
+            <SectionCard
+              section={emailSection}
+              stat={stats[emailSection.key]}
+              hoverFill
+              slim
+              trailing={emailTrailing}
+            />
+          )}
           <div className="grid grid-cols-2 gap-2">
             {gridSections.map((section) => (
               <SectionCard
@@ -1252,8 +1377,9 @@ function OverviewBento({
   // it) and Schedules the right, both the same height above the strip,
   // and everything else (Skills, Plugins, Workspace, Contacts, Channels)
   // runs as compact mini cards in a full-width bottom strip.
+  const emailSection = sections.find((s) => s.key === "email");
   const mainSections = sections.filter(
-    (s) => !MINI_SECTION_KEYS.includes(s.key),
+    (s) => !MINI_SECTION_KEYS.includes(s.key) && s.key !== "email",
   );
   const miniSections = sections.filter((s) =>
     MINI_SECTION_KEYS.includes(s.key),
@@ -1265,7 +1391,12 @@ function OverviewBento({
   // Schedules' AREA runs a row deeper than Personality, but the card
   // self-sizes from the top with Personality's row height as its minimum
   // — so the two match until the schedule tiles (3 max) need more room.
-  const BENTO_ROWS = [1.15, 1, 0.45, 0.3];
+  // The Email row, when there is one, takes a slim band of its own between
+  // the open middle and the strip: a single line's height, so the strip
+  // keeps its share.
+  const BENTO_ROWS = emailSection
+    ? [1.15, 1, 0.3, 0.15, 0.3]
+    : [1.15, 1, 0.45, 0.3];
   const BENTO_GAP_PX = 12;
   const rowUnit =
     (size.h - (BENTO_ROWS.length - 1) * BENTO_GAP_PX) /
@@ -1274,18 +1405,21 @@ function OverviewBento({
 
   // Character avatars float behind the open middle rows; a custom image
   // gets its own centered cell right under the greeting instead.
+  const emailRow = emailSection ? [`"email email email email email"`] : [];
   const gridTemplateAreas = (
     hasCharacter
       ? [
           `"personality greeting greeting greeting schedules"`,
           `". . . . schedules"`,
           `". . . . ."`,
+          ...emailRow,
           `"smalls smalls smalls smalls smalls"`,
         ]
       : [
           `"personality greeting greeting greeting schedules"`,
           `". avatar avatar avatar schedules"`,
           `". avatar avatar avatar ."`,
+          ...emailRow,
           `"smalls smalls smalls smalls smalls"`,
         ]
   ).join(" ");
@@ -1444,6 +1578,18 @@ function OverviewBento({
                 }
               : undefined
           }
+        />
+      ))}
+      {/* Mapped like its neighbours, so the card's props are built the same
+          way for every tile (the compiler lint reads a direct call here as
+          a ref read during render). */}
+      {(emailSection ? [emailSection] : []).map((section) => (
+        <SectionCard
+          key={section.key}
+          {...cardProps(section)}
+          gridArea="email"
+          slim
+          trailing={emailTrailing}
         />
       ))}
       <div

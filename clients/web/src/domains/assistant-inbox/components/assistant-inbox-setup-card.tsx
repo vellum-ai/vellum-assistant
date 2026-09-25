@@ -1,4 +1,3 @@
-import { ArrowLeft } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { Button, Notice } from "@vellumai/design-library";
@@ -7,7 +6,7 @@ import { useTranslation } from "@/i18n";
 
 import type { HandleCheckResult } from "../types";
 import { AddressPill } from "./address-pill";
-import { AssistantInboxShell } from "./assistant-inbox-shell";
+import { AssistantInboxPageFrame } from "./assistant-inbox-page-frame";
 import { EmailAddressFields } from "./email-address-fields";
 
 /** Long enough that a probe is not fired per keystroke. */
@@ -122,93 +121,77 @@ export function AssistantInboxSetupCard({
   const previewHandle = handle || t("emailAddressFields.handlePlaceholder");
 
   return (
-    <AssistantInboxShell>
-      <header className="flex items-center gap-3 px-2 pb-4 pt-2">
-        {onBack ? (
-          <Button
-            variant="outlined"
-            iconOnly={<ArrowLeft />}
-            onClick={onBack}
-            aria-label={t("assistantInboxSetupCard.back")}
-          />
-        ) : null}
-        <h1 className="min-w-0 truncate text-title-large text-[var(--content-emphasised)]">
-          {t("assistantInboxSetupCard.pageTitle")}
-        </h1>
-      </header>
+    <AssistantInboxPageFrame onBack={onBack}>
+      <div className="flex w-full max-w-[560px] flex-col gap-6 py-1">
+        <div className="flex flex-col gap-1">
+          <h2 className="text-title-medium text-[var(--content-emphasised)]">
+            {t("assistantInboxSetupCard.title")}
+          </h2>
+          <p className="text-body-medium-lighter text-[var(--content-secondary)]">
+            {handleEditable
+              ? t("assistantInboxSetupCard.subtitleChooseHandle")
+              : t("assistantInboxSetupCard.subtitle")}
+          </p>
+        </div>
 
-      <div className="mx-2 mb-2 flex min-h-0 flex-1 flex-col overflow-y-auto rounded-[16px] bg-[var(--surface-lift)] px-6 py-6">
-        <div className="flex w-full max-w-[560px] flex-col gap-6">
-          <div className="flex flex-col gap-1">
-            <h2 className="text-title-medium text-[var(--content-emphasised)]">
-              {t("assistantInboxSetupCard.title")}
-            </h2>
-            <p className="text-body-medium-lighter text-[var(--content-secondary)]">
-              {handleEditable
-                ? t("assistantInboxSetupCard.subtitleChooseHandle")
-                : t("assistantInboxSetupCard.subtitle")}
-            </p>
-          </div>
-
-          <div className="flex flex-col items-start gap-4">
-            <div className="flex max-w-full flex-col items-start gap-1.5">
-              <EmailAddressFields
-                prefix={prefix}
-                handle={handle}
-                rootDomain={rootDomain}
-                onPrefixChange={(value) => {
-                  setPrefix(value);
-                  onDraftChange?.();
-                }}
-                onHandleChange={
-                  handleEditable
-                    ? (value) => {
-                        setTouched(true);
-                        setHandle(value);
-                        onDraftChange?.();
-                      }
-                    : undefined
-                }
-                handleInvalid={problem !== null}
-                disabled={busy}
-                autoFocus
-              />
-              {problem ? (
-                <p
-                  role="alert"
-                  className="text-body-small-default text-[var(--system-negative-strong)]"
-                >
-                  {problem}
-                </p>
-              ) : null}
-            </div>
-            <AddressPill
-              assistantId={assistantId}
-              address={`${previewPrefix}@${previewHandle}.${rootDomain}`}
+        <div className="flex flex-col items-start gap-4">
+          <div className="flex max-w-full flex-col items-start gap-1.5">
+            <EmailAddressFields
+              prefix={prefix}
+              handle={handle}
+              rootDomain={rootDomain}
+              onPrefixChange={(value) => {
+                setPrefix(value);
+                onDraftChange?.();
+              }}
+              onHandleChange={
+                handleEditable
+                  ? (value) => {
+                      setTouched(true);
+                      setHandle(value);
+                      onDraftChange?.();
+                    }
+                  : undefined
+              }
+              handleInvalid={problem !== null}
+              disabled={busy}
+              autoFocus
             />
-            {handleEditable ? (
-              <Notice
-                tone="info"
-                className="border-transparent bg-[var(--surface-active)]"
+            {problem ? (
+              <p
+                role="alert"
+                className="text-body-small-default text-[var(--system-negative-strong)]"
               >
-                <span className="font-medium text-[var(--content-tertiary)]">
-                  {t("assistantInboxSetupCard.immutableNotice")}
-                </span>
-              </Notice>
+                {problem}
+              </p>
             ) : null}
           </div>
-
-          <div>
-            <Button
-              variant="primary"
-              disabled={!prefix || !handle || busy || checkMessage !== null}
-              onClick={() => onConfirm({ prefix, handle })}
+          <AddressPill
+            assistantId={assistantId}
+            address={`${previewPrefix}@${previewHandle}.${rootDomain}`}
+          />
+          {handleEditable ? (
+            <Notice
+              tone="info"
+              className="border-transparent bg-[var(--surface-active)]"
             >
-              {t("assistantInboxSetupCard.getStarted")}
-            </Button>
-          </div>
+              <span className="font-medium text-[var(--content-tertiary)]">
+                {t("assistantInboxSetupCard.immutableNotice")}
+              </span>
+            </Notice>
+          ) : null}
+        </div>
+
+        <div>
+          <Button
+            variant="primary"
+            disabled={!prefix || !handle || busy || checkMessage !== null}
+            onClick={() => onConfirm({ prefix, handle })}
+          >
+            {t("assistantInboxSetupCard.getStarted")}
+          </Button>
         </div>
       </div>
-    </AssistantInboxShell>
+    </AssistantInboxPageFrame>
   );
 }

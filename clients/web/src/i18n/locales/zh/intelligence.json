@@ -111,7 +111,10 @@
     "setUpSchedule": "创建定时任务",
     "updateAvatarAndName": "更新头像和名称",
     "viewMoreSchedules": "{count, plural, other {查看 {count} 个更多…}}",
-    "lockedBadge": "需要 Super 套餐"
+    "lockedBadge": "需要 Super 套餐",
+    "pinEmail": "将邮件固定到侧边菜单",
+    "unpinEmail": "从侧边菜单取消固定邮件",
+    "dismissEmail": "关闭"
   },
   "identitySections": {
     "channels": {

@@ -1196,5 +1196,9 @@
     "captionSentUndated": "Отправлено · Кому: {name}",
     "tooltip": "{subject}\n{caption}",
     "openAria": "Открыть письмо {subject} в почте"
+  },
+  "emailNavItem": {
+    "label": "Почта",
+    "unpin": "Открепить Почту"
   }
 }

@@ -141,10 +141,14 @@ describe("EmailManagedContent · not entitled", () => {
     useClientFeatureFlagStore.setState({ assistantInbox: true });
     renderNotEntitled();
 
-    expect(screen.getByText("hi@ada.example.com")).toBeTruthy();
+    // The pitch is the perks and the plan notice; the address itself is
+    // not drawn, the perk about it stands in.
+    expect(screen.queryByText("hi@ada.example.com")).toBeNull();
+    expect(screen.getByText("A real address on example.com")).toBeTruthy();
     expect(
       screen.getByText("Your assistant reads, sorts, and replies for you"),
     ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Plans" })).toBeTruthy();
     expect(
       screen.getByRole("button", { name: /Upgrade to Super/ }),
     ).toBeTruthy();
@@ -155,7 +159,7 @@ describe("EmailManagedContent · not entitled", () => {
     ).toBeNull();
     // Handles live on the platform; with no platform session there is no
     // handle modal to open, so the pitch offers none.
-    expect(screen.queryByRole("button", { name: "Change handle" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Change handle/ })).toBeNull();
   });
 });
 
