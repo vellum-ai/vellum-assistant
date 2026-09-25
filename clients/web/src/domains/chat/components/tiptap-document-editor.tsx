@@ -10,6 +10,7 @@
 import { EditorContent, useEditor } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
 import { cn } from "@vellumai/design-library";
+import { Button } from "@vellumai/design-library/components/button";
 import {
   Bold,
   Code,
@@ -19,7 +20,7 @@ import {
   Strikethrough,
 } from "lucide-react";
 import {
-  type ReactNode,
+  type ReactElement,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -110,21 +111,14 @@ function BubbleToolbar({
     return null;
   }
 
-  const btnBase = cn(
-    "h-7 w-7 rounded-md flex items-center justify-center",
-    "text-[var(--content-secondary)]",
-    "hover:bg-[var(--surface-hover)] hover:text-[var(--content-emphasised)]",
-    "transition-colors",
-  );
-  const btnActive = cn(
-    "bg-[var(--surface-active)] text-[var(--content-emphasised)]",
-  );
+  // 28px, a size the ghost Button has no step for.
+  const btnClass = "h-7 w-7 rounded-md";
 
   type MarkName = "bold" | "italic" | "strike" | "code" | "link";
 
   const buttons: {
     name: MarkName;
-    icon: ReactNode;
+    icon: ReactElement;
     action: () => void;
     separator?: boolean;
   }[] = [
@@ -195,29 +189,33 @@ function BubbleToolbar({
             {i > 0 && buttons[i - 1]?.separator && (
               <span className="mx-0.5 h-4 w-px bg-[var(--border-base)]" />
             )}
-            <button
-              type="button"
-              className={cn(btnBase, editor.isActive(btn.name) && btnActive)}
+            <Button
+              variant="ghost"
+              size="compact"
+              expandOnMobile={false}
+              className={btnClass}
               onClick={btn.action}
               aria-label={btn.name}
               aria-pressed={editor.isActive(btn.name)}
-            >
-              {btn.icon}
-            </button>
+              active={editor.isActive(btn.name)}
+              iconOnly={btn.icon}
+            />
           </span>
         ))}
         {onCommentSubmit ? (
           <>
             <span className="mx-0.5 h-4 w-px bg-[var(--border-base)]" />
-            <button
-              type="button"
-              className={cn(btnBase, commentOpen && btnActive)}
+            <Button
+              variant="ghost"
+              size="compact"
+              expandOnMobile={false}
+              className={btnClass}
               onClick={toggleComment}
               aria-label={t("tiptapDocumentEditor.comment")}
               aria-pressed={commentOpen}
-            >
-              <MessageSquareText size={14} />
-            </button>
+              active={commentOpen}
+              iconOnly={<MessageSquareText />}
+            />
           </>
         ) : null}
       </div>

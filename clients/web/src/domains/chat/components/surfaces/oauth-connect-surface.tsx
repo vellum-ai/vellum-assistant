@@ -24,6 +24,7 @@ import { useManagedOAuthConnect } from "@/hooks/use-managed-oauth-connect";
 import { useTenantHostInput } from "@/hooks/use-tenant-host-input";
 import { useTenantHostRequirement } from "@/hooks/use-tenant-host-requirement";
 import { useTranslation } from "@/i18n";
+import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
 
 interface OAuthConnectSurfaceProps {
@@ -94,13 +95,15 @@ function OAuthApprovalInfo({
       side="top"
       align="end"
     >
-      <button
-        type="button"
+      <Button
+        variant="ghost"
+        size="compact"
+        expandOnMobile={false}
         aria-label={t("oauthConnectSurface.approvalAria")}
-        className="inline-flex h-5 w-5 items-center justify-center rounded-md text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--content-strong)] keyboard-focus:outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]"
-      >
-        <Info className="h-3.5 w-3.5" />
-      </button>
+        /* 20px, so it sits inside the description's line. */
+        className="h-5 w-5"
+        iconOnly={<Info />}
+      />
     </Tooltip>
   );
 }
@@ -331,15 +334,17 @@ export function OAuthConnectSurface({
         </div>
 
         <div className="flex shrink-0 items-center justify-end gap-2">
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            expandOnMobile={false}
             aria-label={t("oauthConnectSurface.dismiss")}
-            title={t("oauthConnectSurface.dismiss")}
+            tooltip={t("oauthConnectSurface.dismiss")}
             onClick={submitCancel}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-md text-[var(--content-secondary)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--content-strong)] disabled:opacity-50"
-          >
-            <X className="h-4 w-4" />
-          </button>
+            /* The 40px box the action row's height is set by. */
+            className="h-10 w-10 [--vbtn-fg:var(--content-secondary)]"
+            iconOnly={<X />}
+            iconOnlyGlyphClassName="size-4 [&_svg]:size-4"
+          />
           <button
             type="button"
             onClick={handleConnect}

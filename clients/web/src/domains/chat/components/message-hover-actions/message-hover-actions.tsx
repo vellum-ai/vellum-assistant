@@ -13,6 +13,8 @@ import {
 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 
+import { Button } from "@vellumai/design-library/components/button";
+
 import { ExternalAnchor } from "@/components/external-anchor";
 import { useProfileLabel } from "@/assistant/use-profile-label";
 import { useMessageReadAloudStore } from "@/domains/chat/message-read-aloud-store";
@@ -68,8 +70,16 @@ function AutoRoutedProfileBadge({ profileKey }: { profileKey: string }) {
   );
 }
 
-const ACTION_BUTTON_CLASS =
-  "flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-active)] hover:text-[var(--content-default)]";
+/**
+ * Every control in the row is a 24px ghost `Button`; `expandOnMobile` is off
+ * because the row is laid out for 24px boxes and the long-press sheet is the
+ * touch affordance.
+ */
+const ACTION_BUTTON_PROPS = {
+  variant: "ghost",
+  size: "compact",
+  expandOnMobile: false,
+} as const;
 
 function formatTimestamp(epoch: number): string {
   const date = new Date(epoch);
@@ -192,8 +202,8 @@ export function MessageHoverActions({
       )}
 
       {hasCopyableText && (
-        <button
-          type="button"
+        <Button
+          {...ACTION_BUTTON_PROPS}
           onClick={handleCopy}
           title={
             showCopied
@@ -205,14 +215,14 @@ export function MessageHoverActions({
               ? t("messageHoverActions.copied")
               : t("messageHoverActions.copy")
           }
-          className={ACTION_BUTTON_CLASS}
-        >
-          {showCopied ? (
-            <Check className="h-3.5 w-3.5 text-[var(--system-positive-strong)]" />
-          ) : (
-            <Copy className="h-3.5 w-3.5" />
-          )}
-        </button>
+          iconOnly={
+            showCopied ? (
+              <Check className="text-[var(--system-positive-strong)]" />
+            ) : (
+              <Copy />
+            )
+          }
+        />
       )}
 
       {hasCopyableText && message.id && (
@@ -225,15 +235,13 @@ export function MessageHoverActions({
 
       <div className="flex items-center gap-0.5 opacity-0 pointer-events-none transition-opacity duration-200 ease-out group-hover/msg:opacity-100 group-hover/msg:pointer-events-auto has-[:focus-visible]:opacity-100 has-[:focus-visible]:pointer-events-auto group-data-[revealed=true]/msg:opacity-100 group-data-[revealed=true]/msg:pointer-events-auto motion-reduce:transition-none">
         {onRetry && (
-          <button
-            type="button"
+          <Button
+            {...ACTION_BUTTON_PROPS}
             onClick={onRetry}
             title={t("messageHoverActions.retry")}
             aria-label={t("messageHoverActions.retry")}
-            className={ACTION_BUTTON_CLASS}
-          >
-            <RotateCcw className="h-3.5 w-3.5" />
-          </button>
+            iconOnly={<RotateCcw />}
+          />
         )}
 
         {canBookmark && conversationId && message.id && (
@@ -244,51 +252,45 @@ export function MessageHoverActions({
         )}
 
         {openInSlackUrl && (
-          <ExternalAnchor
-            href={openInSlackUrl}
+          <Button
+            {...ACTION_BUTTON_PROPS}
+            asChild
             aria-label={t("messageHoverActions.openInSlack")}
             title={t("messageHoverActions.openInSlack")}
-            className={ACTION_BUTTON_CLASS}
-            glyph={false}
+            iconOnly={<ExternalLink />}
           >
-            <ExternalLink className="h-3.5 w-3.5" />
-          </ExternalAnchor>
+            <ExternalAnchor href={openInSlackUrl} glyph={false} />
+          </Button>
         )}
 
         {onFork && (
-          <button
-            type="button"
+          <Button
+            {...ACTION_BUTTON_PROPS}
             onClick={onFork}
             title={t("messageHoverActions.forkFromHere")}
             aria-label={t("messageHoverActions.forkFromHere")}
-            className={ACTION_BUTTON_CLASS}
-          >
-            <GitBranch className="h-3.5 w-3.5" />
-          </button>
+            iconOnly={<GitBranch />}
+          />
         )}
 
         {onSummarizeUpToHere && (
-          <button
-            type="button"
+          <Button
+            {...ACTION_BUTTON_PROPS}
             onClick={onSummarizeUpToHere}
             title={t("messageHoverActions.summarizeUpToHere")}
             aria-label={t("messageHoverActions.summarizeUpToHere")}
-            className={ACTION_BUTTON_CLASS}
-          >
-            <ListCollapse className="h-3.5 w-3.5" />
-          </button>
+            iconOnly={<ListCollapse />}
+          />
         )}
 
         {onInspect && (
-          <button
-            type="button"
+          <Button
+            {...ACTION_BUTTON_PROPS}
             onClick={onInspect}
             title={t("messageHoverActions.inspect")}
             aria-label={t("messageHoverActions.inspect")}
-            className={ACTION_BUTTON_CLASS}
-          >
-            <FileCode className="h-3.5 w-3.5" />
-          </button>
+            iconOnly={<FileCode />}
+          />
         )}
       </div>
     </div>
@@ -328,23 +330,25 @@ function MessageReadAloudButton({
   }, [assistantId, conversationId, messageId, text]);
 
   return (
-    <button
-      type="button"
+    // Not `loading`: the button stays clickable while the audio loads, since
+    // the same press cancels the request.
+    <Button
+      {...ACTION_BUTTON_PROPS}
       onClick={handleClick}
       title={title}
       aria-label={title}
       aria-pressed={isPlaying}
       aria-busy={isLoading}
-      className={ACTION_BUTTON_CLASS}
-    >
-      {isLoading ? (
-        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-      ) : isPlaying ? (
-        <Square className="h-3.5 w-3.5" />
-      ) : (
-        <Volume2 className="h-3.5 w-3.5" />
-      )}
-    </button>
+      iconOnly={
+        isLoading ? (
+          <Loader2 className="animate-spin" />
+        ) : isPlaying ? (
+          <Square />
+        ) : (
+          <Volume2 />
+        )
+      }
+    />
   );
 }
 
@@ -369,8 +373,8 @@ function MessageBookmarkButton({
   }, [messageId, conversationId, isBookmarked, toggleBookmark]);
 
   return (
-    <button
-      type="button"
+    <Button
+      {...ACTION_BUTTON_PROPS}
       onClick={handleToggle}
       title={
         isBookmarked
@@ -383,13 +387,13 @@ function MessageBookmarkButton({
           : t("messageHoverActions.bookmark")
       }
       aria-pressed={isBookmarked}
-      className={ACTION_BUTTON_CLASS}
-    >
-      <Bookmark
-        className={`h-3.5 w-3.5 ${
-          isBookmarked ? "fill-current text-[var(--content-default)]" : ""
-        }`}
-      />
-    </button>
+      iconOnly={
+        <Bookmark
+          className={
+            isBookmarked ? "fill-current text-[var(--content-default)]" : ""
+          }
+        />
+      }
+    />
   );
 }

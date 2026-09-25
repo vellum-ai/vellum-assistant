@@ -19,6 +19,7 @@ import {
   getAppIcon,
 } from "@/utils/app-icon-registry";
 import { cn, ContextMenu, PanelItem, SideMenu } from "@vellumai/design-library";
+import { Button } from "@vellumai/design-library/components/button";
 
 export interface PinnedAppNavItemProps {
   app: PinnedAppView;
@@ -200,17 +201,21 @@ export function PinnedAppNavItem({
       onSelect={onOpen ? () => onOpen(app.id) : undefined}
       className={cn("max-md:w-full", SIDEBAR_PILL_GAP_CLASSES)}
       trailingAction={
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="compact"
+          expandOnMobile={false}
           aria-label={t("pinnedAppNavItem.unpinAria", { name: app.name })}
           onClick={(event) => {
             event.stopPropagation();
             onUnpin(app.id);
           }}
-          className="flex size-6 shrink-0 items-center justify-center rounded-[4px] text-[var(--content-tertiary)] hover:bg-[var(--surface-hover)] hover:text-[var(--content-secondary)] max-md:-my-2 max-md:size-9 max-md:rounded-full"
-        >
-          <PinOff size={14} aria-hidden className="max-md:size-4" />
-        </button>
+          /* The row's own 4px corner and hover, and the 36px circle a thumb
+             gets, rather than the ghost defaults. */
+          className="shrink-0 rounded-[4px] hover:bg-[var(--surface-hover)] hover:[--vbtn-fg:var(--content-secondary)] max-md:-my-2 max-md:size-9 max-md:rounded-full"
+          iconOnly={<PinOff />}
+          iconOnlyGlyphClassName="max-md:size-4 max-md:[&_svg]:size-4"
+        />
       }
     />
   );
