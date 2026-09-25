@@ -135,10 +135,15 @@ beforeEach(() => {
 });
 
 describe("emitNotificationSignal chat reply preference", () => {
-  test.each([false, true])(
-    "applies enabled=%s after routing without suppressing the signal",
-    async (enabled) => {
-      saveRawConfig({ notifications: { newMessageEnabled: enabled } });
+  test.each([
+    [false, false],
+    [true, true],
+    [false, true],
+    [true, false],
+  ])(
+    "applies setting %s -> %s after routing and pre-send checks",
+    async (initial, enabled) => {
+      saveRawConfig({ notifications: { newMessageEnabled: initial } });
       const decision = {
         shouldNotify: true,
         selectedChannels: ["vellum", "platform", "telegram"],
@@ -153,6 +158,11 @@ describe("emitNotificationSignal chat reply preference", () => {
       };
       evaluateSignalMock.mockResolvedValue(decision);
       enforceRoutingIntentMock.mockReturnValue(decision);
+      runDeterministicChecksMock.mockImplementation(async () => {
+        await Promise.resolve();
+        saveRawConfig({ notifications: { newMessageEnabled: enabled } });
+        return { passed: true };
+      });
       const result = await emitNotificationSignal({
         sourceEventName: "chat.assistant_reply",
         sourceChannel: "vellum",
@@ -168,6 +178,9 @@ describe("emitNotificationSignal chat reply preference", () => {
       const selectedChannels: NotificationChannel[] = enabled
         ? ["vellum", "platform", "telegram"]
         : ["vellum", "telegram"];
+      expect(runDeterministicChecksMock.mock.calls[0]?.[1]).toMatchObject({
+        selectedChannels: decision.selectedChannels,
+      });
       expect(result.selectedChannels).toEqual(selectedChannels);
       expect(result.dispatched).toBe(true);
       expect(dispatchDecisionMock.mock.calls[0]?.[1]).toMatchObject({

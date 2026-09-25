@@ -563,39 +563,6 @@ export async function emitNotificationSignal<TEventName extends string>(
       };
     }
 
-    if (
-      decision.selectedChannels.includes("platform") &&
-      areChatReplyAlertsDisabled(signal.sourceEventName)
-    ) {
-      decision = {
-        ...decision,
-        selectedChannels: decision.selectedChannels.filter(
-          (channel) => channel !== "platform",
-        ),
-        reasoningSummary: `${decision.reasoningSummary} (${CHAT_REPLY_ALERTS_DISABLED})`,
-      };
-    }
-
-    // Persist the final channel policy so the audit matches dispatch.
-    if (decision !== prePolicyDecision && decision.persistedDecisionId) {
-      try {
-        updateDecision(decision.persistedDecisionId, {
-          selectedChannels: decision.selectedChannels,
-          reasoningSummary: decision.reasoningSummary,
-          validationResults: {
-            dedupeKey: decision.dedupeKey,
-            channelCount: decision.selectedChannels.length,
-            hasCopy: Object.keys(decision.renderedCopy).length > 0,
-          },
-        });
-      } catch (err) {
-        log.warn(
-          { err, signalId },
-          "Failed to re-persist decision after policy enforcement",
-        );
-      }
-    }
-
     // Persist model-generated dedupeKey back to the event row so future
     // signals can deduplicate against it (the event was created with
     // only the producer's dedupeKey, which may be null).
@@ -633,6 +600,39 @@ export async function emitNotificationSignal<TEventName extends string>(
           reason: `Signal blocked by deterministic checks: ${checkResult.reason}`,
           pipelineFailed: false,
         });
+      }
+    }
+
+    if (
+      decision.selectedChannels.includes("platform") &&
+      areChatReplyAlertsDisabled(signal.sourceEventName)
+    ) {
+      decision = {
+        ...decision,
+        selectedChannels: decision.selectedChannels.filter(
+          (channel) => channel !== "platform",
+        ),
+        reasoningSummary: `${decision.reasoningSummary} (${CHAT_REPLY_ALERTS_DISABLED})`,
+      };
+    }
+
+    // Persist the final channel policy so the audit matches dispatch.
+    if (decision !== prePolicyDecision && decision.persistedDecisionId) {
+      try {
+        updateDecision(decision.persistedDecisionId, {
+          selectedChannels: decision.selectedChannels,
+          reasoningSummary: decision.reasoningSummary,
+          validationResults: {
+            dedupeKey: decision.dedupeKey,
+            channelCount: decision.selectedChannels.length,
+            hasCopy: Object.keys(decision.renderedCopy).length > 0,
+          },
+        });
+      } catch (err) {
+        log.warn(
+          { err, signalId },
+          "Failed to re-persist decision after policy enforcement",
+        );
       }
     }
 
