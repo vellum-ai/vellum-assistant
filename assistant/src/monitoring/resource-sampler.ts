@@ -46,6 +46,7 @@ import {
 import { readActiveConversations } from "./active-conversations.js";
 import { readDaemonHeartbeat } from "./daemon-heartbeat.js";
 import { topProcessesByFd } from "./file-descriptors.js";
+import { sweepInheritedOomProtection } from "./oom-inheritance-sweep.js";
 import { getTrackedDataFiles, readFileResidency } from "./page-cache.js";
 import { topProcessesByMemory } from "./process-memory.js";
 import {
@@ -70,6 +71,8 @@ const SNAPSHOTS_DIR = "snapshots";
 const MAX_SNAPSHOTS = 20;
 /** Cap on retained baseline snapshots (4h of history at the 10min default). */
 const MAX_BASELINE_SNAPSHOTS = 24;
+/** How often the daemon's descendants are checked for inherited OOM protection. */
+const OOM_SWEEP_INTERVAL_MS = 5_000;
 
 /** Snapshot kinds: filename prefix + retention are per-kind so periodic
  * baselines can never evict high-memory forensics. */
@@ -264,6 +267,7 @@ export function startResourceSampler(
   // thread's kernel state mid-stall when the heartbeat goes stale.
   const stallCapture = createStallCaptureMonitor(dataDir);
   const processUsage = createProcessUsageTracker();
+  let lastOomSweepAt = 0;
 
   // Skip ticks while a sample is in flight: the disk measurement can take
   // seconds (du over the workspace), and overlapping ticks would all delta
@@ -300,6 +304,24 @@ export function startResourceSampler(
       stallCapture.check(sample, clock());
     } catch (err) {
       log.warn({ err }, "Daemon stall check failed");
+    }
+
+    if (now - lastOomSweepAt >= OOM_SWEEP_INTERVAL_MS) {
+      lastOomSweepAt = now;
+      const daemonPid = readDaemonHeartbeat(now)?.pid;
+      if (daemonPid != null) {
+        try {
+          const resets = sweepInheritedOomProtection({
+            daemonPid,
+            keepPids: new Set([process.pid]),
+          });
+          for (const reset of resets) {
+            log.warn(reset, "Reset OOM protection inherited from the daemon");
+          }
+        } catch (err) {
+          log.warn({ err }, "OOM inheritance sweep failed");
+        }
+      }
     }
 
     const ratio = sample.memory?.ratio;

@@ -573,7 +573,7 @@ describe("useDocumentEditorSave", () => {
   });
 
   test.each(["debouncing", "in flight", "failed"])(
-    "a newer local body supersedes deferred content while the save is %s",
+    "a newer local body keeps deferred content for the editor to merge while the save is %s",
     async (stage) => {
       const write = deferred();
       const { result, rerender } = renderSave();
@@ -588,7 +588,7 @@ describe("useDocumentEditorSave", () => {
       }
       rerender({
         target: { ...TARGET, title: "Assistant title" },
-        content: "Older assistant body",
+        content: "Assistant body",
       });
       if (stage === "failed") {
         await act(async () => {
@@ -600,20 +600,72 @@ describe("useDocumentEditorSave", () => {
       await act(async () => {
         write.resolve();
         await pending;
+        await result.current.flushPendingSave();
+      });
+      expect(saveDocumentContent.mock.calls.at(-1)?.[1]).toBe(
+        "Newer local body",
+      );
+      expect(result.current.editorContent).toBe("Assistant body");
+      expect(result.current.title).toBe("Assistant title");
+      // The editor merges the incoming body with its local edits and reports
+      // the result, which saves like any edit.
+      act(() =>
+        result.current.acceptMergedContent("Newer local body + Assistant body"),
+      );
+      await act(async () => {
         expect(await result.current.flushPendingSave()).toEqual({
           title: "Assistant title",
-          content: "Newer local body",
+          content: "Newer local body + Assistant body",
         });
       });
-      expect(result.current.editorContent).not.toBe("Older assistant body");
-      act(() => result.current.rename("Next local title"));
-      await act(async () => result.current.flushPendingSave());
       expect(saveDocumentContent.mock.calls.at(-1)).toEqual([
-        { ...TARGET, title: "Next local title" },
-        "Newer local body",
+        { ...TARGET, title: "Assistant title" },
+        "Newer local body + Assistant body",
       ]);
     },
   );
+
+  test("reports a sent body only after its write succeeds", async () => {
+    const failed = deferred();
+    const succeeded = deferred();
+    saveDocumentContent
+      .mockImplementationOnce(() => failed.promise)
+      .mockImplementationOnce(() => succeeded.promise);
+    const { result } = renderSave();
+    expect(result.current.sentContent).toBe("Original body");
+    act(() => result.current.changeContent("Local edit"));
+    const first = result.current.flushPendingSave();
+    await waitFor(() => expect(saveDocumentContent).toHaveBeenCalledTimes(1));
+    expect(result.current.sentContent).toBe("Original body");
+    await act(async () => {
+      failed.reject(new Error("offline"));
+      await first.catch(() => {});
+    });
+    expect(result.current.sentContent).toBe("Original body");
+    const second = result.current.flushPendingSave();
+    await waitFor(() => expect(saveDocumentContent).toHaveBeenCalledTimes(2));
+    expect(result.current.sentContent).toBe("Original body");
+    await act(async () => {
+      succeeded.resolve();
+      await second;
+    });
+    expect(result.current.sentContent).toBe("Local edit");
+  });
+
+  test("a merged body saves even while preparation holds the editor", async () => {
+    const { result } = renderSave();
+    let lease!: ReturnType<typeof result.current.beginSendPreparation>;
+    act(() => {
+      lease = result.current.beginSendPreparation();
+    });
+    expect(result.current.changeContent("Rejected local edit")).toBe(false);
+    act(() => result.current.acceptMergedContent("Merged body"));
+    await act(async () => {
+      expect((await lease.flush()).content).toBe("Merged body");
+      lease.release();
+    });
+    expect(saveDocumentContent.mock.calls).toEqual([[TARGET, "Merged body"]]);
+  });
 
   test("a newer local rename supersedes only the deferred title", async () => {
     const write = deferred();

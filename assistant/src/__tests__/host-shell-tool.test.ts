@@ -45,6 +45,8 @@ mock.module("../daemon/host-bash-proxy.js", () => ({
   },
 }));
 
+import { buildShellInvocation } from "@vellumai/environments/shell";
+
 import { hostShellTool } from "../tools/host-terminal/host-shell.js";
 import type { ToolContext, ToolExecutionResult } from "../tools/types.js";
 
@@ -139,7 +141,7 @@ describe("host_bash tool", () => {
     // Verify spawn was called with 'bash' directly — not 'bwrap' or 'sandbox-exec'
     expect(spawnCalls.length).toBe(1);
     expect(spawnCalls[0].command).toBe("bash");
-    expect(spawnCalls[0].args).toEqual(["-c", "--", "echo hello"]);
+    expect(spawnCalls[0].args).toEqual(buildShellInvocation("echo hello").args);
   });
 });
 
@@ -205,7 +207,9 @@ describe("host_bash — baseline: no sandbox isolation", () => {
     expect(spawnCalls[0].command).toBe("bash");
     expect(spawnCalls[0].args[0]).toBe("-c");
     expect(spawnCalls[0].args[1]).toBe("--");
-    expect(spawnCalls[0].args[2]).toBe("ls -la /tmp");
+    expect(spawnCalls[0].args[2]).toBe(
+      buildShellInvocation("ls -la /tmp").args[2],
+    );
   });
 
   test("host_bash always spawns plain bash without wrapCommand", async () => {

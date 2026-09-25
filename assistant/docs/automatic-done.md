@@ -6,7 +6,7 @@ Auto Archive marks eligible inactive chats **Done** by setting the existing `arc
 
 ## Eligibility
 
-Inactivity is elapsed wall time since the latest of the last message (or creation for an empty chat) and an explicit reopen. Title edits, read receipts, config edits and other `updated_at` writes do not count as conversation activity. Migration `384-conversations-last-reopened-at.ts` adds a nullable marker without backfilling or changing existing chats. Only an actual Done-to-open transition records that marker, giving a reopened chat a full configured interval.
+Inactivity is elapsed wall time since the latest of the last message (or creation for an empty chat) and an explicit reopen. Title edits, read receipts, config edits and other `updated_at` writes do not count as conversation activity. Migration `385-conversations-last-reopened-at.ts` adds a nullable marker without backfilling or changing existing chats. Only an actual Done-to-open transition records that marker, giving a reopened chat a full configured interval.
 
 Candidates must be unarchived standard native chats. Native notification-origin chats are eligible; an external channel binding takes precedence over the legacy origin field. Pinned, private, scheduled, background, system, consolidation and child/subagent conversations are excluded. Chats with unread assistant output, pending guardian input, a live ACP session, a running workflow, an active mode session or a nonterminal subagent are excluded.
 

@@ -47,12 +47,11 @@
     "saveFailed": "No se pudo guardar",
     "unknownSize": "Tamaño desconocido",
     "downloadAria": "Descargar {name}",
-    "emptyTitle": "Aún no hay nada abierto",
-    "emptyHint": "Toca <strong>Elegir un archivo</strong> arriba <arrow/>"
+    "emptyTitle": "Aún no hay nada abierto"
   },
-  "workspaceFileTitle": {
-    "eyebrow": "Espacio de trabajo",
+  "workspaceFileSwitcher": {
     "chooseFile": "Elegir un archivo",
+    "switchFile": "Cambiar archivo: {path}",
     "openHint": "Abre la lista de archivos"
   },
   "workspaceFilePicker": {

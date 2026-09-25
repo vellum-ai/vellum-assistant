@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { GeminiEmbeddingBackend } from "./embedding-gemini.js";
+import {
+  GeminiEmbeddingBackend,
+  GeminiEmbedError,
+} from "./embedding-gemini.js";
 
 function makeSuccessResponse(values: number[]) {
   return new Response(JSON.stringify({ embedding: { values } }), {
@@ -186,16 +189,49 @@ describe("GeminiEmbeddingBackend", () => {
   });
 
   describe("error handling", () => {
-    test("throws on non-OK response", async () => {
+    test("throws GeminiEmbedError on non-OK response", async () => {
       mockFetch = mock(() =>
         Promise.resolve(new Response("Internal Server Error", { status: 500 })),
       );
       globalThis.fetch = mockFetch as unknown as typeof fetch;
 
       const backend = new GeminiEmbeddingBackend("test-key", "test-model");
-      await expect(backend.embed(["hello"])).rejects.toThrow(
+      const err = await backend.embed(["hello"]).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(GeminiEmbedError);
+      expect((err as GeminiEmbedError).status).toBe(500);
+      expect((err as GeminiEmbedError).message).toContain(
         "Gemini embeddings request failed (500): Internal Server Error",
       );
+    });
+
+    test("attaches retryAfterMs from Retry-After delta-seconds header on 429", async () => {
+      mockFetch = mock(() =>
+        Promise.resolve(
+          new Response("rate limited", {
+            status: 429,
+            headers: { "Retry-After": "30" },
+          }),
+        ),
+      );
+      globalThis.fetch = mockFetch as unknown as typeof fetch;
+
+      const backend = new GeminiEmbeddingBackend("test-key", "test-model");
+      const err = await backend.embed(["hello"]).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(GeminiEmbedError);
+      expect((err as GeminiEmbedError).status).toBe(429);
+      expect((err as GeminiEmbedError).retryAfterMs).toBe(30000);
+    });
+
+    test("retryAfterMs is undefined on 429 without Retry-After header", async () => {
+      mockFetch = mock(() =>
+        Promise.resolve(new Response("rate limited", { status: 429 })),
+      );
+      globalThis.fetch = mockFetch as unknown as typeof fetch;
+
+      const backend = new GeminiEmbeddingBackend("test-key", "test-model");
+      const err = await backend.embed(["hello"]).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(GeminiEmbedError);
+      expect((err as GeminiEmbedError).retryAfterMs).toBeUndefined();
     });
 
     test("throws when response is missing embedding values", async () => {

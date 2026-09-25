@@ -68,10 +68,10 @@ export function IntelligenceLayout() {
   const setTopBarCenter = useChatLayoutSlotsStore.use.setTopBarCenter();
   const setMobileTopBar = useChatLayoutSlotsStore.use.setMobileTopBar();
   const headerTrailing = useIntelligenceLayoutSlotsStore.use.headerTrailing();
-  const headerTitle = useIntelligenceLayoutSlotsStore.use.headerTitle();
   const detailIsScreen = useIntelligenceLayoutSlotsStore.use.detailIsScreen();
 
   const section = aboutAssistantSectionForPath(pathname);
+  const isWorkspace = section?.key === "workspace";
   const sectionTitle = section ? t(SECTION_LABEL_KEY[section.key]) : null;
   /**
    * The bar's title, and the test for whether a page takes the bar at all.
@@ -134,7 +134,13 @@ export function IntelligenceLayout() {
       setTopBarCenter(null);
       setMobileTopBar({
         leading: <MobileTopBarBack {...destination} />,
-        center: headerTitle ?? (
+        center: isWorkspace ? (
+          <span data-slot="workspace-page-title" className="flex min-w-0">
+            <MobileTopBarTitle className="text-[var(--content-default)] [--text-body-medium-default-size:17px] [--text-body-medium-default-weight:600]">
+              {mobileTopBarTitle}
+            </MobileTopBarTitle>
+          </span>
+        ) : (
           <MobileTopBarTitle>{mobileTopBarTitle}</MobileTopBarTitle>
         ),
         trailing: headerTrailing,
@@ -152,7 +158,7 @@ export function IntelligenceLayout() {
     backTitle,
     backToListPath,
     headerTrailing,
-    headerTitle,
+    isWorkspace,
     mobileTopBarTitle,
     navigate,
     ownsMobileTopBar,
@@ -176,12 +182,12 @@ export function IntelligenceLayout() {
   return (
     <PageShell
       className={
-        section.key === "workspace"
+        isWorkspace
           ? "max-md:rounded-none max-md:border-0 max-md:px-3.5 max-md:pt-0 max-md:pb-3.5"
           : undefined
       }
       style={
-        section.key === "workspace"
+        isWorkspace
           ? { backgroundColor: "var(--surface-base)" }
           : undefined
       }
@@ -199,11 +205,9 @@ export function IntelligenceLayout() {
           >
             <ChevronLeft className="h-5 w-5" aria-hidden />
           </Link>
-          {headerTitle ?? (
-            <h1 className="text-title-large text-[var(--content-default)]">
-              {sectionTitle}
-            </h1>
-          )}
+          <h1 className="text-title-large text-[var(--content-default)]">
+            {sectionTitle}
+          </h1>
           {headerTrailing ? (
             <div className="ml-auto flex shrink-0 items-center">
               {headerTrailing}

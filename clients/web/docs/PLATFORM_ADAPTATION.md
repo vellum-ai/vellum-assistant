@@ -203,13 +203,18 @@ reason a variant cannot cover.
 ## Workspace file picker
 
 Workspace uses the measured pane width from `useSideListRoom()` to keep its
-tree beside the file when there is room. Compact panes put the tree in a
-78%-height `BottomSheet` opened by the filename title pill. The page registers
-that control in `intelligence-layout-slots-store.headerTitle`; the layout
-keeps ownership of Back and the mobile header. Search and folder expansion
-live above the two tree surfaces, and file selection clears search and closes
-the sheet. The sheet uses the existing row highlight tokens, viewport keyboard
-insets, and detail-sheet drag dismissal.
+tree beside the file when there is room. Compact panes, including narrow
+desktop panes, put the tree in a 78%-height `BottomSheet` opened by the file
+switcher in the document card header. The switcher stays mounted for empty,
+loading, missing and loaded files so selection remains available and closing
+the sheet can restore focus to the same button. The layout owns Back and the
+plain Workspace page title. Wide panes retain the inline tree and static
+filename and size header.
+
+Search, folder expansion, sort and hidden-file state live above the two tree
+surfaces. File selection immediately updates the card switcher, clears search
+and closes the sheet. The sheet retains its hidden-file toggle, existing row
+highlight tokens, viewport keyboard insets and detail-sheet drag dismissal.
 
 ## Mobile chat detail sheets
 

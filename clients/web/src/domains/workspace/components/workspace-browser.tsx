@@ -9,7 +9,6 @@ import { useSearchParams } from "react-router";
 
 import type { FileViewMode } from "@/components/file-view-mode";
 import { isMarkdown } from "@/components/file-markdown";
-import { useIntelligenceLayoutSlotsStore } from "@/components/layout/intelligence-layout-slots-store";
 import { useSideListRoom } from "@/hooks/use-side-list-room";
 import { WorkspaceFileViewer } from "@/domains/workspace/components/workspace-file-viewer";
 import {
@@ -18,7 +17,6 @@ import {
 } from "@/domains/workspace/components/workspace-tree";
 
 import { WorkspaceFilePicker } from "./workspace-file-picker";
-import { WorkspaceFileTitle } from "./workspace-file-title";
 import "./workspace-browser.css";
 
 /**
@@ -87,29 +85,6 @@ export function WorkspaceBrowser({ assistantId }: { assistantId: string }) {
   const [treeSearch, setTreeSearch] = useState("");
   const pickerId = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const setHeaderTitle = useIntelligenceLayoutSlotsStore.use.setHeaderTitle();
-
-  useEffect(() => {
-    setHeaderTitle(
-      hasRoomForList ? null : (
-        <WorkspaceFileTitle
-          selectedPath={selectedPath}
-          open={drawerOpen}
-          onOpen={openDrawer}
-          pickerId={pickerId}
-          buttonRef={triggerRef}
-        />
-      ),
-    );
-    return () => setHeaderTitle(null);
-  }, [
-    hasRoomForList,
-    selectedPath,
-    drawerOpen,
-    openDrawer,
-    pickerId,
-    setHeaderTitle,
-  ]);
 
   const handleSelectPath = useCallback(
     (path: string) => {
@@ -246,7 +221,16 @@ export function WorkspaceBrowser({ assistantId }: { assistantId: string }) {
             showHidden={showHidden}
             viewMode={viewMode}
             onChangeViewMode={setViewMode}
-            pickerAvailable={!hasRoomForList}
+            picker={
+              hasRoomForList
+                ? undefined
+                : {
+                    open: drawerOpen,
+                    onOpen: openDrawer,
+                    pickerId,
+                    buttonRef: triggerRef,
+                  }
+            }
             pathRename={lastRename}
             pathDelete={lastDelete}
           />

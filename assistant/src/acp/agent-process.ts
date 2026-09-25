@@ -25,6 +25,7 @@ import type {
 import * as acp from "@agentclientprotocol/sdk";
 
 import { getLogger } from "../util/logger.js";
+import { CHILD_OOM_SCORE_ADJ, withOomScoreAdj } from "../util/oom-priority.js";
 import { safeStringSlice } from "../util/unicode.js";
 import {
   AcpAuthRequiredError,
@@ -110,7 +111,11 @@ export class AcpAgentProcess {
     );
 
     this.spawnedEnv = { ...process.env, ...this.config.env };
-    this.proc = spawn(this.config.command, this.config.args, {
+    const [command, ...args] = withOomScoreAdj(
+      [this.config.command, ...this.config.args],
+      CHILD_OOM_SCORE_ADJ,
+    );
+    this.proc = spawn(command, args, {
       cwd,
       stdio: ["pipe", "pipe", "pipe"],
       env: this.spawnedEnv,

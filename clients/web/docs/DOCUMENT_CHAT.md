@@ -47,9 +47,10 @@ Mounted editors retain the shared editor's cross-client limitation: a
 The load-time revalidation above does not provide simultaneous-edit conflict
 resolution. Executable TODOs cover remote saves after mounting in both a
 URL-backed session and an ordinary desktop drawer. Simultaneous cross-client edit
-conflict handling is outside this document-chat feature's scope. A shared-editor
-follow-up must define how remote content and unsaved local revisions are preserved
-together.
+conflict handling is outside this document-chat feature's scope. Streamed
+assistant edits merge with local revisions (see Prepare, then use normal chat);
+a save from another client still reaches a mounted editor only through a later
+load.
 Tracking: [mounted cross-client document invalidation](https://github.com/vellum-ai/vellum-assistant/pull/42599#discussion_r3994417269).
 Reopening the associated document from Chat Info or a chat card uses that same
 presentation action, retaining the editor, original return destination and history
@@ -130,9 +131,22 @@ Changed incoming document fields are retained during a save or preparation lease
 and applied after the drain and final lease release. Unchanged props cannot replay
 an old body during a title refresh, and failed local writes keep their draft until
 a successful retry. Deferred updates belong only to the mounted editor.
-A later accepted local edit discards the older deferred value for that field only.
+A later local rename discards the older deferred title. A deferred body survives
+later local edits, because the editor merges it rather than replacing its content.
 Body edits preserve deferred title changes, renames preserve deferred body changes,
 and edits rejected by a preparation lease leave deferred updates intact.
+The editor applies an incoming body as a remote change (`useTiptapRemoteMerge`,
+`utils/tiptap-remote-merge.ts`). It diffs the body against the anchor it differs
+from least: the last body received, or one of the last bodies the save path wrote
+successfully (`sentContent`). A body becomes an anchor only once its write
+succeeds, so an unacknowledged or failed write never serves as an ancestor.
+Each changed hunk maps through the local edits made since that anchor and applies in one transaction outside undo history, so selection, scroll
+and comment decorations map rather than reset. A hunk whose original range the
+user has changed since is skipped in favor of the user's text, and a toast says
+part of the assistant's edit was not applied. When the merge kept local edits,
+the editor reports the merged body through `acceptMergedContent`, which saves it
+like an edit but is not rejected by a preparation lease, since the merge is
+already on screen. A merge that equals the incoming body writes nothing.
 Successful rename writes invalidate the saved assistant's document-list caches,
 even after the editor unmounts or a newer rename supersedes the write. UI callbacks
 and save indicators remain scoped to the mounted editor.

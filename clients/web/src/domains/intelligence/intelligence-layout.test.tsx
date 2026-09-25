@@ -77,21 +77,41 @@ afterEach(() => {
   cleanup();
   useAssistantIdentityStore.getState().clearIdentity();
   useIntelligenceLayoutSlotsStore.getState().setHeaderTrailing(null);
-  useIntelligenceLayoutSlotsStore.getState().setHeaderTitle(null);
   useIntelligenceLayoutSlotsStore.getState().setDetailIsScreen(false);
 });
 
-describe("IntelligenceLayout — section pages", () => {
-  test("a page-owned title shares the mobile bar with the layout's Back", () => {
+describe("IntelligenceLayout section pages", () => {
+  test("Workspace publishes a plain mobile title and a single Back", () => {
     isMobileRef.value = true;
-    useIntelligenceLayoutSlotsStore.getState().setHeaderTitle(
-      <button type="button">Choose a file</button>,
-    );
-    renderLayoutAt("/assistant/workspace");
+    const body = renderLayoutAt("/assistant/workspace");
     const slot = lastMobileTopBar();
-    expect(renderToStaticMarkup(slot?.center)).toContain("Choose a file");
-    expect(slotProps(slot?.leading).to).toBe("/assistant/identity");
+    const header = render(
+      <MemoryRouter>
+        {slot?.leading}
+        {slot?.center}
+        {slot?.trailing}
+      </MemoryRouter>,
+    );
+
+    expect(header.getByText("Workspace").closest("button, a")).toBeNull();
+    expect(header.queryByRole("button")).toBeNull();
+    expect(header.getAllByRole("link")).toHaveLength(1);
+    expect(
+      header.getByRole("link", { name: "Back to Ada" }).getAttribute("href"),
+    ).toBe("/assistant/identity");
+    expect(body.container.querySelector("h1, a, button")).toBeNull();
     expect(slot?.trailing).toBeNull();
+  });
+
+  test("Workspace retains its plain desktop heading and Back", () => {
+    const { getByRole, queryByRole } = renderLayoutAt("/assistant/workspace");
+
+    expect(getByRole("heading", { name: "Workspace", level: 1 })).toBeDefined();
+    expect(
+      getByRole("link", { name: "Back to Ada" }).getAttribute("href"),
+    ).toBe("/assistant/identity");
+    expect(queryByRole("button")).toBeNull();
+    expect(lastMobileTopBar()).toBeUndefined();
   });
 
   test("renders the section heading and a back chevron to the overview", () => {

@@ -181,8 +181,10 @@ function DocumentViewerContent({
     saveStatus,
     editingLocked,
     editorContent,
+    sentContent,
     title,
     changeContent,
+    acceptMergedContent,
     rename,
     flushPendingSave,
     beginSendPreparation,
@@ -215,9 +217,21 @@ function DocumentViewerContent({
     [changeContent],
   );
 
-  useEffect(() => {
+  const handleRemoteMerge = useCallback(
+    (markdown: string) => {
+      acceptMergedContent(markdown);
+      setWordCount(markdownWordCount(markdown));
+    },
+    [acceptMergedContent],
+  );
+
+  // Adjusted during render rather than in an effect, so the editor's merge
+  // report, which lands in its layout effect, is the count that stays.
+  const [countedContent, setCountedContent] = useState(editorContent);
+  if (countedContent !== editorContent) {
+    setCountedContent(editorContent);
     setWordCount(markdownWordCount(editorContent));
-  }, [editorContent]);
+  }
 
   // Clear inline comment state when panel closes (but keep text selection
   // visible since the popover now works independently of the panel)
@@ -484,8 +498,10 @@ function DocumentViewerContent({
           >
             <TiptapDocumentEditor
               content={editorContent}
+              sentContent={sentContent}
               editable={!editingLocked}
               onContentChange={handleContentChange}
+              onRemoteMerge={handleRemoteMerge}
               onTextSelect={(sel) => {
                 if (!sel) {
                   setTextSelection(null);

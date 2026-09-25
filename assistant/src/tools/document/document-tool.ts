@@ -158,6 +158,7 @@ export function executeDocumentOpen(
       surfaceId: doc.surfaceId,
       title: doc.title,
       initialContent: doc.content,
+      revision: doc.revision,
     });
 
     context.sendToClient({
@@ -244,6 +245,7 @@ function maybeReuseEmptyDocument(
       surfaceId,
       markdown: initialContent,
       mode: "replace",
+      revision: update.revision,
     });
 
     context.sendToClient({
@@ -304,7 +306,7 @@ export function executeDocumentCreate(
       isError: true,
     };
   }
-  const { surfaceId } = created;
+  const { surfaceId, revision } = created;
 
   // Send document_editor_show message to open the built-in RTE
   if (context.sendToClient) {
@@ -314,6 +316,7 @@ export function executeDocumentCreate(
       surfaceId,
       title,
       initialContent,
+      revision,
     });
 
     context.sendToClient({
@@ -441,6 +444,7 @@ export function executeDocumentUpdate(
       surfaceId,
       markdown: applied,
       mode,
+      revision: result.revision,
     });
 
     return {
@@ -684,16 +688,14 @@ export function executeDocumentReplaceText(
   }
 
   if (context.sendToClient && result.content_changed) {
-    const doc = getDocumentById(surfaceId);
-    if (doc) {
-      context.sendToClient({
-        type: "document_editor_update",
-        conversationId: context.conversationId,
-        surfaceId,
-        markdown: doc.content,
-        mode: "replace",
-      });
-    }
+    context.sendToClient({
+      type: "document_editor_update",
+      conversationId: context.conversationId,
+      surfaceId,
+      markdown: result.content,
+      mode: "replace",
+      revision: result.revision,
+    });
   }
 
   return {

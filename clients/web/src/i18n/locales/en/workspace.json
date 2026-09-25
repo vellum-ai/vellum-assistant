@@ -47,12 +47,11 @@
     "saveFailed": "Save failed",
     "unknownSize": "Unknown size",
     "downloadAria": "Download {name}",
-    "emptyTitle": "Nothing open yet",
-    "emptyHint": "Tap <strong>Choose a file</strong> above <arrow/>"
+    "emptyTitle": "Nothing open yet"
   },
-  "workspaceFileTitle": {
-    "eyebrow": "Workspace",
+  "workspaceFileSwitcher": {
     "chooseFile": "Choose a file",
+    "switchFile": "Switch file: {path}",
     "openHint": "Opens file list"
   },
   "workspaceFilePicker": {

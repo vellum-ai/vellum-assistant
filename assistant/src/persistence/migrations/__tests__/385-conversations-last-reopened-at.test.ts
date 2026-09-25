@@ -4,7 +4,7 @@ import { expect, test } from "bun:test";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import * as schema from "../../schema/index.js";
-import { migrateConversationsLastReopenedAt } from "../384-conversations-last-reopened-at.js";
+import { migrateConversationsLastReopenedAt } from "../385-conversations-last-reopened-at.js";
 
 test("adds a nullable reopen marker without changing existing chats and is idempotent", () => {
   const sqlite = new Database(":memory:");

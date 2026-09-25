@@ -1842,7 +1842,8 @@
   "tiptapDocumentEditor": {
     "adding": "Añadiendo…",
     "comment": "Comentar",
-    "feedbackPlaceholder": "Añade tu comentario…"
+    "feedbackPlaceholder": "Añade tu comentario…",
+    "remoteEditConflict": "Se conservaron tus cambios donde el asistente modificó el mismo texto, así que parte de su edición no se aplicó."
   },
   "toolCallChip": {
     "allow": "Permitir",

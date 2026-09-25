@@ -19,6 +19,11 @@ export const DocumentEditorShowEventSchema = z.object({
   surfaceId: z.string(),
   title: z.string(),
   initialContent: z.string(),
+  /**
+   * The document's revision once this content is in place. A client that
+   * saves with `baseRevision` adopts it as its new base.
+   */
+  revision: z.number().optional(),
 });
 
 export type DocumentEditorShowEvent = z.infer<

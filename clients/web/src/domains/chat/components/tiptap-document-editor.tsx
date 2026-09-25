@@ -5,6 +5,7 @@
  * - Comment anchor highlight decorations (yellow)
  * - Active/temporary highlight range decorations (blue)
  * - Text selection tracking with character offset conversion
+ * - Incoming content merged into local edits (`useTiptapRemoteMerge`)
  */
 
 import { EditorContent, useEditor } from "@tiptap/react";
@@ -33,6 +34,7 @@ import {
   commentAnchorPluginKey,
   getEditorMarkdown,
 } from "@/domains/chat/components/tiptap-editor-extensions";
+import { useTiptapRemoteMerge } from "@/domains/chat/hooks/use-tiptap-remote-merge";
 import type { CommentAnchor } from "@/domains/chat/utils/tiptap-position-map";
 import {
   charOffsetToPmPos,
@@ -45,9 +47,14 @@ import { useTranslation } from "@/i18n";
 // ---------------------------------------------------------------------------
 
 interface TiptapDocumentEditorProps {
+  /** The body from outside the editor; each change merges into local edits. */
   content: string;
+  /** The body the save path last wrote, a merge base for later content. */
+  sentContent?: string;
   editable?: boolean;
   onContentChange?: (markdown: string) => void;
+  /** A merge of `content` produced a body that still needs saving. */
+  onRemoteMerge?: (markdown: string) => void;
   onTextSelect?: (
     selection: {
       start: number;
@@ -264,8 +271,10 @@ function BubbleToolbar({
 
 export function TiptapDocumentEditor({
   content,
+  sentContent,
   editable = true,
   onContentChange,
+  onRemoteMerge,
   onTextSelect,
   commentAnchors = [],
   highlightRange = null,
@@ -327,27 +336,15 @@ export function TiptapDocumentEditor({
   }, [editable, editor]);
 
   // -------------------------------------------------------------------------
-  // Sync content prop → editor (only when externally changed)
+  // Merge content prop → editor as a remote change
   // -------------------------------------------------------------------------
 
-  const prevContentRef = useRef(content);
-
-  useEffect(() => {
-    if (!editor) {
-      return;
-    }
-    if (content === prevContentRef.current) {
-      return;
-    }
-    prevContentRef.current = content;
-
-    const currentMd = getEditorMarkdown(editor);
-    if (currentMd === content) {
-      return;
-    } // avoid cursor-reset loops
-
-    editor.commands.setContent(content, { emitUpdate: false });
-  }, [content, editor]);
+  useTiptapRemoteMerge({
+    editor,
+    content,
+    sentContent,
+    onMerged: onRemoteMerge,
+  });
 
   // -------------------------------------------------------------------------
   // Sync commentAnchors prop → decoration plugin
