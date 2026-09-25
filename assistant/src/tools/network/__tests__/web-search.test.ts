@@ -12,7 +12,7 @@ let mockKeenableSecureKey: string | undefined;
 let mockFastcrwSecureKey: string | undefined;
 let mockSearxngSecureKey: string | undefined;
 let mockTinyfishSecureKey: string | undefined;
-let mockExaSecureKey: string | undefined;
+let mockYoucomSecureKey: string | undefined;
 let mockManagedSearchProxyResult: any;
 let mockManagedSearchAvailable = true;
 let mockManagedSearchProxyCalls: Array<{
@@ -66,8 +66,8 @@ mock.module("../../../security/secure-keys.js", () => ({
     if (provider === "tinyfish") {
       return mockTinyfishSecureKey;
     }
-    if (provider === "exa") {
-      return mockExaSecureKey;
+    if (provider === "youcom") {
+      return mockYoucomSecureKey;
     }
     return undefined;
   },
@@ -115,7 +115,7 @@ describe("web_search tool", () => {
     mockFastcrwSecureKey = undefined;
     mockSearxngSecureKey = undefined;
     mockTinyfishSecureKey = undefined;
-    mockExaSecureKey = undefined;
+    mockYoucomSecureKey = undefined;
     mockManagedSearchProxyCalls = [];
     mockManagedSearchAvailable = true;
     mockManagedSearchProxyResult = {
@@ -942,6 +942,138 @@ describe("web_search tool", () => {
     const result = await execute({ query: "test" });
     expect(result.isError).toBe(true);
     expect(result.content).toContain("Invalid or expired Keenable API key");
+  });
+
+  // ---- You.com provider -----------------------------------------------------
+
+  test("executes You.com search successfully", async () => {
+    seedWebSearch("your-own", "youcom");
+    mockYoucomSecureKey = "ydc-test-key";
+    let capturedUrl = "";
+    let capturedHeaders: any = null;
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      capturedUrl = url;
+      capturedHeaders = new Headers(init?.headers);
+      return new Response(
+        JSON.stringify({
+          hits: [
+            {
+              title: "You.com Result 1",
+              url: "https://example.com/youcom-1",
+              snippets: ["First You.com passage", "Second passage"],
+              published_date: "2026-09-01",
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as any;
+
+    const result = await execute({ query: "what is RAG", count: 5 });
+    expect(result.isError).toBe(false);
+    expect(capturedUrl).toContain("api.ydc-index.io/search");
+    expect(capturedUrl).toContain("count=5");
+    expect(capturedHeaders.get("X-API-Key")).toBe("ydc-test-key");
+    expect(result.content).toContain("You.com Result 1");
+    expect(result.content).toContain("https://example.com/youcom-1");
+    expect(result.content).toContain("First You.com passage");
+    expect(result.content).toContain("Published: 2026-09-01");
+  });
+
+  test("You.com falls back to a single snippet and caps it", async () => {
+    seedWebSearch("your-own", "youcom");
+    mockYoucomSecureKey = "ydc-test-key";
+    globalThis.fetch = (async () => {
+      return new Response(
+        JSON.stringify({
+          hits: [
+            {
+              title: "Single",
+              url: "https://example.com/single",
+              snippet: "word ".repeat(400),
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as any;
+
+    const result = await execute({ query: "test" });
+    const longLine = String(result.content)
+      .split("\n")
+      .find((line) => line.trim().startsWith("word"));
+    expect(longLine?.trim().length).toBeLessThanOrEqual(500);
+    expect(longLine?.trim().length).toBeGreaterThan(490);
+  });
+
+  test("You.com trims results to the requested count", async () => {
+    seedWebSearch("your-own", "youcom");
+    mockYoucomSecureKey = "ydc-test-key";
+    globalThis.fetch = (async () => {
+      return new Response(
+        JSON.stringify({
+          hits: [
+            { title: "A", url: "https://a.com", snippets: ["a"] },
+            { title: "B", url: "https://b.com", snippets: ["b"] },
+            { title: "C", url: "https://c.com", snippets: ["c"] },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as any;
+
+    const result = await execute({ query: "test", count: 2 });
+    expect(result.content).toContain("A");
+    expect(result.content).toContain("B");
+    expect(result.content).not.toContain("https://c.com");
+  });
+
+  test("You.com surfaces an empty-hits response as no results", async () => {
+    seedWebSearch("your-own", "youcom");
+    mockYoucomSecureKey = "ydc-test-key";
+    globalThis.fetch = (async () => {
+      return new Response(JSON.stringify({ hits: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as any;
+
+    const result = await execute({ query: "test" });
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('No results found for "test".');
+  });
+
+  test.each([401, 403])("You.com handles %d auth error", async (status) => {
+    seedWebSearch("your-own", "youcom");
+    mockYoucomSecureKey = "bad-key";
+    globalThis.fetch = (async () => {
+      return new Response(JSON.stringify({ message: "unauthorized" }), {
+        status,
+        headers: { "content-type": "application/json" },
+      });
+    }) as any;
+
+    const result = await execute({ query: "test" });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("Invalid or expired You.com API key");
+  });
+
+  test("You.com without a key falls back to another keyed provider", async () => {
+    seedWebSearch("your-own", "youcom");
+    // No youcom key, but a tavily key exists — the fallback chain should use it.
+    mockTavilySecureKey = "tvly-test-key";
+    let capturedUrl = "";
+    globalThis.fetch = (async (url: string) => {
+      capturedUrl = url;
+      return new Response(JSON.stringify({ results: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as any;
+
+    const result = await execute({ query: "test" });
+    expect(result.isError).toBe(false);
+    expect(capturedUrl).toContain("api.tavily.com/search");
   });
 
   // ---- Firecrawl provider -------------------------------------------------

@@ -173,7 +173,7 @@ describe("WebSearchCard — provider-only configuration", () => {
       "fastCRW",
       "SearXNG",
       "TinyFish",
-      "Exa",
+      "You.com",
     ]);
   });
 

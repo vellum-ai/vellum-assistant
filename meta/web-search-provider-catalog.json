@@ -99,14 +99,15 @@
       "defaultApiBase": "https://api.search.tinyfish.ai"
     },
     {
-      "id": "exa",
-      "displayName": "Exa",
+      "id": "youcom",
+      "displayName": "You.com",
+      "displayNameLong": "You.com Search",
       "kind": "byok",
-      "apiKeyPrefix": "Exa API key...",
-      "envVar": "EXA_API_KEY",
-      "secretKey": "exa",
+      "apiKeyPrefix": "ydc-...",
+      "envVar": "YDC_API_KEY",
+      "secretKey": "youcom",
       "fallbackOrder": 9,
-      "privacyPolicyUrl": "https://exa.ai/privacy-policy"
+      "privacyPolicyUrl": "https://you.com/privacy"
     }
   ]
 }

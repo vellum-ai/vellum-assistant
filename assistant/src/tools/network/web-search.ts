@@ -51,6 +51,9 @@ const EXA_API_URL = "https://api.exa.ai/search";
 const KEENABLE_API_BASE_URL = "https://api.keenable.ai";
 const KEENABLE_PUBLIC_SEARCH_PATH = "/v1/search/public";
 const KEENABLE_KEYED_SEARCH_PATH = "/v1/search";
+// You.com Search API. GET with an `X-API-Key` header; `query` plus optional
+// `count` and `offset`.
+const YOUCOM_API_URL = "https://api.ydc-index.io/search";
 
 type WebSearchProvider =
   | "perplexity"
@@ -61,7 +64,7 @@ type WebSearchProvider =
   | "fastcrw"
   | "searxng"
   | "tinyfish"
-  | "exa";
+  | "youcom";
 
 /**
  * Arguments passed to every {@link WebSearchAdapter}. The full superset is
@@ -199,18 +202,18 @@ interface TinyfishSearchResponse {
   page?: number;
 }
 
-interface ExaSearchResult {
-  id?: string;
-  title?: string | null;
+interface YoucomSearchResult {
+  title?: string;
   url?: string;
-  publishedDate?: string | null;
-  author?: string | null;
-  highlights?: string[];
+  /** Query-relevant passages extracted from the page. */
+  snippets?: string[];
+  snippet?: string;
+  /** Publisher timestamp, when available. */
+  published_date?: string;
 }
 
-interface ExaSearchResponse {
-  requestId?: string;
-  results?: ExaSearchResult[];
+interface YoucomSearchResponse {
+  hits?: YoucomSearchResult[];
 }
 
 const SEARXNG_MISSING_INSTANCE_MESSAGE =
@@ -735,82 +738,81 @@ function buildTinyfishMetadata(
   };
 }
 
-function formatExaResults(data: ExaSearchResponse, query: string): string {
-  const results = data.results ?? [];
+/**
+ * You.com sends query-relevant passages in `snippets` (an array) on every
+ * hit; some payloads carry a single `snippet` string instead. Join the array
+ * passages with an ellipsis and cap the total to keep one result from
+ * dominating the context, mirroring the Keenable page-text cap.
+ */
+const YOUCOM_SNIPPET_MAX_LENGTH = 500;
+
+function youcomSnippet(result: YoucomSearchResult): string | undefined {
+  const passages = result.snippets?.length
+    ? result.snippets
+    : result.snippet
+      ? [result.snippet]
+      : [];
+  const text = passages.join(" … ").replace(/\s+/g, " ").trim();
+  if (!text) {
+    return undefined;
+  }
+  return safeStringSlice(text, 0, YOUCOM_SNIPPET_MAX_LENGTH);
+}
+
+function formatYoucomResults(
+  data: YoucomSearchResponse,
+  query: string,
+): string {
+  const results = data.hits ?? [];
   if (results.length === 0) {
     return `No results found for "${query}".`;
   }
 
   const lines: string[] = [`Web search results for "${query}":\n`];
   for (let i = 0; i < results.length; i++) {
-    const result = results[i];
-    const title =
-      result.title?.trim() || result.url?.trim() || "Untitled result";
+    const r = results[i];
+    const title = r.title?.trim() || r.url?.trim() || "Untitled result";
     lines.push(`${i + 1}. ${title}`);
-    if (result.url) {
-      lines.push(`   URL: ${result.url}`);
+    if (r.url) {
+      lines.push(`   URL: ${r.url}`);
     }
-    const snippet = result.highlights?.join(" ").trim();
+    const snippet = youcomSnippet(r);
     if (snippet) {
       lines.push(`   ${snippet}`);
     }
-    if (result.publishedDate) {
-      lines.push(`   Published: ${result.publishedDate}`);
+    if (r.published_date) {
+      lines.push(`   Published: ${r.published_date}`);
     }
     lines.push("");
   }
   return lines.join("\n");
 }
 
-function buildExaMetadata(
-  data: ExaSearchResponse,
+function buildYoucomMetadata(
+  data: YoucomSearchResponse,
   query: string,
   durationMs: number,
 ): WebSearchMetadata {
-  const results = data.results ?? [];
-  const items: WebSearchResultItem[] = results.map((result, index) => {
-    const url = result.url ?? "";
+  const results = data.hits ?? [];
+  const items: WebSearchResultItem[] = results.map((r, i) => {
+    const url = r.url ?? "";
     const domain = extractDomain(url);
     return {
-      rank: index + 1,
-      title: result.title?.trim() || url.trim() || "Untitled result",
+      rank: i + 1,
+      title: r.title?.trim() || url.trim() || "Untitled result",
       url,
       domain,
       faviconUrl: faviconUrlForDomain(domain),
-      snippet: result.highlights?.join(" ").trim() || undefined,
+      snippet: youcomSnippet(r),
     };
   });
   return {
     query,
-    provider: "exa",
+    provider: "youcom",
     resultCount: items.length,
     durationMs,
     results: items,
   };
-}
-
-function exaStartPublishedDateForFreshness(
-  freshness: string | undefined,
-  now: number = Date.now(),
-): string | undefined {
-  let days: number;
-  switch (freshness) {
-    case "pd":
-      days = 1;
-      break;
-    case "pw":
-      days = 7;
-      break;
-    case "pm":
-      days = 30;
-      break;
-    case "py":
-      days = 365;
-      break;
-    default:
-      return undefined;
-  }
-  return new Date(now - days * 24 * 60 * 60 * 1000).toISOString();
 }
 
 function tinyfishRecencyMinutesForFreshness(
@@ -1896,96 +1898,71 @@ async function executeTinyfishSearch(
   );
 }
 
-async function executeExaSearch(
+async function executeYoucomSearch(
   query: string,
   count: number,
-  freshness: string | undefined,
+  offset: number,
   apiKey: string,
   signal?: AbortSignal,
 ): Promise<ToolExecutionResult> {
-  const startedAt = Date.now();
-  const requestBody: Record<string, unknown> = {
-    query,
-    type: "auto",
-    numResults: count,
-    contents: { highlights: true },
-  };
-  const startPublishedDate = exaStartPublishedDateForFreshness(freshness);
-  if (startPublishedDate !== undefined) {
-    requestBody.startPublishedDate = startPublishedDate;
+  const url = new URL(YOUCOM_API_URL);
+  url.searchParams.set("query", query);
+  url.searchParams.set("count", String(count));
+  if (offset > 0) {
+    url.searchParams.set("offset", String(offset));
   }
 
   const headers = {
-    "Content-Type": "application/json",
     Accept: "application/json",
-    "x-api-key": apiKey.trim(),
+    "X-API-Key": apiKey.trim(),
   };
+
+  const startedAt = Date.now();
 
   for (let attempt = 0; attempt <= DEFAULT_MAX_RETRIES; attempt++) {
     let response: Response;
     try {
-      response = await fetch(EXA_API_URL, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(requestBody),
-        signal,
-      });
+      response = await fetch(url.toString(), { headers, signal });
     } catch (err) {
-      return networkFailureResult(query, "exa", startedAt, err, signal);
+      return networkFailureResult(query, "youcom", startedAt, err, signal);
     }
 
     const bodyText = await response.text();
     if (response.ok) {
-      let data: ExaSearchResponse;
+      let data: YoucomSearchResponse;
       try {
-        data = JSON.parse(bodyText) as ExaSearchResponse;
+        data = JSON.parse(bodyText) as YoucomSearchResponse;
       } catch {
         return errorResult(
           query,
-          "exa",
+          "youcom",
           startedAt,
-          "Exa Search returned an invalid JSON payload.",
+          "You.com Search returned an invalid JSON payload.",
         );
       }
-      if (data.results && data.results.length > count) {
-        data.results = data.results.slice(0, count);
+      if (data.hits && data.hits.length > count) {
+        data.hits = data.hits.slice(0, count);
       }
       const durationMs = Date.now() - startedAt;
       return {
         content:
-          wrapUntrustedContent(formatExaResults(data, query), {
+          wrapUntrustedContent(formatYoucomResults(data, query), {
             source: "search",
-            sourceDetail: "exa",
+            sourceDetail: "youcom",
           }) + CITATION_INSTRUCTION,
         isError: false,
         activityMetadata: {
-          webSearch: buildExaMetadata(data, query, durationMs),
+          webSearch: buildYoucomMetadata(data, query, durationMs),
         },
       };
     }
 
-    if (response.status === 401) {
+    if (response.status === 401 || response.status === 403) {
       return errorResult(
         query,
-        "exa",
+        "youcom",
         startedAt,
-        "Invalid or expired Exa API key",
-      );
-    }
-    if (response.status === 402) {
-      return errorResult(
-        query,
-        "exa",
-        startedAt,
-        "Exa account has no remaining credits.",
-      );
-    }
-    if (response.status === 403) {
-      return errorResult(
-        query,
-        "exa",
-        startedAt,
-        "Exa Search request was forbidden by the upstream service.",
+        "Invalid or expired You.com API key",
       );
     }
 
@@ -1997,30 +1974,30 @@ async function executeExaSearch(
       );
       log.warn(
         { attempt: attempt + 1, delayMs },
-        "Exa Search rate limited, retrying",
+        "You.com Search rate limited, retrying",
       );
       await sleep(delayMs);
       continue;
     }
 
-    log.warn({ status: response.status }, "Exa Search API error");
+    log.warn({ status: response.status }, "You.com Search API error");
     return backendFailureResult(
       query,
-      "exa",
+      "youcom",
       startedAt,
       { statusCode: response.status, error: rawBodyDetail(bodyText) },
       response.status === 429
-        ? "Exa Search rate limit exceeded after retries. Try again shortly."
-        : `Exa Search API returned status ${response.status}`,
+        ? "You.com Search rate limit exceeded after retries. Try again shortly."
+        : `You.com Search API returned status ${response.status}`,
     );
   }
 
   return backendFailureResult(
     query,
-    "exa",
+    "youcom",
     startedAt,
     { statusCode: 429 },
-    "Exa Search rate limit exceeded after retries. Try again shortly.",
+    "You.com Search rate limit exceeded after retries. Try again shortly.",
   );
 }
 
@@ -2107,12 +2084,12 @@ const tinyfishSearchAdapter: WebSearchAdapter = {
     executeTinyfishSearch(query, count, freshness, apiKey, signal),
 };
 
-const exaSearchAdapter: WebSearchAdapter = {
-  id: "exa",
-  providerKeyName: "exa",
+const youcomSearchAdapter: WebSearchAdapter = {
+  id: "youcom",
+  providerKeyName: "youcom",
   fallbackOrder: 9,
-  execute: ({ query, count, freshness, apiKey, signal }) =>
-    executeExaSearch(query, count, freshness, apiKey, signal),
+  execute: ({ query, count, offset, apiKey, signal }) =>
+    executeYoucomSearch(query, count, offset, apiKey, signal),
 };
 
 /**
@@ -2129,7 +2106,7 @@ const WEB_SEARCH_ADAPTERS: Record<WebSearchProvider, WebSearchAdapter> = {
   fastcrw: fastcrwSearchAdapter,
   searxng: searxngSearchAdapter,
   tinyfish: tinyfishSearchAdapter,
-  exa: exaSearchAdapter,
+  youcom: youcomSearchAdapter,
 };
 
 /**
@@ -2161,7 +2138,7 @@ export const webSearchTool = {
       count: {
         type: "number",
         description:
-          "Number of results to return (1-20, default 10). Used with Brave, Tavily, Firecrawl, Keenable, fastCRW, SearXNG, TinyFish, and Exa providers.",
+          "Number of results to return (1-20, default 10). Used with Brave, Tavily, Firecrawl, Keenable, fastCRW, SearXNG, TinyFish, and You.com providers.",
       },
       offset: {
         type: "number",
@@ -2171,7 +2148,7 @@ export const webSearchTool = {
       freshness: {
         type: "string",
         description:
-          'Filter by recency: "pd" (past day), "pw" (past week), "pm" (past month), "py" (past year). Used with Brave, Tavily, Firecrawl, Keenable, fastCRW, SearXNG, TinyFish, and Exa providers. SearXNG maps day/month/year and omits week.',
+          'Filter by recency: "pd" (past day), "pw" (past week), "pm" (past month), "py" (past year). Used with Brave, Tavily, Firecrawl, Keenable, fastCRW, SearXNG, and TinyFish providers. SearXNG maps day/month/year and omits week. You.com does not support a recency filter.',
       },
     },
     required: ["query"],
@@ -2289,7 +2266,7 @@ export const webSearchTool = {
           query,
           provider,
           startedAt,
-          "No web search API key configured. Set it via `keys set perplexity <key>`, `keys set brave <key>`, `keys set tavily <key>`, `keys set firecrawl <key>`, or `keys set fastcrw <key>`, or `keys set tinyfish <key>`, or `keys set exa <key>`, or configure it from the Settings page under API Keys. Or switch the web-search provider to Keenable, which works without a key, or SearXNG with your instance URL.",
+          "No web search API key configured. Set it via `keys set perplexity <key>`, `keys set brave <key>`, `keys set tavily <key>`, `keys set firecrawl <key>`, or `keys set fastcrw <key>`, or `keys set tinyfish <key>`, or `keys set youcom <key>`, or configure it from the Settings page under API Keys. Or switch the web-search provider to Keenable, which works without a key, or SearXNG with your instance URL.",
         );
       }
     }
