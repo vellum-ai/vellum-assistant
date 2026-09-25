@@ -81,6 +81,8 @@ export async function executeFollowupCreate(
   const expectedResponseHours = input.expected_response_hours as
     | number
     | undefined;
+  const reminderScheduleId = parsed.reminder_schedule_id;
+
   // Validate contact exists if provided
   if (contactId) {
     const contact = getContact(contactId);
@@ -116,7 +118,7 @@ export async function executeFollowupCreate(
       contactId: contactId ?? null,
       sentAt: now,
       expectedResponseBy,
-      reminderScheduleId: parsed.reminder_schedule_id ?? null,
+      reminderScheduleId: reminderScheduleId ?? null,
     });
 
     return {

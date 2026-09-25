@@ -13,7 +13,6 @@ import {
   type HandleAvailability,
   type HandleErrorCode,
   updateAssistantHandle,
-  type UpdateAssistantHandleResult,
 } from "@/domains/account/handle";
 import {
   checkUsernameAvailable,
@@ -516,11 +515,7 @@ export function AssistantHandleSection({
 
   const save = useCallback(
     async (value: string): Promise<SaveResult<Assistant>> => {
-      const result: UpdateAssistantHandleResult = await updateAssistantHandle(
-        assistant.id,
-        value,
-      );
-      return result;
+      return await updateAssistantHandle(assistant.id, value);
     },
     [assistant.id],
   );

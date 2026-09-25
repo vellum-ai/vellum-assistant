@@ -174,8 +174,7 @@ export function composeVerificationText(
   templateKey: TextVerifyTemplateKey,
   vars: GuardianVerifyTemplateVars,
 ): string {
-  const composer = templates[templateKey];
-  return composer(vars);
+  return templates[templateKey](vars);
 }
 
 // ---------------------------------------------------------------------------

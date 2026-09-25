@@ -236,8 +236,11 @@ function getWebSearchProvider(): WebSearchProvider {
 async function getApiKey(
   provider: WebSearchProvider,
 ): Promise<string | undefined> {
-  const adapter = WEB_SEARCH_ADAPTERS[provider];
-  return (await getProviderKeyAsync(adapter.providerKeyName)) ?? undefined;
+  return (
+    (await getProviderKeyAsync(
+      WEB_SEARCH_ADAPTERS[provider].providerKeyName,
+    )) ?? undefined
+  );
 }
 
 function fallbackProvidersFor(
@@ -1517,9 +1520,8 @@ function executeFastcrwSearch(
   apiKey: string,
   signal?: AbortSignal,
 ): Promise<ToolExecutionResult> {
-  const apiBase = getConfig().services["web-search"]?.apiBase;
   const endpoint = resolveProviderApiUrl(
-    apiBase,
+    getConfig().services["web-search"]?.apiBase,
     FASTCRW_SEARCH_PATH,
     FASTCRW_DEFAULT_API_BASE,
   );
@@ -1779,9 +1781,8 @@ async function executeTinyfishSearch(
   signal?: AbortSignal,
 ): Promise<ToolExecutionResult> {
   const startedAt = Date.now();
-  const apiBase = getConfig().services["web-search"]?.apiBase;
   const endpoint = resolveProviderApiUrl(
-    apiBase,
+    getConfig().services["web-search"]?.apiBase,
     "/",
     TINYFISH_DEFAULT_SEARCH_API_BASE,
   );
@@ -2274,8 +2275,10 @@ export const webSearchTool = {
         // `mode: "managed"` did for installs that never configured a search
         // key. Read the configured provider off config — the local `provider`
         // has already been coerced to "perplexity".
-        const configured = getConfig().services["web-search"].provider;
-        if (configured === "inference-provider-native") {
+        if (
+          getConfig().services["web-search"].provider ===
+          "inference-provider-native"
+        ) {
           const { managedSearchAvailable } =
             await import("./managed-search-proxy.js");
           if (await managedSearchAvailable()) {

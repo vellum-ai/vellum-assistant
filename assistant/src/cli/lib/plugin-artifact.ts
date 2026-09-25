@@ -89,8 +89,9 @@ export function parsePluginArtifact(
   if (typeof vellum !== "object" || vellum === null || Array.isArray(vellum)) {
     return null;
   }
-  const artifact = (vellum as Record<string, unknown>).artifact;
-  const parsed = PluginArtifactSchema.safeParse(artifact);
+  const parsed = PluginArtifactSchema.safeParse(
+    (vellum as Record<string, unknown>).artifact,
+  );
   if (!parsed.success) {
     return null;
   }
