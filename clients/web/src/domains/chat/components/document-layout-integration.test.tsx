@@ -806,8 +806,7 @@ describe("document viewport handoff", () => {
 
 async function openFeedback() {
   const user = userEvent.setup();
-  await user.click(screen.getByRole("button", { name: "Document options" }));
-  await user.click(await screen.findByRole("menuitem", { name: "Comments" }));
+  await user.click(await screen.findByRole("button", { name: /^Comments/ }));
   return screen.findByRole("button", { name: /Submit feedback/i });
 }
 
