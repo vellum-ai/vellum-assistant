@@ -47,12 +47,11 @@
     "saveFailed": "Не удалось сохранить",
     "unknownSize": "Размер неизвестен",
     "downloadAria": "Скачать {name}",
-    "emptyTitle": "Пока ничего не открыто",
-    "emptyHint": "Нажмите <strong>Выбрать файл</strong> выше <arrow/>"
+    "emptyTitle": "Пока ничего не открыто"
   },
-  "workspaceFileTitle": {
-    "eyebrow": "Рабочая область",
+  "workspaceFileSwitcher": {
     "chooseFile": "Выбрать файл",
+    "switchFile": "Сменить файл: {path}",
     "openHint": "Открывает список файлов"
   },
   "workspaceFilePicker": {

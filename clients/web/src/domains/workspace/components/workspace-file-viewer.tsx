@@ -6,16 +6,9 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  Download,
-  ArrowUp,
-  FileIcon,
-  FileText,
-  Image as ImageIcon,
-  Loader2,
-  Video,
-} from "lucide-react";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { Download, FileIcon, FileText, Loader2 } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Button, Typography } from "@vellumai/design-library";
 
 import {
   ContentActionBar,
@@ -27,7 +20,7 @@ import {
   FileViewModeControl,
   type FileViewMode,
 } from "@/components/file-view-mode";
-import { formatLocale, Trans, useTranslation } from "@/i18n";
+import { formatLocale, useTranslation } from "@/i18n";
 import { FileMarkdown, isMarkdown } from "@/components/file-markdown";
 import { isJson, prettifyJson } from "@/domains/workspace/utils/file-json";
 import { formatFileSize } from "@/utils/format-file-size";
@@ -37,10 +30,11 @@ import {
   workspaceWritePost,
 } from "@/generated/daemon/sdk.gen";
 import { downloadWorkspaceFile } from "@/utils/download-workspace-file";
-import { Button } from "@vellumai/design-library/components/button";
-import { Typography } from "@vellumai/design-library/components/typography";
+import { workspaceBasenameOf } from "@/utils/workspace-path-links";
 
 import { workspaceFileRetrieveOptions } from "../utils/workspace-file-query";
+import { WorkspaceFileHeader } from "./workspace-file-header";
+import type { WorkspaceFilePickerControl } from "./workspace-file-switcher";
 
 /**
  * Download state for a single workspace file — shared by the binary-fallback
@@ -115,78 +109,6 @@ function HeaderDownloadButton({
           : t("workspaceFileViewer.download")
       }
     />
-  );
-}
-
-function FileHeaderIcon({ mimeType }: { mimeType: string }) {
-  const semi = mimeType.indexOf(";");
-  const baseMime = (semi === -1 ? mimeType : mimeType.slice(0, semi)).trim();
-  let Icon = FileText;
-  if (baseMime.startsWith("image/")) {
-    Icon = ImageIcon;
-  } else if (baseMime.startsWith("video/")) {
-    Icon = Video;
-  } else if (
-    !baseMime.startsWith("text/") &&
-    baseMime !== "application/json" &&
-    baseMime !== "application/octet-stream"
-  ) {
-    Icon = FileIcon;
-  }
-  return (
-    <span
-      data-slot="workspace-file-icon"
-      className="flex h-5 w-5 shrink-0 items-center justify-center rounded"
-      style={{
-        backgroundColor:
-          "color-mix(in oklab, var(--content-default) 10%, transparent)",
-      }}
-    >
-      <Icon
-        className="h-3.5 w-3.5"
-        style={{ color: "var(--content-default)" }}
-      />
-    </span>
-  );
-}
-
-function FileHeader({
-  name,
-  mimeType,
-  size,
-  rightContent,
-}: {
-  name: string;
-  mimeType: string;
-  size?: number;
-  rightContent?: ReactNode;
-}) {
-  return (
-    <div
-      data-slot="workspace-file-header"
-      className="flex items-center justify-between gap-3 border-b px-3 py-2.5"
-      style={{ borderColor: "var(--border-element)" }}
-    >
-      <div className="flex min-w-0 items-center gap-2">
-        <FileHeaderIcon mimeType={mimeType} />
-        <span
-          data-slot="workspace-file-name"
-          className="truncate text-body-medium-default"
-          style={{ color: "var(--content-default)" }}
-        >
-          {name}
-        </span>
-        {size != null && (
-          <span
-            className="shrink-0 text-body-small-default"
-            style={{ color: "var(--content-tertiary)" }}
-          >
-            {formatFileSize(size)}
-          </span>
-        )}
-      </div>
-      {rightContent && <div className="shrink-0">{rightContent}</div>}
-    </div>
   );
 }
 
@@ -302,7 +224,6 @@ function BinaryFileCard({
 
   return (
     <div className="flex h-full flex-col">
-      <FileHeader name={name} mimeType={mimeType} size={size} />
       <div className="flex flex-1 items-center justify-center p-8">
         <div
           className="w-full max-w-sm rounded-lg border p-6 text-center"
@@ -384,7 +305,7 @@ export function WorkspaceFileViewer({
   showHidden,
   viewMode,
   onChangeViewMode,
-  pickerAvailable = false,
+  picker,
   pathRename,
   pathDelete,
 }: {
@@ -393,8 +314,7 @@ export function WorkspaceFileViewer({
   showHidden?: boolean;
   viewMode: FileViewMode;
   onChangeViewMode: (mode: FileViewMode) => void;
-  /** The header's file picker is available instead of an inline tree. */
-  pickerAvailable?: boolean;
+  picker?: WorkspaceFilePickerControl;
   /** Last successful workspace rename, so edit state can follow the file. */
   pathRename?: { from: string; to: string } | null;
   /** Last successful workspace delete, so drafts for the path are discarded. */
@@ -501,303 +421,197 @@ export function WorkspaceFileViewer({
     }
   }, [selectedPath, isDirty, saveMutation, editableContent]);
 
-  // --- Empty / loading / error states ---
-
-  if (!selectedPath) {
-    return (
-      <div className="flex h-full flex-col items-center justify-center gap-3.5 px-10 text-center">
-        <div className="flex h-11 w-11 items-center justify-center rounded-[14px] bg-[color-mix(in_srgb,var(--content-default)_6%,transparent)]">
-          <FileText
-            className="h-5 w-4 text-[var(--content-secondary)]"
-            aria-hidden
-          />
-        </div>
-        <Typography
-          variant="body-large-lighter"
-          className="text-[var(--content-tertiary)]"
-        >
-          {t("workspaceFileViewer.emptyTitle")}
-        </Typography>
-        {pickerAvailable ? (
-          <Typography
-            variant="body-small-lighter"
-            className="text-[var(--content-disabled)] [--text-body-small-lighter-size:13px]"
-          >
-            <Trans
-              ns="workspace"
-              i18nKey="workspaceFileViewer.emptyHint"
-              components={{
-                strong: (
-                  <strong className="font-medium text-[var(--content-secondary)]" />
-                ),
-                arrow: <ArrowUp className="ml-1 inline h-3 w-3" aria-hidden />,
-              }}
-            />
-          </Typography>
-        ) : (
-          <Typography
-            variant="body-small-lighter"
-            className="text-[var(--content-tertiary)]"
-          >
-            {t("workspaceFileViewer.selectAFile")}
-          </Typography>
-        )}
-      </div>
-    );
-  }
-
-  if (isLoading) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <Loader2
-          className="h-6 w-6 animate-spin"
-          style={{ color: "var(--content-tertiary)" }}
-        />
-      </div>
-    );
-  }
-
-  if (!data) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <p
-          className="text-body-medium-lighter"
-          style={{ color: "var(--content-tertiary)" }}
-        >
-          {t("workspaceFileViewer.fileNotFound")}
-        </p>
-      </div>
-    );
-  }
-
-  // --- Render file content ---
-
-  const mimeType = data.mimeType ?? "application/octet-stream";
-  const name = data.name ?? selectedPath.split("/").pop() ?? selectedPath;
+  const mimeType = data?.mimeType ?? "application/octet-stream";
+  const name = data?.name ?? workspaceBasenameOf(selectedPath ?? "");
   const markdown = isMarkdown(name, mimeType);
   const json = isJson(name, mimeType);
-  // The backend returns inline `content` for all text-renderable files,
-  // including non-text/* MIME types like application/yaml, application/toml,
-  // application/x-sh. Markdown and JSON are checked first in the rendering
-  // cascade, so this catch-all is safe.
-  const isText = data.content != null && !markdown && !json;
+  // The backend supplies inline content for text-renderable MIME types,
+  // including application/yaml, application/toml and application/x-sh.
   const readOnly = selectedPath ? isHiddenPath(selectedPath) : true;
+  const hasContent = selectedPath != null && data != null && !isLoading;
+  const hasViewModes = hasContent && data.content != null && (markdown || json);
+  const isMedia = mimeType.startsWith("image/") || mimeType.startsWith("video/");
 
-  const editFooter = isEditing && (
-    <EditFooter
-      isDirty={isDirty}
-      isSaving={saveMutation.isPending}
-      error={saveMutation.isError ? t("workspaceFileViewer.saveFailed") : null}
-      onSave={handleSave}
-      onDiscard={stopEditing}
-    />
-  );
-
-  // Markdown: Preview/Source toggle
-  if (markdown && data.content != null) {
-    const sourceContent = isEditing ? editableContent : data.content;
-    return (
-      <div className="flex h-full flex-col">
-        <FileHeader
-          name={name}
-          mimeType={mimeType}
-          size={data.size}
-          rightContent={
-            <FileViewModeControl
-              mode={viewMode}
-              onChange={(mode) => {
-                if (isEditing) {
-                  stopEditing();
-                }
-                onChangeViewMode(mode);
-              }}
+  function renderContent() {
+    if (!selectedPath) {
+      return (
+        <div className="flex h-full flex-col items-center justify-center gap-3.5 px-10 text-center">
+          <div className="flex h-11 w-11 items-center justify-center rounded-[14px] bg-[color-mix(in_srgb,var(--content-default)_6%,transparent)]">
+            <FileText
+              className="h-5 w-4 text-[var(--content-secondary)]"
+              aria-hidden
             />
-          }
-        />
-        <div className="relative flex-1 overflow-hidden">
-          <ContentActionBar
-            content={sourceContent}
-            fileName={name}
-            mimeType={mimeType}
-            showEdit={!readOnly && viewMode === "source"}
-            isEditing={isEditing}
-            onToggleEdit={() =>
-              isEditing ? stopEditing() : setEditingPath(selectedPath)
-            }
-          />
-          {viewMode === "formatted" ? (
-            <div
-              data-slot="workspace-file-preview"
-              className="h-full overflow-auto px-6 py-4"
-              style={{ color: "var(--content-default)" }}
+          </div>
+          <Typography
+            variant="body-large-lighter"
+            className="text-[var(--content-tertiary)]"
+          >
+            {t("workspaceFileViewer.emptyTitle")}
+          </Typography>
+          {!picker && (
+            <Typography
+              variant="body-small-lighter"
+              className="text-[var(--content-tertiary)]"
             >
-              <FileMarkdown content={sourceContent} />
-            </div>
-          ) : isEditing ? (
-            <FileTextarea
-              value={editableContent}
-              onChange={(v) =>
-                setEditOverride({ path: selectedPath, content: v })
-              }
-              onSave={handleSave}
-            />
-          ) : (
-            <SourcePre
-              lineNumbers={pickerAvailable}
-              whiteSpace={pickerAvailable ? "pre" : "pre-wrap"}
-              content={data.content}
-              readOnly={readOnly}
-              onStartEdit={() => setEditingPath(selectedPath)}
-            />
+              {t("workspaceFileViewer.selectAFile")}
+            </Typography>
           )}
         </div>
-        {editFooter}
-      </div>
-    );
-  }
+      );
+    }
 
-  // JSON: Preview (pretty-printed) / Source (raw) toggle
-  if (json && data.content != null) {
-    const sourceContent = isEditing ? editableContent : data.content;
-    const previewContent = prettifyJson(sourceContent);
-    return (
-      <div className="flex h-full flex-col">
-        <FileHeader
-          name={name}
-          mimeType={mimeType}
-          size={data.size}
-          rightContent={
-            <FileViewModeControl
-              mode={viewMode}
-              onChange={(mode) => {
-                if (isEditing) {
-                  stopEditing();
+    if (isLoading) {
+      return (
+        <div className="flex h-full items-center justify-center">
+          <Loader2
+            className="h-6 w-6 animate-spin"
+            style={{ color: "var(--content-tertiary)" }}
+          />
+        </div>
+      );
+    }
+
+    if (!data) {
+      return (
+        <div className="flex h-full items-center justify-center">
+          <p
+            className="text-body-medium-lighter"
+            style={{ color: "var(--content-tertiary)" }}
+          >
+            {t("workspaceFileViewer.fileNotFound")}
+          </p>
+        </div>
+      );
+    }
+
+    const editFooter = isEditing && (
+      <EditFooter
+        isDirty={isDirty}
+        isSaving={saveMutation.isPending}
+        error={saveMutation.isError ? t("workspaceFileViewer.saveFailed") : null}
+        onSave={handleSave}
+        onDiscard={stopEditing}
+      />
+    );
+
+    if (data.content != null) {
+      const sourceContent = isEditing ? editableContent : data.content;
+      const formatted = hasViewModes && viewMode === "formatted";
+      const previewContent = json ? prettifyJson(sourceContent) : sourceContent;
+      return (
+        <div className="flex h-full flex-col">
+          <div className="relative flex-1 overflow-hidden">
+            <ContentActionBar
+              content={formatted ? previewContent : sourceContent}
+              downloadContent={sourceContent}
+              fileName={name}
+              mimeType={mimeType}
+              showEdit={!readOnly && !formatted}
+              isEditing={isEditing}
+              onToggleEdit={() =>
+                isEditing ? stopEditing() : setEditingPath(selectedPath)
+              }
+            />
+            {formatted && markdown ? (
+              <div
+                data-slot="workspace-file-preview"
+                className="h-full overflow-auto px-6 py-4"
+                style={{ color: "var(--content-default)" }}
+              >
+                <FileMarkdown content={sourceContent} />
+              </div>
+            ) : formatted ? (
+              <SourcePre
+                content={previewContent}
+                readOnly
+                whiteSpace="pre"
+                lineNumbers={Boolean(picker)}
+              />
+            ) : isEditing ? (
+              <FileTextarea
+                value={editableContent}
+                onChange={(v) =>
+                  setEditOverride({ path: selectedPath, content: v })
                 }
-                onChangeViewMode(mode);
-              }}
-            />
-          }
-        />
-        <div className="relative flex-1 overflow-hidden">
-          <ContentActionBar
-            content={viewMode === "formatted" ? previewContent : sourceContent}
-            downloadContent={sourceContent}
-            fileName={name}
-            mimeType={mimeType}
-            showEdit={!readOnly && viewMode === "source"}
-            isEditing={isEditing}
-            onToggleEdit={() =>
-              isEditing ? stopEditing() : setEditingPath(selectedPath)
-            }
-          />
-          {viewMode === "formatted" ? (
-            <SourcePre
-              content={previewContent}
-              readOnly
-              whiteSpace="pre"
-              lineNumbers={pickerAvailable}
-            />
-          ) : isEditing ? (
-            <FileTextarea
-              value={editableContent}
-              onChange={(v) =>
-                setEditOverride({ path: selectedPath, content: v })
-              }
-              onSave={handleSave}
-            />
-          ) : (
-            <SourcePre
-              lineNumbers={pickerAvailable}
-              whiteSpace={pickerAvailable ? "pre" : "pre-wrap"}
-              content={data.content}
-              readOnly={readOnly}
-              onStartEdit={() => setEditingPath(selectedPath)}
-            />
-          )}
+                onSave={handleSave}
+              />
+            ) : (
+              <SourcePre
+                lineNumbers={Boolean(picker)}
+                whiteSpace={picker ? "pre" : "pre-wrap"}
+                content={data.content}
+                readOnly={readOnly}
+                onStartEdit={() => setEditingPath(selectedPath)}
+              />
+            )}
+          </div>
+          {editFooter}
         </div>
-        {editFooter}
-      </div>
-    );
-  }
+      );
+    }
 
-  // Plain text — source only, consistent header
-  if (isText) {
-    return (
-      <div className="flex h-full flex-col">
-        <FileHeader name={name} mimeType={mimeType} size={data.size} />
-        <div className="relative flex-1 overflow-hidden">
-          <ContentActionBar
-            content={isEditing ? editableContent : (data.content ?? "")}
-            fileName={name}
-            mimeType={mimeType}
-            showEdit={!readOnly}
-            isEditing={isEditing}
-            onToggleEdit={() =>
-              isEditing ? stopEditing() : setEditingPath(selectedPath)
-            }
-          />
-          {isEditing ? (
-            <FileTextarea
-              value={editableContent}
-              onChange={(v) =>
-                setEditOverride({ path: selectedPath, content: v })
-              }
-              onSave={handleSave}
-            />
-          ) : (
-            <SourcePre
-              lineNumbers={pickerAvailable}
-              whiteSpace={pickerAvailable ? "pre" : "pre-wrap"}
-              content={data.content ?? ""}
-              readOnly={readOnly}
-              onStartEdit={() => setEditingPath(selectedPath)}
-            />
-          )}
-        </div>
-        {editFooter}
-      </div>
-    );
-  }
-
-  // Image / video
-  if (mimeType.startsWith("image/") || mimeType.startsWith("video/")) {
-    return (
-      <div className="flex h-full flex-col">
-        <FileHeader
-          name={name}
-          mimeType={mimeType}
-          size={data.size}
-          rightContent={
-            <HeaderDownloadButton
+    // Image / video
+    if (isMedia) {
+      return (
+        <div className="flex h-full flex-col">
+          <div className="flex-1 overflow-auto">
+            <BinaryContentViewer
               assistantId={assistantId}
               path={selectedPath}
-              name={name}
+              mimeType={mimeType}
               showHidden={showHidden}
             />
-          }
-        />
-        <div className="flex-1 overflow-auto">
-          <BinaryContentViewer
-            assistantId={assistantId}
-            path={selectedPath}
-            mimeType={mimeType}
-            showHidden={showHidden}
-          />
+          </div>
         </div>
-      </div>
+      );
+    }
+
+    // Binary fallback: metadata card with download
+    return (
+      <BinaryFileCard
+        assistantId={assistantId}
+        path={selectedPath}
+        name={name}
+        mimeType={mimeType}
+        size={data.size}
+        modifiedAt={data.modifiedAt}
+        showHidden={showHidden}
+      />
     );
   }
 
-  // Binary fallback — metadata card with download
   return (
-    <BinaryFileCard
-      assistantId={assistantId}
-      path={selectedPath}
-      name={name}
-      mimeType={mimeType}
-      size={data.size}
-      modifiedAt={data.modifiedAt}
-      showHidden={showHidden}
-    />
+    <div className="flex h-full min-h-0 flex-col">
+      {picker || hasContent ? (
+        <WorkspaceFileHeader
+          selectedPath={selectedPath}
+          name={name}
+          mimeType={mimeType}
+          size={data?.size}
+          picker={picker}
+          rightContent={
+            hasViewModes ? (
+              <FileViewModeControl
+                mode={viewMode}
+                onChange={(mode) => {
+                  if (isEditing) {
+                    stopEditing();
+                  }
+                  onChangeViewMode(mode);
+                }}
+              />
+            ) : hasContent && data.content == null && isMedia ? (
+              <HeaderDownloadButton
+                assistantId={assistantId}
+                path={selectedPath}
+                name={name}
+                showHidden={showHidden}
+              />
+            ) : null
+          }
+        />
+      ) : null}
+      <div className="min-h-0 flex-1">{renderContent()}</div>
+    </div>
   );
 }

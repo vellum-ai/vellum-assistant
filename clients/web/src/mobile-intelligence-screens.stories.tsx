@@ -18,24 +18,20 @@
  * composition reaches across chat, intelligence, and contacts, which is a
  * page-level job (see CONVENTIONS.md, "No cross-domain imports").
  *
- * The header takes its slot as a prop, so the frame below samples the slots
+ * The header takes its slot as a prop, so the shared frame samples the slots
  * store and hands both the mobile bar and the title down the way `ChatLayout`
  * does.
  */
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import type { ReactNode } from "react";
-import { Route, Routes } from "react-router";
+import { expect, userEvent, within } from "storybook/test";
 
 import { forceMobile } from "@/components/force-mobile-story-decorator";
-import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
-import { ChatLayoutHeader } from "@/domains/chat/chat-layout-header";
 import {
   ContactsListWithSearch,
   FIXTURE_CONTACTS,
   FIXTURE_GUARDIAN,
 } from "@/domains/contacts/components/contacts-list-fixtures";
-import { IntelligenceLayout } from "@/domains/intelligence/intelligence-layout";
 import {
   OutletStub,
   phoneGlobals,
@@ -43,54 +39,20 @@ import {
   withRegisteredImport,
   withRegisteredPlus,
 } from "@/domains/intelligence/intelligence-layout-story-fixtures";
-import { useIsMobile } from "@/hooks/use-is-mobile";
 import { WorkspaceBrowser } from "@/domains/workspace/components/workspace-browser";
 import {
   seedWorkspaceStory,
+  workspaceStoryBinaryFetch,
   WORKSPACE_STORY_ASSISTANT_ID,
 } from "@/domains/workspace/workspace-story-fixtures";
+import { client as daemonClient } from "@/generated/daemon/client.gen";
+import { IntelligenceSectionStoryFrame } from "@/intelligence-section-story-frame";
 import { withQueryCache } from "@/lib/story-query-cache";
+import { fixtureNotFound, stubClientFetch } from "@/lib/stub-client-fetch";
 
-interface MobileSectionScreenProps {
-  /** The child route the section's page mounts at, under the layout. */
-  path: string;
-  /** What that child route renders into the layout's outlet. */
-  outlet: ReactNode;
-}
-
-/**
- * The phone screen: the real header over the real layout, both fed from the
- * slot store the routes publish into.
- */
-function MobileSectionScreen({ path, outlet }: MobileSectionScreenProps) {
-  const isMobile = useIsMobile();
-  const mobileTopBar = useChatLayoutSlotsStore.use.mobileTopBar();
-  const topBarCenter = useChatLayoutSlotsStore.use.topBarCenter();
-
-  return (
-    <div className="flex h-dvh min-h-0 flex-col overflow-hidden bg-[var(--surface-overlay)]">
-      <ChatLayoutHeader
-        isMobile={isMobile}
-        drawerOpen={false}
-        collapsed
-        toggleSidebar={() => {}}
-        mobileTopBar={mobileTopBar}
-        topBarCenter={topBarCenter}
-      />
-      <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <Routes>
-          <Route element={<IntelligenceLayout />}>
-            <Route path={path} element={outlet} />
-          </Route>
-        </Routes>
-      </main>
-    </div>
-  );
-}
-
-const meta: Meta<typeof MobileSectionScreen> = {
+const meta: Meta<typeof IntelligenceSectionStoryFrame> = {
   title: "Intelligence/MobileScreens",
-  component: MobileSectionScreen,
+  component: IntelligenceSectionStoryFrame,
   // Opted out of the global `autodocs` tag for the reason the layout's own
   // stories give: the mobile top bar is a module-singleton slot, so on a docs
   // page that mounts every story the last screen to register would supply the
@@ -106,7 +68,7 @@ const meta: Meta<typeof MobileSectionScreen> = {
 
 export default meta;
 
-type Story = StoryObj<typeof MobileSectionScreen>;
+type Story = StoryObj<typeof IntelligenceSectionStoryFrame>;
 
 /**
  * The Contacts list as the phone page: the section owns the whole bar (back,
@@ -192,6 +154,7 @@ export const MobileMemoryScreen: Story = {
 export const MobileWorkspaceScreen: Story = {
   parameters: { router: { initialEntries: ["/assistant/workspace"] } },
   decorators: [withQueryCache(seedWorkspaceStory)],
+  beforeEach: () => stubClientFetch(daemonClient, workspaceStoryBinaryFetch),
   args: {
     path: "/assistant/workspace",
     outlet: <WorkspaceBrowser assistantId={WORKSPACE_STORY_ASSISTANT_ID} />,
@@ -210,9 +173,116 @@ export const MobileWorkspaceLongFilename: Story = {
   parameters: {
     router: {
       initialEntries: [
-        "/assistant/workspace?file=notes/project-plan-with-a-long-descriptive-filename.md",
+        "/assistant/workspace?file=notes/projects/example/project-plan-with-a-long-descriptive-filename.md",
       ],
     },
+  },
+};
+
+export const MobileWorkspaceOneParent: Story = {
+  ...MobileWorkspaceScreen,
+  parameters: {
+    router: {
+      initialEntries: ["/assistant/workspace?file=tools/workspace-ask.sh"],
+    },
+  },
+};
+
+export const MobileWorkspacePicker: Story = {
+  ...MobileWorkspaceFile,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(
+      await canvas.findByRole("button", { name: /Switch file: README.md/ }),
+    );
+    const sheet = within(
+      await within(canvasElement.ownerDocument.body).findByRole("dialog"),
+    );
+    await userEvent.click(
+      sheet.getByRole("button", { name: "Show hidden files" }),
+    );
+    await expect(sheet.getByText(".notes.md")).toBeVisible();
+  },
+};
+
+/** Select a real row while its content request remains in flight. */
+export const MobileWorkspacePending: Story = {
+  ...MobileWorkspaceScreen,
+  decorators: [
+    withQueryCache((client) =>
+      seedWorkspaceStory(client, { omitFileContents: ["README.md"] }),
+    ),
+  ],
+  beforeEach: () =>
+    stubClientFetch(daemonClient, (request) => {
+      const url = new URL(request.url);
+      if (
+        url.pathname.endsWith("/workspace/file") &&
+        url.searchParams.get("path") === "README.md"
+      ) {
+        return new Promise<Response>(() => {});
+      }
+      return fixtureNotFound();
+    }),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Choose a file" }),
+    );
+    const sheet = within(
+      await within(canvasElement.ownerDocument.body).findByRole("dialog"),
+    );
+    await userEvent.click(sheet.getByRole("button", { name: /README.md/ }));
+    await expect(
+      await canvas.findByRole("button", { name: /Switch file: README.md/ }),
+    ).toBeVisible();
+  },
+};
+
+export const MobileWorkspaceMissingFile: Story = {
+  ...MobileWorkspaceFile,
+  decorators: [
+    withQueryCache((client) =>
+      seedWorkspaceStory(client, { omitFileContents: ["README.md"] }),
+    ),
+  ],
+  beforeEach: () => stubClientFetch(daemonClient, fixtureNotFound),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(await canvas.findByText("File not found")).toBeVisible();
+    await expect(
+      canvas.getByRole("button", { name: /Switch file: README.md/ }),
+    ).toBeEnabled();
+  },
+};
+
+export const MobileWorkspaceSource: Story = {
+  ...MobileWorkspaceScreen,
+  parameters: {
+    router: { initialEntries: ["/assistant/workspace?file=config.json"] },
+  },
+};
+
+export const MobileWorkspaceMarkdownSource: Story = {
+  ...MobileWorkspaceFile,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(await canvas.findByRole("radio", { name: "Source" }));
+    await expect(canvas.getByRole("radio", { name: "Source" })).toBeChecked();
+  },
+};
+
+export const MobileWorkspaceImage: Story = {
+  ...MobileWorkspaceScreen,
+  parameters: {
+    router: { initialEntries: ["/assistant/workspace?file=assets/sample.svg"] },
+  },
+};
+
+export const MobileWorkspaceBinary: Story = {
+  ...MobileWorkspaceScreen,
+  parameters: {
+    router: { initialEntries: ["/assistant/workspace?file=exports/archive.zip"] },
   },
 };
 

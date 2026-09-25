@@ -47,12 +47,11 @@
     "saveFailed": "保存失败",
     "unknownSize": "大小未知",
     "downloadAria": "下载 {name}",
-    "emptyTitle": "尚未打开任何文件",
-    "emptyHint": "点击上方的<strong>选择文件</strong> <arrow/>"
+    "emptyTitle": "尚未打开任何文件"
   },
-  "workspaceFileTitle": {
-    "eyebrow": "工作区",
+  "workspaceFileSwitcher": {
     "chooseFile": "选择文件",
+    "switchFile": "切换文件：{path}",
     "openHint": "打开文件列表"
   },
   "workspaceFilePicker": {
