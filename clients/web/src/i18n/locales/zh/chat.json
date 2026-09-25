@@ -1874,7 +1874,8 @@
   "tiptapDocumentEditor": {
     "adding": "正在添加…",
     "comment": "评论",
-    "feedbackPlaceholder": "添加您的反馈…"
+    "feedbackPlaceholder": "添加您的反馈…",
+    "remoteEditConflict": "助手修改了您正在编辑的同一段文字，已保留您的修改，因此其部分编辑未被应用。"
   },
   "toolCallChip": {
     "allow": "允许",

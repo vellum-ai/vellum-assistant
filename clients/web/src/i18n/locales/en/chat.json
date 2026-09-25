@@ -1891,7 +1891,8 @@
   "tiptapDocumentEditor": {
     "adding": "Adding…",
     "comment": "Comment",
-    "feedbackPlaceholder": "Add your feedback…"
+    "feedbackPlaceholder": "Add your feedback…",
+    "remoteEditConflict": "Your edits were kept where the assistant changed the same text, so part of its edit was not applied."
   },
   "toolCallChip": {
     "allow": "Allow",
