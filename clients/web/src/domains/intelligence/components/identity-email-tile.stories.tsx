@@ -6,7 +6,7 @@
  * derives from the avatar, so the wash reads as it does on the page.
  */
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { Mail } from "lucide-react";
+import { Mail, Pin, X } from "lucide-react";
 import type { CSSProperties, ReactNode } from "react";
 import { Link } from "react-router";
 
@@ -31,18 +31,23 @@ function Pill({ locked }: { locked: boolean }) {
   const email = buildIdentitySections({ email: { locked } }).find(
     (s) => s.key === "email",
   )!;
+  const Control = locked ? X : Pin;
   return (
-    <Link
-      to={email.to}
-      className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3 text-body-small-default text-[var(--content-default)]"
+    <span
+      className="inline-flex h-8 shrink-0 items-center gap-0.5 rounded-full pr-1 pl-3 text-body-small-default text-[var(--content-default)]"
       style={{
         backgroundColor: `color-mix(in srgb, ${AVATAR_HEX} 22%, var(--surface-lift))`,
       }}
     >
-      <Mail className="h-4 w-4" style={{ color: AVATAR_HEX }} aria-hidden />
-      {email.label}
-      {locked ? <span aria-hidden>🔒</span> : null}
-    </Link>
+      <Link to={email.to} className="inline-flex items-center gap-1.5 pr-1.5">
+        <Mail className="h-4 w-4" style={{ color: AVATAR_HEX }} aria-hidden />
+        {email.label}
+        {locked ? <span aria-hidden>🔒</span> : null}
+      </Link>
+      <span className="flex size-6 items-center justify-center rounded-full text-[var(--content-secondary)]">
+        <Control className="h-3.5 w-3.5" aria-hidden />
+      </span>
+    </span>
   );
 }
 
