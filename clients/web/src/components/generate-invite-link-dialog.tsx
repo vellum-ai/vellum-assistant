@@ -138,18 +138,15 @@ export function GenerateInviteLinkDialog({
                   className="font-mono"
                   onFocus={(e) => e.currentTarget.select()}
                 />
-                <button
-                  type="button"
+                <Button
+                  variant="outlined"
+                  iconOnly={copied ? <Check /> : <Copy />}
+                  iconOnlyGlyphClassName="[&_svg]:size-4"
+                  expandOnMobile={false}
                   onClick={() => copy(inviteUrl)}
                   aria-label={t("generateInviteLinkDialog.copyAriaLabel")}
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-[var(--border-base)] hover:bg-[var(--surface-hover)]"
-                >
-                  {copied ? (
-                    <Check className="h-4 w-4" />
-                  ) : (
-                    <Copy className="h-4 w-4" />
-                  )}
-                </button>
+                  className="h-9 w-9 shrink-0"
+                />
               </div>
               {mutation.data.expiresAt != null && (
                 <Typography

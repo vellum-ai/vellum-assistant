@@ -211,15 +211,16 @@ export function ConceptDetailPanel({
               color: "var(--content-tertiary)",
             }}
           >
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              size="compact"
+              iconOnly={<ChevronLeft aria-hidden />}
+              iconOnlyGlyphClassName="[&_svg]:size-4"
+              expandOnMobile={false}
               onClick={() => onCrumb(trail.length - 2)}
               aria-label={t("conceptDetailPanel.backAriaLabel")}
-              className="-ml-1 mr-0.5 flex shrink-0 items-center rounded p-0.5 hover:bg-[color-mix(in_srgb,var(--content-tertiary)_14%,transparent)]"
-              style={{ color: "var(--content-tertiary)" }}
-            >
-              <ChevronLeft size={16} aria-hidden />
-            </button>
+              className="-ml-1 mr-0.5 h-5 w-5 shrink-0 rounded"
+            />
             {crumbs.map((crumb, i) => (
               // Key by trail position, not node id: travel is push-only, so the
               // same concept can sit at more than one depth (A › B › A).

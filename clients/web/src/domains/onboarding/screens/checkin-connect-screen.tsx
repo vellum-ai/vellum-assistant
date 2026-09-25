@@ -60,14 +60,14 @@ export function CheckinConnectScreen({
           style={{ animation: "fadeInUp 0.3s ease-out 0.1s both" }}
         >
           {onBack ? (
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              iconOnly={<ChevronLeft />}
+              iconOnlyGlyphClassName="[&_svg]:size-4"
+              expandOnMobile={false}
               onClick={onBack}
               aria-label={t("actions.back")}
-              className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-md text-[var(--content-secondary)] transition-colors hover:bg-[var(--surface-base)]"
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </button>
+            />
           ) : (
             <div aria-hidden="true" className="h-8 w-8" />
           )}

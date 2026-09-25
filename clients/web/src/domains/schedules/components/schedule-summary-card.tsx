@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { Maximize2, Minimize2 } from "lucide-react";
 
 import { Card, Skeleton } from "@vellumai/design-library";
+import { Button } from "@vellumai/design-library/components/button";
 
 import { useTranslation } from "@/i18n";
 import { SCHEDULE_USAGE_WINDOW_DAYS } from "@/utils/usage-window";
@@ -65,14 +66,15 @@ export function MinimizeButton({
   onClick: () => void;
 }) {
   return (
-    <button
-      type="button"
+    <Button
+      variant="ghost"
+      iconOnly={<Minimize2 />}
+      iconOnlyGlyphClassName="[&_svg]:size-4"
+      expandOnMobile={false}
       onClick={onClick}
       aria-label={label}
-      className="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
-    >
-      <Minimize2 className="h-4 w-4" />
-    </button>
+      className="h-7 w-7 shrink-0 rounded"
+    />
   );
 }
 

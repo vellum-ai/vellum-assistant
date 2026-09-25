@@ -1,5 +1,7 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
+import { Button } from "@vellumai/design-library/components/button";
+
 import { useTranslation } from "@/i18n";
 
 export interface TraitCycleRowProps {
@@ -30,16 +32,17 @@ export function TraitCycleRow({
         {label}
       </span>
       <div className="flex items-center gap-2">
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          iconOnly={<ChevronLeft />}
+          iconOnlyGlyphClassName="[&_svg]:size-4"
+          expandOnMobile={false}
           onClick={onPrev}
           aria-label={t("avatarManagementModal.previous", {
             label: label.toLowerCase(),
           })}
-          className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-[var(--content-quiet)] transition-colors hover:bg-[var(--surface-active)]"
-        >
-          <ChevronLeft className="h-4 w-4" />
-        </button>
+          className="h-7 w-7"
+        />
         <div className="flex min-w-[80px] items-center justify-center gap-2">
           {colorHex && (
             <div
@@ -51,16 +54,17 @@ export function TraitCycleRow({
             {value}
           </span>
         </div>
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          iconOnly={<ChevronRight />}
+          iconOnlyGlyphClassName="[&_svg]:size-4"
+          expandOnMobile={false}
           onClick={onNext}
           aria-label={t("avatarManagementModal.next", {
             label: label.toLowerCase(),
           })}
-          className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-[var(--content-quiet)] transition-colors hover:bg-[var(--surface-active)]"
-        >
-          <ChevronRight className="h-4 w-4" />
-        </button>
+          className="h-7 w-7"
+        />
       </div>
     </div>
   );

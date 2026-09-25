@@ -272,16 +272,18 @@ export function TrustRulesModal({
                         )}
                       </div>
                       <div className="flex shrink-0 items-center gap-1">
-                        <button
-                          type="button"
+                        <Button
+                          variant="ghost"
+                          size="compact"
+                          iconOnly={<Pencil />}
+                          iconOnlyGlyphClassName="[&_svg]:size-4"
+                          expandOnMobile={false}
                           aria-label={t("trustRulesModal.editRuleAria", {
                             tool: rule.tool,
                           })}
                           onClick={() => setEditingRule(rule)}
-                          className="rounded-lg p-1.5 text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-base)] hover:text-[var(--content-default)]"
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </button>
+                          className="h-7 w-7 rounded-lg"
+                        />
                         {(!isDefault || rule.userModified) && (
                           <Button
                             variant="dangerGhost"

@@ -296,39 +296,38 @@ function CredentialValue({
         <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden />
       ) : isRevealed ? (
         <>
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size="compact"
+            iconOnly={justCopied ? <Check aria-hidden /> : <Copy aria-hidden />}
+            expandOnMobile={false}
             onClick={copy}
             aria-label={t("credentialRow.copyValueAriaLabel", { name })}
-            title={t("credentialRow.copyValueTitle")}
-            className="shrink-0 rounded-sm p-0.5 text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-secondary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
-          >
-            {justCopied ? (
-              <Check className="h-3.5 w-3.5" aria-hidden />
-            ) : (
-              <Copy className="h-3.5 w-3.5" aria-hidden />
-            )}
-          </button>
-          <button
-            type="button"
+            tooltip={t("credentialRow.copyValueTitle")}
+            className="size-4.5 shrink-0 rounded-sm"
+          />
+          <Button
+            variant="ghost"
+            size="compact"
+            iconOnly={<EyeOff aria-hidden />}
+            expandOnMobile={false}
             onClick={hide}
             aria-label={t("credentialRow.hideValueAriaLabel", { name })}
-            title={t("credentialRow.hideValueTitle")}
-            className="shrink-0 rounded-sm p-0.5 text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-secondary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
-          >
-            <EyeOff className="h-3.5 w-3.5" aria-hidden />
-          </button>
+            tooltip={t("credentialRow.hideValueTitle")}
+            className="size-4.5 shrink-0 rounded-sm"
+          />
         </>
       ) : (
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="compact"
+          iconOnly={<Eye aria-hidden />}
+          expandOnMobile={false}
           onClick={() => void reveal()}
           aria-label={t("credentialRow.revealValueAriaLabel", { name })}
-          title={t("credentialRow.clickToRevealTitle")}
-          className="shrink-0 rounded-sm p-0.5 text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-secondary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
-        >
-          <Eye className="h-3.5 w-3.5" aria-hidden />
-        </button>
+          tooltip={t("credentialRow.clickToRevealTitle")}
+          className="size-4.5 shrink-0 rounded-sm"
+        />
       )}
     </span>
   );

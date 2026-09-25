@@ -298,14 +298,15 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
             {t("commandPalette.clear")}
           </button>
         ) : isWindowSurface ? (
-          <button
-            type="button"
-            className="flex size-7 shrink-0 items-center justify-center rounded-md text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-overlay)] hover:text-[var(--content-default)]"
+          <Button
+            variant="ghost"
+            size="compact"
+            iconOnly={<X aria-hidden />}
+            iconOnlyGlyphClassName="[&_svg]:size-4"
+            className="h-7 w-7 shrink-0"
             aria-label={t("commandPalette.clearSearch")}
             onClick={() => onQueryChange("")}
-          >
-            <X size={16} aria-hidden />
-          </button>
+          />
         ) : (
           <Button
             variant="ghost"

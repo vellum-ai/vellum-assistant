@@ -8,6 +8,8 @@ import {
   type KeyboardEvent,
 } from "react";
 
+import { Button } from "@vellumai/design-library/components/button";
+
 import { useTranslation } from "@/i18n";
 import { dismissQuickInput, submitQuickInput } from "@/runtime/quick-input";
 import { publicAsset } from "@/utils/public-asset";
@@ -81,14 +83,17 @@ export function QuickInputPage() {
           placeholder={t("quickInputPage.placeholder")}
           className="min-w-0 flex-1 bg-transparent text-sm text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] outline-none"
         />
-        <button
+        <Button
           type="submit"
+          variant="primary"
+          size="compact"
+          shape="pill"
+          iconOnly={<ArrowUp />}
+          iconOnlyGlyphClassName="[&_svg]:size-4"
           disabled={!input.trim()}
           aria-label={t("quickInputPage.send")}
-          className="flex size-7 shrink-0 items-center justify-center rounded-full bg-[var(--primary-base)] text-[var(--content-inset)] transition-opacity disabled:opacity-30"
-        >
-          <ArrowUp size={16} />
-        </button>
+          className="h-7 w-7 shrink-0"
+        />
       </form>
     </div>
   );

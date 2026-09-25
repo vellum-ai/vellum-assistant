@@ -109,15 +109,15 @@ function BookmarkRow({
         <Button variant="outlined" onClick={onOpen}>
           {t("bookmarksPage.open")}
         </Button>
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          iconOnly={<X />}
+          iconOnlyGlyphClassName="[&_svg]:size-4"
+          expandOnMobile={false}
           onClick={onRemove}
-          title={t("bookmarksPage.removeBookmark")}
+          tooltip={t("bookmarksPage.removeBookmark")}
           aria-label={t("bookmarksPage.removeBookmark")}
-          className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-md text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-active)] hover:text-[var(--content-default)]"
-        >
-          <X className="h-4 w-4" />
-        </button>
+        />
       </div>
     </div>
   );
