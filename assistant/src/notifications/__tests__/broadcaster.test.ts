@@ -34,11 +34,15 @@ mock.module("../copy-composer.js", () => ({
 
 // Stub only getGuardianDelivery; keep the real selectors so this mock is
 // harmless if it leaks into destination-resolver.test.ts under a shared run.
+let onGuardianRead: () => Promise<void> = async () => {};
 const realGuardianReader =
   await import("../../contacts/guardian-delivery-reader.js");
 mock.module("../../contacts/guardian-delivery-reader.js", () => ({
   ...realGuardianReader,
-  getGuardianDelivery: async () => null,
+  getGuardianDelivery: async () => {
+    await onGuardianRead();
+    return null;
+  },
 }));
 
 function defaultPairing(): PairingResult {
@@ -212,6 +216,7 @@ beforeEach(() => {
   pairingErrorByChannel = {};
   pairedChannels = [];
   onPairing = async () => {};
+  onGuardianRead = async () => {};
   deliveryStatuses = [];
   updateDeliveryStatusImpl = () => {};
   destinationBindingContexts = {};
@@ -337,6 +342,49 @@ describe("NotificationBroadcaster chat reply preference", () => {
     expect(local.sends[0]?.payload.silent).toBe(true);
     expect(mobile.sends).toHaveLength(0);
   });
+
+  test.each(["guardians", "vellum", "platform"])(
+    "delivers a reply re-enabled during %s preparation",
+    async (stage) => {
+      saveRawConfig({ notifications: { newMessageEnabled: false } });
+      const enable = async () => {
+        await Promise.resolve();
+        saveRawConfig({ notifications: { newMessageEnabled: true } });
+      };
+      onGuardianRead = async () => {
+        if (stage === "guardians") {
+          await enable();
+        }
+      };
+      onPairing = async (channel) => {
+        if (channel === stage) {
+          await enable();
+        }
+      };
+      const local = makeCapturingAdapter("vellum");
+      const mobile = makeCapturingAdapter("platform", {
+        success: true,
+        remotePushAccepted: true,
+        remotePushPlatforms: ["ios"],
+      });
+      const results = await new NotificationBroadcaster([
+        local.adapter,
+        mobile.adapter,
+      ]).broadcastDecision(reply(), decision());
+
+      expect(mobile.sends).toHaveLength(1);
+      expect(local.sends[0]?.payload).toMatchObject({
+        silent: false,
+        remotePushDispatched: true,
+        remotePushPlatforms: ["ios"],
+      });
+      expect(results[0]).toMatchObject({
+        channel: "platform",
+        status: "sent",
+      });
+      expect(deliveryStatuses).toEqual(["sent", "sent"]);
+    },
+  );
 
   test("rechecks after platform pairing and silently flushes the deferred local intent", async () => {
     onPairing = async (channel) => {

@@ -141,12 +141,17 @@ describe("emitNotificationSignal chat reply preference", () => {
     [false, true],
     [true, false],
   ])(
-    "applies setting %s -> %s after routing and pre-send checks",
+    "preserves routing candidates when the setting changes %s -> %s",
     async (initial, enabled) => {
       saveRawConfig({ notifications: { newMessageEnabled: initial } });
+      const selectedChannels: NotificationChannel[] = [
+        "vellum",
+        "platform",
+        "telegram",
+      ];
       const decision = {
         shouldNotify: true,
-        selectedChannels: ["vellum", "platform", "telegram"],
+        selectedChannels,
         reasoningSummary: "Selected reply delivery",
         renderedCopy: {
           vellum: { title: "Answer", body: "The result is ready." },
@@ -175,9 +180,6 @@ describe("emitNotificationSignal chat reply preference", () => {
         },
         routingIntent: "all_channels",
       });
-      const selectedChannels: NotificationChannel[] = enabled
-        ? ["vellum", "platform", "telegram"]
-        : ["vellum", "telegram"];
       expect(runDeterministicChecksMock.mock.calls[0]?.[1]).toMatchObject({
         selectedChannels: decision.selectedChannels,
       });
@@ -192,14 +194,7 @@ describe("emitNotificationSignal chat reply preference", () => {
         shouldNotify: true,
         selectedChannels,
       });
-      if (enabled) {
-        expect(updateDecisionMock).not.toHaveBeenCalled();
-      } else {
-        expect(updateDecisionMock).toHaveBeenCalledWith(
-          "decision-1",
-          expect.objectContaining({ selectedChannels }),
-        );
-      }
+      expect(updateDecisionMock).not.toHaveBeenCalled();
     },
   );
 

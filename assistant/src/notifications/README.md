@@ -14,12 +14,13 @@ the existing `silent` contract for the local intent and paired-conversation
 event; clients continue honoring it.
 
 `notifications.newMessageEnabled` defaults to true. Setting it false makes
-only `chat.assistant_reply` local intents silent and removes their platform
-push selection after routing policy and the awaited pre-send checks.
-`chat-reply-policy.ts` reads the current preference at dispatch, including
-deferred local sends and each platform retry.
-A suppressed push is audited as skipped; a push already accepted by a provider
-keeps its acceptance metadata. Transcript pairing, unread state, feed policy,
+only `chat.assistant_reply` local intents silent and suppresses their platform
+push. Selected channels remain routing candidates throughout awaited broadcast
+preparation, so re-enabling alerts before the send can still deliver a push.
+`chat-reply-policy.ts` reads the current preference immediately before delivery,
+including deferred local sends and each platform retry. Delivery audit rows
+record a suppressed push as skipped; a push already accepted by a provider keeps
+its acceptance metadata. Transcript pairing, unread state, feed policy,
 external-channel delivery, scheduled results, and action-required alerts retain
 their existing behavior.
 
