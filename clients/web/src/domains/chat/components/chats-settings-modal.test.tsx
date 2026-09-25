@@ -60,7 +60,7 @@ describe("ChatsSettingsModal", () => {
     ).toBe(true);
     expect(
       view
-        .getByRole("switch", { name: "New Message Notifications" })
+        .getByRole("switch", { name: "Chat reply alerts" })
         .getAttribute("aria-checked"),
     ).toBe("true");
   });
@@ -68,9 +68,7 @@ describe("ChatsSettingsModal", () => {
   test("Confirm submits only changed leaves and leaves closing to successful save", () => {
     const view = setup();
     fireEvent.click(view.getByRole("switch", { name: "Auto Archive Chats" }));
-    fireEvent.click(
-      view.getByRole("switch", { name: "New Message Notifications" }),
-    );
+    fireEvent.click(view.getByRole("switch", { name: "Chat reply alerts" }));
     fireEvent.click(view.getByRole("button", { name: "Confirm" }));
     expect(view.props.onSave).toHaveBeenCalledTimes(1);
     expect(view.props.onSave).toHaveBeenCalledWith({
@@ -83,7 +81,7 @@ describe("ChatsSettingsModal", () => {
   test("reverting the draft disables Confirm", () => {
     const view = setup();
     const toggle = view.getByRole("switch", {
-      name: "New Message Notifications",
+      name: "Chat reply alerts",
     });
     fireEvent.click(toggle);
     fireEvent.click(toggle);
@@ -109,7 +107,7 @@ describe("ChatsSettingsModal", () => {
     ).toContain("7 days");
     expect(
       view
-        .getByRole("switch", { name: "New Message Notifications" })
+        .getByRole("switch", { name: "Chat reply alerts" })
         .getAttribute("aria-checked"),
     ).toBe("true");
     fireEvent.click(view.getByRole("button", { name: "Confirm" }));
@@ -140,7 +138,7 @@ describe("ChatsSettingsModal", () => {
     ).toContain("14 days");
     expect(
       view
-        .getByRole("switch", { name: "New Message Notifications" })
+        .getByRole("switch", { name: "Chat reply alerts" })
         .getAttribute("aria-checked"),
     ).toBe("false");
     expect(
@@ -228,7 +226,7 @@ describe("ChatsSettingsModal", () => {
     ).toContain("1 day");
     expect(
       view
-        .getByRole("switch", { name: "New Message Notifications" })
+        .getByRole("switch", { name: "Chat reply alerts" })
         .getAttribute("aria-checked"),
     ).toBe("false");
   });

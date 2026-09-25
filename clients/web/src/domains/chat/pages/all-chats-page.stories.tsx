@@ -333,7 +333,7 @@ export const SettingsSaveFlow: Story = {
     const dialog = await page.findByRole("dialog", { name: "Chats Settings" });
     await userEvent.click(
       await within(dialog).findByRole("switch", {
-        name: "New Message Notifications",
+        name: "Chat reply alerts",
       }),
     );
     await userEvent.click(
@@ -346,7 +346,7 @@ export const SettingsSaveFlow: Story = {
     });
     await expect(
       await within(reopenedDialog).findByRole("switch", {
-        name: "New Message Notifications",
+        name: "Chat reply alerts",
       }),
     ).toHaveAttribute("aria-checked", "false");
   },
