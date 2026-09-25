@@ -15,7 +15,10 @@ import { cleanupBootstrapFiles } from "../prompts/bootstrap-cleanup.js";
 import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import { getLogger } from "../util/logger.js";
 import { initConversationDir } from "./conversation-disk-view.js";
-import { GENERATING_TITLE } from "./conversation-title-service.js";
+import {
+  GENERATING_TITLE,
+  TITLE_USER_SET,
+} from "./conversation-title-service.js";
 import type { NonScheduledConversationType } from "./conversation-types.js";
 import { getDb } from "./db-connection.js";
 import { conversationKeys, conversations } from "./schema/index.js";
@@ -158,7 +161,7 @@ export function getOrCreateConversation(
     conversationType?: NonScheduledConversationType;
     /**
      * Caller-supplied title for the conversation, used only when this call
-     * actually creates the row. Treated as a user-set title (`isAutoTitle = 0`)
+     * actually creates the row. Treated as a user-set title (`TITLE_USER_SET`)
      * so the async LLM title generator's safe-overwrite check leaves it
      * untouched. Ignored when the conversation already exists.
      */
@@ -257,11 +260,11 @@ export function getOrCreateConversation(
         id: conversationId,
         title,
         seq: initialSeq > 0 ? initialSeq : null,
-        // A caller-supplied title is user-set: mark it non-auto (0) so the
+        // A caller-supplied title is user-set (TITLE_USER_SET) so the
         // async LLM title generator's `canReplaceTitle` check won't overwrite
         // it. Without one, omit the column so it takes its default
         // (AUTO_TITLE_LLM) and follows the auto-generated placeholder flow.
-        ...(customTitle ? { isAutoTitle: 0 } : {}),
+        ...(customTitle ? { isAutoTitle: TITLE_USER_SET } : {}),
         createdAt: now,
         updatedAt: now,
         totalInputTokens: 0,

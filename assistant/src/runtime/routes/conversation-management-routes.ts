@@ -63,6 +63,7 @@ import {
   resolveConversationId,
   setConversationKeyIfAbsent,
 } from "../../persistence/conversation-key-store.js";
+import { TITLE_USER_SET } from "../../persistence/conversation-title-service.js";
 import type { NonScheduledConversationType } from "../../persistence/conversation-types.js";
 import { enqueueMemoryJob } from "../../persistence/jobs-store.js";
 import { linkRequestLogsToMessage } from "../../persistence/llm-request-log-store.js";
@@ -162,12 +163,16 @@ function handleCreateConversation({ body = {}, headers }: RouteHandlerArgs) {
     conversationType,
   });
   if (result.created) {
-    // A caller-supplied title is user-set: persist it with isAutoTitle = 0 so
+    // A caller-supplied title is user-set: persist it as TITLE_USER_SET so
     // the async LLM titler's safe-overwrite check leaves it untouched. Without
     // one, fall back to the neutral "New Conversation" placeholder, which stays
     // replaceable by the auto-titler once messages arrive.
     if (customTitle) {
-      updateConversationTitle(result.conversationId, customTitle, 0);
+      updateConversationTitle(
+        result.conversationId,
+        customTitle,
+        TITLE_USER_SET,
+      );
     } else {
       updateConversationTitle(result.conversationId, "New Conversation");
     }
@@ -478,7 +483,7 @@ function handleRenameConversation({
   if (!conversation) {
     throw new NotFoundError(`Conversation ${pathParams.id} not found`);
   }
-  updateConversationTitle(pathParams.id!, name, 0);
+  updateConversationTitle(pathParams.id!, name, TITLE_USER_SET);
 
   publishConversationTitleChanged(
     pathParams.id!,
