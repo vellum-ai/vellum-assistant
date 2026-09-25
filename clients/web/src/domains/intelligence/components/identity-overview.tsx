@@ -611,7 +611,9 @@ export function SectionCard({
       initial={false}
       animate={{
         clipPath: flooded
-          ? `circle(141% at ${lastOrigin.x}% ${lastOrigin.y}%)`
+          ? // A wide, short row needs a larger circle to reach its far
+            // end from a point along its top.
+            `circle(${slim ? 300 : 141}% at ${lastOrigin.x}% ${lastOrigin.y}%)`
           : `circle(0% at ${lastOrigin.x}% ${lastOrigin.y}%)`,
       }}
       transition={
@@ -1125,6 +1127,17 @@ function OverviewBento({
         width: r.width,
         height: r.height,
       };
+      // Email hangs just over Channels, so the pair is one shape to the
+      // avatar: whichever of the two is hovered, it peeks from above the
+      // Email row rather than from behind it. Only the hovered card
+      // floods, so the flood's origin stays on that card's own box.
+      const emailEl = cardEls.current["email"];
+      const hugRect = { ...rect };
+      if (key === "channels" && emailEl) {
+        const er = emailEl.getBoundingClientRect();
+        hugRect.top = er.top - cr.top;
+        hugRect.height = r.bottom - er.top;
+      }
       // The eyes peek from the card edge that faces the page center —
       // whichever axis the card sits furthest out on wins.
       const dx = (rect.left + rect.width / 2 - cr.width / 2) / (cr.width / 2);
@@ -1137,16 +1150,22 @@ function OverviewBento({
           : dy < 0
             ? "bottom"
             : "top";
-      const target = amoebaTargetForCard(rect, facing, {
+      const target = amoebaTargetForCard(hugRect, facing, {
         x: cr.width / 2,
         y: cr.height / 2,
       });
+      // The flood origin is where the peek meets the hovered card's own
+      // box: for Channels under the Email row that is its top edge.
+      const peekY = Math.min(
+        Math.max(target.peek.y - (rect.top - hugRect.top), 0),
+        rect.height,
+      );
       setHugged({
         key,
         target,
         origin: {
           x: (target.peek.x / rect.width) * 100,
-          y: (target.peek.y / rect.height) * 100,
+          y: (peekY / rect.height) * 100,
         },
       });
     },
