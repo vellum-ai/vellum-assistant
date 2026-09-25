@@ -24,7 +24,6 @@ type IdentitySectionKey =
   | "personality"
   | "schedules"
   | "superpowers"
-  | "memory"
   | "library"
   | "workspace"
   | "contacts"
@@ -50,10 +49,6 @@ const SECTION_COPY_KEY: Record<
   superpowers: {
     label: "identitySections.superpowers.label",
     description: "identitySections.superpowers.description",
-  },
-  memory: {
-    label: "identitySections.memory.label",
-    description: "identitySections.memory.description",
   },
   library: {
     label: "identitySections.library.label",
@@ -91,7 +86,7 @@ function section(key: Exclude<IdentitySectionKey, "personality" | "email">) {
 
 export interface BuildIdentitySectionsOptions {
   /**
-   * Draw the Email card, ahead of Channels. Absent where there is no inbox
+   * Draw the Email card, after Channels. Absent where there is no inbox
    * to open (the flag is off, or the assistant is not platform-hosted):
    * the one section that depends on the platform, since the mail lives
    * there. `locked` marks a plan without managed email.
@@ -137,18 +132,12 @@ export function buildIdentitySections({
     // Skills and plugins combined into one list; on assistants without the
     // plugin surface the page itself degrades to skills-only.
     section("superpowers"),
-    // Never gated on backend capability. Memory is part of what every
-    // assistant is, so wherever the card shows it is always the way in: an
-    // assistant whose backend can't draw the concept graph (memory off, or a
-    // pre-v3 engine) gets a Memory tab that explains that and offers the fix,
-    // rather than a card that silently disappears.
-    section("memory"),
     // Library's list page wears the shared section chrome like its peers;
     // the app viewer (/assistant/library/:appId) renders full-bleed.
     section("library"),
     section("workspace"),
     section("contacts"),
-    ...emailSection,
     section("channels"),
+    ...emailSection,
   ];
 }

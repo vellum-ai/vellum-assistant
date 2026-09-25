@@ -60,10 +60,7 @@ import { contrastForeground } from "@/utils/avatar-tone";
 import { formatCompactLocalDate } from "@/utils/format-date";
 
 import { applyRename } from "../identity-actions/apply-rename";
-import {
-  conceptPageCount,
-  memoryStatsOptions,
-} from "../memory-graph/get-memory-stats";
+import {} from "../memory-graph/get-memory-stats";
 import {
   assistantIdentityDetailsQueryKey,
   useAssistantIdentityDetails,
@@ -124,6 +121,7 @@ const MINI_SECTION_KEYS = [
   "workspace",
   "contacts",
   "channels",
+  "email",
 ];
 
 /**
@@ -254,31 +252,7 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
   const identityQuery = useAssistantIdentityDetails(assistantId);
   const supportsPlugins = useSupportsPluginsSurface();
   const stats = useIdentitySectionStats(assistantId, { supportsPlugins });
-  // The Memory card's measurement is the cheap page-index concept count
-  // (get-memory-stats), NOT the concept-graph build, which is kept off
-  // identity-page load. The card is never gated on backend capability; only
-  // its count is, so an assistant whose backend can't draw the graph still
-  // has a way into the Memory tab (which explains why, and offers the fix).
-  const memoryStats = useQuery(memoryStatsOptions(assistantId));
-  // Only measured where concept pages are actually the substrate (memory tier
-  // v2/v3). A loading query, an older daemon predating `/memory/stats`, a v1
-  // assistant (memory lives in the legacy graph) and a memory-off one all read
-  // `undefined` and leave the measurement off, rather than render a "0
-  // memories" that says "I remember nothing about you".
-  const memories = conceptPageCount(memoryStats.data);
-  const sectionStats: Record<string, IdentitySectionStat | undefined> = {
-    ...stats,
-    memory:
-      memories === undefined
-        ? undefined
-        : {
-            value: memories,
-            label: t("identityOverview.memoryCountLabel", {
-              count: memories,
-            }),
-            text: t("identityOverview.memoryCount", { count: memories }),
-          },
-  };
+  const sectionStats: Record<string, IdentitySectionStat | undefined> = stats;
 
   const [modalOpen, setModalOpen] = useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
@@ -536,8 +510,6 @@ export function SectionCard({
   hoverFill,
   mini,
   compact = false,
-  slim = false,
-  tabbed = false,
   trailing,
   flooded = false,
   floodOrigin,
@@ -563,15 +535,7 @@ export function SectionCard({
    * separately and a shared edit would quietly restyle the desktop strip.
    */
   compact?: boolean;
-  /**
-   * A one-line tab: the glyph and the title on one baseline with only the
-   * row's own top and bottom padding, rounded on top and flush with the
-   * tile it sits on. The Email card's shape, a tab on the Channels tile.
-   */
-  slim?: boolean;
-  /** The tile has a tab on its top-left corner, so that corner is square. */
-  tabbed?: boolean;
-  /** A control on the slim row's trailing edge, outside the card's link. */
+  /** A control on the tile's trailing edge, outside the card's link. */
   trailing?: ReactNode;
   /** The avatar has poured itself over this card — fill it with the
    *  avatar color and flip the content to the contrast tone. */
@@ -614,9 +578,7 @@ export function SectionCard({
       initial={false}
       animate={{
         clipPath: flooded
-          ? // A wide, short row needs a larger circle to reach its far
-            // end from a point along its top.
-            `circle(${slim ? 300 : 141}% at ${lastOrigin.x}% ${lastOrigin.y}%)`
+          ? `circle(141% at ${lastOrigin.x}% ${lastOrigin.y}%)`
           : `circle(0% at ${lastOrigin.x}% ${lastOrigin.y}%)`,
       }}
       transition={
@@ -641,121 +603,76 @@ export function SectionCard({
     </span>
   ) : null;
 
-  if (slim) {
-    // The Email tab: the feature cards' wash of the avatar colour, so it
-    // reads with Personality and Schedules rather than with the plain
-    // tiles, at a single line's height, rounded on top and square where
-    // it meets the Channels tile so the two read as one piece. The glyph
-    // takes the strong tone rather than the tiles' muted one.
+  if (mini) {
+    // Bottom-strip tile per Figma (New-App 6944-89405): left-aligned,
+    // 12px radius, 40px icon slot in the secondary tone, 16px title over
+    // an 11px tertiary stat. The Email tile wears the feature cards' wash
+    // of the avatar colour, so it reads with Personality and Schedules
+    // rather than with the plain tiles beside it, and carries its control
+    // (pin, or close) beside the link rather than inside it.
+    const featureWash = section.key === "email";
     return (
-      <Card.Root
-        asChild
-        bordered
-        elevated={false}
-        clipContents
-        className={`w-fit max-w-full min-w-[8rem] rounded-t-[12px] rounded-b-none border border-b-0 bg-[var(--card-feature-bg,var(--card-bg))] ${
-          photoBackdrop
-            ? "border-transparent backdrop-blur-[32px]"
-            : "border-[var(--border-base)]"
-        }`}
-        style={gridArea ? { gridArea } : undefined}
-      >
-        {/* The row is a link with a control beside it, not inside it: a
-            button cannot nest in an anchor. */}
-        <div className="relative flex items-center">
-          {floodOverlay}
+      <div className="relative flex min-w-0 flex-1">
+        <Card.Root
+          asChild
+          bordered={featureWash}
+          elevated={!featureWash}
+          clipContents
+          className={
+            featureWash
+              ? `w-full rounded-[12px] border bg-[var(--card-feature-bg,var(--card-bg))] ${
+                  photoBackdrop
+                    ? "border-transparent backdrop-blur-[32px]"
+                    : "border-[var(--border-base)]"
+                }`
+              : "w-full rounded-[12px] border-0 bg-[var(--card-bg)]"
+          }
+        >
           <Link
             to={section.to}
             ref={linkRef}
             onMouseEnter={() => onHoverChange?.(true)}
             onMouseLeave={() => onHoverChange?.(false)}
-            className={`relative flex min-w-0 flex-1 cursor-pointer items-center gap-2 py-1.5 pl-3 pr-3 transition-all duration-150 active:scale-[0.99] ${
-              hoverFill ? "hover:bg-[var(--card-hover)]" : ""
-            }`}
+            className={`relative flex h-full flex-1 cursor-pointer items-center transition-all duration-150 active:scale-[0.98] ${
+              compact ? "gap-1 py-3 pr-3 pl-2" : "gap-2 px-4 py-2.5"
+            } ${trailing ? "pr-10" : ""} ${hoverFill ? "hover:bg-[var(--card-hover)]" : ""}`}
           >
-            <Icon
-              className={`relative h-4 w-4 shrink-0 transition-colors duration-300 ${fgStrong}`}
-              aria-hidden
-            />
-            <span
-              className={`relative flex min-w-0 items-center gap-1.5 truncate text-body-small-default transition-colors duration-300 ${fgStrong}`}
-            >
-              {section.label}
-              {lockBadge}
-            </span>
-            {stat?.text && (
-              <span
-                className={`relative ml-auto truncate text-[12px] transition-colors duration-300 ${fgMuted}`}
-              >
-                {stat.text}
-              </span>
-            )}
-          </Link>
-          {trailing ? (
-            <span className="relative flex shrink-0 items-center pr-1">
-              {trailing}
-            </span>
-          ) : null}
-        </div>
-      </Card.Root>
-    );
-  }
-
-  if (mini) {
-    // Bottom-strip tile per Figma (New-App 6944-89405): left-aligned,
-    // 12px radius, 40px icon slot in the secondary tone, 16px title over
-    // an 11px tertiary stat.
-    return (
-      <Card.Root
-        asChild
-        bordered={false}
-        elevated
-        clipContents
-        className={`rounded-[12px] border-0 bg-[var(--card-bg)] ${
-          tabbed ? "rounded-tl-none" : ""
-        }`}
-      >
-        <Link
-          to={section.to}
-          ref={linkRef}
-          onMouseEnter={() => onHoverChange?.(true)}
-          onMouseLeave={() => onHoverChange?.(false)}
-          className={`relative flex flex-1 cursor-pointer items-center transition-all duration-150 active:scale-[0.98] ${
-            // The stacked tiles keep their own height: a tile beside the
-            // Email-and-Channels pair must not stretch to the pair's.
-            compact ? "gap-1 py-3 pr-3 pl-2" : "h-full gap-2 px-4 py-2.5"
-          } ${hoverFill ? "hover:bg-[var(--card-hover)]" : ""}`}
-        >
-          {floodOverlay}
-          <span className="relative flex h-10 w-10 shrink-0 items-center justify-center">
-            {/* The stacked tiles keep the 40px slot but sit a smaller glyph
+            {floodOverlay}
+            <span className="relative flex h-10 w-10 shrink-0 items-center justify-center">
+              {/* The stacked tiles keep the 40px slot but sit a smaller glyph
                 in it, so the title leads the row rather than the icon. */}
-            <Icon
-              className={`${compact ? "h-3.5 w-3.5" : "h-5 w-5"} transition-colors duration-300 ${fgMuted}`}
-              aria-hidden
-            />
-          </span>
-          <span className="relative flex min-w-0 flex-col gap-0">
-            <span
-              className={`flex items-center gap-1.5 truncate text-title-small leading-normal transition-colors duration-300 ${fgStrong}`}
-            >
-              {section.label}
-              {lockBadge}
+              <Icon
+                className={`${compact ? "h-3.5 w-3.5" : "h-5 w-5"} transition-colors duration-300 ${fgMuted}`}
+                aria-hidden
+              />
             </span>
-            {stat?.text && (
+            <span className="relative flex min-w-0 flex-col gap-0">
               <span
-                className={`truncate text-[11px] leading-normal font-medium transition-colors duration-300 ${
-                  flooded
-                    ? "text-[var(--card-flood-fg)] opacity-75"
-                    : "text-[var(--content-tertiary)]"
-                }`}
+                className={`flex items-center gap-1.5 truncate text-title-small leading-normal transition-colors duration-300 ${fgStrong}`}
               >
-                {stat.text}
+                {section.label}
+                {lockBadge}
               </span>
-            )}
+              {stat?.text && (
+                <span
+                  className={`truncate text-[11px] leading-normal font-medium transition-colors duration-300 ${
+                    flooded
+                      ? "text-[var(--card-flood-fg)] opacity-75"
+                      : "text-[var(--content-tertiary)]"
+                  }`}
+                >
+                  {stat.text}
+                </span>
+              )}
+            </span>
+          </Link>
+        </Card.Root>
+        {trailing ? (
+          <span className="absolute top-1/2 right-2 flex -translate-y-1/2 items-center">
+            {trailing}
           </span>
-        </Link>
-      </Card.Root>
+        ) : null}
+      </div>
     );
   }
 
@@ -1135,62 +1052,28 @@ function OverviewBento({
         width: r.width,
         height: r.height,
       };
-      // Email hangs just over Channels, so the pair is one shape to the
-      // avatar: whichever of the two is hovered, it peeks from above the
-      // Email row, never from a side (the row is too short for the tab)
-      // and never from behind the row. Only the hovered card floods, so the
-      // flood's origin stays on that card's own box.
-      const emailEl = cardEls.current["email"];
-      const channelsEl = cardEls.current["channels"];
-      const pair =
-        (key === "email" || key === "channels") && emailEl && channelsEl
-          ? { email: emailEl, channels: channelsEl }
-          : null;
-      const hugRect = { ...rect };
-      if (pair) {
-        const er = pair.email.getBoundingClientRect();
-        const chr = pair.channels.getBoundingClientRect();
-        const left = Math.min(er.left, chr.left);
-        hugRect.left = left - cr.left;
-        hugRect.top = er.top - cr.top;
-        hugRect.width = Math.max(er.right, chr.right) - left;
-        hugRect.height = chr.bottom - er.top;
-      }
       // The eyes peek from the card edge that faces the page center —
       // whichever axis the card sits furthest out on wins.
-      const dx =
-        (hugRect.left + hugRect.width / 2 - cr.width / 2) / (cr.width / 2);
-      const dy =
-        (hugRect.top + hugRect.height / 2 - cr.height / 2) / (cr.height / 2);
-      const facing: AmoebaFacing = pair
-        ? "top"
-        : Math.abs(dx) > Math.abs(dy)
+      const dx = (rect.left + rect.width / 2 - cr.width / 2) / (cr.width / 2);
+      const dy = (rect.top + rect.height / 2 - cr.height / 2) / (cr.height / 2);
+      const facing: AmoebaFacing =
+        Math.abs(dx) > Math.abs(dy)
           ? dx < 0
             ? "right"
             : "left"
           : dy < 0
             ? "bottom"
             : "top";
-      const target = amoebaTargetForCard(hugRect, facing, {
+      const target = amoebaTargetForCard(rect, facing, {
         x: cr.width / 2,
         y: cr.height / 2,
       });
-      // The flood origin is where the peek meets the hovered card's own
-      // box: for either card of the pair, a point along its top edge.
-      const peekX = Math.min(
-        Math.max(target.peek.x - (rect.left - hugRect.left), 0),
-        rect.width,
-      );
-      const peekY = Math.min(
-        Math.max(target.peek.y - (rect.top - hugRect.top), 0),
-        rect.height,
-      );
       setHugged({
         key,
         target,
         origin: {
-          x: (peekX / rect.width) * 100,
-          y: (peekY / rect.height) * 100,
+          x: (target.peek.x / rect.width) * 100,
+          y: (target.peek.y / rect.height) * 100,
         },
       });
     },
@@ -1263,10 +1146,8 @@ function OverviewBento({
     // grid of mini tiles.
     const schedulesSection = sections.find((s) => s.key === "schedules");
     const personalitySection = sections.find((s) => s.key === "personality");
-    const emailSection = sections.find((s) => s.key === "email");
     const gridSections = sections.filter(
-      (s) =>
-        s.key !== "schedules" && s.key !== "personality" && s.key !== "email",
+      (s) => s.key !== "schedules" && s.key !== "personality",
     );
     const schedulesStat = stats["schedules"]?.schedules;
     const scheduleCount = schedulesStat
@@ -1389,43 +1270,18 @@ function OverviewBento({
               </Link>
             </Card.Root>
           )}
-          {/* Bottom-aligned so a tile beside the Email-and-Channels pair
-              keeps its own height rather than stretching to the pair's. */}
-          <div className="grid grid-cols-2 items-end gap-2">
-            {gridSections.map((section) =>
-              section.key === "channels" && emailSection ? (
-                /* Email is a channel with a page of its own: its tab sits
-                   on the Channels tile, in the tile's cell. */
-                <div key={section.key} className="flex flex-col items-stretch">
-                  <div className="self-start">
-                    <SectionCard
-                      section={emailSection}
-                      stat={stats[emailSection.key]}
-                      hoverFill
-                      slim
-                      trailing={emailTrailing}
-                    />
-                  </div>
-                  <SectionCard
-                    section={section}
-                    stat={stats[section.key]}
-                    hoverFill
-                    mini
-                    compact
-                    tabbed
-                  />
-                </div>
-              ) : (
-                <SectionCard
-                  key={section.key}
-                  section={section}
-                  stat={stats[section.key]}
-                  hoverFill
-                  mini
-                  compact
-                />
-              ),
-            )}
+          <div className="grid grid-cols-2 gap-2">
+            {gridSections.map((section) => (
+              <SectionCard
+                key={section.key}
+                section={section}
+                stat={stats[section.key]}
+                hoverFill
+                mini
+                compact
+                trailing={section.key === "email" ? emailTrailing : undefined}
+              />
+            ))}
           </div>
         </div>
       </div>
@@ -1436,9 +1292,8 @@ function OverviewBento({
   // it) and Schedules the right, both the same height above the strip,
   // and everything else (Skills, Plugins, Workspace, Contacts, Channels)
   // runs as compact mini cards in a full-width bottom strip.
-  const emailSection = sections.find((s) => s.key === "email");
   const mainSections = sections.filter(
-    (s) => !MINI_SECTION_KEYS.includes(s.key) && s.key !== "email",
+    (s) => !MINI_SECTION_KEYS.includes(s.key),
   );
   const miniSections = sections.filter((s) =>
     MINI_SECTION_KEYS.includes(s.key),
@@ -1635,29 +1490,14 @@ function OverviewBento({
         className="flex min-h-0 items-stretch gap-3"
         style={{ gridArea: "smalls" }}
       >
-        {miniSections.map((section) =>
-          section.key === "channels" && emailSection ? (
-            /* Email is a channel with a page of its own, so its row hangs
-               just over the Channels tile, at the tile's width, rather than
-               standing across the strip. Anchored above the tile so the
-               strip's tiles keep one height. */
-            <div key={section.key} className="relative flex min-w-0 flex-1">
-              <div className="absolute bottom-full left-0 max-w-full">
-                {[emailSection].map((email) => (
-                  <SectionCard
-                    key={email.key}
-                    {...cardProps(email)}
-                    slim
-                    trailing={emailTrailing}
-                  />
-                ))}
-              </div>
-              <SectionCard {...cardProps(section)} mini tabbed />
-            </div>
-          ) : (
-            <SectionCard key={section.key} {...cardProps(section)} mini />
-          ),
-        )}
+        {miniSections.map((section) => (
+          <SectionCard
+            key={section.key}
+            {...cardProps(section)}
+            mini
+            trailing={section.key === "email" ? emailTrailing : undefined}
+          />
+        ))}
       </div>
     </div>
   );
