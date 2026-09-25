@@ -2210,5 +2210,23 @@
     "subtitle": "您已用完今日的免費用量，將在 {resetPhrase} 重設。升級或新增點數以繼續。",
     "title": "今日免費用量已用完",
     "viewPlans": "查看方案"
+  },
+  "chatsSettingsModal": {
+    "title": "聊天設定",
+    "description": "管理此助理在所有裝置上的自動完成標記和新訊息通知。",
+    "autoArchive": "自動封存聊天",
+    "autoArchiveHelper": "將不活躍的聊天標記為已完成，包括已超過此時限的舊聊天。已完成的聊天仍保留在所有聊天中。",
+    "timeToArchive": "封存時限",
+    "days": "{count, plural, other {# 天}}",
+    "notifications": "新訊息通知",
+    "notificationsHelper": "接收目前未檢視的聊天中的回覆提醒。需要採取操作的提醒仍然開啟。通知仍受裝置通知權限限制。",
+    "cancel": "取消",
+    "confirm": "確認",
+    "saving": "正在儲存…",
+    "loading": "正在載入聊天設定…",
+    "retry": "重試",
+    "loadError": "無法載入聊天設定。請重試。",
+    "saveError": "無法儲存聊天設定。你的修改仍保留在此處。按下確認以重試。",
+    "unsupported": "請更新此助理以使用聊天設定。"
   }
 }

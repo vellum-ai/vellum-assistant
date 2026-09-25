@@ -2210,5 +2210,23 @@
     "subtitle": "您已用完今日的免费用量，将在{resetPhrase}重置。升级或添加额度以继续。",
     "title": "今日免费用量已用完",
     "viewPlans": "查看方案"
+  },
+  "chatsSettingsModal": {
+    "title": "聊天设置",
+    "description": "管理此助手在所有设备上的自动完成标记和新消息通知。",
+    "autoArchive": "自动归档聊天",
+    "autoArchiveHelper": "将不活跃的聊天标记为已完成，包括已超过此时限的旧聊天。已完成的聊天仍保留在所有聊天中。",
+    "timeToArchive": "归档时限",
+    "days": "{count, plural, other {# 天}}",
+    "notifications": "新消息通知",
+    "notificationsHelper": "接收当前未查看的聊天中的回复提醒。需要采取操作的提醒仍然开启。通知仍受设备通知权限限制。",
+    "cancel": "取消",
+    "confirm": "确认",
+    "saving": "正在保存…",
+    "loading": "正在加载聊天设置…",
+    "retry": "重试",
+    "loadError": "无法加载聊天设置。请重试。",
+    "saveError": "无法保存聊天设置。你的修改仍保留在此处。点击确认以重试。",
+    "unsupported": "请更新此助手以使用聊天设置。"
   }
 }
