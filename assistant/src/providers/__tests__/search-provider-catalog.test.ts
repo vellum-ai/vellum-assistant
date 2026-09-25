@@ -112,4 +112,12 @@ describe("search-provider-catalog", () => {
     expect(exa?.supportsApiBase).toBeUndefined();
     expect(exa?.envVar).toBe("EXA_API_KEY");
   });
+
+  test("Serply is a keyed BYOK provider without a custom API base", () => {
+    const serply = getSearchProvider("serply");
+    expect(serply?.kind).toBe("byok");
+    expect(serply?.keyless).toBeUndefined();
+    expect(serply?.supportsApiBase).toBeUndefined();
+    expect(serply?.envVar).toBe("SERPLY_API_KEY");
+  });
 });

@@ -197,6 +197,16 @@ export const SEARCH_PROVIDER_CATALOG: readonly SearchProviderCatalogEntry[] = [
     fallbackOrder: 9,
     privacyPolicyUrl: "https://exa.ai/privacy-policy",
   },
+  {
+    id: "serply",
+    displayName: "Serply",
+    kind: "byok",
+    apiKeyPrefix: "Serply API key...",
+    envVar: "SERPLY_API_KEY",
+    secretKey: "serply",
+    fallbackOrder: 10,
+    privacyPolicyUrl: "https://serply.io/privacy",
+  },
 ];
 
 /** Provider ids accepted by the web-search config schema. */

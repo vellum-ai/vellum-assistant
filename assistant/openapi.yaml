@@ -21568,6 +21568,7 @@ paths:
                                           - searxng
                                           - tinyfish
                                           - exa
+                                          - serply
                                       resultCount:
                                         type: number
                                       durationMs:
@@ -22187,6 +22188,7 @@ paths:
                                                   - searxng
                                                   - tinyfish
                                                   - exa
+                                                  - serply
                                               resultCount:
                                                 type: number
                                               durationMs:

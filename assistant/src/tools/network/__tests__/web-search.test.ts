@@ -13,6 +13,7 @@ let mockFastcrwSecureKey: string | undefined;
 let mockSearxngSecureKey: string | undefined;
 let mockTinyfishSecureKey: string | undefined;
 let mockExaSecureKey: string | undefined;
+let mockSerplySecureKey: string | undefined;
 let mockManagedSearchProxyResult: any;
 let mockManagedSearchAvailable = true;
 let mockManagedSearchProxyCalls: Array<{
@@ -69,6 +70,9 @@ mock.module("../../../security/secure-keys.js", () => ({
     if (provider === "exa") {
       return mockExaSecureKey;
     }
+    if (provider === "serply") {
+      return mockSerplySecureKey;
+    }
     return undefined;
   },
 }));
@@ -116,6 +120,7 @@ describe("web_search tool", () => {
     mockSearxngSecureKey = undefined;
     mockTinyfishSecureKey = undefined;
     mockExaSecureKey = undefined;
+    mockSerplySecureKey = undefined;
     mockManagedSearchProxyCalls = [];
     mockManagedSearchAvailable = true;
     mockManagedSearchProxyResult = {
@@ -1440,6 +1445,106 @@ describe("web_search tool", () => {
     expect(result.isError).toBe(true);
     expect(result.activityMetadata?.webSearch?.provider).toBe("exa");
   });
+
+  // ---- Serply provider ---------------------------------------------------
+
+  test("Serply search sends the query form request and maps freshness", async () => {
+    seedWebSearch("your-own", "serply");
+    mockSerplySecureKey = "serply_test";
+    let capturedUrl = "";
+    let capturedInit: RequestInit | undefined;
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      capturedUrl = url;
+      capturedInit = init;
+      return new Response(
+        JSON.stringify({
+          query: "fresh tools",
+          total: 1,
+          results: [
+            {
+              title: "Serply Result",
+              link: "https://example.com/serply",
+              description: "Fresh from Serply",
+              position: 1,
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as any;
+
+    const result = await execute({
+      query: "fresh tools",
+      freshness: "pw",
+      count: 5,
+    });
+
+    expect(result.isError).toBe(false);
+    const parsed = new URL(capturedUrl);
+    expect(parsed.origin + parsed.pathname).toBe(
+      "https://api.serply.io/v1/search",
+    );
+    expect(parsed.searchParams.get("q")).toBe("fresh tools");
+    expect(parsed.searchParams.get("num")).toBe("5");
+    expect(parsed.searchParams.get("tbs")).toBe("qdr:w");
+    expect(capturedInit?.method).toBe("GET");
+    const headers = new Headers(capturedInit?.headers);
+    expect(headers.get("x-api-key")).toBe("serply_test");
+    expect(headers.get("user-agent")).toBe("vellum-assistant");
+    expect(result.content).toContain("Serply Result");
+    expect(result.content).toContain("Fresh from Serply");
+    expect(result.activityMetadata?.webSearch?.provider).toBe("serply");
+  });
+
+  test("Serply omits tbs without freshness, clamps num, and trims to count", async () => {
+    seedWebSearch("your-own", "serply");
+    mockSerplySecureKey = "serply_test";
+    let capturedUrl = "";
+    globalThis.fetch = (async (url: string) => {
+      capturedUrl = url;
+      return new Response(
+        JSON.stringify({
+          results: [
+            { title: "A", link: "https://a.example.com", description: "a" },
+            { title: "B", link: "https://b.example.com", description: "b" },
+            { title: "C", link: "https://c.example.com", description: "c" },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as any;
+
+    const result = await execute({ query: "test", count: 2 });
+
+    const parsed = new URL(capturedUrl);
+    expect(parsed.searchParams.get("tbs")).toBeNull();
+    expect(parsed.searchParams.get("num")).toBe("2");
+    expect(result.content).toContain("A");
+    expect(result.content).toContain("B");
+    expect(result.content).not.toContain("https://c.example.com");
+    expect(result.activityMetadata?.webSearch?.resultCount).toBe(2);
+
+    const clamped = await execute({ query: "test", count: 20 });
+    expect(new URL(capturedUrl).searchParams.get("num")).toBe("10");
+    expect(clamped.isError).toBe(false);
+  });
+
+  test.each([401, 402, 403])(
+    "Serply handles %d access error",
+    async (status) => {
+      seedWebSearch("your-own", "serply");
+      mockSerplySecureKey = "serply_test";
+      globalThis.fetch = (async () =>
+        new Response(JSON.stringify({ detail: "Invalid API key" }), {
+          status,
+        })) as any;
+
+      const result = await execute({ query: "test" });
+
+      expect(result.isError).toBe(true);
+      expect(result.activityMetadata?.webSearch?.provider).toBe("serply");
+    },
+  );
 
   // ---- Provider fallback --------------------------------------------------
 

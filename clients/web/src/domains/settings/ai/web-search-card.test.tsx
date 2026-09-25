@@ -174,6 +174,7 @@ describe("WebSearchCard — provider-only configuration", () => {
       "SearXNG",
       "TinyFish",
       "Exa",
+      "Serply",
     ]);
   });
 
