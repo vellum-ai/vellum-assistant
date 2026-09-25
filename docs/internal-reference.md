@@ -327,7 +327,7 @@ The assistant can attach files and images to its replies. Attachments flow throu
 
 #### Desktop (HTTP+SSE)
 
-Attachments are sent inline (base64) in `message_complete` and `generation_handoff` SSE events; historical attachments are returned by the HTTP conversation-history route. An attachment may carry `computerUseScreenshot: true` when it is the proven automatic final screenshot placement for that reply. The field is optional for compatibility. The macOS app renders thumbnails for images and displays file metadata for documents.
+Attachments are sent inline (base64) in `message_complete` SSE events; historical attachments are returned by the HTTP conversation-history route. An attachment may carry `computerUseScreenshot: true` when it is the proven automatic final screenshot placement for that reply. The field is optional for compatibility. The macOS app renders thumbnails for images and displays file metadata for documents.
 
 #### Runtime HTTP API
 
@@ -458,7 +458,6 @@ The `message` field is the `ServerMessage` payload. All delta semantics are pres
 | `tool_result`              | Tool execution result                                                                  |
 | `message_complete`         | Turn complete; full message + attachments included                                     |
 | `confirmation_request`     | User approval needed before an action executes                                         |
-| `generation_handoff`       | Model handed off to a sub-agent                                                        |
 | `generation_cancelled`     | Run was cancelled                                                                      |
 | `sync_changed`             | Persisted resource invalidation; clients inspect `tags` and refetch existing endpoints |
 

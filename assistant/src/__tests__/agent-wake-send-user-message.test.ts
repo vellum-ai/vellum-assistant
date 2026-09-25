@@ -73,7 +73,7 @@ function makeTarget(onRun: (conv: Conversation) => void): {
       run: async (options: AgentLoopRunOptions) => {
         // Observe the conversation exactly as the tool surface would, mid-run.
         onRun(target as unknown as Conversation);
-        return { history: options.messages, exitReason: null };
+        return { history: options.messages };
       },
       setSystemPrompt: (prompt: string) => {
         loopPrompt = prompt;

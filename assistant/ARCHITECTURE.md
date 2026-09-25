@@ -1839,38 +1839,29 @@ The `tool_permission_simulate` HTTP endpoint lets clients dry-run a tool invocat
 
 ---
 
-## Opportunistic Message Queue — Handoff Flow
+## Busy Sends: Interrupt and Queue
 
-When the daemon is busy generating a response, the client can continue sending messages. These are queued (FIFO, max 10) and drained automatically at safe checkpoints in the tool loop, not only at full completion.
+When the daemon is busy generating a response, the client can keep sending. A user's own send interrupts the running turn: the daemon aborts it, repairs the abandoned `tool_use` blocks with synthetic results, and starts the new message's turn at once (`daemon/conversation-interrupt.ts`). Sends that may not interrupt (machine-injected notifications from subagents, ACP and wakes, plugin-api turns, another actor's send, or a processing lock held by something that is not an abortable turn) go on the conversation's queue and drain when the running turn ends. The drain coalesces consecutive queued messages into one batched turn, so a burst of machine updates does not cut each other off.
 
 ```mermaid
 sequenceDiagram
-    participant User
-    participant Chat as ChatView
-    participant VM as ChatViewModel
-    participant DC as DaemonClient
+    participant Client
     participant Daemon as Daemon
 
-    User->>Chat: send message while busy
-    Chat->>VM: enqueue message
-    VM->>DC: user_message
-    DC->>Daemon: HTTP
-    Daemon-->>DC: message_queued (position)
-    DC-->>VM: show queue status
+    Client->>Daemon: POST /v1/messages (user send while busy)
+    Daemon-->>Client: 202 accepted (requestId)
+    Note over Daemon: Aborts the running turn,<br/>repairs abandoned tool_use blocks
+    Daemon-->>Client: generation_cancelled
+    Daemon-->>Client: user_message_echo
+    Daemon-->>Client: assistant_text_delta (streaming)
+    Daemon-->>Client: message_complete
 
-    Note over Daemon: Processing previous request...<br/>Reaches safe tool-loop checkpoint
-
-    Daemon-->>DC: generation_handoff (conversationId, queuedCount)
-    Note over Daemon: Daemon yields current generation
-
-    Daemon-->>DC: message_dequeued
-    DC-->>VM: next queued message now processing
-
-    Note over Daemon: Processes queued message...
-
-    Daemon-->>DC: assistant_text_delta (streaming)
-    Daemon-->>DC: message_complete
-    DC-->>VM: generation finished
+    Note over Daemon: Machine send while busy
+    Daemon->>Daemon: enqueue (message_queued)
+    Note over Daemon: Running turn ends
+    Daemon-->>Client: message_dequeued
+    Note over Daemon: Drains queued messages as one batched turn
+    Daemon-->>Client: message_complete
 ```
 
 ---

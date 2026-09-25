@@ -91,6 +91,11 @@ describe("feature flag catalog", () => {
     expect("emptyStateDynamicGreetings" in CLIENT_FLAG_DEFAULTS).toBe(false);
   });
 
+  test("does not expose the retired interrupt-on-send as a feature flag", () => {
+    expect("interruptOnSend" in CLIENT_FLAG_DEFAULTS).toBe(false);
+    expect("interruptOnSend" in ASSISTANT_FLAG_DEFAULTS).toBe(false);
+  });
+
   test("does not expose GA quote reply as a feature flag", () => {
     expect("quoteReply" in CLIENT_FLAG_DEFAULTS).toBe(false);
     expect("quoteReply" in ASSISTANT_FLAG_DEFAULTS).toBe(false);

@@ -14,7 +14,6 @@ import { repairHistoryForRun } from "../agent/history-repair/history-repair.js";
 import type {
   AgentEvent,
   AgentLoopExitReason,
-  CheckpointDecision,
   PreparedModelCall,
 } from "../agent/loop.js";
 import { createAssistantMessage } from "../agent/message-types.js";
@@ -623,7 +622,6 @@ export async function runAgentLoopImpl(
     conversationId: ctx.conversationId,
     requestId: reqId,
   });
-  let yieldedForHandoff = false;
   // The messages the most recent agent-loop run appended on top of its base —
   // the loop's own new-output boundary, persisted as this turn's new messages.
   let lastRunNewMessages: Message[] = [];
@@ -1031,7 +1029,7 @@ export async function runAgentLoopImpl(
         failureProfile?: string;
       }
     | undefined;
-  // True once a replied terminal SSE (message_complete / generation_handoff)
+  // True once a replied terminal SSE (message_complete)
   // has been emitted. Guards the catch block: an error thrown by the
   // content-settle steps that run after it must not relabel a visibly-replied
   // turn.
@@ -1662,13 +1660,6 @@ export async function runAgentLoopImpl(
       });
     };
 
-    const onCheckpoint = async (): Promise<CheckpointDecision> => {
-      if (ctx.canHandoffAtCheckpoint()) {
-        return "handoff";
-      }
-      return "continue";
-    };
-
     turnStarted = true;
 
     rlog.info(
@@ -1698,25 +1689,23 @@ export async function runAgentLoopImpl(
 
     /**
      * Shared closure: runs the agent loop with the wrapper's turn context and
-     * maps the loop's returned checkpoint pause-reason into the wrapper's yield
-     * bookkeeping. Returns the updated history so call sites consume it exactly
-     * as before. Pass `compactInPlace` only for the primary run: the loop then
-     * runs its budget gate before the first call (subsuming the proactive
-     * turn-start compaction) and compacts in place whenever the gate trips.
-     * Reruns omit it and skip the first-call gate.
+     * records the run's new messages. Returns the updated history. Pass
+     * `compactInPlace` only for the primary run: the loop then runs its budget
+     * gate before the first call (subsuming the proactive turn-start
+     * compaction) and compacts in place whenever the gate trips. Reruns omit it
+     * and skip the first-call gate.
      */
     const runAgentLoop = async (
       msgs: Message[],
       compactInPlace = false,
     ): Promise<Message[]> => {
       const watchdogMs = ctx.abortWatchdogMs ?? ABORT_WATCHDOG_MS;
-      const { history, exitReason, newMessages } = await withAbortWatchdog(
+      const { history, newMessages } = await withAbortWatchdog(
         ctx.agentLoop.run({
           messages: msgs,
           onEvent: eventHandler,
           signal: abortController.signal,
           requestId: reqId,
-          onCheckpoint,
           callSite: turnCallSite,
           inferenceCallSite,
           suppressAssistantText: sendUserMessageActive,
@@ -1748,9 +1737,6 @@ export async function runAgentLoopImpl(
           ),
       );
       lastRunNewMessages = newMessages;
-      if (exitReason === "handoff") {
-        yieldedForHandoff = true;
-      }
       return history;
     };
 
@@ -1764,10 +1750,6 @@ export async function runAgentLoopImpl(
       { resultMessageCount: updatedHistory.length },
       "Agent loop run completed",
     );
-
-    if (yieldedForHandoff) {
-      await emitTerminalExit?.("checkpoint_handoff");
-    }
 
     // ── Context-overflow terminal notice ───────────────────────────
     // The agent loop drives overflow recovery through the compaction plugin's
@@ -1805,7 +1787,6 @@ export async function runAgentLoopImpl(
 
     const shouldEmitQueuedConversationNotices =
       !overflowTerminalReason &&
-      !yieldedForHandoff &&
       !state.providerErrorUserMessage &&
       !abortController.signal.aborted;
     if (!shouldEmitQueuedConversationNotices) {
@@ -1993,8 +1974,7 @@ export async function runAgentLoopImpl(
     if (
       !hasAssistantResponse &&
       state.providerErrorUserMessage &&
-      !abortController.signal.aborted &&
-      !yieldedForHandoff
+      !abortController.signal.aborted
     ) {
       // The turn is terminating on the provider-error path: its only
       // assistant output (if any) is the synthetic error message persisted
@@ -2084,12 +2064,12 @@ export async function runAgentLoopImpl(
         );
         persistedErrorAssistantMessage = true;
         // Repoint `lastAssistantMessageId` at the synthetic error row so the
-        // post-loop sync, attachment resolution, and `message_complete`/
-        // `generation_handoff` emissions all reference a real, persisted
-        // message id. The previous reservation (if any) was already deleted
-        // above. Mark finalization complete so the next LLM call in this run
-        // (or a downstream handler) doesn't try to clean up an id that
-        // already corresponds to a finalized row.
+        // post-loop sync, attachment resolution, and `message_complete`
+        // emission all reference a real, persisted message id. The previous
+        // reservation (if any) was already deleted above. Mark finalization
+        // complete so the next LLM call in this run (or a downstream handler)
+        // doesn't try to clean up an id that already corresponds to a
+        // finalized row.
         state.lastAssistantMessageId = errorRow.id;
         bestEffortModeSessionTracking("provider error notice persistence", () =>
           ctx.modeSessions.trackPersistedRow(
@@ -2276,28 +2256,6 @@ export async function runAgentLoopImpl(
           conversationId: ctx.conversationId,
         });
         publishLoopMessagesChanged();
-      } else if (yieldedForHandoff) {
-        turnReplied = true;
-        onEvent({
-          type: "generation_handoff",
-          conversationId: ctx.conversationId,
-          requestId: reqId,
-          queuedCount: ctx.getQueueDepth(),
-          ...(emittedAttachments.length > 0
-            ? { attachments: emittedAttachments }
-            : {}),
-          ...(ctx.lastAttachmentWarnings.length > 0
-            ? { attachmentWarnings: ctx.lastAttachmentWarnings }
-            : {}),
-          ...(state.lastAssistantMessageId
-            ? { messageId: state.lastAssistantMessageId }
-            : {}),
-          ...(state.autoRoutedProfile
-            ? { autoRoutedProfile: state.autoRoutedProfile }
-            : {}),
-          modeSession: ctx.modeSessions.getTurnOwner(reqId),
-        });
-        publishLoopMessagesChanged();
       } else {
         turnReplied = true;
         turnCompleted = !persistedErrorAssistantMessage;
@@ -2336,28 +2294,18 @@ export async function runAgentLoopImpl(
       }
     }
 
-    // The terminal SSE for this turn has now been emitted (message_complete,
-    // generation_handoff, or generation_cancelled), so the composer is already
-    // re-enabling. Settle any pending debounced partial flush FIRST: a
-    // cancelled turn exits with the timer still pending, and a flush firing
-    // after the stranded fold (or the voice bridge's transcript hygiene) would
-    // write raw content into an already-settled row. Then settle the rest of
-    // the turn's content, which rewrites state the next turn also writes and so
-    // has to complete under the processing lock.
+    // The terminal SSE for this turn has now been emitted (message_complete
+    // or generation_cancelled), so the composer is already re-enabling. Settle
+    // any pending debounced partial flush FIRST: a cancelled turn exits with
+    // the timer still pending, and a flush firing after the stranded fold (or
+    // the voice bridge's transcript hygiene) would write raw content into an
+    // already-settled row. Then settle the rest of the turn's content, which
+    // rewrites state the next turn also writes and so has to complete under
+    // the processing lock.
     await settlePendingPartialFlush(state, deps);
     await settleTurnContent({ ctx, state, rlog });
 
-    if (yieldedForHandoff) {
-      const nextRequestId = ctx.queue.snapshot()[0]?.requestId;
-      if (nextRequestId) {
-        ctx.modeSessions.transferTurn(reqId, nextRequestId);
-      } else {
-        settleModeSessionTurn(ctx, reqId, {
-          status: "completed",
-          endReason: "handoff_settled",
-        });
-      }
-    } else if (abortController.signal.aborted) {
+    if (abortController.signal.aborted) {
       settleModeSessionTurn(ctx, reqId, {
         status: "interrupted",
         endReason: "cancelled",
@@ -2478,8 +2426,8 @@ export async function runAgentLoopImpl(
         // activation task was launched into finishes that task, unless the
         // turn ended waiting on the user, in which case the answer's turn
         // finishes it (see `markActivationTurnComplete`). Cancelled turns
-        // and handoffs deliberately fall through: the task is still
-        // running. No-op for every conversation no task points at.
+        // deliberately fall through: the task is still running. No-op for
+        // every conversation no task points at.
         //
         // Ahead of the turn-boundary commit, and fire-and-forget: a commit
         // that fails, times out, or is deferred to the next turn must not
@@ -2588,7 +2536,7 @@ export async function runAgentLoopImpl(
       // an unhandled rejection that strands the queue with nothing left to
       // re-trigger it.
       const queueDrain = ctx.kickDrainQueue(
-        yieldedForHandoff ? "checkpoint_handoff" : "loop_complete",
+        "loop_complete",
         "agent_loop_finally",
       );
       if (failedTurnAt !== undefined) {

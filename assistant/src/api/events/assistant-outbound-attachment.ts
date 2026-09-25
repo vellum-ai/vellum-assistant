@@ -1,8 +1,8 @@
 /**
  * Outbound assistant attachment — the wire shape attached to
- * `message_complete` and `generation_handoff` SSE events when the
- * assistant turn produced files (sandbox writes, host transfers, tool
- * blocks that returned binary content).
+ * `message_complete` (and, from older daemons, `generation_handoff`) SSE
+ * events when the assistant turn produced files (sandbox writes, host
+ * transfers, tool blocks that returned binary content).
  *
  * Shape is the daemon's emit-time projection of `UserMessageAttachment`
  * (see `assistant/src/daemon/message-types/shared.ts`): only the fields

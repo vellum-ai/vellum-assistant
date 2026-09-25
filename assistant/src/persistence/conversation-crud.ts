@@ -1226,7 +1226,7 @@ async function insertMessageCore(
  * The idempotent insert in `addMessage` settles a duplicate on the unique
  * constraint, which is the authority. This read exists for callers that must
  * recognise a retransmission BEFORE taking an action the insert cannot undo:
- * `interrupt-on-send` aborts the running turn, and a retried POST that reached
+ * a send to a busy conversation aborts the running turn, and a retried POST that reached
  * the abort first would kill the very turn its original request started and
  * then dedupe without starting a replacement.
  */

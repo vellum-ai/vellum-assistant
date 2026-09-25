@@ -1,16 +1,18 @@
 /**
  * `generation_handoff` SSE event.
  *
- * Emitted when an assistant turn finishes and the daemon's agent loop
- * yields control to the next queued user message in the same
- * conversation. Functionally similar to `message_complete` — same
- * attachment payload, same `messageId` semantics — but tells the
- * client that another turn is about to begin without an intervening
- * idle state, so the UI can keep the activity indicator on.
+ * The daemon does not emit this event. The schema stays in the published
+ * contract so clients that still handle it keep compiling, and so a client
+ * talking to an older daemon can still parse it.
  *
- * `queuedCount` is the depth of the conversation's pending-message
- * queue at handoff time (not including the just-finished turn). Used
- * by the client to size queued-message UI affordances.
+ * On those older daemons it marked an assistant turn that finished by yielding
+ * control to the next queued user message in the same conversation.
+ * Functionally similar to `message_complete` (same attachment payload, same
+ * `messageId` semantics), but told the client that another turn was about to
+ * begin without an intervening idle state.
+ *
+ * `queuedCount` is the depth of the conversation's pending-message queue at
+ * handoff time (not including the just-finished turn).
  *
  * Canonical wire-contract source. Daemon code imports the type directly
  * from this file; external consumers import via `@vellumai/assistant-api`.
