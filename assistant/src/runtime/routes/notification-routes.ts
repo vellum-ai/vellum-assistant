@@ -94,8 +94,7 @@ async function handleEmitSignal({ body = {} }: RouteHandlerArgs) {
       parsed.error.issues[0]?.message ?? "Invalid signal parameters",
     );
   }
-  const validated = parsed.data;
-  const result = await emitNotificationSignal(validated);
+  const result = await emitNotificationSignal(parsed.data);
   return {
     signalId: result.signalId,
     dispatched: result.dispatched,

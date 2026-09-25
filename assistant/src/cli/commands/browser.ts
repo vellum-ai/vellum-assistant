@@ -214,8 +214,7 @@ function attachOperationAction(
       opts.output &&
       result.screenshots?.length
     ) {
-      const screenshot = result.screenshots[0];
-      const buffer = Buffer.from(screenshot.data, "base64");
+      const buffer = Buffer.from(result.screenshots[0].data, "base64");
       try {
         writeFileSync(String(opts.output), buffer);
       } catch (err) {

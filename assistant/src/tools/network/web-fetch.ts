@@ -1530,9 +1530,8 @@ export async function executeFastcrwScrape(
   input: Record<string, unknown>,
   options: { apiKey: string; signal?: AbortSignal },
 ): Promise<ToolExecutionResult> {
-  const apiBase = getConfig().services["web-fetch"]?.apiBase;
   const endpoint = resolveProviderApiUrl(
-    apiBase,
+    getConfig().services["web-fetch"]?.apiBase,
     FASTCRW_SCRAPE_PATH,
     FASTCRW_DEFAULT_API_BASE,
   );
@@ -1587,9 +1586,8 @@ export async function executeTinyfishFetch(
     1,
     MAX_TIMEOUT_SECONDS,
   );
-  const apiBase = getConfig().services["web-fetch"]?.apiBase;
   const endpoint = resolveProviderApiUrl(
-    apiBase,
+    getConfig().services["web-fetch"]?.apiBase,
     "/",
     TINYFISH_DEFAULT_FETCH_API_BASE,
   );
