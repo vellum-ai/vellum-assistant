@@ -44,8 +44,9 @@ import {
   type ConversationListFilter,
   isArchivedFilter,
   isSectionFilter,
+  isWholeHistoryFilter,
 } from "@/utils/conversation-list-keys";
-import { byTimestampDesc } from "@/utils/conversation-order";
+import { compareByRecency } from "@/utils/conversation-order";
 import { isScheduledConversation } from "@/utils/conversation-predicates";
 import { toConversation } from "@/utils/conversation-transforms";
 
@@ -171,8 +172,8 @@ export type ConversationListPage = {
  *
  * A section (a group or channel filter) keeps server order: it renders the
  * server's recency order as-is (LUM-3108), and a client sort could disagree
- * with it on ties. The archived reads sort by `archivedAt`, the other
- * buckets by `lastMessageAt`. The active background bucket drops scheduled
+ * with it on ties. Every other bucket sorts by last activity, the order the
+ * daemon pages in. The active background bucket drops scheduled
  * rows: the daemon's `background` value is the back-compat umbrella that
  * includes them, and the sidebar keeps one conversation in one cache, with
  * scheduled runs in their own bucket. The archived background read keeps
@@ -190,9 +191,7 @@ function shapeListRows(
     filter.conversationType === "background" && !isArchivedFilter(filter)
       ? rows.filter((c) => !isScheduledConversation(c))
       : rows;
-  return [...kept].sort(
-    byTimestampDesc(isArchivedFilter(filter) ? "archivedAt" : "lastMessageAt"),
-  );
+  return [...kept].sort(compareByRecency);
 }
 
 /**
@@ -206,7 +205,30 @@ type TimedConversationListPage = ConversationListPage & {
   durationMs: number;
   /** `content-length` in bytes, or null when the header is missing or junk. */
   bytes: number | null;
+  /**
+   * Whether the assistant says it ordered the rows by last activity
+   * (`orderedBy: "lastActivity"`). An assistant that omits it pages by
+   * message recency.
+   */
+  orderedByLastActivity: boolean;
 };
+
+/**
+ * The whole-history read came back from an assistant that pages it by
+ * message recency rather than by last activity.
+ *
+ * That order cannot be windowed on the client: a chat marked done today can
+ * sit on any later page, and the window merge drops a just-done row the
+ * first page does not carry. So the read is refused like one the assistant
+ * rejects outright, and the All chats page falls back to the complete
+ * buckets, which it orders itself.
+ */
+export class MessageOrderedHistoryError extends Error {
+  constructor() {
+    super("The assistant pages the whole history by message recency.");
+    this.name = "MessageOrderedHistoryError";
+  }
+}
 
 /** Which path issued an offset-0 list GET. */
 /**
@@ -296,6 +318,7 @@ async function fetchConversationListPage(
     status: response.status,
     durationMs,
     bytes: readContentLength(response),
+    orderedByLastActivity: data?.orderedBy === "lastActivity",
   };
 }
 
@@ -591,6 +614,9 @@ export async function listConversationsFirstPage(
 ): Promise<ConversationListPage> {
   const page = await fetchConversationListPage(assistantId, 0, source, filter);
   recordFirstPageFetch(assistantId, page, drainListKind(filter), source);
+  if (isWholeHistoryFilter(filter) && !page.orderedByLastActivity) {
+    throw new MessageOrderedHistoryError();
+  }
   return {
     conversations: shapeListRows(filter, page.conversations),
     hasMore: page.hasMore,

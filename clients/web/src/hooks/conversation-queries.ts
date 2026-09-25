@@ -61,7 +61,7 @@ import {
   SCHEDULED_FILTER,
 } from "@/utils/conversation-list-keys";
 import { conversationListOptions } from "@/utils/conversation-list-options";
-import { byTimestampDesc } from "@/utils/conversation-order";
+import { compareByRecency } from "@/utils/conversation-order";
 import { countUnreadConversationsInList } from "@/utils/conversation-predicates";
 
 // ---------------------------------------------------------------------------
@@ -271,7 +271,7 @@ export function useAllHistoryConversationListQuery(
 }
 
 /**
- * The archived conversations of every type, newest-archived first.
+ * The archived conversations of every type, most recent activity first.
  *
  * Two caches, merged here: the daemon's `conversationType` defaults to
  * standard and has no "all", so archived background rows are a second read
@@ -296,7 +296,7 @@ export function useArchivedConversationListQuery(
     );
     return merged === foreground.conversations
       ? merged
-      : [...merged].sort(byTimestampDesc("archivedAt"));
+      : [...merged].sort(compareByRecency);
   }, [foreground.conversations, background.conversations]);
   return {
     conversations,

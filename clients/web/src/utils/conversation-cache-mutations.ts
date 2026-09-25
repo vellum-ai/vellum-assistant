@@ -491,9 +491,8 @@ export async function refreshConversationRow(
  * nothing.
  *
  * The archived caches are the exception and stay on plain invalidation
- * (`use-conversation-sync.ts`): they are ordered by `archivedAt`, while
- * every daemon page is recency-ordered and the merge's window cutoff is a
- * recency axis, so a merged archived list would come out mis-ordered.
+ * (`use-conversation-sync.ts`): they are mounted only while the archive
+ * view is open, so invalidating them refetches nothing until then.
  *
  * Drives the `conversationsList` sync-tag and SSE-reconnect handlers in
  * `use-conversation-sync.ts`. The full list query drains every page

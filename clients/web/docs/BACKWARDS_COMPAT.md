@@ -256,6 +256,20 @@ controls both tracking and presentation. When it is disabled, optional cached
 metadata remains compatible while the web renders the ordinary flat transcript
 and skips session-specific refresh and presentation work.
 
+### Last-activity order on the whole-history read
+
+List responses carry `orderedBy: "lastActivity"`: rows are ordered by the
+later of their last message and the time they were marked done. The All
+chats page windows the whole-history read
+(`conversationType=all&archiveStatus=all`), and that window is only correct when the server pages
+in the same order the client merges in. An assistant that omits the field
+pages by message recency, so a chat marked done today can sit on any later
+page. The first-page fetch throws `MessageOrderedHistoryError` for that
+answer, `useAllChatsData` reads it as a refusal exactly like the 400 from an
+assistant that predates the combined read, and the page falls back to the
+drained buckets it orders itself. No gate: the response says which order it
+is in.
+
 ### Unknown managed-key state on platform status
 
 `GET /v1/assistants/{id}/platform/status` reports `hasAssistantApiKey: null`

@@ -214,10 +214,9 @@ export function isArchivedFilter(filter: ConversationListFilter): boolean {
 
 /**
  * Whether a list filter names the whole-history read
- * ({@link ALL_HISTORY_FILTER}). It is not an archived list, so it sorts by
- * `lastMessageAt` like every other recency read, and it is windowed rather
- * than drained: a full history is far longer than a bucket, and the page
- * that reads it pages on scroll.
+ * ({@link ALL_HISTORY_FILTER}). It sorts by last activity like every other
+ * list read, and it is windowed rather than drained: a full history is far
+ * longer than a bucket, and the page that reads it pages on scroll.
  */
 export function isWholeHistoryFilter(filter: ConversationListFilter): boolean {
   return filter.conversationType === "all" && filter.archiveStatus === "all";

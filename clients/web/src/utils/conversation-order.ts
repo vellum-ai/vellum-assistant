@@ -1,9 +1,10 @@
 /**
  * The one order every conversation list is in, and how to place a row into it.
  *
- * Recency, newest first: every section (Pinned, the custom groups, the
- * channels, Chats) is sorted by `lastMessageAt` descending, on the server and
- * here. Nothing consults `display_order` (LUM-3108).
+ * Last activity, newest first: every section (Pinned, the custom groups, the
+ * channels, Chats), the archive, and the whole-history read are sorted by
+ * {@link lastActivityAt} descending, on the server and here. Nothing consults
+ * `display_order` (LUM-3108).
  *
  * One comparator, shared by the list fetchers, the sidebar's derived
  * bucketing, and local placement, because the three have to agree. A locally
@@ -14,30 +15,40 @@
 import type { Conversation } from "@/types/conversation-types";
 import type { ConversationListPage } from "@/utils/conversation-list-fetchers";
 
-/** Sort conversations descending by a timestamp field (newest first). */
-export function byTimestampDesc(
-  key: "lastMessageAt" | "archivedAt",
-): (a: Conversation, b: Conversation) => number {
-  return (a, b) => (b[key] ?? 0) - (a[key] ?? 0);
+/**
+ * When a conversation last saw activity: its last message, or the moment it
+ * was marked done, whichever is later. Marking a chat done is something the
+ * user did to it, so a done chat files under the day it was marked done. An
+ * active row has no `archivedAt`, so for it this is `lastMessageAt`.
+ *
+ * The client twin of the daemon's `lastActivitySql` in
+ * `assistant/src/persistence/conversation-queries.ts`, which orders every list
+ * read, and `toConversation` bakes the daemon's `updated_at` fallback into
+ * `lastMessageAt` (`raw.lastMessageAt ?? raw.updatedAt`), so a row with no
+ * messages yet still carries the value the server sorted it by. Undefined
+ * only for client-minted draft stubs, which never came from the server and
+ * are separately protected wherever this order prunes.
+ */
+export function lastActivityAt(
+  conversation: Pick<Conversation, "lastMessageAt" | "archivedAt">,
+): number | undefined {
+  const { lastMessageAt, archivedAt } = conversation;
+  if (archivedAt == null) {
+    return lastMessageAt;
+  }
+  return Math.max(lastMessageAt ?? 0, archivedAt);
 }
 
 /**
- * Recency order, newest first.
+ * Last-activity order, newest first.
  *
- * This matches the server's sort key exactly, and the reason is one hop
- * away from here: the SQL orders by `COALESCE(last_message_at, updated_at)`
- * (`listConversations` in the daemon's `conversation-queries.ts`), and
- * `toConversation` bakes that same coalesce into `lastMessageAt`
- * (`raw.lastMessageAt ?? raw.updatedAt`), so a row with no messages yet
- * still carries the value the server sorted it by. The `?? 0` fallback can
- * only fire for client-minted draft stubs, which never came from the server
- * and are separately protected wherever this order prunes.
- *
- * No tiebreak. `Array.prototype.sort` is stable, so rows sharing a
- * `lastMessageAt` (or both missing one) keep the order they arrived in, which
- * is the server's. Adding an id tiebreak here would reorder them against it.
+ * No tiebreak. `Array.prototype.sort` is stable, so rows sharing a timestamp
+ * (or both missing one) keep the order they arrived in, which is the
+ * server's. Adding an id tiebreak here would reorder them against it.
  */
-export const compareByRecency = byTimestampDesc("lastMessageAt");
+export function compareByRecency(a: Conversation, b: Conversation): number {
+  return (lastActivityAt(b) ?? 0) - (lastActivityAt(a) ?? 0);
+}
 
 /**
  * The non-archived conversations in recency order, newest first.
@@ -162,12 +173,12 @@ export function mergeListFirstPage(
   if (windowRows.length === 0) {
     return prev;
   }
-  const cutoff = Math.min(...windowRows.map((c) => c.lastMessageAt ?? 0));
+  const cutoff = Math.min(...windowRows.map((c) => lastActivityAt(c) ?? 0));
   const freshIds = new Set(page.conversations.map((c) => c.conversationId));
   const kept = prev.conversations.filter(
     (c) =>
       !freshIds.has(c.conversationId) &&
-      (c.draft === true || (c.lastMessageAt ?? 0) < cutoff),
+      (c.draft === true || (lastActivityAt(c) ?? 0) < cutoff),
   );
   return {
     conversations: [...page.conversations, ...kept],
