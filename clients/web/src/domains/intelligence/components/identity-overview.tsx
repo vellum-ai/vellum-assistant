@@ -18,6 +18,7 @@ import {
   ChevronRight,
   FolderOpen,
   LayoutGrid,
+  Mail,
   Pencil,
   Radio,
   Sparkles,
@@ -38,7 +39,10 @@ import { PageShell } from "@/components/page-shell";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useElementSize } from "@/hooks/use-element-size";
 import { useTranslation } from "@/i18n";
+import { usePlatformGateWithPending } from "@/hooks/use-platform-gate";
+import { organizationsBillingSubscriptionRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
 import { useSupportsPluginsSurface } from "@/lib/backwards-compat/plugins-surface";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 import { contrastForeground } from "@/utils/avatar-tone";
@@ -78,6 +82,7 @@ const SECTION_ICONS: Record<string, LucideIcon> = {
   library: LayoutGrid,
   workspace: FolderOpen,
   contacts: Users,
+  email: Mail,
   channels: Radio,
 };
 
@@ -107,6 +112,7 @@ const MINI_SECTION_KEYS = [
   "library",
   "workspace",
   "contacts",
+  "email",
   "channels",
 ];
 
@@ -124,6 +130,7 @@ const CARD_HOVER_LINE_KEY: Record<
     | "schedules"
     | "workspace"
     | "contacts"
+    | "email"
     | "channels"}`
 > = {
   personality: "identityOverview.cardHoverLine.personality",
@@ -133,6 +140,7 @@ const CARD_HOVER_LINE_KEY: Record<
   schedules: "identityOverview.cardHoverLine.schedules",
   workspace: "identityOverview.cardHoverLine.workspace",
   contacts: "identityOverview.cardHoverLine.contacts",
+  email: "identityOverview.cardHoverLine.email",
   channels: "identityOverview.cardHoverLine.channels",
 };
 
@@ -295,7 +303,25 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
     invalidateAvatar();
   }, [invalidateAvatar]);
 
-  const sections = buildIdentitySections();
+  /* The Email card is the way into the Assistant Inbox, which exists only
+     behind its flag and on the platform. Its lock reads the same entitlement
+     the inbox gates on, and only an explicit denial locks it: a subscription
+     that has not loaded, or failed to, leaves the card open, since the inbox
+     itself decides what to show. */
+  const inboxEnabled = useClientFeatureFlagStore.use.assistantInbox();
+  const platformGate = usePlatformGateWithPending({ platformHostedOnly: true });
+  const showsEmail = inboxEnabled && platformGate === "full";
+  const subscriptionQuery = useQuery({
+    ...organizationsBillingSubscriptionRetrieveOptions(),
+    enabled: showsEmail,
+  });
+  const entitlements = subscriptionQuery.data?.entitlements as
+    | Record<string, unknown>
+    | undefined;
+  const emailLocked = !!entitlements && entitlements.managed_email !== true;
+  const sections = buildIdentitySections({
+    email: showsEmail ? { locked: emailLocked } : undefined,
+  });
   const isLoading = isAvatarLoading || identityQuery.isLoading;
   // Custom image: the page background becomes the photo itself, blown up and
   // heavily blurred behind the content, which says more about the assistant
@@ -533,17 +559,42 @@ export function SectionCard({
     />
   );
 
+  // The lock on a section the org's plan does not include. Emoji rather
+  // than a glyph so it reads at a glance beside the title, the way the
+  // request put it.
+  const lockBadge = section.locked ? (
+    <span
+      role="img"
+      aria-label={t("identityOverview.lockedBadge")}
+      title={t("identityOverview.lockedBadge")}
+      className="shrink-0 text-[13px] leading-none"
+    >
+      🔒
+    </span>
+  ) : null;
+
   if (mini) {
     // Bottom-strip tile per Figma (New-App 6944-89405): left-aligned,
     // 12px radius, 40px icon slot in the secondary tone, 16px title over
-    // an 11px tertiary stat.
+    // an 11px tertiary stat. The Email tile wears the feature cards' wash
+    // of the avatar colour, so it reads with Personality and Schedules
+    // rather than with the plain tiles beside it.
+    const featureWash = section.key === "email";
     return (
       <Card.Root
         asChild
-        bordered={false}
-        elevated
+        bordered={featureWash}
+        elevated={!featureWash}
         clipContents
-        className="rounded-[12px] border-0 bg-[var(--card-bg)]"
+        className={
+          featureWash
+            ? `rounded-[12px] border bg-[var(--card-feature-bg,var(--card-bg))] ${
+                photoBackdrop
+                  ? "border-transparent backdrop-blur-[32px]"
+                  : "border-[var(--border-base)]"
+              }`
+            : "rounded-[12px] border-0 bg-[var(--card-bg)]"
+        }
       >
         <Link
           to={section.to}
@@ -565,9 +616,10 @@ export function SectionCard({
           </span>
           <span className="relative flex min-w-0 flex-col gap-0">
             <span
-              className={`truncate text-title-small leading-normal transition-colors duration-300 ${fgStrong}`}
+              className={`flex items-center gap-1.5 truncate text-title-small leading-normal transition-colors duration-300 ${fgStrong}`}
             >
               {section.label}
+              {lockBadge}
             </span>
             {stat?.text && (
               <span
@@ -701,9 +753,10 @@ export function SectionCard({
             />
             <span className="flex flex-col">
               <span
-                className={`text-body-medium-default transition-colors duration-300 ${fg}`}
+                className={`flex items-center gap-1.5 text-body-medium-default transition-colors duration-300 ${fg}`}
               >
                 {section.label}
+                {lockBadge}
               </span>
               <span
                 className={`text-[13px] transition-colors duration-300 ${fgMuted}`}

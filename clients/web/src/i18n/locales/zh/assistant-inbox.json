@@ -1,8 +1,4 @@
 {
-  "assistantInboxNavItem": {
-    "label": "助手收件箱",
-    "dismiss": "隐藏助手收件箱"
-  },
   "assistantInboxHeader": {
     "title": "邮件",
     "settingsAria": "邮件设置"
@@ -96,10 +92,5 @@
     "mailFailed": "无法加载邮件。",
     "retry": "重试",
     "deletedToast": "{count, plural, one {邮件已删除。} other {已删除 # 封邮件。}}"
-  },
-  "inboxRailRestore": {
-    "hiddenNote": "助手收件箱已从侧边菜单中隐藏。",
-    "restoreButton": "重新添加",
-    "restoredToast": "助手收件箱已回到侧边菜单。"
   }
 }

@@ -1,8 +1,4 @@
 {
-  "assistantInboxNavItem": {
-    "label": "Bandeja del asistente",
-    "dismiss": "Ocultar bandeja del asistente"
-  },
   "assistantInboxHeader": {
     "title": "Correo",
     "settingsAria": "Ajustes del correo"
@@ -96,10 +92,5 @@
     "mailFailed": "No se pudo cargar el correo.",
     "retry": "Reintentar",
     "deletedToast": "{count, plural, one {Correo eliminado.} other {# correos eliminados.}}"
-  },
-  "inboxRailRestore": {
-    "hiddenNote": "La bandeja del asistente está oculta en tu menú lateral.",
-    "restoreButton": "Volver a añadirla",
-    "restoredToast": "La bandeja del asistente vuelve a estar en tu menú lateral."
   }
 }

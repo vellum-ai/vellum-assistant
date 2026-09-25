@@ -1,8 +1,4 @@
 {
-  "assistantInboxNavItem": {
-    "label": "Assistant Inbox",
-    "dismiss": "Hide Assistant Inbox"
-  },
   "assistantInboxHeader": {
     "title": "Email",
     "settingsAria": "Email settings"
@@ -96,10 +92,5 @@
     "mailFailed": "Couldn't load the mail.",
     "retry": "Try again",
     "deletedToast": "{count, plural, one {Email deleted.} other {# emails deleted.}}"
-  },
-  "inboxRailRestore": {
-    "hiddenNote": "Assistant Inbox is hidden from your side menu.",
-    "restoreButton": "Add it back",
-    "restoredToast": "Assistant Inbox is back in your side menu."
   }
 }
