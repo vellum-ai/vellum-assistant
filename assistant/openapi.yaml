@@ -14289,6 +14289,8 @@ paths:
                         type: boolean
                       appPins:
                         type: boolean
+                      chatsSettings:
+                        type: boolean
                     required:
                       - memoryOptOut
                       - retryLastTurn
@@ -14522,6 +14524,8 @@ paths:
                       retryLastTurn:
                         type: boolean
                       appPins:
+                        type: boolean
+                      chatsSettings:
                         type: boolean
                     required:
                       - memoryOptOut

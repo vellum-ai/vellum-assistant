@@ -166,6 +166,7 @@ describe("identity routes — health endpoint", () => {
         memoryOptOut: true,
         retryLastTurn: true,
         appPins: true,
+        chatsSettings: true,
       });
 
       // Profiler should either be absent or show enabled: false
@@ -492,9 +493,9 @@ describe("identity routes — /readyz readiness gate", () => {
     expect(body.ready).toBe(false);
     expect(body.reason).toBe("db_migrations_failed");
     expect((body.dbMigrations as Record<string, unknown>).state).toBe("failed");
-    expect((body.dbMigrations as Record<string, unknown>).failedMigrations).toEqual(
-      [{ name: "flakyStep", error: "transient failure" }],
-    );
+    expect(
+      (body.dbMigrations as Record<string, unknown>).failedMigrations,
+    ).toEqual([{ name: "flakyStep", error: "transient failure" }]);
   });
 
   test("returns 200 even if CES is down", async () => {

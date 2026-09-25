@@ -103,7 +103,11 @@ export function ChatsSettingsModal({
                 <Notice
                   tone="error"
                   actions={
-                    <Button variant="outlined" onClick={onRetryLoad}>
+                    <Button
+                      variant="outlined"
+                      className="text-[var(--content-default)] disabled:text-[var(--content-disabled)]"
+                      onClick={onRetryLoad}
+                    >
                       {t("chatsSettingsModal.retry")}
                     </Button>
                   }
@@ -117,7 +121,12 @@ export function ChatsSettingsModal({
               )}
             </Modal.Body>
             <Modal.Footer className="shrink-0">
-              <Button variant="outlined" onClick={dismiss} disabled={saving}>
+              <Button
+                variant="outlined"
+                className="text-[var(--content-default)] disabled:text-[var(--content-disabled)]"
+                onClick={dismiss}
+                disabled={saving}
+              >
                 {t("chatsSettingsModal.cancel")}
               </Button>
               <Button variant="primary" disabled>
