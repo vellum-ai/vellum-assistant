@@ -1,4 +1,5 @@
 import { disposeAcpSessionManager } from "../acp/index.js";
+import { stopConversationAutoArchive } from "../conversations/auto-archive.js";
 import { stopCes } from "../credential-execution/ces-runtime.js";
 import { stopHeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { stopCliIpcServer } from "../ipc/assistant-server.js";
@@ -43,6 +44,7 @@ const log = getLogger("lifecycle");
  * leaves a stale PID file or orphaned timers behind.
  */
 function stopBackgroundServicesAndCleanupPidFile(): void {
+  stopConversationAutoArchive();
   stopGatewayFlagListener();
   stopDiskPressureGuardForLifecycle();
   stopResourcePressureGuardForLifecycle();
@@ -63,6 +65,7 @@ async function shutdown(): Promise<void> {
     return;
   }
   shuttingDown = true;
+  stopConversationAutoArchive();
 
   // Force exit if graceful shutdown takes too long.
   // Set this BEFORE awaiting heartbeat stop so it covers all
