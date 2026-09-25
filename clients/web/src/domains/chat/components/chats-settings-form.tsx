@@ -37,7 +37,7 @@ const ARCHIVE_DAYS = [
   1, 7, 14, 30,
 ] as const satisfies readonly ChatsSettingsAutoArchive["afterDays"][];
 const TOGGLE_CLASSES =
-  "flex-row-reverse items-start gap-4 [&>div]:flex-1 [&>button]:mt-1 [&>button]:before:absolute [&>button]:before:-inset-x-2.5 [&>button]:before:-inset-y-3.5";
+  "flex-row-reverse items-start gap-4 [&>div]:flex-1 [&>div>span]:text-[var(--content-secondary)] [&>button]:mt-1 [&>button]:before:absolute [&>button]:before:-inset-x-2.5 [&>button]:before:-inset-y-3.5";
 
 function changedSettings(
   initial: ChatsSettingsValues,
