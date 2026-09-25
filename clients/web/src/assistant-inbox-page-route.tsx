@@ -18,6 +18,7 @@ import { useAssistantInboxState } from "@/domains/assistant-inbox/hooks/use-assi
 import { EmailSettingsModal } from "@/domains/channels/components/email-settings-modal";
 import { useDeletedEmails } from "@/domains/assistant-inbox/hooks/use-deleted-emails";
 import { useInboxMail } from "@/domains/assistant-inbox/hooks/use-inbox-mail";
+import { useReadEmails } from "@/domains/assistant-inbox/hooks/use-read-emails";
 import { toEmailReference } from "@/domains/assistant-inbox/to-email-reference";
 import type {
   HandleCheckResult,
@@ -91,6 +92,7 @@ function Mailbox({
   const mail = useInboxMail(assistantId, platformAssistantId, addressId);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const { deletedIds, deleteEmails } = useDeletedEmails(assistantId);
+  const { readIds, markRead } = useReadEmails(assistantId);
   /* A deep link from a sent message's email card names the folder and the
      message to open on (`routes.assistantInboxMessage`). */
   const [searchParams] = useSearchParams();
@@ -181,7 +183,6 @@ function Mailbox({
         address={address}
         inbox={received}
         sent={sent}
-        usage={mail.usage}
         initialFolder={linkedMessageId ? linkedFolder : undefined}
         initialSelectedId={linkedMessageId}
         loadDetail={mail.loadDetail}
@@ -189,11 +190,15 @@ function Mailbox({
         onStartChat={startChatWithEmails}
         onDeleteEmails={removeEmails}
         onOpenSettings={() => setSettingsOpen(true)}
+        readIds={readIds}
+        onRead={markRead}
       />
       <EmailSettingsModal
         open={settingsOpen}
         onOpenChange={setSettingsOpen}
         assistantId={platformAssistantId}
+        localAssistantId={assistantId}
+        assistantName={assistantName}
         assistantHandle={handle}
         emailRootDomain={rootDomain}
       />

@@ -17,7 +17,7 @@
  * 3. With an address, it is the mailbox: masthead, Inbox and Sent, a list
  *    beside a reading pane.
  *
- * Nothing here talks to a platform. The mail, usage, and avatar are fixtures,
+ * Nothing here talks to a platform. The mail and avatar are fixtures,
  * and the handlers log to the Actions panel.
  */
 import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
@@ -55,7 +55,6 @@ import {
   MOCK_NOW,
   MOCK_ROOT_DOMAIN,
   MOCK_SENT,
-  MOCK_USAGE,
 } from "./mock-emails";
 
 // The cards hang creatures off their edges from a dynamic import.
@@ -352,6 +351,11 @@ export const SetUpEmailRefused: Story = {
   ),
 };
 
+/** Every received message but the two newest has been opened here. */
+const MOCK_READ_IDS: ReadonlySet<string> = new Set(
+  MOCK_INBOX.slice(2).map((email) => email.id),
+);
+
 /** Entitled with an address. The mailbox, seeded with received and sent mail. */
 export const Inbox: Story = {
   name: "3 · Inbox",
@@ -362,12 +366,13 @@ export const Inbox: Story = {
       address={MOCK_ADDRESS}
       inbox={MOCK_INBOX}
       sent={MOCK_SENT}
-      usage={MOCK_USAGE}
       now={MOCK_NOW}
       onAskToReply={fn().mockName("onAskToReply")}
       onStartChat={fn().mockName("onStartChat")}
       onDeleteEmails={fn().mockName("onDeleteEmails")}
       onOpenSettings={fn().mockName("onOpenSettings")}
+      readIds={MOCK_READ_IDS}
+      onRead={fn().mockName("onRead")}
     />
   ),
 };
@@ -382,10 +387,11 @@ export const InboxReading: Story = {
       address={MOCK_ADDRESS}
       inbox={MOCK_INBOX}
       sent={MOCK_SENT}
-      usage={MOCK_USAGE}
       now={MOCK_NOW}
       initialSelectedId="in-2"
       onAskToReply={fn().mockName("onAskToReply")}
+      readIds={MOCK_READ_IDS}
+      onRead={fn().mockName("onRead")}
     />
   ),
 };
@@ -404,7 +410,6 @@ export const InboxSelecting: Story = {
       address={MOCK_ADDRESS}
       inbox={MOCK_INBOX}
       sent={MOCK_SENT}
-      usage={MOCK_USAGE}
       now={MOCK_NOW}
       initialCheckedIds={[
         MOCK_INBOX[0]!.id,
@@ -428,7 +433,6 @@ export const SentFolder: Story = {
       address={MOCK_ADDRESS}
       inbox={MOCK_INBOX}
       sent={MOCK_SENT}
-      usage={MOCK_USAGE}
       now={MOCK_NOW}
       initialFolder="sent"
       initialSelectedId="out-3"
@@ -454,7 +458,6 @@ export const InboxFetchedBodies: Story = {
       sent={MOCK_SENT.map(
         ({ snippet: _snippet, body: _body, attachments: _a, ...row }) => row,
       )}
-      usage={MOCK_USAGE}
       now={MOCK_NOW}
       loadDetail={async (email) => {
         await new Promise((resolve) => setTimeout(resolve, 900));
@@ -481,7 +484,6 @@ export const InboxEmpty: Story = {
       address={MOCK_ADDRESS}
       inbox={[]}
       sent={[]}
-      usage={{ sentToday: 0, receivedToday: 0, dailyLimit: 100 }}
       now={MOCK_NOW}
     />
   ),

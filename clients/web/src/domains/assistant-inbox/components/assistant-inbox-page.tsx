@@ -1,5 +1,5 @@
 import { Inbox, Search, Send } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useQuery } from "@tanstack/react-query";
 
@@ -16,12 +16,7 @@ import {
 
 import { useTranslation } from "@/i18n";
 
-import type {
-  EmailDetailLoader,
-  InboxEmail,
-  InboxFolder,
-  InboxUsage,
-} from "../types";
+import type { EmailDetailLoader, InboxEmail, InboxFolder } from "../types";
 import { AssistantInboxHeader } from "./assistant-inbox-header";
 import { AssistantInboxShell } from "./assistant-inbox-shell";
 import { EmailDetail, type EmailDetailState } from "./email-detail";
@@ -95,7 +90,6 @@ export interface AssistantInboxPageProps {
   address: string;
   inbox: InboxEmail[];
   sent: InboxEmail[];
-  usage?: InboxUsage;
   /** Injected so fixtures render stable relative times. Defaults to the clock. */
   now?: Date;
   /** The folder to open on. Defaults to the inbox. */
@@ -123,6 +117,14 @@ export interface AssistantInboxPageProps {
   onDeleteEmails?: (emails: InboxEmail[]) => void;
   /** Opens the email settings from the masthead. */
   onOpenSettings?: () => void;
+  /**
+   * Ids of received messages already opened on this device. With it, a
+   * received row not in the set carries the unread mark; without it no row
+   * does.
+   */
+  readIds?: ReadonlySet<string>;
+  /** A message was opened in the reading pane. */
+  onRead?: (id: string) => void;
 }
 
 /**
@@ -143,7 +145,6 @@ export function AssistantInboxPage({
   address,
   inbox,
   sent,
-  usage,
   now,
   initialFolder = "inbox",
   initialSelectedId = null,
@@ -153,6 +154,8 @@ export function AssistantInboxPage({
   onStartChat,
   onDeleteEmails,
   onOpenSettings,
+  readIds,
+  onRead,
 }: AssistantInboxPageProps) {
   const { t } = useTranslation("assistant-inbox");
   const [folder, setFolder] = useState<InboxFolder>(initialFolder);
@@ -178,6 +181,14 @@ export function AssistantInboxPage({
     [folderEmails, trimmedQuery],
   );
   const selected = emails.find((email) => email.id === selectedId) ?? null;
+
+  /* Opening a message is what reads it, including one opened by a link. */
+  const openedId = selected?.id ?? null;
+  useEffect(() => {
+    if (openedId !== null) {
+      onRead?.(openedId);
+    }
+  }, [onRead, openedId]);
 
   /* The body arrives with the row or with a fetch, never both: a row that
      carries one is drawn as is, and only a row without one asks the loader.
@@ -255,7 +266,6 @@ export function AssistantInboxPage({
       <AssistantInboxHeader
         assistantId={assistantId}
         address={address}
-        usage={usage}
         onOpenSettings={onOpenSettings}
       />
 
@@ -314,6 +324,7 @@ export function AssistantInboxPage({
                   selectedId={selectedId}
                   now={clock}
                   onSelect={setSelectedId}
+                  readIds={readIds}
                   checkedIds={selectable ? checkedIds : undefined}
                   onToggleChecked={selectable ? toggleChecked : undefined}
                 />
