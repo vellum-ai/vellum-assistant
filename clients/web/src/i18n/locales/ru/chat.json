@@ -1226,5 +1226,35 @@
   "emailNavItem": {
     "label": "Почта",
     "unpin": "Открепить Почту"
+  },
+  "tiptapDocumentEditor": {
+    "adding": "Добавление…",
+    "blockquote": "Цитата",
+    "bold": "Жирный",
+    "bulletList": "Маркированный список",
+    "code": "Код",
+    "comment": "Комментарий",
+    "feedbackPlaceholder": "Добавьте отзыв…",
+    "heading1": "Заголовок 1",
+    "heading2": "Заголовок 2",
+    "heading3": "Заголовок 3",
+    "italic": "Курсив",
+    "link": "Ссылка",
+    "linkAddress": "Адрес ссылки",
+    "linkApply": "Применить ссылку",
+    "linkInvalid": "Укажите веб-адрес или адрес электронной почты",
+    "linkPlaceholder": "Вставьте или введите ссылку",
+    "linkRemove": "Удалить ссылку",
+    "orderedList": "Нумерованный список",
+    "paragraph": "Текст",
+    "placeholder": "Начните писать…",
+    "remoteEditConflict": "Ваши правки сохранены там, где ассистент изменил тот же текст, поэтому часть его правки не применена.",
+    "strike": "Зачёркнутый",
+    "textStyle": "Стиль текста: {style}",
+    "toolbarAria": "Форматирование"
+  },
+  "documentViewerContainer": {
+    "comments": "Комментарии",
+    "commentsWithOpenCount": "{count, plural, one {Комментарии, # открытый} few {Комментарии, # открытых} many {Комментарии, # открытых} other {Комментарии, # открытых}}"
   }
 }
