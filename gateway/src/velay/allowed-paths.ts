@@ -44,6 +44,8 @@ import { isFeatureFlagEnabled } from "../feature-flag-resolver.js";
  *   - `^/v1/credential-requests/(peek|submit)$`: the entry page's
  *     unauthenticated API calls; the single-use token travels in the POST
  *     body and is validated by the gateway handlers.
+ *   - `^/oauth/client-metadata.json$`: the public OAuth client document an
+ *     authorization server fetches when it supports URL-based client ids.
  */
 const VELAY_NON_WEBHOOK_ALLOWED_PATHS: readonly string[] = Object.freeze([
   "^/v1/audio/",
@@ -53,6 +55,7 @@ const VELAY_NON_WEBHOOK_ALLOWED_PATHS: readonly string[] = Object.freeze([
   "^/v1/desktop/stream$",
   "^/assistant/credentials/enter$",
   "^/v1/credential-requests/(peek|submit)$",
+  "^/oauth/client-metadata\\.json$",
 ]);
 
 /**
