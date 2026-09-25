@@ -1,7 +1,7 @@
 /**
- * The Email row over the assistant profile's bottom strip: one slim line
- * in the feature cards' wash of the avatar colour, with a lock when the
- * org's plan has no managed email. The bench
+ * The Email row over the Channels tile in the assistant profile's bottom
+ * strip: one slim line at the tile's width, in the feature cards' wash of
+ * the avatar colour, with a lock when the org's plan has no managed email. The bench
  * sets the same card variables the overview derives from the avatar, so
  * the wash reads as it does on the page.
  */
@@ -42,24 +42,38 @@ function Strip({ locked }: { locked: boolean }) {
   const sections = strip(locked);
   const email = sections.find((s) => s.key === "email")!;
   return (
-    <div className="flex w-[640px] flex-col gap-3">
-      <SectionCard section={email} stat={undefined} hoverFill slim />
+    <div className="flex w-[640px] flex-col gap-3 pt-12">
       <div className="flex h-16 items-stretch gap-3">
         {sections
           .filter((s) => s.key !== "email")
-          .map((section) => (
-            <SectionCard
-              key={section.key}
-              section={section}
-              stat={
-                section.key === "contacts"
-                  ? { text: "12 people" }
-                  : { text: "3 connected" }
-              }
-              hoverFill
-              mini
-            />
-          ))}
+          .map((section) =>
+            section.key === "channels" ? (
+              <div key={section.key} className="relative flex min-w-0 flex-1">
+                <div className="absolute inset-x-0 bottom-full mb-1">
+                  <SectionCard
+                    section={email}
+                    stat={undefined}
+                    hoverFill
+                    slim
+                  />
+                </div>
+                <SectionCard
+                  section={section}
+                  stat={{ text: "3 connected" }}
+                  hoverFill
+                  mini
+                />
+              </div>
+            ) : (
+              <SectionCard
+                key={section.key}
+                section={section}
+                stat={{ text: "12 people" }}
+                hoverFill
+                mini
+              />
+            ),
+          )}
       </div>
     </div>
   );
