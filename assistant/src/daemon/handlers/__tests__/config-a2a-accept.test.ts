@@ -498,7 +498,7 @@ describe("acceptA2AInvite", () => {
     globalThis.fetch = (async () => {
       fetchCalls += 1;
       throw new Error("fetch should not run");
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     try {
       for (const url of [

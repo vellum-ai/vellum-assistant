@@ -179,7 +179,7 @@ export function register(
   const targetConnectionId =
     interaction.targetConnectionId ??
     (interaction.targetClientId
-      ? assistantEventHub.getClientById(interaction.targetClientId)
+      ? assistantEventHub.getClientById?.(interaction.targetClientId)
           ?.connectionId
       : undefined);
   pending.set(requestId, {
