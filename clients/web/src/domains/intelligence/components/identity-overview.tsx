@@ -1182,9 +1182,17 @@ function OverviewBento({
     // grid of mini tiles.
     const schedulesSection = sections.find((s) => s.key === "schedules");
     const personalitySection = sections.find((s) => s.key === "personality");
-    const gridSections = sections.filter(
+    // Channels, which carries the Email pill and spans both columns, sits
+    // on the grid's second row rather than at its foot, so the pill is not
+    // the last thing on the page.
+    const stackable = sections.filter(
       (s) => s.key !== "schedules" && s.key !== "personality",
     );
+    const channelsSection = stackable.find((s) => s.key === "channels");
+    const rest = stackable.filter((s) => s.key !== "channels");
+    const gridSections = channelsSection
+      ? [...rest.slice(0, 2), channelsSection, ...rest.slice(2)]
+      : rest;
     const schedulesStat = stats["schedules"]?.schedules;
     const scheduleCount = schedulesStat
       ? schedulesStat.items.length + schedulesStat.more
