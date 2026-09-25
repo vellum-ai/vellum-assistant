@@ -121,7 +121,6 @@ const MINI_SECTION_KEYS = [
   "workspace",
   "contacts",
   "channels",
-  "email",
 ];
 
 /**
@@ -510,9 +509,7 @@ export function SectionCard({
   hoverFill,
   mini,
   compact = false,
-  trailing,
-  join,
-  fit = false,
+  aside,
   flooded = false,
   floodOrigin,
   photoBackdrop = false,
@@ -537,15 +534,11 @@ export function SectionCard({
    * separately and a shared edit would quietly restyle the desktop strip.
    */
   compact?: boolean;
-  /** A control on the tile's trailing edge, outside the card's link. */
-  trailing?: ReactNode;
   /**
-   * The tile is joined to a neighbour: square on the edge it shares. `end`
-   * for the tile a tab hangs off (Channels), `start` for the tab (Email).
+   * Content on the tile's trailing edge, inside the card but outside its
+   * link: the Email pill on the Channels tile.
    */
-  join?: "start" | "end";
-  /** Size to the tile's content rather than sharing the row: the tab. */
-  fit?: boolean;
+  aside?: ReactNode;
   /** The avatar has poured itself over this card — fill it with the
    *  avatar color and flip the content to the contrast tone. */
   flooded?: boolean;
@@ -615,44 +608,25 @@ export function SectionCard({
   if (mini) {
     // Bottom-strip tile per Figma (New-App 6944-89405): left-aligned,
     // 12px radius, 40px icon slot in the secondary tone, 16px title over
-    // an 11px tertiary stat. The Email tile wears the feature cards' wash
-    // of the avatar colour, so it reads with Personality and Schedules
-    // rather than with the plain tiles beside it, and carries its control
-    // (pin, or close) beside the link rather than inside it.
-    const featureWash = section.key === "email";
-    const corners =
-      join === "end"
-        ? "rounded-l-[12px] rounded-r-none"
-        : join === "start"
-          ? "rounded-r-[12px] rounded-l-none"
-          : "rounded-[12px]";
+    // an 11px tertiary stat. An aside sits on the card's surface beside
+    // the link, since a control cannot nest inside an anchor.
     return (
-      <div className={`relative flex min-w-0 ${fit ? "flex-none" : "flex-1"}`}>
-        <Card.Root
-          asChild
-          bordered={featureWash}
-          elevated={!featureWash}
-          clipContents
-          className={
-            featureWash
-              ? `w-full ${corners} border bg-[var(--card-feature-bg,var(--card-bg))] ${
-                  photoBackdrop
-                    ? "border-transparent backdrop-blur-[32px]"
-                    : "border-[var(--border-base)]"
-                } ${join === "start" ? "border-l-0" : ""}`
-              : `w-full ${corners} border-0 bg-[var(--card-bg)]`
-          }
-        >
+      <Card.Root
+        asChild
+        bordered={false}
+        elevated
+        clipContents
+        className="rounded-[12px] border-0 bg-[var(--card-bg)]"
+      >
+        <div className="relative flex min-w-0 flex-1 items-center">
           <Link
             to={section.to}
             ref={linkRef}
             onMouseEnter={() => onHoverChange?.(true)}
             onMouseLeave={() => onHoverChange?.(false)}
-            className={`relative flex h-full flex-1 cursor-pointer items-center transition-all duration-150 active:scale-[0.98] ${
+            className={`relative flex h-full min-w-0 flex-1 cursor-pointer items-center transition-all duration-150 active:scale-[0.98] ${
               compact ? "gap-1 py-3 pr-3 pl-2" : "gap-2 px-4 py-2.5"
-            } ${fit ? "min-w-[9rem]" : ""} ${trailing ? "pr-10" : ""} ${
-              hoverFill ? "hover:bg-[var(--card-hover)]" : ""
-            }`}
+            } ${hoverFill ? "hover:bg-[var(--card-hover)]" : ""}`}
           >
             {floodOverlay}
             <span className="relative flex h-10 w-10 shrink-0 items-center justify-center">
@@ -683,13 +657,13 @@ export function SectionCard({
               )}
             </span>
           </Link>
-        </Card.Root>
-        {trailing ? (
-          <span className="absolute top-1/2 right-2 flex -translate-y-1/2 items-center">
-            {trailing}
-          </span>
-        ) : null}
-      </div>
+          {aside ? (
+            <span className="relative flex shrink-0 items-center gap-1 pr-2">
+              {aside}
+            </span>
+          ) : null}
+        </div>
+      </Card.Root>
     );
   }
 
@@ -1026,6 +1000,44 @@ function OverviewBento({
   // stays calm: a static circle under the greeting on regular theme colors.
   const hasCharacter = Boolean(avatarHex && components && traits);
 
+  /* Email lives inside the Channels tile as a pill, the way the side menu
+     draws its entries: the assistant's wash with the glyph in the accent,
+     a lock when the plan has no email, and its pin or close beside it. */
+  const emailSection = sections.find((s) => s.key === "email");
+  const emailPill = emailSection ? (
+    <>
+      <Link
+        to={emailSection.to}
+        data-testid="identity-email-pill"
+        aria-label={emailSection.label}
+        className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3 text-body-small-default text-[var(--content-default)] transition-colors hover:brightness-95 outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]"
+        style={{
+          backgroundColor: avatarHex
+            ? `color-mix(in srgb, ${avatarHex} 22%, var(--surface-lift))`
+            : "var(--surface-active)",
+        }}
+      >
+        <Mail
+          className="h-4 w-4 shrink-0"
+          style={{ color: avatarHex ?? "var(--content-default)" }}
+          aria-hidden
+        />
+        <span className="truncate">{emailSection.label}</span>
+        {emailSection.locked ? (
+          <span
+            role="img"
+            aria-label={t("identityOverview.lockedBadge")}
+            title={t("identityOverview.lockedBadge")}
+            className="text-[13px] leading-none"
+          >
+            🔒
+          </span>
+        ) : null}
+      </Link>
+      {emailTrailing}
+    </>
+  ) : null;
+
   // The amoeba avatar needs a color + eye art to morph with; custom-image
   // and reduced-motion users keep the static avatar and card hover fills.
   const morphing = useBento && !reduce && hasCharacter;
@@ -1163,7 +1175,6 @@ function OverviewBento({
     // grid of mini tiles.
     const schedulesSection = sections.find((s) => s.key === "schedules");
     const personalitySection = sections.find((s) => s.key === "personality");
-    const emailSection = sections.find((s) => s.key === "email");
     const gridSections = sections.filter(
       (s) => s.key !== "schedules" && s.key !== "personality",
     );
@@ -1290,39 +1301,22 @@ function OverviewBento({
           )}
           <div className="grid grid-cols-2 gap-2">
             {gridSections.map((section) =>
-              section.key === "channels" && emailSection ? (
-                /* Channels and Email are one piece: the tab hangs off the
-                   tile's right edge, the two square where they meet, across
-                   both columns. */
-                <div key={section.key} className="col-span-2 flex min-w-0">
+              section.key === "email" ? null : (
+                /* Channels carries the Email pill, so it takes both columns
+                   for the two to fit on one line. */
+                <div
+                  key={section.key}
+                  className={`flex min-w-0 ${section.key === "channels" && emailPill ? "col-span-2" : ""}`}
+                >
                   <SectionCard
                     section={section}
                     stat={stats[section.key]}
                     hoverFill
                     mini
                     compact
-                    join="end"
-                  />
-                  <SectionCard
-                    section={emailSection}
-                    stat={stats[emailSection.key]}
-                    hoverFill
-                    mini
-                    compact
-                    join="start"
-                    fit
-                    trailing={emailTrailing}
+                    aside={section.key === "channels" ? emailPill : undefined}
                   />
                 </div>
-              ) : section.key === "email" ? null : (
-                <SectionCard
-                  key={section.key}
-                  section={section}
-                  stat={stats[section.key]}
-                  hoverFill
-                  mini
-                  compact
-                />
               ),
             )}
           </div>
@@ -1335,9 +1329,8 @@ function OverviewBento({
   // it) and Schedules the right, both the same height above the strip,
   // and everything else (Skills, Plugins, Workspace, Contacts, Channels)
   // runs as compact mini cards in a full-width bottom strip.
-  const emailSection = sections.find((s) => s.key === "email");
   const mainSections = sections.filter(
-    (s) => !MINI_SECTION_KEYS.includes(s.key),
+    (s) => !MINI_SECTION_KEYS.includes(s.key) && s.key !== "email",
   );
   const miniSections = sections.filter((s) =>
     MINI_SECTION_KEYS.includes(s.key),
@@ -1534,28 +1527,20 @@ function OverviewBento({
         className="flex min-h-0 items-stretch gap-3"
         style={{ gridArea: "smalls" }}
       >
-        {miniSections.map((section) =>
-          section.key === "channels" && emailSection ? (
-            /* Channels and Email are one piece: the tab hangs off the
-               tile's right edge, the two square where they meet. The pair
-               takes a wider share of the strip than one tile. */
-            <div key={section.key} className="flex min-w-0 flex-[1.7]">
-              <SectionCard {...cardProps(section)} mini join="end" />
-              {[emailSection].map((email) => (
-                <SectionCard
-                  key={email.key}
-                  {...cardProps(email)}
-                  mini
-                  join="start"
-                  fit
-                  trailing={emailTrailing}
-                />
-              ))}
-            </div>
-          ) : section.key === "email" ? null : (
-            <SectionCard key={section.key} {...cardProps(section)} mini />
-          ),
-        )}
+        {miniSections.map((section) => (
+          /* Channels carries the Email pill, so it takes a wider share of
+             the strip than its neighbours. */
+          <div
+            key={section.key}
+            className={`flex min-w-0 ${section.key === "channels" && emailPill ? "flex-[1.6]" : "flex-1"}`}
+          >
+            <SectionCard
+              {...cardProps(section)}
+              mini
+              aside={section.key === "channels" ? emailPill : undefined}
+            />
+          </div>
+        ))}
       </div>
     </div>
   );

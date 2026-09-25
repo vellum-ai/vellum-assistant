@@ -1,13 +1,14 @@
 /**
- * The Email tab hanging off the Channels tile in the assistant profile's
- * bottom strip: the two are one piece, square where they meet, the tab in
- * the feature cards' wash of the avatar colour, with a lock when the org's
- * plan has no managed email. The
- * bench sets the same card variables the overview derives from the avatar,
- * so the wash reads as it does on the page.
+ * The Email pill inside the Channels tile of the assistant profile's bottom
+ * strip: drawn the way the side menu draws its entries, in the assistant's
+ * wash with the glyph in the accent, with a lock when the org's plan has no
+ * managed email. The bench sets the same card variables the overview
+ * derives from the avatar, so the wash reads as it does on the page.
  */
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { Mail } from "lucide-react";
 import type { CSSProperties, ReactNode } from "react";
+import { Link } from "react-router";
 
 import { buildIdentitySections } from "./identity-sections";
 import { SectionCard } from "./identity-overview";
@@ -21,17 +22,29 @@ const WASH: CSSProperties = {
   "--card-hover": `color-mix(in srgb, ${AVATAR_HEX} 22%, var(--surface-lift))`,
 } as CSSProperties;
 
-function strip(locked: boolean) {
-  const sections = buildIdentitySections({ email: { locked } });
-  return sections.filter((s) =>
-    ["contacts", "channels", "email"].includes(s.key),
-  );
-}
-
 const STATS: Record<string, { text: string } | undefined> = {
   contacts: { text: "12 people" },
   channels: { text: "3 connected" },
 };
+
+function Pill({ locked }: { locked: boolean }) {
+  const email = buildIdentitySections({ email: { locked } }).find(
+    (s) => s.key === "email",
+  )!;
+  return (
+    <Link
+      to={email.to}
+      className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3 text-body-small-default text-[var(--content-default)]"
+      style={{
+        backgroundColor: `color-mix(in srgb, ${AVATAR_HEX} 22%, var(--surface-lift))`,
+      }}
+    >
+      <Mail className="h-4 w-4" style={{ color: AVATAR_HEX }} aria-hidden />
+      {email.label}
+      {locked ? <span aria-hidden>🔒</span> : null}
+    </Link>
+  );
+}
 
 function Bench({ children }: { children: ReactNode }) {
   return (
@@ -44,50 +57,28 @@ function Bench({ children }: { children: ReactNode }) {
   );
 }
 
-function Pair({
-  sections,
-  compact = false,
-}: {
-  sections: ReturnType<typeof strip>;
-  compact?: boolean;
-}) {
-  const channels = sections.find((s) => s.key === "channels")!;
-  const email = sections.find((s) => s.key === "email")!;
-  return (
-    <div className="flex min-w-0 flex-[1.7]">
-      <SectionCard
-        section={channels}
-        stat={STATS[channels.key]}
-        hoverFill
-        mini
-        compact={compact}
-        join="end"
-      />
-      <SectionCard
-        section={email}
-        stat={undefined}
-        hoverFill
-        mini
-        compact={compact}
-        join="start"
-        fit
-      />
-    </div>
-  );
-}
-
 function Strip({ locked }: { locked: boolean }) {
-  const sections = strip(locked);
-  const contacts = sections.find((s) => s.key === "contacts")!;
+  const sections = buildIdentitySections().filter((s) =>
+    ["contacts", "channels"].includes(s.key),
+  );
   return (
     <div className="flex h-16 w-[720px] items-stretch gap-3">
-      <SectionCard
-        section={contacts}
-        stat={STATS[contacts.key]}
-        hoverFill
-        mini
-      />
-      <Pair sections={sections} />
+      {sections.map((section) => (
+        <div
+          key={section.key}
+          className={`flex min-w-0 ${section.key === "channels" ? "flex-[1.6]" : "flex-1"}`}
+        >
+          <SectionCard
+            section={section}
+            stat={STATS[section.key]}
+            hoverFill
+            mini
+            aside={
+              section.key === "channels" ? <Pill locked={locked} /> : undefined
+            }
+          />
+        </div>
+      ))}
     </div>
   );
 }
@@ -101,7 +92,7 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-/** On a plan with managed email: the tile is the way into the inbox. */
+/** On a plan with managed email: the pill is the way into the inbox. */
 export const Unlocked: Story = {
   args: { locked: false },
   render: (args) => (
@@ -111,7 +102,7 @@ export const Unlocked: Story = {
   ),
 };
 
-/** Without it: the same tile, locked, still leading to the inbox's pitch. */
+/** Without it: the same pill, locked, still leading to the inbox's pitch. */
 export const Locked: Story = {
   args: { locked: true },
   render: (args) => (
@@ -121,28 +112,42 @@ export const Locked: Story = {
   ),
 };
 
-/** The phone's stacked grid: two columns, Email a tile like the others. */
+/** The phone's stacked grid: Channels takes both columns to hold the pill. */
 export const Stacked: Story = {
   args: { locked: false },
-  render: () => (
-    <Bench>
-      <div className="grid w-[360px] grid-cols-2 gap-2">
-        <SectionCard
-          section={strip(false).find((s) => s.key === "contacts")!}
-          stat={STATS["contacts"]}
-          hoverFill
-          mini
-          compact
-        />
-        <div className="col-span-2 flex min-w-0">
-          <Pair sections={strip(false)} compact />
+  render: () => {
+    const sections = buildIdentitySections().filter((s) =>
+      ["contacts", "channels"].includes(s.key),
+    );
+    return (
+      <Bench>
+        <div className="grid w-[360px] grid-cols-2 gap-2">
+          {sections.map((section) => (
+            <div
+              key={section.key}
+              className={`flex min-w-0 ${section.key === "channels" ? "col-span-2" : ""}`}
+            >
+              <SectionCard
+                section={section}
+                stat={STATS[section.key]}
+                hoverFill
+                mini
+                compact
+                aside={
+                  section.key === "channels" ? (
+                    <Pill locked={false} />
+                  ) : undefined
+                }
+              />
+            </div>
+          ))}
         </div>
-      </div>
-    </Bench>
-  ),
+      </Bench>
+    );
+  },
 };
 
-/** Both, to judge the wash against the plain tiles beside it. */
+/** Both, to judge the wash against the tile it sits in. */
 export const Both: Story = {
   args: { locked: false },
   render: () => (
