@@ -1,8 +1,4 @@
 {
-  "assistantInboxNavItem": {
-    "label": "Почта ассистента",
-    "dismiss": "Скрыть почту ассистента"
-  },
   "assistantInboxHeader": {
     "title": "Почта",
     "settingsAria": "Настройки почты"
@@ -96,10 +92,5 @@
     "mailFailed": "Не удалось загрузить почту.",
     "retry": "Повторить",
     "deletedToast": "{count, plural, one {Письмо удалено.} few {Удалено # письма.} many {Удалено # писем.} other {Удалено # письма.}}"
-  },
-  "inboxRailRestore": {
-    "hiddenNote": "Почта ассистента скрыта из бокового меню.",
-    "restoreButton": "Вернуть",
-    "restoredToast": "Почта ассистента снова в боковом меню."
   }
 }

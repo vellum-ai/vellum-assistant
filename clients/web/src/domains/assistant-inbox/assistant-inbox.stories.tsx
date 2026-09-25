@@ -43,7 +43,6 @@ import type { Conversation } from "@/types/conversation-types";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import { preloadBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 
-import { AssistantInboxNavItem } from "./components/assistant-inbox-nav-item";
 import { AssistantInboxPage } from "./components/assistant-inbox-page";
 import { AssistantInboxSetupCard } from "./components/assistant-inbox-setup-card";
 import { AssistantInboxUpgradeState } from "./components/assistant-inbox-upgrade-state";
@@ -139,21 +138,7 @@ const shellDecorator: Decorator<InboxStoryArgs> = function ChatShell(
           onSelectConversation={() => {}}
           onOpenIntelligence={() => {}}
           onStartNewConversation={() => {}}
-          footerAction={
-            <div className="flex flex-col gap-2">
-              <AssistantInboxNavItem
-                assistantId={ASSISTANT_ID}
-                collapsed={collapsed}
-                onSelect={() => {}}
-                onDismiss={
-                  context.parameters.inboxDismissible
-                    ? fn().mockName("onDismiss")
-                    : undefined
-                }
-              />
-              <PreferencesMenu assistantId={ASSISTANT_ID} />
-            </div>
-          }
+          footerAction={<PreferencesMenu assistantId={ASSISTANT_ID} />}
         />
       </aside>
       <main className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
@@ -280,7 +265,6 @@ export const UpgradeRequired: Story = {
   name: "1 · Upgrade required",
   /* The rail entry carries its dismiss only here: with no inbox to open,
      the entry is a pitch, and a pitch can be declined. */
-  parameters: { inboxDismissible: true },
   render: () => (
     <AssistantInboxUpgradeState
       assistantId={ASSISTANT_ID}

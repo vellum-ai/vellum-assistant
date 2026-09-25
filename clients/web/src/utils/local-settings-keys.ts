@@ -13,12 +13,6 @@ export const LS_WEB_FETCH_PROVIDER = "vellum:ai:webFetchProvider";
 export const LS_EMAIL_MODE = "vellum:ai:emailMode";
 export const LS_EMAIL_BYO_PROVIDER = "vellum:ai:emailByoProvider";
 /**
- * "1" once the user has dismissed the Assistant Inbox rail entry from its
- * upgrade-required state. Only honoured while the org lacks managed email:
- * the entry returns the moment there is an inbox to open.
- */
-export const LS_ASSISTANT_INBOX_HIDDEN = "vellum:ui:assistantInboxHidden";
-/**
  * Prefix, completed with the assistant id: a JSON array of message ids the
  * user deleted from that assistant's inbox on this device. The platform keeps
  * no delete for a single message, so the inbox hides them here instead.

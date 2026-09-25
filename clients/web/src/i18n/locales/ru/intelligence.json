@@ -88,6 +88,7 @@
     "cardHoverLine": {
       "channels": "Все места, где можно меня найти",
       "contacts": "Люди, которых я знаю и которым доверяю",
+      "email": "Всё, что приходит в мою почту",
       "library": "Приложения и документы, которые я сделал",
       "memory": "Всё, что я помню",
       "personality": "Давай, подкрути мне душу",
@@ -109,7 +110,8 @@
     },
     "setUpSchedule": "Создать расписание",
     "updateAvatarAndName": "Изменить аватар и имя",
-    "viewMoreSchedules": "{count, plural, one {Показать ещё #…} few {Показать ещё #…} many {Показать ещё #…} other {Показать ещё #…}}"
+    "viewMoreSchedules": "{count, plural, one {Показать ещё #…} few {Показать ещё #…} many {Показать ещё #…} other {Показать ещё #…}}",
+    "lockedBadge": "Нужен план Super"
   },
   "identitySections": {
     "channels": {
@@ -119,6 +121,10 @@
     "contacts": {
       "description": "Кого я знаю",
       "label": "Контакты"
+    },
+    "email": {
+      "description": "Что я отправил и получил",
+      "label": "Почта"
     },
     "library": {
       "description": "Мои приложения и документы",

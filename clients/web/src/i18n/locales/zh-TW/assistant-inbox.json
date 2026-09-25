@@ -1,8 +1,4 @@
 {
-  "assistantInboxNavItem": {
-    "label": "助理收件匣",
-    "dismiss": "隱藏助理收件匣"
-  },
   "assistantInboxHeader": {
     "title": "郵件",
     "settingsAria": "郵件設定"
@@ -96,10 +92,5 @@
     "mailFailed": "無法載入郵件。",
     "retry": "重試",
     "deletedToast": "{count, plural, one {郵件已刪除。} other {已刪除 # 封郵件。}}"
-  },
-  "inboxRailRestore": {
-    "hiddenNote": "助理收件匣已從側邊選單隱藏。",
-    "restoreButton": "重新加入",
-    "restoredToast": "助理收件匣已回到側邊選單。"
   }
 }

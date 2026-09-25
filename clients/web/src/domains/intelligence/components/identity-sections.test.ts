@@ -25,6 +25,21 @@ describe("buildIdentitySections", () => {
     ]);
   });
 
+  test("draws Email ahead of Channels only when asked, carrying the lock", () => {
+    const withEmail = buildIdentitySections({ email: { locked: true } });
+    const emailIndex = withEmail.findIndex((s) => s.key === "email");
+    expect(emailIndex).toBe(
+      withEmail.findIndex((s) => s.key === "channels") - 1,
+    );
+    expect(withEmail[emailIndex]?.locked).toBe(true);
+    expect(withEmail[emailIndex]?.to).toBe("/assistant/inbox");
+    expect(
+      buildIdentitySections({ email: { locked: false } }).find(
+        (s) => s.key === "email",
+      )?.locked,
+    ).toBe(false);
+  });
+
   test("never hides Memory, whatever the backend reports", () => {
     expect(keys()).toContain("memory");
   });
