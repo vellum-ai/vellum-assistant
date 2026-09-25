@@ -44,6 +44,7 @@ import type {
   CompanionSurfaceState,
   ConnectivityState,
   ScreenCaptureFrame,
+  ShareTargetSnapshot,
   WatchCaptureTarget,
   DeepLink,
   DictationOverlayHitRegion,
@@ -848,6 +849,15 @@ export interface VellumBridge {
     captureScreen?(
       target: WatchCaptureTarget,
     ): Promise<ScreenCaptureFrame | null>;
+    /**
+     * The controls `target` offers to be pointed at, from its accessibility
+     * tree, for the window holding a shared call to hand to the session.
+     * Resolves to null when there is no tree to read. Absent on a shell that
+     * predates it.
+     */
+    shareTargets?(
+      target: WatchCaptureTarget,
+    ): Promise<ShareTargetSnapshot | null>;
     /**
      * A frame of `target` has reached the call, so the assistant has now been
      * shown that surface.

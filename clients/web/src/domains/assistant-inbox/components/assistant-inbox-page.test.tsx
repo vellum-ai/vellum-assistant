@@ -56,6 +56,8 @@ function renderPage(props: {
   loadDetail?: (email: InboxEmail) => Promise<EmailDetailData>;
   onStartChat?: (emails: InboxEmail[]) => void;
   onDeleteEmails?: (emails: InboxEmail[]) => void;
+  readIds?: ReadonlySet<string>;
+  onRead?: (id: string) => void;
 }) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -80,6 +82,8 @@ function renderPage(props: {
           loadDetail={props.loadDetail}
           onStartChat={props.onStartChat}
           onDeleteEmails={props.onDeleteEmails}
+          readIds={props.readIds}
+          onRead={props.onRead}
         />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -252,6 +256,26 @@ describe("AssistantInboxPage", () => {
         .getByRole("checkbox", { name: 'Select "Q4 vendor contract"' })
         .getAttribute("aria-checked"),
     ).toBe("false");
+  });
+
+  test("received rows not yet opened carry the unread mark, and opening one reads it", async () => {
+    const read: string[] = [];
+    renderPage({
+      inbox: [LISTED, CARRIED],
+      readIds: new Set(["m-2"]),
+      onRead: (id) => read.push(id),
+    });
+
+    // One unread mark: the listed row. The carried one was opened before.
+    expect(screen.getAllByRole("img", { name: "Unread" })).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole("button", { name: /maya@example.com/ }));
+    await waitFor(() => expect(read).toEqual(["m-1"]));
+  });
+
+  test("without read state no row carries the unread mark", () => {
+    renderPage({ inbox: [LISTED] });
+    expect(screen.queryByRole("img", { name: "Unread" })).toBeNull();
   });
 
   test("search narrows the folder to matching rows", () => {

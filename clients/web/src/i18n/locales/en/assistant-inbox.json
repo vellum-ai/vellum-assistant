@@ -1,12 +1,7 @@
 {
-  "assistantInboxNavItem": {
-    "label": "Assistant Inbox",
-    "dismiss": "Hide Assistant Inbox"
-  },
   "assistantInboxHeader": {
-    "title": "{name}'s Inbox",
-    "subtitle": "Here are all the emails I've received and sent for you.",
-    "usage": "{sent, plural, one {# sent} other {# sent}} today · {received, plural, one {# received} other {# received}} today"
+    "title": "Email",
+    "settingsAria": "Email settings"
   },
   "addressPill": {
     "copyAddress": "Copy email address",
@@ -33,7 +28,8 @@
     "toPrefix": "To {name}",
     "attachments": "{count, plural, one {# attachment} other {# attachments}}",
     "noSubject": "(no subject)",
-    "selectAria": "Select \"{subject}\""
+    "selectAria": "Select \"{subject}\"",
+    "unread": "Unread"
   },
   "emailSelectionBar": {
     "ariaLabel": "Selected emails",
@@ -73,33 +69,36 @@
     "perkReads": "{name} reads, sorts, and replies for you",
     "perkHistory": "Every message kept here, inbox and sent",
     "upgradeButton": "Upgrade to Super",
-    "seePlans": "See plans",
+    "seePlans": "Plans",
     "titleNoName": "Give your assistant an inbox",
     "perkReadsNoName": "Your assistant reads, sorts, and replies for you",
-    "changeHandle": "Change handle"
+    "changeHandle": "Change handle ({address})",
+    "planNotice": "Email support is not offered as part of a Free plan. Please upgrade to a plan with email support."
   },
   "assistantInboxSetupCard": {
-    "pageTitle": "Email",
-    "back": "Back",
-    "title": "Assistant Email",
-    "subtitle": "Set up an email for your assistant.",
-    "getStarted": "Get started",
-    "subtitleChooseHandle": "Claim your unique handle and set up your assistant's email.",
+    "headline": "Alright, let’s get you set up.",
+    "fieldLabel": "Select an email handle:",
+    "fieldLabelChooseHandle": "Pick a handle and an email prefix:",
+    "confirm": "Confirm",
     "immutableNotice": "The handle becomes your assistant's public handle. You won't be able to change it once set."
   },
   "assistantInboxRoute": {
     "loading": "Opening the inbox…",
     "setupFailed": "Couldn't set up the address.",
     "setupIncomplete": "The address wasn't created. Try again in a moment.",
-    "setupSucceeded": "{address} is ready.",
     "replyPrompt": "Reply to the email with id {id} in your inbox (from {sender}, subject \"{subject}\"). Read it with `assistant email download {id}` first, then draft a reply and show it to me before sending.",
     "mailFailed": "Couldn't load the mail.",
     "retry": "Try again",
     "deletedToast": "{count, plural, one {Email deleted.} other {# emails deleted.}}"
   },
-  "inboxRailRestore": {
-    "hiddenNote": "Assistant Inbox is hidden from your side menu.",
-    "restoreButton": "Add it back",
-    "restoredToast": "Assistant Inbox is back in your side menu."
+  "assistantInboxPageFrame": {
+    "title": "Email",
+    "back": "Back"
+  },
+  "assistantInboxSetupSuccess": {
+    "title": "{name} has an inbox.",
+    "titleNoName": "Your assistant has an inbox.",
+    "body": "Share the address and anything sent there shows up here.",
+    "openInbox": "Open inbox"
   }
 }

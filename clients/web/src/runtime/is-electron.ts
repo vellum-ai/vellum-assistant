@@ -35,6 +35,7 @@ import type {
   CompanionSurfaceState,
   ConnectivityState,
   ScreenCaptureFrame,
+  ShareTargetSnapshot,
   DeepLink,
   DictationOverlayHitRegion,
   DictationOverlayMessage,
@@ -454,6 +455,9 @@ declare global {
         captureScreen?(
           target: WatchCaptureTarget,
         ): Promise<ScreenCaptureFrame | null>;
+        shareTargets?(
+          target: WatchCaptureTarget,
+        ): Promise<ShareTargetSnapshot | null>;
         captureSourceThumbnail?(
           target: WatchCaptureTarget,
         ): Promise<string | null>;

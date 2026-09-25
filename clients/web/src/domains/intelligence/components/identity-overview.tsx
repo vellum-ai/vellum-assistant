@@ -18,14 +18,24 @@ import {
   ChevronRight,
   FolderOpen,
   LayoutGrid,
+  Mail,
   Pencil,
+  Pin,
+  PinOff,
   Radio,
   Sparkles,
   Users,
+  X,
   Zap,
   type LucideIcon,
 } from "lucide-react";
-import { useCallback, useRef, useState, type CSSProperties } from "react";
+import {
+  useCallback,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { Link } from "react-router";
 
@@ -38,17 +48,19 @@ import { PageShell } from "@/components/page-shell";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useElementSize } from "@/hooks/use-element-size";
 import { useTranslation } from "@/i18n";
+import { useEmailCardDismissed } from "@/hooks/use-email-card-dismissed";
+import { useEmailPinned } from "@/hooks/use-email-pinned";
+import { usePlatformGateWithPending } from "@/hooks/use-platform-gate";
+import { organizationsBillingSubscriptionRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
 import { useSupportsPluginsSurface } from "@/lib/backwards-compat/plugins-surface";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 import { contrastForeground } from "@/utils/avatar-tone";
 import { formatCompactLocalDate } from "@/utils/format-date";
 
 import { applyRename } from "../identity-actions/apply-rename";
-import {
-  conceptPageCount,
-  memoryStatsOptions,
-} from "../memory-graph/get-memory-stats";
+import {} from "../memory-graph/get-memory-stats";
 import {
   assistantIdentityDetailsQueryKey,
   useAssistantIdentityDetails,
@@ -78,6 +90,7 @@ const SECTION_ICONS: Record<string, LucideIcon> = {
   library: LayoutGrid,
   workspace: FolderOpen,
   contacts: Users,
+  email: Mail,
   channels: Radio,
 };
 
@@ -124,6 +137,7 @@ const CARD_HOVER_LINE_KEY: Record<
     | "schedules"
     | "workspace"
     | "contacts"
+    | "email"
     | "channels"}`
 > = {
   personality: "identityOverview.cardHoverLine.personality",
@@ -133,6 +147,7 @@ const CARD_HOVER_LINE_KEY: Record<
   schedules: "identityOverview.cardHoverLine.schedules",
   workspace: "identityOverview.cardHoverLine.workspace",
   contacts: "identityOverview.cardHoverLine.contacts",
+  email: "identityOverview.cardHoverLine.email",
   channels: "identityOverview.cardHoverLine.channels",
 };
 
@@ -236,31 +251,7 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
   const identityQuery = useAssistantIdentityDetails(assistantId);
   const supportsPlugins = useSupportsPluginsSurface();
   const stats = useIdentitySectionStats(assistantId, { supportsPlugins });
-  // The Memory card's measurement is the cheap page-index concept count
-  // (get-memory-stats), NOT the concept-graph build, which is kept off
-  // identity-page load. The card is never gated on backend capability; only
-  // its count is, so an assistant whose backend can't draw the graph still
-  // has a way into the Memory tab (which explains why, and offers the fix).
-  const memoryStats = useQuery(memoryStatsOptions(assistantId));
-  // Only measured where concept pages are actually the substrate (memory tier
-  // v2/v3). A loading query, an older daemon predating `/memory/stats`, a v1
-  // assistant (memory lives in the legacy graph) and a memory-off one all read
-  // `undefined` and leave the measurement off, rather than render a "0
-  // memories" that says "I remember nothing about you".
-  const memories = conceptPageCount(memoryStats.data);
-  const sectionStats: Record<string, IdentitySectionStat | undefined> = {
-    ...stats,
-    memory:
-      memories === undefined
-        ? undefined
-        : {
-            value: memories,
-            label: t("identityOverview.memoryCountLabel", {
-              count: memories,
-            }),
-            text: t("identityOverview.memoryCount", { count: memories }),
-          },
-  };
+  const sectionStats: Record<string, IdentitySectionStat | undefined> = stats;
 
   const [modalOpen, setModalOpen] = useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
@@ -295,7 +286,67 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
     invalidateAvatar();
   }, [invalidateAvatar]);
 
-  const sections = buildIdentitySections();
+  /* The Email card is the way into the Assistant Inbox, which exists only
+     behind its flag and on the platform. Its lock reads the same entitlement
+     the inbox gates on, and only an explicit denial locks it: a subscription
+     that has not loaded, or failed to, leaves the card open, since the inbox
+     itself decides what to show. */
+  const inboxEnabled = useClientFeatureFlagStore.use.assistantInbox();
+  const platformGate = usePlatformGateWithPending({ platformHostedOnly: true });
+  const showsEmail = inboxEnabled && platformGate === "full";
+  const subscriptionQuery = useQuery({
+    ...organizationsBillingSubscriptionRetrieveOptions(),
+    enabled: showsEmail,
+  });
+  const entitlements = subscriptionQuery.data?.entitlements as
+    | Record<string, unknown>
+    | undefined;
+  const emailLocked = !!entitlements && entitlements.managed_email !== true;
+  /* A locked card is a pitch, so it can be closed; the closing stops
+     applying once the plan has email, since then the card is the way in.
+     An open card can be pinned to the side menu instead. */
+  const emailCard = useEmailCardDismissed(assistantId);
+  const emailPin = useEmailPinned(assistantId);
+  const sections = buildIdentitySections({
+    email:
+      showsEmail && !(emailLocked && emailCard.dismissed)
+        ? { locked: emailLocked }
+        : undefined,
+  });
+  const emailTrailing = emailLocked ? (
+    <button
+      type="button"
+      aria-label={t("identityOverview.dismissEmail")}
+      title={t("identityOverview.dismissEmail")}
+      onClick={emailCard.dismiss}
+      className="flex size-7 items-center justify-center rounded-full text-[var(--content-secondary)] transition-colors hover:bg-[color-mix(in_srgb,var(--content-default)_10%,transparent)] hover:text-[var(--content-strong)] outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]"
+    >
+      <X className="h-4 w-4" aria-hidden />
+    </button>
+  ) : (
+    <button
+      type="button"
+      aria-label={
+        emailPin.pinned
+          ? t("identityOverview.unpinEmail")
+          : t("identityOverview.pinEmail")
+      }
+      title={
+        emailPin.pinned
+          ? t("identityOverview.unpinEmail")
+          : t("identityOverview.pinEmail")
+      }
+      aria-pressed={emailPin.pinned}
+      onClick={emailPin.toggle}
+      className="flex size-7 items-center justify-center rounded-full text-[var(--content-secondary)] transition-colors hover:bg-[color-mix(in_srgb,var(--content-default)_10%,transparent)] hover:text-[var(--content-strong)] outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]"
+    >
+      {emailPin.pinned ? (
+        <PinOff className="h-4 w-4" aria-hidden />
+      ) : (
+        <Pin className="h-4 w-4" aria-hidden />
+      )}
+    </button>
+  );
   const isLoading = isAvatarLoading || identityQuery.isLoading;
   // Custom image: the page background becomes the photo itself, blown up and
   // heavily blurred behind the content, which says more about the assistant
@@ -356,6 +407,7 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
           }
           sections={sections}
           stats={sectionStats}
+          emailTrailing={emailTrailing}
           avatarHex={avatarHex}
           photoBackdrop={photoBackdrop}
           isRenaming={isRenaming}
@@ -457,6 +509,7 @@ export function SectionCard({
   hoverFill,
   mini,
   compact = false,
+  aside,
   flooded = false,
   floodOrigin,
   photoBackdrop = false,
@@ -481,6 +534,11 @@ export function SectionCard({
    * separately and a shared edit would quietly restyle the desktop strip.
    */
   compact?: boolean;
+  /**
+   * Content on the tile's trailing edge, inside the card but outside its
+   * link: the Email pill on the Channels tile.
+   */
+  aside?: ReactNode;
   /** The avatar has poured itself over this card — fill it with the
    *  avatar color and flip the content to the contrast tone. */
   flooded?: boolean;
@@ -533,10 +591,25 @@ export function SectionCard({
     />
   );
 
+  // The lock on a section the org's plan does not include. Emoji rather
+  // than a glyph so it reads at a glance beside the title, the way the
+  // request put it.
+  const lockBadge = section.locked ? (
+    <span
+      role="img"
+      aria-label={t("identityOverview.lockedBadge")}
+      title={t("identityOverview.lockedBadge")}
+      className="shrink-0 text-[13px] leading-none"
+    >
+      🔒
+    </span>
+  ) : null;
+
   if (mini) {
     // Bottom-strip tile per Figma (New-App 6944-89405): left-aligned,
     // 12px radius, 40px icon slot in the secondary tone, 16px title over
-    // an 11px tertiary stat.
+    // an 11px tertiary stat. An aside sits on the card's surface beside
+    // the link, since a control cannot nest inside an anchor.
     return (
       <Card.Root
         asChild
@@ -545,43 +618,53 @@ export function SectionCard({
         clipContents
         className="rounded-[12px] border-0 bg-[var(--card-bg)]"
       >
-        <Link
-          to={section.to}
-          ref={linkRef}
-          onMouseEnter={() => onHoverChange?.(true)}
-          onMouseLeave={() => onHoverChange?.(false)}
-          className={`relative flex h-full flex-1 cursor-pointer items-center transition-all duration-150 active:scale-[0.98] ${
-            compact ? "gap-1 py-3 pr-3 pl-2" : "gap-2 px-4 py-2.5"
-          } ${hoverFill ? "hover:bg-[var(--card-hover)]" : ""}`}
-        >
+        <div className="relative flex min-w-0 flex-1 items-center">
+          {/* The flood covers the whole card, the aside included, so a hug
+              takes the tile rather than the part of it the link owns. */}
           {floodOverlay}
-          <span className="relative flex h-10 w-10 shrink-0 items-center justify-center">
-            {/* The stacked tiles keep the 40px slot but sit a smaller glyph
+          <Link
+            to={section.to}
+            ref={linkRef}
+            onMouseEnter={() => onHoverChange?.(true)}
+            onMouseLeave={() => onHoverChange?.(false)}
+            className={`relative flex h-full min-w-0 flex-1 cursor-pointer items-center transition-all duration-150 active:scale-[0.98] ${
+              compact ? "gap-1 py-3 pr-3 pl-2" : "gap-2 px-4 py-2.5"
+            } ${hoverFill ? "hover:bg-[var(--card-hover)]" : ""}`}
+          >
+            <span className="relative flex h-10 w-10 shrink-0 items-center justify-center">
+              {/* The stacked tiles keep the 40px slot but sit a smaller glyph
                 in it, so the title leads the row rather than the icon. */}
-            <Icon
-              className={`${compact ? "h-3.5 w-3.5" : "h-5 w-5"} transition-colors duration-300 ${fgMuted}`}
-              aria-hidden
-            />
-          </span>
-          <span className="relative flex min-w-0 flex-col gap-0">
-            <span
-              className={`truncate text-title-small leading-normal transition-colors duration-300 ${fgStrong}`}
-            >
-              {section.label}
+              <Icon
+                className={`${compact ? "h-3.5 w-3.5" : "h-5 w-5"} transition-colors duration-300 ${fgMuted}`}
+                aria-hidden
+              />
             </span>
-            {stat?.text && (
+            <span className="relative flex min-w-0 flex-col gap-0">
               <span
-                className={`truncate text-[11px] leading-normal font-medium transition-colors duration-300 ${
-                  flooded
-                    ? "text-[var(--card-flood-fg)] opacity-75"
-                    : "text-[var(--content-tertiary)]"
-                }`}
+                className={`flex items-center gap-1.5 truncate text-title-small leading-normal transition-colors duration-300 ${fgStrong}`}
               >
-                {stat.text}
+                {section.label}
+                {lockBadge}
               </span>
-            )}
-          </span>
-        </Link>
+              {stat?.text && (
+                <span
+                  className={`truncate text-[11px] leading-normal font-medium transition-colors duration-300 ${
+                    flooded
+                      ? "text-[var(--card-flood-fg)] opacity-75"
+                      : "text-[var(--content-tertiary)]"
+                  }`}
+                >
+                  {stat.text}
+                </span>
+              )}
+            </span>
+          </Link>
+          {aside ? (
+            <span className="relative flex shrink-0 items-center gap-1 pr-2">
+              {aside}
+            </span>
+          ) : null}
+        </div>
       </Card.Root>
     );
   }
@@ -701,9 +784,10 @@ export function SectionCard({
             />
             <span className="flex flex-col">
               <span
-                className={`text-body-medium-default transition-colors duration-300 ${fg}`}
+                className={`flex items-center gap-1.5 text-body-medium-default transition-colors duration-300 ${fg}`}
               >
                 {section.label}
+                {lockBadge}
               </span>
               <span
                 className={`text-[13px] transition-colors duration-300 ${fgMuted}`}
@@ -879,6 +963,7 @@ function OverviewBento({
   customImageUrl,
   name,
   sections,
+  emailTrailing,
   stats,
   avatarHex,
   photoBackdrop,
@@ -891,6 +976,8 @@ function OverviewBento({
   customImageUrl: string | null;
   name: string;
   sections: IdentitySection[];
+  /** The Email row's trailing control (pin, or close for a locked card). */
+  emailTrailing?: ReactNode;
   stats: Record<string, IdentitySectionStat | undefined>;
   avatarHex: string | null;
   /** The page sits on the blurred custom photo — use the overlay palette. */
@@ -914,6 +1001,49 @@ function OverviewBento({
   // the color tints, the amoeba hover act. A custom image (or no avatar)
   // stays calm: a static circle under the greeting on regular theme colors.
   const hasCharacter = Boolean(avatarHex && components && traits);
+
+  /* Email lives inside the Channels tile as a pill, the way the side menu
+     draws its entries: the assistant's wash with the glyph in the accent,
+     a lock when the plan has no email, and its pin or close beside it. */
+  const emailSection = sections.find((s) => s.key === "email");
+  const emailPill = emailSection ? (
+    /* The pill is a link with its control inside the same shape, as the
+       side menu's pills carry theirs: siblings, since a button cannot
+       nest in an anchor. */
+    <span
+      data-testid="identity-email-pill"
+      className="inline-flex h-10 shrink-0 items-center gap-1 rounded-full py-0 pr-1.5 pl-4 text-body-medium-default text-[var(--content-default)] transition-[filter] hover:brightness-95"
+      style={{
+        backgroundColor: avatarHex
+          ? `color-mix(in srgb, ${avatarHex} 22%, var(--surface-lift))`
+          : "var(--surface-active)",
+      }}
+    >
+      <Link
+        to={emailSection.to}
+        aria-label={emailSection.label}
+        className="inline-flex h-full items-center gap-2 pr-1.5 outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)] rounded-full"
+      >
+        <Mail
+          className="h-5 w-5 shrink-0"
+          style={{ color: avatarHex ?? "var(--content-default)" }}
+          aria-hidden
+        />
+        <span className="truncate">{emailSection.label}</span>
+        {emailSection.locked ? (
+          <span
+            role="img"
+            aria-label={t("identityOverview.lockedBadge")}
+            title={t("identityOverview.lockedBadge")}
+            className="text-[13px] leading-none"
+          >
+            🔒
+          </span>
+        ) : null}
+      </Link>
+      {emailTrailing}
+    </span>
+  ) : null;
 
   // The amoeba avatar needs a color + eye art to morph with; custom-image
   // and reduced-motion users keep the static avatar and card hover fills.
@@ -1052,9 +1182,17 @@ function OverviewBento({
     // grid of mini tiles.
     const schedulesSection = sections.find((s) => s.key === "schedules");
     const personalitySection = sections.find((s) => s.key === "personality");
-    const gridSections = sections.filter(
+    // Channels, which carries the Email pill and spans both columns, sits
+    // on the grid's second row rather than at its foot, so the pill is not
+    // the last thing on the page.
+    const stackable = sections.filter(
       (s) => s.key !== "schedules" && s.key !== "personality",
     );
+    const channelsSection = stackable.find((s) => s.key === "channels");
+    const rest = stackable.filter((s) => s.key !== "channels");
+    const gridSections = channelsSection
+      ? [...rest.slice(0, 2), channelsSection, ...rest.slice(2)]
+      : rest;
     const schedulesStat = stats["schedules"]?.schedules;
     const scheduleCount = schedulesStat
       ? schedulesStat.items.length + schedulesStat.more
@@ -1082,16 +1220,14 @@ function OverviewBento({
                 "--card-bg": "#17191c",
                 "--card-hover": "#24292e",
               } as CSSProperties)
-            : // Figma 7907-9239: the stacked layout steps its cards off the
-              // avatar tint and onto the surface ramp. The two feature cards
-              // take a 30% wash of the base that lets the tinted page through;
-              // the tiles below take the base itself. `--card-hover` follows
-              // them onto that ramp, so a hover reads as a lift rather than a
-              // colour flash from the avatar.
+            : // The stacked layout steps its tiles off the avatar tint and
+              // onto the surface ramp, with `--card-hover` following them so
+              // a hover reads as a lift rather than a colour flash. The two
+              // feature cards (and the Email tab, which wears their wash)
+              // keep the desktop's wash of the avatar colour, so the page
+              // reads the same on a phone as on a desk.
               ({
                 ...tintStyle,
-                "--card-feature-bg":
-                  "color-mix(in srgb, var(--surface-base) 30%, transparent)",
                 "--card-bg": "var(--surface-base)",
                 "--card-hover": "var(--surface-lift)",
               } as CSSProperties)
@@ -1179,16 +1315,25 @@ function OverviewBento({
             </Card.Root>
           )}
           <div className="grid grid-cols-2 gap-2">
-            {gridSections.map((section) => (
-              <SectionCard
-                key={section.key}
-                section={section}
-                stat={stats[section.key]}
-                hoverFill
-                mini
-                compact
-              />
-            ))}
+            {gridSections.map((section) =>
+              section.key === "email" ? null : (
+                /* Channels carries the Email pill, so it takes both columns
+                   for the two to fit on one line. */
+                <div
+                  key={section.key}
+                  className={`flex min-w-0 ${section.key === "channels" && emailPill ? "col-span-2" : ""}`}
+                >
+                  <SectionCard
+                    section={section}
+                    stat={stats[section.key]}
+                    hoverFill
+                    mini
+                    compact
+                    aside={section.key === "channels" ? emailPill : undefined}
+                  />
+                </div>
+              ),
+            )}
           </div>
         </div>
       </div>
@@ -1200,7 +1345,7 @@ function OverviewBento({
   // and everything else (Skills, Plugins, Workspace, Contacts, Channels)
   // runs as compact mini cards in a full-width bottom strip.
   const mainSections = sections.filter(
-    (s) => !MINI_SECTION_KEYS.includes(s.key),
+    (s) => !MINI_SECTION_KEYS.includes(s.key) && s.key !== "email",
   );
   const miniSections = sections.filter((s) =>
     MINI_SECTION_KEYS.includes(s.key),
@@ -1398,7 +1543,18 @@ function OverviewBento({
         style={{ gridArea: "smalls" }}
       >
         {miniSections.map((section) => (
-          <SectionCard key={section.key} {...cardProps(section)} mini />
+          /* Channels carries the Email pill, so it takes a wider share of
+             the strip than its neighbours. */
+          <div
+            key={section.key}
+            className={`flex min-w-0 ${section.key === "channels" && emailPill ? "flex-[1.6]" : "flex-1"}`}
+          >
+            <SectionCard
+              {...cardProps(section)}
+              mini
+              aside={section.key === "channels" ? emailPill : undefined}
+            />
+          </div>
         ))}
       </div>
     </div>

@@ -2162,6 +2162,49 @@ export type CoachmarkResult =
   | { kind: "unresolved"; unresolved: CoachmarkUnresolved };
 
 /**
+ * One control the shared surface offers to be pointed at, read from its
+ * accessibility tree.
+ *
+ * `label` is the name `screen_point_at` resolves a target against, exactly
+ * as the tree carries it, which is often not the visible text: a web app can
+ * name its Filters button `root_Filters`. Offered before the first lookup so
+ * the assistant can name a real control on its first try.
+ */
+export interface ShareTarget {
+  /**
+   * Derived from the role and label, so the same control keeps its id from
+   * one snapshot to the next, and unique within a snapshot. What a caller
+   * scoring every candidate at once names a candidate back by.
+   */
+  id: string;
+  label: string;
+  /** The accessibility role, e.g. `AXButton`. */
+  role: string;
+  /** The nearest named container, e.g. a toolbar or a sidebar list. */
+  section?: string;
+  /** The visible part of the control, as fractions of the shared surface. */
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /**
+   * How many controls on the surface carry this exact name, present only
+   * when more than one does. A name like that cannot select one of them.
+   */
+  duplicates?: number;
+}
+
+/**
+ * The controls a shared surface offers to be pointed at, pruned and capped
+ * for a prompt: {@link ShareTarget}s in tree order.
+ */
+export interface ShareTargetSnapshot {
+  targets: ShareTarget[];
+  /** Named controls visible on the surface before pruning and capping. */
+  total: number;
+}
+
+/**
  * One frame of a {@link WatchCaptureTarget}, as the helper took it: a JPEG,
  * with the size it was encoded at. Base64 rather than bytes because it
  * crosses the bridge as JSON.

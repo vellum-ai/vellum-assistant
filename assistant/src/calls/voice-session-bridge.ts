@@ -41,6 +41,10 @@ import {
   pendingStandaloneImagePersist,
   SIGHT_FRAME_TURN_HOLD_MS,
 } from "../live-voice/live-voice-photo.js";
+import {
+  formatShareTargetsForPrompt,
+  type ShareTargetSnapshot,
+} from "../live-voice/share-targets.js";
 import { resolveAttachmentsForPersist } from "../persistence/attachments-store.js";
 import {
   deleteMessageById,
@@ -462,6 +466,13 @@ export interface VoiceTurnOptions {
   macosDesktopSession?: boolean;
   /** The desktop client currently shares a surface with this voice session. */
   screenSharing?: boolean;
+  /**
+   * The controls the shared surface offers to be pointed at, from the
+   * client's newest read of its accessibility tree. Offered alongside the
+   * screen-annotation instructions so the first `screen_point_at` names a
+   * control the lookup can resolve.
+   */
+  shareTargets?: ShareTargetSnapshot;
   /** Front-door verdict: this action needs only the shared screen and current context. */
   screenAction?: boolean;
   /** Whether this is an inbound call (no outbound task). */
@@ -2145,8 +2156,14 @@ export async function startVoiceTurn(
             signal: opts.signal,
           });
           if (annotation !== null) {
+            const controls =
+              opts.shareTargets !== undefined
+                ? formatShareTargetsForPrompt(opts.shareTargets)
+                : null;
             conversation.setVoiceCallControlPrompt(
-              [voiceCallControlPrompt, annotation].filter(Boolean).join("\n\n"),
+              [voiceCallControlPrompt, annotation, controls]
+                .filter(Boolean)
+                .join("\n\n"),
             );
           }
         }

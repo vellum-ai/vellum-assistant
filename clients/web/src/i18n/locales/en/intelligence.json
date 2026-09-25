@@ -88,6 +88,7 @@
     "cardHoverLine": {
       "channels": "All the places you can reach me",
       "contacts": "The people I know and trust",
+      "email": "Everything that lands in my inbox",
       "library": "The apps and docs I've made for you",
       "memory": "Everything I remember",
       "personality": "Go ahead, tweak my soul",
@@ -109,7 +110,11 @@
     },
     "setUpSchedule": "Set one up",
     "updateAvatarAndName": "Update avatar and name",
-    "viewMoreSchedules": "{count, plural, one {View # more…} other {View # more…}}"
+    "viewMoreSchedules": "{count, plural, one {View # more…} other {View # more…}}",
+    "lockedBadge": "Needs the Super plan",
+    "pinEmail": "Pin Email to the side menu",
+    "unpinEmail": "Unpin Email from the side menu",
+    "dismissEmail": "Close"
   },
   "identitySections": {
     "channels": {
@@ -120,13 +125,13 @@
       "description": "People I know",
       "label": "Contacts"
     },
+    "email": {
+      "description": "Mail I've sent and received",
+      "label": "Email"
+    },
     "library": {
       "description": "My apps & docs",
       "label": "Library"
-    },
-    "memory": {
-      "description": "What I remember",
-      "label": "Memory"
     },
     "personality": {
       "description": "Tune how I talk",

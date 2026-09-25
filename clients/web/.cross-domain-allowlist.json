@@ -15,9 +15,6 @@
   "src/domains/chat/api/messages.ts": [
     "onboarding"
   ],
-  "src/domains/chat/chat-layout.tsx": [
-    "assistant-inbox"
-  ],
   "src/domains/chat/hooks/use-onboarding-orchestrator.ts": [
     "onboarding"
   ],

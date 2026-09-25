@@ -2163,5 +2163,9 @@
     "loadError": "No se pudieron cargar los ajustes de chats. Vuelve a intentarlo.",
     "saveError": "No se pudieron guardar los ajustes de chats. Tus cambios se conservan aquí. Pulsa Confirmar para volver a intentarlo.",
     "unsupported": "Actualiza este asistente para usar los ajustes de chats."
+  },
+  "emailNavItem": {
+    "label": "Correo",
+    "unpin": "Quitar Correo"
   }
 }

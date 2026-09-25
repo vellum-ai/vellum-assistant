@@ -14,7 +14,10 @@ import {
   getCalibrationProviderKey,
 } from "../context/token-estimator.js";
 import { spoolAndStubOversizedToolResults } from "../context/tool-result-spool.js";
-import { parseActualTokensFromError } from "../daemon/parse-actual-tokens-from-error.js";
+import {
+  looksLikeContextOverflowError,
+  parseActualTokensFromError,
+} from "../daemon/parse-actual-tokens-from-error.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import type {
   AgentLoopExitReason,
@@ -48,10 +51,7 @@ import type {
   ToolDefinition,
   ToolResultContent,
 } from "../providers/types.js";
-import {
-  isContextOverflowError,
-  NATIVE_WEB_SEARCH_TOOL_NAME,
-} from "../providers/types.js";
+import { NATIVE_WEB_SEARCH_TOOL_NAME } from "../providers/types.js";
 import { recordWatchdogEvent } from "../telemetry/watchdog-events-store.js";
 import {
   ABORT_SETTLE_GRACE_MS,
@@ -3193,7 +3193,7 @@ export class AgentLoop {
         // it is disabled (e.g. agent wakes) there is no ladder to drive, so the
         // overflow falls through to the generic error path below.
         if (
-          isContextOverflowError(error) &&
+          looksLikeContextOverflowError(error) &&
           (options.resolveContextWindow?.().overflowRecovery.enabled ?? false)
         ) {
           if (overflowLadderExhausted) {

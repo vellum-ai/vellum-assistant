@@ -2397,6 +2397,60 @@ describe("desktop skill preactivation", () => {
     expect(result.promptDuringLoop).toContain("skill_execute");
   });
 
+  test("a shared-screen turn is offered the surface's controls beside the instructions", async () => {
+    registerHubClient({
+      hub: assistantEventHub,
+      clientId: "annotation-client",
+      interfaceId: "macos",
+      actorPrincipalId: "user-123",
+      capabilities: ["host_cu", "host_cu_annotate"],
+    });
+    const result = await preactivatedFor({
+      routingLeg: "escalated",
+      macosDesktopSession: true,
+      screenSharing: true,
+      actorPrincipalId: "user-123",
+      shareTargets: {
+        targets: [
+          {
+            id: "t1",
+            label: "root_Filters",
+            role: "AXButton",
+            section: "Toolbar",
+            x: 0.8,
+            y: 0.05,
+            width: 0.05,
+            height: 0.03,
+          },
+        ],
+        total: 1,
+      },
+    });
+    expect(result.promptDuringLoop).toContain("ID: screen-annotation");
+    expect(result.promptDuringLoop).toContain("<shared_screen_controls>");
+    expect(result.promptDuringLoop).toContain(
+      '- "root_Filters" (button, top right, in "Toolbar")',
+    );
+  });
+
+  test("a shared-screen turn with no snapshot keeps the instructions alone", async () => {
+    registerHubClient({
+      hub: assistantEventHub,
+      clientId: "annotation-client",
+      interfaceId: "macos",
+      actorPrincipalId: "user-123",
+      capabilities: ["host_cu", "host_cu_annotate"],
+    });
+    const result = await preactivatedFor({
+      routingLeg: "escalated",
+      macosDesktopSession: true,
+      screenSharing: true,
+      actorPrincipalId: "user-123",
+    });
+    expect(result.promptDuringLoop).toContain("ID: screen-annotation");
+    expect(result.promptDuringLoop).not.toContain("<shared_screen_controls>");
+  });
+
   test.each([
     { screenSharing: false },
     { actorPrincipalId: "other-user" },

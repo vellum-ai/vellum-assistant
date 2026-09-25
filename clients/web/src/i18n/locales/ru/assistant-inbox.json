@@ -1,12 +1,7 @@
 {
-  "assistantInboxNavItem": {
-    "label": "Почта ассистента",
-    "dismiss": "Скрыть почту ассистента"
-  },
   "assistantInboxHeader": {
-    "title": "Почта {name}",
-    "subtitle": "Здесь все письма, которые я получил и отправил для вас.",
-    "usage": "{sent, plural, one {# отправлено} other {# отправлено}} сегодня · {received, plural, one {# получено} other {# получено}} сегодня"
+    "title": "Почта",
+    "settingsAria": "Настройки почты"
   },
   "addressPill": {
     "copyAddress": "Скопировать адрес",
@@ -33,7 +28,8 @@
     "toPrefix": "Кому: {name}",
     "attachments": "{count, plural, one {# вложение} few {# вложения} many {# вложений} other {# вложения}}",
     "noSubject": "(без темы)",
-    "selectAria": "Выбрать «{subject}»"
+    "selectAria": "Выбрать «{subject}»",
+    "unread": "Непрочитано"
   },
   "emailSelectionBar": {
     "ariaLabel": "Выбранные письма",
@@ -73,33 +69,36 @@
     "perkReads": "{name} читает, сортирует и отвечает за вас",
     "perkHistory": "Каждое письмо хранится здесь: входящие и отправленные",
     "upgradeButton": "Перейти на Super",
-    "seePlans": "Посмотреть тарифы",
+    "seePlans": "Планы",
     "titleNoName": "Дайте ассистенту почтовый ящик",
     "perkReadsNoName": "Ассистент читает, сортирует и отвечает за вас",
-    "changeHandle": "Изменить имя"
+    "changeHandle": "Изменить handle ({address})",
+    "planNotice": "Почта не входит в бесплатный план. Перейдите на план с почтой."
   },
   "assistantInboxSetupCard": {
-    "pageTitle": "Почта",
-    "back": "Назад",
-    "title": "Почта ассистента",
-    "subtitle": "Настройте почту для вашего ассистента.",
-    "getStarted": "Начать",
-    "subtitleChooseHandle": "Займите уникальное имя и настройте почту ассистента.",
+    "headline": "Отлично, давайте всё настроим.",
+    "fieldLabel": "Выберите почтовый handle:",
+    "fieldLabelChooseHandle": "Выберите handle и префикс почты:",
+    "confirm": "Подтвердить",
     "immutableNotice": "Это имя станет публичным именем ассистента. После установки изменить его нельзя."
   },
   "assistantInboxRoute": {
     "loading": "Открываем почту…",
     "setupFailed": "Не удалось настроить адрес.",
     "setupIncomplete": "Адрес не был создан. Попробуйте ещё раз через минуту.",
-    "setupSucceeded": "Адрес {address} готов.",
     "replyPrompt": "Ответь на письмо с id {id} из твоей почты (от {sender}, тема \"{subject}\"). Сначала прочитай его командой `assistant email download {id}`, затем подготовь ответ и покажи мне перед отправкой.",
     "mailFailed": "Не удалось загрузить почту.",
     "retry": "Повторить",
     "deletedToast": "{count, plural, one {Письмо удалено.} few {Удалено # письма.} many {Удалено # писем.} other {Удалено # письма.}}"
   },
-  "inboxRailRestore": {
-    "hiddenNote": "Почта ассистента скрыта из бокового меню.",
-    "restoreButton": "Вернуть",
-    "restoredToast": "Почта ассистента снова в боковом меню."
+  "assistantInboxPageFrame": {
+    "title": "Почта",
+    "back": "Назад"
+  },
+  "assistantInboxSetupSuccess": {
+    "title": "У {name} теперь есть почта.",
+    "titleNoName": "У вашего ассистента теперь есть почта.",
+    "body": "Поделитесь адресом, и всё, что на него придёт, появится здесь.",
+    "openInbox": "Открыть почту"
   }
 }

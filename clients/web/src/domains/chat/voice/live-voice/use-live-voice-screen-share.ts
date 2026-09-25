@@ -37,6 +37,17 @@
  * the last frame the call was actually given: a keep whose upload fails is
  * put back, so the view it was of is not turned away as one the call has.
  *
+ * ## What the assistant can point at
+ *
+ * Beside the frame, the start of a share, a look and the start of the user's
+ * turn each read the controls the surface offers from its accessibility tree
+ * (`readCompanionShareTargets`) and hand them to the session on
+ * `update_config`. The assistant is then offered the names `screen_point_at`
+ * resolves against before it names one, which are often not the visible
+ * labels. The read starts once the frame is in hand, so it never delays the
+ * picture the turn reads, and it is not judged by the gate: an unchanged
+ * screen sends nothing because an unchanged snapshot is not sent again.
+ *
  * ## What the control reads
  *
  * `screenShareTarget` is the ask, and it is also what the companion mirror
@@ -63,12 +74,13 @@
  * one.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   isLiveVoiceSessionActive,
   isLiveVoiceUserSpeaking,
   takeLiveVoiceLookFrame,
+  updateLiveVoiceSessionConfig,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { annotateSharedFrame } from "@/domains/chat/voice/live-voice/annotate-shared-frame";
@@ -88,6 +100,7 @@ import { stillFrameGrid } from "@/lib/camera/still-frame-grid";
 import { captureError } from "@/lib/sentry/capture-error";
 import {
   captureCompanionScreen,
+  readCompanionShareTargets,
   reportCompanionSharedFrame,
 } from "@/runtime/companion-surface";
 import { decodeBase64Payload } from "@/utils/base64";
@@ -130,6 +143,9 @@ export const SCREEN_SHARE_FRAME_GATE_OPTIONS: FrameGateOptions = {
   minDetail: 0,
 };
 
+/** A session that holds no snapshot, serialized the way one is sent. */
+const NOTHING_OFFERED = JSON.stringify(null);
+
 export function useLiveVoiceScreenShare(): void {
   const target = useLiveVoiceStore.use.screenShareTarget();
   const state = useLiveVoiceStore.use.state();
@@ -148,12 +164,21 @@ export function useLiveVoiceScreenShare(): void {
     assistantId !== null &&
     !sightFramesUnsupported;
 
+  // The snapshot of the surface's controls the session was last handed,
+  // serialized, so an unchanged surface sends nothing. Held for the mount
+  // rather than the run, since the resets that clear it are the session's
+  // (connection ready, reconnect) as well as the run's.
+  const offered = useRef(NOTHING_OFFERED);
+
   const connectedShare = active && state !== "connecting" && !reconnecting;
   useEffect(() => {
     if (!connectedShare || controls === null) {
       return;
     }
     controls.updateConfig({ screenSharing: true });
+    // A snapshot read before the session could take it never arrived, so the
+    // next read is sent whatever it holds.
+    offered.current = NOTHING_OFFERED;
     return () => controls.updateConfig({ screenSharing: false });
   }, [connectedShare, controls]);
 
@@ -206,6 +231,33 @@ export function useLiveVoiceScreenShare(): void {
     gate.reset(performance.now());
     const grids = createFrameGridProducer();
     sight.grantConsent();
+    // Reads of the surface's controls, counted as they start, so only the
+    // newest may be sent: a slow read must not put an older tree over a
+    // newer one.
+    let targetReads = 0;
+
+    /**
+     * Read what the surface offers to be pointed at and hand it to the
+     * session. A surface with nothing to offer sends `null`, which clears
+     * whatever the session held.
+     */
+    const offerTargets = (run: number): void => {
+      targetReads += 1;
+      const read = targetReads;
+      void readCompanionShareTargets(target).then((snapshot) => {
+        if (cancelled || generation !== run || read !== targetReads) {
+          return;
+        }
+        const next =
+          snapshot === null || snapshot.targets.length === 0 ? null : snapshot;
+        const serialized = JSON.stringify(next);
+        if (serialized === offered.current) {
+          return;
+        }
+        offered.current = serialized;
+        updateLiveVoiceSessionConfig({ shareTargets: next });
+      });
+    };
 
     /**
      * Not filed: a window that closed or a permission not granted is the
@@ -300,12 +352,16 @@ export function useLiveVoiceScreenShare(): void {
      * and says nothing until it lands, so a view the call already has is
      * still sent. The gate adopts it, so the cadence after it is judged
      * against the view the call was just given.
+     *
+     * `offer` reads the surface's controls for the session once the frame is
+     * in hand ({@link offerTargets}).
      */
     const take = async (
       drawing: SharedDrawing | null,
       run: number,
       askedAtMs: number | null,
       look: boolean,
+      offer: boolean,
     ): Promise<void> => {
       const stale = (): boolean => cancelled || generation !== run;
       if (stale()) {
@@ -322,6 +378,9 @@ export function useLiveVoiceScreenShare(): void {
       if (frame === null) {
         lowerShare();
         return;
+      }
+      if (offer) {
+        offerTargets(run);
       }
       const bytes = decodeBase64Payload(frame.jpegBase64);
       if (bytes === null) {
@@ -428,12 +487,13 @@ export function useLiveVoiceScreenShare(): void {
       drawing: SharedDrawing | null = null,
       askedAtMs: number | null = null,
       look = false,
+      offer = false,
     ): void => {
       // Stamped now rather than when the occasion is dequeued, so a stop or
       // a reconnect that lands while it waits is one it cannot outlive.
       const run = generation;
       queue = queue
-        .then(() => take(drawing, run, askedAtMs, look))
+        .then(() => take(drawing, run, askedAtMs, look, offer))
         .catch((err: unknown) => {
           // One occasion, filed. The queue goes on, so a decode that threw
           // cannot hold every later frame behind it.
@@ -442,7 +502,7 @@ export function useLiveVoiceScreenShare(): void {
     };
 
     // A share a look started owes that look its first frame.
-    share(null, null, takeLiveVoiceLookFrame("screen"));
+    share(null, null, takeLiveVoiceLookFrame("screen"), true);
     let speaking = isLiveVoiceUserSpeaking(useLiveVoiceStore.getState());
     let reconnecting = useLiveVoiceStore.getState().reconnecting;
     // The drawing this run has already sent. A run that starts with one
@@ -457,6 +517,17 @@ export function useLiveVoiceScreenShare(): void {
       // that gap would still read the epoch it was captured under and send a
       // frame of what the user has just stopped showing.
       if (session.screenShareTarget !== target) {
+        // A stop tells the session the share is off, which clears what it
+        // held. A move to another surface is cleared here, so a turn taken
+        // before the next run's read lands is not offered this surface's
+        // names to point at on that one.
+        if (
+          session.screenShareTarget !== null &&
+          offered.current !== NOTHING_OFFERED
+        ) {
+          updateLiveVoiceSessionConfig({ shareTargets: null });
+        }
+        offered.current = NOTHING_OFFERED;
         generation += 1;
         sight.revokeConsent();
         sight.rebaseSendOrder();
@@ -482,6 +553,8 @@ export function useLiveVoiceScreenShare(): void {
           delivered = null;
           baseline = null;
           armedAtMs = null;
+          // The session on the far side of the drop holds no snapshot.
+          offered.current = NOTHING_OFFERED;
         }
         return;
       }
@@ -504,7 +577,7 @@ export function useLiveVoiceScreenShare(): void {
         session.lookFrameRequested.screen &&
         takeLiveVoiceLookFrame("screen")
       ) {
-        share(null, null, true);
+        share(null, null, true, true);
         return;
       }
       // The hand is still down. Whatever moved, it is not worth a frame: the
@@ -529,7 +602,7 @@ export function useLiveVoiceScreenShare(): void {
       // occasion rather than going to the gate here: the picture is judged
       // in its turn, and an ask placed now would be the gate's by the time
       // an earlier picture is judged.
-      share(null, next ? performance.now() : null);
+      share(null, next ? performance.now() : null, false, next);
     });
 
     return () => {

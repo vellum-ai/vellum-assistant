@@ -400,6 +400,20 @@ let located: unknown = {
  */
 let locateHeldBy: Promise<void> | null = null;
 
+/** Every surface main read the controls of, and what the helper answers. */
+const targetReadsAsked: unknown[] = [];
+let targetElements: {
+  elements: {
+    label: string;
+    role: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }[];
+  candidateCount: number;
+} | null = null;
+
 mock.module("./companion-capture-sources", () => ({
   listCaptureSources: async () => listedSources,
   resolveCapturePick: (pick: unknown) => resolvedPickAsync(pick),
@@ -420,6 +434,10 @@ mock.module("./companion-capture-sources", () => ({
   windowBoundsFor: async (windowId: number) => {
     boundsAsked.push(windowId);
     return windowBounds;
+  },
+  readTargetElements: async (target: unknown) => {
+    targetReadsAsked.push(target);
+    return targetElements;
   },
   locateOnTarget: async (target: unknown, query: string) => {
     locatesAsked.push({ target, query });
@@ -4809,6 +4827,49 @@ describe("Share on the companion surface", () => {
     expect(framesAsked).toEqual([{ kind: "display", displayId: 2 }]);
     capturedFrame = null;
     expect(await capture?.([{ kind: "window", windowId: 7 }])).toBeNull();
+  });
+
+  test("reads the shared surface's controls as fractions of that surface", async () => {
+    const read = invocable.get("vellum:companion:shareTargets");
+    expect(read).toBeDefined();
+    windowBounds = { x: 100, y: 50, width: 1000, height: 500 };
+    targetElements = {
+      elements: [
+        {
+          label: "root_Filters",
+          role: "AXButton",
+          x: 200,
+          y: 100,
+          width: 100,
+          height: 50,
+        },
+      ],
+      candidateCount: 1,
+    };
+    targetReadsAsked.length = 0;
+    try {
+      expect(await read?.([{ kind: "window", windowId: 7 }])).toEqual({
+        targets: [
+          {
+            id: expect.stringMatching(/^t[0-9a-z]+$/),
+            label: "root_Filters",
+            role: "AXButton",
+            x: 0.1,
+            y: 0.1,
+            width: 0.1,
+            height: 0.1,
+          },
+        ],
+        total: 1,
+      });
+      expect(targetReadsAsked).toEqual([{ kind: "window", windowId: 7 }]);
+      // No tree to read is no snapshot, and the caller goes on without one.
+      targetElements = null;
+      expect(await read?.([{ kind: "window", windowId: 7 }])).toBeNull();
+    } finally {
+      windowBounds = null;
+      targetElements = null;
+    }
   });
 
   test("takes a picker preview of one row from the helper", async () => {

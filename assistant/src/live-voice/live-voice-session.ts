@@ -191,6 +191,7 @@ import {
   requestedSessionControl,
   sessionControlTeaching,
 } from "./session-controls.js";
+import type { ShareTargetSnapshot } from "./share-targets.js";
 import { type VoiceTaskOutcome, VoiceTaskOutcomes } from "./task-outcomes.js";
 import { VoiceInputDiagnostics } from "./voice-input-diagnostics.js";
 
@@ -1218,6 +1219,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private cameraModeSessions?: CameraModeSessionProducer;
   private sightFrameSequence: Promise<void> = Promise.resolve();
   private screenSharing = false;
+  // The newest snapshot of the shared surface's controls, offered to a leg
+  // that can point at the screen. Cleared when the share ends.
+  private shareTargets: ShareTargetSnapshot | null = null;
   /**
    * Mirrors phase changes to the iOS Live Activity through the platform, for
    * the case the client cannot cover: an app backgrounded long enough for iOS
@@ -2091,6 +2095,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private applyConfigUpdate(frame: LiveVoiceClientUpdateConfigFrame): void {
     if (frame.screenSharing !== undefined) {
       this.screenSharing = frame.screenSharing;
+      if (!frame.screenSharing) {
+        this.shareTargets = null;
+      }
+    }
+    if (frame.shareTargets !== undefined) {
+      this.shareTargets = frame.shareTargets;
     }
     if (frame.silenceThresholdMs !== undefined) {
       this.turnDetector?.setSilenceThresholdMs(frame.silenceThresholdMs);
@@ -6605,7 +6615,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         userMessageInterface: "macos",
         assistantMessageInterface: "macos",
         ...(this.context.startFrame.client === "macos"
-          ? { macosDesktopSession: true, screenSharing: this.screenSharing }
+          ? {
+              macosDesktopSession: true,
+              screenSharing: this.screenSharing,
+              ...(this.screenSharing && this.shareTargets !== null
+                ? { shareTargets: this.shareTargets }
+                : {}),
+            }
           : {}),
         voiceTelemetry: {
           sessionId: this.context.sessionId,

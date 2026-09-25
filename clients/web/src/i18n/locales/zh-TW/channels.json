@@ -211,5 +211,9 @@
     "upgradeNoticeBody": "升級至包含助理電子郵件地址的方案。無需供應商設定。",
     "upgradeNoticeTitle": "為您的助理提供專屬電子郵件地址",
     "usageSummary": "今日已傳送 {sent} / {limit} · 已接收 {received}"
+  },
+  "emailSettingsModal": {
+    "title": "郵件設定",
+    "description": "助理的地址、網域與今天的使用情況。"
   }
 }

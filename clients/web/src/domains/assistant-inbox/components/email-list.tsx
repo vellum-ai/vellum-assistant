@@ -18,6 +18,8 @@ interface EmailListRowProps {
   checked: boolean;
   /** Some row in the list is checked, so every row shows its checkbox. */
   selecting: boolean;
+  /** A received message not yet opened on this device. */
+  unread: boolean;
   now: Date;
   onSelect: (id: string) => void;
   onToggleChecked?: (id: string) => void;
@@ -29,7 +31,9 @@ interface EmailListRowProps {
  * selection as washes rather than rules between rows. Inbound rows lead with
  * who wrote; outbound rows lead with who it went to, since the sender is
  * always the assistant. No preview line: the platform's list carries none.
- * No read state: the platform keeps none, so the list does not pretend to.
+ * A received row not yet opened here carries a dot on its trailing edge and
+ * the emphasised name; the platform keeps no read state, so the mark is
+ * this device's memory of what was opened (see `useReadEmails`).
  *
  * The disc shares its cell with the row's checkbox. Under a mouse the box
  * takes the disc's place on hover and holds it once this row or any row is
@@ -44,6 +48,7 @@ function EmailListRow({
   selected,
   checked,
   selecting,
+  unread,
   now,
   onSelect,
   onToggleChecked,
@@ -98,7 +103,14 @@ function EmailListRow({
           "outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]",
         )}
       >
-        <span className="w-full truncate text-body-medium-default text-[var(--content-emphasised)]">
+        <span
+          className={cn(
+            "w-full truncate text-body-medium-default",
+            unread
+              ? "text-[var(--content-emphasised)]"
+              : "text-[var(--content-default)]",
+          )}
+        >
           {who}
         </span>
         <span className="w-full truncate text-label-medium-default text-[var(--content-secondary)]">
@@ -118,6 +130,13 @@ function EmailListRow({
           ) : null}
         </span>
       </button>
+      {unread ? (
+        <span
+          role="img"
+          aria-label={t("emailListRow.unread")}
+          className="mr-1 size-1.5 shrink-0 rounded-full bg-[var(--system-mid-strong)]"
+        />
+      ) : null}
     </li>
   );
 }
@@ -127,6 +146,8 @@ export interface EmailListProps {
   selectedId: string | null;
   now: Date;
   onSelect: (id: string) => void;
+  /** Ids of received messages already opened; absent means no unread marks. */
+  readIds?: ReadonlySet<string>;
   /** Ids the user has checked. The list offers checkboxes only with `onToggleChecked`. */
   checkedIds?: ReadonlySet<string>;
   onToggleChecked?: (id: string) => void;
@@ -139,6 +160,7 @@ export function EmailList({
   selectedId,
   now,
   onSelect,
+  readIds,
   checkedIds,
   onToggleChecked,
   className,
@@ -160,6 +182,11 @@ export function EmailList({
           selected={email.id === selectedId}
           checked={checkedIds?.has(email.id) ?? false}
           selecting={selecting}
+          unread={
+            readIds !== undefined &&
+            email.direction === "inbound" &&
+            !readIds.has(email.id)
+          }
           now={now}
           onSelect={onSelect}
           onToggleChecked={onToggleChecked}

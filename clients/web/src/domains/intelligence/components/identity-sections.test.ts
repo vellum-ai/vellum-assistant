@@ -1,9 +1,9 @@
 /**
  * The overview's drill-down section list: a stable order, with nothing gated
  * on backend capability or platform. Whatever the backend reports and
- * whatever shell the app runs in, the list is the same, so an assistant that
- * can't draw the memory concept graph still gets a Memory card leading into
- * the tab that explains it, and a phone user reaches every section.
+ * whatever shell the app runs in, the list is the same, so a phone user
+ * reaches every section. Email is the one addition, and only where the
+ * inbox exists.
  */
 import { describe, expect, test } from "bun:test";
 
@@ -17,7 +17,6 @@ describe("buildIdentitySections", () => {
       "personality",
       "schedules",
       "superpowers",
-      "memory",
       "library",
       "workspace",
       "contacts",
@@ -25,8 +24,19 @@ describe("buildIdentitySections", () => {
     ]);
   });
 
-  test("never hides Memory, whatever the backend reports", () => {
-    expect(keys()).toContain("memory");
+  test("draws Email after Channels only when asked, carrying the lock", () => {
+    const withEmail = buildIdentitySections({ email: { locked: true } });
+    const emailIndex = withEmail.findIndex((s) => s.key === "email");
+    expect(emailIndex).toBe(
+      withEmail.findIndex((s) => s.key === "channels") + 1,
+    );
+    expect(withEmail[emailIndex]?.locked).toBe(true);
+    expect(withEmail[emailIndex]?.to).toBe("/assistant/inbox");
+    expect(
+      buildIdentitySections({ email: { locked: false } }).find(
+        (s) => s.key === "email",
+      )?.locked,
+    ).toBe(false);
   });
 
   test("every section carries a label, description and path", () => {

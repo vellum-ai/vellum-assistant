@@ -2229,5 +2229,9 @@
     "loadError": "Chat settings couldn't be loaded. Please try again.",
     "saveError": "Chat settings couldn't be saved. Your changes are kept here. Confirm to try again.",
     "unsupported": "Update this assistant to use chat settings."
+  },
+  "emailNavItem": {
+    "label": "Email",
+    "unpin": "Unpin Email"
   }
 }

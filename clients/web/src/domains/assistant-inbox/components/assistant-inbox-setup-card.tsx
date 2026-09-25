@@ -1,13 +1,11 @@
-import { ArrowLeft } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import { Button, Notice } from "@vellumai/design-library";
+import { Button } from "@vellumai/design-library";
 
 import { useTranslation } from "@/i18n";
 
 import type { HandleCheckResult } from "../types";
-import { AddressPill } from "./address-pill";
-import { AssistantInboxShell } from "./assistant-inbox-shell";
+import { AssistantInboxPageFrame } from "./assistant-inbox-page-frame";
 import { EmailAddressFields } from "./email-address-fields";
 
 /** Long enough that a probe is not fired per keystroke. */
@@ -58,10 +56,10 @@ export interface AssistantInboxSetupCardProps {
  * cannot be changed afterwards. Beneath the fields the address they produce
  * is drawn as the identity pill, so the preview reads as the assistant.
  *
- * Drawn as a page rather than a card in the middle of one, as the design
- * has it: a header row with the way back and the page's name, and the form
- * on a surface below it, so setting up reads as a step of the inbox rather
- * than a dialog over it.
+ * Drawn in the inbox's page frame, as the design has it: a header row with
+ * the way back and the page's name, and the form centred in the panel
+ * below, so setting up reads as a step of the inbox rather than a dialog
+ * over it.
  */
 export function AssistantInboxSetupCard({
   assistantId,
@@ -118,40 +116,35 @@ export function AssistantInboxSetupCard({
   }, [checkHandle, handle, handleEditable, initialHandle]);
 
   const problem = checkMessage ?? error;
-  const previewPrefix = prefix || t("emailAddressFields.prefixPlaceholder");
-  const previewHandle = handle || t("emailAddressFields.handlePlaceholder");
 
   return (
-    <AssistantInboxShell>
-      <header className="flex items-center gap-3 px-2 pb-4 pt-2">
-        {onBack ? (
-          <Button
-            variant="outlined"
-            iconOnly={<ArrowLeft />}
-            onClick={onBack}
-            aria-label={t("assistantInboxSetupCard.back")}
-          />
-        ) : null}
-        <h1 className="min-w-0 truncate text-title-large text-[var(--content-emphasised)]">
-          {t("assistantInboxSetupCard.pageTitle")}
-        </h1>
-      </header>
+    <AssistantInboxPageFrame
+      onBack={onBack}
+      centered
+      peekAssistantId={assistantId}
+    >
+      <div className="flex w-full max-w-[560px] flex-col items-center gap-10 px-4 py-1 text-center">
+        <h2
+          className="text-[var(--content-emphasised)]"
+          style={{
+            fontFamily: "var(--font-serif)",
+            fontSize: "44px",
+            fontWeight: 400,
+            lineHeight: 1.15,
+            letterSpacing: "0.4px",
+          }}
+        >
+          {t("assistantInboxSetupCard.headline")}
+        </h2>
 
-      <div className="mx-2 mb-2 flex min-h-0 flex-1 flex-col overflow-y-auto rounded-[16px] bg-[var(--surface-lift)] px-6 py-6">
-        <div className="flex w-full max-w-[560px] flex-col gap-6">
-          <div className="flex flex-col gap-1">
-            <h2 className="text-title-medium text-[var(--content-emphasised)]">
-              {t("assistantInboxSetupCard.title")}
-            </h2>
-            <p className="text-body-medium-lighter text-[var(--content-secondary)]">
-              {handleEditable
-                ? t("assistantInboxSetupCard.subtitleChooseHandle")
-                : t("assistantInboxSetupCard.subtitle")}
-            </p>
-          </div>
-
-          <div className="flex flex-col items-start gap-4">
-            <div className="flex max-w-full flex-col items-start gap-1.5">
+        <div className="flex w-full flex-col items-center gap-4">
+          <p className="text-body-medium-default text-[var(--content-emphasised)]">
+            {handleEditable
+              ? t("assistantInboxSetupCard.fieldLabelChooseHandle")
+              : t("assistantInboxSetupCard.fieldLabel")}
+          </p>
+          <div className="flex max-w-full flex-col items-center gap-2">
+            <div className="flex max-w-full items-center rounded-2xl border border-[var(--border-base)] bg-[var(--surface-lift)] p-2">
               <EmailAddressFields
                 prefix={prefix}
                 handle={handle}
@@ -173,42 +166,31 @@ export function AssistantInboxSetupCard({
                 disabled={busy}
                 autoFocus
               />
-              {problem ? (
-                <p
-                  role="alert"
-                  className="text-body-small-default text-[var(--system-negative-strong)]"
-                >
-                  {problem}
-                </p>
-              ) : null}
             </div>
-            <AddressPill
-              assistantId={assistantId}
-              address={`${previewPrefix}@${previewHandle}.${rootDomain}`}
-            />
-            {handleEditable ? (
-              <Notice
-                tone="info"
-                className="border-transparent bg-[var(--surface-active)]"
+            {problem ? (
+              <p
+                role="alert"
+                className="text-center text-body-small-default text-[var(--system-negative-strong)]"
               >
-                <span className="font-medium text-[var(--content-tertiary)]">
-                  {t("assistantInboxSetupCard.immutableNotice")}
-                </span>
-              </Notice>
+                {problem}
+              </p>
             ) : null}
           </div>
-
-          <div>
-            <Button
-              variant="primary"
-              disabled={!prefix || !handle || busy || checkMessage !== null}
-              onClick={() => onConfirm({ prefix, handle })}
-            >
-              {t("assistantInboxSetupCard.getStarted")}
-            </Button>
-          </div>
+          {handleEditable ? (
+            <p className="max-w-sm text-body-small-lighter text-[var(--content-tertiary)]">
+              {t("assistantInboxSetupCard.immutableNotice")}
+            </p>
+          ) : null}
         </div>
+
+        <Button
+          variant="primary"
+          disabled={!prefix || !handle || busy || checkMessage !== null}
+          onClick={() => onConfirm({ prefix, handle })}
+        >
+          {t("assistantInboxSetupCard.confirm")}
+        </Button>
       </div>
-    </AssistantInboxShell>
+    </AssistantInboxPageFrame>
   );
 }
