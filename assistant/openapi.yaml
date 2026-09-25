@@ -38554,6 +38554,41 @@ components:
     ConfigPatchRequest:
       type: object
       properties:
+        conversations:
+          anyOf:
+            - type: object
+              properties:
+                autoArchive:
+                  anyOf:
+                    - type: object
+                      properties:
+                        enabled:
+                          anyOf:
+                            - type: boolean
+                            - type: "null"
+                        afterDays:
+                          anyOf:
+                            - type: number
+                              enum:
+                                - 1
+                                - 7
+                                - 14
+                                - 30
+                            - type: "null"
+                      additionalProperties: {}
+                    - type: "null"
+              additionalProperties: {}
+            - type: "null"
+        notifications:
+          anyOf:
+            - type: object
+              properties:
+                newMessageEnabled:
+                  anyOf:
+                    - type: boolean
+                    - type: "null"
+              additionalProperties: {}
+            - type: "null"
         llm:
           type: object
           properties:
@@ -39287,6 +39322,42 @@ components:
     ConfigGetResponse:
       type: object
       properties:
+        conversations:
+          type: object
+          properties:
+            autoArchive:
+              type: object
+              properties:
+                enabled:
+                  default: false
+                  description: Automatically mark eligible inactive chats Done.
+                  type: boolean
+                afterDays:
+                  default: 7
+                  description: Elapsed days of inactivity before a chat is eligible for Done.
+                  type: number
+                  enum:
+                    - 1
+                    - 7
+                    - 14
+                    - 30
+              required:
+                - enabled
+                - afterDays
+              additionalProperties: {}
+          required:
+            - autoArchive
+          additionalProperties: {}
+        notifications:
+          type: object
+          properties:
+            newMessageEnabled:
+              default: true
+              description: Allow ordinary chat-reply alerts. Does not change unread state or action-required alerts.
+              type: boolean
+          required:
+            - newMessageEnabled
+          additionalProperties: {}
         llm:
           type: object
           properties:

@@ -2,6 +2,7 @@ import { utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { waitFor } from "../../../__tests__/helpers/wait-for.js";
 import {
   sampleConcepts as sharedSampleConcepts,
   sampleConfig,
@@ -50,9 +51,11 @@ mock.module("../../../persistence/embeddings/embedding-backend.js", () => ({
   },
 }));
 
+import type { AssistantEventEnvelope } from "../../../api/index.js";
 import { BACKUP_PROFILE_KEYS } from "../../../config/default-profile-names.js";
 import {
   getConfig,
+  invalidateConfigCache,
   loadConfig,
   loadRawConfig,
 } from "../../../config/loader.js";
@@ -82,7 +85,8 @@ import {
   createConnection,
   getConnection,
 } from "../../../providers/inference/connections.js";
-import { ROUTES } from "../conversation-query-routes.js";
+import { assistantEventHub } from "../../assistant-event-hub.js";
+import { commitConfigWrite, ROUTES } from "../conversation-query-routes.js";
 
 // Local subset: this test only exercises a single concept row.
 const sampleConcepts: MemoryV2ConceptRowRecord[] = sharedSampleConcepts.slice(
@@ -2045,5 +2049,185 @@ describe("config writes to a per-agent acp entry", () => {
     expect("command" in entry).toBe(false);
     expect(AssistantConfigSchema.safeParse(loadRawConfig()).success).toBe(true);
     expect(loadConfig().acp.agents.claude?.model).toBe("sonnet");
+  });
+});
+
+describe("persisted chat settings", () => {
+  const getRoute = ROUTES.find((r) => r.operationId === "config_get")!;
+  const patchRoute = ROUTES.find((r) => r.operationId === "config_patch")!;
+  const setRoute = ROUTES.find((r) => r.operationId === "config_set")!;
+
+  beforeEach(() => {
+    initializeProvidersCalls = 0;
+    clearEmbeddingBackendCacheCalls = 0;
+    rawConfigFixture = {
+      conversations: {
+        skipAutoRetitling: true,
+        autoArchive: { enabled: true, afterDays: 14, futureOption: "keep" },
+      },
+      notifications: { newMessageEnabled: false, futureOption: "keep" },
+      maxStepsPerSession: 75,
+    };
+    seedRawConfig();
+    invalidateConfigCache();
+  });
+
+  test("sparse GET exposes effective defaults without materializing unrelated fields", async () => {
+    rawConfigFixture = {};
+    seedRawConfig();
+    invalidateConfigCache();
+    const result = await getRoute.handler({});
+    expect(result).toMatchObject({
+      conversations: { autoArchive: { enabled: false, afterDays: 7 } },
+      notifications: { newMessageEnabled: true },
+    });
+    expect(result).not.toHaveProperty("conversations.skipAutoRetitling");
+    expect(loadRawConfig()).not.toHaveProperty("conversations");
+    expect(loadRawConfig()).not.toHaveProperty("notifications");
+  });
+
+  test("partial PATCH persists, reloads, and publishes config invalidation", async () => {
+    const received: AssistantEventEnvelope[] = [];
+    const subscription = assistantEventHub.subscribe({
+      type: "process",
+      callback: (event) => {
+        received.push(event);
+      },
+    });
+    try {
+      const result = await patchRoute.handler({
+        body: { conversations: { autoArchive: { afterDays: 30 } } },
+      });
+      expect(result).toMatchObject({
+        conversations: {
+          skipAutoRetitling: true,
+          autoArchive: { enabled: true, afterDays: 30, futureOption: "keep" },
+        },
+        notifications: { newMessageEnabled: false, futureOption: "keep" },
+        maxStepsPerSession: 75,
+      });
+      expect(loadRawConfig()).toEqual({
+        ...rawConfigFixture,
+        conversations: {
+          skipAutoRetitling: true,
+          autoArchive: { enabled: true, afterDays: 30, futureOption: "keep" },
+        },
+      });
+      invalidateConfigCache();
+      expect(loadConfig().conversations.autoArchive).toEqual({
+        enabled: true,
+        afterDays: 30,
+      });
+      expect(loadConfig().notifications.newMessageEnabled).toBe(false);
+      expect(await getRoute.handler({})).toEqual(result);
+      expect(initializeProvidersCalls).toBe(1);
+      expect(clearEmbeddingBackendCacheCalls).toBe(1);
+      await waitFor(() =>
+        received.some((event) => event.message.type === "sync_changed"),
+      );
+      expect(received.map((event) => event.message)).toContainEqual({
+        type: "sync_changed",
+        tags: ["assistant:self:config"],
+      });
+    } finally {
+      subscription.dispose();
+    }
+  });
+
+  test("PATCH null leaves restore defaults and preserve sibling values", async () => {
+    const result = await patchRoute.handler({
+      body: {
+        conversations: { autoArchive: { enabled: null, afterDays: null } },
+        notifications: { newMessageEnabled: null },
+      },
+    });
+    expect(result).toMatchObject({
+      conversations: {
+        skipAutoRetitling: true,
+        autoArchive: { enabled: false, afterDays: 7, futureOption: "keep" },
+      },
+      notifications: { newMessageEnabled: true, futureOption: "keep" },
+    });
+    expect(loadRawConfig()).toMatchObject({
+      conversations: { autoArchive: { futureOption: "keep" } },
+      notifications: { futureOption: "keep" },
+    });
+    expect(loadRawConfig()).not.toHaveProperty(
+      "conversations.autoArchive.enabled",
+    );
+    expect(loadRawConfig()).not.toHaveProperty(
+      "notifications.newMessageEnabled",
+    );
+  });
+
+  test.each([
+    { conversations: { autoArchive: null }, notifications: null },
+    { conversations: null, notifications: null },
+  ])("PATCH null subtrees restore defaults: %j", async (body) => {
+    const result = await patchRoute.handler({ body });
+    expect(result).toMatchObject({
+      conversations: { autoArchive: { enabled: false, afterDays: 7 } },
+      notifications: { newMessageEnabled: true },
+    });
+    expect(loadRawConfig()).not.toHaveProperty("conversations.autoArchive");
+    expect(loadRawConfig()).not.toHaveProperty("notifications");
+  });
+
+  test.each([
+    { conversations: false },
+    { conversations: { autoArchive: [] } },
+    { conversations: { autoArchive: { enabled: "true" } } },
+    { conversations: { autoArchive: { afterDays: 5 } } },
+    { notifications: "off" },
+    { notifications: { newMessageEnabled: 0 } },
+  ])(
+    "invalid PATCH leaves saved config and runtime unchanged: %j",
+    async (body) => {
+      const original = loadRawConfig();
+      await expect(patchRoute.handler({ body })).rejects.toMatchObject({
+        statusCode: 400,
+      });
+      expect(loadRawConfig()).toEqual(original);
+      expect(initializeProvidersCalls).toBe(0);
+      expect(clearEmbeddingBackendCacheCalls).toBe(0);
+    },
+  );
+
+  test("SET persists valid preferences through the same writer", async () => {
+    await setRoute.handler({
+      body: { path: "notifications.newMessageEnabled", value: true },
+    });
+    expect(loadConfig().notifications.newMessageEnabled).toBe(true);
+    expect(loadRawConfig()).toHaveProperty(
+      "notifications.futureOption",
+      "keep",
+    );
+  });
+
+  test.each([
+    ["conversations.autoArchive.afterDays", 2],
+    ["conversations.autoArchive.enabled", null],
+    ["conversations.autoArchive", []],
+    ["notifications.newMessageEnabled", "false"],
+    ["notifications", null],
+  ])("invalid SET %s is rejected before saving", async (path, value) => {
+    const original = loadRawConfig();
+    await expect(
+      setRoute.handler({ body: { path, value } }),
+    ).rejects.toMatchObject({ statusCode: 400 });
+    expect(loadRawConfig()).toEqual(original);
+    expect(initializeProvidersCalls).toBe(0);
+  });
+
+  test("canonical config writes reject invalid settings", async () => {
+    const original = loadRawConfig();
+    await expect(
+      commitConfigWrite(
+        { ...original, notifications: { newMessageEnabled: null } },
+        "test",
+      ),
+    ).rejects.toMatchObject({ statusCode: 400 });
+    expect(loadRawConfig()).toEqual(original);
+    expect(initializeProvidersCalls).toBe(0);
   });
 });
