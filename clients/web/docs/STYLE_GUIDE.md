@@ -107,6 +107,34 @@ wrapper that injects OAuth link handling) belong in their domain
 directory (`domains/<name>/components/`), not in `components/`. See
 [CONVENTIONS.md — Injecting app-specific behavior](./CONVENTIONS.md#injecting-app-specific-behavior).
 
+### Which primitive
+
+Start from what the control is to the user, not from what element it
+happens to be. A raw `<button>`, a bare `<a target="_blank">`, a
+`role="button"` div or a `focus-visible:` ring is a sign the library has
+a primitive for the job; `local/prefer-design-library-controls` reports
+them in enrolled areas (see `designLibraryEnforcedPaths` in
+`eslint.config.mjs`).
+
+| The control is | Use | Notes |
+| --- | --- | --- |
+| An action with a label | `Button` | `variant`: `primary`, `outlined`, `ghost`, `danger*`. `size`: `compact` 24px, `regular` 32px, `large` 44px. |
+| An action shown as a glyph | `Button iconOnly={<Icon />}` | Give it `aria-label` or `tooltip`. `expandOnMobile={false}` keeps a compact inline size on touch. |
+| An action that is in flight | `Button loading` | Never a `Loader2` in `leftIcon`. |
+| An action styled like a link (Skip, Retry, Show more) | `Button variant="link"` | A real button, announced as one. |
+| A link in running text that navigates | `TextLink` | `tone="quiet"` for footnotes and legal lines. `asChild` around a router `Link`. |
+| A link that leaves the app | `ExternalAnchor` | Carries the native-shell click handler. `tone` applies the `TextLink` look; `glyph={false}` drops the trailing icon. |
+| A round or fully rounded button | `Button shape="pill"` | |
+| A clickable tag | `Chip` | `Tag` is a span; `Chip` is its button sibling. `asChild` for a Popover or Menu trigger. |
+| A toggle or filter pill | `FilterChip` | `selected` is `aria-pressed`. |
+| A row in a list that opens something | `ListRow`, or `PanelItem` in a sidebar or menu | `ListRow href` + `onClick` routes client-side the way `SideMenu.Item` does. |
+| A row in a menu or popover | `Menu.Item` | |
+| One of a mutually exclusive set of tabs | `Tabs` or `SegmentControl` | |
+| A selectable tile or option row | `OptionCard` in an `OptionCardGroup` | `selectionMode` picks radio or checkbox semantics and the mark. |
+| A clickable card | `Card interactive asChild` around a button or `Link` | |
+| Show or hide one region | `Disclosure` | `Collapsible` is for a list of sections. |
+| A control the library cannot express (a swatch, a drag handle, a canvas hit area) | A raw element, with `type="button"`, an accessible name, and `keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]` | Add `eslint-disable-next-line local/prefer-design-library-controls` with the reason, so the exception is greppable. |
+
 ---
 
 ## Imports

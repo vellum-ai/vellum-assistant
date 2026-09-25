@@ -8,6 +8,7 @@ import tseslint from "typescript-eslint";
 import { noCrossDomainImports } from "./eslint-rules/no-cross-domain-imports.mjs";
 import { noEmDash } from "./eslint-rules/no-em-dash.mjs";
 import { noUntranslatedStrings } from "./eslint-rules/no-untranslated-strings.mjs";
+import { preferDesignLibraryControls } from "./eslint-rules/prefer-design-library-controls.mjs";
 
 // ---------------------------------------------------------------------------
 // no-restricted-syntax rule sets
@@ -318,6 +319,44 @@ const emDashEnforcedPaths = [
   "src/components/detail-shell*.tsx",
 ];
 
+/**
+ * Design-library ratchet. `local/prefer-design-library-controls` reports raw
+ * `<button>`, bare `<a target="_blank">`, `role="button"`, `focus-visible:`
+ * rings and hand-rolled spinners inside `Button` (see the rule's docblock).
+ *
+ * Enrolled an area at a time, like `emDashEnforcedPaths`: the 2026-09-18
+ * component audit found several hundred pre-existing instances, and a rule
+ * that reports them all at once gets switched off rather than obeyed. Each
+ * migration PR that cleans an area adds its glob here so the area cannot
+ * regress. Never shrink this list to silence a violation; use the library
+ * primitive, or an eslint-disable with a reason for a control the library
+ * genuinely cannot express.
+ */
+const designLibraryEnforcedPaths = [
+  // Areas that were already clean when the rule landed. Enrolled so they
+  // stay that way while the audit's leftovers are migrated elsewhere.
+  "src/*.tsx",
+  "src/components/external-anchor.tsx",
+  "src/components/icons/**/*.tsx",
+  "src/components/ios-widget-previews/**/*.tsx",
+  "src/components/local-file/**/*.tsx",
+  "src/components/nudges/**/*.tsx",
+  "src/domains/activation/components/**/*.tsx",
+  "src/domains/chat/components/local-file/preview/**/*.tsx",
+  "src/domains/chat/components/tool-activity/**/*.tsx",
+  "src/domains/chat/desktop/**/*.tsx",
+  "src/domains/chat/hooks/**/*.tsx",
+  "src/domains/chat/in-chat-onboarding/**/*.tsx",
+  "src/domains/chat/process-registry/descriptors/**/*.tsx",
+  "src/domains/home/components/**/*.tsx",
+  "src/domains/logs/pages/**/*.tsx",
+  "src/domains/settings/billing/*.tsx",
+  "src/domains/settings/billing/{plans,pro-onboarding}/**/*.tsx",
+  "src/domains/settings/components/tone-lab/**/*.tsx",
+  "src/domains/settings/mcp/**/*.tsx",
+  "src/domains/settings/pair-device/**/*.tsx",
+];
+
 const eslintConfig = defineConfig([
   ...tseslint.configs.recommended,
   reactHooks.configs.flat.recommended,
@@ -328,6 +367,7 @@ const eslintConfig = defineConfig([
         rules: {
           "no-cross-domain-imports": noCrossDomainImports,
           "no-em-dash": noEmDash,
+          "prefer-design-library-controls": preferDesignLibraryControls,
           "no-untranslated-strings": noUntranslatedStrings,
         },
       },
@@ -425,6 +465,17 @@ const eslintConfig = defineConfig([
     files: emDashEnforcedPaths,
     rules: {
       "local/no-em-dash": "error",
+    },
+  },
+  // -----------------------------------------------------------------------
+  // Design-library ratchet. See `designLibraryEnforcedPaths`.
+  // Tests and stories render raw elements as fixtures and as the things
+  // under test, so the ratchet reads only the components themselves.
+  {
+    files: designLibraryEnforcedPaths,
+    ignores: ["**/*.test.tsx", "**/*.stories.tsx"],
+    rules: {
+      "local/prefer-design-library-controls": "error",
     },
   },
 ]);
