@@ -65,6 +65,8 @@ export type NotificationReceiptClass = z.infer<
 
 export const DeliveryResultSchema = z.object({
   success: z.boolean(),
+  /** Delivery was intentionally suppressed before the provider accepted it. */
+  skipped: z.boolean().optional(),
   error: z.string().optional(),
   messageId: z.string().optional(),
   /** Set only by the platform push adapter: true when the platform accepted

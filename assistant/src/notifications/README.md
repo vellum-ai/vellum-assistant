@@ -10,8 +10,19 @@ Signal-driven notification architecture where producers emit free-form events an
 mobile push. `completion-policy.ts` owns local presentation: selected
 completions can banner at medium urgency, unrelated low/medium notifications
 remain silent, and explicitly quiet work stays silent. The broadcaster resolves
-the existing `silent` contract once for the local intent and paired-conversation
+the existing `silent` contract for the local intent and paired-conversation
 event; clients continue honoring it.
+
+`notifications.newMessageEnabled` defaults to true. Setting it false makes
+only `chat.assistant_reply` local intents silent and suppresses their platform
+push. Selected channels remain routing candidates throughout awaited broadcast
+preparation, so re-enabling alerts before the send can still deliver a push.
+`chat-reply-policy.ts` reads the current preference immediately before delivery,
+including deferred local sends and each platform retry. Delivery audit rows
+record a suppressed push as skipped; a push already accepted by a provider keeps
+its acceptance metadata. Transcript pairing, unread state, feed policy,
+external-channel delivery, scheduled results, and action-required alerts retain
+their existing behavior.
 
 Local completion delivery requires the active Vellum guardian principal from
 the resolved destination. The broadcaster checks that identity before pairing,

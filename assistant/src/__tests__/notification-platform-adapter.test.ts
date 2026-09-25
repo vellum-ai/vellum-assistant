@@ -1,11 +1,14 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { saveRawConfig } from "../config/loader.js";
+
 // ── Mock logger ──────────────────────────────────────────────────────────────
 
 // ── Mock sleep so retry tests don't slow down the suite ──────────────────────
 
+let onRetrySleep: () => Promise<void> = async () => {};
 mock.module("../util/retry.js", () => ({
-  sleep: async (_ms: number): Promise<void> => {},
+  sleep: async (_ms: number): Promise<void> => onRetrySleep(),
   isRetryableStatus: (status: number): boolean =>
     status === 429 || status >= 500,
   isRetryableNetworkError: (error: unknown): boolean => {
@@ -41,10 +44,12 @@ const fetchResponses: Array<{ ok: boolean; status: number; body?: string }> =
   [];
 const fetchErrors: Error[] = [];
 let clientAvailable = true;
+let onClientCreation: () => Promise<void> = async () => {};
 
 mock.module("../platform/client.js", () => ({
   VellumPlatformClient: {
     create: async () => {
+      await onClientCreation();
       if (!clientAvailable) {
         return null;
       }
@@ -117,11 +122,88 @@ function makeDestination(
 
 describe("PlatformPushAdapter", () => {
   beforeEach(() => {
+    saveRawConfig({});
     fetchCalls.length = 0;
     fetchResponses.length = 0;
     fetchErrors.length = 0;
     clientAvailable = true;
+    onRetrySleep = async () => {};
+    onClientCreation = async () => {};
   });
+
+  test("skips a disabled chat reply without sending a native push", async () => {
+    saveRawConfig({ notifications: { newMessageEnabled: false } });
+    const result = await new PlatformPushAdapter().send(
+      makePayload({ sourceEventName: "chat.assistant_reply" }),
+      makeDestination(),
+    );
+    expect(result).toMatchObject({
+      success: false,
+      skipped: true,
+      remotePushAccepted: false,
+    });
+    expect(fetchCalls).toHaveLength(0);
+  });
+
+  test("rechecks the setting after platform client creation", async () => {
+    onClientCreation = async () => {
+      saveRawConfig({ notifications: { newMessageEnabled: false } });
+    };
+    const result = await new PlatformPushAdapter().send(
+      makePayload({ sourceEventName: "chat.assistant_reply" }),
+      makeDestination(),
+    );
+    expect(result).toMatchObject({
+      success: false,
+      skipped: true,
+      remotePushAccepted: false,
+    });
+    expect(fetchCalls).toHaveLength(0);
+  });
+
+  test.each([false, true])(
+    "stops retries after disabling replies (accepted push: %s)",
+    async (accepted) => {
+      fetchResponses.push({
+        ok: false,
+        status: 503,
+        body: accepted ? '{"accepted_platforms":["ios"]}' : "{}",
+      });
+      onRetrySleep = async () => {
+        saveRawConfig({ notifications: { newMessageEnabled: false } });
+      };
+      const result = await new PlatformPushAdapter().send(
+        makePayload({ sourceEventName: "chat.assistant_reply" }),
+        makeDestination(),
+      );
+      expect(fetchCalls).toHaveLength(1);
+      expect(result).toMatchObject({
+        success: accepted,
+        skipped: !accepted,
+        remotePushAccepted: accepted,
+        remotePushPlatforms: accepted ? ["ios"] : undefined,
+      });
+    },
+  );
+
+  test.each([
+    "schedule.result",
+    "schedule.notify",
+    "guardian.question",
+    "activity.failed",
+    "chat.assistant_reply.extra",
+  ])(
+    "keeps %s native push enabled when ordinary reply alerts are off",
+    async (sourceEventName) => {
+      saveRawConfig({ notifications: { newMessageEnabled: false } });
+      const result = await new PlatformPushAdapter().send(
+        makePayload({ sourceEventName }),
+        makeDestination(),
+      );
+      expect(result.success).toBe(true);
+      expect(fetchCalls).toHaveLength(1);
+    },
+  );
 
   test("channel is 'platform'", () => {
     expect(new PlatformPushAdapter().channel).toBe("platform");
