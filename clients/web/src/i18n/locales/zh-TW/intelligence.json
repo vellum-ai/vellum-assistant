@@ -133,10 +133,6 @@
       "description": "我的應用程式與文件",
       "label": "資料庫"
     },
-    "memory": {
-      "description": "我記得的內容",
-      "label": "記憶"
-    },
     "personality": {
       "description": "調整我的說話方式",
       "label": "個性"

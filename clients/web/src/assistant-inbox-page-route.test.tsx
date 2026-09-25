@@ -1,7 +1,7 @@
 /**
  * The inbox route as the wizard lands on it after an upgrade: entitled, with
  * no address and no domain, it is the setup card with the handle open; once
- * Get started registers the address, it is the mailbox. The platform is
+ * Confirm registers the address, it is the mailbox. The platform is
  * mocked at the generated SDK, the hooks that reach the session and the
  * daemon at their module boundaries.
  */
@@ -225,7 +225,7 @@ describe("AssistantInboxPageRoute after an upgrade", () => {
     ).toBeTruthy();
     expect(screen.queryByTestId("assistant-inbox-header")).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
 
     // One registration, the handle as the subdomain and the prefix on it.
     await waitFor(() => expect(domainCreateBodies.length).toBe(1));
@@ -258,7 +258,7 @@ describe("AssistantInboxPageRoute after an upgrade", () => {
     renderRoute();
 
     await screen.findByLabelText("Handle (public)");
-    fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
 
     await waitFor(() => expect(domainCreateBodies.length).toBe(1));
     // The provider's sentence, under the fields, and no claim of readiness.

@@ -133,10 +133,6 @@
       "description": "我的应用和文档",
       "label": "资料库"
     },
-    "memory": {
-      "description": "我记住的内容",
-      "label": "记忆"
-    },
     "personality": {
       "description": "调整我的说话方式",
       "label": "个性"

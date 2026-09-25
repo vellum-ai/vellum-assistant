@@ -1,11 +1,10 @@
 import { useEffect, useState } from "react";
 
-import { Button, Notice } from "@vellumai/design-library";
+import { Button } from "@vellumai/design-library";
 
 import { useTranslation } from "@/i18n";
 
 import type { HandleCheckResult } from "../types";
-import { AddressPill } from "./address-pill";
 import { AssistantInboxPageFrame } from "./assistant-inbox-page-frame";
 import { EmailAddressFields } from "./email-address-fields";
 
@@ -117,46 +116,57 @@ export function AssistantInboxSetupCard({
   }, [checkHandle, handle, handleEditable, initialHandle]);
 
   const problem = checkMessage ?? error;
-  const previewPrefix = prefix || t("emailAddressFields.prefixPlaceholder");
-  const previewHandle = handle || t("emailAddressFields.handlePlaceholder");
 
   return (
-    <AssistantInboxPageFrame onBack={onBack} centered>
-      <div className="flex w-full max-w-[480px] flex-col items-center gap-6 px-4 py-1 text-center">
-        <div className="flex flex-col gap-1">
-          <h2 className="text-title-medium text-[var(--content-emphasised)]">
-            {t("assistantInboxSetupCard.title")}
-          </h2>
-          <p className="text-body-medium-lighter text-[var(--content-secondary)]">
-            {handleEditable
-              ? t("assistantInboxSetupCard.subtitleChooseHandle")
-              : t("assistantInboxSetupCard.subtitle")}
-          </p>
-        </div>
+    <AssistantInboxPageFrame
+      onBack={onBack}
+      centered
+      peekAssistantId={assistantId}
+    >
+      <div className="flex w-full max-w-[560px] flex-col items-center gap-10 px-4 py-1 text-center">
+        <h2
+          className="text-[var(--content-emphasised)]"
+          style={{
+            fontFamily: "var(--font-serif)",
+            fontSize: "44px",
+            fontWeight: 400,
+            lineHeight: 1.15,
+            letterSpacing: "0.4px",
+          }}
+        >
+          {t("assistantInboxSetupCard.headline")}
+        </h2>
 
-        <div className="flex flex-col items-center gap-4">
-          <div className="flex max-w-full flex-col items-center gap-1.5">
-            <EmailAddressFields
-              prefix={prefix}
-              handle={handle}
-              rootDomain={rootDomain}
-              onPrefixChange={(value) => {
-                setPrefix(value);
-                onDraftChange?.();
-              }}
-              onHandleChange={
-                handleEditable
-                  ? (value) => {
-                      setTouched(true);
-                      setHandle(value);
-                      onDraftChange?.();
-                    }
-                  : undefined
-              }
-              handleInvalid={problem !== null}
-              disabled={busy}
-              autoFocus
-            />
+        <div className="flex w-full flex-col items-center gap-4">
+          <p className="text-body-medium-default text-[var(--content-emphasised)]">
+            {handleEditable
+              ? t("assistantInboxSetupCard.fieldLabelChooseHandle")
+              : t("assistantInboxSetupCard.fieldLabel")}
+          </p>
+          <div className="flex max-w-full flex-col items-center gap-2">
+            <div className="flex max-w-full items-center rounded-2xl border border-[var(--border-base)] bg-[var(--surface-lift)] p-2">
+              <EmailAddressFields
+                prefix={prefix}
+                handle={handle}
+                rootDomain={rootDomain}
+                onPrefixChange={(value) => {
+                  setPrefix(value);
+                  onDraftChange?.();
+                }}
+                onHandleChange={
+                  handleEditable
+                    ? (value) => {
+                        setTouched(true);
+                        setHandle(value);
+                        onDraftChange?.();
+                      }
+                    : undefined
+                }
+                handleInvalid={problem !== null}
+                disabled={busy}
+                autoFocus
+              />
+            </div>
             {problem ? (
               <p
                 role="alert"
@@ -166,31 +176,20 @@ export function AssistantInboxSetupCard({
               </p>
             ) : null}
           </div>
-          <AddressPill
-            assistantId={assistantId}
-            address={`${previewPrefix}@${previewHandle}.${rootDomain}`}
-          />
           {handleEditable ? (
-            <Notice
-              tone="info"
-              className="border-transparent bg-[var(--surface-active)]"
-            >
-              <span className="font-medium text-[var(--content-tertiary)]">
-                {t("assistantInboxSetupCard.immutableNotice")}
-              </span>
-            </Notice>
+            <p className="max-w-sm text-body-small-lighter text-[var(--content-tertiary)]">
+              {t("assistantInboxSetupCard.immutableNotice")}
+            </p>
           ) : null}
         </div>
 
-        <div>
-          <Button
-            variant="primary"
-            disabled={!prefix || !handle || busy || checkMessage !== null}
-            onClick={() => onConfirm({ prefix, handle })}
-          >
-            {t("assistantInboxSetupCard.getStarted")}
-          </Button>
-        </div>
+        <Button
+          variant="primary"
+          disabled={!prefix || !handle || busy || checkMessage !== null}
+          onClick={() => onConfirm({ prefix, handle })}
+        >
+          {t("assistantInboxSetupCard.confirm")}
+        </Button>
       </div>
     </AssistantInboxPageFrame>
   );

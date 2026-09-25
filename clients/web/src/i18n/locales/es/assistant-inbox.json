@@ -76,10 +76,10 @@
     "planNotice": "El correo no está incluido en el plan Free. Pasa a Super u otro plan con correo."
   },
   "assistantInboxSetupCard": {
-    "title": "Correo del asistente",
-    "subtitle": "Configura un correo para tu asistente.",
-    "getStarted": "Empezar",
-    "subtitleChooseHandle": "Reclama tu identificador único y configura el correo de tu asistente.",
+    "headline": "Bien, vamos a prepararlo.",
+    "fieldLabel": "Elige un handle de correo:",
+    "fieldLabelChooseHandle": "Elige un handle y un prefijo de correo:",
+    "confirm": "Confirmar",
     "immutableNotice": "El identificador pasa a ser el identificador público de tu asistente. No podrás cambiarlo una vez establecido."
   },
   "assistantInboxRoute": {

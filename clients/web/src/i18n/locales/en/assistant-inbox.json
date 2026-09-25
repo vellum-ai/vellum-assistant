@@ -76,10 +76,10 @@
     "planNotice": "Email support is not offered as part of a Free plan. Please upgrade to Super or another plan with email support."
   },
   "assistantInboxSetupCard": {
-    "title": "Assistant Email",
-    "subtitle": "Set up an email for your assistant.",
-    "getStarted": "Get started",
-    "subtitleChooseHandle": "Claim your unique handle and set up your assistant's email.",
+    "headline": "Alright, let’s get you set up.",
+    "fieldLabel": "Select an email handle:",
+    "fieldLabelChooseHandle": "Pick a handle and an email prefix:",
+    "confirm": "Confirm",
     "immutableNotice": "The handle becomes your assistant's public handle. You won't be able to change it once set."
   },
   "assistantInboxRoute": {
