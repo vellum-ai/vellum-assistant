@@ -319,9 +319,9 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
       aria-label={t("identityOverview.dismissEmail")}
       title={t("identityOverview.dismissEmail")}
       onClick={emailCard.dismiss}
-      className="flex size-7 items-center justify-center rounded-md text-[var(--content-secondary)] transition-colors hover:bg-[var(--card-hover)] hover:text-[var(--content-strong)] outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]"
+      className="flex size-6 items-center justify-center rounded-full text-[var(--content-secondary)] transition-colors hover:bg-[color-mix(in_srgb,var(--content-default)_10%,transparent)] hover:text-[var(--content-strong)] outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]"
     >
-      <X className="h-4 w-4" aria-hidden />
+      <X className="h-3.5 w-3.5" aria-hidden />
     </button>
   ) : (
     <button
@@ -338,12 +338,12 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
       }
       aria-pressed={emailPin.pinned}
       onClick={emailPin.toggle}
-      className="flex size-7 items-center justify-center rounded-md text-[var(--content-secondary)] transition-colors hover:bg-[var(--card-hover)] hover:text-[var(--content-strong)] outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]"
+      className="flex size-6 items-center justify-center rounded-full text-[var(--content-secondary)] transition-colors hover:bg-[color-mix(in_srgb,var(--content-default)_10%,transparent)] hover:text-[var(--content-strong)] outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]"
     >
       {emailPin.pinned ? (
-        <PinOff className="h-4 w-4" aria-hidden />
+        <PinOff className="h-3.5 w-3.5" aria-hidden />
       ) : (
-        <Pin className="h-4 w-4" aria-hidden />
+        <Pin className="h-3.5 w-3.5" aria-hidden />
       )}
     </button>
   );
@@ -1005,17 +1005,22 @@ function OverviewBento({
      a lock when the plan has no email, and its pin or close beside it. */
   const emailSection = sections.find((s) => s.key === "email");
   const emailPill = emailSection ? (
-    <>
+    /* The pill is a link with its control inside the same shape, as the
+       side menu's pills carry theirs: siblings, since a button cannot
+       nest in an anchor. */
+    <span
+      data-testid="identity-email-pill"
+      className="inline-flex h-8 shrink-0 items-center gap-0.5 rounded-full py-0 pr-1 pl-3 text-body-small-default text-[var(--content-default)] transition-[filter] hover:brightness-95"
+      style={{
+        backgroundColor: avatarHex
+          ? `color-mix(in srgb, ${avatarHex} 22%, var(--surface-lift))`
+          : "var(--surface-active)",
+      }}
+    >
       <Link
         to={emailSection.to}
-        data-testid="identity-email-pill"
         aria-label={emailSection.label}
-        className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3 text-body-small-default text-[var(--content-default)] transition-colors hover:brightness-95 outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]"
-        style={{
-          backgroundColor: avatarHex
-            ? `color-mix(in srgb, ${avatarHex} 22%, var(--surface-lift))`
-            : "var(--surface-active)",
-        }}
+        className="inline-flex h-full items-center gap-1.5 pr-1.5 outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)] rounded-full"
       >
         <Mail
           className="h-4 w-4 shrink-0"
@@ -1035,7 +1040,7 @@ function OverviewBento({
         ) : null}
       </Link>
       {emailTrailing}
-    </>
+    </span>
   ) : null;
 
   // The amoeba avatar needs a color + eye art to morph with; custom-image
