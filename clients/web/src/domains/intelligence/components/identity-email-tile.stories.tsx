@@ -49,7 +49,7 @@ function Strip({ locked }: { locked: boolean }) {
           .map((section) =>
             section.key === "channels" ? (
               <div key={section.key} className="relative flex min-w-0 flex-1">
-                <div className="absolute inset-x-0 bottom-full mb-1">
+                <div className="absolute bottom-full left-0 max-w-full">
                   <SectionCard
                     section={email}
                     stat={undefined}
@@ -62,6 +62,7 @@ function Strip({ locked }: { locked: boolean }) {
                   stat={{ text: "3 connected" }}
                   hoverFill
                   mini
+                  tabbed
                 />
               </div>
             ) : (

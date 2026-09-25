@@ -537,6 +537,7 @@ export function SectionCard({
   mini,
   compact = false,
   slim = false,
+  tabbed = false,
   trailing,
   flooded = false,
   floodOrigin,
@@ -563,11 +564,13 @@ export function SectionCard({
    */
   compact?: boolean;
   /**
-   * A one-line, full-width row: the glyph and the title on one baseline
-   * with only the row's own top and bottom padding around them. The Email
-   * card's shape, standing over the strip rather than in it.
+   * A one-line tab: the glyph and the title on one baseline with only the
+   * row's own top and bottom padding, rounded on top and flush with the
+   * tile it sits on. The Email card's shape, a tab on the Channels tile.
    */
   slim?: boolean;
+  /** The tile has a tab on its top-left corner, so that corner is square. */
+  tabbed?: boolean;
   /** A control on the slim row's trailing edge, outside the card's link. */
   trailing?: ReactNode;
   /** The avatar has poured itself over this card — fill it with the
@@ -639,17 +642,18 @@ export function SectionCard({
   ) : null;
 
   if (slim) {
-    // The Email row: the feature cards' wash of the avatar colour, so it
+    // The Email tab: the feature cards' wash of the avatar colour, so it
     // reads with Personality and Schedules rather than with the plain
-    // tiles under it, at a single line's height. The glyph takes the
-    // strong tone rather than the tiles' muted one.
+    // tiles, at a single line's height, rounded on top and square where
+    // it meets the Channels tile so the two read as one piece. The glyph
+    // takes the strong tone rather than the tiles' muted one.
     return (
       <Card.Root
         asChild
         bordered
         elevated={false}
         clipContents
-        className={`rounded-[12px] border bg-[var(--card-feature-bg,var(--card-bg))] ${
+        className={`w-fit min-w-[11rem] rounded-t-[12px] rounded-b-none border border-b-0 bg-[var(--card-feature-bg,var(--card-bg))] ${
           photoBackdrop
             ? "border-transparent backdrop-blur-[32px]"
             : "border-[var(--border-base)]"
@@ -665,7 +669,7 @@ export function SectionCard({
             ref={linkRef}
             onMouseEnter={() => onHoverChange?.(true)}
             onMouseLeave={() => onHoverChange?.(false)}
-            className={`relative flex min-w-0 flex-1 cursor-pointer items-center gap-2 py-1.5 pl-3 pr-2 transition-all duration-150 active:scale-[0.99] ${
+            className={`relative flex min-w-0 flex-1 cursor-pointer items-center gap-2 py-1.5 pl-3 pr-3 transition-all duration-150 active:scale-[0.99] ${
               hoverFill ? "hover:bg-[var(--card-hover)]" : ""
             }`}
           >
@@ -707,7 +711,9 @@ export function SectionCard({
         bordered={false}
         elevated
         clipContents
-        className="rounded-[12px] border-0 bg-[var(--card-bg)]"
+        className={`rounded-[12px] border-0 bg-[var(--card-bg)] ${
+          tabbed ? "rounded-tl-none" : ""
+        }`}
       >
         <Link
           to={section.to}
@@ -1388,7 +1394,7 @@ function OverviewBento({
               section.key === "channels" && emailSection ? (
                 /* Email is a channel with a page of its own: its row sits
                    just over the Channels tile, in the tile's cell. */
-                <div key={section.key} className="flex flex-col gap-1">
+                <div key={section.key} className="flex flex-col items-start">
                   <SectionCard
                     section={emailSection}
                     stat={stats[emailSection.key]}
@@ -1402,6 +1408,7 @@ function OverviewBento({
                     hoverFill
                     mini
                     compact
+                    tabbed
                   />
                 </div>
               ) : (
@@ -1631,7 +1638,7 @@ function OverviewBento({
                standing across the strip. Anchored above the tile so the
                strip's tiles keep one height. */
             <div key={section.key} className="relative flex min-w-0 flex-1">
-              <div className="absolute inset-x-0 bottom-full mb-1">
+              <div className="absolute bottom-full left-0 max-w-full">
                 {[emailSection].map((email) => (
                   <SectionCard
                     key={email.key}
@@ -1641,7 +1648,7 @@ function OverviewBento({
                   />
                 ))}
               </div>
-              <SectionCard {...cardProps(section)} mini />
+              <SectionCard {...cardProps(section)} mini tabbed />
             </div>
           ) : (
             <SectionCard key={section.key} {...cardProps(section)} mini />
