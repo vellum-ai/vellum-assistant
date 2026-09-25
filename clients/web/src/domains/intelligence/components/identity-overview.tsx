@@ -653,7 +653,7 @@ export function SectionCard({
         bordered
         elevated={false}
         clipContents
-        className={`w-fit min-w-[11rem] rounded-t-[12px] rounded-b-none border border-b-0 bg-[var(--card-feature-bg,var(--card-bg))] ${
+        className={`w-fit max-w-full min-w-[8rem] rounded-t-[12px] rounded-b-none border border-b-0 bg-[var(--card-feature-bg,var(--card-bg))] ${
           photoBackdrop
             ? "border-transparent backdrop-blur-[32px]"
             : "border-[var(--border-base)]"
@@ -720,8 +720,10 @@ export function SectionCard({
           ref={linkRef}
           onMouseEnter={() => onHoverChange?.(true)}
           onMouseLeave={() => onHoverChange?.(false)}
-          className={`relative flex h-full flex-1 cursor-pointer items-center transition-all duration-150 active:scale-[0.98] ${
-            compact ? "gap-1 py-3 pr-3 pl-2" : "gap-2 px-4 py-2.5"
+          className={`relative flex flex-1 cursor-pointer items-center transition-all duration-150 active:scale-[0.98] ${
+            // The stacked tiles keep their own height: a tile beside the
+            // Email-and-Channels pair must not stretch to the pair's.
+            compact ? "gap-1 py-3 pr-3 pl-2" : "h-full gap-2 px-4 py-2.5"
           } ${hoverFill ? "hover:bg-[var(--card-hover)]" : ""}`}
         >
           {floodOverlay}
@@ -1293,16 +1295,14 @@ function OverviewBento({
                 "--card-bg": "#17191c",
                 "--card-hover": "#24292e",
               } as CSSProperties)
-            : // Figma 7907-9239: the stacked layout steps its cards off the
-              // avatar tint and onto the surface ramp. The two feature cards
-              // take a 30% wash of the base that lets the tinted page through;
-              // the tiles below take the base itself. `--card-hover` follows
-              // them onto that ramp, so a hover reads as a lift rather than a
-              // colour flash from the avatar.
+            : // The stacked layout steps its tiles off the avatar tint and
+              // onto the surface ramp, with `--card-hover` following them so
+              // a hover reads as a lift rather than a colour flash. The two
+              // feature cards (and the Email tab, which wears their wash)
+              // keep the desktop's wash of the avatar colour, so the page
+              // reads the same on a phone as on a desk.
               ({
                 ...tintStyle,
-                "--card-feature-bg":
-                  "color-mix(in srgb, var(--surface-base) 30%, transparent)",
                 "--card-bg": "var(--surface-base)",
                 "--card-hover": "var(--surface-lift)",
               } as CSSProperties)
@@ -1389,19 +1389,23 @@ function OverviewBento({
               </Link>
             </Card.Root>
           )}
-          <div className="grid grid-cols-2 gap-2">
+          {/* Bottom-aligned so a tile beside the Email-and-Channels pair
+              keeps its own height rather than stretching to the pair's. */}
+          <div className="grid grid-cols-2 items-end gap-2">
             {gridSections.map((section) =>
               section.key === "channels" && emailSection ? (
-                /* Email is a channel with a page of its own: its row sits
-                   just over the Channels tile, in the tile's cell. */
-                <div key={section.key} className="flex flex-col items-start">
-                  <SectionCard
-                    section={emailSection}
-                    stat={stats[emailSection.key]}
-                    hoverFill
-                    slim
-                    trailing={emailTrailing}
-                  />
+                /* Email is a channel with a page of its own: its tab sits
+                   on the Channels tile, in the tile's cell. */
+                <div key={section.key} className="flex flex-col items-stretch">
+                  <div className="self-start">
+                    <SectionCard
+                      section={emailSection}
+                      stat={stats[emailSection.key]}
+                      hoverFill
+                      slim
+                      trailing={emailTrailing}
+                    />
+                  </div>
                   <SectionCard
                     section={section}
                     stat={stats[section.key]}

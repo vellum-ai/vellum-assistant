@@ -109,6 +109,58 @@ export const Locked: Story = {
   ),
 };
 
+/**
+ * The phone's stacked grid: two columns, the tab on a full-width Channels
+ * tile, and the Contacts tile beside it bottom-aligned rather than
+ * stretched to the pair's height.
+ */
+export const Stacked: Story = {
+  args: { locked: false },
+  render: () => {
+    const sections = strip(false);
+    const email = sections.find((s) => s.key === "email")!;
+    return (
+      <Bench>
+        <div className="grid w-[360px] grid-cols-2 items-end gap-2">
+          {sections
+            .filter((s) => s.key !== "email")
+            .map((section) =>
+              section.key === "channels" ? (
+                <div key={section.key} className="flex flex-col items-stretch">
+                  <div className="self-start">
+                    <SectionCard
+                      section={email}
+                      stat={undefined}
+                      hoverFill
+                      slim
+                    />
+                  </div>
+                  <SectionCard
+                    section={section}
+                    stat={{ text: "0 connected" }}
+                    hoverFill
+                    mini
+                    compact
+                    tabbed
+                  />
+                </div>
+              ) : (
+                <SectionCard
+                  key={section.key}
+                  section={section}
+                  stat={{ text: "2 people" }}
+                  hoverFill
+                  mini
+                  compact
+                />
+              ),
+            )}
+        </div>
+      </Bench>
+    );
+  },
+};
+
 /** Both, to judge the wash against the plain tiles either side. */
 export const Both: Story = {
   args: { locked: false },
