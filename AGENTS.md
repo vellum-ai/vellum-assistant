@@ -362,3 +362,5 @@ When publishing domain/live events from inside the daemon process, call the `ass
 - **Error handling conventions**: `assistant/docs/error-handling.md`
 - **Notification pipeline**: `assistant/src/notifications/AGENTS.md`
 - **Trust & guardian invariants**: `assistant/src/approvals/AGENTS.md`
+
+Adding this line for testing fork
