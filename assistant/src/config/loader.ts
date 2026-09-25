@@ -17,6 +17,7 @@ import {
   getConfigValidationResetNoticePath,
   getWorkspaceConfigPath,
 } from "../util/platform.js";
+import { validateChatSettingsWrite } from "./chat-settings.js";
 import { pruneSeededCallsiteDefaultsFromConfig } from "./prune-seeded-callsite-defaults.js";
 import { AssistantConfigSchema } from "./schema.js";
 import type { AssistantConfig } from "./types.js";
@@ -1364,7 +1365,10 @@ function describeJsonShape(value: unknown): string {
 }
 
 export function saveRawConfig(config: Record<string, unknown>): void {
-  ensureDataDir();
+  const chatSettings = validateChatSettingsWrite(loadRawConfig(), config);
+  if (!chatSettings.success) {
+    throw chatSettings.error;
+  }
   const configPath = getWorkspaceConfigPath();
 
   // Strip legacy apiKeys — provider keys belong in secure storage, not plaintext config

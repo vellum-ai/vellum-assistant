@@ -7,6 +7,7 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { saveRawConfig } from "../../config/loader.js";
 import type { PairingResult } from "../conversation-pairing.js";
 import type { NotificationSignal } from "../signal.js";
 import type {
@@ -33,11 +34,15 @@ mock.module("../copy-composer.js", () => ({
 
 // Stub only getGuardianDelivery; keep the real selectors so this mock is
 // harmless if it leaks into destination-resolver.test.ts under a shared run.
+let onGuardianRead: () => Promise<void> = async () => {};
 const realGuardianReader =
   await import("../../contacts/guardian-delivery-reader.js");
 mock.module("../../contacts/guardian-delivery-reader.js", () => ({
   ...realGuardianReader,
-  getGuardianDelivery: async () => null,
+  getGuardianDelivery: async () => {
+    await onGuardianRead();
+    return null;
+  },
 }));
 
 function defaultPairing(): PairingResult {
@@ -53,10 +58,12 @@ function defaultPairing(): PairingResult {
 let pairingByChannel: Record<string, PairingResult> = {};
 let pairingErrorByChannel: Record<string, Error> = {};
 let pairedChannels: string[] = [];
+let onPairing: (channel: string) => Promise<void> = async () => {};
 
 mock.module("../conversation-pairing.js", () => ({
   pairDeliveryWithConversation: async (_signal: unknown, channel: string) => {
     pairedChannels.push(channel);
+    await onPairing(channel);
     const error = pairingErrorByChannel[channel];
     if (error) {
       throw error;
@@ -71,6 +78,7 @@ let updateDeliveryStatusImpl: (
   status: string,
   patch?: { messageId?: string; canonicalMessageId?: string },
 ) => void = () => {};
+let deliveryStatuses: string[] = [];
 
 mock.module("../deliveries-store.js", () => ({
   createDelivery: () => {},
@@ -79,7 +87,10 @@ mock.module("../deliveries-store.js", () => ({
     status: string,
     _error?: unknown,
     patch?: { messageId?: string; canonicalMessageId?: string },
-  ) => updateDeliveryStatusImpl(status, patch),
+  ) => {
+    deliveryStatuses.push(status);
+    updateDeliveryStatusImpl(status, patch);
+  },
   findDeliveryByDecisionAndChannel: () => undefined,
 }));
 
@@ -198,11 +209,15 @@ function makeCapturingAdapter(
 }
 
 beforeEach(() => {
+  saveRawConfig({});
   composeFallbackReturn = {};
   knownConversations = new Set();
   pairingByChannel = {};
   pairingErrorByChannel = {};
   pairedChannels = [];
+  onPairing = async () => {};
+  onGuardianRead = async () => {};
+  deliveryStatuses = [];
   updateDeliveryStatusImpl = () => {};
   destinationBindingContexts = {};
   destinationGuardianPrincipalId = undefined;
@@ -211,6 +226,248 @@ beforeEach(() => {
 });
 
 // ── Tests ───────────────────────────────────────────────────────────────
+
+describe("NotificationBroadcaster chat reply preference", () => {
+  const copy = { title: "Answer ready", body: "The result is ready." };
+  const reply = () => makeSignal({ sourceEventName: "chat.assistant_reply" });
+  const decision = () =>
+    makeDecision({
+      selectedChannels: ["vellum", "platform"],
+      renderedCopy: { vellum: copy, platform: copy, slack: copy },
+    });
+
+  beforeEach(() => {
+    destinationGuardianPrincipalId = "principal-1";
+    pairingByChannel.vellum = {
+      ...defaultPairing(),
+      conversationId: "conv-1",
+      messageId: "msg-1",
+      createdNewConversation: true,
+    };
+  });
+
+  test("keeps pairing and external delivery while suppressing local and native alerts", async () => {
+    saveRawConfig({ notifications: { newMessageEnabled: false } });
+    const local = makeCapturingAdapter("vellum");
+    const mobile = makeCapturingAdapter("platform", {
+      success: true,
+      remotePushAccepted: true,
+    });
+    const slack = makeCapturingAdapter("slack");
+    const broadcaster = new NotificationBroadcaster([
+      local.adapter,
+      mobile.adapter,
+      slack.adapter,
+    ]);
+    const paired = mock(() => {});
+    broadcaster.setOnConversationCreated(paired);
+    const results = await broadcaster.broadcastDecision(reply(), {
+      ...decision(),
+      selectedChannels: ["vellum", "platform", "slack"],
+    });
+
+    expect(local.sends[0]?.payload).toMatchObject({
+      silent: true,
+      remotePushDispatched: false,
+      deepLinkTarget: { conversationId: "conv-1", messageId: "msg-1" },
+    });
+    expect(paired).toHaveBeenCalledWith(
+      expect.objectContaining({ conversationId: "conv-1", silent: true }),
+    );
+    expect(mobile.sends).toHaveLength(0);
+    expect(slack.sends).toHaveLength(1);
+    expect(results).toEqual([
+      expect.objectContaining({ channel: "platform", status: "skipped" }),
+      expect.objectContaining({
+        channel: "vellum",
+        status: "sent",
+        messageId: "msg-1",
+      }),
+      expect.objectContaining({ channel: "slack", status: "sent" }),
+    ]);
+    expect(deliveryStatuses).toEqual(["skipped", "sent", "sent"]);
+  });
+
+  test.each([
+    "schedule.result",
+    "schedule.notify",
+    "activity.complete",
+    "guardian.question",
+    "ingress.access_request",
+    "chat.assistant_reply.extra",
+  ])("does not suppress %s", async (sourceEventName) => {
+    saveRawConfig({ notifications: { newMessageEnabled: false } });
+    const local = makeCapturingAdapter("vellum");
+    const mobile = makeCapturingAdapter("platform");
+    await new NotificationBroadcaster([
+      local.adapter,
+      mobile.adapter,
+    ]).broadcastDecision(
+      makeSignal({
+        sourceEventName,
+        attentionHints: { ...reply().attentionHints, urgency: "critical" },
+        contextPayload: {
+          completion: {
+            workId: "task-1",
+            conversationId: "conv-1",
+            recipientPrincipalId: "principal-1",
+            owner: "parent_continuation",
+          },
+        },
+      }),
+      decision(),
+    );
+    expect(local.sends[0]?.payload.silent).toBe(false);
+    expect(mobile.sends).toHaveLength(1);
+  });
+
+  test("rechecks the preference after pairing and an awaited creation callback", async () => {
+    const local = makeCapturingAdapter("vellum");
+    const mobile = makeCapturingAdapter("platform");
+    const broadcaster = new NotificationBroadcaster([
+      local.adapter,
+      mobile.adapter,
+    ]);
+    const created = mock(() => {});
+    broadcaster.setOnConversationCreated(created);
+    await broadcaster.broadcastDecision(reply(), decision(), {
+      onConversationCreated: async () => {
+        saveRawConfig({ notifications: { newMessageEnabled: false } });
+      },
+    });
+
+    expect(created).toHaveBeenCalledWith(
+      expect.objectContaining({ silent: true }),
+    );
+    expect(local.sends[0]?.payload.silent).toBe(true);
+    expect(mobile.sends).toHaveLength(0);
+  });
+
+  test.each(["guardians", "vellum", "platform"])(
+    "delivers a reply re-enabled during %s preparation",
+    async (stage) => {
+      saveRawConfig({ notifications: { newMessageEnabled: false } });
+      const enable = async () => {
+        await Promise.resolve();
+        saveRawConfig({ notifications: { newMessageEnabled: true } });
+      };
+      onGuardianRead = async () => {
+        if (stage === "guardians") {
+          await enable();
+        }
+      };
+      onPairing = async (channel) => {
+        if (channel === stage) {
+          await enable();
+        }
+      };
+      const local = makeCapturingAdapter("vellum");
+      const mobile = makeCapturingAdapter("platform", {
+        success: true,
+        remotePushAccepted: true,
+        remotePushPlatforms: ["ios"],
+      });
+      const results = await new NotificationBroadcaster([
+        local.adapter,
+        mobile.adapter,
+      ]).broadcastDecision(reply(), decision());
+
+      expect(mobile.sends).toHaveLength(1);
+      expect(local.sends[0]?.payload).toMatchObject({
+        silent: false,
+        remotePushDispatched: true,
+        remotePushPlatforms: ["ios"],
+      });
+      expect(results[0]).toMatchObject({
+        channel: "platform",
+        status: "sent",
+      });
+      expect(deliveryStatuses).toEqual(["sent", "sent"]);
+    },
+  );
+
+  test("rechecks after platform pairing and silently flushes the deferred local intent", async () => {
+    onPairing = async (channel) => {
+      if (channel === "platform") {
+        saveRawConfig({ notifications: { newMessageEnabled: false } });
+      }
+    };
+    const local = makeCapturingAdapter("vellum");
+    const mobile = makeCapturingAdapter("platform");
+    const results = await new NotificationBroadcaster([
+      local.adapter,
+      mobile.adapter,
+    ]).broadcastDecision(reply(), decision());
+
+    expect(mobile.sends).toHaveLength(0);
+    expect(local.sends[0]?.payload).toMatchObject({
+      silent: true,
+      remotePushDispatched: false,
+    });
+    expect(results[0]).toMatchObject({
+      channel: "platform",
+      status: "skipped",
+    });
+  });
+
+  test("keeps an accepted push truthful while silencing a deferred local intent", async () => {
+    const local = makeCapturingAdapter("vellum");
+    const mobile: ChannelAdapter = {
+      channel: "platform",
+      async send() {
+        saveRawConfig({ notifications: { newMessageEnabled: false } });
+        return {
+          success: true,
+          remotePushAccepted: true,
+          remotePushPlatforms: ["ios"],
+        };
+      },
+    };
+    await new NotificationBroadcaster([
+      local.adapter,
+      mobile,
+    ]).broadcastDecision(reply(), decision());
+    expect(local.sends[0]?.payload).toMatchObject({
+      silent: true,
+      remotePushDispatched: true,
+      remotePushPlatforms: ["ios"],
+    });
+  });
+
+  test("records an adapter suppression as skipped without claiming a push", async () => {
+    const local = makeCapturingAdapter("vellum");
+    const mobile = makeCapturingAdapter("platform", {
+      success: false,
+      skipped: true,
+      error: "Chat reply notifications are disabled",
+      remotePushAccepted: false,
+    });
+    const results = await new NotificationBroadcaster([
+      local.adapter,
+      mobile.adapter,
+    ]).broadcastDecision(reply(), decision());
+    expect(results[0]).toMatchObject({
+      channel: "platform",
+      status: "skipped",
+    });
+    expect(deliveryStatuses).toEqual(["skipped", "sent"]);
+    expect(local.sends[0]?.payload.remotePushDispatched).toBe(false);
+  });
+
+  test("reads re-enabled settings for a delayed decision", async () => {
+    saveRawConfig({ notifications: { newMessageEnabled: false } });
+    const selected = decision();
+    saveRawConfig({ notifications: { newMessageEnabled: true } });
+    const local = makeCapturingAdapter("vellum");
+    const mobile = makeCapturingAdapter("platform");
+    await new NotificationBroadcaster([
+      local.adapter,
+      mobile.adapter,
+    ]).broadcastDecision(reply(), selected);
+    expect(local.sends[0]?.payload.silent).toBe(false);
+    expect(mobile.sends).toHaveLength(1);
+  });
+});
 
 describe("NotificationBroadcaster completion delivery", () => {
   test.each([

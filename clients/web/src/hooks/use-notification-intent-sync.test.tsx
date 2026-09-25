@@ -556,6 +556,23 @@ describe("useNotificationIntentSync guardian-scoped intents", () => {
 });
 
 describe("useNotificationIntentSync silent intents", () => {
+  test.each(["browser", "desktop"])(
+    "acks a muted chat reply without a banner or sound on %s",
+    async (host) => {
+      if (host === "desktop") {
+        runInElectron(false);
+      }
+      mountAt(routes.assistant);
+      publishNotificationIntent({
+        sourceEventName: "chat.assistant_reply",
+        silent: true,
+      });
+      await Promise.resolve();
+      expectSuppressed();
+      expect(playSoundMock).not.toHaveBeenCalled();
+    },
+  );
+
   test("skips and acks an intent the daemon marks silent", () => {
     mountAt(routes.assistant);
 

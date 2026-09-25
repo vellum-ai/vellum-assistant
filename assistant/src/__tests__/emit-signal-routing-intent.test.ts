@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { saveRawConfig } from "../config/loader.js";
+import type { NotificationChannel } from "../notifications/types.js";
+
 const evaluateSignalMock = mock();
 const enforceRoutingIntentMock = mock();
 const updateDecisionMock = mock();
@@ -8,6 +11,14 @@ const createEventMock = mock();
 const setEventDedupeKeyMock = mock();
 const dispatchDecisionMock = mock();
 const isPlatformClientConfiguredMock = mock();
+const writeHomeFeedItemForSignalMock = mock(
+  async (..._args: unknown[]) => null,
+);
+
+mock.module("../notifications/home-feed-side-effect.js", () => ({
+  writeHomeFeedItemForSignal: (...args: unknown[]) =>
+    writeHomeFeedItemForSignalMock(...args),
+}));
 
 mock.module("../channels/config.js", () => ({
   getDeliverableChannels: () => ["vellum", "telegram"],
@@ -101,6 +112,8 @@ import {
 } from "../notifications/emit-signal.js";
 
 beforeEach(() => {
+  saveRawConfig({});
+  writeHomeFeedItemForSignalMock.mockClear();
   evaluateSignalMock.mockReset();
   enforceRoutingIntentMock.mockReset();
   updateDecisionMock.mockReset();
@@ -119,6 +132,104 @@ beforeEach(() => {
   });
   isPlatformClientConfiguredMock.mockResolvedValue(true);
   enforceRoutingIntentMock.mockImplementation((decision: unknown) => decision);
+});
+
+describe("emitNotificationSignal chat reply preference", () => {
+  test.each([
+    [false, false],
+    [true, true],
+    [false, true],
+    [true, false],
+  ])(
+    "preserves routing candidates when the setting changes %s -> %s",
+    async (initial, enabled) => {
+      saveRawConfig({ notifications: { newMessageEnabled: initial } });
+      const selectedChannels: NotificationChannel[] = [
+        "vellum",
+        "platform",
+        "telegram",
+      ];
+      const decision = {
+        shouldNotify: true,
+        selectedChannels,
+        reasoningSummary: "Selected reply delivery",
+        renderedCopy: {
+          vellum: { title: "Answer", body: "The result is ready." },
+        },
+        dedupeKey: "reply-1",
+        confidence: 1,
+        fallbackUsed: false,
+        persistedDecisionId: "decision-1",
+      };
+      evaluateSignalMock.mockResolvedValue(decision);
+      enforceRoutingIntentMock.mockReturnValue(decision);
+      runDeterministicChecksMock.mockImplementation(async () => {
+        await Promise.resolve();
+        saveRawConfig({ notifications: { newMessageEnabled: enabled } });
+        return { passed: true };
+      });
+      const result = await emitNotificationSignal({
+        sourceEventName: "chat.assistant_reply",
+        sourceChannel: "vellum",
+        sourceContextId: "conv-1",
+        attentionHints: {
+          urgency: "high",
+          requiresAction: false,
+          isAsyncBackground: false,
+          visibleInSourceNow: false,
+        },
+        routingIntent: "all_channels",
+      });
+      expect(runDeterministicChecksMock.mock.calls[0]?.[1]).toMatchObject({
+        selectedChannels: decision.selectedChannels,
+      });
+      expect(result.selectedChannels).toEqual(selectedChannels);
+      expect(result.dispatched).toBe(true);
+      expect(dispatchDecisionMock.mock.calls[0]?.[1]).toMatchObject({
+        shouldNotify: true,
+        selectedChannels,
+      });
+      expect(writeHomeFeedItemForSignalMock).toHaveBeenCalledTimes(1);
+      expect(writeHomeFeedItemForSignalMock.mock.calls[0]?.[1]).toMatchObject({
+        shouldNotify: true,
+        selectedChannels,
+      });
+      expect(updateDecisionMock).not.toHaveBeenCalled();
+    },
+  );
+
+  test.each([
+    "schedule.result",
+    "guardian.question",
+    "ingress.access_request",
+    "activity.failed",
+    "chat.assistant_reply.extra",
+  ])("preserves platform selection for %s", async (sourceEventName) => {
+    saveRawConfig({ notifications: { newMessageEnabled: false } });
+    evaluateSignalMock.mockResolvedValue({
+      shouldNotify: true,
+      selectedChannels: ["vellum", "platform"],
+      reasoningSummary: "Urgent delivery",
+      renderedCopy: { vellum: { title: "Alert", body: "Action required." } },
+      dedupeKey: "alert-1",
+      confidence: 1,
+      fallbackUsed: false,
+      persistedDecisionId: "decision-1",
+    });
+    const result = await emitNotificationSignal({
+      sourceEventName,
+      sourceChannel: "vellum",
+      sourceContextId: "conv-1",
+      attentionHints: {
+        urgency: "critical",
+        requiresAction: true,
+        isAsyncBackground: false,
+        visibleInSourceNow: false,
+      },
+    });
+    expect(result.selectedChannels).toEqual(["vellum", "platform"]);
+    expect(updateDecisionMock).not.toHaveBeenCalled();
+  });
 });
 
 describe("emitNotificationSignal routing intent re-persistence", () => {

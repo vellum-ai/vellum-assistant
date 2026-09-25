@@ -2167,6 +2167,24 @@
     "title": "Uso gratuito diario agotado",
     "viewPlans": "Ver planes"
   },
+  "chatsSettingsModal": {
+    "title": "Ajustes de chats",
+    "description": "Gestiona el marcado automático como hecho y las alertas de respuestas de este asistente en tus dispositivos.",
+    "autoArchive": "Archivar chats automáticamente",
+    "autoArchiveHelper": "Marca los chats inactivos como hechos, incluidos los que ya superan este plazo. Los chats hechos siguen en Todos los chats.",
+    "timeToArchive": "Tiempo para archivar",
+    "days": "{count, plural, one {# día} other {# días}}",
+    "notifications": "Alertas de respuestas en chats",
+    "notificationsHelper": "Recibe avisos de respuestas en chats que no estás viendo.",
+    "cancel": "Cancelar",
+    "confirm": "Confirmar",
+    "saving": "Guardando…",
+    "loading": "Cargando ajustes de chats…",
+    "retry": "Reintentar",
+    "loadError": "No se pudieron cargar los ajustes de chats. Vuelve a intentarlo.",
+    "saveError": "No se pudieron guardar los ajustes de chats. Tus cambios se conservan aquí. Pulsa Confirmar para volver a intentarlo.",
+    "unsupported": "Actualiza este asistente para usar los ajustes de chats."
+  },
   "emailNavItem": {
     "label": "Correo",
     "unpin": "Quitar Correo"

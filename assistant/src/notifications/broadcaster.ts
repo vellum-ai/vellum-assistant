@@ -24,6 +24,10 @@ import {
 import { isGuardianSensitiveEvent } from "./adapters/macos.js";
 import { resolveMessageText } from "./adapters/shared.js";
 import {
+  areChatReplyAlertsDisabled,
+  CHAT_REPLY_ALERTS_DISABLED,
+} from "./chat-reply-policy.js";
+import {
   isCompletionNotification,
   isCompletionRecipientUnavailable,
   isLocalNotificationSilent,
@@ -358,10 +362,11 @@ export class NotificationBroadcaster {
       decision.selectedChannels,
       guardians,
     );
-    const silent = isLocalNotificationSilent({
-      ...signal,
-      urgency: signal.attentionHints.urgency,
-    });
+    const resolveSilent = () =>
+      isLocalNotificationSilent({
+        ...signal,
+        urgency: signal.attentionHints.urgency,
+      });
 
     // Ensure vellum is processed first so the notification_conversation_created
     // event fires immediately, before slower channel sends (e.g. Telegram 30s
@@ -662,7 +667,7 @@ export class NotificationBroadcaster {
             targetGuardianPrincipalId,
             groupId: signal.conversationMetadata?.groupId,
             source: signal.conversationMetadata?.source,
-            silent,
+            silent: resolveSilent(),
           };
 
           // The per-dispatch onConversationCreated callback fires whenever a vellum
@@ -692,6 +697,7 @@ export class NotificationBroadcaster {
           ) {
             if (this.onConversationCreated) {
               try {
+                info.silent = resolveSilent();
                 await this.onConversationCreated(info);
               } catch (err) {
                 log.error(
@@ -714,7 +720,7 @@ export class NotificationBroadcaster {
           deepLinkTarget,
           contextPayload: signal.contextPayload,
           urgency: signal.attentionHints.urgency,
-          silent,
+          silent: resolveSilent(),
           approvalContext,
           accessRequestContext,
           toolApprovalSource,
@@ -915,7 +921,19 @@ export class NotificationBroadcaster {
       hasPersistedDecision,
     } = dispatch;
     try {
-      const adapterResult = await adapter.send(payload, destination, observer);
+      if (channel === "vellum") {
+        payload.silent = isLocalNotificationSilent(payload);
+      }
+      const adapterResult: DeliveryResult =
+        channel === "platform" &&
+        areChatReplyAlertsDisabled(signal.sourceEventName)
+          ? {
+              success: false,
+              skipped: true,
+              error: CHAT_REPLY_ALERTS_DISABLED,
+              remotePushAccepted: false,
+            }
+          : await adapter.send(payload, destination, observer);
 
       if (adapterResult.success) {
         // Prefer the channel-native id the adapter just captured (e.g.
@@ -966,13 +984,14 @@ export class NotificationBroadcaster {
           }),
         );
       } else {
+        const status = adapterResult.skipped ? "skipped" : "failed";
         if (hasPersistedDecision) {
-          updateDeliveryStatus(deliveryId, "failed", {
+          updateDeliveryStatus(deliveryId, status, {
             message: adapterResult.error,
           });
         }
         results.push(
-          buildDeliveryResult(dispatch, "failed", {
+          buildDeliveryResult(dispatch, status, {
             errorMessage: adapterResult.error,
           }),
         );

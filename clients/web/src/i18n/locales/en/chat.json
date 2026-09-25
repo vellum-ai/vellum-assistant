@@ -2233,6 +2233,24 @@
     "title": "Daily free usage used up",
     "viewPlans": "View plans"
   },
+  "chatsSettingsModal": {
+    "title": "Chats Settings",
+    "description": "Manage automatic Done marking and chat reply alerts for this assistant across your devices.",
+    "autoArchive": "Auto Archive Chats",
+    "autoArchiveHelper": "Marks inactive chats Done, including older chats already past this time. Done chats stay in All Chats.",
+    "timeToArchive": "Time to Archive",
+    "days": "{count, plural, one {# day} other {# days}}",
+    "notifications": "Chat reply alerts",
+    "notificationsHelper": "Get notified about replies in chats you’re not viewing.",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "saving": "Saving…",
+    "loading": "Loading chat settings…",
+    "retry": "Retry",
+    "loadError": "Chat settings couldn't be loaded. Please try again.",
+    "saveError": "Chat settings couldn't be saved. Your changes are kept here. Confirm to try again.",
+    "unsupported": "Update this assistant to use chat settings."
+  },
   "emailNavItem": {
     "label": "Email",
     "unpin": "Unpin Email"

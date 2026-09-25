@@ -21,6 +21,10 @@ import {
   sleep,
 } from "../../util/retry.js";
 import {
+  areChatReplyAlertsDisabled,
+  CHAT_REPLY_ALERTS_DISABLED,
+} from "../chat-reply-policy.js";
+import {
   isCompletionNotification,
   isCompletionRecipientUnavailable,
   resolveCompletionRecipient,
@@ -162,6 +166,16 @@ export class PlatformPushAdapter implements ChannelAdapter {
       platformsReported ? [...accumulatedPlatforms] : undefined;
 
     for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+      if (areChatReplyAlertsDisabled(payload.sourceEventName)) {
+        const remotePushAccepted = accumulatedPlatforms.size > 0;
+        return {
+          success: remotePushAccepted,
+          skipped: !remotePushAccepted,
+          error: CHAT_REPLY_ALERTS_DISABLED,
+          remotePushAccepted,
+          remotePushPlatforms: remotePushPlatforms(),
+        };
+      }
       let response: Response;
       try {
         response = await client.fetch(path, {

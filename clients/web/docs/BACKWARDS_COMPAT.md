@@ -103,6 +103,22 @@ knowing before you add a gate:
 
 ## Read vs. write paths
 
+Chats Settings uses the code-owned health `chatsSettings` capability through
+`useAssistantCapabilityQuery()`. The capability promises persisted preferences,
+automatic Done marking, and chat-reply alert suppression together. Older
+assistants can accept unknown config fields, so a successful config PATCH or
+the presence of saved keys does not prove support. Without the capability,
+the settings modal shows an update-required state and does not allow writes.
+This also distinguishes source builds that share a release version.
+The query distinguishes loading and retryable health failures from a confirmed
+unsupported response. A failed background check retains previously confirmed
+support so it does not discard an open form's edits.
+
+The modal submits only leaves edited during its open session. Remote config
+refreshes do not replace a dirty draft. Concurrent edits to different leaves
+are preserved; for the same leaf, the last successful write wins. Config
+invalidation and reconnect refresh use the existing assistant resource sync.
+
 The snapshot `assistantSupports()` collapses "version unknown" and
 "version known-but-old" into the same `false`. That's **safe for reads**:
 a read that falls back to a universally-understood legacy route is

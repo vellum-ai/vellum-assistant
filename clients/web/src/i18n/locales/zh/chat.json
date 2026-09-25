@@ -2232,6 +2232,24 @@
     "title": "今日免费用量已用完",
     "viewPlans": "查看方案"
   },
+  "chatsSettingsModal": {
+    "title": "聊天设置",
+    "description": "管理此助手在所有设备上的自动完成标记和聊天回复提醒。",
+    "autoArchive": "自动归档聊天",
+    "autoArchiveHelper": "将不活跃的聊天标记为已完成，包括已超过此时限的旧聊天。已完成的聊天仍保留在所有聊天中。",
+    "timeToArchive": "归档时限",
+    "days": "{count, plural, other {# 天}}",
+    "notifications": "聊天回复提醒",
+    "notificationsHelper": "接收当前未查看的聊天中的回复提醒。",
+    "cancel": "取消",
+    "confirm": "确认",
+    "saving": "正在保存…",
+    "loading": "正在加载聊天设置…",
+    "retry": "重试",
+    "loadError": "无法加载聊天设置。请重试。",
+    "saveError": "无法保存聊天设置。你的修改仍保留在此处。点击确认以重试。",
+    "unsupported": "请更新此助手以使用聊天设置。"
+  },
   "emailNavItem": {
     "label": "邮件",
     "unpin": "取消固定邮件"

@@ -3594,7 +3594,8 @@ export function unarchiveConversation(id: string): boolean {
   const now = Date.now();
   rawRun(
     "conversation:unarchive",
-    "UPDATE conversations SET archived_at = NULL, updated_at = ? WHERE id = ?",
+    "UPDATE conversations SET last_reopened_at = CASE WHEN archived_at IS NOT NULL THEN ? ELSE last_reopened_at END, archived_at = NULL, updated_at = ? WHERE id = ?",
+    now,
     now,
     id,
   );

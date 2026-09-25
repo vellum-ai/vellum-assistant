@@ -22,17 +22,11 @@ type AssistantCapability = keyof NonNullable<
  * on surfaces that render across pre-active lifecycle states — the chat
  * route — don't trip the gated accessor's throw.
  */
-export function useAssistantCapability(
-  capability: AssistantCapability,
-): boolean {
+export function useAssistantCapabilityQuery(capability: AssistantCapability) {
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
-  /* A platform-mode healthz read needs `Vellum-Organization-Id`, which the org
-     store hydrates after auth. Without this gate the probe can go out
-     headerless, be rejected, and resolve the capability false, and `staleTime`
-     then holds that answer long enough for a caller to take the unsupported
-     path for a daemon that does support the feature. */
+  // Platform health reads need the organization header hydrated after auth.
   const isOrgReady = useIsOrgReady();
-  const { data: supported = false } = useQuery({
+  return useQuery({
     queryKey: ["assistant-capability", capability, assistantId],
     enabled: assistantId != null && isOrgReady,
     queryFn: async () => {
@@ -40,7 +34,12 @@ export function useAssistantCapability(
         return false;
       }
       const result = await getAssistantHealthz(assistantId);
-      return result.ok && result.data.capabilities?.[capability] === true;
+      if (!result.ok) {
+        throw new Error("Unable to load assistant capabilities", {
+          cause: result.error,
+        });
+      }
+      return result.data.capabilities?.[capability] === true;
     },
     retry: false,
     // Capabilities are static per daemon process; they only change across a
@@ -48,5 +47,11 @@ export function useAssistantCapability(
     // every mount.
     staleTime: 60_000,
   });
-  return supported;
+}
+
+export function useAssistantCapability(
+  capability: AssistantCapability,
+): boolean {
+  const query = useAssistantCapabilityQuery(capability);
+  return !query.isError && query.data === true;
 }

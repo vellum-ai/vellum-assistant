@@ -13,9 +13,20 @@
  * off, so every story turns the flag on for its run and puts it back after.
  */
 
-import type { Meta, StoryObj } from "@storybook/react-vite";
+import type { Meta, StoryObj, StoryContext } from "@storybook/react-vite";
+import { useRef, useState } from "react";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { useArgs } from "storybook/preview-api";
+import { expect, userEvent, waitFor, within } from "storybook/test";
 import { SubagentAvatarChip } from "@/components/avatar/subagent-avatar-chip";
+import { ChatsSettingsDialog } from "@/domains/chat/components/chats-settings-dialog";
+import type { ChatsSettingsChanges } from "@/domains/chat/components/chats-settings-modal";
+import { client as daemonClient } from "@/generated/daemon/client.gen";
+import { configGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
+import type { ConfigGetResponse } from "@/generated/daemon/types.gen";
+import { createStoryQueryClient } from "@/lib/story-query-cache";
+import { fixtureNotFound, stubClientFetch } from "@/lib/stub-client-fetch";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 import { ConversationListProvider } from "@/domains/chat/components/conversation-list-context";
 import { AllChatsActivityBadge } from "@/domains/chat/components/all-chats-activity-badge";
@@ -138,13 +149,85 @@ const LIST_CONTEXT: AllChatsPageProps["listContext"] = {
   onMoveToGroup: () => {},
 };
 
-/** Turns the flag on for the story's run and puts the old value back. */
-function withSidebarDoneFlag() {
+const SETTINGS_ASSISTANT_ID = "story-assistant";
+
+function settingsFixture(
+  context: StoryContext<AllChatsPageProps>,
+): ConfigGetResponse {
+  return {
+    conversations: {
+      autoArchive: {
+        enabled: context.parameters.autoArchiveEnabled === true,
+        afterDays: 7,
+      },
+    },
+    notifications: {
+      newMessageEnabled: context.parameters.notificationsOff !== true,
+    },
+  };
+}
+
+function withSidebarDoneFlag(context: StoryContext<AllChatsPageProps>) {
   const previous = useClientFeatureFlagStore.getState().sidebarDone;
+  const previousAssistant =
+    useResolvedAssistantsStore.getState().activeAssistantId;
   useClientFeatureFlagStore.setState({ sidebarDone: true });
+  useResolvedAssistantsStore.setState({
+    activeAssistantId: SETTINGS_ASSISTANT_ID,
+  });
+  let config = settingsFixture(context);
+  const restoreFetch = stubClientFetch(daemonClient, async (request) => {
+    if (!new URL(request.url).pathname.endsWith("/config")) {
+      return fixtureNotFound();
+    }
+    if (request.method === "PATCH") {
+      const changes = (await request.json()) as ChatsSettingsChanges;
+      config = {
+        conversations: {
+          autoArchive: {
+            ...config.conversations!.autoArchive,
+            ...changes?.conversations?.autoArchive,
+          },
+        },
+        notifications: { ...config.notifications!, ...changes?.notifications },
+      };
+    }
+    return Response.json(config);
+  });
   return () => {
+    restoreFetch();
+    useResolvedAssistantsStore.setState({
+      activeAssistantId: previousAssistant,
+    });
     useClientFeatureFlagStore.setState({ sidebarDone: previous });
   };
+}
+
+function SettingsPageStory({
+  args,
+  initiallyOpen,
+}: {
+  args: AllChatsPageProps;
+  initiallyOpen: boolean;
+}) {
+  const [open, setOpen] = useState(initiallyOpen);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  return (
+    <div className="flex h-screen flex-col p-4 max-md:p-0">
+      <AllChatsPage
+        {...args}
+        onOpenSettings={() => setOpen(true)}
+        settingsButtonRef={buttonRef}
+      />
+      {open && (
+        <ChatsSettingsDialog
+          assistantId={SETTINGS_ASSISTANT_ID}
+          onClose={() => setOpen(false)}
+          returnFocusRef={buttonRef}
+        />
+      )}
+    </div>
+  );
 }
 
 const meta = {
@@ -180,16 +263,31 @@ const meta = {
   /* The chip row is a controlled selection, so the story writes the choice
      back into its own args and the canvas stays live (design-library story
      rule 3). */
-  render: function Render(args) {
+  render: function Render(args, context) {
     const [{ filter }, updateArgs] = useArgs<AllChatsPageProps>();
+    const [queryClient] = useState(() =>
+      createStoryQueryClient((cache) => {
+        cache.setQueryData(
+          ["assistant-capability", "chatsSettings", SETTINGS_ASSISTANT_ID],
+          true,
+        );
+        cache.setQueryData(
+          configGetQueryKey({ path: { assistant_id: SETTINGS_ASSISTANT_ID } }),
+          settingsFixture(context),
+        );
+      }),
+    );
     return (
-      <div className="flex h-screen flex-col p-4 max-md:p-0">
-        <AllChatsPage
-          {...args}
-          filter={filter}
-          onFilterChange={(next) => updateArgs({ filter: next })}
+      <QueryClientProvider client={queryClient}>
+        <SettingsPageStory
+          args={{
+            ...args,
+            filter,
+            onFilterChange: (next) => updateArgs({ filter: next }),
+          }}
+          initiallyOpen={context.parameters.settingsOpen === true}
         />
-      </div>
+      </QueryClientProvider>
     );
   },
   decorators: [
@@ -210,6 +308,49 @@ type Story = StoryObj<typeof meta>;
  * Done check; right-click one for Rename, Move to group and Delete.
  */
 export const Default: Story = {};
+
+export const SettingsOpen: Story = {
+  parameters: { settingsOpen: true },
+};
+
+export const SettingsMobile: Story = {
+  parameters: { settingsOpen: true },
+  globals: { viewport: { value: "sbMobile", isRotated: false } },
+};
+
+export const SettingsPreferences: Story = {
+  parameters: {
+    settingsOpen: true,
+    autoArchiveEnabled: true,
+    notificationsOff: true,
+  },
+};
+
+export const SettingsSaveFlow: Story = {
+  play: async ({ canvasElement }) => {
+    const page = within(canvasElement.ownerDocument.body);
+    await userEvent.click(page.getByRole("button", { name: "Chats Settings" }));
+    const dialog = await page.findByRole("dialog", { name: "Chats Settings" });
+    await userEvent.click(
+      await within(dialog).findByRole("switch", {
+        name: "Chat reply alerts",
+      }),
+    );
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Confirm" }),
+    );
+    await waitFor(() => expect(dialog).not.toBeInTheDocument());
+    await userEvent.click(page.getByRole("button", { name: "Chats Settings" }));
+    const reopenedDialog = await page.findByRole("dialog", {
+      name: "Chats Settings",
+    });
+    await expect(
+      await within(reopenedDialog).findByRole("switch", {
+        name: "Chat reply alerts",
+      }),
+    ).toHaveAttribute("aria-checked", "false");
+  },
+};
 
 /**
  * One channel preselected, which is what a sidebar section header's link
