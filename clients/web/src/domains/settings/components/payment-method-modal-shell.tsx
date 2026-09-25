@@ -133,15 +133,16 @@ export function PaymentMethodModalShell({
             )}
           </div>
           <Modal.Close asChild>
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              iconOnly={<X />}
+              iconOnlyGlyphClassName="[&_svg]:size-[17px]"
+              expandOnMobile={false}
               data-testid="payment-method-modal-close"
               aria-label={t("autoTopUpPaymentMethodModal.close")}
               disabled={locked}
-              className="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-[var(--content-tertiary)] hover:bg-[var(--surface-hover)] hover:text-[var(--content-emphasised)] disabled:cursor-not-allowed disabled:opacity-45"
-            >
-              <X size={17} />
-            </button>
+              className="h-7 w-7 shrink-0"
+            />
           </Modal.Close>
         </div>
 

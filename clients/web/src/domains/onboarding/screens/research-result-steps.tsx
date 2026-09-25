@@ -37,6 +37,7 @@ import {
   type ResearchFact,
   type ResearchSuggestion,
 } from "@/utils/research-facts";
+import { Button } from "@vellumai/design-library/components/button";
 
 // Once the calendar step blends the background to black, every step from there
 // on sits on a constant dark surface — so their text/UI must be a constant
@@ -506,19 +507,22 @@ export function ResearchResultsStep({
                   }}
                 >
                   <span>{fact.claim}</span>
-                  <button
-                    type="button"
+                  <Button
+                    variant="ghost"
+                    size="compact"
+                    shape="pill"
+                    iconOnly={<X />}
+                    iconOnlyGlyphClassName="[&_svg]:size-4"
+                    tintColor={tone.fgMuted}
+                    expandOnMobile={false}
                     aria-label={t("researchResultsStep.removeClaim", {
                       claim: fact.claim,
                     })}
                     onClick={() =>
                       setRemoved((prev) => new Set(prev).add(fact.claim))
                     }
-                    className="flex cursor-pointer h-6 w-6 shrink-0 items-center justify-center rounded-full transition-opacity hover:opacity-100"
-                    style={{ color: tone.fgMuted }}
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
+                    className="shrink-0"
+                  />
                 </motion.div>
               ))}
             </AnimatePresence>

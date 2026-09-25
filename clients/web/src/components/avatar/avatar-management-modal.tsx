@@ -619,15 +619,16 @@ function AccentRow({ accent, draft, onChange }: AccentRowProps) {
       </span>
       <div className="flex items-center gap-2">
         {isCustom ? (
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            iconOnly={<RotateCcw />}
+            iconOnlyGlyphClassName="[&_svg]:size-4"
+            expandOnMobile={false}
             onClick={() => onChange(null)}
             aria-label={t("avatarManagementModal.accentReset")}
-            title={t("avatarManagementModal.accentReset")}
-            className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-[var(--content-quiet)] transition-colors hover:bg-[var(--surface-active)]"
-          >
-            <RotateCcw className="h-4 w-4" />
-          </button>
+            tooltip={t("avatarManagementModal.accentReset")}
+            className="h-7 w-7"
+          />
         ) : (
           <span aria-hidden className="h-7 w-7 shrink-0" />
         )}

@@ -147,17 +147,16 @@ export function ProfileRow({
           {rowProblem != null ? (
             <Tooltip content={rowProblem}>
               {fixableHere ? (
-                <button
-                  type="button"
+                <Button
+                  variant="ghost"
+                  size="compact"
+                  iconOnly={<AlertCircle />}
+                  iconOnlyGlyphClassName="[&_svg]:size-4"
+                  tintColor="var(--system-mid-strong)"
+                  expandOnMobile={false}
                   onClick={onOpen}
                   aria-label={rowProblem}
-                  className="inline-flex cursor-pointer rounded-sm p-0.5 keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]"
-                >
-                  <AlertCircle
-                    className="h-4 w-4 text-[var(--system-mid-strong)]"
-                    aria-hidden="true"
-                  />
-                </button>
+                />
               ) : (
                 <span className="inline-flex p-0.5" tabIndex={0}>
                   <AlertCircle

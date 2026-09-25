@@ -262,21 +262,25 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
                       >
                         {backup.snapshot_name}
                       </code>
-                      <button
-                        type="button"
+                      <Button
+                        variant="ghost"
+                        size="compact"
+                        iconOnly={
+                          copiedSnapshot === backup.snapshot_name ? (
+                            <Check className="text-green-500" />
+                          ) : (
+                            <Copy />
+                          )
+                        }
+                        expandOnMobile={false}
                         onClick={() =>
                           handleCopySnapshotName(backup.snapshot_name)
                         }
                         data-reveal=""
-                        className="shrink-0 text-[var(--content-secondary)] hover:text-[var(--content-default)]"
-                        title={t("assistantBackups.copySnapshotName")}
-                      >
-                        {copiedSnapshot === backup.snapshot_name ? (
-                          <Check className="h-3.5 w-3.5 text-green-500" />
-                        ) : (
-                          <Copy className="h-3.5 w-3.5" />
-                        )}
-                      </button>
+                        className="shrink-0"
+                        tooltip={t("assistantBackups.copySnapshotName")}
+                        aria-label={t("assistantBackups.copySnapshotName")}
+                      />
                     </div>
                   </td>
                   <td className="overflow-hidden whitespace-nowrap py-2.5 pr-4">
@@ -330,18 +334,22 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
                 >
                   {backup.snapshot_name}
                 </code>
-                <button
-                  type="button"
+                <Button
+                  variant="ghost"
+                  size="compact"
+                  iconOnly={
+                    copiedSnapshot === backup.snapshot_name ? (
+                      <Check className="text-green-500" />
+                    ) : (
+                      <Copy />
+                    )
+                  }
+                  expandOnMobile={false}
                   onClick={() => handleCopySnapshotName(backup.snapshot_name)}
-                  className="shrink-0 text-[var(--content-secondary)] hover:text-[var(--content-default)]"
-                  title={t("assistantBackups.copySnapshotName")}
-                >
-                  {copiedSnapshot === backup.snapshot_name ? (
-                    <Check className="h-3.5 w-3.5 text-green-500" />
-                  ) : (
-                    <Copy className="h-3.5 w-3.5" />
-                  )}
-                </button>
+                  className="shrink-0"
+                  tooltip={t("assistantBackups.copySnapshotName")}
+                  aria-label={t("assistantBackups.copySnapshotName")}
+                />
               </div>
               <div className="mb-2 flex flex-wrap items-center gap-2 text-body-medium-lighter">
                 <BackupTypeBadge type={backup.backup_type} />

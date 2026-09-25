@@ -56,7 +56,6 @@ import {
 import { Input, Textarea } from "@vellumai/design-library/components/input";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { Toggle } from "@vellumai/design-library/components/toggle";
-import { Tooltip } from "@vellumai/design-library/components/tooltip";
 import type { FeedbackReason } from "@/components/share-feedback-types";
 
 const BACKDROP_CLASS =
@@ -1207,15 +1206,14 @@ export function ShareFeedbackModal({
                         {t("shareFeedbackModal.includeDiagnostics")}
                       </span>
                     </label>
-                    <Tooltip content={t("shareFeedbackModal.diagnosticsTooltip")}>
-                      <button
-                        type="button"
-                        aria-label={t("shareFeedbackModal.aboutDiagnosticsAria")}
-                        className="inline-flex items-center justify-center text-[var(--content-tertiary)]"
-                      >
-                        <Info className="h-3.5 w-3.5" />
-                      </button>
-                    </Tooltip>
+                    <Button
+                      variant="ghost"
+                      size="compact"
+                      iconOnly={<Info />}
+                      expandOnMobile={false}
+                      aria-label={t("shareFeedbackModal.aboutDiagnosticsAria")}
+                      tooltip={t("shareFeedbackModal.diagnosticsTooltip")}
+                    />
                   </div>
                   {includeLogs && (
                     <Select

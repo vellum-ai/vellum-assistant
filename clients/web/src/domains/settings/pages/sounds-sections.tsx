@@ -21,6 +21,7 @@ import {
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { SoundsConfigGetResponse } from "@/generated/daemon/types.gen";
 import { useTranslation } from "@/i18n";
+import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
@@ -154,26 +155,30 @@ function SoundEventRow({
                   {displayLabelForFilename(filename)}
                 </span>
                 <div className="flex items-center gap-1">
-                  <button
-                    type="button"
+                  <Button
+                    variant="ghost"
+                    size="compact"
+                    iconOnly={<Play />}
+                    iconOnlyGlyphClassName="[&_svg]:size-3"
+                    expandOnMobile={false}
                     onClick={() => onPreview(filename)}
-                    className="inline-flex items-center rounded-md px-1.5 py-0.5 text-body-small-default text-[var(--content-tertiary)] hover:bg-[var(--surface-base)] dark:text-[var(--content-disabled)] dark:hover:bg-[var(--ghost-hover)]"
+                    className="h-4 w-6"
                     aria-label={t("soundsSections.previewSoundAriaLabel", {
                       filename,
                     })}
-                  >
-                    <Play className="h-3 w-3" />
-                  </button>
-                  <button
-                    type="button"
+                  />
+                  <Button
+                    variant="ghost"
+                    size="compact"
+                    iconOnly={<Trash2 />}
+                    iconOnlyGlyphClassName="[&_svg]:size-3"
+                    expandOnMobile={false}
                     onClick={() => onRemoveSound(filename)}
-                    className="inline-flex items-center rounded-md px-1.5 py-0.5 text-body-small-default text-[var(--content-tertiary)] hover:bg-[var(--surface-base)] dark:text-[var(--content-disabled)] dark:hover:bg-[var(--ghost-hover)]"
+                    className="h-4 w-6"
                     aria-label={t("soundsSections.removeSoundAriaLabel", {
                       filename,
                     })}
-                  >
-                    <Trash2 className="h-3 w-3" />
-                  </button>
+                  />
                 </div>
               </div>
             ))

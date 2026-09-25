@@ -16,6 +16,7 @@ import {
   isPendingGuardianFeedItem,
 } from "@vellumai/assistant-api";
 import { ActionMenu, cn, Tooltip } from "@vellumai/design-library";
+import { Button } from "@vellumai/design-library/components/button";
 
 import { buildReadToggle } from "./read-toggle";
 
@@ -179,27 +180,42 @@ const ACTION_CONTROL_CLASS = cn(
 export function RecapActionButtons({ actions }: { actions: RecapAction[] }) {
   return (
     <>
-      {actions.map(({ id, label, icon: Icon, onSelect, showsLabel }) => (
-        <Tooltip key={id} content={label}>
-          <button
-            type="button"
+      {actions.map(({ id, label, icon: Icon, onSelect, showsLabel }) =>
+        showsLabel ? (
+          <Tooltip key={id} content={label}>
+            <button
+              type="button"
+              aria-label={label}
+              onClick={(event) => {
+                event.stopPropagation();
+                onSelect();
+              }}
+              className={cn(
+                ACTION_CONTROL_CLASS,
+                "w-auto gap-[var(--app-spacing-xs)] px-2",
+              )}
+            >
+              <Icon width={16} height={16} aria-hidden="true" />
+              <span className="text-body-small-default">{label}</span>
+            </button>
+          </Tooltip>
+        ) : (
+          <Button
+            key={id}
+            variant="ghost"
+            size="compact"
+            iconOnly={<Icon />}
+            iconOnlyGlyphClassName="[&_svg]:size-4"
+            expandOnMobile={false}
             aria-label={label}
+            tooltip={label}
             onClick={(event) => {
               event.stopPropagation();
               onSelect();
             }}
-            className={cn(
-              ACTION_CONTROL_CLASS,
-              showsLabel && "w-auto gap-[var(--app-spacing-xs)] px-2",
-            )}
-          >
-            <Icon width={16} height={16} aria-hidden="true" />
-            {showsLabel ? (
-              <span className="text-body-small-default">{label}</span>
-            ) : null}
-          </button>
-        </Tooltip>
-      ))}
+          />
+        ),
+      )}
     </>
   );
 }

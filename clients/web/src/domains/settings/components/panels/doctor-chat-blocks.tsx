@@ -44,10 +44,26 @@ export function MessageCopyButton({ text }: { text: string }) {
   const handleCopy = () => copy(text);
 
   return (
-    <button
-      type="button"
+    <Button
+      variant="ghost"
+      size="compact"
+      iconOnly={
+        <div className="relative h-3.5 w-3.5">
+          <Check
+            className={`absolute inset-0 h-3.5 w-3.5 text-[var(--system-positive-strong)] transition-opacity duration-150 ${
+              copied ? "opacity-100" : "opacity-0"
+            }`}
+          />
+          <Copy
+            className={`absolute inset-0 h-3.5 w-3.5 transition-opacity duration-150 ${
+              copied ? "opacity-0" : "opacity-100"
+            }`}
+          />
+        </div>
+      }
+      expandOnMobile={false}
       onClick={handleCopy}
-      title={
+      tooltip={
         copied
           ? t("doctorChatBlocks.copyTitleCopied")
           : t("doctorChatBlocks.copyTitle")
@@ -58,21 +74,8 @@ export function MessageCopyButton({ text }: { text: string }) {
           : t("doctorChatBlocks.copyAria")
       }
       data-reveal=""
-      className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md bg-[var(--surface-overlay)] text-[var(--content-tertiary)] hover:text-[var(--content-secondary)]"
-    >
-      <div className="relative h-3.5 w-3.5">
-        <Check
-          className={`absolute inset-0 h-3.5 w-3.5 text-[var(--system-positive-strong)] transition-opacity duration-150 ${
-            copied ? "opacity-100" : "opacity-0"
-          }`}
-        />
-        <Copy
-          className={`absolute inset-0 h-3.5 w-3.5 transition-opacity duration-150 ${
-            copied ? "opacity-0" : "opacity-100"
-          }`}
-        />
-      </div>
-    </button>
+      className="bg-[var(--surface-overlay)]"
+    />
   );
 }
 
