@@ -73,7 +73,7 @@
     "titleNoName": "給你的助理一個收件匣",
     "perkReadsNoName": "你的助理為你閱讀、整理並回覆",
     "changeHandle": "變更 handle（{address}）",
-    "planNotice": "免費方案不包含郵件功能。請升級到 Super 或其他包含郵件的方案。"
+    "planNotice": "免費方案不包含郵件功能。請升級到包含郵件的方案。"
   },
   "assistantInboxSetupCard": {
     "headline": "好，我們來設定一下。",

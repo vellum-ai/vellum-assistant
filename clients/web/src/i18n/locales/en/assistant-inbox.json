@@ -73,7 +73,7 @@
     "titleNoName": "Give your assistant an inbox",
     "perkReadsNoName": "Your assistant reads, sorts, and replies for you",
     "changeHandle": "Change handle ({address})",
-    "planNotice": "Email support is not offered as part of a Free plan. Please upgrade to Super or another plan with email support."
+    "planNotice": "Email support is not offered as part of a Free plan. Please upgrade to a plan with email support."
   },
   "assistantInboxSetupCard": {
     "headline": "Alright, let’s get you set up.",

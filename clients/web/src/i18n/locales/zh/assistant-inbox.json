@@ -73,7 +73,7 @@
     "titleNoName": "给你的助手一个收件箱",
     "perkReadsNoName": "你的助手为你阅读、整理并回复",
     "changeHandle": "更改 handle（{address}）",
-    "planNotice": "免费套餐不包含邮件功能。请升级到 Super 或其他包含邮件的套餐。"
+    "planNotice": "免费套餐不包含邮件功能。请升级到包含邮件的套餐。"
   },
   "assistantInboxSetupCard": {
     "headline": "好，我们来设置一下。",
