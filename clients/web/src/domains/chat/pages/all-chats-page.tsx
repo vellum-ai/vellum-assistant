@@ -587,10 +587,10 @@ export function AllChatsPage({
                 key={key}
                 selected={key === allChatsFilterKey(filter)}
                 className={cn(
-                  "border-transparent [--text-body-medium-default-weight:400]",
+                  "border-[var(--border-subtle)] [--text-body-medium-default-weight:400]",
                   key === allChatsFilterKey(filter)
                     ? "bg-[var(--surface-active)] text-[var(--content-default)]"
-                    : "bg-transparent hover:border-transparent",
+                    : "bg-transparent",
                 )}
                 onClick={() => onFilterChange(chip)}
               >
