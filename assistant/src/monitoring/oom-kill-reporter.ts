@@ -1,33 +1,11 @@
 /**
- * Reports kernel OOM kills in this container as `oom_kill` watchdog
- * telemetry.
+ * Reports kernel OOM kills in this container as `oom_kill` watchdog events.
  *
- * The cgroup's `memory.events` counter says how many kills hit this
- * container; only the kernel log says who died. The monitor reads the log
- * through `dmesg` (the `/dev/kmsg` device is not mounted in the container,
- * but `dmesg` uses the syslog syscall and the container has the capability),
- * matches the kernel's "Killed process" line, and emits one event per scan
- * naming each victim's comm, `oom_score_adj` and resident size, plus whether
- * the victim was the daemon. That last field is the fleet-wide check on the
- * OOM priority policy in `util/oom-priority.ts`.
- *
- * Attribution: the kernel log is shared by every container on the kernel
- * (in a Kata VM, the pod's containers; on a plain host, everything), and
- * `/proc/self/cgroup` reads `/` inside the container so paths cannot be
- * compared. The counter delta is the attribution instead: when it moves by
- * N, the N most recent new kills are this container's. Two cases have no
- * counter to lean on and report every new kill as this container's, flagged
- * `attribution: "kernel_log"`: the first scan after the monitor starts (a
- * kill that took the daemon down restarted the monitor with it, and the new
- * container's counter starts at zero), and hosts with no `memory.events`.
- * Where the log is unreadable, a counter move still produces an event with
- * no victims.
- *
- * A cursor (kernel boot id + last log timestamp) on the monitor data dir
- * keeps a restarted monitor from re-reporting kills the previous one already
- * queued. It advances only after the event is queued, so a telemetry store
- * outage delays a report instead of losing it; a consent opt-out advances it
- * without a report.
+ * The log comes from `dmesg`, not `/dev/kmsg`: the device is not mounted in
+ * the container, while `dmesg` uses the syslog syscall the container is
+ * allowed. The log is per kernel, not per container, and `/proc/self/cgroup`
+ * reads `/` inside the container, so kills are attributed by the cgroup
+ * `memory.events` counter rather than by cgroup path.
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -44,9 +22,9 @@ const log = getLogger("oom-kill-reporter");
 
 export const OOM_KILL_CHECK_NAME = "oom_kill";
 const CURSOR_FILENAME = "oom-kill-cursor.json";
-/** Scan cadence when the counter reports nothing, in case `memory.events` is missing. */
+/** Cadence for hosts without `memory.events`. */
 const FALLBACK_SCAN_INTERVAL_MS = 60_000;
-/** Victims listed per event; the count is always reported in full. */
+/** The detail bag is capped at 4 KiB server-side. */
 const MAX_VICTIMS_IN_DETAIL = 10;
 const DMESG_TIMEOUT_MS = 5_000;
 
@@ -107,7 +85,6 @@ function kb(fields: string, key: string): number | null {
   return match ? parseInt(match[1], 10) : null;
 }
 
-/** The OOM kills among kernel log entries, oldest first. */
 export function oomKillsFromEntries(entries: KernelLogEntry[]): OomKill[] {
   const kills: OomKill[] = [];
   for (const entry of entries) {
@@ -129,7 +106,7 @@ export function oomKillsFromEntries(entries: KernelLogEntry[]): OomKill[] {
   return kills.sort((a, b) => a.time - b.time);
 }
 
-/** Kernel log via `dmesg`; null when it is absent or the kernel refuses (no CAP_SYSLOG). */
+/** Null when `dmesg` is absent or lacks CAP_SYSLOG. */
 export async function readKernelLog(): Promise<KernelLogEntry[] | null> {
   if (process.platform !== "linux") {
     return null;
@@ -177,7 +154,7 @@ function readCursor(path: string): Cursor | null {
       return { bootId: parsed.bootId ?? null, lastTime: parsed.lastTime };
     }
   } catch {
-    // Missing or unreadable: everything the kernel log still holds is new.
+    // Missing or unreadable.
   }
   return null;
 }
@@ -203,7 +180,7 @@ export interface OomKillReport {
 }
 
 export interface OomKillReporter {
-  /** Returns what this call queued, for tests. */
+  /** Returns what was queued, for tests. */
   check(
     sample: ResourceSample,
     now: number,
@@ -340,6 +317,7 @@ export function createOomKillReporter(
       };
 
       let report: OomKillReport | null = null;
+      // The counter says how many were ours; older new kills are neighbours'.
       if (counterDelta > 0) {
         report = {
           attribution: "cgroup_counter",
@@ -347,6 +325,8 @@ export function createOomKillReporter(
           unnamed: Math.max(0, counterDelta - fresh.length),
         };
       } else if ((isFirstScan || !countersAvailable) && fresh.length > 0) {
+        // No counter to lean on: a kill that took the daemon down restarted
+        // this monitor with it, and the new container's counter starts at 0.
         report = { attribution: "kernel_log", victims: fresh, unnamed: 0 };
       }
 
