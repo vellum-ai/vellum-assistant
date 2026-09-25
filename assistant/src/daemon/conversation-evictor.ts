@@ -1,4 +1,5 @@
 import { getSubagentManager } from "../subagent/index.js";
+import { getContainerMemoryLimitBytes } from "../util/cgroup-memory.js";
 import { getLogger } from "../util/logger.js";
 import { getConversationMap } from "./conversation-registry.js";
 
@@ -15,7 +16,7 @@ export interface EvictorOptions {
   ttlMs?: number;
   /** Max number of in-memory conversations before LRU eviction kicks in. Default: 100. */
   maxConversations?: number;
-  /** RSS threshold (bytes) above which idle conversations are aggressively evicted. Default: 3 GB. */
+  /** RSS threshold (bytes) above which idle conversations are aggressively evicted. Default: {@link defaultMemoryThresholdBytes}. */
   memoryThresholdBytes?: number;
   /** Interval between periodic sweeps (ms). Default: 60 s. */
   sweepIntervalMs?: number;
@@ -34,13 +35,34 @@ export interface EvictionResult {
 
 const DEFAULT_TTL_MS = 30 * 60 * 1000; // 30 minutes
 const DEFAULT_MAX_CONVERSATIONS = 100;
-const DEFAULT_MEMORY_THRESHOLD_BYTES = 3072 * 1024 * 1024; // 3 GB
+/** Threshold when no container limit is known (local hosts). */
+const FALLBACK_MEMORY_THRESHOLD_BYTES = 3072 * 1024 * 1024; // 3 GiB
+/**
+ * Share of the container memory limit the daemon's own RSS may reach before
+ * idle conversations are evicted. The rest of the limit is Qdrant, the
+ * workers, and tool children, so the daemon cannot have it all.
+ */
+const MEMORY_THRESHOLD_LIMIT_FRACTION = 0.5;
 const DEFAULT_SWEEP_INTERVAL_MS = 60 * 1000; // 60 seconds
+/**
+ * Idle conversations evicted per sweep under memory pressure. RSS cannot fall
+ * until the disposed heap is collected after the sweep returns, so the sweep
+ * evicts a bounded batch and the next sweep re-measures.
+ */
+const MEMORY_EVICTION_BATCH = 10;
+
+/** Default memory-pressure threshold: half the container limit, or 3 GiB when there is none. */
+export function defaultMemoryThresholdBytes(limitBytes: number | null): number {
+  return limitBytes != null
+    ? Math.floor(limitBytes * MEMORY_THRESHOLD_LIMIT_FRACTION)
+    : FALLBACK_MEMORY_THRESHOLD_BYTES;
+}
 
 export class ConversationEvictor {
   private readonly ttlMs: number;
   private readonly maxConversations: number;
-  private readonly memoryThresholdBytes: number;
+  /** Explicit threshold, or null to derive it from the container limit on first use. */
+  private memoryThresholdBytes: number | null;
   private readonly sweepIntervalMs: number;
 
   /** Tracks last access time per conversation ID. */
@@ -57,8 +79,7 @@ export class ConversationEvictor {
     this.ttlMs = options?.ttlMs ?? DEFAULT_TTL_MS;
     this.maxConversations =
       options?.maxConversations ?? DEFAULT_MAX_CONVERSATIONS;
-    this.memoryThresholdBytes =
-      options?.memoryThresholdBytes ?? DEFAULT_MEMORY_THRESHOLD_BYTES;
+    this.memoryThresholdBytes = options?.memoryThresholdBytes ?? null;
     this.sweepIntervalMs =
       options?.sweepIntervalMs ?? DEFAULT_SWEEP_INTERVAL_MS;
   }
@@ -155,25 +176,26 @@ export class ConversationEvictor {
       }
     }
 
-    // Phase 3: Memory pressure — if RSS exceeds threshold, evict idle conversations
-    // starting from least-recently-used until we're under the threshold or
-    // no more idle conversations remain.
+    // Phase 3: Memory pressure — if RSS exceeds threshold, evict a batch of
+    // idle conversations starting from least-recently-used.
     const rss = process.memoryUsage.rss();
-    if (rss > this.memoryThresholdBytes) {
-      const sorted = this.idleConversationsByLru();
-      if (sorted.length > 0) {
+    const thresholdBytes = this.resolveMemoryThresholdBytes();
+    if (rss > thresholdBytes) {
+      const batch = this.idleConversationsByLru().slice(
+        0,
+        MEMORY_EVICTION_BATCH,
+      );
+      if (batch.length > 0) {
         log.warn(
           {
             rssBytes: rss,
-            thresholdBytes: this.memoryThresholdBytes,
+            thresholdBytes,
             conversationCount: this.conversations.size,
+            evicting: batch.length,
           },
           "Memory pressure detected, evicting idle conversations",
         );
-        for (const [id, conversation] of sorted) {
-          if (process.memoryUsage.rss() <= this.memoryThresholdBytes) {
-            break;
-          }
+        for (const [id, conversation] of batch) {
           this.evict(id, conversation);
           result.memoryEvicted++;
         }
@@ -197,6 +219,18 @@ export class ConversationEvictor {
   }
 
   // ── Internals ──────────────────────────────────────────────────────
+
+  /**
+   * Resolved on first sweep rather than at construction: the module-level
+   * singleton is built at import, before the daemon has loaded its dotenv
+   * file, and VELLUM_MEMORY_LIMIT may come from there.
+   */
+  private resolveMemoryThresholdBytes(): number {
+    this.memoryThresholdBytes ??= defaultMemoryThresholdBytes(
+      getContainerMemoryLimitBytes(),
+    );
+    return this.memoryThresholdBytes;
+  }
 
   private evict(id: string, conversation: EvictableConversation): void {
     conversation.dispose();
