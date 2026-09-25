@@ -1988,6 +1988,7 @@
     "seed": "嘿，我刚和你开始了语音对话。此消息是自动发送的。请用一句话问候我，然后问我想做什么。"
   },
   "voiceErrors": {
+    "selectionUnavailable": "无法读取选中的文本。未粘贴任何内容。请重新选择文本后重试；您所说的内容可供复制。",
     "nativeSttNoTranscript": "{clientName} 原生听写未返回转录文本。请检查系统设置中的原生语音识别，然后重试。",
     "askUnavailable": "助手当前无法接收语音提问。"
   },
