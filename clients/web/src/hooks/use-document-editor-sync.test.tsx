@@ -51,6 +51,7 @@ function publishDocumentEdit(options: {
   conversationId?: string;
   surfaceId: string;
   markdown?: string;
+  title?: string;
 }) {
   act(() => {
     publish("sse.event", {
@@ -62,6 +63,7 @@ function publishDocumentEdit(options: {
         surfaceId: options.surfaceId,
         markdown: options.markdown ?? "# Edited",
         mode: "replace",
+        ...(options.title !== undefined ? { title: options.title } : {}),
       },
     });
   });
@@ -98,6 +100,33 @@ afterEach(() => {
 });
 
 describe("useDocumentEditorSync", () => {
+  test("renames the open document when the edit carries a title", () => {
+    openInViewer("surf-1");
+    renderSyncAt();
+
+    publishDocumentEdit({
+      surfaceId: "surf-1",
+      markdown: "# Restored",
+      title: "Restored title",
+    });
+
+    expect(useViewerStore.getState().openedDocumentState).toMatchObject({
+      documentName: "Restored title",
+      content: "# Restored",
+    });
+  });
+
+  test("keeps the open document's name when the edit carries no title", () => {
+    openInViewer("surf-1");
+    renderSyncAt();
+
+    publishDocumentEdit({ surfaceId: "surf-1" });
+
+    expect(useViewerStore.getState().openedDocumentState).toMatchObject({
+      documentName: "Notes",
+    });
+  });
+
   test("records an unseen change when the document is not open", () => {
     renderSyncAt();
 

@@ -29,6 +29,7 @@ function bootstrapDocumentTables(): void {
   const raw = getSqlite();
   raw.exec(/*sql*/ `
     DROP TABLE IF EXISTS document_conversations;
+    DROP TABLE IF EXISTS document_revisions;
     DROP TABLE IF EXISTS documents;
     DROP TABLE IF EXISTS conversations;
 
@@ -47,6 +48,17 @@ function bootstrapDocumentTables(): void {
       updated_at INTEGER NOT NULL,
       revision INTEGER NOT NULL DEFAULT 0,
       workspace_path TEXT
+    );
+
+    CREATE TABLE document_revisions (
+      surface_id TEXT NOT NULL REFERENCES documents(surface_id) ON DELETE CASCADE,
+      revision INTEGER NOT NULL,
+      title TEXT NOT NULL,
+      content TEXT NOT NULL,
+      word_count INTEGER NOT NULL DEFAULT 0,
+      author TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY (surface_id, revision)
     );
 
     CREATE TABLE document_conversations (

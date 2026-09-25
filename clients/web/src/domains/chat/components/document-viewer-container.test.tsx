@@ -38,10 +38,11 @@ mock.module("@/domains/chat/api/document-save", () => ({
   saveDocumentContent,
 }));
 
+const fetchComments = mock(async (): Promise<unknown[]> => []);
 const documentComments = await import("@/domains/chat/api/document-comments");
 mock.module("@/domains/chat/api/document-comments", () => ({
   ...documentComments,
-  fetchComments: mock(async () => []),
+  fetchComments,
   createComment: mock(async () => ({})),
 }));
 
@@ -156,6 +157,51 @@ describe("DocumentViewerContainer conversation action", () => {
     expect(
       screen.queryByRole("button", { name: "View conversation" }),
     ).toBeNull();
+  });
+});
+
+describe("DocumentViewerContainer comments", () => {
+  afterEach(() => {
+    fetchComments.mockImplementation(async () => []);
+  });
+
+  test("a header button toggles the comment panel", async () => {
+    renderViewer();
+    const user = userEvent.setup();
+    const button = screen.getByRole("button", { name: "Comments" });
+    expect(button.closest("header")).not.toBeNull();
+    expect(button.getAttribute("aria-pressed")).toBe("false");
+    expect(screen.queryByTestId("comment-panel")).toBeNull();
+
+    await user.click(button);
+    expect(button.getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByTestId("comment-panel")).toBeTruthy();
+
+    await user.click(button);
+    expect(screen.queryByTestId("comment-panel")).toBeNull();
+  });
+
+  test("shows how many top-level comments are open", async () => {
+    fetchComments.mockImplementation(async () => [
+      { id: "c1", parentCommentId: null, status: "open" },
+      { id: "c2", parentCommentId: null, status: "open" },
+      { id: "c3", parentCommentId: "c1", status: "open" },
+      { id: "c4", parentCommentId: null, status: "resolved" },
+    ]);
+    renderViewer();
+    const button = await screen.findByRole("button", {
+      name: "Comments, 2 open",
+    });
+    expect(button.textContent).toBe("2");
+  });
+
+  test("the overflow menu has no comments item", async () => {
+    renderViewer();
+    await userEvent
+      .setup()
+      .click(screen.getByRole("button", { name: "Document options" }));
+    await screen.findByRole("menuitem", { name: "Rename" });
+    expect(screen.queryByRole("menuitem", { name: /comments/i })).toBeNull();
   });
 });
 

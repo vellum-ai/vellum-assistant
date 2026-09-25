@@ -13026,6 +13026,157 @@ paths:
               schema:
                 type: string
                 format: binary
+  /v1/documents/{id}/revisions:
+    get:
+      operationId: documents_by_id_revisions_get
+      summary: List a document's revisions
+      description: Return the document's history snapshots, newest first, without their content.
+      tags:
+        - documents
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  revisions:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        revision:
+                          type: number
+                          description: The document revision this snapshot holds
+                        author:
+                          type: string
+                          enum:
+                            - user
+                            - assistant
+                          description: Who made the edit that replaced this state
+                        createdAt:
+                          type: number
+                          description: When the snapshot was taken
+                        wordCount:
+                          type: number
+                        title:
+                          type: string
+                      required:
+                        - revision
+                        - author
+                        - createdAt
+                        - wordCount
+                        - title
+                      additionalProperties: false
+                required:
+                  - revisions
+                additionalProperties: false
+  /v1/documents/{id}/revisions/{revision}:
+    get:
+      operationId: documents_by_id_revisions_by_revision_get
+      summary: Get a document revision
+      description: Return one history snapshot with its content.
+      tags:
+        - documents
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: revision
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  revision:
+                    type: number
+                    description: The document revision this snapshot holds
+                  author:
+                    type: string
+                    enum:
+                      - user
+                      - assistant
+                    description: Who made the edit that replaced this state
+                  createdAt:
+                    type: number
+                    description: When the snapshot was taken
+                  wordCount:
+                    type: number
+                  title:
+                    type: string
+                  content:
+                    type: string
+                required:
+                  - revision
+                  - author
+                  - createdAt
+                  - wordCount
+                  - title
+                  - content
+                additionalProperties: false
+  /v1/documents/{id}/revisions/{revision}/restore:
+    post:
+      operationId: documents_by_id_revisions_by_revision_restore_post
+      summary: Restore a document revision
+      description:
+        Write a snapshot's title and content back as a new revision. The current state is snapshotted first, so the
+        restore can itself be undone.
+      tags:
+        - documents
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: revision
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    const: true
+                  surfaceId:
+                    type: string
+                  revision:
+                    type: number
+                    description: The document's revision after the restore
+                  title:
+                    type: string
+                  content:
+                    type: string
+                required:
+                  - success
+                  - surfaceId
+                  - revision
+                  - title
+                  - content
+                additionalProperties: false
   /v1/documents/create:
     post:
       operationId: documents_create_post

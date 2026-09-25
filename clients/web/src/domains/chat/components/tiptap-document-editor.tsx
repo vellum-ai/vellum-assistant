@@ -1,7 +1,8 @@
 /**
  * Tiptap/ProseMirror-based WYSIWYG document editor React component that supports:
  * - Rich-text editing of markdown content
- * - Floating bubble menu toolbar (bold, italic, strike, code, link)
+ * - Floating bubble menu toolbar (block style, marks, lists, quote, link, comment)
+ * - An empty-document placeholder
  * - Comment anchor highlight decorations (yellow)
  * - Active/temporary highlight range decorations (blue)
  * - Text selection tracking with character offset conversion
@@ -11,23 +12,9 @@
 import { EditorContent, useEditor } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
 import { cn } from "@vellumai/design-library";
-import {
-  Bold,
-  Code,
-  Italic,
-  Link as LinkIcon,
-  MessageSquareText,
-  Strikethrough,
-} from "lucide-react";
-import {
-  type ReactNode,
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 
+import { BubbleToolbar } from "@/domains/chat/components/tiptap-bubble-toolbar";
 import {
   activeHighlightPluginKey,
   buildDocumentEditorExtensions,
@@ -71,201 +58,6 @@ interface TiptapDocumentEditorProps {
 }
 
 // ---------------------------------------------------------------------------
-// Bubble toolbar sub-component
-// ---------------------------------------------------------------------------
-
-interface BubbleToolbarProps {
-  editor: ReturnType<typeof useEditor> & object;
-  onCommentSubmit?: (comment: string) => void;
-  commentSubmitting?: boolean;
-}
-
-function BubbleToolbar({
-  editor,
-  onCommentSubmit,
-  commentSubmitting,
-}: BubbleToolbarProps) {
-  const { t } = useTranslation("chat");
-  const [commentOpen, setCommentOpen] = useState(false);
-  const [draft, setDraft] = useState("");
-
-  const toggleComment = useCallback(() => {
-    setCommentOpen((prev) => {
-      const opening = !prev;
-      if (opening && editor) {
-        const { from, to } = editor.state.selection;
-        if (from !== to) {
-          const tr = editor.state.tr.setMeta(activeHighlightPluginKey, {
-            range: {
-              start: pmPosToCharOffset(editor.state.doc, from),
-              end: pmPosToCharOffset(editor.state.doc, to),
-            },
-          });
-          editor.view.dispatch(tr);
-        }
-      } else if (editor) {
-        const tr = editor.state.tr.setMeta(activeHighlightPluginKey, {
-          range: null,
-        });
-        editor.view.dispatch(tr);
-      }
-      return opening;
-    });
-  }, [editor]);
-
-  if (!editor) {
-    return null;
-  }
-
-  const btnBase = cn(
-    "h-7 w-7 rounded-md flex items-center justify-center",
-    "text-[var(--content-secondary)]",
-    "hover:bg-[var(--surface-hover)] hover:text-[var(--content-emphasised)]",
-    "transition-colors",
-  );
-  const btnActive = cn(
-    "bg-[var(--surface-active)] text-[var(--content-emphasised)]",
-  );
-
-  type MarkName = "bold" | "italic" | "strike" | "code" | "link";
-
-  const buttons: {
-    name: MarkName;
-    icon: ReactNode;
-    action: () => void;
-    separator?: boolean;
-  }[] = [
-    {
-      name: "bold",
-      icon: <Bold size={14} />,
-      action: () => editor.chain().focus().toggleBold().run(),
-    },
-    {
-      name: "italic",
-      icon: <Italic size={14} />,
-      action: () => editor.chain().focus().toggleItalic().run(),
-    },
-    {
-      name: "strike",
-      icon: <Strikethrough size={14} />,
-      action: () => editor.chain().focus().toggleStrike().run(),
-      separator: true,
-    },
-    {
-      name: "code",
-      icon: <Code size={14} />,
-      action: () => editor.chain().focus().toggleCode().run(),
-      separator: true,
-    },
-    {
-      name: "link",
-      icon: <LinkIcon size={14} />,
-      action: () => {
-        if (editor.isActive("link")) {
-          editor.chain().focus().unsetLink().run();
-        } else {
-          const url = window.prompt("Enter URL:");
-          if (url) {
-            editor.chain().focus().setLink({ href: url }).run();
-          }
-        }
-      },
-    },
-  ];
-
-  const handleSubmitComment = () => {
-    if (!draft.trim() || commentSubmitting) {
-      return;
-    }
-    onCommentSubmit?.(draft.trim());
-    setDraft("");
-    setCommentOpen(false);
-    if (editor) {
-      const tr = editor.state.tr.setMeta(activeHighlightPluginKey, {
-        range: null,
-      });
-      editor.view.dispatch(tr);
-    }
-  };
-
-  return (
-    <div
-      className={cn(
-        "bg-[var(--surface-lift)] rounded-lg",
-        "shadow-[var(--shadow-popover)]",
-        "border border-[var(--border-base)]",
-      )}
-    >
-      <div className="p-1 flex items-center gap-0.5">
-        {buttons.map((btn, i) => (
-          <span key={btn.name} className="contents">
-            {i > 0 && buttons[i - 1]?.separator && (
-              <span className="mx-0.5 h-4 w-px bg-[var(--border-base)]" />
-            )}
-            <button
-              type="button"
-              className={cn(btnBase, editor.isActive(btn.name) && btnActive)}
-              onClick={btn.action}
-              aria-label={btn.name}
-              aria-pressed={editor.isActive(btn.name)}
-            >
-              {btn.icon}
-            </button>
-          </span>
-        ))}
-        {onCommentSubmit ? (
-          <>
-            <span className="mx-0.5 h-4 w-px bg-[var(--border-base)]" />
-            <button
-              type="button"
-              className={cn(btnBase, commentOpen && btnActive)}
-              onClick={toggleComment}
-              aria-label={t("tiptapDocumentEditor.comment")}
-              aria-pressed={commentOpen}
-            >
-              <MessageSquareText size={14} />
-            </button>
-          </>
-        ) : null}
-      </div>
-      {commentOpen ? (
-        <div className="w-64 border-t border-[var(--border-base)] p-2">
-          <textarea
-            className="w-full resize-none rounded-md border border-[var(--field-border)] bg-[var(--field-bg)] px-3 py-2 text-body-medium-lighter text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] outline-none transition-[border-color] duration-150 ease-out focus-visible:border-[var(--border-active)]"
-            rows={2}
-            placeholder={t("tiptapDocumentEditor.feedbackPlaceholder")}
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                handleSubmitComment();
-              }
-            }}
-            autoFocus
-          />
-          <div className="mt-1.5 flex justify-end">
-            <button
-              type="button"
-              className={cn(
-                "rounded-md px-2.5 py-1 text-label-medium-default transition-colors",
-                draft.trim() && !commentSubmitting
-                  ? "bg-[var(--primary-base)] text-[var(--content-inset)] hover:opacity-90"
-                  : "bg-[var(--surface-active)] text-[var(--content-disabled)] cursor-not-allowed",
-              )}
-              onClick={handleSubmitComment}
-              disabled={commentSubmitting || !draft.trim()}
-            >
-              {commentSubmitting ? t("tiptapDocumentEditor.adding") : t("tiptapDocumentEditor.comment")}
-            </button>
-          </div>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
@@ -292,10 +84,13 @@ export function TiptapDocumentEditor({
     onTextSelectRef.current = onTextSelect;
   });
 
+  const { t } = useTranslation("chat");
+
   const editor = useEditor({
     extensions: buildDocumentEditorExtensions({
       commentAnchors,
       highlightRange,
+      placeholder: t("tiptapDocumentEditor.placeholder"),
     }),
     content,
     editable,
@@ -410,7 +205,11 @@ export function TiptapDocumentEditor({
         className="flex flex-1 flex-col overflow-y-auto"
       />
       {editor && editable ? (
-        <BubbleMenu editor={editor} updateDelay={100}>
+        <BubbleMenu
+          editor={editor}
+          updateDelay={100}
+          options={BUBBLE_MENU_OPTIONS}
+        >
           <BubbleToolbar
             key={`${editor.state.selection.from}-${editor.state.selection.to}`}
             editor={editor}
@@ -423,16 +222,19 @@ export function TiptapDocumentEditor({
   );
 }
 
+/** Keep the toolbar off the pane's edges on narrow screens. */
+const BUBBLE_MENU_OPTIONS = { shift: { padding: 8 } };
+
 // ---------------------------------------------------------------------------
 // Editor styles using design system tokens
 // ---------------------------------------------------------------------------
 
 const editorStyles = /* css */ `
   .tiptap {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    font-size: 15px;
-    line-height: 1.65;
-    color: var(--content-default, #1a1a1a);
+    font-family: var(--font-body);
+    font-size: var(--text-chat-size);
+    line-height: var(--text-chat-line-height);
+    color: var(--content-default);
     padding: 24px 32px;
     outline: none;
     /* Fill the pane so a click anywhere below short content places the caret. */
@@ -441,43 +243,77 @@ const editorStyles = /* css */ `
   .tiptap:focus {
     outline: none;
   }
+  .tiptap > :first-child { margin-top: 0; }
 
-  /* Headings */
-  .tiptap h1 { font-size: 1.6em; font-weight: 700; margin: 0.8em 0 0.4em; }
-  .tiptap h2 { font-size: 1.3em; font-weight: 600; margin: 0.7em 0 0.35em; }
-  .tiptap h3 { font-size: 1.1em; font-weight: 600; margin: 0.6em 0 0.3em; }
+  .tiptap p.is-editor-empty:first-child::before {
+    content: attr(data-placeholder);
+    float: left;
+    height: 0;
+    color: var(--content-tertiary);
+    pointer-events: none;
+  }
+
+  /* Headings: the title scale, with leading for lines that wrap. */
+  .tiptap h1, .tiptap h2, .tiptap h3 {
+    font-family: var(--font-sans);
+    color: var(--content-emphasised);
+  }
+  .tiptap h1 {
+    font-size: var(--text-title-large-size);
+    font-weight: var(--text-title-large-weight);
+    line-height: 32px;
+    margin: 1.2em 0 0.4em;
+  }
+  .tiptap h2 {
+    font-size: var(--text-title-medium-size);
+    font-weight: var(--text-title-medium-weight);
+    line-height: 28px;
+    margin: 1.1em 0 0.35em;
+  }
+  .tiptap h3 {
+    font-size: var(--text-title-small-size);
+    font-weight: 600;
+    line-height: 22px;
+    margin: 1em 0 0.3em;
+  }
 
   /* Block elements */
   .tiptap p { margin: 0.5em 0; }
-  .tiptap ul, .tiptap ol { margin: 0.5em 0 0.5em 1.5em; }
+  .tiptap ul, .tiptap ol { margin: 0.5em 0; padding-left: 1.5em; }
+  .tiptap ul { list-style: disc; }
+  .tiptap ol { list-style: decimal; }
+  .tiptap ul ul { list-style: circle; }
   .tiptap li { margin: 0.2em 0; }
+  .tiptap li > p { margin: 0; }
+  .tiptap li::marker { color: var(--content-tertiary); }
   .tiptap blockquote {
-    margin: 0.5em 0;
-    padding: 0.5em 1em;
-    border-left: 3px solid var(--border-base, #d0d0d0);
-    color: var(--content-secondary, #555);
+    margin: 0.75em 0;
+    padding: 0.125em 0 0.125em 1em;
+    border-left: 2px solid var(--border-element);
+    color: var(--content-secondary);
   }
   .tiptap hr {
     border: none;
-    border-top: 1px solid var(--border-base, #d0d0d0);
-    margin: 1em 0;
+    border-top: 1px solid var(--border-base);
+    margin: 1.5em 0;
   }
 
   /* Inline code */
   .tiptap code {
-    font-family: "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
-    font-size: 0.9em;
-    background: var(--surface-base, #f0f0f0);
-    padding: 0.15em 0.35em;
-    border-radius: 3px;
+    font-family: var(--font-mono);
+    font-size: 0.875em;
+    background: var(--surface-active);
+    padding: 0.125em 0.375em;
+    border-radius: var(--radius-xs);
   }
 
   /* Code blocks */
   .tiptap pre {
-    margin: 0.5em 0;
+    margin: 0.75em 0;
     padding: 12px 16px;
-    background: var(--surface-base, #f5f5f5);
-    border-radius: 6px;
+    background: var(--surface-sunken);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
     overflow-x: auto;
   }
   .tiptap pre code {
@@ -487,50 +323,51 @@ const editorStyles = /* css */ `
 
   /* Links */
   .tiptap a {
-    color: #2563eb;
-    text-decoration: none;
+    color: var(--content-link);
+    text-decoration: underline;
+    text-decoration-color: var(--content-link-hover);
+    text-underline-offset: 2px;
   }
   .tiptap a:hover {
-    text-decoration: underline;
+    color: var(--content-link-hover);
   }
 
   /* Tables */
   .tiptap table {
     border-collapse: collapse;
-    margin: 0.5em 0;
+    margin: 0.75em 0;
     width: 100%;
   }
   .tiptap th, .tiptap td {
-    border: 1px solid var(--border-base, #ddd);
+    border: 1px solid var(--border-base);
     padding: 6px 10px;
     text-align: left;
   }
   .tiptap th {
-    background: var(--surface-base, #f9f9f9);
+    background: var(--surface-sunken);
     font-weight: 600;
   }
 
   /* Comment anchor highlights */
   .comment-anchor-highlight {
-    background-color: rgba(255, 213, 79, 0.35);
-    border-bottom: 2px solid rgba(255, 167, 38, 0.6);
+    background-color: var(--system-mid-weak);
+    border-bottom: 2px solid var(--system-mid-strong);
     border-radius: 2px;
     cursor: pointer;
-    transition: background-color 0.15s ease;
+    transition: background-color var(--anim-fast) ease;
   }
   .comment-anchor-highlight:hover {
-    background-color: rgba(255, 213, 79, 0.55);
+    background-color: color-mix(in srgb, var(--system-mid-strong) 35%, var(--system-mid-weak));
   }
 
   /* Active/temporary highlight */
   .active-highlight {
-    background-color: rgba(66, 165, 245, 0.35);
-    border-bottom: 2px solid rgba(33, 150, 243, 0.7);
+    background-color: var(--system-info-weak);
+    border-bottom: 2px solid var(--system-info-strong);
     border-radius: 2px;
   }
 
-  /* Selection color */
   .tiptap ::selection {
-    background-color: rgba(66, 165, 245, 0.3);
+    background-color: var(--system-info-weak);
   }
 `;
