@@ -75,6 +75,14 @@ export interface CompactionContext {
     actualTokens: number | null;
     /** Whether a human is present this turn (drives the auto-compress policy). */
     isInteractive: boolean;
+    /**
+     * Corrected compaction target pre-computed by the caller from the
+     * estimation-error ratio (preflightBudget / (actual / estimated)).
+     * When provided, forwarded to the manager's reduction ladder so it
+     * compacts below the provider's true ceiling rather than re-deriving
+     * the target from its own estimator call at the time of the rung.
+     */
+    targetTokens?: number;
   };
 }
 
@@ -109,6 +117,7 @@ export async function defaultCompact(
         isInteractive: overflowSignal.isInteractive,
         overrideProfile: options.overrideProfile,
         actorTrustClass: options.actorTrustClass,
+        targetTokens: overflowSignal.targetTokens,
       },
       signal,
     );
