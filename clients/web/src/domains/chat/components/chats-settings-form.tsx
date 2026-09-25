@@ -152,6 +152,7 @@ export function ChatsSettingsForm({
         <Button
           type="button"
           variant="outlined"
+          className="text-[var(--content-default)] disabled:text-[var(--content-disabled)]"
           onClick={onCancel}
           disabled={saving}
         >
@@ -160,6 +161,7 @@ export function ChatsSettingsForm({
         <Button
           type="submit"
           variant="primary"
+          className="[[data-theme=velvet]_&]:enabled:bg-[var(--primary-active)]"
           disabled={!dirty}
           loading={saving}
         >
