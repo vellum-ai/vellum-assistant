@@ -367,6 +367,7 @@ export const Inbox: Story = {
       onAskToReply={fn().mockName("onAskToReply")}
       onStartChat={fn().mockName("onStartChat")}
       onDeleteEmails={fn().mockName("onDeleteEmails")}
+      onOpenSettings={fn().mockName("onOpenSettings")}
     />
   ),
 };

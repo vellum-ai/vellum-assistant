@@ -15,6 +15,7 @@ import { AssistantInboxSetupCard } from "@/domains/assistant-inbox/components/as
 import { AssistantInboxShell } from "@/domains/assistant-inbox/components/assistant-inbox-shell";
 import { AssistantInboxUpgradeState } from "@/domains/assistant-inbox/components/assistant-inbox-upgrade-state";
 import { useAssistantInboxState } from "@/domains/assistant-inbox/hooks/use-assistant-inbox-state";
+import { EmailSettingsModal } from "@/domains/channels/components/email-settings-modal";
 import { useDeletedEmails } from "@/domains/assistant-inbox/hooks/use-deleted-emails";
 import { useInboxMail } from "@/domains/assistant-inbox/hooks/use-inbox-mail";
 import { toEmailReference } from "@/domains/assistant-inbox/to-email-reference";
@@ -71,6 +72,8 @@ interface MailboxProps {
   assistantName: string;
   address: string;
   addressId: string;
+  handle: string;
+  rootDomain: string;
 }
 
 /** The mailbox with its reads attached; split out so its hooks run only in the ready state. */
@@ -80,10 +83,13 @@ function Mailbox({
   assistantName,
   address,
   addressId,
+  handle,
+  rootDomain,
 }: MailboxProps) {
   const { t } = useTranslation("assistant-inbox");
   const navigate = useNavigate();
   const mail = useInboxMail(assistantId, platformAssistantId, addressId);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const { deletedIds, deleteEmails } = useDeletedEmails(assistantId);
   /* A deep link from a sent message's email card names the folder and the
      message to open on (`routes.assistantInboxMessage`). */
@@ -165,23 +171,33 @@ function Mailbox({
   }
 
   return (
-    <AssistantInboxPage
-      /* Keyed on the link so a second card opens its message rather than
-         leaving the first one up. */
-      key={linkedMessageId ?? ""}
-      assistantId={assistantId}
-      assistantName={assistantName}
-      address={address}
-      inbox={received}
-      sent={sent}
-      usage={mail.usage}
-      initialFolder={linkedMessageId ? linkedFolder : undefined}
-      initialSelectedId={linkedMessageId}
-      loadDetail={mail.loadDetail}
-      onAskToReply={askToReply}
-      onStartChat={startChatWithEmails}
-      onDeleteEmails={removeEmails}
-    />
+    <>
+      <AssistantInboxPage
+        /* Keyed on the link so a second card opens its message rather than
+           leaving the first one up. */
+        key={linkedMessageId ?? ""}
+        assistantId={assistantId}
+        assistantName={assistantName}
+        address={address}
+        inbox={received}
+        sent={sent}
+        usage={mail.usage}
+        initialFolder={linkedMessageId ? linkedFolder : undefined}
+        initialSelectedId={linkedMessageId}
+        loadDetail={mail.loadDetail}
+        onAskToReply={askToReply}
+        onStartChat={startChatWithEmails}
+        onDeleteEmails={removeEmails}
+        onOpenSettings={() => setSettingsOpen(true)}
+      />
+      <EmailSettingsModal
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        assistantId={platformAssistantId}
+        assistantHandle={handle}
+        emailRootDomain={rootDomain}
+      />
+    </>
   );
 }
 
@@ -396,6 +412,8 @@ export function AssistantInboxPageRoute() {
           assistantName={state.assistantName}
           address={state.address ?? ""}
           addressId={state.addressId ?? ""}
+          handle={state.handle}
+          rootDomain={state.rootDomain}
         />
       );
   }

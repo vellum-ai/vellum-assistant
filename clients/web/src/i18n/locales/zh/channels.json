@@ -211,5 +211,9 @@
     "upgradeNoticeBody": "升级到包含助手电子邮件地址的套餐。无需提供商设置。",
     "upgradeNoticeTitle": "为您的助手提供专属电子邮件地址",
     "usageSummary": "今日发送 {sent} / {limit} · 收到 {received}"
+  },
+  "emailSettingsModal": {
+    "title": "邮件设置",
+    "description": "助手的地址、域名和今天的使用情况。"
   }
 }

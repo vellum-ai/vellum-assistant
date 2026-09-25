@@ -223,7 +223,7 @@ describe("AssistantInboxPageRoute after an upgrade", () => {
         "The handle becomes your assistant's public handle. You won't be able to change it once set.",
       ),
     ).toBeTruthy();
-    expect(screen.queryByText("Ziggy's Inbox")).toBeNull();
+    expect(screen.queryByTestId("assistant-inbox-header")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Get started" }));
 
@@ -235,7 +235,9 @@ describe("AssistantInboxPageRoute after an upgrade", () => {
     });
 
     // The address now exists, so the route is the mailbox.
-    await waitFor(() => expect(screen.getByText("Ziggy's Inbox")).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByTestId("assistant-inbox-header")).toBeTruthy(),
+    );
     expect(screen.queryByLabelText("Handle (public)")).toBeNull();
     // The root domain comes from the environment store, so only the
     // address's own parts are pinned.
@@ -266,7 +268,7 @@ describe("AssistantInboxPageRoute after an upgrade", () => {
       ).toBeTruthy(),
     );
     expect(toastSuccessCalls).toEqual([]);
-    expect(screen.queryByText("Ziggy's Inbox")).toBeNull();
+    expect(screen.queryByTestId("assistant-inbox-header")).toBeNull();
     // The subdomain is claimed now, so the handle is settled and only the
     // prefix is left to choose.
     await waitFor(() =>
@@ -292,7 +294,9 @@ describe("AssistantInboxPageRoute after an upgrade", () => {
     ];
     renderRoute();
 
-    await waitFor(() => expect(screen.getByText("Ziggy's Inbox")).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByTestId("assistant-inbox-header")).toBeTruthy(),
+    );
     expect(screen.queryByText("Assistant Email")).toBeNull();
   });
 });

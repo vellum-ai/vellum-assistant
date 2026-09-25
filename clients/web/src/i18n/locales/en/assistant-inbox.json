@@ -4,8 +4,8 @@
     "dismiss": "Hide Assistant Inbox"
   },
   "assistantInboxHeader": {
-    "title": "{name}'s Inbox",
-    "subtitle": "Here are all the emails I've received and sent for you.",
+    "title": "Email",
+    "settingsAria": "Email settings",
     "usage": "{sent, plural, one {# sent} other {# sent}} today · {received, plural, one {# received} other {# received}} today"
   },
   "addressPill": {
