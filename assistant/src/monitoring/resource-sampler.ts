@@ -309,7 +309,7 @@ export function startResourceSampler(
     }
 
     try {
-      oomKills.check(sample, now, readDaemonHeartbeat(now)?.pid ?? null);
+      await oomKills.check(sample, now, readDaemonHeartbeat(now)?.pid ?? null);
     } catch (err) {
       log.warn({ err }, "OOM kill report failed");
     }
