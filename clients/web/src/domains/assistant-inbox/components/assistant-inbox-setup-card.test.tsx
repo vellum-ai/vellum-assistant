@@ -54,7 +54,7 @@ describe("AssistantInboxSetupCard", () => {
     ).toBeNull();
     expect(screen.queryByText(/won't be able to change it/)).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
     expect(onConfirm).toHaveBeenCalledWith({
       prefix: "hi",
       handle: "bright-vole",
@@ -72,9 +72,8 @@ describe("AssistantInboxSetupCard", () => {
     // Held to what a subdomain allows, as it is typed.
     fireEvent.change(field, { target: { value: "My Assistant_01!" } });
     expect((field as HTMLInputElement).value).toBe("myassistant01");
-    expect(screen.getByText("hi@myassistant01.example.com")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
     expect(onConfirm).toHaveBeenCalledWith({
       prefix: "hi",
       handle: "myassistant01",
@@ -97,7 +96,7 @@ describe("AssistantInboxSetupCard", () => {
         "That handle is taken.",
       ),
     );
-    const action = screen.getByRole("button", { name: "Get started" });
+    const action = screen.getByRole("button", { name: "Confirm" });
     expect((action as HTMLButtonElement).disabled).toBe(true);
 
     // A new draft clears the warning at once, before its own probe lands.
@@ -124,7 +123,7 @@ describe("AssistantInboxSetupCard", () => {
       "Subdomain already registered.",
     );
     // The refusal is about the last draft; the next one may go through.
-    const action = screen.getByRole("button", { name: "Get started" });
+    const action = screen.getByRole("button", { name: "Confirm" });
     expect((action as HTMLButtonElement).disabled).toBe(false);
   });
 });

@@ -76,10 +76,10 @@
     "planNotice": "Почта не входит в бесплатный план. Перейдите на Super или другой план с почтой."
   },
   "assistantInboxSetupCard": {
-    "title": "Почта ассистента",
-    "subtitle": "Настройте почту для вашего ассистента.",
-    "getStarted": "Начать",
-    "subtitleChooseHandle": "Займите уникальное имя и настройте почту ассистента.",
+    "headline": "Отлично, давайте всё настроим.",
+    "fieldLabel": "Выберите почтовый handle:",
+    "fieldLabelChooseHandle": "Выберите handle и префикс почты:",
+    "confirm": "Подтвердить",
     "immutableNotice": "Это имя станет публичным именем ассистента. После установки изменить его нельзя."
   },
   "assistantInboxRoute": {
