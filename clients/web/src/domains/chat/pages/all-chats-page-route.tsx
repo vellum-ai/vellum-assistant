@@ -17,10 +17,12 @@
  * time this renders and needs no second guard.
  */
 
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { Navigate, useNavigate, useSearchParams } from "react-router";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
+import { ChatsSettingsDialog } from "@/domains/chat/components/chats-settings-dialog";
+import { useRequestOrganizationId } from "@/stores/organization-store";
 import type { ConversationListContextValue } from "@/domains/chat/components/conversation-list-context";
 import {
   DeleteConversationConfirmDialog,
@@ -55,8 +57,20 @@ function renderActivity(conversation: Conversation) {
 }
 
 export function AllChatsPageRoute() {
-  const navigate = useNavigate();
   const assistantId = useActiveAssistantId();
+  const organizationId = useRequestOrganizationId();
+  return (
+    <AllChatsPageContent
+      key={`${organizationId ?? "local"}:${assistantId}`}
+      assistantId={assistantId}
+    />
+  );
+}
+
+function AllChatsPageContent({ assistantId }: { assistantId: string }) {
+  const navigate = useNavigate();
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsButtonRef = useRef<HTMLButtonElement>(null);
   const flagsHydrated = useClientFeatureFlagStore.use.hydrated();
   const enabled = useClientFeatureFlagStore.use.sidebarDone();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -203,6 +217,8 @@ export function AllChatsPageRoute() {
         onRetry={history.retry}
         renderActivity={renderActivity}
         onRowMount={registerActivity}
+        onOpenSettings={() => setSettingsOpen(true)}
+        settingsButtonRef={settingsButtonRef}
         onClose={() => {
           if (activeConversationId) {
             navigateToConversation(navigate, activeConversationId, {
@@ -213,6 +229,13 @@ export function AllChatsPageRoute() {
           }
         }}
       />
+      {settingsOpen && (
+        <ChatsSettingsDialog
+          assistantId={assistantId}
+          onClose={() => setSettingsOpen(false)}
+          returnFocusRef={settingsButtonRef}
+        />
+      )}
       <DeleteConversationConfirmDialog
         pending={deleteGate.pending}
         onConfirm={deleteGate.confirmDelete}

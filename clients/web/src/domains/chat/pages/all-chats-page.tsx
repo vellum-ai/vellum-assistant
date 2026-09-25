@@ -13,7 +13,14 @@
  * headings travel with their rows instead of sticking.
  */
 
-import { ArrowRight, MoreHorizontal, RotateCcw, Search, X } from "lucide-react";
+import {
+  ArrowRight,
+  MoreHorizontal,
+  RotateCcw,
+  Search,
+  Settings,
+  X,
+} from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -22,6 +29,7 @@ import {
   useState,
   type ChangeEvent,
   type ReactNode,
+  type Ref,
 } from "react";
 
 import {
@@ -91,6 +99,8 @@ export interface AllChatsPageProps {
   isError: boolean;
   onRetry: () => void;
   onClose?: () => void;
+  onOpenSettings?: () => void;
+  settingsButtonRef?: Ref<HTMLButtonElement>;
   renderActivity?: (conversation: Conversation) => ReactNode;
   onRowMount?: (conversationId: string) => () => void;
   /** The instant the date bands are measured against. Defaults to now. */
@@ -428,6 +438,8 @@ export function AllChatsPage({
   isError,
   onRetry,
   onClose,
+  onOpenSettings,
+  settingsButtonRef,
   renderActivity,
   onRowMount,
   now,
@@ -469,13 +481,11 @@ export function AllChatsPage({
         key: `header:${band.key}`,
         label: bandLabel(band.id, t, locale),
       },
-      ...band.items.map(
-        (conversation): AllChatsListItem => ({
-          kind: "row",
-          key: conversation.conversationId,
-          conversation,
-        }),
-      ),
+      ...band.items.map((conversation): AllChatsListItem => ({
+        kind: "row",
+        key: conversation.conversationId,
+        conversation,
+      })),
     ]);
   }, [rows, bandedAt, t, locale]);
 
@@ -549,17 +559,31 @@ export function AllChatsPage({
           >
             {t("allChatsPage.title")}
           </Typography>
-          {onClose && (
-            <Button
-              variant="ghost"
-              size="compact"
-              className="[@media(pointer:coarse)]:size-11"
-              iconOnly={<X aria-hidden />}
-              aria-label={t("allChatsPage.close")}
-              tooltip={t("allChatsPage.close")}
-              onClick={onClose}
-            />
-          )}
+          <div className="flex items-center gap-1">
+            {onOpenSettings && (
+              <Button
+                ref={settingsButtonRef}
+                variant="ghost"
+                size="compact"
+                className="[@media(pointer:coarse)]:size-11"
+                iconOnly={<Settings aria-hidden />}
+                aria-label={t("chatsSettingsModal.title")}
+                tooltip={t("chatsSettingsModal.title")}
+                onClick={onOpenSettings}
+              />
+            )}
+            {onClose && (
+              <Button
+                variant="ghost"
+                size="compact"
+                className="[@media(pointer:coarse)]:size-11"
+                iconOnly={<X aria-hidden />}
+                aria-label={t("allChatsPage.close")}
+                tooltip={t("allChatsPage.close")}
+                onClick={onClose}
+              />
+            )}
+          </div>
         </div>
 
         <Input
