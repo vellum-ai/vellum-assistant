@@ -57,10 +57,10 @@ export interface AssistantInboxSetupCardProps {
  * cannot be changed afterwards. Beneath the fields the address they produce
  * is drawn as the identity pill, so the preview reads as the assistant.
  *
- * Drawn as a page rather than a card in the middle of one, as the design
- * has it: a header row with the way back and the page's name, and the form
- * on a surface below it, so setting up reads as a step of the inbox rather
- * than a dialog over it.
+ * Drawn in the inbox's page frame, as the design has it: a header row with
+ * the way back and the page's name, and the form centred in the panel
+ * below, so setting up reads as a step of the inbox rather than a dialog
+ * over it.
  */
 export function AssistantInboxSetupCard({
   assistantId,
@@ -121,8 +121,8 @@ export function AssistantInboxSetupCard({
   const previewHandle = handle || t("emailAddressFields.handlePlaceholder");
 
   return (
-    <AssistantInboxPageFrame onBack={onBack}>
-      <div className="flex w-full max-w-[560px] flex-col gap-6 py-1">
+    <AssistantInboxPageFrame onBack={onBack} centered>
+      <div className="flex w-full max-w-[480px] flex-col items-center gap-6 px-4 py-1 text-center">
         <div className="flex flex-col gap-1">
           <h2 className="text-title-medium text-[var(--content-emphasised)]">
             {t("assistantInboxSetupCard.title")}
@@ -134,8 +134,8 @@ export function AssistantInboxSetupCard({
           </p>
         </div>
 
-        <div className="flex flex-col items-start gap-4">
-          <div className="flex max-w-full flex-col items-start gap-1.5">
+        <div className="flex flex-col items-center gap-4">
+          <div className="flex max-w-full flex-col items-center gap-1.5">
             <EmailAddressFields
               prefix={prefix}
               handle={handle}
@@ -160,7 +160,7 @@ export function AssistantInboxSetupCard({
             {problem ? (
               <p
                 role="alert"
-                className="text-body-small-default text-[var(--system-negative-strong)]"
+                className="text-center text-body-small-default text-[var(--system-negative-strong)]"
               >
                 {problem}
               </p>
