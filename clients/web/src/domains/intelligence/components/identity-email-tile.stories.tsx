@@ -34,18 +34,18 @@ function Pill({ locked }: { locked: boolean }) {
   const Control = locked ? X : Pin;
   return (
     <span
-      className="inline-flex h-8 shrink-0 items-center gap-0.5 rounded-full pr-1 pl-3 text-body-small-default text-[var(--content-default)]"
+      className="inline-flex h-10 shrink-0 items-center gap-1 rounded-full pr-1.5 pl-4 text-body-medium-default text-[var(--content-default)]"
       style={{
         backgroundColor: `color-mix(in srgb, ${AVATAR_HEX} 22%, var(--surface-lift))`,
       }}
     >
-      <Link to={email.to} className="inline-flex items-center gap-1.5 pr-1.5">
-        <Mail className="h-4 w-4" style={{ color: AVATAR_HEX }} aria-hidden />
+      <Link to={email.to} className="inline-flex items-center gap-2 pr-1.5">
+        <Mail className="h-5 w-5" style={{ color: AVATAR_HEX }} aria-hidden />
         {email.label}
         {locked ? <span aria-hidden>🔒</span> : null}
       </Link>
-      <span className="flex size-6 items-center justify-center rounded-full text-[var(--content-secondary)]">
-        <Control className="h-3.5 w-3.5" aria-hidden />
+      <span className="flex size-7 items-center justify-center rounded-full text-[var(--content-secondary)]">
+        <Control className="h-4 w-4" aria-hidden />
       </span>
     </span>
   );

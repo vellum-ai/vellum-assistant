@@ -234,6 +234,19 @@ export function AssistantInboxPageRoute() {
      opens from its @handle line. */
   const handleModal = useAssistantHandleModal(assistantId);
 
+  /* The way back from the inbox's pages. "/" is the account screen, not
+     the app, so back goes where the user came from when there is an entry
+     behind this one, and to the assistant's profile (which holds the Email
+     pill) otherwise, as on a cold load of the address. */
+  const leave = useCallback(() => {
+    const idx = (window.history.state as { idx?: number } | null)?.idx ?? 0;
+    if (idx > 0) {
+      void navigate(-1);
+    } else {
+      void navigate(routes.identity);
+    }
+  }, [navigate]);
+
   const createDomain = useMutation(assistantsDomainsCreateMutation());
   const createAddress = useMutation(assistantsEmailAddressesCreateMutation());
   const refreshReadiness = useMutation(channelsReadinessRefreshPostMutation());
@@ -392,7 +405,7 @@ export function AssistantInboxPageRoute() {
             onEditHandle={handleModal.openModal ?? undefined}
             onUpgrade={() => navigate(routes.plans)}
             onSeePlans={() => navigate(routes.plans)}
-            onBack={() => navigate("/")}
+            onBack={leave}
           />
           {handleModal.modal}
         </>
@@ -409,7 +422,7 @@ export function AssistantInboxPageRoute() {
           onDraftChange={() => setSetupError(null)}
           onConfirm={(draft) => void confirmSetup(draft)}
           busy={settling}
-          onBack={() => navigate("/")}
+          onBack={leave}
         />
       );
     case "ready":
@@ -420,7 +433,7 @@ export function AssistantInboxPageRoute() {
             assistantName={state.assistantName}
             address={justCreated}
             onContinue={() => setJustCreated(null)}
-            onBack={() => navigate("/")}
+            onBack={leave}
           />
         );
       }

@@ -319,9 +319,9 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
       aria-label={t("identityOverview.dismissEmail")}
       title={t("identityOverview.dismissEmail")}
       onClick={emailCard.dismiss}
-      className="flex size-6 items-center justify-center rounded-full text-[var(--content-secondary)] transition-colors hover:bg-[color-mix(in_srgb,var(--content-default)_10%,transparent)] hover:text-[var(--content-strong)] outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]"
+      className="flex size-7 items-center justify-center rounded-full text-[var(--content-secondary)] transition-colors hover:bg-[color-mix(in_srgb,var(--content-default)_10%,transparent)] hover:text-[var(--content-strong)] outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]"
     >
-      <X className="h-3.5 w-3.5" aria-hidden />
+      <X className="h-4 w-4" aria-hidden />
     </button>
   ) : (
     <button
@@ -338,12 +338,12 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
       }
       aria-pressed={emailPin.pinned}
       onClick={emailPin.toggle}
-      className="flex size-6 items-center justify-center rounded-full text-[var(--content-secondary)] transition-colors hover:bg-[color-mix(in_srgb,var(--content-default)_10%,transparent)] hover:text-[var(--content-strong)] outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]"
+      className="flex size-7 items-center justify-center rounded-full text-[var(--content-secondary)] transition-colors hover:bg-[color-mix(in_srgb,var(--content-default)_10%,transparent)] hover:text-[var(--content-strong)] outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]"
     >
       {emailPin.pinned ? (
-        <PinOff className="h-3.5 w-3.5" aria-hidden />
+        <PinOff className="h-4 w-4" aria-hidden />
       ) : (
-        <Pin className="h-3.5 w-3.5" aria-hidden />
+        <Pin className="h-4 w-4" aria-hidden />
       )}
     </button>
   );
@@ -619,6 +619,9 @@ export function SectionCard({
         className="rounded-[12px] border-0 bg-[var(--card-bg)]"
       >
         <div className="relative flex min-w-0 flex-1 items-center">
+          {/* The flood covers the whole card, the aside included, so a hug
+              takes the tile rather than the part of it the link owns. */}
+          {floodOverlay}
           <Link
             to={section.to}
             ref={linkRef}
@@ -628,7 +631,6 @@ export function SectionCard({
               compact ? "gap-1 py-3 pr-3 pl-2" : "gap-2 px-4 py-2.5"
             } ${hoverFill ? "hover:bg-[var(--card-hover)]" : ""}`}
           >
-            {floodOverlay}
             <span className="relative flex h-10 w-10 shrink-0 items-center justify-center">
               {/* The stacked tiles keep the 40px slot but sit a smaller glyph
                 in it, so the title leads the row rather than the icon. */}
@@ -1010,7 +1012,7 @@ function OverviewBento({
        nest in an anchor. */
     <span
       data-testid="identity-email-pill"
-      className="inline-flex h-8 shrink-0 items-center gap-0.5 rounded-full py-0 pr-1 pl-3 text-body-small-default text-[var(--content-default)] transition-[filter] hover:brightness-95"
+      className="inline-flex h-10 shrink-0 items-center gap-1 rounded-full py-0 pr-1.5 pl-4 text-body-medium-default text-[var(--content-default)] transition-[filter] hover:brightness-95"
       style={{
         backgroundColor: avatarHex
           ? `color-mix(in srgb, ${avatarHex} 22%, var(--surface-lift))`
@@ -1020,10 +1022,10 @@ function OverviewBento({
       <Link
         to={emailSection.to}
         aria-label={emailSection.label}
-        className="inline-flex h-full items-center gap-1.5 pr-1.5 outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)] rounded-full"
+        className="inline-flex h-full items-center gap-2 pr-1.5 outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)] rounded-full"
       >
         <Mail
-          className="h-4 w-4 shrink-0"
+          className="h-5 w-5 shrink-0"
           style={{ color: avatarHex ?? "var(--content-default)" }}
           aria-hidden
         />
