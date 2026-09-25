@@ -645,7 +645,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/ramp",
-        "version": "1.0.2"
+        "version": "1.0.3"
       },
       "description": "Explore expenses, bills, and company spending.",
       "homepage": "https://agents.ramp.com/docs/guides/connecting",
@@ -661,6 +661,7 @@
           "instructions": "Ask Ramp to allowlist this client or gateway's exact OAuth redirect URI before connecting."
         },
         "logo": "ramp-mcp.png",
+        "versionedLogo": "ramp-mcp-1.0.3.png",
         "category": "finance"
       }
     },
@@ -1272,7 +1273,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/navan",
-        "version": "1.0.2"
+        "version": "1.0.3"
       },
       "description": "Search business travel, expenses, and company policy information.",
       "homepage": "https://developer.navan.com/mcp/",
@@ -1288,6 +1289,7 @@
           "instructions": "A Navan admin must enable MCP for your organization."
         },
         "logo": "navan-mcp.png",
+        "versionedLogo": "navan-mcp-1.0.3.png",
         "category": "finance"
       }
     },

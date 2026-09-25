@@ -34,6 +34,7 @@ function renderIcon(props: {
   providerKey: string;
   displayName: string | null;
   logoUrl: string | null;
+  fallbackLogoUrl?: string | null;
 }) {
   return render(<IntegrationIcon {...props} />);
 }
@@ -112,6 +113,21 @@ describe("IntegrationIcon", () => {
 
     expect(container.querySelector("img")).toBeNull();
     expect(container.textContent).toBe("OU");
+  });
+
+  test("falls back from a versioned plugin logo to its stable alias", () => {
+    const { container } = renderIcon({
+      providerKey: "example-mcp",
+      displayName: "Example",
+      logoUrl: "/images/integrations/example-mcp-1.0.1.png",
+      fallbackLogoUrl: "/images/integrations/example-mcp.png",
+    });
+
+    fireEvent.error(container.querySelector("img")!);
+
+    expect(container.querySelector("img")!.getAttribute("src")).toBe(
+      "/images/integrations/example-mcp.png",
+    );
   });
 
   test("renders the initials avatar when there is no logo at all", () => {

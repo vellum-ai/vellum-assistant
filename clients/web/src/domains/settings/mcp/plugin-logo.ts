@@ -11,7 +11,17 @@ import type { McpPluginDefinition } from "../integration-items";
  * surface that shows the logo resolves it here instead, against Vite's `base`.
  */
 export function pluginLogoUrl(definition: McpPluginDefinition): string | null {
-  if (!definition.logo) {
+  const logo = definition.versionedLogo ?? definition.logo;
+  if (!logo) {
+    return null;
+  }
+  return publicAsset(`/images/integrations/${logo}`);
+}
+
+export function pluginLogoFallbackUrl(
+  definition: McpPluginDefinition,
+): string | null {
+  if (!definition.versionedLogo || !definition.logo) {
     return null;
   }
   return publicAsset(`/images/integrations/${definition.logo}`);

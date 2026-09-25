@@ -28638,6 +28638,8 @@ paths:
                               additionalProperties: false
                             logo:
                               type: string
+                            versionedLogo:
+                              type: string
                             oauthProvider:
                               type: string
                             category:

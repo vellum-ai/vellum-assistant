@@ -54,6 +54,7 @@ export interface McpPluginIntegration {
     readonly instructions: string;
   };
   readonly logo: string;
+  readonly versionedLogo?: string;
   readonly oauthProvider?: string;
 }
 
