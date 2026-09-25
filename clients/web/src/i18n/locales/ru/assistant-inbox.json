@@ -4,8 +4,8 @@
     "dismiss": "Скрыть почту ассистента"
   },
   "assistantInboxHeader": {
-    "title": "Почта {name}",
-    "subtitle": "Здесь все письма, которые я получил и отправил для вас.",
+    "title": "Почта",
+    "settingsAria": "Настройки почты",
     "usage": "{sent, plural, one {# отправлено} other {# отправлено}} сегодня · {received, plural, one {# получено} other {# получено}} сегодня"
   },
   "addressPill": {

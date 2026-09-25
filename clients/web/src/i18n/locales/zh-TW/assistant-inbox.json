@@ -4,8 +4,8 @@
     "dismiss": "隱藏助理收件匣"
   },
   "assistantInboxHeader": {
-    "title": "{name} 的收件匣",
-    "subtitle": "這裡是我為你收到和寄出的所有郵件。",
+    "title": "郵件",
+    "settingsAria": "郵件設定",
     "usage": "今天已寄出 {sent, plural, other {# 封}} · 已收到 {received, plural, other {# 封}}"
   },
   "addressPill": {

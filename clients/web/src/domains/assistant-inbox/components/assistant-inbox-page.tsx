@@ -121,6 +121,8 @@ export interface AssistantInboxPageProps {
    * confirmed. Without it the selection bar offers no delete action.
    */
   onDeleteEmails?: (emails: InboxEmail[]) => void;
+  /** Opens the email settings from the masthead. */
+  onOpenSettings?: () => void;
 }
 
 /**
@@ -150,6 +152,7 @@ export function AssistantInboxPage({
   initialCheckedIds,
   onStartChat,
   onDeleteEmails,
+  onOpenSettings,
 }: AssistantInboxPageProps) {
   const { t } = useTranslation("assistant-inbox");
   const [folder, setFolder] = useState<InboxFolder>(initialFolder);
@@ -251,9 +254,9 @@ export function AssistantInboxPage({
     <AssistantInboxShell>
       <AssistantInboxHeader
         assistantId={assistantId}
-        assistantName={assistantName}
         address={address}
         usage={usage}
+        onOpenSettings={onOpenSettings}
       />
 
       <div className="relative grid min-h-0 flex-1 grid-cols-1 gap-4 px-2 pb-2 pt-1 md:grid-cols-[minmax(280px,360px)_1fr]">

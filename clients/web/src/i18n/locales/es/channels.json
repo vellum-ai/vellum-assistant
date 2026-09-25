@@ -211,5 +211,9 @@
     "upgradeNoticeBody": "Mejora a un plan que incluya una dirección de correo para tu asistente. No hace falta configurar un proveedor.",
     "upgradeNoticeTitle": "Dale a tu asistente su propia dirección de correo",
     "usageSummary": "{sent} / {limit} enviados hoy · {received} recibidos"
+  },
+  "emailSettingsModal": {
+    "title": "Ajustes del correo",
+    "description": "La dirección de tu asistente, su dominio y el uso de hoy."
   }
 }
