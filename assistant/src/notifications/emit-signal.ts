@@ -35,6 +35,10 @@ import {
   intersectChannelAllowlist,
   readChannelAllowlist,
 } from "./channel-allowlist.js";
+import {
+  areChatReplyAlertsDisabled,
+  CHAT_REPLY_ALERTS_DISABLED,
+} from "./chat-reply-policy.js";
 import { enforceRoutingIntent, evaluateSignal } from "./decision-engine.js";
 import { updateDecision } from "./decisions-store.js";
 import {
@@ -559,9 +563,20 @@ export async function emitNotificationSignal<TEventName extends string>(
       };
     }
 
-    // Re-persist the decision if any policy step changed it (urgency channel
-    // forcing, routing intent enforcement, or the access-request vellum
-    // floor), so the stored decision row matches what is actually dispatched.
+    if (
+      decision.selectedChannels.includes("platform") &&
+      areChatReplyAlertsDisabled(signal.sourceEventName)
+    ) {
+      decision = {
+        ...decision,
+        selectedChannels: decision.selectedChannels.filter(
+          (channel) => channel !== "platform",
+        ),
+        reasoningSummary: `${decision.reasoningSummary} (${CHAT_REPLY_ALERTS_DISABLED})`,
+      };
+    }
+
+    // Persist the final channel policy so the audit matches dispatch.
     if (decision !== prePolicyDecision && decision.persistedDecisionId) {
       try {
         updateDecision(decision.persistedDecisionId, {

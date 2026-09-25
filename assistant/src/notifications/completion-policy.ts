@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { areChatReplyAlertsDisabled } from "./chat-reply-policy.js";
 import type { ChannelDestination } from "./types.js";
 import type { Urgency } from "./urgency.js";
 
@@ -65,7 +66,10 @@ export function notificationConversationId(
 export function isLocalNotificationSilent(
   event: CompletionEvent & { urgency: Urgency },
 ): boolean {
-  if (event.contextPayload?.quiet === true) {
+  if (
+    event.contextPayload?.quiet === true ||
+    areChatReplyAlertsDisabled(event.sourceEventName)
+  ) {
     return true;
   }
   return (
