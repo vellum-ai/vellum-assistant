@@ -1,9 +1,9 @@
 /**
- * The Email row over the Channels tile in the assistant profile's bottom
- * strip: one slim line at the tile's width, in the feature cards' wash of
- * the avatar colour, with a lock when the org's plan has no managed email. The bench
- * sets the same card variables the overview derives from the avatar, so
- * the wash reads as it does on the page.
+ * The Email tile at the end of the assistant profile's bottom strip, after
+ * Channels: a tile like its neighbours, in the feature cards' wash of the
+ * avatar colour, with a lock when the org's plan has no managed email. The
+ * bench sets the same card variables the overview derives from the avatar,
+ * so the wash reads as it does on the page.
  */
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { CSSProperties, ReactNode } from "react";
@@ -23,9 +23,14 @@ const WASH: CSSProperties = {
 function strip(locked: boolean) {
   const sections = buildIdentitySections({ email: { locked } });
   return sections.filter((s) =>
-    ["contacts", "email", "channels"].includes(s.key),
+    ["contacts", "channels", "email"].includes(s.key),
   );
 }
+
+const STATS: Record<string, { text: string } | undefined> = {
+  contacts: { text: "12 people" },
+  channels: { text: "3 connected" },
+};
 
 function Bench({ children }: { children: ReactNode }) {
   return (
@@ -39,43 +44,17 @@ function Bench({ children }: { children: ReactNode }) {
 }
 
 function Strip({ locked }: { locked: boolean }) {
-  const sections = strip(locked);
-  const email = sections.find((s) => s.key === "email")!;
   return (
-    <div className="flex w-[640px] flex-col gap-3 pt-12">
-      <div className="flex h-16 items-stretch gap-3">
-        {sections
-          .filter((s) => s.key !== "email")
-          .map((section) =>
-            section.key === "channels" ? (
-              <div key={section.key} className="relative flex min-w-0 flex-1">
-                <div className="absolute bottom-full left-0 max-w-full">
-                  <SectionCard
-                    section={email}
-                    stat={undefined}
-                    hoverFill
-                    slim
-                  />
-                </div>
-                <SectionCard
-                  section={section}
-                  stat={{ text: "3 connected" }}
-                  hoverFill
-                  mini
-                  tabbed
-                />
-              </div>
-            ) : (
-              <SectionCard
-                key={section.key}
-                section={section}
-                stat={{ text: "12 people" }}
-                hoverFill
-                mini
-              />
-            ),
-          )}
-      </div>
+    <div className="flex h-16 w-[720px] items-stretch gap-3">
+      {strip(locked).map((section) => (
+        <SectionCard
+          key={section.key}
+          section={section}
+          stat={STATS[section.key]}
+          hoverFill
+          mini
+        />
+      ))}
     </div>
   );
 }
@@ -109,59 +88,28 @@ export const Locked: Story = {
   ),
 };
 
-/**
- * The phone's stacked grid: two columns, the tab on a full-width Channels
- * tile, and the Contacts tile beside it bottom-aligned rather than
- * stretched to the pair's height.
- */
+/** The phone's stacked grid: two columns, Email a tile like the others. */
 export const Stacked: Story = {
   args: { locked: false },
-  render: () => {
-    const sections = strip(false);
-    const email = sections.find((s) => s.key === "email")!;
-    return (
-      <Bench>
-        <div className="grid w-[360px] grid-cols-2 items-end gap-2">
-          {sections
-            .filter((s) => s.key !== "email")
-            .map((section) =>
-              section.key === "channels" ? (
-                <div key={section.key} className="flex flex-col items-stretch">
-                  <div className="self-start">
-                    <SectionCard
-                      section={email}
-                      stat={undefined}
-                      hoverFill
-                      slim
-                    />
-                  </div>
-                  <SectionCard
-                    section={section}
-                    stat={{ text: "0 connected" }}
-                    hoverFill
-                    mini
-                    compact
-                    tabbed
-                  />
-                </div>
-              ) : (
-                <SectionCard
-                  key={section.key}
-                  section={section}
-                  stat={{ text: "2 people" }}
-                  hoverFill
-                  mini
-                  compact
-                />
-              ),
-            )}
-        </div>
-      </Bench>
-    );
-  },
+  render: () => (
+    <Bench>
+      <div className="grid w-[360px] grid-cols-2 gap-2">
+        {strip(false).map((section) => (
+          <SectionCard
+            key={section.key}
+            section={section}
+            stat={STATS[section.key]}
+            hoverFill
+            mini
+            compact
+          />
+        ))}
+      </div>
+    </Bench>
+  ),
 };
 
-/** Both, to judge the wash against the plain tiles either side. */
+/** Both, to judge the wash against the plain tiles beside it. */
 export const Both: Story = {
   args: { locked: false },
   render: () => (
