@@ -287,8 +287,7 @@ export const EXTRACT_LINKS_EXPRESSION = `
 export function parseBrowserMode(
   input: Record<string, unknown>,
 ): { ok: true; mode: BrowserMode } | { ok: false; error: string } {
-  const raw = input.browser_mode;
-  const result = normalizeBrowserMode(raw);
+  const result = normalizeBrowserMode(input.browser_mode);
   if ("error" in result) {
     return { ok: false, error: `Error: ${result.error}` };
   }
@@ -2672,9 +2671,11 @@ async function checkExtensionModeStatus(
   context: ToolContext,
   autoCandidate: boolean,
 ): Promise<BrowserStatusModeResult> {
-  const proxy = HostBrowserProxy.instance;
-
-  if (!proxy.hasExtensionClient(context.sourceActorPrincipalId)) {
+  if (
+    !HostBrowserProxy.instance.hasExtensionClient(
+      context.sourceActorPrincipalId,
+    )
+  ) {
     return {
       mode: BROWSER_STATUS_MODE.EXTENSION,
       available: false,
