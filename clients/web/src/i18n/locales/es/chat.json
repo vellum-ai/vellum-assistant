@@ -2145,5 +2145,23 @@
     "subtitle": "Has usado el uso gratuito de hoy. Se reinicia a las {resetPhrase}. Mejora tu plan o añade créditos para continuar.",
     "title": "Uso gratuito diario agotado",
     "viewPlans": "Ver planes"
+  },
+  "chatsSettingsModal": {
+    "title": "Ajustes de chats",
+    "description": "Gestiona el marcado automático como hecho y las notificaciones de nuevos mensajes de este asistente en tus dispositivos.",
+    "autoArchive": "Archivar chats automáticamente",
+    "autoArchiveHelper": "Marca los chats inactivos como hechos, incluidos los que ya superan este plazo. Los chats hechos siguen en Todos los chats.",
+    "timeToArchive": "Tiempo para archivar",
+    "days": "{count, plural, one {# día} other {# días}}",
+    "notifications": "Notificaciones de nuevos mensajes",
+    "notificationsHelper": "Avisos de respuestas en chats que no estás viendo. Los avisos que requieren una acción siguen activos. Se aplican los permisos de notificación del dispositivo.",
+    "cancel": "Cancelar",
+    "confirm": "Confirmar",
+    "saving": "Guardando…",
+    "loading": "Cargando ajustes de chats…",
+    "retry": "Reintentar",
+    "loadError": "No se pudieron cargar los ajustes de chats. Vuelve a intentarlo.",
+    "saveError": "No se pudieron guardar los ajustes de chats. Tus cambios se conservan aquí. Pulsa Confirmar para volver a intentarlo.",
+    "unsupported": "Actualiza este asistente para usar los ajustes de chats."
   }
 }
