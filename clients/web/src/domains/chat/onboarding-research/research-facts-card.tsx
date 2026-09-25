@@ -15,6 +15,7 @@
 import { useState } from "react";
 import { Ban } from "lucide-react";
 
+import { Button } from "@vellumai/design-library/components/button";
 import { Popover } from "@vellumai/design-library/components/popover";
 import { Tag } from "@vellumai/design-library/components/tag";
 
@@ -140,15 +141,17 @@ function ClaimRow({
           }}
         >
           <Popover.Trigger asChild>
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              size="compact"
+              expandOnMobile={false}
               aria-label={removed ? t("researchFactsCard.editRemovalAria") : t("researchFactsCard.removeAria")}
               onClick={(e) => e.stopPropagation()}
               data-reveal=""
-              className="ml-auto shrink-0 cursor-pointer text-[var(--content-tertiary)] hover:text-[var(--content-default)]"
-            >
-              <Ban className="size-[18px]" />
-            </button>
+              className="ml-auto shrink-0"
+              iconOnly={<Ban />}
+              iconOnlyGlyphClassName="size-[18px] [&_svg]:size-[18px]"
+            />
           </Popover.Trigger>
           <Popover.Content align="end" className="flex w-52 flex-col gap-0.5">
             <p className="px-2 pb-1 pt-1 text-label-small-default text-[var(--content-tertiary)]">
