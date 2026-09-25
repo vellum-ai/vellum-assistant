@@ -1129,21 +1129,34 @@ function OverviewBento({
       };
       // Email hangs just over Channels, so the pair is one shape to the
       // avatar: whichever of the two is hovered, it peeks from above the
-      // Email row rather than from behind it. Only the hovered card
-      // floods, so the flood's origin stays on that card's own box.
+      // Email row, never from a side (the row is too short for the tab)
+      // and never from behind the row. Only the hovered card floods, so the
+      // flood's origin stays on that card's own box.
       const emailEl = cardEls.current["email"];
+      const channelsEl = cardEls.current["channels"];
+      const pair =
+        (key === "email" || key === "channels") && emailEl && channelsEl
+          ? { email: emailEl, channels: channelsEl }
+          : null;
       const hugRect = { ...rect };
-      if (key === "channels" && emailEl) {
-        const er = emailEl.getBoundingClientRect();
+      if (pair) {
+        const er = pair.email.getBoundingClientRect();
+        const chr = pair.channels.getBoundingClientRect();
+        const left = Math.min(er.left, chr.left);
+        hugRect.left = left - cr.left;
         hugRect.top = er.top - cr.top;
-        hugRect.height = r.bottom - er.top;
+        hugRect.width = Math.max(er.right, chr.right) - left;
+        hugRect.height = chr.bottom - er.top;
       }
       // The eyes peek from the card edge that faces the page center —
       // whichever axis the card sits furthest out on wins.
-      const dx = (rect.left + rect.width / 2 - cr.width / 2) / (cr.width / 2);
-      const dy = (rect.top + rect.height / 2 - cr.height / 2) / (cr.height / 2);
-      const facing: AmoebaFacing =
-        Math.abs(dx) > Math.abs(dy)
+      const dx =
+        (hugRect.left + hugRect.width / 2 - cr.width / 2) / (cr.width / 2);
+      const dy =
+        (hugRect.top + hugRect.height / 2 - cr.height / 2) / (cr.height / 2);
+      const facing: AmoebaFacing = pair
+        ? "top"
+        : Math.abs(dx) > Math.abs(dy)
           ? dx < 0
             ? "right"
             : "left"
@@ -1155,7 +1168,11 @@ function OverviewBento({
         y: cr.height / 2,
       });
       // The flood origin is where the peek meets the hovered card's own
-      // box: for Channels under the Email row that is its top edge.
+      // box: for either card of the pair, a point along its top edge.
+      const peekX = Math.min(
+        Math.max(target.peek.x - (rect.left - hugRect.left), 0),
+        rect.width,
+      );
       const peekY = Math.min(
         Math.max(target.peek.y - (rect.top - hugRect.top), 0),
         rect.height,
@@ -1164,7 +1181,7 @@ function OverviewBento({
         key,
         target,
         origin: {
-          x: (target.peek.x / rect.width) * 100,
+          x: (peekX / rect.width) * 100,
           y: (peekY / rect.height) * 100,
         },
       });
