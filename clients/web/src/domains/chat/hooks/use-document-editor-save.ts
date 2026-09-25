@@ -151,9 +151,6 @@ export function useDocumentEditorSave({
           const snapshot = latestRef.current;
           const renameRevision = renameRevisionRef.current;
           const saveTarget = { ...targetRef.current, title: snapshot.title };
-          if (mountedRef.current) {
-            setSentContent(snapshot.content);
-          }
           try {
             await saveDocumentContent(saveTarget, snapshot.content);
             wrote = true;
@@ -191,6 +188,9 @@ export function useDocumentEditorSave({
           }
           persistedRef.current = snapshot;
           savedRevisionRef.current = revision;
+          if (mountedRef.current) {
+            setSentContent(snapshot.content);
+          }
           if (renameRevision !== null) {
             if (renameRevisionRef.current === renameRevision) {
               renameRevisionRef.current = null;

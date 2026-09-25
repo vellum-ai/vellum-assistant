@@ -625,18 +625,31 @@ describe("useDocumentEditorSave", () => {
     },
   );
 
-  test("reports each body as it is sent, before the write settles", async () => {
-    const write = deferred();
-    saveDocumentContent.mockImplementationOnce(() => write.promise);
+  test("reports a sent body only after its write succeeds", async () => {
+    const failed = deferred();
+    const succeeded = deferred();
+    saveDocumentContent
+      .mockImplementationOnce(() => failed.promise)
+      .mockImplementationOnce(() => succeeded.promise);
     const { result } = renderSave();
     expect(result.current.sentContent).toBe("Original body");
     act(() => result.current.changeContent("Local edit"));
-    const saved = result.current.flushPendingSave();
-    await waitFor(() => expect(result.current.sentContent).toBe("Local edit"));
+    const first = result.current.flushPendingSave();
+    await waitFor(() => expect(saveDocumentContent).toHaveBeenCalledTimes(1));
+    expect(result.current.sentContent).toBe("Original body");
     await act(async () => {
-      write.resolve();
-      await saved;
+      failed.reject(new Error("offline"));
+      await first.catch(() => {});
     });
+    expect(result.current.sentContent).toBe("Original body");
+    const second = result.current.flushPendingSave();
+    await waitFor(() => expect(saveDocumentContent).toHaveBeenCalledTimes(2));
+    expect(result.current.sentContent).toBe("Original body");
+    await act(async () => {
+      succeeded.resolve();
+      await second;
+    });
+    expect(result.current.sentContent).toBe("Local edit");
   });
 
   test("a merged body saves even while preparation holds the editor", async () => {

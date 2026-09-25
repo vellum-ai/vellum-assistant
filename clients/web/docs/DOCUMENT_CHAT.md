@@ -137,9 +137,10 @@ Body edits preserve deferred title changes, renames preserve deferred body chang
 and edits rejected by a preparation lease leave deferred updates intact.
 The editor applies an incoming body as a remote change (`useTiptapRemoteMerge`,
 `utils/tiptap-remote-merge.ts`). It diffs the body against the anchor it differs
-from least: the last body received, or one of the last bodies the save path sent
-(`sentContent`). Each changed hunk maps through the local edits made since that
-anchor and applies in one transaction outside undo history, so selection, scroll
+from least: the last body received, or one of the last bodies the save path wrote
+successfully (`sentContent`). A body becomes an anchor only once its write
+succeeds, so an unacknowledged or failed write never serves as an ancestor.
+Each changed hunk maps through the local edits made since that anchor and applies in one transaction outside undo history, so selection, scroll
 and comment decorations map rather than reset. A hunk whose original range the
 user has changed since is skipped in favor of the user's text, and a toast says
 part of the assistant's edit was not applied. When the merge kept local edits,
