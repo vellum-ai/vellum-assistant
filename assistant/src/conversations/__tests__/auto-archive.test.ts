@@ -278,3 +278,18 @@ test("config invalidation and hourly cadence trigger sweeps and stop releases bo
   expect(archive).toHaveBeenCalledTimes(2);
   expect(callback).toBeUndefined();
 });
+
+test("enabling the Done feature gate triggers an immediate sweep", async () => {
+  doneEnabled = false;
+  config.conversations.autoArchive.enabled = true;
+  worker.start();
+  await settle();
+  expect(list).not.toHaveBeenCalled();
+  doneEnabled = true;
+  callback?.({
+    message: { type: "sync_changed", tags: [SYNC_TAGS.featureFlagsAssistant] },
+  });
+  await settle();
+  expect(archive).toHaveBeenCalledTimes(1);
+  expect(publish).toHaveBeenCalledWith("reordered", ["conv-0000"]);
+});

@@ -45,7 +45,8 @@ export class ConversationAutoArchiveWorker {
       callback: ({ message }) => {
         if (
           message.type === "sync_changed" &&
-          message.tags.includes(SYNC_TAGS.assistantConfig)
+          (message.tags.includes(SYNC_TAGS.assistantConfig) ||
+            message.tags.includes(SYNC_TAGS.featureFlagsAssistant))
         ) {
           void this.requestSweep();
         }

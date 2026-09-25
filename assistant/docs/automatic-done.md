@@ -14,7 +14,7 @@ The final runtime check also excludes accepted sends, queued/processing turns, v
 
 ## Lifecycle and concurrency
 
-The assistant owns one worker, independent of client pages. Its first sweep waits for interrupted conversation recovery, database migration readiness and startup completion. Failed startup recovery leaves the worker paused until restart. Config invalidation and an hourly timer trigger later sweeps; overlapping triggers coalesce. Shutdown cancels retries, removes the subscription/timer and prevents a late recovery promise from starting work.
+The assistant owns one worker, independent of client pages. Its first sweep waits for interrupted conversation recovery, database migration readiness and startup completion. Failed startup recovery leaves the worker paused until restart. Config or assistant feature-flag invalidation and an hourly timer trigger later sweeps; overlapping triggers coalesce. Shutdown cancels retries, removes the subscription/timer and prevents a late recovery promise from starting work.
 
 Each sweep scans bounded pages of 100 candidates with an activity/id keyset. For every page, it reads the exhaustive pending guardian-request list through the gateway. A failed read leaves that page untouched. Final eligibility and the write run synchronously inside each SQLite retry attempt. The SQL compare-and-set checks sampled message/reopen cursors and all persisted eligibility again, so activity, pinning, input-related processing, workflow/session changes, or reopening during the asynchronous gateway read cannot overwrite newer state.
 

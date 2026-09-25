@@ -904,11 +904,11 @@ graph LR
 
 ## Automatic Done
 
-`src/conversations/auto-archive.ts` runs an opt-in automatic Done sweep after startup recovery, on assistant config invalidation, and hourly. It marks eligible inactive native chats through the existing `archived_at` state. Candidate selection and the conditional update share the same persisted eligibility predicates; runtime checks run synchronously with each conditional write. Explicit reopening records `last_reopened_at` to grant a full inactivity interval.
+`src/conversations/auto-archive.ts` runs an opt-in automatic Done sweep after startup recovery, on assistant config or feature-flag invalidation, and hourly. It marks eligible inactive native chats through the existing `archived_at` state. Candidate selection and the conditional update share the same persisted eligibility predicates; runtime checks run synchronously with each conditional write. Explicit reopening records `last_reopened_at` to grant a full inactivity interval.
 
 ```mermaid
 flowchart LR
-    TRIGGER[Startup recovery / config change / hourly timer] --> PAGE[Bounded candidate page]
+    TRIGGER[Startup recovery / config or feature-flag change / hourly timer] --> PAGE[Bounded candidate page]
     PAGE --> GUARDIAN[Read pending guardian requests]
     GUARDIAN --> CHECK[Recheck config and runtime activity]
     CHECK --> CAS[Conditional SQLite Done update]
