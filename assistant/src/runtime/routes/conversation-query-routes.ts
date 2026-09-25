@@ -31,9 +31,9 @@ import {
 } from "../../api/responses/llm-request-log-entry.js";
 import { scrubNulledAcpAgentLeaves } from "../../config/acp-agent-write.js";
 import {
-  ChatSettingsConfigSchema,
   ChatSettingsPatchSchema,
   scrubNulledChatSettings,
+  validateChatSettingsWrite,
 } from "../../config/chat-settings.js";
 import {
   catalogEntryFor,
@@ -1542,15 +1542,15 @@ export async function commitConfigWrite(
   raw: Record<string, unknown>,
   opLabel: string,
 ): Promise<void> {
-  const chatSettings = ChatSettingsConfigSchema.safeParse(raw);
-  if (!chatSettings.success) {
-    throw new BadRequestError(chatSettings.error.message);
-  }
   // `loadRawConfig()` reads fresh from disk and the save hasn't happened yet,
   // so it is the pre-write state; raw-to-raw comparison avoids parsed-vs-raw
   // false diffs. Runs before the watcher-suppress/save sequence so a
   // rejection needs no suppress-flag or cache cleanup.
   const preWrite = loadRawConfig();
+  const chatSettings = validateChatSettingsWrite(preWrite, raw);
+  if (!chatSettings.success) {
+    throw new BadRequestError(chatSettings.error.message);
+  }
   completeChangedCustomProfiles(preWrite, raw);
   assertInvariantProfilesPreserved(preWrite, raw);
   assertRoutableIdentityEntries(preWrite, raw);
@@ -1683,7 +1683,7 @@ async function handlePatchConfig({ body }: RouteHandlerArgs) {
   deepMergeOverwrite(raw, patch);
   scrubRemovedServiceModes(raw);
   scrubNulledAcpAgentLeaves(raw);
-  scrubNulledChatSettings(raw);
+  scrubNulledChatSettings(raw, patch);
   seedSttProviderForSparseBlock(raw);
 
   await commitConfigWrite(raw, "patch");
