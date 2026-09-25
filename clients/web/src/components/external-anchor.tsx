@@ -87,6 +87,7 @@ export function ExternalAnchor({
   ...rest
 }: ExternalAnchorProps) {
   return (
+    // eslint-disable-next-line local/prefer-design-library-controls -- this is the anchor the rule points everyone at
     <a
       {...rest}
       className={
