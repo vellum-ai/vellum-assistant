@@ -466,6 +466,29 @@ describe("useLiveVoiceScreenShare: the controls offered beside the frames", () =
     expect(offeredTargets()).toEqual([targetsNaming("Save"), null]);
   });
 
+  test("clears the old surface's controls at once when the share moves", async () => {
+    answerTargets = async () => targetsNaming("Save");
+    renderShare();
+    share(WINDOW);
+    await flush();
+    let answer!: (snapshot: ShareTargetSnapshot | null) => void;
+    answerTargets = () =>
+      new Promise((resolve) => {
+        answer = resolve;
+      });
+    share({ kind: "display", displayId: 2 });
+    await flush();
+    expect(offeredTargets()).toEqual([targetsNaming("Save"), null]);
+
+    answer(targetsNaming("Export"));
+    await flush();
+    expect(offeredTargets()).toEqual([
+      targetsNaming("Save"),
+      null,
+      targetsNaming("Export"),
+    ]);
+  });
+
   test("sends nothing for a surface with no tree it never offered", async () => {
     renderShare();
     share(WINDOW);

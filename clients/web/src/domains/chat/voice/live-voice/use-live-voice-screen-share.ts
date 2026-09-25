@@ -166,8 +166,8 @@ export function useLiveVoiceScreenShare(): void {
 
   // The snapshot of the surface's controls the session was last handed,
   // serialized, so an unchanged surface sends nothing. Held for the mount
-  // rather than the run: a move to another surface starts a run, and the
-  // session still holds what the last one offered.
+  // rather than the run, since the resets that clear it are the session's
+  // (connection ready, reconnect) as well as the run's.
   const offered = useRef(NOTHING_OFFERED);
 
   const connectedShare = active && state !== "connecting" && !reconnecting;
@@ -518,11 +518,16 @@ export function useLiveVoiceScreenShare(): void {
       // frame of what the user has just stopped showing.
       if (session.screenShareTarget !== target) {
         // A stop tells the session the share is off, which clears what it
-        // held. A move to another surface does not, so what was offered for
-        // this one stands until the next run offers its own.
-        if (session.screenShareTarget === null) {
-          offered.current = NOTHING_OFFERED;
+        // held. A move to another surface is cleared here, so a turn taken
+        // before the next run's read lands is not offered this surface's
+        // names to point at on that one.
+        if (
+          session.screenShareTarget !== null &&
+          offered.current !== NOTHING_OFFERED
+        ) {
+          updateLiveVoiceSessionConfig({ shareTargets: null });
         }
+        offered.current = NOTHING_OFFERED;
         generation += 1;
         sight.revokeConsent();
         sight.rebaseSendOrder();
