@@ -12,6 +12,30 @@ export interface FireworksProviderOptions {
 
 const DEFAULT_FIREWORKS_BASE_URL = "https://api.fireworks.ai/inference/v1";
 
+/**
+ * Fireworks routing hint. Prompt caching works only within one replica, so
+ * serverless and multi-replica deployments use this header to send requests
+ * that share a key to the same replica.
+ * https://docs.fireworks.ai/guides/prompt-caching#optimizing-inference-request-for-caching
+ */
+export const FIREWORKS_SESSION_AFFINITY_HEADER = "x-session-affinity";
+
+/**
+ * Headers for one outgoing Fireworks request. `sessionKey` is the durable
+ * per-conversation key; without one the header is omitted, because a shared
+ * key would pin all keyless traffic to a single replica. Transport metadata
+ * only; nothing here enters the request body.
+ */
+export function resolveFireworksRequestHeaders(
+  sessionKey: string | undefined,
+): Record<string, string> {
+  const key = sessionKey?.trim();
+  if (!key) {
+    return {};
+  }
+  return { [FIREWORKS_SESSION_AFFINITY_HEADER]: key };
+}
+
 const FIREWORKS_MODEL_EFFORT_CEILINGS = modelEffortCeilings("fireworks");
 const FIREWORKS_MODEL_SUPPORTED_EFFORTS = modelSupportedEfforts("fireworks");
 
