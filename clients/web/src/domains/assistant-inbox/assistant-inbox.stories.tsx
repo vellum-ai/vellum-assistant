@@ -45,6 +45,7 @@ import { preloadBundledAvatarComponents } from "@/utils/use-bundled-avatar-compo
 
 import { AssistantInboxPage } from "./components/assistant-inbox-page";
 import { AssistantInboxSetupCard } from "./components/assistant-inbox-setup-card";
+import { AssistantInboxSetupSuccess } from "./components/assistant-inbox-setup-success";
 import { AssistantInboxUpgradeState } from "./components/assistant-inbox-upgrade-state";
 import {
   MOCK_ADDRESS,
@@ -339,6 +340,20 @@ export const SetUpEmailRefused: Story = {
 const MOCK_READ_IDS: ReadonlySet<string> = new Set(
   MOCK_INBOX.slice(2).map((email) => email.id),
 );
+
+/** The moment after the address is made: the line types in, then the way in. */
+export const SetUpEmailDone: Story = {
+  name: "2d · Address created",
+  render: () => (
+    <AssistantInboxSetupSuccess
+      assistantId={ASSISTANT_ID}
+      assistantName={MOCK_ASSISTANT_NAME}
+      address={MOCK_ADDRESS}
+      onContinue={fn().mockName("onContinue")}
+      onBack={fn().mockName("onBack")}
+    />
+  ),
+};
 
 /** Entitled with an address. The mailbox, seeded with received and sent mail. */
 export const Inbox: Story = {

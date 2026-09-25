@@ -2210,5 +2210,9 @@
     "subtitle": "您已用完今日的免费用量，将在{resetPhrase}重置。升级或添加额度以继续。",
     "title": "今日免费用量已用完",
     "viewPlans": "查看方案"
+  },
+  "emailNavItem": {
+    "label": "邮件",
+    "unpin": "取消固定邮件"
   }
 }

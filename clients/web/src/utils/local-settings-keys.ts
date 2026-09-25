@@ -26,6 +26,19 @@ export const LS_ASSISTANT_INBOX_DELETED_EMAILS_PREFIX =
  */
 export const LS_ASSISTANT_INBOX_READ_EMAILS_PREFIX =
   "vellum:ui:assistantInboxReadEmails:";
+/**
+ * Prefix, completed with the assistant id: "1" while the user has pinned
+ * that assistant's Email to the side menu on this device.
+ */
+export const LS_ASSISTANT_INBOX_PINNED_PREFIX =
+  "vellum:ui:assistantInboxPinned:";
+/**
+ * Prefix, completed with the assistant id: "1" while the user has closed the
+ * profile's Email card on this device. Honoured only while the org's plan
+ * has no managed email; the card returns once there is an inbox to open.
+ */
+export const LS_ASSISTANT_INBOX_CARD_DISMISSED_PREFIX =
+  "vellum:ui:assistantInboxCardDismissed:";
 
 export const LS_TTS_PROVIDER = "vellum:voice:ttsProvider";
 export const LS_TTS_API_KEY_PREFIX = "vellum:voice:ttsApiKey:";

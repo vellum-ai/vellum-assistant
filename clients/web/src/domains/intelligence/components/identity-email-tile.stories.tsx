@@ -1,7 +1,7 @@
 /**
- * The Email tile in the assistant profile's bottom strip, beside the plain
- * tiles it sits between. It wears the feature cards' wash of the avatar
- * colour, and a lock when the org's plan has no managed email. The bench
+ * The Email row over the assistant profile's bottom strip: one slim line
+ * in the feature cards' wash of the avatar colour, with a lock when the
+ * org's plan has no managed email. The bench
  * sets the same card variables the overview derives from the avatar, so
  * the wash reads as it does on the page.
  */
@@ -39,23 +39,28 @@ function Bench({ children }: { children: ReactNode }) {
 }
 
 function Strip({ locked }: { locked: boolean }) {
+  const sections = strip(locked);
+  const email = sections.find((s) => s.key === "email")!;
   return (
-    <div className="flex h-16 w-[640px] items-stretch gap-3">
-      {strip(locked).map((section) => (
-        <SectionCard
-          key={section.key}
-          section={section}
-          stat={
-            section.key === "contacts"
-              ? { text: "12 people" }
-              : section.key === "channels"
-                ? { text: "3 connected" }
-                : undefined
-          }
-          hoverFill
-          mini
-        />
-      ))}
+    <div className="flex w-[640px] flex-col gap-3">
+      <SectionCard section={email} stat={undefined} hoverFill slim />
+      <div className="flex h-16 items-stretch gap-3">
+        {sections
+          .filter((s) => s.key !== "email")
+          .map((section) => (
+            <SectionCard
+              key={section.key}
+              section={section}
+              stat={
+                section.key === "contacts"
+                  ? { text: "12 people" }
+                  : { text: "3 connected" }
+              }
+              hoverFill
+              mini
+            />
+          ))}
+      </div>
     </div>
   );
 }

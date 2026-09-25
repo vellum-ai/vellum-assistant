@@ -234,17 +234,19 @@ describe("AssistantInboxPageRoute after an upgrade", () => {
       email_username: "hi",
     });
 
-    // The address now exists, so the route is the mailbox.
+    // The address now exists: the success screen first, then the mailbox.
+    await waitFor(() =>
+      expect(screen.getByTestId("assistant-inbox-setup-success")).toBeTruthy(),
+    );
+    // The way in appears once the line has typed itself out.
+    const openInbox = await screen.findByRole("button", { name: "Open inbox" });
+    fireEvent.click(openInbox);
     await waitFor(() =>
       expect(screen.getByTestId("assistant-inbox-header")).toBeTruthy(),
     );
     expect(screen.queryByLabelText("Handle (public)")).toBeNull();
-    // The root domain comes from the environment store, so only the
-    // address's own parts are pinned.
-    expect(toastSuccessCalls.length).toBe(1);
-    expect(toastSuccessCalls[0]).toMatch(
-      /^hi@bright-vole-02a64h\..+ is ready\.$/,
-    );
+    // The success screen is the confirmation; no toast doubles it.
+    expect(toastSuccessCalls.length).toBe(0);
   });
 
   test("a claimed subdomain whose address could not be made is an error, not a ready address", async () => {

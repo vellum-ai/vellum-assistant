@@ -225,8 +225,10 @@ describe("EmailChannelSection header with the Assistant Inbox flag", () => {
     ).toBeNull();
     // One heading: the section's. The body brings no title of its own.
     expect(screen.getAllByRole("heading")).toHaveLength(1);
+    // The pitch's perks stand in for the address itself.
+    expect(screen.getByText("A real address on local.vellum.me")).toBeTruthy();
     expect(
-      screen.getByText(`hi@${ASSISTANT_HANDLE}.local.vellum.me`),
+      screen.getByRole("button", { name: /Upgrade to Super/ }),
     ).toBeTruthy();
   });
 });
