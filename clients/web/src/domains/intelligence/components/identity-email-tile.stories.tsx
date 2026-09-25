@@ -1,7 +1,8 @@
 /**
- * The Email tile at the end of the assistant profile's bottom strip, after
- * Channels: a tile like its neighbours, in the feature cards' wash of the
- * avatar colour, with a lock when the org's plan has no managed email. The
+ * The Email tab hanging off the Channels tile in the assistant profile's
+ * bottom strip: the two are one piece, square where they meet, the tab in
+ * the feature cards' wash of the avatar colour, with a lock when the org's
+ * plan has no managed email. The
  * bench sets the same card variables the overview derives from the avatar,
  * so the wash reads as it does on the page.
  */
@@ -43,18 +44,50 @@ function Bench({ children }: { children: ReactNode }) {
   );
 }
 
+function Pair({
+  sections,
+  compact = false,
+}: {
+  sections: ReturnType<typeof strip>;
+  compact?: boolean;
+}) {
+  const channels = sections.find((s) => s.key === "channels")!;
+  const email = sections.find((s) => s.key === "email")!;
+  return (
+    <div className="flex min-w-0 flex-[1.7]">
+      <SectionCard
+        section={channels}
+        stat={STATS[channels.key]}
+        hoverFill
+        mini
+        compact={compact}
+        join="end"
+      />
+      <SectionCard
+        section={email}
+        stat={undefined}
+        hoverFill
+        mini
+        compact={compact}
+        join="start"
+        fit
+      />
+    </div>
+  );
+}
+
 function Strip({ locked }: { locked: boolean }) {
+  const sections = strip(locked);
+  const contacts = sections.find((s) => s.key === "contacts")!;
   return (
     <div className="flex h-16 w-[720px] items-stretch gap-3">
-      {strip(locked).map((section) => (
-        <SectionCard
-          key={section.key}
-          section={section}
-          stat={STATS[section.key]}
-          hoverFill
-          mini
-        />
-      ))}
+      <SectionCard
+        section={contacts}
+        stat={STATS[contacts.key]}
+        hoverFill
+        mini
+      />
+      <Pair sections={sections} />
     </div>
   );
 }
@@ -94,16 +127,16 @@ export const Stacked: Story = {
   render: () => (
     <Bench>
       <div className="grid w-[360px] grid-cols-2 gap-2">
-        {strip(false).map((section) => (
-          <SectionCard
-            key={section.key}
-            section={section}
-            stat={STATS[section.key]}
-            hoverFill
-            mini
-            compact
-          />
-        ))}
+        <SectionCard
+          section={strip(false).find((s) => s.key === "contacts")!}
+          stat={STATS["contacts"]}
+          hoverFill
+          mini
+          compact
+        />
+        <div className="col-span-2 flex min-w-0">
+          <Pair sections={strip(false)} compact />
+        </div>
       </div>
     </Bench>
   ),
