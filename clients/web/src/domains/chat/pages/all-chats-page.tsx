@@ -611,7 +611,7 @@ export function AllChatsPage({
                 key={key}
                 selected={key === allChatsFilterKey(filter)}
                 className={cn(
-                  "border-[var(--border-subtle)] [--text-body-medium-default-weight:400]",
+                  "cursor-pointer border-[var(--border-subtle)] [--text-body-medium-default-weight:400]",
                   key === allChatsFilterKey(filter)
                     ? "bg-[var(--surface-active)] text-[var(--content-default)]"
                     : "bg-transparent",
