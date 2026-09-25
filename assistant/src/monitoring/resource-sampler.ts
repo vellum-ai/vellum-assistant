@@ -47,6 +47,7 @@ import { readActiveConversations } from "./active-conversations.js";
 import { readDaemonHeartbeat } from "./daemon-heartbeat.js";
 import { topProcessesByFd } from "./file-descriptors.js";
 import { sweepInheritedOomProtection } from "./oom-inheritance-sweep.js";
+import { createOomKillReporter } from "./oom-kill-reporter.js";
 import { getTrackedDataFiles, readFileResidency } from "./page-cache.js";
 import { topProcessesByMemory } from "./process-memory.js";
 import {
@@ -267,6 +268,7 @@ export function startResourceSampler(
   // thread's kernel state mid-stall when the heartbeat goes stale.
   const stallCapture = createStallCaptureMonitor(dataDir);
   const processUsage = createProcessUsageTracker();
+  const oomKills = createOomKillReporter();
   let lastOomSweepAt = 0;
 
   // Skip ticks while a sample is in flight: the disk measurement can take
@@ -304,6 +306,12 @@ export function startResourceSampler(
       stallCapture.check(sample, clock());
     } catch (err) {
       log.warn({ err }, "Daemon stall check failed");
+    }
+
+    try {
+      oomKills.check(sample, now, readDaemonHeartbeat(now)?.pid ?? null);
+    } catch (err) {
+      log.warn({ err }, "OOM kill report failed");
     }
 
     if (now - lastOomSweepAt >= OOM_SWEEP_INTERVAL_MS) {
