@@ -7,16 +7,22 @@
 import { z } from "zod";
 
 import {
+  getDocumentRevision,
+  listDocumentRevisions,
+} from "../../documents/document-revisions-store.js";
+import {
   addDocumentConversation,
   createDocument,
   DEFAULT_DOCUMENT_TITLE,
   getDocumentById,
   getDocumentsForConversation,
   listAllDocuments,
+  restoreDocumentRevision,
   saveDocument,
 } from "../../documents/document-store.js";
 import { getConversation } from "../../persistence/conversation-crud.js";
 import { getLogger } from "../../util/logger.js";
+import { broadcastMessage } from "../assistant-event-hub.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   getOriginClientId,
@@ -51,6 +57,24 @@ const documentPayloadSchema = z.object({
       "Bumped by one on every write. Absent from assistants that predate document revisions.",
     ),
 });
+
+const revisionSummarySchema = z.object({
+  revision: z.number().describe("The document revision this snapshot holds"),
+  author: z
+    .enum(["user", "assistant"])
+    .describe("Who made the edit that replaced this state"),
+  createdAt: z.number().describe("When the snapshot was taken"),
+  wordCount: z.number(),
+  title: z.string(),
+});
+
+function parseRevisionParam(raw: string | undefined): number {
+  const revision = Number(raw);
+  if (!raw || !Number.isInteger(revision) || revision < 0) {
+    throw new BadRequestError("revision must be a non-negative integer");
+  }
+  return revision;
+}
 
 // ---------------------------------------------------------------------------
 // Route definitions
@@ -311,6 +335,111 @@ export const ROUTES: RouteDefinition[] = [
       // it just linked.
       publishDocumentsChanged();
       return { success: true as const };
+    },
+  },
+
+  {
+    operationId: "listDocumentRevisions",
+    endpoint: "documents/:id/revisions",
+    method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "List a document's revisions",
+    description:
+      "Return the document's history snapshots, newest first, without their content.",
+    tags: ["documents"],
+    responseBody: z.object({ revisions: z.array(revisionSummarySchema) }),
+    handler: ({ pathParams }) => {
+      if (!getDocumentById(pathParams!.id)) {
+        throw new NotFoundError("Document not found");
+      }
+      return { revisions: listDocumentRevisions(pathParams!.id) };
+    },
+  },
+
+  {
+    operationId: "getDocumentRevision",
+    endpoint: "documents/:id/revisions/:revision",
+    method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Get a document revision",
+    description: "Return one history snapshot with its content.",
+    tags: ["documents"],
+    responseBody: revisionSummarySchema.extend({ content: z.string() }),
+    handler: ({ pathParams }) => {
+      const revision = parseRevisionParam(pathParams!.revision);
+      const snapshot = getDocumentRevision(pathParams!.id, revision);
+      if (!snapshot) {
+        throw new NotFoundError("Revision not found");
+      }
+      return snapshot;
+    },
+  },
+
+  {
+    operationId: "restoreDocumentRevision",
+    endpoint: "documents/:id/revisions/:revision/restore",
+    method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Restore a document revision",
+    description:
+      "Write a snapshot's title and content back as a new revision. The current state is snapshotted first, so the restore can itself be undone.",
+    tags: ["documents"],
+    responseBody: z.object({
+      success: z.literal(true),
+      surfaceId: z.string(),
+      revision: z
+        .number()
+        .describe("The document's revision after the restore"),
+      title: z.string(),
+      content: z.string(),
+    }),
+    handler: ({ pathParams, headers }) => {
+      const surfaceId = pathParams!.id;
+      const revision = parseRevisionParam(pathParams!.revision);
+      const result = restoreDocumentRevision(surfaceId, revision);
+      if (!result.success) {
+        throw new NotFoundError(
+          result.notFound === "document"
+            ? "Document not found"
+            : "Revision not found",
+        );
+      }
+      const doc = getDocumentById(surfaceId);
+      if (doc) {
+        broadcastMessage(
+          {
+            type: "document_editor_update",
+            conversationId: doc.conversationId,
+            surfaceId,
+            markdown: result.content,
+            mode: "replace",
+            revision: result.revision,
+            title: result.title,
+          },
+          doc.conversationId,
+        );
+      }
+      publishDocumentsChanged(getOriginClientId(headers));
+      log.info(
+        { surfaceId, restoredRevision: revision, revision: result.revision },
+        "Restored document revision via HTTP",
+      );
+      return {
+        success: true as const,
+        surfaceId,
+        revision: result.revision,
+        title: result.title,
+        content: result.content,
+      };
     },
   },
 

@@ -7,8 +7,16 @@
  */
 import { randomUUID } from "node:crypto";
 
+import { getSqlite } from "../persistence/db-connection.js";
 import { rawAll, rawGet, rawRun } from "../persistence/raw-query.js";
 import { getLogger } from "../util/logger.js";
+import {
+  type DocumentRevisionAuthor,
+  type DocumentSnapshotSource,
+  getDocumentRevision,
+  recordDocumentSnapshot,
+  shouldSnapshotBeforeUserSave,
+} from "./document-revisions-store.js";
 
 const log = getLogger("document-store");
 
@@ -434,12 +442,51 @@ export type SaveDocumentResult =
   | { success: true; surfaceId: string; revision: number }
   | { success: false; error: string; conflict?: DocumentRevisionConflict };
 
-function readConflict(surfaceId: string): DocumentRevisionConflict | null {
-  return rawGet<DocumentRevisionConflict>(
-    "documents:readConflict",
-    /*sql*/ `SELECT revision, title, content FROM documents WHERE surface_id = ?`,
+function readDocumentState(surfaceId: string): DocumentSnapshotSource | null {
+  const row = rawGet<{
+    revision: number;
+    title: string;
+    content: string;
+    word_count: number;
+  }>(
+    "documents:readDocumentState",
+    /*sql*/ `SELECT revision, title, content, word_count FROM documents WHERE surface_id = ?`,
     surfaceId,
   );
+  return row
+    ? {
+        surfaceId,
+        revision: row.revision,
+        title: row.title,
+        content: row.content,
+        wordCount: row.word_count,
+      }
+    : null;
+}
+
+/**
+ * Snapshot the state a user save is about to replace, when the save will land
+ * and changes something and {@link shouldSnapshotBeforeUserSave} allows it.
+ * Runs inside the save's transaction.
+ */
+function snapshotBeforeUserSave(params: {
+  surfaceId: string;
+  title: string;
+  content: string;
+  baseRevision?: number;
+}): void {
+  const current = readDocumentState(params.surfaceId);
+  if (
+    !current ||
+    (params.baseRevision !== undefined &&
+      current.revision !== params.baseRevision) ||
+    (current.title === params.title && current.content === params.content)
+  ) {
+    return;
+  }
+  if (shouldSnapshotBeforeUserSave(params.surfaceId)) {
+    recordDocumentSnapshot(current, "user");
+  }
 }
 
 /**
@@ -515,13 +562,24 @@ function writeDocument(params: {
   if (inserted) {
     return inserted;
   }
-  const current = readConflict(params.surfaceId);
+  const current = readDocumentState(params.surfaceId);
   if (!current) {
     throw new Error("Document disappeared during a conditional save");
   }
-  return { conflict: current };
+  return {
+    conflict: {
+      revision: current.revision,
+      title: current.title,
+      content: current.content,
+    },
+  };
 }
 
+/**
+ * Create a document, or overwrite one as a user save from the editor. An
+ * overwrite may first snapshot the replaced state into the document's history
+ * (see {@link snapshotBeforeUserSave}).
+ */
 export function saveDocument(params: {
   surfaceId: string;
   conversationId: string;
@@ -531,7 +589,12 @@ export function saveDocument(params: {
   baseRevision?: number;
 }): SaveDocumentResult {
   try {
-    const written = writeDocument(params);
+    const written = getSqlite()
+      .transaction(() => {
+        snapshotBeforeUserSave(params);
+        return writeDocument(params);
+      })
+      .immediate();
     if ("conflict" in written) {
       log.info(
         {
@@ -588,59 +651,79 @@ export type ContentMutation<T> =
   | { content: string; value: T }
   | { value: T; content?: undefined };
 
+/** Thrown inside a write transaction to roll it back after losing a race. */
+class LostRevisionRace extends Error {}
+
 /**
  * Read-modify-write a document's body without losing a concurrent write.
  *
  * `mutate` receives the current body and returns the new one, or no `content`
- * to leave the row untouched. The write is a compare-and-swap on `revision`:
- * when another write lands between the read and the write, `mutate` runs
- * again against the fresh body, up to {@link MAX_WRITE_ATTEMPTS} times.
+ * to leave the row untouched; a body equal to the current one is not written
+ * either. The state being replaced is snapshotted into the document's history
+ * as `author`'s edit, in the same transaction as the write. The write is a
+ * compare-and-swap on `revision`: when another write lands between the read
+ * and the write, the transaction rolls back and `mutate` runs again against
+ * the fresh body, up to {@link MAX_WRITE_ATTEMPTS} times.
  *
  * Returns `null` when the document does not exist, otherwise the callback's
  * value, the body now stored, and the revision after the call.
  */
 export function mutateDocumentContent<T>(
   surfaceId: string,
+  author: DocumentRevisionAuthor,
   mutate: (current: {
     content: string;
     revision: number;
   }) => ContentMutation<T>,
 ): { value: T; content: string; revision: number } | null {
   for (let attempt = 0; attempt < MAX_WRITE_ATTEMPTS; attempt++) {
-    const current = rawGet<{ content: string; revision: number }>(
-      "documents:mutateDocumentContent:get",
-      /*sql*/ `SELECT content, revision FROM documents WHERE surface_id = ?`,
-      surfaceId,
-    );
+    const current = readDocumentState(surfaceId);
     if (!current) {
       return null;
     }
     const mutation = mutate(current);
-    if (mutation.content === undefined) {
+    if (
+      mutation.content === undefined ||
+      mutation.content === current.content
+    ) {
       return {
         value: mutation.value,
         content: current.content,
         revision: current.revision,
       };
     }
-    const written = rawGet<{ revision: number }>(
-      "documents:mutateDocumentContent:update",
-      /*sql*/ `UPDATE documents
-       SET content = ?, word_count = ?, updated_at = ?, revision = revision + 1
-       WHERE surface_id = ? AND revision = ?
-       RETURNING revision`,
-      mutation.content,
-      countWords(mutation.content),
-      Date.now(),
-      surfaceId,
-      current.revision,
-    );
-    if (written) {
+    const newContent = mutation.content;
+    try {
+      const written = getSqlite()
+        .transaction(() => {
+          recordDocumentSnapshot(current, author);
+          const row = rawGet<{ revision: number }>(
+            "documents:mutateDocumentContent:update",
+            /*sql*/ `UPDATE documents
+             SET content = ?, word_count = ?, updated_at = ?, revision = revision + 1
+             WHERE surface_id = ? AND revision = ?
+             RETURNING revision`,
+            newContent,
+            countWords(newContent),
+            Date.now(),
+            surfaceId,
+            current.revision,
+          );
+          if (!row) {
+            throw new LostRevisionRace();
+          }
+          return row;
+        })
+        .immediate();
       return {
         value: mutation.value,
-        content: mutation.content,
+        content: newContent,
         revision: written.revision,
       };
+    } catch (error) {
+      if (!(error instanceof LostRevisionRace)) {
+        throw error;
+      }
     }
     log.info(
       { surfaceId, attempt, baseRevision: current.revision },
@@ -648,6 +731,56 @@ export function mutateDocumentContent<T>(
     );
   }
   throw new Error("Document kept changing during the write; try again");
+}
+
+/** Outcome of {@link restoreDocumentRevision}. */
+export type RestoreDocumentRevisionResult =
+  | { success: true; revision: number; title: string; content: string }
+  | { success: false; notFound: "document" | "revision" };
+
+/**
+ * Put a snapshot's title and body back as a new revision of the document.
+ * The current state is snapshotted first, so the restore is itself undoable.
+ */
+export function restoreDocumentRevision(
+  surfaceId: string,
+  revision: number,
+): RestoreDocumentRevisionResult {
+  return getSqlite()
+    .transaction((): RestoreDocumentRevisionResult => {
+      const current = readDocumentState(surfaceId);
+      if (!current) {
+        return { success: false, notFound: "document" };
+      }
+      const target = getDocumentRevision(surfaceId, revision);
+      if (!target) {
+        return { success: false, notFound: "revision" };
+      }
+      recordDocumentSnapshot(current, "user");
+      const row = rawGet<{ revision: number }>(
+        "documents:restoreDocumentRevision",
+        /*sql*/ `UPDATE documents
+         SET title = ?, content = ?, word_count = ?, updated_at = ?, revision = revision + 1
+         WHERE surface_id = ?
+         RETURNING revision`,
+        target.title,
+        target.content,
+        target.wordCount,
+        Date.now(),
+        surfaceId,
+      );
+      log.info(
+        { surfaceId, restoredRevision: revision, revision: row!.revision },
+        "Restored document revision",
+      );
+      return {
+        success: true,
+        revision: row!.revision,
+        title: target.title,
+        content: target.content,
+      };
+    })
+    .immediate();
 }
 
 export const DEFAULT_DOCUMENT_TITLE = "Untitled Document";
@@ -754,7 +887,7 @@ function replaceText(
 }
 
 /**
- * Find and replace text within a document, like sed.
+ * Find and replace text within a document, like sed, as an assistant edit.
  * Supports literal text and regex patterns with optional backreferences.
  */
 export function replaceInDocument(
@@ -764,7 +897,7 @@ export function replaceInDocument(
   options: ReplaceInDocumentOptions = {},
 ): ReplaceInDocumentResult {
   try {
-    const outcome = mutateDocumentContent(surfaceId, (current) => {
+    const outcome = mutateDocumentContent(surfaceId, "assistant", (current) => {
       const replaced = replaceText(current.content, find, replace, options);
       return replaced.replacementsMade === 0
         ? { value: 0 }
@@ -910,7 +1043,7 @@ export interface DocumentContentUpdated {
   revision: number;
 }
 
-/** Update persisted document content (append or replace). */
+/** Update persisted document content (append or replace) as an assistant edit. */
 export function updateDocumentContent(
   surfaceId: string,
   markdown: string,
@@ -918,7 +1051,7 @@ export function updateDocumentContent(
 ): DocumentContentUpdated | { success: false; error: string } {
   try {
     const appending = mode === "append";
-    const outcome = mutateDocumentContent(surfaceId, (current) => {
+    const outcome = mutateDocumentContent(surfaceId, "assistant", (current) => {
       const appliedMarkdown = appending
         ? stripDuplicateLeadingBlocks(current.content, markdown)
         : markdown;

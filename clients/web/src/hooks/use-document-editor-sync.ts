@@ -85,6 +85,9 @@ export function useDocumentEditorSync(): void {
         viewer.openedDocumentState,
         event.surfaceId,
       );
+    if (event.title !== undefined) {
+      viewer.renameOpenedDocument(event.surfaceId, event.title);
+    }
     viewer.updateDocumentContent(event.surfaceId, event.markdown, event.mode);
     if (watchingLive) {
       return;

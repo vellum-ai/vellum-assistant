@@ -198,7 +198,7 @@ describe("read-modify-write under interleaving", () => {
     const surfaceId = seed("base");
     let calls = 0;
 
-    const outcome = mutateDocumentContent(surfaceId, (current) => {
+    const outcome = mutateDocumentContent(surfaceId, "assistant", (current) => {
       calls++;
       if (calls === 1) {
         // Another writer lands after this attempt read the row.
@@ -229,7 +229,7 @@ describe("read-modify-write under interleaving", () => {
     let calls = 0;
 
     expect(() =>
-      mutateDocumentContent(surfaceId, (current) => {
+      mutateDocumentContent(surfaceId, "assistant", (current) => {
         calls++;
         saveDocument({
           surfaceId,
@@ -246,7 +246,9 @@ describe("read-modify-write under interleaving", () => {
 
   test("returns null for a missing document", () => {
     expect(
-      mutateDocumentContent("doc-missing", () => ({ value: null })),
+      mutateDocumentContent("doc-missing", "assistant", () => ({
+        value: null,
+      })),
     ).toBeNull();
   });
 });
