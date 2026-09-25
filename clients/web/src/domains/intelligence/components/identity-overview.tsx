@@ -511,6 +511,8 @@ export function SectionCard({
   mini,
   compact = false,
   trailing,
+  join,
+  fit = false,
   flooded = false,
   floodOrigin,
   photoBackdrop = false,
@@ -537,6 +539,13 @@ export function SectionCard({
   compact?: boolean;
   /** A control on the tile's trailing edge, outside the card's link. */
   trailing?: ReactNode;
+  /**
+   * The tile is joined to a neighbour: square on the edge it shares. `end`
+   * for the tile a tab hangs off (Channels), `start` for the tab (Email).
+   */
+  join?: "start" | "end";
+  /** Size to the tile's content rather than sharing the row: the tab. */
+  fit?: boolean;
   /** The avatar has poured itself over this card — fill it with the
    *  avatar color and flip the content to the contrast tone. */
   flooded?: boolean;
@@ -611,8 +620,14 @@ export function SectionCard({
     // rather than with the plain tiles beside it, and carries its control
     // (pin, or close) beside the link rather than inside it.
     const featureWash = section.key === "email";
+    const corners =
+      join === "end"
+        ? "rounded-l-[12px] rounded-r-none"
+        : join === "start"
+          ? "rounded-r-[12px] rounded-l-none"
+          : "rounded-[12px]";
     return (
-      <div className="relative flex min-w-0 flex-1">
+      <div className={`relative flex min-w-0 ${fit ? "flex-none" : "flex-1"}`}>
         <Card.Root
           asChild
           bordered={featureWash}
@@ -620,12 +635,12 @@ export function SectionCard({
           clipContents
           className={
             featureWash
-              ? `w-full rounded-[12px] border bg-[var(--card-feature-bg,var(--card-bg))] ${
+              ? `w-full ${corners} border bg-[var(--card-feature-bg,var(--card-bg))] ${
                   photoBackdrop
                     ? "border-transparent backdrop-blur-[32px]"
                     : "border-[var(--border-base)]"
-                }`
-              : "w-full rounded-[12px] border-0 bg-[var(--card-bg)]"
+                } ${join === "start" ? "border-l-0" : ""}`
+              : `w-full ${corners} border-0 bg-[var(--card-bg)]`
           }
         >
           <Link
@@ -635,7 +650,9 @@ export function SectionCard({
             onMouseLeave={() => onHoverChange?.(false)}
             className={`relative flex h-full flex-1 cursor-pointer items-center transition-all duration-150 active:scale-[0.98] ${
               compact ? "gap-1 py-3 pr-3 pl-2" : "gap-2 px-4 py-2.5"
-            } ${trailing ? "pr-10" : ""} ${hoverFill ? "hover:bg-[var(--card-hover)]" : ""}`}
+            } ${fit ? "min-w-[9rem]" : ""} ${trailing ? "pr-10" : ""} ${
+              hoverFill ? "hover:bg-[var(--card-hover)]" : ""
+            }`}
           >
             {floodOverlay}
             <span className="relative flex h-10 w-10 shrink-0 items-center justify-center">
@@ -1146,6 +1163,7 @@ function OverviewBento({
     // grid of mini tiles.
     const schedulesSection = sections.find((s) => s.key === "schedules");
     const personalitySection = sections.find((s) => s.key === "personality");
+    const emailSection = sections.find((s) => s.key === "email");
     const gridSections = sections.filter(
       (s) => s.key !== "schedules" && s.key !== "personality",
     );
@@ -1271,17 +1289,42 @@ function OverviewBento({
             </Card.Root>
           )}
           <div className="grid grid-cols-2 gap-2">
-            {gridSections.map((section) => (
-              <SectionCard
-                key={section.key}
-                section={section}
-                stat={stats[section.key]}
-                hoverFill
-                mini
-                compact
-                trailing={section.key === "email" ? emailTrailing : undefined}
-              />
-            ))}
+            {gridSections.map((section) =>
+              section.key === "channels" && emailSection ? (
+                /* Channels and Email are one piece: the tab hangs off the
+                   tile's right edge, the two square where they meet, across
+                   both columns. */
+                <div key={section.key} className="col-span-2 flex min-w-0">
+                  <SectionCard
+                    section={section}
+                    stat={stats[section.key]}
+                    hoverFill
+                    mini
+                    compact
+                    join="end"
+                  />
+                  <SectionCard
+                    section={emailSection}
+                    stat={stats[emailSection.key]}
+                    hoverFill
+                    mini
+                    compact
+                    join="start"
+                    fit
+                    trailing={emailTrailing}
+                  />
+                </div>
+              ) : section.key === "email" ? null : (
+                <SectionCard
+                  key={section.key}
+                  section={section}
+                  stat={stats[section.key]}
+                  hoverFill
+                  mini
+                  compact
+                />
+              ),
+            )}
           </div>
         </div>
       </div>
@@ -1292,6 +1335,7 @@ function OverviewBento({
   // it) and Schedules the right, both the same height above the strip,
   // and everything else (Skills, Plugins, Workspace, Contacts, Channels)
   // runs as compact mini cards in a full-width bottom strip.
+  const emailSection = sections.find((s) => s.key === "email");
   const mainSections = sections.filter(
     (s) => !MINI_SECTION_KEYS.includes(s.key),
   );
@@ -1490,14 +1534,28 @@ function OverviewBento({
         className="flex min-h-0 items-stretch gap-3"
         style={{ gridArea: "smalls" }}
       >
-        {miniSections.map((section) => (
-          <SectionCard
-            key={section.key}
-            {...cardProps(section)}
-            mini
-            trailing={section.key === "email" ? emailTrailing : undefined}
-          />
-        ))}
+        {miniSections.map((section) =>
+          section.key === "channels" && emailSection ? (
+            /* Channels and Email are one piece: the tab hangs off the
+               tile's right edge, the two square where they meet. The pair
+               takes a wider share of the strip than one tile. */
+            <div key={section.key} className="flex min-w-0 flex-[1.7]">
+              <SectionCard {...cardProps(section)} mini join="end" />
+              {[emailSection].map((email) => (
+                <SectionCard
+                  key={email.key}
+                  {...cardProps(email)}
+                  mini
+                  join="start"
+                  fit
+                  trailing={emailTrailing}
+                />
+              ))}
+            </div>
+          ) : section.key === "email" ? null : (
+            <SectionCard key={section.key} {...cardProps(section)} mini />
+          ),
+        )}
       </div>
     </div>
   );
