@@ -1,4 +1,12 @@
-import { afterEach, beforeEach, expect, jest, mock, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  expect,
+  jest,
+  mock,
+  setSystemTime,
+  test,
+} from "bun:test";
 
 import { SYNC_TAGS } from "../../daemon/message-types/sync.js";
 import type { AutoArchiveCandidate } from "../../persistence/conversation-auto-archive.js";
@@ -110,6 +118,7 @@ beforeEach(() => {
 afterEach(() => {
   worker.stop();
   jest.useRealTimers();
+  setSystemTime();
 });
 
 test("disabled, unavailable Done, migration readiness and startup gates never query candidates", async () => {
@@ -127,6 +136,8 @@ test("disabled, unavailable Done, migration readiness and startup gates never qu
 });
 
 test("startup waits for interrupted conversation recovery and marks eligible chats once", async () => {
+  const now = new Date("2026-01-08T00:00:00Z");
+  setSystemTime(now);
   const recovery = Promise.withResolvers<void>();
   config.conversations.autoArchive.enabled = true;
   worker.start(recovery.promise);
@@ -137,9 +148,7 @@ test("startup waits for interrupted conversation recovery and marks eligible cha
   await worker.requestSweep();
   expect(archive).toHaveBeenCalledTimes(1);
   expect(publish).toHaveBeenCalledWith("reordered", ["conv-0000"]);
-  expect(list.mock.calls[0]?.[0].cutoff).toBeGreaterThan(
-    Date.now() - 7 * 24 * HOUR - 100,
-  );
+  expect(list.mock.calls[0]?.[0].cutoff).toBe(now.getTime() - 7 * 24 * HOUR);
 });
 
 test("shutdown before recovery resolves cannot start a sweep", async () => {
