@@ -114,9 +114,10 @@ mock.module("@/domains/chat/utils/background-task-actions", () => ({
 }));
 
 // The vellum file action modal builds on the design-library Modal (Radix
-// dialog). Stub the design-library primitives with bare elements so these
-// tests exercise the modal's action wiring without pulling in Radix's portal
-// and focus machinery.
+// dialog). Stub it with bare elements so these tests exercise the modal's
+// action wiring without pulling in Radix's portal and focus machinery. The
+// library Button stays real: the hover actions and the attachment download
+// control are Buttons, and the tests find them by their name and title.
 mock.module("@vellumai/design-library/components/modal", () => {
   const passthrough =
     (slot: string) =>
@@ -137,19 +138,6 @@ mock.module("@vellumai/design-library/components/modal", () => {
     },
   };
 });
-mock.module("@vellumai/design-library/components/button", () => ({
-  Button: ({
-    children,
-    onClick,
-  }: {
-    children?: ReactNode;
-    onClick?: () => void;
-  }) => (
-    <button type="button" onClick={onClick}>
-      {children}
-    </button>
-  ),
-}));
 
 // `openWorkspaceFile` lazily imports the app router, which these tests don't
 // build. Stub it to record the workspace paths opened via the file action

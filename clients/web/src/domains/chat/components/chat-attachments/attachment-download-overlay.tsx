@@ -22,6 +22,7 @@ import { useTranslation } from "@/i18n";
 
 import { Download } from "lucide-react";
 import type { MouseEvent } from "react";
+import { Button } from "@vellumai/design-library/components/button";
 import { Tooltip } from "@vellumai/design-library/components/tooltip";
 import { cn } from "@vellumai/design-library/utils/cn";
 
@@ -50,23 +51,24 @@ export function AttachmentDownloadOverlay({
         )}
       />
       <Tooltip content={t("attachmentDownloadOverlay.download")}>
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="compact"
+          expandOnMobile={false}
           onClick={onDownload}
           onKeyDown={(e) => e.stopPropagation()}
           aria-label={t("attachmentDownloadOverlay.downloadAria", { filename })}
           className={cn(
-            "absolute bottom-1 right-1 flex h-6 w-6",
-            "items-center justify-center rounded-md text-white/80",
-            "transition-colors hover:bg-white/20 hover:text-white",
+            // White on the scrim rather than the ghost ink.
+            "absolute bottom-1 right-1 text-white/80",
+            "hover:bg-white/20 hover:text-white",
             // The chip carries the contrast the scrim gives on a hovering
             // device, so the icon stays legible over pale artwork.
             "[@media(hover:none)]:bg-black/50",
           )}
           data-reveal=""
-        >
-          <Download className="h-3.5 w-3.5" />
-        </button>
+          iconOnly={<Download />}
+        />
       </Tooltip>
     </div>
   );

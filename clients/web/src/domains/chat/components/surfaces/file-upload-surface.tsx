@@ -392,8 +392,10 @@ export function FileUploadSurface({
               <span className="shrink-0 text-body-small-default text-[var(--content-faint)]">
                 {formatFileSize(sf.file.size)}
               </span>
-              <button
-                type="button"
+              <Button
+                variant="ghost"
+                size="compact"
+                expandOnMobile={false}
                 disabled={isSubmitting}
                 onClick={(e) => {
                   e.stopPropagation();
@@ -402,10 +404,10 @@ export function FileUploadSurface({
                 aria-label={t("fileUploadSurface.removeFile", {
                   name: sanitizeFilename(sf.file.name),
                 })}
-                className="shrink-0 rounded p-0.5 text-[var(--content-faint)] transition-colors hover:bg-[var(--surface-active)] hover:text-[var(--content-secondary)] disabled:opacity-50"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
+                /* The 18px box the row's height is set by, in the faint ink. */
+                className="h-[18px] w-[18px] shrink-0 rounded [--vbtn-fg:var(--content-faint)]"
+                iconOnly={<X />}
+              />
             </li>
           ))}
         </ul>

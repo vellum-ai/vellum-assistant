@@ -579,17 +579,20 @@ export function ToolCallChip({
                     ? toolCall.result.slice(0, 2000) + "..."
                     : toolCall.result}
                 </pre>
-                <button
-                  type="button"
+                <Button
+                  variant="ghost"
+                  size="compact"
+                  expandOnMobile={false}
                   onClick={(e) => {
                     e.stopPropagation();
                     handleCopyOutput();
                   }}
-                  className="absolute right-2 top-2 rounded p-1 text-[var(--content-tertiary)] hover:bg-[var(--ghost-hover)] hover:text-[var(--content-default)]"
-                  title={t("toolCallChip.copyOutput")}
-                >
-                  <Clipboard className="h-4 w-4" />
-                </button>
+                  className="absolute right-2 top-2 rounded"
+                  aria-label={t("toolCallChip.copyOutput")}
+                  tooltip={t("toolCallChip.copyOutput")}
+                  iconOnly={<Clipboard />}
+                  iconOnlyGlyphClassName="size-4 [&_svg]:size-4"
+                />
               </div>
             </div>
           )}

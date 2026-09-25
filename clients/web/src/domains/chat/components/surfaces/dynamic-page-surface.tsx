@@ -1,6 +1,8 @@
 import { Minimize2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { Button } from "@vellumai/design-library/components/button";
+
 import { useTranslation } from "@/i18n";
 
 const IFRAME_SANDBOX =
@@ -219,14 +221,16 @@ export function DynamicPageSurface({
             {surface.title}
           </span>
           {expanded && (
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              size="compact"
+              expandOnMobile={false}
               onClick={handleCollapse}
               aria-label={t("dynamicPageSurface.collapse")}
-              className="flex items-center gap-1 rounded p-1 text-body-small-default text-[var(--content-quiet)] transition-colors hover:bg-[var(--surface-active)] hover:text-[var(--content-default)]"
-            >
-              <Minimize2 className="h-3.5 w-3.5" />
-            </button>
+              /* The 22px box the header's height is set by, in the quiet ink. */
+              className="h-[22px] w-[22px] rounded [--vbtn-fg:var(--content-quiet)]"
+              iconOnly={<Minimize2 />}
+            />
           )}
         </div>
       )}

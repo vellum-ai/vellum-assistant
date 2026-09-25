@@ -28,7 +28,7 @@ import {
 import type { MoveToGroupTarget } from "@/domains/chat/utils/group-conversations";
 import {
   ROW_TRAILING_CONTROL_CLASSES,
-  ROW_TRAILING_GLYPH_CLASSES,
+  ROW_TRAILING_ICON_ONLY_GLYPH_CLASSES,
 } from "@/domains/chat/utils/row-trailing-control";
 import { useTouchMobile } from "@/hooks/use-touch-mobile";
 import { type ConversationMenuShortcuts } from "@/domains/chat/hooks/use-conversation-menu-shortcuts";
@@ -42,6 +42,7 @@ import {
   Menu,
   actionMenuDestructiveClasses,
 } from "@vellumai/design-library";
+import { Button } from "@vellumai/design-library/components/button";
 import { cn } from "@vellumai/design-library/utils/cn";
 
 /**
@@ -909,9 +910,14 @@ export function ConversationActionsMenu({
   const doneLabels = itemProps.doneLabels ?? flagLabels;
   const [open, setOpen] = useState(false);
 
+  /* The row's shared trailing-control geometry overrides the ghost look
+     wholesale, so the ellipsis and the Done check it swaps with stay one box;
+     `expandOnMobile` is off because that geometry sets the phone size. */
   const defaultTrigger = (
-    <button
-      type="button"
+    <Button
+      variant="ghost"
+      size="compact"
+      expandOnMobile={false}
       aria-label={t("conversationActions.triggerAriaLabel")}
       onClick={(event) => event.stopPropagation()}
       onContextMenu={(event) => {
@@ -919,13 +925,9 @@ export function ConversationActionsMenu({
         event.preventDefault();
       }}
       className={ROW_TRAILING_CONTROL_CLASSES}
-    >
-      <MoreHorizontal
-        size={14}
-        aria-hidden
-        className={ROW_TRAILING_GLYPH_CLASSES}
-      />
-    </button>
+      iconOnly={<MoreHorizontal />}
+      iconOnlyGlyphClassName={ROW_TRAILING_ICON_ONLY_GLYPH_CLASSES}
+    />
   );
 
   const resolvedTrigger = trigger ?? defaultTrigger;
