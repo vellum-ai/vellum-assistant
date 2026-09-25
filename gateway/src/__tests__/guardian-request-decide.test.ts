@@ -57,6 +57,7 @@ mock.module("../ipc/contacts-info-client.js", () => ({
   lookupContactChannelIdentity: () => lookupImpl(),
   probeContactMirror: async () => ({ exists: false, hasChannels: false }),
   fetchContactsInfoBatch: async () => [],
+  fetchContactIdsByType: async () => [],
   listContactUserFileSlugs: async () => [],
 }));
 

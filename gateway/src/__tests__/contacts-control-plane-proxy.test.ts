@@ -4,6 +4,7 @@ import {
   expect,
   jest,
   mock,
+  beforeEach,
   afterEach,
   beforeAll,
   afterAll,
@@ -80,16 +81,38 @@ const DEFAULT_MOCK_CONTACT = {
   displayName: "Mock Contact",
   notes: null as string | null,
   role: "contact",
-  contactType: "human",
+  contactType: "human" as string | null,
   principalId: null as string | null,
   userFile: null as string | null,
   createdAt: 1000000,
   updatedAt: 1000000,
   interactionCount: 0,
   lastInteraction: null as number | null,
-  autoApproveThreshold: null as string | null,
-  channels: [] as unknown[],
-  assistantMetadata: null as Record<string, unknown> | null,
+  autoApproveThreshold: null as "none" | "low" | "medium" | "high" | null,
+  channels: [] as {
+    id: string;
+    contactId: string;
+    type: string;
+    address: string;
+    isPrimary: boolean;
+    externalChatId: string | null;
+    status: string | null;
+    policy: string | null;
+    verifiedAt: number | null;
+    verifiedVia: string | null;
+    inviteId: string | null;
+    revokedReason: string | null;
+    blockedReason: string | null;
+    lastSeenAt: number | null;
+    interactionCount: number;
+    lastInteraction: number | null;
+    createdAt: number | null;
+    updatedAt: number | null;
+  }[],
+  assistantMetadata: null as {
+    species: string;
+    metadata: Record<string, unknown> | null;
+  } | null,
 };
 
 type UpsertResult = { contact: typeof DEFAULT_MOCK_CONTACT; created: boolean };
@@ -104,6 +127,8 @@ let contactStoreUpsertMock: ReturnType<typeof mock<UpsertFn>> = mock(
 type ListFn = (opts?: {
   limit?: number;
   role?: string;
+  contactType?: string;
+  ids?: string[];
 }) => Promise<(typeof DEFAULT_MOCK_CONTACT)[]>;
 let contactStoreListMock: ReturnType<typeof mock<ListFn>> = mock(
   async () => [],
@@ -186,6 +211,9 @@ type InviteRow = {
   status: string;
   createdAt: number;
   updatedAt: number;
+  redeemedByExternalUserId?: string | null;
+  redeemedByExternalChatId?: string | null;
+  redeemedAt?: number | null;
 };
 const DEFAULT_INVITE: InviteRow = {
   id: "inv_1",
@@ -200,6 +228,9 @@ const DEFAULT_INVITE: InviteRow = {
   status: "active",
   createdAt: 1000000,
   updatedAt: 1000000,
+  redeemedByExternalUserId: null,
+  redeemedByExternalChatId: null,
+  redeemedAt: null,
 };
 
 type GetContactFn = (
@@ -268,77 +299,12 @@ let contactStoreMarkInviteExpiredMock: ReturnType<
   typeof mock<MarkInviteExpiredFn>
 > = mock(() => true);
 
-mock.module("../db/contact-store.js", () => ({
-  NO_INVITE_CODE_HASH: "",
-  ContactStore: class MockContactStore {
-    upsertContact(...args: Parameters<UpsertFn>) {
-      return contactStoreUpsertMock(...args);
-    }
-    getContact(contactId: string) {
-      return contactStoreGetContactMock(contactId);
-    }
-    listInvites(params: unknown) {
-      return contactStoreListInvitesMock(params);
-    }
-    createInvite(params: unknown) {
-      return contactStoreCreateInviteMock(params);
-    }
-    revokeInvite(inviteId: string) {
-      return contactStoreRevokeInviteMock(inviteId);
-    }
-    recordInviteRedemption(params: unknown) {
-      return contactStoreRecordRedemptionMock(params);
-    }
-    getInviteById(inviteId: string) {
-      return contactStoreGetInviteByIdMock(inviteId);
-    }
-    markInviteExpired(inviteId: string) {
-      return contactStoreMarkInviteExpiredMock(inviteId);
-    }
-    async listContactsWithInfo(opts?: {
-      limit?: number;
-      role?: string;
-      contactType?: string;
-    }) {
-      return contactStoreListMock(opts);
-    }
-    async getContactWithInfo(contactId: string) {
-      return contactStoreGetMock(contactId);
-    }
-    async getAclByContactIds(ids: string[]) {
-      return contactStoreGetAclMock(ids);
-    }
-    async updateChannelStatus(
-      channelId: string,
-      params: {
-        status?: string;
-        policy?: string;
-        reason?: string | null;
-      },
-    ) {
-      return contactStoreUpdateChannelMock(channelId, params);
-    }
-    async mergeContacts(keepId: string, mergeId: string) {
-      return contactStoreMergeMock(keepId, mergeId);
-    }
-  },
-  CannotRevokeBlockedError: class CannotRevokeBlockedError extends Error {
-    readonly channelId: string;
-    constructor(channelId: string) {
-      super(
-        "Cannot revoke a blocked channel. Unblock it first or leave it blocked.",
-      );
-      this.name = "CannotRevokeBlockedError";
-      this.channelId = channelId;
-    }
-  },
-  MergeContactsError: class MergeContactsError extends Error {
-    constructor(message: string) {
-      super(message);
-      this.name = "MergeContactsError";
-    }
-  },
-}));
+// Spy on ContactStore.prototype instead of mock.module so that other test
+// files sharing this Bun worker still import the real ContactStore class.
+// (mock.module replaces the module registry entry at load time and cannot be
+// reliably un-done before the next file's static imports resolve.)
+const actualContactStore = await import("../db/contact-store.js");
+const { ContactStore: RealContactStore } = actualContactStore;
 
 // ── Redemption engine mock ────────────────────────────────────────────────────
 // handleRedeemInvite drives the gateway-native engine directly; mock it so
@@ -405,10 +371,116 @@ const { contacts: gwContacts } = await import("../db/schema.js");
 
 beforeAll(async () => {
   await initGatewayDb();
+  // Spy on prototype methods so the handler's `new ContactStore()` calls are
+  // intercepted by the per-test mock functions without replacing the module.
+  jest
+    .spyOn(RealContactStore.prototype, "upsertContact")
+    .mockImplementation((...args: Parameters<UpsertFn>) =>
+      contactStoreUpsertMock(...args),
+    );
+  jest
+    .spyOn(RealContactStore.prototype, "getContact")
+    .mockImplementation(
+      (contactId: string) =>
+        contactStoreGetContactMock(contactId) as unknown as ReturnType<
+          typeof RealContactStore.prototype.getContact
+        >,
+    );
+  jest
+    .spyOn(RealContactStore.prototype, "listInvites")
+    .mockImplementation(
+      (...args) =>
+        contactStoreListInvitesMock(
+          args[0] as unknown,
+        ) as unknown as ReturnType<
+          typeof RealContactStore.prototype.listInvites
+        >,
+    );
+  jest
+    .spyOn(RealContactStore.prototype, "createInvite")
+    .mockImplementation(
+      (...args) =>
+        contactStoreCreateInviteMock(
+          args[0] as unknown,
+        ) as unknown as ReturnType<
+          typeof RealContactStore.prototype.createInvite
+        >,
+    );
+  jest
+    .spyOn(RealContactStore.prototype, "revokeInvite")
+    .mockImplementation(
+      (inviteId: string) =>
+        contactStoreRevokeInviteMock(inviteId) as unknown as ReturnType<
+          typeof RealContactStore.prototype.revokeInvite
+        >,
+    );
+  jest
+    .spyOn(RealContactStore.prototype, "recordInviteRedemption")
+    .mockImplementation(
+      (...args) =>
+        contactStoreRecordRedemptionMock(args[0] as unknown) as ReturnType<
+          typeof RealContactStore.prototype.recordInviteRedemption
+        >,
+    );
+  jest
+    .spyOn(RealContactStore.prototype, "getInviteById")
+    .mockImplementation(
+      (inviteId: string) =>
+        contactStoreGetInviteByIdMock(inviteId) as unknown as ReturnType<
+          typeof RealContactStore.prototype.getInviteById
+        >,
+    );
+  jest
+    .spyOn(RealContactStore.prototype, "markInviteExpired")
+    .mockImplementation((inviteId: string) =>
+      contactStoreMarkInviteExpiredMock(inviteId),
+    );
+  jest
+    .spyOn(RealContactStore.prototype, "listContactsWithInfo")
+    .mockImplementation(
+      (opts?: {
+        limit?: number;
+        role?: string;
+        contactType?: string;
+        ids?: string[];
+      }) => contactStoreListMock(opts),
+    );
+  jest
+    .spyOn(RealContactStore.prototype, "getContactWithInfo")
+    .mockImplementation((contactId: string) => contactStoreGetMock(contactId));
+  jest
+    .spyOn(RealContactStore.prototype, "getAclByContactIds")
+    .mockImplementation(
+      (ids: string[]) =>
+        contactStoreGetAclMock(ids) as unknown as ReturnType<
+          typeof RealContactStore.prototype.getAclByContactIds
+        >,
+    );
+  jest
+    .spyOn(RealContactStore.prototype, "updateChannelStatus")
+    .mockImplementation(
+      (
+        channelId: string,
+        params: { status?: string; policy?: string; reason?: string | null },
+      ) =>
+        Promise.resolve(
+          contactStoreUpdateChannelMock(channelId, params),
+        ) as unknown as ReturnType<
+          typeof RealContactStore.prototype.updateChannelStatus
+        >,
+    );
+  jest
+    .spyOn(RealContactStore.prototype, "mergeContacts")
+    .mockImplementation((keepId: string, mergeId: string) =>
+      contactStoreMergeMock(keepId, mergeId),
+    );
 });
 
 afterAll(() => {
   resetGatewayDb();
+  // Restore real ContactStore prototype so later files in this Bun worker
+  // get the real implementation (spies affect runtime, not module loading).
+  jest.restoreAllMocks();
 });
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
@@ -724,7 +796,7 @@ describe("handleUpsertContact (gateway-native)", () => {
       ...DEFAULT_MOCK_CONTACT,
       id: "ct_high",
       displayName: "Alice",
-      autoApproveThreshold: "high",
+      autoApproveThreshold: "high" as "none" | "low" | "medium" | "high" | null,
     };
     contactStoreUpsertMock = mock(async () => ({
       contact: mockContact,
@@ -1056,21 +1128,31 @@ describe("handleListContacts (gateway-native)", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  test("falls back to proxy for contactType filter (assistant-owned field)", async () => {
-    fetchMock = mock(
-      async () =>
-        new Response(JSON.stringify({ ok: true, contacts: [] }), {
-          headers: { "content-type": "application/json" },
-        }),
-    );
+  test("handles contactType filter natively (does not proxy)", async () => {
+    const humanContact = {
+      ...DEFAULT_MOCK_CONTACT,
+      id: "c-human",
+      contactType: "human",
+    };
+    const assistantContact = {
+      ...DEFAULT_MOCK_CONTACT,
+      id: "c-bot",
+      contactType: "assistant",
+    };
+    contactStoreListMock = mock(async () => [humanContact, assistantContact]);
 
     const handler = createContactsControlPlaneProxyHandler(makeConfig());
-    await handler.handleListContacts(
+    const res = await handler.handleListContacts(
       new Request("http://localhost:7830/v1/contacts?contactType=human"),
     );
 
-    expect(contactStoreListMock).not.toHaveBeenCalled();
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(res.status).toBe(200);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(contactStoreListMock).toHaveBeenCalledTimes(1);
+    const opts = (
+      contactStoreListMock.mock.calls[0] as [{ contactType?: string }]
+    )[0];
+    expect(opts?.contactType).toBe("human");
   });
 
   test("falls back to proxy for search-style queries (query param)", async () => {
@@ -2378,6 +2460,10 @@ describe("handleDeleteContact (gateway-native)", () => {
       })
       .run();
   }
+
+  beforeEach(() => {
+    getGatewayDb().delete(gwContacts).run();
+  });
 
   afterEach(() => {
     getGatewayDb().delete(gwContacts).run();

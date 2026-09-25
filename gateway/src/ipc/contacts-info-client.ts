@@ -88,6 +88,22 @@ export async function probeContactMirror(
 }
 
 /**
+ * Fetch all contact IDs from the assistant DB whose `contact_type` matches the
+ * given value. The gateway uses the returned IDs as a SQL `IN` condition so the
+ * contactType filter is applied at the query layer rather than as an in-memory
+ * post-filter. Throws on IPC failure — callers with an active contactType filter
+ * propagate the error rather than returning a silently empty list.
+ */
+export async function fetchContactIdsByType(
+  contactType: string,
+): Promise<string[]> {
+  const result = (await ipcCallAssistant("contacts_list_ids_by_type", {
+    body: { contactType },
+  })) as { contactIds?: string[] };
+  return result.contactIds ?? [];
+}
+
+/**
  * List the assistant-DB `user_file` slugs matching `prefix%`, for the gateway's
  * collision-suffixed slug allocation.
  */
