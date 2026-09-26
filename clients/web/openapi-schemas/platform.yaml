@@ -2336,7 +2336,8 @@ paths:
         Create a new terminal session for the given assistant.
 
         Proxies POST /v1/assistants/{id}/terminal/sessions/ to vembda which spawns
-        a PTY inside the assistant pod and returns the new session ID.
+        a PTY inside the assistant pod and returns the new session ID. Returns
+        429 when the per-user creation rate is exceeded.
       parameters:
       - in: header
         name: Vellum-Organization-Id
@@ -2387,6 +2388,12 @@ paths:
                 additionalProperties: {}
           description: ''
         '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '429':
           content:
             application/json:
               schema:
