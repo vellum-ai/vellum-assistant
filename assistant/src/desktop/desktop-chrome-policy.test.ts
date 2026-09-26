@@ -35,6 +35,7 @@ test("preserves unrelated policies and does not rewrite on repeated startup", ()
     path,
     JSON.stringify({
       CommandLineFlagSecurityWarningsEnabled: false,
+      PasswordManagerEnabled: false,
       DownloadRestrictions: 1,
     }),
   );

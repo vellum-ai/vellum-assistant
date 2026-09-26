@@ -24,7 +24,9 @@ export function writeDesktopChromePolicy(policyDir: string): void {
   }
   if (
     policy.CommandLineFlagSecurityWarningsEnabled === false &&
-    policy.PasswordManagerEnabled === false
+    policy.PasswordManagerEnabled === false &&
+    policy.HighEfficiencyModeEnabled === true &&
+    policy.MemorySaverModeSavings === 1
   ) {
     return;
   }
@@ -33,6 +35,8 @@ export function writeDesktopChromePolicy(policyDir: string): void {
   policy.CommandLineFlagSecurityWarningsEnabled = false;
   // Suppress save prompts while keeping previously saved passwords usable.
   policy.PasswordManagerEnabled = false;
+  policy.HighEfficiencyModeEnabled = true;
+  policy.MemorySaverModeSavings = 1;
   mkdirSync(policyDir, { recursive: true });
   const staging = mkdtempSync(join(policyDir, ".vellum-desktop-"));
   try {
