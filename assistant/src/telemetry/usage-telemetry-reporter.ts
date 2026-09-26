@@ -51,6 +51,7 @@ import {
 } from "./telemetry-events-outbox.js";
 import { useReadOnlyMainDbForTelemetry } from "./telemetry-main-db.js";
 import { validateWireEvents } from "./telemetry-wire-validation.js";
+import type { TelemetryEvent } from "./types.js";
 
 const log = getLogger("usage-telemetry");
 
@@ -301,6 +302,72 @@ export class UsageTelemetryReporter {
     }
   }
 
+  /**
+   * Remove events that fail their platform wire schema. Ack-mode rows are
+   * deleted immediately. A watermark source whose whole batch is invalid
+   * advances to that batch's cursor. Events with no local schema stay.
+   */
+  private dropSchemaInvalidEvents(
+    batches: Array<{
+      source: TelemetryEventSource;
+      batch: TelemetryEventSourceBatch;
+    }>,
+  ): void {
+    for (const entry of batches) {
+      const { source, batch } = entry;
+      if (batch.events.length === 0) {
+        continue;
+      }
+      const result = validateWireEvents(batch.events, log);
+      if (result.invalid === 0) {
+        continue;
+      }
+      const keptEvents: TelemetryEvent[] = [];
+      const keptRowIds: string[] = [];
+      const droppedRowIds: string[] = [];
+      for (let i = 0; i < batch.events.length; i++) {
+        const event = batch.events[i];
+        if (!event) {
+          continue;
+        }
+        if (result.sendable[i]) {
+          keptEvents.push(event);
+          const rowId = batch.rowIds?.[i];
+          if (rowId) {
+            keptRowIds.push(rowId);
+          }
+        } else {
+          const rowId = batch.rowIds?.[i];
+          if (rowId) {
+            droppedRowIds.push(rowId);
+          }
+        }
+      }
+      if (source.ack && droppedRowIds.length > 0) {
+        source.ack.acknowledge(droppedRowIds);
+      }
+      if (!source.ack && keptEvents.length === 0 && batch.lastCursor) {
+        const keys = watermarkKeysForSource(source.id);
+        this.checkpoints.set(keys.at, String(batch.lastCursor.createdAt));
+        this.checkpoints.set(keys.id, batch.lastCursor.id);
+      }
+      log.warn(
+        {
+          sourceId: source.id,
+          dropped: result.invalid,
+          kept: keptEvents.length,
+        },
+        "Telemetry flush: dropped events that fail the platform wire schema",
+      );
+      entry.batch = {
+        events: keptEvents,
+        rowIds: batch.rowIds ? keptRowIds : undefined,
+        lastCursor: batch.lastCursor,
+        fullBatch: batch.fullBatch,
+      };
+    }
+  }
+
   private async _doFlush(
     batchCount = 0,
     acc: FlushAccumulator = { sent: 0, persisted: 0 },
@@ -461,6 +528,12 @@ export class UsageTelemetryReporter {
         }
       }
 
+      // Schema-invalid events are not POSTed and are not retried. Unknown
+      // types stay in the batch. A batch that becomes empty here still
+      // advances an ack or watermark so the invalid rows cannot block the
+      // cursor.
+      this.dropSchemaInvalidEvents(batches);
+
       if (batches.every(({ batch }) => batch.events.length === 0)) {
         return settle("nothing-pending");
       }
@@ -496,10 +569,6 @@ export class UsageTelemetryReporter {
       // Build payload — sources in construction order, each source's events
       // in cursor order.
       const typedEvents = batches.flatMap(({ batch }) => batch.events);
-
-      // Pre-flush wire validation — observability only: warns about events
-      // the server would silently drop; the batch is POSTed unchanged.
-      validateWireEvents(typedEvents, log);
 
       const organizationId = getPlatformOrganizationId() || undefined;
       const userId = getPlatformUserId() || undefined;

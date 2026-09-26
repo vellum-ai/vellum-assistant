@@ -3437,9 +3437,58 @@ describe("UsageTelemetryReporter", () => {
       ),
     ).toBe(false);
 
-    // A second flush finds nothing pending — the event never re-ships.
+    // A second flush finds nothing pending. The event never re-ships.
     mockFetch.mockClear();
     await reporter.flush();
     expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  test("a schema-invalid lifecycle row is dropped before POST and deleted", async () => {
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    const recorded = recordLifecycleEvent("app_open");
+    expect(recorded).not.toBeNull();
+    insertTelemetryOutboxEvent({
+      id: "row-invalid-lifecycle",
+      name: "lifecycle",
+      createdAt: Date.now(),
+      event: {
+        type: "lifecycle",
+        daemon_event_id: "evt-invalid-lifecycle",
+        recorded_at: Date.now(),
+        assistant_version: "1.2.3-test",
+      } as TelemetryEvent,
+    });
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = makeReporter();
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(body.events).toHaveLength(1);
+    expect(body.events[0].daemon_event_id).toBe(recorded!.id);
+    expect(queryTelemetryOutboxBatch("lifecycle", 10)).toEqual([]);
+  });
+
+  test("a schema-invalid watermark batch is not posted and the cursor advances", async () => {
+    const event = makeUsageEvent({ inputTokens: -1 });
+    mockQueryUnreportedUsageEvents.mockReturnValue([event]);
+
+    const reporter = makeReporter();
+    await reporter.flush();
+
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(mockSetFlushCheckpoint).toHaveBeenCalledWith(
+      "telemetry:usage:last_reported_at",
+      String(event.createdAt),
+    );
+    expect(mockSetFlushCheckpoint).toHaveBeenCalledWith(
+      "telemetry:usage:last_reported_id",
+      event.id,
+    );
   });
 });

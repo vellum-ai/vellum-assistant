@@ -109,4 +109,9 @@ describe("emitWatchdogEventDirect", () => {
     await emitWatchdogEventDirect("sqlite_corrupted", { database: "main" });
     expect(fetchCalls).toHaveLength(0);
   });
+
+  test("sends nothing when the event fails the wire schema", async () => {
+    await emitWatchdogEventDirect("sqlite_corrupted", { blob: "x".repeat(5000) });
+    expect(fetchCalls).toHaveLength(0);
+  });
 });
