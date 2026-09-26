@@ -5,6 +5,12 @@
  * from a sandboxed iframe and either forwards them to the provided callback
  * or proxies fetch requests through the parent's authenticated API client.
  *
+ * It also answers `vellum_context_request` with the host's current
+ * conversation selection. That is a read of host state rather than a proxy
+ * of an app request, and it is deliberately the only such read: the reply
+ * carries the two conversation ids and nothing else, so the bridge stays a
+ * narrow context API rather than general access to the host's stores.
+ *
  * Messages are routed by checking both `event.source` (must match the
  * iframe's `contentWindow`) and the `frameId` payload field (must match
  * the ID embedded in the bridge script). This provides defense-in-depth
@@ -14,9 +20,12 @@
  */
 
 import { type RefObject, useEffect, useRef } from "react";
+import { useLocation } from "react-router";
 
 import { client } from "@/generated/api/client.gen";
 import { subscribe as busSubscribe } from "@/lib/event-bus";
+import { useConversationStore } from "@/stores/conversation-store";
+import { isConversationPath } from "@/utils/routes";
 import {
   FETCH_PROXY_PATH_RE,
   getRelayableAppRoute,
@@ -77,6 +86,10 @@ export function useSandboxFetchProxy(
   // map would be wiped and later matching events silently dropped. The ref is
   // discarded with the component on unmount.
   const subscriptionsRef = useRef<Map<string, Set<string>>>(new Map());
+
+  // Basename relative, unlike `window.location.pathname`, which carries the
+  // public ingress prefix in remote-gateway mode.
+  const { pathname } = useLocation();
 
   useEffect(() => {
     const subscriptions = subscriptionsRef.current;
@@ -139,6 +152,45 @@ export function useSandboxFetchProxy(
           return;
         }
         onOpenVellumLink?.(msg.href, msg.linkText);
+        return;
+      }
+
+      if (msg.type === "vellum_context_request") {
+        const { callId } = msg as { callId: string };
+        const sendContext = (response: Record<string, unknown>) => {
+          iframeRef.current?.contentWindow?.postMessage(response, "*");
+        };
+        if (!enabled) {
+          sendContext({
+            type: "vellum_context_response",
+            callId,
+            error: "Context bridge disabled",
+          });
+          return;
+        }
+        // Read when asked, not at mount: the selection moves while the app
+        // stays mounted, so anything captured earlier is stale from then on.
+        const { activeConversationId, editingConversationId } =
+          useConversationStore.getState();
+        // Both ids are selection, not visibility. `activeConversationId`
+        // deliberately survives leaving the conversation area (see
+        // `chat-layout.tsx`) and the split binding is cleared by the paths
+        // that dismantle the split, not by leaving, so off these routes
+        // neither describes anything on screen: a library app would otherwise
+        // be handed the conversation the user walked away from. Gating both
+        // on the route keeps that in one place rather than depending on every
+        // navigation path to clear.
+        const conversationVisible = isConversationPath(pathname);
+        sendContext({
+          type: "vellum_context_response",
+          callId,
+          activeConversationId: conversationVisible
+            ? (activeConversationId ?? null)
+            : null,
+          editingConversationId: conversationVisible
+            ? (editingConversationId ?? null)
+            : null,
+        });
         return;
       }
 
@@ -357,6 +409,10 @@ export function useSandboxFetchProxy(
     onAction,
     onOpenVellumLink,
     onNavigateAppRoute,
+    // Navigating re-registers the listener so a context request is answered
+    // from the route the host is on now. The subscription map outlives the
+    // restart by design, which is what makes that safe.
+    pathname,
     iframeRef,
   ]);
 }

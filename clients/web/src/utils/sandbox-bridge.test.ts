@@ -223,6 +223,45 @@ describe("injectBridge", () => {
     expect(out).not.toContain("window.vellum.fetch");
   });
 
+  it("includes the host context bridge when fetch option is true", () => {
+    const html = "<html><body></body></html>";
+    const out = injectBridge(html, FRAME_ID, { fetch: true });
+    expect(out).toContain("vellum_context_request");
+    expect(out).toContain("vellum_context_response");
+    expect(out).toContain("window.vellum.getContext");
+  });
+
+  it("omits the host context bridge by default", () => {
+    const html = "<html><body></body></html>";
+    const out = injectBridge(html, FRAME_ID);
+    expect(out).not.toContain("vellum_context_request");
+    expect(out).not.toContain("window.vellum.getContext");
+  });
+
+  it("asks the host for context instead of baking a conversation id in", () => {
+    const html = "<html><body></body></html>";
+    const out = injectBridge(html, FRAME_ID, { fetch: true });
+
+    // The request carries only the frame and call ids. Sliced from the
+    // getContext definition so the response handler above it, which names the
+    // ids as the fields it reads off the reply, is not what is being checked.
+    const request = out.slice(out.indexOf("window.vellum.getContext"));
+    expect(request).toContain("type: 'vellum_context_request'");
+    expect(request).not.toContain("activeConversationId");
+    expect(request).not.toContain("editingConversationId");
+
+    // Both ids come off the host's reply rather than a literal in the
+    // document, so a conversation switch under a mounted app cannot leave the
+    // app reading a value fixed when its document was built.
+    expect(out).toContain("activeConversationId: d.activeConversationId");
+    expect(out).toContain("editingConversationId: d.editingConversationId");
+
+    // And each call takes a fresh id rather than reusing a cached answer the
+    // way `asset()` does.
+    expect(out).toContain("window.vellum._contextNextId++");
+    expect(out).not.toContain("_contextCache");
+  });
+
   it("opts full app HTML into host-routed standard URLs", () => {
     const html = "<html><body></body></html>";
     const out = injectBridge(html, FRAME_ID, { relayAppRoutes: true });
