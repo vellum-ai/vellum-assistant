@@ -46,6 +46,10 @@ const FIRECRAWL_API_URL = "https://api.firecrawl.dev/v2/search";
 const FASTCRW_SEARCH_PATH = "/v1/search";
 const TINYFISH_DEFAULT_SEARCH_API_BASE = "https://api.search.tinyfish.ai";
 const EXA_API_URL = "https://api.exa.ai/search";
+const SERPLY_API_URL = "https://api.serply.io/v1/search";
+// Serply returns at most 10 organic results per call; larger counts are
+// clamped on request and trimmed on response.
+const SERPLY_MAX_RESULTS = 10;
 // Keenable is keyless by default: the public path needs no key (rate-limited);
 // a key switches to the authenticated path and lifts the cap.
 const KEENABLE_API_BASE_URL = "https://api.keenable.ai";
@@ -61,7 +65,8 @@ type WebSearchProvider =
   | "fastcrw"
   | "searxng"
   | "tinyfish"
-  | "exa";
+  | "exa"
+  | "serply";
 
 /**
  * Arguments passed to every {@link WebSearchAdapter}. The full superset is
@@ -211,6 +216,19 @@ interface ExaSearchResult {
 interface ExaSearchResponse {
   requestId?: string;
   results?: ExaSearchResult[];
+}
+
+interface SerplySearchResult {
+  title?: string | null;
+  link?: string;
+  description?: string | null;
+  position?: number;
+}
+
+interface SerplySearchResponse {
+  query?: string;
+  total?: number;
+  results?: SerplySearchResult[];
 }
 
 const SEARXNG_MISSING_INSTANCE_MESSAGE =
@@ -811,6 +829,81 @@ function exaStartPublishedDateForFreshness(
       return undefined;
   }
   return new Date(now - days * 24 * 60 * 60 * 1000).toISOString();
+}
+
+function formatSerplyResults(
+  data: SerplySearchResponse,
+  query: string,
+): string {
+  const results = data.results ?? [];
+  if (results.length === 0) {
+    return `No results found for "${query}".`;
+  }
+
+  const lines: string[] = [`Web search results for "${query}":\n`];
+  for (let i = 0; i < results.length; i++) {
+    const result = results[i];
+    const title =
+      result.title?.trim() || result.link?.trim() || "Untitled result";
+    lines.push(`${i + 1}. ${title}`);
+    if (result.link) {
+      lines.push(`   URL: ${result.link}`);
+    }
+    const snippet = result.description?.trim();
+    if (snippet) {
+      lines.push(`   ${snippet}`);
+    }
+    lines.push("");
+  }
+  return lines.join("\n");
+}
+
+function buildSerplyMetadata(
+  data: SerplySearchResponse,
+  query: string,
+  durationMs: number,
+): WebSearchMetadata {
+  const results = data.results ?? [];
+  const items: WebSearchResultItem[] = results.map((result, index) => {
+    const url = result.link ?? "";
+    const domain = extractDomain(url);
+    return {
+      rank: index + 1,
+      title: result.title?.trim() || url.trim() || "Untitled result",
+      url,
+      domain,
+      faviconUrl: faviconUrlForDomain(domain),
+      snippet: result.description?.trim() || undefined,
+    };
+  });
+  return {
+    query,
+    provider: "serply",
+    resultCount: items.length,
+    durationMs,
+    results: items,
+  };
+}
+
+/**
+ * Serply passes Google's `tbs` time filter through unchanged, so the tool's
+ * freshness buckets map onto the `qdr:` values Google understands.
+ */
+function serplyTbsForFreshness(
+  freshness: string | undefined,
+): string | undefined {
+  switch (freshness) {
+    case "pd":
+      return "qdr:d";
+    case "pw":
+      return "qdr:w";
+    case "pm":
+      return "qdr:m";
+    case "py":
+      return "qdr:y";
+    default:
+      return undefined;
+  }
 }
 
 function tinyfishRecencyMinutesForFreshness(
@@ -2024,6 +2117,128 @@ async function executeExaSearch(
   );
 }
 
+async function executeSerplySearch(
+  query: string,
+  count: number,
+  freshness: string | undefined,
+  apiKey: string,
+  signal?: AbortSignal,
+): Promise<ToolExecutionResult> {
+  const startedAt = Date.now();
+  const params = new URLSearchParams({
+    q: query,
+    num: String(Math.min(count, SERPLY_MAX_RESULTS)),
+  });
+  const tbs = serplyTbsForFreshness(freshness);
+  if (tbs !== undefined) {
+    params.set("tbs", tbs);
+  }
+  const url = `${SERPLY_API_URL}?${params.toString()}`;
+
+  const headers = {
+    Accept: "application/json",
+    "X-Api-Key": apiKey.trim(),
+    "User-Agent": "vellum-assistant",
+  };
+
+  for (let attempt = 0; attempt <= DEFAULT_MAX_RETRIES; attempt++) {
+    let response: Response;
+    try {
+      response = await fetch(url, { method: "GET", headers, signal });
+    } catch (err) {
+      return networkFailureResult(query, "serply", startedAt, err, signal);
+    }
+
+    const bodyText = await response.text();
+    if (response.ok) {
+      let data: SerplySearchResponse;
+      try {
+        data = JSON.parse(bodyText) as SerplySearchResponse;
+      } catch {
+        return errorResult(
+          query,
+          "serply",
+          startedAt,
+          "Serply Search returned an invalid JSON payload.",
+        );
+      }
+      if (data.results && data.results.length > count) {
+        data.results = data.results.slice(0, count);
+      }
+      const durationMs = Date.now() - startedAt;
+      return {
+        content:
+          wrapUntrustedContent(formatSerplyResults(data, query), {
+            source: "search",
+            sourceDetail: "serply",
+          }) + CITATION_INSTRUCTION,
+        isError: false,
+        activityMetadata: {
+          webSearch: buildSerplyMetadata(data, query, durationMs),
+        },
+      };
+    }
+
+    if (response.status === 401) {
+      return errorResult(
+        query,
+        "serply",
+        startedAt,
+        "Invalid or expired Serply API key",
+      );
+    }
+    if (response.status === 402) {
+      return errorResult(
+        query,
+        "serply",
+        startedAt,
+        "Serply account has no remaining credits.",
+      );
+    }
+    if (response.status === 403) {
+      return errorResult(
+        query,
+        "serply",
+        startedAt,
+        "Serply Search request was forbidden by the upstream service.",
+      );
+    }
+
+    if (response.status === 429 && attempt < DEFAULT_MAX_RETRIES) {
+      const delayMs = getHttpRetryDelay(
+        response,
+        attempt,
+        DEFAULT_BASE_DELAY_MS,
+      );
+      log.warn(
+        { attempt: attempt + 1, delayMs },
+        "Serply Search rate limited, retrying",
+      );
+      await sleep(delayMs);
+      continue;
+    }
+
+    log.warn({ status: response.status }, "Serply Search API error");
+    return backendFailureResult(
+      query,
+      "serply",
+      startedAt,
+      { statusCode: response.status, error: rawBodyDetail(bodyText) },
+      response.status === 429
+        ? "Serply Search rate limit exceeded after retries. Try again shortly."
+        : `Serply Search API returned status ${response.status}`,
+    );
+  }
+
+  return backendFailureResult(
+    query,
+    "serply",
+    startedAt,
+    { statusCode: 429 },
+    "Serply Search rate limit exceeded after retries. Try again shortly.",
+  );
+}
+
 // ----------------------------------------------------------------------------
 // Adapter registry
 //
@@ -2115,6 +2330,14 @@ const exaSearchAdapter: WebSearchAdapter = {
     executeExaSearch(query, count, freshness, apiKey, signal),
 };
 
+const serplySearchAdapter: WebSearchAdapter = {
+  id: "serply",
+  providerKeyName: "serply",
+  fallbackOrder: 10,
+  execute: ({ query, count, freshness, apiKey, signal }) =>
+    executeSerplySearch(query, count, freshness, apiKey, signal),
+};
+
 /**
  * All built-in web-search adapters keyed by provider id. The
  * `Record<WebSearchProvider, ...>` shape forces TypeScript to flag any
@@ -2130,6 +2353,7 @@ const WEB_SEARCH_ADAPTERS: Record<WebSearchProvider, WebSearchAdapter> = {
   searxng: searxngSearchAdapter,
   tinyfish: tinyfishSearchAdapter,
   exa: exaSearchAdapter,
+  serply: serplySearchAdapter,
 };
 
 /**
@@ -2161,7 +2385,7 @@ export const webSearchTool = {
       count: {
         type: "number",
         description:
-          "Number of results to return (1-20, default 10). Used with Brave, Tavily, Firecrawl, Keenable, fastCRW, SearXNG, TinyFish, and Exa providers.",
+          "Number of results to return (1-20, default 10). Used with Brave, Tavily, Firecrawl, Keenable, fastCRW, SearXNG, TinyFish, Exa, and Serply providers.",
       },
       offset: {
         type: "number",
@@ -2171,7 +2395,7 @@ export const webSearchTool = {
       freshness: {
         type: "string",
         description:
-          'Filter by recency: "pd" (past day), "pw" (past week), "pm" (past month), "py" (past year). Used with Brave, Tavily, Firecrawl, Keenable, fastCRW, SearXNG, TinyFish, and Exa providers. SearXNG maps day/month/year and omits week.',
+          'Filter by recency: "pd" (past day), "pw" (past week), "pm" (past month), "py" (past year). Used with Brave, Tavily, Firecrawl, Keenable, fastCRW, SearXNG, TinyFish, Exa, and Serply providers. SearXNG maps day/month/year and omits week.',
       },
     },
     required: ["query"],
@@ -2289,7 +2513,7 @@ export const webSearchTool = {
           query,
           provider,
           startedAt,
-          "No web search API key configured. Set it via `keys set perplexity <key>`, `keys set brave <key>`, `keys set tavily <key>`, `keys set firecrawl <key>`, or `keys set fastcrw <key>`, or `keys set tinyfish <key>`, or `keys set exa <key>`, or configure it from the Settings page under API Keys. Or switch the web-search provider to Keenable, which works without a key, or SearXNG with your instance URL.",
+          "No web search API key configured. Set it via `keys set perplexity <key>`, `keys set brave <key>`, `keys set tavily <key>`, `keys set firecrawl <key>`, or `keys set fastcrw <key>`, or `keys set tinyfish <key>`, or `keys set exa <key>`, or `keys set serply <key>`, or configure it from the Settings page under API Keys. Or switch the web-search provider to Keenable, which works without a key, or SearXNG with your instance URL.",
         );
       }
     }

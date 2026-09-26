@@ -48,6 +48,7 @@ export const SEARCH_PROVIDER_ENV_VAR_NAMES: Record<string, string> = {
   searxng: "SEARXNG_API_KEY",
   tinyfish: "TINYFISH_API_KEY",
   exa: "EXA_API_KEY",
+  serply: "SERPLY_API_KEY",
 };
 
 /**
