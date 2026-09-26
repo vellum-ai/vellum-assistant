@@ -770,96 +770,83 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
   });
 
   // ── Test 1 ────────────────────────────────────────────────────────
-  // BUG: When the agent loop makes progress (adds messages to history)
-  // before hitting context_too_large, the convergence loop's progress
-  // check must recognize that the loop appended messages. If it fails to,
-  // the reducer is never invoked — the error is surfaced immediately
-  // without any compaction attempt.
-  //
-  // Expected behavior (PR 2 fix): After progress + context_too_large,
-  // the system should still attempt compaction before surfacing error.
-  test.todo(
-    "context too large after progress triggers compaction retry instead of immediate failure",
-    async () => {
-      const events: AssistantEvent[] = [];
-      let reducerCalled = false;
+  // Verifies overflow recovery fires even when the agent made tool-use progress
+  // before hitting context_too_large. The convergence path must not skip
+  // compaction just because messages were appended earlier in the turn.
+  test("context too large after progress triggers compaction retry instead of immediate failure", async () => {
+    const events: AssistantEvent[] = [];
+    let reducerCalled = false;
 
-      mockReducerStepFn = (msgs: Message[]) => {
-        reducerCalled = true;
-        return {
+    mockReducerStepFn = (msgs: Message[]) => {
+      reducerCalled = true;
+      return {
+        messages: msgs,
+        tier: "forced_compaction",
+        state: {
+          appliedTiers: ["forced_compaction"],
+          injectionMode: "full",
+          exhausted: false,
+        },
+        estimatedTokens: 50_000,
+        compactionResult: {
+          compacted: true,
           messages: msgs,
-          tier: "forced_compaction",
-          state: {
-            appliedTiers: ["forced_compaction"],
-            injectionMode: "full",
-            exhausted: false,
-          },
-          estimatedTokens: 50_000,
-          compactionResult: {
-            compacted: true,
-            messages: msgs,
-            compactedPersistedMessages: 5,
-            summaryText: "Summary",
-            previousEstimatedInputTokens: 190_000,
-            estimatedInputTokens: 50_000,
-            maxInputTokens: 200_000,
-            thresholdTokens: 160_000,
-            compactedMessages: 10,
-            summaryCalls: 1,
-            summaryInputTokens: 500,
-            summaryOutputTokens: 200,
-            summaryModel: "mock-model",
-          },
-        };
+          compactedPersistedMessages: 5,
+          summaryText: "Summary",
+          previousEstimatedInputTokens: 190_000,
+          estimatedInputTokens: 50_000,
+          maxInputTokens: 200_000,
+          thresholdTokens: 160_000,
+          compactedMessages: 10,
+          summaryCalls: 1,
+          summaryInputTokens: 500,
+          summaryOutputTokens: 200,
+          summaryModel: "mock-model",
+        },
       };
+    };
 
-      // Run 1 makes progress (a tool turn) then the following provider call
-      // rejects with a context_too_large error; after the convergence reducer
-      // compacts, the rerun recovers with plain text.
-      const { provider } = createMockProvider([
-        toolUseResponse("tu-progress", "bash", { command: "ls" }),
-        new Error("prompt is too long: 242201 tokens > 200000 maximum"),
-        textResponse("recovered after compaction"),
-      ]);
+    // Run 1 makes progress (a tool turn) then the following provider call
+    // rejects with a context_too_large error; after the convergence reducer
+    // compacts, the rerun recovers with plain text.
+    const { provider } = createMockProvider([
+      toolUseResponse("tu-progress", "bash", { command: "ls" }),
+      new Error("prompt is too long: 242201 tokens > 200000 maximum"),
+      textResponse("recovered after compaction"),
+    ]);
 
-      const ctx = makeCtx({
-        loopProvider: provider,
-        loopTools: [
-          {
-            name: "bash",
-            description: "Run a shell command",
-            input_schema: {
-              type: "object",
-              properties: { command: { type: "string" } },
-            },
+    const ctx = makeCtx({
+      loopProvider: provider,
+      loopTools: [
+        {
+          name: "bash",
+          description: "Run a shell command",
+          input_schema: {
+            type: "object",
+            properties: { command: { type: "string" } },
           },
-        ],
-        toolExecutor: async () => ({
-          content: "file1.ts\nfile2.ts",
-          isError: false,
-        }),
-        contextWindowManager: {
-          updateConfig: () => {},
-          shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
-          maybeCompact: async () => ({ compacted: false }),
-        } as unknown as Conversation["contextWindowManager"],
-      });
+        },
+      ],
+      toolExecutor: async () => ({
+        content: "file1.ts\nfile2.ts",
+        isError: false,
+      }),
+      contextWindowManager: {
+        updateConfig: () => {},
+        shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
+        maybeCompact: async () => ({ compacted: false }),
+      } as unknown as Conversation["contextWindowManager"],
+    });
 
-      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+    await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
-      // BUG: Currently the reducer is NOT called when progress was made before
-      // context_too_large. The error is surfaced immediately.
-      // After PR 2 fix, the reducer SHOULD be called to attempt compaction.
-      expect(reducerCalled).toBe(true);
+    expect(reducerCalled).toBe(true);
 
-      // BUG: Currently a conversation_error IS emitted instead of retrying.
-      // After PR 2 fix, there should be no conversation_error.
-      const conversationError = events.find(
-        (e) => e.type === "conversation_error",
-      );
-      expect(conversationError).toBeUndefined();
-    },
-  );
+    const conversationError = events.find(
+      (e) => e.type === "conversation_error",
+    );
+    expect(conversationError).toBeUndefined();
+  });
 
   // ── Test 2 ────────────────────────────────────────────────────────
   // When estimation says we're within budget but the provider rejects, the
