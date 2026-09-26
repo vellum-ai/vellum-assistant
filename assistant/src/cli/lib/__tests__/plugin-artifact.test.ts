@@ -123,6 +123,23 @@ describe("parsePluginArtifact", () => {
     });
   });
 
+  test("ignores a malformed icon beside a valid artifact", () => {
+    expect(
+      parsePluginArtifact({
+        vellum: {
+          artifact: {
+            url: "https://example.com/App.dmg",
+            sha256: VALID_SHA,
+          },
+          icon: 42,
+        },
+      }),
+    ).toEqual({
+      url: "https://example.com/App.dmg",
+      sha256: VALID_SHA,
+    });
+  });
+
   test.each([
     ["no vellum block", { name: "x" }],
     ["no artifact block", { vellum: {} }],
@@ -200,6 +217,12 @@ describe("parsePluginIcon", () => {
   test("accepts a value at exactly the 16-code-point bound", () => {
     const sixteen = "a".repeat(16);
     expect(parsePluginIcon({ vellum: { icon: sixteen } })).toBe(sixteen);
+  });
+
+  test("ignores a malformed artifact beside a valid icon", () => {
+    expect(
+      parsePluginIcon({ vellum: { artifact: "App.dmg", icon: "🚀" } }),
+    ).toBe("🚀");
   });
 
   test.each([

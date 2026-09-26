@@ -52,21 +52,76 @@ const SHA256_HEX_RE = /^[0-9a-f]{64}$/;
  * the digest must be canonical lowercase hex so client-side comparison is a
  * plain string equality with no normalization step.
  */
-const PluginArtifactSchema = z.object({
-  url: z
-    .string()
-    .url()
-    .refine((u) => u.startsWith("https://"), {
-      message: "artifact url must be an https:// URL",
-    }),
-  sha256: z
-    .string()
-    .regex(SHA256_HEX_RE, "artifact sha256 must be 64 lowercase hex chars"),
-  // Optional, non-critical metadata: a malformed label must never nullify an
-  // otherwise-valid `url` + `sha256`, so a wrong-typed value falls back to
-  // `undefined` rather than failing the whole descriptor.
-  label: z.string().optional().catch(undefined),
-});
+const PluginArtifactSchema = z
+  .object({
+    url: z
+      .string()
+      .url()
+      .refine((u) => u.startsWith("https://"), {
+        message: "artifact url must be an https:// URL",
+      }),
+    sha256: z
+      .string()
+      .regex(SHA256_HEX_RE, "artifact sha256 must be 64 lowercase hex chars"),
+    // Optional, non-critical metadata: a malformed label must never nullify an
+    // otherwise-valid `url` + `sha256`, so a wrong-typed value falls back to
+    // `undefined` rather than failing the whole descriptor.
+    label: z
+      .string()
+      .transform((label) => label.trim())
+      .optional()
+      .catch(undefined),
+  })
+  .transform(({ label, ...artifact }) =>
+    label ? { ...artifact, label } : artifact,
+  );
+
+/** Upper bound on `vellum.icon`, in Unicode code points. */
+const MAX_ICON_CODE_POINTS = 16;
+
+const PluginIconSchema = z
+  .string()
+  .transform((icon) => icon.trim())
+  .refine(
+    (icon) => {
+      const codePoints = [...icon].length;
+      return codePoints >= 1 && codePoints <= MAX_ICON_CODE_POINTS;
+    },
+    { message: "plugin icon must contain 1 to 16 Unicode code points" },
+  );
+
+const LicenseSchema = z
+  .union([
+    z.string(),
+    z.object({ type: z.string() }).transform(({ type }) => type),
+    z.undefined(),
+  ])
+  .catch(undefined);
+
+export const PluginPackageJsonSchema = z
+  .object({
+    name: z.string().optional().catch(undefined),
+    version: z.string().optional().catch(undefined),
+    description: z.string().optional().catch(undefined),
+    homepage: z.string().optional().catch(undefined),
+    license: LicenseSchema.optional(),
+    peerDependencies: z
+      .record(z.string(), z.string())
+      .optional()
+      .catch(undefined),
+    vellum: z
+      .object({
+        artifact: PluginArtifactSchema.optional().catch(undefined),
+        icon: PluginIconSchema.optional().catch(undefined),
+      })
+      .optional()
+      .catch(undefined),
+  })
+  .transform(({ vellum, ...packageJson }) => ({
+    ...packageJson,
+    artifact: vellum?.artifact,
+    icon: vellum?.icon,
+  }));
 
 /**
  * Read `vellum.artifact` from an already-parsed `package.json` value and
@@ -78,35 +133,9 @@ const PluginArtifactSchema = z.object({
 export function parsePluginArtifact(
   packageJson: unknown,
 ): PluginArtifact | null {
-  if (
-    typeof packageJson !== "object" ||
-    packageJson === null ||
-    Array.isArray(packageJson)
-  ) {
-    return null;
-  }
-  const vellum = (packageJson as Record<string, unknown>).vellum;
-  if (typeof vellum !== "object" || vellum === null || Array.isArray(vellum)) {
-    return null;
-  }
-  const parsed = PluginArtifactSchema.safeParse(
-    (vellum as Record<string, unknown>).artifact,
-  );
-  if (!parsed.success) {
-    return null;
-  }
-  // A blank or whitespace-only label is treated as absent so it never
-  // invalidates an otherwise well-formed `url` + `sha256` descriptor.
-  const label = parsed.data.label?.trim();
-  return {
-    url: parsed.data.url,
-    sha256: parsed.data.sha256,
-    ...(label ? { label } : {}),
-  };
+  const parsed = PluginPackageJsonSchema.safeParse(packageJson);
+  return parsed.success ? (parsed.data.artifact ?? null) : null;
 }
-
-/** Upper bound on `vellum.icon`, in Unicode code points. */
-const MAX_ICON_CODE_POINTS = 16;
 
 /**
  * Read `vellum.icon` from an already-parsed `package.json` value and return
@@ -116,25 +145,6 @@ const MAX_ICON_CODE_POINTS = 16;
  * type, empty, or too long — yields `undefined` rather than throwing.
  */
 export function parsePluginIcon(packageJson: unknown): string | undefined {
-  if (
-    typeof packageJson !== "object" ||
-    packageJson === null ||
-    Array.isArray(packageJson)
-  ) {
-    return undefined;
-  }
-  const vellum = (packageJson as Record<string, unknown>).vellum;
-  if (typeof vellum !== "object" || vellum === null || Array.isArray(vellum)) {
-    return undefined;
-  }
-  const icon = (vellum as Record<string, unknown>).icon;
-  if (typeof icon !== "string") {
-    return undefined;
-  }
-  const trimmed = icon.trim();
-  const codePoints = [...trimmed].length;
-  if (codePoints < 1 || codePoints > MAX_ICON_CODE_POINTS) {
-    return undefined;
-  }
-  return trimmed;
+  const parsed = PluginPackageJsonSchema.safeParse(packageJson);
+  return parsed.success ? parsed.data.icon : undefined;
 }

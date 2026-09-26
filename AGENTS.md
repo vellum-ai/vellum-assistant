@@ -146,6 +146,12 @@ This covers everything you write: user-facing copy, code comments, documentation
 
 Existing text is not swept retroactively. Fix em dashes on lines you are already changing and leave the rest alone.
 
+## Unknown Data Validation
+
+Validate structured data from unknown boundaries with Zod before accessing its fields. This includes parsed JSON, HTTP response bodies, persisted blobs, and `unknown` tool or plugin inputs. Define a schema for the complete structure the caller consumes, call `safeParse`, check `success`, and use `parsed.data`. Do not use `as` assertions to manufacture a trusted object shape or pair handwritten `typeof` / null / array checks with asserted property access.
+
+Keep local variables when they avoid at least one repeated operation or when inlining would produce equal or greater code or line overhead. A one-use assignment is not cleanup slop when it saves work or keeps the code smaller and clearer.
+
 ## Control-Flow Braces
 
 Wrap every `if` / `else` / `for` / `while` / `do…while` body in braces, even a single-statement one-liner. Braces make control flow easy to scan — the block boundary is explicit — and close a common footgun: a second line added under a braceless condition reads as if it sits inside the branch but runs unconditionally. The ESLint `curly` rule enforces this at `error` in both `assistant/` and `clients/web/`; it is fully auto-fixable with `eslint --fix`.

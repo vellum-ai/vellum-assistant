@@ -16,6 +16,8 @@
  * is a thin wrapper that supplies production deps and formats the result.
  */
 
+import { z } from "zod";
+
 import { PRESERVED_ENTRIES } from "../../plugins/plugin-tree-walk.js";
 import type { FetchLike } from "./fetch-like.js";
 import {
@@ -49,6 +51,14 @@ import type { PluginCatalog, PluginSearchMatch } from "./search-plugins.js";
 
 /** Full commit SHA (40 hex SHA-1 or 64 hex SHA-256). */
 const FULL_SHA_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
+
+const GitHubCommitResponseSchema = z.object({
+  commit: z.object({
+    committer: z.object({
+      date: z.string(),
+    }),
+  }),
+});
 
 /**
  * Drift classification between the installed copy and the marketplace pin.
@@ -294,23 +304,13 @@ export async function fetchCommitDate(
     if (!res.ok) {
       return null;
     }
-    const json: unknown = JSON.parse(await res.text());
-    if (typeof json !== "object" || json === null) {
+    const parsed = GitHubCommitResponseSchema.safeParse(
+      JSON.parse(await res.text()),
+    );
+    if (!parsed.success) {
       return null;
     }
-    const commit = (json as Record<string, unknown>).commit;
-    if (typeof commit !== "object" || commit === null) {
-      return null;
-    }
-    const committer = (commit as Record<string, unknown>).committer;
-    if (typeof committer !== "object" || committer === null) {
-      return null;
-    }
-    const date = (committer as Record<string, unknown>).date;
-    if (typeof date !== "string") {
-      return null;
-    }
-    const ms = Date.parse(date);
+    const ms = Date.parse(parsed.data.commit.committer.date);
     return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
   } catch {
     return null;
