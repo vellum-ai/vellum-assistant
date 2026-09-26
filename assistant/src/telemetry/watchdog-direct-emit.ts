@@ -73,9 +73,12 @@ export async function emitWatchdogEventDirect(
       assistant_version: APP_VERSION,
     };
 
-    // Pre-flush wire validation — observability only: warns when the server
-    // would silently drop the event; the POST proceeds unchanged.
-    validateWireEvents([event], log);
+    // Drop a schema-invalid event before POST. There is no outbox to retry
+    // from on this path; the warning is the count.
+    const validation = validateWireEvents([event], log);
+    if (!validation.sendable[0]) {
+      return;
+    }
 
     const organizationId = getPlatformOrganizationId() || undefined;
     const userId = getPlatformUserId() || undefined;
