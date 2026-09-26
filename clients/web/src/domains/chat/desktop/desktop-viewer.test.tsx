@@ -455,6 +455,8 @@ describe("DesktopViewer", () => {
     expect(noVncKeyDown).not.toHaveBeenCalled();
     fireEvent.keyDown(canvas, { key: "c", metaKey: true });
     expect(noVncKeyDown).toHaveBeenCalledTimes(1);
+    fireEvent.keyDown(canvas, { key: "v", ctrlKey: true });
+    expect(noVncKeyDown).toHaveBeenCalledTimes(2);
     expect(fireEvent.keyDown(canvas, { key: "v", metaKey: true })).toBe(true);
     pasteText(canvas, "remote text");
     fireEvent.keyUp(canvas, { key: "Meta", metaKey: false });

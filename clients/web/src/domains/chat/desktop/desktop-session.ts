@@ -183,6 +183,7 @@ export function openDesktopSession({
         client.sendKey(CONTROL_KEYSYM, "ControlLeft", controlHeld);
       } else if (
         controlHeld &&
+        (!commandIsControl || event.metaKey) &&
         !event.altKey &&
         event.key.toLowerCase() === "v"
       ) {
