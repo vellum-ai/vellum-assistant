@@ -9,6 +9,7 @@
 import RFB from "@novnc/novnc";
 
 import { PairedVoiceUnavailableError } from "@/domains/chat/voice/live-voice/connection";
+import { isIOSBrowser, isMacOSBrowser } from "@/runtime/platform-detection";
 
 import {
   desktopEndReasonForClose,
@@ -18,6 +19,8 @@ import {
 
 /** Give up on a socket that has neither opened nor been refused by then. */
 const CONNECT_TIMEOUT_MS = 15_000;
+const CONTROL_KEYSYM = 0xffe3;
+const V_KEYSYM = 0x76;
 
 export type DesktopSessionState =
   | { kind: "connecting" }
@@ -59,6 +62,16 @@ export function openDesktopSession({
   let rfb: RFB | null = null;
   let currentViewOnly = viewOnly;
   let currentViewportMode = viewportMode;
+  const commandIsControl = isMacOSBrowser() || isIOSBrowser();
+  let controlHeld = false;
+  let commandHeld = false;
+  const releaseClipboardKeys = (): void => {
+    if (commandHeld) {
+      rfb?.sendKey(CONTROL_KEYSYM, "ControlLeft", false);
+    }
+    commandHeld = false;
+    controlHeld = false;
+  };
   const updateViewport = (): void => {
     if (rfb) {
       const mode = currentViewOnly ? "fit" : currentViewportMode;
@@ -69,6 +82,9 @@ export function openDesktopSession({
   };
   const updateViewOnly = (): void => {
     if (rfb) {
+      if (currentViewOnly) {
+        releaseClipboardKeys();
+      }
       rfb.viewOnly = currentViewOnly;
       rfb.focusOnClick = !currentViewOnly;
       updateViewport();
@@ -136,7 +152,7 @@ export function openDesktopSession({
     // refused when the document is not focused; the copy is simply not
     // mirrored then, and there is nothing to report.
     client.addEventListener("clipboard", (event) => {
-      if (currentViewOnly) {
+      if (done || currentViewOnly) {
         return;
       }
       void navigator.clipboard?.writeText(event.detail.text).catch(() => {});
@@ -154,6 +170,58 @@ export function openDesktopSession({
     };
     window.addEventListener("copy", onCopy);
     teardown.push(() => window.removeEventListener("copy", onCopy));
+
+    const onKey = (event: KeyboardEvent): void => {
+      if (done || currentViewOnly) {
+        return;
+      }
+      controlHeld = event.ctrlKey || (commandIsControl && event.metaKey);
+      if (commandIsControl && event.key === "Meta") {
+        // The remote Linux desktop uses Control for Command shortcuts.
+        commandHeld = event.metaKey;
+        event.stopPropagation();
+        client.sendKey(CONTROL_KEYSYM, "ControlLeft", controlHeld);
+      } else if (
+        controlHeld &&
+        (!commandIsControl || event.metaKey) &&
+        !event.altKey &&
+        event.key.toLowerCase() === "v"
+      ) {
+        // Keep the browser's paste event; noVNC prevents it by default.
+        event.stopPropagation();
+      }
+    };
+    const onPaste = (event: ClipboardEvent): void => {
+      if (done || currentViewOnly) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      if (!event.clipboardData?.types.includes("text/plain")) {
+        return;
+      }
+      client.clipboardPasteFrom(event.clipboardData.getData("text/plain"));
+      if (!controlHeld) {
+        client.sendKey(CONTROL_KEYSYM, "ControlLeft", true);
+      }
+      client.sendKey(V_KEYSYM, "KeyV");
+      if (!controlHeld) {
+        client.sendKey(CONTROL_KEYSYM, "ControlLeft", false);
+      }
+    };
+    container.addEventListener("keydown", onKey, true);
+    container.addEventListener("keyup", onKey, true);
+    container.addEventListener("paste", onPaste);
+    container.addEventListener("blur", releaseClipboardKeys, true);
+    window.addEventListener("blur", releaseClipboardKeys);
+    teardown.push(() => {
+      releaseClipboardKeys();
+      container.removeEventListener("keydown", onKey, true);
+      container.removeEventListener("keyup", onKey, true);
+      container.removeEventListener("paste", onPaste);
+      container.removeEventListener("blur", releaseClipboardKeys, true);
+      window.removeEventListener("blur", releaseClipboardKeys);
+    });
   };
 
   void resolveDesktopStreamWsUrl(assistantId).then(
