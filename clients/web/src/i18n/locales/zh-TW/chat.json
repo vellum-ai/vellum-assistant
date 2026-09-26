@@ -1988,6 +1988,7 @@
     "seed": "嗨，我剛與您開始語音對話。此訊息為自動傳送。請用一句簡短的話向我打招呼，然後問我想做什麼。"
   },
   "voiceErrors": {
+    "selectionUnavailable": "無法讀取選取的文字。未貼上任何內容。請重新選取文字後重試；您說出的內容可供複製。",
     "nativeSttNoTranscript": "{clientName} 原生聽寫未傳回文字記錄。請檢查系統設定中的原生語音辨識，然後再試一次。",
     "askUnavailable": "助手目前無法接收語音提問。"
   },
