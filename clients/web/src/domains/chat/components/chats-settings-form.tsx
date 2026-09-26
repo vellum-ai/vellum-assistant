@@ -37,7 +37,7 @@ const ARCHIVE_DAYS = [
   1, 7, 14, 30,
 ] as const satisfies readonly ChatsSettingsAutoArchive["afterDays"][];
 const TOGGLE_CLASSES =
-  "flex-row-reverse items-start gap-4 [&>div]:flex-1 [&>div>span]:text-[var(--content-secondary)] [&>button]:mt-1 [&>button]:before:absolute [&>button]:before:-inset-x-2.5 [&>button]:before:-inset-y-3.5";
+  "flex-row-reverse items-start gap-4 [&>div]:flex-1 [&>div>span]:text-[var(--content-secondary)] [&>button]:before:absolute [&>button]:before:-inset-x-1 [&>button]:before:-inset-y-2.5";
 
 function changedSettings(
   initial: ChatsSettingsValues,
@@ -87,7 +87,6 @@ export function ChatsSettingsForm({
     >
       <Modal.Body className="min-h-0 space-y-5 pb-0" aria-busy={saving}>
         <Toggle
-          size="sm"
           label={t("chatsSettingsModal.autoArchive")}
           helperText={t("chatsSettingsModal.autoArchiveHelper")}
           checked={draft.autoArchive.enabled}
@@ -130,7 +129,6 @@ export function ChatsSettingsForm({
         </div>
         <div className="border-t border-[var(--border-subtle)] pt-5">
           <Toggle
-            size="sm"
             label={t("chatsSettingsModal.notifications")}
             helperText={t("chatsSettingsModal.notificationsHelper")}
             checked={draft.newMessageEnabled}
