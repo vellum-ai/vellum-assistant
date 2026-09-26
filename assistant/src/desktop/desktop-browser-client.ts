@@ -87,6 +87,12 @@ export class DesktopBrowserClient {
         ) {
           this.invalidateSnapshot();
         }
+        if (event.method === "Target.targetDestroyed") {
+          const targetId = (event.params as { targetId?: string })?.targetId;
+          if (targetId) {
+            this.forgetTarget(targetId);
+          }
+        }
         if (event.method === "Target.detachedFromTarget") {
           const detached = (event.params as { sessionId?: string })?.sessionId;
           if (detached) {
@@ -142,6 +148,7 @@ export class DesktopBrowserClient {
           throw new Error("Desktop browser tab is unavailable");
         }
         await transport.send("Target.closeTarget", { targetId }, { signal });
+        this.forgetTarget(targetId);
         if (this.selected === tabId) {
           this.selected = undefined;
         }
@@ -179,6 +186,7 @@ export class DesktopBrowserClient {
     const liveTargets = new Set(pages.map((page) => page.targetId));
     for (const [id, target] of this.targets) {
       if (!liveTargets.has(target)) {
+        this.forgetTarget(target);
         this.targets.delete(id);
       }
     }
@@ -373,6 +381,19 @@ export class DesktopBrowserClient {
       .catch(() => {});
   }
 
+  private forgetTarget(targetId: string): void {
+    const sessionId = this.sessions.get(targetId);
+    if (sessionId) {
+      this.cursorPositions.delete(sessionId);
+      this.sessions.delete(targetId);
+    }
+    for (const [key, input] of this.held) {
+      if (input.targetId === targetId) {
+        this.held.delete(key);
+      }
+    }
+  }
+
   private async cleanupTarget(
     transport: CdpWsTransport,
     targetId: string,
@@ -435,11 +456,7 @@ export class DesktopBrowserClient {
       ]);
       for (const targetId of targets) {
         if (!targetInfos.some((target) => target.targetId === targetId)) {
-          for (const [key, input] of this.held) {
-            if (input.targetId === targetId) {
-              this.held.delete(key);
-            }
-          }
+          this.forgetTarget(targetId);
           continue;
         }
         const { sessionId } = await cleanup.send<{ sessionId: string }>(

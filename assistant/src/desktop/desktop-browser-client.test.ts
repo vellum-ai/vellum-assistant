@@ -573,3 +573,39 @@ test("retargeted sends detach the previous tab before attaching the selected tab
   expect(attach).toBeGreaterThan(detach);
   expect(f.calls.at(-1)?.session).toBe("session-1-page-2");
 });
+
+test.each(["close", "destroy", "refresh"])(
+  "closed targets do not block another tab after %s",
+  async (mode) => {
+    const f = await session();
+    f.targets.push({
+      targetId: "page-2",
+      type: "page",
+      url: "https://example.org",
+      title: "Second",
+    });
+    const tabs = await f.cdp.listTabs();
+    await f.cdp.send("Input.dispatchKeyEvent", {
+      type: "keyDown",
+      key: "Shift",
+      code: "ShiftLeft",
+    });
+    f.targets.splice(0, 1);
+    if (mode === "close") {
+      await f.cdp.closeTab(tabs[0]!.tabId!);
+    } else if (mode === "destroy") {
+      f.emit("Target.targetDestroyed", { targetId: "page-1" });
+    }
+    f.fail((method) => method === "Target.detachFromTarget");
+    f.calls.length = 0;
+    await f.cdp.selectTab(tabs[1]!.tabId!);
+    const current = await f.browser.client("conv-123", f.abort.signal);
+    await current.send("Runtime.evaluate", { expression: "document.title" });
+    expect(f.calls.every((call) => call.session !== "session-1-page-1")).toBe(
+      true,
+    );
+    expect(f.calls.at(-1)?.session).toBe("session-1-page-2");
+    await f.browser.release();
+    expect(f.calls.some((call) => call.params.type === "keyUp")).toBe(false);
+  },
+);
