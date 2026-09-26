@@ -412,8 +412,9 @@ export interface SendMessageConfig {
   usageAttributionHeaders?: Record<string, string>;
   /**
    * Per-request HTTP headers merged onto the transport. `RetryProvider`
-   * stamps these for providers that need support-lookup headers (OpenCode
-   * `x-opencode-session` / `x-opencode-request`). Provider clients pass
+   * stamps these for providers that need per-conversation routing headers
+   * (OpenCode `x-opencode-session` / `x-opencode-request`, Fireworks
+   * `x-session-affinity`). Provider clients pass
    * them through SDK request options only and must never include this
    * object in provider JSON request bodies.
    */

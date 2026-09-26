@@ -35,6 +35,7 @@ import {
   shouldSkipPrimary,
   tryAcquireRecoveryProbe,
 } from "./fallback-breaker.js";
+import { resolveFireworksRequestHeaders } from "./fireworks/client.js";
 import { resolveLogitBiasPreset } from "./inference/logit-bias.js";
 import { MALFORMED_TOOL_CALL_MESSAGE } from "./malformed-tool-call.js";
 import {
@@ -679,6 +680,19 @@ function normalizeSendMessageOptions(
     // fallback keeps a session header on every request since zen/go rejects
     // requests without one.
     nextConfig.requestHeaders = resolveOpenCodeRequestHeaders(conversationId);
+  }
+
+  if (providerName === "fireworks") {
+    // Covers BYOK Fireworks and the Vellum-managed Fireworks upstream, which
+    // both dispatch through `FireworksProvider`. Keyless calls send no header.
+    const sessionKey = [config.selectionSeed, config.conversationId].find(
+      (value): value is string =>
+        typeof value === "string" && value.trim().length > 0,
+    );
+    const headers = resolveFireworksRequestHeaders(sessionKey);
+    if (Object.keys(headers).length > 0) {
+      nextConfig.requestHeaders = headers;
+    }
   }
 
   // `overrideProfile`, `forceOverrideProfile`, `selectionSeed`,
