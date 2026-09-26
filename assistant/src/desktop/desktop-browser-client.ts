@@ -426,12 +426,18 @@ export class DesktopBrowserClient {
       await this.cursorRestored;
       // Cleanup must finish even if the operation that switched tabs is aborted.
       const signal = AbortSignal.timeout(3_000);
-      await this.cleanupTarget(transport, targetId, sessionId, signal);
-      await transport.send(
-        "Target.detachFromTarget",
-        { sessionId },
-        { signal },
-      );
+      try {
+        await this.cleanupTarget(transport, targetId, sessionId, signal);
+        await transport.send(
+          "Target.detachFromTarget",
+          { sessionId },
+          { signal },
+        );
+      } catch (error) {
+        if (this.sessions.get(targetId) === sessionId) {
+          throw error;
+        }
+      }
       this.sessions.delete(targetId);
     }
   }

@@ -609,3 +609,38 @@ test.each(["close", "destroy", "refresh"])(
     expect(f.calls.some((call) => call.params.type === "keyUp")).toBe(false);
   },
 );
+
+test("a target destroyed during input cleanup does not block tab selection", async () => {
+  const f = await session();
+  f.targets.push({
+    targetId: "page-2",
+    type: "page",
+    url: "https://example.org",
+    title: "Second",
+  });
+  const second = (await f.cdp.listTabs())[1]!.tabId!;
+  await f.cdp.send("Input.dispatchKeyEvent", {
+    type: "keyDown",
+    key: "Shift",
+    code: "ShiftLeft",
+  });
+  f.fail((_method, params) => {
+    if (params.type === "keyUp") {
+      f.targets.splice(0, 1);
+      f.emit("Target.targetDestroyed", { targetId: "page-1" });
+      return true;
+    }
+    return false;
+  });
+  await f.cdp.selectTab(second);
+  expect((await f.cdp.listTabs()).find((tab) => tab.active)?.tabId).toBe(
+    second,
+  );
+  const current = await f.browser.client("conv-123", f.abort.signal);
+  await current.send("Runtime.evaluate", { expression: "document.title" });
+  expect(f.calls.at(-1)?.session).toBe("session-1-page-2");
+  await f.browser.release();
+  expect(f.calls.filter((call) => call.params.type === "keyUp")).toHaveLength(
+    1,
+  );
+});
