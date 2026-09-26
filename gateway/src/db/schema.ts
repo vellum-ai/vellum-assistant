@@ -455,7 +455,11 @@ export const channelVerificationSessions = sqliteTable(
     // Session configuration
     codeDigits: integer("code_digits").default(6),
     maxAttempts: integer("max_attempts").default(3),
-    // Distinguishes guardian verification from trusted contact verification
+    // Distinguishes guardian verification from trusted contact verification.
+    // Nothing relies on the default: the wire contract and the store both
+    // require the purpose, and every read filters on a known one. It is
+    // kept because removing a column default makes schema push rebuild the
+    // table (see the ingress_invites note above).
     verificationPurpose: text("verification_purpose").default("guardian"),
     // Telegram bootstrap deep-link token hash
     bootstrapTokenHash: text("bootstrap_token_hash"),

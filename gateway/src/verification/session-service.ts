@@ -137,7 +137,7 @@ export function createOutboundSession(params: {
   destinationAddress?: string;
   codeDigits?: number;
   maxAttempts?: number;
-  verificationPurpose?: VerificationPurpose;
+  verificationPurpose: VerificationPurpose;
   bootstrapTokenHash?: string;
   sessionId?: string;
 }): CreateOutboundSessionResult {
@@ -327,7 +327,7 @@ export async function validateAndConsumeSession(
   // transaction is synchronous over the gateway DB; the assistant identity
   // mirror runs after commit (best-effort).
   if (
-    session.verificationPurpose !== "trusted_contact" &&
+    session.verificationPurpose === "guardian" &&
     channel === "phone" &&
     session.expectedPhoneE164 != null
   ) {

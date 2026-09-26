@@ -11,6 +11,7 @@ import {
   ChannelDeliveryResultSchema,
   DELIVER_GATEWAY_REPLY_IPC_METHOD,
   type GatewayReplyRequest,
+  type VerificationPurpose,
 } from "@vellumai/gateway-client";
 
 import { IpcHandlerError, ipcCallAssistant } from "../ipc/assistant-client.js";
@@ -31,7 +32,7 @@ const DELIVERY_WAIT_MS = 10_000;
 // ---------------------------------------------------------------------------
 
 export function composeVerificationSuccessReply(
-  verificationType?: "guardian" | "trusted_contact",
+  verificationType: VerificationPurpose,
 ): string {
   if (verificationType === "trusted_contact") {
     return "Verification successful! You can now message the assistant.";
