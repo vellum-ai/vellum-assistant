@@ -882,8 +882,7 @@ graph LR
         TOOL["tool_invocations<br/>───────────────<br/>tool_name, input, result<br/>decision, risk_level<br/>duration_ms"]
         JOBS["memory_jobs<br/>───────────────<br/>Async task queue<br/>Types: embed, extract,<br/>summarize, backfill, cleanup<br/>Status: pending → running →<br/>completed | failed"]
         ATT["attachments<br/>───────────────<br/>base64-encoded file data<br/>mime_type, size_bytes<br/>Linked to messages via<br/>message_attachments join"]
-        REM["reminders<br/>───────────────<br/>One-time scheduled reminders<br/>label, message, fireAt<br/>mode: notify | execute<br/>status: pending → fired | cancelled<br/>routing_intent: single_channel |<br/>multi_channel | all_channels<br/>routing_hints_json (free-form)"]
-        SCHED_JOBS["cron_jobs (recurrence schedules)<br/>───────────────<br/>Recurring schedule definitions<br/>cron_expression: cron or RRULE string<br/>schedule_syntax: 'cron' | 'rrule'<br/>timezone, message, next_run_at<br/>enabled, retry_count<br/>source_key: plugin-declared provenance<br/>definition_hash, user_enabled<br/>Legacy alias: scheduleJobs"]
+        SCHED_JOBS["cron_jobs (schedules)<br/>───────────────<br/>Recurring and one-shot schedule definitions<br/>cron_expression: cron or RRULE string<br/>(null for one-shot)<br/>schedule_syntax: 'cron' | 'rrule'<br/>mode, routing_intent (default all_channels)<br/>timezone, message, next_run_at<br/>enabled, retry_count<br/>source_key: plugin-declared provenance<br/>definition_hash, user_enabled<br/>Legacy alias: scheduleJobs"]
         SCHED_RUNS["cron_runs (schedule runs)<br/>───────────────<br/>Execution history per schedule<br/>job_id (FK → cron_jobs)<br/>status: ok | error<br/>duration_ms, output, error<br/>Legacy alias: scheduleRuns"]
         TASKS["tasks<br/>───────────────<br/>Reusable prompt templates<br/>title, Handlebars template<br/>inputSchema, contextFlags<br/>requiredTools, status"]
         TASK_RUNS["task_runs<br/>───────────────<br/>Execution history per task<br/>taskId (FK → tasks)<br/>conversationId, status<br/>startedAt, finishedAt, error"]
@@ -2053,9 +2052,9 @@ When the decision engine routes multiple guardian questions to the same conversa
 
 This invariant is enforced identically on mac/vellum (`conversation-process.ts`) and Telegram (`inbound-message-handler.ts`). All disambiguation messages are generated through the guardian action message composer (LLM with deterministic fallback).
 
-### Reminder Routing Metadata
+### Schedule Routing Metadata
 
-Reminders carry optional `routingIntent` (`single_channel` | `multi_channel` | `all_channels`) and free-form `routingHints` metadata. When a reminder fires, this metadata flows through the notification signal into a post-decision enforcement step (`enforceRoutingIntent()` in `decision-engine.ts`) that overrides the LLM's channel selection to match the requested coverage. This enables single-reminder fanout: one reminder can produce multi-channel delivery without duplicate reminders. See `assistant/docs/architecture/scheduling.md` for the full trigger-time data flow.
+Schedules carry a `routingIntent` (`single_channel` | `multi_channel` | `all_channels`, default `all_channels`) and free-form `routingHints` metadata. When a `notify`-mode schedule fires, this metadata flows through the notification signal into a post-decision enforcement step (`enforceRoutingIntent()` in `decision-engine.ts`) that overrides the LLM's channel selection to match the requested coverage, so one schedule can reach several channels without duplicate schedules. See `assistant/docs/architecture/scheduling.md` for the full trigger-time data flow.
 
 ### Channel Delivery
 
