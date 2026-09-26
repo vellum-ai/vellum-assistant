@@ -59,6 +59,16 @@ export class DesktopBrowserClient {
         transport.dispose();
         signal.throwIfAborted();
       }
+      try {
+        await transport.send(
+          "Target.setDiscoverTargets",
+          { discover: true },
+          { signal },
+        );
+      } catch (error) {
+        transport.dispose();
+        throw error;
+      }
       this.transport = transport;
       transport.addEventListener((event) => {
         if (event.method === "Page.domContentEventFired" && event.sessionId) {
@@ -86,6 +96,12 @@ export class DesktopBrowserClient {
           ].includes(event.method)
         ) {
           this.invalidateSnapshot();
+        }
+        if (event.method === "Target.targetDestroyed") {
+          const targetId = (event.params as { targetId?: string })?.targetId;
+          if (targetId) {
+            this.forgetTarget(targetId);
+          }
         }
         if (event.method === "Target.detachedFromTarget") {
           const detached = (event.params as { sessionId?: string })?.sessionId;
@@ -129,6 +145,8 @@ export class DesktopBrowserClient {
         if (!tab || !targetId) {
           throw new Error("Desktop browser tab is unavailable");
         }
+        await this.detachOtherSessions(transport, targetId);
+        signal.throwIfAborted();
         await transport.send("Target.activateTarget", { targetId }, { signal });
         this.selected = tabId;
         this.invalidateSnapshot();
@@ -140,6 +158,7 @@ export class DesktopBrowserClient {
           throw new Error("Desktop browser tab is unavailable");
         }
         await transport.send("Target.closeTarget", { targetId }, { signal });
+        this.forgetTarget(targetId);
         if (this.selected === tabId) {
           this.selected = undefined;
         }
@@ -177,6 +196,7 @@ export class DesktopBrowserClient {
     const liveTargets = new Set(pages.map((page) => page.targetId));
     for (const [id, target] of this.targets) {
       if (!liveTargets.has(target)) {
+        this.forgetTarget(target);
         this.targets.delete(id);
       }
     }
@@ -203,6 +223,8 @@ export class DesktopBrowserClient {
     transport: CdpWsTransport,
     signal: AbortSignal,
   ): Promise<{ tabId: number }> {
+    await this.detachOtherSessions(transport);
+    signal.throwIfAborted();
     const { targetId } = await transport.send<{ targetId: string }>(
       "Target.createTarget",
       { url: "about:blank" },
@@ -234,6 +256,8 @@ export class DesktopBrowserClient {
       }
     }
     const targetId = this.targets.get(this.selected!)!;
+    await this.detachOtherSessions(transport, targetId);
+    signal.throwIfAborted();
     let sessionId = this.sessions.get(targetId);
     if (!sessionId) {
       const attached = await transport.send<{ sessionId: string }>(
@@ -266,6 +290,8 @@ export class DesktopBrowserClient {
     }
     const targetId =
       this.selected === undefined ? undefined : this.targets.get(this.selected);
+    await this.detachOtherSessions(transport, targetId);
+    signal.throwIfAborted();
     const sessionId =
       (targetId && this.sessions.get(targetId)) ||
       (await this.session(transport, signal));
@@ -365,6 +391,67 @@ export class DesktopBrowserClient {
       .catch(() => {});
   }
 
+  private forgetTarget(targetId: string): void {
+    const sessionId = this.sessions.get(targetId);
+    if (sessionId) {
+      this.cursorPositions.delete(sessionId);
+      this.sessions.delete(targetId);
+    }
+    for (const [key, input] of this.held) {
+      if (input.targetId === targetId) {
+        this.held.delete(key);
+      }
+    }
+  }
+
+  private async cleanupTarget(
+    transport: CdpWsTransport,
+    targetId: string,
+    sessionId: string,
+    signal: AbortSignal,
+  ): Promise<void> {
+    for (const [key, input] of this.held) {
+      if (input.targetId !== targetId) {
+        continue;
+      }
+      await transport.send(input.method, input.params, { sessionId, signal });
+      this.held.delete(key);
+    }
+    await transport.send(
+      "Runtime.evaluate",
+      { expression: REMOVE_DESKTOP_CURSOR },
+      { sessionId, signal },
+    );
+  }
+
+  private async detachOtherSessions(
+    transport: CdpWsTransport,
+    selectedTarget?: string,
+  ): Promise<void> {
+    for (const [targetId, sessionId] of this.sessions) {
+      if (targetId === selectedTarget) {
+        continue;
+      }
+      this.cursorPositions.delete(sessionId);
+      await this.cursorRestored;
+      // Cleanup must finish even if the operation that switched tabs is aborted.
+      const signal = AbortSignal.timeout(3_000);
+      try {
+        await this.cleanupTarget(transport, targetId, sessionId, signal);
+        await transport.send(
+          "Target.detachFromTarget",
+          { sessionId },
+          { signal },
+        );
+      } catch (error) {
+        if (this.sessions.get(targetId) === sessionId) {
+          throw error;
+        }
+      }
+      this.sessions.delete(targetId);
+    }
+  }
+
   async release(): Promise<void> {
     this.cursorPositions.clear();
     await this.cursorRestored;
@@ -385,11 +472,7 @@ export class DesktopBrowserClient {
       ]);
       for (const targetId of targets) {
         if (!targetInfos.some((target) => target.targetId === targetId)) {
-          for (const [key, input] of this.held) {
-            if (input.targetId === targetId) {
-              this.held.delete(key);
-            }
-          }
+          this.forgetTarget(targetId);
           continue;
         }
         const { sessionId } = await cleanup.send<{ sessionId: string }>(
@@ -397,18 +480,7 @@ export class DesktopBrowserClient {
           { targetId, flatten: true },
           { signal },
         );
-        for (const [key, input] of this.held) {
-          if (input.targetId !== targetId) {
-            continue;
-          }
-          await cleanup.send(input.method, input.params, { sessionId, signal });
-          this.held.delete(key);
-        }
-        await cleanup.send(
-          "Runtime.evaluate",
-          { expression: REMOVE_DESKTOP_CURSOR },
-          { sessionId, signal },
-        );
+        await this.cleanupTarget(cleanup, targetId, sessionId, signal);
       }
     } finally {
       cleanup.dispose();
