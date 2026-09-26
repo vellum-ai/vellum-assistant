@@ -63,6 +63,7 @@ async function handleHostFileResult({ body, headers }: RouteHandlerArgs) {
   await assertHostProxyResultBinding({
     headers: headers as Record<string, string | undefined> | undefined,
     targetClientId: peeked.targetClientId,
+    targetConnectionId: peeked.targetConnectionId,
     targetActorPrincipalId: peeked.targetActorPrincipalId,
     op: "host_file",
     missingClientIdMessage:

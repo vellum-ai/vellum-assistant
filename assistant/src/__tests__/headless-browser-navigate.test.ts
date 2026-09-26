@@ -233,6 +233,7 @@ describe("executeBrowserNavigate", () => {
     resetMockPage();
     resetCdp();
     __resetPinnedTabsForTests();
+    mockExtensionAvailable = false;
   });
 
   // ── Input validation ───────────────────────────────────────────
@@ -606,6 +607,13 @@ describe("executeBrowserNavigate", () => {
     const routeCallsBefore = mockPage.route.mock.calls.length;
     const unrouteCallsBefore = mockPage.unroute.mock.calls.length;
 
+    cdpSendHandler = (method, params) => {
+      if (method === "Vellum.createTab") {
+        return { tabId: "42" };
+      }
+      return defaultCdpHandler(method, params);
+    };
+
     const result = await executeBrowserNavigate(
       { url: "https://example.com/page" },
       extensionCtx,
@@ -643,6 +651,9 @@ describe("executeBrowserNavigate", () => {
     // navigateAndWait returns a private final URL (simulating a
     // server-side redirect).
     cdpSendHandler = (method, params) => {
+      if (method === "Vellum.createTab") {
+        return { tabId: "42" };
+      }
       if (method === "Page.navigate") {
         return { frameId: "f1" };
       }
@@ -745,13 +756,7 @@ describe("executeBrowserNavigate", () => {
     expect(cdpDisposed).toBe(true);
   });
 
-  test("new_tab: true on extension path with no tabId in response clears live session and still continues", async () => {
-    // Defensive: dispatcher returns success but no tabId. The
-    // executor logs a warn, resets the live cdp session to undefined
-    // (so the follow-on Page.navigate routes to the active tab
-    // instead of any stale pin the cdp instance was constructed
-    // with), and proceeds. The navigate still runs (degraded
-    // behaviour but not a hard failure).
+  test("new_tab: true on extension path with no tabId in response fails closed", async () => {
     parseUrlResult = new URL("https://example.com/page");
     mockExtensionAvailable = true;
 
@@ -767,25 +772,13 @@ describe("executeBrowserNavigate", () => {
       { ...ctx },
     );
 
-    expect(result.isError).toBe(false);
-    // No new pin was set, BUT the live session was reset to undefined
-    // so the follow-on Page.navigate falls back to active-tab routing
-    // instead of any stale pin the cdp instance held at construction.
-    expect(cdpSetSessionIdCalls).toEqual([undefined]);
-    // Page.navigate still ran.
-    expect(cdpSendCalls.some((c) => c.method === "Page.navigate")).toBe(true);
+    expect(result.isError).toBe(true);
+    expect(String(result.content)).toContain("returned no tabId");
+    expect(cdpSetSessionIdCalls).toEqual([]);
+    expect(cdpSendCalls.some((c) => c.method === "Page.navigate")).toBe(false);
   });
 
-  test("new_tab: true with no tabId in response clears a pre-existing stale pin AND live session (regression)", async () => {
-    // Regression for the Codex round-2 findings (P2 + round-3 P1):
-    // when Vellum.createTab returns a malformed response with no
-    // tabId, the executor falls back to active-tab routing — but
-    // (a) the pin store still held the stale pin (round-2 P2 fix
-    // added clearPinnedTab), and (b) the LIVE cdp instance was
-    // already constructed with that stale cdpSessionId, so the
-    // follow-on Page.navigate would still route to the dead tab
-    // unless we reset the session on the cdp instance too (round-3
-    // P1 fix added cdp.setCdpSessionId(undefined)).
+  test("new_tab: true with no tabId in response clears a pre-existing stale pin and fails closed", async () => {
     const { setPinnedTab, getPinnedTab } =
       await import("../tools/browser/pinned-tabs.js");
     setPinnedTab(ctx.conversationId, "stale-pinned-tab-id");
@@ -806,12 +799,9 @@ describe("executeBrowserNavigate", () => {
       { ...ctx },
     );
 
-    expect(result.isError).toBe(false);
-    // (a) Pin store cleared.
+    expect(result.isError).toBe(true);
     expect(getPinnedTab(ctx.conversationId)).toBeUndefined();
-    // (b) Live cdp session reset (the fake records every
-    // setCdpSessionId arg; expect exactly one call with undefined).
-    expect(cdpSetSessionIdCalls).toEqual([undefined]);
+    expect(cdpSetSessionIdCalls).toEqual([]);
   });
 
   test("new_tab: true on LOCAL path is a no-op (Playwright manages its own isolated browser)", async () => {
@@ -935,7 +925,7 @@ describe("executeBrowserNavigate", () => {
       false,
     );
     expect(getPinnedTab(ctx.conversationId)).toBeUndefined();
-    expect(cdpSetSessionIdCalls).toEqual([undefined]);
+    expect(cdpSetSessionIdCalls).toEqual(["active"]);
     expect(cdpSendCalls.some((c) => c.method === "Page.navigate")).toBe(true);
   });
 

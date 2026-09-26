@@ -33,6 +33,7 @@ mock.module("../assistant-event-hub.js", () => ({
       fakeClient?.clientId === clientId
         ? fakeClient.actorPrincipalId
         : undefined,
+    getClientById: () => undefined,
   },
   broadcastMessage: (
     msg: Record<string, unknown>,

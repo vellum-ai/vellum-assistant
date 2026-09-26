@@ -23,7 +23,10 @@ import type { QuestionEntry } from "../api/events/question-request.js";
 import { findConversationOrSubagent } from "../daemon/conversation-registry.js";
 import type { UserDecision } from "../permissions/types.js";
 import { getLogger } from "../util/logger.js";
-import { broadcastMessage } from "./assistant-event-hub.js";
+import {
+  assistantEventHub,
+  broadcastMessage,
+} from "./assistant-event-hub.js";
 
 const log = getLogger("pending-interactions");
 
@@ -111,6 +114,12 @@ export interface PendingInteraction {
   /** When set, the host_bash request should be routed to this specific client. */
   targetClientId?: string;
   /**
+   * Hub connection that was active for `targetClientId` at dispatch. Results
+   * must arrive while this connection is still subscribed so a reconnect
+   * cannot submit under the same client id.
+   */
+  targetConnectionId?: string;
+  /**
    * Actor principal captured at registration. Targeted requests snapshot the
    * target client's actor so a brief SSE reconnect does not 403 a legitimate
    * result. Untargeted requests snapshot the turn's source actor so a
@@ -167,7 +176,16 @@ export function register(
   requestId: string,
   interaction: PendingInteraction,
 ): void {
-  pending.set(requestId, interaction);
+  const targetConnectionId =
+    interaction.targetConnectionId ??
+    (interaction.targetClientId
+      ? assistantEventHub.getClientById?.(interaction.targetClientId)
+          ?.connectionId
+      : undefined);
+  pending.set(requestId, {
+    ...interaction,
+    ...(targetConnectionId != null ? { targetConnectionId } : {}),
+  });
 }
 
 /**

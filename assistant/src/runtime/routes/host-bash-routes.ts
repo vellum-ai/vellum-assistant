@@ -64,6 +64,7 @@ async function handleHostBashResult({ body, headers }: RouteHandlerArgs) {
   await assertHostProxyResultBinding({
     headers,
     targetClientId: peeked.targetClientId,
+    targetConnectionId: peeked.targetConnectionId,
     targetActorPrincipalId: peeked.targetActorPrincipalId,
     op: "host_bash",
     missingClientIdMessage:
