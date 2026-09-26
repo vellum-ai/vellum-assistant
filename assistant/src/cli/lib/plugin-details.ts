@@ -32,15 +32,16 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { z } from "zod";
+
 import { getWorkspacePluginsDir } from "../../util/platform.js";
 import { readPluginManifest } from "../../util/plugin-manifest.js";
 import { readBundledPluginFile } from "./bundled-plugin-packages.js";
 import type { FetchLike } from "./fetch-like.js";
 import { sanitizePluginName } from "./install-from-github.js";
 import {
-  parsePluginArtifact,
-  parsePluginIcon,
   type PluginArtifact,
+  PluginPackageJsonSchema,
 } from "./plugin-artifact.js";
 import {
   findCatalogEntry,
@@ -61,12 +62,16 @@ import {
 const README_RE = /^readme(\.md|\.markdown)?$/i;
 
 /** Entry shape returned by the GitHub Contents API for a directory listing. */
-interface GitHubContentEntry {
-  readonly name: string;
-  readonly path: string;
-  readonly type: "file" | "dir" | "symlink" | "submodule";
-  readonly download_url: string | null;
-}
+const GitHubContentEntrySchema = z.object({
+  name: z.string(),
+  path: z.string(),
+  type: z.enum(["file", "dir", "symlink", "submodule"]),
+  download_url: z.string().nullable(),
+});
+
+const GitHubContentListingSchema = z.array(GitHubContentEntrySchema);
+
+type GitHubContentEntry = z.infer<typeof GitHubContentEntrySchema>;
 
 /** The subset of `package.json` fields the detail view surfaces. */
 interface PluginManifestFields {
@@ -249,11 +254,14 @@ function readLocalPlugin(pluginsDir: string, name: string): LocalPlugin {
       manifest = parseManifest(readFileSync(packagePath, "utf8"));
     } else {
       const selected = readPluginManifest(target);
+      const parsedPackageJson = PluginPackageJsonSchema.safeParse(selected.raw);
       manifest = {
         version: selected.version ?? null,
         description: selected.description ?? null,
         homepage: selected.homepage ?? null,
-        license: normalizeLicense(selected.license),
+        license: parsedPackageJson.success
+          ? (parsedPackageJson.data.license ?? null)
+          : null,
         artifact: null,
         icon: null,
       };
@@ -365,11 +373,8 @@ async function listDirSafe(
     if (!res.ok) {
       return null;
     }
-    const body = (await res.json()) as unknown;
-    if (!Array.isArray(body)) {
-      return null;
-    }
-    return body as readonly GitHubContentEntry[];
+    const parsed = GitHubContentListingSchema.safeParse(await res.json());
+    return parsed.success ? parsed.data : null;
   } catch {
     return null;
   }
@@ -502,36 +507,16 @@ function safeParseManifest(raw: string): PluginManifestFields {
 
 /** Extract the surfaced fields from a `package.json` body. Throws on bad JSON. */
 function parseManifest(raw: string): PluginManifestFields {
-  const parsed: unknown = JSON.parse(raw);
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+  const parsed = PluginPackageJsonSchema.safeParse(JSON.parse(raw));
+  if (!parsed.success) {
     return emptyManifest();
   }
-  const meta = parsed as Record<string, unknown>;
   return {
-    version: typeof meta.version === "string" ? meta.version : null,
-    description: typeof meta.description === "string" ? meta.description : null,
-    homepage: typeof meta.homepage === "string" ? meta.homepage : null,
-    license: normalizeLicense(meta.license),
-    artifact: parsePluginArtifact(parsed),
-    icon: parsePluginIcon(parsed) ?? null,
+    version: parsed.data.version ?? null,
+    description: parsed.data.description ?? null,
+    homepage: parsed.data.homepage ?? null,
+    license: parsed.data.license ?? null,
+    artifact: parsed.data.artifact ?? null,
+    icon: parsed.data.icon ?? null,
   };
-}
-
-/**
- * `package.json#license` is usually an SPDX string but the legacy object form
- * `{ "type": "MIT" }` still appears in the wild — surface its `type`.
- */
-function normalizeLicense(value: unknown): string | null {
-  if (typeof value === "string") {
-    return value;
-  }
-  if (
-    typeof value === "object" &&
-    value !== null &&
-    "type" in value &&
-    typeof (value as { type: unknown }).type === "string"
-  ) {
-    return (value as { type: string }).type;
-  }
-  return null;
 }

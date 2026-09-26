@@ -37,6 +37,10 @@ const LegacyPluginManifestSchema = z
   })
   .passthrough();
 
+const StandardPluginManifestDiscriminatorSchema = z.object({
+  $schema: z.literal(AGENT_PLUGINS_MANIFEST_SCHEMA_URL),
+});
+
 const StandardPluginManifestSchema = z
   .object({
     $schema: z.literal(AGENT_PLUGINS_MANIFEST_SCHEMA_URL),
@@ -129,13 +133,7 @@ export function getPluginManifestInstallAction(
     return "synthesize-legacy";
   }
 
-  if (
-    typeof json !== "object" ||
-    json === null ||
-    Array.isArray(json) ||
-    (json as Record<string, unknown>).$schema !==
-      AGENT_PLUGINS_MANIFEST_SCHEMA_URL
-  ) {
+  if (!StandardPluginManifestDiscriminatorSchema.safeParse(json).success) {
     return "synthesize-legacy";
   }
 
