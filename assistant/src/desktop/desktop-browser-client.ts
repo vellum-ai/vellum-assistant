@@ -59,6 +59,16 @@ export class DesktopBrowserClient {
         transport.dispose();
         signal.throwIfAborted();
       }
+      try {
+        await transport.send(
+          "Target.setDiscoverTargets",
+          { discover: true },
+          { signal },
+        );
+      } catch (error) {
+        transport.dispose();
+        throw error;
+      }
       this.transport = transport;
       transport.addEventListener((event) => {
         if (event.method === "Page.domContentEventFired" && event.sessionId) {

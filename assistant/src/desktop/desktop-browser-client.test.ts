@@ -37,6 +37,7 @@ function fixture() {
   const browser = new DesktopBrowserClient(async () => {
     const connection = ++connections;
     let closed = false;
+    let discoverTargets = false;
     disconnect = () => {
       closed = true;
     };
@@ -58,6 +59,9 @@ function fixture() {
           throw new CdpWsTransportError("closed");
         }
         let result: unknown = {};
+        if (method === "Target.setDiscoverTargets") {
+          discoverTargets = params.discover === true;
+        }
         if (method === "Target.getTargets") {
           result = { targetInfos: targets };
         }
@@ -101,7 +105,11 @@ function fixture() {
         return result as T;
       },
       addEventListener(listener) {
-        listeners.push(listener);
+        listeners.push((event) => {
+          if (event.method !== "Target.targetDestroyed" || discoverTargets) {
+            listener(event);
+          }
+        });
         return () => {};
       },
       dispose() {
@@ -643,4 +651,16 @@ test("a target destroyed during input cleanup does not block tab selection", asy
   expect(f.calls.filter((call) => call.params.type === "keyUp")).toHaveLength(
     1,
   );
+});
+
+test("failed target discovery setup retries on a fresh connection", async () => {
+  const f = fixture();
+  cleanups.push(() => f.browser.dispose());
+  const signal = new AbortController().signal;
+  f.fail((method) => method === "Target.setDiscoverTargets");
+  await expect(f.browser.client("conv-123", signal)).rejects.toBeDefined();
+  f.fail();
+  const client = await f.browser.client("conv-123", signal);
+  await client.send("Runtime.evaluate", { expression: "document.title" });
+  expect(f.calls.at(-1)?.connection).toBe(2);
 });
