@@ -76,6 +76,7 @@ const PROVIDER_LABELS: Record<LlmProviderId, string> = {
   litellm: "LiteLLM",
   opencode: "OpenCode",
   baseten: "Baseten",
+  ionet: "IO Intelligence",
   poolside: "Poolside",
   typesafe: "TypeSafe",
 };
@@ -96,6 +97,7 @@ export const HATCH_PROVIDER_CHOICES: readonly LlmProviderId[] = [
   "minimax",
   "atlascloud",
   "baseten",
+  "ionet",
   "poolside",
 ];
 
@@ -228,6 +230,14 @@ export function inferProviderFromModel(model: string): string | undefined {
     // Listed by OpenRouter (#37856), the earlier catalog entry; the Vercel
     // AI Gateway does not carry these IDs.
     return "openrouter";
+  }
+  if (
+    model === "meta-llama/Llama-3.3-70B-Instruct" ||
+    model === "openai/gpt-oss-20b"
+  ) {
+    // IO Intelligence (io.net) exclusives; the remaining meta-llama/ IDs
+    // belong to OpenRouter.
+    return "ionet";
   }
   if (model.startsWith("openai/") || model.startsWith("xai/")) {
     return "vercel-ai-gateway";

@@ -41,6 +41,7 @@ const AGGREGATOR_PROVIDERS = new Set([
   "baseten",
   "vellum",
   "openai-compatible",
+  "ionet",
 ]);
 
 /** Vendors the catalog genuinely knows a single model from. */
@@ -148,7 +149,8 @@ describe("model vendors", () => {
         if (!model.family) {
           continue;
         }
-        const vendors = byFamily.get(model.family) ?? new Set<string | undefined>();
+        const vendors =
+          byFamily.get(model.family) ?? new Set<string | undefined>();
         vendors.add(model.vendor);
         byFamily.set(model.family, vendors);
       }

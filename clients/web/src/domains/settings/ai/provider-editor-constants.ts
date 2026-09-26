@@ -39,6 +39,7 @@ export const CONNECTION_PROVIDERS: ConnectionProvider[] = [
   "litellm",
   "opencode",
   "baseten",
+  "ionet",
   "poolside",
   "typesafe",
   "openai-compatible",

@@ -228,6 +228,7 @@ const UNCONNECTED_PROVIDER_LABELS = [
   "LiteLLM",
   "OpenCode",
   "Baseten",
+  "IO Intelligence",
   "Poolside",
   "TypeSafe",
 ];

@@ -26,6 +26,7 @@ const DEFAULT_PROVIDER_ELIGIBLE: Record<DefaultProviderId, true> = {
   minimax: true,
   atlascloud: true,
   baseten: true,
+  ionet: true,
   poolside: true,
 };
 

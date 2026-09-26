@@ -23,6 +23,7 @@ export const INFERENCE_PROVIDERS = [
   "litellm",
   "opencode",
   "baseten",
+  "ionet",
   "poolside",
   "typesafe",
 ] as const;

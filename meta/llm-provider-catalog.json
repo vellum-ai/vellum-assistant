@@ -2614,6 +2614,43 @@
       ]
     },
     {
+      "id": "ionet",
+      "displayName": "IO Intelligence",
+      "subtitle": "Open models served by IO Intelligence, io.net's inference platform (OpenAI-compatible). Requires an IO Intelligence API key.",
+      "setupMode": "api-key",
+      "setupHint": "Enter your IO Intelligence API key to enable IO Intelligence models.",
+      "envVar": "IONET_API_KEY",
+      "apiKeyPlaceholder": "Your IO Intelligence API key",
+      "credentialsGuide": {
+        "description": "Sign in to io.net and create an IO Intelligence API key.",
+        "url": "https://io.net/docs/guides/intelligence/api-keys-and-secrets",
+        "linkLabel": "Open io.net"
+      },
+      "supportsPlatformAuth": false,
+      "defaultModel": "meta-llama/Llama-3.3-70B-Instruct",
+      "models": [
+        {
+          "id": "meta-llama/Llama-3.3-70B-Instruct",
+          "displayName": "Llama 3.3 70B Instruct",
+          "contextWindowTokens": 128000,
+          "maxOutputTokens": 4096,
+          "defaultContextWindowTokens": 128000,
+          "longContextMode": "unsupported",
+          "supportsToolUse": true
+        },
+        {
+          "id": "openai/gpt-oss-20b",
+          "displayName": "GPT-OSS 20B",
+          "contextWindowTokens": 64000,
+          "maxOutputTokens": 32768,
+          "defaultContextWindowTokens": 64000,
+          "longContextMode": "unsupported",
+          "supportsThinking": true,
+          "supportsToolUse": true
+        }
+      ]
+    },
+    {
       "id": "poolside",
       "displayName": "Poolside",
       "subtitle": "Laguna models from Poolside (OpenAI-compatible). Requires a Poolside API key.",

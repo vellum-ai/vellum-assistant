@@ -212,6 +212,12 @@ export interface OpenAIChatCompletionsProviderOptions {
    *  (Fireworks, Together) keep sending `none` / forced choices. Enabled for
    *  the generic `openai-compatible` adapter, whose upstream is unknown. */
   omitToolChoiceWhenReasoning?: boolean;
+  /** Send `tool_choice: "auto"` whenever tools are offered and the caller
+   *  left the choice unspecified. Strict OpenAI-compatible upstreams default
+   *  an unspecified `tool_choice` to "none" (io.net documents exactly that),
+   *  which would leave the model unable to call any tool; OpenAI's own
+   *  default is "auto", so this option only exists for upstreams that differ. */
+  defaultToolChoiceAuto?: boolean;
   /** Wire field for the output-token limit. OpenAI and OpenAI-compatible
    *  backends use `max_completion_tokens`. OpenRouter defaults to
    *  `max_tokens` because its parameter router matches that key on
@@ -864,6 +870,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
   private coerceObjectArgsToJsonString: boolean;
   private salvageXmlToolCalls: boolean;
   private omitToolChoiceWhenReasoning: boolean;
+  private defaultToolChoiceAuto: boolean;
   private outputTokenLimitField: "max_completion_tokens" | "max_tokens";
 
   constructor(
@@ -896,6 +903,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
       options.salvageXmlToolCalls ?? shouldSalvageXmlToolCalls(model);
     this.omitToolChoiceWhenReasoning =
       options.omitToolChoiceWhenReasoning ?? false;
+    this.defaultToolChoiceAuto = options.defaultToolChoiceAuto ?? false;
     this.outputTokenLimitField =
       options.outputTokenLimitField ?? "max_completion_tokens";
   }
@@ -1028,7 +1036,12 @@ export class OpenAIChatCompletionsProvider implements Provider {
         // wire. Catalog providers that honor `none` / forced choices still
         // receive them; the generic openai-compatible adapter drops every
         // explicit value in thinking mode via `omitToolChoiceWhenReasoning`.
-        const toolChoice = mapNeutralToolChoice(configObj?.tool_choice);
+        const callerToolChoice = mapNeutralToolChoice(configObj?.tool_choice);
+        const toolChoice =
+          callerToolChoice ??
+          (this.defaultToolChoiceAuto
+            ? ("auto" as OpenAI.Chat.Completions.ChatCompletionToolChoiceOption)
+            : undefined);
         xmlToolCallSalvageEnabled =
           this.salvageXmlToolCalls && toolChoice !== "none";
         if (toolChoice !== undefined) {
