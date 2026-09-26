@@ -16,6 +16,7 @@
 
 import {
   type FeedItem,
+  type FeedItemGuardianDecisionAction,
   type FeedItemGuardianIntent,
   type FeedItemGuardianRequest,
   isPendingGuardianFeedItem,
@@ -35,7 +36,17 @@ import {
   getMemoryCheckpoint,
   setMemoryCheckpoint,
 } from "../persistence/checkpoints.js";
+import {
+  buildIntroductionActions,
+  parseRequesterSignals,
+  type RequesterIdentitySignals,
+} from "../runtime/introduction-policy.js";
 import { getLogger } from "../util/logger.js";
+import { DEFAULT_APPROVAL_CARD_ACTIONS } from "./approval-card-builder.js";
+import {
+  type ApprovalCardData,
+  resolveApprovalCardData,
+} from "./approval-card-data.js";
 import {
   buildToolApprovalSourceView,
   describeSlackChatLabel,
@@ -75,16 +86,18 @@ export function requestIdFromGuardianFeedItemId(itemId: string): string | null {
 }
 
 /**
- * Build the pending `guardianRequest` projection for a `guardian.question`
+ * Build the pending `guardianRequest` projection for a guardian-request
  * signal's feed item. Returns null when the payload does not carry the
  * request id the projection is keyed by.
  */
 export function buildPendingGuardianProjection(
-  contextPayload: unknown,
-  fallbackKind?: GuardianQuestionRequestKind,
+  sourceEventName: string,
+  contextPayload: Record<string, unknown> | undefined,
 ): FeedItemGuardianRequest | null {
   // Access-request payloads predate the kind registry and carry no
   // `requestKind`; the producer's event name supplies it instead.
+  const fallbackKind: GuardianQuestionRequestKind | undefined =
+    sourceEventName === "ingress.access_request" ? "access_request" : undefined;
   const normalizedPayload =
     contextPayload &&
     typeof contextPayload === "object" &&
@@ -108,6 +121,9 @@ export function buildPendingGuardianProjection(
   );
 
   const sourceView = buildToolApprovalSourceView(payload);
+  const decisionActions = decisionActionsFromCard(
+    resolveApprovalCardData(sourceEventName, contextPayload),
+  );
   // Access-request payloads name their requester differently.
   const requesterLabel =
     payload.requesterIdentifier?.trim() ||
@@ -121,12 +137,56 @@ export function buildPendingGuardianProjection(
     status: "pending",
     ...(requesterLabel ? { requesterLabel } : {}),
     ...(payload.toolName?.trim() ? { toolName: payload.toolName.trim() } : {}),
+    ...(decisionActions ? { decisionActions } : {}),
     ...(sourceView?.channel ? { sourceChannel: sourceView.channel } : {}),
     ...(sourceView
       ? { sourceContextLabel: describeApprovalSourceContext(sourceView) }
       : {}),
     ...(sourceView?.permalink ? { sourceUrl: sourceView.permalink } : {}),
   };
+}
+
+/**
+ * The decisions the request's in-app card offers, read off the card the
+ * pipeline resolves for the same signal, so the bell cannot offer a decision
+ * the card does not. A question offers none: it is answered in its
+ * conversation.
+ */
+function decisionActionsFromCard(
+  card: ApprovalCardData | null,
+): FeedItemGuardianDecisionAction[] | undefined {
+  if (!card || card.kind === "question") {
+    return undefined;
+  }
+  return (card.card.actions ?? DEFAULT_APPROVAL_CARD_ACTIONS).map(
+    ({ id, style }) => ({ id, ...(style ? { emphasis: style } : {}) }),
+  );
+}
+
+/**
+ * The decisions for a request known only from its canonical row, with no
+ * signal payload to resolve a card from (reconciliation backfill): the same
+ * builders the card resolver uses, the introduction actions for an access
+ * request and the in-app card's generic pair for any other approval.
+ */
+function decisionActionsForRequestRow(
+  kind: string,
+  intent: FeedItemGuardianIntent,
+  sourceChannel: string | undefined,
+  signals: RequesterIdentitySignals,
+): FeedItemGuardianDecisionAction[] | undefined {
+  if (intent !== "approval") {
+    return undefined;
+  }
+  if (kind === "access_request") {
+    return buildIntroductionActions(sourceChannel, signals).map(
+      ({ id, emphasis }) => ({ id, emphasis }),
+    );
+  }
+  return DEFAULT_APPROVAL_CARD_ACTIONS.map(({ id, style }) => ({
+    id,
+    ...(style ? { emphasis: style } : {}),
+  }));
 }
 
 /**
@@ -502,6 +562,12 @@ function buildBackfillGuardianFeedItem(request: GuardianRequestWire): FeedItem {
       request.toolName ?? undefined,
     )?.mode,
   );
+  const decisionActions = decisionActionsForRequestRow(
+    request.kind,
+    intent,
+    request.sourceChannel ?? undefined,
+    parseRequesterSignals(request.requesterSignals),
+  );
   const now = new Date().toISOString();
   return {
     id: guardianFeedItemId(request.id),
@@ -524,6 +590,7 @@ function buildBackfillGuardianFeedItem(request: GuardianRequestWire): FeedItem {
       intent,
       status: "pending",
       ...(request.toolName ? { toolName: request.toolName } : {}),
+      ...(decisionActions ? { decisionActions } : {}),
       ...(request.sourceChannel
         ? { sourceChannel: request.sourceChannel }
         : {}),
