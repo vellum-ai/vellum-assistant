@@ -129,6 +129,8 @@ export class DesktopBrowserClient {
         if (!tab || !targetId) {
           throw new Error("Desktop browser tab is unavailable");
         }
+        await this.detachOtherSessions(transport, targetId);
+        signal.throwIfAborted();
         await transport.send("Target.activateTarget", { targetId }, { signal });
         this.selected = tabId;
         this.invalidateSnapshot();
@@ -203,6 +205,8 @@ export class DesktopBrowserClient {
     transport: CdpWsTransport,
     signal: AbortSignal,
   ): Promise<{ tabId: number }> {
+    await this.detachOtherSessions(transport);
+    signal.throwIfAborted();
     const { targetId } = await transport.send<{ targetId: string }>(
       "Target.createTarget",
       { url: "about:blank" },
@@ -234,6 +238,8 @@ export class DesktopBrowserClient {
       }
     }
     const targetId = this.targets.get(this.selected!)!;
+    await this.detachOtherSessions(transport, targetId);
+    signal.throwIfAborted();
     let sessionId = this.sessions.get(targetId);
     if (!sessionId) {
       const attached = await transport.send<{ sessionId: string }>(
@@ -266,6 +272,8 @@ export class DesktopBrowserClient {
     }
     const targetId =
       this.selected === undefined ? undefined : this.targets.get(this.selected);
+    await this.detachOtherSessions(transport, targetId);
+    signal.throwIfAborted();
     const sessionId =
       (targetId && this.sessions.get(targetId)) ||
       (await this.session(transport, signal));
@@ -365,6 +373,48 @@ export class DesktopBrowserClient {
       .catch(() => {});
   }
 
+  private async cleanupTarget(
+    transport: CdpWsTransport,
+    targetId: string,
+    sessionId: string,
+    signal: AbortSignal,
+  ): Promise<void> {
+    for (const [key, input] of this.held) {
+      if (input.targetId !== targetId) {
+        continue;
+      }
+      await transport.send(input.method, input.params, { sessionId, signal });
+      this.held.delete(key);
+    }
+    await transport.send(
+      "Runtime.evaluate",
+      { expression: REMOVE_DESKTOP_CURSOR },
+      { sessionId, signal },
+    );
+  }
+
+  private async detachOtherSessions(
+    transport: CdpWsTransport,
+    selectedTarget?: string,
+  ): Promise<void> {
+    for (const [targetId, sessionId] of this.sessions) {
+      if (targetId === selectedTarget) {
+        continue;
+      }
+      this.cursorPositions.delete(sessionId);
+      await this.cursorRestored;
+      // Cleanup must finish even if the operation that switched tabs is aborted.
+      const signal = AbortSignal.timeout(3_000);
+      await this.cleanupTarget(transport, targetId, sessionId, signal);
+      await transport.send(
+        "Target.detachFromTarget",
+        { sessionId },
+        { signal },
+      );
+      this.sessions.delete(targetId);
+    }
+  }
+
   async release(): Promise<void> {
     this.cursorPositions.clear();
     await this.cursorRestored;
@@ -397,18 +447,7 @@ export class DesktopBrowserClient {
           { targetId, flatten: true },
           { signal },
         );
-        for (const [key, input] of this.held) {
-          if (input.targetId !== targetId) {
-            continue;
-          }
-          await cleanup.send(input.method, input.params, { sessionId, signal });
-          this.held.delete(key);
-        }
-        await cleanup.send(
-          "Runtime.evaluate",
-          { expression: REMOVE_DESKTOP_CURSOR },
-          { sessionId, signal },
-        );
+        await this.cleanupTarget(cleanup, targetId, sessionId, signal);
       }
     } finally {
       cleanup.dispose();
