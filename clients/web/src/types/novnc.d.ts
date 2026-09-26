@@ -24,6 +24,7 @@ declare module "@novnc/novnc" {
     clipViewport: boolean;
     dragViewport: boolean;
     clipboardPasteFrom(text: string): void;
+    sendKey(keysym: number, code: string, down?: boolean): void;
     disconnect(): void;
     addEventListener<K extends keyof RFBEventMap>(
       type: K,

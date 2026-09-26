@@ -14,6 +14,7 @@ import {
   describe,
   expect,
   mock,
+  spyOn,
   test,
 } from "bun:test";
 import {
@@ -23,6 +24,8 @@ import {
   render,
   screen,
 } from "@testing-library/react";
+
+import * as platformDetection from "@/runtime/platform-detection";
 
 type Listener = (event: unknown) => void;
 let touch = false;
@@ -44,6 +47,7 @@ class FakeRFB {
   dragViewport = false;
   disconnectCalls = 0;
   pasted: string[] = [];
+  input: (string | number | boolean | undefined)[][] = [];
   private listeners = new Map<string, Listener[]>();
 
   constructor(_target: HTMLElement, channel: unknown) {
@@ -57,6 +61,11 @@ class FakeRFB {
 
   clipboardPasteFrom(text: string): void {
     this.pasted.push(text);
+    this.input.push(["clipboard", text]);
+  }
+
+  sendKey(keysym: number, code: string, down?: boolean): void {
+    this.input.push(["key", keysym, code, down]);
   }
 
   disconnect(): void {
@@ -173,6 +182,21 @@ const flush = () =>
 const mountPanel = async () => {
   render(<DesktopViewer assistantId="asst-1" />);
   await flush();
+};
+
+const desktopCanvas = (): HTMLCanvasElement => {
+  const canvas = document.createElement("canvas");
+  screen.getByTestId("desktop-panel-viewport").appendChild(canvas);
+  return canvas;
+};
+
+const pasteText = (target: HTMLElement, text: string): void => {
+  fireEvent.paste(target, {
+    clipboardData: {
+      types: ["text/plain"],
+      getData: () => text,
+    },
+  });
 };
 
 beforeEach(() => {
@@ -390,6 +414,107 @@ describe("DesktopViewer", () => {
 
     expect(rfb().pasted).toEqual([selected]);
     node.remove();
+  });
+
+  test("Control+V allows native paste and transfers text before the remote keystroke", async () => {
+    await mountPanel();
+    const canvas = desktopCanvas();
+    const noVncKeyDown = mock((event: KeyboardEvent) => event.preventDefault());
+    canvas.addEventListener("keydown", noVncKeyDown);
+
+    expect(fireEvent.keyDown(canvas, { key: "v", ctrlKey: true })).toBe(true);
+    expect(noVncKeyDown).not.toHaveBeenCalled();
+    pasteText(canvas, "copied in another app");
+
+    expect(rfb().input).toEqual([
+      ["clipboard", "copied in another app"],
+      ["key", 0x76, "KeyV", undefined],
+    ]);
+    fireEvent.keyUp(canvas, { key: "Control", ctrlKey: false });
+    pasteText(canvas, "pasted from the menu");
+    expect(rfb().input.slice(2)).toEqual([
+      ["clipboard", "pasted from the menu"],
+      ["key", 0xffe3, "ControlLeft", true],
+      ["key", 0x76, "KeyV", undefined],
+      ["key", 0xffe3, "ControlLeft", false],
+    ]);
+  });
+
+  test("Command copy and paste use the remote Control modifier", async () => {
+    const platform = spyOn(platformDetection, "isMacOSBrowser").mockReturnValue(
+      true,
+    );
+    await mountPanel();
+    platform.mockRestore();
+    const canvas = desktopCanvas();
+    const noVncKeyDown = mock((event: KeyboardEvent) => event.preventDefault());
+    canvas.addEventListener("keydown", noVncKeyDown);
+
+    fireEvent.keyDown(canvas, { key: "Meta", metaKey: true });
+    expect(rfb().input).toEqual([["key", 0xffe3, "ControlLeft", true]]);
+    expect(noVncKeyDown).not.toHaveBeenCalled();
+    fireEvent.keyDown(canvas, { key: "c", metaKey: true });
+    expect(noVncKeyDown).toHaveBeenCalledTimes(1);
+    expect(fireEvent.keyDown(canvas, { key: "v", metaKey: true })).toBe(true);
+    pasteText(canvas, "remote text");
+    fireEvent.keyUp(canvas, { key: "Meta", metaKey: false });
+
+    expect(rfb().input).toEqual([
+      ["key", 0xffe3, "ControlLeft", true],
+      ["clipboard", "remote text"],
+      ["key", 0x76, "KeyV", undefined],
+      ["key", 0xffe3, "ControlLeft", false],
+    ]);
+  });
+
+  test("pasting outside the desktop or pasting an image sends no input", async () => {
+    await mountPanel();
+    pasteText(document.body, "local only");
+    fireEvent.paste(desktopCanvas(), {
+      clipboardData: { types: ["image/png"], getData: () => "" },
+    });
+    expect(rfb().input).toEqual([]);
+  });
+
+  test("view-only and closed sessions ignore paste and release Command", async () => {
+    const platform = spyOn(platformDetection, "isMacOSBrowser").mockReturnValue(
+      true,
+    );
+    const { rerender } = render(
+      <DesktopViewer assistantId="asst-1" viewOnly />,
+    );
+    await flush();
+    platform.mockRestore();
+    const canvas = desktopCanvas();
+    fireEvent.keyDown(canvas, { key: "Meta", metaKey: true });
+    pasteText(canvas, "ignored preview paste");
+    expect(rfb().input).toEqual([]);
+
+    rerender(<DesktopViewer assistantId="asst-1" viewOnly={false} />);
+    fireEvent.keyDown(canvas, { key: "Meta", metaKey: true });
+    rerender(<DesktopViewer assistantId="asst-1" viewOnly />);
+    expect(rfb().input).toEqual([
+      ["key", 0xffe3, "ControlLeft", true],
+      ["key", 0xffe3, "ControlLeft", false],
+    ]);
+    cleanup();
+    pasteText(canvas, "ignored after close");
+    fireEvent.keyDown(canvas, { key: "Meta", metaKey: true });
+    expect(rfb().input).toHaveLength(2);
+  });
+
+  test("losing window focus releases the mapped Command modifier", async () => {
+    const platform = spyOn(platformDetection, "isMacOSBrowser").mockReturnValue(
+      true,
+    );
+    await mountPanel();
+    platform.mockRestore();
+    fireEvent.keyDown(desktopCanvas(), { key: "Meta", metaKey: true });
+    fireEvent.blur(window);
+    expect(rfb().input).toEqual([
+      ["key", 0xffe3, "ControlLeft", true],
+      ["key", 0xffe3, "ControlLeft", false],
+    ]);
   });
 
   test("closes the session on unmount", async () => {
