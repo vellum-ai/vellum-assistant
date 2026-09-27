@@ -1,9 +1,14 @@
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { z } from "zod";
+
 import { getDataDir } from "../util/platform.js";
 
 const HATCHED_SIDECAR_FILENAME = "hatched.json";
+const HatchedSidecarSchema = z.object({
+  hatchedAt: z.unknown().optional(),
+});
 
 export function getHatchedSidecarPath(): string {
   return join(getDataDir(), HATCHED_SIDECAR_FILENAME);
@@ -24,10 +29,12 @@ function normalizeHatchedAt(value: unknown): string | undefined {
 
 export function readHatchedAtSidecar(): string | undefined {
   try {
-    const parsed = JSON.parse(
-      readFileSync(getHatchedSidecarPath(), "utf-8"),
-    ) as { hatchedAt?: unknown };
-    return normalizeHatchedAt(parsed.hatchedAt);
+    const parsed = HatchedSidecarSchema.safeParse(
+      JSON.parse(readFileSync(getHatchedSidecarPath(), "utf-8")),
+    );
+    return parsed.success
+      ? normalizeHatchedAt(parsed.data.hatchedAt)
+      : undefined;
   } catch {
     return undefined;
   }

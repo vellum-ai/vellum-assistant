@@ -26,11 +26,15 @@ import {
   type AdmissionPolicy,
   isAdmissionPolicy,
 } from "@vellumai/gateway-client";
+import { z } from "zod";
 
 import type { ChannelId } from "../channels/types.js";
 import { ipcCall } from "../ipc/gateway-client.js";
 
 const CACHE_TTL_MS = 5_000;
+const AdmissionPolicyResponseSchema = z.object({
+  policy: z.unknown(),
+});
 
 // Short IPC timeout so admission fails closed PROMPTLY: a gateway that accepts
 // the socket but stalls must never delay a live call handshake. 1s is generous
@@ -64,20 +68,22 @@ async function fetchAdmissionPolicy(
     // ipcCall() returns undefined on transport failure (socket not found,
     // timeout, parse error). That, a throw, or a malformed shape is a FAILURE:
     // fail closed without caching so the next setup re-attempts the IPC.
-    const result = (await ipcCall(
-      "get_channel_admission_policy",
-      { channelType },
-      ADMISSION_IPC_TIMEOUT_MS,
-    )) as { policy?: unknown } | null | undefined;
+    const parsed = AdmissionPolicyResponseSchema.safeParse(
+      await ipcCall(
+        "get_channel_admission_policy",
+        { channelType },
+        ADMISSION_IPC_TIMEOUT_MS,
+      ),
+    );
 
-    if (result === undefined) {
+    if (!parsed.success) {
       return { ok: false };
     }
-    if (result && isAdmissionPolicy(result.policy)) {
-      return { ok: true, policy: result.policy };
+    if (isAdmissionPolicy(parsed.data.policy)) {
+      return { ok: true, policy: parsed.data.policy };
     }
     // Explicit "no enforcement" — the gateway successfully answered. Cacheable.
-    if (result && result.policy === null) {
+    if (parsed.data.policy === null) {
       return { ok: true, policy: null };
     }
     // Anything else (missing/invalid policy field) is a malformed shape.

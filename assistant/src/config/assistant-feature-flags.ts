@@ -16,6 +16,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
+import { z } from "zod";
+
 import { ipcGetFeatureFlags } from "../ipc/gateway-client.js";
 import { getLogger } from "../util/logger.js";
 import {
@@ -47,6 +49,22 @@ export type FeatureFlagDefaultsRegistry = Record<string, FeatureFlagDefault>;
 let cachedDefaults: FeatureFlagDefaultsRegistry | undefined;
 
 const REGISTRY_FILENAME = "feature-flag-registry.json";
+const FeatureFlagRegistryEntrySchema = z
+  .object({
+    scope: z.enum(["assistant", "both"]).optional().catch(undefined),
+    key: z.string().optional().catch(undefined),
+    defaultEnabled: z
+      .union([z.boolean(), z.string()])
+      .optional()
+      .catch(undefined),
+    description: z.string().catch(""),
+    label: z.string().catch(""),
+  })
+  .optional()
+  .catch(undefined);
+const FeatureFlagRegistrySchema = z.object({
+  flags: z.array(FeatureFlagRegistryEntrySchema),
+});
 
 function loadDefaultsRegistry(): FeatureFlagDefaultsRegistry {
   if (cachedDefaults) {
@@ -100,39 +118,26 @@ function loadDefaultsRegistry(): FeatureFlagDefaultsRegistry {
  * filtering to flags the backend consumes (`assistant`- and `both`-scope).
  */
 function parseRegistryToDefaults(parsed: unknown): FeatureFlagDefaultsRegistry {
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    return {};
-  }
-
-  const registry = parsed as { version?: number; flags?: unknown[] };
-  if (!Array.isArray(registry.flags)) {
+  const registry = FeatureFlagRegistrySchema.safeParse(parsed);
+  if (!registry.success) {
     return {};
   }
 
   const result: FeatureFlagDefaultsRegistry = {};
-  for (const flag of registry.flags) {
-    if (!flag || typeof flag !== "object" || Array.isArray(flag)) {
-      continue;
-    }
-    const entry = flag as Record<string, unknown>;
-    if (entry.scope !== "assistant" && entry.scope !== "both") {
-      continue;
-    }
-    if (typeof entry.key !== "string") {
-      continue;
-    }
+  for (const entry of registry.data.flags) {
     if (
-      typeof entry.defaultEnabled !== "boolean" &&
-      typeof entry.defaultEnabled !== "string"
+      !entry ||
+      entry.scope === undefined ||
+      entry.key === undefined ||
+      entry.defaultEnabled === undefined
     ) {
       continue;
     }
 
-    result[entry.key as string] = {
+    result[entry.key] = {
       defaultEnabled: entry.defaultEnabled,
-      description:
-        typeof entry.description === "string" ? entry.description : "",
-      label: typeof entry.label === "string" ? entry.label : "",
+      description: entry.description,
+      label: entry.label,
     };
   }
   return result;

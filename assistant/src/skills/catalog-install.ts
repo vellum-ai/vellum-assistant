@@ -14,6 +14,8 @@ import { homedir } from "node:os";
 import { dirname, join, posix, resolve, sep } from "node:path";
 import { gunzipSync } from "node:zlib";
 
+import { z } from "zod";
+
 import {
   MALFORMED_USTAR_SIZE,
   parseUstarSizeField,
@@ -27,6 +29,7 @@ import { computeSkillHash, writeInstallMeta } from "./install-meta.js";
 import {
   isSkillCompatibleWithPlatform,
   normalizeSkillPlatforms,
+  SKILL_PLATFORM_VALUES,
   type SkillPlatform,
   skillPlatformUnavailableMessage,
 } from "./platform-compatibility.js";
@@ -142,21 +145,46 @@ export function getRepoSkillsDir(): string | undefined {
  * `metadata.vellum.*` shape used by the local `catalog.json`. Both shapes are
  * accepted here so the daemon has a single canonical representation downstream.
  */
-interface RawCatalogEntry {
-  id?: unknown;
-  name?: unknown;
-  description?: unknown;
-  icon?: unknown;
-  emoji?: string;
-  includes?: string[];
-  version?: string;
-  updatedAt?: unknown;
-  display_name?: unknown;
-  category?: unknown;
-  platforms?: unknown;
-  updated_at?: unknown;
-  metadata?: CatalogSkill["metadata"];
-}
+const CatalogPlatformsSchema = z
+  .array(z.enum(SKILL_PLATFORM_VALUES).optional().catch(undefined))
+  .transform((platforms) =>
+    platforms.filter((platform): platform is SkillPlatform => platform != null),
+  );
+const CatalogVellumMetadataSchema = z
+  .object({
+    "display-name": z.string().optional().catch(undefined),
+    "activation-hints": z.array(z.string()).optional().catch(undefined),
+    "avoid-when": z.array(z.string()).optional().catch(undefined),
+    "feature-flag": z.string().optional().catch(undefined),
+    category: z.string().optional().catch(undefined),
+    platforms: CatalogPlatformsSchema.optional().catch(undefined),
+  })
+  .passthrough();
+const CatalogMetadataSchema = z
+  .object({
+    icon: z.string().optional().catch(undefined),
+    emoji: z.string().optional().catch(undefined),
+    vellum: CatalogVellumMetadataSchema.optional().catch(undefined),
+  })
+  .passthrough();
+const RawCatalogEntrySchema = z.object({
+  id: z.string().optional().catch(undefined),
+  name: z.string().optional().catch(undefined),
+  description: z.string().optional().catch(undefined),
+  icon: z.string().optional().catch(undefined),
+  emoji: z.string().optional().catch(undefined),
+  includes: z.array(z.string()).optional().catch(undefined),
+  version: z.string().optional().catch(undefined),
+  updatedAt: z.string().optional().catch(undefined),
+  display_name: z.string().optional().catch(undefined),
+  category: z.string().optional().catch(undefined),
+  platforms: CatalogPlatformsSchema.optional().catch(undefined),
+  updated_at: z.string().optional().catch(undefined),
+  metadata: CatalogMetadataSchema.optional().catch(undefined),
+});
+const CatalogManifestSchema = z.object({
+  skills: z.array(z.unknown()),
+});
 
 function asStr(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
@@ -172,10 +200,11 @@ function asStr(value: unknown): string | undefined {
  * so a future API change to the nested shape keeps working.
  */
 function normalizeCatalogEntry(raw: unknown): CatalogSkill | null {
-  if (typeof raw !== "object" || raw === null) {
+  const parsed = RawCatalogEntrySchema.safeParse(raw);
+  if (!parsed.success) {
     return null;
   }
-  const entry = raw as RawCatalogEntry;
+  const entry = parsed.data;
 
   const id = asStr(entry.id);
   if (!id) {
@@ -227,11 +256,11 @@ export async function fetchCatalog(): Promise<CatalogSkill[]> {
     );
   }
 
-  const manifest = (await response.json()) as { skills?: unknown };
-  if (!Array.isArray(manifest.skills)) {
+  const manifest = CatalogManifestSchema.safeParse(await response.json());
+  if (!manifest.success) {
     throw new Error("Platform catalog has invalid skills array");
   }
-  return manifest.skills
+  return manifest.data.skills
     .map((s) => normalizeCatalogEntry(s))
     .filter((s): s is CatalogSkill => s !== null);
 }
@@ -239,11 +268,11 @@ export async function fetchCatalog(): Promise<CatalogSkill[]> {
 export function readLocalCatalog(repoSkillsDir: string): CatalogSkill[] {
   try {
     const raw = readFileSync(join(repoSkillsDir, "catalog.json"), "utf-8");
-    const manifest = JSON.parse(raw) as { skills?: unknown };
-    if (!Array.isArray(manifest.skills)) {
+    const manifest = CatalogManifestSchema.safeParse(JSON.parse(raw));
+    if (!manifest.success) {
       return [];
     }
-    return manifest.skills
+    return manifest.data.skills
       .map((s) => normalizeCatalogEntry(s))
       .filter((s): s is CatalogSkill => s !== null);
   } catch {

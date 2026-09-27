@@ -1,10 +1,14 @@
 import { GetContactIpcResponseSchema } from "@vellumai/gateway-client/gateway-ipc-contracts";
+import { z } from "zod";
 
 import { ipcCallPersistent } from "../ipc/gateway-client.js";
 import { getLogger } from "../util/logger.js";
 import type { ContactChannel } from "./types.js";
 
 const log = getLogger("gateway-channel-read");
+const ContactEnvelopeSchema = z.object({
+  contact: z.unknown().optional(),
+});
 
 /**
  * Read a contact channel's verified state from the gateway contact-channel read
@@ -32,7 +36,8 @@ export async function gatewayContactChannelState(
     );
     return undefined;
   }
-  if (!result || (result as { contact?: unknown }).contact == null) {
+  const envelope = ContactEnvelopeSchema.safeParse(result);
+  if (!envelope.success || envelope.data.contact == null) {
     return undefined;
   }
   const parsed = GetContactIpcResponseSchema.safeParse(result);

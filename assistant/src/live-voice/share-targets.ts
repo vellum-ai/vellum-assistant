@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 import {
   escapeTagBoundaries,
   wrapUntrustedContent,
@@ -57,59 +59,43 @@ const ROLE_MAX = 64;
 const SECTION_MAX = 60;
 const ID_MAX = 32;
 
-const isFraction = (value: unknown): value is number =>
-  typeof value === "number" &&
-  Number.isFinite(value) &&
-  value >= 0 &&
-  value <= 1;
-
-const boundedString = (value: unknown, max: number): string | null => {
-  if (typeof value !== "string") {
-    return null;
-  }
-  const trimmed = value.trim();
-  return trimmed.length > 0 && trimmed.length <= max ? trimmed : null;
-};
+const boundedString = (max: number) =>
+  z
+    .string()
+    .transform((value) => value.trim())
+    .refine((value) => value.length > 0 && value.length <= max);
+const FractionSchema = z
+  .number()
+  .refine((value) => Number.isFinite(value) && value >= 0 && value <= 1);
+const ShareTargetSchema = z
+  .object({
+    id: boundedString(ID_MAX),
+    label: boundedString(LABEL_MAX),
+    role: boundedString(ROLE_MAX),
+    section: boundedString(SECTION_MAX).optional().catch(undefined),
+    x: FractionSchema,
+    y: FractionSchema,
+    width: FractionSchema,
+    height: FractionSchema,
+    duplicates: z
+      .number()
+      .refine((value) => Number.isSafeInteger(value) && value > 1)
+      .optional()
+      .catch(undefined),
+  })
+  .transform(({ section, duplicates, ...target }) => ({
+    ...target,
+    ...(section !== undefined ? { section } : {}),
+    ...(duplicates !== undefined ? { duplicates } : {}),
+  }));
+const ShareTargetSnapshotSchema = z.object({
+  targets: z.array(z.unknown()),
+  total: z.number().refine(Number.isSafeInteger).optional().catch(undefined),
+});
 
 function parseShareTarget(value: unknown): ShareTarget | null {
-  if (typeof value !== "object" || value === null) {
-    return null;
-  }
-  const record = value as Record<string, unknown>;
-  const id = boundedString(record.id, ID_MAX);
-  const label = boundedString(record.label, LABEL_MAX);
-  const role = boundedString(record.role, ROLE_MAX);
-  const { x, y, width, height } = record;
-  if (
-    id === null ||
-    label === null ||
-    role === null ||
-    !isFraction(x) ||
-    !isFraction(y) ||
-    !isFraction(width) ||
-    !isFraction(height)
-  ) {
-    return null;
-  }
-  const section =
-    record.section === undefined
-      ? null
-      : boundedString(record.section, SECTION_MAX);
-  const duplicates =
-    Number.isSafeInteger(record.duplicates) && (record.duplicates as number) > 1
-      ? (record.duplicates as number)
-      : null;
-  return {
-    id,
-    label,
-    role,
-    ...(section !== null ? { section } : {}),
-    x,
-    y,
-    width,
-    height,
-    ...(duplicates !== null ? { duplicates } : {}),
-  };
+  const parsed = ShareTargetSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
 }
 
 /**
@@ -126,21 +112,17 @@ export function parseShareTargetSnapshot(
   if (value === null) {
     return null;
   }
-  if (
-    typeof value !== "object" ||
-    !Array.isArray((value as { targets?: unknown }).targets)
-  ) {
+  const parsed = ShareTargetSnapshotSchema.safeParse(value);
+  if (!parsed.success) {
     return undefined;
   }
-  const record = value as { targets: unknown[]; total?: unknown };
-  const targets = record.targets
+  const targets = parsed.data.targets
     .slice(0, SHARE_TARGETS_ACCEPTED_MAX)
     .map(parseShareTarget)
     .filter((target): target is ShareTarget => target !== null);
   const total =
-    Number.isSafeInteger(record.total) &&
-    (record.total as number) >= targets.length
-      ? (record.total as number)
+    parsed.data.total !== undefined && parsed.data.total >= targets.length
+      ? parsed.data.total
       : targets.length;
   return { targets, total };
 }

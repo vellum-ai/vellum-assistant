@@ -2,9 +2,14 @@ import { readdir, readFile, readlink, realpath } from "node:fs/promises";
 import { createServer } from "node:net";
 import { join } from "node:path";
 
+import { z } from "zod";
+
 import { shouldRestoreDesktopChromeSession } from "./desktop-chrome-session.js";
 
 export const DESKTOP_CHROME_WINDOW_CLASS = "vellum-desktop-chrome";
+const DesktopVersionResponseSchema = z.object({
+  webSocketDebuggerUrl: z.unknown().optional(),
+});
 
 export async function allocateDesktopDebugPort(): Promise<number> {
   const server = createServer();
@@ -119,9 +124,12 @@ export async function discoverDesktopBrowser(
   if (body.length > 16_384) {
     throw new Error("Desktop browser discovery exceeded its size limit");
   }
-  const data = JSON.parse(body) as { webSocketDebuggerUrl?: unknown };
+  const parsed = DesktopVersionResponseSchema.safeParse(JSON.parse(body));
   await assertDesktopListener(pid, port);
-  return validateDesktopWebSocket(data.webSocketDebuggerUrl, port);
+  return validateDesktopWebSocket(
+    parsed.success ? parsed.data.webSocketDebuggerUrl : undefined,
+    port,
+  );
 }
 
 export function desktopChromeArguments(

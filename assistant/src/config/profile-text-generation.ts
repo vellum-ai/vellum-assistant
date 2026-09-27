@@ -1,4 +1,18 @@
+import { z } from "zod";
+
 import { catalogModelSupportsText } from "../providers/model-catalog.js";
+
+const ProfileReferenceSchema = z
+  .object({
+    profile: z.string().optional().catch(undefined),
+  })
+  .optional()
+  .catch(undefined);
+const TextGenerationProfileSchema = z.object({
+  provider: z.string().optional().catch(undefined),
+  model: z.string().optional().catch(undefined),
+  mix: z.array(ProfileReferenceSchema).optional().catch(undefined),
+});
 
 /**
  * Whether a profile can back the conversation model (active profile or a
@@ -16,34 +30,24 @@ export function profileSupportsTextGeneration(
   },
   siblings: Record<string, unknown>,
 ): boolean {
-  const mix = entry.mix;
-  if (Array.isArray(mix) && mix.length > 0) {
-    return mix.every((arm) => {
-      const name =
-        arm !== null &&
-        typeof arm === "object" &&
-        "profile" in arm &&
-        typeof arm.profile === "string"
-          ? arm.profile
-          : undefined;
+  const parsed = TextGenerationProfileSchema.safeParse(entry);
+  if (!parsed.success) {
+    return true;
+  }
+  if (parsed.data.mix && parsed.data.mix.length > 0) {
+    return parsed.data.mix.every((arm) => {
+      const name = arm?.profile;
       if (name === undefined) {
         return true;
       }
-      const target = siblings[name];
-      if (target === null || typeof target !== "object") {
+      const target = TextGenerationProfileSchema.safeParse(siblings[name]);
+      if (!target.success) {
         return true;
       }
-      const nested = target as { provider?: unknown; model?: unknown };
-      return catalogModelSupportsText(
-        typeof nested.provider === "string" ? nested.provider : undefined,
-        typeof nested.model === "string" ? nested.model : undefined,
-      );
+      return catalogModelSupportsText(target.data.provider, target.data.model);
     });
   }
-  return catalogModelSupportsText(
-    typeof entry.provider === "string" ? entry.provider : undefined,
-    typeof entry.model === "string" ? entry.model : undefined,
-  );
+  return catalogModelSupportsText(parsed.data.provider, parsed.data.model);
 }
 
 export function nonTextConversationProfileMessage(profileName: string): string {

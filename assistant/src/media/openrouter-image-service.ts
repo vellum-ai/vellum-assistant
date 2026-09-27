@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 import {
   DEFAULT_OPENROUTER_IMAGE_MODEL,
   qualifyImageModelForOpenRouter,
@@ -13,6 +15,31 @@ import {
 } from "./types.js";
 
 const OPENROUTER_IMAGES_URL = "https://openrouter.ai/api/v1/images";
+const OpenRouterImageResponseSchema = z.object({
+  data: z
+    .array(
+      z
+        .object({
+          b64_json: z.string().optional().catch(undefined),
+          media_type: z.string().optional().catch(undefined),
+        })
+        .optional()
+        .catch(undefined),
+    )
+    .optional()
+    .catch(undefined),
+  error: z
+    .union([
+      z.string(),
+      z.object({
+        message: z.string().optional().catch(undefined),
+      }),
+    ])
+    .optional()
+    .catch(undefined),
+});
+
+type OpenRouterImageResponse = z.infer<typeof OpenRouterImageResponseSchema>;
 
 /**
  * Qualify a bare built-in ID or alias for OpenRouter. Call sites that skip
@@ -76,21 +103,11 @@ export function mapOpenRouterError(error: unknown): string {
   return "An unexpected error occurred during image generation.";
 }
 
-function errorMessage(body: unknown): string {
-  if (typeof body !== "object" || body === null) {
-    return "Request failed";
+function errorMessage(body: OpenRouterImageResponse | undefined): string {
+  if (typeof body?.error === "string") {
+    return body.error;
   }
-  const error = (body as { error?: unknown }).error;
-  if (typeof error === "string") {
-    return error;
-  }
-  if (typeof error === "object" && error !== null) {
-    const message = (error as { message?: unknown }).message;
-    if (typeof message === "string" && message) {
-      return message;
-    }
-  }
-  return "Request failed";
+  return body?.error?.message || "Request failed";
 }
 
 export async function generateImageOpenRouter(
@@ -98,7 +115,9 @@ export async function generateImageOpenRouter(
   request: ImageGenerationRequest,
 ): Promise<ImageGenerationResult> {
   if (credentials.type !== "direct") {
-    throw new Error("OpenRouter image generation requires an OpenRouter API key.");
+    throw new Error(
+      "OpenRouter image generation requires an OpenRouter API key.",
+    );
   }
 
   const model = resolveOpenRouterModel(request.model);
@@ -127,12 +146,10 @@ export async function generateImageOpenRouter(
     ...(request.signal ? { signal: request.signal } : {}),
   });
 
-  const body = (await response.json().catch(() => undefined)) as
-    | {
-        data?: Array<{ b64_json?: string; media_type?: string }>;
-        error?: unknown;
-      }
-    | undefined;
+  const parsed = OpenRouterImageResponseSchema.safeParse(
+    await response.json().catch(() => undefined),
+  );
+  const body = parsed.success ? parsed.data : undefined;
 
   if (!response.ok) {
     throw new OpenRouterImageError(response.status, errorMessage(body));
@@ -140,7 +157,7 @@ export async function generateImageOpenRouter(
 
   const images: GeneratedImage[] = [];
   for (const entry of body?.data ?? []) {
-    if (!entry.b64_json) {
+    if (!entry?.b64_json) {
       continue;
     }
     images.push({

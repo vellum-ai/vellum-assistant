@@ -17,6 +17,8 @@
  * imports — the vellum STT/TTS providers build on top of it.
  */
 
+import { z } from "zod";
+
 import { VellumPlatformClient } from "./client.js";
 
 export type ManagedSpeechResult<T> =
@@ -42,6 +44,11 @@ export interface ManagedSpeechTranscription {
   text: string;
   durationSeconds: number;
 }
+
+const ManagedSpeechTranscriptionSchema = z.object({
+  text: z.string(),
+  durationSeconds: z.number(),
+});
 
 export interface ManagedSpeechSynthesis {
   audio: Buffer;
@@ -125,13 +132,10 @@ export async function managedSpeechTranscribe(input: {
     return await platformError(response, "transcription");
   }
 
-  const body: unknown = await response.json().catch(() => null);
-  if (
-    !body ||
-    typeof body !== "object" ||
-    typeof (body as { text?: unknown }).text !== "string" ||
-    typeof (body as { durationSeconds?: unknown }).durationSeconds !== "number"
-  ) {
+  const parsed = ManagedSpeechTranscriptionSchema.safeParse(
+    await response.json().catch(() => null),
+  );
+  if (!parsed.success) {
     return {
       ok: false,
       kind: "platform-error",
@@ -139,10 +143,12 @@ export async function managedSpeechTranscribe(input: {
       message: "Managed speech transcription returned a malformed response.",
     };
   }
-  const parsed = body as { text: string; durationSeconds: number };
   return {
     ok: true,
-    value: { text: parsed.text, durationSeconds: parsed.durationSeconds },
+    value: {
+      text: parsed.data.text,
+      durationSeconds: parsed.data.durationSeconds,
+    },
   };
 }
 
@@ -211,25 +217,21 @@ export interface ManagedSpeechVoiceCatalog {
   defaultModel: string | null;
 }
 
-function parseVoice(value: unknown): ManagedSpeechVoice | null {
-  const voice = value as Partial<Record<keyof ManagedSpeechVoice, unknown>>;
-  if (
-    typeof voice?.model !== "string" ||
-    typeof voice.label !== "string" ||
-    typeof voice.description !== "string" ||
-    typeof voice.sampleUrl !== "string" ||
-    typeof voice.source !== "string"
-  ) {
-    return null;
-  }
-  return {
-    model: voice.model,
-    label: voice.label,
-    description: voice.description,
-    sampleUrl: voice.sampleUrl,
-    source: voice.source,
-  };
-}
+const ManagedSpeechVoiceSchema = z.object({
+  model: z.string(),
+  label: z.string(),
+  description: z.string(),
+  sampleUrl: z.string(),
+  source: z.string(),
+});
+const ManagedSpeechVoiceCatalogSchema = z.object({
+  voices: z.array(ManagedSpeechVoiceSchema.nullable().catch(null)),
+  defaultModel: z.string().nullable().optional().catch(null),
+});
+const ManagedSpeechErrorSchema = z.object({
+  code: z.string().optional().catch(undefined),
+  detail: z.string().optional().catch(undefined),
+});
 
 export async function managedSpeechVoices(input?: {
   signal?: AbortSignal;
@@ -249,12 +251,10 @@ export async function managedSpeechVoices(input?: {
     return await platformError(response, "voice listing");
   }
 
-  const body: unknown = await response.json().catch(() => null);
-  const raw = body as { voices?: unknown; defaultModel?: unknown } | null;
-  const voices = Array.isArray(raw?.voices)
-    ? raw.voices.map(parseVoice).filter((v): v is ManagedSpeechVoice => !!v)
-    : null;
-  if (!voices) {
+  const parsed = ManagedSpeechVoiceCatalogSchema.safeParse(
+    await response.json().catch(() => null),
+  );
+  if (!parsed.success) {
     return {
       ok: false,
       kind: "platform-error",
@@ -265,9 +265,10 @@ export async function managedSpeechVoices(input?: {
   return {
     ok: true,
     value: {
-      voices,
-      defaultModel:
-        typeof raw?.defaultModel === "string" ? raw.defaultModel : null,
+      voices: parsed.data.voices.filter(
+        (voice): voice is ManagedSpeechVoice => voice !== null,
+      ),
+      defaultModel: parsed.data.defaultModel ?? null,
     },
   };
 }
@@ -279,15 +280,10 @@ async function platformError(
   let code: string | undefined;
   let detail: string | undefined;
   try {
-    const body = (await response.json()) as {
-      code?: unknown;
-      detail?: unknown;
-    };
-    if (typeof body?.code === "string") {
-      code = body.code;
-    }
-    if (typeof body?.detail === "string") {
-      detail = body.detail;
+    const parsed = ManagedSpeechErrorSchema.safeParse(await response.json());
+    if (parsed.success) {
+      code = parsed.data.code;
+      detail = parsed.data.detail;
     }
   } catch {
     // Non-JSON error body; status alone will have to do.
