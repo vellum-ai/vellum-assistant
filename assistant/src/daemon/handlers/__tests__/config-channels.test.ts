@@ -68,7 +68,7 @@ mock.module("../../../ipc/gateway-client.js", () => ({
     }
     if (method === "contacts_get_rich") {
       if (mockGwContactChannels == null) {
-        return { ok: true, contact: null };
+        return null;
       }
       return {
         ok: true,
