@@ -54,10 +54,12 @@ scrim.
       the same size as flip, the two mutes, the camera toggle, end session and
       the two corner controls, in Photo and in Live and in all three states,
       with the auto badge still on the bolt at the larger circle.
-- [ ] Flash and flip are mirrored. They sit the same distance in from their own
-      edges, on one line with the shutter's centre. That distance is 30pt in
-      portrait; rotate to landscape on a notched phone and both move in
-      together to the deeper of the two side safe-area insets.
+- [ ] Flash and flip are mirrored, on the corner controls' column. They sit the
+      same distance in from their own edges, on one line with the shutter's
+      centre, and in portrait that distance is the room's corner gap: flash
+      lines up under the view-options button and flip under the minimize
+      control. Rotate to landscape on a notched phone and both move in together
+      to the deeper of the two side safe-area insets.
 - [ ] Backgrounding releases the preview. With the viewfinder up, background the
       app: the status bar's camera indicator goes out. Foreground it: the
       viewfinder returns, or the room reports the failure. Never a frozen frame.
@@ -79,11 +81,11 @@ scrim.
       dialog that traps VoiceOver, and it never arrives dead to touch.
 - [ ] The kept-frame switch reaches the thumbnail. On a fresh profile the
       switch is off and Live draws no thumbnail: enter Live, sit through
-      several keeps, and only the photo strip is in the row. Turn "Kept frame"
-      on and the next keep draws beside the strip. Turn it off again and the
-      thumbnail goes, the row it sat in goes with it when no photos are in the
-      strip, and the assistant keeps answering questions about what the camera
-      is pointed at.
+      several keeps, and only the photo strip is in the row. Turn "Latest
+      shared frame" on and the next keep draws beside the strip. Turn it off
+      again and the thumbnail goes, the row it sat in goes with it when no
+      photos are in the strip, and the assistant keeps answering questions
+      about what the camera is pointed at.
 - [ ] A device that used voice before converges too. On a profile that already
       has a `vellum:voice-prefs` payload, the switch is off on the first launch
       after this change whatever that payload said, and the thumbnail does not
@@ -226,9 +228,9 @@ scrim.
       transcript; move to a new subject and another follows. Nothing ever
       pulsing is the slow-bridge case in the section below, not a hang.
 
-### Live on iPhone
+### Live on native mobile
 
-Live runs behind either viewfinder. In mobile Safari it samples the room's own
+Live runs behind either viewfinder. In mobile browsers it samples the room's own
 `<video>`; in the installed app, where the Capacitor plugin draws its preview
 behind the web view and there is no element to read, it polls the plugin for a
 sample instead. Run this section in both: they are two different samplers
@@ -238,8 +240,23 @@ The native path takes a PAIR of samples about 60ms apart on every poll. The
 first is only a motion baseline and is never kept; the second is the one judged
 and, on a keep, the exact frame uploaded. That is what lets the gate tell a
 steady camera from a moving one, which on a handheld phone is also the blur
-check. It costs two bridge round trips a second for as long as the hold lasts,
-which is the thing to watch for battery and heat below.
+check. Android shells with paired capture collect both preview buffers before
+encoding and return their native timing in one bridge call. iOS and older Android
+shells take two bridge round trips and bound the gap from request/answer times.
+
+- [ ] **Android native pair timing.** Install the APK with paired capture and
+      load the matching web UI. Hold a detailed subject steady in Live, then pan
+      and settle on a different subject. Feedback should show `decisions` and
+      `keeps` increasing, with pair gaps at or below 120 ms even when capture
+      duration is several hundred milliseconds. `captureRequests` counts bridge
+      calls, so paired capture normally has one request per attempt. Genuinely
+      distant pairs must still increment `pairGapRejections`.
+- [ ] **Native lifecycle and compatibility.** During Live, flip the camera,
+      background and resume the app, and close/reopen the camera. Frames from
+      the retired camera must not appear afterward. Ask a question while a pair
+      is being encoded and verify that a fresh pair answers it. A normal shutter
+      photo must still work. Repeat on iOS and an older Android shell to verify
+      the single-sample bridge contract still works.
 
 - [ ] **Slow-bridge signature, if Live keeps nothing.** A pair whose two
       captures land further apart than the gate's motion window is discarded
@@ -250,9 +267,22 @@ which is the thing to watch for battery and heat below.
       readout whose decision count sits still while the camera is plainly open.
       That is the expected refusal, not a hang. Each discarded pair logs
       `[native-frame-source] pair outside the motion window, skipped:` with the
-      gap it measured and the limit; capture that number in the report, since it
-      is what decides whether the pairing needs retuning or the poll needs a
-      native sampler.
+      gap it measured and the limit; capture that number and the installed APK
+      version in the report. On paired Android capture this gap measures native
+      preview delivery, independent of JPEG encoding and bridge latency.
+- [ ] **Sampling diagnostics in feedback.** Reproduce with Live enabled for at
+      least 30 seconds, close the camera, and export feedback in the same app
+      session. `web-chat-diagnostics.json` includes `native_camera_sampling`
+      lifecycle events on iOS and Android, even with the frame gate readout off.
+      These carry capture durations, measured pair gaps and the gap limit, plus
+      counts of empty captures, timeouts, decode failures, sample errors,
+      rejected pairs, decisions and keeps. Rising `pairGapRejections` with zero
+      `decisions` identifies rejection before the gate; rising `keeps` without
+      delivered frames points downstream. During transport reconnects,
+      `suppressedCaptures` counts captures skipped before reaching the bridge;
+      these do not increment `captureRequests` or `emptyCaptures`. Totals are
+      emitted on start, after the first attempt, at most once every 30 seconds
+      while sampling, and on stop. Images and raw bridge errors are not included.
 - [ ] **Battery and thermals over a ten-minute call.** Hold Live for a sustained
       stretch and note case temperature and battery drain against the same call
       without Live. Two captures a second is the cost being measured, plus at
@@ -383,6 +413,15 @@ answers nothing here.
       desktop app, on any camera.
 - [ ] The pill is present. It renders in the panel variant and the fullscreen
       variant, top centre, on the minimize control's line.
+- [ ] The panel's edges are clean. Once the feed is up, zoom into all four
+      corners of the desktop panel at the pixel level (and along the straight
+      edges on a non-Retina display): no avatar-tone pixels and no dark
+      hairline on any of them.
+- [ ] The look stands behind the feed until it has a frame. Open the camera and
+      watch the moment it comes up: the look is what shows through the
+      viewfinder until the first frame lands, never the chat behind the panel.
+      Flip the camera and the look returns for the swap rather than going
+      black.
 - [ ] Reduced motion. Turn on Reduce Motion (macOS: Settings, Accessibility,
       Display), reload, open the camera. The status dot holds still and fully
       lit. The shutter's capture pulse still fires and is shorter. The core's
@@ -414,6 +453,102 @@ answers nothing here.
       name, and the failure message all read in that language. No key names
       (`cameraError.permissionDenied` and the like) reach the screen, and no
       English is left over.
+
+## First-open explainer
+
+The "Photo or Live?" sheet, shown once per device the first time the viewfinder
+comes up on a session where Live is on offer. Run it on a phone and on desktop:
+the two presentations are a bottom sheet and a centred modal, and only the phone
+exercises the native preview underneath.
+
+A device that has already seen it will not show it again, so reset between runs
+by clearing the app's site data, or by deleting `cameraExplainerSeen` from
+`vellum:voice-prefs` in local storage.
+
+- [ ] It comes up after the preview, not before it. Open the camera: the
+      viewfinder is already drawing frames when the sheet arrives. Nothing
+      explains the camera before the camera control is pressed, which is what
+      keeps the OS permission prompt the first thing the user is asked.
+- [ ] The camera is still in Photo behind it. The shutter under the sheet is the
+      photo shutter, and dismissing it leaves the viewfinder exactly where it
+      was.
+- [ ] It is over the native preview, not under it. On the installed iPhone app
+      and on Android, the sheet, its scrim and both illustrations paint over live
+      video. A sheet that is invisible, or one that shows the app background
+      instead of the feed, is the failure this row exists for: no automated test
+      can see it.
+- [ ] "Got it" is remembered. Dismiss with the primary button, close the camera,
+      open it again: nothing. Restart the app and open the camera: still
+      nothing.
+- [ ] A scrim tap is remembered. Same check, dismissing by pressing outside the
+      sheet.
+- [ ] Escape is remembered, on desktop. The key closes the sheet and leaves the
+      room up; a second press minimizes the room.
+- [ ] The close glyph is remembered, on desktop. Same check with the modal's own
+      ✕.
+- [ ] "Try Live now" enters Live. The pill reads Live, the shutter says "Stop
+      live", and keeps begin to land. It is the only way out that changes the
+      mode.
+- [ ] "Try Live now" is absent once Live is already running. Ask the assistant
+      to look at something so the spoken ask arms Live, on a device that has not
+      seen the sheet: the sheet still comes up, with the primary button alone.
+- [ ] A press inside the sheet does not minimize the room. Press and swipe down
+      on the sheet's body, its buttons and its cards on a phone: the room stays
+      up. The room still minimizes from a pull anywhere outside the sheet.
+- [ ] The desktop modal is centred in the content pane, and its scrim dims that
+      pane only: the left sidebar and the title bar stay undimmed. Undimmed is
+      not the same as usable. The modal is a focus trap by design, so while it
+      is up Tab cycles inside it, focus never reaches the sidebar, and Escape
+      or any other dismissal is the way out. Dismissing hands focus back to the
+      room.
+- [ ] A short window still fits. Narrow the desktop window past a phone's width,
+      and turn a phone to landscape: the modal is what shows on a fine pointer,
+      its body scrolls rather than clipping, its footer wraps the privacy line
+      above the buttons, and the close glyph stays in the corner.
+- [ ] Reduced motion. With Reduce Motion on, the phone's sheet fades in rather
+      than sliding up. The desktop modal has no entrance to swap: it is drawn
+      in place either way, so check only that it still appears.
+- [ ] Locale sweep. In Spanish and Russian the title, both cards, the privacy
+      line and both buttons read in that language, with the assistant's name
+      interpolated and no key names on screen.
+
+### Re-showing it from the view options
+
+The way back to the sheet once the device has seen it. Run these after one of
+the dismissals above, on both presentations.
+
+- [ ] The row is there. Open the camera's view options from the top-left corner:
+      under the switches sits "How Photo and Live work", white on the same
+      glass, with a chevron closing the row.
+- [ ] Pressing it swaps one surface for the other. The panel goes and the sheet
+      or modal arrives in its place, over the running preview, with the camera
+      still in Photo behind it. Nothing of the panel is left under the scrim.
+- [ ] Every way out behaves as it does on the first open. "Got it", a scrim
+      press, Escape and the desktop close glyph all leave Photo; "Try Live now"
+      enters Live. The row is still there on the next open of the panel.
+- [ ] Keyboard: focus comes back. Reach the row by Tab and activate it with
+      Enter, then dismiss the explainer: focus lands on the view options button,
+      not at the top of the page. happy-dom reports the body for this either
+      way, so no automated test covers it.
+
+### Deliberate departures from the handoff
+
+Each needs a yes or a correction.
+
+- [ ] The seen flag is per device rather than per account, stored beside the
+      other voice preferences. A second device shows the sheet again.
+- [ ] There is no consent sheet before Live. The explainer is the education and
+      the press is the consent, which is what the shutter's hold already
+      assumes.
+- [ ] The privacy line says what this product does: everything the assistant
+      sees stays in the assistant's own private workspace, and Live ends when
+      the camera closes. The handoff's "Photos and video aren't saved" is not
+      true here, since photos and kept frames are persisted messages.
+- [ ] The faces are the app's, the serif brand face and the type scale, rather
+      than the handoff's Playfair Display and Manrope.
+- [ ] The two illustrations are drawn once in the phone's numbers and scaled to
+      whichever box they land in, so the desktop pair is the phone pair
+      enlarged.
 
 ## Grouped frame transcript
 
@@ -521,10 +656,11 @@ the redesign is called shipped.
       take the spec offsets back.
 - [ ] Flash circle and flank offsets. The design draws the flash at 46pt, 44pt
       in from the left, against a 52pt flip 30pt in from the right. The build
-      draws both flanks at the room's 52pt and hangs both the same distance in
-      from their own edge, so the pair is a mirror image around the shutter and
-      every round control on the screen is one size. Confirm the mirrored pair,
-      or take the design's flash.
+      draws both flanks at the room's 52pt and hangs both off their own edge at
+      the room's corner gap, so the pair is a mirror image around the shutter,
+      the flanks share the column the corner controls sit on, and every round
+      control on the screen is one size. Confirm the mirrored pair on that
+      column, or take the design's flash.
 - [ ] Localized session words on the surfaces outside the room. The composer's
       voice bar, the title-bar session pill, the iOS Dynamic Island and the
       macOS companion panel all read the session's state through the catalog,

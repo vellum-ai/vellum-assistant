@@ -142,6 +142,7 @@ import {
 import { listConversationModeSessionsByIds } from "../../persistence/conversation-mode-sessions.js";
 import { searchConversations } from "../../persistence/conversation-queries.js";
 import {
+  AUTO_ROUTED_PROFILE_METADATA_KEY,
   computerUseScreenshotAttachmentIdsFromMetadata,
   isNoResponseMetadata,
   messageMetadataIsAmbientSightKeep,
@@ -1110,6 +1111,7 @@ export async function handleListMessages({
     let backgroundToolCompletion: ConversationMessage["backgroundToolCompletion"];
     let systemCard: boolean | undefined;
     let noResponse: boolean | undefined;
+    let autoRoutedProfile: string | undefined;
     const cameraFrame = messageMetadataIsAmbientSightKeep(msg.metadata)
       ? true
       : undefined;
@@ -1129,6 +1131,9 @@ export async function handleListMessages({
         }
         if (isNoResponseMetadata(meta)) {
           noResponse = true;
+        }
+        if (typeof meta[AUTO_ROUTED_PROFILE_METADATA_KEY] === "string") {
+          autoRoutedProfile = meta[AUTO_ROUTED_PROFILE_METADATA_KEY];
         }
         // Channel facts live in the row's provider envelope. A reaction row,
         // either direction, projects its structured fact so clients never
@@ -1212,6 +1217,7 @@ export async function handleListMessages({
       backgroundToolCompletion,
       systemCard,
       noResponse,
+      autoRoutedProfile,
       cameraFrame,
       reaction,
       providerError,
@@ -1451,6 +1457,9 @@ export async function handleListMessages({
           : {}),
         ...(m.systemCard ? { systemCard: true } : {}),
         ...(m.noResponse ? { noResponse: true } : {}),
+        ...(m.autoRoutedProfile
+          ? { autoRoutedProfile: m.autoRoutedProfile }
+          : {}),
         ...(m.cameraFrame ? { cameraFrame: true as const } : {}),
         // The row's own marker, so a client gates per-row presentation on what
         // this row was written with rather than on the live flag.

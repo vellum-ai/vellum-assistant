@@ -83,6 +83,26 @@ export const Active: Story = {
   decorators: [withPanelBox, withQueryCache(seedCache)],
 };
 
+/**
+ * With its usage summary in hand, which is the only state that draws the cost
+ * and run tiles. Every other story leaves `usage` in error, where the row
+ * renders nothing at all.
+ */
+export const UsageReady: Story = {
+  args: {
+    usage: {
+      status: "ready",
+      summary: {
+        scheduleId: SCHEDULE.id,
+        runCount: 128,
+        totalEstimatedCostUsd: 12.4,
+        eventCount: 128,
+      },
+    },
+  },
+  decorators: [withPanelBox, withQueryCache(seedCache)],
+};
+
 export const PluginSourced: Story = {
   args: { schedule: { ...SCHEDULE, sourceKey: "plugin:github/digest" } },
   decorators: [withPanelBox, withQueryCache(seedCache)],

@@ -18,6 +18,7 @@ import { fetchImpl } from "../../fetch.js";
 import { getLogger } from "../../logger.js";
 import { isLoopbackAddress } from "../../util/is-loopback-address.js";
 import { tryIpcProxy } from "./ipc-runtime-proxy.js";
+import { rewriteOAuthProxyUpstreamPath } from "./oauth-proxy-path.js";
 
 const log = getLogger("runtime-proxy");
 
@@ -75,6 +76,26 @@ function presentedProxyGrant(authHeader: string | null): TokenClaims | null {
   return result.claims;
 }
 
+/**
+ * Point a grant-authenticated request at the daemon passthrough when the
+ * caller used a host-absolute provider path (`/upload/gmail/...`, `/v1/charges`).
+ * Webhook paths stay blocked on the original pathname, so this runs after
+ * that check.
+ */
+function withOAuthProxyGrantPath(req: Request): Request {
+  const grant = presentedProxyGrant(req.headers.get("authorization"));
+  if (!grant) {
+    return req;
+  }
+  const url = new URL(req.url);
+  const rewritten = rewriteOAuthProxyUpstreamPath(url.pathname, grant.sub);
+  if (rewritten === url.pathname) {
+    return req;
+  }
+  url.pathname = rewritten;
+  return new Request(url, req);
+}
+
 export function createRuntimeProxyHandler(config: GatewayConfig) {
   return async (req: Request, clientIp?: string): Promise<Response> => {
     const start = performance.now();
@@ -91,6 +112,9 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
         { status: 404 },
       );
     }
+
+    req = withOAuthProxyGrantPath(req);
+    url.pathname = new URL(req.url).pathname;
 
     // IPC fast-path: when the client sends X-Vellum-Proxy-Server: ipc and
     // the route is in the schema cache, serve via IPC instead of HTTP.

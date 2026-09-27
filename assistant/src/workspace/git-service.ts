@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 
 import { getConfig } from "../config/loader.js";
+import { trackDaemonActivity } from "../daemon/activity-trail.js";
 import { isFileUnheld } from "../util/file-use.js";
 import { getLogger } from "../util/logger.js";
 import { Mutex } from "../util/mutex.js";
@@ -1049,7 +1050,11 @@ export class WorkspaceGitService {
     retryAfterMs?: number;
   }> {
     await this.ensureInitialized();
-    return this.mutex.withLock(() => this.compactHistoryLocked(options));
+    return this.mutex.withLock(() =>
+      trackDaemonActivity({ kind: "git_compaction" }, () =>
+        this.compactHistoryLocked(options),
+      ),
+    );
   }
 
   /**

@@ -331,29 +331,33 @@ let shouldConnect = false;
 async function resolveHostBrowserTarget(
   cdpSessionId: string | undefined,
 ): Promise<{ tabId?: number; targetId?: string }> {
-  if (cdpSessionId) {
-    // Chrome tab IDs are positive integers. CDP targetIds are opaque
-    // non-numeric strings (hex, UUIDs, etc.). Route canonical decimal
-    // digit strings as tabId for chrome.debugger.attach({ tabId });
-    // route everything else as targetId. The regex guard rejects hex
-    // literals ("0x10"), exponential notation ("1e3"), and whitespace-
-    // padded values that Number() would silently coerce to integers.
-    if (/^\d+$/.test(cdpSessionId)) {
-      const asNumber = Number(cdpSessionId);
-      if (asNumber > 0 && Number.isSafeInteger(asNumber)) {
-        return { tabId: asNumber };
-      }
+  const sessionId = cdpSessionId?.trim();
+  if (!sessionId) {
+    throw new Error("cdpSessionId (tab binding) is required");
+  }
+  if (sessionId === "active") {
+    const [activeTab] = await chrome.tabs.query({
+      active: true,
+      lastFocusedWindow: true,
+    });
+    if (activeTab?.id === undefined) {
+      throw new Error("No active tab available to resolve host_browser target");
     }
-    return { targetId: cdpSessionId };
+    return { tabId: activeTab.id };
   }
-  const [activeTab] = await chrome.tabs.query({
-    active: true,
-    lastFocusedWindow: true,
-  });
-  if (activeTab?.id === undefined) {
-    throw new Error("No active tab available to resolve host_browser target");
+  // Chrome tab IDs are positive integers. CDP targetIds are opaque
+  // non-numeric strings (hex, UUIDs, etc.). Route canonical decimal
+  // digit strings as tabId for chrome.debugger.attach({ tabId });
+  // route everything else as targetId. The regex guard rejects hex
+  // literals ("0x10"), exponential notation ("1e3"), and whitespace-
+  // padded values that Number() would silently coerce to integers.
+  if (/^\d+$/.test(sessionId)) {
+    const asNumber = Number(sessionId);
+    if (asNumber > 0 && Number.isSafeInteger(asNumber)) {
+      return { tabId: asNumber };
+    }
   }
-  return { tabId: activeTab.id };
+  return { targetId: sessionId };
 }
 
 /**

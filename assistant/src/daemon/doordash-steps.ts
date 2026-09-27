@@ -78,7 +78,7 @@ function updateDoordashSteps(
     return undefined;
   }
 
-  const updated = steps.map((s, i) => {
+  return steps.map((s, i) => {
     if (i < stepIndex) {
       // Steps before current should be completed
       return s.status === "completed" ? s : { ...s, status: "completed" };
@@ -96,8 +96,6 @@ function updateDoordashSteps(
     }
     return s;
   });
-
-  return updated;
 }
 
 // ── Helpers for reading/writing the task_progress surface ─────────────

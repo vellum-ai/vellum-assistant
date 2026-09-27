@@ -50,6 +50,7 @@ const encode = (render: Parameters<typeof encodeAvatarForIsland>[0]) =>
 
 const CHARACTER = {
   kind: "character" as const,
+  traits: { bodyShape: "round", eyeStyle: "dot", color: "green" },
   svg: "<svg/>",
   dataUri: "data:image/svg+xml,%3Csvg/%3E",
 };
@@ -191,6 +192,7 @@ describe("memoizedAvatarEncode", () => {
   /** A fresh character render, so each case starts on a cache miss. */
   const source = (): AvatarRender => ({
     kind: "character",
+    traits: CHARACTER.traits,
     svg: "<svg/>",
     dataUri: "data:image/svg+xml,%3Csvg/%3E",
   });

@@ -48,6 +48,8 @@ let mockOAuthCallbackUrl = "";
 // getPublicBaseUrl.
 mock.module("../inbound/public-ingress-urls.js", () => ({
   getOAuthCallbackUrl: () => mockOAuthCallbackUrl,
+  getMcpOAuthClientMetadataUrl: () =>
+    "http://localhost/oauth/client-metadata.json",
   getPublicBaseUrl: (config?: { ingress?: { publicBaseUrl?: string } }) => {
     const url = config?.ingress?.publicBaseUrl ?? "";
     if (!url) {

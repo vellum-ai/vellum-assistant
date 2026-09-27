@@ -31,6 +31,7 @@ const TOC_ITEMS = [
   { id: "brave", label: "Brave Search Integration", level: 2 },
   { id: "firecrawl", label: "Firecrawl Integration", level: 2 },
   { id: "exa", label: "Exa Integration", level: 2 },
+  { id: "serply", label: "Serply Integration", level: 2 },
 ];
 
 export function WebSearchContent() {
@@ -172,6 +173,17 @@ export function WebSearchContent() {
                     highlights.
                   </td>
                 </tr>
+                <tr>
+                  <td className="py-3 pr-4 font-medium text-stone-900 dark:text-stone-100">
+                    Serply
+                  </td>
+                  <td className="py-3 pr-4"><KindBadge kind="BYOK" /></td>
+                  <td className="py-3">
+                    Google search results as JSON. Returns the organic results
+                    Google ranks for the query, each with a title, link, and
+                    snippet.
+                  </td>
+                </tr>
               </tbody>
             </table>
           </div>
@@ -222,6 +234,15 @@ export function WebSearchContent() {
               className="text-emerald-700 underline hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300"
             >
               Exa
+            </Link>
+            ,{" "}
+            <Link
+              href="https://serply.io/privacy"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-emerald-700 underline hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300"
+            >
+              Serply
             </Link>
             .
           </p>
@@ -559,6 +580,28 @@ export function WebSearchContent() {
               className="text-emerald-700 underline hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300"
             >
               Exa integration page
+            </Link>
+            .
+          </p>
+        </section>
+
+        {/* ------------------------------------------------------------------ */}
+        {/* Serply Integration                                                   */}
+        {/* ------------------------------------------------------------------ */}
+        <section id="serply" className="mt-12">
+          <SectionHeading id="serply" level={2}>
+            Serply Integration
+          </SectionHeading>
+          <p className="mb-4 text-stone-600 dark:text-stone-400">
+            Serply is a search API that returns Google&apos;s organic results as
+            JSON, with a title, link, and snippet for each. For a step-by-step
+            walkthrough of connecting your Serply API key, provider
+            configuration, and usage, see the{" "}
+            <Link
+              href="/docs/key-concepts/web-search/serply"
+              className="text-emerald-700 underline hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300"
+            >
+              Serply integration page
             </Link>
             .
           </p>

@@ -292,3 +292,137 @@ describe("runtime proxy without client-facing auth", () => {
     expect(withoutAuth.scope_profile).toBe(withAuth.scope_profile);
   });
 });
+
+// =========================================================================
+// Host-absolute provider paths (CAS-159)
+//
+// A minted grant base is `/v1/oauth/proxy/<segment>`. Stock clients resolve
+// `/upload/gmail/...` against the origin, so the catch-all used to forward
+// that path to the daemon unchanged (no handler). The rewrite prefixes the
+// grant's segment and leaves body and Content-Type untouched.
+// =========================================================================
+
+const GOOGLE_PROXY_SUB = "local:self:oauth-proxy.google";
+
+function mintGoogleProxyGrant(): string {
+  return mintToken({
+    aud: "vellum-gateway",
+    sub: GOOGLE_PROXY_SUB,
+    scope_profile: "oauth_proxy_v1",
+    policy_epoch: CURRENT_POLICY_EPOCH,
+    ttlSeconds: 300,
+  });
+}
+
+async function forwardedUpstream(
+  path: string,
+  init: RequestInit,
+): Promise<{ url: string; init: RequestInit | undefined }> {
+  let capturedUrl = "";
+  let capturedInit: RequestInit | undefined;
+  fetchMock = mock(
+    async (input: string | URL | Request, requestInit?: RequestInit) => {
+      capturedUrl = String(input);
+      capturedInit = requestInit;
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    },
+  );
+  const res = await createRuntimeProxyHandler(NO_AUTH_CONFIG())(
+    new Request(`http://localhost:7830${path}`, init),
+  );
+  expect(res.status).toBe(200);
+  return { url: capturedUrl, init: capturedInit };
+}
+
+describe("runtime proxy OAuth grant path rewrite", () => {
+  test("forwards a host-absolute Gmail upload path onto the google proxy prefix", async () => {
+    const rfc822 =
+      "From: user@example.com\r\nTo: user@example.com\r\nSubject: Draft\r\n\r\nHello\r\n";
+    const { url, init } = await forwardedUpstream(
+      "/upload/gmail/v1/users/me/drafts?uploadType=media",
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${mintGoogleProxyGrant()}`,
+          "content-type": "message/rfc822",
+        },
+        body: rfc822,
+      },
+    );
+
+    expect(url).toBe(
+      "http://localhost:7821/v1/oauth/proxy/google/upload/gmail/v1/users/me/drafts?uploadType=media",
+    );
+    const headers = init?.headers as Headers;
+    expect(headers.get("content-type")).toBe("message/rfc822");
+    expect(new TextDecoder().decode(init?.body as ArrayBuffer)).toBe(rfc822);
+  });
+
+  test("preserves a multipart/related body and boundary on the rewritten path", async () => {
+    const boundary = "boundary_cas159";
+    const body =
+      `--${boundary}\r\n` +
+      "Content-Type: application/json; charset=UTF-8\r\n\r\n" +
+      '{"message":{"id":"draft-1"}}\r\n' +
+      `--${boundary}\r\n` +
+      "Content-Type: message/rfc822\r\n\r\n" +
+      "From: user@example.com\r\nSubject: Draft\r\n\r\nHi\r\n" +
+      `--${boundary}--`;
+    const contentType = `multipart/related; boundary=${boundary}`;
+    const { url, init } = await forwardedUpstream(
+      "/upload/gmail/v1/users/me/drafts?uploadType=multipart",
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${mintGoogleProxyGrant()}`,
+          "content-type": contentType,
+        },
+        body,
+      },
+    );
+
+    expect(url).toBe(
+      "http://localhost:7821/v1/oauth/proxy/google/upload/gmail/v1/users/me/drafts?uploadType=multipart",
+    );
+    const headers = init?.headers as Headers;
+    expect(headers.get("content-type")).toBe(contentType);
+    expect(new TextDecoder().decode(init?.body as ArrayBuffer)).toBe(body);
+  });
+
+  test("does not rewrite a path already under the passthrough prefix", async () => {
+    const { url } = await forwardedUpstream(
+      "/v1/oauth/proxy/google/gmail/v1/users/me/drafts",
+      {
+        method: "GET",
+        headers: { authorization: `Bearer ${mintGoogleProxyGrant()}` },
+      },
+    );
+
+    expect(url).toBe(
+      "http://localhost:7821/v1/oauth/proxy/google/gmail/v1/users/me/drafts",
+    );
+  });
+
+  test("does not retarget a grant at a different provider's already-prefixed path", async () => {
+    const { url } = await forwardedUpstream(
+      "/v1/oauth/proxy/stripe_link/v1/charges",
+      {
+        method: "GET",
+        headers: { authorization: `Bearer ${mintGoogleProxyGrant()}` },
+      },
+    );
+
+    expect(url).toBe("http://localhost:7821/v1/oauth/proxy/stripe_link/v1/charges");
+  });
+
+  test("does not rewrite a host-absolute path without a proxy grant", async () => {
+    const { url } = await forwardedUpstream(
+      "/upload/gmail/v1/users/me/drafts?uploadType=media",
+      {},
+    );
+
+    expect(url).toBe(
+      "http://localhost:7821/upload/gmail/v1/users/me/drafts?uploadType=media",
+    );
+  });
+});

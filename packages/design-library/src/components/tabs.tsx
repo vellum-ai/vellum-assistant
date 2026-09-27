@@ -24,15 +24,32 @@ function TabsRoot({ className, ref, ...rest }: TabsRootProps) {
 // List
 // ---------------------------------------------------------------------------
 
-export type TabsListProps = ComponentProps<typeof RadixTabs.List>;
+export type TabsPlacement = "top" | "bottom";
 
-function TabsList({ className, ref, ...rest }: TabsListProps) {
+export interface TabsListProps extends ComponentProps<typeof RadixTabs.List> {
+  /**
+   * The edge the row sits on. `bottom` moves the list's rule and every
+   * trigger's active indicator to the row's top edge, for a row mounted under
+   * its panel. The consumer owns the DOM order.
+   */
+  placement?: TabsPlacement;
+}
+
+function TabsList({
+  className,
+  placement = "top",
+  ref,
+  ...rest
+}: TabsListProps) {
   return (
     <RadixTabs.List
       ref={ref}
       data-slot="tabs-list"
+      data-placement={placement}
       className={cn(
-        "flex items-center border-b border-[var(--border-base)]",
+        "group/tabs-list flex items-center",
+        placement === "bottom" ? "border-t" : "border-b",
+        "border-[var(--border-base)]",
         className,
       )}
       {...rest}
@@ -53,6 +70,9 @@ function TabsTrigger({ className, ref, ...rest }: TabsTriggerProps) {
       data-slot="tabs-trigger"
       className={cn(
         "relative -mb-px inline-flex cursor-pointer items-center gap-1.5 border-b-2 border-transparent bg-transparent px-2.5 py-[7px]",
+        // A bottom-placed row draws its indicator on the top edge, overlapping the list's rule there.
+        "group-data-[placement=bottom]/tabs-list:mb-0 group-data-[placement=bottom]/tabs-list:-mt-px",
+        "group-data-[placement=bottom]/tabs-list:border-b-0 group-data-[placement=bottom]/tabs-list:border-t-2",
         "text-body-medium-default whitespace-nowrap",
         "text-[var(--content-tertiary)] transition-colors",
         "outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)] keyboard-focus:ring-offset-0",

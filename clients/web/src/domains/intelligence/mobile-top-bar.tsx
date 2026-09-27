@@ -10,14 +10,25 @@ import type { ReactNode } from "react";
 import { ArrowLeft } from "lucide-react";
 import { Link } from "react-router";
 
-import { Button, Typography } from "@vellumai/design-library";
+import { Button, Typography, cn } from "@vellumai/design-library";
+
+interface MobileTopBarTitleProps {
+  children: ReactNode;
+  className?: string;
+}
 
 /** The bar's centered title, capped so a long label cannot crowd the pills. */
-export function MobileTopBarTitle({ children }: { children: ReactNode }) {
+export function MobileTopBarTitle({
+  children,
+  className,
+}: MobileTopBarTitleProps) {
   return (
     <Typography
       variant="body-medium-default"
-      className="max-w-[50vw] truncate text-[var(--content-secondary)]"
+      className={cn(
+        "max-w-[50vw] truncate text-[var(--content-secondary)]",
+        className,
+      )}
     >
       {children}
     </Typography>
@@ -46,6 +57,7 @@ export function MobileTopBarBack({
 }: MobileTopBarBackProps) {
   return (
     <Button
+      data-mobile-top-bar-back=""
       shape="pill"
       variant="ghost"
       iconOnly={<ArrowLeft aria-hidden />}

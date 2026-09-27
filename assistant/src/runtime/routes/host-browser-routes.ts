@@ -122,6 +122,21 @@ export async function resolveHostBrowserResultByRequestId(
         message: `Client "${submittingClientId}" is not the target for this request (expected "${peeked.targetClientId}"). The targeted client must submit the result.`,
       };
     }
+    if (
+      peeked.targetConnectionId &&
+      !assistantEventHub.hasActiveClientConnection(
+        peeked.targetConnectionId,
+        peeked.targetClientId,
+      )
+    ) {
+      return {
+        ok: false,
+        code: "FORBIDDEN",
+        status: 403,
+        message:
+          "This host-proxy result is bound to a connection that is no longer active.",
+      };
+    }
 
     // Defense-in-depth: require the submitting actor's principal id to match
     // the actor principal id captured when the target client opened its SSE

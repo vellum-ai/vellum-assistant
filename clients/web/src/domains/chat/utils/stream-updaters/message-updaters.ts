@@ -383,6 +383,12 @@ export function finalizeMessageComplete(
   // persisted twin does with no refetch in between.
   const assistantTextVisibility = readAssistantTextVisibility(event);
   const visibility = assistantTextVisibility ? { assistantTextVisibility } : {};
+  // The profile Auto picked for the turn, stamped on the live row from the
+  // same terminal event (completion or handoff) so it shows without waiting
+  // for a history refetch.
+  const autoRoutedProfile = event.autoRoutedProfile
+    ? { autoRoutedProfile: event.autoRoutedProfile }
+    : {};
   const membership = event.modeSession
     ? { modeSession: event.modeSession }
     : {};
@@ -400,6 +406,7 @@ export function finalizeMessageComplete(
         timestamp: at,
         attachments,
         ...visibility,
+        ...autoRoutedProfile,
         ...membership,
       },
     ];
@@ -415,6 +422,7 @@ export function finalizeMessageComplete(
       ...(attachments ? { attachments } : {}),
       ...(finalized ?? {}),
       ...visibility,
+      ...autoRoutedProfile,
       ...membership,
       // Deliberate silence, derived at fold time from the shared sentinel
       // contract: the daemon stamps the durable row after the turn, but the

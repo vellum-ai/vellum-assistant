@@ -32,6 +32,7 @@ import {
   Ellipsis,
   FileText,
   Loader2,
+  MessageSquareQuote,
   MessageSquareText,
   PencilLine,
   X,
@@ -165,6 +166,7 @@ function DocumentViewerContent({
   );
   const [addingInlineComment, setAddingInlineComment] = useState(false);
   const [commentAnchors, setCommentAnchors] = useState<CommentAnchor[]>([]);
+  const [openCommentCount, setOpenCommentCount] = useState(0);
   const [activeHighlight, setActiveHighlight] = useState<{
     start: number;
     end: number;
@@ -181,8 +183,10 @@ function DocumentViewerContent({
     saveStatus,
     editingLocked,
     editorContent,
+    sentContent,
     title,
     changeContent,
+    acceptMergedContent,
     rename,
     flushPendingSave,
     beginSendPreparation,
@@ -215,9 +219,21 @@ function DocumentViewerContent({
     [changeContent],
   );
 
-  useEffect(() => {
+  const handleRemoteMerge = useCallback(
+    (markdown: string) => {
+      acceptMergedContent(markdown);
+      setWordCount(markdownWordCount(markdown));
+    },
+    [acceptMergedContent],
+  );
+
+  // Adjusted during render rather than in an effect, so the editor's merge
+  // report, which lands in its layout effect, is the count that stays.
+  const [countedContent, setCountedContent] = useState(editorContent);
+  if (countedContent !== editorContent) {
+    setCountedContent(editorContent);
     setWordCount(markdownWordCount(editorContent));
-  }, [editorContent]);
+  }
 
   // Clear inline comment state when panel closes (but keep text selection
   // visible since the popover now works independently of the panel)
@@ -250,9 +266,14 @@ function DocumentViewerContent({
     [],
   );
 
-  /** Derive comment anchors from loaded comments and push to state. */
-  const updateCommentAnchors = useCallback(
+  /** Derive the open count and comment anchors from loaded comments. */
+  const applyComments = useCallback(
     (comments: DocumentsByIdCommentsPostResponse[]) => {
+      setOpenCommentCount(
+        comments.filter(
+          (c) => c.parentCommentId === null && c.status === "open",
+        ).length,
+      );
       const anchors: CommentAnchor[] = comments
         .filter(
           (
@@ -274,18 +295,38 @@ function DocumentViewerContent({
   );
 
   /**
-   * Refresh the comment panel and re-sync anchor highlights.
-   * Called by SSE event handlers and after creating inline comments.
+   * Refresh the comment panel, the open count and the anchor highlights.
+   * Called by SSE event handlers and after creating inline comments. An open
+   * panel reports what it loads through `applyComments`.
    */
   const refreshComments = useCallback(async () => {
-    await commentPanelRef.current?.refreshComments();
-    try {
-      const comments = await fetchComments(assistantId, surfaceId);
-      updateCommentAnchors(comments);
-    } catch {
-      // Best-effort — anchor highlights are cosmetic
+    if (commentPanelRef.current) {
+      await commentPanelRef.current.refreshComments();
+      return;
     }
-  }, [assistantId, surfaceId, updateCommentAnchors]);
+    try {
+      applyComments(await fetchComments(assistantId, surfaceId));
+    } catch {
+      // Best-effort: the count and highlights are cosmetic.
+    }
+  }, [assistantId, surfaceId, applyComments]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const comments = await fetchComments(assistantId, surfaceId);
+        if (!cancelled) {
+          applyComments(comments);
+        }
+      } catch {
+        // Best-effort: the count and highlights are cosmetic.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [assistantId, surfaceId, applyComments]);
 
   useImperativeHandle(
     handleRef,
@@ -342,33 +383,6 @@ function DocumentViewerContent({
   );
 
   // -------------------------------------------------------------------------
-  // Sync anchors when panel opens
-  // -------------------------------------------------------------------------
-
-  // The panel also fetches comments on mount — this is a second request to
-  // seed the anchor highlights. Acceptable tradeoff vs adding an
-  // onCommentsLoaded callback to the panel component.
-  useEffect(() => {
-    if (!commentsPanelOpen) {
-      return;
-    }
-    let cancelled = false;
-    void (async () => {
-      try {
-        const comments = await fetchComments(assistantId, surfaceId);
-        if (!cancelled) {
-          updateCommentAnchors(comments);
-        }
-      } catch {
-        // Best-effort — anchor highlights are cosmetic
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [commentsPanelOpen, assistantId, surfaceId, updateCommentAnchors]);
-
-  // -------------------------------------------------------------------------
   // Render
   // -------------------------------------------------------------------------
 
@@ -409,6 +423,25 @@ function DocumentViewerContent({
           </span>
         </div>
 
+        <Button
+          variant="ghost"
+          leftIcon={openCommentCount > 0 ? <MessageSquareQuote /> : undefined}
+          iconOnly={openCommentCount > 0 ? false : <MessageSquareQuote />}
+          active={commentsPanelOpen}
+          aria-pressed={commentsPanelOpen}
+          onClick={toggleComments}
+          aria-label={
+            openCommentCount > 0
+              ? t("documentViewerContainer.commentsWithOpenCount", {
+                  count: openCommentCount,
+                })
+              : t("documentViewerContainer.comments")
+          }
+          tooltip={t("documentViewerContainer.comments")}
+        >
+          {openCommentCount > 0 ? openCommentCount : null}
+        </Button>
+
         {onViewConversation && (
           <Button
             variant="ghost"
@@ -433,11 +466,6 @@ function DocumentViewerContent({
             title={t("documentViewerContainer.menuAria")}
             align="end"
           >
-            <ActionMenu.Item
-              icon={MessageSquareText}
-              label={commentsPanelOpen ? t("documentViewerContainer.hideComments") : t("documentViewerContainer.comments")}
-              onSelect={toggleComments}
-            />
             <ActionMenu.Item
               icon={PencilLine}
               label={t("documentViewerContainer.rename")}
@@ -472,7 +500,7 @@ function DocumentViewerContent({
       />
 
       {/* Body: editor + optional comment panel */}
-      <div className="relative flex min-h-0 flex-1">
+      <div className="@container relative flex min-h-0 flex-1">
         {/* Tiptap editor */}
         <div className="relative min-w-0 flex-1">
           <LazyBoundary
@@ -484,8 +512,10 @@ function DocumentViewerContent({
           >
             <TiptapDocumentEditor
               content={editorContent}
+              sentContent={sentContent}
               editable={!editingLocked}
               onContentChange={handleContentChange}
+              onRemoteMerge={handleRemoteMerge}
               onTextSelect={(sel) => {
                 if (!sel) {
                   setTextSelection(null);
@@ -514,17 +544,20 @@ function DocumentViewerContent({
           </LazyBoundary>
         </div>
 
-        {/* Comment panel sidebar */}
+        {/* Comment panel: beside the editor, or over it in a narrow pane. */}
         {commentsPanelOpen ? (
-          <DocumentCommentPanel
-            surfaceId={surfaceId}
-            assistantId={assistantId}
-            conversationId={conversationId}
-            onClose={() => setCommentsPanelOpen(false)}
-            onCommentSelect={handleCommentSelect}
-            onSubmitFeedback={onSubmitFeedback}
-            handleRef={commentPanelRef}
-          />
+          <div className="flex @max-2xl:absolute @max-2xl:inset-y-0 @max-2xl:right-0 @max-2xl:z-10 @max-2xl:shadow-[var(--shadow-popover)]">
+            <DocumentCommentPanel
+              surfaceId={surfaceId}
+              assistantId={assistantId}
+              conversationId={conversationId}
+              onClose={() => setCommentsPanelOpen(false)}
+              onCommentSelect={handleCommentSelect}
+              onCommentsLoaded={applyComments}
+              onSubmitFeedback={onSubmitFeedback}
+              handleRef={commentPanelRef}
+            />
+          </div>
         ) : null}
       </div>
     </div>

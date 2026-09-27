@@ -9,6 +9,10 @@
 
 import { CameraPreview } from "@capacitor-community/camera-preview";
 
+import {
+  isNativeFramePair,
+  type NativeFrameCapture,
+} from "@/lib/camera/native-frame-capture";
 import { callNativeVoice } from "@/runtime/native-voice";
 import { isNativeMobile } from "@/runtime/platform-detection";
 
@@ -81,8 +85,8 @@ export async function captureNativeVoiceCameraFrame(
 }
 
 /**
- * Capture a low-cost JPEG sample of the live preview as base64, or null when
- * the camera cannot serve one.
+ * Capture a JPEG sample, or a timed pair when the native shell supports it.
+ * Returns null when the camera cannot serve the requested sample.
  *
  * Served from the buffer the preview is already producing rather than from the
  * photo pipeline, so it is cheap enough to poll while the preview runs. A
@@ -90,10 +94,28 @@ export async function captureNativeVoiceCameraFrame(
  */
 export async function captureNativeVoiceCameraSample(
   quality: number,
-): Promise<string | null> {
+  pairSpacingMs?: number,
+): Promise<NativeFrameCapture | null> {
   return callNativeVoice(async () => {
-    const { value } = await CameraPreview.captureSample({ quality });
-    return value || null;
+    const options =
+      pairSpacingMs === undefined ? { quality } : { quality, pairSpacingMs };
+    const sample: unknown = await CameraPreview.captureSample(options);
+    if (typeof sample !== "object" || sample === null) {
+      return null;
+    }
+    if (isNativeFramePair(sample)) {
+      return sample;
+    }
+    if (
+      "primer" in sample ||
+      "firstCapturedAfterMs" in sample ||
+      "secondCapturedAfterMs" in sample
+    ) {
+      return null;
+    }
+    return "value" in sample && typeof sample.value === "string"
+      ? sample.value || null
+      : null;
   }, null);
 }
 

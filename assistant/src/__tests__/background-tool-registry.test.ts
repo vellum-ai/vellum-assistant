@@ -6,6 +6,7 @@ import {
   cancelBackgroundTool,
   type CompletedBackgroundTool,
   generateBackgroundToolId,
+  hasBackgroundToolWork,
   listBackgroundTools,
   listCompletedBackgroundTools,
   MAX_BACKGROUND_TOOLS,
@@ -21,6 +22,7 @@ function makeTool(overrides: Partial<BackgroundTool> = {}): BackgroundTool {
     toolName: overrides.toolName ?? "bash",
     conversationId: overrides.conversationId ?? "conv-xyz",
     command: overrides.command ?? "echo hello",
+    cronRunId: overrides.cronRunId,
     startedAt: overrides.startedAt ?? Date.now(),
     cancel: overrides.cancel ?? mock(() => {}),
   };
@@ -58,6 +60,27 @@ describe("background-tool-registry", () => {
   });
 
   describe("cancelBackgroundTool", () => {
+    test("filters both running and cancelling commands by schedule owner", () => {
+      const owned = makeTool({ id: "bg-owned", cronRunId: "run-owned" });
+      registerBackgroundTool(owned);
+      registerBackgroundTool(makeTool({ id: "bg-user" }));
+      registerBackgroundTool(
+        makeTool({ id: "bg-other", cronRunId: "run-other" }),
+      );
+      expect(
+        hasBackgroundToolWork(owned.conversationId, { cronRunId: "run-owned" }),
+      ).toBe(true);
+      cancelBackgroundTool(owned.id);
+      expect(
+        hasBackgroundToolWork(owned.conversationId, { cronRunId: "run-owned" }),
+      ).toBe(true);
+      removeBackgroundTool(owned.id);
+      expect(
+        hasBackgroundToolWork(owned.conversationId, { cronRunId: "run-owned" }),
+      ).toBe(false);
+      expect(hasBackgroundToolWork(owned.conversationId)).toBe(true);
+    });
+
     test("calls cancel(), removes the entry, and returns true", () => {
       const cancelFn = mock(() => {});
       const tool = makeTool({ id: "bg-cancel-1", cancel: cancelFn });
@@ -68,6 +91,20 @@ describe("background-tool-registry", () => {
       expect(result).toBe(true);
       expect(cancelFn).toHaveBeenCalledTimes(1);
       expect(listBackgroundTools()).toHaveLength(0);
+      expect(hasBackgroundToolWork(tool.conversationId)).toBe(true);
+      removeBackgroundTool(tool.id);
+      expect(hasBackgroundToolWork(tool.conversationId)).toBe(false);
+    });
+
+    test("a synchronous terminal callback settles cancellation work", () => {
+      registerBackgroundTool(
+        makeTool({
+          id: "bg-sync-cancel",
+          cancel: () => removeBackgroundTool("bg-sync-cancel"),
+        }),
+      );
+      cancelBackgroundTool("bg-sync-cancel");
+      expect(hasBackgroundToolWork("conv-xyz")).toBe(false);
     });
 
     test("returns false for unknown IDs", () => {
@@ -105,6 +142,8 @@ describe("background-tool-registry", () => {
 
       expect(listBackgroundTools("conv-2")).toHaveLength(1);
       expect(listBackgroundTools("conv-nonexistent")).toHaveLength(0);
+      expect(hasBackgroundToolWork("conv-1")).toBe(true);
+      expect(hasBackgroundToolWork("conv-nonexistent")).toBe(false);
     });
   });
 

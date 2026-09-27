@@ -38,12 +38,18 @@ describe("computeWorkerForceRamSizeBytes", () => {
 
 describe("workerMemoryEnv", () => {
   const savedForceRamSize = process.env.BUN_JSC_forceRAMSize;
+  const savedGcTimerDisable = process.env.BUN_GC_TIMER_DISABLE;
 
   afterEach(() => {
     if (savedForceRamSize === undefined) {
       delete process.env.BUN_JSC_forceRAMSize;
     } else {
       process.env.BUN_JSC_forceRAMSize = savedForceRamSize;
+    }
+    if (savedGcTimerDisable === undefined) {
+      delete process.env.BUN_GC_TIMER_DISABLE;
+    } else {
+      process.env.BUN_GC_TIMER_DISABLE = savedGcTimerDisable;
     }
   });
 
@@ -60,5 +66,15 @@ describe("workerMemoryEnv", () => {
     process.env.BUN_JSC_forceRAMSize = "12345";
     const env = workerMemoryEnv();
     expect(env.BUN_JSC_forceRAMSize).toBe("12345");
+  });
+
+  test("disables the worker GC timer unless the operator set it", () => {
+    delete process.env.BUN_GC_TIMER_DISABLE;
+    expect(workerMemoryEnv().BUN_GC_TIMER_DISABLE).toBe("1");
+  });
+
+  test("keeps an operator-provided BUN_GC_TIMER_DISABLE", () => {
+    process.env.BUN_GC_TIMER_DISABLE = "0";
+    expect(workerMemoryEnv().BUN_GC_TIMER_DISABLE).toBe("0");
   });
 });

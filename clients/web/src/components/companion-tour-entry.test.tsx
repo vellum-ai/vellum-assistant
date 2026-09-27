@@ -6,6 +6,51 @@ import { CompanionTourEntryModal } from "./companion-tour-entry";
 afterEach(cleanup);
 
 describe("CompanionTourEntryModal", () => {
+  test("previews the assistant's own image and updates when it changes", () => {
+    const avatar = {
+      customImageUrl: "https://example.com/assistant-avatar.png",
+      components: null,
+      traits: null,
+      accentHex: "#e7652a",
+    };
+    const view = render(
+      <CompanionTourEntryModal
+        open
+        avatar={avatar}
+        assistantName="Example Assistant"
+        onStart={() => {}}
+        onDismiss={() => {}}
+      />,
+    );
+    expect(
+      view
+        .getByRole("dialog")
+        .querySelector(`img[src="${avatar.customImageUrl}"]`),
+    ).not.toBeNull();
+    expect(view.getByRole("dialog").innerHTML).toContain(avatar.accentHex);
+    view.rerender(
+      <CompanionTourEntryModal
+        open
+        avatar={{
+          ...avatar,
+          customImageUrl: "https://example.com/updated-avatar.png",
+        }}
+        onStart={() => {}}
+        onDismiss={() => {}}
+      />,
+    );
+    expect(
+      view
+        .getByRole("dialog")
+        .querySelector('img[src="https://example.com/updated-avatar.png"]'),
+    ).not.toBeNull();
+    expect(
+      view
+        .getByRole("dialog")
+        .querySelector(`img[src="${avatar.customImageUrl}"]`),
+    ).toBeNull();
+  });
+
   test("moves focus inside the dialog when it opens", async () => {
     const view = render(
       <>
@@ -60,31 +105,22 @@ describe("CompanionTourEntryModal", () => {
     expect(onStart).toHaveBeenCalledTimes(1);
   });
 
-  test("asks for confirmation before dismissing", () => {
+  test("dismisses immediately when Close is pressed", () => {
     const onDismiss = mock(() => {});
     const view = render(
       <CompanionTourEntryModal open onStart={() => {}} onDismiss={onDismiss} />,
     );
-
     fireEvent.click(view.getByLabelText("Close"));
-
-    expect(view.getByText("Skip the tour?")).toBeDefined();
-    expect(onDismiss).not.toHaveBeenCalled();
-
-    fireEvent.click(view.getByText("Skip for now"));
-
     expect(onDismiss).toHaveBeenCalledTimes(1);
+    expect(view.queryByText("Skip the tour?")).toBeNull();
   });
 
-  test("can continue the tour from the dismissal confirmation", () => {
-    const onStart = mock(() => {});
+  test("dismisses immediately when Escape is pressed", () => {
+    const onDismiss = mock(() => {});
     const view = render(
-      <CompanionTourEntryModal open onStart={onStart} onDismiss={() => {}} />,
+      <CompanionTourEntryModal open onStart={() => {}} onDismiss={onDismiss} />,
     );
-
-    fireEvent.click(view.getByLabelText("Close"));
-    fireEvent.click(view.getByText("Take the tour"));
-
-    expect(onStart).toHaveBeenCalledTimes(1);
+    fireEvent.keyDown(view.getByRole("dialog"), { key: "Escape" });
+    expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 });

@@ -131,7 +131,7 @@ beforeEach(() => {
   // the shared `cancelMock` during a later test. Debounce specs opt into a
   // tiny window locally and await it.
   __setHiddenTeardownGraceMsForTesting(10_000);
-  nativeMobile = false;
+  nativeMobile = true;
   activeOnEvent = null;
   activeOnError = null;
   activeOnReconnect = null;
@@ -723,14 +723,34 @@ describe("sseService.attach: background grace policy", () => {
     detach();
   });
 
-  test("desktop keeps the 5s grace (unchanged by the native bump)", () => {
+  test("desktop browser keeps its hidden connection without a teardown timer", () => {
     nativeMobile = false;
     __setHiddenTeardownGraceMsForTesting(null);
     const detach = sseService.attach("asst-1");
 
-    expect(hideAndReadArmedGrace()).toBe(5_000);
+    expect(hideAndReadArmedGrace()).toBeUndefined();
 
     detach();
+  });
+
+  test("desktop browser delivers events after five seconds, one minute, and five minutes hidden", async () => {
+    nativeMobile = false;
+    __setHiddenTeardownGraceMsForTesting(TEST_HIDDEN_GRACE_MS);
+    const start = Date.now();
+    const detach = sseService.attach("asst-1");
+    activeOnStreamOpen!();
+    eventBus.publish("app.hidden", { signal: "visibility" });
+    await sleep(TEST_HIDDEN_GRACE_MS + 20);
+    for (const elapsed of [5_000, 60_000, 300_000]) {
+      setSystemTime(new Date(start + elapsed));
+      const envelope = makeEnvelope(elapsed);
+      activeOnEvent!(envelope);
+      await nextTask();
+      expect(publishSpy).toHaveBeenCalledWith("sse.event", envelope);
+      expect(cancelMock).not.toHaveBeenCalled();
+    }
+    detach();
+    expect(cancelMock).toHaveBeenCalledTimes(1);
   });
 
   test("a resume after a short background keeps the live socket", () => {
@@ -801,9 +821,9 @@ describe("sseService.attach: background grace policy", () => {
   });
 
   test("a resume after a teardown-and-reopen does not bounce the reopened socket", async () => {
-    // GIVEN the desktop path, where the grace teardown really does fire and
+    // GIVEN a native app whose grace teardown fires before
     // a long system sleep then follows
-    nativeMobile = false;
+    nativeMobile = true;
     __setHiddenTeardownGraceMsForTesting(TEST_HIDDEN_GRACE_MS);
     const start = Date.now();
     sseService.attach("asst-1");

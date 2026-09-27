@@ -1071,6 +1071,35 @@ describe("control frames", () => {
     ]);
   });
 
+  test("updateConfig sends the shared surface's controls, and a clear", async () => {
+    const client = makeClient();
+    const ws = await connectAndGetSocket(client);
+    ws.open();
+    ws.receive({ type: "ready", seq: 1, sessionId: "s", conversationId: "c" });
+    const shareTargets = {
+      targets: [
+        {
+          id: "t1",
+          label: "root_Filters",
+          role: "AXButton",
+          x: 0.1,
+          y: 0.1,
+          width: 0.05,
+          height: 0.05,
+        },
+      ],
+      total: 1,
+    };
+
+    client.updateConfig({ shareTargets });
+    client.updateConfig({ shareTargets: null });
+
+    expect(ws.sentJson.slice(1)).toEqual([
+      { type: "update_config", shareTargets },
+      { type: "update_config", shareTargets: null },
+    ]);
+  });
+
   test("updateConfig is a no-op before the session is active", async () => {
     const client = makeClient();
     const ws = await connectAndGetSocket(client);

@@ -13,6 +13,7 @@
  */
 export interface KeyedSingleFlight {
   <T>(key: string, fn: () => Promise<T>): Promise<T>;
+  isPending(key: string): boolean;
   /**
    * Drop all chain entries. Test-only escape hatch for a clean slate between
    * cases; production code never needs it because entries self-clear once
@@ -52,6 +53,7 @@ export function createKeyedSingleFlight(): KeyedSingleFlight {
   run.reset = (): void => {
     chain.clear();
   };
+  run.isPending = (key: string): boolean => chain.has(key);
 
   return run;
 }

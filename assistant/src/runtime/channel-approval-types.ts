@@ -9,6 +9,10 @@
  */
 
 import type { ApprovalActionOption } from "@vellumai/gateway-client";
+import {
+  GUARDIAN_DECISION_ACTION_IDS,
+  isParkGuardianAction,
+} from "@vellumai/service-contracts/guardian-requests";
 
 import type { GuardianDecisionAction } from "./guardian-decision-types.js";
 
@@ -35,14 +39,7 @@ export {
  * introduction-card actions, valid only for `access_request` requests — the
  * guardian decision primitive rejects them for any other kind.
  */
-export const APPROVAL_ACTION_IDS = [
-  "approve_once",
-  "reject",
-  "trust",
-  "verify_code",
-  "leave_unverified",
-  "block",
-] as const;
+export const APPROVAL_ACTION_IDS = GUARDIAN_DECISION_ACTION_IDS;
 
 export type ApprovalAction = (typeof APPROVAL_ACTION_IDS)[number];
 
@@ -70,37 +67,8 @@ export const INTRODUCTION_ACTION_SET: ReadonlySet<string> = new Set([
   "block",
 ]);
 
-/**
- * Actions that resolve a request to the `denied` terminal status. Everything
- * else resolves to `approved`.
- */
-export const DENYING_ACTION_SET: ReadonlySet<string> = new Set([
-  "reject",
-  "leave_unverified",
-  "block",
-]);
-
-/**
- * The denying actions that *park* the sender at `unverified` — a neutral hold,
- * not an active rejection. A parked contact is still admitted under the
- * permissive admission floors (`any_contact`, `strangers`) and can be trusted
- * or verified later; contrast `block` (→ revoked, a hard keep-out) and `reject`
- * (an explicit decline). Both resolve the request to `denied`, so the terminal
- * status alone can't tell a park from a rejection — surfaces that present the
- * resolved card consult this to render a park neutrally (see
- * {@link PARK_STATUS_LABEL}) instead of as a denial.
- */
-export const PARK_ACTION_SET: ReadonlySet<string> = new Set([
-  "leave_unverified",
-]);
-
 /** Completed-card label shown for a parked (leave-unverified) decision. */
 export const PARK_STATUS_LABEL = "Left unverified";
-
-/** True when `action` parks the sender at `unverified` (a neutral hold). */
-export function isParkAction(action: string | undefined): boolean {
-  return action !== undefined && PARK_ACTION_SET.has(action);
-}
 
 /** Outcome word per terminal guardian-request status on a resolved card. */
 const DECISION_STATUS_WORDS: Record<string, string> = {
@@ -121,7 +89,7 @@ export function resolveDecisionStatusWord(
   status: string,
   decidedAction?: string,
 ): string {
-  if (status === "denied" && isParkAction(decidedAction)) {
+  if (status === "denied" && isParkGuardianAction(decidedAction)) {
     return PARK_STATUS_LABEL;
   }
   return DECISION_STATUS_WORDS[status] ?? "Resolved";

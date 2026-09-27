@@ -159,6 +159,7 @@ async function getDetailedHealth() {
       memoryOptOut: true,
       retryLastTurn: true,
       appPins: true,
+      chatsSettings: true,
     },
     ...(profiler ? { profiler } : {}),
     ...migrationHealthFields,
@@ -226,8 +227,6 @@ function getIdentity() {
   const content = readFileSync(identityPath, "utf-8");
   const fields = parseIdentityFields(content);
 
-  const version = APP_VERSION;
-
   const createdAt = resolveHatchedAtReadOnly(identityPath);
 
   return {
@@ -236,7 +235,7 @@ function getIdentity() {
     personality: fields.personality ?? "",
     emoji: fields.emoji ?? "",
     home: fields.home ?? "",
-    version,
+    version: APP_VERSION,
     createdAt,
   };
 }
@@ -280,6 +279,7 @@ const healthCapabilitiesSchema = z.object({
   memoryOptOut: z.boolean(),
   retryLastTurn: z.boolean(),
   appPins: z.boolean(),
+  chatsSettings: z.boolean().optional(),
 });
 
 const healthDiskSchema = z.object({

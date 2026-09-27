@@ -1,0 +1,31 @@
+.permission-guide {
+  -webkit-app-region: drag;
+}
+
+.permission-guide button {
+  -webkit-app-region: no-drag;
+}
+
+.permission-arrow {
+  animation: permission-point 1.7s ease-in-out infinite;
+}
+
+@keyframes permission-point {
+  0%,
+  100% {
+    transform: translateY(1px);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .permission-arrow {
+    animation: none;
+  }
+
+  .permission-guide button {
+    transition: none;
+  }
+}

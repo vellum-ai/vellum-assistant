@@ -145,11 +145,10 @@ async function timedFetch(
 ): Promise<Response> {
   const { controller, clear } = createTimeoutController(timeoutMs);
   try {
-    const response = await fetchImpl(url, {
+    return await fetchImpl(url, {
       ...init,
       signal: controller.signal,
     });
-    return response;
   } finally {
     clear();
   }

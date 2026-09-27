@@ -1,4 +1,36 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+
+// `bun test` shares one module registry. sse-connection.test.ts stubs
+// client-identity with a fixed id, which would otherwise leak into these
+// assertions. Read the id the test seeded in chrome.storage.local.
+mock.module("../client-identity.js", () => ({
+  getClientId: async () => {
+    const chromeApi = (
+      globalThis as {
+        chrome?: {
+          storage?: {
+            local?: { get: (key: string) => Promise<Record<string, unknown>> };
+          };
+        };
+      }
+    ).chrome;
+    const stored = await chromeApi?.storage?.local?.get("vellum.clientId");
+    const clientId = stored?.["vellum.clientId"];
+    return typeof clientId === "string" && clientId.length > 0
+      ? clientId
+      : "client-uuid";
+  },
+  getClientRegistrationHeaders: async () => ({
+    "X-Vellum-Client-Id": "ext-test-id",
+    "X-Vellum-Interface-Id": "chrome-extension",
+  }),
+  clientCapabilityHeaders: (version?: string, watchdogEnabled?: boolean) => {
+    const headers: Record<string, string> = {};
+    if (version) headers["X-Vellum-Client-Version"] = version;
+    if (watchdogEnabled) headers["X-Vellum-Sse-Watchdog"] = "1";
+    return headers;
+  },
+}));
 
 import {
   buildBundleTarGz,

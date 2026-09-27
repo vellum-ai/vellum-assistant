@@ -22,6 +22,8 @@ export const documents = sqliteTable(
     wordCount: integer("word_count").notNull().default(0),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
+    // Bumped by one on every write; conditional saves compare against it.
+    revision: integer("revision").notNull().default(0),
     // Unused by the daemon: no code reads or writes the column, and some rows
     // carry a non-NULL path. It stays in the model because migration 360 puts
     // it in the physical table and the model must keep describing that table.
@@ -77,4 +79,22 @@ export const documentComments = sqliteTable(
     index("idx_document_comments_surface").on(table.surfaceId),
     index("idx_document_comments_parent").on(table.parentCommentId),
   ],
+);
+
+// Snapshots of a document as it stood at `revision`, taken just before a write
+// replaced that state. `author` is who made the replacing write.
+export const documentRevisions = sqliteTable(
+  "document_revisions",
+  {
+    surfaceId: text("surface_id")
+      .notNull()
+      .references(() => documents.surfaceId, { onDelete: "cascade" }),
+    revision: integer("revision").notNull(),
+    title: text("title").notNull(),
+    content: text("content").notNull(),
+    wordCount: integer("word_count").notNull().default(0),
+    author: text("author").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.surfaceId, table.revision] })],
 );

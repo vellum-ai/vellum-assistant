@@ -482,8 +482,7 @@ export function computePerToolTimeoutMs(
     const { questionResponseTimeoutSec } = getConfig().timeouts;
     return (questionResponseTimeoutSec + 5) * 1000;
   }
-  const rawTimeoutSec = getConfig().timeouts.toolExecutionTimeoutSec;
-  return safeTimeoutMs(rawTimeoutSec);
+  return safeTimeoutMs(getConfig().timeouts.toolExecutionTimeoutSec);
 }
 
 /**

@@ -21,17 +21,40 @@ mock.module("../platform-callback-registration.js", () => ({
 
 mock.module("../public-ingress-urls.js", () => ({
   getOAuthCallbackUrl: () => "https://direct.example/webhooks/oauth/callback",
+  getMcpOAuthClientMetadataUrl: () =>
+    "https://direct.example/oauth/client-metadata.json",
 }));
 
 mock.module("../../config/loader.js", () => ({
   loadConfig: () => ({}),
 }));
 
-const { OAUTH_CALLBACK_PATH, resolveOauthCallbackUrl } =
-  await import("../oauth-callback-url.js");
+const {
+  OAUTH_CALLBACK_PATH,
+  resolveMcpOAuthClientMetadataUrl,
+  resolveOauthCallbackUrl,
+} = await import("../oauth-callback-url.js");
 
 afterEach(() => {
   resolveCallbackUrl.mockClear();
+});
+
+describe("resolveMcpOAuthClientMetadataUrl", () => {
+  test("returns the metadata URL for the exact direct HTTPS callback", () => {
+    expect(
+      resolveMcpOAuthClientMetadataUrl(
+        "https://direct.example/webhooks/oauth/callback",
+      ),
+    ).toBe("https://direct.example/oauth/client-metadata.json");
+  });
+
+  test("returns undefined for a callback served somewhere else", () => {
+    expect(
+      resolveMcpOAuthClientMetadataUrl(
+        "https://platform.example/v1/gateway/callbacks/assistant-123/webhooks/oauth/callback",
+      ),
+    ).toBeUndefined();
+  });
 });
 
 describe("resolveOauthCallbackUrl", () => {

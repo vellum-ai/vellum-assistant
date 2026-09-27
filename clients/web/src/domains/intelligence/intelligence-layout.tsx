@@ -71,6 +71,7 @@ export function IntelligenceLayout() {
   const detailIsScreen = useIntelligenceLayoutSlotsStore.use.detailIsScreen();
 
   const section = aboutAssistantSectionForPath(pathname);
+  const isWorkspace = section?.key === "workspace";
   const sectionTitle = section ? t(SECTION_LABEL_KEY[section.key]) : null;
   /**
    * The bar's title, and the test for whether a page takes the bar at all.
@@ -133,7 +134,15 @@ export function IntelligenceLayout() {
       setTopBarCenter(null);
       setMobileTopBar({
         leading: <MobileTopBarBack {...destination} />,
-        center: <MobileTopBarTitle>{mobileTopBarTitle}</MobileTopBarTitle>,
+        center: isWorkspace ? (
+          <span data-slot="workspace-page-title" className="flex min-w-0">
+            <MobileTopBarTitle className="text-[var(--content-default)] [--text-body-medium-default-size:17px] [--text-body-medium-default-weight:600]">
+              {mobileTopBarTitle}
+            </MobileTopBarTitle>
+          </span>
+        ) : (
+          <MobileTopBarTitle>{mobileTopBarTitle}</MobileTopBarTitle>
+        ),
         trailing: headerTrailing,
       });
     } else {
@@ -149,6 +158,7 @@ export function IntelligenceLayout() {
     backTitle,
     backToListPath,
     headerTrailing,
+    isWorkspace,
     mobileTopBarTitle,
     navigate,
     ownsMobileTopBar,
@@ -170,7 +180,18 @@ export function IntelligenceLayout() {
   }
 
   return (
-    <PageShell>
+    <PageShell
+      className={
+        isWorkspace
+          ? "max-md:rounded-none max-md:border-0 max-md:px-3.5 max-md:pt-0 max-md:pb-3.5"
+          : undefined
+      }
+      style={
+        isWorkspace
+          ? { backgroundColor: "var(--surface-base)" }
+          : undefined
+      }
+    >
       {/* Desktop section chrome. A phone gets these affordances from the
           mobile top bar registered above, so this row would be a second back
           control and does not render there. */}

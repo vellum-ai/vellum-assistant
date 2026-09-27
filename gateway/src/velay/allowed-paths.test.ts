@@ -96,11 +96,13 @@ describe("VELAY_ALLOWED_PATHS", () => {
       "/assistant/credentials/enter": true,
       "/v1/credential-requests/peek": true,
       "/v1/credential-requests/submit": true,
+      "/oauth/client-metadata.json": true,
       // Negative samples — paths that must NOT be tunnel-public.
       "/v1/credential-requests": false,
       "/v1/credential-requests/other": false,
       "/assistant/credentials": false,
       "/assistant/settings/credentials": false,
+      "/oauth/client-metadata": false,
       "/v1/contacts/abc": false,
       "/v1/health": false,
       "/v1/pair": false,

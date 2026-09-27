@@ -14,6 +14,10 @@
  */
 
 import {
+  isAllowedCdpMethod,
+  tabBindingError,
+} from './cdp-method-policy.js';
+import {
   createCdpProxy,
   type CdpDebuggee,
   type CdpEventFrame,
@@ -105,10 +109,9 @@ export interface HostBrowserSessionInvalidatedEnvelope {
 
 export interface HostBrowserDispatcherDeps {
   /**
-   * Target resolver. When `cdpSessionId` is provided it is treated as an
-   * opaque `targetId` (matching how the CdpProxy addresses flat sessions via
-   * the DebuggerSession target field). Otherwise the resolver should fall
-   * back to "most recently active tab".
+   * Target resolver. `cdpSessionId` is a required tab/target binding for
+   * raw CDP and for Vellum.attach / Vellum.detach. The worker treats the
+   * sentinel `active` as an explicit focused-tab request.
    */
   resolveTarget(
     cdpSessionId: string | undefined,
@@ -336,12 +339,38 @@ export function createHostBrowserDispatcher(
     const ownController = abort;
     inFlight.set(requestId, ownController);
     try {
+      if (!isAllowedCdpMethod(envelope.cdpMethod)) {
+        if (abort.signal.aborted || cancelledRequestIds.has(requestId)) return;
+        await deps.postResult({
+          requestId,
+          content: JSON.stringify({
+            code: -32601,
+            message: `CDP method ${envelope.cdpMethod} is not permitted`,
+          }),
+          isError: true,
+        });
+        return;
+      }
+      const bindingError = tabBindingError(
+        envelope.cdpMethod,
+        envelope.cdpSessionId,
+      );
+      if (bindingError) {
+        if (abort.signal.aborted || cancelledRequestIds.has(requestId)) return;
+        await deps.postResult({
+          requestId,
+          content: JSON.stringify({
+            code: -32602,
+            message: bindingError,
+          }),
+          isError: true,
+        });
+        return;
+      }
       // Handle synthetic Vellum.* methods that use chrome extension APIs
       // directly instead of routing through chrome.debugger. These methods
       // do not require a resolved CDP target, so they must be dispatched
-      // BEFORE `resolveTarget()` — otherwise `resolveTarget(undefined)`
-      // falls back to querying for the active tab, which throws when no
-      // focused window/tab exists (minimized, no active tab, etc.).
+      // BEFORE `resolveTarget()`.
       // Synthetic Vellum.createTab — open a fresh browser tab and return
       // its tabId. Used by `assistant browser navigate --new-tab` so the
       // executor can pin subsequent CDP commands to the new tab via

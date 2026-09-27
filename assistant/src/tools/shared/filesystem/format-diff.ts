@@ -23,6 +23,5 @@ export function formatWriteSummary(
   if (isNewFile) {
     return `(new file, ${newLineCount} line${newLineCount !== 1 ? "s" : ""})`;
   }
-  const oldLineCount = oldContent.split("\n").length;
-  return `(${oldLineCount} → ${newLineCount} lines)`;
+  return `(${oldContent.split("\n").length} → ${newLineCount} lines)`;
 }

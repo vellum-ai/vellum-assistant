@@ -345,7 +345,9 @@ export interface HotkeySelection {
 
 /** Null means no selection; an unavailable read must never authorize a paste. */
 export type HotkeySelectionResult =
-  HotkeySelection | { unavailable: true } | null;
+  | HotkeySelection
+  | { unavailable: true }
+  | null;
 
 export interface HotkeyEvent {
   kind: HotkeyEventKind;
@@ -403,6 +405,24 @@ export type ChordRegistrationResult = HotkeyRegistrationResult;
 // ---------------------------------------------------------------------------
 // System permissions
 // ---------------------------------------------------------------------------
+
+export type DraggablePermissionKind = "screen" | "inputMonitoring";
+
+export interface PermissionGuideState {
+  id: number;
+  kind: DraggablePermissionKind;
+  appName: string;
+  appIcon: string;
+  accentHex?: string;
+  error: boolean;
+}
+
+export interface PermissionSourceRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
 
 export const SYSTEM_PERMISSION_KINDS = [
   "accessibility",
@@ -2000,9 +2020,9 @@ export const COMPANION_ANNOTATION_STROKE = 0.006;
  * goes outside them, so the control a user is being pointed at stays as
  * visible as it was before anything was drawn on it.
  *
- * For an extent that is itself the message: a region of an image, an area of
- * a canvas, a panel being named as a whole. To send someone to one control,
- * see {@link CompanionCoachmarkPoint}.
+ * For a region, an explicit circle request, or a control confidently located
+ * in a fresh image when its accessibility name cannot be resolved. Named
+ * controls use {@link CompanionCoachmarkPoint} for an arrow.
  */
 export interface CompanionCoachmarkRegion {
   kind: "region";
@@ -2083,12 +2103,10 @@ export type CoachmarkRefusal =
 /**
  * One thing to point at: a control named, or a rectangle given.
  *
- * **Naming is the one to reach for.** The accessibility tree holds the exact
- * frame of every labelled control on the surface, so a name resolves to where
- * the thing actually is; a rectangle is a guess at it, measured off a picture
- * that has been scaled and compressed on its way to whoever is guessing. The
- * rectangle form remains for what the tree cannot name (a canvas, an image,
- * a plugin's own drawing), where there is nothing to resolve against.
+ * A name resolves a control through accessibility information and draws an
+ * arrow. Bounds measured from a fresh shared image draw a ring for a region,
+ * an explicit circle request, or a confidently identified control whose
+ * accessibility name could not be resolved.
  */
 export type CoachmarkRequest =
   | { target: string; caption?: string }
@@ -2112,9 +2130,10 @@ export type PlacedCoachmark = CompanionCoachmark & { matched?: string };
 /**
  * Why a named control could not be turned into a mark.
  *
- * Each carries the labels that were on the surface, because the answer to all
- * three is the same shape: say what is there instead of drawing at a guess.
- * `ambiguous` lists the ones that fit, the others everything there was.
+ * Candidates support an exact-name retry when they identify the control.
+ * Otherwise, a control confidently identified in a fresh shared image can
+ * be retried with bounds. `ambiguous` lists matching labels; the other
+ * reasons list available labels.
  */
 export interface CoachmarkUnresolved {
   target: string;
@@ -2141,6 +2160,49 @@ export type CoachmarkResult =
   | { kind: "placed"; marks: readonly PlacedCoachmark[] }
   | { kind: "refused"; refusal: CoachmarkRefusal }
   | { kind: "unresolved"; unresolved: CoachmarkUnresolved };
+
+/**
+ * One control the shared surface offers to be pointed at, read from its
+ * accessibility tree.
+ *
+ * `label` is the name `screen_point_at` resolves a target against, exactly
+ * as the tree carries it, which is often not the visible text: a web app can
+ * name its Filters button `root_Filters`. Offered before the first lookup so
+ * the assistant can name a real control on its first try.
+ */
+export interface ShareTarget {
+  /**
+   * Derived from the role and label, so the same control keeps its id from
+   * one snapshot to the next, and unique within a snapshot. What a caller
+   * scoring every candidate at once names a candidate back by.
+   */
+  id: string;
+  label: string;
+  /** The accessibility role, e.g. `AXButton`. */
+  role: string;
+  /** The nearest named container, e.g. a toolbar or a sidebar list. */
+  section?: string;
+  /** The visible part of the control, as fractions of the shared surface. */
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /**
+   * How many controls on the surface carry this exact name, present only
+   * when more than one does. A name like that cannot select one of them.
+   */
+  duplicates?: number;
+}
+
+/**
+ * The controls a shared surface offers to be pointed at, pruned and capped
+ * for a prompt: {@link ShareTarget}s in tree order.
+ */
+export interface ShareTargetSnapshot {
+  targets: ShareTarget[];
+  /** Named controls visible on the surface before pruning and capping. */
+  total: number;
+}
 
 /**
  * One frame of a {@link WatchCaptureTarget}, as the helper took it: a JPEG,
@@ -2593,17 +2655,20 @@ export const companionIntroCallControlFor = (
  * `tray`): the creature, a voice conversation, a composer the surface no
  * longer draws, and where to switch the thing off.
  *
- * **2** is this run. It keeps only the first of those subjects and adds what a
+ * **2** covers only the first of those subjects, what a
  * call can do (the screen, the marks, the mutes), the key that starts a
- * conversation from anywhere, and a press that starts one for real. Nobody who
- * saw the first run has been told any of that, so they are shown this one.
+ * conversation from anywhere, and a press that starts one for real.
+ *
+ * **3** opens with an in-app modal that explains the companion's capabilities
+ * before the user chooses whether to start the guided tour. An install recorded
+ * at version 2 is offered this introduction once.
  *
  * The desktop records the highest version it has run (`window-state.ts`), so a
  * bump is the whole of what it takes to introduce the surface again. Bumping it
  * for a copy edit would be re-explaining the desktop to someone who understood
  * it the first time, which is the cost this number exists to make deliberate.
  */
-export const COMPANION_INTRO_VERSION = 2;
+export const COMPANION_INTRO_VERSION = 3;
 
 /**
  * The subjects the beats belong to, in order, which is what the run's progress

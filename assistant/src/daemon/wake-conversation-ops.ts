@@ -219,7 +219,7 @@ export function broadcastWakeSurface(
 export async function persistWakeTailMessage(
   conversation: Conversation,
   message: Message,
-): Promise<void> {
+): Promise<string> {
   const turnChannelCtx = conversation.getTurnChannelContext();
   const turnInterfaceCtx = conversation.getTurnInterfaceContext();
   const metadata: Record<string, unknown> = {
@@ -262,6 +262,7 @@ export async function persistWakeTailMessage(
       "wake persist: syncMessageToDisk failed (non-fatal)",
     );
   }
+  return persisted.id;
 }
 
 /**
@@ -296,7 +297,7 @@ export async function persistWakeTriggerMessage(
   source: string,
   clientless: boolean,
   completion?: CompletedBackgroundTool,
-): Promise<void> {
+): Promise<string> {
   const backgroundEventInteractive =
     !clientless && !conversation.hasNoClient && !conversation.headlessLock;
   const turnChannelCtx = conversation.getTurnChannelContext();
@@ -348,6 +349,7 @@ export async function persistWakeTriggerMessage(
       "wake trigger persist: publishConversationMessagesChanged failed (non-fatal)",
     );
   }
+  return persisted.id;
 }
 
 /**

@@ -59,11 +59,12 @@ function seedSignalAt(
   sourceContextId: string,
   createdAt: number,
   outcome: SeedOutcome = "sent",
+  sourceEventName = "assistant.share",
 ): void {
   const eventId = crypto.randomUUID();
   createEvent({
     id: eventId,
-    sourceEventName: "assistant.share",
+    sourceEventName,
     sourceChannel: "assistant_tool",
     sourceContextId,
     attentionHints: {
@@ -107,6 +108,52 @@ function seedSignalAt(
 
 describe("hasNotifiedSourceContextSince", () => {
   const runStartedAt = 1_700_000_000_000;
+
+  test("result-only probes ignore approval cards while the scheduler keeps its broad contract", () => {
+    seedSignalAt(
+      CONVERSATION_ID,
+      runStartedAt + 100,
+      "sent",
+      "guardian.question",
+    );
+    const resultEvents = ["assistant.share", "activity.complete"];
+    expect(hasNotifiedSourceContextSince(CONVERSATION_ID, runStartedAt)).toBe(
+      true,
+    );
+    expect(
+      hasNotifiedSourceContextSince(
+        CONVERSATION_ID,
+        runStartedAt,
+        resultEvents,
+      ),
+    ).toBe(false);
+    seedSignalAt(
+      CONVERSATION_ID,
+      runStartedAt + 200,
+      "failed",
+      "activity.complete",
+    );
+    expect(
+      hasNotifiedSourceContextSince(
+        CONVERSATION_ID,
+        runStartedAt,
+        resultEvents,
+      ),
+    ).toBe(false);
+    seedSignalAt(
+      CONVERSATION_ID,
+      runStartedAt + 300,
+      "declined",
+      "assistant.share",
+    );
+    expect(
+      hasNotifiedSourceContextSince(
+        CONVERSATION_ID,
+        runStartedAt,
+        resultEvents,
+      ),
+    ).toBe(true);
+  });
 
   describe("the since bound", () => {
     test("finds a notification sent during the run", () => {

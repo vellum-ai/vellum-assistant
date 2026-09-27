@@ -12,9 +12,28 @@ index 50e325e84c01305ac5b7a909856b56662eeb6ea7..a7a049147a7d182d60c1e84f291c036b
      targets: [
          .target(
 diff --git a/android/src/main/java/com/ahm/capacitor/camera/preview/CameraActivity.java b/android/src/main/java/com/ahm/capacitor/camera/preview/CameraActivity.java
+index b46712ca5baf4cbd59c48d970233ac9720a7ce9c..f6b15a63111edc4335c544731e46b699653b2e07 100644
 --- a/android/src/main/java/com/ahm/capacitor/camera/preview/CameraActivity.java
 +++ b/android/src/main/java/com/ahm/capacitor/camera/preview/CameraActivity.java
-@@ -69,7 +69,7 @@
+@@ -20,6 +20,9 @@ import android.media.AudioManager;
+ import android.media.CamcorderProfile;
+ import android.media.MediaRecorder;
+ import android.os.Bundle;
++import android.os.Handler;
++import android.os.Looper;
++import android.os.SystemClock;
+ import android.util.Base64;
+ import android.util.DisplayMetrics;
+ import android.util.Log;
+@@ -45,6 +48,7 @@ import java.io.IOException;
+ import java.util.Arrays;
+ import java.util.List;
+ import java.util.UUID;
++import java.util.concurrent.atomic.AtomicBoolean;
+
+ public class CameraActivity extends Fragment {
+
+@@ -69,11 +73,19 @@ public class CameraActivity extends Fragment {
      public FrameLayout frameContainerLayout;
 
      private Preview mPreview;
@@ -23,7 +42,279 @@ diff --git a/android/src/main/java/com/ahm/capacitor/camera/preview/CameraActivi
 
      private View view;
      private Camera.Parameters cameraParameters;
-@@ -793,54 +793,60 @@
+     private Camera mCamera;
++    private final Handler snapshotHandler = new Handler(Looper.getMainLooper());
++    private volatile SnapshotPairRequest snapshotPair;
++    private static final AtomicBoolean snapshotEncoderBusy = new AtomicBoolean();
++
++    public interface SnapshotPairListener {
++        void onCaptured(String first, String second, double firstCapturedAfterMs, double secondCapturedAfterMs);
++        void onError(String message);
++    }
+     private int numberOfCameras;
+     private int cameraCurrentlyLocked;
+     private int currentQuality;
+@@ -380,6 +392,7 @@ public class CameraActivity extends Fragment {
+     @Override
+     public void onPause() {
+         super.onPause();
++        cancelSnapshotPair();
+
+         // Because the Camera object is a shared resource, it's very important to release it when the activity is paused.
+         if (mCamera != null) {
+@@ -468,6 +481,7 @@ public class CameraActivity extends Fragment {
+     }
+
+     public void switchCamera() {
++        cancelSnapshotPair();
+         // check for availability of multiple cameras
+         if (numberOfCameras == 1) {
+             //There is only one camera available
+@@ -745,40 +759,216 @@ public class CameraActivity extends Fragment {
+         mPreview.setOpacity(opacity);
+     }
+
++    private static String encodeSnapshot(
++        byte[] bytes,
++        int width,
++        int height,
++        int format,
++        int rotation,
++        int quality
++    ) throws IOException {
++        byte[] rotated = rotateNV21(bytes, width, height, rotation);
++        boolean swap = rotation == 90 || rotation == 270;
++        Rect rect = new Rect(0, 0, swap ? height : width, swap ? width : height);
++        YuvImage image = new YuvImage(rotated, format, rect.width(), rect.height(), null);
++        try (ByteArrayOutputStream output = new ByteArrayOutputStream()) {
++            if (!image.compressToJpeg(rect, quality, output)) {
++                throw new IOException("Could not encode preview frame");
++            }
++            return Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP);
++        }
++    }
++
++    private int snapshotRotation() {
++        int orientation = mPreview.getDisplayOrientation();
++        return mPreview.getCameraFacing() == Camera.CameraInfo.CAMERA_FACING_FRONT
++            ? (360 - orientation) % 360
++            : orientation;
++    }
++
++    public void cancelSnapshotPair() {
++        final SnapshotPairRequest request = snapshotPair;
++        if (request == null) {
++            return;
++        }
++        if (Looper.myLooper() != Looper.getMainLooper()) {
++            snapshotHandler.post(() -> request.fail("Camera sample cancelled"));
++            return;
++        }
++        request.fail("Camera sample cancelled");
++    }
++
+     public void takeSnapshot(final int quality) {
+-        mCamera.setPreviewCallback(
+-            new Camera.PreviewCallback() {
+-                @Override
+-                public void onPreviewFrame(byte[] bytes, Camera camera) {
++        snapshotHandler.post(() -> {
++            cancelSnapshotPair();
++            final Camera camera = mCamera;
++            if (camera == null) {
++                eventListener.onSnapshotTakenError("Camera is not running");
++                return;
++            }
++            try {
++                camera.setOneShotPreviewCallback((bytes, capturedCamera) -> {
+                     try {
+-                        Camera.Parameters parameters = camera.getParameters();
++                        Camera.Parameters parameters = capturedCamera.getParameters();
+                         Camera.Size size = parameters.getPreviewSize();
+-                        int orientation = mPreview.getDisplayOrientation();
+-                        if (mPreview.getCameraFacing() == Camera.CameraInfo.CAMERA_FACING_FRONT) {
+-                            bytes = rotateNV21(bytes, size.width, size.height, (360 - orientation) % 360);
+-                        } else {
+-                            bytes = rotateNV21(bytes, size.width, size.height, orientation);
++                        eventListener.onSnapshotTaken(encodeSnapshot(
++                            bytes, size.width, size.height, parameters.getPreviewFormat(), snapshotRotation(), quality
++                        ));
++                    } catch (IOException | RuntimeException error) {
++                        eventListener.onSnapshotTakenError("Failed to capture preview frame");
++                    }
++                });
++            } catch (RuntimeException error) {
++                eventListener.onSnapshotTakenError("Failed to capture preview frame");
++            }
++        });
++    }
++
++    public void takeSnapshotPair(
++        final int quality,
++        final int spacingMs,
++        final long startedAtNanos,
++        final SnapshotPairListener listener
++    ) {
++        final Camera requestedCamera = mCamera;
++        snapshotHandler.post(() -> {
++            if (requestedCamera == null || mCamera != requestedCamera) {
++                listener.onError("Camera is not running");
++                return;
++            }
++            cancelSnapshotPair();
++            try {
++                SnapshotPairRequest request = new SnapshotPairRequest(
++                    requestedCamera, quality, spacingMs, startedAtNanos, listener
++                );
++                snapshotPair = request;
++                request.start();
++            } catch (RuntimeException error) {
++                if (snapshotPair != null) {
++                    snapshotPair.fail("Failed to capture preview pair");
++                } else {
++                    listener.onError("Failed to capture preview pair");
++                }
++            }
++        });
++    }
++
++    private final class SnapshotPairRequest implements Camera.PreviewCallback {
++        private final Camera camera;
++        private final SnapshotPair pair;
++        private final SnapshotPairListener listener;
++        private final int quality;
++        private final int width;
++        private final int height;
++        private final int format;
++        private final int rotation;
++        private boolean attached;
++        private final Runnable deadline = () -> fail("Camera sample timed out");
++
++        SnapshotPairRequest(Camera camera, int quality, int spacingMs, long startedAtNanos, SnapshotPairListener listener) {
++            this.camera = camera;
++            this.quality = quality;
++            this.listener = listener;
++            pair = new SnapshotPair(spacingMs, startedAtNanos);
++            Camera.Parameters parameters = camera.getParameters();
++            Camera.Size size = parameters.getPreviewSize();
++            width = size.width;
++            height = size.height;
++            format = parameters.getPreviewFormat();
++            rotation = snapshotRotation();
++        }
++
++        void start() {
++            if (pair.expired(SystemClock.elapsedRealtimeNanos())) {
++                fail("Camera sample timed out");
++                return;
++            }
++            snapshotHandler.postDelayed(deadline, pair.remainingMs(SystemClock.elapsedRealtimeNanos()));
++            attached = true;
++            camera.setPreviewCallback(this);
++        }
++
++        private void detach() {
++            if (attached && snapshotPair == this) {
++                attached = false;
++                try {
++                    camera.setPreviewCallback(null);
++                } catch (RuntimeException ignored) {
++                    // A camera released by the lifecycle has no callback to clear.
++                }
++            }
++        }
++
++        private boolean finish() {
++            if (!pair.complete()) {
++                return false;
++            }
++            snapshotHandler.removeCallbacks(deadline);
++            detach();
++            if (snapshotPair == this) {
++                snapshotPair = null;
++            }
++            return true;
++        }
++
++        void fail(String message) {
++            if (finish()) {
++                listener.onError(message);
++            }
++        }
++
++        @Override
++        public void onPreviewFrame(byte[] bytes, Camera capturedCamera) {
++            if (snapshotPair != this || pair.isCompleted()) {
++                return;
++            }
++            long capturedAtNanos = SystemClock.elapsedRealtimeNanos();
++            if (pair.expired(capturedAtNanos)) {
++                fail("Camera sample timed out");
++                return;
++            }
++            if (capturedCamera != camera || mCamera != camera) {
++                fail("Camera sample cancelled");
++                return;
++            }
++            final SnapshotPair.Frames frames = pair.capture(bytes, capturedAtNanos);
++            if (frames == null) {
++                return;
++            }
++            detach();
++            if (!snapshotEncoderBusy.compareAndSet(false, true)) {
++                fail("Camera sample encoder is busy");
++                return;
++            }
++            try {
++                new Thread(() -> {
++                    try {
++                        if (pair.isCompleted()) {
++                            return;
++                        }
++                        String first = encodeSnapshot(frames.first, width, height, format, rotation, quality);
++                        if (pair.isCompleted()) {
++                            return;
+                         }
+-                        // switch width/height when rotating 90/270 deg
+-                        Rect rect =
+-                            orientation == 90 || orientation == 270
+-                                ? new Rect(0, 0, size.height, size.width)
+-                                : new Rect(0, 0, size.width, size.height);
+-                        YuvImage yuvImage = new YuvImage(bytes, parameters.getPreviewFormat(), rect.width(), rect.height(), null);
+-                        ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+-                        yuvImage.compressToJpeg(rect, quality, byteArrayOutputStream);
+-                        byte[] data = byteArrayOutputStream.toByteArray();
+-                        byteArrayOutputStream.close();
+-                        eventListener.onSnapshotTaken(Base64.encodeToString(data, Base64.NO_WRAP));
+-                    } catch (IOException e) {
+-                        Log.d(TAG, "CameraPreview IOException");
+-                        eventListener.onSnapshotTakenError("IO Error");
++                        String second = encodeSnapshot(frames.second, width, height, format, rotation, quality);
++                        snapshotHandler.post(() -> {
++                            if (pair.expired(SystemClock.elapsedRealtimeNanos())) {
++                                fail("Camera sample timed out");
++                            } else if (finish()) {
++                                listener.onCaptured(first, second, frames.firstCapturedAfterMs, frames.secondCapturedAfterMs);
++                            }
++                        });
++                    } catch (IOException | RuntimeException error) {
++                        snapshotHandler.post(() -> fail("Failed to encode preview pair"));
+                     } finally {
+-                        mCamera.setPreviewCallback(null);
++                        snapshotEncoderBusy.set(false);
+                     }
+-                }
++                }, "CameraPreview-pair-encode").start();
++            } catch (RuntimeException error) {
++                snapshotEncoderBusy.set(false);
++                fail("Failed to start preview encoding");
+             }
+-        );
++        }
+     }
+
+     public void takePicture(final int width, final int height, final int quality) {
+@@ -793,54 +983,60 @@ public class CameraActivity extends Fragment {
 
              new Thread() {
                  public void run() {
@@ -32,25 +323,48 @@ diff --git a/android/src/main/java/com/ahm/capacitor/camera/preview/CameraActivi
 -                    Camera.Size size = getOptimalPictureSize(width, height, params.getPreviewSize(), params.getSupportedPictureSizes());
 -                    params.setPictureSize(size.width, size.height);
 -                    currentQuality = quality;
--
++                    try {
++                        Camera.Parameters params = mCamera.getParameters();
+
 -                    if (cameraCurrentlyLocked == Camera.CameraInfo.CAMERA_FACING_FRONT && !storeToFile) {
 -                        // The image will be recompressed in the callback
 -                        params.setJpegQuality(99);
 -                    } else {
 -                        params.setJpegQuality(quality);
-+                    try {
-+                        Camera.Parameters params = mCamera.getParameters();
-+
+-                    }
 +                        Camera.Size size = getOptimalPictureSize(width, height, params.getPreviewSize(), params.getSupportedPictureSizes());
 +                        params.setPictureSize(size.width, size.height);
 +                        currentQuality = quality;
-+
+
+-                    if (cameraCurrentlyLocked == Camera.CameraInfo.CAMERA_FACING_FRONT && disableExifHeaderStripping) {
+-                        Activity activity = getActivity();
+-                        int rotation = activity.getWindowManager().getDefaultDisplay().getRotation();
+-                        int degrees = 0;
+-                        switch (rotation) {
+-                            case Surface.ROTATION_0:
+-                                degrees = 0;
+-                                break;
+-                            case Surface.ROTATION_90:
+-                                degrees = 180;
+-                                break;
+-                            case Surface.ROTATION_180:
+-                                degrees = 270;
+-                                break;
+-                            case Surface.ROTATION_270:
+-                                degrees = 0;
+-                                break;
 +                        if (cameraCurrentlyLocked == Camera.CameraInfo.CAMERA_FACING_FRONT && !storeToFile) {
 +                            // The image will be recompressed in the callback
 +                            params.setJpegQuality(99);
 +                        } else {
 +                            params.setJpegQuality(quality);
-+                        }
+                         }
+-                        int orientation;
+-                        Camera.CameraInfo info = new Camera.CameraInfo();
+-                        if (info.facing == Camera.CameraInfo.CAMERA_FACING_FRONT) {
+-                            orientation = (info.orientation + degrees) % 360;
+-                            if (degrees != 0) {
+-                                orientation = (360 - orientation) % 360;
 +
 +                        if (cameraCurrentlyLocked == Camera.CameraInfo.CAMERA_FACING_FRONT && disableExifHeaderStripping) {
 +                            Activity activity = getActivity();
@@ -69,7 +383,7 @@ diff --git a/android/src/main/java/com/ahm/capacitor/camera/preview/CameraActivi
 +                                case Surface.ROTATION_270:
 +                                    degrees = 0;
 +                                    break;
-+                            }
+                             }
 +                            int orientation;
 +                            Camera.CameraInfo info = new Camera.CameraInfo();
 +                            if (info.facing == Camera.CameraInfo.CAMERA_FACING_FRONT) {
@@ -81,62 +395,192 @@ diff --git a/android/src/main/java/com/ahm/capacitor/camera/preview/CameraActivi
 +                                orientation = (info.orientation - degrees + 360) % 360;
 +                            }
 +                            params.setRotation(orientation);
-+                        } else {
+                         } else {
+-                            orientation = (info.orientation - degrees + 360) % 360;
 +                            params.setRotation(mPreview.getDisplayOrientation());
-+                        }
-+
+                         }
+-                        params.setRotation(orientation);
+-                    } else {
+-                        params.setRotation(mPreview.getDisplayOrientation());
+-                    }
+
+-                    mCamera.setParameters(params);
+-                    mCamera.takePicture(shutterCallback, null, jpegPictureCallback);
 +                        mCamera.setParameters(params);
 +                        mCamera.takePicture(shutterCallback, null, jpegPictureCallback);
 +                    } catch (RuntimeException e) {
 +                        Log.e(TAG, "CameraPreview takePicture failed", e);
 +                        canTakePicture = true;
 +                        eventListener.onPictureTakenError("Failed to capture picture");
-                     }
--
--                    if (cameraCurrentlyLocked == Camera.CameraInfo.CAMERA_FACING_FRONT && disableExifHeaderStripping) {
--                        Activity activity = getActivity();
--                        int rotation = activity.getWindowManager().getDefaultDisplay().getRotation();
--                        int degrees = 0;
--                        switch (rotation) {
--                            case Surface.ROTATION_0:
--                                degrees = 0;
--                                break;
--                            case Surface.ROTATION_90:
--                                degrees = 180;
--                                break;
--                            case Surface.ROTATION_180:
--                                degrees = 270;
--                                break;
--                            case Surface.ROTATION_270:
--                                degrees = 0;
--                                break;
--                        }
--                        int orientation;
--                        Camera.CameraInfo info = new Camera.CameraInfo();
--                        if (info.facing == Camera.CameraInfo.CAMERA_FACING_FRONT) {
--                            orientation = (info.orientation + degrees) % 360;
--                            if (degrees != 0) {
--                                orientation = (360 - orientation) % 360;
--                            }
--                        } else {
--                            orientation = (info.orientation - degrees + 360) % 360;
--                        }
--                        params.setRotation(orientation);
--                    } else {
--                        params.setRotation(mPreview.getDisplayOrientation());
--                    }
--
--                    mCamera.setParameters(params);
--                    mCamera.takePicture(shutterCallback, null, jpegPictureCallback);
++                    }
                  }
              }
                  .start();
+@@ -1039,3 +1235,80 @@ public class CameraActivity extends Fragment {
+         return (float) Math.sqrt(x * x + y * y);
+     }
+ }
++
++/** Owns copied preview buffers until a request completes or is cancelled. */
++final class SnapshotPair {
++    static final long TIMEOUT_MS = 5_000;
++    private final long startedAtNanos;
++    private final long spacingNanos;
++    private byte[] first;
++    private long firstAtNanos;
++    private boolean captured;
++    private volatile boolean completed;
++
++    SnapshotPair(int spacingMs, long startedAtNanos) {
++        if (spacingMs < 1 || spacingMs > 120) {
++            throw new IllegalArgumentException("pairSpacingMs must be between 1 and 120");
++        }
++        this.spacingNanos = spacingMs * 1_000_000L;
++        this.startedAtNanos = startedAtNanos;
++    }
++
++    boolean expired(long nowNanos) {
++        return nowNanos - startedAtNanos >= TIMEOUT_MS * 1_000_000L;
++    }
++
++    long remainingMs(long nowNanos) {
++        return Math.max(0, TIMEOUT_MS - (nowNanos - startedAtNanos) / 1_000_000L);
++    }
++
++    Frames capture(byte[] bytes, long nowNanos) {
++        if (completed || captured || expired(nowNanos) || nowNanos < startedAtNanos || bytes == null) {
++            return null;
++        }
++        if (first == null) {
++            first = bytes.clone();
++            firstAtNanos = nowNanos;
++            return null;
++        }
++        if (nowNanos - firstAtNanos < spacingNanos) {
++            return null;
++        }
++        Frames frames = new Frames(
++            first,
++            bytes.clone(),
++            (firstAtNanos - startedAtNanos) / 1_000_000.0,
++            (nowNanos - startedAtNanos) / 1_000_000.0
++        );
++        first = null;
++        captured = true;
++        return frames;
++    }
++
++    boolean complete() {
++        if (completed) {
++            return false;
++        }
++        completed = true;
++        first = null;
++        return true;
++    }
++
++    boolean isCompleted() {
++        return completed;
++    }
++
++    static final class Frames {
++        final byte[] first;
++        final byte[] second;
++        final double firstCapturedAfterMs;
++        final double secondCapturedAfterMs;
++
++        Frames(byte[] first, byte[] second, double firstCapturedAfterMs, double secondCapturedAfterMs) {
++            this.first = first;
++            this.second = second;
++            this.firstCapturedAfterMs = firstCapturedAfterMs;
++            this.secondCapturedAfterMs = secondCapturedAfterMs;
++        }
++    }
++}
 diff --git a/android/src/main/java/com/ahm/capacitor/camera/preview/CameraPreview.java b/android/src/main/java/com/ahm/capacitor/camera/preview/CameraPreview.java
-index 854aeee57dc88c115e6e294af1a5a8866d10d30c..cf23806dec64d1023d3d06e8f87a94ad859e44f2 100644
+index 854aeee57dc88c115e6e294af1a5a8866d10d30c..2d8fa996eb87de9305357c3b0d75dc4990485ff9 100644
 --- a/android/src/main/java/com/ahm/capacitor/camera/preview/CameraPreview.java
 +++ b/android/src/main/java/com/ahm/capacitor/camera/preview/CameraPreview.java
-@@ -126,7 +126,10 @@ public class CameraPreview extends Plugin implements CameraActivity.CameraPrevie
- 
+@@ -9,6 +9,7 @@ import android.content.pm.ActivityInfo;
+ import android.graphics.Color;
+ import android.graphics.Point;
+ import android.hardware.Camera;
++import android.os.SystemClock;
+ import android.util.DisplayMetrics;
+ import android.util.TypedValue;
+ import android.view.Display;
+@@ -59,13 +60,15 @@ public class CameraPreview extends Plugin implements CameraActivity.CameraPrevie
+
+     @PluginMethod
+     public void flip(PluginCall call) {
+-        try {
+-            fragment.switchCamera();
+-            call.resolve();
+-        } catch (Exception e) {
+-            Logger.debug(getLogTag(), "Camera flip exception: " + e);
+-            call.reject("failed to flip camera");
+-        }
++        getActivity().runOnUiThread(() -> {
++            try {
++                fragment.switchCamera();
++                call.resolve();
++            } catch (Exception e) {
++                Logger.debug(getLogTag(), "Camera flip exception: " + e);
++                call.reject("failed to flip camera");
++            }
++        });
+     }
+
+     @PluginMethod
+@@ -102,10 +105,34 @@ public class CameraPreview extends Plugin implements CameraActivity.CameraPrevie
+             call.reject("Camera is not running");
+             return;
+         }
++        final long startedAtNanos = SystemClock.elapsedRealtimeNanos();
++        Integer quality = call.getInt("quality", 85);
++        Integer pairSpacingMs = call.getInt("pairSpacingMs");
++        if (pairSpacingMs != null) {
++            if (pairSpacingMs < 1 || pairSpacingMs > 120) {
++                call.reject("pairSpacingMs must be between 1 and 120");
++                return;
++            }
++            fragment.takeSnapshotPair(quality, pairSpacingMs, startedAtNanos, new CameraActivity.SnapshotPairListener() {
++                @Override
++                public void onCaptured(String first, String second, double firstCapturedAfterMs, double secondCapturedAfterMs) {
++                    JSObject result = new JSObject();
++                    result.put("value", second);
++                    result.put("primer", first);
++                    result.put("firstCapturedAfterMs", firstCapturedAfterMs);
++                    result.put("secondCapturedAfterMs", secondCapturedAfterMs);
++                    call.resolve(result);
++                }
++
++                @Override
++                public void onError(String message) {
++                    call.reject(message);
++                }
++            });
++            return;
++        }
+         bridge.saveCall(call);
+         snapshotCallbackId = call.getCallbackId();
+-
+-        Integer quality = call.getInt("quality", 85);
+         fragment.takeSnapshot(quality);
+     }
+
+@@ -118,6 +145,9 @@ public class CameraPreview extends Plugin implements CameraActivity.CameraPrevie
+                 new Runnable() {
+                     @Override
+                     public void run() {
++                        if (fragment != null) {
++                            fragment.cancelSnapshotPair();
++                        }
+                         FrameLayout containerView = getBridge().getActivity().findViewById(containerViewId);
+
+                         // allow orientation changes after closing camera:
+@@ -126,7 +156,10 @@ public class CameraPreview extends Plugin implements CameraActivity.CameraPrevie
+
                          if (containerView != null) {
                              ((ViewGroup) getBridge().getWebView().getParent()).removeView(containerView);
 -                            getBridge().getWebView().setBackgroundColor(Color.WHITE);
@@ -148,7 +592,7 @@ index 854aeee57dc88c115e6e294af1a5a8866d10d30c..cf23806dec64d1023d3d06e8f87a94ad
                              FragmentTransaction fragmentTransaction = fragmentManager.beginTransaction();
                              if (fragment != null) {
 diff --git a/ios/Sources/CameraPreviewPlugin/CameraPreviewPlugin.swift b/ios/Sources/CameraPreviewPlugin/CameraPreviewPlugin.swift
-index aa18ca78d0d73ceceeae4eee2d23a83a802bab03..42eb0bd7f8619da07f32d12ab9c5989c389d4ac7 100644
+index aa18ca78d0d73ceceeae4eee2d23a83a802bab03..965390b69654778a5d6f84042e6ffd5ea9d21208 100644
 --- a/ios/Sources/CameraPreviewPlugin/CameraPreviewPlugin.swift
 +++ b/ios/Sources/CameraPreviewPlugin/CameraPreviewPlugin.swift
 @@ -171,7 +171,10 @@ public class CameraPreview: CAPPlugin, CAPBridgedPlugin {
@@ -163,7 +607,7 @@ index aa18ca78d0d73ceceeae4eee2d23a83a802bab03..42eb0bd7f8619da07f32d12ab9c5989c
                  call.resolve()
              } else {
                  call.reject("camera already stopped")
-@@ -207,9 +210,10 @@ public class CameraPreview: CAPPlugin, CAPBridgedPlugin {
+@@ -207,11 +210,12 @@ public class CameraPreview: CAPPlugin, CAPBridgedPlugin {
                      return
                  }
                  let imageData: Data?
@@ -176,3 +620,5 @@ index aa18ca78d0d73ceceeae4eee2d23a83a802bab03..42eb0bd7f8619da07f32d12ab9c5989c
 -                    imageData = image.jpegData(compressionQuality: CGFloat(quality!/100))
 +                    imageData = image.jpegData(compressionQuality: compression)
                  }
+
+                 if self.storeToFile == false {

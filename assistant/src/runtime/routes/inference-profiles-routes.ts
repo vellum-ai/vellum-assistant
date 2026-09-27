@@ -29,6 +29,7 @@ import {
   getConfigReadOnly,
   loadRawConfig,
 } from "../../config/loader.js";
+import { orderProfileKeys } from "../../config/profile-order.js";
 import {
   nonTextConversationProfileMessage,
   profileSupportsTextGeneration,
@@ -527,9 +528,11 @@ async function handleListProfiles() {
     config.llm.profiles,
     config.llm.defaultProvider ?? null,
   );
+  // Presentation order, the same one the pickers use, rather than the
+  // on-disk insertion order of `llm.profiles`.
   const profiles = await Promise.all(
-    Object.entries(effective).map(async ([name, entry]) => {
-      const record = entry as Record<string, unknown>;
+    orderProfileKeys(effective, config.llm.profileOrder).map(async (name) => {
+      const record = effective[name] as Record<string, unknown>;
       const configIssue = profileConfigIssue(record);
       return {
         name,

@@ -80,7 +80,40 @@ afterEach(() => {
   useIntelligenceLayoutSlotsStore.getState().setDetailIsScreen(false);
 });
 
-describe("IntelligenceLayout — section pages", () => {
+describe("IntelligenceLayout section pages", () => {
+  test("Workspace publishes a plain mobile title and a single Back", () => {
+    isMobileRef.value = true;
+    const body = renderLayoutAt("/assistant/workspace");
+    const slot = lastMobileTopBar();
+    const header = render(
+      <MemoryRouter>
+        {slot?.leading}
+        {slot?.center}
+        {slot?.trailing}
+      </MemoryRouter>,
+    );
+
+    expect(header.getByText("Workspace").closest("button, a")).toBeNull();
+    expect(header.queryByRole("button")).toBeNull();
+    expect(header.getAllByRole("link")).toHaveLength(1);
+    expect(
+      header.getByRole("link", { name: "Back to Ada" }).getAttribute("href"),
+    ).toBe("/assistant/identity");
+    expect(body.container.querySelector("h1, a, button")).toBeNull();
+    expect(slot?.trailing).toBeNull();
+  });
+
+  test("Workspace retains its plain desktop heading and Back", () => {
+    const { getByRole, queryByRole } = renderLayoutAt("/assistant/workspace");
+
+    expect(getByRole("heading", { name: "Workspace", level: 1 })).toBeDefined();
+    expect(
+      getByRole("link", { name: "Back to Ada" }).getAttribute("href"),
+    ).toBe("/assistant/identity");
+    expect(queryByRole("button")).toBeNull();
+    expect(lastMobileTopBar()).toBeUndefined();
+  });
+
   test("renders the section heading and a back chevron to the overview", () => {
     const { container } = renderLayoutAt("/assistant/superpowers");
 

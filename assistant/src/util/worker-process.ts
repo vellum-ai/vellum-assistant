@@ -20,6 +20,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { getCurrentLogFilePath, getLogger } from "./logger.js";
+import { setOomScoreAdj, WORKER_OOM_SCORE_ADJ } from "./oom-priority.js";
 import { isProcessAlive } from "./process-liveness.js";
 import {
   listProcessTable,
@@ -128,6 +129,11 @@ const PID_FILE_WAIT_TIMEOUT_MS = 15_000;
 const PID_FILE_POLL_INTERVAL_MS = 100;
 
 export interface SpawnWorkerProcessOptions {
+  /**
+   * `oom_score_adj` for the worker. Defaults to {@link WORKER_OOM_SCORE_ADJ};
+   * the child would otherwise inherit the daemon's protected value.
+   */
+  oomScoreAdj?: number;
   /**
    * Override how long to wait for the worker's PID file, in ms. Defaults to
    * {@link PID_FILE_WAIT_TIMEOUT_MS}. Primarily a testing seam.
@@ -625,6 +631,8 @@ export async function spawnWorkerProcess(args: {
     detached: false,
     windowsHide: true,
   });
+
+  setOomScoreAdj(opts.oomScoreAdj ?? WORKER_OOM_SCORE_ADJ, child.pid);
 
   // Close our copy of the log fd — the child has its own.
   if (typeof stderrFd === "number") {

@@ -12,6 +12,7 @@ mock.module("../subagent/index.js", () => ({
 
 import {
   ConversationEvictor,
+  defaultMemoryThresholdBytes,
   type EvictableConversation,
 } from "../daemon/conversation-evictor.js";
 
@@ -268,6 +269,46 @@ describe("ConversationEvictor", () => {
       expect(resident.disposed).toBe(false);
       expect(idle.disposed).toBe(true);
     });
+
+    test("evicts a bounded batch per sweep, least recently used first", () => {
+      for (let i = 0; i < 15; i++) {
+        sessions.set(`conv-${i}`, createMockSession());
+      }
+      evictor = new ConversationEvictor(sessions, {
+        ttlMs: Number.MAX_SAFE_INTEGER,
+        maxConversations: Number.MAX_SAFE_INTEGER,
+        memoryThresholdBytes: 0,
+      });
+      for (let i = 0; i < 15; i++) {
+        evictor.touch(`conv-${i}`);
+      }
+
+      expect(evictor.sweep().memoryEvicted).toBe(10);
+      expect(sessions.has("conv-0")).toBe(false);
+      expect(sessions.has("conv-10")).toBe(true);
+      expect(evictor.sweep().memoryEvicted).toBe(5);
+      expect(sessions.size).toBe(0);
+    });
+
+    test("derives the threshold from the container limit at first sweep, not construction", () => {
+      const previous = process.env.VELLUM_MEMORY_LIMIT;
+      sessions.set("idle", createMockSession());
+      evictor = new ConversationEvictor(sessions, {
+        ttlMs: Number.MAX_SAFE_INTEGER,
+        maxConversations: Number.MAX_SAFE_INTEGER,
+      });
+      // Half of 1 MiB is far below any live RSS, so the phase must fire.
+      process.env.VELLUM_MEMORY_LIMIT = "1Mi";
+      try {
+        expect(evictor.sweep().memoryEvicted).toBe(1);
+      } finally {
+        if (previous === undefined) {
+          delete process.env.VELLUM_MEMORY_LIMIT;
+        } else {
+          process.env.VELLUM_MEMORY_LIMIT = previous;
+        }
+      }
+    });
   });
 
   describe("onEvict", () => {
@@ -324,5 +365,18 @@ describe("ConversationEvictor", () => {
       evictor.stop();
       expect(evictor.trackedCount).toBe(0);
     });
+  });
+});
+
+describe("defaultMemoryThresholdBytes", () => {
+  const GIB = 1024 * 1024 * 1024;
+
+  test("is half the container limit", () => {
+    expect(defaultMemoryThresholdBytes(3 * GIB)).toBe(1.5 * GIB);
+    expect(defaultMemoryThresholdBytes(8 * GIB)).toBe(4 * GIB);
+  });
+
+  test("falls back to 3 GiB without a limit", () => {
+    expect(defaultMemoryThresholdBytes(null)).toBe(3 * GIB);
   });
 });

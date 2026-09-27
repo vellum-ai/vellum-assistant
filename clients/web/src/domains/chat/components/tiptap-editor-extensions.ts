@@ -7,6 +7,7 @@
 import type { Editor } from "@tiptap/core";
 import { Extension } from "@tiptap/core";
 import Link from "@tiptap/extension-link";
+import { Placeholder } from "@tiptap/extensions";
 import {
   Table,
   TableCell,
@@ -29,6 +30,42 @@ import { charOffsetToPmPos } from "@/domains/chat/utils/tiptap-position-map";
 export function getEditorMarkdown(editor: Editor): string {
   const storage = editor.storage as unknown as { markdown: MarkdownStorage };
   return storage.markdown.getMarkdown();
+}
+
+/**
+ * Turn what someone typed into the link field into an href the document may
+ * hold, or `null` when it is not one. Only web and mail links are accepted,
+ * since the document is Markdown that other people and the assistant open.
+ * A bare domain (`example.com/page`) gains `https://` and a bare address
+ * (`user@example.com`) gains `mailto:`.
+ */
+export function normalizeLinkHref(input: string): string | null {
+  const value = input.trim();
+  if (!value || /\s/.test(value)) {
+    return null;
+  }
+  // A scheme is letters before a colon; `example.com:8080` is a port.
+  const scheme = /^([a-z][a-z\d+.-]*):(?!\d)/i.exec(value)?.[1]?.toLowerCase();
+  if (!scheme && value.includes("@")) {
+    return /^[^@/:]+@[^@/:]+\.[^@/:]+$/.test(value) ? `mailto:${value}` : null;
+  }
+  const candidate = scheme ? value : `https://${value.replace(/^\/\//, "")}`;
+  let url: URL;
+  try {
+    url = new URL(candidate);
+  } catch {
+    return null;
+  }
+  if (url.protocol === "mailto:") {
+    return url.pathname.includes("@") ? candidate : null;
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    return null;
+  }
+  if (!url.hostname || (!scheme && !url.hostname.includes("."))) {
+    return null;
+  }
+  return candidate;
 }
 
 // ---------------------------------------------------------------------------
@@ -180,11 +217,14 @@ export function buildDocumentEditorExtensions(
   opts: {
     commentAnchors?: CommentAnchor[];
     highlightRange?: { start: number; end: number } | null;
+    placeholder?: string;
   } = {},
 ) {
   return [
-    StarterKit,
-    Link.configure({ openOnClick: false }),
+    // StarterKit bundles its own Link; the pinned one below is the one used.
+    StarterKit.configure({ link: false }),
+    Link.configure({ openOnClick: false, defaultProtocol: "https" }),
+    Placeholder.configure({ placeholder: opts.placeholder ?? "" }),
     Table,
     TableRow,
     TableHeader,

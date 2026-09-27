@@ -98,6 +98,15 @@ const MACOS_ONLY_SURFACE = [
   "helper.hotkey.setModifierHold",
   "helper.input.onActivity",
   "helper.input.setActivityWatch",
+  // macOS System Settings accepts native application-bundle drops.
+  "permissions.setup.begin",
+  "permissions.setup.cancel",
+  "permissions.setup.dismiss",
+  "permissions.setup.getGuide",
+  "permissions.setup.onGuide",
+  "permissions.setup.ready",
+  "permissions.setup.revealApp",
+  "permissions.setup.startDrag",
   "text.undoInFrontApp",
 ];
 

@@ -37,6 +37,26 @@ The tree is walked to a limited depth to keep steps fast, and says when it was
 cut off. If the element you need is not in it, call `computer_use_observe` with
 `full_tree: true`.
 
+## Coordinates and live editing
+
+Prefer element IDs from the latest observation. Click, scroll and drag
+coordinates are **screen points**, not screenshot pixels. For a desktop
+screenshot, use the per-axis conversion in its observation metadata. If you
+crop or resize the image, map back to the original screenshot first. Observe
+again after the layout changes; an older image is not a current target.
+
+During live editing, use the app's zoom and track-height controls, then inspect
+the fresh screenshot. Avoid installing image libraries or repeatedly cropping
+and measuring screenshot pixels just to locate a UI control or waveform.
+Reserve scripted image or media analysis for tasks that actually require it.
+If an action does not produce the expected visible result, check focus and the
+coordinate mapping before repeating it.
+
+Waveform pixels do not reveal spoken words. If an edit depends on audio you
+cannot hear or a boundary you cannot see, ask for a timestamp, a user-positioned
+playhead, or the source media. Do not guess the cut point or claim an edit
+succeeded without observing its result.
+
 ## Scripting apps (macOS)
 
 Reach for `computer_use_run_applescript` first when an app can be driven by

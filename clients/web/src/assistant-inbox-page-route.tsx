@@ -1,6 +1,6 @@
 import { Loader2 } from "lucide-react";
-import { useCallback, useState } from "react";
-import { Navigate, useNavigate } from "react-router";
+import { useCallback, useMemo, useState } from "react";
+import { Navigate, useNavigate, useSearchParams } from "react-router";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
@@ -12,13 +12,19 @@ import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { AssistantInboxPage } from "@/domains/assistant-inbox/components/assistant-inbox-page";
 import { useAssistantHandleModal } from "@/components/assistant-handle-modal";
 import { AssistantInboxSetupCard } from "@/domains/assistant-inbox/components/assistant-inbox-setup-card";
+import { AssistantInboxSetupSuccess } from "@/domains/assistant-inbox/components/assistant-inbox-setup-success";
 import { AssistantInboxShell } from "@/domains/assistant-inbox/components/assistant-inbox-shell";
 import { AssistantInboxUpgradeState } from "@/domains/assistant-inbox/components/assistant-inbox-upgrade-state";
 import { useAssistantInboxState } from "@/domains/assistant-inbox/hooks/use-assistant-inbox-state";
+import { EmailSettingsModal } from "@/domains/channels/components/email-settings-modal";
+import { useDeletedEmails } from "@/domains/assistant-inbox/hooks/use-deleted-emails";
 import { useInboxMail } from "@/domains/assistant-inbox/hooks/use-inbox-mail";
+import { useReadEmails } from "@/domains/assistant-inbox/hooks/use-read-emails";
+import { toEmailReference } from "@/domains/assistant-inbox/to-email-reference";
 import type {
   HandleCheckResult,
   InboxEmail,
+  InboxFolder,
 } from "@/domains/assistant-inbox/types";
 import {
   checkAssistantHandleAvailable,
@@ -43,6 +49,7 @@ import { useTranslation } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
+import { usePendingDeepLinkStore } from "@/stores/pending-deep-link-store";
 import { extractErrorMessage } from "@/utils/api-errors";
 import { navigateToNewConversation } from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
@@ -67,6 +74,8 @@ interface MailboxProps {
   assistantName: string;
   address: string;
   addressId: string;
+  handle: string;
+  rootDomain: string;
 }
 
 /** The mailbox with its reads attached; split out so its hooks run only in the ready state. */
@@ -76,10 +85,54 @@ function Mailbox({
   assistantName,
   address,
   addressId,
+  handle,
+  rootDomain,
 }: MailboxProps) {
   const { t } = useTranslation("assistant-inbox");
   const navigate = useNavigate();
   const mail = useInboxMail(assistantId, platformAssistantId, addressId);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const { deletedIds, deleteEmails } = useDeletedEmails(assistantId);
+  const { readIds, markRead } = useReadEmails(assistantId);
+  /* A deep link from a sent message's email card names the folder and the
+     message to open on (`routes.assistantInboxMessage`). */
+  const [searchParams] = useSearchParams();
+  const linkedMessageId = searchParams.get("message");
+  const linkedFolder: InboxFolder =
+    searchParams.get("folder") === "sent" ? "sent" : "inbox";
+  const received = useMemo(
+    () => mail.received.filter((email) => !deletedIds.has(email.id)),
+    [mail.received, deletedIds],
+  );
+  const sent = useMemo(
+    () => mail.sent.filter((email) => !deletedIds.has(email.id)),
+    [mail.sent, deletedIds],
+  );
+
+  /* The checked messages go to a new chat as staged attachments. The draft
+     is minted here and the selection parked for it: the composer resets its
+     attachments on the switch into the draft, so staging them now would lose
+     them (see `usePendingEmailReferences`). */
+  const startChatWithEmails = useCallback(
+    (emails: InboxEmail[]) => {
+      const draftId = navigateToNewConversation(navigate);
+      usePendingDeepLinkStore.getState().setPendingComposerEmails({
+        threadId: draftId,
+        emails: emails.map(toEmailReference),
+      });
+    },
+    [navigate],
+  );
+
+  const removeEmails = useCallback(
+    (emails: InboxEmail[]) => {
+      deleteEmails(emails.map((email) => email.id));
+      toast.success(
+        t("assistantInboxRoute.deletedToast", { count: emails.length }),
+      );
+    },
+    [deleteEmails, t],
+  );
 
   const askToReply = useCallback(
     (email: InboxEmail) => {
@@ -121,16 +174,36 @@ function Mailbox({
   }
 
   return (
-    <AssistantInboxPage
-      assistantId={assistantId}
-      assistantName={assistantName}
-      address={address}
-      inbox={mail.received}
-      sent={mail.sent}
-      usage={mail.usage}
-      loadDetail={mail.loadDetail}
-      onAskToReply={askToReply}
-    />
+    <>
+      <AssistantInboxPage
+        /* Keyed on the link so a second card opens its message rather than
+           leaving the first one up. */
+        key={linkedMessageId ?? ""}
+        assistantId={assistantId}
+        assistantName={assistantName}
+        address={address}
+        inbox={received}
+        sent={sent}
+        initialFolder={linkedMessageId ? linkedFolder : undefined}
+        initialSelectedId={linkedMessageId}
+        loadDetail={mail.loadDetail}
+        onAskToReply={askToReply}
+        onStartChat={startChatWithEmails}
+        onDeleteEmails={removeEmails}
+        onOpenSettings={() => setSettingsOpen(true)}
+        readIds={readIds}
+        onRead={markRead}
+      />
+      <EmailSettingsModal
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        assistantId={platformAssistantId}
+        localAssistantId={assistantId}
+        assistantName={assistantName}
+        assistantHandle={handle}
+        emailRootDomain={rootDomain}
+      />
+    </>
   );
 }
 
@@ -154,9 +227,25 @@ export function AssistantInboxPageRoute() {
   const state = useAssistantInboxState(assistantId, identityName ?? "");
   const [settling, setSettling] = useState(false);
   const [setupError, setSetupError] = useState<string | null>(null);
+  /* The address just created, shown on the success screen until the user
+     goes on to the mailbox. */
+  const [justCreated, setJustCreated] = useState<string | null>(null);
   /* The upgrade pitch's "Change handle": the same modal the assistant page
      opens from its @handle line. */
   const handleModal = useAssistantHandleModal(assistantId);
+
+  /* The way back from the inbox's pages. "/" is the account screen, not
+     the app, so back goes where the user came from when there is an entry
+     behind this one, and to the assistant's profile (which holds the Email
+     pill) otherwise, as on a cold load of the address. */
+  const leave = useCallback(() => {
+    const idx = (window.history.state as { idx?: number } | null)?.idx ?? 0;
+    if (idx > 0) {
+      void navigate(-1);
+    } else {
+      void navigate(routes.identity);
+    }
+  }, [navigate]);
 
   const createDomain = useMutation(assistantsDomainsCreateMutation());
   const createAddress = useMutation(assistantsEmailAddressesCreateMutation());
@@ -264,9 +353,7 @@ export function AssistantInboxPageRoute() {
           setSetupError(readableSetupError(reason));
           return;
         }
-        toast.success(
-          t("assistantInboxRoute.setupSucceeded", { address: registered }),
-        );
+        setJustCreated(registered);
       } catch (err) {
         captureError(err, { context: "assistant_inbox_setup" });
         // Under the fields rather than in a toast: the refusal is usually
@@ -318,6 +405,7 @@ export function AssistantInboxPageRoute() {
             onEditHandle={handleModal.openModal ?? undefined}
             onUpgrade={() => navigate(routes.plans)}
             onSeePlans={() => navigate(routes.plans)}
+            onBack={leave}
           />
           {handleModal.modal}
         </>
@@ -334,9 +422,21 @@ export function AssistantInboxPageRoute() {
           onDraftChange={() => setSetupError(null)}
           onConfirm={(draft) => void confirmSetup(draft)}
           busy={settling}
+          onBack={leave}
         />
       );
     case "ready":
+      if (justCreated !== null) {
+        return (
+          <AssistantInboxSetupSuccess
+            assistantId={assistantId}
+            assistantName={state.assistantName}
+            address={justCreated}
+            onContinue={() => setJustCreated(null)}
+            onBack={leave}
+          />
+        );
+      }
       return (
         <Mailbox
           assistantId={assistantId}
@@ -344,6 +444,8 @@ export function AssistantInboxPageRoute() {
           assistantName={state.assistantName}
           address={state.address ?? ""}
           addressId={state.addressId ?? ""}
+          handle={state.handle}
+          rootDomain={state.rootDomain}
         />
       );
   }

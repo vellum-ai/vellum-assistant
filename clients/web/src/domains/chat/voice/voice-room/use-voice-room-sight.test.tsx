@@ -29,6 +29,7 @@ import type { UploadAttachmentResult } from "@/domains/chat/api/messages";
 import type { ForcedKeepOptions } from "@/lib/camera/frame-gate";
 import type { FrameSamplerOptions } from "@/lib/camera/frame-sampler";
 import type { NativeFrameSourceOptions } from "@/lib/camera/native-frame-source";
+import { buildDiagnosticsSnapshot } from "@/lib/diagnostics";
 
 import type { VoiceRoomSight } from "./use-voice-room-sight";
 
@@ -48,6 +49,7 @@ const nativeStop = mock(() => {});
 const nativeInvalidate = mock(() => {});
 const nativeSampleNow = mock(() => {});
 mock.module("@/lib/camera/native-frame-source", () => ({
+  NATIVE_PAIR_SPACING_MS: 60,
   createNativeFrameSource: (options: NativeFrameSourceOptions) => {
     nativeSourceOptions = options;
     return {
@@ -1768,6 +1770,44 @@ describe("useVoiceRoomSight: closing and flipping", () => {
 });
 
 describe("useVoiceRoomSight: the native preview", () => {
+  test("includes native sampling failures in exported feedback diagnostics", () => {
+    renderSight({ nativePreview: true, live: true });
+    nativeSourceOptions!.onDiagnostics!({
+      event: "sampling",
+      attempts: 2,
+      captureRequests: 4,
+      suppressedCaptures: 0,
+      emptyCaptures: 0,
+      captureTimeouts: 0,
+      decodeFailures: 0,
+      sampleErrors: 0,
+      pairGapRejections: 2,
+      decisions: 0,
+      keeps: 0,
+      lastCaptureMs: 80,
+      maxCaptureMs: 85,
+      lastPairGapMs: 165,
+      maxPairGapMs: 170,
+      pairGapLimitMs: 120,
+    });
+    const snapshot = buildDiagnosticsSnapshot(null);
+    expect(snapshot.lifecycleEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "native_camera_sampling",
+          details: expect.objectContaining({
+            assistantId: ASSISTANT_ID,
+            conversationId: useLiveVoiceStore.getState().conversationId,
+            pairGapRejections: 2,
+            decisions: 0,
+            lastPairGapMs: 165,
+            pairGapLimitMs: 120,
+          }),
+        }),
+      ]),
+    );
+  });
+
   /** Offer one kept frame to the running poll and settle the upload. */
   async function keepNativeFrame(bytes: number[]): Promise<Blob> {
     const sample = new Blob([new Uint8Array(bytes)], { type: "image/jpeg" });
@@ -1778,7 +1818,7 @@ describe("useVoiceRoomSight: the native preview", () => {
     return sample;
   }
 
-  test("asks the bridge for a sample at the shared capture quality", async () => {
+  test("asks the bridge for a native pair at the shared capture quality", async () => {
     renderSight({ nativePreview: true, live: true });
 
     await nativeSourceOptions!.captureSample();
@@ -1787,6 +1827,7 @@ describe("useVoiceRoomSight: the native preview", () => {
     // photo off the same camera are encoded alike.
     expect(captureNativeVoiceCameraSample).toHaveBeenCalledWith(
       NATIVE_CAPTURE_QUALITY,
+      60,
     );
   });
 
@@ -1945,39 +1986,49 @@ describe("useVoiceRoomSight: refusing the native sample a change caught in fligh
     expect(nativeStart).toHaveBeenCalledTimes(1);
   });
 
-  test("drops a native bridge sample from the old run and pauses bridge calls during reconnect", async () => {
+  test("gates bridge calls during reconnect and invalidates the outgoing samples", async () => {
     const start = mock((_epoch: number, _source: "live" | "ambient") => true);
     Object.assign(controls, { startSightSession: start });
     useLiveVoiceStore.getState().setControls(controls);
     const { view } = renderSight({ nativePreview: true, live: true });
-    let resolveSample!: (value: string) => void;
-    captureNativeVoiceCameraSample.mockImplementationOnce(
-      () =>
-        new Promise<string>((resolve) => {
-          resolveSample = resolve;
-        }),
-    );
-    const sample = nativeSourceOptions!.captureSample();
+    expect(nativeSourceOptions!.canCapture!()).toBe(true);
+    nativeInvalidate.mockClear();
     act(() => {
       useLiveVoiceStore.getState().setState("connecting");
       useLiveVoiceStore.getState().setReconnecting(true);
+      expect(nativeSourceOptions!.canCapture!()).toBe(false);
     });
-    expect(await nativeSourceOptions!.captureSample()).toBeNull();
-    expect(captureNativeVoiceCameraSample).toHaveBeenCalledTimes(1);
+    expect(nativeSourceOptions!.canCapture!()).toBe(false);
+    expect(nativeInvalidate).toHaveBeenCalledTimes(1);
+    expect(captureNativeVoiceCameraSample).not.toHaveBeenCalled();
     act(() => {
       useLiveVoiceStore.getState().setState("listening");
       useLiveVoiceStore.getState().setReconnecting(false);
     });
     expect(start).toHaveBeenCalledTimes(2);
     expect(start.mock.calls[1]![0]).not.toBe(start.mock.calls[0]![0]);
-    resolveSample(btoa("old-sample"));
-    expect(await sample).toBeNull();
+    expect(nativeSourceOptions!.canCapture!()).toBe(true);
     expect(await nativeSourceOptions!.captureSample()).toBe(
       btoa("native-sample"),
     );
     expect(view.result.current.live).toBe(true);
     expect(uploadChatAttachment).not.toHaveBeenCalled();
     expect(nativeStart).toHaveBeenCalledTimes(1);
+  });
+
+  test("returns actual bridge responses to the sampler for accurate accounting", async () => {
+    renderSight({ nativePreview: true, live: true });
+    captureNativeVoiceCameraSample.mockImplementationOnce(async () => {
+      useLiveVoiceStore.getState().setReconnecting(true);
+      return btoa("native-sample");
+    });
+    await act(async () => {
+      expect(await nativeSourceOptions!.captureSample()).toBe(
+        btoa("native-sample"),
+      );
+      expect(nativeSourceOptions!.canCapture!()).toBe(false);
+    });
+    expect(uploadChatAttachment).not.toHaveBeenCalled();
   });
 
   test("tells the running poll when the transport reconnects", () => {

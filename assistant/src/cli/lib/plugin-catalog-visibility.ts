@@ -10,6 +10,7 @@ const MCP_CATALOG_QA_INTEGRATION_NAMES = new Set([
   "ramp",
   "semrush",
   "typeform",
+  "upwork",
 ]);
 
 export type PluginCatalogFeatureFlagResolver = (key: string) => boolean;

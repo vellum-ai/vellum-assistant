@@ -183,15 +183,13 @@ const fetchedMarketplaceManifestSchema = marketplaceManifestBaseSchema.extend({
   plugins: z.array(z.unknown()),
 });
 
+const marketplaceSourceDiscriminatorSchema = z.object({
+  source: z.object({ source: z.unknown() }),
+});
+
 function readSourceDiscriminator(entry: unknown): unknown {
-  if (typeof entry !== "object" || entry === null) {
-    return null;
-  }
-  const source = (entry as Record<string, unknown>).source;
-  if (typeof source !== "object" || source === null) {
-    return null;
-  }
-  return (source as Record<string, unknown>).source;
+  const parsed = marketplaceSourceDiscriminatorSchema.safeParse(entry);
+  return parsed.success ? parsed.data.source.source : null;
 }
 
 /** A single reviewed plugin entry. */

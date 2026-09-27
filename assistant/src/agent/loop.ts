@@ -14,7 +14,10 @@ import {
   getCalibrationProviderKey,
 } from "../context/token-estimator.js";
 import { spoolAndStubOversizedToolResults } from "../context/tool-result-spool.js";
-import { parseActualTokensFromError } from "../daemon/parse-actual-tokens-from-error.js";
+import {
+  looksLikeContextOverflowError,
+  parseActualTokensFromError,
+} from "../daemon/parse-actual-tokens-from-error.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import type {
   AgentLoopExitReason,
@@ -48,10 +51,7 @@ import type {
   ToolDefinition,
   ToolResultContent,
 } from "../providers/types.js";
-import {
-  isContextOverflowError,
-  NATIVE_WEB_SEARCH_TOOL_NAME,
-} from "../providers/types.js";
+import { NATIVE_WEB_SEARCH_TOOL_NAME } from "../providers/types.js";
 import { recordWatchdogEvent } from "../telemetry/watchdog-events-store.js";
 import {
   ABORT_SETTLE_GRACE_MS,
@@ -747,6 +747,12 @@ interface AgentLoopRunOptionsBase {
    * call-site named profile. Missing profile names silently fall through.
    */
   overrideProfile?: string;
+  /**
+   * Who chose `overrideProfile`: `"auto"` when the Auto profile's router
+   * picked it for this turn. Threaded onto each send's config so usage
+   * attribution reports the routed profile under the `auto` source.
+   */
+  overrideProfileOrigin?: "auto";
   /**
    * Float the override profile above the call-site layers (named site
    * profile + call-site override) for non-main-agent call sites — the
@@ -1454,6 +1460,7 @@ export class AgentLoop {
       supportsDynamicUi = true,
       trust,
       overrideProfile,
+      overrideProfileOrigin,
       forceOverrideProfile = false,
       resolveOverrideProfile,
       onModelCallPrepared,
@@ -2036,6 +2043,16 @@ export class AgentLoop {
         const effectiveOverrideProfile = resolveEffectiveOverrideProfile();
         if (effectiveOverrideProfile) {
           providerConfig.overrideProfile = effectiveOverrideProfile;
+          // The origin describes the turn-start override. A profile switched
+          // in mid-turn (a confirmed profile session) is the user's pick, so
+          // the origin applies only while the effective override is still
+          // the one the turn started with.
+          if (
+            overrideProfileOrigin &&
+            effectiveOverrideProfile === overrideProfile
+          ) {
+            providerConfig.overrideProfileOrigin = overrideProfileOrigin;
+          }
           if (forceOverrideProfile) {
             providerConfig.forceOverrideProfile = true;
           }
@@ -2236,7 +2253,13 @@ export class AgentLoop {
           // resolver layers `llm.profiles[overrideProfile]` at the top of
           // precedence for the user-facing call, so a model router can pick
           // the profile per message; clearing it drops any seeded override.
+          // The hook context is seeded with the effective override, so an
+          // unchanged profile is still the router's pick and keeps its
+          // origin; a profile the hook changed or cleared is the hook's.
           const hookModelProfile = finalPreModelCtx.modelProfile?.trim();
+          if (hookModelProfile !== effectiveOverrideProfile) {
+            delete providerConfig.overrideProfileOrigin;
+          }
           if (hookModelProfile) {
             providerConfig.overrideProfile = hookModelProfile;
             if (forceOverrideProfile) {
@@ -3170,7 +3193,7 @@ export class AgentLoop {
         // it is disabled (e.g. agent wakes) there is no ladder to drive, so the
         // overflow falls through to the generic error path below.
         if (
-          isContextOverflowError(error) &&
+          looksLikeContextOverflowError(error) &&
           (options.resolveContextWindow?.().overflowRecovery.enabled ?? false)
         ) {
           if (overflowLadderExhausted) {

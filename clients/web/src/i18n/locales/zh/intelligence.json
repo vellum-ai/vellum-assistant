@@ -88,6 +88,7 @@
     "cardHoverLine": {
       "channels": "所有可以联系到我的地方",
       "contacts": "我认识并信任的人",
+      "email": "寄到我收件箱的一切",
       "library": "我为你制作的应用和文档",
       "memory": "我记住的一切",
       "personality": "来吧，调整我的灵魂",
@@ -109,7 +110,11 @@
     },
     "setUpSchedule": "创建定时任务",
     "updateAvatarAndName": "更新头像和名称",
-    "viewMoreSchedules": "{count, plural, other {查看 {count} 个更多…}}"
+    "viewMoreSchedules": "{count, plural, other {查看 {count} 个更多…}}",
+    "lockedBadge": "需要 Super 套餐",
+    "pinEmail": "将邮件固定到侧边菜单",
+    "unpinEmail": "从侧边菜单取消固定邮件",
+    "dismissEmail": "关闭"
   },
   "identitySections": {
     "channels": {
@@ -120,13 +125,13 @@
       "description": "我认识的人",
       "label": "联系人"
     },
+    "email": {
+      "description": "我收发的邮件",
+      "label": "邮件"
+    },
     "library": {
       "description": "我的应用和文档",
       "label": "资料库"
-    },
-    "memory": {
-      "description": "我记住的内容",
-      "label": "记忆"
     },
     "personality": {
       "description": "调整我的说话方式",

@@ -66,6 +66,12 @@ describe("previewKindFor", () => {
     expect(previewKindFor("rows.tsv")).toBe("csv");
   });
 
+  test("workbooks read through the sheet grid", () => {
+    expect(previewKindFor("budget.xlsx")).toBe("xlsx");
+    expect(previewKindFor("BUDGET.XLSX")).toBe("xlsx");
+    expect(previewKindFor("macros.xlsm")).toBe("xlsx");
+  });
+
   test("markdown reads through its own formatted preview", () => {
     expect(previewKindFor("notes.md")).toBe("markdown");
     expect(previewKindFor("NOTES.MD")).toBe("markdown");
@@ -97,6 +103,8 @@ describe("previewKindFor", () => {
     expect(previewKindFor("report.doc")).toBeNull();
     expect(previewKindFor("report.docx")).toBeNull();
     expect(previewKindFor("deck.pptx")).toBeNull();
+    // Legacy BIFF, a different container from the OOXML workbook.
+    expect(previewKindFor("legacy.xls")).toBeNull();
     expect(previewKindFor("bundle.zip")).toBeNull();
     expect(previewKindFor("Makefile")).toBeNull();
     expect(previewKindFor(".csv")).toBeNull();
@@ -129,6 +137,7 @@ describe("openLocalFile", () => {
 
   test("every other extension lands in the drawer, in its own reader", () => {
     const cases: [string, WorkspaceFilePreviewKind][] = [
+      ["budget.xlsx", "xlsx"],
       ["notes.md", "markdown"],
       ["run.txt", "text"],
       ["run.log", "text"],

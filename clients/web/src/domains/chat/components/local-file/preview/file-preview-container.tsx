@@ -38,11 +38,14 @@ import type { WorkspaceFilePreviewKind } from "@/stores/viewer-store";
 import { downloadWorkspaceFile } from "@/utils/download-workspace-file";
 import { openWorkspaceFile } from "@/utils/open-workspace-file";
 
-// Each reader is a chunk of its own: the CSV grid pulls in the virtualizer and
-// the PDF reader pulls in pdf.js, neither of which belongs in the chat bundle
-// for the sessions that never open one.
+// Each reader is a chunk of its own: the CSV grid pulls in the virtualizer,
+// the workbook reader pulls in jszip, and the PDF reader pulls in pdf.js, none
+// of which belongs in the chat bundle for the sessions that never open one.
 const CsvPreview = lazy(() =>
   import("./csv-preview").then((m) => ({ default: m.CsvPreview })),
+);
+const XlsxPreview = lazy(() =>
+  import("./xlsx-preview").then((m) => ({ default: m.XlsxPreview })),
 );
 const MarkdownPreview = lazy(() =>
   import("./markdown-preview").then((m) => ({ default: m.MarkdownPreview })),
@@ -68,6 +71,13 @@ interface FilePreviewContainerProps {
   onClose: () => void;
 }
 
+// The CSV and workbook grids virtualize their own rows, so each owns the
+// vertical scroll and the panel must not wrap it in a second scroller.
+const READERS_OWNING_SCROLL: ReadonlySet<WorkspaceFilePreviewKind> = new Set([
+  "csv",
+  "xlsx",
+]);
+
 function previewFor(
   previewKind: WorkspaceFilePreviewKind,
   blob: Blob,
@@ -76,6 +86,8 @@ function previewFor(
   switch (previewKind) {
     case "csv":
       return <CsvPreview blob={blob} filename={filename} />;
+    case "xlsx":
+      return <XlsxPreview blob={blob} filename={filename} />;
     case "markdown":
       return <MarkdownPreview blob={blob} filename={filename} />;
     case "text":
@@ -158,9 +170,7 @@ export function FilePreviewContainer({
     });
   }, [assistantId, documentName, workspacePath]);
 
-  // The CSV grid virtualizes its own rows, so it owns the vertical scroll and
-  // the panel must not wrap it in a second scroller.
-  let showsCsvGrid = false;
+  let readerOwnsScroll = false;
 
   // One placeholder for every stage before a reader takes over (fetching the
   // bytes, then resolving the reader's chunk), shaped like what is coming:
@@ -228,7 +238,7 @@ export function FilePreviewContainer({
   } else if (probe.status === "loading" || isPending || blob === undefined) {
     body = loadingPlaceholder;
   } else {
-    showsCsvGrid = previewKind === "csv";
+    readerOwnsScroll = READERS_OWNING_SCROLL.has(previewKind);
     body = (
       <LazyBoundary fallback={loadingPlaceholder}>
         {previewFor(previewKind, blob, documentName)}
@@ -278,7 +288,7 @@ export function FilePreviewContainer({
       {/* Body */}
       <div
         className={
-          showsCsvGrid
+          readerOwnsScroll
             ? "flex min-h-0 flex-1 flex-col overflow-hidden"
             : "min-h-0 flex-1 overflow-y-auto p-4"
         }

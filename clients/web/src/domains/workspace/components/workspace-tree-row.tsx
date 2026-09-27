@@ -1,5 +1,4 @@
 import {
-  ChevronDown,
   ChevronRight,
   FilePlus,
   FileText,
@@ -29,6 +28,7 @@ interface WorkspaceTreeRowProps {
   depth: number;
   isExpanded: boolean;
   isSelected: boolean;
+  presentation?: "sidebar" | "sheet";
   onToggleExpand: (path: string) => void;
   onSelectPath: (path: string) => void;
   onRequestDelete: (target: EntryTarget) => void;
@@ -63,6 +63,7 @@ export const WorkspaceTreeRow = memo(function WorkspaceTreeRow({
   depth,
   isExpanded,
   isSelected,
+  presentation = "sidebar",
   onToggleExpand,
   onSelectPath,
   onRequestDelete,
@@ -82,9 +83,11 @@ export const WorkspaceTreeRow = memo(function WorkspaceTreeRow({
         isDirectory ? onToggleExpand(entry.path) : onSelectPath(entry.path)
       }
       aria-expanded={isDirectory ? isExpanded : undefined}
-      className="flex w-full items-center gap-1.5 px-2 py-1 text-left text-body-medium-lighter transition-colors hover:bg-[var(--surface-hover)]"
+      aria-current={!isDirectory && isSelected ? "true" : undefined}
+      data-slot="workspace-tree-row"
+      className="flex w-full items-center gap-1.5 px-2 py-1 text-left text-body-medium-lighter transition-colors hover:bg-[var(--surface-hover)] active:bg-[var(--surface-active)]"
       style={{
-        paddingLeft: `${depth * 14 + 8}px`,
+        paddingLeft: `${depth * (presentation === "sheet" ? 28 : 14) + (presentation === "sheet" ? 6 : 8)}px`,
         paddingRight: "8px",
         color:
           isHidden && !isSelected
@@ -97,17 +100,14 @@ export const WorkspaceTreeRow = memo(function WorkspaceTreeRow({
       }}
     >
       {isDirectory ? (
-        isExpanded ? (
-          <ChevronDown
-            className="h-3 w-3 shrink-0"
-            style={{ color: "var(--content-tertiary)" }}
-          />
-        ) : (
-          <ChevronRight
-            className="h-3 w-3 shrink-0"
-            style={{ color: "var(--content-tertiary)" }}
-          />
-        )
+        <ChevronRight
+          className="h-3 w-3 shrink-0 transition-transform duration-200 motion-reduce:transition-none"
+          style={{
+            color: "var(--content-tertiary)",
+            transform: isExpanded ? "rotate(90deg)" : undefined,
+          }}
+          aria-hidden
+        />
       ) : (
         <span className="h-3 w-3 shrink-0" />
       )}

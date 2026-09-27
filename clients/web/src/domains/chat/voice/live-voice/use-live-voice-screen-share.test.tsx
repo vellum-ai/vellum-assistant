@@ -32,6 +32,7 @@ import {
 } from "@/lib/camera/frame-gate";
 import type {
   ScreenCaptureFrame,
+  ShareTargetSnapshot,
   WatchCaptureTarget,
 } from "@vellumai/ipc-contract";
 
@@ -94,8 +95,14 @@ const sharedFrames: WatchCaptureTarget[] = [];
 const reportCompanionSharedFrame = mock((target: WatchCaptureTarget) => {
   sharedFrames.push(target);
 });
+/** What the shell answers for the surface's controls, swapped per case. */
+let answerTargets: () => Promise<ShareTargetSnapshot | null> = async () => null;
+const readCompanionShareTargets = mock((_target: WatchCaptureTarget) =>
+  answerTargets(),
+);
 mock.module("@/runtime/companion-surface", () => ({
   captureCompanionScreen,
+  readCompanionShareTargets,
   reportCompanionSharedFrame,
 }));
 
@@ -224,6 +231,8 @@ beforeEach(() => {
   annotated.length = 0;
   sharedFrames.length = 0;
   captureCompanionScreen.mockClear();
+  readCompanionShareTargets.mockClear();
+  answerTargets = async () => null;
   reportCompanionSharedFrame.mockClear();
   uploadChatAttachment.mockClear();
   deleteChatAttachment.mockClear();
@@ -374,6 +383,166 @@ describe("useLiveVoiceScreenShare: starting", () => {
       kind: "display",
       displayId: 2,
     });
+  });
+});
+
+/** A snapshot naming one control, as the shell would answer. */
+function targetsNaming(label: string): ShareTargetSnapshot {
+  return {
+    targets: [
+      {
+        id: `t-${label}`,
+        label,
+        role: "AXButton",
+        x: 0.1,
+        y: 0.1,
+        width: 0.05,
+        height: 0.05,
+      },
+    ],
+    total: 1,
+  };
+}
+
+/** Every snapshot handed to the session, in order, `null` for a clear. */
+function offeredTargets(): (ShareTargetSnapshot | null)[] {
+  return controls.updateConfig.mock.calls
+    .map(([config]) => config)
+    .filter((config) => "shareTargets" in config)
+    .map((config) => config.shareTargets ?? null);
+}
+
+describe("useLiveVoiceScreenShare: the controls offered beside the frames", () => {
+  test("offers the surface's controls as the share starts", async () => {
+    answerTargets = async () => targetsNaming("root_Filters");
+    renderShare();
+    share(WINDOW);
+    await flush();
+    expect(readCompanionShareTargets).toHaveBeenCalledWith(WINDOW);
+    expect(offeredTargets()).toEqual([targetsNaming("root_Filters")]);
+  });
+
+  test("reads again as the user starts talking, not as they stop", async () => {
+    answerTargets = async () => targetsNaming("root_Filters");
+    renderShare();
+    share(WINDOW);
+    await flush();
+    speak(true);
+    await flush();
+    expect(readCompanionShareTargets).toHaveBeenCalledTimes(2);
+    speak(false);
+    await flush();
+    expect(readCompanionShareTargets).toHaveBeenCalledTimes(2);
+  });
+
+  test("sends an unchanged snapshot once, and a changed one again", async () => {
+    answerTargets = async () => targetsNaming("Save");
+    renderShare();
+    share(WINDOW);
+    await flush();
+    speak(true);
+    await flush();
+    speak(false);
+    await flush();
+    expect(offeredTargets()).toEqual([targetsNaming("Save")]);
+
+    answerTargets = async () => targetsNaming("Export");
+    speak(true);
+    await flush();
+    expect(offeredTargets()).toEqual([
+      targetsNaming("Save"),
+      targetsNaming("Export"),
+    ]);
+  });
+
+  test("clears what it offered once the surface has nothing to offer", async () => {
+    answerTargets = async () => targetsNaming("Save");
+    renderShare();
+    share(WINDOW);
+    await flush();
+    answerTargets = async () => null;
+    share({ kind: "display", displayId: 2 });
+    await flush();
+    expect(offeredTargets()).toEqual([targetsNaming("Save"), null]);
+  });
+
+  test("clears the old surface's controls at once when the share moves", async () => {
+    answerTargets = async () => targetsNaming("Save");
+    renderShare();
+    share(WINDOW);
+    await flush();
+    let answer!: (snapshot: ShareTargetSnapshot | null) => void;
+    answerTargets = () =>
+      new Promise((resolve) => {
+        answer = resolve;
+      });
+    share({ kind: "display", displayId: 2 });
+    await flush();
+    expect(offeredTargets()).toEqual([targetsNaming("Save"), null]);
+
+    answer(targetsNaming("Export"));
+    await flush();
+    expect(offeredTargets()).toEqual([
+      targetsNaming("Save"),
+      null,
+      targetsNaming("Export"),
+    ]);
+  });
+
+  test("sends nothing for a surface with no tree it never offered", async () => {
+    renderShare();
+    share(WINDOW);
+    await flush();
+    expect(readCompanionShareTargets).toHaveBeenCalledTimes(1);
+    expect(offeredTargets()).toEqual([]);
+  });
+
+  test("offers the same snapshot again once the session can take it", async () => {
+    answerTargets = async () => targetsNaming("Save");
+    act(() => useLiveVoiceStore.getState().setState("connecting"));
+    renderShare();
+    share(WINDOW);
+    await flush();
+    act(() => useLiveVoiceStore.getState().setState("listening"));
+    speak(true);
+    await flush();
+    expect(offeredTargets()).toEqual([
+      targetsNaming("Save"),
+      targetsNaming("Save"),
+    ]);
+  });
+
+  test("a read that answers after the share stopped is dropped", async () => {
+    let answer!: (snapshot: ShareTargetSnapshot | null) => void;
+    answerTargets = () =>
+      new Promise((resolve) => {
+        answer = resolve;
+      });
+    renderShare();
+    share(WINDOW);
+    await flush();
+    share(null);
+    answer(targetsNaming("Save"));
+    await flush();
+    expect(offeredTargets()).toEqual([]);
+  });
+
+  test("a slower older read does not overwrite a newer one", async () => {
+    const answers: ((snapshot: ShareTargetSnapshot | null) => void)[] = [];
+    answerTargets = () =>
+      new Promise((resolve) => {
+        answers.push(resolve);
+      });
+    renderShare();
+    share(WINDOW);
+    await flush();
+    speak(true);
+    await flush();
+    answers[1]?.(targetsNaming("Newer"));
+    await flush();
+    answers[0]?.(targetsNaming("Older"));
+    await flush();
+    expect(offeredTargets()).toEqual([targetsNaming("Newer")]);
   });
 });
 

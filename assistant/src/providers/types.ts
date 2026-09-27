@@ -347,6 +347,13 @@ export interface SendMessageConfig {
    */
   overrideProfile?: string;
   /**
+   * Who chose `overrideProfile`: `"auto"` when the Auto profile's router
+   * picked it for the turn. Usage attribution reports it as the profile
+   * source so a routed turn is not counted as a user pin. A routing-time
+   * concern only; stripped before any provider wire request.
+   */
+  overrideProfileOrigin?: "auto";
+  /**
    * When true, the resolver floats `overrideProfile` above the call-site
    * layers (named site profile + call-site override) for non-main-agent call
    * sites — see `ResolveCallSiteOpts.forceOverrideProfile`. Used by callers
@@ -405,8 +412,9 @@ export interface SendMessageConfig {
   usageAttributionHeaders?: Record<string, string>;
   /**
    * Per-request HTTP headers merged onto the transport. `RetryProvider`
-   * stamps these for providers that need support-lookup headers (OpenCode
-   * `x-opencode-session` / `x-opencode-request`). Provider clients pass
+   * stamps these for providers that need per-conversation routing headers
+   * (OpenCode `x-opencode-session` / `x-opencode-request`, Fireworks
+   * `x-session-affinity`). Provider clients pass
    * them through SDK request options only and must never include this
    * object in provider JSON request bodies.
    */

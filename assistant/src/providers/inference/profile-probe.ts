@@ -57,6 +57,7 @@ const PROVIDER_BLAME_REASONS: ReadonlySet<ProviderErrorReason> = new Set([
   "invalid_credentials",
   "insufficient_credits",
   "daily_limit_reached",
+  "free_tier_daily_limit_reached",
   "network_error",
   "server_error",
 ]);

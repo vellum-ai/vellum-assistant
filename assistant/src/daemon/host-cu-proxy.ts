@@ -28,6 +28,7 @@ import { POINT_AT_PROXY_TOOL } from "../tools/computer-use/skill-proxy-bridge.js
 import type { ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
+import { prepareComputerUseObservation } from "./computer-use-observation.js";
 import { resolveHostCuTarget } from "./host-cu-target.js";
 import { bestEffortModeSessionTracking } from "./mode-session-tracking.js";
 
@@ -615,7 +616,7 @@ export class HostCuProxy {
     this.recordAction(toolName, input, reasoning);
     this._previousAXTree = undefined;
     this._consecutiveUnchangedSteps = 0;
-    const observation = await execute();
+    const observation = await prepareComputerUseObservation(await execute());
     return this.formatObservation(observation, undefined, false, {
       toolName,
       input,
@@ -791,7 +792,7 @@ export class HostCuProxy {
       );
     }
 
-    const screenshotMeta = this.formatScreenshotMetadata(obs);
+    const screenshotMeta = this.formatScreenshotMetadata(obs, action);
     if (screenshotMeta.length > 0) {
       parts.push("");
       parts.push(...screenshotMeta);
@@ -898,7 +899,10 @@ export class HostCuProxy {
     }
   }
 
-  private formatScreenshotMetadata(obs: CuObservationResult): string[] {
+  private formatScreenshotMetadata(
+    obs: CuObservationResult,
+    action: ActionIdentity | undefined,
+  ): string[] {
     if (!obs.screenshot) {
       return [];
     }
@@ -912,6 +916,33 @@ export class HostCuProxy {
     if (obs.screenWidthPt != null && obs.screenHeightPt != null) {
       lines.push(
         `Screen metadata: ${obs.screenWidthPt}x${obs.screenHeightPt} pt`,
+      );
+    }
+    if (action && hasCaptureTarget(action.input)) {
+      lines.push(
+        "This screenshot is capture-relative. Full-screen dimensions do not map its pixels to action coordinates. Use accessibility element IDs, or request an unscoped desktop observation before using coordinates.",
+      );
+    } else if (
+      [
+        obs.screenshotWidthPx,
+        obs.screenshotHeightPx,
+        obs.screenWidthPt,
+        obs.screenHeightPt,
+      ].every(
+        (dimension) =>
+          typeof dimension === "number" &&
+          Number.isFinite(dimension) &&
+          dimension > 0,
+      )
+    ) {
+      const scaleX = obs.screenWidthPt! / obs.screenshotWidthPx!;
+      const scaleY = obs.screenHeightPt! / obs.screenshotHeightPx!;
+      lines.push(
+        `Action coordinates are screen points, not screenshot pixels. Convert this image's pixels: x = round(image_x * ${scaleX.toFixed(6)}), y = round(image_y * ${scaleY.toFixed(6)}). Prefer accessibility element IDs when available.`,
+      );
+    } else {
+      lines.push(
+        "Screenshot-to-screen coordinate mapping is unavailable. Use accessibility element IDs or obtain an observation with both screenshot and screen dimensions before using coordinates.",
       );
     }
     return lines;

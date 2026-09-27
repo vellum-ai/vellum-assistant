@@ -25,6 +25,7 @@ import { z } from "zod";
 
 import { invalidateConfigCache } from "../../config/loader.js";
 import { resolvePlatformAssistantId } from "../../config/platform-identity.js";
+import { trackDaemonActivity } from "../../daemon/activity-trail.js";
 import { getAssistantName } from "../../daemon/identity-helpers.js";
 import { ipcCallPersistent } from "../../ipc/gateway-client.js";
 import { runAsyncSqlite } from "../../persistence/db-async-query.js";
@@ -1950,7 +1951,9 @@ export async function handleMigrationImportFromGcs({ body }: RouteHandlerArgs) {
 
   try {
     const job = migrationJobs.startJob("import", async (jobRecord) =>
-      runGcsImport(bundle_url, jobRecord.id),
+      trackDaemonActivity({ kind: "vbundle_import" }, () =>
+        runGcsImport(bundle_url, jobRecord.id),
+      ),
     );
     return {
       job_id: job.id,
@@ -2444,7 +2447,10 @@ export const ROUTES: RouteDefinition[] = [
       manifest: z.object({}).passthrough(),
       warnings: z.array(z.unknown()),
     }),
-    handler: handleMigrationImport,
+    handler: (args) =>
+      trackDaemonActivity({ kind: "vbundle_import" }, () =>
+        handleMigrationImport(args),
+      ),
   },
   {
     operationId: "migrations_exporttogcs_post",

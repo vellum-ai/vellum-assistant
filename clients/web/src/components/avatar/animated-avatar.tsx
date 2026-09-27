@@ -233,7 +233,7 @@ function AnimatedAvatarResolved({
     let cancelled = false;
 
     function scheduleBlink() {
-      const timer = setTimeout(
+      return setTimeout(
         () => {
           if (cancelled) {
             return;
@@ -265,8 +265,6 @@ function AnimatedAvatarResolved({
         },
         randomBetween(3000, 7000),
       );
-
-      return timer;
     }
 
     const timer = scheduleBlink();
@@ -289,7 +287,7 @@ function AnimatedAvatarResolved({
     let cancelled = false;
 
     function scheduleTwitch() {
-      const timer = setTimeout(
+      return setTimeout(
         () => {
           if (cancelled) {
             return;
@@ -306,8 +304,6 @@ function AnimatedAvatarResolved({
         },
         randomBetween(8000, 15000),
       );
-
-      return timer;
     }
 
     const timer = scheduleTwitch();

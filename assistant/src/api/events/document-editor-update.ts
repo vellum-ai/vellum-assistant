@@ -20,6 +20,16 @@ export const DocumentEditorUpdateEventSchema = z.object({
   surfaceId: z.string(),
   markdown: z.string(),
   mode: z.string(),
+  /**
+   * The document's revision once this content is in place. A client that
+   * saves with `baseRevision` adopts it as its new base.
+   */
+  revision: z.number().optional(),
+  /**
+   * The document's title when this update also sets it (a restore). A client
+   * renames the open document to it.
+   */
+  title: z.string().optional(),
 });
 
 export type DocumentEditorUpdateEvent = z.infer<

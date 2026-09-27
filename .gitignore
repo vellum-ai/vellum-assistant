@@ -62,6 +62,7 @@ worktrees/
 !.claude/skills/release/
 !.claude/skills/vellum-skills/
 !.claude/skills/cli-testing/
+!.claude/skills/add-mcp-integration/
 
 # Shared claude-skills symlinks (managed by claude-skills/setup)
 # These are gitignored because they're symlinks to the shared repo.

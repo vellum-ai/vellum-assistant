@@ -96,6 +96,7 @@ export default function PrivacyPolicyPage() {
                     <li>Tavily: <a href="https://tavily.com/privacy" target="_blank" rel="noreferrer">tavily.com/privacy</a></li>
                     <li>Firecrawl: <a href="https://www.firecrawl.dev/privacy-policy" target="_blank" rel="noreferrer">firecrawl.dev/privacy-policy</a></li>
                     <li>Exa: <a href="https://exa.ai/privacy-policy" target="_blank" rel="noreferrer">exa.ai/privacy-policy</a></li>
+                    <li>Serply: <a href="https://serply.io/privacy" target="_blank" rel="noreferrer">serply.io/privacy</a></li>
                   </ul>
 
                   <h2>Use of Information</h2>

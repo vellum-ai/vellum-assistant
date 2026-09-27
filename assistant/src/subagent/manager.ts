@@ -1331,6 +1331,8 @@ export class SubagentManager {
     callerConversationId?: string,
     options?: {
       suppressNotification?: boolean;
+      /** Restricts cancellation to one schedule firing while preserving user turns. */
+      cronRunId?: string;
       /**
        * Replaces the default "explicitly aborted, do not retry" injection for
        * an abort the parent did not ask for, whose right follow-up differs.
@@ -1340,6 +1342,12 @@ export class SubagentManager {
   ): boolean {
     const managed = this.subagents.get(subagentId);
     if (!managed) {
+      return false;
+    }
+    if (
+      options?.cronRunId &&
+      managed.state.config.cronRunId !== options.cronRunId
+    ) {
       return false;
     }
     if (TERMINAL_STATUSES.has(managed.state.status)) {
@@ -1361,13 +1369,17 @@ export class SubagentManager {
       return false;
     }
 
-    managed.conversation?.abort(
-      createAbortReason(
-        "subagent_aborted",
-        "SubagentManager.abort",
-        managed.conversation.conversationId,
-      ),
-    );
+    if (options?.cronRunId) {
+      managed.conversation?.abortScheduledRun(options.cronRunId);
+    } else {
+      managed.conversation?.abort(
+        createAbortReason(
+          "subagent_aborted",
+          "SubagentManager.abort",
+          managed.conversation.conversationId,
+        ),
+      );
+    }
     managed.state.completedAt = Date.now();
     // Capture the conversation's latest usage before emitting the terminal
     // status. `subagent_status_changed` ships `state.usage`, and the abort path
@@ -1553,9 +1565,8 @@ export class SubagentManager {
    *
    * `opts.cronRunId` is the firing that produced THIS message, not the one the
    * subagent was spawned under: a continuation turn's spend belongs to the
-   * firing that asked for it. Only the immediately-processed turn carries it,
-   * since a queued message drains through the conversation's own queue, which
-   * holds no per-message run options.
+   * firing that asked for it. Both immediate turns and queued messages carry
+   * that ownership through the conversation loop.
    *
    * An advisor takes no follow-up (`one_shot`). A consult answers one question
    * once, and a follow-up would escape the budget its spawn set: the drained
@@ -1586,7 +1597,10 @@ export class SubagentManager {
     }
 
     // If the conversation is busy, queue the message; otherwise process immediately.
-    const result = managed.conversation.enqueueMessage({ content: trimmed });
+    const result = managed.conversation.enqueueMessage({
+      content: trimmed,
+      cronRunId: opts?.cronRunId,
+    });
     if (result.rejected) {
       return "sent"; // error event already delivered via sendToClient
     }
@@ -1764,7 +1778,7 @@ export class SubagentManager {
    * injects into the parent and releases the child's conversation. Evicting the
    * parent in that window would race its own teardown.
    */
-  hasActiveChildren(parentConversationId: string): boolean {
+  hasActiveChildren(parentConversationId: string, cronRunId?: string): boolean {
     const children = this.parentToChildren.get(parentConversationId);
     if (!children) {
       return false;
@@ -1772,6 +1786,12 @@ export class SubagentManager {
     for (const childId of children) {
       const managed = this.subagents.get(childId);
       if (!managed) {
+        continue;
+      }
+      if (
+        cronRunId !== undefined &&
+        managed.state.config.cronRunId !== cronRunId
+      ) {
         continue;
       }
       if (managed.runInFlight || !TERMINAL_STATUSES.has(managed.state.status)) {

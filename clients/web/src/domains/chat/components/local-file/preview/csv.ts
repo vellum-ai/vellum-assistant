@@ -192,6 +192,36 @@ function looksLikeHeader(records: string[][]): boolean {
 }
 
 /**
+ * Pad ragged records to `width`, clamping any that run past it, and split off
+ * the header row when the first record reads as one.
+ *
+ * Exported so the workbook reader finishes a sheet the same way a CSV is
+ * finished, rather than keeping its own copy of the shaping rules.
+ */
+export function shapeRecords(
+  records: string[][],
+  width: number,
+  truncated: boolean,
+): ParsedCsv {
+  if (records.length === 0) {
+    return { headers: null, rows: [], truncated };
+  }
+  const shaped = records.map((row) => {
+    const cells = row.slice(0, width);
+    while (cells.length < width) {
+      cells.push("");
+    }
+    return cells;
+  });
+  const hasHeader = looksLikeHeader(shaped);
+  return {
+    headers: hasHeader ? shaped[0]! : null,
+    rows: hasHeader ? shaped.slice(1) : shaped,
+    truncated,
+  };
+}
+
+/**
  * Parse delimited text into a rectangular grid: quoted fields, CRLF or LF
  * endings, sniffed delimiter, ragged rows padded to a common width, and hard
  * caps on rows and columns.
@@ -208,25 +238,10 @@ export function parseCsv(text: string): ParsedCsv {
     source,
     sniffDelimiter(source),
   );
-  if (records.length === 0) {
-    return { headers: null, rows: [], truncated: rowsTruncated };
-  }
-
   const widest = records.reduce((max, row) => Math.max(max, row.length), 0);
-  const width = Math.min(widest, MAX_CSV_COLUMNS);
-  const columnsTruncated = widest > MAX_CSV_COLUMNS;
-  const shaped = records.map((row) => {
-    const cells = row.slice(0, width);
-    while (cells.length < width) {
-      cells.push("");
-    }
-    return cells;
-  });
-
-  const hasHeader = looksLikeHeader(shaped);
-  return {
-    headers: hasHeader ? shaped[0]! : null,
-    rows: hasHeader ? shaped.slice(1) : shaped,
-    truncated: rowsTruncated || columnsTruncated,
-  };
+  return shapeRecords(
+    records,
+    Math.min(widest, MAX_CSV_COLUMNS),
+    rowsTruncated || widest > MAX_CSV_COLUMNS,
+  );
 }

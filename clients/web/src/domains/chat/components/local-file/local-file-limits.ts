@@ -31,7 +31,18 @@ export function previewByteCapFor(
     case "audio":
     case "video":
       return MAX_INLINE_MEDIA_BYTES;
-    default:
+    // Listed rather than defaulted so a new kind has to pick a cap here.
+    case "csv":
+    case "xlsx":
+    case "markdown":
+    case "text":
+    case "pdf":
+    case "unsupported":
       return MAX_PARSED_PREVIEW_BYTES;
+    default: {
+      const _exhaustive: never = previewKind;
+      void _exhaustive;
+      return MAX_PARSED_PREVIEW_BYTES;
+    }
   }
 }

@@ -148,7 +148,7 @@ mock.module(
 // agent loop's compaction path consumes, mirroring the real manager's
 // `overflowStepToResult` so the loop sees the rung's reduced history, injection
 // mode, terminal auto-compress flag, and exhaustion.
-function makeOverflowLadderStub(): {
+function makeOverflowLadderStub(stubOpts: { maxInputTokens?: number } = {}): {
   resetOverflowRecovery: () => void;
   reduceOverflowOneRung: (
     msgs: Message[],
@@ -161,6 +161,7 @@ function makeOverflowLadderStub(): {
     signal?: AbortSignal,
   ) => Promise<unknown>;
 } {
+  const maxInputTokens = stubOpts.maxInputTokens ?? 200_000;
   let state: unknown;
   const reduceOverflowOneRung = async (msgs: Message[], opts: unknown) => {
     if (!state) {
@@ -178,7 +179,26 @@ function makeOverflowLadderStub(): {
     },
     reduceOverflowOneRung,
     recoverContextOverflow: async (msgs: Message[], opts: unknown) => {
-      const step = (await reduceOverflowOneRung(msgs, opts)) as {
+      const options = opts as {
+        actualTokens: number | null;
+        isInteractive: boolean;
+      };
+      // Mirror ContextWindowManager.deriveOverflowTurnTarget: compute the
+      // estimation-error-corrected target and include it in the opts the
+      // mock reducer receives, so tests can assert on targetTokens.
+      const estimatedInputTokens = estimatePromptTokens(msgs);
+      const preflightBudget = Math.floor(maxInputTokens * 0.95);
+      const { targetTokens } = computeCorrectedOverflowTarget({
+        preflightBudget,
+        actualTokens: options.actualTokens,
+        estimatedTokens: estimatedInputTokens,
+      });
+      const enrichedOpts = {
+        ...options,
+        targetTokens,
+        estimatedInputTokens,
+      };
+      const step = (await reduceOverflowOneRung(msgs, enrichedOpts)) as {
         messages: Message[];
         estimatedTokens?: number;
         state: {
@@ -460,9 +480,11 @@ mock.module("../memory/archive-store.js", () => ({
 // ── Imports (after mocks) ────────────────────────────────────────────
 
 import { AgentLoop } from "../agent/loop.js";
+import { estimatePromptTokens } from "../context/token-estimator.js";
 import type { Conversation } from "../daemon/conversation.js";
 import { runAgentLoopImpl } from "../daemon/conversation-agent-loop.js";
 import type { QueueDrainReason } from "../daemon/conversation-queue-manager.js";
+import { computeCorrectedOverflowTarget } from "../plugins/defaults/compaction/corrected-target.js";
 import { asConversation } from "./helpers/mock-conversation.js";
 import {
   createMockProvider,
@@ -748,96 +770,83 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
   });
 
   // ── Test 1 ────────────────────────────────────────────────────────
-  // BUG: When the agent loop makes progress (adds messages to history)
-  // before hitting context_too_large, the convergence loop's progress
-  // check must recognize that the loop appended messages. If it fails to,
-  // the reducer is never invoked — the error is surfaced immediately
-  // without any compaction attempt.
-  //
-  // Expected behavior (PR 2 fix): After progress + context_too_large,
-  // the system should still attempt compaction before surfacing error.
-  test.todo(
-    "context too large after progress triggers compaction retry instead of immediate failure",
-    async () => {
-      const events: AssistantEvent[] = [];
-      let reducerCalled = false;
+  // Verifies overflow recovery fires even when the agent made tool-use progress
+  // before hitting context_too_large. The convergence path must not skip
+  // compaction just because messages were appended earlier in the turn.
+  test("context too large after progress triggers compaction retry instead of immediate failure", async () => {
+    const events: AssistantEvent[] = [];
+    let reducerCalled = false;
 
-      mockReducerStepFn = (msgs: Message[]) => {
-        reducerCalled = true;
-        return {
+    mockReducerStepFn = (msgs: Message[]) => {
+      reducerCalled = true;
+      return {
+        messages: msgs,
+        tier: "forced_compaction",
+        state: {
+          appliedTiers: ["forced_compaction"],
+          injectionMode: "full",
+          exhausted: false,
+        },
+        estimatedTokens: 50_000,
+        compactionResult: {
+          compacted: true,
           messages: msgs,
-          tier: "forced_compaction",
-          state: {
-            appliedTiers: ["forced_compaction"],
-            injectionMode: "full",
-            exhausted: false,
-          },
-          estimatedTokens: 50_000,
-          compactionResult: {
-            compacted: true,
-            messages: msgs,
-            compactedPersistedMessages: 5,
-            summaryText: "Summary",
-            previousEstimatedInputTokens: 190_000,
-            estimatedInputTokens: 50_000,
-            maxInputTokens: 200_000,
-            thresholdTokens: 160_000,
-            compactedMessages: 10,
-            summaryCalls: 1,
-            summaryInputTokens: 500,
-            summaryOutputTokens: 200,
-            summaryModel: "mock-model",
-          },
-        };
+          compactedPersistedMessages: 5,
+          summaryText: "Summary",
+          previousEstimatedInputTokens: 190_000,
+          estimatedInputTokens: 50_000,
+          maxInputTokens: 200_000,
+          thresholdTokens: 160_000,
+          compactedMessages: 10,
+          summaryCalls: 1,
+          summaryInputTokens: 500,
+          summaryOutputTokens: 200,
+          summaryModel: "mock-model",
+        },
       };
+    };
 
-      // Run 1 makes progress (a tool turn) then the following provider call
-      // rejects with a context_too_large error; after the convergence reducer
-      // compacts, the rerun recovers with plain text.
-      const { provider } = createMockProvider([
-        toolUseResponse("tu-progress", "bash", { command: "ls" }),
-        new Error("prompt is too long: 242201 tokens > 200000 maximum"),
-        textResponse("recovered after compaction"),
-      ]);
+    // Run 1 makes progress (a tool turn) then the following provider call
+    // rejects with a context_too_large error; after the convergence reducer
+    // compacts, the rerun recovers with plain text.
+    const { provider } = createMockProvider([
+      toolUseResponse("tu-progress", "bash", { command: "ls" }),
+      new Error("prompt is too long: 242201 tokens > 200000 maximum"),
+      textResponse("recovered after compaction"),
+    ]);
 
-      const ctx = makeCtx({
-        loopProvider: provider,
-        loopTools: [
-          {
-            name: "bash",
-            description: "Run a shell command",
-            input_schema: {
-              type: "object",
-              properties: { command: { type: "string" } },
-            },
+    const ctx = makeCtx({
+      loopProvider: provider,
+      loopTools: [
+        {
+          name: "bash",
+          description: "Run a shell command",
+          input_schema: {
+            type: "object",
+            properties: { command: { type: "string" } },
           },
-        ],
-        toolExecutor: async () => ({
-          content: "file1.ts\nfile2.ts",
-          isError: false,
-        }),
-        contextWindowManager: {
-          updateConfig: () => {},
-          shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
-          maybeCompact: async () => ({ compacted: false }),
-        } as unknown as Conversation["contextWindowManager"],
-      });
+        },
+      ],
+      toolExecutor: async () => ({
+        content: "file1.ts\nfile2.ts",
+        isError: false,
+      }),
+      contextWindowManager: {
+        updateConfig: () => {},
+        shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
+        maybeCompact: async () => ({ compacted: false }),
+      } as unknown as Conversation["contextWindowManager"],
+    });
 
-      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+    await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
-      // BUG: Currently the reducer is NOT called when progress was made before
-      // context_too_large. The error is surfaced immediately.
-      // After PR 2 fix, the reducer SHOULD be called to attempt compaction.
-      expect(reducerCalled).toBe(true);
+    expect(reducerCalled).toBe(true);
 
-      // BUG: Currently a conversation_error IS emitted instead of retrying.
-      // After PR 2 fix, there should be no conversation_error.
-      const conversationError = events.find(
-        (e) => e.type === "conversation_error",
-      );
-      expect(conversationError).toBeUndefined();
-    },
-  );
+    const conversationError = events.find(
+      (e) => e.type === "conversation_error",
+    );
+    expect(conversationError).toBeUndefined();
+  });
 
   // ── Test 2 ────────────────────────────────────────────────────────
   // When estimation says we're within budget but the provider rejects, the
@@ -922,88 +931,85 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
   // of 242k (1.31x the estimate of 185k), the target is adjusted downward
   // based on the observed mismatch (190k / 1.31 ≈ 145k) so the reducer
   // converges toward the real ceiling rather than the optimistic estimate.
-  test.todo(
-    "forced compaction targets a lower budget when estimation has been inaccurate",
-    async () => {
-      const events: AssistantEvent[] = [];
-      let capturedTargetTokens: number | undefined;
+  test("forced compaction targets a lower budget when estimation has been inaccurate", async () => {
+    const events: AssistantEvent[] = [];
+    let capturedTargetTokens: number | undefined;
 
-      // Estimator says 185k (below 190k budget = 200k * 0.95)
-      mockEstimateTokens = 185_000;
+    // Estimator says 185k (below 190k budget = 200k * 0.95)
+    mockEstimateTokens = 185_000;
 
-      // Reducer captures the targetTokens from the config
-      mockReducerStepFn = (msgs: Message[], cfg: unknown) => {
-        capturedTargetTokens = (cfg as { targetTokens: number }).targetTokens;
-        return {
+    // Reducer captures the targetTokens from the config
+    mockReducerStepFn = (msgs: Message[], cfg: unknown) => {
+      capturedTargetTokens = (cfg as { targetTokens: number }).targetTokens;
+      return {
+        messages: msgs,
+        tier: "forced_compaction",
+        state: {
+          appliedTiers: ["forced_compaction"],
+          injectionMode: "full",
+          exhausted: false,
+        },
+        estimatedTokens: 100_000,
+        compactionResult: {
+          compacted: true,
           messages: msgs,
-          tier: "forced_compaction",
-          state: {
-            appliedTiers: ["forced_compaction"],
-            injectionMode: "full",
-            exhausted: false,
-          },
-          estimatedTokens: 100_000,
-          compactionResult: {
-            compacted: true,
-            messages: msgs,
-            compactedPersistedMessages: 10,
-            summaryText: "Summary",
-            previousEstimatedInputTokens: 185_000,
-            estimatedInputTokens: 100_000,
-            maxInputTokens: 200_000,
-            thresholdTokens: 160_000,
-            compactedMessages: 20,
-            summaryCalls: 1,
-            summaryInputTokens: 800,
-            summaryOutputTokens: 300,
-            summaryModel: "mock-model",
-          },
-        };
+          compactedPersistedMessages: 10,
+          summaryText: "Summary",
+          previousEstimatedInputTokens: 185_000,
+          estimatedInputTokens: 100_000,
+          maxInputTokens: 200_000,
+          thresholdTokens: 160_000,
+          compactedMessages: 20,
+          summaryCalls: 1,
+          summaryInputTokens: 800,
+          summaryOutputTokens: 300,
+          summaryModel: "mock-model",
+        },
       };
+    };
 
-      // The provider rejects the first call with a context_too_large error
-      // (actual tokens 242201, far above the 185k estimate); after forced
-      // compaction re-targets a lower budget, the rerun recovers with text.
-      const { provider, calls } = createMockProvider([
-        new Error("prompt is too long: 242201 tokens > 200000 maximum"),
-        textResponse("recovered"),
-      ]);
+    // The provider rejects the first call with a context_too_large error
+    // (actual tokens 242201, far above the 185k estimate); after forced
+    // compaction re-targets a lower budget, the rerun recovers with text.
+    const { provider, calls } = createMockProvider([
+      new Error("prompt is too long: 242201 tokens > 200000 maximum"),
+      textResponse("recovered"),
+    ]);
 
-      const ctx = makeCtx({
-        loopProvider: provider,
-        contextWindowManager: {
-          updateConfig: () => {},
-          shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
-          maybeCompact: async () => ({ compacted: false }),
-        } as unknown as Conversation["contextWindowManager"],
-      });
+    const ctx = makeCtx({
+      loopProvider: provider,
+      contextWindowManager: {
+        updateConfig: () => {},
+        shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
+        maybeCompact: async () => ({ compacted: false }),
+      } as unknown as Conversation["contextWindowManager"],
+    });
 
-      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+    await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
-      // The reducer should have been called with a corrected target
-      expect(capturedTargetTokens).toBeDefined();
+    // The reducer should have been called with a corrected target
+    expect(capturedTargetTokens).toBeDefined();
 
-      // preflightBudget = 200_000 * 0.95 = 190_000
-      // estimationErrorRatio = 242201 / 185000 ≈ 1.309
-      // correctedTarget = floor(190000 / 1.309) ≈ 145_130
-      // The corrected target must be LESS than the uncorrected preflightBudget
-      const preflightBudget = 190_000;
-      expect(capturedTargetTokens!).toBeLessThan(preflightBudget);
+    // preflightBudget = 200_000 * 0.95 = 190_000
+    // estimationErrorRatio = 242201 / 185000 ≈ 1.309
+    // correctedTarget = floor(190000 / 1.309) ≈ 145_130
+    // The corrected target must be LESS than the uncorrected preflightBudget
+    const preflightBudget = 190_000;
+    expect(capturedTargetTokens!).toBeLessThan(preflightBudget);
 
-      // Verify the approximate corrected value (190000 / (242201/185000))
-      const expectedCorrectedTarget = Math.floor(
-        preflightBudget / (242201 / 185_000),
-      );
-      expect(capturedTargetTokens!).toBe(expectedCorrectedTarget);
+    // Verify the approximate corrected value (190000 / (242201/185000))
+    const expectedCorrectedTarget = Math.floor(
+      preflightBudget / (242201 / 185_000),
+    );
+    expect(capturedTargetTokens!).toBe(expectedCorrectedTarget);
 
-      // Should recover without conversation_error
-      const conversationError = events.find(
-        (e) => e.type === "conversation_error",
-      );
-      expect(conversationError).toBeUndefined();
-      expect(calls.length).toBe(2);
-    },
-  );
+    // Should recover without conversation_error
+    const conversationError = events.find(
+      (e) => e.type === "conversation_error",
+    );
+    expect(conversationError).toBeUndefined();
+    expect(calls.length).toBe(2);
+  });
 
   // ── Test 4 ────────────────────────────────────────────────────────
   // A realistic 75+ message conversation with many tool calls where

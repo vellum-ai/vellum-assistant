@@ -22,6 +22,7 @@ import { join } from "node:path";
 import { getLogger } from "../util/logger.js";
 import { getMonitoringDataDir } from "../util/platform.js";
 import { readDaemonHeartbeat } from "./daemon-heartbeat.js";
+import { readStallWaitState, type StallWaitState } from "./proc-wait-state.js";
 import { prunePrefixedJsonFiles } from "./prune-snapshots.js";
 import type { ResourceSample } from "./resource-sample-types.js";
 
@@ -78,6 +79,13 @@ export interface StallCapture {
   kernelStack: string | null;
   /** Daemon state from `/proc/<pid>/stat` (R running, S sleeping, D uninterruptible). */
   processState: string | null;
+  /**
+   * What the daemon was waiting on: the main thread's syscall and epoll set,
+   * its children, and its threads' wait channels. Tells a stalled event loop
+   * apart from a nested synchronous wait. Absent on captures written before
+   * this field existed.
+   */
+  waitState?: StallWaitState;
   /** The resource sample taken this tick — its deltas classify the stall. */
   sample: ResourceSample;
 }
@@ -119,6 +127,7 @@ export function createStallCaptureMonitor(
           `/proc/${heartbeat.pid}/task/${heartbeat.pid}/stack`,
         ),
         processState: statRaw != null ? parseProcStatState(statRaw) : null,
+        waitState: readStallWaitState(heartbeat.pid),
         sample,
       };
 
@@ -140,6 +149,9 @@ export function createStallCaptureMonitor(
             daemonPid: heartbeat.pid,
             heartbeatAgeMs: heartbeat.ageMs,
             processState: capture.processState,
+            syscall: capture.waitState?.syscall,
+            epollListeningSockets: capture.waitState?.epoll?.listeningSockets,
+            childCount: capture.waitState?.children.length,
             pgscanDirectDelta: sample.deltas?.reclaim?.pgscanDirect,
             throttledUsecDelta: sample.deltas?.cpu?.throttledUsec,
           },

@@ -12,6 +12,10 @@ import type { Subprocess } from "bun";
 import { getIsContainerized } from "../../config/env-registry.js";
 import { getLogger } from "../../util/logger.js";
 import {
+  setOomScoreAdj,
+  WORKER_OOM_SCORE_ADJ,
+} from "../../util/oom-priority.js";
+import {
   getEmbeddingModelsDir,
   getEmbedWorkerPidPath,
 } from "../../util/platform.js";
@@ -394,6 +398,8 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
       stderr: "pipe",
       cwd: embeddingModelsDir,
     });
+
+    setOomScoreAdj(WORKER_OOM_SCORE_ADJ, proc.pid);
 
     // Type-compatible assignment
     this.workerProc = proc;

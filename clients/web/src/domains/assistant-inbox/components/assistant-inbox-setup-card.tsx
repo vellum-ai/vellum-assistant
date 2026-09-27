@@ -1,14 +1,12 @@
 import { useEffect, useState } from "react";
 
-import { Button, Notice } from "@vellumai/design-library";
+import { Button } from "@vellumai/design-library";
 
 import { useTranslation } from "@/i18n";
 
 import type { HandleCheckResult } from "../types";
-import { AddressPill } from "./address-pill";
-import { AssistantInboxShell } from "./assistant-inbox-shell";
+import { AssistantInboxPageFrame } from "./assistant-inbox-page-frame";
 import { EmailAddressFields } from "./email-address-fields";
-import { InboxCard } from "./inbox-card";
 
 /** Long enough that a probe is not fired per keystroke. */
 const HANDLE_CHECK_DELAY_MS = 400;
@@ -43,6 +41,8 @@ export interface AssistantInboxSetupCardProps {
   onConfirm: (draft: { prefix: string; handle: string }) => void;
   /** The registration is in flight; the action holds. */
   busy?: boolean;
+  /** Leaves the setup without an address. Without it no back control is drawn. */
+  onBack?: () => void;
 }
 
 /**
@@ -55,8 +55,11 @@ export interface AssistantInboxSetupCardProps {
  * what a subdomain allows, probed as it is typed, with the warning that it
  * cannot be changed afterwards. Beneath the fields the address they produce
  * is drawn as the identity pill, so the preview reads as the assistant.
- * There is one way out, forward: skipping would leave the inbox with
- * nothing to show.
+ *
+ * Drawn in the inbox's page frame, as the design has it: a header row with
+ * the way back and the page's name, and the form centred in the panel
+ * below, so setting up reads as a step of the inbox rather than a dialog
+ * over it.
  */
 export function AssistantInboxSetupCard({
   assistantId,
@@ -68,6 +71,7 @@ export function AssistantInboxSetupCard({
   onDraftChange,
   onConfirm,
   busy = false,
+  onBack,
 }: AssistantInboxSetupCardProps) {
   const { t } = useTranslation("assistant-inbox");
   const [prefix, setPrefix] = useState("hi");
@@ -112,32 +116,35 @@ export function AssistantInboxSetupCard({
   }, [checkHandle, handle, handleEditable, initialHandle]);
 
   const problem = checkMessage ?? error;
-  const previewPrefix = prefix || t("emailAddressFields.prefixPlaceholder");
-  const previewHandle = handle || t("emailAddressFields.handlePlaceholder");
 
   return (
-    <AssistantInboxShell>
-      <div className="flex flex-1 items-center justify-center overflow-y-auto p-6">
-        <InboxCard
-          title={t("assistantInboxSetupCard.title")}
-          subtitle={
-            handleEditable
-              ? t("assistantInboxSetupCard.subtitleChooseHandle")
-              : t("assistantInboxSetupCard.subtitle")
-          }
-          footerAlign="center"
-          footer={
-            <Button
-              variant="primary"
-              disabled={!prefix || !handle || busy || checkMessage !== null}
-              onClick={() => onConfirm({ prefix, handle })}
-            >
-              {t("assistantInboxSetupCard.getStarted")}
-            </Button>
-          }
+    <AssistantInboxPageFrame
+      onBack={onBack}
+      centered
+      peekAssistantId={assistantId}
+    >
+      <div className="flex w-full max-w-[560px] flex-col items-center gap-10 px-4 py-1 text-center">
+        <h2
+          className="text-[var(--content-emphasised)]"
+          style={{
+            fontFamily: "var(--font-serif)",
+            fontSize: "44px",
+            fontWeight: 400,
+            lineHeight: 1.15,
+            letterSpacing: "0.4px",
+          }}
         >
-          <div className="flex flex-col items-center gap-4">
-            <div className="flex max-w-full flex-col items-center gap-1.5">
+          {t("assistantInboxSetupCard.headline")}
+        </h2>
+
+        <div className="flex w-full flex-col items-center gap-4">
+          <p className="text-body-medium-default text-[var(--content-emphasised)]">
+            {handleEditable
+              ? t("assistantInboxSetupCard.fieldLabelChooseHandle")
+              : t("assistantInboxSetupCard.fieldLabel")}
+          </p>
+          <div className="flex max-w-full flex-col items-center gap-2">
+            <div className="flex max-w-full items-center rounded-2xl border border-[var(--border-base)] bg-[var(--surface-lift)] p-2">
               <EmailAddressFields
                 prefix={prefix}
                 handle={handle}
@@ -159,32 +166,31 @@ export function AssistantInboxSetupCard({
                 disabled={busy}
                 autoFocus
               />
-              {problem ? (
-                <p
-                  role="alert"
-                  className="text-center text-body-small-default text-[var(--system-negative-strong)]"
-                >
-                  {problem}
-                </p>
-              ) : null}
             </div>
-            <AddressPill
-              assistantId={assistantId}
-              address={`${previewPrefix}@${previewHandle}.${rootDomain}`}
-            />
-            {handleEditable ? (
-              <Notice
-                tone="info"
-                className="border-transparent bg-[var(--surface-active)]"
+            {problem ? (
+              <p
+                role="alert"
+                className="text-center text-body-small-default text-[var(--system-negative-strong)]"
               >
-                <span className="font-medium text-[var(--content-tertiary)]">
-                  {t("assistantInboxSetupCard.immutableNotice")}
-                </span>
-              </Notice>
+                {problem}
+              </p>
             ) : null}
           </div>
-        </InboxCard>
+          {handleEditable ? (
+            <p className="max-w-sm text-body-small-lighter text-[var(--content-tertiary)]">
+              {t("assistantInboxSetupCard.immutableNotice")}
+            </p>
+          ) : null}
+        </div>
+
+        <Button
+          variant="primary"
+          disabled={!prefix || !handle || busy || checkMessage !== null}
+          onClick={() => onConfirm({ prefix, handle })}
+        >
+          {t("assistantInboxSetupCard.confirm")}
+        </Button>
       </div>
-    </AssistantInboxShell>
+    </AssistantInboxPageFrame>
   );
 }

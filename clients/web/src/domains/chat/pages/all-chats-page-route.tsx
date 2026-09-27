@@ -17,10 +17,12 @@
  * time this renders and needs no second guard.
  */
 
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { Navigate, useNavigate, useSearchParams } from "react-router";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
+import { ChatsSettingsDialog } from "@/domains/chat/components/chats-settings-dialog";
+import { useRequestOrganizationId } from "@/stores/organization-store";
 import type { ConversationListContextValue } from "@/domains/chat/components/conversation-list-context";
 import {
   DeleteConversationConfirmDialog,
@@ -28,6 +30,9 @@ import {
 } from "@/domains/chat/components/delete-conversation-confirm-dialog";
 import { useConversationActions } from "@/domains/chat/hooks/use-conversation-actions";
 import { useAllChatsData } from "@/domains/chat/hooks/use-all-chats-data";
+import { useAllChatsActivityRefresh } from "@/domains/chat/hooks/use-all-chats-activity-refresh";
+import { AllChatsLiveActivity } from "@/domains/chat/components/all-chats-live-activity";
+import type { Conversation } from "@/types/conversation-types";
 import { AllChatsPage } from "@/domains/chat/pages/all-chats-page";
 import {
   filterFromSearchParams,
@@ -47,9 +52,25 @@ import {
 } from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
 
+function renderActivity(conversation: Conversation) {
+  return <AllChatsLiveActivity conversation={conversation} />;
+}
+
 export function AllChatsPageRoute() {
-  const navigate = useNavigate();
   const assistantId = useActiveAssistantId();
+  const organizationId = useRequestOrganizationId();
+  return (
+    <AllChatsPageContent
+      key={`${organizationId ?? "local"}:${assistantId}`}
+      assistantId={assistantId}
+    />
+  );
+}
+
+function AllChatsPageContent({ assistantId }: { assistantId: string }) {
+  const navigate = useNavigate();
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsButtonRef = useRef<HTMLButtonElement>(null);
   const flagsHydrated = useClientFeatureFlagStore.use.hydrated();
   const enabled = useClientFeatureFlagStore.use.sidebarDone();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -59,6 +80,7 @@ export function AllChatsPageRoute() {
      have issued a whole-history request on its way to the redirect, and an
      unhydrated store reads as off. */
   const live = flagsHydrated && enabled;
+  const registerActivity = useAllChatsActivityRefresh(assistantId, live);
   const history = useAllChatsData(assistantId, live);
   const { conversationGroups } = useConversationGroupsQuery(assistantId, live);
 
@@ -193,7 +215,27 @@ export function AllChatsPageRoute() {
         isLoading={history.isLoading}
         isError={history.isError}
         onRetry={history.retry}
+        renderActivity={renderActivity}
+        onRowMount={registerActivity}
+        onOpenSettings={() => setSettingsOpen(true)}
+        settingsButtonRef={settingsButtonRef}
+        onClose={() => {
+          if (activeConversationId) {
+            navigateToConversation(navigate, activeConversationId, {
+              replace: true,
+            });
+          } else {
+            navigate(routes.assistant, { replace: true });
+          }
+        }}
       />
+      {settingsOpen && (
+        <ChatsSettingsDialog
+          assistantId={assistantId}
+          onClose={() => setSettingsOpen(false)}
+          returnFocusRef={settingsButtonRef}
+        />
+      )}
       <DeleteConversationConfirmDialog
         pending={deleteGate.pending}
         onConfirm={deleteGate.confirmDelete}

@@ -31,6 +31,11 @@ import {
 } from "../../api/responses/llm-request-log-entry.js";
 import { scrubNulledAcpAgentLeaves } from "../../config/acp-agent-write.js";
 import {
+  ChatSettingsPatchSchema,
+  scrubNulledChatSettings,
+  validateChatSettingsWrite,
+} from "../../config/chat-settings.js";
+import {
   catalogEntryFor,
   type InputModalities,
   modalitiesOf,
@@ -54,6 +59,7 @@ import {
 } from "../../config/profile-materialization.js";
 import { AssistantConfigSchema } from "../../config/schema.js";
 import { getSchemaAtPath } from "../../config/schema-utils.js";
+import { AutoArchiveConfigSchema } from "../../config/schemas/conversations.js";
 import {
   collectFallbackProfileIssues,
   DefaultProviderSchema,
@@ -64,6 +70,7 @@ import {
   unknownLlmProviderIssue,
 } from "../../config/schemas/llm.js";
 import { VALID_MEMORY_EMBEDDING_PROVIDERS } from "../../config/schemas/memory-storage.js";
+import { NotificationsConfigSchema } from "../../config/schemas/notifications.js";
 import { ServiceModeSchema } from "../../config/schemas/services.js";
 import { isSidebarDoneEnabled } from "../../config/sidebar-done-gate.js";
 import {
@@ -746,14 +753,19 @@ const MemoryWireConfigSchema = z
  * Response schema for `GET /v1/config`.
  *
  * Describes the wire shape of the raw `settings.json` response after
- * context-default filling and vision-flag enrichment. All top-level fields
- * are optional because the on-disk config may be sparse. Additional
- * top-level config sections beyond what's typed here are preserved via
- * passthrough — this schema types the fields that web/macOS clients consume
+ * context-default filling and vision-flag enrichment. Chat settings include
+ * effective defaults. Fields remain optional for older assistants and sparse
+ * on-disk config. Additional top-level sections are preserved via
+ * passthrough. This schema types the fields that web/macOS clients consume
  * without restricting the full config surface.
  */
 const ConfigGetResponseSchema = z
   .object({
+    conversations: z
+      .object({ autoArchive: AutoArchiveConfigSchema.passthrough() })
+      .passthrough()
+      .optional(),
+    notifications: NotificationsConfigSchema.passthrough().optional(),
     llm: z
       .object({
         default: LLMConfigFragment.extend({
@@ -859,6 +871,7 @@ const CallSiteOverrideDraftSchema = nullablePartial(
  */
 const ConfigPatchRequestSchema = z
   .object({
+    ...ChatSettingsPatchSchema.shape,
     llm: z
       .object({
         default: nullablePartial(
@@ -932,11 +945,32 @@ function handleGetConfig() {
     sanitizeMcpTransportHeadersForSettingsRead(config);
     overlayEffectiveProfilesForWire(config);
     enrichProfilesForWire(config);
+    overlayChatSettingsForWire(config);
     return config;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     throw new InternalError(`Failed to read config: ${message}`);
   }
+}
+
+function overlayChatSettingsForWire(config: unknown): void {
+  const root = readPlainObject(config);
+  if (!root) {
+    return;
+  }
+  const effective = getConfig();
+  const conversations = readPlainObject(root.conversations);
+  root.conversations = {
+    ...conversations,
+    autoArchive: {
+      ...readPlainObject(conversations?.autoArchive),
+      ...effective.conversations.autoArchive,
+    },
+  };
+  root.notifications = {
+    ...readPlainObject(root.notifications),
+    newMessageEnabled: effective.notifications.newMessageEnabled,
+  };
 }
 
 /**
@@ -1513,6 +1547,10 @@ export async function commitConfigWrite(
   // false diffs. Runs before the watcher-suppress/save sequence so a
   // rejection needs no suppress-flag or cache cleanup.
   const preWrite = loadRawConfig();
+  const chatSettings = validateChatSettingsWrite(preWrite, raw);
+  if (!chatSettings.success) {
+    throw new BadRequestError(chatSettings.error.message);
+  }
   completeChangedCustomProfiles(preWrite, raw);
   assertInvariantProfilesPreserved(preWrite, raw);
   assertRoutableIdentityEntries(preWrite, raw);
@@ -1626,6 +1664,10 @@ async function handlePatchConfig({ body }: RouteHandlerArgs) {
   ) {
     throw new BadRequestError("Body must be a non-empty JSON object");
   }
+  const chatSettings = ChatSettingsPatchSchema.safeParse(body);
+  if (!chatSettings.success) {
+    throw new BadRequestError(chatSettings.error.message);
+  }
   stripWireOnlyProfileKeys(body);
   normalizeManagedProfileWrites(body);
   rejectManagedProfileDeletion(body as Record<string, unknown>);
@@ -1641,16 +1683,12 @@ async function handlePatchConfig({ body }: RouteHandlerArgs) {
   deepMergeOverwrite(raw, patch);
   scrubRemovedServiceModes(raw);
   scrubNulledAcpAgentLeaves(raw);
+  scrubNulledChatSettings(raw, patch);
   seedSttProviderForSparseBlock(raw);
 
   await commitConfigWrite(raw, "patch");
 
-  const merged = applyContextDefaultsToRawConfig(loadRawConfig());
-  overlayWorkspaceMcpForConfigRead(merged);
-  sanitizeMcpTransportHeadersForSettingsRead(merged);
-  overlayEffectiveProfilesForWire(merged);
-  enrichProfilesForWire(merged);
-  return merged;
+  return handleGetConfig();
 }
 
 /**

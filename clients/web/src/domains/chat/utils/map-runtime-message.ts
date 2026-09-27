@@ -212,6 +212,9 @@ export function mapRuntimeToDisplayMessage(
       category: m.providerError.category,
     };
   }
+  if (m.autoRoutedProfile) {
+    msg.autoRoutedProfile = m.autoRoutedProfile;
+  }
   if (m.slackMessage) {
     msg.slackMessage = m.slackMessage;
   }

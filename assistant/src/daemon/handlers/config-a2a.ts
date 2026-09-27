@@ -303,6 +303,54 @@ export function redeemA2AInvite(params: {
 // ── Self-hosted broker ──────────────────────────────────────────────
 
 const ACCEPT_TIMEOUT_MS = 15_000;
+const ACCEPT_MAX_BODY_BYTES = 64_000;
+
+const BLOCKED_SENDER_HOSTS = new Set([
+  "localhost",
+  "localhost.localdomain",
+  "metadata.google.internal",
+]);
+
+/**
+ * Self-hosted accept brokers an outbound POST to the peer's invite/complete
+ * URL. Require https, reject credentials, and refuse loopback/metadata
+ * literals so a settings.write caller cannot steer the daemon at link-local
+ * or cloud-metadata endpoints. RFC1918 and Tailscale hostnames stay allowed
+ * because that is how self-hosted peers reach each other on a LAN.
+ */
+export function assertSafeSenderGatewayUrl(
+  raw: string,
+): { ok: true; origin: string } | { ok: false; error: string } {
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    return { ok: false, error: "senderGatewayUrl must be a valid URL" };
+  }
+  if (parsed.protocol !== "https:") {
+    return { ok: false, error: "senderGatewayUrl must use https" };
+  }
+  if (parsed.username || parsed.password) {
+    return {
+      ok: false,
+      error: "senderGatewayUrl must not include credentials",
+    };
+  }
+  const host = parsed.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  if (!host) {
+    return { ok: false, error: "senderGatewayUrl must include a host" };
+  }
+  if (BLOCKED_SENDER_HOSTS.has(host) || host.endsWith(".localhost")) {
+    return { ok: false, error: "senderGatewayUrl host is not allowed" };
+  }
+  if (host === "127.0.0.1" || host === "::1" || host === "0.0.0.0") {
+    return { ok: false, error: "senderGatewayUrl host is not allowed" };
+  }
+  if (host.startsWith("169.254.") || host === "169.254.169.254") {
+    return { ok: false, error: "senderGatewayUrl host is not allowed" };
+  }
+  return { ok: true, origin: parsed.origin };
+}
 
 /**
  * Extract a human-readable error message from a daemon HTTP error
@@ -339,7 +387,15 @@ export async function acceptA2AInvite(params: {
   senderAssistantId: string;
   token: string;
 }): Promise<AcceptA2AInviteResult> {
-  const senderGatewayUrl = params.senderGatewayUrl.replace(/\/+$/, "");
+  const safety = assertSafeSenderGatewayUrl(params.senderGatewayUrl);
+  if (!safety.ok) {
+    return {
+      success: false,
+      error: safety.error,
+      errorCode: "invalid_sender_url",
+    };
+  }
+  const senderGatewayUrl = safety.origin;
 
   // 1. Validate local config
   const displayName = getAssistantName() ?? "Vellum Assistant";
@@ -380,10 +436,27 @@ export async function acceptA2AInvite(params: {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(completeBody),
+      redirect: "error",
       signal: AbortSignal.timeout(ACCEPT_TIMEOUT_MS),
     });
 
-    completeData = (await response.json()) as Record<string, unknown>;
+    const rawBody = await response.text();
+    if (new TextEncoder().encode(rawBody).byteLength > ACCEPT_MAX_BODY_BYTES) {
+      return {
+        success: false,
+        error: "Sender invite/complete response exceeded size limit",
+        errorCode: "complete_failed",
+      };
+    }
+    try {
+      completeData = JSON.parse(rawBody) as Record<string, unknown>;
+    } catch {
+      return {
+        success: false,
+        error: "Sender invite/complete returned invalid JSON",
+        errorCode: "complete_failed",
+      };
+    }
 
     if (!response.ok) {
       const error =

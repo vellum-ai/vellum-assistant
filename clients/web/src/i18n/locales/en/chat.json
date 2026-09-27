@@ -136,15 +136,21 @@
       "background": "Background",
       "done": "Done"
     },
-    "doneMeta": "Done · {time}",
     "empty": "No chats here yet.",
     "filterAria": "Filter chats",
     "loadError": "Could not load your chats.",
     "loading": "Loading chats",
     "noMatches": "No chats match “{query}”.",
     "retry": "Try again",
-    "searchPlaceholder": "Search chats",
-    "title": "All chats"
+    "searchPlaceholder": "Find chats",
+    "title": "All Chats",
+    "close": "Close all chats",
+    "openChat": "Go to thread",
+    "doneLabel": "{title}, done",
+    "unread": "Unread",
+    "running": "Running",
+    "needsAttention": "Needs attention",
+    "runningCount": "{count, plural, one {# running task} other {# running tasks}}"
   },
   "sessionGroupRow": {
     "mode": {
@@ -393,6 +399,22 @@
     "unsupported": "This device can't open a camera.",
     "uploadFailed": "Couldn't send that photo."
   },
+  "cameraExplainer": {
+    "close": "Close",
+    "gotIt": "Got it",
+    "liveBody": "{name} watches as you move the camera. Just talk about what {name} sees.",
+    "liveBodyDesktop": "{name} watches as you move the camera. Just talk about what {name} sees. Stop whenever you like.",
+    "liveTag": "Live",
+    "liveTitle": "Live",
+    "photoBody": "Take a picture. {name} sees just that one picture.",
+    "photoTitle": "Photo",
+    "privacy": "Everything {name} sees stays in {name}'s own private workspace. Live ends when you close the camera.",
+    "subtitle": "Pick how {name} sees what you're pointing at. You can switch any time.",
+    "title": "Photo or Live?",
+    "tryLive": "Try Live now",
+    "tryLiveDesktop": "Try Live",
+    "yourAssistant": "your assistant"
+  },
   "cameraShutterHint": {
     "live": "Live · Tap to stop",
     "liveDescription": "Tap to stop live video.",
@@ -414,10 +436,11 @@
   },
   "cameraViewOptions": {
     "buttonAria": "Camera view options",
-    "gateHudDescription": "The tuning readout for what Live keeps.",
-    "gateHudTitle": "Frame gate readout",
-    "keptFrameDescription": "The last frame Live sent, beside your photos. Live keeps sending either way.",
-    "keptFrameTitle": "Kept frame",
+    "gateHudDescription": "Debug overlay for how Live picks which frames to send.",
+    "gateHudTitle": "Frame gate tuning",
+    "howItWorks": "How Photo and Live work",
+    "keptFrameDescription": "Shows the most recent frame Live sent.",
+    "keptFrameTitle": "Latest shared frame",
     "title": "Show"
   },
   "cardSurface": {
@@ -478,6 +501,24 @@
     "attachFileAria": "Attach file",
     "dismiss": "Dismiss",
     "removeAria": "Remove {filename}"
+  },
+  "emailReferenceChip": {
+    "noSubject": "(no subject)",
+    "captionReceived": "Received · From {name} · {date}",
+    "captionReceivedUndated": "Received · From {name}",
+    "captionSent": "Sent · To {name} · {date}",
+    "captionSentUndated": "Sent · To {name}",
+    "tooltip": "{subject}\n{caption}",
+    "removeAria": "Remove email {subject}"
+  },
+  "emailReferenceCard": {
+    "noSubject": "(no subject)",
+    "captionReceived": "Received · From {name} · {date}",
+    "captionReceivedUndated": "Received · From {name}",
+    "captionSent": "Sent · To {name} · {date}",
+    "captionSentUndated": "Sent · To {name}",
+    "tooltip": "{subject}\n{caption}",
+    "openAria": "Open email {subject} in the inbox"
   },
   "chatBody": {
     "dropFiles": "Drop files to attach"
@@ -662,6 +703,7 @@
     "loadingProfiles": "Loading profiles…",
     "modelProfile": "Model Profile",
     "modelProfileTitle": "Model profile",
+    "autoPreview": "Auto · {profile}",
     "profileAria": "Model profile: {label}",
     "profileAriaFallback": "Model profile",
     "profileSwitchFailed": "Profile created, but couldn't switch to it",
@@ -746,8 +788,6 @@
     "markRead": "Mark as read",
     "markUnread": "Mark as unread",
     "moveToGroup": "Move to group",
-    "newDocument": "New Document",
-    "newDocumentFailed": "Couldn't create the document. Try again.",
     "newGroup": "New group…",
     "openInNewWindow": "Open in New Window",
     "pin": "Pin",
@@ -812,8 +852,8 @@
   },
   "csvPreview": {
     "emptyFile": "This file is empty",
-    "summary": "{rows} rows x {columns} columns",
-    "summaryTruncated": "{rows} rows x {columns} columns (truncated)"
+    "summary": "{rows, plural, one {# row} other {# rows}} x {columns, plural, one {# column} other {# columns}}",
+    "summaryTruncated": "{rows, plural, one {# row} other {# rows}} x {columns, plural, one {# column} other {# columns}} (truncated)"
   },
   "dailyLimitBanner": {
     "skipConfirmTitle": "Skip today's credit limit?",
@@ -870,8 +910,8 @@
     "close": "Close",
     "closeDocumentAria": "Close document",
     "comments": "Comments",
+    "commentsWithOpenCount": "{count, plural, one {Comments, # open} other {Comments, # open}}",
     "export": "Export",
-    "hideComments": "Hide comments",
     "menuAria": "Document options",
     "rename": "Rename",
     "renameFailed": "Could not rename the document.",
@@ -1320,6 +1360,7 @@
     "title": "Files"
   },
   "messageHoverActions": {
+    "autoRouted": "Auto · {profile}",
     "bookmark": "Bookmark",
     "copied": "Copied",
     "copy": "Copy",
@@ -1489,6 +1530,8 @@
   },
   "preferencesUsagePanel": {
     "addCreditsAriaLabel": "Add credits",
+    "dailyExhausted": "Daily usage used up. Add credits to continue.",
+    "dailyTitle": "Daily usage",
     "exhausted": "Add credits to continue.",
     "extraCredits": "Now using extra usage credits",
     "pctUsed": "{pct}% used",
@@ -1847,8 +1890,29 @@
   },
   "tiptapDocumentEditor": {
     "adding": "Adding…",
+    "blockquote": "Quote",
+    "bold": "Bold",
+    "bulletList": "Bulleted list",
+    "code": "Code",
     "comment": "Comment",
-    "feedbackPlaceholder": "Add your feedback…"
+    "feedbackPlaceholder": "Add your feedback…",
+    "heading1": "Heading 1",
+    "heading2": "Heading 2",
+    "heading3": "Heading 3",
+    "italic": "Italic",
+    "link": "Link",
+    "linkAddress": "Link address",
+    "linkApply": "Apply link",
+    "linkInvalid": "Use a web or email address",
+    "linkPlaceholder": "Paste or type a link",
+    "linkRemove": "Remove link",
+    "orderedList": "Numbered list",
+    "paragraph": "Text",
+    "placeholder": "Start writing…",
+    "remoteEditConflict": "Your edits were kept where the assistant changed the same text, so part of its edit was not applied.",
+    "strike": "Strikethrough",
+    "textStyle": "Text style: {style}",
+    "toolbarAria": "Formatting"
   },
   "toolCallChip": {
     "allow": "Allow",
@@ -2070,6 +2134,21 @@
   "workspacePathLink": {
     "openTitle": "Open {path}"
   },
+  "xlsxPreview": {
+    "beyondPreviewLimit": "This sheet only has cells past the preview limit",
+    "emptySheet": "This sheet is empty",
+    "sheetUnreadable": "This sheet could not be read",
+    "sheetsAria": "Sheets",
+    "sheetsOmitted": "{count, plural, one {# more sheet is not shown} other {# more sheets are not shown}}",
+    "summary": "{sheet}: {rows, plural, one {# row} other {# rows}} x {columns, plural, one {# column} other {# columns}}",
+    "summaryTruncated": "{sheet}: {rows, plural, one {# row} other {# rows}} x {columns, plural, one {# column} other {# columns}} (truncated)",
+    "summaryColumnsCut": "{sheet}: {rows, plural, one {# row} other {# rows}} x {columns, number} of {total, plural, one {# column} other {# columns}}",
+    "summaryRowsCut": "{sheet}: {rows, number} of {total, plural, one {# row} other {# rows}} x {columns, plural, one {# column} other {# columns}}",
+    "summaryBothCut": "{sheet}: {rows, number} of {totalRows, plural, one {# row} other {# rows}} x {columns, number} of {totalColumns, plural, one {# column} other {# columns}}",
+    "countsColumnsCut": "{rows, plural, one {# row} other {# rows}} x {columns, number} of {total, plural, one {# column} other {# columns}}",
+    "countsRowsCut": "{rows, number} of {total, plural, one {# row} other {# rows}} x {columns, plural, one {# column} other {# columns}}",
+    "countsBothCut": "{rows, number} of {totalRows, plural, one {# row} other {# rows}} x {columns, number} of {totalColumns, plural, one {# column} other {# columns}}"
+  },
   "transcript": {
     "noResponse": "Chose not to respond",
     "reactionAddedSelf": "Reacted with {emoji}",
@@ -2147,5 +2226,33 @@
   "recallLabels": {
     "source": "{source, select, memory {Memory} conversations {Conversations} workspace {Workspace files} other {{source}}}",
     "depth": "{depth, select, fast {Quick search} standard {Standard search} deep {Deep search} other {Search}}"
+  },
+  "freeTierDailyLimitBanner": {
+    "addCredits": "Add credits",
+    "subtitle": "You've used today's free usage. It resets at {resetPhrase}. Upgrade or add credits to keep going.",
+    "title": "Daily free usage used up",
+    "viewPlans": "View plans"
+  },
+  "chatsSettingsModal": {
+    "title": "Chats Settings",
+    "description": "Manage automatic Done marking and chat reply alerts for this assistant across your devices.",
+    "autoArchive": "Auto Archive Chats",
+    "autoArchiveHelper": "Marks inactive chats Done, including older chats already past this time. Done chats stay in All Chats.",
+    "timeToArchive": "Time to Archive",
+    "days": "{count, plural, one {# day} other {# days}}",
+    "notifications": "Chat reply alerts",
+    "notificationsHelper": "Get notified about replies in chats you’re not viewing.",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "saving": "Saving…",
+    "loading": "Loading chat settings…",
+    "retry": "Retry",
+    "loadError": "Chat settings couldn't be loaded. Please try again.",
+    "saveError": "Chat settings couldn't be saved. Your changes are kept here. Confirm to try again.",
+    "unsupported": "Update this assistant to use chat settings."
+  },
+  "emailNavItem": {
+    "label": "Email",
+    "unpin": "Unpin Email"
   }
 }

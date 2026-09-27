@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { setConfig } from "../../__tests__/helpers/set-config.js";
+import type { WakeOptions } from "../../runtime/agent-wake.js";
 import { SHELL_DID_NOT_START_MESSAGE } from "../shared/shell-output.js";
 import type { ToolContext } from "../types.js";
 
@@ -62,9 +63,13 @@ mock.module("../../runtime/assistant-event-hub.js", () => ({
 }));
 
 const realWake = await import("../../runtime/agent-wake.js");
+const wakeCalls: WakeOptions[] = [];
 mock.module("../../runtime/agent-wake.js", () => ({
   ...realWake,
-  wakeAgentForOpportunity: async () => ({}),
+  wakeAgentForOpportunity: async (opts: WakeOptions) => {
+    wakeCalls.push(opts);
+    return {};
+  },
 }));
 
 const { shellTool } = await import("./shell.js");
@@ -108,6 +113,7 @@ describe("bash launch failures are not success", () => {
 
   beforeEach(() => {
     spawnCalls.length = 0;
+    wakeCalls.length = 0;
     spawnImpl = originalSpawn as SpawnImpl;
     workingDir = mkdtempSync(join(tmpdir(), "bash-launch-"));
   });
@@ -159,4 +165,24 @@ describe("bash launch failures are not success", () => {
     expect(result.content).not.toContain("<command_completed />");
     expect(existsSync(join(workingDir, "help.txt"))).toBe(false);
   });
+
+  for (const cronRunId of [undefined, null, "cron-run-123"]) {
+    test(`preserves originating schedule ${String(cronRunId)} on background spawn error`, async () => {
+      const child = fakeChild();
+      spawnImpl = () =>
+        child as unknown as ReturnType<typeof realChildProcess.spawn>;
+      const context = { ...makeContext(workingDir), cronRunId };
+      await shellTool.execute(
+        { command: "echo hello", activity: "test", background: true },
+        context,
+      );
+      context.cronRunId = "cron-run-later";
+      child.emit("error", new Error("spawn ENOENT"));
+      child.emit("close", null, null);
+
+      expect(wakeCalls).toHaveLength(1);
+      expect(wakeCalls[0]!.cronRunId).toBe(cronRunId ?? undefined);
+      expect(wakeCalls[0]!.backgroundToolCompletion?.status).toBe("failed");
+    });
+  }
 });

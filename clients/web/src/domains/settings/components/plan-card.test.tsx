@@ -146,6 +146,10 @@ let walletBalance: string | null = null;
 let byokSuppressed = false;
 let availableUsageBalance: string | null = null;
 let totalUsageBalance: string | null = null;
+/** The free-tier daily cap, where the platform is enforcing one. */
+let freeTierEnforced = false;
+let freeTierLimit: string | null = null;
+let freeTierSpend: string | null = null;
 mock.module("@/hooks/use-billing-balance-status", () => ({
   useBillingBalanceStatus: () => {
     const exhausted = walletBalance != null && Number(walletBalance) <= 0;
@@ -156,6 +160,15 @@ mock.module("@/hooks/use-billing-balance-status", () => ({
       dailyLimitSnoozed: false,
       dailyLimit: null,
       dailySpend: null,
+      freeTierDailyLimitEnforced: freeTierEnforced,
+      freeTierDailyLimitReached:
+        freeTierEnforced &&
+        freeTierLimit != null &&
+        freeTierSpend != null &&
+        Number(freeTierSpend) >= Number(freeTierLimit),
+      freeTierDailyLimitBlocked: false,
+      freeTierDailyLimit: freeTierLimit,
+      freeTierDailySpend: freeTierSpend,
       balance: walletBalance,
       availableUsageBalance,
       totalUsageBalance,
@@ -1121,6 +1134,9 @@ describe("PlanCard usage balance", () => {
     byokSuppressed = false;
     availableUsageBalance = null;
     totalUsageBalance = null;
+    freeTierEnforced = false;
+    freeTierLimit = null;
+    freeTierSpend = null;
   });
 
   afterEach(() => {
@@ -1128,6 +1144,107 @@ describe("PlanCard usage balance", () => {
     byokSuppressed = false;
     availableUsageBalance = null;
     totalUsageBalance = null;
+    freeTierEnforced = false;
+    freeTierLimit = null;
+    freeTierSpend = null;
+  });
+
+  test("an enforced free-tier cap draws a daily bar above the current usage bar", async () => {
+    totalUsageBalance = "15.00";
+    availableUsageBalance = "12.00";
+    freeTierEnforced = true;
+    freeTierLimit = "5.00";
+    freeTierSpend = "2.00";
+    const { findByTestId, getByTestId } = renderCardInteractive(
+      proMightySubscription(),
+      plansWithSuper(),
+      () => {},
+    );
+
+    const daily = await findByTestId("plan-daily-usage");
+    expect(daily.textContent).toContain("Daily Usage");
+    expect(daily.textContent).toContain("40% used");
+    expect(getByTestId("plan-daily-usage-resets").textContent).toContain(
+      "Resets at",
+    );
+    const overall = getByTestId("plan-usage-balance");
+    expect(overall.textContent).toContain("Monthly Usage");
+    // Above, not below: the daily bar leads the tile's footer.
+    expect(
+      daily.compareDocumentPosition(overall) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    // Both readings sit in the one bordered panel, not a block each.
+    expect(daily.parentElement).toBe(getByTestId("plan-usage-panel"));
+    expect(overall.parentElement).toBe(daily.parentElement);
+  });
+
+  test("no daily bar outside the free-tier cohort", async () => {
+    totalUsageBalance = "15.00";
+    availableUsageBalance = "12.00";
+    freeTierLimit = "5.00";
+    freeTierSpend = "2.00";
+    const { findByTestId, queryByTestId } = renderCardInteractive(
+      proMightySubscription(),
+      plansWithSuper(),
+      () => {},
+    );
+
+    await findByTestId("plan-usage-balance");
+    expect(queryByTestId("plan-daily-usage")).toBeNull();
+  });
+
+  test("a spent overall grant pins the daily bar at 100% whatever the day says", async () => {
+    totalUsageBalance = "15.00";
+    availableUsageBalance = "0.00";
+    freeTierEnforced = true;
+    freeTierLimit = "5.00";
+    freeTierSpend = "1.00";
+    const { findByTestId } = renderCardInteractive(
+      proMightySubscription(),
+      plansWithSuper(),
+      () => {},
+    );
+
+    const daily = await findByTestId("plan-daily-usage");
+    expect(daily.textContent).toContain("100% used");
+    // Today's counter is under its cap, so the day is not what ran out: the
+    // pinned bar carries no strip of its own.
+    expect(daily.textContent).not.toContain("You've used today's free usage");
+  });
+
+  test("a used-up day backed only by frozen credit raises the daily strip", async () => {
+    totalUsageBalance = "15.00";
+    availableUsageBalance = "12.00";
+    walletBalance = "12.00";
+    freeTierEnforced = true;
+    freeTierLimit = "5.00";
+    freeTierSpend = "5.00";
+    const { findByTestId } = renderCardInteractive(
+      proMightySubscription(),
+      plansWithSuper(),
+      () => {},
+    );
+
+    const daily = await findByTestId("plan-daily-usage");
+    expect(daily.textContent).toContain("You've used today's free usage");
+  });
+
+  test("a used-up day with extra credit behind it raises no strip", async () => {
+    totalUsageBalance = "15.00";
+    availableUsageBalance = "12.00";
+    walletBalance = "20.00";
+    freeTierEnforced = true;
+    freeTierLimit = "5.00";
+    freeTierSpend = "5.00";
+    const { findByTestId } = renderCardInteractive(
+      proMightySubscription(),
+      plansWithSuper(),
+      () => {},
+    );
+
+    const daily = await findByTestId("plan-daily-usage");
+    expect(daily.textContent).toContain("100% used");
+    expect(daily.textContent).not.toContain("You've used today's free usage");
   });
 
   test("a Pro clean pin trades its price footer for the usage balance", async () => {
@@ -1141,7 +1258,7 @@ describe("PlanCard usage balance", () => {
 
     // $10 of the $25 the cycle granted is gone.
     const panel = await findByTestId("plan-usage-balance");
-    expect(panel.textContent).toContain("Current Usage");
+    expect(panel.textContent).toContain("Monthly Usage");
     expect(panel.textContent).toContain("Resets on Aug 10");
     expect(panel.textContent).toContain("40% used");
     // The bar is the replacement, so the monthly price must not stand beside
@@ -1451,7 +1568,7 @@ describe("PlanCard usage balance", () => {
     );
 
     const panel = await findByTestId("plan-usage-balance");
-    expect(panel.textContent).toContain("Current Usage");
+    expect(panel.textContent).toContain("Overall Usage");
     expect(panel.textContent).toContain("68% used");
     // The base fixture carries a `current_period_end`, so this proves the gate
     // is the plan rather than the field.

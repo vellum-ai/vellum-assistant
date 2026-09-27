@@ -3,15 +3,27 @@ import { describe, expect, test } from "bun:test";
 import {
   buildShellInvocation,
   buildShellSpawnFlags,
+  CHILD_OOM_SCORE_ADJ,
   pathListDelimiter,
   prependUniquePathEntries,
 } from "./shell.js";
 
 describe("buildShellInvocation", () => {
   test("uses Bash on POSIX hosts", () => {
-    expect(buildShellInvocation("printf hello", "linux")).toEqual({
+    expect(buildShellInvocation("printf hello", "darwin")).toEqual({
       command: "bash",
       args: ["-c", "--", "printf hello"],
+    });
+  });
+
+  test("raises the shell's OOM-kill priority on Linux", () => {
+    expect(buildShellInvocation("printf hello", "linux")).toEqual({
+      command: "bash",
+      args: [
+        "-c",
+        "--",
+        `echo ${CHILD_OOM_SCORE_ADJ} 2>/dev/null >/proc/self/oom_score_adj; printf hello`,
+      ],
     });
   });
 

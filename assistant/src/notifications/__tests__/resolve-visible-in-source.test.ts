@@ -26,7 +26,29 @@ mock.module("../../runtime/web-presence.js", () => ({
   },
 }));
 
-const { resolveVisibleInSourceNow } =
+let guardianPrincipalId: string | undefined = "guardian-1";
+let guardianReadShouldThrow = false;
+const realGuardianDelivery =
+  await import("../../contacts/guardian-delivery-reader.js");
+mock.module("../../contacts/guardian-delivery-reader.js", () => ({
+  ...realGuardianDelivery,
+  getGuardianDelivery: async () => {
+    if (guardianReadShouldThrow) {
+      throw new Error("recipient unavailable");
+    }
+    return guardianPrincipalId
+      ? [
+          {
+            channelType: "vellum",
+            status: "active",
+            principalId: guardianPrincipalId,
+          },
+        ]
+      : null;
+  },
+}));
+
+const { resolveVisibleInSourceNow, resolveCompletionVisibleInSourceNow } =
   await import("../resolve-visible-in-source.js");
 
 describe("resolveVisibleInSourceNow", () => {
@@ -92,5 +114,92 @@ describe("resolveVisibleInSourceNow", () => {
       false,
     );
     expect(webPresenceArgs).toEqual([]);
+  });
+});
+
+describe("resolveCompletionVisibleInSourceNow", () => {
+  beforeEach(() => {
+    guardianPrincipalId = "guardian-1";
+    guardianReadShouldThrow = false;
+    webFocused = true;
+    webPresenceShouldThrow = false;
+    webPresenceArgs.length = 0;
+    setOverridesForTesting({ "web-presence-suppression": true });
+  });
+
+  test("reads attendance only for the completion recipient", async () => {
+    expect(
+      await resolveCompletionVisibleInSourceNow({
+        conversationId: CONVERSATION_ID,
+      }),
+    ).toBe(true);
+    expect(webPresenceArgs).toEqual([
+      [CONVERSATION_ID, { actorPrincipalId: "guardian-1" }],
+    ]);
+  });
+
+  test("does not read unscoped presence when the recipient is unknown", async () => {
+    guardianPrincipalId = undefined;
+    expect(
+      await resolveCompletionVisibleInSourceNow({
+        conversationId: CONVERSATION_ID,
+      }),
+    ).toBe(false);
+    expect(webPresenceArgs).toEqual([]);
+  });
+
+  test("uses an already resolved recipient without a second identity lookup", async () => {
+    guardianReadShouldThrow = true;
+    expect(
+      await resolveCompletionVisibleInSourceNow({
+        conversationId: CONVERSATION_ID,
+        actorPrincipalId: "guardian-resolved",
+      }),
+    ).toBe(true);
+    expect(webPresenceArgs).toEqual([
+      [CONVERSATION_ID, { actorPrincipalId: "guardian-resolved" }],
+    ]);
+  });
+
+  test("uses the completion presence flag independently of activity suppression", async () => {
+    setOverridesForTesting({ "web-presence-suppression": true, [FLAG]: false });
+    expect(
+      await resolveCompletionVisibleInSourceNow({
+        conversationId: CONVERSATION_ID,
+      }),
+    ).toBe(true);
+    setOverridesForTesting({ "web-presence-suppression": false, [FLAG]: true });
+    webPresenceArgs.length = 0;
+    expect(
+      await resolveCompletionVisibleInSourceNow({
+        conversationId: CONVERSATION_ID,
+      }),
+    ).toBe(false);
+    expect(webPresenceArgs).toEqual([]);
+  });
+
+  test("allows delivery when recipient lookup fails", async () => {
+    guardianReadShouldThrow = true;
+    const warn = mock(() => {});
+    expect(
+      await resolveCompletionVisibleInSourceNow({
+        conversationId: CONVERSATION_ID,
+        logger: { warn } as unknown as pino.Logger,
+      }),
+    ).toBe(false);
+    expect(webPresenceArgs).toEqual([]);
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  test("allows delivery when presence lookup fails", async () => {
+    webPresenceShouldThrow = true;
+    const warn = mock(() => {});
+    expect(
+      await resolveCompletionVisibleInSourceNow({
+        conversationId: CONVERSATION_ID,
+        logger: { warn } as unknown as pino.Logger,
+      }),
+    ).toBe(false);
+    expect(warn).toHaveBeenCalledTimes(1);
   });
 });

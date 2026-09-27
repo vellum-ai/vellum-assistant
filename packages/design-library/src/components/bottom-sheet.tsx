@@ -73,7 +73,12 @@ function Root({
   };
   return (
     <BottomSheetContext value={{ open, modal, onOpenChange: setOpen }}>
-      <Dialog.Root open={open} modal={modal} onOpenChange={setOpen} {...props} />
+      <Dialog.Root
+        open={open}
+        modal={modal}
+        onOpenChange={setOpen}
+        {...props}
+      />
     </BottomSheetContext>
   );
 }
@@ -90,6 +95,8 @@ interface BottomSheetContentProps extends ComponentProps<
    * Set --bottom-sheet-bottom-inset to extend the surface through frame padding.
    */
   variant?: "default" | "detail";
+  /** Accessible name for a tappable detail-sheet drag handle. */
+  dragHandleLabel?: string;
   overlayClassName?: string;
   /**
    * Whether the sheet insets its content. Sheets carrying rows of text and
@@ -105,6 +112,7 @@ interface BottomSheetContentProps extends ComponentProps<
 
 function Content({
   variant = "default",
+  dragHandleLabel,
   overlayClassName,
   className,
   padded = true,
@@ -173,7 +181,10 @@ function Content({
           )}
         >
           {variant === "detail" && (
-            <BottomSheetDragHandle onDismiss={() => onOpenChange?.(false)} />
+            <BottomSheetDragHandle
+              label={dragHandleLabel}
+              onDismiss={() => onOpenChange?.(false)}
+            />
           )}
           {children}
         </div>
@@ -186,25 +197,34 @@ const DISMISS_DISTANCE_PX = 100;
 
 interface BottomSheetDragHandleProps {
   onDismiss: () => void;
+  label?: string;
 }
 
 /** Owns only handle drags; the sheet's body retains native scrolling. */
-function BottomSheetDragHandle({ onDismiss }: BottomSheetDragHandleProps) {
+function BottomSheetDragHandle({
+  onDismiss,
+  label,
+}: BottomSheetDragHandleProps) {
   const gesture = useRef<{
     pointerId: number;
     startY: number;
+    startX: number;
     offset: number;
+    moved: boolean;
     sheet: HTMLElement;
   } | null>(null);
 
-  const finish = (event: PointerEvent<HTMLDivElement>, cancelled = false) => {
+  const finish = (event: PointerEvent<HTMLElement>, cancelled = false) => {
     const active = gesture.current;
     if (!active || active.pointerId !== event.pointerId) {
       return;
     }
     gesture.current = null;
     delete active.sheet.dataset.dragging;
-    if (!cancelled && active.offset >= DISMISS_DISTANCE_PX) {
+    if (
+      !cancelled &&
+      (active.offset >= DISMISS_DISTANCE_PX || (label && !active.moved))
+    ) {
       onDismiss();
     } else {
       active.sheet.dataset.snapping = "true";
@@ -215,11 +235,23 @@ function BottomSheetDragHandle({ onDismiss }: BottomSheetDragHandleProps) {
     }
   };
 
+  const Handle = label ? "button" : "div";
   return (
-    <div
+    <Handle
       data-slot="bottom-sheet-drag-handle"
-      aria-hidden="true"
-      className="flex h-8 shrink-0 cursor-grab touch-none select-none items-center justify-center active:cursor-grabbing"
+      type={label ? "button" : undefined}
+      aria-label={label}
+      aria-hidden={label ? undefined : true}
+      onClick={
+        label
+          ? (event) => {
+              if (event.detail === 0) {
+                onDismiss();
+              }
+            }
+          : undefined
+      }
+      className="flex h-8 shrink-0 cursor-grab touch-none select-none items-center justify-center outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] active:cursor-grabbing"
       onPointerDown={(event) => {
         if (!event.isPrimary || event.button !== 0) {
           return;
@@ -237,7 +269,9 @@ function BottomSheetDragHandle({ onDismiss }: BottomSheetDragHandleProps) {
         gesture.current = {
           pointerId: event.pointerId,
           startY: event.clientY,
+          startX: event.clientX,
           offset: 0,
+          moved: false,
           sheet,
         };
       }}
@@ -247,6 +281,11 @@ function BottomSheetDragHandle({ onDismiss }: BottomSheetDragHandleProps) {
           return;
         }
         active.offset = Math.max(0, event.clientY - active.startY);
+        active.moved ||=
+          Math.hypot(
+            event.clientY - active.startY,
+            event.clientX - active.startX,
+          ) > 5;
         active.sheet.style.setProperty(
           "--bottom-sheet-drag-offset",
           `${active.offset}px`,
@@ -257,7 +296,7 @@ function BottomSheetDragHandle({ onDismiss }: BottomSheetDragHandleProps) {
       onLostPointerCapture={(event) => finish(event, true)}
     >
       <div className="h-1 w-14 rounded-full bg-[var(--border-element)]" />
-    </div>
+    </Handle>
   );
 }
 

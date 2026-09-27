@@ -17,6 +17,10 @@ import type { Subprocess } from "bun";
 
 import { getQdrantReadyzTimeoutMs, getQdrantUrlEnv } from "../../config/env.js";
 import { getLogger } from "../../util/logger.js";
+import {
+  setOomScoreAdj,
+  WORKER_OOM_SCORE_ADJ,
+} from "../../util/oom-priority.js";
 import { getDataDir } from "../../util/platform.js";
 
 const log = getLogger("qdrant-manager");
@@ -288,6 +292,7 @@ export class QdrantManager {
     } catch (err) {
       throw this.startError(err, "spawn");
     }
+    setOomScoreAdj(WORKER_OOM_SCORE_ADJ, proc.pid);
     this.process = proc;
     this.drainOutputFrom(proc.stdout, proc.stderr);
 

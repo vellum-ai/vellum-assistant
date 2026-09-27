@@ -309,6 +309,22 @@ describe("getPluginDetails (bundled catalog, offline)", () => {
     expect(details.icon).toBeNull();
   });
 
+  test("reads a legacy object-form license from an installed package.json", async () => {
+    const target = join(workspace, "caveman");
+    mkdirSync(target, { recursive: true });
+    writeFileSync(
+      join(target, "package.json"),
+      JSON.stringify({ version: "2.0.0", license: { type: "MIT" } }),
+    );
+
+    const details = await getPluginDetails(
+      { name: "caveman" },
+      { fetch: makeFetch({}), workspacePluginsDir: workspace },
+    );
+
+    expect(details.license).toBe("MIT");
+  });
+
   test("reads metadata from an installed standard-only plugin.json", async () => {
     const target = join(workspace, "caveman");
     mkdirSync(target, { recursive: true });

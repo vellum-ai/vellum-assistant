@@ -9,7 +9,10 @@ import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../../prompts/cache-boundary.js";
 import { isAbortReason } from "../../util/abort-reasons.js";
 import { ProviderError, type ProviderErrorReason } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
-import { DAILY_LIMIT_PATTERNS } from "../../util/provider-error-patterns.js";
+import {
+  DAILY_LIMIT_PATTERNS,
+  FREE_TIER_DAILY_LIMIT_PATTERNS,
+} from "../../util/provider-error-patterns.js";
 import {
   clampProviderString,
   keepFileAsWorkspaceRef,
@@ -308,6 +311,9 @@ export function deriveGeminiReason(error: ApiError): ProviderErrorReason {
 
   // The managed proxy's daily-limit 402 body carries a specific code; match it
   // before the status branches so it isn't classified as a generic 4xx.
+  if (FREE_TIER_DAILY_LIMIT_PATTERNS.some((re) => re.test(message))) {
+    return "free_tier_daily_limit_reached";
+  }
   if (DAILY_LIMIT_PATTERNS.some((re) => re.test(message))) {
     return "daily_limit_reached";
   }

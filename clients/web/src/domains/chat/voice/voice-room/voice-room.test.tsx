@@ -343,6 +343,10 @@ mock.module("motion/react", (): typeof motionReact => ({
 // Imported after the mocks so the room picks up the mocked modules.
 const { VoiceRoom } =
   await import("@/domains/chat/voice/voice-room/voice-room");
+// The query the camera explainer's sheet-versus-modal fork reads, which is the
+// only seam the design library offers for forcing one presentation.
+const { TOUCH_SURFACE_MEDIA_QUERY } = await import("@vellumai/design-library");
+const { pressBackdrop } = await import("@/lib/overlay-test-helpers");
 type VoiceRoomVariant = Parameters<typeof VoiceRoom>[0]["variant"];
 // The caption is exercised directly as well as through the room: the room
 // hides it, so its emphasis contract is only observable component-side.
@@ -419,10 +423,13 @@ beforeEach(() => {
     .getState()
     .setActiveConversationId(OWNING_CONVERSATION_ID);
   // Captions default off; individual tests flip them through the room control.
+  // The camera's explainer is behind the device that has already seen it, so
+  // only the cases about the explainer itself put a sheet over the viewfinder.
   useVoicePrefsStore.setState({
     showUserTranscript: false,
     showAssistantTranscript: false,
     flashMode: "off",
+    cameraExplainerSeen: true,
   });
   handleSurfaceActionSpy.mockClear();
   useChatSessionStore.setState({
@@ -1467,11 +1474,11 @@ describe("VoiceRoom: the chrome band's corners", () => {
    */
   describe("the view-options panel's host", () => {
     /** Open the camera and then the panel. */
-    async function openViewOptions(): Promise<void> {
+    async function openViewOptions(variant?: VoiceRoomVariant): Promise<void> {
       stubMediaDevices(async () => fakeStream());
       seedLiveCapableAssistant();
       startOwnedSession("listening");
-      render(<VoiceRoom />);
+      render(<VoiceRoom variant={variant} />);
       await act(async () => {
         fireEvent.click(cameraToggle()!);
       });
@@ -1548,6 +1555,28 @@ describe("VoiceRoom: the chrome band's corners", () => {
           .getByTestId("camera-view-settings-host")
           .querySelector(".fixed.inset-0"),
       ).toBeNull();
+    });
+
+    /**
+     * The backdrop fills the room and dismisses the panel, so a swipe that
+     * starts on it is aimed at the panel rather than at the call underneath.
+     */
+    test("a press on the backdrop is never handed to the room's drag", async () => {
+      await openViewOptions("sheet");
+      roomDragStarts.mockClear();
+
+      fireEvent.pointerDown(
+        screen.getByTestId("camera-view-settings-backdrop"),
+      );
+      expect(roomDragStarts).not.toHaveBeenCalled();
+
+      // And the room still answers a press the backdrop is not over, so the
+      // count above is the carve-out rather than a drag that never arms.
+      await act(async () => {
+        fireEvent.click(screen.getByTestId("camera-view-settings-backdrop"));
+      });
+      fireEvent.pointerDown(roomDialog()!);
+      expect(roomDragStarts).toHaveBeenCalledTimes(1);
     });
   });
 });
@@ -2077,6 +2106,7 @@ describe("VoiceRoom: camera", () => {
   }
 
   const viewfinder = () => screen.queryByTestId("voice-room-viewfinder");
+  const look = () => screen.queryByTestId("voice-room-look");
 
   afterEach(() => {
     restoreMediaDevices();
@@ -2346,6 +2376,139 @@ describe("VoiceRoom: camera", () => {
     // The void look's centred avatar renders AFTER the viewfinder in the DOM
     // and sits at z-0, so DOM order alone would let it paint over the feed.
     expect(viewfinder()?.className).toContain("z-[2]");
+  });
+
+  /**
+   * The room keeps exactly one opaque layer under its rounded clip, which is
+   * anti-aliased per painted layer: a second one blends into the first along
+   * the corner arc and draws a fringe around the feed. So the look comes down
+   * only while a decoded frame is on screen, and the feed carries no surface of
+   * its own to take its place.
+   */
+  describe("the look under the viewfinder", () => {
+    async function openRoomCamera(): Promise<void> {
+      stubMediaDevices(async () => fakeStream());
+      seedCameraCapableAssistant();
+      startOwnedSession("listening");
+      render(<VoiceRoom variant="content" />);
+      await act(async () => {
+        fireEvent.click(cameraToggle()!);
+      });
+    }
+
+    test("stands down once the feed has a frame", async () => {
+      await openRoomCamera();
+
+      // The element is up before the stream reaches it, and it is transparent
+      // until then, so the look is still the one thing being seen.
+      expect(look()?.className).not.toContain("invisible");
+      expect(viewfinder()?.style.backgroundColor).toBe("");
+
+      await act(async () => {
+        fireEvent.loadedData(viewfinder()!);
+      });
+
+      expect(look()?.className).toContain("invisible");
+    });
+
+    test("comes back when the feed loses its stream", async () => {
+      // What a flip does: the capture is released before the other camera is
+      // acquired, so the feed is transparent again in between.
+      await openRoomCamera();
+      await act(async () => {
+        fireEvent.loadedData(viewfinder()!);
+      });
+
+      await act(async () => {
+        fireEvent.emptied(viewfinder()!);
+      });
+
+      expect(look()?.className).not.toContain("invisible");
+    });
+
+    test("is painted again after the camera closes and reopens", async () => {
+      // Closing unmounts the element, so no event reports the frame going away.
+      await openRoomCamera();
+      await act(async () => {
+        fireEvent.loadedData(viewfinder()!);
+      });
+
+      await act(async () => {
+        fireEvent.click(cameraToggle()!);
+      });
+      expect(viewfinder()).toBeNull();
+      expect(look()?.className).not.toContain("invisible");
+
+      await act(async () => {
+        fireEvent.click(cameraToggle()!);
+      });
+
+      expect(viewfinder()).not.toBeNull();
+      expect(look()?.className).not.toContain("invisible");
+    });
+
+    test("comes back for the whole of a flip", async () => {
+      // The flip releases the capture synchronously inside the press, so the
+      // commit that press produces already has an element with no stream. The
+      // feed's own `emptied` is a queued task and has not run yet, which is why
+      // this reads the flip flag instead of waiting for the event.
+      let releaseReplacement!: (stream: MediaStream) => void;
+      let calls = 0;
+      stubMediaDevices(async () => {
+        calls += 1;
+        if (calls === 1) {
+          return fakeStream();
+        }
+        return new Promise<MediaStream>((resolve) => {
+          releaseReplacement = resolve;
+        });
+      });
+      seedCameraCapableAssistant();
+      startOwnedSession("listening");
+      render(<VoiceRoom variant="content" />);
+      await act(async () => {
+        fireEvent.click(cameraToggle()!);
+      });
+      await act(async () => {
+        fireEvent.loadedData(viewfinder()!);
+      });
+      expect(look()?.className).toContain("invisible");
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Flip camera" }));
+      });
+
+      // No `emptied` dispatched: the flip alone has to account for this.
+      expect(calls).toBe(2);
+      expect(look()?.className).not.toContain("invisible");
+
+      await act(async () => {
+        releaseReplacement(fakeStream());
+      });
+
+      // The flip has settled and the replacement stream is assigned, but it has
+      // decoded nothing yet, so the feed is still transparent. The flag the
+      // outgoing frame set must not survive the flip to hide the look here,
+      // whichever of `emptied` and the replacement camera arrives first.
+      expect(look()?.className).not.toContain("invisible");
+
+      await act(async () => {
+        fireEvent.loadedData(viewfinder()!);
+      });
+
+      expect(look()?.className).toContain("invisible");
+    });
+
+    test("is left alone over a native preview", async () => {
+      // Nothing of the look is mounted on the native path, and the preview sits
+      // BEHIND the transparent web view, so hiding this wrapper there would
+      // only take the chrome's own surface down with it.
+      nativeShell = true;
+      await openRoomCamera();
+
+      expect(viewfinder()).toBeNull();
+      expect(look()?.className).not.toContain("invisible");
+    });
   });
 
   test("the status pill and the scrims come up with the camera and go with it", async () => {
@@ -3193,11 +3356,11 @@ describe("VoiceRoom: camera", () => {
         expect(flip.className).toContain("size-13");
 
         // The row is what publishes the value, so both flanks have to sit
-        // inside it or their own side resolves to `auto`. 30px is the floor,
-        // which the side safe-area insets only ever deepen.
+        // inside it or their own side resolves to `auto`. The room's corner
+        // gap is the floor, which the side safe-area insets only ever deepen.
         const row = flash.closest("[style*='--camera-flank-inset']");
         expect(row?.getAttribute("style")).toContain(
-          "--camera-flank-inset: max(30px,",
+          "--camera-flank-inset: max(1.25rem,",
         );
         expect(row?.contains(flip)).toBe(true);
       });
@@ -3305,6 +3468,438 @@ describe("VoiceRoom: camera", () => {
         }
 
         expect(labels).toEqual(["Flash auto", "Flash on", "Flash off"]);
+      });
+    });
+
+    /**
+     * The "Photo or Live?" explainer, once per device, over the running
+     * preview.
+     *
+     * What the sheet itself is (which presentation a surface gets, what it
+     * says, which name it reports for each way out) is
+     * `camera-explainer.test.tsx`'s subject. What is under test here is the
+     * room's half: when it comes up, what each way out leaves behind, and that
+     * the device remembers every one of them.
+     *
+     * The touch presentation, since the phone is where the camera lives. The
+     * fork reads `window.matchMedia` directly, so that is the seam.
+     */
+    describe("the first-open explainer", () => {
+      const explainer = () => screen.queryByTestId("camera-explainer");
+      const explainerHost = () => screen.queryByTestId("camera-explainer-host");
+      const seen = () => useVoicePrefsStore.getState().cameraExplainerSeen;
+      const sheetOverlay = () =>
+        document.querySelector('[data-slot="bottom-sheet-overlay"]');
+      const gotIt = () => screen.getByRole("button", { name: "Got it" });
+
+      const realMatchMedia = window.matchMedia.bind(window);
+
+      /**
+       * Answer the touch-surface query with `touch`, leaving every other query
+       * to the real implementation.
+       */
+      function stubSurface(touch: boolean): void {
+        Object.defineProperty(window, "matchMedia", {
+          configurable: true,
+          writable: true,
+          value: ((query: string) => {
+            const result = realMatchMedia(query);
+            if (query !== TOUCH_SURFACE_MEDIA_QUERY) {
+              return result;
+            }
+            return {
+              ...result,
+              media: query,
+              matches: touch,
+              onchange: null,
+              addEventListener: () => {},
+              removeEventListener: () => {},
+              addListener: () => {},
+              removeListener: () => {},
+              dispatchEvent: () => false,
+            } as MediaQueryList;
+          }) as typeof window.matchMedia,
+        });
+      }
+
+      /**
+       * Open the browser viewfinder and let it decode its first frame, which
+       * is what the room waits for on that path.
+       */
+      async function openCameraWithFrame(): Promise<void> {
+        await openLiveCapableCamera();
+        await act(async () => {
+          fireEvent.loadedData(viewfinder()!);
+        });
+      }
+
+      beforeEach(() => {
+        stubSurface(true);
+        useVoicePrefsStore.setState({ cameraExplainerSeen: false });
+      });
+
+      afterEach(() => {
+        Object.defineProperty(window, "matchMedia", {
+          configurable: true,
+          writable: true,
+          value: realMatchMedia,
+        });
+      });
+
+      test("waits for the browser feed to draw before it comes up", async () => {
+        await openLiveCapableCamera();
+
+        // The stream reaches the element before a frame decodes, and the room
+        // is still painting the look through the transparent feed, so a sheet
+        // raised here would sit over the look rather than over the camera.
+        expect(explainer()).toBeNull();
+
+        await act(async () => {
+          fireEvent.loadedData(viewfinder()!);
+        });
+
+        expect(explainer()).not.toBeNull();
+      });
+
+      test("comes up with the native preview, which has no frame to report", async () => {
+        // The shells draw their preview behind the web view as soon as
+        // acquisition succeeds, and mount no element to raise an event.
+        nativeShell = true;
+        stubMediaDevices(async () => fakeStream());
+        seedLiveCapableAssistant();
+        startOwnedSession("listening");
+        render(<VoiceRoom />);
+        await act(async () => {
+          fireEvent.click(cameraToggle()!);
+        });
+
+        expect(viewfinder()).toBeNull();
+        expect(explainer()).not.toBeNull();
+      });
+
+      test("comes up on the first open, in a room-owned box of its own", async () => {
+        await openCameraWithFrame();
+
+        const host = explainerHost()!;
+        // Full-size, so the scrim and the sheet have a box to cover; and
+        // press-through, so it takes nothing from the shutter while closed.
+        expect(host.className).toContain("pointer-events-none");
+        expect(host.className).toContain("absolute inset-0");
+        expect(host.className).toContain("z-30");
+        expect(host.contains(explainer())).toBe(true);
+        // The room's own subtree, which is all a native preview leaves visible
+        // and all the sheet's inert sweep spares.
+        expect(roomDialog()?.contains(explainer())).toBe(true);
+        expect(explainer()?.textContent).toContain("Photo or Live?");
+        // No assistant is resolved in this suite, so this is also the camera's
+        // own fallback name, which reads mid-sentence.
+        expect(explainer()?.textContent).toContain(
+          "Pick how your assistant sees what you're pointing at. You can switch any time.",
+        );
+        // It says what the two modes are; the camera is on neither's account
+        // anywhere but photo.
+        expect(shutter().getAttribute("data-mode")).toBe("photo");
+      });
+
+      test("carries no host at all while the camera is closed", async () => {
+        stubMediaDevices(async () => fakeStream());
+        seedLiveCapableAssistant();
+        startOwnedSession("listening");
+        render(<VoiceRoom />);
+
+        expect(explainerHost()).toBeNull();
+
+        await act(async () => {
+          fireEvent.click(cameraToggle()!);
+        });
+        expect(explainerHost()).not.toBeNull();
+
+        await act(async () => {
+          fireEvent.loadedData(viewfinder()!);
+        });
+        await act(async () => {
+          fireEvent.click(gotIt());
+        });
+        await act(async () => {
+          fireEvent.click(cameraToggle()!);
+        });
+
+        expect(explainerHost()).toBeNull();
+      });
+
+      test("stays away on a device that has already seen it", async () => {
+        useVoicePrefsStore.setState({ cameraExplainerSeen: true });
+        await openCameraWithFrame();
+
+        expect(explainer()).toBeNull();
+        // The host answers to Live's offer rather than to the explainer, so it
+        // stands whether or not anything is in it.
+        expect(explainerHost()).not.toBeNull();
+      });
+
+      test("never appears where Live is not on offer", async () => {
+        // An assistant that predates `sight_frame`. The camera opens, Live
+        // cannot, and a card for a mode the user cannot reach advertises
+        // nothing.
+        stubMediaDevices(async () => fakeStream());
+        seedCameraCapableAssistant();
+        startOwnedSession("listening");
+        render(<VoiceRoom />);
+        await act(async () => {
+          fireEvent.click(cameraToggle()!);
+        });
+
+        expect(screen.getByTestId("voice-room-viewfinder")).not.toBeNull();
+        expect(explainer()).toBeNull();
+        expect(explainerHost()).toBeNull();
+        expect(seen()).toBe(false);
+      });
+
+      test('"Got it" closes it, and the device remembers', async () => {
+        await openCameraWithFrame();
+
+        await act(async () => {
+          fireEvent.click(gotIt());
+        });
+
+        expect(explainer()).toBeNull();
+        expect(seen()).toBe(true);
+        expect(shutter().getAttribute("data-mode")).toBe("photo");
+      });
+
+      test("a press on the scrim closes it, and the device remembers", async () => {
+        await openCameraWithFrame();
+
+        await act(async () => {
+          pressBackdrop(sheetOverlay()!);
+        });
+
+        expect(explainer()).toBeNull();
+        expect(seen()).toBe(true);
+        expect(shutter().getAttribute("data-mode")).toBe("photo");
+      });
+
+      test("Escape closes it and leaves the room up", async () => {
+        await openCameraWithFrame();
+
+        await act(async () => {
+          fireEvent.keyDown(explainer()!, { key: "Escape" });
+        });
+
+        expect(explainer()).toBeNull();
+        expect(seen()).toBe(true);
+        expect(shutter().getAttribute("data-mode")).toBe("photo");
+        // The room's own Escape stands down for a dialog layered over it, so
+        // one key dismisses one surface.
+        expect(useLiveVoiceStore.getState().roomMinimized).toBe(false);
+      });
+
+      test("the desktop close glyph closes it, and the device remembers", async () => {
+        stubSurface(false);
+        await openCameraWithFrame();
+
+        await act(async () => {
+          fireEvent.click(screen.getByLabelText("Close"));
+        });
+
+        expect(explainer()).toBeNull();
+        expect(seen()).toBe(true);
+        expect(shutter().getAttribute("data-mode")).toBe("photo");
+      });
+
+      test('"Try Live now" is the one way out that starts Live', async () => {
+        await openCameraWithFrame();
+
+        await act(async () => {
+          fireEvent.click(screen.getByRole("button", { name: "Try Live now" }));
+        });
+
+        expect(explainer()).toBeNull();
+        expect(seen()).toBe(true);
+        expect(pill().getAttribute("data-camera-mode")).toBe("live");
+        expect(shutter().getAttribute("data-mode")).toBe("live");
+      });
+
+      test("a second open in the same session leaves it closed", async () => {
+        await openCameraWithFrame();
+        await act(async () => {
+          fireEvent.click(gotIt());
+        });
+
+        await act(async () => {
+          fireEvent.click(cameraToggle()!);
+        });
+        await act(async () => {
+          fireEvent.click(cameraToggle()!);
+        });
+
+        expect(explainer()).toBeNull();
+      });
+
+      /**
+       * The sheet is the placement that carries a drag to compete with, and the
+       * room minimizes on a press that turns into one from anywhere in it. The
+       * explainer covers the room in two parts, the dialog and the scrim it
+       * dims with, and a swipe that starts on either would otherwise take the
+       * camera down with the room.
+       */
+      describe("a press on it is never handed to the room's drag", () => {
+        /**
+         * The explainer's own scrim, which sits outside the dialog it dims
+         * rather than inside it. The host is the portal both halves land in,
+         * so scoping the query to it is what names this explainer's.
+         */
+        const scrim = (slot: string) =>
+          explainerHost()?.querySelector(`[data-slot="${slot}"]`) ?? null;
+
+        async function openExplainerOverSheetRoom(): Promise<void> {
+          stubMediaDevices(async () => fakeStream());
+          seedLiveCapableAssistant();
+          startOwnedSession("listening");
+          render(<VoiceRoom variant="sheet" />);
+          await act(async () => {
+            fireEvent.click(cameraToggle()!);
+          });
+          await act(async () => {
+            fireEvent.loadedData(viewfinder()!);
+          });
+          roomDragStarts.mockClear();
+        }
+
+        test("not from its body, and the room still answers a press beside it", async () => {
+          await openExplainerOverSheetRoom();
+
+          fireEvent.pointerDown(gotIt());
+          expect(roomDragStarts).not.toHaveBeenCalled();
+
+          // And the room still answers a press the explainer is not over, so
+          // the count above is the carve-out rather than a drag that never
+          // arms.
+          await act(async () => {
+            fireEvent.click(gotIt());
+          });
+          fireEvent.pointerDown(
+            screen.getByRole("dialog", { name: "Voice session" }),
+          );
+          expect(roomDragStarts).toHaveBeenCalledTimes(1);
+        });
+
+        test("not from the sheet's scrim, which covers the whole room", async () => {
+          await openExplainerOverSheetRoom();
+
+          fireEvent.pointerDown(scrim("bottom-sheet-overlay")!);
+
+          expect(roomDragStarts).not.toHaveBeenCalled();
+        });
+
+        test("not from the modal's scrim on a pointer surface", async () => {
+          // Under 768px with a fine pointer the room is the draggable sheet
+          // while the explainer is the modal.
+          stubSurface(false);
+          await openExplainerOverSheetRoom();
+
+          fireEvent.pointerDown(scrim("modal-overlay")!);
+
+          expect(roomDragStarts).not.toHaveBeenCalled();
+        });
+      });
+
+      /**
+       * The way back to it, once the device has seen it: a row in the camera's
+       * own view options. The row itself is `camera-view-settings.test.tsx`'s
+       * subject; what is under test here is that the room answers it with the
+       * same sheet the first open raises, on the same terms.
+       */
+      describe("re-showing it from the view options", () => {
+        const viewOptions = () => screen.getByTestId("camera-view-settings");
+        const panel = () => screen.queryByTestId("camera-view-settings-panel");
+        const howItWorks = () =>
+          screen.queryByRole("button", { name: "How Photo and Live work" });
+
+        beforeEach(() => {
+          useVoicePrefsStore.setState({ cameraExplainerSeen: true });
+        });
+
+        /**
+         * Open the panel over an already-open camera, then press its row.
+         *
+         * The explainer is raised as the panel closes rather than on the press
+         * itself, so that the trigger has focus back before the dialog records
+         * what to return it to.
+         */
+        async function pressHowItWorks(): Promise<void> {
+          await act(async () => {
+            fireEvent.click(viewOptions());
+          });
+          await act(async () => {
+            fireEvent.click(howItWorks()!);
+          });
+          await waitFor(() => {
+            expect(explainer()).not.toBeNull();
+          });
+        }
+
+        test("is not on the panel until the browser feed has drawn", async () => {
+          await openLiveCapableCamera();
+          await act(async () => {
+            fireEvent.click(viewOptions());
+          });
+
+          // The same signal the first open waits for: the stream has reached
+          // the element and no frame has decoded, so the room is still
+          // painting the look through a transparent feed, and a sheet raised
+          // here would sit over the look rather than over the camera. The two
+          // switches beside it are offered the whole time.
+          expect(howItWorks()).toBeNull();
+          expect(panel()).not.toBeNull();
+
+          await act(async () => {
+            fireEvent.loadedData(viewfinder()!);
+          });
+
+          expect(howItWorks()).not.toBeNull();
+        });
+
+        test("raises it again, and takes the panel down with it", async () => {
+          await openCameraWithFrame();
+          // The device has seen it, so nothing raised it on this open.
+          expect(explainer()).toBeNull();
+
+          await pressHowItWorks();
+
+          expect(panel()).toBeNull();
+          expect(explainerHost()!.contains(explainer())).toBe(true);
+          expect(explainer()?.textContent).toContain("Photo or Live?");
+        });
+
+        test('"Got it" leaves the camera exactly where it found it', async () => {
+          await openCameraWithFrame();
+          await pressHowItWorks();
+
+          await act(async () => {
+            fireEvent.click(gotIt());
+          });
+
+          expect(explainer()).toBeNull();
+          expect(seen()).toBe(true);
+          expect(shutter().getAttribute("data-mode")).toBe("photo");
+        });
+
+        test('"Try Live now" starts Live, as it does on the first open', async () => {
+          await openCameraWithFrame();
+          await pressHowItWorks();
+
+          await act(async () => {
+            fireEvent.click(
+              screen.getByRole("button", { name: "Try Live now" }),
+            );
+          });
+
+          expect(explainer()).toBeNull();
+          expect(seen()).toBe(true);
+          expect(pill().getAttribute("data-camera-mode")).toBe("live");
+          expect(shutter().getAttribute("data-mode")).toBe("live");
+        });
       });
     });
   });

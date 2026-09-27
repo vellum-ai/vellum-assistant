@@ -1,5 +1,9 @@
 import type { VoiceEscalationProfileSource } from "../calls/voice-escalation-target.js";
 import { type ClientOs, parseClientOs } from "../channels/types.js";
+import {
+  parseShareTargetSnapshot,
+  type ShareTargetSnapshot,
+} from "./share-targets.js";
 
 const LIVE_VOICE_CLIENT_FRAME_TYPES = [
   "start",
@@ -286,6 +290,11 @@ export interface LiveVoiceClientUpdateConfigFrame {
   readonly bargeInMinSpeechMs?: number;
   /** A shared desktop surface is available for annotation. */
   readonly screenSharing?: boolean;
+  /**
+   * The controls the shared surface offers to be pointed at, read from its
+   * accessibility tree. `null` clears the snapshot the session holds.
+   */
+  readonly shareTargets?: ShareTargetSnapshot | null;
 }
 
 /**
@@ -1287,6 +1296,18 @@ function validateUpdateConfigFrame(
       "update_config",
     );
   }
+  const shareTargets =
+    "shareTargets" in value
+      ? parseShareTargetSnapshot(value.shareTargets)
+      : undefined;
+  if ("shareTargets" in value && shareTargets === undefined) {
+    return protocolError(
+      "invalid_field",
+      "update_config field shareTargets must be an object with a targets array, or null",
+      "shareTargets",
+      "update_config",
+    );
+  }
   if (
     "silenceThresholdMs" in value &&
     !isIntInRange(
@@ -1332,6 +1353,7 @@ function validateUpdateConfigFrame(
       ...(typeof value.bargeInMinSpeechMs === "number"
         ? { bargeInMinSpeechMs: value.bargeInMinSpeechMs }
         : {}),
+      ...(shareTargets !== undefined ? { shareTargets } : {}),
     },
   };
 }

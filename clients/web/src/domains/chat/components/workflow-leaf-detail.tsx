@@ -3,9 +3,9 @@ import { ArrowDownToLine, ArrowUpFromLine } from "lucide-react";
 import { Typography } from "@vellumai/design-library";
 
 import {
-  AnimatedMetricCard,
+  AnimatedStatSquare,
   formatNumber,
-} from "@/domains/chat/components/metric-card";
+} from "@/domains/chat/components/animated-stat-square";
 import { DetailShellNotice } from "@/components/detail-shell";
 import { ClampedContent, SectionLabel } from "@/components/detail-primitives";
 import type { WorkflowLeaf } from "@/domains/chat/workflow-store";
@@ -57,24 +57,14 @@ export function WorkflowLeafDetail({ leaf }: { leaf: WorkflowLeaf }) {
   return (
     <div className="flex flex-col gap-5">
       <div className="grid grid-cols-2 gap-3">
-        <AnimatedMetricCard
-          icon={
-            <ArrowDownToLine
-              className="h-4 w-4 shrink-0"
-              style={{ color: "var(--content-secondary)" }}
-            />
-          }
+        <AnimatedStatSquare
+          icon={<ArrowDownToLine />}
           target={leaf.inputTokens ?? 0}
           format={(n) => formatNumber(Math.round(n))}
           label={t("workflowLeafDetail.input")}
         />
-        <AnimatedMetricCard
-          icon={
-            <ArrowUpFromLine
-              className="h-4 w-4 shrink-0"
-              style={{ color: "var(--content-secondary)" }}
-            />
-          }
+        <AnimatedStatSquare
+          icon={<ArrowUpFromLine />}
           target={leaf.outputTokens ?? 0}
           format={(n) => formatNumber(Math.round(n))}
           label={t("workflowLeafDetail.output")}

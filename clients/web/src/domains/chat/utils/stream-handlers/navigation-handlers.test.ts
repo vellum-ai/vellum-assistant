@@ -2,8 +2,8 @@
  * `open_panel` acknowledgment.
  *
  * The daemon holds the emitting `ui_show channel_setup` tool call open until
- * a client confirms the panel rendered, so the handler must ack after opening
- * and nack (with a reason) when it cannot open — a silent drop would surface
+ * an attended client confirms the panel rendered, so its handler acks after
+ * opening and nacks (with a reason) when it cannot open. A silent drop surfaces
  * to the model as a timeout it can't distinguish from a disconnected client.
  * Events without a `surfaceId` come from daemons that expect no ack.
  *
@@ -20,6 +20,8 @@ import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
 import type { OpenPanelEvent, OpenUrlEvent } from "@vellumai/assistant-api";
 import { stubViewportAxes } from "@/hooks/viewport-axes.test-helper";
+import { stubBrowserAttention } from "@/runtime/window-attention.test-helper";
+import { createSseEventConsumer } from "@/domains/chat/streaming/sse-event-consumer";
 import { showOpenAppRoute, showPath } from "@/stores/open-app.test-helper";
 import { routes } from "@/utils/routes";
 
@@ -55,8 +57,12 @@ mock.module("@/runtime/browser", () => ({
   openUrl: (url: string) => nativeOpenUrlMock(url),
 }));
 
-const { handleOpenPanel, handleOpenUrl, handleOpenConversation } =
-  await import("@/domains/chat/utils/stream-handlers/navigation-handlers");
+const {
+  handleOpenPanel,
+  handleOpenUrl,
+  handleOpenConversation,
+  handleNavigateSettings,
+} = await import("@/domains/chat/utils/stream-handlers/navigation-handlers");
 const { useViewerStore } = await import("@/stores/viewer-store");
 const { useConversationStore } = await import("@/stores/conversation-store");
 const { useSubagentStore } = await import("@/domains/chat/subagent-store");
@@ -83,6 +89,7 @@ function makeEvent(overrides: Partial<OpenPanelEvent> = {}): OpenPanelEvent {
 }
 
 const originalWindow = globalThis.window;
+let attention: ReturnType<typeof stubBrowserAttention>;
 
 function setMockWindow({
   origin = "https://app.vellum.ai",
@@ -106,11 +113,14 @@ function setMockWindow({
 }
 
 beforeEach(() => {
+  attention = stubBrowserAttention();
+  attention.set({ visible: true, focused: true });
   submitSurfaceActionCalls.length = 0;
   nativeOpenUrlMock = mock((_url: string) => Promise.resolve());
 });
 
 afterEach(() => {
+  attention.restore();
   Object.defineProperty(globalThis, "window", {
     configurable: true,
     value: originalWindow,
@@ -177,6 +187,23 @@ describe("handleOpenPanel acknowledgment", () => {
     expect(useViewerStore.getState().mainView).toBe("channel-setup");
     expect(submitSurfaceActionCalls).toHaveLength(0);
   });
+
+  it("does not open, ack, or nack panels in unattended browser tabs", () => {
+    useViewerStore.getState().reset();
+    const originalView = useViewerStore.getState().mainView;
+
+    for (const state of [
+      { visible: false, focused: false },
+      { visible: true, focused: false },
+    ]) {
+      attention.set(state);
+      handleOpenPanel(makeEvent(), makeCtx());
+      handleOpenPanel(makeEvent({ panelType: "unknown" }), makeCtx());
+    }
+
+    expect(useViewerStore.getState().mainView).toBe(originalView);
+    expect(submitSurfaceActionCalls).toHaveLength(0);
+  });
 });
 
 describe("handleOpenUrl", () => {
@@ -203,8 +230,7 @@ describe("handleOpenUrl", () => {
   }
 
   function makeOpenUrlEvent(url: string): OpenUrlEvent {
-    // No conversationId — matches CLI signal-bridge emits.
-    return { type: "open_url", url };
+    return { type: "open_url", url, conversationId: "conv-1" };
   }
 
   it("routes same-origin URLs through the client router", () => {
@@ -251,11 +277,65 @@ describe("handleOpenUrl", () => {
 
   it("routes through the runtime opener on native", () => {
     setMockWindow({ open: null });
+    attention.set({ visible: false, focused: false });
     const { ctx, setNotice } = makeOpenUrlCtx({ isNative: true });
 
     handleOpenUrl(makeOpenUrlEvent("https://example.com/docs"), ctx);
 
     expect(nativeOpenUrlMock).toHaveBeenCalledWith("https://example.com/docs");
+    expect(setNotice).not.toHaveBeenCalled();
+  });
+
+  it("dispatches a conversation-bound directive only in its attended conversation", () => {
+    const popup = { focus: mock(() => {}) } as unknown as Window;
+    const open = mock(() => popup);
+    setMockWindow({ open });
+    const { ctx, setNotice } = makeOpenUrlCtx();
+    const envelope = {
+      conversationId: "conv-1",
+      message: makeOpenUrlEvent(oauthUrl),
+    };
+
+    for (const state of [
+      { visible: false, focused: false, conversationId: "conv-1" },
+      { visible: true, focused: false, conversationId: "conv-1" },
+      { visible: true, focused: true, conversationId: "conv-other" },
+      { visible: true, focused: true, conversationId: "conv-1" },
+    ]) {
+      attention.set(state);
+      const consumer = createSseEventConsumer({
+        activeConversationIdRef: { current: state.conversationId },
+        reconcileActive: async () => {},
+        handleStreamEvent: (event) => {
+          if (event.type === "open_url") {
+            handleOpenUrl(event, ctx);
+          }
+        },
+      });
+      consumer.handleSseEvent(envelope);
+    }
+
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(setNotice).not.toHaveBeenCalled();
+  });
+
+  it("does not open links or show notices in unattended browser tabs", () => {
+    const open = mock(() => null);
+    setMockWindow({ open });
+    const { ctx, push, setError, setNotice } = makeOpenUrlCtx();
+
+    for (const state of [
+      { visible: false, focused: false },
+      { visible: true, focused: false },
+    ]) {
+      attention.set(state);
+      handleOpenUrl(makeOpenUrlEvent(oauthUrl), ctx);
+      handleOpenUrl(makeOpenUrlEvent("https://app.vellum.ai/settings"), ctx);
+    }
+
+    expect(open).not.toHaveBeenCalled();
+    expect(push).not.toHaveBeenCalled();
+    expect(setError).not.toHaveBeenCalled();
     expect(setNotice).not.toHaveBeenCalled();
   });
 
@@ -313,6 +393,27 @@ describe("handleOpenConversation", () => {
     );
     expect(push).toHaveBeenCalledTimes(1);
     expect(push.mock.calls[0]?.[0]).toContain("conv-target");
+  });
+
+  it("keeps an unattended browser tab on its own conversation", () => {
+    useConversationStore.getState().setActiveConversationId("conv-origin");
+    const push = mock((_url: string) => {});
+
+    for (const state of [
+      { visible: false, focused: false },
+      { visible: true, focused: false },
+    ]) {
+      attention.set(state);
+      handleOpenConversation(
+        { type: "open_conversation", conversationId: "conv-target" },
+        makeCtx({ router: { push } }),
+      );
+    }
+
+    expect(useConversationStore.getState().activeConversationId).toBe(
+      "conv-origin",
+    );
+    expect(push).not.toHaveBeenCalled();
   });
 
   it("keeps an open app in the side-by-side layout instead of dismissing it", () => {
@@ -431,5 +532,34 @@ describe("handleOpenConversation", () => {
     );
 
     expect(useSubagentStore.getState().byId["sub-1"]).toBeUndefined();
+  });
+});
+
+describe("handleNavigateSettings", () => {
+  it("navigates only from the attended browser tab", () => {
+    const push = mock((_url: string) => {});
+    const setError = mock(() => {});
+    const ctx = makeCtx({ router: { push }, setError });
+
+    for (const state of [
+      { visible: false, focused: false },
+      { visible: true, focused: false },
+    ]) {
+      attention.set(state);
+      handleNavigateSettings(
+        { type: "navigate_settings", tab: "general" },
+        ctx,
+      );
+      handleNavigateSettings(
+        { type: "navigate_settings", tab: "unknown" },
+        ctx,
+      );
+    }
+
+    expect(push).not.toHaveBeenCalled();
+    expect(setError).not.toHaveBeenCalled();
+    attention.set({ visible: true, focused: true });
+    handleNavigateSettings({ type: "navigate_settings", tab: "general" }, ctx);
+    expect(push).toHaveBeenCalledTimes(1);
   });
 });

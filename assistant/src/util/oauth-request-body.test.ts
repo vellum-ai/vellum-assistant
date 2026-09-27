@@ -53,6 +53,9 @@ describe("parseRequestBodyData", () => {
     expect(parseRequestBodyData('{"a":1}', "multipart/related")).toBe(
       '{"a":1}',
     );
+    expect(
+      parseRequestBodyData("From: user@example.com\r\n\r\nHi", "message/rfc822"),
+    ).toBe("From: user@example.com\r\n\r\nHi");
   });
 
   test("parses under a JSON Content-Type", () => {
@@ -82,7 +85,7 @@ describe("isBinaryOAuthContentType", () => {
     expect(isBinaryOAuthContentType("image/png; charset=binary")).toBe(true);
   });
 
-  test("rejects JSON, multipart, and form types", () => {
+  test("rejects JSON, multipart, form, and rfc822 types", () => {
     expect(isBinaryOAuthContentType("application/json")).toBe(false);
     expect(isBinaryOAuthContentType("multipart/related; boundary=b")).toBe(
       false,
@@ -90,6 +93,7 @@ describe("isBinaryOAuthContentType", () => {
     expect(isBinaryOAuthContentType("application/x-www-form-urlencoded")).toBe(
       false,
     );
+    expect(isBinaryOAuthContentType("message/rfc822")).toBe(false);
     expect(isBinaryOAuthContentType(undefined)).toBe(false);
   });
 });

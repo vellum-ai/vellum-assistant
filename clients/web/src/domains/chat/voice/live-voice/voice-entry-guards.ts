@@ -39,8 +39,8 @@ const DEFAULT_CONFIG_NOTICE =
  * next entry.
  *
  * **Except during the companion's introduction, which is already saying this.**
- * The run's eight cards end on an offer of a real conversation, taken either by
- * pressing the creature or by double tapping the voice key, and its `talk` and
+ * The run's eight cards end on an offer of a real conversation, taken by
+ * pressing the creature on the final card, and its `talk` and
  * `mute` beats have just taught the two things this card's bullets teach. Drawn
  * on top of that, the card is a third gate on the one press the whole run was
  * building to, repeating the run in the run's own window. The introduction is

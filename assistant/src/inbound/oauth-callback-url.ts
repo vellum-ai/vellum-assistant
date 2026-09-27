@@ -18,7 +18,10 @@
 
 import { loadConfig } from "../config/loader.js";
 import { resolveCallbackUrl } from "./platform-callback-registration.js";
-import { getOAuthCallbackUrl } from "./public-ingress-urls.js";
+import {
+  getMcpOAuthClientMetadataUrl,
+  getOAuthCallbackUrl,
+} from "./public-ingress-urls.js";
 
 /**
  * Path the gateway serves the shared OAuth callback on.
@@ -58,4 +61,30 @@ export async function resolveOauthCallbackUrl(): Promise<string> {
     OAUTH_CALLBACK_PATH,
     OAUTH_REGISTRATION_TYPE,
   );
+}
+
+/**
+ * Return the public Client ID Metadata Document URL when it is compatible
+ * with the callback selected for this flow.
+ *
+ * A URL-based client id must be HTTPS, and its document must publish the exact
+ * redirect URI used by the authorization request. The gateway document is
+ * derived from public ingress, so a platform-relayed callback cannot use it.
+ * Returning undefined preserves Dynamic Client Registration as the SDK's
+ * fallback in either case.
+ */
+export function resolveMcpOAuthClientMetadataUrl(
+  redirectUrl: string,
+): string | undefined {
+  try {
+    const config = loadConfig();
+    if (getOAuthCallbackUrl(config) !== redirectUrl) {
+      return undefined;
+    }
+
+    const metadataUrl = getMcpOAuthClientMetadataUrl(config);
+    return new URL(metadataUrl).protocol === "https:" ? metadataUrl : undefined;
+  } catch {
+    return undefined;
+  }
 }

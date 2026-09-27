@@ -9,7 +9,7 @@
  * conversationless scoped events, so an OAuth browser hand-off arriving
  * while the user is on Settings/Logs (or a draft conversation) would be
  * a silent no-op. This hook subscribes at the root instead, so the
- * hand-off opens from any route.
+ * hand-off opens from any attended browser route or native host.
  *
  * Conversation-bound `open_url` events (daemon tool emits) are ignored
  * here — the chat stream consumer routes them with active-conversation
@@ -28,6 +28,7 @@ import {
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { t } from "@/i18n";
 import { useIsNativePlatform } from "@/runtime/native-auth";
+import { canHandleForegroundDirective } from "@/runtime/window-attention";
 import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 
 /** Keep the retry visible long enough to notice and click. */
@@ -42,6 +43,10 @@ export function handleOpenUrlDirectiveEnvelope(
     return;
   }
   if (envelope.conversationId !== undefined || event.conversationId) {
+    return;
+  }
+
+  if (!canHandleForegroundDirective(deps.isNative)) {
     return;
   }
 

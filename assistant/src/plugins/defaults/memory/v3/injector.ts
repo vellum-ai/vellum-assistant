@@ -80,6 +80,7 @@ import {
 import { getLogger } from "../logging.js";
 import { wrapMemoryBlock, wrapMemoryPointerBlock } from "../memory-marker.js";
 import { renderedBytes } from "../substrate/injected-block-slugs.js";
+import { shouldRetrieveTurnMemory } from "../turn-retrieval.js";
 import {
   type InjectionUnit,
   injectionUnits,
@@ -200,9 +201,8 @@ function queueMemoryV3ConversationNotice(
 
 /**
  * The gates both injectors share: memory on, v3 live, a trusted actor, and
- * not the voice front door (which keeps carried sections from history but
- * defers current-turn retrieval to the escalated leg so memory cannot delay
- * its first token).
+ * fresh retrieval allowed for this turn. Front-door and screen-action turns
+ * retain carried sections without awaiting current-turn selection.
  */
 function turnIsEligible(ctx: TurnContext): boolean {
   const config = getConfig();
@@ -212,7 +212,7 @@ function turnIsEligible(ctx: TurnContext): boolean {
   if (!isPersonalMemoryAllowed(ctx.trust)) {
     return false;
   }
-  return ctx.callSite !== "voiceFrontDoor";
+  return shouldRetrieveTurnMemory(ctx);
 }
 
 // ─── shared per-turn orchestration memo ─────────────────────────────────────

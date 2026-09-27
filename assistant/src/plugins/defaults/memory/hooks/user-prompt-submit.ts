@@ -56,6 +56,7 @@ import { broadcastMessage } from "../../../../runtime/assistant-event-hub.js";
 import type { GraphMemoryResult } from "../graph/conversation-graph-memory.js";
 import { recordMemoryRecallLog } from "../memory-recall-log-store.js";
 import { stripTailInjectionsForReinjection } from "../tail-reinjection-strip.js";
+import { shouldRetrieveTurnMemory } from "../turn-retrieval.js";
 import { injectionMetadataUpdates } from "./injection-metadata.js";
 
 /**
@@ -276,14 +277,17 @@ const userPromptSubmitMemoryRetrieval: HookFunction<
   // fallback — a v3 empty/failed selection yields no NEW injected memory that
   // turn (prior turns' frozen v3 sections still ride history).
   const memoryV3Live = isMemoryV3Live(config);
-  const isVoiceFrontDoor = conversation?.currentCallSite === "voiceFrontDoor";
-  if (isVoiceFrontDoor && conversation) {
+  const retrieveMemory = shouldRetrieveTurnMemory({
+    callSite: conversation?.currentCallSite,
+    skipMemoryRetrieval: conversation?.currentTurnSkipMemoryRetrieval,
+  });
+  if (!retrieveMemory && conversation) {
     conversation.graphMemory.recordPkbQueryVectors(undefined, undefined);
   }
   let v2BlockPersisted = false;
   if (
     shouldRunLegacyMemoryRetrieval({ isTrustedActor, memoryV3Live }) &&
-    !isVoiceFrontDoor &&
+    retrieveMemory &&
     conversation &&
     abortSignal
   ) {

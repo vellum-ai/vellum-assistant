@@ -118,6 +118,7 @@ import { getLogger } from "../util/logger.js";
 import { withSqliteRetry } from "../util/sqlite-retry.js";
 import type { WorkspaceGitService } from "../workspace/git-service.js";
 import type { commitTurnChanges } from "../workspace/turn-commit.js";
+import { trackDaemonActivity, turnActivityLabel } from "./activity-trail.js";
 import type { AssistantAttachmentDraft } from "./assistant-attachments.js";
 import { BrowserModeSessionProducer } from "./browser-mode-session.js";
 import { ComputerUseModeSessionProducer } from "./computer-use-mode-session.js";
@@ -130,6 +131,7 @@ import type { HistoryConversationContext } from "./conversation-history.js";
 import { undo as undoImpl } from "./conversation-history.js";
 import {
   abortConversation,
+  abortScheduledRun,
   disposeConversation,
   reinjectAttachmentPathAnnotations,
   reinjectInterruptTurnNote,
@@ -154,8 +156,10 @@ import {
   processMessage as processMessageImpl,
 } from "./conversation-process.js";
 import type {
+  QueuedDispatch,
   QueuedMessage,
   QueueDrainReason,
+  TurnWorkOrigin,
 } from "./conversation-queue-manager.js";
 import { MessageQueue } from "./conversation-queue-manager.js";
 import {
@@ -576,6 +580,8 @@ export class Conversation {
    * @internal
    */
   currentCallSite?: LLMCallSite;
+  /** Skip fresh memory retrieval for this turn, retaining context already in history. */
+  currentTurnSkipMemoryRetrieval?: boolean;
   /**
    * Whether no human is present to see UI or answer prompts. Derived from the
    * in-flight turn's interactivity ({@link currentTurnIsNonInteractive}); a
@@ -656,6 +662,8 @@ export class Conversation {
    * @internal
    */
   currentTurnCronRunId?: string | null;
+  currentTurnWorkOrigins?: readonly TurnWorkOrigin[];
+  pendingQueuedDispatches = new Map<string | null, Set<QueuedDispatch>>();
   /** @internal */ currentTurnIsNonInteractive?: boolean;
   /** @internal */ currentTurnModelProfileNoticeKey?: string;
   /** @internal */ currentTurnRequestOrigin?: string;
@@ -2502,6 +2510,10 @@ export class Conversation {
     abortConversation(this, reason);
   }
 
+  abortScheduledRun(runId: string): void {
+    abortScheduledRun(this, runId);
+  }
+
   dispose(): void {
     // Cancel all pending standalone surfaces so callers get a clean
     // cancellation instead of hanging forever. Emit dismiss notifications
@@ -2603,6 +2615,7 @@ export class Conversation {
     return (
       this.isProcessing() ||
       this.hasQueuedMessages() ||
+      this.pendingQueuedDispatches.size > 0 ||
       this.liveVoiceResidencyLeases > 0 ||
       this.modeSessions.hasResidentWork() ||
       getSubagentManager().hasActiveChildren(this.conversationId)
@@ -3515,6 +3528,8 @@ export class Conversation {
        */
       replyDeliveredInAppOnly?: boolean;
       callSite?: LLMCallSite;
+      /** Skip fresh retrieval while keeping resident memory and static context. */
+      skipMemoryRetrieval?: boolean;
       /** Provider configuration source when distinct from turn semantics. */
       inferenceCallSite?: LLMCallSite;
       /**
@@ -3544,12 +3559,16 @@ export class Conversation {
     },
   ): Promise<void> {
     const { onEvent, ...rest } = options ?? {};
-    return runAgentLoopImpl(
-      this,
-      content,
-      userMessageId,
-      onEvent ?? this.emit,
-      rest,
+    return trackDaemonActivity(
+      turnActivityLabel(this, options?.callSite, options?.isInteractive),
+      () =>
+        runAgentLoopImpl(
+          this,
+          content,
+          userMessageId,
+          onEvent ?? this.emit,
+          rest,
+        ),
     );
   }
 

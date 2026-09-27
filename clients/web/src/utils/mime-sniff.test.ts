@@ -266,6 +266,7 @@ describe("resolveLocalFileType: OOXML packages under their zip signature", () =>
       "budget.xlsx",
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     ],
+    ["budget.xlsm", "application/vnd.ms-excel.sheet.macroEnabled.12"],
   ];
 
   for (const [filename, mime] of cases) {

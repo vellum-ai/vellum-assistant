@@ -31,6 +31,9 @@ describe("createKeyedSingleFlight", () => {
       return "b";
     });
 
+    expect(run.isPending("k")).toBe(true);
+    expect(run.isPending("other")).toBe(false);
+
     // B must not start until A finishes.
     await tick();
     expect(order).toEqual(["a:start"]);
@@ -39,6 +42,7 @@ describe("createKeyedSingleFlight", () => {
     await expect(a).resolves.toBe("a");
     await expect(b).resolves.toBe("b");
     expect(order).toEqual(["a:start", "a:end", "b:start"]);
+    expect(run.isPending("k")).toBe(false);
   });
 
   test("does not serialize across different keys", async () => {
@@ -69,6 +73,7 @@ describe("createKeyedSingleFlight", () => {
         throw new Error("boom");
       }),
     ).rejects.toThrow("boom");
+    expect(run.isPending("k")).toBe(false);
     await expect(run("k", async () => "ok")).resolves.toBe("ok");
   });
 
@@ -80,6 +85,7 @@ describe("createKeyedSingleFlight", () => {
     await tick();
 
     run.reset();
+    expect(run.isPending("k")).toBe(false);
 
     // After reset, a fresh call for the same key does not wait on the
     // abandoned one.

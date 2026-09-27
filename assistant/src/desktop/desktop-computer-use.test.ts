@@ -1,5 +1,7 @@
 import { describe, expect, mock, spyOn, test } from "bun:test";
 
+import sharp from "sharp";
+
 import { run as click } from "../config/bundled-skills/computer-use/tools/computer-use-click.js";
 import * as configLoader from "../config/loader.js";
 import { HostCuProxy } from "../daemon/host-cu-proxy.js";
@@ -14,12 +16,20 @@ import {
 } from "./desktop-computer-use.js";
 import * as sessionManager from "./desktop-session-manager.js";
 
+const SCREENSHOT = (
+  await sharp({
+    create: { width: 1440, height: 810, channels: 3, background: "white" },
+  })
+    .jpeg()
+    .toBuffer()
+).toString("base64");
+
 function driver(userGuidance?: string) {
   return {
     input: mock(async (_args: string[], _signal?: AbortSignal) => {}),
     capture: mock(async (_signal: AbortSignal) => ({
       userGuidance,
-      screenshot: "anBlZw==",
+      screenshot: SCREENSHOT,
       screenshotWidthPx: 1440,
       screenshotHeightPx: 810,
       screenWidthPt: 1440,
@@ -52,7 +62,7 @@ describe("virtual desktop computer use", () => {
         signal(),
         backend,
       );
-      expect(result.screenshot).toBe("anBlZw==");
+      expect(result.screenshot).toBe(SCREENSHOT);
     }
     expect(backend.input).not.toHaveBeenCalled();
     expect(backend.capture).toHaveBeenCalledTimes(2);
@@ -161,7 +171,7 @@ describe("virtual desktop computer use", () => {
     );
     expect(backend.input).toHaveBeenCalledTimes(1);
     expect(result.executionError).toBe("Input failed");
-    expect(result.screenshot).toBe("anBlZw==");
+    expect(result.screenshot).toBe(SCREENSHOT);
   });
 
   test("done releases only its conversation without starting the desktop", async () => {
@@ -316,7 +326,7 @@ describe("virtual desktop computer use", () => {
         source: {
           type: "base64",
           media_type: "image/jpeg",
-          data: "anBlZw==",
+          data: SCREENSHOT,
         },
       },
     ]);

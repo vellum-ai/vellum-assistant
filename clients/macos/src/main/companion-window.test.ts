@@ -137,6 +137,14 @@ const surface = {
   on: (event: string, listener: () => void) => {
     surfaceListeners.push({ event, listener });
   },
+  once: (event: string, listener: () => void) => {
+    const once = () => {
+      const index = surfaceListeners.findIndex((entry) => entry.listener === once);
+      surfaceListeners.splice(index, 1);
+      listener();
+    };
+    surfaceListeners.push({ event, listener: once });
+  },
   isDestroyed: () => false,
   setAlwaysOnTop: (floating: boolean, level?: string) => {
     surfaceLevels.push({ floating, level });
@@ -392,6 +400,20 @@ let located: unknown = {
  */
 let locateHeldBy: Promise<void> | null = null;
 
+/** Every surface main read the controls of, and what the helper answers. */
+const targetReadsAsked: unknown[] = [];
+let targetElements: {
+  elements: {
+    label: string;
+    role: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }[];
+  candidateCount: number;
+} | null = null;
+
 mock.module("./companion-capture-sources", () => ({
   listCaptureSources: async () => listedSources,
   resolveCapturePick: (pick: unknown) => resolvedPickAsync(pick),
@@ -412,6 +434,10 @@ mock.module("./companion-capture-sources", () => ({
   windowBoundsFor: async (windowId: number) => {
     boundsAsked.push(windowId);
     return windowBounds;
+  },
+  readTargetElements: async (target: unknown) => {
+    targetReadsAsked.push(target);
+    return targetElements;
   },
   locateOnTarget: async (target: unknown, query: string) => {
     locatesAsked.push({ target, query });
@@ -752,6 +778,7 @@ const {
   introEndsOnSession,
   introOnAdvance,
   openCompanionWindow: openCompanionWindowImpl,
+  replayCompanionIntro,
   setCompanionSurfaceVisible,
   resetCompanionSurfacePosition,
   setCompanionSurfaceSize,
@@ -2625,6 +2652,8 @@ describe("the introduction announcement", () => {
     expect(introAnnouncement()).toBe(true);
     expect(state().intro).toBeNull();
     expect(introStage()).toBe(false);
+    send("vellum:companion:startVoice");
+    expect(mainTimeline).not.toContain("command:startVoice");
   });
 
   test("starts and stages the run after the user accepts", () => {
@@ -2649,11 +2678,66 @@ describe("the introduction announcement", () => {
     expect(introSeen).toBe(COMPANION_INTRO_VERSION);
   });
 
-  test("does not announce an introduction the install has seen", () => {
+  test("clears an interrupted run when assistant readiness is lost", () => {
+    setName("Example Assistant");
+    openDueAnnouncement();
+    acceptIntroAnnouncement();
+    send("vellum:companion:advanceIntro", "next");
+    expect(state().intro).not.toBeNull();
+
+    setName(null);
+
+    expect(companionOpen).toBe(false);
+    expect(state().intro).toBeNull();
+    expect(introStage()).toBe(false);
+    expect(introAnnouncement()).toBe(false);
+    expect(introSeen).toBe(0);
+
+    setName("Example Assistant");
+    expect(introAnnouncement()).toBe(true);
+    expect(state().intro).toBeNull();
+    expect(introStage()).toBe(false);
+    setName(null);
+  });
+
+  test("announces the modal after the previous introduction was seen", () => {
     companionOpen = false;
+    introSeen = 2;
+    openCompanionWindowImpl();
+
+    expect(introAnnouncement()).toBe(true);
+    send("vellum:companion:answerIntroAnnouncement", "dismiss");
+    expect(introSeen).toBe(COMPANION_INTRO_VERSION);
+  });
+
+  test("does not announce the current introduction twice", () => {
+    companionOpen = false;
+    introSeen = COMPANION_INTRO_VERSION;
     openCompanionWindowImpl();
 
     expect(introAnnouncement()).toBe(false);
+  });
+
+  test("replay returns to the informational introduction before any coachmarks", () => {
+    setName("Example Assistant");
+    openDueAnnouncement();
+    acceptIntroAnnouncement();
+    send("vellum:companion:advanceIntro", "next");
+
+    replayCompanionIntro();
+    for (const entry of [...surfaceListeners]) {
+      if (entry.event === "closed") {
+        entry.listener();
+      }
+    }
+
+    expect(introAnnouncement()).toBe(true);
+    expect(state().intro).toBeNull();
+    expect(introStage()).toBe(false);
+    acceptIntroAnnouncement();
+    expect(state().intro).toBe("idle");
+    expect(introStage()).toBe(true);
+    setName(null);
   });
 });
 
@@ -2699,6 +2783,18 @@ describe("taking the introduction's last offer", () => {
     closeSurface();
     reducedMotion = true;
   });
+
+  test.each([...COMPANION_INTRO_BEATS])(
+    "the ordinary avatar call path is blocked during %s",
+    async (beat) => {
+      openStagedRun(beat);
+      send("vellum:companion:startVoice");
+      await settleHandoff();
+      expect(mainTimeline).not.toContain("command:startVoice");
+      expect(state().dialing).not.toBe(true);
+      expect(state().intro).toBe(beat);
+    },
+  );
 
   test("asks for the session before it says the run is over", async () => {
     openStagedRun("try");
@@ -4733,6 +4829,49 @@ describe("Share on the companion surface", () => {
     expect(await capture?.([{ kind: "window", windowId: 7 }])).toBeNull();
   });
 
+  test("reads the shared surface's controls as fractions of that surface", async () => {
+    const read = invocable.get("vellum:companion:shareTargets");
+    expect(read).toBeDefined();
+    windowBounds = { x: 100, y: 50, width: 1000, height: 500 };
+    targetElements = {
+      elements: [
+        {
+          label: "root_Filters",
+          role: "AXButton",
+          x: 200,
+          y: 100,
+          width: 100,
+          height: 50,
+        },
+      ],
+      candidateCount: 1,
+    };
+    targetReadsAsked.length = 0;
+    try {
+      expect(await read?.([{ kind: "window", windowId: 7 }])).toEqual({
+        targets: [
+          {
+            id: expect.stringMatching(/^t[0-9a-z]+$/),
+            label: "root_Filters",
+            role: "AXButton",
+            x: 0.1,
+            y: 0.1,
+            width: 0.1,
+            height: 0.1,
+          },
+        ],
+        total: 1,
+      });
+      expect(targetReadsAsked).toEqual([{ kind: "window", windowId: 7 }]);
+      // No tree to read is no snapshot, and the caller goes on without one.
+      targetElements = null;
+      expect(await read?.([{ kind: "window", windowId: 7 }])).toBeNull();
+    } finally {
+      windowBounds = null;
+      targetElements = null;
+    }
+  });
+
   test("takes a picker preview of one row from the helper", async () => {
     const preview = invocable.get("vellum:companion:captureSourceThumbnail");
     expect(preview).toBeDefined();
@@ -5831,11 +5970,8 @@ describe("companion window: pointing at what is shared", () => {
       ]);
     });
 
-    /**
-     * A ring drawn from bounds the model gave is an extent someone means, not
-     * a button: a press inside it says nothing about a step.
-     */
-    test("an extent given as bounds is not something to press", async () => {
+    /** Image bounds do not establish a control's hit area. */
+    test("bounds alone do not arm a control press watch", async () => {
       await shareAndSee();
       await showCompanionCoachmarks([MARK], CALL);
 
@@ -6536,12 +6672,6 @@ describe("the introduction's reports", () => {
     ]);
   });
 
-  /**
-   * The same offer taken the other way: a double tap on the voice key starts a
-   * session without anything coming back through the run, and main finishes the
-   * run on the session itself. The report has to follow it there, or the only
-   * users counted as having taken the offer are the ones who pressed the card.
-   */
   test("reports a session on the last beat as the offer taken", () => {
     startIntro();
     for (const _beat of COMPANION_INTRO_BEATS.slice(1)) {

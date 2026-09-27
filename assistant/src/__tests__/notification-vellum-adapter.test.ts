@@ -368,22 +368,28 @@ describe("VellumAdapter guardian scoping", () => {
   function captureOptions(): {
     adapter: VellumAdapter;
     options: Array<BroadcastMessageOptions | undefined>;
+    intents: AssistantEvent[];
   } {
     const options: Array<BroadcastMessageOptions | undefined> = [];
-    const adapter = new VellumAdapter((_msg, _conversationId, opts) => {
+    const intents: AssistantEvent[] = [];
+    const adapter = new VellumAdapter((msg, _conversationId, opts) => {
       options.push(opts);
+      intents.push(msg);
     });
-    return { adapter, options };
+    return { adapter, options, intents };
   }
 
   test("a guardian-sensitive intent is delivered only to the guardian's connections", async () => {
-    const { adapter, options } = captureOptions();
+    const { adapter, options, intents } = captureOptions();
     await adapter.send(
       makePayload({ sourceEventName: "guardian.question", urgency: "high" }),
       makeDestination({ metadata: { guardianPrincipalId: "principal-g" } }),
     );
 
     expect(options).toEqual([{ targetActorPrincipalId: "principal-g" }]);
+    expect(intents[0]).toMatchObject({
+      targetGuardianPrincipalId: "principal-g",
+    });
   });
 
   test("an ordinary intent is broadcast to every connection", async () => {
@@ -394,5 +400,99 @@ describe("VellumAdapter guardian scoping", () => {
     );
 
     expect(options).toEqual([{ targetActorPrincipalId: undefined }]);
+  });
+
+  test.each(["chat.assistant_reply", "schedule.result", "activity.complete"])(
+    "%s remains recipient-scoped without the legacy guardian-card marker",
+    async (sourceEventName) => {
+      const intents: AssistantEvent[] = [];
+      const scopes: Array<BroadcastMessageOptions | undefined> = [];
+      const adapter = new VellumAdapter((message, _conversationId, options) => {
+        intents.push(message);
+        scopes.push(options);
+      });
+      const result = await adapter.send(
+        makePayload({
+          sourceEventName,
+          urgency: "medium",
+          contextPayload: {
+            completion: {
+              workId: "task-1",
+              conversationId: "conv-result",
+              recipientPrincipalId: "principal-g",
+              owner: "parent_continuation",
+            },
+          },
+        }),
+        makeDestination({ metadata: { guardianPrincipalId: "principal-g" } }),
+      );
+
+      expect(result.success).toBe(true);
+      expect(scopes).toEqual([{ targetActorPrincipalId: "principal-g" }]);
+      expect(intents[0]).toMatchObject({
+        silent: false,
+        targetGuardianPrincipalId: undefined,
+      });
+    },
+  );
+
+  test("a completion with no resolved recipient sends no preview", async () => {
+    const { adapter, sent } = captureBroadcast();
+    const result = await adapter.send(
+      makePayload({ sourceEventName: "chat.assistant_reply" }),
+      makeDestination(),
+    );
+
+    expect(result).toEqual({
+      success: false,
+      error: "completion recipient unavailable",
+    });
+    expect(sent).toEqual([]);
+  });
+
+  test.each([
+    null,
+    {},
+    {
+      workId: "task-1",
+      conversationId: "conv-private",
+      recipientPrincipalId: "principal-1",
+      owner: "unknown",
+    },
+  ])(
+    "malformed ownership %j never broadcasts a private preview",
+    async (completion) => {
+      const { adapter, options, intents } = captureOptions();
+      const result = await adapter.send(
+        makePayload({
+          sourceEventName: "activity.complete",
+          urgency: "high",
+          copy: { title: "Private result", body: "Sensitive result preview." },
+          contextPayload: { completion },
+        }),
+        makeDestination({ metadata: { guardianPrincipalId: "principal-1" } }),
+      );
+
+      expect(result).toEqual({
+        success: false,
+        error: "completion recipient unavailable",
+      });
+      expect(intents).toEqual([]);
+      expect(options).toEqual([]);
+    },
+  );
+
+  test("honors broadcaster presentation independently of urgency", async () => {
+    const { adapter, sent } = captureBroadcast();
+    await adapter.send(
+      makePayload({
+        sourceEventName: "chat.assistant_reply",
+        urgency: "medium",
+        silent: true,
+      }),
+      makeDestination({ metadata: { guardianPrincipalId: "principal-g" } }),
+    );
+
+    expect(sent[0]).toMatchObject({ silent: true });
   });
 });

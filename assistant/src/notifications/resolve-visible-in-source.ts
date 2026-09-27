@@ -17,6 +17,10 @@
 import type pino from "pino";
 
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
+import {
+  getGuardianDelivery,
+  guardianForChannel,
+} from "../contacts/guardian-delivery-reader.js";
 import { isWebConversationFocused } from "../runtime/web-presence.js";
 import { getLogger } from "../util/logger.js";
 
@@ -27,6 +31,7 @@ const log = getLogger("notification-source-active");
 export interface ResolveVisibleInSourceOptions {
   conversationId: string | undefined;
   logger?: pino.Logger;
+  actorPrincipalId?: string;
 }
 
 /**
@@ -37,15 +42,64 @@ export interface ResolveVisibleInSourceOptions {
 export function resolveVisibleInSourceNow(
   options: ResolveVisibleInSourceOptions,
 ): boolean {
-  const { conversationId, logger } = options;
+  const { conversationId } = options;
   if (!conversationId) {
     return false;
   }
   if (!isAssistantFeatureFlagEnabled(ACTIVITY_PRESENCE_FLAG)) {
     return false;
   }
+  return readConversationPresence(options);
+}
+
+/** Completion alerts suppress only for the recipient watching their result. */
+export async function resolveCompletionVisibleInSourceNow(
+  options: ResolveVisibleInSourceOptions,
+): Promise<boolean> {
+  if (
+    !options.conversationId ||
+    !isAssistantFeatureFlagEnabled("web-presence-suppression")
+  ) {
+    return false;
+  }
+  const actorPrincipalId =
+    options.actorPrincipalId ??
+    (await resolveCompletionRecipientPrincipalId(options.logger));
+  return actorPrincipalId
+    ? readConversationPresence({ ...options, actorPrincipalId })
+    : false;
+}
+
+/** The same active guardian identity the local completion delivery targets. */
+export async function resolveCompletionRecipientPrincipalId(
+  logger?: pino.Logger,
+): Promise<string | undefined> {
   try {
-    return isWebConversationFocused(conversationId);
+    const guardians = await getGuardianDelivery();
+    return guardians
+      ? (guardianForChannel(guardians, "vellum")?.principalId ?? undefined)
+      : undefined;
+  } catch (err) {
+    (logger ?? log).warn(
+      { err },
+      "Completion recipient read failed; treating as unfocused",
+    );
+    return undefined;
+  }
+}
+
+function readConversationPresence({
+  conversationId,
+  logger,
+  actorPrincipalId,
+}: ResolveVisibleInSourceOptions): boolean {
+  if (!conversationId) {
+    return false;
+  }
+  try {
+    return actorPrincipalId
+      ? isWebConversationFocused(conversationId, { actorPrincipalId })
+      : isWebConversationFocused(conversationId);
   } catch (err) {
     (logger ?? log).warn(
       { err },

@@ -34,6 +34,10 @@ export const GenerationHandoffEventSchema = z.object({
   modeSession: ModeSessionSchema.optional(),
   attachments: z.array(AssistantOutboundAttachmentSchema).optional(),
   attachmentWarnings: z.array(z.string()).optional(),
+  /** The default profile the Auto profile routed the finished turn to,
+   *  mirroring `message_complete`, so a reply that hands off to a queued
+   *  turn still gets its badge on the live row. */
+  autoRoutedProfile: z.string().optional(),
 });
 
 export type GenerationHandoffEvent = z.infer<

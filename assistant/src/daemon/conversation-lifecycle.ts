@@ -34,6 +34,8 @@ import { getLogger } from "../util/logger.js";
 import { unregisterCallNotifiers } from "./conversation-notifiers.js";
 import type {
   MessageQueue,
+  QueuedDispatch,
+  QueuedMessage,
   QueueDrainReason,
 } from "./conversation-queue-manager.js";
 import { resetSkillToolProjection } from "./conversation-skill-tools.js";
@@ -131,6 +133,9 @@ export function reinjectInterruptTurnNote(
 
 export interface AbortContext {
   readonly conversationId: string;
+  readonly currentTurnCronRunId?: string | null;
+  readonly currentRequestId?: string;
+  readonly pendingQueuedDispatches?: Map<string | null, Set<QueuedDispatch>>;
   isProcessing(): boolean;
   setProcessing(value: boolean): void;
   abortController: AbortController | null;
@@ -269,8 +274,17 @@ function preserveQueueAcrossInterrupt(
  * suppressed for the same reason they get no queued ack: they have no client
  * row to close.
  */
-function discardQueueOnAbort(ctx: AbortContext): void {
-  for (const queued of ctx.queue) {
+export function discardQueueOnAbort(
+  ctx: AbortContext,
+  shouldDiscard?: (queued: QueuedMessage) => boolean,
+): void {
+  for (const queued of [...ctx.queue]) {
+    if (shouldDiscard && !shouldDiscard(queued)) {
+      continue;
+    }
+    if (shouldDiscard) {
+      ctx.queue.removeByRequestId(queued.requestId);
+    }
     queued.onEvent({
       type: "generation_cancelled",
       conversationId: ctx.conversationId,
@@ -287,7 +301,25 @@ function discardQueueOnAbort(ctx: AbortContext): void {
         : {}),
     });
   }
-  ctx.queue.clear();
+  if (!shouldDiscard) {
+    ctx.queue.clear();
+  }
+}
+
+/** Cancel only the scheduled firing's queued continuations and active turn. */
+export function abortScheduledRun(ctx: AbortContext, runId: string): void {
+  for (const dispatch of ctx.pendingQueuedDispatches?.get(runId) ?? []) {
+    dispatch.controller.abort(
+      createAbortReason("schedule_timeout", "scheduler", ctx.conversationId),
+    );
+  }
+  discardQueueOnAbort(ctx, (queued) => queued.cronRunId === runId);
+  if (ctx.currentTurnCronRunId === runId) {
+    abortConversation(
+      ctx,
+      createAbortReason("schedule_timeout", "scheduler", ctx.conversationId),
+    );
+  }
 }
 
 export function abortConversation(
@@ -301,6 +333,36 @@ export function abortConversation(
       "abortConversation:default",
       ctx.conversationId,
     );
+  const preservedDispatches = isUserInterruptAbort(effectiveReason)
+    ? new Set(
+        [...(ctx.pendingQueuedDispatches?.get(null) ?? [])].filter((dispatch) =>
+          dispatch.messages.some(
+            (message) =>
+              message.metadata?.automated !== true &&
+              !isSuppressedQueuedMessage(message.metadata),
+          ),
+        ),
+      )
+    : new Set<QueuedDispatch>();
+  if (effectiveReason.kind !== "schedule_timeout") {
+    for (const dispatches of ctx.pendingQueuedDispatches?.values() ?? []) {
+      for (const dispatch of dispatches) {
+        if (!preservedDispatches.has(dispatch)) {
+          dispatch.controller.abort(effectiveReason);
+        }
+      }
+    }
+  }
+  // A dequeued user prompt stays queued work until its dispatch starts the loop.
+  if (
+    [...preservedDispatches].some((dispatch) =>
+      dispatch.messages.some(
+        (message) => message.requestId === ctx.currentRequestId,
+      ),
+    )
+  ) {
+    return;
+  }
   const hasLiveTurn = ctx.abortController !== null;
   const wasProcessing = ctx.isProcessing();
   if (wasProcessing) {
@@ -344,10 +406,11 @@ export function abortConversation(
     ctx.setProcessing(false);
   }
 
-  // The queue decision is independent of the processing flag: an interrupt
-  // hands its queue to the drain, and every other abort kind is a teardown
-  // that must take the queue with it even when the flag already reads idle.
-  if (isUserInterruptAbort(effectiveReason)) {
+  // Interrupts and run-scoped timeouts preserve the remaining queue for the drain.
+  if (
+    isUserInterruptAbort(effectiveReason) ||
+    effectiveReason.kind === "schedule_timeout"
+  ) {
     // An idle conversation counts as having a live turn for drain purposes:
     // either a turn is unwinding toward its own `kickDrainQueue`, or the queue
     // is empty. Kicking a second drain here would race the first.

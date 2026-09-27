@@ -122,6 +122,7 @@ export {
   TabsPanel,
   type TabsRootProps,
   type TabsListProps,
+  type TabsPlacement,
   type TabsTriggerProps,
   type TabsPanelProps,
 } from "./components/tabs";

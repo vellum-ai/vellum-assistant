@@ -11,10 +11,9 @@
  * withdrawal time, the same way the adapter resolved it to deliver.
  */
 
-import {
-  isParkAction,
-  resolveDecisionStatusWord,
-} from "../../../runtime/channel-approval-types.js";
+import { isParkGuardianAction } from "@vellumai/service-contracts/guardian-requests";
+
+import { resolveDecisionStatusWord } from "../../../runtime/channel-approval-types.js";
 import { getLogger } from "../../../util/logger.js";
 import { openDiscordDmChannel } from "./api.js";
 import { editDiscordMessage } from "./send.js";
@@ -30,7 +29,7 @@ const STATUS_GLYPH: Record<string, string> = {
 const PARK_STATUS_GLYPH = "⏸️";
 
 function buildStatusText(status: string, decidedAction?: string): string {
-  const park = status === "denied" && isParkAction(decidedAction);
+  const park = status === "denied" && isParkGuardianAction(decidedAction);
   const glyph = park ? PARK_STATUS_GLYPH : (STATUS_GLYPH[status] ?? "");
   const word = resolveDecisionStatusWord(status, decidedAction);
   return glyph ? `${glyph} ${word}` : word;

@@ -12,6 +12,8 @@ mock.module("../../inbound/platform-callback-registration.js", () => ({
 mock.module("../../inbound/public-ingress-urls.js", () => ({
   getOAuthCallbackUrl: () =>
     "https://platform.example/v1/gateway/callbacks/abc/webhooks/oauth/callback/",
+  getMcpOAuthClientMetadataUrl: () =>
+    "http://localhost/oauth/client-metadata.json",
 }));
 
 mock.module("../../config/loader.js", () => ({

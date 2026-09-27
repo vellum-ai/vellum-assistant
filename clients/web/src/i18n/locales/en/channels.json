@@ -211,5 +211,9 @@
     "upgradeNoticeBody": "Upgrade to a plan that includes an email address for your assistant. No provider setup required.",
     "upgradeNoticeTitle": "Give your assistant its own email address",
     "usageSummary": "{sent} / {limit} sent today · {received} received"
+  },
+  "emailSettingsModal": {
+    "title": "Email settings",
+    "description": "Your assistant's address, its domain, and today's usage."
   }
 }

@@ -16,13 +16,23 @@ import { useBillingBalanceStatus } from "@/hooks/use-billing-balance-status";
 import { awaitsAnswer } from "@/lib/query-awaits-answer";
 import { useByokCreditRouteVerdict } from "@/hooks/use-byok-credit-banner-gate";
 import {
+  freeTierDailyLeftUsd,
+  freeTierDailyRatio,
+  hasExtraCredit as walletHasExtraCredit,
   usageGrantRatio,
   usePlanUsageBalance,
 } from "@/hooks/use-plan-usage-balance";
 import { parseUsd } from "@/lib/billing/parse-usd";
 
 export interface PreferencesUsage {
-  /** Used share of the granted usage credit, clamped to 0..1. */
+  /**
+   * Which allowance the reading measures. The menu has room for one bar, so
+   * it shows whichever has the least left: the free-tier daily cap most days,
+   * and the overall usage grant once that is the tighter of the two. Always
+   * `overall` for an org outside the free-tier cohort.
+   */
+  kind: "overall" | "daily";
+  /** Used share of the allowance {@link kind} names, clamped to 0..1. */
   ratio: number;
   /** The whole granted credit is used, which is the negative reading. */
   spent: boolean;
@@ -65,6 +75,9 @@ export interface PreferencesUsageReading {
 export function usePreferencesUsage(
   opts: { conversationId?: string | null } = {},
 ): PreferencesUsageReading {
+  const balanceStatus = useBillingBalanceStatus({
+    conversationId: opts.conversationId ?? null,
+  });
   const {
     isExhausted,
     balance,
@@ -72,7 +85,7 @@ export function usePreferencesUsage(
     totalUsageBalance,
     enabled,
     settled: balanceSettled,
-  } = useBillingBalanceStatus({ conversationId: opts.conversationId ?? null });
+  } = balanceStatus;
   // The sub is only worth fetching when the org actually has managed billing;
   // the reading itself comes off the summary the wallet status already read.
   const subscriptionQuery = useQuery({
@@ -85,12 +98,31 @@ export function usePreferencesUsage(
     totalUsageBalance,
   });
 
-  const spent = usage != null && usage.ratio >= 1;
+  const overallSpent = usage != null && usage.ratio >= 1;
+  // The free-tier daily bar, where the org is in the cohort and the cap
+  // applies. Reads as fully used once the overall grant is, so the two never
+  // disagree about whether today has anything left.
+  const dailyRatio = freeTierDailyRatio(balanceStatus, usage?.ratio ?? null);
+  // The allowance with the least left wins the menu's one slot, compared in
+  // dollars rather than in each bar's own percentage: the day is capped at
+  // a few dollars while the grant is worth many more, so a lower percentage
+  // can still be the allowance that runs out first. A tie goes to the
+  // overall reading, whose exhausted strip is the honest one when both are
+  // at zero because the grant itself is spent.
+  const dailyLeft = freeTierDailyLeftUsd(balanceStatus, usage?.ratio ?? null);
+  const overallLeft = parseUsd(availableUsageBalance);
+  const showDaily =
+    dailyRatio != null &&
+    dailyLeft != null &&
+    (usage == null || overallLeft == null || dailyLeft < overallLeft);
+  const ratio = showDaily ? dailyRatio : (usage?.ratio ?? null);
+  const spent = ratio != null && ratio >= 1;
   // The raw balance rather than `isExhausted`, which stays down on a
   // provably-BYOK route: right for the credit wall, wrong for claiming the
   // next turn spends extra credits. A null balance is unknown, not credit,
   // so the claim also waits for a summary proving the wallet holds something.
   const hasWalletCredit = balance != null && Number(balance) > 0;
+  const hasExtraCredit = walletHasExtraCredit(balanceStatus);
   // The same ratio the reading quotes, off the summary alone: the plan decides
   // whether a reading is shown and which fallback covers a missing one, never
   // what a derivable one says.
@@ -111,7 +143,7 @@ export function usePreferencesUsage(
   const { settled: claimSettled, routeBurnsManaged } =
     useByokCreditRouteVerdict(
       enabled &&
-        (spent || (grantRatio != null && grantRatio >= 1)) &&
+        (spent || overallSpent || (grantRatio != null && grantRatio >= 1)) &&
         hasWalletCredit,
       opts.conversationId ?? null,
     );
@@ -123,12 +155,31 @@ export function usePreferencesUsage(
   const settled =
     balanceSettled && !awaitsAnswer(subscriptionQuery) && claimSettled;
 
-  if (!enabled || !usage) {
+  if (!enabled || ratio == null) {
     return { usage: null, settled };
+  }
+  if (showDaily) {
+    return {
+      usage: {
+        kind: "daily",
+        ratio,
+        spent,
+        // A used-up day alarms once nothing but frozen usage credit is left in
+        // the wallet: that is exactly when the platform rejects the next send.
+        // Only on a managed route, though: a BYOK conversation dispatches on
+        // the user's own key and never meets the cap.
+        exhausted: settled && routeBurnsManaged && spent && !hasExtraCredit,
+        // With extra credit behind the spent day, the next turn draws on it.
+        usingExtraCredits:
+          settled && routeBurnsManaged && spent && hasExtraCredit,
+      },
+      settled,
+    };
   }
   return {
     usage: {
-      ratio: usage.ratio,
+      kind: "overall",
+      ratio,
       spent,
       // Using up the grants only alarms once the wallet behind them is empty
       // too, and only once that is settled: the strip and the bar's colour

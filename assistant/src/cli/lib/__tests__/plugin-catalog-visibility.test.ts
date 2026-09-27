@@ -33,6 +33,7 @@ describe("filterPluginCatalogByFeatureFlags", () => {
       "ramp",
       "semrush",
       "typeform",
+      "upwork",
       "notion",
     ]);
 
@@ -56,6 +57,7 @@ describe("filterPluginCatalogByFeatureFlags", () => {
       "ramp",
       "semrush",
       "typeform",
+      "upwork",
     ]);
 
     const result = filterPluginCatalogByFeatureFlags(input, () => true);

@@ -44,6 +44,7 @@ import type {
   CompanionSurfaceState,
   ConnectivityState,
   ScreenCaptureFrame,
+  ShareTargetSnapshot,
   WatchCaptureTarget,
   DeepLink,
   DictationOverlayHitRegion,
@@ -72,6 +73,9 @@ import type {
   ResolvedHotkey,
   ShowNotificationPayload,
   ResetNotificationIdentitiesPayload,
+  DraggablePermissionKind,
+  PermissionGuideState,
+  PermissionSourceRect,
   SystemPermissionKind,
   SystemPermissionStateItem,
   SystemPermissionsState,
@@ -339,6 +343,22 @@ export interface VellumBridge {
     };
   };
   permissions: {
+    /** macOS companion setup; absent on older shells and other platforms. */
+    setup?: {
+      cancel(): void;
+      begin(
+        kind: DraggablePermissionKind,
+        source?: PermissionSourceRect,
+      ): Promise<SystemPermissionStateItem>;
+      getGuide(): Promise<PermissionGuideState | null>;
+      onGuide(
+        callback: (state: PermissionGuideState | null) => void,
+      ): () => void;
+      ready(id: number, height: number): void;
+      dismiss(id: number): void;
+      startDrag(id: number): void;
+      revealApp(id: number): Promise<void>;
+    };
     getState(): Promise<SystemPermissionsState>;
     request(
       kind: SystemPermissionKind,
@@ -829,6 +849,15 @@ export interface VellumBridge {
     captureScreen?(
       target: WatchCaptureTarget,
     ): Promise<ScreenCaptureFrame | null>;
+    /**
+     * The controls `target` offers to be pointed at, from its accessibility
+     * tree, for the window holding a shared call to hand to the session.
+     * Resolves to null when there is no tree to read. Absent on a shell that
+     * predates it.
+     */
+    shareTargets?(
+      target: WatchCaptureTarget,
+    ): Promise<ShareTargetSnapshot | null>;
     /**
      * A frame of `target` has reached the call, so the assistant has now been
      * shown that surface.

@@ -446,6 +446,7 @@ export type TelemetryEvent = z.infer<typeof telemetryEventSchema>;
 // event of one of these types is rejected (dropped) by ingest.
 export const PLATFORM_MANAGED_EVENT_TYPES = [
   "credit_balance_depleted",
+  "free_tier_daily_limit_reached",
   "plugin_installed",
 ] as const;
 

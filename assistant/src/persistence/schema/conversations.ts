@@ -83,6 +83,7 @@ export const conversations = sqliteTable(
     scheduleJobId: text("schedule_job_id"),
     lastMessageAt: integer("last_message_at"),
     archivedAt: integer("archived_at"),
+    lastReopenedAt: integer("last_reopened_at"),
     /**
      * Epoch-ms timestamp set when a background/scheduled conversation is
      * explicitly promoted into the sidebar's Recents grouping. NULL (the

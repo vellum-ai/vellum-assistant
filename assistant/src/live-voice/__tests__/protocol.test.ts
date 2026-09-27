@@ -88,6 +88,83 @@ describe("parseLiveVoiceClientTextFrame", () => {
     },
   );
 
+  test("parses the shared surface's controls, and a clear", () => {
+    const shareTargets = {
+      targets: [
+        {
+          id: "t1",
+          label: "root_Filters",
+          role: "AXButton",
+          section: "Toolbar",
+          x: 0.8,
+          y: 0.05,
+          width: 0.05,
+          height: 0.03,
+        },
+      ],
+      total: 3,
+    };
+    expect(
+      parseLiveVoiceClientTextFrame(
+        JSON.stringify({ type: "update_config", shareTargets }),
+      ),
+    ).toEqual({ ok: true, frame: { type: "update_config", shareTargets } });
+    expect(
+      parseLiveVoiceClientTextFrame(
+        JSON.stringify({ type: "update_config", shareTargets: null }),
+      ),
+    ).toEqual({
+      ok: true,
+      frame: { type: "update_config", shareTargets: null },
+    });
+  });
+
+  test("drops an off-shape control rather than refusing the snapshot", () => {
+    const result = parseLiveVoiceClientTextFrame(
+      JSON.stringify({
+        type: "update_config",
+        shareTargets: {
+          targets: [
+            {
+              id: "t1",
+              label: "Send",
+              role: "AXButton",
+              x: 2,
+              y: 0,
+              width: 0.1,
+              height: 0.1,
+            },
+            {
+              id: "t2",
+              label: "Save",
+              role: "AXButton",
+              x: 0.1,
+              y: 0.1,
+              width: 0.1,
+              height: 0.1,
+            },
+          ],
+          total: 2,
+        },
+      }),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok || result.frame.type !== "update_config") {
+      return;
+    }
+    expect(result.frame.shareTargets?.targets.map((t) => t.label)).toEqual([
+      "Save",
+    ]);
+  });
+
+  test("rejects a snapshot with no targets array", () => {
+    expect(
+      parseLiveVoiceClientTextFrame(
+        JSON.stringify({ type: "update_config", shareTargets: { total: 1 } }),
+      ).ok,
+    ).toBe(false);
+  });
+
   test("rejects malformed screen sharing state", () => {
     expect(
       parseLiveVoiceClientTextFrame(

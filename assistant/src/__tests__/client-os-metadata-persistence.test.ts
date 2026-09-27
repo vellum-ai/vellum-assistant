@@ -65,7 +65,6 @@ import type {
 import type { MessagingConversationContext } from "../daemon/conversation-messaging.js";
 import { persistQueuedMessageBody } from "../daemon/conversation-messaging.js";
 import type { MessageQueue } from "../daemon/conversation-queue-manager.js";
-import { isDesktopOriginatedUserMessage } from "../persistence/conversation-types.js";
 
 function createWebTurnContext(
   clientOs: string | undefined,
@@ -225,14 +224,7 @@ describe("client OS surface metadata persistence", () => {
   });
 });
 
-/**
- * `Conversation.clientOs` is a live field that only a transport-carrying
- * message refreshes, so a transport-less turn stamps whatever an earlier send
- * left there. `clientOsFromRequest` separates the two, and
- * {@link isDesktopOriginatedUserMessage} (the row-origin read behind the
- * `chat.assistant_reply` presence gate) requires it before letting an attended
- * desktop suppress a push.
- */
+/** Request OS evidence stays distinct from inherited conversation metadata. */
 describe("client OS per-row evidence marker", () => {
   beforeEach(() => {
     addMessageCalls.length = 0;
@@ -248,10 +240,9 @@ describe("client OS per-row evidence marker", () => {
 
     expect(lastUserMetadata().client).toEqual({ os: "macos" });
     expect(lastUserMetadata().clientOsFromRequest).toBe(true);
-    expect(isDesktopOriginatedUserMessage(lastUserMetadata())).toBe(true);
   });
 
-  test("recognizes a Windows app turn as desktop-originated", async () => {
+  test("persists a Windows app turn's reported OS", async () => {
     const ctx = createWebTurnContext("windows");
     await persistQueuedMessageBody(ctx, {
       content: "hello",
@@ -261,10 +252,9 @@ describe("client OS per-row evidence marker", () => {
 
     expect(lastUserMetadata().client).toEqual({ os: "windows" });
     expect(lastUserMetadata().clientOsFromRequest).toBe(true);
-    expect(isDesktopOriginatedUserMessage(lastUserMetadata())).toBe(true);
   });
 
-  test("recognizes a Linux app turn as desktop-originated", async () => {
+  test("persists a Linux app turn's reported OS", async () => {
     const ctx = createWebTurnContext("linux");
     await persistQueuedMessageBody(ctx, {
       content: "hello",
@@ -274,7 +264,6 @@ describe("client OS per-row evidence marker", () => {
 
     expect(lastUserMetadata().client).toEqual({ os: "linux" });
     expect(lastUserMetadata().clientOsFromRequest).toBe(true);
-    expect(isDesktopOriginatedUserMessage(lastUserMetadata())).toBe(true);
   });
 
   // Mirrors the Mac-originated case above: a plain browser tab reports
@@ -290,7 +279,6 @@ describe("client OS per-row evidence marker", () => {
 
     expect(lastUserMetadata().client).toEqual({ os: "web" });
     expect(lastUserMetadata().clientOsFromRequest).toBe(true);
-    expect(isDesktopOriginatedUserMessage(lastUserMetadata())).toBe(false);
   });
 
   test("marks an OS this row's own request headers reported", async () => {
@@ -302,14 +290,13 @@ describe("client OS per-row evidence marker", () => {
     });
 
     expect(lastUserMetadata().clientOsFromRequest).toBe(true);
-    expect(isDesktopOriginatedUserMessage(lastUserMetadata())).toBe(true);
   });
 
   // The bug shape: a button tapped on the phone reaches a conversation whose
   // last desktop send left `clientOs: "macos"` behind. The row still carries
   // the inherited OS for telemetry, but nothing says this turn came from the
   // Mac, so the reply push must survive.
-  test("leaves an inherited OS unmarked and not desktop-originated", async () => {
+  test("leaves an inherited OS unmarked", async () => {
     const ctx = createWebTurnContext("macos");
     await persistQueuedMessageBody(ctx, {
       content: "[User action on card surface: submit]",
@@ -318,7 +305,6 @@ describe("client OS per-row evidence marker", () => {
 
     expect(lastUserMetadata().client).toEqual({ os: "macos" });
     expect(lastUserMetadata().clientOsFromRequest).toBeUndefined();
-    expect(isDesktopOriginatedUserMessage(lastUserMetadata())).toBe(false);
   });
 
   // The marker vouches for the `client.os` that actually landed, not for
@@ -334,7 +320,6 @@ describe("client OS per-row evidence marker", () => {
 
     expect(lastUserMetadata().client).toEqual({ os: "macos" });
     expect(lastUserMetadata().clientOsFromRequest).toBeUndefined();
-    expect(isDesktopOriginatedUserMessage(lastUserMetadata())).toBe(false);
   });
 
   // The marker is derived from what this persist can see, so a bag value
@@ -349,7 +334,6 @@ describe("client OS per-row evidence marker", () => {
     });
 
     expect(lastUserMetadata().clientOsFromRequest).toBeUndefined();
-    expect(isDesktopOriginatedUserMessage(lastUserMetadata())).toBe(false);
   });
 
   test("leaves the marker off for a reported OS outside the vocabulary", async () => {

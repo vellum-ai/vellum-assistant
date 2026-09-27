@@ -659,6 +659,10 @@ function reasonToClassification(
       // own — the global routing map can lag per-connection platform-auth
       // routes and must not downgrade this to the generic billing surface.
       return dailyLimitClassification();
+    case "free_tier_daily_limit_reached":
+      // Same provenance as `daily_limit_reached`: only the platform proxy's
+      // `"code":"free_tier_daily_limit_reached"` body stamps it.
+      return freeTierDailyLimitClassification();
     case "overloaded":
       return providerOverloadedClassification();
     case "server_error":
@@ -814,6 +818,21 @@ function dailyLimitClassification(): Omit<
       "You've hit your daily credit limit. Raise the limit in Billing settings to keep going today.",
     retryable: false,
     errorCategory: "daily_limit_reached",
+  };
+}
+
+function freeTierDailyLimitClassification(): Omit<
+  ClassifiedConversationError,
+  "debugDetails"
+> {
+  return {
+    code: "PROVIDER_BILLING",
+    // Unlike the user-configured daily limit there is nothing to raise: the
+    // free-tier cap lifts at the UTC reset, on upgrade, or with extra credits.
+    userMessage:
+      "You've used today's free usage. It resets at midnight UTC. Upgrade or add credits to keep going.",
+    retryable: false,
+    errorCategory: "free_tier_daily_limit_reached",
   };
 }
 

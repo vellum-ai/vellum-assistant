@@ -28,6 +28,10 @@
  */
 
 import {
+  buildMcpOAuthCallbackUrl,
+  buildMcpOAuthClientMetadataUrl,
+} from "@vellumai/service-contracts/mcp-oauth";
+import {
   buildTwilioMediaStreamUrl,
   buildTwilioStatusWebhookUrl,
   buildTwilioVoiceWebhookUrl,
@@ -160,8 +164,14 @@ export function getTwilioMediaStreamUrl(config: IngressConfig): string {
  * Build the OAuth callback URL.
  */
 export function getOAuthCallbackUrl(config: IngressConfig): string {
-  const base = getPublicBaseUrl(config);
-  return `${base}/webhooks/oauth/callback`;
+  return buildMcpOAuthCallbackUrl(getPublicBaseUrl(config));
+}
+
+/**
+ * Build the public Client ID Metadata Document URL for MCP OAuth.
+ */
+export function getMcpOAuthClientMetadataUrl(config: IngressConfig): string {
+  return buildMcpOAuthClientMetadataUrl(getPublicBaseUrl(config));
 }
 
 /**

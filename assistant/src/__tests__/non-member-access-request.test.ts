@@ -598,6 +598,54 @@ describe("access-request-helper unit tests", () => {
     expect(payload.guardianBindingChannel).toBe("vellum");
   });
 
+  test("an email access request routes to every channel the guardian is connected on", async () => {
+    const result = await notifyGuardianOfAccessRequest({
+      sourceChannel: "email",
+      conversationExternalId: "<thread-1@example.com>",
+      actorExternalId: "stranger@example.com",
+    });
+
+    expect(result.notified).toBe(true);
+    expect(emitSignalCalls.length).toBe(1);
+    expect(emitSignalCalls[0].routingIntent).toBe("all_channels");
+  });
+
+  test("an admitted email sender's nudge keeps the default routing", async () => {
+    await maybeNotifyGuardianOfAdmittedContact({
+      sourceChannel: "email",
+      conversationExternalId: "<thread-2@example.com>",
+      actorExternalId: "admitted@example.com",
+    });
+
+    expect(emitSignalCalls.length).toBe(1);
+    expect(emitSignalCalls[0].routingIntent).toBeUndefined();
+  });
+
+  test("a telegram access request with a telegram guardian stays on telegram", async () => {
+    seedGatewayGuardian({
+      channelType: "telegram",
+      address: "guardian-tg",
+      externalChatId: "tg-chat",
+      principalId: anchorPrincipalId,
+    });
+    createGuardianBinding({
+      channel: "telegram",
+      guardianExternalUserId: "guardian-tg",
+      guardianDeliveryChatId: "tg-chat",
+      guardianPrincipalId: anchorPrincipalId,
+      verifiedVia: "test",
+    });
+
+    await notifyGuardianOfAccessRequest({
+      sourceChannel: "telegram",
+      conversationExternalId: "chat-123",
+      actorExternalId: "unknown-user",
+    });
+
+    expect(emitSignalCalls.length).toBe(1);
+    expect(emitSignalCalls[0].routingIntent).toBe("single_channel");
+  });
+
   test("notifyGuardianOfAccessRequest prefers source-channel binding over vellum anchor", async () => {
     // Both Telegram and voice bindings exist with the anchor principal
     seedGatewayGuardian({

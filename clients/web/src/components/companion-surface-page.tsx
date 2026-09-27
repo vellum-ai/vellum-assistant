@@ -100,17 +100,6 @@ import type {
 const DRAG_SLOP = 3;
 
 /**
- * How long the introduction holds on the answer to the click it asked for
- * before walking on.
- *
- * Long enough to read the answer and the line under it about what the real
- * thing will ask for, short enough that it still reads as the press having
- * moved the run rather than as a card that stalled. See the Talk beat in
- * `companion-intro.tsx`.
- */
-const GREETED_MS = 2_400;
-
-/**
  * The tallest a popover on the call's bar is drawn, in the surface's units.
  * Past it the content scrolls between the header and the answers.
  */
@@ -726,30 +715,10 @@ export function CompanionSurfacePage() {
     setGreeted(false);
   }, [intro]);
   const takeIntroOffer = (): void => {
-    if (!needsIntroPermission) {
+    if (intro === "try" && !needsIntroPermission) {
       advanceCompanionIntro("try");
     }
   };
-  /**
-   * The run carries on by itself once the click has landed.
-   *
-   * The card is answering a press the user just made, so the beat is over the
-   * moment they have read the answer: leaving them to find Next after being
-   * told they did it would be a card congratulating them and then waiting. Long
-   * enough to read six words, and cancelled if anything else moves the run
-   * first.
-   */
-  useEffect(() => {
-    if (!greeted || needsIntroPermission) {
-      return;
-    }
-    const timer = setTimeout(() => {
-      advanceCompanionIntro("next");
-    }, GREETED_MS);
-    return () => {
-      clearTimeout(timer);
-    };
-  }, [greeted, needsIntroPermission]);
   /** Whether what the pill is drawing is that demonstration. */
   const demoing = demo !== null;
   const phase: CompanionSurfacePhase =
@@ -1184,15 +1153,14 @@ export function CompanionSurfacePage() {
           // The last beat is the opposite: the creature is in its card for the
           // same reason, and the press is the finish. It goes out as the run's
           // own `try`, which checks microphone access before starting a session.
-          if (introShown && intro === "talk") {
-            if (needsIntroPermission) {
-              return;
+          if (intro !== null) {
+            if (introShown && !needsIntroPermission) {
+              if (intro === "talk") {
+                setGreeted(true);
+              } else if (intro === "try") {
+                takeIntroOffer();
+              }
             }
-            setGreeted(true);
-            return;
-          }
-          if (introShown && intro === "try") {
-            takeIntroOffer();
             return;
           }
           if (call !== null || dialing) {

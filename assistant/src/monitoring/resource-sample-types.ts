@@ -11,6 +11,7 @@ import type {
   ContainerReclaimCounters,
 } from "../util/cgroup-memory.js";
 import type { ActiveConversation } from "./active-conversations.js";
+import type { ProcessUsage } from "./process-usage.js";
 
 export interface ResourceSampleMemory {
   currentBytes: number;
@@ -68,4 +69,11 @@ export interface ResourceSample {
    * Null when nothing is processing or the database is unavailable.
    */
   activeConversations: ActiveConversation[] | null;
+  /**
+   * Busiest processes in the container since the previous process scan, so
+   * a CPU- or memory-starved daemon names what it was competing with. Null
+   * until two scans have run or where `/proc` is unreadable. Absent on
+   * samples written before this field existed.
+   */
+  processes?: ProcessUsage[] | null;
 }

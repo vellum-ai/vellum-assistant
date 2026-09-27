@@ -83,6 +83,16 @@ final class ConnectDeepLink {
         return name;
     }
 
+    String displayOrigin() {
+        String scheme = server.getScheme();
+        String host = server.getHost();
+        int port = server.getPort();
+        if (port < 0) {
+            return scheme + "://" + host;
+        }
+        return scheme + "://" + host + ":" + port;
+    }
+
     private static URI parseUri(String raw) {
         if (raw == null) {
             return null;

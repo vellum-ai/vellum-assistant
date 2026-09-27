@@ -413,15 +413,13 @@ async function handleSetInferenceProfile({
     throw new BadRequestError("profile must be a non-empty string or null");
   }
 
-  const result = await setInferenceProfileSession({
+  return setInferenceProfileSession({
     conversationId: pathParams.id!,
     profile: body.profile as string | null,
     ttlSeconds: body.ttlSeconds as number | null | undefined,
     sessionId: body.sessionId as string | undefined,
     originClientId: headers?.["x-vellum-client-id"]?.trim() || undefined,
   });
-
-  return result;
 }
 
 async function handleUpdateConversationEnabledPlugins({

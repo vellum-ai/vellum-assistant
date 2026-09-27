@@ -28,37 +28,18 @@
 import type pino from "pino";
 
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
-import { getAttentionStateByConversationIds } from "../persistence/conversation-attention-store.js";
-import {
-  getAssistantMessageIdsInTurn,
-  getMessageById,
-  getMessagesAfter,
-  type MessageRow,
-} from "../persistence/conversation-crud.js";
-import { stringifyMessageContent } from "../persistence/message-content.js";
-import {
-  isPrivateAssistantText,
-  projectPersistedAssistantContent,
-} from "../persistence/user-facing-content.js";
 import { emitNotificationSignal } from "./emit-signal.js";
 import { hasNotifiedSourceContextSince } from "./events-store.js";
+import { sanitizeNotificationTitle } from "./notification-utils.js";
 import {
-  decodeLiteralLineBreaks,
-  sanitizeNotificationTitle,
-  stripMarkdownForPreview,
-  truncate,
-} from "./notification-utils.js";
+  collectRunRows,
+  deliveredThroughMessagingTool,
+  resolveLatestRunRow,
+  resolveRunOutput,
+} from "./result-output.js";
 
 /** Kill switch for this producer, on by default. */
 const SCHEDULE_RESULT_NOTIFY_FLAG = "schedule-result-notify" as const;
-
-/**
- * Body cap. Far above `MESSAGE_PREVIEW_MAX_LENGTH` (200) on purpose: this body
- * is the deliverable, not a preview of one, and the home feed's detail panel
- * renders it as markdown. A lock-screen banner truncates on its own, so the
- * cap exists only to keep a runaway reply out of the payload.
- */
-const MAX_RESULT_BODY_CHARS = 2000;
 
 export interface ScheduleResultNotificationParams {
   /** `cron_jobs.id` of the schedule that fired. */
@@ -76,168 +57,6 @@ export interface ScheduleResultNotificationParams {
    */
   runStartedAt: number;
   rlog: pino.Logger;
-}
-
-/**
- * Whether the run delivered its result through the messaging tool, and the
- * call succeeded.
- *
- * The messaging tool is the route the schedule skill prescribes for rich
- * content, and it writes no `notification_events` row, so the pipeline probe
- * cannot see it. Without this check a well-authored Slack digest would post
- * its summary and then get a second notification whose body is "Posted the
- * digest to #general."
- *
- * Both conditions are load-bearing. The route has to be recognized, because
- * this is a known-routes list rather than a general "did the run do anything?"
- * heuristic. And the call has to have succeeded: a `tool_use` block records
- * only that the model called the tool, so a send the channel refused leaves
- * the same block as one that landed, and suppressing on it costs the user both
- * the digest and the run's explanation of the failure. The executor's verdict
- * is on the `tool_result` the call produced, so success is read from there,
- * and a call with no result counts as undelivered. Either condition unmet gets
- * the fallback, which is the safe failure.
- *
- * The result read starts at the run's first row, so it covers the results
- * interleaved through the turn. Rows from a later turn in a reused
- * conversation can come back too and are harmless, because only this run's
- * own call ids are matched.
- *
- * A Slack Web API post through bash is deliberately not a route. It is off
- * the guided path and unrecorded, and recognizing it would mean reading a
- * shell command for a method name. A run that posts that way gets the
- * fallback too: at worst a duplicate, never a silence.
- */
-function deliveredThroughMessagingTool(
-  conversationId: string,
-  runRows: readonly MessageRow[],
-): boolean {
-  const callIds = new Set<string>();
-  for (const row of runRows) {
-    for (const block of row.content) {
-      if (block.type === "tool_use" && block.name === "messaging_send") {
-        callIds.add(block.id);
-      }
-    }
-  }
-  if (callIds.size === 0) {
-    return false;
-  }
-  const [firstRunRow] = runRows;
-  for (const row of getMessagesAfter(conversationId, {
-    id: firstRunRow.id,
-    createdAt: firstRunRow.createdAt,
-  })) {
-    if (row.role !== "user") {
-      continue;
-    }
-    for (const block of row.content) {
-      // guard:allow-tool-result-only: the local executor's verdict on a
-      // delivery it ran. A server-side `web_search_tool_result` carries no
-      // `is_error` and never delivers anything.
-      if (
-        block.type === "tool_result" &&
-        block.is_error !== true &&
-        callIds.has(block.tool_use_id)
-      ) {
-        return true;
-      }
-    }
-  }
-  return false;
-}
-
-/**
- * The assistant rows this run wrote, in order, ending on `latestRow`.
- *
- * A run is one agent turn: `getAssistantMessageIdsInTurn` walks the tool-call
- * loop back to the user message that opened it. Rows from before the run
- * started are dropped defensively — a reused conversation's earlier turns must
- * never be mistaken for this one.
- */
-function collectRunRows(
-  latestRow: MessageRow,
-  conversationId: string,
-  runStartedAt: number,
-): MessageRow[] {
-  const rows: MessageRow[] = [];
-  for (const id of getAssistantMessageIdsInTurn(latestRow.id)) {
-    const row =
-      id === latestRow.id ? latestRow : getMessageById(id, conversationId);
-    if (row && row.createdAt >= runStartedAt) {
-      rows.push(row);
-    }
-  }
-  return rows;
-}
-
-/**
- * Whether the run left the user anything worth reading, and what.
- *
- * Substance is judged mechanically: markdown is flattened and whitespace
- * collapsed, and whatever survives is the answer. A run that ended on tool
- * calls with no closing prose flattens to nothing and stays silent — the
- * "nothing to say" case. Anything else counts, including a briefing whose
- * honest finding is that nothing changed; the user asked for that cadence, and
- * "no new mail today" is a result, not noise.
- *
- * Every row is read through the user-facing projection, so a scheduled run
- * that routed its reply through `send_user_message` quotes the message it
- * delivered rather than the private scratchpad behind it. A scheduled run
- * resolves the `mainAgent` call site, so it is gated like any app turn.
- *
- * The scan walks back only across rows marked private, because that is the
- * shape a gated run leaves: it ends on wrap-up notes that project to nothing,
- * with the delivered message on the earlier row carrying the call. An ordinary
- * run is read exactly as before: its last row, and silence if that row has no
- * prose.
- *
- * The returned body keeps its original markdown — only the emptiness test runs
- * on the flattened form, because the detail panel renders the real thing.
- */
-function resolveRunOutput(runRows: readonly MessageRow[]): string | undefined {
-  for (let i = runRows.length - 1; i >= 0; i--) {
-    const row = runRows[i];
-    const text = stringifyMessageContent(
-      projectPersistedAssistantContent(row.content, row.metadata),
-    );
-    const flattened = stripMarkdownForPreview(text).replace(/\s+/g, " ").trim();
-    if (flattened) {
-      return truncate(
-        decodeLiteralLineBreaks(text.trim()),
-        MAX_RESULT_BODY_CHARS,
-      );
-    }
-    if (!isPrivateAssistantText(row.metadata)) {
-      return undefined;
-    }
-  }
-  return undefined;
-}
-
-/**
- * The run's final assistant row, or nothing if the run wrote none.
- *
- * `latestAssistantMessageId` is per conversation, not per run, so a reused
- * conversation whose current run wrote no reply would otherwise hand back the
- * previous run's — and the fallback would re-send yesterday's briefing.
- */
-function resolveLatestRunRow(
-  conversationId: string,
-  runStartedAt: number,
-): MessageRow | undefined {
-  const attention = getAttentionStateByConversationIds([conversationId]).get(
-    conversationId,
-  );
-  const assistantMessageId = attention?.latestAssistantMessageId;
-  if (!assistantMessageId) {
-    return undefined;
-  }
-  const row = getMessageById(assistantMessageId, conversationId);
-  if (!row || row.createdAt < runStartedAt) {
-    return undefined;
-  }
-  return row;
 }
 
 /**

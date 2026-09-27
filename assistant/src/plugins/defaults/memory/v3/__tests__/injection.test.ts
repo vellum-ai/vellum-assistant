@@ -462,6 +462,30 @@ describe("memoryV3Injector: frozen net-new sections", () => {
     expect(activeIds("conv-voice")).toEqual(new Set());
   });
 
+  test("screen-action bypass preserves resident sections and retrieval resumes next turn", async () => {
+    liveEnabled = true;
+    turnResults.set(0, result(["page-a"]));
+    const resident = await produceSections("conv-1", 0);
+    expect(resident).not.toBeNull();
+    const before = activeIds("conv-1");
+    observeTurnSpy.mockClear();
+    const ctx = {
+      requestId: "req-screen",
+      conversationId: "conv-1",
+      turnIndex: 1,
+      trust: GUARDIAN_TRUST,
+      callSite: "callAgent" as const,
+      skipMemoryRetrieval: true,
+    };
+    expect(await memoryV3Injector.produce(ctx)).toBeNull();
+    expect(await memoryV3PointerInjector.produce(ctx)).toBeNull();
+    expect(observeTurnSpy).not.toHaveBeenCalled();
+    expect(activeIds("conv-1")).toEqual(before);
+    turnResults.set(2, result(["page-b"]));
+    expect(await produceSections("conv-1", 2)).not.toBeNull();
+    expect(observeTurnSpy).toHaveBeenCalledTimes(1);
+  });
+
   test("a live orchestration throw queues a degraded-memory notice and no block", async () => {
     liveEnabled = true;
     turnResults.set(

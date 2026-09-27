@@ -1352,6 +1352,58 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/oauth/client-metadata.json": {
+        get: {
+          summary: "MCP OAuth client metadata",
+          description:
+            "Public Client ID Metadata Document used by MCP authorization servers that support URL-based client identifiers.",
+          operationId: "mcpOAuthClientMetadata",
+          responses: {
+            "200": {
+              description: "OAuth client metadata",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    required: [
+                      "client_id",
+                      "redirect_uris",
+                      "token_endpoint_auth_method",
+                      "grant_types",
+                      "response_types",
+                      "client_name",
+                    ],
+                    properties: {
+                      client_id: { type: "string", format: "uri" },
+                      redirect_uris: {
+                        type: "array",
+                        items: { type: "string", format: "uri" },
+                      },
+                      token_endpoint_auth_method: {
+                        type: "string",
+                        const: "none",
+                      },
+                      grant_types: {
+                        type: "array",
+                        items: { type: "string" },
+                      },
+                      response_types: {
+                        type: "array",
+                        items: { type: "string" },
+                      },
+                      client_name: { type: "string" },
+                      logo_uri: { type: "string", format: "uri" },
+                    },
+                  },
+                },
+              },
+            },
+            "503": {
+              description: "Public HTTPS ingress is unavailable",
+            },
+          },
+        },
+      },
       "/v1/integrations/telegram/config": {
         get: {
           summary: "Get Telegram integration config",

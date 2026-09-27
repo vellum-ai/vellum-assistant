@@ -17,6 +17,8 @@
  */
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import sharp from "sharp";
+
 // ── Module mocks ─────────────────────────────────────────────────────────────
 // Must be registered before the host-cu-routes module is loaded.
 
@@ -487,7 +489,14 @@ describe("handleHostCuResult: request body validation", () => {
     expect(pendingStore.has(requestId)).toBe(true);
   });
 
-  test("forwards a full observation payload unchanged", async () => {
+  test("forwards observation metadata with dimensions from the screenshot bytes", async () => {
+    const screenshot = (
+      await sharp({
+        create: { width: 835, height: 540, channels: 3, background: "white" },
+      })
+        .jpeg()
+        .toBuffer()
+    ).toString("base64");
     const requestId = "req-cu-full-observation";
     registerPending(requestId);
 
@@ -496,7 +505,7 @@ describe("handleHostCuResult: request body validation", () => {
         requestId,
         axTree: "Button [1]",
         axDiff: "+Button [1]",
-        screenshot: "base64png",
+        screenshot,
         screenshotWidthPx: 1600,
         screenshotHeightPx: 1000,
         screenWidthPt: 800,
@@ -512,9 +521,9 @@ describe("handleHostCuResult: request body validation", () => {
     expect(cuResolveSpy[0].payload).toMatchObject({
       axTree: "Button [1]",
       axDiff: "+Button [1]",
-      screenshot: "base64png",
-      screenshotWidthPx: 1600,
-      screenshotHeightPx: 1000,
+      screenshot,
+      screenshotWidthPx: 835,
+      screenshotHeightPx: 540,
       screenWidthPt: 800,
       screenHeightPt: 500,
       executionResult: "Clicked",

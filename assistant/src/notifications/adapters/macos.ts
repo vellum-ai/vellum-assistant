@@ -1,21 +1,21 @@
 /**
- * Vellum channel adapter — delivers notifications to connected desktop
+ * Vellum channel adapter: delivers notifications to connected desktop
  * and mobile clients via the daemon's event broadcast mechanism.
  *
  * The adapter broadcasts a `notification_intent` message that the client
  * turns into an OS notification (`use-notification-intent-sync.ts` in the
- * web client, which every first-party app runs). The `silent` flag is true
- * for non-urgent (`low`/`medium`) signals, and the client posts nothing for
- * those: they reach their conversation (and the home feed, for background
- * work) without a banner.
- * Urgent signals (`high`/`critical`) broadcast with `silent: false` and
- * banner.
+ * web client, which every first-party app runs). Completion alerts and urgent
+ * signals may banner. Other low/medium signals reach their conversation and
+ * feed without a banner. The broadcaster owns this presentation policy.
  *
  * Guardian-sensitive notifications (approval requests, access requests)
  * are delivered only to connections authenticated as the guardian: the hub
  * matches `targetActorPrincipalId` against each connection's verified
  * principal, so no other connection ever receives the title and body. The
- * payload's `targetGuardianPrincipalId` records that scoping for clients.
+ * payload's `targetGuardianPrincipalId` marks guardian-sensitive content for
+ * clients that enforce the legacy guardian compatibility gate.
+ * Completion previews require the same recipient scoping; an unresolved
+ * recipient fails delivery before any preview is broadcast.
  */
 
 import type { AssistantEvent } from "../../api/index.js";
@@ -24,6 +24,12 @@ import { updateMessageContent } from "../../persistence/conversation-crud.js";
 import type { BroadcastMessageOptions } from "../../runtime/assistant-event-hub.js";
 import { publishConversationMessagesChanged } from "../../runtime/sync/resource-sync-events.js";
 import { getLogger } from "../../util/logger.js";
+import {
+  isCompletionNotification,
+  isCompletionRecipientUnavailable,
+  isLocalNotificationSilent,
+  resolveCompletionRecipient,
+} from "../completion-policy.js";
 import type {
   ChannelAdapter,
   ChannelDeliveryPayload,
@@ -86,9 +92,15 @@ export class VellumAdapter implements ChannelAdapter {
         guardianPrincipalId && isGuardianSensitiveEvent(payload.sourceEventName)
           ? guardianPrincipalId
           : undefined;
+      const targetActorPrincipalId = isCompletionNotification(payload)
+        ? resolveCompletionRecipient(payload, destination)
+        : targetGuardianPrincipalId;
 
-      const silent =
-        payload.urgency !== "high" && payload.urgency !== "critical";
+      if (isCompletionRecipientUnavailable(payload, destination)) {
+        return { success: false, error: "completion recipient unavailable" };
+      }
+
+      const silent = payload.silent ?? isLocalNotificationSilent(payload);
       const assistantName = getAssistantName()?.trim() || undefined;
 
       this.broadcast(
@@ -107,14 +119,14 @@ export class VellumAdapter implements ChannelAdapter {
           remotePushPlatforms: payload.remotePushPlatforms,
         },
         undefined,
-        { targetActorPrincipalId: targetGuardianPrincipalId },
+        { targetActorPrincipalId },
       );
 
       log.info(
         {
           sourceEventName: payload.sourceEventName,
           title: payload.copy.title,
-          guardianScoped: targetGuardianPrincipalId != null,
+          recipientScoped: targetActorPrincipalId != null,
           silent,
         },
         "Vellum notification intent broadcast",

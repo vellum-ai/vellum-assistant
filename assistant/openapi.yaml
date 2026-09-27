@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Vellum Assistant API
-  version: 0.12.4
+  version: 0.12.5
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -2596,6 +2596,58 @@ paths:
                   - organizationId
                   - userId
                   - authenticated
+                additionalProperties: false
+  /v1/auto-profile/preview:
+    post:
+      operationId: autoprofile_preview_post
+      summary: Preview the Auto profile's pick for a draft
+      description:
+        Ask the Auto profile which default profile a draft message would run on, using the conversation's recent
+        history when one is given. The pick is kept briefly so the turn that sends the same text reuses it. Spends one
+        Jev call per request.
+      tags:
+        - conversations
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                text:
+                  type: string
+                  minLength: 1
+                  maxLength: 20000
+                conversationId:
+                  type: string
+                  description: Conversation the draft belongs to, for recent history. Omit for a new chat.
+              required:
+                - text
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  profile:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  outcome:
+                    type: string
+                    enum:
+                      - routed
+                      - unavailable
+                      - timeout
+                      - error
+                      - fallback
+                  confidence:
+                    type: number
+                required:
+                  - profile
+                  - outcome
                 additionalProperties: false
   /v1/avatar/accent:
     post:
@@ -12430,6 +12482,9 @@ paths:
                           type: number
                         updatedAt:
                           type: number
+                        revision:
+                          description: Bumped by one on every write. Absent from assistants that predate document revisions.
+                          type: number
                       required:
                         - surfaceId
                         - conversationId
@@ -12444,7 +12499,10 @@ paths:
     post:
       operationId: documents_post
       summary: Save a document
-      description: Create or upsert a document (by surfaceId).
+      description:
+        Create or upsert a document (by surfaceId). With `baseRevision`, an existing document is only overwritten
+        while its revision still equals `baseRevision`; otherwise the save is rejected with 409 CONFLICT and
+        `error.details` carries the current `revision`, `title`, and `content`.
       tags:
         - documents
       requestBody:
@@ -12469,6 +12527,13 @@ paths:
                 wordCount:
                   type: number
                   description: Word count
+                baseRevision:
+                  description:
+                    The revision this save was edited from. When set and the stored revision differs, nothing is written and
+                    the request fails with 409. Omit for an unconditional write.
+                  type: integer
+                  minimum: 0
+                  maximum: 9007199254740991
               required:
                 - surfaceId
                 - conversationId
@@ -12488,6 +12553,9 @@ paths:
                     const: true
                   surfaceId:
                     type: string
+                  revision:
+                    description: The document's revision after the save. Absent from assistants that predate document revisions.
+                    type: number
                 required:
                   - success
                   - surfaceId
@@ -12528,6 +12596,9 @@ paths:
                   createdAt:
                     type: number
                   updatedAt:
+                    type: number
+                  revision:
+                    description: Bumped by one on every write. Absent from assistants that predate document revisions.
                     type: number
                 required:
                   - success
@@ -12955,6 +13026,157 @@ paths:
               schema:
                 type: string
                 format: binary
+  /v1/documents/{id}/revisions:
+    get:
+      operationId: documents_by_id_revisions_get
+      summary: List a document's revisions
+      description: Return the document's history snapshots, newest first, without their content.
+      tags:
+        - documents
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  revisions:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        revision:
+                          type: number
+                          description: The document revision this snapshot holds
+                        author:
+                          type: string
+                          enum:
+                            - user
+                            - assistant
+                          description: Who made the edit that replaced this state
+                        createdAt:
+                          type: number
+                          description: When the snapshot was taken
+                        wordCount:
+                          type: number
+                        title:
+                          type: string
+                      required:
+                        - revision
+                        - author
+                        - createdAt
+                        - wordCount
+                        - title
+                      additionalProperties: false
+                required:
+                  - revisions
+                additionalProperties: false
+  /v1/documents/{id}/revisions/{revision}:
+    get:
+      operationId: documents_by_id_revisions_by_revision_get
+      summary: Get a document revision
+      description: Return one history snapshot with its content.
+      tags:
+        - documents
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: revision
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  revision:
+                    type: number
+                    description: The document revision this snapshot holds
+                  author:
+                    type: string
+                    enum:
+                      - user
+                      - assistant
+                    description: Who made the edit that replaced this state
+                  createdAt:
+                    type: number
+                    description: When the snapshot was taken
+                  wordCount:
+                    type: number
+                  title:
+                    type: string
+                  content:
+                    type: string
+                required:
+                  - revision
+                  - author
+                  - createdAt
+                  - wordCount
+                  - title
+                  - content
+                additionalProperties: false
+  /v1/documents/{id}/revisions/{revision}/restore:
+    post:
+      operationId: documents_by_id_revisions_by_revision_restore_post
+      summary: Restore a document revision
+      description:
+        Write a snapshot's title and content back as a new revision. The current state is snapshotted first, so the
+        restore can itself be undone.
+      tags:
+        - documents
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: revision
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    const: true
+                  surfaceId:
+                    type: string
+                  revision:
+                    type: number
+                    description: The document's revision after the restore
+                  title:
+                    type: string
+                  content:
+                    type: string
+                required:
+                  - success
+                  - surfaceId
+                  - revision
+                  - title
+                  - content
+                additionalProperties: false
   /v1/documents/create:
     post:
       operationId: documents_create_post
@@ -13000,6 +13222,9 @@ paths:
                   createdAt:
                     type: number
                   updatedAt:
+                    type: number
+                  revision:
+                    description: Bumped by one on every write. Absent from assistants that predate document revisions.
                     type: number
                 required:
                   - success
@@ -14054,7 +14279,7 @@ paths:
     post:
       operationId: guardianactions_decision_post
       summary: Submit guardian decision
-      description: Submit a guardian action decision (approve/reject).
+      description: Submit a guardian decision on a pending request.
       tags:
         - guardian
       requestBody:
@@ -14066,9 +14291,17 @@ paths:
               properties:
                 requestId:
                   type: string
+                  minLength: 1
                   description: Guardian request ID
                 action:
                   type: string
+                  enum:
+                    - approve_once
+                    - reject
+                    - trust
+                    - verify_code
+                    - leave_unverified
+                    - block
                   description: Decision action
                 conversationId:
                   type: string
@@ -14228,6 +14461,8 @@ paths:
                       retryLastTurn:
                         type: boolean
                       appPins:
+                        type: boolean
+                      chatsSettings:
                         type: boolean
                     required:
                       - memoryOptOut
@@ -14462,6 +14697,8 @@ paths:
                       retryLastTurn:
                         type: boolean
                       appPins:
+                        type: boolean
+                      chatsSettings:
                         type: boolean
                     required:
                       - memoryOptOut
@@ -21335,6 +21572,8 @@ paths:
                                           - searxng
                                           - tinyfish
                                           - youcom
+                                          - exa
+                                          - serply
                                       resultCount:
                                         type: number
                                       durationMs:
@@ -21954,6 +22193,8 @@ paths:
                                                   - searxng
                                                   - tinyfish
                                                   - youcom
+                                                  - exa
+                                                  - serply
                                               resultCount:
                                                 type: number
                                               durationMs:
@@ -22518,6 +22759,8 @@ paths:
                           type: boolean
                         noResponse:
                           type: boolean
+                        autoRoutedProfile:
+                          type: string
                         cameraFrame:
                           type: boolean
                           const: true
@@ -38492,6 +38735,41 @@ components:
     ConfigPatchRequest:
       type: object
       properties:
+        conversations:
+          anyOf:
+            - type: object
+              properties:
+                autoArchive:
+                  anyOf:
+                    - type: object
+                      properties:
+                        enabled:
+                          anyOf:
+                            - type: boolean
+                            - type: "null"
+                        afterDays:
+                          anyOf:
+                            - type: number
+                              enum:
+                                - 1
+                                - 7
+                                - 14
+                                - 30
+                            - type: "null"
+                      additionalProperties: {}
+                    - type: "null"
+              additionalProperties: {}
+            - type: "null"
+        notifications:
+          anyOf:
+            - type: object
+              properties:
+                newMessageEnabled:
+                  anyOf:
+                    - type: boolean
+                    - type: "null"
+              additionalProperties: {}
+            - type: "null"
         llm:
           type: object
           properties:
@@ -39225,6 +39503,42 @@ components:
     ConfigGetResponse:
       type: object
       properties:
+        conversations:
+          type: object
+          properties:
+            autoArchive:
+              type: object
+              properties:
+                enabled:
+                  default: false
+                  description: Automatically mark eligible inactive chats Done.
+                  type: boolean
+                afterDays:
+                  default: 7
+                  description: Elapsed days of inactivity before a chat is eligible for Done.
+                  type: number
+                  enum:
+                    - 1
+                    - 7
+                    - 14
+                    - 30
+              required:
+                - enabled
+                - afterDays
+              additionalProperties: {}
+          required:
+            - autoArchive
+          additionalProperties: {}
+        notifications:
+          type: object
+          properties:
+            newMessageEnabled:
+              default: true
+              description: Allow ordinary chat-reply alerts. Does not change unread state or action-required alerts.
+              type: boolean
+          required:
+            - newMessageEnabled
+          additionalProperties: {}
         llm:
           type: object
           properties:

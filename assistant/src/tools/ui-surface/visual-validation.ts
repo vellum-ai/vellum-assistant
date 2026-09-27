@@ -302,8 +302,7 @@ function collectSurfaceFillOnTextProblems(html: string): string[] {
   const offenders: string[] = [];
   for (const rule of html.matchAll(/([^{}<>]{1,120})\{([^{}]*)\}/g)) {
     const selector = rule[1].trim();
-    const body = rule[2];
-    if (!/fill\s*:\s*var\(--surface-/.test(body)) {
+    if (!/fill\s*:\s*var\(--surface-/.test(rule[2])) {
       continue;
     }
     if (SHAPE_SCOPED_SELECTOR_PATTERN.test(selector)) {

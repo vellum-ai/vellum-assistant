@@ -24,12 +24,14 @@ import {
 } from "react";
 
 import {
+  selectEmailReferences,
   selectPathReferencePaths,
   selectUploadedIds,
   selectUploadingCount,
   useComposerStore,
 } from "@/domains/chat/composer-store";
 import { prependChannelReference } from "@/domains/chat/channel-sidecar/channel-reference";
+import { prependEmailReferences } from "@/domains/chat/email-reference";
 import { useChannelReferenceStore } from "@/domains/chat/channel-sidecar/channel-reference-store";
 import {
   useQuoteReplyStore,
@@ -198,6 +200,7 @@ export function useComposerSubmit({
       const uploadingCount = selectUploadingCount(chatAttachments);
       const uploadedIds = selectUploadedIds(chatAttachments);
       const pathReferences = selectPathReferencePaths(chatAttachments);
+      const emailReferences = selectEmailReferences(chatAttachments);
 
       const stagedQuotes = useQuoteReplyStore.getState().stagedQuotes;
       const channelReference = useChannelReferenceStore.getState().reference;
@@ -207,11 +210,13 @@ export function useComposerSubmit({
       }
       // A staged channel reference is content in its own right: "look at this
       // message" is a complete instruction, so it makes an otherwise empty
-      // composer sendable exactly as a staged quote does.
+      // composer sendable exactly as a staged quote does. Staged emails are
+      // the same kind of thing.
       if (
         !trimmed &&
         uploadedIds.length === 0 &&
         pathReferences.length === 0 &&
+        emailReferences.length === 0 &&
         stagedQuotes.length === 0 &&
         channelReference === null
       ) {
@@ -230,8 +235,14 @@ export function useComposerSubmit({
         contentWithQuotes,
         channelReference,
       );
-      const finalContent = appendPathReferences(
+      // Staged emails lead for the same reason, ahead of a channel reference
+      // when both are present, in the order they were picked.
+      const contentWithEmails = prependEmailReferences(
         contentWithReference,
+        emailReferences,
+      );
+      const finalContent = appendPathReferences(
+        contentWithEmails,
         pathReferences,
       );
       if (beforeSend && !beforeSend(finalContent)) {

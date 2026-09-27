@@ -23,6 +23,7 @@ import {
 } from "@/domains/chat/composer-store";
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
 import type { DisplayAttachment } from "@/domains/chat/types/types";
+import type { EmailReference } from "@/types/email-reference";
 import { registerPushToTalkTarget } from "@/domains/chat/voice/push-to-talk-target";
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
 
@@ -309,6 +310,58 @@ describe("useComposerSubmit beforeSend gate", () => {
 
     expect(beforeSend).not.toHaveBeenCalled();
     expect(sendMessage).not.toHaveBeenCalled();
+  });
+});
+
+const stagedEmail: EmailReference = {
+  id: "msg_in_1",
+  direction: "inbound",
+  from: { name: "Maya Chen", address: "maya@example.com" },
+  to: [{ address: "velly@example.org" }],
+  subject: "Q4 vendor contract",
+  createdAt: "2026-09-16T09:52:00Z",
+};
+
+describe("useComposerSubmit staged emails", () => {
+  test("staged emails alone are sendable, lead the content, and clear on send", async () => {
+    useComposerStore.getState().addEmailReferences([stagedEmail]);
+
+    const { result, sendMessage } = renderSubmit();
+    await submit(result);
+
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    const sent = sendMessage.mock.calls[0]?.[0];
+    expect(sent?.startsWith("> [vellum:email-reference]")).toBe(true);
+    expect(sent).toContain("> message-id: msg_in_1");
+    expect(sendMessage.mock.calls[0]?.[1]).toEqual([]);
+    expect(useComposerStore.getState().attachments).toHaveLength(0);
+  });
+
+  test("emails lead a channel reference and the typed remark trails", async () => {
+    useComposerStore.getState().addEmailReferences([stagedEmail]);
+    useChannelReferenceStore.getState().setReference(stagedChannelReference);
+    useComposerStore.getState().setInput("compare these");
+
+    const { result, sendMessage } = renderSubmit();
+    await submit(result);
+
+    const sent = sendMessage.mock.calls[0]?.[0] ?? "";
+    expect(sent.startsWith("> [vellum:email-reference]")).toBe(true);
+    expect(sent.indexOf("[vellum:channel-reference]")).toBeGreaterThan(
+      sent.indexOf("[/vellum:email-reference]"),
+    );
+    expect(sent.endsWith("compare these")).toBe(true);
+  });
+
+  test("a blocking gate leaves the staged emails intact", async () => {
+    useComposerStore.getState().addEmailReferences([stagedEmail]);
+    const beforeSend = mock((_content: string) => false);
+
+    const { result, sendMessage } = renderSubmit({ beforeSend });
+    await submit(result);
+
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(useComposerStore.getState().attachments).toHaveLength(1);
   });
 });
 

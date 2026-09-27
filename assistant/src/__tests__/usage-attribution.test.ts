@@ -109,6 +109,37 @@ describe("resolveUsageAttribution", () => {
     expectResolvedProviderModelMatchesResolver("mainAgent", "pinned");
   });
 
+  test("reports an override the Auto router chose as the auto source", () => {
+    setLlmConfig({
+      profiles: {
+        active: { provider: "openai", model: "gpt-5.4" },
+        routed: { provider: "gemini", model: "gemini-3-pro" },
+      },
+      activeProfile: "active",
+    });
+
+    const snapshot = resolveUsageAttribution({
+      callSite: "mainAgent",
+      overrideProfile: "routed",
+      overrideProfileOrigin: "auto",
+    });
+
+    expect(snapshot).toMatchObject({
+      appliedProfile: "routed",
+      profileSource: "auto",
+      resolvedProvider: "gemini",
+      resolvedModel: "gemini-3-pro",
+    });
+    // The origin only relabels an override that actually won.
+    expect(
+      resolveUsageAttribution({
+        callSite: "mainAgent",
+        overrideProfile: "missing",
+        overrideProfileOrigin: "auto",
+      }).profileSource,
+    ).toBe("active");
+  });
+
   test("resolves call-site profile attribution", () => {
     setLlmConfig({
       profiles: {

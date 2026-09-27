@@ -136,7 +136,6 @@
       "background": "后台",
       "done": "已完成"
     },
-    "doneMeta": "已完成 · {time}",
     "empty": "这里还没有聊天。",
     "filterAria": "筛选聊天",
     "loadError": "无法加载你的聊天。",
@@ -144,7 +143,14 @@
     "noMatches": "没有与“{query}”匹配的聊天。",
     "retry": "重试",
     "searchPlaceholder": "搜索聊天",
-    "title": "所有聊天"
+    "title": "所有聊天",
+    "close": "关闭所有聊天",
+    "openChat": "打开聊天",
+    "doneLabel": "{title}，已完成",
+    "unread": "未读",
+    "running": "运行中",
+    "needsAttention": "需要关注",
+    "runningCount": "{count, plural, other {# 个任务正在运行}}"
   },
   "sessionGroupRow": {
     "mode": {
@@ -379,6 +385,22 @@
     "unsupported": "此设备无法打开相机。",
     "uploadFailed": "无法发送该照片。"
   },
+  "cameraExplainer": {
+    "close": "关闭",
+    "gotIt": "知道了",
+    "liveBody": "您移动相机时，{name} 会持续观看。直接聊聊 {name} 看到的内容。",
+    "liveBodyDesktop": "您移动相机时，{name} 会持续观看。直接聊聊 {name} 看到的内容。随时都可以停止。",
+    "liveTag": "实时",
+    "liveTitle": "实时",
+    "photoBody": "拍一张照片。{name} 只会看到那一张照片。",
+    "photoTitle": "照片",
+    "privacy": "{name} 看到的一切都保留在 {name} 自己的私人工作区。关闭相机时实时模式就会结束。",
+    "subtitle": "选择 {name} 如何查看您对准的画面。随时都可以切换。",
+    "title": "照片还是实时？",
+    "tryLive": "立即试用实时",
+    "tryLiveDesktop": "试用实时",
+    "yourAssistant": "您的助手"
+  },
   "cameraShutterHint": {
     "live": "实时 · 轻点停止",
     "liveDescription": "轻点停止实时视频。",
@@ -400,10 +422,11 @@
   },
   "cameraViewOptions": {
     "buttonAria": "相机显示选项",
-    "gateHudDescription": "用于调整实时模式保留哪些画面的面板。",
-    "gateHudTitle": "帧筛选读数",
-    "keptFrameDescription": "实时模式发送的最近一帧，显示在照片旁边。无论是否显示，都会继续发送。",
-    "keptFrameTitle": "最近一帧",
+    "gateHudDescription": "调试叠加层：实时模式如何挑选要发送的画面。",
+    "gateHudTitle": "帧筛选调校",
+    "howItWorks": "“照片”和“实时”的运作方式",
+    "keptFrameDescription": "显示实时模式最近发送的画面。",
+    "keptFrameTitle": "最近分享的画面",
     "title": "显示"
   },
   "cardSurface": {
@@ -464,6 +487,24 @@
     "attachFileAria": "附加文件",
     "dismiss": "关闭",
     "removeAria": "移除 {filename}"
+  },
+  "emailReferenceChip": {
+    "noSubject": "(无主题)",
+    "captionReceived": "已接收 · 来自 {name} · {date}",
+    "captionReceivedUndated": "已接收 · 来自 {name}",
+    "captionSent": "已发送 · 发给 {name} · {date}",
+    "captionSentUndated": "已发送 · 发给 {name}",
+    "tooltip": "{subject}\n{caption}",
+    "removeAria": "移除邮件 {subject}"
+  },
+  "emailReferenceCard": {
+    "noSubject": "(无主题)",
+    "captionReceived": "已接收 · 来自 {name} · {date}",
+    "captionReceivedUndated": "已接收 · 来自 {name}",
+    "captionSent": "已发送 · 发给 {name} · {date}",
+    "captionSentUndated": "已发送 · 发给 {name}",
+    "tooltip": "{subject}\n{caption}",
+    "openAria": "在收件箱中打开邮件 {subject}"
   },
   "chatBody": {
     "dropFiles": "拖放文件以附加"
@@ -635,6 +676,7 @@
     "warningTitle": "这看起来像一个 API 密钥"
   },
   "composerSettingsMenu": {
+    "autoPreview": "自动 · {profile}",
     "accessAria": "助手访问权限：{label}",
     "assistantAccess": "助手访问权限",
     "assistantAccessTitle": "助手访问权限",
@@ -729,8 +771,6 @@
     "markRead": "标记为已读",
     "markUnread": "标记为未读",
     "moveToGroup": "移动到群组",
-    "newDocument": "新建文档",
-    "newDocumentFailed": "无法创建文档。请重试。",
     "newGroup": "新建群组…",
     "openInNewWindow": "在新窗口中打开",
     "pin": "置顶",
@@ -795,8 +835,8 @@
   },
   "csvPreview": {
     "emptyFile": "此文件为空",
-    "summary": "{rows} 行 x {columns} 列",
-    "summaryTruncated": "{rows} 行 x {columns} 列（已截断）"
+    "summary": "{rows, plural, other {# 行}} x {columns, plural, other {# 列}}",
+    "summaryTruncated": "{rows, plural, other {# 行}} x {columns, plural, other {# 列}}（已截断）"
   },
   "dailyLimitBanner": {
     "skipConfirmTitle": "跳过今日积分限制？",
@@ -853,8 +893,8 @@
     "close": "关闭",
     "closeDocumentAria": "关闭文档",
     "comments": "评论",
+    "commentsWithOpenCount": "{count, plural, other {评论，# 条未解决}}",
     "export": "导出",
-    "hideComments": "隐藏评论",
     "menuAria": "文档选项",
     "rename": "重命名",
     "renameFailed": "无法重命名文档。",
@@ -1303,6 +1343,7 @@
     "title": "文件"
   },
   "messageHoverActions": {
+    "autoRouted": "自动 · {profile}",
     "bookmark": "书签",
     "copied": "已复制",
     "copy": "复制",
@@ -1472,6 +1513,8 @@
   },
   "preferencesUsagePanel": {
     "addCreditsAriaLabel": "添加额度",
+    "dailyExhausted": "今日用量已用完。添加额度以继续。",
+    "dailyTitle": "每日用量",
     "exhausted": "添加额度以继续。",
     "extraCredits": "正在使用额外用量额度",
     "pctUsed": "已使用 {pct}%",
@@ -1830,8 +1873,29 @@
   },
   "tiptapDocumentEditor": {
     "adding": "正在添加…",
+    "blockquote": "引用",
+    "bold": "粗体",
+    "bulletList": "项目符号列表",
+    "code": "代码",
     "comment": "评论",
-    "feedbackPlaceholder": "添加您的反馈…"
+    "feedbackPlaceholder": "添加您的反馈…",
+    "heading1": "标题 1",
+    "heading2": "标题 2",
+    "heading3": "标题 3",
+    "italic": "斜体",
+    "link": "链接",
+    "linkAddress": "链接地址",
+    "linkApply": "应用链接",
+    "linkInvalid": "请输入网址或电子邮件地址",
+    "linkPlaceholder": "粘贴或输入链接",
+    "linkRemove": "移除链接",
+    "orderedList": "编号列表",
+    "paragraph": "正文",
+    "placeholder": "开始写作…",
+    "remoteEditConflict": "助手修改了您正在编辑的同一段文字，已保留您的修改，因此其部分编辑未被应用。",
+    "strike": "删除线",
+    "textStyle": "文本样式：{style}",
+    "toolbarAria": "格式"
   },
   "toolCallChip": {
     "allow": "允许",
@@ -1924,6 +1988,7 @@
     "seed": "嘿，我刚和你开始了语音对话。此消息是自动发送的。请用一句话问候我，然后问我想做什么。"
   },
   "voiceErrors": {
+    "selectionUnavailable": "无法读取选中的文本。未粘贴任何内容。请重新选择文本后重试；您所说的内容可供复制。",
     "nativeSttNoTranscript": "{clientName} 原生听写未返回转录文本。请检查系统设置中的原生语音识别，然后重试。",
     "askUnavailable": "助手当前无法接收语音提问。"
   },
@@ -2052,6 +2117,21 @@
   "workspacePathLink": {
     "openTitle": "打开 {path}"
   },
+  "xlsxPreview": {
+    "beyondPreviewLimit": "此工作表的单元格均超出预览限制",
+    "emptySheet": "此工作表为空",
+    "sheetUnreadable": "无法读取此工作表",
+    "sheetsAria": "工作表",
+    "sheetsOmitted": "{count, plural, other {另有 # 个工作表未显示}}",
+    "summary": "{sheet}：{rows, plural, other {# 行}} x {columns, plural, other {# 列}}",
+    "summaryTruncated": "{sheet}：{rows, plural, other {# 行}} x {columns, plural, other {# 列}}（已截断）",
+    "summaryColumnsCut": "{sheet}：{rows, plural, other {# 行}} x {columns, number} / {total, plural, other {# 列}}",
+    "summaryRowsCut": "{sheet}：{rows, number} / {total, plural, other {# 行}} x {columns, plural, other {# 列}}",
+    "summaryBothCut": "{sheet}：{rows, number} / {totalRows, plural, other {# 行}} x {columns, number} / {totalColumns, plural, other {# 列}}",
+    "countsColumnsCut": "{rows, plural, other {# 行}} x {columns, number} / {total, plural, other {# 列}}",
+    "countsRowsCut": "{rows, number} / {total, plural, other {# 行}} x {columns, plural, other {# 列}}",
+    "countsBothCut": "{rows, number} / {totalRows, plural, other {# 行}} x {columns, number} / {totalColumns, plural, other {# 列}}"
+  },
   "transcript": {
     "noResponse": "决定不回复",
     "reactionAddedSelf": "已用 {emoji} 回应",
@@ -2146,5 +2226,33 @@
   "recallLabels": {
     "source": "{source, select, memory {记忆} conversations {对话} workspace {工作区文件} other {{source}}}",
     "depth": "{depth, select, fast {快速搜索} standard {标准搜索} deep {深度搜索} other {搜索}}"
+  },
+  "freeTierDailyLimitBanner": {
+    "addCredits": "添加额度",
+    "subtitle": "您已用完今日的免费用量，将在{resetPhrase}重置。升级或添加额度以继续。",
+    "title": "今日免费用量已用完",
+    "viewPlans": "查看方案"
+  },
+  "chatsSettingsModal": {
+    "title": "聊天设置",
+    "description": "管理此助手在所有设备上的自动完成标记和聊天回复提醒。",
+    "autoArchive": "自动归档聊天",
+    "autoArchiveHelper": "将不活跃的聊天标记为已完成，包括已超过此时限的旧聊天。已完成的聊天仍保留在所有聊天中。",
+    "timeToArchive": "归档时限",
+    "days": "{count, plural, other {# 天}}",
+    "notifications": "聊天回复提醒",
+    "notificationsHelper": "接收当前未查看的聊天中的回复提醒。",
+    "cancel": "取消",
+    "confirm": "确认",
+    "saving": "正在保存…",
+    "loading": "正在加载聊天设置…",
+    "retry": "重试",
+    "loadError": "无法加载聊天设置。请重试。",
+    "saveError": "无法保存聊天设置。你的修改仍保留在此处。点击确认以重试。",
+    "unsupported": "请更新此助手以使用聊天设置。"
+  },
+  "emailNavItem": {
+    "label": "邮件",
+    "unpin": "取消固定邮件"
   }
 }

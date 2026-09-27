@@ -52,8 +52,12 @@ mock.module("@/lib/sentry/capture-error", () => ({
 }));
 
 // Subject imported after mocks.
-import { fetchAcpSessions } from "@/domains/chat/hooks/use-acp-run-rehydration";
+import {
+  fetchAcpSessions,
+  reconcileAcpSessions,
+} from "@/domains/chat/hooks/use-acp-run-rehydration";
 import { useAcpRunStore } from "@/domains/chat/acp-run-store";
+import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { handleAcpSessionUpdate } from "@/domains/chat/utils/stream-handlers/acp-handlers";
 import { computeAcpRunSteps } from "@/domains/chat/acp-run-step-projection";
 
@@ -92,6 +96,59 @@ describe("fetchAcpSessions", () => {
     nextResponses = [{ status: 500, body: null }];
     expect(await fetchAcpSessions("asst-1", "conv-1")).toBeNull();
   });
+});
+
+test("All Chats cold-load reconciliation seeds activity without opening an auth prompt", async () => {
+  const revision = useInteractionStore.getState().acpConnectRevision;
+  nextResponses = [
+    {
+      status: 200,
+      body: {
+        sessions: [
+          {
+            id: "acp-visible",
+            status: "running",
+            parentConversationId: "conv-visible",
+            agent: "claude",
+          },
+          {
+            id: "acp-auth",
+            status: "failed",
+            parentConversationId: "conv-visible",
+            agentId: "claude",
+            parentToolUseId: "tool-auth",
+            authErrorCode: "acp_claude_auth_required",
+            startedAt: 1,
+          },
+        ],
+      },
+    },
+  ];
+  await reconcileAcpSessions("asst-1", "conv-visible", () => true, false);
+  expect(getState().byId["acp-visible"]?.parentConversationId).toBe(
+    "conv-visible",
+  );
+  expect(useInteractionStore.getState().acpConnectRevision).toBe(revision);
+});
+
+test("a retired All Chats request cannot seed another assistant's store", async () => {
+  nextResponses = [
+    {
+      status: 200,
+      body: {
+        sessions: [
+          {
+            id: "acp-stale",
+            status: "running",
+            parentConversationId: "conv-old",
+            agent: "claude",
+          },
+        ],
+      },
+    },
+  ];
+  await reconcileAcpSessions("asst-1", "conv-old", () => false, false);
+  expect(getState().byId["acp-stale"]).toBeUndefined();
 });
 
 describe("rehydration — terminal session", () => {

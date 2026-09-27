@@ -1308,15 +1308,15 @@ describe("(g) access_request resolver: requester code delivery", () => {
     expect(verificationSent.length).toBe(1);
   });
 
-  test("off-channel approval on a channel with no deliverable callback (e.g. email) still records verification_sent", async () => {
-    // `email` has no deliver URL (resolveDeliverCallbackUrlForChannel returns
+  test("off-channel approval on a channel with no deliverable callback (e.g. a plugin channel) still records verification_sent", async () => {
+    // `plugin` has no deliver URL (resolveDeliverCallbackUrlForChannel returns
     // null), so the requester cannot be auto-notified here. The guardian still
     // receives the code inline, so the lifecycle transition must be recorded —
     // the emit must not be gated on requester deliverability.
     const req = createAccessRequest({
-      sourceChannel: "email",
-      requesterChatId: "requester@example.com",
-      sourceConversationId: "conv-access-email",
+      sourceChannel: "plugin",
+      requesterChatId: "plugin-requester-1",
+      sourceConversationId: "conv-access-plugin",
     });
 
     const result = await applyGuardianDecision({
@@ -1335,7 +1335,7 @@ describe("(g) access_request resolver: requester code delivery", () => {
     const replyText = result.applied ? result.resolverReplyText : undefined;
     expect(replyText).toContain("123456");
     const requesterDelivery = deliveredReplies.find(
-      (r) => r.payload.chatId === "requester@example.com",
+      (r) => r.payload.chatId === "plugin-requester-1",
     );
     expect(requesterDelivery).toBeUndefined();
 

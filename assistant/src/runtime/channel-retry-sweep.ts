@@ -75,9 +75,8 @@ function parseTrustRuntimeContext(value: unknown): TrustContext | undefined {
   if (!rawSourceChannel || !isChannelId(rawSourceChannel)) {
     return undefined;
   }
-  const sourceChannel = rawSourceChannel;
   return {
-    sourceChannel,
+    sourceChannel: rawSourceChannel,
     trustClass,
     guardianChatId:
       typeof raw.guardianChatId === "string" ? raw.guardianChatId : undefined,

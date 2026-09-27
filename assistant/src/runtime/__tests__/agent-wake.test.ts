@@ -22,6 +22,12 @@ import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 
 import type { DiskPressureStatus } from "../../daemon/disk-pressure-guard.js";
 import { desktopAutomationLease } from "../../desktop/desktop-automation-lease.js";
+import { hasPendingAgentWake } from "../agent-wake-queue.js";
+
+let scheduleRunStatus: "running" | "ok" | "error" | undefined;
+mock.module("../../schedule/schedule-store.js", () => ({
+  getScheduleRunStatus: () => scheduleRunStatus,
+}));
 
 // ── Per-conversation capture registry ────────────────────────────────
 //
@@ -131,6 +137,27 @@ interface WakeConversationProbe {
 }
 
 const wakeConvRegistry = new Map<string, WakeConversationProbe>();
+const backgroundNotificationCalls: Array<{
+  conversationId: string;
+  assistantMessageId?: string;
+  userMessageId?: string;
+  recoverOnly?: boolean;
+  pendingWake: boolean;
+}> = [];
+mock.module("../../notifications/background-result-producer.js", () => ({
+  emitBackgroundResultNotification: async (params: {
+    conversationId: string;
+    assistantMessageId?: string;
+    userMessageId?: string;
+    recoverOnly?: boolean;
+  }) => {
+    backgroundNotificationCalls.push({
+      ...params,
+      pendingWake: hasPendingAgentWake(params.conversationId),
+    });
+    wakeConvRegistry.get(params.conversationId)?.callSequence.push("notify");
+  },
+}));
 
 // Stub the DB-backed override-profile read so unit tests don't need a
 // real SQLite database. The wake helper calls this on every invocation
@@ -144,8 +171,18 @@ const wakeConvRegistry = new Map<string, WakeConversationProbe>();
 let mockGetConversationOverrideProfile: (
   conversationId: string,
 ) => string | undefined = () => undefined;
+const wakeOutcomeStamps: Array<{
+  messageId: string;
+  metadata: Record<string, unknown>;
+}> = [];
 
 mock.module("../../persistence/conversation-crud.js", () => ({
+  updateMessageMetadata: (
+    messageId: string,
+    metadata: Record<string, unknown>,
+  ) => {
+    wakeOutcomeStamps.push({ messageId, metadata });
+  },
   getConversationOverrideProfile: (conversationId: string) =>
     mockGetConversationOverrideProfile(conversationId),
   getConversation: () => ({
@@ -625,6 +662,9 @@ function makeWakeConversation(options: {
 let wakeSightFrameCaptureTimes = new Map<string, number>();
 
 beforeEach(() => {
+  scheduleRunStatus = undefined;
+  wakeOutcomeStamps.length = 0;
+  backgroundNotificationCalls.length = 0;
   __resetWakeChainForTests();
   wakeSightFrameCaptureTimes = new Map();
   wakeConvRegistry.clear();
@@ -654,6 +694,109 @@ beforeEach(() => {
 // ── Tests ────────────────────────────────────────────────────────────
 
 describe("wakeAgentForOpportunity", () => {
+  test("tracks each scheduled owner while wakes hydrate and wait behind other wakes", async () => {
+    const firstGate = Promise.withResolvers<void>();
+    const secondGate = Promise.withResolvers<void>();
+    const lastGate = Promise.withResolvers<void>();
+    const conversationId = "conv-scheduled-wakes";
+    const start = (cronRunId: string | undefined, gate: Promise<void>) =>
+      wakeAgentForOpportunity(
+        {
+          conversationId,
+          cronRunId,
+          source: "background-tool",
+          hint: "Command finished",
+        },
+        {
+          resolveTarget: async () => {
+            await gate;
+            return null;
+          },
+        },
+      );
+    const first = start("run-first", firstGate.promise);
+    const second = start("run-second", secondGate.promise);
+    const repeated = start("run-first", lastGate.promise);
+    const userWake = start(undefined, Promise.resolve());
+    try {
+      expect(hasPendingAgentWake(conversationId, "run-first")).toBe(true);
+      expect(hasPendingAgentWake(conversationId, "run-second")).toBe(true);
+      expect(hasPendingAgentWake(conversationId, "run-other")).toBe(false);
+      firstGate.resolve();
+      await first;
+      expect(hasPendingAgentWake(conversationId, "run-first")).toBe(true);
+      secondGate.resolve();
+      await second;
+      expect(hasPendingAgentWake(conversationId, "run-second")).toBe(false);
+      expect(hasPendingAgentWake(conversationId, "run-first")).toBe(true);
+    } finally {
+      firstGate.resolve();
+      secondGate.resolve();
+      lastGate.resolve();
+      await Promise.all([first, second, repeated, userWake]);
+    }
+    expect(hasPendingAgentWake(conversationId)).toBe(false);
+    expect(hasPendingAgentWake(conversationId, "run-first")).toBe(false);
+  });
+
+  test("age-filters command wakes throughout hydration and single-flight queueing", async () => {
+    const conversationId = "conv-wake-age";
+    const oldGate = Promise.withResolvers<void>();
+    const freshGate = Promise.withResolvers<void>();
+    const start = (startedAt: number, gate: Promise<void>) =>
+      wakeAgentForOpportunity(
+        {
+          conversationId,
+          source: "background-tool",
+          hint: "Command completed",
+          backgroundToolCompletion: {
+            id: `tool-${startedAt}`,
+            conversationId,
+            toolName: "bash",
+            command: "example-command",
+            startedAt,
+            completedAt: 300,
+            status: "completed",
+            exitCode: 0,
+            output: "Done",
+          },
+        },
+        {
+          resolveTarget: async () => {
+            await gate;
+            return null;
+          },
+        },
+      );
+    const older = start(100, oldGate.promise);
+    try {
+      expect(
+        hasPendingAgentWake(conversationId, undefined, { startedAfter: 200 }),
+      ).toBe(false);
+      const fresh = start(200, freshGate.promise);
+      try {
+        expect(
+          hasPendingAgentWake(conversationId, undefined, { startedAfter: 200 }),
+        ).toBe(true);
+        oldGate.resolve();
+        await older;
+        expect(
+          hasPendingAgentWake(conversationId, undefined, { startedAfter: 200 }),
+        ).toBe(true);
+      } finally {
+        freshGate.resolve();
+        await fresh;
+      }
+    } finally {
+      oldGate.resolve();
+      await older;
+    }
+    expect(hasPendingAgentWake(conversationId)).toBe(false);
+    expect(
+      hasPendingAgentWake(conversationId, undefined, { startedAfter: 200 }),
+    ).toBe(false);
+  });
+
   test("disabled disk pressure flag allows background wakes to pass through", async () => {
     const conversation = makeWakeConversation({
       scriptedAssistant: null,
@@ -3793,5 +3936,170 @@ describe("wakeAgentForOpportunity", () => {
 
       expect(result).toEqual({ invoked: true, producedToolCalls: false });
     });
+  });
+});
+
+describe("background command completion notification wiring", () => {
+  for (const status of ["completed", "failed", "cancelled"] as const) {
+    test.each([
+      "no_tool_calls",
+      "error",
+      "aborted_pre_call",
+      "checkpoint_handoff",
+    ] as const)(
+      `%s wake settles a ${status} command after releasing the wake queue`,
+      async (reason) => {
+        const conversation = makeWakeConversation({
+          conversationId: "conv-command-result",
+          runImpl: async (input, onEvent) => {
+            await onEvent({ type: "agent_loop_exit", reason });
+            return runResult([
+              ...input,
+              {
+                role: "assistant",
+                content: [
+                  { type: "text", text: "The requested export is ready." },
+                ],
+              },
+            ]);
+          },
+        });
+        await wakeAgentForOpportunity(
+          {
+            conversationId: conversation.conversationId,
+            hint: "Background command completed",
+            source: "background-tool",
+            persistTriggerAsEvent: true,
+            backgroundToolCompletion: {
+              id: "tool-123",
+              toolName: "bash",
+              conversationId: conversation.conversationId,
+              command: "example-command",
+              startedAt: 1,
+              completedAt: 2,
+              status,
+              exitCode: 0,
+              output: "file exported",
+            },
+          },
+          { resolveTarget: async () => conversation },
+        );
+        expect(backgroundNotificationCalls).toHaveLength(1);
+        expect(backgroundNotificationCalls[0].pendingWake).toBe(false);
+        expect(backgroundNotificationCalls[0].recoverOnly).toBe(
+          reason !== "no_tool_calls",
+        );
+        expect(wakeOutcomeStamps).toHaveLength(
+          reason === "no_tool_calls" ? 0 : 1,
+        );
+        if (reason === "no_tool_calls") {
+          expect(backgroundNotificationCalls[0]).toMatchObject({
+            userMessageId: "msg-1",
+            assistantMessageId: "msg-2",
+          });
+          expect(conversation.callSequence.lastIndexOf("persist")).toBeLessThan(
+            conversation.callSequence.indexOf("notify"),
+          );
+        }
+      },
+    );
+  }
+});
+
+describe("scheduled wake cancellation", () => {
+  test("a wake loading its target cannot resume a failed run", async () => {
+    scheduleRunStatus = "running";
+    const loading = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const conversation = makeWakeConversation({});
+    const wake = wakeAgentForOpportunity(
+      {
+        conversationId: conversation.conversationId,
+        cronRunId: "run-123",
+        source: "background-tool",
+        hint: "Command finished",
+      },
+      {
+        resolveTarget: async () => {
+          loading.resolve();
+          await release.promise;
+          return conversation;
+        },
+      },
+    );
+    await loading.promise;
+    scheduleRunStatus = "error";
+    release.resolve();
+    expect(await wake).toMatchObject({ invoked: false, reason: "timeout" });
+    expect(conversation.runCalls).toHaveLength(0);
+    expect(conversation.processingToggles).toEqual([]);
+  });
+
+  test("cancellation reaches the active loop and prevents queued schedule wakes", async () => {
+    scheduleRunStatus = "running";
+    const running = Promise.withResolvers<AbortSignal>();
+    const conversation = makeWakeConversation({
+      runImpl: async (input, onEvent, options) => {
+        const signal = options!.signal!;
+        running.resolve(signal);
+        await new Promise<void>((resolve) =>
+          signal.addEventListener("abort", () => resolve(), { once: true }),
+        );
+        await onEvent({
+          type: "agent_loop_exit",
+          reason: "aborted_pre_call",
+        } as AgentEvent);
+        return runResult(input);
+      },
+    });
+    const options = {
+      conversationId: conversation.conversationId,
+      cronRunId: "run-123",
+      source: "background-tool",
+      hint: "Command finished",
+    };
+    const deps = { resolveTarget: async () => conversation };
+    const wake = wakeAgentForOpportunity(options, deps);
+    const signal = await running.promise;
+    expect(conversation.currentTurnCronRunId).toBe("run-123");
+    const queuedWake = wakeAgentForOpportunity(options, deps);
+    scheduleRunStatus = "error";
+    conversation.abortController!.abort();
+    await wake;
+    expect(signal.aborted).toBe(true);
+    expect(await queuedWake).toMatchObject({
+      invoked: false,
+      reason: "timeout",
+    });
+    expect(conversation.runCalls).toHaveLength(1);
+    expect(conversation.isProcessing()).toBe(false);
+    expect(conversation.abortController).toBeNull();
+    expect(conversation.currentTurnCronRunId).toBeUndefined();
+  });
+
+  test("a timeout during compaction never starts the scheduled loop", async () => {
+    scheduleRunStatus = "running";
+    const conversation = makeWakeConversation({});
+    conversation.maybeCompact = async () => {
+      expect(conversation.currentTurnCronRunId).toBe("run-123");
+      scheduleRunStatus = "error";
+      conversation.abortController!.abort();
+      return null;
+    };
+    expect(
+      await wakeAgentForOpportunity(
+        {
+          conversationId: conversation.conversationId,
+          cronRunId: "run-123",
+          source: "background-tool",
+          hint: "Command finished",
+        },
+        { resolveTarget: async () => conversation },
+      ),
+    ).toMatchObject({ invoked: false, reason: "timeout" });
+    expect(conversation.runCalls).toHaveLength(0);
+    expect(conversation.isProcessing()).toBe(false);
+    expect(conversation.abortController).toBeNull();
+    expect(conversation.currentTurnCronRunId).toBeUndefined();
   });
 });

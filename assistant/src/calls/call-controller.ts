@@ -1158,7 +1158,9 @@ export class CallController {
         speakFixedPhrase(bridge.spokenBridge, bridge.language);
         return;
       }
-      fullResponseText += `${bridge.spokenBridge} `;
+      if (!bridge.alreadyReleased) {
+        fullResponseText += `${bridge.spokenBridge} `;
+      }
       flushSafeText(fullResponseText, { force: true });
       // Force-synthesize the bridge now. On the synthesized-TTS path text is
       // held in pendingSynthText until a sentence boundary, so an

@@ -19,10 +19,8 @@
  * pretending to start one.
  */
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
-
-import { TOUCH_SURFACE_MEDIA_QUERY } from "@vellumai/design-library";
 
 import {
   ACTIVATION_PROGRESS_ALL_DONE,
@@ -34,6 +32,7 @@ import {
 import { useActivationUiStore } from "@/domains/activation/activation-ui-store";
 import type { ActivationProgress } from "@/domains/activation/hooks/use-activation-progress";
 import { ActivationWelcomeModal } from "@/domains/activation/components/activation-welcome-modal";
+import { withTouchSurface } from "@/lib/story-touch-surface";
 
 /**
  * The accordion lives in an app-level store, so a story would otherwise
@@ -58,64 +57,10 @@ const resetUiStore: Decorator = (Story) => (
   </FreshUiStore>
 );
 
-/** Swap `window.matchMedia`; `configurable` so the teardown can put it back. */
-function setMatchMedia(impl: typeof window.matchMedia): void {
-  Object.defineProperty(window, "matchMedia", {
-    value: impl,
-    configurable: true,
-    writable: true,
-  });
-}
-
-/**
- * Forces the sheet branch of `useTouchSurface` for the duration of the story.
- *
- * The `sbMobile` viewport narrows the preview iframe and nothing else, and the
- * touch-surface signal is a narrow viewport AND a coarse pointer, so a desktop
- * browser running a phone-width story still gets the modal. Overriding the
- * query is the only seam the library offers: it reads `window.matchMedia`
- * directly rather than through a provider.
- */
-function ForceTouchSurface({ children }: { children: ReactNode }): ReactNode {
-  // Installed from a `useState` initializer, which runs exactly once and during
-  // this component's render, i.e. before any child samples the query. An
-  // identity check against the saved original would not work here: `bind`
-  // returns a new function object, so it never compares equal to the global.
-  const [original] = useState(() => {
-    const saved = window.matchMedia.bind(window);
-    setMatchMedia(((query: string) => {
-      const result = saved(query);
-      if (query !== TOUCH_SURFACE_MEDIA_QUERY) {
-        return result;
-      }
-      return {
-        ...result,
-        media: query,
-        matches: true,
-        onchange: null,
-        addEventListener: () => {},
-        removeEventListener: () => {},
-        addListener: () => {},
-        removeListener: () => {},
-        dispatchEvent: () => false,
-      } as MediaQueryList;
-    }) as typeof window.matchMedia);
-    return saved;
-  });
-  useEffect(() => () => setMatchMedia(original), [original]);
-  return <>{children}</>;
-}
-
 /** Phone: the `sbMobile` viewport plus the touch-surface signal behind it. */
 const phone = {
   globals: { viewport: { value: "sbMobile", isRotated: false } },
-  decorators: [
-    (Story: () => ReactNode) => (
-      <ForceTouchSurface>
-        <Story />
-      </ForceTouchSurface>
-    ),
-  ],
+  decorators: [withTouchSurface],
 } satisfies Partial<StoryObj<typeof ActivationWelcomeModal>>;
 
 /**

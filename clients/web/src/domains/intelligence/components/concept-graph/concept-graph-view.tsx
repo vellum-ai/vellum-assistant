@@ -1413,18 +1413,6 @@ export function ConceptGraphView({
       <>
         <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" />
 
-        {/* Recency time-lens, top-left of the canvas (the search box lives in
-            the header above). Kept visible while a non-"all" window is active
-            even if the graph shrank below the threshold (e.g. a refetch), so
-            an active window is always resettable — mirrors the search box's
-            own guard. */}
-        {(layout.nodes.length > SEARCH_MIN_NODES || recency !== "all") &&
-        hasRecencyData ? (
-          <div data-graph-control className="absolute left-4 top-4 z-10">
-            <RecencyLens value={recency} onChange={setRecency} />
-          </div>
-        ) : null}
-
         <ConceptGraphLegend
           nodeKinds={presentKinds.filter((k) => k !== "concept")}
           coloredByTheme={presentKinds.includes("concept")}
@@ -1723,11 +1711,24 @@ export function ConceptGraphView({
         onPointerCancel={ready ? onPointerUp : undefined}
         onPointerLeave={ready ? onPointerLeave : undefined}
       >
-        {showIntro ? (
-          <ConceptGraphIntroBanner onDismiss={dismissIntro} />
-        ) : null}
-
         {body}
+
+        {/* The filter and intro share a column, with room for the zoom controls
+            on the right. Only the controls intercept canvas gestures. */}
+        <div className="pointer-events-none absolute left-4 right-16 top-4 z-10 flex flex-col items-start gap-3">
+          {/* Keep an active window resettable even when the graph shrinks. */}
+          {ready &&
+          (layout.nodes.length > SEARCH_MIN_NODES || recency !== "all") &&
+          hasRecencyData ? (
+            <div data-graph-control className="pointer-events-auto">
+              <RecencyLens value={recency} onChange={setRecency} />
+            </div>
+          ) : null}
+
+          {showIntro ? (
+            <ConceptGraphIntroBanner onDismiss={dismissIntro} />
+          ) : null}
+        </div>
 
         {ready && openNode ? (
           <ConceptDetailPanel

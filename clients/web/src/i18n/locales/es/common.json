@@ -154,12 +154,6 @@
         }
       },
       "close": "Cerrar",
-      "confirm": {
-        "body": "Solo lleva un minuto. Me hace ilusión enseñarte lo que puedo hacer desde tu escritorio.",
-        "keep": "Hacer el recorrido",
-        "skip": "Omitir por ahora",
-        "title": "¿Omitir el recorrido?"
-      },
       "previewLabel": "Tu compañero de escritorio",
       "previewAssistantName": "Quill",
       "start": "Vamos",
@@ -212,6 +206,8 @@
     },
     "permission": {
       "microphoneAction": "Activar micrófono",
+      "microphoneSettingsHint": "Activa el interruptor del micrófono de Vellum en Ajustes del Sistema y vuelve aquí.",
+      "microphonePromptHint": "macOS te pedirá permiso para acceder al micrófono.",
       "microphoneBody": "Permíteme usar tu micrófono para conversar por voz.",
       "shortcutBody": "Permíteme detectar el atajo mientras usas otras apps.",
       "screenAction": "Activar pantalla compartida",
@@ -1008,5 +1004,13 @@
     "close": "Cerrar",
     "closePanel": "Cerrar panel",
     "loading": "Cargando…"
+  },
+  "permissionGuide": {
+    "back": "Volver al recorrido",
+    "dragInstruction": "Arrastra {app} a la lista para permitir {permission}.",
+    "dragApp": "Arrastra {app} a Ajustes del Sistema o pulsa para mostrar en Finder",
+    "dragError": "No se puede arrastrar. Inténtalo desde Finder.",
+    "showInFinder": "Mostrar en Finder",
+    "inputLabel": "Monitorización de entrada"
   }
 }

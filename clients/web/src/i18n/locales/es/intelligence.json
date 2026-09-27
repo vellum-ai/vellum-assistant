@@ -88,6 +88,7 @@
     "cardHoverLine": {
       "channels": "Todos los lugares donde puedes contactarme",
       "contacts": "Las personas que conozco y en quienes confío",
+      "email": "Todo lo que llega a mi bandeja",
       "library": "Las apps y documentos que he creado para ti",
       "memory": "Todo lo que recuerdo",
       "personality": "Adelante, ajusta mi alma",
@@ -109,7 +110,11 @@
     },
     "setUpSchedule": "Crear una",
     "updateAvatarAndName": "Actualizar avatar y nombre",
-    "viewMoreSchedules": "{count, plural, one {Ver # más…} other {Ver # más…}}"
+    "viewMoreSchedules": "{count, plural, one {Ver # más…} other {Ver # más…}}",
+    "lockedBadge": "Requiere el plan Super",
+    "pinEmail": "Fijar Correo al menú lateral",
+    "unpinEmail": "Quitar Correo del menú lateral",
+    "dismissEmail": "Cerrar"
   },
   "identitySections": {
     "channels": {
@@ -120,13 +125,13 @@
       "description": "Personas que conozco",
       "label": "Contactos"
     },
+    "email": {
+      "description": "Lo que envío y recibo",
+      "label": "Correo"
+    },
     "library": {
       "description": "Mis apps y documentos",
       "label": "Biblioteca"
-    },
-    "memory": {
-      "description": "Lo que recuerdo",
-      "label": "Memoria"
     },
     "personality": {
       "description": "Ajusta cómo hablo",

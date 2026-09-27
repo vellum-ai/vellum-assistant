@@ -16,16 +16,18 @@ export interface IdentitySection {
   /** One playful line under the label — written in the assistant's voice. */
   description: string;
   to: string;
+  /** The section is on a plan the org is not on; the card says so with a lock. */
+  locked?: boolean;
 }
 
 type IdentitySectionKey =
   | "personality"
   | "schedules"
   | "superpowers"
-  | "memory"
   | "library"
   | "workspace"
   | "contacts"
+  | "email"
   | "channels";
 
 /** Greppable label/description keys, one entry per overview section. */
@@ -48,10 +50,6 @@ const SECTION_COPY_KEY: Record<
     label: "identitySections.superpowers.label",
     description: "identitySections.superpowers.description",
   },
-  memory: {
-    label: "identitySections.memory.label",
-    description: "identitySections.memory.description",
-  },
   library: {
     label: "identitySections.library.label",
     description: "identitySections.library.description",
@@ -64,6 +62,10 @@ const SECTION_COPY_KEY: Record<
     label: "identitySections.contacts.label",
     description: "identitySections.contacts.description",
   },
+  email: {
+    label: "identitySections.email.label",
+    description: "identitySections.email.description",
+  },
   channels: {
     label: "identitySections.channels.label",
     description: "identitySections.channels.description",
@@ -71,7 +73,7 @@ const SECTION_COPY_KEY: Record<
 };
 
 /** Registry section's path + the overview's own translated label/description. */
-function section(key: Exclude<IdentitySectionKey, "personality">) {
+function section(key: Exclude<IdentitySectionKey, "personality" | "email">) {
   const { to } = aboutAssistantSection(key);
   const copyKey = SECTION_COPY_KEY[key];
   return {
@@ -82,33 +84,40 @@ function section(key: Exclude<IdentitySectionKey, "personality">) {
   } satisfies IdentitySection;
 }
 
-/**
- * Sections the native mobile shells leave off the overview. The test is
- * whether the task belongs on a phone, not how finished the surface looks:
- * curating memories and browsing host files are desk work, so on iOS and
- * Android those two are noise.
- *
- * Contacts and Channels are deliberately absent from this list. Who the
- * assistant knows and where it listens are exactly what someone needs to
- * check and change while away from their desk, so they earn a card even
- * though their mobile UI is still rough. An unpolished way in beats no way
- * in. Do not re-add them for looking unfinished; that is a reason to polish
- * them, not to hide them.
- *
- * Only the overview cards go: the routes stay registered and reachable by
- * deep link, so moving a section either way is a single edit to this list.
- */
-const NATIVE_MOBILE_HIDDEN_KEYS: readonly string[] = ["memory", "workspace"];
-
 export interface BuildIdentitySectionsOptions {
-  /** True inside the iOS or Android Capacitor shell. */
-  isNativeMobile?: boolean;
+  /**
+   * Draw the Email card, after Channels. Absent where there is no inbox
+   * to open (the flag is off, or the assistant is not platform-hosted):
+   * the one section that depends on the platform, since the mail lives
+   * there. `locked` marks a plan without managed email.
+   */
+  email?: { locked: boolean };
 }
 
+/**
+ * Every section shows on every platform, the phone included. The overview
+ * card is the way into a section, so a rough mobile surface is a reason to
+ * polish it, not to hide it: an unpolished way in beats no way in. Email
+ * is the exception, and only because the inbox itself does not exist off
+ * the platform.
+ */
 export function buildIdentitySections({
-  isNativeMobile = false,
+  email,
 }: BuildIdentitySectionsOptions = {}): IdentitySection[] {
-  const sections: IdentitySection[] = [
+  const emailSection: IdentitySection[] = email
+    ? [
+        {
+          key: "email",
+          label: t(SECTION_COPY_KEY.email.label, { ns: "intelligence" }),
+          description: t(SECTION_COPY_KEY.email.description, {
+            ns: "intelligence",
+          }),
+          to: routes.assistantInbox,
+          locked: email.locked,
+        },
+      ]
+    : [];
+  return [
     // Personality renders bare (full-bleed stage chrome), so it is not a
     // registry section. The overview links it directly.
     {
@@ -123,24 +132,12 @@ export function buildIdentitySections({
     // Skills and plugins combined into one list; on assistants without the
     // plugin surface the page itself degrades to skills-only.
     section("superpowers"),
-    // Never gated on backend capability. Memory is part of what every
-    // assistant is, so wherever the card shows it is always the way in: an
-    // assistant whose backend can't draw the concept graph (memory off, or a
-    // pre-v3 engine) gets a Memory tab that explains that and offers the fix,
-    // rather than a card that silently disappears. The native mobile filter
-    // below is the only thing that removes it.
-    section("memory"),
     // Library's list page wears the shared section chrome like its peers;
     // the app viewer (/assistant/library/:appId) renders full-bleed.
     section("library"),
     section("workspace"),
     section("contacts"),
     section("channels"),
+    ...emailSection,
   ];
-  if (!isNativeMobile) {
-    return sections;
-  }
-  return sections.filter(
-    (entry) => !NATIVE_MOBILE_HIDDEN_KEYS.includes(entry.key),
-  );
 }

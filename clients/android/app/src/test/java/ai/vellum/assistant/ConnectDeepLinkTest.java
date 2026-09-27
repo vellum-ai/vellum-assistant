@@ -18,6 +18,7 @@ public class ConnectDeepLinkTest {
         );
 
         assertEquals("https://example.com/assistant-123", connect.server().toASCIIString());
+        assertEquals("https://example.com", connect.displayOrigin());
         assertEquals(
             "https://example.com/assistant-123/assistant/pair#device_code=device-code",
             connect.pairPage().toASCIIString()
@@ -50,6 +51,16 @@ public class ConnectDeepLinkTest {
             "https://example.com/assistant/pair#device_code=code%20with%2Fsymbols",
             connect.pairPage().toASCIIString()
         );
+    }
+
+    @Test
+    public void displayOriginIncludesNonDefaultPort() {
+        ConnectDeepLink connect = ConnectDeepLink.parse(
+            SCHEME + "://connect?url=https%3A%2F%2Fexample.com%3A8443&code=device-code",
+            SCHEME
+        );
+
+        assertEquals("https://example.com:8443", connect.displayOrigin());
     }
 
     @Test

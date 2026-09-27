@@ -7,8 +7,16 @@
  */
 import { randomUUID } from "node:crypto";
 
+import { getSqlite } from "../persistence/db-connection.js";
 import { rawAll, rawGet, rawRun } from "../persistence/raw-query.js";
 import { getLogger } from "../util/logger.js";
+import {
+  type DocumentRevisionAuthor,
+  type DocumentSnapshotSource,
+  getDocumentRevision,
+  recordDocumentSnapshot,
+  shouldSnapshotBeforeUserSave,
+} from "./document-revisions-store.js";
 
 const log = getLogger("document-store");
 
@@ -25,6 +33,8 @@ export interface DocumentRecord {
   wordCount: number;
   createdAt: number;
   updatedAt: number;
+  /** Bumped by one on every write. */
+  revision: number;
 }
 
 /**
@@ -68,24 +78,32 @@ interface DocumentRow {
   word_count: number;
   created_at: number;
   updated_at: number;
+  revision: number;
 }
 
 type DocumentListRow = Omit<DocumentRow, "content">;
+
+/** How many times a read-modify-write retries after losing a revision race. */
+const MAX_WRITE_ATTEMPTS = 5;
 
 function escapeSqlLikePattern(value: string): string {
   return value.replace(/[\\%_]/g, "\\$&");
 }
 
-function mapRowToRecord(row: DocumentRow): DocumentRecord {
+function mapRowToSummary(row: DocumentListRow): DocumentSummary {
   return {
     surfaceId: row.surface_id,
     conversationId: row.conversation_id,
     title: row.title,
-    content: row.content,
     wordCount: row.word_count,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    revision: row.revision,
   };
+}
+
+function mapRowToRecord(row: DocumentRow): DocumentRecord {
+  return { ...mapRowToSummary(row), content: row.content };
 }
 
 /** Look up a single document by surface ID. Returns `null` when not found. */
@@ -93,7 +111,7 @@ export function getDocumentById(surfaceId: string): DocumentRecord | null {
   try {
     const row = rawGet<DocumentRow>(
       "documents:getDocumentById",
-      /*sql*/ `SELECT surface_id, conversation_id, title, content, word_count, created_at, updated_at
+      /*sql*/ `SELECT surface_id, conversation_id, title, content, word_count, created_at, updated_at, revision
        FROM documents
        WHERE surface_id = ?`,
       surfaceId,
@@ -151,7 +169,7 @@ export function getDocumentsForConversation(
       "documents:getDocumentsForConversation",
       /*sql*/ `
       SELECT d.surface_id, dc.conversation_id AS conversation_id,
-             d.title, d.word_count, d.created_at, d.updated_at
+             d.title, d.word_count, d.created_at, d.updated_at, d.revision
       FROM documents d
       INNER JOIN document_conversations dc ON d.surface_id = dc.surface_id
       WHERE dc.conversation_id = ?
@@ -164,16 +182,32 @@ export function getDocumentsForConversation(
       { conversationId, count: rows.length },
       "Listed documents for conversation",
     );
-    return rows.map((row) => ({
-      surfaceId: row.surface_id,
-      conversationId: row.conversation_id,
-      title: row.title,
-      wordCount: row.word_count,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    }));
+    return rows.map(mapRowToSummary);
   } catch (error) {
     log.error({ err: error, conversationId }, "List error");
+    return [];
+  }
+}
+
+/**
+ * List every document, most recently updated first.
+ * Returns an empty array on error.
+ */
+export function listAllDocuments(): DocumentSummary[] {
+  try {
+    const rows = rawAll<DocumentListRow>(
+      "documents:listAllDocuments",
+      /*sql*/ `
+      SELECT surface_id, conversation_id, title, word_count, created_at, updated_at, revision
+      FROM documents
+      ORDER BY updated_at DESC
+      `,
+    );
+
+    log.info({ count: rows.length }, "Listed documents");
+    return rows.map(mapRowToSummary);
+  } catch (error) {
+    log.error({ err: error }, "List error");
     return [];
   }
 }
@@ -195,7 +229,7 @@ export function searchDocumentsByTitle(
           "documents:searchByTitle:scoped",
           /*sql*/ `
           SELECT d.surface_id, dc.conversation_id AS conversation_id,
-                 d.title, d.word_count, d.created_at, d.updated_at
+                 d.title, d.word_count, d.created_at, d.updated_at, d.revision
           FROM documents d
           INNER JOIN document_conversations dc ON d.surface_id = dc.surface_id
           WHERE dc.conversation_id = ?
@@ -209,7 +243,7 @@ export function searchDocumentsByTitle(
       : rawAll<DocumentListRow>(
           "documents:searchByTitle:all",
           /*sql*/ `
-          SELECT surface_id, conversation_id, title, word_count, created_at, updated_at
+          SELECT surface_id, conversation_id, title, word_count, created_at, updated_at, revision
           FROM documents
           WHERE title COLLATE NOCASE LIKE ? ESCAPE '\\'
           ORDER BY updated_at DESC
@@ -222,14 +256,7 @@ export function searchDocumentsByTitle(
       { query, conversationId: options.conversationId, count: rows.length },
       "Searched documents by title",
     );
-    return rows.map((row) => ({
-      surfaceId: row.surface_id,
-      conversationId: row.conversation_id,
-      title: row.title,
-      wordCount: row.word_count,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    }));
+    return rows.map(mapRowToSummary);
   } catch (error) {
     log.error({ err: error, query }, "Search error");
     return [];
@@ -404,24 +431,93 @@ export function findInDocument(
 // Document persistence
 // ---------------------------------------------------------------------------
 
-export function saveDocument(params: {
+/** The document state a conditional save lost to. */
+export interface DocumentRevisionConflict {
+  revision: number;
+  title: string;
+  content: string;
+}
+
+export type SaveDocumentResult =
+  | { success: true; surfaceId: string; revision: number }
+  | { success: false; error: string; conflict?: DocumentRevisionConflict };
+
+function readDocumentState(surfaceId: string): DocumentSnapshotSource | null {
+  const row = rawGet<{
+    revision: number;
+    title: string;
+    content: string;
+    word_count: number;
+  }>(
+    "documents:readDocumentState",
+    /*sql*/ `SELECT revision, title, content, word_count FROM documents WHERE surface_id = ?`,
+    surfaceId,
+  );
+  return row
+    ? {
+        surfaceId,
+        revision: row.revision,
+        title: row.title,
+        content: row.content,
+        wordCount: row.word_count,
+      }
+    : null;
+}
+
+/**
+ * Snapshot the state a user save is about to replace, when the save will land
+ * and changes something and {@link shouldSnapshotBeforeUserSave} allows it.
+ * Runs inside the save's transaction.
+ */
+function snapshotBeforeUserSave(params: {
+  surfaceId: string;
+  title: string;
+  content: string;
+  baseRevision?: number;
+}): void {
+  const current = readDocumentState(params.surfaceId);
+  if (
+    !current ||
+    (params.baseRevision !== undefined &&
+      current.revision !== params.baseRevision) ||
+    (current.title === params.title && current.content === params.content)
+  ) {
+    return;
+  }
+  if (shouldSnapshotBeforeUserSave(params.surfaceId)) {
+    recordDocumentSnapshot(current, "user");
+  }
+}
+
+/**
+ * Write a document's title and body, creating the row when it does not exist.
+ *
+ * Without `baseRevision` the write is unconditional. With it, an existing row
+ * is only overwritten when its revision still equals `baseRevision`; otherwise
+ * nothing is written and the result carries the row's current state. A row
+ * that does not exist yet is created either way.
+ */
+function writeDocument(params: {
   surfaceId: string;
   conversationId: string;
   title: string;
   content: string;
   wordCount: number;
-}): { success: true; surfaceId: string } | { success: false; error: string } {
-  try {
-    const now = Date.now();
-    rawRun(
+  baseRevision?: number;
+}): { revision: number } | { conflict: DocumentRevisionConflict } {
+  const now = Date.now();
+  if (params.baseRevision === undefined) {
+    const row = rawGet<{ revision: number }>(
       "documents:saveDocument",
-      `INSERT INTO documents (surface_id, conversation_id, title, content, word_count, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
+      /*sql*/ `INSERT INTO documents (surface_id, conversation_id, title, content, word_count, created_at, updated_at, revision)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 1)
        ON CONFLICT(surface_id) DO UPDATE SET
          title = excluded.title,
          content = excluded.content,
          word_count = excluded.word_count,
-         updated_at = excluded.updated_at`,
+         updated_at = excluded.updated_at,
+         revision = documents.revision + 1
+       RETURNING revision`,
       params.surfaceId,
       params.conversationId,
       params.title,
@@ -430,14 +526,102 @@ export function saveDocument(params: {
       now,
       now,
     );
+    return { revision: row!.revision };
+  }
+
+  const updated = rawGet<{ revision: number }>(
+    "documents:saveDocument:conditional",
+    /*sql*/ `UPDATE documents
+     SET title = ?, content = ?, word_count = ?, updated_at = ?, revision = revision + 1
+     WHERE surface_id = ? AND revision = ?
+     RETURNING revision`,
+    params.title,
+    params.content,
+    params.wordCount,
+    now,
+    params.surfaceId,
+    params.baseRevision,
+  );
+  if (updated) {
+    return updated;
+  }
+  const inserted = rawGet<{ revision: number }>(
+    "documents:saveDocument:insertIfMissing",
+    /*sql*/ `INSERT INTO documents (surface_id, conversation_id, title, content, word_count, created_at, updated_at, revision)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+     ON CONFLICT(surface_id) DO NOTHING
+     RETURNING revision`,
+    params.surfaceId,
+    params.conversationId,
+    params.title,
+    params.content,
+    params.wordCount,
+    now,
+    now,
+  );
+  if (inserted) {
+    return inserted;
+  }
+  const current = readDocumentState(params.surfaceId);
+  if (!current) {
+    throw new Error("Document disappeared during a conditional save");
+  }
+  return {
+    conflict: {
+      revision: current.revision,
+      title: current.title,
+      content: current.content,
+    },
+  };
+}
+
+/**
+ * Create a document, or overwrite one as a user save from the editor. An
+ * overwrite may first snapshot the replaced state into the document's history
+ * (see {@link snapshotBeforeUserSave}).
+ */
+export function saveDocument(params: {
+  surfaceId: string;
+  conversationId: string;
+  title: string;
+  content: string;
+  wordCount: number;
+  baseRevision?: number;
+}): SaveDocumentResult {
+  try {
+    const written = getSqlite()
+      .transaction(() => {
+        snapshotBeforeUserSave(params);
+        return writeDocument(params);
+      })
+      .immediate();
+    if ("conflict" in written) {
+      log.info(
+        {
+          surfaceId: params.surfaceId,
+          baseRevision: params.baseRevision,
+          currentRevision: written.conflict.revision,
+        },
+        "Rejected document save against a stale revision",
+      );
+      return {
+        success: false,
+        error: "Document changed since the base revision",
+        conflict: written.conflict,
+      };
+    }
     log.info(
-      { surfaceId: params.surfaceId, title: params.title },
+      {
+        surfaceId: params.surfaceId,
+        title: params.title,
+        revision: written.revision,
+      },
       "Saved document",
     );
 
     // Best-effort: associate the document with the conversation.
     // Failures (e.g. migration not yet applied, table missing) must not
-    // cause the save response to report failure — the document itself is
+    // cause the save response to report failure: the document itself is
     // already persisted at this point.
     try {
       addDocumentConversation(params.surfaceId, params.conversationId);
@@ -448,7 +632,11 @@ export function saveDocument(params: {
       );
     }
 
-    return { success: true, surfaceId: params.surfaceId };
+    return {
+      success: true,
+      surfaceId: params.surfaceId,
+      revision: written.revision,
+    };
   } catch (error) {
     log.error({ err: error, surfaceId: params.surfaceId }, "Save error");
     return {
@@ -456,6 +644,143 @@ export function saveDocument(params: {
       error: error instanceof Error ? error.message : "Unknown error",
     };
   }
+}
+
+/** What a {@link mutateDocumentContent} callback decides for one attempt. */
+export type ContentMutation<T> =
+  | { content: string; value: T }
+  | { value: T; content?: undefined };
+
+/** Thrown inside a write transaction to roll it back after losing a race. */
+class LostRevisionRace extends Error {}
+
+/**
+ * Read-modify-write a document's body without losing a concurrent write.
+ *
+ * `mutate` receives the current body and returns the new one, or no `content`
+ * to leave the row untouched; a body equal to the current one is not written
+ * either. The state being replaced is snapshotted into the document's history
+ * as `author`'s edit, in the same transaction as the write. The write is a
+ * compare-and-swap on `revision`: when another write lands between the read
+ * and the write, the transaction rolls back and `mutate` runs again against
+ * the fresh body, up to {@link MAX_WRITE_ATTEMPTS} times.
+ *
+ * Returns `null` when the document does not exist, otherwise the callback's
+ * value, the body now stored, and the revision after the call.
+ */
+export function mutateDocumentContent<T>(
+  surfaceId: string,
+  author: DocumentRevisionAuthor,
+  mutate: (current: {
+    content: string;
+    revision: number;
+  }) => ContentMutation<T>,
+): { value: T; content: string; revision: number } | null {
+  for (let attempt = 0; attempt < MAX_WRITE_ATTEMPTS; attempt++) {
+    const current = readDocumentState(surfaceId);
+    if (!current) {
+      return null;
+    }
+    const mutation = mutate(current);
+    if (
+      mutation.content === undefined ||
+      mutation.content === current.content
+    ) {
+      return {
+        value: mutation.value,
+        content: current.content,
+        revision: current.revision,
+      };
+    }
+    const newContent = mutation.content;
+    try {
+      const written = getSqlite()
+        .transaction(() => {
+          recordDocumentSnapshot(current, author);
+          const row = rawGet<{ revision: number }>(
+            "documents:mutateDocumentContent:update",
+            /*sql*/ `UPDATE documents
+             SET content = ?, word_count = ?, updated_at = ?, revision = revision + 1
+             WHERE surface_id = ? AND revision = ?
+             RETURNING revision`,
+            newContent,
+            countWords(newContent),
+            Date.now(),
+            surfaceId,
+            current.revision,
+          );
+          if (!row) {
+            throw new LostRevisionRace();
+          }
+          return row;
+        })
+        .immediate();
+      return {
+        value: mutation.value,
+        content: newContent,
+        revision: written.revision,
+      };
+    } catch (error) {
+      if (!(error instanceof LostRevisionRace)) {
+        throw error;
+      }
+    }
+    log.info(
+      { surfaceId, attempt, baseRevision: current.revision },
+      "Document changed during a read-modify-write; retrying",
+    );
+  }
+  throw new Error("Document kept changing during the write; try again");
+}
+
+/** Outcome of {@link restoreDocumentRevision}. */
+export type RestoreDocumentRevisionResult =
+  | { success: true; revision: number; title: string; content: string }
+  | { success: false; notFound: "document" | "revision" };
+
+/**
+ * Put a snapshot's title and body back as a new revision of the document.
+ * The current state is snapshotted first, so the restore is itself undoable.
+ */
+export function restoreDocumentRevision(
+  surfaceId: string,
+  revision: number,
+): RestoreDocumentRevisionResult {
+  return getSqlite()
+    .transaction((): RestoreDocumentRevisionResult => {
+      const current = readDocumentState(surfaceId);
+      if (!current) {
+        return { success: false, notFound: "document" };
+      }
+      const target = getDocumentRevision(surfaceId, revision);
+      if (!target) {
+        return { success: false, notFound: "revision" };
+      }
+      recordDocumentSnapshot(current, "user");
+      const row = rawGet<{ revision: number }>(
+        "documents:restoreDocumentRevision",
+        /*sql*/ `UPDATE documents
+         SET title = ?, content = ?, word_count = ?, updated_at = ?, revision = revision + 1
+         WHERE surface_id = ?
+         RETURNING revision`,
+        target.title,
+        target.content,
+        target.wordCount,
+        Date.now(),
+        surfaceId,
+      );
+      log.info(
+        { surfaceId, restoredRevision: revision, revision: row!.revision },
+        "Restored document revision",
+      );
+      return {
+        success: true,
+        revision: row!.revision,
+        title: target.title,
+        content: target.content,
+      };
+    })
+    .immediate();
 }
 
 export const DEFAULT_DOCUMENT_TITLE = "Untitled Document";
@@ -468,7 +793,7 @@ export function createDocument(params: {
   conversationId: string;
   title?: string;
   content?: string;
-}): ReturnType<typeof saveDocument> {
+}): SaveDocumentResult {
   const content = params.content ?? "";
   return saveDocument({
     surfaceId: `doc-${randomUUID()}`,
@@ -490,11 +815,79 @@ export interface ReplaceInDocumentOptions {
 }
 
 export type ReplaceInDocumentResult =
-  | { success: true; replacements_made: number; content_changed: boolean }
+  | {
+      success: true;
+      replacements_made: number;
+      content_changed: boolean;
+      /** The body now stored. */
+      content: string;
+      /** The revision after the call. */
+      revision: number;
+    }
   | { success: false; error: string };
 
 /**
- * Find and replace text within a document — like sed.
+ * Apply a find-and-replace to `content`. Returns the unchanged input and a
+ * zero count when nothing matches or `maxReplacements` is not positive.
+ */
+function replaceText(
+  content: string,
+  find: string,
+  replace: string,
+  options: ReplaceInDocumentOptions,
+): { content: string; replacementsMade: number } {
+  const flags = "g" + (options.caseSensitive === true ? "" : "i");
+  const pattern = options.regex
+    ? new RegExp(find, flags)
+    : new RegExp(RegExp.escape(find), flags);
+
+  const totalMatches = [...content.matchAll(pattern)].length;
+  if (
+    totalMatches === 0 ||
+    (options.maxReplacements != null && options.maxReplacements <= 0)
+  ) {
+    return { content, replacementsMade: 0 };
+  }
+
+  if (
+    options.maxReplacements == null ||
+    options.maxReplacements >= totalMatches
+  ) {
+    return {
+      content: content.replace(pattern, replace),
+      replacementsMade: totalMatches,
+    };
+  }
+
+  // Iterative replacement up to maxReplacements using manual exec loop
+  // so backreferences in the replacement string work correctly.
+  const limit = options.maxReplacements;
+  let count = 0;
+  let result = "";
+  let lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = pattern.exec(content)) !== null) {
+    if (count >= limit) {
+      break;
+    }
+    result += content.slice(lastIndex, m.index);
+    const singleMatchPattern = new RegExp(
+      pattern.source,
+      pattern.flags.replace("g", ""),
+    );
+    result += m[0].replace(singleMatchPattern, replace);
+    lastIndex = m.index + m[0].length;
+    count++;
+    if (m[0].length === 0) {
+      pattern.lastIndex++;
+    }
+  }
+  result += content.slice(lastIndex);
+  return { content: result, replacementsMade: count };
+}
+
+/**
+ * Find and replace text within a document, like sed, as an assistant edit.
  * Supports literal text and regex patterns with optional backreferences.
  */
 export function replaceInDocument(
@@ -504,80 +897,27 @@ export function replaceInDocument(
   options: ReplaceInDocumentOptions = {},
 ): ReplaceInDocumentResult {
   try {
-    const row = rawGet<{ content: string }>(
-      "documents:replaceInDocument:getContent",
-      /*sql*/ `SELECT content FROM documents WHERE surface_id = ?`,
-      surfaceId,
-    );
-    if (!row) {
+    const outcome = mutateDocumentContent(surfaceId, "assistant", (current) => {
+      const replaced = replaceText(current.content, find, replace, options);
+      return replaced.replacementsMade === 0
+        ? { value: 0 }
+        : { content: replaced.content, value: replaced.replacementsMade };
+    });
+    if (!outcome) {
       return { success: false, error: "Document not found" };
     }
-
-    const flags = "g" + (options.caseSensitive === true ? "" : "i");
-    const pattern = options.regex
-      ? new RegExp(find, flags)
-      : new RegExp(RegExp.escape(find), flags);
-
-    const totalMatches = [...row.content.matchAll(pattern)].length;
-    if (
-      totalMatches === 0 ||
-      (options.maxReplacements != null && options.maxReplacements <= 0)
-    ) {
-      return { success: true, replacements_made: 0, content_changed: false };
+    if (outcome.value > 0) {
+      log.info(
+        { surfaceId, replacementsMade: outcome.value },
+        "Replaced text in document",
+      );
     }
-
-    let newContent: string;
-    let replacementsMade: number;
-
-    if (
-      options.maxReplacements != null &&
-      options.maxReplacements < totalMatches
-    ) {
-      // Iterative replacement up to maxReplacements using manual exec loop
-      // so backreferences in the replacement string work correctly.
-      const limit = options.maxReplacements;
-      let count = 0;
-      let result = "";
-      let lastIndex = 0;
-      let m: RegExpExecArray | null;
-      while ((m = pattern.exec(row.content)) !== null) {
-        if (count >= limit) {
-          break;
-        }
-        result += row.content.slice(lastIndex, m.index);
-        const singleMatchPattern = new RegExp(
-          pattern.source,
-          pattern.flags.replace("g", ""),
-        );
-        result += m[0].replace(singleMatchPattern, replace);
-        lastIndex = m.index + m[0].length;
-        count++;
-        if (m[0].length === 0) {
-          pattern.lastIndex++;
-        }
-      }
-      result += row.content.slice(lastIndex);
-      newContent = result;
-      replacementsMade = count;
-    } else {
-      newContent = row.content.replace(pattern, replace);
-      replacementsMade = totalMatches;
-    }
-
-    const wordCount = countWords(newContent);
-    rawRun(
-      "documents:replaceInDocument:update",
-      /*sql*/ `UPDATE documents SET content = ?, word_count = ?, updated_at = ? WHERE surface_id = ?`,
-      newContent,
-      wordCount,
-      Date.now(),
-      surfaceId,
-    );
-    log.info({ surfaceId, replacementsMade }, "Replaced text in document");
     return {
       success: true,
-      replacements_made: replacementsMade,
-      content_changed: true,
+      replacements_made: outcome.value,
+      content_changed: outcome.value > 0,
+      content: outcome.content,
+      revision: outcome.revision,
     };
   } catch (error) {
     log.error({ err: error, surfaceId }, "Replace-in-document error");
@@ -699,57 +1039,55 @@ export interface DocumentContentUpdated {
   appliedMarkdown: string;
   /** True when a duplicated leading run was dropped from an append. */
   duplicateLeadingContentSkipped: boolean;
+  /** The revision after the write. */
+  revision: number;
 }
 
-/** Update persisted document content (append or replace). */
+/** Update persisted document content (append or replace) as an assistant edit. */
 export function updateDocumentContent(
   surfaceId: string,
   markdown: string,
   mode: string,
 ): DocumentContentUpdated | { success: false; error: string } {
   try {
-    const existing = rawGet<{ content: string }>(
-      "documents:updateDocumentContent:get",
-      /*sql*/ `SELECT content FROM documents WHERE surface_id = ?`,
-      surfaceId,
-    );
-    if (!existing) {
+    const appending = mode === "append";
+    const outcome = mutateDocumentContent(surfaceId, "assistant", (current) => {
+      const appliedMarkdown = appending
+        ? stripDuplicateLeadingBlocks(current.content, markdown)
+        : markdown;
+      const sep =
+        appending && current.content.length > 0 && appliedMarkdown.length > 0
+          ? "\n\n"
+          : "";
+      return {
+        content: appending
+          ? current.content + sep + appliedMarkdown
+          : appliedMarkdown,
+        value: appliedMarkdown,
+      };
+    });
+    if (!outcome) {
       log.info({ surfaceId }, "No persisted document to update");
       return { success: false, error: "Document not found" };
     }
-    const appending = mode === "append";
-    const appliedMarkdown = appending
-      ? stripDuplicateLeadingBlocks(existing.content, markdown)
-      : markdown;
+    const appliedMarkdown = outcome.value;
     const duplicateLeadingContentSkipped =
       appending && appliedMarkdown !== markdown;
-    const sep =
-      appending && existing.content.length > 0 && appliedMarkdown.length > 0
-        ? "\n\n"
-        : "";
-    const newContent = appending
-      ? existing.content + sep + appliedMarkdown
-      : appliedMarkdown;
-    const wordCount = countWords(newContent);
-    rawRun(
-      "documents:updateDocumentContent:update",
-      /*sql*/ `UPDATE documents SET content = ?, word_count = ?, updated_at = ? WHERE surface_id = ?`,
-      newContent,
-      wordCount,
-      Date.now(),
-      surfaceId,
-    );
     if (duplicateLeadingContentSkipped) {
       log.info(
         { surfaceId, skippedChars: markdown.length - appliedMarkdown.length },
         "Skipped append content duplicating the document tail",
       );
     }
-    log.info({ surfaceId, mode }, "Updated document content");
+    log.info(
+      { surfaceId, mode, revision: outcome.revision },
+      "Updated document content",
+    );
     return {
       success: true,
       appliedMarkdown,
       duplicateLeadingContentSkipped,
+      revision: outcome.revision,
     };
   } catch (error) {
     log.error({ err: error, surfaceId }, "Document content update error");

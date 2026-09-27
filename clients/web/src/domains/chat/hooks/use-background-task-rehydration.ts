@@ -138,6 +138,19 @@ export function applyBackgroundTaskSnapshot(
   );
 }
 
+/** Reconcile task status without applying a response from a retired page/assistant. */
+export async function reconcileBackgroundTasks(
+  assistantId: string,
+  conversationId: string,
+  isCurrent: () => boolean = () => true,
+): Promise<void> {
+  const knownIds = knownTaskIdsFor(conversationId);
+  const snapshot = await fetchBackgroundTasks(assistantId, conversationId);
+  if (isCurrent()) {
+    applyBackgroundTaskSnapshot(snapshot, knownIds);
+  }
+}
+
 export function useBackgroundTaskRehydration(
   conversationId: string | null,
 ): void {
@@ -148,13 +161,11 @@ export function useBackgroundTaskRehydration(
       return;
     }
     let cancelled = false;
-    const knownIds = knownTaskIdsFor(conversationId);
-    void fetchBackgroundTasks(assistantId, conversationId).then((snapshot) => {
-      if (cancelled) {
-        return;
-      }
-      applyBackgroundTaskSnapshot(snapshot, knownIds);
-    });
+    void reconcileBackgroundTasks(
+      assistantId,
+      conversationId,
+      () => !cancelled,
+    );
     return () => {
       cancelled = true;
     };
@@ -178,12 +189,7 @@ export function useBackgroundTaskRehydration(
       ) {
         return;
       }
-      const knownIds = knownTaskIdsFor(conversationId);
-      void fetchBackgroundTasks(assistantId, conversationId).then(
-        (snapshot) => {
-          applyBackgroundTaskSnapshot(snapshot, knownIds);
-        },
-      );
+      void reconcileBackgroundTasks(assistantId, conversationId);
     },
   );
 }

@@ -41,6 +41,10 @@ import {
   pendingStandaloneImagePersist,
   SIGHT_FRAME_TURN_HOLD_MS,
 } from "../live-voice/live-voice-photo.js";
+import {
+  formatShareTargetsForPrompt,
+  type ShareTargetSnapshot,
+} from "../live-voice/share-targets.js";
 import { resolveAttachmentsForPersist } from "../persistence/attachments-store.js";
 import {
   deleteMessageById,
@@ -73,7 +77,7 @@ import {
 import {
   CALL_OPENING_MARKER,
   CALL_VERIFICATION_COMPLETE_MARKER,
-  ESCALATE_VERDICT_TOKEN,
+  ESCALATE_VERDICT_TOKENS,
   HOLD_VERDICT_TOKEN,
   stripInternalSpeechMarkers,
   terminalControlMarkerLength,
@@ -87,6 +91,7 @@ import {
   ESCALATION_CONTINUATION_CONTENT,
   frontDoorCapabilityDigest,
   frontDoorDecisionRule,
+  leadingEscalationToken,
   spokenBridgeText,
   type VoiceRoutingLeg,
 } from "./voice-triage-escalate.js";
@@ -136,6 +141,7 @@ function conversationProfileForEscalation(
 function frontDoorRuleWithDigest(
   includeHold: boolean,
   callerUtterance?: string,
+  screenSharing?: boolean,
 ): string {
   let toolNames: string[] = [];
   try {
@@ -147,6 +153,7 @@ function frontDoorRuleWithDigest(
     includeHold,
     capabilityDigest: frontDoorCapabilityDigest(toolNames),
     callerUtterance,
+    screenSharing,
   });
 }
 
@@ -165,6 +172,7 @@ function routingLegRuleFor(
     | "unifiedVerdict"
     | "spokenEscalationBridge"
     | "directEscalated"
+    | "screenSharing"
   >,
   callerUtterance: string,
 ): string | null {
@@ -173,6 +181,7 @@ function routingLegRuleFor(
       return frontDoorRuleWithDigest(
         opts.unifiedVerdict === true,
         callerUtterance,
+        opts.screenSharing,
       );
     case "escalated":
       return opts.directEscalated === true
@@ -457,6 +466,15 @@ export interface VoiceTurnOptions {
   macosDesktopSession?: boolean;
   /** The desktop client currently shares a surface with this voice session. */
   screenSharing?: boolean;
+  /**
+   * The controls the shared surface offers to be pointed at, from the
+   * client's newest read of its accessibility tree. Offered alongside the
+   * screen-annotation instructions so the first `screen_point_at` names a
+   * control the lookup can resolve.
+   */
+  shareTargets?: ShareTargetSnapshot;
+  /** Front-door verdict: this action needs only the shared screen and current context. */
+  screenAction?: boolean;
   /** Whether this is an inbound call (no outbound task). */
   isInbound: boolean;
   /** The outbound call task, if any. */
@@ -840,30 +858,32 @@ function trimOuterTextEdges(blocks: ContentBlock[]): ContentBlock[] {
  * `ESCALATE_VERDICT_TOKEN` reduces to a single text block holding the
  * capped bridge; empty spoken text means the caller heard only the canned
  * fallback bridge, which is audio-only and never a transcript row, so the
- * caller should delete the row. Stray verdict tokens elsewhere in an
- * answer were never spoken (the live gate strips them) and are stripped
- * from the persisted text to match.
+ * caller should delete the row. A terminal escalation keeps all speech
+ * already released before the verdict. Other stray verdict tokens were
+ * never spoken and are stripped from the persisted text to match.
  */
 export function cutFrontDoorContentAtVerdict(
   blocks: ContentBlock[],
 ): { blocks: ContentBlock[]; spokenText: string } | null {
   const joinedText = joinedTextOfBlocks(blocks);
-  if (joinedText.trimStart().startsWith(ESCALATE_VERDICT_TOKEN)) {
-    const spokenText = spokenBridgeText(joinedText);
+  const spokenText = spokenBridgeText(joinedText);
+  if (
+    spokenText.length > 0 ||
+    leadingEscalationToken(joinedText) !== undefined
+  ) {
     return {
       blocks: spokenText.length > 0 ? [{ type: "text", text: spokenText }] : [],
       spokenText,
     };
   }
   if (
-    !joinedText.includes(ESCALATE_VERDICT_TOKEN) &&
+    !ESCALATE_VERDICT_TOKENS.some((token) => joinedText.includes(token)) &&
     !joinedText.includes(HOLD_VERDICT_TOKEN)
   ) {
     return null;
   }
   const kept = stripMarkersFromBlocks(blocks);
-  const spokenText = joinedTextOfBlocks(kept).trim();
-  return { blocks: kept, spokenText };
+  return { blocks: kept, spokenText: joinedTextOfBlocks(kept).trim() };
 }
 
 // ---------------------------------------------------------------------------
@@ -1811,6 +1831,20 @@ export async function startVoiceTurn(
       ? createFrontDoorStreamGate(opts.unifiedVerdict === true)
       : null;
 
+  const broadcastFrontDoorText = (
+    msg: Extract<AssistantEvent, { type: "assistant_text_delta" }>,
+  ): void => {
+    // Answer text waits for the judge, including text flushed at completion.
+    if (
+      frontDoorStreamGate?.answering &&
+      !escalationJudgeSettled &&
+      hubHold === null
+    ) {
+      hubHold = [];
+    }
+    emitHubEvent(msg);
+  };
+
   /**
    * Broadcast one agent-loop event to hub subscribers, holding a front-door
    * leg's control-plane text back at the boundary rather than emitting it and
@@ -1825,16 +1859,7 @@ export async function startVoiceTurn(
     }
     const released = frontDoorStreamGate.push(msg.text);
     if (released.length > 0) {
-      // Answer text while the escalation judge is out: hold it, and every
-      // leg event after it, until the verdict says the caller hears it.
-      if (
-        frontDoorStreamGate.answering &&
-        !escalationJudgeSettled &&
-        hubHold === null
-      ) {
-        hubHold = [];
-      }
-      emitHubEvent({ ...msg, text: released });
+      broadcastFrontDoorText({ ...msg, text: released });
     }
   };
 
@@ -2039,6 +2064,11 @@ export async function startVoiceTurn(
     });
   }
 
+  const skipMemoryRetrieval =
+    opts.routingLeg === "escalated" &&
+    opts.screenSharing === true &&
+    opts.screenAction === true;
+
   // Fire-and-forget the agent loop
   void (async () => {
     const loopEnterAt = Date.now();
@@ -2047,6 +2077,7 @@ export async function startVoiceTurn(
         turnId,
         conversationId: opts.conversationId,
         routingLeg: opts.routingLeg ?? null,
+        skipMemoryRetrieval,
         sinceLaunchMs:
           opts.launchedAtMs != null ? loopEnterAt - opts.launchedAtMs : null,
         bridgeMs: loopEnterAt - dispatch.enteredAt,
@@ -2125,13 +2156,20 @@ export async function startVoiceTurn(
             signal: opts.signal,
           });
           if (annotation !== null) {
+            const controls =
+              opts.shareTargets !== undefined
+                ? formatShareTargetsForPrompt(opts.shareTargets)
+                : null;
             conversation.setVoiceCallControlPrompt(
-              [voiceCallControlPrompt, annotation].filter(Boolean).join("\n\n"),
+              [voiceCallControlPrompt, annotation, controls]
+                .filter(Boolean)
+                .join("\n\n"),
             );
           }
         }
       }
       await conversation.runAgentLoop(persistedContent, messageId, {
+        skipMemoryRetrieval,
         ...(opts.subagentNotification?.cronRunId
           ? { cronRunId: opts.subagentNotification.cronRunId }
           : {}),
@@ -2150,7 +2188,7 @@ export async function startVoiceTurn(
             // never hands off, and correspondingly never flushes.
             const trailing = frontDoorStreamGate.finish();
             if (trailing.length > 0) {
-              broadcastMessage({
+              broadcastFrontDoorText({
                 type: "assistant_text_delta",
                 text: trailing,
                 ...(reservedAssistantRowId !== null

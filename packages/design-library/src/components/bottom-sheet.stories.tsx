@@ -11,6 +11,7 @@ interface BottomSheetStoryArgs {
   description: string;
   showIcon: boolean;
   triggerLabel: string;
+  dragHandleLabel?: string;
 }
 
 const meta: Meta<BottomSheetStoryArgs> = {
@@ -23,6 +24,7 @@ const meta: Meta<BottomSheetStoryArgs> = {
     description: { control: "text" },
     showIcon: { control: "boolean" },
     triggerLabel: { control: "text" },
+    dragHandleLabel: { control: "text" },
   },
 };
 
@@ -208,19 +210,29 @@ export const FullBleed: Story = {
 export const Detail: Story = {
   args: {
     triggerLabel: "Open details",
+    dragHandleLabel: "Dismiss details",
     title: "Activity details",
     description: "Review the output, then return to the conversation.",
     showIcon: false,
   },
   // Local state lets the interaction test exercise transitions without the args channel.
-  render: function Render({ triggerLabel, title, description }) {
+  render: function Render({
+    triggerLabel,
+    title,
+    description,
+    dragHandleLabel,
+  }) {
     const [open, setOpen] = useState(false);
     return (
       <BottomSheet.Root open={open} onOpenChange={setOpen}>
         <BottomSheet.Trigger asChild>
           <Button>{triggerLabel}</Button>
         </BottomSheet.Trigger>
-        <BottomSheet.Content variant="detail" padded={false}>
+        <BottomSheet.Content
+          variant="detail"
+          padded={false}
+          dragHandleLabel={dragHandleLabel}
+        >
           <BottomSheet.Header className="px-4">
             <BottomSheet.Title>{title}</BottomSheet.Title>
             <BottomSheet.Description>{description}</BottomSheet.Description>
@@ -253,7 +265,9 @@ export const Detail: Story = {
     );
     await waitFor(() => expect(trigger).toHaveFocus());
     await userEvent.click(trigger);
-    await userEvent.click(page.getByRole("button", { name: "Close details" }));
+    await userEvent.click(
+      page.getByRole("button", { name: "Dismiss details" }),
+    );
     await waitFor(() =>
       expect(page.queryByRole("dialog")).not.toBeInTheDocument(),
     );

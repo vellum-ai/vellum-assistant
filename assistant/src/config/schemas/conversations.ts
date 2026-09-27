@@ -1,7 +1,21 @@
 import { z } from "zod";
 
+export const AutoArchiveConfigSchema = z.object({
+  enabled: z
+    .boolean()
+    .default(false)
+    .describe("Automatically mark eligible inactive chats Done."),
+  afterDays: z
+    .literal([1, 7, 14, 30])
+    .default(7)
+    .describe("Elapsed days of inactivity before a chat is eligible for Done."),
+});
+
 export const ConversationsConfigSchema = z
   .object({
+    autoArchive: AutoArchiveConfigSchema.default(
+      AutoArchiveConfigSchema.parse({}),
+    ),
     skipAutoRetitling: z
       .boolean({
         error: "conversations.skipAutoRetitling must be a boolean",

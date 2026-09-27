@@ -1149,7 +1149,7 @@
     "titleGeneric": "Скачать мобильное приложение Vellum"
   },
   "notificationsPage": {
-    "description": "Настройка уведомлений Vellum на этом устройстве Android.",
+    "description": "Настройка уведомлений Vellum на этом устройстве.",
     "title": "Уведомления"
   },
   "overridesCallSiteList": {
@@ -1259,6 +1259,10 @@
     "alreadyOnPlanToast": "Этот план уже активен.",
     "checkoutFailedToast": "Не удалось начать оплату повышения. Повторите попытку.",
     "current": "Текущий",
+    "dailyUsageBar": "Дневное использование, сброс в {resetPhrase}",
+    "dailyUsageExhausted": "Вы использовали бесплатный лимит на сегодня. Добавьте кредиты, чтобы продолжить пользоваться ассистентом",
+    "dailyUsageResets": "Сброс в {resetPhrase}",
+    "dailyUsageTitle": "Дневное использование",
     "endsOn": "План закончится {date}.",
     "freeForever": "Бесплатно навсегда",
     "heading": "План",
@@ -1269,13 +1273,14 @@
     "powerUp": "Усилить",
     "powerUpFor": "Усилить за +{amount}/мес",
     "usageBalanceAddCredits": "Добавить",
-    "usageBalanceBarRenews": "Текущее использование, продлится {date}",
-    "usageBalanceBarResets": "Текущее использование, сброс {date}",
+    "usageBalanceBarRenews": "Месячное использование, продлится {date}",
+    "usageBalanceBarResets": "Месячное использование, сброс {date}",
     "usageBalanceExhausted": "Добавление кредитов, чтобы продолжить пользоваться ассистентом",
     "usageBalancePctUsed": "использовано {pct}%",
     "usageBalanceRenews": "Продлится {date}",
     "usageBalanceResets": "Сброс {date}",
-    "usageBalanceTitle": "Текущее использование",
+    "usageBalanceTitleMonthly": "Месячное использование",
+    "usageBalanceTitleOverall": "Общее использование",
     "usageChip": "Использование {name}, сброс каждый месяц",
     "viewAllPlans": "Все планы"
   },
@@ -1532,6 +1537,7 @@
     "title": "Модальности"
   },
   "profileRow": {
+    "autoRouting": "Направляет каждое сообщение в Balanced, Quality, Budget или Fast с помощью Jev, модели принятия решений TypeSafe",
     "actionsAriaLabel": "Действия для {displayName}",
     "defaultTag": "По умолчанию",
     "delete": "Удалить",
@@ -2409,5 +2415,15 @@
     "percentValue": "{percent}%",
     "centsValue": "{cents} ¢",
     "playEnd": "Воспроизвести сигнал завершения"
+  },
+  "browserNotificationSettingsCard": {
+    "title": "Уведомления браузера",
+    "grantedDescription": "Уведомления разрешены в этом браузере.",
+    "deniedDescription": "Уведомления заблокированы. Разрешите уведомления для этого сайта в настройках браузера.",
+    "unsupportedDescription": "Этот браузер не поддерживает системные уведомления.",
+    "promptDescription": "Включите уведомления, чтобы узнавать о готовых ответах и выполненных задачах.",
+    "checkingDescription": "Проверка разрешения на уведомления…",
+    "openTabDescription": "Для получения уведомлений держите вкладку Vellum открытой. Закрытие или приостановка вкладки и потеря подключения прерывают доставку.",
+    "enable": "Включить уведомления"
   }
 }

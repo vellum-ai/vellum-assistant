@@ -1163,7 +1163,7 @@
     "titleGeneric": "Obtén la app móvil de Vellum"
   },
   "notificationsPage": {
-    "description": "Administra cómo Vellum te notifica en este dispositivo Android.",
+    "description": "Administra cómo Vellum te notifica en este dispositivo.",
     "title": "Notificaciones"
   },
   "overridesCallSiteList": {
@@ -1274,6 +1274,10 @@
     "alreadyOnPlanToast": "Ya estás en este plan.",
     "checkoutFailedToast": "No se pudo iniciar el pago de la mejora. Inténtalo de nuevo.",
     "current": "Actual",
+    "dailyUsageBar": "Uso diario, se reinicia a las {resetPhrase}",
+    "dailyUsageExhausted": "Has usado el uso gratuito de hoy. Añade créditos para seguir usando tu asistente",
+    "dailyUsageResets": "Se reinicia a las {resetPhrase}",
+    "dailyUsageTitle": "Uso diario",
     "endsOn": "Tu plan termina el {date}.",
     "freeForever": "Gratis para siempre",
     "heading": "Plan",
@@ -1284,13 +1288,14 @@
     "powerUp": "Potenciar",
     "powerUpFor": "Potenciar por +{amount}/mes",
     "usageBalanceAddCredits": "Añadir",
-    "usageBalanceBarRenews": "Uso actual, se renueva el {date}",
-    "usageBalanceBarResets": "Uso actual, se restablece el {date}",
+    "usageBalanceBarRenews": "Uso mensual, se renueva el {date}",
+    "usageBalanceBarResets": "Uso mensual, se restablece el {date}",
     "usageBalanceExhausted": "Añade créditos para seguir usando tu asistente",
     "usageBalancePctUsed": "{pct}% usado",
     "usageBalanceRenews": "Se renueva el {date}",
     "usageBalanceResets": "Se restablece el {date}",
-    "usageBalanceTitle": "Uso actual",
+    "usageBalanceTitleMonthly": "Uso mensual",
+    "usageBalanceTitleOverall": "Uso total",
     "usageChip": "Uso de {name}, se restablece cada mes",
     "viewAllPlans": "Ver todos los planes"
   },
@@ -1549,6 +1554,7 @@
     "title": "Modalidades"
   },
   "profileRow": {
+    "autoRouting": "Dirige cada mensaje a Balanced, Quality, Budget o Fast con Jev, un modelo de decisión de TypeSafe",
     "actionsAriaLabel": "Acciones para {displayName}",
     "defaultTag": "Predeterminado",
     "delete": "Eliminar",
@@ -2427,5 +2433,15 @@
     "percentValue": "{percent}%",
     "centsValue": "{cents} ¢",
     "playEnd": "Reproducir tono final"
+  },
+  "browserNotificationSettingsCard": {
+    "title": "Notificaciones del navegador",
+    "grantedDescription": "Las notificaciones están permitidas en este navegador.",
+    "deniedDescription": "Las notificaciones están bloqueadas. Permite las notificaciones de este sitio en la configuración del navegador.",
+    "unsupportedDescription": "Este navegador no admite notificaciones del sistema.",
+    "promptDescription": "Activa las notificaciones para saber cuándo está lista una respuesta o una tarea solicitada.",
+    "checkingDescription": "Comprobando el permiso de notificaciones…",
+    "openTabDescription": "Mantén una pestaña de Vellum abierta para recibir avisos. Cerrar o suspender la pestaña, o perder la conexión, pausa la entrega.",
+    "enable": "Activar notificaciones"
   }
 }

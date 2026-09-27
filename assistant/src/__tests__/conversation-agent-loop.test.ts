@@ -15,11 +15,16 @@ import type { LoopToolExecutor } from "../agent/loop.js";
 import type { AssistantEvent } from "../api/index.js";
 import { stripInjectionsForCompaction } from "../context/strip-injections.js";
 import type { AttachmentResolutionResult } from "../daemon/conversation-attachments.js";
+import { abortScheduledRun } from "../daemon/conversation-lifecycle.js";
 import {
   queueConversationNotice,
   resetConversationNoticesForTests,
 } from "../daemon/conversation-notices.js";
+import { MessageQueue } from "../daemon/conversation-queue-manager.js";
 import { desktopAutomationLease } from "../desktop/desktop-automation-lease.js";
+import type { EmitSignalParams } from "../notifications/emit-signal.js";
+import type { AttentionState } from "../persistence/conversation-attention-store.js";
+import type { MessageRow } from "../persistence/conversation-crud.js";
 import { getConversationDirName } from "../persistence/conversation-directories.js";
 import type { UserPromptSubmitContext } from "../plugin-api/types.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
@@ -36,6 +41,7 @@ import {
   type UsageAttributionInput,
 } from "../usage/attribution.js";
 import { createAbortReason } from "../util/abort-reasons.js";
+import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { setConfig } from "./helpers/set-config.js";
 
@@ -97,6 +103,14 @@ function seedLlmConfig(options?: {
 }
 
 // ── Module mocks (must precede imports of the module under test) ─────
+
+let routeAutoProfileForTest: (() => Promise<void>) | undefined;
+mock.module("../daemon/auto-profile-router.js", () => ({
+  routeAutoProfile: async () => {
+    await routeAutoProfileForTest?.();
+    return { profile: "balanced", outcome: "fallback", latencyMs: 0 };
+  },
+}));
 
 // The real AgentLoop resolves the per-conversation ContextWindowManager from
 // the compaction store keyed by conversationId. These orchestrator tests build
@@ -309,6 +323,13 @@ let mockConversationRow: MockConversationRow = {
   title: null,
 };
 let mockMessageById: Record<string, unknown> | null = null;
+let backgroundRecoveryRows: MessageRow[] | undefined;
+let backgroundRecoveryAttention: AttentionState | undefined;
+let backgroundRecoveryPending = () => false;
+const backgroundRecoverySignals: EmitSignalParams[] = [];
+const emitBackgroundSignalMock = mock(async (signal: EmitSignalParams) => {
+  backgroundRecoverySignals.push(signal);
+});
 
 // The in-flight delta files the writers create for the (unmocked-path)
 // test conversation. Files are uuid-named at reserve time, so tests locate
@@ -384,7 +405,38 @@ mock.module("../persistence/conversation-crud.js", () => ({
     updateConversationSlackContextWatermarkMock,
   updateConversationTitle: () => {},
   getConversationOriginChannel: () => null,
-  getMessageById: () => mockMessageById,
+  getMessageById: (id: string) =>
+    backgroundRecoveryRows
+      ? (backgroundRecoveryRows.find((row) => row.id === id) ?? null)
+      : mockMessageById,
+  getRecentConversationMessages: (
+    _conversationId: string,
+    limit: number,
+    beforeMessageId?: string,
+  ) => {
+    const rows = backgroundRecoveryRows ?? [];
+    const end = beforeMessageId
+      ? rows.findIndex((row) => row.id === beforeMessageId)
+      : rows.length;
+    return rows.slice(Math.max(0, end - limit), end);
+  },
+  getAssistantMessageIdsInTurn: (id: string) => {
+    const rows = backgroundRecoveryRows ?? [];
+    const ids: string[] = [];
+    for (
+      let index = rows.findIndex((row) => row.id === id);
+      index >= 0;
+      index--
+    ) {
+      if (rows[index].role === "user") {
+        break;
+      }
+      if (rows[index].role === "assistant") {
+        ids.unshift(rows[index].id);
+      }
+    }
+    return ids;
+  },
   getLastUserTimestampBefore: () => 0,
   reserveMessage: reserveMessageMock,
   updateMessageContent: updateMessageContentMock,
@@ -417,9 +469,44 @@ mock.module("../plugins/defaults/memory/indexer.js", () => ({
 }));
 mock.module("../persistence/conversation-attention-store.js", () => ({
   projectAssistantMessage: projectAssistantMessageMock,
+  getAttentionStateByConversationIds: () =>
+    new Map(
+      backgroundRecoveryAttention
+        ? [["test-conv", backgroundRecoveryAttention]]
+        : [],
+    ),
 }));
 mock.module("../runtime/sync/sync-publisher.js", () => ({
   publishSyncInvalidation: publishSyncInvalidationMock,
+}));
+
+mock.module("../notifications/has-pending-background-work.js", () => ({
+  hasPendingBackgroundWork: () => backgroundRecoveryPending(),
+}));
+mock.module("../notifications/events-store.js", () => ({
+  hasNotifiedSourceContextSince: () => false,
+}));
+mock.module("../notifications/emit-signal.js", () => ({
+  emitNotificationSignal: emitBackgroundSignalMock,
+}));
+mock.module("../notifications/resolve-visible-in-source.js", () => ({
+  resolveCompletionRecipientPrincipalId: async () => "principal-owner",
+  resolveCompletionVisibleInSourceNow: async () => false,
+}));
+const {
+  emitBackgroundResultNotification: emitBackgroundResultNotificationReal,
+} = await import("../notifications/background-result-producer.js");
+const emitBackgroundResultNotificationMock = mock(
+  async (
+    params: Parameters<typeof emitBackgroundResultNotificationReal>[0],
+  ) => {
+    if (backgroundRecoveryRows) {
+      await emitBackgroundResultNotificationReal(params);
+    }
+  },
+);
+mock.module("../notifications/background-result-producer.js", () => ({
+  emitBackgroundResultNotification: emitBackgroundResultNotificationMock,
 }));
 
 const emitAssistantReplyNotificationMock = mock(async () => {});
@@ -1044,6 +1131,7 @@ function overflowAfterToolTurnScenario(): NonNullable<
 // ── Tests ────────────────────────────────────────────────────────────
 
 beforeEach(() => {
+  routeAutoProfileForTest = undefined;
   setConfig("ui", {});
   seedLlmConfig();
   raceWithTimeoutOutcome = "completed";
@@ -1063,6 +1151,12 @@ beforeEach(() => {
   mockTurnReplyMessageId = undefined;
   resolveTurnReplyMessageIdMock.mockClear();
   emitAssistantReplyNotificationMock.mockClear();
+  emitBackgroundResultNotificationMock.mockClear();
+  backgroundRecoveryRows = undefined;
+  backgroundRecoveryAttention = undefined;
+  backgroundRecoveryPending = () => false;
+  backgroundRecoverySignals.length = 0;
+  emitBackgroundSignalMock.mockClear();
   updateMessageMetadataMock.mockClear();
   updateMessageMetadataMock.mockImplementation(() => {});
   updateConversationSlackContextWatermarkMock.mockClear();
@@ -1508,6 +1602,27 @@ describe("session-agent-loop", () => {
   });
 
   describe("user-prompt-submit hook failures", () => {
+    test.each([true, false, undefined])(
+      "fresh memory policy is scoped to the turn (%s)",
+      async (skipMemoryRetrieval) => {
+        const ctx = makeCtx({ providerResponses: [textResponse("ok")] });
+        ctx.currentTurnSkipMemoryRetrieval = true;
+        const seen: Array<boolean | undefined> = [];
+        registerPlugin({
+          manifest: { name: "test-memory-turn-policy", version: "1.0.0" },
+          hooks: {
+            "user-prompt-submit": async () => {
+              seen.push(ctx.currentTurnSkipMemoryRetrieval);
+            },
+          },
+        });
+        await runAgentLoopImpl(ctx, "circle that", "msg-1", () => {}, {
+          skipMemoryRetrieval,
+        });
+        expect(seen).toEqual([skipMemoryRetrieval === true]);
+        expect(ctx.currentTurnSkipMemoryRetrieval).toBeUndefined();
+      },
+    );
     test("passes the effective profile to hooks even when it was already announced", async () => {
       // Both profiles are complete (provider + model) so each is a usable
       // winner: the conversation's pinned "balanced" must win selection over
@@ -2919,6 +3034,51 @@ describe("session-agent-loop", () => {
   });
 
   describe("user cancellation", () => {
+    test("schedule timeout aborts a continuation during Auto profile setup", async () => {
+      seedLlmConfig({
+        profiles: {
+          auto: {
+            source: "managed",
+            provider: "anthropic",
+            model: "test-model",
+          },
+        },
+        activeProfile: "auto",
+      });
+      const enteredRouter = Promise.withResolvers<void>();
+      const releaseRouter = Promise.withResolvers<void>();
+      routeAutoProfileForTest = async () => {
+        enteredRouter.resolve();
+        await releaseRouter.promise;
+      };
+      const controller = new AbortController();
+      const provider = createMockProvider([textResponse("Should not run")]);
+      const ctx = makeCtx({
+        abortController: controller,
+        loopProvider: provider.provider,
+        queue: new MessageQueue(),
+        prompter: { dispose: () => {} } as Conversation["prompter"],
+        secretPrompter: { dispose: () => {} } as Conversation["secretPrompter"],
+        accumulatedSurfaceState: new Map(),
+      });
+      const turn = runAgentLoopImpl(ctx, "Continue report", "msg-1", () => {}, {
+        cronRunId: "run-scheduled",
+        overrideProfile: "auto",
+      });
+      try {
+        await enteredRouter.promise;
+        expect(ctx.currentTurnCronRunId).toBe("run-scheduled");
+        abortScheduledRun(ctx, "run-scheduled");
+        expect(controller.signal.aborted).toBe(true);
+      } finally {
+        releaseRouter.resolve();
+        await turn;
+      }
+      expect(provider.calls).toHaveLength(0);
+      expect(ctx.isProcessing()).toBe(false);
+      expect(ctx.currentTurnCronRunId).toBeUndefined();
+    });
+
     test("emits generation_cancelled when abort signal fires", async () => {
       const events: AssistantEvent[] = [];
       const abortController = new AbortController();
@@ -3958,10 +4118,378 @@ describe("session-agent-loop", () => {
 
       expect(addMessageMock).toHaveBeenCalled();
       expect(emitAssistantReplyNotificationMock).not.toHaveBeenCalled();
+      expect(emitBackgroundResultNotificationMock.mock.calls).toMatchObject([
+        [{ recoverOnly: true, assistantMessageId: undefined }],
+      ]);
     });
   });
 
   describe("assistant-reply notification wiring", () => {
+    function seedDeferredCommandResult(options?: {
+      privateResult?: boolean;
+      noEarlierSuccess?: boolean;
+      userTrigger?: boolean;
+    }): void {
+      const startedAt = 1_700_000_000_000;
+      const row = (
+        id: string,
+        role: "user" | "assistant",
+        text: string,
+        offset: number,
+        metadata?: Record<string, unknown>,
+      ): MessageRow => ({
+        id,
+        conversationId: "test-conv",
+        role,
+        content: [{ type: "text", text }],
+        createdAt: startedAt + offset,
+        metadata: metadata ? JSON.stringify(metadata) : null,
+        clientMessageId: null,
+        finalized: 1,
+      });
+      backgroundRecoveryRows = [
+        row("prior-trigger", "user", "INTERNAL COMMAND RESULT", 1, {
+          backgroundEventSource: "background-tool",
+          backgroundToolCompletion: {
+            id: "tool-success",
+            toolName: "bash",
+            conversationId: "test-conv",
+            command: "example-command",
+            startedAt,
+            completedAt: startedAt + 1,
+            status: options?.noEarlierSuccess ? "failed" : "completed",
+            exitCode: options?.noEarlierSuccess ? 1 : 0,
+            output: "raw command output",
+          },
+        }),
+        row(
+          "prior-result",
+          "assistant",
+          "The requested report is ready.",
+          2,
+          options?.privateResult
+            ? { assistantTextVisibility: "private" }
+            : undefined,
+        ),
+        row(
+          "final-trigger",
+          "user",
+          "INTERNAL SIBLING RESULT",
+          3,
+          options?.userTrigger
+            ? undefined
+            : {
+                scripted: true,
+                subagentNotification: {
+                  subagentId: "task-final",
+                  conversationId: "conv-final",
+                  label: "Research",
+                  status: "completed",
+                },
+              },
+        ),
+      ];
+      backgroundRecoveryAttention = {
+        conversationId: "test-conv",
+        latestAssistantMessageId: "prior-result",
+        latestAssistantMessageAt: startedAt + 2,
+        lastSeenAssistantMessageAt: null,
+      } as AttentionState;
+      mockConversationRow = {
+        ...mockConversationRow,
+        id: "test-conv",
+        source: "web",
+        conversationType: "standard",
+      };
+      updateMessageMetadataMock.mockImplementation((id, updates) => {
+        const persisted = backgroundRecoveryRows?.find((row) => row.id === id);
+        if (persisted) {
+          persisted.metadata = JSON.stringify({
+            ...JSON.parse(persisted.metadata ?? "{}"),
+            ...updates,
+          });
+        }
+      });
+    }
+
+    test.each(["failed", "cancelled"] as const)(
+      "an escaping %s continuation recovers an earlier result after release and queue settlement",
+      async (outcome) => {
+        seedDeferredCommandResult();
+        const { promise: queueDrain, resolve: releaseQueue } =
+          Promise.withResolvers<void>();
+        let queued = true;
+        const ctx = makeCtx({
+          hasQueuedMessages: () => queued,
+          drainQueue: async () => {
+            await queueDrain;
+            queued = false;
+          },
+        });
+        backgroundRecoveryPending = () =>
+          ctx.isProcessing() || ctx.hasQueuedMessages();
+        await emitBackgroundResultNotificationReal({
+          conversationId: "test-conv",
+          assistantMessageId: "prior-result",
+          userMessageId: "prior-trigger",
+          rlog: getLogger("failed-continuation-test"),
+        });
+        expect(backgroundRecoverySignals).toHaveLength(0);
+        const abortController = ctx.abortController!;
+        const run = spyOn(ctx.agentLoop, "run").mockImplementationOnce(
+          async () => {
+            if (outcome === "cancelled") {
+              abortController.abort();
+              throw new DOMException("Cancelled", "AbortError");
+            }
+            throw new Error("runtime failure outside the provider retry loop");
+          },
+        );
+        const events: AssistantEvent[] = [];
+        await runAgentLoopImpl(ctx, "continue", "final-trigger", (event) =>
+          events.push(event),
+        );
+        run.mockRestore();
+
+        expect(ctx.isProcessing()).toBe(false);
+        expect(emitBackgroundResultNotificationMock).not.toHaveBeenCalled();
+        expect(backgroundRecoverySignals).toHaveLength(0);
+        expect(events.some((event) => event.type === "message_complete")).toBe(
+          false,
+        );
+        expect(
+          events.some(
+            (event) =>
+              event.type ===
+              (outcome === "cancelled" ? "generation_cancelled" : "error"),
+          ),
+        ).toBe(true);
+        releaseQueue();
+        await settleTurnTail(ctx.conversationId);
+        await Promise.all(
+          emitBackgroundResultNotificationMock.mock.results.map(
+            (result) => result.value,
+          ),
+        );
+
+        expect(emitAssistantReplyNotificationMock).not.toHaveBeenCalled();
+        expect(emitBackgroundResultNotificationMock.mock.calls).toMatchObject([
+          [
+            {
+              userMessageId: "final-trigger",
+              recoverOnly: true,
+              assistantMessageId: undefined,
+            },
+          ],
+        ]);
+        expect(backgroundRecoverySignals).toMatchObject([
+          {
+            sourceEventName: "activity.complete",
+            dedupeKey: "activity.complete:test-conv:tool:tool-success",
+            contextPayload: {
+              requestedMessage: "The requested report is ready.",
+            },
+          },
+        ]);
+        expect(updateMessageMetadataMock).toHaveBeenCalledWith(
+          "final-trigger",
+          expect.objectContaining({ turnOutcome: outcome }),
+        );
+      },
+    );
+
+    test.each([
+      { name: "a user turn", userTrigger: true },
+      { name: "private earlier output", privateResult: true },
+      { name: "failure-only work", noEarlierSuccess: true },
+      { name: "scheduled work", cronRunId: "run-schedule" },
+    ])("an escaping exception stays silent for $name", async (scenario) => {
+      seedDeferredCommandResult(scenario);
+      const ctx = makeCtx();
+      backgroundRecoveryPending = () => ctx.isProcessing();
+      const run = spyOn(ctx.agentLoop, "run").mockRejectedValueOnce(
+        new Error("runtime failure outside the provider retry loop"),
+      );
+      await runAgentLoopImpl(ctx, "continue", "final-trigger", () => {}, {
+        cronRunId: scenario.cronRunId,
+      });
+      run.mockRestore();
+      await settleTurnTail(ctx.conversationId);
+      await Promise.all(
+        emitBackgroundResultNotificationMock.mock.results.map(
+          (result) => result.value,
+        ),
+      );
+
+      expect(emitBackgroundResultNotificationMock.mock.calls).toMatchObject([
+        [
+          {
+            userMessageId: "final-trigger",
+            recoverOnly: true,
+            cronRunId: scenario.cronRunId ?? null,
+          },
+        ],
+      ]);
+      expect(emitAssistantReplyNotificationMock).not.toHaveBeenCalled();
+      expect(backgroundRecoverySignals).toHaveLength(0);
+    });
+
+    test("a failed continuation draining a newer public result emits only that result", async () => {
+      seedDeferredCommandResult();
+      const rows = backgroundRecoveryRows!;
+      const startedAt = rows[0].createdAt;
+      const { promise: queuedTurnReady, resolve: releaseQueuedTurn } =
+        Promise.withResolvers<void>();
+      const { promise: projectionReady, resolve: releaseProjection } =
+        Promise.withResolvers<void>();
+      const { promise: indexingStarted, resolve: markIndexingStarted } =
+        Promise.withResolvers<void>();
+      const { promise: deliveryReady, resolve: releaseDelivery } =
+        Promise.withResolvers<void>();
+      const { promise: deliveryStarted, resolve: markDeliveryStarted } =
+        Promise.withResolvers<void>();
+      let queued = true;
+      const drainQueue = mock(async () => {
+        if (!queued) {
+          return;
+        }
+        await queuedTurnReady;
+        queued = false;
+        const metadata = JSON.parse(rows[0].metadata!);
+        rows.push({
+          ...rows[0],
+          id: "queued-trigger",
+          createdAt: startedAt + 10,
+          metadata: JSON.stringify({
+            ...metadata,
+            backgroundToolCompletion: {
+              ...metadata.backgroundToolCompletion,
+              id: "tool-queued",
+              completedAt: startedAt + 10,
+            },
+          }),
+        });
+        ctx.abortController = new AbortController();
+        ctx.setProcessing(true);
+        await runAgentLoopImpl(
+          ctx,
+          "queued result",
+          "queued-trigger",
+          () => {},
+        );
+      });
+      const ctx = makeCtx({
+        providerResponses: [textResponse("The complete report is ready.")],
+        hasQueuedMessages: () => queued,
+        drainQueue,
+      });
+      backgroundRecoveryPending = () =>
+        ctx.isProcessing() || ctx.hasQueuedMessages();
+      reserveMessageMock.mockImplementationOnce(async () => {
+        rows.push({
+          ...rows[1],
+          id: "queued-result",
+          createdAt: startedAt + 11,
+          content: [],
+          finalized: 0,
+        });
+        return { id: "queued-result", createdAt: startedAt + 11 };
+      });
+      finalizeMessageContentMock.mockImplementationOnce(
+        (...args: unknown[]) => {
+          const [id, content] = args as [string, string];
+          const row = rows.find((candidate) => candidate.id === id)!;
+          row.content = JSON.parse(content);
+          row.finalized = 1;
+        },
+      );
+      indexMessageNowMock.mockImplementationOnce(async () => {
+        markIndexingStarted();
+        await projectionReady;
+        return { indexedSegments: 0, enqueuedJobs: 0 };
+      });
+      projectAssistantMessageMock.mockImplementationOnce(
+        (...args: unknown[]) => {
+          const [projection] = args as [
+            { messageId: string; messageAt: number },
+          ];
+          backgroundRecoveryAttention!.latestAssistantMessageId =
+            projection.messageId;
+          backgroundRecoveryAttention!.latestAssistantMessageAt =
+            projection.messageAt;
+          return true;
+        },
+      );
+      emitBackgroundSignalMock.mockImplementationOnce(async (signal) => {
+        markDeliveryStarted();
+        await deliveryReady;
+        backgroundRecoverySignals.push(signal);
+      });
+      const run = spyOn(ctx.agentLoop, "run").mockRejectedValueOnce(
+        new Error("runtime failure outside the provider retry loop"),
+      );
+      await runAgentLoopImpl(ctx, "continue", "final-trigger", () => {});
+      run.mockRestore();
+      expect(backgroundRecoverySignals).toHaveLength(0);
+      releaseQueuedTurn();
+      await indexingStarted;
+      await drainQueue.mock.results[0].value;
+      expect(ctx.isProcessing()).toBe(false);
+      expect(backgroundRecoverySignals).toHaveLength(0);
+      releaseProjection();
+      await deliveryStarted;
+      await settleTurnTail(ctx.conversationId);
+      expect(emitBackgroundSignalMock).toHaveBeenCalledTimes(1);
+      expect(backgroundRecoverySignals).toHaveLength(0);
+      releaseDelivery();
+      await Promise.all(
+        emitBackgroundResultNotificationMock.mock.results.map(
+          (result) => result.value,
+        ),
+      );
+
+      expect(emitBackgroundResultNotificationMock).toHaveBeenCalledTimes(2);
+      expect(backgroundRecoverySignals).toMatchObject([
+        {
+          dedupeKey: "activity.complete:test-conv:tool:tool-queued",
+          contextPayload: {
+            requestedMessage: "The complete report is ready.",
+          },
+        },
+      ]);
+    });
+
+    test("finalized continuations pass their persisted rows and scheduled owner to the background producer", async () => {
+      mockMessageById = {
+        id: "msg-reserve",
+        conversationId: "test-conv",
+        createdAt: 1234567,
+        role: "assistant",
+        content: "[]",
+        metadata: null,
+      };
+      const ctx = makeCtx({
+        providerResponses: [textResponse("The delegated result is ready.")],
+      });
+      await runAgentLoopImpl(
+        ctx,
+        "internal task completion",
+        "msg-completion",
+        () => {},
+        { cronRunId: "run-schedule" },
+      );
+      expect(projectAssistantMessageMock).toHaveBeenCalled();
+      expect(emitBackgroundResultNotificationMock).toHaveBeenCalledTimes(1);
+      expect(emitBackgroundResultNotificationMock.mock.calls[0]).toMatchObject([
+        {
+          conversationId: "test-conv",
+          assistantMessageId: "msg-reserve",
+          userMessageId: "msg-completion",
+          cronRunId: "run-schedule",
+        },
+      ]);
+    });
+
     test("a completed turn notifies with the row that opened it", async () => {
       mockMessageById = {
         id: "msg-reserve",

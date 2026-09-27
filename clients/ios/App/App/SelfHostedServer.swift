@@ -4,8 +4,8 @@ import Foundation
 /// of the baked Vellum Cloud URL.
 ///
 /// The active value lives in `UserDefaults` under `self_hosted_server_url`,
-/// written either from the native Settings pane (`Settings.bundle`), the
-/// `vellum-assistant://connect` deep link, or the `SelfHostedServers` plugin.
+/// written either from the native Settings pane (`Settings.bundle`), a
+/// confirmed `vellum-assistant://connect` deep link, or the `SelfHostedServers` plugin.
 /// An empty or absent value means the shell uses its baked default (Vellum
 /// Cloud), which is the unchanged default experience. Alongside the active
 /// slot, `self_hosted_servers` remembers every paired origin as a
@@ -76,7 +76,11 @@ enum SelfHostedServer {
               let url = URL(string: trimmed),
               url.scheme?.lowercased() == "https",
               let host = url.host,
-              !host.isEmpty
+              !host.isEmpty,
+              url.user == nil,
+              url.password == nil,
+              url.query == nil,
+              url.fragment == nil
         else {
             return nil
         }

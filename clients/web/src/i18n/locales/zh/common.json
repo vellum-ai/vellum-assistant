@@ -154,12 +154,6 @@
         }
       },
       "close": "关闭",
-      "confirm": {
-        "body": "只需大约一分钟。我迫不及待想向你展示我能在桌面上做些什么。",
-        "keep": "开始导览",
-        "skip": "暂时跳过",
-        "title": "跳过导览？"
-      },
       "previewLabel": "你的桌面助手",
       "previewAssistantName": "Quill",
       "start": "出发吧",
@@ -212,6 +206,8 @@
     },
     "permission": {
       "microphoneAction": "启用麦克风",
+      "microphoneSettingsHint": "在系统设置中打开 Vellum 的麦克风开关，然后返回这里。",
+      "microphonePromptHint": "macOS 会请求你允许使用麦克风。",
       "microphoneBody": "允许我使用你的麦克风进行语音对话。",
       "shortcutBody": "允许我在你使用其他应用时识别快捷键。",
       "screenAction": "启用屏幕共享",
@@ -1046,5 +1042,13 @@
     "close": "关闭",
     "closePanel": "关闭面板",
     "loading": "加载中…"
+  },
+  "permissionGuide": {
+    "back": "返回引导",
+    "dragInstruction": "将 {app} 拖入列表以允许{permission}。",
+    "dragApp": "将 {app} 拖到系统设置，或点击以在访达中显示",
+    "dragError": "无法拖动。请尝试从访达中拖动。",
+    "showInFinder": "在访达中显示",
+    "inputLabel": "输入监控"
   }
 }

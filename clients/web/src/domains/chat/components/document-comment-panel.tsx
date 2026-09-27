@@ -1,9 +1,10 @@
 import { Button, Tag, Typography } from "@vellumai/design-library";
-import { MessageSquareText, Send, X } from "lucide-react";
+import { MessageSquareQuote, Send, X } from "lucide-react";
 import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -36,6 +37,8 @@ export interface DocumentCommentPanelProps {
   conversationId: string;
   onClose: () => void;
   onCommentSelect?: (comment: DocumentsByIdCommentsPostResponse) => void;
+  /** Every list the panel loads, so the host can mirror counts and anchors. */
+  onCommentsLoaded?: (comments: DocumentsByIdCommentsPostResponse[]) => void;
   onSubmitFeedback?: () => void;
   /** Imperative handle for SSE-driven refresh triggers. */
   handleRef?: Ref<DocumentCommentPanelHandle>;
@@ -56,6 +59,7 @@ export function DocumentCommentPanel({
   conversationId,
   onClose,
   onCommentSelect,
+  onCommentsLoaded,
   onSubmitFeedback,
   handleRef,
 }: DocumentCommentPanelProps) {
@@ -65,6 +69,10 @@ export function DocumentCommentPanel({
   );
   const [loading, setLoading] = useState(true);
   const mountedRef = useRef(true);
+  const onCommentsLoadedRef = useRef(onCommentsLoaded);
+  useLayoutEffect(() => {
+    onCommentsLoadedRef.current = onCommentsLoaded;
+  });
 
   const loadComments = useCallback(
     async (signal?: AbortSignal) => {
@@ -72,6 +80,7 @@ export function DocumentCommentPanel({
         const result = await fetchComments(assistantId, surfaceId);
         if (!signal?.aborted && mountedRef.current) {
           setComments(result);
+          onCommentsLoadedRef.current?.(result);
         }
       } finally {
         if (!signal?.aborted && mountedRef.current) {
@@ -174,7 +183,7 @@ export function DocumentCommentPanel({
   return (
     <div className="flex h-full w-80 flex-col border-l border-[var(--border-base)] bg-[var(--surface-overlay)]">
       <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border-base)] px-4 py-3">
-        <MessageSquareText
+        <MessageSquareQuote
           size={16}
           style={{ color: "var(--content-secondary)" }}
         />
@@ -208,7 +217,7 @@ export function DocumentCommentPanel({
           </div>
         ) : topLevelComments.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-2 py-12">
-            <MessageSquareText
+            <MessageSquareQuote
               size={32}
               style={{ color: "var(--content-tertiary)" }}
             />

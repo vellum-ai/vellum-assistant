@@ -146,7 +146,7 @@ export function BillingUsagePanel() {
         {/* Stat squares: total spend + event count */}
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <StatSquare
-            icon={<Coins className="h-4 w-4" aria-hidden />}
+            icon={<Coins />}
             value={
               isLoading ? (
                 <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
@@ -157,7 +157,7 @@ export function BillingUsagePanel() {
             label={t("billingUsagePanel.spendLabel")}
           />
           <StatSquare
-            icon={<Target className="h-4 w-4" aria-hidden />}
+            icon={<Target />}
             value={
               isLoading ? (
                 <Loader2 className="h-4 w-4 animate-spin" aria-hidden />

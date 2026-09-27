@@ -68,11 +68,6 @@ describe("route policy coverage", () => {
     //     handler calls `assertPlaygroundEnabled()`, so the surface
     //     is invisible in prod regardless of policy.
     //
-    // GROUP C — pre-existing latent unprotected on main (the prior
-    // registry had no entry for these endpoints, so `enforcePolicy`
-    // returned allowed). Migration preserves behavior. Triage these
-    // and assign real policies in a follow-up PR:
-    //   - integrations/a2a/invite/accept
     const INTENTIONALLY_UNPROTECTED = new Set([
       // A — design-intentional
       "health",
@@ -87,8 +82,6 @@ describe("route policy coverage", () => {
       "playground/seed-conversation",
       "playground/seeded-conversations",
       "playground/seeded-conversations/:id",
-      // C — pre-existing latent unprotected (follow-up audit owed)
-      "integrations/a2a/invite/accept",
     ]);
 
     const unprotectedFound: string[] = [];

@@ -69,10 +69,17 @@ mock.module("../../persistence/conversation-crud.js", () => ({
     messageId === ASSISTANT_MESSAGE_ID
       ? assistantRow
       : (turnRows.find((row) => row.id === messageId) ?? null),
-  getAssistantMessageIdsInTurn: (messageId: string) =>
-    messageId === ASSISTANT_MESSAGE_ID
-      ? [...turnRows.map((row) => row.id), ASSISTANT_MESSAGE_ID]
-      : [messageId],
+  getRecentConversationMessages: (
+    _conversationId: string,
+    limit: number,
+    beforeMessageId?: string,
+  ) => {
+    const history = [...turnRows, ...(assistantRow ? [assistantRow] : [])];
+    const end = beforeMessageId
+      ? history.findIndex((row) => row.id === beforeMessageId)
+      : history.length;
+    return history.slice(Math.max(0, end - limit), end);
+  },
   getMessagesAfter: () => toolResultRows,
 }));
 

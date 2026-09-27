@@ -1,3 +1,4 @@
+import { createPermissionSetupBridge } from "@vellumai/electron-desktop/preload";
 import {
   contextBridge,
   ipcRenderer,
@@ -21,6 +22,7 @@ import type {
   CompanionCaptureSources,
   CompanionContext,
   ScreenCaptureFrame,
+  ShareTargetSnapshot,
   WatchCaptureTarget,
   CompanionIntroAction,
   CompanionIntroAnnouncementAction,
@@ -287,6 +289,7 @@ const bridge: VellumBridge = {
     },
   },
   permissions: {
+    setup: createPermissionSetupBridge(ipcRenderer),
     getState: (): Promise<SystemPermissionsState> =>
       ipcRenderer.invoke(
         "vellum:permissions:getState",
@@ -671,6 +674,13 @@ const bridge: VellumBridge = {
         "vellum:companion:captureScreen",
         target,
       ) as Promise<ScreenCaptureFrame | null>,
+    shareTargets: (
+      target: WatchCaptureTarget,
+    ): Promise<ShareTargetSnapshot | null> =>
+      ipcRenderer.invoke(
+        "vellum:companion:shareTargets",
+        target,
+      ) as Promise<ShareTargetSnapshot | null>,
     captureSourceThumbnail: (
       target: WatchCaptureTarget,
     ): Promise<string | null> =>

@@ -14,6 +14,7 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { mergeConversationLists } from "@/utils/conversation-cache";
 import { navigateToConversation } from "@/utils/conversation-navigation";
 import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
+import type { GuardianDecisionActionId } from "@vellumai/service-contracts/guardian-requests";
 import {
   BottomSheet,
   Button,
@@ -23,7 +24,6 @@ import {
 } from "@vellumai/design-library";
 import { toast } from "@vellumai/design-library/components/toast";
 
-import type { HomeRecapRowDecision } from "../home-recap-row";
 import { useFeedItemConversationLink } from "../hooks/use-feed-item-conversation-link";
 import { useFeedItemEntityLinks } from "../hooks/use-feed-item-entity-links";
 import { useFeedItemReceiptTitle } from "../hooks/use-feed-item-receipt-title";
@@ -223,7 +223,7 @@ export function NotificationsBell() {
   // One decision serves every row, so all of their buttons go inert together
   // while one is in flight.
   const decision = useGuardianDecision();
-  const handleDecide = (item: FeedItem, action: HomeRecapRowDecision) => {
+  const handleDecide = (item: FeedItem, action: GuardianDecisionActionId) => {
     const requestId = item.guardianRequest?.requestId;
     if (requestId) {
       decision.decide(requestId, action);

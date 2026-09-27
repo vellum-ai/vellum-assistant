@@ -11,6 +11,7 @@ This file is the cross-system architecture index. Detailed designs live in domai
 | Browser extension                           | [`clients/chrome-extension/README.md`](clients/chrome-extension/README.md)                         |
 | Clients (web, iOS, Android, macOS, Windows) | [`clients/README.md`](clients/README.md)                                                           |
 | Mobile document chat session                | [`clients/web/docs/DOCUMENT_CHAT.md`](clients/web/docs/DOCUMENT_CHAT.md)                           |
+| Native live camera sampling                 | [`clients/android/README.md`](clients/android/README.md#live-camera-sampling)                       |
 | Conversation assets                         | [`clients/web/docs/CONVERSATION_ASSETS.md`](clients/web/docs/CONVERSATION_ASSETS.md)               |
 | Public docs site (`clients/docs`)           | [`clients/docs/README.md`](clients/docs/README.md)                                                 |
 | Assistant memory deep dive                  | [`assistant/docs/architecture/memory.md`](assistant/docs/architecture/memory.md)                   |
@@ -29,6 +30,7 @@ This file is the cross-system architecture index. Detailed designs live in domai
 | Workflow orchestration engine               | [Workflow Orchestration Engine](#workflow-orchestration-engine) (this file)                        |
 | Watch sessions                              | [Watch Sessions](#watch-sessions) (this file)                                                      |
 | Screen annotation                           | [Screen Annotation](#screen-annotation) (this file)                                                |
+| Completion notifications                    | [Completion Notifications](#completion-notifications) (this file)                                 |
 | Notification sender avatars                 | [Notification Sender Avatars](#notification-sender-avatars) (this file)                            |
 | Workflow authoring guide                    | [`assistant/docs/workflows.md`](assistant/docs/workflows.md)                                       |
 | Workflow manual testing runbook             | [`assistant/docs/workflows-testing.md`](assistant/docs/workflows-testing.md)                       |
@@ -625,6 +627,12 @@ subgraph "Text Q&A Session"
     classDef provider fill:#ef5350,stroke:#c62828,color:#fff
 ```
 
+Computer-use observations pass screenshots through the shared transport
+optimizer before formatting their metadata. Screenshot dimensions come from
+the emitted image bytes. Full-desktop results include per-axis conversion to
+screen points; window/display-scoped captures do not derive this mapping from
+the main display's dimensions. Actions keep their existing screen-point units.
+
 Computer-use screenshots are materialized as canonical attachment rows while
 their tool-result messages are finalized. Every screenshot keeps that
 tool-result link. At turn completion, only the last screenshot-bearing
@@ -812,6 +820,45 @@ See [Voice input diagnostics](assistant/docs/voice-input-diagnostics.md) for the
 
 With Flux turn detection enabled, microphone audio passes through for one second after locally detected speech, then room audio becomes digital silence. A bounded 200 ms buffer preserves the lead-in to resumed speech without replaying already-submitted audio. Confirmed playback echo becomes silence before buffering. Flux retains an elapsed-audio timeline through pauses. In hands-free Flux sessions, provider `StartOfTurn` owns interruption: local energy alone cannot emit `speech_started` or cancel a reply, even when provider end-of-turn handling is disabled. Other providers retain the local sustained-speech guard, and manual sessions retain client-owned interruption. Gate transitions, submission cadence, interruption source, and provider turn-end confidence, trigger, and audio position are logged for correlation with the input measurements.
 
+## macOS Companion Tour Permissions
+
+The existing companion coachmarks request Microphone for calls, Input Monitoring
+for the voice key, and Screen Recording for sharing, only when their lesson needs
+access. Microphone uses its native prompt. Input Monitoring and Screen Recording
+can detach from the coachmark into a guide beside System Settings, with a native
+file drag of the capturing Vellum Helper application. Other app permissions stay
+outside the companion tour.
+
+The informational introduction waits for an active assistant before offering the
+coachmarks. Losing assistant readiness clears an interrupted tour and its dimming
+without completing it. Talk and voice-key practice cannot start a call; microphone
+setup belongs to the final, explicit call action.
+
+Main resolves the app-owned drag path and accepts drag and Finder actions only
+from the current guide's WebContents. The guide follows the main Settings window
+by its pinned window id. Before dragging or revealing in Finder it stops following
+and yields its floating level so authentication dialogs remain accessible. The
+same coachmark resumes on an actual permission grant or Back; leaving the lesson
+cancels its guide, including pending app lookups.
+
+```mermaid
+flowchart LR
+    TOUR["Companion permission coachmark"] --> GUIDE["Native drag guide"]
+    TOUR --> SERVICE["PermissionsService"]
+    GUIDE --> SETTINGS["System Settings helper app list"]
+    HELPER["Native helper window inventory"] --> GUIDE
+    SERVICE -->|actual OS grant| STATE["Permission state broadcast"]
+    STATE --> TOUR
+    STATE -->|dismiss guide| GUIDE
+```
+
+The helper's existing window inventory provides Settings bounds without taking
+a screenshot or requesting Accessibility. The guide polls actual permission
+state, follows Settings across displays, and tears down its timers when dismissed,
+replaced, granted, or expired. Native prompt permissions retain their existing
+request path. The optional setup bridge preserves older-shell and other-platform
+behavior. See [the macOS client](clients/macos/README.md).
+
 ## Watch Sessions
 
 A watch session records what the user narrates while they work and reads their screen around it. The microphone and the socket live in the browser (`clients/web/src/domains/chat/watch/watch-controller.ts`); the cadence, the observations, and the timeline live in the daemon (`assistant/src/watch/watch-session-manager.ts`). The client draws nothing during a session: frames going the other way are lifecycle only, and the retrospective is a conversational turn after the socket is gone.
@@ -888,6 +935,8 @@ Plank runs on the managed desktop D-Bus session with private XDG configuration/d
 
 Before launching Chrome or exposing its dock launcher, the Linux container session writes `CommandLineFlagSecurityWarningsEnabled=false` and `PasswordManagerEnabled=false` to `/etc/opt/chrome/policies/managed/vellum-desktop.json`. The extracted Google Chrome binary reads this system policy directory independently of its install location. This idempotent startup step covers fresh and previously installed desktops, preserves other policy files and unrelated values, and logs policy write failures without blocking the desktop. The policy hides command-line security warnings after Chrome restarts; it does not re-enable the sandbox or change launch flags. Password saving is disabled to suppress save-password prompts during automation; previously saved passwords remain usable. Chrome does not silently save new passwords with this policy. Host Chrome policies are untouched.
 
+The same managed policy file sets `NetworkPredictionOptions=2` to disable speculative DNS prefetching, TCP/SSL preconnections, and page prerendering in virtual desktop Chrome. This avoids speculative background work at the cost of potential navigation latency.
+
 `desktop-wallpaper.ts` runs `desktop-wallpaper-renderer.ts` in a short-lived worker process. The renderer reads the current avatar manifest and reuses the notification avatar renderer for character and uploaded images. It composites the avatar over a dark, accent-tinted background with subtle rings and raised lettering reading `[assistant name] OS`. The wordmark reads the existing identity name, falls back to `Vellum OS` for unset identities, escapes XML, and measures text to fit long names using the desktop setup fonts. The session manager refreshes `data/desktop-panel/wallpaper.png` on desktop start and viewer reconnect, then runs `feh --no-fehbg --bg-fill` on the existing display. Identity and avatar reads, rendering, and PNG encoding all run in that worker. Missing character rasters are generated in memory; the worker never writes avatar manifests, images, or sidecars. It has a 30-second timeout and returns its PNG through a private temporary directory that is removed after completion or failure. Rendering and application are cosmetic and do not delay Chrome or fail the stream. A missing or unreadable avatar leaves the gradient and rings; unavailable native rendering leaves the X background unchanged. Reconnects during a render queue one fresh render of the latest avatar and discard the superseded result. Generation checks discard renders and queued refreshes after teardown. Wallpaper generation runs on demand under the existing flag.
 
 **Transport.** `/v1/desktop/stream` is a pure RFB byte pipe: after the upgrade, every frame in both directions is binary and `DesktopStreamBridge` (`desktop-stream-bridge.ts`) pumps it to and from the VNC port, buffering client bytes that arrive before that socket is up. Nothing is signaled in-band; outcomes are close codes in the application range so they can neither collide with velay's own `1013` nor be remapped by the gateway's velay bridge. The manager decides them and the bridge only relays (`DesktopLoss`, through the viewer-slot result, `onDesktopLost`, or the `DesktopStartError` a start rejects with): `4008` desktop disabled or unsupported on this daemon, `4013` another viewer holds the slot, `4011` the desktop failed to start, died under the viewer, or the viewer fell too far behind (a dropped `ws.send`), and the standard `1001` when the runtime is shutting down, whether the socket arrived after shutdown began or a live viewer is cut off by it. On the managed path velay's bridge carries the runtime's `1001` as `4001` and the gateway's `1011` as `4011`, both of which the panel treats as retryable endings. The daemon upgrade is gated exactly as `/v1/watch/stream` (private-network peer and origin, gateway service token, one shared `upgradeRuntimeStream` path); the feature gate runs after the upgrade because the gateway relays close codes, not HTTP statuses, to the browser. VNC needs no password: only same-pod processes can reach the loopback port, and the authenticated upgrade is the only bridge to it.
@@ -910,6 +959,8 @@ An automation slot keeps the desktop alive independently of the viewer. The pict
 
 ## Screen Annotation
 
+Voice escalation normally starts with `[ESCALATE]` before a holding phrase. During screen sharing, the front door can choose `[ESCALATE_SCREEN]` for an annotation or immediate screen action requiring only the visible screen and conversation. With an active share, that verdict skips fresh memory retrieval on the escalated leg while retaining resident history and static context. Ordinary escalations keep retrieval enabled. The shared parser also recovers either explicit verdict at the end of a completed front-door reply, using already streamed speech as its acknowledgement without repeating it or delaying answer streaming. The numeric `[1]` verdict remains supported only at the start of a reply. Interior or incomplete markers do not trigger terminal recovery, and cancelled turns cannot hand off.
+
 The assistant points at things on the screen the user is sharing with a call, so they can go and do the thing themselves. It is the opposite errand from computer use and shares none of its actions: nothing here clicks, types or takes the mouse. The bundled `screen-annotation` skill (`assistant/src/config/bundled-skills/screen-annotation/`) offers two tools, `screen_point_at` and `screen_clear_marks`, and a request replaces whatever is currently drawn. Clearing is its own tool because it is a thing the model decides to do rather than an argument shape it has to remember; on the wire it is the same request carrying no marks.
 
 For live-voice clients that advertise `lookFrames`, a `LOOK:SCREEN` control obtains a fresh view and starts sharing if necessary. The pending look retains the original caller request and any caller turns committed while it waits. Once its frame arrives, the hidden follow-up uses the combined request for front-door routing and carries it into the tool-capable leg if it escalates. Speculative caller turns contribute only after committing, including when their frame has already arrived. A caller turn launched after the frame suppresses the follow-up because it can already see that frame. The vision-capable front door decides whether the request needs annotation or only a spoken answer; hidden follow-ups skip the text-only escalation judge because it cannot assess the captured view. Capturing a frame does not complete a request to point at a control.
@@ -919,6 +970,8 @@ For live-voice clients that advertise `lookFrames`, a `LOOK:SCREEN` control obta
 **Routing.** The tools forward under the wire name `computer_use_point_at` (`assistant/src/tools/computer-use/skill-proxy-bridge.ts`), because that prefix is what `surfaceProxyResolver` routes to a desktop client. `hostCuCapabilityFor` maps that one name to `host_cu_annotate`, so the same-actor gate and the audit line name the capability that actually gated the request, and the call is exempt from the computer-use step budget.
 
 **Voice discovery.** The screen-share client sends `update_config.screenSharing` at share start, stop, and reconnect. Tool-capable macOS voice turns with a shared screen load the current `screen-annotation` instructions and tool schemas through the read-only skill loader into their turn context. Preactivation registers executable tools; this load also tells the model how to call them through `skill_execute`, independently of memory skill-card selection. The connected same-actor annotation capability still gates the load. Front-door turns remain toolless, and older clients that omit the optional field retain ordinary skill discovery.
+
+**Names offered before the first lookup.** At share start, at a look, and as the user starts talking, the screen-share client reads the surface's named controls (`vellum:companion:shareTargets`, the helper's `ax.candidates`, the same clipped set `ax.locate` resolves against) once its frame is in hand, and sends the snapshot on `update_config.shareTargets`. Electron main prunes it (`clients/macos/src/main/share-targets.ts`: no 1pt rows, no controls whose middle is off the surface, one entry per exact name with a duplicate count, at most 40 with interactive roles first) and gives each entry a stable id from its role and name plus its nearest named container. The live-voice session keeps the newest snapshot until the share ends, and a tool-capable leg that loads the annotation instructions also receives it as a `<shared_screen_controls>` block (`assistant/src/live-voice/share-targets.ts`): exact names, role, section and a coarse position word, no coordinates. The model can then pass a tree name such as `root_Filters` on its first attempt instead of learning it from a failed lookup. A client or helper without the read sends nothing, and the turn falls back to the lookup's own candidate list.
 
 **Answered in Electron main, not in the helper.** `PointAtExecutor` (`clients/macos/src/main/executors/host-cu-executor.ts`) intercepts the pointing tool and forwards every other tool to the shared native helper. The frame the marks land on belongs to this client, and the shared executor is the transport every desktop client uses. The painter itself is handed in by `host-proxy-adapter.ts` rather than imported, since an executor reaching into the window layer would be the transport depending on what it transports to.
 
@@ -944,6 +997,7 @@ graph LR
     LOCATE["ax.locate<br/>AXTargetMatch · clipped"]
     FRAME["Watch frame<br/>companion-coachmarks.tsx"]
 
+    CANDS["ax.candidates<br/>share-targets.ts · pruned"] -->|"update_config.shareTargets · offered before the first call"| SKILL
     SKILL --> BRIDGE
     BRIDGE --> ROUTE
     ROUTE -->|"dispatch to the claiming client"| SSE
@@ -959,6 +1013,28 @@ graph LR
     PRESS -->|"input.pressed · index"| PAINT
     PAINT -->|"coachmarkPressed · label"| TURN["root layout<br/>coachmark-press-turn · sendText"]
 ```
+
+## Completion Notifications
+
+Unseen replies, non-quiet scheduled results, and explicitly identified background results enter the existing `emitNotificationSignal()` pipeline. Completion presentation is resolved independently of urgency: ordinary completions can produce a local banner without becoming high-priority alerts. Local previews require the canonical recipient principal and use targeted `notification_intent` delivery. The existing platform route retains mobile push ownership and acknowledgement handling.
+
+Completion suppression uses the intended recipient's fresh presence in the result conversation. Browser presence requires a visible, focused window; Electron supplies its authoritative window attention. Activity elsewhere on the computer does not count as attending the result. Parent continuations own delegated task and background-tool completion alerts after the user-facing result is persisted. Scheduled runs retain their existing owner, while private output, silent work, and pending child work do not announce completion.
+
+Open desktop-browser tabs keep their existing event stream connected while hidden. Notification permission is requested through an explicit settings action. Same-origin browser tabs coordinate posting through Web Locks and a bounded receipt ledger scoped to account, assistant, and delivery identity. Where those APIs are unavailable, page-local deduplication and a stable OS tag provide best-effort delivery. Closing, freezing, or discarding the tab stops the live-delivery guarantee; reconnect restores normal conversation and feed state.
+
+```mermaid
+flowchart LR
+    Reply[Final unseen reply] --> Signal[Notification signal]
+    Schedule[Scheduled result] --> Signal
+    Parent[Persisted parent continuation] --> Signal
+    Signal --> Policy[Presence and completion policy]
+    Policy --> Local[Recipient-targeted local intent]
+    Policy --> Platform[Existing mobile push route]
+    Local --> Desktop[Electron notification owner]
+    Local --> Browser[Browser tab delivery owner]
+```
+
+See [notification delivery](assistant/src/notifications/README.md) and [web lifecycle events](clients/web/docs/EVENT_BUS.md).
 
 ## Notification Sender Avatars
 

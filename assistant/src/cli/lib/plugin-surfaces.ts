@@ -23,6 +23,8 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
+import { z } from "zod";
+
 /** A schedule the plugin declares under `schedules/`. */
 export interface PluginScheduleSurface {
   /** Schedule name: the declaration directory's name. */
@@ -124,15 +126,14 @@ function listSkillIds(skillsDir: string): string[] {
 /** Matches a `---` delimited YAML frontmatter block at the start of a file. */
 const FRONTMATTER_REGEX = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/;
 
+const ScheduleConfigSchema = z.object({
+  expression: z.string().refine((expression) => expression.trim() !== ""),
+});
+
 /** Read the raw `expression` string from a parsed schedule config, or `null`. */
 function readConfigExpression(config: unknown): string | null {
-  if (typeof config !== "object" || config === null || Array.isArray(config)) {
-    return null;
-  }
-  const expression = (config as Record<string, unknown>).expression;
-  return typeof expression === "string" && expression.trim() !== ""
-    ? expression
-    : null;
+  const parsed = ScheduleConfigSchema.safeParse(config);
+  return parsed.success ? parsed.data.expression : null;
 }
 
 /**

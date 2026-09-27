@@ -16,12 +16,14 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { z } from "zod";
+
 import { getWorkspacePluginsDir } from "../../util/platform.js";
 import {
   LEGACY_PLUGIN_MANIFEST,
   readPluginManifest,
 } from "../../util/plugin-manifest.js";
-import { parsePluginIcon } from "./plugin-artifact.js";
+import { PluginPackageJsonSchema } from "./plugin-artifact.js";
 import { readValidatedPluginIcon } from "./plugin-icon-file.js";
 
 /**
@@ -38,6 +40,15 @@ const DEFAULT_PLUGINS_DIR = join(
   "plugins",
   "defaults",
 );
+
+const DefaultPluginManifestSchema = z.object({
+  name: z.string(),
+  version: z.string().optional().catch(undefined),
+});
+
+const InstallMetadataSchema = z.object({
+  installedAt: z.string(),
+});
 
 /** Minimal manifest fields surfaced to the CLI. */
 export interface PluginPackageMetadata {
@@ -163,23 +174,17 @@ function readPluginEntry(
     issues.push(err instanceof Error ? err.message : String(err));
     return { name, target, packageJson: null, issues, ...iconFields };
   }
-  const meta = manifest.raw;
-  const icon =
-    manifest.source === LEGACY_PLUGIN_MANIFEST
-      ? parsePluginIcon(meta)
-      : undefined;
+  const parsedPackageJson = PluginPackageJsonSchema.safeParse(manifest.raw);
+  const legacyMetadata =
+    manifest.source === LEGACY_PLUGIN_MANIFEST && parsedPackageJson.success
+      ? parsedPackageJson.data
+      : null;
   const packageJson: PluginPackageMetadata = {
     name: manifest.name,
     version: manifest.version,
     description: manifest.description,
-    peerDependencies:
-      manifest.source === LEGACY_PLUGIN_MANIFEST &&
-      typeof meta.peerDependencies === "object" &&
-      meta.peerDependencies !== null &&
-      !Array.isArray(meta.peerDependencies)
-        ? (meta.peerDependencies as Record<string, string>)
-        : undefined,
-    ...(icon ? { icon } : {}),
+    peerDependencies: legacyMetadata?.peerDependencies,
+    ...(legacyMetadata?.icon ? { icon: legacyMetadata.icon } : {}),
   };
 
   return { name, target, packageJson, issues, ...iconFields };
@@ -319,14 +324,11 @@ function readDefaultPluginManifests(): readonly DefaultPluginManifest[] {
       continue;
     }
     try {
-      const raw = readFileSync(pkgJsonPath, "utf8");
-      const parsed = JSON.parse(raw) as Record<string, unknown>;
-      if (typeof parsed.name === "string") {
-        manifests.push({
-          name: parsed.name,
-          version:
-            typeof parsed.version === "string" ? parsed.version : undefined,
-        });
+      const parsed = DefaultPluginManifestSchema.safeParse(
+        JSON.parse(readFileSync(pkgJsonPath, "utf8")),
+      );
+      if (parsed.success) {
+        manifests.push(parsed.data);
       }
     } catch {
       // Skip malformed entries — lenient like listInstalledPlugins.
@@ -345,12 +347,11 @@ function getPluginInstallDate(plugin: AllPluginInfo): number {
   const metaPath = join(plugin.target, "install-meta.json");
   try {
     if (existsSync(metaPath)) {
-      const raw = JSON.parse(readFileSync(metaPath, "utf8")) as Record<
-        string,
-        unknown
-      >;
-      if (typeof raw.installedAt === "string") {
-        const ms = Date.parse(raw.installedAt);
+      const parsed = InstallMetadataSchema.safeParse(
+        JSON.parse(readFileSync(metaPath, "utf8")),
+      );
+      if (parsed.success) {
+        const ms = Date.parse(parsed.data.installedAt);
         if (Number.isFinite(ms)) {
           return ms;
         }

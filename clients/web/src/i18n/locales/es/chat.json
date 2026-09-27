@@ -136,7 +136,6 @@
       "background": "En segundo plano",
       "done": "Hecho"
     },
-    "doneMeta": "Hecho · {time}",
     "empty": "Aún no hay chats aquí.",
     "filterAria": "Filtrar chats",
     "loadError": "No se pudieron cargar tus chats.",
@@ -144,7 +143,14 @@
     "noMatches": "Ningún chat coincide con «{query}».",
     "retry": "Reintentar",
     "searchPlaceholder": "Buscar chats",
-    "title": "Todos los chats"
+    "title": "Todos los chats",
+    "close": "Cerrar todos los chats",
+    "openChat": "Ir a la conversación",
+    "doneLabel": "{title}, completado",
+    "unread": "Sin leer",
+    "running": "En curso",
+    "needsAttention": "Requiere atención",
+    "runningCount": "{count, plural, one {# tarea en curso} other {# tareas en curso}}"
   },
   "sessionGroupRow": {
     "mode": {
@@ -379,6 +385,22 @@
     "unsupported": "Este dispositivo no puede abrir una cámara.",
     "uploadFailed": "No se pudo enviar esa foto."
   },
+  "cameraExplainer": {
+    "close": "Cerrar",
+    "gotIt": "Entendido",
+    "liveBody": "{name} mira mientras mueves la cámara. Solo habla de lo que {name} ve.",
+    "liveBodyDesktop": "{name} mira mientras mueves la cámara. Solo habla de lo que {name} ve. Detenlo cuando quieras.",
+    "liveTag": "En vivo",
+    "liveTitle": "En vivo",
+    "photoBody": "Toma una foto. {name} ve solo esa foto.",
+    "photoTitle": "Foto",
+    "privacy": "Todo lo que {name} ve se queda en el espacio de trabajo privado de {name}. El modo en vivo termina cuando cierras la cámara.",
+    "subtitle": "Elige cómo {name} ve lo que estás enfocando. Puedes cambiar cuando quieras.",
+    "title": "¿Foto o en vivo?",
+    "tryLive": "Probar en vivo ahora",
+    "tryLiveDesktop": "Probar en vivo",
+    "yourAssistant": "tu asistente"
+  },
   "cameraShutterHint": {
     "live": "En vivo · Toca para detener",
     "liveDescription": "Toca para detener el video en vivo.",
@@ -400,10 +422,11 @@
   },
   "cameraViewOptions": {
     "buttonAria": "Opciones de vista de la cámara",
-    "gateHudDescription": "El panel de ajuste de lo que conserva el modo en vivo.",
-    "gateHudTitle": "Lectura del filtro de fotogramas",
-    "keptFrameDescription": "El último fotograma enviado en vivo, junto a tus fotos. El envío continúa igualmente.",
-    "keptFrameTitle": "Último fotograma",
+    "gateHudDescription": "Superposición de depuración: cómo el modo en vivo elige qué fotogramas enviar.",
+    "gateHudTitle": "Ajuste del filtro de fotogramas",
+    "howItWorks": "Cómo funcionan Foto y En vivo",
+    "keptFrameDescription": "Muestra el fotograma más reciente que envió el modo en vivo.",
+    "keptFrameTitle": "Último fotograma compartido",
     "title": "Mostrar"
   },
   "cardSurface": {
@@ -464,6 +487,24 @@
     "attachFileAria": "Adjuntar archivo",
     "dismiss": "Descartar",
     "removeAria": "Quitar {filename}"
+  },
+  "emailReferenceChip": {
+    "noSubject": "(sin asunto)",
+    "captionReceived": "Recibido · De {name} · {date}",
+    "captionReceivedUndated": "Recibido · De {name}",
+    "captionSent": "Enviado · Para {name} · {date}",
+    "captionSentUndated": "Enviado · Para {name}",
+    "tooltip": "{subject}\n{caption}",
+    "removeAria": "Quitar el correo {subject}"
+  },
+  "emailReferenceCard": {
+    "noSubject": "(sin asunto)",
+    "captionReceived": "Recibido · De {name} · {date}",
+    "captionReceivedUndated": "Recibido · De {name}",
+    "captionSent": "Enviado · Para {name} · {date}",
+    "captionSentUndated": "Enviado · Para {name}",
+    "tooltip": "{subject}\n{caption}",
+    "openAria": "Abrir el correo {subject} en la bandeja"
   },
   "chatBody": {
     "dropFiles": "Suelta archivos para adjuntarlos"
@@ -638,6 +679,7 @@
     "warningTitle": "Esto parece una clave de API"
   },
   "composerSettingsMenu": {
+    "autoPreview": "Auto · {profile}",
     "accessAria": "Acceso del asistente: {label}",
     "assistantAccess": "Acceso del asistente",
     "assistantAccessTitle": "Acceso del asistente",
@@ -732,8 +774,6 @@
     "markRead": "Marcar como leída",
     "markUnread": "Marcar como no leída",
     "moveToGroup": "Mover al grupo",
-    "newDocument": "Nuevo documento",
-    "newDocumentFailed": "No se pudo crear el documento. Inténtalo de nuevo.",
     "newGroup": "Nuevo grupo…",
     "openInNewWindow": "Abrir en una ventana nueva",
     "pin": "Fijar",
@@ -798,8 +838,8 @@
   },
   "csvPreview": {
     "emptyFile": "Este archivo está vacío",
-    "summary": "{rows} filas x {columns} columnas",
-    "summaryTruncated": "{rows} filas x {columns} columnas (truncado)"
+    "summary": "{rows, plural, one {# fila} other {# filas}} x {columns, plural, one {# columna} other {# columnas}}",
+    "summaryTruncated": "{rows, plural, one {# fila} other {# filas}} x {columns, plural, one {# columna} other {# columnas}} (truncado)"
   },
   "dailyLimitBanner": {
     "skipConfirmTitle": "¿Omitir el límite de créditos de hoy?",
@@ -856,8 +896,8 @@
     "close": "Cerrar",
     "closeDocumentAria": "Cerrar documento",
     "comments": "Comentarios",
+    "commentsWithOpenCount": "{count, plural, one {Comentarios, # abierto} other {Comentarios, # abiertos}}",
     "export": "Exportar",
-    "hideComments": "Ocultar comentarios",
     "menuAria": "Opciones del documento",
     "rename": "Cambiar nombre",
     "renameFailed": "No se pudo cambiar el nombre del documento.",
@@ -1265,6 +1305,7 @@
     "title": "Archivos"
   },
   "messageHoverActions": {
+    "autoRouted": "Auto · {profile}",
     "bookmark": "Marcador",
     "copied": "Copiado",
     "copy": "Copiar",
@@ -1434,6 +1475,8 @@
   },
   "preferencesUsagePanel": {
     "addCreditsAriaLabel": "Añadir créditos",
+    "dailyExhausted": "Uso diario agotado. Añade créditos para continuar.",
+    "dailyTitle": "Uso diario",
     "exhausted": "Añade créditos para continuar.",
     "extraCredits": "Usando créditos de uso adicional",
     "pctUsed": "{pct}% usado",
@@ -1798,8 +1841,29 @@
   },
   "tiptapDocumentEditor": {
     "adding": "Añadiendo…",
+    "blockquote": "Cita",
+    "bold": "Negrita",
+    "bulletList": "Lista con viñetas",
+    "code": "Código",
     "comment": "Comentar",
-    "feedbackPlaceholder": "Añade tu comentario…"
+    "feedbackPlaceholder": "Añade tu comentario…",
+    "heading1": "Título 1",
+    "heading2": "Título 2",
+    "heading3": "Título 3",
+    "italic": "Cursiva",
+    "link": "Enlace",
+    "linkAddress": "Dirección del enlace",
+    "linkApply": "Aplicar enlace",
+    "linkInvalid": "Usa una dirección web o de correo",
+    "linkPlaceholder": "Pega o escribe un enlace",
+    "linkRemove": "Quitar enlace",
+    "orderedList": "Lista numerada",
+    "paragraph": "Texto",
+    "placeholder": "Empieza a escribir…",
+    "remoteEditConflict": "Se conservaron tus cambios donde el asistente modificó el mismo texto, así que parte de su edición no se aplicó.",
+    "strike": "Tachado",
+    "textStyle": "Estilo de texto: {style}",
+    "toolbarAria": "Formato"
   },
   "toolCallChip": {
     "allow": "Permitir",
@@ -2020,6 +2084,21 @@
   "workspacePathLink": {
     "openTitle": "Abrir {path}"
   },
+  "xlsxPreview": {
+    "beyondPreviewLimit": "Esta hoja solo tiene celdas más allá del límite de previsualización",
+    "emptySheet": "Esta hoja está vacía",
+    "sheetUnreadable": "No se pudo leer esta hoja",
+    "sheetsAria": "Hojas",
+    "sheetsOmitted": "{count, plural, one {# hoja más no se muestra} other {# hojas más no se muestran}}",
+    "summary": "{sheet}: {rows, plural, one {# fila} other {# filas}} x {columns, plural, one {# columna} other {# columnas}}",
+    "summaryTruncated": "{sheet}: {rows, plural, one {# fila} other {# filas}} x {columns, plural, one {# columna} other {# columnas}} (truncado)",
+    "summaryColumnsCut": "{sheet}: {rows, plural, one {# fila} other {# filas}} x {columns, number} de {total, plural, one {# columna} other {# columnas}}",
+    "summaryRowsCut": "{sheet}: {rows, number} de {total, plural, one {# fila} other {# filas}} x {columns, plural, one {# columna} other {# columnas}}",
+    "summaryBothCut": "{sheet}: {rows, number} de {totalRows, plural, one {# fila} other {# filas}} x {columns, number} de {totalColumns, plural, one {# columna} other {# columnas}}",
+    "countsColumnsCut": "{rows, plural, one {# fila} other {# filas}} x {columns, number} de {total, plural, one {# columna} other {# columnas}}",
+    "countsRowsCut": "{rows, number} de {total, plural, one {# fila} other {# filas}} x {columns, plural, one {# columna} other {# columnas}}",
+    "countsBothCut": "{rows, number} de {totalRows, plural, one {# fila} other {# filas}} x {columns, number} de {totalColumns, plural, one {# columna} other {# columnas}}"
+  },
   "transcript": {
     "noResponse": "Decidió no responder",
     "reactionAddedSelf": "Reaccionó con {emoji}",
@@ -2081,5 +2160,33 @@
   "recallLabels": {
     "source": "{source, select, memory {Memoria} conversations {Conversaciones} workspace {Archivos del espacio de trabajo} other {{source}}}",
     "depth": "{depth, select, fast {Búsqueda rápida} standard {Búsqueda estándar} deep {Búsqueda profunda} other {Búsqueda}}"
+  },
+  "freeTierDailyLimitBanner": {
+    "addCredits": "Añadir créditos",
+    "subtitle": "Has usado el uso gratuito de hoy. Se reinicia a las {resetPhrase}. Mejora tu plan o añade créditos para continuar.",
+    "title": "Uso gratuito diario agotado",
+    "viewPlans": "Ver planes"
+  },
+  "chatsSettingsModal": {
+    "title": "Ajustes de chats",
+    "description": "Gestiona el marcado automático como hecho y las alertas de respuestas de este asistente en tus dispositivos.",
+    "autoArchive": "Archivar chats automáticamente",
+    "autoArchiveHelper": "Marca los chats inactivos como hechos, incluidos los que ya superan este plazo. Los chats hechos siguen en Todos los chats.",
+    "timeToArchive": "Tiempo para archivar",
+    "days": "{count, plural, one {# día} other {# días}}",
+    "notifications": "Alertas de respuestas en chats",
+    "notificationsHelper": "Recibe avisos de respuestas en chats que no estás viendo.",
+    "cancel": "Cancelar",
+    "confirm": "Confirmar",
+    "saving": "Guardando…",
+    "loading": "Cargando ajustes de chats…",
+    "retry": "Reintentar",
+    "loadError": "No se pudieron cargar los ajustes de chats. Vuelve a intentarlo.",
+    "saveError": "No se pudieron guardar los ajustes de chats. Tus cambios se conservan aquí. Pulsa Confirmar para volver a intentarlo.",
+    "unsupported": "Actualiza este asistente para usar los ajustes de chats."
+  },
+  "emailNavItem": {
+    "label": "Correo",
+    "unpin": "Quitar Correo"
   }
 }

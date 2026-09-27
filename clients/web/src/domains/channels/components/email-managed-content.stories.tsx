@@ -21,7 +21,6 @@ import { createStoryQueryClient } from "@/lib/story-query-cache";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
-import { LS_ASSISTANT_INBOX_HIDDEN } from "@/utils/local-settings-keys";
 
 const queryClient = createStoryQueryClient();
 
@@ -100,7 +99,6 @@ export const NotEntitledInboxFlagOn: Story = {
     useResolvedAssistantsStore.setState({
       activeAssistantId: STORY_ASSISTANT_ID,
     });
-    localStorage.setItem(LS_ASSISTANT_INBOX_HIDDEN, "1");
     // Both spellings of the key: the avatar hook appends a manifest-support
     // flag the story cannot predict.
     for (const supportsManifest of [true, false]) {
@@ -115,7 +113,6 @@ export const NotEntitledInboxFlagOn: Story = {
     }
     return () => {
       useClientFeatureFlagStore.setState({ assistantInbox: false });
-      localStorage.removeItem(LS_ASSISTANT_INBOX_HIDDEN);
     };
   },
 };

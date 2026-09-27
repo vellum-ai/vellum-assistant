@@ -45,6 +45,12 @@ Resource pressure monitoring reports sustained CPU/memory pressure on platform-h
 
 **Lifecycle:** `src/daemon/resource-pressure-guard-lifecycle.ts` starts the guard at daemon boot with the first sample deferred onto a macrotask so it never blocks startup, and stops the guard (cancelling any pending deferred sample) on shutdown. The web chat banner built on this status is documented in the repo-level [`/ARCHITECTURE.md`](../ARCHITECTURE.md) "Resource Pressure Monitoring" section.
 
+### OOM Priority
+
+When the container hits its memory limit, the kernel kills the process with the highest `oom_score` (memory share plus `oom_score_adj`). `src/util/oom-priority.ts` steers that choice so the assistant is never the victim of a runaway tool: the daemon sets itself to -700 as the first thing in `runDaemon`, before any spawn. Children inherit the parent's value at fork, so every spawn path resets its child: shell children get +1000 from the Linux prefix in `buildShellInvocation` (`packages/environments`), desktop children and ACP agents and terminals get +1000 from `withOomScoreAdj`, an `sh -c ... exec` wrapper that keeps pid and process group, and workers, the embedding worker, and Qdrant get 0 from a parent-side write right after spawn (the resource monitor gets -500 so it outlives everything but the daemon and records the kill). The monitor also sweeps the daemon's descendants every few seconds (`src/monitoring/oom-inheritance-sweep.ts`) and writes 0 over any negative value it finds, logging the comm, so a spawn path that forgets the reset degrades to a few seconds of inherited protection instead of a protected runaway. Bundled plugins (the memory plugin's rerank worker, for one) rely on the sweep rather than importing the helper, since the plugin import boundary forbids reaching outside the plugin. Raising never needs a capability; lowering needs `CAP_SYS_RESOURCE`, which the platform grants and self-hosted Docker does not, where the daemon simply stays at 0. Nothing here caps a single process or acts early: it only decides who dies once the kernel has to kill.
+
+**Verification telemetry:** the resource monitor reports kernel OOM kills in the container as a `watchdog` event with `check_name` `oom_kill` (`src/monitoring/oom-kill-reporter.ts`). It reads the kernel log through `dmesg` (the `/dev/kmsg` device is not mounted in the container; `dmesg` uses the syslog syscall, which the Kata profile permits) when the cgroup `memory.events` kill counter moves, on its first scan after start (the kill that took the daemon down restarts the monitor with it), and once a minute as a fallback. The kernel log is shared by every container on that kernel and cgroup paths read `/` from inside, so attribution is by the counter: a move of N claims the N most recent new kills; the first scan and hosts without the counter claim every new kill and say so with `attribution: "kernel_log"`. The `detail` bag lists each victim's comm, `oom_score_adj` and resident size, the cgroup memory figures at the time, and `killed_daemon`, detected by the daemon's -700 score rather than a pid the restart has since replaced; where the log is unreadable a counter move still yields a victimless event. A cursor (kernel boot id plus last log timestamp) on the monitor data dir advances only after the event is queued, so a telemetry store outage delays a report rather than losing one, and resets when the kernel reboots.
+
 ### Single-Header JWT Auth Model
 
 All HTTP API requests use a single `Authorization: Bearer <jwt>` header for authentication. The JWT carries identity, permissions, and policy versioning in a unified token.
@@ -899,6 +905,23 @@ graph LR
         PG["assistants, users,<br/>channel_accounts,<br/>channel_contacts,<br/>api_tokens, api_keys<br/>───────────────<br/>Multi-tenant management<br/>Billing & provisioning"]
     end
 ```
+
+---
+
+## Automatic Done
+
+`src/conversations/auto-archive.ts` runs an opt-in automatic Done sweep after startup recovery, on assistant config or feature-flag invalidation, and hourly. It marks eligible inactive native chats through the existing `archived_at` state. Candidate selection and the conditional update share the same persisted eligibility predicates; runtime checks run synchronously with each conditional write. Explicit reopening records `last_reopened_at` to grant a full inactivity interval.
+
+```mermaid
+flowchart LR
+    TRIGGER[Startup recovery / config or feature-flag change / hourly timer] --> PAGE[Bounded candidate page]
+    PAGE --> GUARDIAN[Read pending guardian requests]
+    GUARDIAN --> CHECK[Recheck config and runtime activity]
+    CHECK --> CAS[Conditional SQLite Done update]
+    CAS --> SYNC[Conversation list and metadata invalidation]
+```
+
+Readiness, eligibility, restart behavior, and the gateway snapshot boundary are documented in [Automatic Done](docs/automatic-done.md).
 
 ---
 

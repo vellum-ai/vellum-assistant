@@ -20,9 +20,9 @@ import { ClampedContent, SectionLabel } from "@/components/detail-primitives";
 import { AvatarRenderer } from "@/components/avatar-renderer";
 import { DetailShell, DetailShellNotice } from "@/components/detail-shell";
 import {
-  AnimatedMetricCard,
+  AnimatedStatSquare,
   formatNumber,
-} from "@/domains/chat/components/metric-card";
+} from "@/domains/chat/components/animated-stat-square";
 import { StatusBadge } from "@/domains/chat/components/subagent-status-badge";
 import { canAddressSubagentDetail } from "@/domains/chat/store-helpers/subagent-detail-addressability";
 import type { SubagentEntry } from "@/domains/chat/subagent-store";
@@ -358,24 +358,14 @@ export function SubagentDetailPanel({
             <>
               {/* Metrics row */}
               <div className="grid grid-cols-2 gap-3">
-                <AnimatedMetricCard
-                  icon={
-                    <ArrowDownToLine
-                      className="h-4 w-4 shrink-0"
-                      style={{ color: "var(--content-secondary)" }}
-                    />
-                  }
+                <AnimatedStatSquare
+                  icon={<ArrowDownToLine />}
                   target={entry.inputTokens}
                   format={(n) => formatNumber(Math.round(n))}
                   label={t("subagentDetailPanel.input")}
                 />
-                <AnimatedMetricCard
-                  icon={
-                    <ArrowUpFromLine
-                      className="h-4 w-4 shrink-0"
-                      style={{ color: "var(--content-secondary)" }}
-                    />
-                  }
+                <AnimatedStatSquare
+                  icon={<ArrowUpFromLine />}
                   target={entry.outputTokens}
                   format={(n) => formatNumber(Math.round(n))}
                   label={t("subagentDetailPanel.output")}

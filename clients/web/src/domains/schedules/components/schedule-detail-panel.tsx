@@ -10,6 +10,8 @@ import {
   DetailShellLoading,
   DetailShellNotice,
 } from "@/components/detail-shell";
+import { StatSquare } from "@vellumai/design-library/components/stat-square";
+
 import { InsetDetailCard } from "@/components/inset-detail-card";
 import { useScheduleConversationDoneLabel } from "@/utils/done-labels";
 import { useTranslation } from "@/i18n";
@@ -192,39 +194,15 @@ function ScheduleModelProfileField({
   );
 }
 
-function StatCard({
-  icon,
-  value,
-  label,
-}: {
-  icon: ReactNode;
-  value: string;
-  label: string;
-}) {
-  return (
-    <div className="flex items-center gap-3 rounded-lg border border-[var(--border-base)] bg-[var(--surface-lift)] p-3">
-      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[var(--surface-sunken)] text-[var(--content-secondary)]">
-        {icon}
-      </span>
-      <div className="min-w-0">
-        <div className="truncate text-body-large-default text-[var(--content-default)]">
-          {value}
-        </div>
-        <div className="text-body-small-default text-[var(--content-tertiary)]">
-          {label}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function StatCards({ usage }: { usage: ScheduleRowUsage }) {
   const { t } = useTranslation("schedules");
   if (usage.status === "loading") {
     return (
       <div className="grid grid-cols-2 gap-3 pt-2">
         {Array.from({ length: 2 }, (_, i) => (
-          <Skeleton key={i} className="h-[60px] rounded-lg" />
+          // 62px is a `StatSquare`: a 20px value line and an 18px label
+          // line inside 12px of padding.
+          <Skeleton key={i} className="h-15.5 rounded-xl" />
         ))}
       </div>
     );
@@ -234,15 +212,15 @@ function StatCards({ usage }: { usage: ScheduleRowUsage }) {
   }
   return (
     <div className="grid grid-cols-2 gap-3 pt-2">
-      <StatCard
-        icon={<Coins className="h-4 w-4" />}
+      <StatSquare
+        icon={<Coins />}
         value={formatScheduleCost(usage.summary.totalEstimatedCostUsd)}
         label={t("scheduleDetail.costLabel", {
           days: SCHEDULE_USAGE_WINDOW_DAYS,
         })}
       />
-      <StatCard
-        icon={<Repeat className="h-4 w-4" />}
+      <StatSquare
+        icon={<Repeat />}
         value={formatScheduleRunCount(usage.summary.runCount)}
         label={t("scheduleDetail.runsLabel", {
           days: SCHEDULE_USAGE_WINDOW_DAYS,

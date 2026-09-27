@@ -76,3 +76,32 @@ export const WithDisabledTab: Story = {
     </div>
   ),
 };
+
+/**
+ * A row mounted under its panel, the way a spreadsheet puts sheet tabs at the
+ * bottom. `placement="bottom"` moves the rule and the active indicator to the
+ * top edge. DOM order belongs to the consumer: Radix wires each trigger to its
+ * panel by id, so either order stays accessible.
+ */
+export const BottomPlacement: Story = {
+  render: (args) => (
+    <div style={{ width: 440 }}>
+      <Tabs.Root {...args} className="flex flex-col">
+        <Tabs.Panel value="overview" className={PANEL_CLASS}>
+          A summary of the workspace and its recent activity.
+        </Tabs.Panel>
+        <Tabs.Panel value="activity" className={PANEL_CLASS}>
+          A chronological feed of everything that happened here.
+        </Tabs.Panel>
+        <Tabs.Panel value="settings" className={PANEL_CLASS}>
+          Configuration for this workspace.
+        </Tabs.Panel>
+        <Tabs.List placement="bottom">
+          <Tabs.Trigger value="overview">Overview</Tabs.Trigger>
+          <Tabs.Trigger value="activity">Activity</Tabs.Trigger>
+          <Tabs.Trigger value="settings">Settings</Tabs.Trigger>
+        </Tabs.List>
+      </Tabs.Root>
+    </div>
+  ),
+};

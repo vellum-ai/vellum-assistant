@@ -465,7 +465,7 @@ function createTransport(ws: WsLike): CdpWsTransport {
   ws.addEventListener("close", handleClose);
   ws.addEventListener("error", handleError);
 
-  const transport: CdpWsTransport = {
+  return {
     get closed() {
       return disposed || closed;
     },
@@ -607,6 +607,4 @@ function createTransport(ws: WsLike): CdpWsTransport {
       }
     },
   };
-
-  return transport;
 }

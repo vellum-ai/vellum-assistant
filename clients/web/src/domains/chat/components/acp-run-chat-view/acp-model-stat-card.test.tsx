@@ -27,14 +27,13 @@ describe("AcpModelStatCard", () => {
     expect(screen.getByText("Model")).toBeTruthy();
   });
 
-  // A model id is longer than the tile, so the row ellipses it and carries the
-  // whole id in its tooltip. Without that the truncated half is unreadable.
-  test("keeps the whole id readable when the row truncates", () => {
+  // A model id is longer than the tile, which cuts it. The value carries its
+  // own text as a tooltip, so the rest stays readable.
+  test("keeps the whole id readable when the tile cuts it", () => {
     render(<AcpModelStatCard model="claude-opus-4-1-20250805" />);
 
-    const row = screen.getByText("claude-opus-4-1-20250805");
-    expect(row.getAttribute("title")).toBe("claude-opus-4-1-20250805");
-    expect(row.className).toContain("truncate");
+    const value = screen.getByText("claude-opus-4-1-20250805");
+    expect(value.getAttribute("title")).toBe("claude-opus-4-1-20250805");
   });
 
   // The adapter's own vocabulary: `best` is an alias it names for the reader,

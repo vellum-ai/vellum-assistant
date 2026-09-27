@@ -26,7 +26,8 @@ import { openWorkspaceFile } from "@/utils/open-workspace-file";
 
 /**
  * Extensions with a reader of their own. Formats that share a reader map to the
- * same kind: tab-separated values parse with the comma-separated reader, and
+ * same kind: tab-separated values parse with the comma-separated reader,
+ * macro-enabled workbooks are the same OOXML container as plain ones, and
  * every plain-text format renders through one monospace view.
  *
  * Anything absent here still opens in the drawer, through the `unsupported`
@@ -35,6 +36,8 @@ import { openWorkspaceFile } from "@/utils/open-workspace-file";
 const PREVIEW_EXTENSIONS = new Map<string, WorkspaceFilePreviewKind>([
   ["csv", "csv"],
   ["tsv", "csv"],
+  ["xlsx", "xlsx"],
+  ["xlsm", "xlsx"],
   ["md", "markdown"],
   ["markdown", "markdown"],
   ["txt", "text"],

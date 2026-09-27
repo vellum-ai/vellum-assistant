@@ -10,6 +10,8 @@
  */
 
 export type AbortReasonKind =
+  /** A scheduled run exhausted its execution budget. */
+  | "schedule_timeout"
   /** User explicitly hit Stop / Esc on the active conversation. */
   | "user_cancel"
   /** A new user message arrived for the same conversation, preempting the in-flight turn. */

@@ -3,6 +3,16 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router";
 
 let nativeAndroid = false;
+let browserHost = true;
+mock.module("@/runtime/notifications", () => ({
+  isBrowserNotificationHost: () => browserHost,
+}));
+mock.module(
+  "@/domains/settings/components/browser-notification-settings-card",
+  () => ({
+    BrowserNotificationSettingsCard: () => <div>Browser notification controls</div>,
+  }),
+);
 
 mock.module("@/runtime/platform-detection", () => ({
   useIsNativeAndroid: () => nativeAndroid,
@@ -40,13 +50,20 @@ function renderPage() {
 afterEach(() => {
   cleanup();
   nativeAndroid = false;
+  browserHost = true;
 });
 
 describe("NotificationsPage", () => {
-  test("redirects non-Android clients to General", async () => {
+  test("redirects unsupported native settings hosts to General", async () => {
+    browserHost = false;
     renderPage();
 
     expect(await screen.findByText("General settings")).not.toBeNull();
+  });
+
+  test("shows browser notification settings", () => {
+    renderPage();
+    expect(screen.getByText("Browser notification controls")).not.toBeNull();
   });
 
   test("shows Android notification settings in the native Android app", () => {

@@ -1,9 +1,7 @@
 import { create } from "zustand";
 
 import { createSelectors } from "@/utils/create-selectors";
-
-/** The decisions a guardian can submit on a pending approval. */
-export type GuardianDecisionAction = "approve_once" | "reject";
+import type { GuardianDecisionActionId } from "@vellumai/service-contracts/guardian-requests";
 
 /**
  * How a decision settled: what was decided on which request, whether the
@@ -11,7 +9,7 @@ export type GuardianDecisionAction = "approve_once" | "reject";
  */
 export interface GuardianDecisionOutcome {
   requestId: string;
-  action: GuardianDecisionAction;
+  action: GuardianDecisionActionId;
   /**
    * Whether the daemon recorded the decision. True for an applied decision,
    * and for one whose follow-through failed after the commit; false for

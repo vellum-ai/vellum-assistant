@@ -73,3 +73,20 @@ describe("publishVisibilitySource", () => {
     expect(publishSpy).not.toHaveBeenCalled();
   });
 });
+
+test("browser blur and focus publish attention without backgrounding the app", () => {
+  setVisibility("visible");
+  trackedSubscribe();
+  const originalHasFocus = document.hasFocus;
+  try {
+    document.hasFocus = () => false;
+    window.dispatchEvent(new Event("blur"));
+    expect(publishSpy).toHaveBeenLastCalledWith("app.attention", { attended: false });
+    document.hasFocus = () => true;
+    window.dispatchEvent(new Event("focus"));
+    expect(publishSpy).toHaveBeenLastCalledWith("app.attention", { attended: true });
+    expect(publishSpy.mock.calls.every(([event]) => event === "app.attention")).toBe(true);
+  } finally {
+    document.hasFocus = originalHasFocus;
+  }
+});

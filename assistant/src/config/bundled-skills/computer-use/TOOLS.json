@@ -21,7 +21,7 @@
           },
           "full_tree": {
             "type": "boolean",
-            "description": "On connected personal computers, walk the accessibility tree to full depth. The virtual desktop uses a bounded tree; use screenshot coordinates when an element is not listed."
+            "description": "On connected personal computers, walk the accessibility tree to full depth. The virtual desktop uses a bounded tree; use coordinates converted from the screenshot metadata when an element is not listed."
           },
           "target_client_id": {
             "type": "string",
@@ -57,11 +57,11 @@
           },
           "x": {
             "type": "integer",
-            "description": "X coordinate on screen (fallback when no element_id)"
+            "description": "X in screen points, not screenshot pixels. Apply the latest observation's coordinate mapping (fallback when no element_id)."
           },
           "y": {
             "type": "integer",
-            "description": "Y coordinate on screen (fallback when no element_id)"
+            "description": "Y in screen points, not screenshot pixels. Apply the latest observation's coordinate mapping (fallback when no element_id)."
           },
           "reasoning": {
             "type": "string",
@@ -170,11 +170,11 @@
           },
           "x": {
             "type": "integer",
-            "description": "X coordinate on screen (fallback when no element_id)"
+            "description": "X in screen points, not screenshot pixels. Apply the latest observation's coordinate mapping (fallback when no element_id)."
           },
           "y": {
             "type": "integer",
-            "description": "Y coordinate on screen (fallback when no element_id)"
+            "description": "Y in screen points, not screenshot pixels. Apply the latest observation's coordinate mapping (fallback when no element_id)."
           },
           "direction": {
             "type": "string",
@@ -222,11 +222,11 @@
           },
           "x": {
             "type": "integer",
-            "description": "Source X coordinate (fallback when no element_id)"
+            "description": "Source X in screen points, not screenshot pixels. Apply the latest observation's coordinate mapping (fallback when no element_id)."
           },
           "y": {
             "type": "integer",
-            "description": "Source Y coordinate (fallback when no element_id)"
+            "description": "Source Y in screen points, not screenshot pixels. Apply the latest observation's coordinate mapping (fallback when no element_id)."
           },
           "to_element_id": {
             "type": "integer",
@@ -234,11 +234,11 @@
           },
           "to_x": {
             "type": "integer",
-            "description": "Destination X coordinate (fallback when no to_element_id)"
+            "description": "Destination X in screen points, not screenshot pixels. Apply the latest observation's coordinate mapping (fallback when no to_element_id)."
           },
           "to_y": {
             "type": "integer",
-            "description": "Destination Y coordinate (fallback when no to_element_id)"
+            "description": "Destination Y in screen points, not screenshot pixels. Apply the latest observation's coordinate mapping (fallback when no to_element_id)."
           },
           "reasoning": {
             "type": "string",
@@ -408,11 +408,11 @@
                 },
                 "x": {
                   "type": "integer",
-                  "description": "click, double_click, right_click, scroll: X coordinate on screen (fallback when no element_id)"
+                  "description": "click, double_click, right_click, scroll: X in screen points, not screenshot pixels. Apply the latest observation's coordinate mapping (fallback when no element_id)."
                 },
                 "y": {
                   "type": "integer",
-                  "description": "click, double_click, right_click, scroll: Y coordinate on screen (fallback when no element_id)"
+                  "description": "click, double_click, right_click, scroll: Y in screen points, not screenshot pixels. Apply the latest observation's coordinate mapping (fallback when no element_id)."
                 },
                 "direction": {
                   "type": "string",

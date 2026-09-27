@@ -46,6 +46,7 @@ export function useDocumentEditorSave({
   );
   const [editingLocked, setEditingLocked] = useState(false);
   const [editorContent, setEditorContent] = useState(content);
+  const [sentContent, setSentContent] = useState(content);
   const [title, setTitle] = useState(target.title);
   const targetRef = useRef(target);
   const callbacksRef = useRef({ onRenamed, onRenameSaved, onRenameFailed });
@@ -187,6 +188,9 @@ export function useDocumentEditorSave({
           }
           persistedRef.current = snapshot;
           savedRevisionRef.current = revision;
+          if (mountedRef.current) {
+            setSentContent(snapshot.content);
+          }
           if (renameRevision !== null) {
             if (renameRevisionRef.current === renameRevision) {
               renameRevisionRef.current = null;
@@ -258,13 +262,9 @@ export function useDocumentEditorSave({
     };
   }, [flushPendingSave, applyDeferredSnapshot]);
 
-  const changeContent = useCallback(
+  const recordContent = useCallback(
     (markdown: string) => {
-      if (!mountedRef.current || leasesRef.current.size > 0) {
-        return false;
-      }
       clearTimers();
-      delete deferredSnapshotRef.current?.content;
       latestRef.current = { ...latestRef.current, content: markdown };
       revisionRef.current += 1;
       setSaveStatus("saving");
@@ -274,9 +274,37 @@ export function useDocumentEditorSave({
           captureError(error, { context: "autosaveDocument" });
         });
       }, 1000);
-      return true;
     },
     [clearTimers, flushSave],
+  );
+
+  /**
+   * A local edit. A deferred incoming body survives it: the editor merges
+   * that body into its local edits once it is applied.
+   */
+  const changeContent = useCallback(
+    (markdown: string) => {
+      if (!mountedRef.current || leasesRef.current.size > 0) {
+        return false;
+      }
+      recordContent(markdown);
+      return true;
+    },
+    [recordContent],
+  );
+
+  /**
+   * The editor's merge of an applied incoming body with its local edits.
+   * The merge already shows in the editor, so a preparation lease does not
+   * reject it.
+   */
+  const acceptMergedContent = useCallback(
+    (markdown: string) => {
+      if (mountedRef.current) {
+        recordContent(markdown);
+      }
+    },
+    [recordContent],
   );
 
   const rename = useCallback(
@@ -324,8 +352,10 @@ export function useDocumentEditorSave({
     saveStatus,
     editingLocked,
     editorContent,
+    sentContent,
     title,
     changeContent,
+    acceptMergedContent,
     rename,
     flushPendingSave,
     beginSendPreparation,

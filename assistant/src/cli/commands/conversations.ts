@@ -8,6 +8,7 @@ import {
   exitFromIpcResult,
 } from "../../ipc/cli-client.js";
 import { applyCommandHelp, subcommand } from "../lib/cli-command-help.js";
+import { confirmPrompt } from "../lib/confirm-prompt.js";
 import { registerCommand } from "../lib/register-command.js";
 import { timeAgo } from "../lib/time-ago.js";
 import { log } from "../logger.js";
@@ -497,40 +498,45 @@ export function registerConversationsCommand(program: Command): void {
       // clear
       // -------------------------------------------------------------------
 
-      subcommand(conversations, "clear").action(async () => {
-        log.info(
-          "This will permanently delete all conversations, messages, and vector data.",
-        );
+      subcommand(conversations, "clear").action(
+        async (opts: { force?: boolean }) => {
+          log.info(
+            "This will permanently delete all conversations, messages, and vector data.",
+          );
 
-        const readline = await import("node:readline");
-        const rl = readline.createInterface({
-          input: process.stdin,
-          output: process.stdout,
-        });
-        const answer = await new Promise<string>((resolve) => {
-          rl.question("Are you sure? (y/N) ", resolve);
-        });
-        rl.close();
-        if (answer.toLowerCase() !== "y") {
-          log.info("Cancelled");
-          return;
-        }
+          if (!opts.force) {
+            const confirm = await confirmPrompt({
+              question: "Are you sure? (y/N) ",
+              isTTY: Boolean(process.stdin.isTTY),
+              refuseNonInteractiveMessage:
+                "Refusing to clear all conversations non-interactively. Pass --force to confirm.",
+            });
+            if (confirm === "non-interactive") {
+              process.exitCode = 1;
+              return;
+            }
+            if (confirm === "denied") {
+              log.info("Cancelled");
+              return;
+            }
+          }
 
-        const result = await cliIpcCall<{ cleared: number }>(
-          "conversations_clear_cli",
-          {
-            headers: {
-              "x-confirm-destructive": "clear-all-conversations",
+          const result = await cliIpcCall<{ cleared: number }>(
+            "conversations_clear_cli",
+            {
+              headers: {
+                "x-confirm-destructive": "clear-all-conversations",
+              },
             },
-          },
-        );
+          );
 
-        if (!result.ok) {
-          return exitFromIpcResult(result);
-        }
+          if (!result.ok) {
+            return exitFromIpcResult(result);
+          }
 
-        log.info(`Cleared ${result.result!.cleared} conversations. Done.`);
-      });
+          log.info(`Cleared ${result.result!.cleared} conversations. Done.`);
+        },
+      );
 
       // -------------------------------------------------------------------
       // wake

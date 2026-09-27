@@ -131,13 +131,15 @@ export const CAMERA_PILL_INSET = `calc(max(${VOICE_ROOM_CORNER_GAP}, ${SAFE_AREA
  * pair is a mirror image around the shutter. The row publishes it as
  * `--camera-flank-inset` and each flank takes it off its own side.
  *
- * 30px, or the deeper of the two side safe-area insets where a landscape
- * cutout reaches further in than that. px because that is the unit the design
- * measures this pair in. The same value on both sides for the reason
+ * The flanks hang off their edges at {@link VOICE_ROOM_CORNER_GAP}, the gap
+ * the room's corner controls hang on, so the four share one column: flash sits
+ * under the view options and flip under the minimize chevron. The deeper of
+ * the two side safe-area insets takes over where a landscape cutout reaches
+ * further in than that gap. The same value on both sides for the reason
  * {@link CAMERA_PILL_INSET} spells out: a cutout is not symmetric, and the
  * flanks are read against each other.
  */
-export const CAMERA_ROW_FLANK_INSET = `max(30px, ${SAFE_AREA_LEFT}, ${SAFE_AREA_RIGHT})`;
+export const CAMERA_ROW_FLANK_INSET = `max(${VOICE_ROOM_CORNER_GAP}, ${SAFE_AREA_LEFT}, ${SAFE_AREA_RIGHT})`;
 
 /**
  * The circle every round control in the room is drawn at: 52px, in every

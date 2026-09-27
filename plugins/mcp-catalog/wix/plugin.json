@@ -1,0 +1,8 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "wix",
+  "version": "1.0.2",
+  "description": "Manage Wix sites, stores, bookings, and CMS content.",
+  "homepage": "https://dev.wix.com/docs/sdk/articles/use-the-wix-mcp/about-the-wix-mcp",
+  "license": "MIT"
+}

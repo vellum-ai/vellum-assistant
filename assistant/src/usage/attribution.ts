@@ -10,11 +10,15 @@ import { safeStringSlice } from "../util/unicode.js";
 
 const MAX_METADATA_VALUE_LENGTH = 128;
 
+/** `profileSource` reported for a turn whose profile the Auto router chose. */
+export const AUTO_PROFILE_SOURCE = "auto";
+
 export type UsageAttributionProfileSource =
   | "call_site"
   | "conversation"
   | "active"
   | "default"
+  | typeof AUTO_PROFILE_SOURCE
   | "unknown";
 
 export interface UsageAttributionInput {
@@ -27,6 +31,12 @@ export interface UsageAttributionInput {
    */
   profileResolutionCallSite?: LLMCallSite | null;
   overrideProfile?: string | null;
+  /**
+   * Who chose `overrideProfile`. `"auto"` marks a profile the Auto profile's
+   * router picked for the turn, so usage rows can tell an Auto pick from a
+   * user pin that landed on the same profile. Absent for a user pin.
+   */
+  overrideProfileOrigin?: "auto" | null;
   /**
    * Mirrors `ResolveCallSiteOpts.forceOverrideProfile`: the override profile
    * was floated above the call-site layers for this request, so attribution
@@ -227,9 +237,16 @@ function appliedProfileFromWinnerSelection(
     call_site: "call_site",
     default: "default",
   } as const;
+  // An override the Auto router chose is reported as its own source: the
+  // applied profile is the routed arm, so without this a routed turn would
+  // be indistinguishable from a user who pinned that arm.
+  const profileSource =
+    selection.source === "override" && input.overrideProfileOrigin === "auto"
+      ? AUTO_PROFILE_SOURCE
+      : sourceBySelection[selection.source];
   return {
     appliedProfile: selection.profileName,
-    profileSource: sourceBySelection[selection.source],
+    profileSource,
   };
 }
 

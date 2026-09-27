@@ -105,6 +105,17 @@ describe("wake card", () => {
     expect(viewer.activeWakeDetail?.title).toBe("Workflow finished");
   });
 
+  test("View details is the trigger the phone's detail sheet returns to", () => {
+    render(<CardSurface surface={wakeSurface()} onAction={() => {}} />);
+    const button = screen.getByText("View details").closest("button");
+
+    fireEvent.click(screen.getByText("View details"));
+
+    // The sheet rises from this button and hands focus back to it on close,
+    // the way it does for every other activity detail.
+    expect(button?.hasAttribute("data-detail-sheet-trigger")).toBe(true);
+  });
+
   test("closing the panel restores the view behind it", () => {
     render(<CardSurface surface={wakeSurface()} onAction={() => {}} />);
     fireEvent.click(screen.getByText("View details"));

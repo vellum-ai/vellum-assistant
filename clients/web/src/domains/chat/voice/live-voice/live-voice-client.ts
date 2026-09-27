@@ -488,6 +488,9 @@ export class LiveVoiceChannelClient {
         ...(config.bargeInMinSpeechMs !== undefined
           ? { bargeInMinSpeechMs: config.bargeInMinSpeechMs }
           : {}),
+        ...(config.shareTargets !== undefined
+          ? { shareTargets: config.shareTargets }
+          : {}),
       }),
     );
   }

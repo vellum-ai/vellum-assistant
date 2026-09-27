@@ -771,6 +771,9 @@ final class MacHelper: @unchecked Sendable {
             case "ax.locate":
                 dispatchAxLocate(line: line)
                 return
+            case "ax.candidates":
+                dispatchAxCandidates(line: line)
+                return
             case "appControl.perform":
                 dispatchAppControlPerform(line: line)
                 return
@@ -887,6 +890,188 @@ final class MacHelper: @unchecked Sendable {
         AXLabel.shortlist(labels, limit: labelsReturned, each: labelLength)
     }
 
+    /// The named controls a shared surface actually shows, each with the part
+    /// of its frame that can be seen, or nil when there is no tree to read.
+    ///
+    /// Shared by `ax.locate` and `ax.candidates` so the list a caller is
+    /// offered is exactly the list a name is later resolved against.
+    ///
+    /// A window names its own tree. A display does not have one, so the
+    /// frontmost window standing on it is the tree to read: a person sharing
+    /// their screen and naming a control means the one they are looking at,
+    /// which is the same window computer use reads.
+    @MainActor
+    private func visibleNamedElements(
+        params: [String: Any]
+    ) async -> (elements: [(element: AXElement, frame: CGRect)], roots: [AXElement])? {
+        let enumerator = AccessibilityTreeEnumerator()
+        let windowId = (params["windowId"] as? NSNumber).map { CGWindowID($0.uint32Value) }
+        let displayId = (params["displayId"] as? NSNumber)?.uint32Value
+        let located = if let windowId {
+            await enumerator.enumerateWindow(windowId: windowId)
+        } else {
+            await enumerator.enumerateCurrentWindow()
+        }
+        guard let tree = located else { return nil }
+
+        // The rectangle the caller is going to measure against: the
+        // display's bounds or the window's, whichever is being shared.
+        // Nothing outside it is on the surface, whatever the tree says.
+        let surface: CGRect? = if let displayId {
+            CGDisplayBounds(CGDirectDisplayID(displayId))
+        } else if let windowId {
+            enumerator.serverWindow(for: windowId)?.bounds
+        } else {
+            nil
+        }
+        let flattened = AccessibilityTreeEnumerator.flattenClipped(tree.elements)
+
+        // Focus is one thing across every monitor, so the window it names
+        // can be standing on a different screen from the one asked about.
+        // The caller normalises what comes back against that screen's
+        // bounds, so a frame from elsewhere resolves to somewhere
+        // arbitrary on it: a tree that is not on the display is no tree.
+        // Read off the whole tree rather than the candidates below, since
+        // where a window is and what it has worth pointing at are two
+        // questions.
+        if let displayId,
+           !AXDisplayMatch.tree(
+               at: flattened.map(\.element.frame),
+               standsOn: CGDisplayBounds(CGDirectDisplayID(displayId))
+           ) {
+            return nil
+        }
+
+        // Anything named and actually on screen is a thing that can be
+        // pointed at, interactive or not: a value someone is reading is as
+        // legitimate a target as a button they are about to press.
+        //
+        // Where it can actually be seen, though. A tree reaches past what
+        // is being shown, in two directions: outward, since a window can
+        // lie across the seam between two monitors, and inward, since a
+        // scroll view keeps the rows above and below the ones on screen at
+        // the frames they would have if they were on screen. The first
+        // draws at a clamped edge, the second squarely over unrelated
+        // content, and both while the answer says it landed exactly.
+        // Neither is a candidate, and a query that named one comes back
+        // with the labels that can be seen instead.
+        //
+        // What comes back is the part that can be seen, not the whole
+        // frame. A control half over the seam between two monitors is
+        // worth pointing at from the shared one, but its middle can be on
+        // the other, and the caller aims at the middle of what it is
+        // given: clipped here, every answer is a rectangle wholly on the
+        // surface it will be measured against.
+        let elements = flattened.compactMap {
+            candidate -> (element: AXElement, frame: CGRect)? in
+            let element = candidate.element
+            guard let name = element.annotationName, !name.isEmpty else { return nil }
+            guard element.frame.width > 0, element.frame.height > 0 else { return nil }
+            var seen = element.frame
+            for bound in [candidate.visible, surface] {
+                guard let bound else { continue }
+                seen = seen.intersection(bound)
+            }
+            guard !seen.isEmpty else { return nil }
+            return (element: element, frame: seen)
+        }
+        return (elements: elements, roots: tree.elements)
+    }
+
+    /// Containers whose name says which part of a window a control is in: a
+    /// toolbar, a sidebar list, a dialog, a web landmark carrying an
+    /// `aria-label`.
+    private static let sectionRoles: Set<String> = [
+        "AXGroup", "AXToolbar", "AXList", "AXOutline", "AXTable", "AXTabGroup",
+        "AXSheet", "AXPopover", "AXMenu", "AXMenuBar", "AXScrollArea",
+        "AXSplitGroup", "AXRadioGroup", "AXLayoutArea",
+    ]
+    private static let sectionLength = 40
+
+    /// The nearest named container above each element, by element id.
+    ///
+    /// Read off the tree already in hand, so it costs a walk and no further
+    /// accessibility IPC.
+    private static func sections(
+        of elements: [AXElement],
+        within section: String? = nil,
+        into result: inout [Int: String]
+    ) {
+        for element in elements {
+            if let section { result[element.id] = section }
+            var inner = section
+            if sectionRoles.contains(element.role),
+               let name = AXLabel.nonBlank(element.annotationName) {
+                inner = AXLabel.singleLine(name, max: sectionLength)
+            }
+            sections(of: element.children, within: inner, into: &result)
+        }
+    }
+
+    /// How many controls `ax.candidates` describes, and how long each name
+    /// may be.
+    ///
+    /// Wider than a refusal's shortlist because the caller prunes and ranks
+    /// what arrives before anything reads it; the bound here only keeps a web
+    /// page of ten thousand elements from becoming the IPC payload.
+    private static let candidatesReturned = 300
+    private static let candidateLabelLength = 200
+
+    /// Every named control a shared surface shows, with its role and the part
+    /// of its frame that can be seen, in screen points.
+    ///
+    /// For a caller that wants to offer the names before one is asked for,
+    /// so the first `ax.locate` names something that is there. The same
+    /// controls `ax.locate` resolves against, in tree order, bounded to
+    /// `candidatesReturned`; `candidateCount` says how many there were.
+    private func dispatchAxCandidates(line: String) {
+        Task { @MainActor in
+            let object = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any]
+            let id = object?["id"] ?? NSNull()
+            let params = object?["params"] as? [String: Any] ?? [:]
+            guard params["windowId"] != nil || params["displayId"] != nil else {
+                self.writeResponse(JsonRpcCodec.errorResponse(
+                    id: id,
+                    code: JsonRpcErrorCode.invalidParams,
+                    message: "ax.candidates requires windowId or displayId"
+                ))
+                return
+            }
+            guard let read = await self.visibleNamedElements(params: params) else {
+                self.writeResponse(JsonRpcCodec.successResponse(id: id, result: [
+                    "found": false,
+                    "reason": "no-tree",
+                ]))
+                return
+            }
+            let elements = read.elements
+            var sections: [Int: String] = [:]
+            Self.sections(of: read.roots, into: &sections)
+            let described: [[String: Any]] = elements.prefix(Self.candidatesReturned).map { entry in
+                var described: [String: Any] = [
+                    "label": AXLabel.singleLine(
+                        entry.element.annotationName ?? "",
+                        max: Self.candidateLabelLength
+                    ),
+                    "role": entry.element.role,
+                    "x": Double(entry.frame.origin.x),
+                    "y": Double(entry.frame.origin.y),
+                    "width": Double(entry.frame.width),
+                    "height": Double(entry.frame.height),
+                ]
+                if let section = sections[entry.element.id] {
+                    described["section"] = section
+                }
+                return described
+            }
+            self.writeResponse(JsonRpcCodec.successResponse(id: id, result: [
+                "found": true,
+                "elements": described,
+                "candidateCount": elements.count,
+            ]))
+        }
+    }
+
     /// Where in a window the control someone named actually is.
     ///
     /// The point of the whole errand: the accessibility tree knows every
@@ -913,90 +1098,12 @@ final class MacHelper: @unchecked Sendable {
                 ))
                 return
             }
-            // A window names its own tree. A display does not have one, so the
-            // frontmost window standing on it is the tree to read: a person
-            // sharing their screen and naming a control means the one they are
-            // looking at, which is the same window computer use reads.
-            let enumerator = AccessibilityTreeEnumerator()
-            let windowId = (params["windowId"] as? NSNumber).map { CGWindowID($0.uint32Value) }
-            let displayId = (params["displayId"] as? NSNumber)?.uint32Value
-            let located = if let windowId {
-                await enumerator.enumerateWindow(windowId: windowId)
-            } else {
-                await enumerator.enumerateCurrentWindow()
-            }
-            guard let tree = located else {
+            guard let elements = await self.visibleNamedElements(params: params)?.elements else {
                 self.writeResponse(JsonRpcCodec.successResponse(id: id, result: [
                     "found": false,
                     "reason": "no-tree",
                 ]))
                 return
-            }
-
-            // The rectangle the caller is going to measure against: the
-            // display's bounds or the window's, whichever is being shared.
-            // Nothing outside it is on the surface, whatever the tree says.
-            let surface: CGRect? = if let displayId {
-                CGDisplayBounds(CGDirectDisplayID(displayId))
-            } else if let windowId {
-                enumerator.serverWindow(for: windowId)?.bounds
-            } else {
-                nil
-            }
-            let flattened = AccessibilityTreeEnumerator.flattenClipped(tree.elements)
-
-            // Focus is one thing across every monitor, so the window it names
-            // can be standing on a different screen from the one asked about.
-            // The caller normalises what comes back against that screen's
-            // bounds, so a frame from elsewhere resolves to somewhere
-            // arbitrary on it: a tree that is not on the display is no tree.
-            // Read off the whole tree rather than the candidates below, since
-            // where a window is and what it has worth pointing at are two
-            // questions.
-            if let displayId,
-               !AXDisplayMatch.tree(
-                   at: flattened.map(\.element.frame),
-                   standsOn: CGDisplayBounds(CGDirectDisplayID(displayId))
-               ) {
-                self.writeResponse(JsonRpcCodec.successResponse(id: id, result: [
-                    "found": false,
-                    "reason": "no-tree",
-                ]))
-                return
-            }
-
-            // Anything named and actually on screen is a thing that can be
-            // pointed at, interactive or not: a value someone is reading is as
-            // legitimate a target as a button they are about to press.
-            //
-            // Where it can actually be seen, though. A tree reaches past what
-            // is being shown, in two directions: outward, since a window can
-            // lie across the seam between two monitors, and inward, since a
-            // scroll view keeps the rows above and below the ones on screen at
-            // the frames they would have if they were on screen. The first
-            // draws at a clamped edge, the second squarely over unrelated
-            // content, and both while the answer says it landed exactly.
-            // Neither is a candidate, and a query that named one comes back
-            // with the labels that can be seen instead.
-            //
-            // What comes back is the part that can be seen, not the whole
-            // frame. A control half over the seam between two monitors is
-            // worth pointing at from the shared one, but its middle can be on
-            // the other, and the caller aims at the middle of what it is
-            // given: clipped here, every answer is a rectangle wholly on the
-            // surface it will be measured against.
-            let elements = flattened.compactMap {
-                candidate -> (element: AXElement, frame: CGRect)? in
-                let element = candidate.element
-                guard let name = element.annotationName, !name.isEmpty else { return nil }
-                guard element.frame.width > 0, element.frame.height > 0 else { return nil }
-                var seen = element.frame
-                for bound in [candidate.visible, surface] {
-                    guard let bound else { continue }
-                    seen = seen.intersection(bound)
-                }
-                guard !seen.isEmpty else { return nil }
-                return (element: element, frame: seen)
             }
             let outcome = AXTargetMatch.locate(
                 query: query,

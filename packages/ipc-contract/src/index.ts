@@ -30,3 +30,5 @@ export {
 } from "./bridge";
 export * from "./channels";
 export * from "./fn-claimants";
+
+export * from "./system-permissions";

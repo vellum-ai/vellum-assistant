@@ -136,7 +136,6 @@
       "background": "背景",
       "done": "已完成"
     },
-    "doneMeta": "已完成 · {time}",
     "empty": "這裡還沒有聊天。",
     "filterAria": "篩選聊天",
     "loadError": "無法載入你的聊天。",
@@ -144,7 +143,14 @@
     "noMatches": "沒有與「{query}」相符的聊天。",
     "retry": "重試",
     "searchPlaceholder": "搜尋聊天",
-    "title": "所有聊天"
+    "title": "所有聊天",
+    "close": "關閉所有聊天",
+    "openChat": "開啟聊天",
+    "doneLabel": "{title}，已完成",
+    "unread": "未讀",
+    "running": "執行中",
+    "needsAttention": "需要關注",
+    "runningCount": "{count, plural, other {# 個任務正在執行}}"
   },
   "sessionGroupRow": {
     "mode": {
@@ -379,6 +385,22 @@
     "unsupported": "此裝置無法開啟相機。",
     "uploadFailed": "無法傳送該相片。"
   },
+  "cameraExplainer": {
+    "close": "關閉",
+    "gotIt": "知道了",
+    "liveBody": "您移動相機時，{name} 會持續觀看。直接聊聊 {name} 看到的內容。",
+    "liveBodyDesktop": "您移動相機時，{name} 會持續觀看。直接聊聊 {name} 看到的內容。隨時都可以停止。",
+    "liveTag": "即時",
+    "liveTitle": "即時",
+    "photoBody": "拍一張照片。{name} 只會看到那一張照片。",
+    "photoTitle": "相片",
+    "privacy": "{name} 看到的一切都留在 {name} 自己的私人工作區。關閉相機時即時模式就會結束。",
+    "subtitle": "選擇 {name} 要如何看您對準的畫面。隨時都可以切換。",
+    "title": "相片還是即時？",
+    "tryLive": "立即試用即時",
+    "tryLiveDesktop": "試用即時",
+    "yourAssistant": "您的助理"
+  },
   "cameraShutterHint": {
     "live": "即時 · 輕觸停止",
     "liveDescription": "輕觸停止即時視訊。",
@@ -400,10 +422,11 @@
   },
   "cameraViewOptions": {
     "buttonAria": "相機顯示選項",
-    "gateHudDescription": "用於調整即時模式保留哪些畫面的面板。",
-    "gateHudTitle": "影格篩選讀數",
-    "keptFrameDescription": "即時模式傳送的最近一格，顯示在照片旁邊。無論是否顯示，都會繼續傳送。",
-    "keptFrameTitle": "最近一格",
+    "gateHudDescription": "偵錯疊加層：即時模式如何挑選要傳送的畫面。",
+    "gateHudTitle": "影格篩選調校",
+    "howItWorks": "「相片」和「即時」的運作方式",
+    "keptFrameDescription": "顯示即時模式最近傳送的畫面。",
+    "keptFrameTitle": "最近分享的畫面",
     "title": "顯示"
   },
   "cardSurface": {
@@ -464,6 +487,24 @@
     "attachFileAria": "附加檔案",
     "dismiss": "關閉",
     "removeAria": "移除 {filename}"
+  },
+  "emailReferenceChip": {
+    "noSubject": "(無主旨)",
+    "captionReceived": "已接收 · 來自 {name} · {date}",
+    "captionReceivedUndated": "已接收 · 來自 {name}",
+    "captionSent": "已寄出 · 寄給 {name} · {date}",
+    "captionSentUndated": "已寄出 · 寄給 {name}",
+    "tooltip": "{subject}\n{caption}",
+    "removeAria": "移除郵件 {subject}"
+  },
+  "emailReferenceCard": {
+    "noSubject": "(無主旨)",
+    "captionReceived": "已接收 · 來自 {name} · {date}",
+    "captionReceivedUndated": "已接收 · 來自 {name}",
+    "captionSent": "已寄出 · 寄給 {name} · {date}",
+    "captionSentUndated": "已寄出 · 寄給 {name}",
+    "tooltip": "{subject}\n{caption}",
+    "openAria": "在收件匣中開啟郵件 {subject}"
   },
   "chatBody": {
     "dropFiles": "拖曳檔案以附加"
@@ -635,6 +676,7 @@
     "warningTitle": "這看起來像一個 API 金鑰"
   },
   "composerSettingsMenu": {
+    "autoPreview": "自動 · {profile}",
     "accessAria": "助理存取權限：{label}",
     "assistantAccess": "助理存取權限",
     "assistantAccessTitle": "助理存取權限",
@@ -729,8 +771,6 @@
     "markRead": "標示為已讀",
     "markUnread": "標示為未讀",
     "moveToGroup": "移至群組",
-    "newDocument": "新增文件",
-    "newDocumentFailed": "無法建立文件。請再試一次。",
     "newGroup": "新增群組…",
     "openInNewWindow": "在新視窗中開啟",
     "pin": "釘選",
@@ -795,8 +835,8 @@
   },
   "csvPreview": {
     "emptyFile": "此檔案為空",
-    "summary": "{rows} 列 x {columns} 欄",
-    "summaryTruncated": "{rows} 列 x {columns} 欄 (已截斷)"
+    "summary": "{rows, plural, other {# 列}} x {columns, plural, other {# 欄}}",
+    "summaryTruncated": "{rows, plural, other {# 列}} x {columns, plural, other {# 欄}} (已截斷)"
   },
   "dailyLimitBanner": {
     "skipConfirmTitle": "略過今日點數限制？",
@@ -853,8 +893,8 @@
     "close": "關閉",
     "closeDocumentAria": "關閉文件",
     "comments": "留言",
+    "commentsWithOpenCount": "{count, plural, other {留言，# 則未解決}}",
     "export": "匯出",
-    "hideComments": "隱藏留言",
     "menuAria": "文件選項",
     "rename": "重新命名",
     "renameFailed": "無法重新命名文件。",
@@ -1303,6 +1343,7 @@
     "title": "檔案"
   },
   "messageHoverActions": {
+    "autoRouted": "自動 · {profile}",
     "bookmark": "書籤",
     "copied": "已複製",
     "copy": "複製",
@@ -1472,6 +1513,8 @@
   },
   "preferencesUsagePanel": {
     "addCreditsAriaLabel": "新增點數",
+    "dailyExhausted": "今日用量已用完。新增點數以繼續。",
+    "dailyTitle": "每日用量",
     "exhausted": "新增點數以繼續。",
     "extraCredits": "目前使用額外用量點數",
     "pctUsed": "已使用 {pct}%",
@@ -1830,8 +1873,29 @@
   },
   "tiptapDocumentEditor": {
     "adding": "正在新增…",
+    "blockquote": "引文",
+    "bold": "粗體",
+    "bulletList": "項目符號清單",
+    "code": "程式碼",
     "comment": "註解",
-    "feedbackPlaceholder": "新增您的意見回饋…"
+    "feedbackPlaceholder": "新增您的意見回饋…",
+    "heading1": "標題 1",
+    "heading2": "標題 2",
+    "heading3": "標題 3",
+    "italic": "斜體",
+    "link": "連結",
+    "linkAddress": "連結網址",
+    "linkApply": "套用連結",
+    "linkInvalid": "請輸入網址或電子郵件地址",
+    "linkPlaceholder": "貼上或輸入連結",
+    "linkRemove": "移除連結",
+    "orderedList": "編號清單",
+    "paragraph": "內文",
+    "placeholder": "開始寫作…",
+    "remoteEditConflict": "助理修改了您正在編輯的同一段文字，已保留您的修改，因此其部分編輯未套用。",
+    "strike": "刪除線",
+    "textStyle": "文字樣式：{style}",
+    "toolbarAria": "格式"
   },
   "toolCallChip": {
     "allow": "允許",
@@ -1924,6 +1988,7 @@
     "seed": "嗨，我剛與您開始語音對話。此訊息為自動傳送。請用一句簡短的話向我打招呼，然後問我想做什麼。"
   },
   "voiceErrors": {
+    "selectionUnavailable": "無法讀取選取的文字。未貼上任何內容。請重新選取文字後重試；您說出的內容可供複製。",
     "nativeSttNoTranscript": "{clientName} 原生聽寫未傳回文字記錄。請檢查系統設定中的原生語音辨識，然後再試一次。",
     "askUnavailable": "助手目前無法接收語音提問。"
   },
@@ -2052,6 +2117,21 @@
   "workspacePathLink": {
     "openTitle": "開啟 {path}"
   },
+  "xlsxPreview": {
+    "beyondPreviewLimit": "此工作表的儲存格均超出預覽限制",
+    "emptySheet": "此工作表為空",
+    "sheetUnreadable": "無法讀取此工作表",
+    "sheetsAria": "工作表",
+    "sheetsOmitted": "{count, plural, other {另有 # 個工作表未顯示}}",
+    "summary": "{sheet}：{rows, plural, other {# 列}} x {columns, plural, other {# 欄}}",
+    "summaryTruncated": "{sheet}：{rows, plural, other {# 列}} x {columns, plural, other {# 欄}} (已截斷)",
+    "summaryColumnsCut": "{sheet}：{rows, plural, other {# 列}} x {columns, number} / {total, plural, other {# 欄}}",
+    "summaryRowsCut": "{sheet}：{rows, number} / {total, plural, other {# 列}} x {columns, plural, other {# 欄}}",
+    "summaryBothCut": "{sheet}：{rows, number} / {totalRows, plural, other {# 列}} x {columns, number} / {totalColumns, plural, other {# 欄}}",
+    "countsColumnsCut": "{rows, plural, other {# 列}} x {columns, number} / {total, plural, other {# 欄}}",
+    "countsRowsCut": "{rows, number} / {total, plural, other {# 列}} x {columns, plural, other {# 欄}}",
+    "countsBothCut": "{rows, number} / {totalRows, plural, other {# 列}} x {columns, number} / {totalColumns, plural, other {# 欄}}"
+  },
   "transcript": {
     "noResponse": "決定不回覆",
     "reactionAddedSelf": "已用 {emoji} 回應",
@@ -2146,5 +2226,33 @@
   "recallLabels": {
     "source": "{source, select, memory {記憶} conversations {對話} workspace {工作區檔案} other {{source}}}",
     "depth": "{depth, select, fast {快速搜尋} standard {標準搜尋} deep {深度搜尋} other {搜尋}}"
+  },
+  "freeTierDailyLimitBanner": {
+    "addCredits": "新增點數",
+    "subtitle": "您已用完今日的免費用量，將在 {resetPhrase} 重設。升級或新增點數以繼續。",
+    "title": "今日免費用量已用完",
+    "viewPlans": "查看方案"
+  },
+  "chatsSettingsModal": {
+    "title": "聊天設定",
+    "description": "管理此助理在所有裝置上的自動完成標記和聊天回覆提醒。",
+    "autoArchive": "自動封存聊天",
+    "autoArchiveHelper": "將不活躍的聊天標記為已完成，包括已超過此時限的舊聊天。已完成的聊天仍保留在所有聊天中。",
+    "timeToArchive": "封存時限",
+    "days": "{count, plural, other {# 天}}",
+    "notifications": "聊天回覆提醒",
+    "notificationsHelper": "接收目前未檢視的聊天中的回覆提醒。",
+    "cancel": "取消",
+    "confirm": "確認",
+    "saving": "正在儲存…",
+    "loading": "正在載入聊天設定…",
+    "retry": "重試",
+    "loadError": "無法載入聊天設定。請重試。",
+    "saveError": "無法儲存聊天設定。你的修改仍保留在此處。按下確認以重試。",
+    "unsupported": "請更新此助理以使用聊天設定。"
+  },
+  "emailNavItem": {
+    "label": "郵件",
+    "unpin": "取消釘選郵件"
   }
 }

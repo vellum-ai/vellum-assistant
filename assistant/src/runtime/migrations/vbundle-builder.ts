@@ -28,6 +28,7 @@ import { pipeline } from "node:stream/promises";
 import { createGzip, gzipSync } from "node:zlib";
 
 import { sanitizeConfigForTransfer } from "../../config/sanitize-for-transfer.js";
+import { trackDaemonActivity } from "../../daemon/activity-trail.js";
 import { getLogger } from "../../util/logger.js";
 import type { VBundleOriginMode } from "./origin-mode.js";
 import type {
@@ -1180,6 +1181,14 @@ export interface StreamExportVBundleResult {
  * function to remove the temp file when done.
  */
 export async function streamExportVBundle(
+  options: BuildExportVBundleOptions,
+): Promise<StreamExportVBundleResult> {
+  return trackDaemonActivity({ kind: "vbundle_export" }, () =>
+    streamExport(options),
+  );
+}
+
+async function streamExport(
   options: BuildExportVBundleOptions,
 ): Promise<StreamExportVBundleResult> {
   const {

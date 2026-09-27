@@ -265,6 +265,77 @@ describe("LiveVoiceSession assistant turn", () => {
     },
   );
 
+  test("offers the newest snapshot of the shared surface's controls to the bridge, until the share ends", async () => {
+    const startVoiceTurn = mock(async (_options: VoiceTurnOptions) => ({
+      turnId: "bridge-turn-1",
+      abort: mock(),
+    }));
+    const { session, transcriber } = createSessionHarness({
+      startFrame: { ...START_FRAME, client: "macos" },
+      startVoiceTurn,
+    });
+    const snapshotNaming = (label: string) => ({
+      targets: [
+        {
+          id: `t-${label}`,
+          label,
+          role: "AXButton",
+          x: 0.8,
+          y: 0.05,
+          width: 0.05,
+          height: 0.03,
+        },
+      ],
+      total: 1,
+    });
+    await session.start();
+    await session.handleClientFrame({
+      type: "update_config",
+      screenSharing: true,
+    });
+    await session.handleClientFrame({
+      type: "update_config",
+      shareTargets: snapshotNaming("Filters"),
+    });
+    await session.handleClientFrame({
+      type: "update_config",
+      shareTargets: snapshotNaming("root_Filters"),
+    });
+    transcriber.emit({ type: "final", text: "Where is Filters?" });
+    await session.handleClientFrame({ type: "ptt_release" });
+    expect(startVoiceTurn.mock.calls[0]?.[0].shareTargets).toEqual(
+      snapshotNaming("root_Filters"),
+    );
+    await session.close("client_end");
+
+    // A share that ended takes its snapshot with it.
+    const ended = createSessionHarness({
+      startFrame: { ...START_FRAME, client: "macos" },
+      startVoiceTurn,
+    });
+    startVoiceTurn.mockClear();
+    await ended.session.start();
+    await ended.session.handleClientFrame({
+      type: "update_config",
+      screenSharing: true,
+      shareTargets: snapshotNaming("root_Filters"),
+    });
+    await ended.session.handleClientFrame({
+      type: "update_config",
+      screenSharing: false,
+    });
+    await ended.session.handleClientFrame({
+      type: "update_config",
+      screenSharing: true,
+    });
+    ended.transcriber.emit({ type: "final", text: "Where is Filters?" });
+    await ended.session.handleClientFrame({ type: "ptt_release" });
+    expect(startVoiceTurn.mock.calls[0]?.[0]).not.toHaveProperty(
+      "shareTargets",
+    );
+    await ended.session.close("client_end");
+  });
+
   test("runs final transcripts through the voice bridge and forwards ordered assistant events", async () => {
     const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
       options.callbacks?.assistant_text_delta?.({

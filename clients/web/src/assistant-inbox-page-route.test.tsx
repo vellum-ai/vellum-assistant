@@ -1,7 +1,7 @@
 /**
  * The inbox route as the wizard lands on it after an upgrade: entitled, with
  * no address and no domain, it is the setup card with the handle open; once
- * Get started registers the address, it is the mailbox. The platform is
+ * Confirm registers the address, it is the mailbox. The platform is
  * mocked at the generated SDK, the hooks that reach the session and the
  * daemon at their module boundaries.
  */
@@ -223,9 +223,9 @@ describe("AssistantInboxPageRoute after an upgrade", () => {
         "The handle becomes your assistant's public handle. You won't be able to change it once set.",
       ),
     ).toBeTruthy();
-    expect(screen.queryByText("Ziggy's Inbox")).toBeNull();
+    expect(screen.queryByTestId("assistant-inbox-header")).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
 
     // One registration, the handle as the subdomain and the prefix on it.
     await waitFor(() => expect(domainCreateBodies.length).toBe(1));
@@ -234,15 +234,19 @@ describe("AssistantInboxPageRoute after an upgrade", () => {
       email_username: "hi",
     });
 
-    // The address now exists, so the route is the mailbox.
-    await waitFor(() => expect(screen.getByText("Ziggy's Inbox")).toBeTruthy());
-    expect(screen.queryByLabelText("Handle (public)")).toBeNull();
-    // The root domain comes from the environment store, so only the
-    // address's own parts are pinned.
-    expect(toastSuccessCalls.length).toBe(1);
-    expect(toastSuccessCalls[0]).toMatch(
-      /^hi@bright-vole-02a64h\..+ is ready\.$/,
+    // The address now exists: the success screen first, then the mailbox.
+    await waitFor(() =>
+      expect(screen.getByTestId("assistant-inbox-setup-success")).toBeTruthy(),
     );
+    // The way in appears once the line has typed itself out.
+    const openInbox = await screen.findByRole("button", { name: "Open inbox" });
+    fireEvent.click(openInbox);
+    await waitFor(() =>
+      expect(screen.getByTestId("assistant-inbox-header")).toBeTruthy(),
+    );
+    expect(screen.queryByLabelText("Handle (public)")).toBeNull();
+    // The success screen is the confirmation; no toast doubles it.
+    expect(toastSuccessCalls.length).toBe(0);
   });
 
   test("a claimed subdomain whose address could not be made is an error, not a ready address", async () => {
@@ -254,7 +258,7 @@ describe("AssistantInboxPageRoute after an upgrade", () => {
     renderRoute();
 
     await screen.findByLabelText("Handle (public)");
-    fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
 
     await waitFor(() => expect(domainCreateBodies.length).toBe(1));
     // The provider's sentence, under the fields, and no claim of readiness.
@@ -266,7 +270,7 @@ describe("AssistantInboxPageRoute after an upgrade", () => {
       ).toBeTruthy(),
     );
     expect(toastSuccessCalls).toEqual([]);
-    expect(screen.queryByText("Ziggy's Inbox")).toBeNull();
+    expect(screen.queryByTestId("assistant-inbox-header")).toBeNull();
     // The subdomain is claimed now, so the handle is settled and only the
     // prefix is left to choose.
     await waitFor(() =>
@@ -292,7 +296,9 @@ describe("AssistantInboxPageRoute after an upgrade", () => {
     ];
     renderRoute();
 
-    await waitFor(() => expect(screen.getByText("Ziggy's Inbox")).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByTestId("assistant-inbox-header")).toBeTruthy(),
+    );
     expect(screen.queryByText("Assistant Email")).toBeNull();
   });
 });

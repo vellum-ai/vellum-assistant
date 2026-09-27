@@ -7,7 +7,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { useAssistantHandleModal } from "@/components/assistant-handle-modal";
 import { AssistantInboxUpgradeBody } from "@/domains/assistant-inbox/components/assistant-inbox-upgrade-body";
-import { InboxRailRestore } from "@/domains/assistant-inbox/components/inbox-rail-restore";
 import { DomainField } from "@/domains/channels/components/domain-field";
 import {
   assistantsDomainsCreateMutation,
@@ -418,8 +417,7 @@ export function EmailManagedContent({
 
   if (isExplicitlyNotEntitled && inboxEnabled) {
     /* The Assistant Inbox's own pitch, so it reads the same from either
-       door, plus the way back for someone who took the inbox entry off the
-       side menu. No title here: the Email section's header carries the
+       door. No title here: the Email section's header carries the
        pitch's title and line in this state (see `EmailChannelSection`), and
        the body sits at the start under it rather than in a card of its own.
        Behind the inbox's flag: the pitch promises an inbox, which only
@@ -434,7 +432,6 @@ export function EmailManagedContent({
           onEditHandle={handleModal.openModal ?? undefined}
           onUpgrade={() => navigate(routes.plans)}
           onSeePlans={() => navigate(routes.plans)}
-          footnote={<InboxRailRestore align="start" />}
           align="start"
         />
         {handleModal.modal}

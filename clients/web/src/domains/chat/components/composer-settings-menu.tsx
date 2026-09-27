@@ -19,11 +19,13 @@ import {
 import { t, useTranslation } from "@/i18n";
 import { useSupportsCompleteProfileSnapshots } from "@/lib/backwards-compat/complete-profile-snapshots";
 import {
+  AUTO_PROFILE_NAME,
   managedProfileModelName,
   profilePickerLabel,
   visibleProfilesForPicker,
   type ProfilePickerEntry,
 } from "@/assistant/profile-pickers";
+import { useAutoProfilePreview } from "@/domains/chat/hooks/use-auto-profile-preview";
 import { useStickyProfiles } from "@/assistant/use-sticky-profiles";
 import { useProfileQuickAdd } from "@/components/profile-quick-add-provider";
 import {
@@ -569,9 +571,28 @@ export function ComposerSettingsMenu({
   // silently when the fetch lands. Once config has answered (or failed), its
   // answer is the only one, so a profile that was renamed, removed, or is
   // simply unreachable can't linger behind a label.
-  const displayProfileLabel =
+  const settledProfileLabel =
     activeProfileLabel ??
     (profilesLoaded || configQuery.isError ? null : pillSnapshot.profileLabel);
+
+  // On the Auto profile the pill also names the default profile the current
+  // draft would run on, refreshed after the user pauses typing. The preview
+  // is asked for only while the pill shows Auto, so no other profile pays the
+  // Jev call, and it falls back to the plain label until the first answer.
+  const previewProfileKey = useAutoProfilePreview({
+    assistantId,
+    conversationId,
+    enabled: segments !== "access" && profileActiveKey === AUTO_PROFILE_NAME,
+  });
+  const previewProfileEntry = previewProfileKey
+    ? orderedProfileEntries.find((e) => e.name === previewProfileKey)
+    : undefined;
+  const displayProfileLabel =
+    settledProfileLabel && previewProfileEntry
+      ? tChat("composerSettingsMenu.autoPreview", {
+          profile: profilePickerLabel(previewProfileEntry),
+        })
+      : settledProfileLabel;
 
   // Record what each pill settled on for the next launch. Keyed off the global
   // values, not the per-conversation effective ones, so a conversation-scoped

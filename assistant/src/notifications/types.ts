@@ -65,6 +65,8 @@ export type NotificationReceiptClass = z.infer<
 
 export const DeliveryResultSchema = z.object({
   success: z.boolean(),
+  /** Delivery was intentionally suppressed before the provider accepted it. */
+  skipped: z.boolean().optional(),
   error: z.string().optional(),
   messageId: z.string().optional(),
   /** Set only by the platform push adapter: true when the platform accepted
@@ -114,6 +116,8 @@ export const ChannelDeliveryPayloadSchema = z.object({
   deepLinkTarget: z.record(z.string(), z.unknown()).optional(),
   contextPayload: z.record(z.string(), z.unknown()).optional(),
   urgency: UrgencySchema,
+  /** Local presentation resolved by the broadcaster, independent of urgency. */
+  silent: z.boolean().optional(),
   approvalContext: ApprovalUIMetadataSchema.optional(),
   accessRequestContext: AccessRequestPayloadSchema.optional(),
   /** Source reference for a tool-approval card, projected once by the

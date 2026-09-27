@@ -535,7 +535,8 @@ function deriveDetailPanelKind(
  * (scheduler job ids, watcher event ids, CLI tool-call ids) leave
  * `sourceConversationId` undefined so the client hides the affordance.
  *
- * `assistant_tool` mirrors unconditionally because the documented
+ * Recipient-owned completions are excluded by `signalMirrorsToHomeFeed`.
+ * Other `assistant_tool` signals mirror because the documented
  * `notifications send` skill (and background-job failure emits) deliberately
  * does not require a background-typed conversation or the
  * `isAsyncBackground` hint. `chat.assistant_reply` also mirrors: it is the
@@ -566,20 +567,18 @@ function resolveHomeFeedMirror(
     conversationType?: string;
     scheduleJobId?: string | null;
   } | null = null;
-  if (signal.sourceContextId) {
+  const conversationId = signal.sourceContextId;
+  if (conversationId) {
     try {
-      sourceRow = getConversation(signal.sourceContextId) ?? null;
+      sourceRow = getConversation(conversationId) ?? null;
     } catch {
       sourceRow = null;
     }
   }
-  // Prefer the producer's source context (e.g. the heartbeat / background
-  // job conversation that emitted the signal) for the "Go to Convo" target,
-  // since that's where the work actually happened. Fall back to the paired
-  // delivery conversation only when the source context didn't resolve —
-  // covers producers whose `sourceContextId` is a sentinel string.
+  // Link to the producing conversation when it exists.
+  // Signals with non-conversation source IDs use the paired delivery.
   const sourceConversationId = sourceRow
-    ? signal.sourceContextId
+    ? conversationId
     : fallbackConversationId;
   const sourceScheduleJobId = sourceRow?.scheduleJobId ?? undefined;
 

@@ -8,6 +8,7 @@ const mockWakeAgentForOpportunity = mock(
   }> => Promise.resolve({ invoked: true, producedToolCalls: false }),
 );
 mock.module("../runtime/agent-wake.js", () => ({
+  hasPendingAgentWake: () => false,
   wakeAgentForOpportunity: mockWakeAgentForOpportunity,
 }));
 

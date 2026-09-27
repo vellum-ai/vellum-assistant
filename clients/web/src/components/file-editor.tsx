@@ -181,15 +181,18 @@ export function SourcePre({
   content,
   readOnly,
   whiteSpace = "pre-wrap",
+  lineNumbers = false,
   onStartEdit,
 }: {
   content: string;
   readOnly: boolean;
   whiteSpace?: "pre" | "pre-wrap";
+  lineNumbers?: boolean;
   onStartEdit?: () => void;
 }) {
   return (
     <pre
+      data-slot="source-pre"
       className={`m-0 h-full overflow-auto p-4 text-body-medium-lighter leading-relaxed${!readOnly ? " cursor-text" : ""}`}
       style={{
         color: "var(--content-default)",
@@ -198,7 +201,22 @@ export function SourcePre({
       }}
       onClick={!readOnly ? onStartEdit : undefined}
     >
-      {content}
+      {lineNumbers ? (
+        <span className="grid min-w-max grid-cols-[auto_1fr] gap-3.5">
+          <span
+            aria-hidden
+            className="min-w-[18px] select-none text-right text-[var(--content-disabled)]"
+          >
+            {content
+              .split("\n")
+              .map((_, index) => index + 1)
+              .join("\n")}
+          </span>
+          <span>{content}</span>
+        </span>
+      ) : (
+        content
+      )}
     </pre>
   );
 }

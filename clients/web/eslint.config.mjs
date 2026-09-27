@@ -301,6 +301,8 @@ const emDashEnforcedPaths = [
   // panel and its menus draw from, with their stories and tests.
   "src/domains/chat/components/chat-attachments/attachment-preview-box*.{ts,tsx}",
   "src/domains/chat/components/chat-attachments/use-attachment-object-url*.{ts,tsx}",
+  // The drawer's read-only file readers, their grids, and their parsers.
+  "src/domains/chat/components/local-file/preview/**/*.{ts,tsx}",
   "src/components/midline-dot.tsx",
   "src/hooks/use-share-app*.{ts,tsx}",
   "src/utils/share-app-with-toast.ts",

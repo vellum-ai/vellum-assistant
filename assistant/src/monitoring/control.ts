@@ -9,6 +9,7 @@
  */
 
 import { getLogger } from "../util/logger.js";
+import { MONITOR_OOM_SCORE_ADJ } from "../util/oom-priority.js";
 import { getMonitoringPidPath } from "../util/platform.js";
 import {
   probeWorkerPidFile,
@@ -53,7 +54,7 @@ export async function spawnMonitoringWorkerProcess(
       entry: MONITORING_WORKER_ENTRY,
       packagedEntry: "monitoring",
       workerLabel: "Resource monitor",
-      options: opts,
+      options: { ...opts, oomScoreAdj: MONITOR_OOM_SCORE_ADJ },
     });
   } catch (err) {
     if (err instanceof WorkerProcessSpawnError) {

@@ -49,6 +49,7 @@ function register(
     processing: boolean;
     queued: boolean;
     modeSessionWork?: boolean;
+    scheduledDispatch?: boolean;
     stale?: boolean;
   },
 ): FakeConversation {
@@ -57,6 +58,14 @@ function register(
     markedStale: false,
     conversationId: id,
     liveVoiceResidencyLeases: 0,
+    pendingQueuedDispatches: state.scheduledDispatch
+      ? new Map([
+          [
+            "run-scheduled",
+            new Set([{ controller: new AbortController(), messages: [] }]),
+          ],
+        ])
+      : new Map(),
     isProcessing: () => state.processing,
     hasQueuedMessages: () => state.queued,
     modeSessions: {
@@ -108,6 +117,18 @@ describe("evictConversationsForReload", () => {
     expect(queued.disposed).toBe(false);
     expect(queued.markedStale).toBe(true);
     expect(findConversation("reload-queued")).toBeDefined();
+    expect(abortedParents).toEqual([]);
+  });
+
+  test("keeps a scheduled dispatch whose processing claim is pending", () => {
+    const pending = register("reload-scheduled", {
+      processing: false,
+      queued: false,
+      scheduledDispatch: true,
+    });
+    evictConversationsForReload();
+    expect(pending.disposed).toBe(false);
+    expect(pending.markedStale).toBe(true);
     expect(abortedParents).toEqual([]);
   });
 

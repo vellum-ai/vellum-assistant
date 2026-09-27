@@ -191,6 +191,7 @@ import {
   requestedSessionControl,
   sessionControlTeaching,
 } from "./session-controls.js";
+import type { ShareTargetSnapshot } from "./share-targets.js";
 import { type VoiceTaskOutcome, VoiceTaskOutcomes } from "./task-outcomes.js";
 import { VoiceInputDiagnostics } from "./voice-input-diagnostics.js";
 
@@ -1218,6 +1219,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private cameraModeSessions?: CameraModeSessionProducer;
   private sightFrameSequence: Promise<void> = Promise.resolve();
   private screenSharing = false;
+  // The newest snapshot of the shared surface's controls, offered to a leg
+  // that can point at the screen. Cleared when the share ends.
+  private shareTargets: ShareTargetSnapshot | null = null;
   /**
    * Mirrors phase changes to the iOS Live Activity through the platform, for
    * the case the client cannot cover: an app backgrounded long enough for iOS
@@ -2091,6 +2095,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private applyConfigUpdate(frame: LiveVoiceClientUpdateConfigFrame): void {
     if (frame.screenSharing !== undefined) {
       this.screenSharing = frame.screenSharing;
+      if (!frame.screenSharing) {
+        this.shareTargets = null;
+      }
+    }
+    if (frame.shareTargets !== undefined) {
+      this.shareTargets = frame.shareTargets;
     }
     if (frame.silenceThresholdMs !== undefined) {
       this.turnDetector?.setSilenceThresholdMs(frame.silenceThresholdMs);
@@ -5945,11 +5955,6 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     ) {
       return;
     }
-    // One assistant turn at a time: a server_vad utterance that closes while
-    // the previous turn is still speaking waits; rearmAfterTurn retries it.
-    if (this.activeAssistantTurn) {
-      return;
-    }
     if (utterance.phase !== "transcriber_closed") {
       return;
     }
@@ -5969,6 +5974,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       }
       await this.finalizePendingUtterance(utterance, "empty_transcript");
       this.scheduleRearmAfterTurn();
+      return;
+    }
+
+    // Empty cycles must rearm input even during a reply so provider speech
+    // starts can still interrupt it. Only a real transcript waits its turn.
+    if (this.activeAssistantTurn) {
       return;
     }
 
@@ -6354,6 +6365,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       frontDoor?: boolean;
       directEscalated?: boolean;
       spokenEscalationBridge?: string;
+      screenAction?: boolean;
       attachments?: readonly string[];
     },
   ): Promise<boolean> {
@@ -6603,7 +6615,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         userMessageInterface: "macos",
         assistantMessageInterface: "macos",
         ...(this.context.startFrame.client === "macos"
-          ? { macosDesktopSession: true, screenSharing: this.screenSharing }
+          ? {
+              macosDesktopSession: true,
+              screenSharing: this.screenSharing,
+              ...(this.screenSharing && this.shareTargets !== null
+                ? { shareTargets: this.shareTargets }
+                : {}),
+            }
           : {}),
         voiceTelemetry: {
           sessionId: this.context.sessionId,
@@ -6654,6 +6672,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           ? { overrideProfile: leg.overrideProfile }
           : {}),
         ...(leg.routingLeg != null ? { routingLeg: leg.routingLeg } : {}),
+        ...(leg.screenAction === true ? { screenAction: true } : {}),
         ...(leg.spokenEscalationBridge != null
           ? { spokenEscalationBridge: leg.spokenEscalationBridge }
           : {}),
@@ -6923,13 +6942,15 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   ): void {
     const { spokenBridge, usesFallback, language } = bridge;
     if (!usesFallback) {
-      this.markFirstAssistantDelta(activeTurn.utterance, activeTurn.turnId);
-      this.markAssistantDelta(activeTurn);
-      void this.sendFrame(
-        { type: "assistant_text_delta", text: spokenBridge },
-        () => !activeTurn.abortController.signal.aborted && !this.isClosed,
-      );
-      this.bufferAssistantTextForTts(activeTurn.token, `${spokenBridge} `);
+      if (!bridge.alreadyReleased) {
+        this.markFirstAssistantDelta(activeTurn.utterance, activeTurn.turnId);
+        this.markAssistantDelta(activeTurn);
+        void this.sendFrame(
+          { type: "assistant_text_delta", text: spokenBridge },
+          () => !activeTurn.abortController.signal.aborted && !this.isClosed,
+        );
+        this.bufferAssistantTextForTts(activeTurn.token, `${spokenBridge} `);
+      }
       // Force-flush now: on the TTS path an unpunctuated bridge would
       // otherwise sit buffered until a sentence boundary and leave the
       // caller in silence during the escalated model's call.

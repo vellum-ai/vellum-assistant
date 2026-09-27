@@ -48,23 +48,8 @@ import { useSSEConnectedStore } from "@/stores/sse-connected-store";
 
 const RESUME_DEDUP_WINDOW_MS = 1000;
 
-// Grace window before a hidden tab tears its SSE connection down. A
-// brief tab-out — alt-tab, a glance at another window, tapping a
-// notification — shouldn't kill a live streaming turn: tearing down
-// forces a cold reopen + reconcile on return, which the user perceives
-// as a frozen transcript they have to refresh to clear. Only a tab that
-// stays hidden past this window is treated as real backgrounding and
-// torn down; a resume inside the window cancels the pending teardown and
-// keeps the socket. `power.suspend` (system sleep) is deliberately NOT
-// debounced — it still tears down immediately so the daemon sees a clean
-// disconnect.
-const DESKTOP_HIDDEN_TEARDOWN_GRACE_MS = 5_000;
-
-// Native mobile gets a far longer grace. Switching apps is the normal way
-// to use a phone, so at the desktop window every glance at another app
-// paid a teardown, a cold reopen, and the whole `sse.opened` reconcile
-// fan-out on return. A minute covers the quick switch and keeps the live
-// socket through it.
+// Native mobile keeps its connection for brief app switches before suspension.
+// Desktop browsers keep the stream open for notifications while the tab lives.
 const NATIVE_MOBILE_HIDDEN_TEARDOWN_GRACE_MS = 60_000;
 
 // How long a background has to run before a socket we still hold a handle
@@ -86,9 +71,7 @@ const resolveHiddenTeardownGraceMs = (): number => {
   if (hiddenTeardownGraceOverrideMs !== null) {
     return hiddenTeardownGraceOverrideMs;
   }
-  return isNativeMobile()
-    ? NATIVE_MOBILE_HIDDEN_TEARDOWN_GRACE_MS
-    : DESKTOP_HIDDEN_TEARDOWN_GRACE_MS;
+  return NATIVE_MOBILE_HIDDEN_TEARDOWN_GRACE_MS;
 };
 
 /**
@@ -343,12 +326,9 @@ export const sseService: SseService = {
       setConnected(false);
     };
 
-    // App lifecycle (renderer-visibility): a hidden tab does NOT tear the
-    // connection down immediately — see `handleAppHidden`, which debounces
-    // it behind the platform's grace window. On a foreground resume we
-    // cancel any pending grace teardown (so a brief tab-out keeps its live
-    // socket) and reopen only if the connection was torn down, or if the
-    // background ran long enough that the socket we still hold is suspect.
+    // Desktop browsers retain their stream while hidden; native mobile tears
+    // it down after a grace period. Resume cancels pending teardown and replaces
+    // sockets that may have been suspended during a long background interval.
     // `runtime/event-sources/lifecycle-edge.ts` is the primary collapse: the
     // visibilitychange + Capacitor appStateChange pair for one physical edge
     // reaches the bus as a single `app.resume`. The self-dedup window below
@@ -423,22 +403,16 @@ export const sseService: SseService = {
       openConnection();
     };
 
-    // Renderer went hidden. Debounce the teardown: schedule it behind the
-    // grace window instead of cancelling the stream now, so a brief
-    // tab-out doesn't drop a live turn. A resume inside the window clears
-    // this timer; if the tab is still hidden when it fires, tear down for
-    // real. Idempotent — a repeat `app.hidden` while already scheduled is
-    // ignored.
+    // Native mobile gives brief app switches a grace period before teardown.
+    // Desktop streams remain connected for notifications while their page lives.
     const handleAppHidden = ({ signal }: { signal: AppHiddenSignal }) => {
       if (signal === "window_attention") {
-        // A desktop window off screen is not a backgrounded client. Nothing
-        // froze this renderer: the Electron host reported its own window
-        // minimized or hidden, and the assistant broadcasts notifications
-        // fire-and-forget with no queue, no redelivery, and no push fallback
-        // on the desktop. Tearing down here would drop every notification
-        // published while the window was away, which is the failure a
-        // minimized window most needs this stream to avoid. Every other
-        // signal means the client itself went away and still tears down.
+        return;
+      }
+      if (!isNativeMobile()) {
+        // Desktop delivery depends on this live transport, including hidden
+        // browser tabs. Lifecycle consumers still pause foreground work.
+        hiddenAt ??= Date.now();
         return;
       }
       if (!current) {

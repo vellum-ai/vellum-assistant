@@ -33,7 +33,10 @@ import {
 /** The phrase spoken across the hand-off, as {@link resolveSpokenEscalationBridge} settles it. */
 export type SpokenEscalationBridge = ReturnType<
   typeof resolveSpokenEscalationBridge
->;
+> & {
+  /** The answer path already emitted this text; only flush pending speech. */
+  alreadyReleased?: boolean;
+};
 
 /** The leg that answers for real after the front-door leg handed off. */
 export interface EscalatedLeg {
@@ -44,6 +47,8 @@ export interface EscalatedLeg {
    * rule so the quality model does not re-announce it.
    */
   spokenEscalationBridge: string;
+  /** The front door judged the action answerable from the shared screen and context. */
+  screenAction?: boolean;
 }
 
 /**
@@ -169,8 +174,8 @@ export function createFrontDoorLegCoordinator(options: {
   };
 
   const handOff = (
-    cappedBridge: string,
-    opts: { overruled?: boolean } = {},
+    bridgeText: string,
+    opts: { overruled?: boolean; alreadyReleased?: boolean } = {},
   ): void => {
     if (handedOff || !host.isLive()) {
       return;
@@ -182,12 +187,23 @@ export function createFrontDoorLegCoordinator(options: {
     } else {
       host.abortLeg();
     }
-    const bridge = resolveSpokenEscalationBridge(cappedBridge, host.language());
+    const bridge: SpokenEscalationBridge = opts.alreadyReleased
+      ? {
+          spokenBridge: bridgeText,
+          usesFallback: false,
+          alreadyReleased: true,
+        }
+      : resolveSpokenEscalationBridge(bridgeText, host.language());
     host.speakBridge(bridge);
     // The bridge is the turn's spoken acknowledgement: narration keeps its
     // minimum gap from it rather than following it back to back.
     host.progress?.noteFloorHolder();
-    host.startEscalatedLeg(escalatedLegFor(bridge.spokenBridge));
+    host.startEscalatedLeg({
+      ...escalatedLegFor(bridge.spokenBridge),
+      ...(verdict.screenAction && !opts.overruled
+        ? { screenAction: true }
+        : {}),
+    });
     // The escalated leg runs the slowest work in the system, and the bridge
     // only covers its first couple of seconds: the dead air narration
     // exists for.
@@ -299,6 +315,8 @@ export function createFrontDoorLegCoordinator(options: {
         const step = verdict.finish();
         if (step.kind === "bridge") {
           handOff(step.bridge);
+        } else if (step.kind === "terminal-escalate") {
+          handOff(step.bridge, { alreadyReleased: true });
         }
       }
       return handedOff;

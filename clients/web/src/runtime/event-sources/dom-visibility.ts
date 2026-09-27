@@ -1,10 +1,14 @@
+import { publish } from "@/lib/event-bus";
+import { isElectron } from "@/runtime/is-electron";
+import { isNativePlatform } from "@/runtime/native-auth";
+import { isClientAttended } from "@/runtime/window-attention";
 import { publishLifecycleEdge } from "@/runtime/event-sources/lifecycle-edge";
 
 /**
  * `document.visibilitychange` → `app.resume(signal: "visibility")` on
  * visible, `app.hidden(signal: "visibility")` on hidden. The cross-domain
  * bus is the consumer; SSE policy (in `assistant/sse-service.ts`)
- * teardowns on hidden and reopens on resume.
+ * keeps desktop streams connected while hidden and recovers on resume.
  *
  * The Capacitor iOS shell fires `appStateChange` for the same physical
  * edge, which the bus sees through `publishCapacitorAppStateSource` with
@@ -23,8 +27,20 @@ export function publishVisibilitySource(): () => void {
       publishLifecycleEdge("resume", "visibility");
     }
   };
+  const publishAttention = () => {
+    publish("app.attention", { attended: isClientAttended() });
+  };
+  const browserAttention = !isElectron() && !isNativePlatform();
   document.addEventListener("visibilitychange", handler);
+  if (browserAttention) {
+    window.addEventListener("focus", publishAttention);
+    window.addEventListener("blur", publishAttention);
+  }
   return () => {
     document.removeEventListener("visibilitychange", handler);
+    if (browserAttention) {
+      window.removeEventListener("focus", publishAttention);
+      window.removeEventListener("blur", publishAttention);
+    }
   };
 }

@@ -105,6 +105,7 @@ import {
   type AutoProfileRoute,
   plainTextOf,
   routeAutoProfile,
+  takeAutoProfilePreview,
 } from "./auto-profile-router.js";
 import { conversationSupportsDynamicUi } from "./channel-ui-capability.js";
 import type { Conversation } from "./conversation.js";
@@ -211,6 +212,13 @@ const DAILY_LIMIT_REACHED_ASSISTANT_REPLY =
   "I had to stop because you hit your daily credit limit. Raise the limit in Settings → Billing and we can pick up where we left off, or I can continue once it resets.";
 
 /**
+ * The free-tier counterpart: the cap is the platform's, not a setting, so the
+ * ways forward are the UTC reset, an upgrade, or extra credits.
+ */
+const FREE_TIER_DAILY_LIMIT_REACHED_ASSISTANT_REPLY =
+  "I had to stop because you've used today's free usage. It resets at midnight UTC, or you can upgrade or add credits in Settings → Billing and we can pick up where we left off.";
+
+/**
  * The assistant-voice text a managed-billing failure persists in place of the
  * classification's own `userMessage`, or `null` when the classification copy is
  * already right for a transcript row.
@@ -227,6 +235,8 @@ function managedBillingAssistantReply(
       return OUT_OF_CREDITS_ASSISTANT_REPLY;
     case "daily_limit_reached":
       return DAILY_LIMIT_REACHED_ASSISTANT_REPLY;
+    case "free_tier_daily_limit_reached":
+      return FREE_TIER_DAILY_LIMIT_REACHED_ASSISTANT_REPLY;
     default:
       return null;
   }
@@ -490,6 +500,8 @@ export async function runAgentLoopImpl(
      * loop defaults to `'mainAgent'` for user-initiated turns.
      */
     callSite?: LLMCallSite;
+    /** Skip fresh retrieval while keeping resident memory and static context. */
+    skipMemoryRetrieval?: boolean;
     /**
      * Provider configuration source when it differs from the turn's semantic
      * call site. The semantic call site still controls tools and UI behavior.
@@ -582,6 +594,7 @@ export async function runAgentLoopImpl(
   // before the prompt sync below: the tool-gated reply section and the tool
   // surface both scope on the turn's call site.
   ctx.currentCallSite = turnCallSite;
+  ctx.currentTurnSkipMemoryRetrieval = options?.skipMemoryRetrieval === true;
 
   // Whether this turn routes its user-facing text through `send_user_message`:
   // the flag is on and the turn is a main-agent turn. Resolved once and pinned
@@ -639,10 +652,9 @@ export async function runAgentLoopImpl(
   // internal background origin. Unset for normal user turns.
   ctx.currentTurnRequestOrigin = options?.requestOrigin;
 
-  // Firing's run id for this turn's usage attribution. Kept local (not on the
-  // conversation) so a reused conversation attributes each turn to its own
-  // firing.
+  // Ownership covers asynchronous setup as well as the loop and its tools.
   const turnCronRunId = options?.cronRunId ?? null;
+  ctx.currentTurnCronRunId = turnCronRunId;
 
   // Optional per-turn inference-profile override. Plumbed through to every
   // LLM call the loop emits and inherited by any subagents spawned during
@@ -688,21 +700,33 @@ export async function runAgentLoopImpl(
         if (profiles[AUTO_PROFILE_KEY]?.source !== "managed") {
           return null;
         }
-        const route = await routeAutoProfile({
+        const userMessage = plainTextOf(
+          getMessageById(userMessageId)?.content ?? [],
+        );
+        // A draft the composer already previewed carries its pick over, so
+        // the reply lands on the profile the pill showed with no second call.
+        const previewed = takeAutoProfilePreview({
           conversationId: ctx.conversationId,
+          text: userMessage,
           history: ctx.messages,
-          userMessage: plainTextOf(
-            getMessageById(userMessageId)?.content ?? [],
-          ),
           profiles,
-          signal: abortController.signal,
         });
+        const route =
+          previewed ??
+          (await routeAutoProfile({
+            conversationId: ctx.conversationId,
+            history: ctx.messages,
+            userMessage,
+            profiles,
+            signal: abortController.signal,
+          }));
         rlog.info(
           {
             outcome: route.outcome,
             profile: route.profile,
             confidence: route.confidence ?? null,
             latencyMs: route.latencyMs,
+            reusedPreview: previewed !== undefined,
           },
           "Auto profile routed the turn",
         );
@@ -876,11 +900,6 @@ export async function runAgentLoopImpl(
   // applies to later tool executions and nested subagents in the same turn.
   ctx.currentTurnOverrideProfile = turnOverrideProfile;
 
-  // Mirrored onto the live conversation for `createToolExecutor` to read into
-  // `ToolContext.cronRunId`, so a tool that delegates LLM work (subagent spawn
-  // or message) stamps the delegated usage with this firing.
-  ctx.currentTurnCronRunId = turnCronRunId;
-
   // Capture the turn channel context *before* any awaits so a second
   // message from a different channel can't overwrite it mid-flight.
   // When context is unavailable (e.g. regenerate after daemon restart),
@@ -963,6 +982,7 @@ export async function runAgentLoopImpl(
   startToolProfilingRequest(ctx.conversationId);
   let turnStarted = false;
   const state = createEventHandlerState();
+  state.autoRoutedProfile = autoRoute?.profile;
   // Publish this turn's flushed-content watermark so the worker → daemon
   // persist hand-off can cap a snapshot anchor at flushed content rather than
   // the live seq counter, which runs ahead while the turn streams. Cleared in
@@ -1021,6 +1041,7 @@ export async function runAgentLoopImpl(
   // provider-error turn's only assistant row is the synthetic error text, so
   // the deferred tail must not treat either as a final reply.
   let turnCompleted = false;
+  let failedTurnAt: number | undefined;
   // Files this turn attached that survived resolution and persistence, in
   // the shape the activation hook records as artifacts. Rejected directives
   // never reach it, so a checklist card can never point at a file the turn
@@ -1038,6 +1059,30 @@ export async function runAgentLoopImpl(
   // cross-turn variant of the pairing corruption the boundary drain
   // prevents.
   const ownedReactionRecords: QueuedReactionRecord[] = [];
+
+  const queueDeferredTurnTail = (
+    completed: boolean,
+    criticalSectionMs: number,
+    ready?: Promise<void>,
+  ): void => {
+    chainTurnTail(ctx.conversationId, async () => {
+      if (ready) {
+        await ready;
+      }
+      await runDeferredTurnTail({
+        conversationId: ctx.conversationId,
+        state,
+        rlog,
+        criticalSectionMs,
+        turnCompleted: completed,
+        userMessageId: options?.notifyUserMessageId ?? userMessageId,
+        cronRunId: turnCronRunId,
+        ...(options?.replyDeliveredInAppOnly
+          ? { replyDeliveredInAppOnly: true }
+          : {}),
+      });
+    });
+  };
 
   /**
    * Free the conversation for its next turn.
@@ -1102,12 +1147,14 @@ export async function runAgentLoopImpl(
     ctx.preactivatedSkillIds = undefined;
     ctx.currentTurnOverrideProfile = undefined;
     ctx.currentTurnCronRunId = undefined;
+    ctx.currentTurnWorkOrigins = undefined;
     ctx.currentTurnModelProfileNoticeKey = undefined;
     // Turn-scoped interactivity. Clear it so paths that bypass this loop
     // (e.g. opportunity wakes calling `agentLoop.run` directly) don't inherit
     // a stale value and instead fall back to live client state in the tool
     // context.
     ctx.currentTurnIsNonInteractive = undefined;
+    ctx.currentTurnSkipMemoryRetrieval = undefined;
     // Turn-scoped request origin. Clear so a later turn on a reused
     // conversation cannot inherit a stale origin-scoped permission grant.
     ctx.currentTurnRequestOrigin = undefined;
@@ -1676,6 +1723,7 @@ export async function runAgentLoopImpl(
           supportsDynamicUi: conversationSupportsDynamicUi(ctx),
           trust: loopTrust,
           overrideProfile: turnOverrideProfile,
+          ...(autoRoute ? { overrideProfileOrigin: "auto" as const } : {}),
           ...(forceOverrideProfile ? { forceOverrideProfile: true } : {}),
           resolveOverrideProfile: refreshCurrentProfileState,
           ...(onModelCallPrepared !== undefined ? { onModelCallPrepared } : {}),
@@ -2100,6 +2148,9 @@ export async function runAgentLoopImpl(
     // path to the terminal SSE that re-enables the composer.
     ctx.messages = restoredHistory;
 
+    // The row's override is whichever profile served the last call.
+    const mainRowOverrideProfile =
+      state.exchangeInferenceProfile ?? refreshCurrentProfileState() ?? null;
     emitUsage(
       ctx,
       state.exchangeInputTokens,
@@ -2124,16 +2175,17 @@ export async function runAgentLoopImpl(
       // backup (via `state.exchangeProviderName` / `state.model`), so
       // attributing the profile from the primary would write a row that
       // contradicts itself. `forceOverrideProfile` floats it above the
-      // call-site profile exactly as the fallback dispatch did.
+      // call-site profile exactly as the fallback dispatch did. The Auto
+      // origin applies only while the row's override is still the router's
+      // pick: a profile switched in mid-turn is the user's.
       {
         callSite: inferenceCallSite,
-        overrideProfile:
-          state.exchangeInferenceProfile ??
-          refreshCurrentProfileState() ??
-          null,
+        overrideProfile: mainRowOverrideProfile,
         ...(state.exchangeInferenceProfile !== undefined
           ? { forceOverrideProfile: true }
-          : {}),
+          : autoRoute && mainRowOverrideProfile === autoRoute.profile
+            ? { overrideProfileOrigin: "auto" as const }
+            : {}),
       },
       turnCronRunId,
     );
@@ -2240,6 +2292,9 @@ export async function runAgentLoopImpl(
           ...(state.lastAssistantMessageId
             ? { messageId: state.lastAssistantMessageId }
             : {}),
+          ...(state.autoRoutedProfile
+            ? { autoRoutedProfile: state.autoRoutedProfile }
+            : {}),
           modeSession: ctx.modeSessions.getTurnOwner(reqId),
         });
         publishLoopMessagesChanged();
@@ -2267,6 +2322,9 @@ export async function runAgentLoopImpl(
           // per-row treatment the history projection will hand it.
           ...(state.lastAssistantTextVisibility
             ? { assistantTextVisibility: state.lastAssistantTextVisibility }
+            : {}),
+          ...(state.autoRoutedProfile
+            ? { autoRoutedProfile: state.autoRoutedProfile }
             : {}),
         });
         if (shouldEmitQueuedConversationNotices) {
@@ -2325,20 +2383,9 @@ export async function runAgentLoopImpl(
     // conversation id rather than held on this instance, because the tail runs
     // while the conversation reads idle and can therefore outlive the instance
     // that scheduled it.
-    chainTurnTail(ctx.conversationId, () =>
-      runDeferredTurnTail({
-        conversationId: ctx.conversationId,
-        state,
-        rlog,
-        criticalSectionMs,
-        turnCompleted,
-        userMessageId: options?.notifyUserMessageId ?? userMessageId,
-        ...(options?.replyDeliveredInAppOnly
-          ? { replyDeliveredInAppOnly: true }
-          : {}),
-      }),
-    );
+    queueDeferredTurnTail(turnCompleted, criticalSectionMs);
   } catch (err) {
+    failedTurnAt = Date.now();
     clearConversationNotices(ctx.conversationId);
     // A turn that threw out of the loop is over too; see the happy path.
     if (!isPreemptedByNewMessage(abortController.signal.reason)) {
@@ -2540,10 +2587,15 @@ export async function runAgentLoopImpl(
       // kickDrainQueue never rejects: a drain failure here would otherwise be
       // an unhandled rejection that strands the queue with nothing left to
       // re-trigger it.
-      void ctx.kickDrainQueue(
+      const queueDrain = ctx.kickDrainQueue(
         yieldedForHandoff ? "checkpoint_handoff" : "loop_complete",
         "agent_loop_finally",
       );
+      if (failedTurnAt !== undefined) {
+        // A terminal failure can release an earlier successful sibling result.
+        // Recovery waits for queued continuations to settle and stays detached.
+        queueDeferredTurnTail(false, Date.now() - failedTurnAt, queueDrain);
+      }
     }
   }
 }

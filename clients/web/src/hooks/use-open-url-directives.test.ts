@@ -1,5 +1,5 @@
 /**
- * Conversationless `open_url` directives must open from any route, so the
+ * Conversationless `open_url` directives open from any attended route, so the
  * envelope handler is exercised directly (the hook only wires it to the
  * bus). Conversation-bound events must be left to the chat stream
  * consumer — handling them here too would double-open for the active
@@ -9,6 +9,7 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 
 import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
+import { stubBrowserAttention } from "@/runtime/window-attention.test-helper";
 
 let isNativePlatformMock = false;
 mock.module("@capacitor/core", () => ({
@@ -41,21 +42,25 @@ const { handleOpenUrlDirectiveEnvelope } =
   await import("@/hooks/use-open-url-directives");
 
 const originalWindow = globalThis.window;
+let attention: ReturnType<typeof stubBrowserAttention>;
 
 function setMockWindow({
   origin = "https://app.vellum.ai",
   open,
+  vellum,
 }: {
   origin?: string;
   open?:
     | ((url?: string, target?: string, features?: string) => Window | null)
     | null;
+  vellum?: unknown;
 } = {}): void {
   Object.defineProperty(globalThis, "window", {
     configurable: true,
     value: {
       location: { origin },
       open,
+      vellum,
     },
   });
 }
@@ -73,12 +78,15 @@ function makeEnvelope(
 }
 
 beforeEach(() => {
+  attention = stubBrowserAttention();
+  attention.set({ visible: true, focused: true });
   isNativePlatformMock = false;
   nativeOpenUrlMock = mock((_url: string) => Promise.resolve());
   toastWarningMock.mockClear();
 });
 
 afterEach(() => {
+  attention.restore();
   Object.defineProperty(globalThis, "window", {
     configurable: true,
     value: originalWindow,
@@ -127,6 +135,48 @@ describe("handleOpenUrlDirectiveEnvelope", () => {
     expect(open).not.toHaveBeenCalled();
   });
 
+  it("opens the shared directive only in the visible, focused browser tab", () => {
+    const popup = { focus: mock(() => {}) } as unknown as Window;
+    const open = mock(() => popup);
+    setMockWindow({ open });
+    const envelope = makeEnvelope({ type: "open_url", url: oauthUrl });
+
+    for (const state of [
+      { visible: false, focused: false },
+      { visible: true, focused: false },
+      { visible: true, focused: true },
+    ]) {
+      attention.set(state);
+      handleOpenUrlDirectiveEnvelope(envelope, deps());
+    }
+
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(toastWarningMock).not.toHaveBeenCalled();
+  });
+
+  it("does not navigate or show a blocked-popup toast in an unattended tab", () => {
+    const open = mock(() => null);
+    const { push } = deps();
+    setMockWindow({ open });
+
+    for (const state of [
+      { visible: false, focused: false },
+      { visible: true, focused: false },
+    ]) {
+      attention.set(state);
+      for (const url of [oauthUrl, "https://app.vellum.ai/settings"]) {
+        handleOpenUrlDirectiveEnvelope(
+          makeEnvelope({ type: "open_url", url }),
+          { isNative: false, push },
+        );
+      }
+    }
+
+    expect(open).not.toHaveBeenCalled();
+    expect(push).not.toHaveBeenCalled();
+    expect(toastWarningMock).not.toHaveBeenCalled();
+  });
+
   it("ignores non-open_url events", () => {
     const open = mock(() => null);
     setMockWindow({ open });
@@ -167,6 +217,7 @@ describe("handleOpenUrlDirectiveEnvelope", () => {
 
   it("routes through the runtime opener on native", () => {
     setMockWindow({ open: null });
+    attention.set({ visible: false, focused: false });
 
     handleOpenUrlDirectiveEnvelope(
       makeEnvelope({ type: "open_url", url: "https://example.com/docs" }),
@@ -175,5 +226,19 @@ describe("handleOpenUrlDirectiveEnvelope", () => {
 
     expect(nativeOpenUrlMock).toHaveBeenCalledWith("https://example.com/docs");
     expect(toastWarningMock).not.toHaveBeenCalled();
+  });
+
+  it("preserves Electron handoff without browser focus", () => {
+    const popup = { focus: mock(() => {}) } as unknown as Window;
+    const open = mock(() => popup);
+    setMockWindow({ open, vellum: { platform: "electron" } });
+    attention.set({ visible: false, focused: false });
+
+    handleOpenUrlDirectiveEnvelope(
+      makeEnvelope({ type: "open_url", url: oauthUrl }),
+      deps(),
+    );
+
+    expect(open).toHaveBeenCalledTimes(1);
   });
 });

@@ -4088,6 +4088,33 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     };
   }
 
+  test("fresh memory policy reaches injectors on initial assembly and re-entry", async () => {
+    const seen = { ctx: null as TurnContext | null, commits: 0 };
+    registerPluginInjectors(V3_PROBE_PLUGIN, [probeMemoryV3Injector(seen)]);
+    try {
+      setConversation(
+        FALLBACK_CONVERSATION_ID,
+        asConversation({
+          conversationId: FALLBACK_CONVERSATION_ID,
+          currentCallSite: "callAgent",
+          currentTurnSkipMemoryRetrieval: true,
+        }),
+      );
+      for (const isReInjection of [false, true]) {
+        await applyRuntimeInjections(
+          [{ role: "user", content: [{ type: "text", text: "circle that" }] }],
+          {
+            conversationId: FALLBACK_CONVERSATION_ID,
+            reinjection: isReInjection,
+          },
+        );
+        expect(seen.ctx?.skipMemoryRetrieval).toBe(true);
+      }
+    } finally {
+      unregisterPluginInjectors(V3_PROBE_PLUGIN);
+    }
+  });
+
   test("slack replacement is stated on the turn context and attaches the memory-v3 block in memory only: uncaptured, uncommitted", async () => {
     const seen = { ctx: null as TurnContext | null, commits: 0 };
     registerPluginInjectors(V3_PROBE_PLUGIN, [probeMemoryV3Injector(seen)]);

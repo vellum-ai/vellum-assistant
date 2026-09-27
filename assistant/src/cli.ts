@@ -157,7 +157,7 @@ export async function startCli(): Promise<void> {
         }),
       );
 
-      const result = await new Promise<{
+      return await new Promise<{
         ok: boolean;
         error?: string;
         message?: string;
@@ -208,8 +208,6 @@ export async function startCli(): Promise<void> {
           checkResult();
         }
       });
-
-      return result;
     } catch {
       return { ok: false };
     }

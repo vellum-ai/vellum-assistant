@@ -35,6 +35,7 @@ import {
   shouldSkipPrimary,
   tryAcquireRecoveryProbe,
 } from "./fallback-breaker.js";
+import { resolveFireworksRequestHeaders } from "./fireworks/client.js";
 import { resolveLogitBiasPreset } from "./inference/logit-bias.js";
 import { MALFORMED_TOOL_CALL_MESSAGE } from "./malformed-tool-call.js";
 import {
@@ -681,6 +682,19 @@ function normalizeSendMessageOptions(
     nextConfig.requestHeaders = resolveOpenCodeRequestHeaders(conversationId);
   }
 
+  if (providerName === "fireworks") {
+    // Covers BYOK Fireworks and the Vellum-managed Fireworks upstream, which
+    // both dispatch through `FireworksProvider`. Keyless calls send no header.
+    const sessionKey = [config.selectionSeed, config.conversationId].find(
+      (value): value is string =>
+        typeof value === "string" && value.trim().length > 0,
+    );
+    const headers = resolveFireworksRequestHeaders(sessionKey);
+    if (Object.keys(headers).length > 0) {
+      nextConfig.requestHeaders = headers;
+    }
+  }
+
   // `overrideProfile`, `forceOverrideProfile`, `selectionSeed`,
   // `conversationId`, and `nativeWebSearchSentinel` are routing/resolution-time
   // concerns (consumed by the resolver below, `CallSiteRoutingProvider`'s
@@ -689,6 +703,7 @@ function normalizeSendMessageOptions(
   // (after the `openai` promptCacheKey copy above) so they never leak into
   // provider request bodies even when callers set them without a `callSite`.
   delete nextConfig.overrideProfile;
+  delete nextConfig.overrideProfileOrigin;
   delete nextConfig.forceOverrideProfile;
   delete nextConfig.selectionSeed;
   delete nextConfig.conversationId;
@@ -703,6 +718,7 @@ function normalizeSendMessageOptions(
     const attribution = resolveUsageAttribution({
       callSite: config.callSite,
       overrideProfile: config.overrideProfile,
+      overrideProfileOrigin: config.overrideProfileOrigin,
       forceOverrideProfile: config.forceOverrideProfile,
       selectionSeed: config.selectionSeed,
     });

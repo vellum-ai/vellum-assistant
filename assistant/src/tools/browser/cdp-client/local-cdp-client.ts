@@ -136,8 +136,7 @@ export class LocalCdpClient implements ScopedCdpClient {
       });
     }
     try {
-      const result = (await session.send(method, params)) as T;
-      return result;
+      return (await session.send(method, params)) as T;
     } catch (err) {
       if (signal?.aborted) {
         throw new CdpError("aborted", "Aborted during send", {

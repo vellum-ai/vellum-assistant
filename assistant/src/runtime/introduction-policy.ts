@@ -31,6 +31,7 @@ import {
   VERIFIED_VIA_CHANNEL_CLAIM,
   VERIFIED_VIA_MANUAL,
 } from "@vellumai/gateway-client";
+import type { GuardianActionEmphasis } from "@vellumai/service-contracts/guardian-requests";
 
 import type { ApprovalAction } from "./channel-approval-types.js";
 
@@ -194,14 +195,30 @@ export interface IntroductionActionOption {
     "trust" | "verify_code" | "leave_unverified" | "block"
   >;
   label: string;
-  emphasis: "primary" | "secondary" | "destructive";
+  emphasis: GuardianActionEmphasis;
+}
+
+/**
+ * Whether this requester could ever complete the code handshake.
+ *
+ * A bot cannot return a code. An email sender cannot be sent one: approval
+ * has no delivery route for email, so the guardian would have to pass the
+ * code on outside the product, and the address the code would prove is
+ * already checked on every message (a `From:` that fails DMARC/DKIM reaches
+ * the runtime as a stranger).
+ */
+export function requesterCanCompleteHandshake(
+  sourceChannel: string | undefined,
+  signals: RequesterIdentitySignals,
+): boolean {
+  return signals.isBot !== true && sourceChannel !== "email";
 }
 
 /**
  * Whether the verification handshake is offered for this requester.
  *
  * The handshake is the exception, not the default:
- * - never for bots/integrations — a bot cannot return a code;
+ * - never where it cannot complete (see {@link requesterCanCompleteHandshake});
  * - not for workspace-vouched identities — the platform already
  *   authenticated them;
  * - not on voice — a phone call has no text handshake path;
@@ -211,7 +228,7 @@ export function isHandshakeOffered(
   sourceChannel: string | undefined,
   signals: RequesterIdentitySignals,
 ): boolean {
-  if (signals.isBot === true) {
+  if (!requesterCanCompleteHandshake(sourceChannel, signals)) {
     return false;
   }
   if (sourceChannel === "phone") {
@@ -224,15 +241,16 @@ export function isHandshakeOffered(
  * Build the ordered introduction-card action list for a requester. The first
  * action is the emphasized default:
  *
- *   workspace member / bot / voice:  [ Trust ] [ Leave unverified ] [ Block ]
- *   external / stranger / guest:     [ Verify with a code ] [ Trust anyway ]
- *                                    [ Leave unverified ] [ Block ]
+ *   workspace member / bot / voice / email:  [ Trust ] [ Leave unverified ] [ Block ]
+ *   external / stranger / guest:             [ Verify with a code ] [ Trust anyway ]
+ *                                            [ Leave unverified ] [ Block ]
  *
  * `leave_unverified` is the silent "park" outcome: it leaves the sender an
  * `unverified` contact and never notifies the requester. It is NOT a guaranteed
  * keep-out — an `unverified` contact is still admitted under the permissive
  * admission floors (`any_contact`, `strangers`); the hard keep-out is `block`
- * (→ revoked). The code option is NEVER rendered for a bot.
+ * (→ revoked). The code option is never rendered where the handshake cannot
+ * complete (a bot, an email sender; see {@link requesterCanCompleteHandshake}).
  */
 export function buildIntroductionActions(
   sourceChannel: string | undefined,

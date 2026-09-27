@@ -52,6 +52,14 @@ mock.module("@/domains/chat/components/local-file/preview/csv-preview", () => ({
     <div>{`csv preview of ${filename}`}</div>
   ),
 }));
+mock.module(
+  "@/domains/chat/components/local-file/preview/xlsx-preview",
+  () => ({
+    XlsxPreview: ({ filename }: { blob: Blob; filename: string }) => (
+      <div>{`workbook preview of ${filename}`}</div>
+    ),
+  }),
+);
 
 const { FilePreviewContainer } = await import(
   "@/domains/chat/components/local-file/preview/file-preview-container"
@@ -192,6 +200,27 @@ describe("FilePreviewContainer", () => {
     });
   });
 
+  test("a workbook over the size cap is offered as a download, unread", async () => {
+    nextProbe = probeResult(26 * 1024 * 1024);
+
+    renderPreview({
+      workspacePath: "sheets/budget.xlsx",
+      documentName: "budget.xlsx",
+      previewKind: "xlsx",
+    });
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("This file is too large to preview"),
+      ).toBeTruthy(),
+    );
+    expect(
+      screen.getByText("26 MB, over the 25 MB preview limit"),
+    ).toBeTruthy();
+    expect(screen.queryByText("workbook preview of budget.xlsx")).toBeNull();
+    expect(blobCalls().length).toBe(0);
+  });
+
   test("a markdown file renders as formatted prose, not source", async () => {
     nextResult = textResult("# Heading\n\nA paragraph.");
 
@@ -284,6 +313,23 @@ describe("FilePreviewContainer", () => {
     expect(screen.getByText("8.0 KB")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Go to file" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Download file" })).toBeTruthy();
+  });
+
+  test("a workbook reads through the sheet grid, unlike its sibling packages", async () => {
+    nextProbe = probeResult(8192);
+
+    renderPreview({
+      workspacePath: "sheets/budget.xlsx",
+      documentName: "budget.xlsx",
+      previewKind: "xlsx",
+    });
+
+    await waitFor(() =>
+      expect(screen.getByText("workbook preview of budget.xlsx")).toBeTruthy(),
+    );
+    expect(screen.queryByText("No preview for this file type")).toBeNull();
+    const request = blobCalls()[0] as { query: { path: string } };
+    expect(request.query.path).toBe("sheets/budget.xlsx");
   });
 
   test("media is refused only past the larger inline-media cap", async () => {

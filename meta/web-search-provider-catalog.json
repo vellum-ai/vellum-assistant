@@ -108,6 +108,26 @@
       "secretKey": "youcom",
       "fallbackOrder": 9,
       "privacyPolicyUrl": "https://you.com/privacy"
+    },
+    {
+      "id": "exa",
+      "displayName": "Exa",
+      "kind": "byok",
+      "apiKeyPrefix": "Exa API key...",
+      "envVar": "EXA_API_KEY",
+      "secretKey": "exa",
+      "fallbackOrder": 10,
+      "privacyPolicyUrl": "https://exa.ai/privacy-policy"
+    },
+    {
+      "id": "serply",
+      "displayName": "Serply",
+      "kind": "byok",
+      "apiKeyPrefix": "Serply API key...",
+      "envVar": "SERPLY_API_KEY",
+      "secretKey": "serply",
+      "fallbackOrder": 11,
+      "privacyPolicyUrl": "https://serply.io/privacy"
     }
   ]
 }

@@ -3,6 +3,7 @@ import OpenAI from "openai";
 import type { ProviderErrorReason } from "../../util/errors.js";
 import {
   DAILY_LIMIT_PATTERNS,
+  FREE_TIER_DAILY_LIMIT_PATTERNS,
   INSUFFICIENT_CREDITS_PATTERNS,
   isChatTemplateFailureError,
   MODEL_NOT_FOUND_PATTERNS,
@@ -111,6 +112,9 @@ export function deriveReason(
 
   // The managed proxy's daily-limit 402 shares the status with generic credit
   // exhaustion; match its specific body code first so it isn't swallowed.
+  if (FREE_TIER_DAILY_LIMIT_PATTERNS.some((re) => re.test(haystack))) {
+    return "free_tier_daily_limit_reached";
+  }
   if (DAILY_LIMIT_PATTERNS.some((re) => re.test(haystack))) {
     return "daily_limit_reached";
   }

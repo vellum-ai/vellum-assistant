@@ -20,6 +20,7 @@ These commands are specific to vellum-assistant and live in `.claude/skills/<nam
 
 - **`/update`** — Pull latest from main, use `vellum ps/sleep/wake` to manage assistant/gateway lifecycle, rebuild/launch the macOS app (`.claude/skills/update/SKILL.md`)
 - **`/release`** — Cut a new release by triggering the GitHub Actions release workflow (`.claude/skills/release/SKILL.md`)
+- **`/add-mcp-integration`**: Add a vendor's remote MCP server to the bundled integrations catalog, from vetting its OAuth support to the PR (`.claude/skills/add-mcp-integration/SKILL.md`)
 
 The shared-vs-local model:
 - **Shared commands**: maintained in the `claude-skills` repo, symlinked by `setup` to `.claude/skills/<name>` and `.claude/commands/<name>.md`

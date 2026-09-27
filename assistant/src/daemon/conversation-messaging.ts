@@ -76,7 +76,10 @@ import type { AuthContext } from "../runtime/auth/types.js";
 import { INTERRUPTED_TURN_NOTE_TEXT } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import type { ConversationModeSessionCoordinator } from "./conversation-mode-session.js";
-import type { MessageQueue } from "./conversation-queue-manager.js";
+import type {
+  MessageQueue,
+  TurnWorkOrigin,
+} from "./conversation-queue-manager.js";
 import type { SlackInboundMessageMetadata } from "./handlers/shared.js";
 import type { UserMessageAttachment } from "./message-protocol.js";
 import { actorAuthorProvenance } from "./message-provenance.js";
@@ -235,6 +238,8 @@ export interface MessagingConversationContext {
   acquireProcessingFenced(): Promise<number | null>;
   releaseProcessing(owner: number): boolean;
   abortController: AbortController | null;
+  currentTurnCronRunId?: string | null;
+  currentTurnWorkOrigins?: readonly TurnWorkOrigin[];
   currentRequestId?: string;
   currentActiveSurfaceId?: string;
   readonly modeSessions?: Pick<
@@ -954,6 +959,8 @@ export function enqueueMessage(
 
 /** Shared options for `persistUserMessage` and `persistQueuedMessageBody`. */
 export interface PersistMessageOptions {
+  cronRunId?: string | null;
+  signal?: AbortSignal;
   content: string;
   attachments?: UserMessageAttachment[];
   requestId?: string;
@@ -1112,13 +1119,27 @@ export async function persistUserMessage(
     throw new Error("Message content or attachments are required");
   }
 
+  options.signal?.throwIfAborted();
   const reqId = options.requestId ?? uuidv7();
   ctx.currentRequestId = reqId;
   // Recorded in the same synchronous step as the abort controller and the lock
   // below, so a retransmission of this very send can never find the turn armed
   // but unattributed and abort it.
   ctx.currentTurnClientMessageId = options.clientMessageId;
-  ctx.abortController = new AbortController();
+  const controller = new AbortController();
+  ctx.abortController = controller;
+  ctx.currentTurnCronRunId = options.cronRunId ?? null;
+  ctx.currentTurnWorkOrigins = [
+    {
+      sentAt:
+        typeof options.metadata?.sentAt === "number"
+          ? options.metadata.sentAt
+          : Date.now(),
+      metadata: options.metadata,
+    },
+  ];
+  const abort = () => controller.abort(options.signal?.reason);
+  options.signal?.addEventListener("abort", abort, { once: true });
 
   let owner: number | null = null;
   try {
@@ -1140,16 +1161,20 @@ export async function persistUserMessage(
     if (owner === null) {
       throw new Error(CONVERSATION_BUSY_MESSAGE);
     }
+    options.signal?.throwIfAborted();
     const result = await persistQueuedMessageBody(ctx, {
       ...options,
       attachments,
       requestId: reqId,
     });
+    options.signal?.throwIfAborted();
     if (result.deduplicated) {
       ctx.releaseProcessing(owner);
       ctx.abortController = null;
       ctx.currentRequestId = undefined;
       ctx.currentTurnClientMessageId = undefined;
+      ctx.currentTurnCronRunId = undefined;
+      ctx.currentTurnWorkOrigins = undefined;
     }
     return result;
   } catch (err) {
@@ -1170,7 +1195,11 @@ export async function persistUserMessage(
     ctx.abortController = null;
     ctx.currentRequestId = undefined;
     ctx.currentTurnClientMessageId = undefined;
+    ctx.currentTurnCronRunId = undefined;
+    ctx.currentTurnWorkOrigins = undefined;
     throw err;
+  } finally {
+    options.signal?.removeEventListener("abort", abort);
   }
 }
 

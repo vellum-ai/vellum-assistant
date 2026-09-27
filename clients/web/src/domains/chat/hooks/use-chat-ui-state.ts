@@ -189,15 +189,13 @@ export function useChatUIState(): ChatUIState {
   );
   const isAssistantBusy = isAssistantBusySelector(phase, uiContext);
   const isSendDisabledFromTurn = isSendDisabled(uiContext);
-  const thinkingLabel = statusText;
-
   return {
     uiContext,
     isIdle: phase === "idle",
     showThinking,
     isAssistantBusy,
     isSendDisabledFromTurn,
-    thinkingLabel,
+    thinkingLabel: statusText,
     liveAssistantMessageId,
     activeConversationIsProcessing,
     assistantId,

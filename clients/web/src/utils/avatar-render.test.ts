@@ -56,6 +56,7 @@ describe("resolveAvatarRender", () => {
     expect(result.kind).toBe("character");
     if (result.kind === "character") {
       expect(result.svg).toBe("<svg>character</svg>");
+      expect(result.traits).toEqual(traits);
       expect(result.dataUri).toBe(
         `data:image/svg+xml,${encodeURIComponent("<svg>character</svg>")}`,
       );

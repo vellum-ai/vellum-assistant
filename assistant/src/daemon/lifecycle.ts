@@ -13,6 +13,7 @@ import {
 } from "../config/loader.js";
 import { seedInferenceProfiles } from "../config/seed-inference-profiles.js";
 import { reconcileFlagGatedProfiles } from "../config/sync-gated-profiles.js";
+import { startConversationAutoArchive } from "../conversations/auto-archive.js";
 import { startCes } from "../credential-execution/ces-runtime.js";
 import { refreshManagedConnectionCache } from "../credential-execution/managed-catalog.js";
 import { startHeartbeatService } from "../heartbeat/heartbeat-service.js";
@@ -57,6 +58,7 @@ import { startScheduler } from "../schedule/scheduler.js";
 import { getSubagentManager } from "../subagent/index.js";
 import { startUsageTelemetryReporter } from "../telemetry/usage-telemetry-reporter.js";
 import { getLogger, initLogger } from "../util/logger.js";
+import { DAEMON_OOM_SCORE_ADJ, setOomScoreAdj } from "../util/oom-priority.js";
 import {
   ensureDataDir,
   getDotEnvPath,
@@ -114,6 +116,9 @@ export async function runDaemon(): Promise<void> {
   // the event hub real clients subscribe to, so plugin-facing publishes made
   // here fan out locally rather than routing to a daemon over IPC.
   markCurrentProcessAsMainDaemon();
+  // Before the first spawn: every child inherits this value and resets its
+  // own, so the kernel OOM killer takes a tool or worker before the daemon.
+  const oomProtected = setOomScoreAdj(DAEMON_OOM_SCORE_ADJ);
 
   const startupStartedAt = Date.now();
   // dotenv loads before the first log call so the lazy root logger
@@ -121,7 +126,13 @@ export async function runDaemon(): Promise<void> {
   // whatever was in the live environment at process spawn.
   loadDotEnv();
   validateEnv();
-  log.info({ version: APP_VERSION }, "Daemon starting");
+  log.info(
+    {
+      version: APP_VERSION,
+      oomScoreAdj: oomProtected ? DAEMON_OOM_SCORE_ADJ : undefined,
+    },
+    "Daemon starting",
+  );
 
   // Signal handlers install before any blocking startup work — a boot that
   // inherits a large WAL can spend minutes inside `initializeDb()`, and
@@ -860,13 +871,15 @@ export async function runDaemon(): Promise<void> {
   // CES, which the startup sequence above just brought up. Fire-and-forget:
   // the resumes run sequentially in the background while the daemon serves
   // requests; per-conversation failures are logged inside.
+  let startupRecovery = Promise.resolve();
   if (conversationsToResume.length > 0) {
     log.info(
       { count: conversationsToResume.length },
       "Resuming conversations interrupted by the previous process",
     );
-    void resumeInterruptedConversations(conversationsToResume);
+    startupRecovery = resumeInterruptedConversations(conversationsToResume);
   }
+  startConversationAutoArchive(startupRecovery);
 
   log.info(
     {

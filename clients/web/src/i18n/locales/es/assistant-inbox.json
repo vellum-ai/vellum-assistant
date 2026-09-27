@@ -1,12 +1,7 @@
 {
-  "assistantInboxNavItem": {
-    "label": "Bandeja del asistente",
-    "dismiss": "Ocultar bandeja del asistente"
-  },
   "assistantInboxHeader": {
-    "title": "Bandeja de {name}",
-    "subtitle": "Aquí están todos los correos que he recibido y enviado por ti.",
-    "usage": "{sent, plural, one {# enviado} other {# enviados}} hoy · {received, plural, one {# recibido} other {# recibidos}} hoy"
+    "title": "Correo",
+    "settingsAria": "Ajustes del correo"
   },
   "addressPill": {
     "copyAddress": "Copiar dirección de correo",
@@ -21,9 +16,10 @@
     "inboxEmptyBody": "Comparte {address} y todo lo que llegue aparecerá aquí.",
     "sentEmptyTitle": "Aún no hay correos enviados",
     "sentEmptyBody": "Pídeme que escriba a alguien y guardaré una copia aquí.",
-    "selectPrompt": "Elige un correo para leerlo.",
+    "selectPromptTitle": "Elige un correo para leerlo",
+    "selectPromptBody": "Elige un mensaje de la lista. Marca varios para iniciar un chat con ellos adjuntos, o para eliminarlos.",
     "backToList": "Volver a la lista",
-    "searchPlaceholder": "Buscar correo",
+    "searchPlaceholder": "Buscar correos",
     "searchAriaLabel": "Buscar en esta carpeta",
     "searchEmptyTitle": "Sin resultados",
     "searchEmptyBody": "Nada en esta carpeta coincide con tu búsqueda."
@@ -31,16 +27,34 @@
   "emailListRow": {
     "toPrefix": "Para {name}",
     "attachments": "{count, plural, one {# adjunto} other {# adjuntos}}",
-    "noSubject": "(sin asunto)"
+    "noSubject": "(sin asunto)",
+    "selectAria": "Seleccionar \"{subject}\"",
+    "unread": "No leído"
+  },
+  "emailSelectionBar": {
+    "ariaLabel": "Correos seleccionados",
+    "count": "{count, plural, one {# correo seleccionado} other {# correos seleccionados}}",
+    "mixed": "{received, plural, one {# recibido} other {# recibidos}} · {sent, plural, one {# enviado} other {# enviados}}",
+    "startChat": "Iniciar un chat nuevo",
+    "delete": "Eliminar de la bandeja",
+    "clear": "Borrar selección"
+  },
+  "deleteEmailsDialog": {
+    "title": "¿Eliminar {count, plural, one {este correo} other {# correos}}?",
+    "message": "{count, plural, one {Desaparecerá de tu bandeja en este dispositivo.} other {Desaparecerán de tu bandeja en este dispositivo.}}",
+    "confirm": "Eliminar",
+    "cancel": "Cancelar"
   },
   "emailDetail": {
-    "from": "De",
-    "to": "Para",
-    "sentBy": "Enviado por {name}",
+    "from": "De:",
+    "to": "Para:",
     "attachments": "Adjuntos",
     "askToReply": "Pedir a {name} que responda",
     "loading": "Cargando el mensaje…",
-    "loadFailed": "No se pudo cargar este mensaje."
+    "loadFailed": "No se pudo cargar este mensaje.",
+    "copyEmail": "Copiar correo",
+    "copied": "Copiado",
+    "copyFailed": "No se pudo copiar el correo."
   },
   "emailAddressFields": {
     "prefixLabel": "Prefijo",
@@ -55,30 +69,36 @@
     "perkReads": "{name} lee, ordena y responde por ti",
     "perkHistory": "Cada mensaje guardado aquí, recibidos y enviados",
     "upgradeButton": "Mejorar a Super",
-    "seePlans": "Ver planes",
+    "seePlans": "Planes",
     "titleNoName": "Dale una bandeja de entrada a tu asistente",
     "perkReadsNoName": "Tu asistente lee, ordena y responde por ti",
-    "changeHandle": "Cambiar identificador"
+    "changeHandle": "Cambiar handle ({address})",
+    "planNotice": "El correo no está incluido en el plan Free. Pasa a un plan con correo."
   },
   "assistantInboxSetupCard": {
-    "title": "Correo del asistente",
-    "subtitle": "Configura un correo para tu asistente.",
-    "getStarted": "Empezar",
-    "subtitleChooseHandle": "Reclama tu identificador único y configura el correo de tu asistente.",
+    "headline": "Bien, vamos a prepararlo.",
+    "fieldLabel": "Elige un handle de correo:",
+    "fieldLabelChooseHandle": "Elige un handle y un prefijo de correo:",
+    "confirm": "Confirmar",
     "immutableNotice": "El identificador pasa a ser el identificador público de tu asistente. No podrás cambiarlo una vez establecido."
   },
   "assistantInboxRoute": {
     "loading": "Abriendo la bandeja…",
     "setupFailed": "No se pudo configurar la dirección.",
     "setupIncomplete": "No se creó la dirección. Inténtalo de nuevo en un momento.",
-    "setupSucceeded": "{address} está lista.",
     "replyPrompt": "Responde al correo con id {id} de tu bandeja (de {sender}, asunto \"{subject}\"). Léelo primero con `assistant email download {id}`, redacta una respuesta y muéstramela antes de enviarla.",
     "mailFailed": "No se pudo cargar el correo.",
-    "retry": "Reintentar"
+    "retry": "Reintentar",
+    "deletedToast": "{count, plural, one {Correo eliminado.} other {# correos eliminados.}}"
   },
-  "inboxRailRestore": {
-    "hiddenNote": "La bandeja del asistente está oculta en tu menú lateral.",
-    "restoreButton": "Volver a añadirla",
-    "restoredToast": "La bandeja del asistente vuelve a estar en tu menú lateral."
+  "assistantInboxPageFrame": {
+    "title": "Correo",
+    "back": "Atrás"
+  },
+  "assistantInboxSetupSuccess": {
+    "title": "{name} ya tiene bandeja.",
+    "titleNoName": "Tu asistente ya tiene bandeja.",
+    "body": "Comparte la dirección y todo lo que llegue aparecerá aquí.",
+    "openInbox": "Abrir bandeja"
   }
 }

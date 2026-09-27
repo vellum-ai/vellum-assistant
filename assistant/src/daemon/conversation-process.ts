@@ -24,6 +24,7 @@ import { extractPreferences } from "../notifications/preference-extractor.js";
 import { createPreference } from "../notifications/preferences-store.js";
 import {
   addMessage,
+  getMessageById,
   isEchoSuppressedUserMessage,
   isHiddenMessageMetadata,
   isSuppressedQueuedMessage,
@@ -44,12 +45,14 @@ import { stampTurnOutcome } from "../telemetry/turn-outcome.js";
 import { getLogger } from "../util/logger.js";
 import type { CleanResult, Conversation } from "./conversation.js";
 import { repairInterruptedToolUseBlocks } from "./conversation-interrupt-repair.js";
+import { discardQueueOnAbort } from "./conversation-lifecycle.js";
 import {
   CONVERSATION_BUSY_MESSAGE,
   persistQueuedMessageBody,
   serializePersistedUserMessageContent,
 } from "./conversation-messaging.js";
 import type {
+  QueuedDispatch,
   QueuedMessage,
   QueueDrainReason,
 } from "./conversation-queue-manager.js";
@@ -506,8 +509,8 @@ export async function drainQueue(
     if (!next) {
       return;
     }
-    return dispatchDrainWithRestore(conversation, [next], true, () =>
-      drainSingleMessage(conversation, next, reason, true),
+    return dispatchDrainWithRestore(conversation, [next], true, (signal) =>
+      drainSingleMessage(conversation, next, reason, true, signal),
     );
   }
 
@@ -520,17 +523,17 @@ export async function drainQueue(
     if (!next) {
       return;
     }
-    return dispatchDrainWithRestore(conversation, [next], false, () =>
-      drainSingleMessage(conversation, next, reason),
+    return dispatchDrainWithRestore(conversation, [next], false, (signal) =>
+      drainSingleMessage(conversation, next, reason, false, signal),
     );
   }
   if (batch.length === 1) {
-    return dispatchDrainWithRestore(conversation, batch, false, () =>
-      drainSingleMessage(conversation, batch[0], reason),
+    return dispatchDrainWithRestore(conversation, batch, false, (signal) =>
+      drainSingleMessage(conversation, batch[0], reason, false, signal),
     );
   }
-  return dispatchDrainWithRestore(conversation, batch, false, () =>
-    drainBatch(conversation, batch, reason),
+  return dispatchDrainWithRestore(conversation, batch, false, (signal) =>
+    drainBatch(conversation, batch, reason, signal),
   );
 }
 
@@ -555,11 +558,46 @@ async function dispatchDrainWithRestore(
   conversation: Conversation,
   messages: QueuedMessage[],
   steered: boolean,
-  dispatch: () => Promise<void>,
+  dispatch: (signal?: AbortSignal) => Promise<void>,
 ): Promise<void> {
+  const runId = messages[0]?.cronRunId ?? null;
+  const controller = new AbortController();
+  const pending =
+    (conversation.pendingQueuedDispatches ??= new Map()).get(runId) ??
+    new Set<QueuedDispatch>();
+  const queuedDispatch = { controller, messages };
+  pending.add(queuedDispatch);
+  conversation.pendingQueuedDispatches.set(runId, pending);
+  const cancelDispatch = () => {
+    const unpersisted: QueuedMessage[] = [];
+    for (const message of messages) {
+      if (getMessageById(message.requestId, conversation.conversationId)) {
+        message.onEvent({
+          type: "generation_cancelled",
+          conversationId: conversation.conversationId,
+        });
+      } else {
+        unpersisted.push(message);
+      }
+    }
+    if (unpersisted.length === 0) {
+      return;
+    }
+    requeueDrainedMessages(
+      conversation,
+      unpersisted,
+      steered,
+      "Restoring cancelled dispatch for queue teardown",
+    );
+    discardQueueOnAbort(conversation, (queued) => unpersisted.includes(queued));
+  };
+  controller.signal.addEventListener("abort", cancelDispatch, { once: true });
   try {
-    return await dispatch();
+    return await dispatch(controller.signal);
   } catch (err) {
+    if (controller.signal.aborted) {
+      return;
+    }
     const alreadyRestored =
       typeof err === "object" && err !== null && restoredDrainErrors.has(err);
     if (!alreadyRestored) {
@@ -574,6 +612,12 @@ async function dispatchDrainWithRestore(
       );
     }
     throw err;
+  } finally {
+    controller.signal.removeEventListener("abort", cancelDispatch);
+    pending.delete(queuedDispatch);
+    if (pending.size === 0) {
+      conversation.pendingQueuedDispatches.delete(runId);
+    }
   }
 }
 
@@ -651,6 +695,7 @@ async function drainSingleMessage(
   next: QueuedMessage,
   reason: QueueDrainReason,
   steered = false,
+  signal?: AbortSignal,
 ): Promise<void> {
   // Another turn already owns the processing lock: requeue before touching
   // ANY conversation state. The lock holder installed its own per-turn
@@ -761,6 +806,11 @@ async function drainSingleMessage(
     next.content,
     buildSlashContext(next.content, conversation),
   );
+
+  if (signal?.aborted) {
+    await drainQueue(conversation);
+    return;
+  }
 
   // Unknown slash — persist the exchange and continue draining.
   // Persist each message before pushing to conversation.messages so that a
@@ -1087,6 +1137,9 @@ async function drainSingleMessage(
   try {
     persistResult = await conversation.persistUserMessage({
       content: resolvedContent,
+      cronRunId: next.cronRunId,
+      signal,
+      insertPrecondition: () => !signal?.aborted,
       attachments: next.attachments,
       requestId: next.requestId,
       activeSurfaceId: next.activeSurfaceId,
@@ -1101,6 +1154,10 @@ async function drainSingleMessage(
         : {}),
     });
   } catch (err) {
+    if (signal?.aborted) {
+      await drainQueue(conversation);
+      return;
+    }
     const message = err instanceof Error ? err.message : String(err);
     // runAgentLoop never ran, so its finally block won't clear this
     conversation.preactivatedSkillIds = undefined;
@@ -1275,6 +1332,7 @@ async function drainBatch(
   conversation: Conversation,
   batch: QueuedMessage[],
   reason: QueueDrainReason,
+  signal?: AbortSignal,
 ): Promise<void> {
   // Another turn already owns the processing lock: requeue the whole batch
   // before touching ANY conversation state, mirroring `drainSingleMessage`.
@@ -1409,6 +1467,9 @@ async function drainBatch(
       qm.content,
       buildSlashContext(qm.content, conversation),
     );
+    if (signal?.aborted) {
+      break;
+    }
     if (qmSlash.kind !== "passthrough") {
       // Defensive recovery. `buildPassthroughBatch` should make this
       // unreachable, but if it ever fires we must avoid stranding
@@ -1446,9 +1507,15 @@ async function drainBatch(
         conversation.preactivatedSkillIds = undefined;
         const remaining = batch.slice(1);
         if (remaining.length >= 2) {
-          await drainBatch(conversation, remaining, reason);
+          await drainBatch(conversation, remaining, reason, signal);
         } else if (remaining.length === 1) {
-          await drainSingleMessage(conversation, remaining[0], reason);
+          await drainSingleMessage(
+            conversation,
+            remaining[0],
+            reason,
+            false,
+            signal,
+          );
         } else {
           await drainQueue(conversation);
         }
@@ -1464,6 +1531,9 @@ async function drainBatch(
       let batchPersistResult: { id: string; deduplicated: boolean };
       const persistOptions = {
         content: qmContent,
+        cronRunId: qm.cronRunId,
+        signal,
+        insertPrecondition: () => !signal?.aborted,
         attachments: qm.attachments,
         requestId: qm.requestId,
         activeSurfaceId: qm.activeSurfaceId,
@@ -1494,9 +1564,15 @@ async function drainBatch(
           // processing via persistUserMessage.
           const remaining = batch.slice(1);
           if (remaining.length >= 2) {
-            await drainBatch(conversation, remaining, reason);
+            await drainBatch(conversation, remaining, reason, signal);
           } else if (remaining.length === 1) {
-            await drainSingleMessage(conversation, remaining[0], reason);
+            await drainSingleMessage(
+              conversation,
+              remaining[0],
+              reason,
+              false,
+              signal,
+            );
           } else {
             await drainQueue(conversation);
           }
@@ -1507,6 +1583,9 @@ async function drainBatch(
       lastUserMessageId = batchPersistResult.id;
       persistedMessageIds.push(batchPersistResult.id);
     } catch (err) {
+      if (signal?.aborted) {
+        break;
+      }
       const message = err instanceof Error ? err.message : String(err);
       if (i === 0 && message === CONVERSATION_BUSY_MESSAGE) {
         // The head hit lock contention before any batch state was set:
@@ -1546,9 +1625,15 @@ async function drainBatch(
         conversation.preactivatedSkillIds = undefined;
         const remaining = batch.slice(1);
         if (remaining.length >= 2) {
-          await drainBatch(conversation, remaining, reason);
+          await drainBatch(conversation, remaining, reason, signal);
         } else if (remaining.length === 1) {
-          await drainSingleMessage(conversation, remaining[0], reason);
+          await drainSingleMessage(
+            conversation,
+            remaining[0],
+            reason,
+            false,
+            signal,
+          );
         } else {
           await drainQueue(conversation);
         }
@@ -1660,6 +1745,9 @@ async function drainBatch(
       "drainBatch: no messages persisted successfully; skipping runAgentLoop",
     );
     conversation.preactivatedSkillIds = undefined;
+    if (signal?.aborted) {
+      await drainQueue(conversation);
+    }
     return;
   }
 
@@ -1679,6 +1767,9 @@ async function drainBatch(
   // side correlation (message_complete / generation_cancelled /
   // generation_handoff) surfaces a requestId that actually has a DB row.
   conversation.currentRequestId = lastSuccessfulRequestId;
+  conversation.currentTurnWorkOrigins = successfulBatch.map(
+    ({ sentAt, metadata }) => ({ sentAt, metadata }),
+  );
   conversation.currentActiveSurfaceId = lastSuccessfulActiveSurfaceId;
   conversation.currentPage = lastSuccessfulCurrentPage;
 

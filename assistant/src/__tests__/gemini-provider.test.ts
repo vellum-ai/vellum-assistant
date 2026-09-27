@@ -1748,6 +1748,15 @@ describe("GeminiProvider", () => {
     }
   });
 
+  test("maps a free-tier daily-limit 402 body code to free_tier_daily_limit_reached", async () => {
+    expect(
+      await reasonForApiError(
+        402,
+        '{"code":"free_tier_daily_limit_reached","detail":"free usage"}',
+      ),
+    ).toBe("free_tier_daily_limit_reached");
+  });
+
   test("maps a daily-limit 402 body code to daily_limit_reached", async () => {
     expect(
       await reasonForApiError(

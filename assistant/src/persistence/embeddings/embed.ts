@@ -38,9 +38,16 @@ export async function embedWithRetry(
       if (!isTransient || attempt === EMBED_MAX_RETRIES) {
         throw err;
       }
-      const delay = computeRetryDelay(attempt, EMBED_BASE_DELAY_MS);
+      const retryAfterMs = getErrorRetryAfterMs(err);
+      const delay =
+        retryAfterMs ?? computeRetryDelay(attempt, EMBED_BASE_DELAY_MS);
       log.warn(
-        { err, attempt: attempt + 1, delayMs: Math.round(delay) },
+        {
+          err,
+          attempt: attempt + 1,
+          delayMs: Math.round(delay),
+          retryAfterHeader: retryAfterMs !== undefined,
+        },
         "Transient embedding failure, retrying",
       );
       await abortableSleep(delay, opts?.signal);
@@ -83,6 +90,17 @@ function getErrorStatusCode(err: Error): unknown {
   }
   if ("statusCode" in err) {
     return (err as { statusCode: unknown }).statusCode;
+  }
+  return undefined;
+}
+
+function getErrorRetryAfterMs(err: unknown): number | undefined {
+  if (!(err instanceof Error)) {
+    return undefined;
+  }
+  const candidate = (err as { retryAfterMs?: unknown }).retryAfterMs;
+  if (typeof candidate === "number" && candidate >= 0) {
+    return candidate;
   }
   return undefined;
 }

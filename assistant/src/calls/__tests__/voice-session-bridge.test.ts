@@ -2388,11 +2388,67 @@ describe("desktop skill preactivation", () => {
     });
     expect(result.skillIdsDuringLoop).toContain("screen-annotation");
     expect(result.promptDuringLoop).toContain("ID: screen-annotation");
-    expect(result.promptDuringLoop).toContain("Name the thing.");
+    expect(result.promptDuringLoop).toContain(
+      "Use the picture when names cannot identify the control.",
+    );
     expect(result.promptDuringLoop).toContain("screen_point_at");
     expect(result.promptDuringLoop).toContain("screen_clear_marks");
     expect(result.promptDuringLoop).toContain('"target"');
     expect(result.promptDuringLoop).toContain("skill_execute");
+  });
+
+  test("a shared-screen turn is offered the surface's controls beside the instructions", async () => {
+    registerHubClient({
+      hub: assistantEventHub,
+      clientId: "annotation-client",
+      interfaceId: "macos",
+      actorPrincipalId: "user-123",
+      capabilities: ["host_cu", "host_cu_annotate"],
+    });
+    const result = await preactivatedFor({
+      routingLeg: "escalated",
+      macosDesktopSession: true,
+      screenSharing: true,
+      actorPrincipalId: "user-123",
+      shareTargets: {
+        targets: [
+          {
+            id: "t1",
+            label: "root_Filters",
+            role: "AXButton",
+            section: "Toolbar",
+            x: 0.8,
+            y: 0.05,
+            width: 0.05,
+            height: 0.03,
+          },
+        ],
+        total: 1,
+      },
+    });
+    expect(result.promptDuringLoop).toContain("ID: screen-annotation");
+    expect(result.promptDuringLoop).toContain("<shared_screen_controls>");
+    expect(result.promptDuringLoop).toContain(
+      '- "root_Filters" (button, top right, in "Toolbar")',
+    );
+  });
+
+  test("a shared-screen turn with no snapshot keeps the instructions alone", async () => {
+    registerHubClient({
+      hub: assistantEventHub,
+      clientId: "annotation-client",
+      interfaceId: "macos",
+      actorPrincipalId: "user-123",
+      capabilities: ["host_cu", "host_cu_annotate"],
+    });
+    const result = await preactivatedFor({
+      routingLeg: "escalated",
+      macosDesktopSession: true,
+      screenSharing: true,
+      actorPrincipalId: "user-123",
+    });
+    expect(result.promptDuringLoop).toContain("ID: screen-annotation");
+    expect(result.promptDuringLoop).not.toContain("<shared_screen_controls>");
   });
 
   test.each([
@@ -2485,6 +2541,18 @@ describe("cutFrontDoorContentAtVerdict", () => {
     expect(cut?.spokenText).toBe("");
   });
 
+  test("a terminal verdict split across blocks preserves all released speech", () => {
+    const bridge = "Let me check. I will highlight the Rotate control.";
+    const cut = cutFrontDoorContentAtVerdict([
+      { type: "text", text: `${bridge} [` },
+      { type: "text", text: "ESCALATE] " },
+    ]);
+    expect(cut).toEqual({
+      blocks: [{ type: "text", text: bridge }],
+      spokenText: bridge,
+    });
+  });
+
   test("stray verdict tokens inside an answer are stripped, not treated as escalation", () => {
     const cut = cutFrontDoorContentAtVerdict([
       { type: "text", text: "It is Tuesday [0] indeed." },
@@ -2511,7 +2579,7 @@ describe("front-door hub stream gate", () => {
    * `deltas` in order, then ends the leg with `finalEvent`.
    */
   function makeStreamingConversation(
-    deltas: string[],
+    deltas: readonly string[],
     finalEvent:
       | "message_complete"
       | "generation_cancelled" = "message_complete",
@@ -2595,6 +2663,22 @@ describe("front-door hub stream gate", () => {
     expect(texts.join("")).toBe("It is Tuesday, and it is sunny.");
   });
 
+  test("a terminal escalation never broadcasts marker fragments", async () => {
+    makeStreamingConversation([
+      "I will highlight it.",
+      " [",
+      "ESC",
+      "ALATE",
+      "]",
+    ]);
+
+    const texts = await collectBroadcastText(() =>
+      startVoiceTurn({ ...makeTurnOptions(), routingLeg: "front-door" }),
+    );
+
+    expect(texts).toEqual(["I will highlight it.", " "]);
+  });
+
   test("an answer waits on the escalation judge before reaching the hub", async () => {
     let openGate!: () => void;
     judgeEscalationGate = new Promise<void>((resolve) => {
@@ -2618,9 +2702,12 @@ describe("front-door hub stream gate", () => {
     }
   });
 
-  test("an overruled answer never reaches the hub", async () => {
+  test.each([
+    { deltas: ["Yeah okay, ", "I'll do it."] },
+    { deltas: ["[ASK_GUARDIAN:"] },
+  ])("an overruled answer never reaches the hub: %j", async ({ deltas }) => {
     judgeEscalationVerdict = true;
-    makeStreamingConversation(["Yeah okay, ", "I'll do it."]);
+    makeStreamingConversation(deltas);
 
     const texts = await collectBroadcastText(async () => {
       const handle = await startVoiceTurn({
@@ -3125,6 +3212,23 @@ describe("startVoiceTurn with images in history", () => {
 });
 
 describe("startVoiceTurn escalated-leg profile pin", () => {
+  test.each([
+    { screenAction: true, screenSharing: true, expected: true },
+    { screenAction: false, screenSharing: true, expected: false },
+    { screenAction: true, screenSharing: false, expected: false },
+    {
+      screenAction: true,
+      screenSharing: true,
+      routingLeg: "front-door",
+      expected: false,
+    },
+  ])(
+    "skips fresh memory only for an escalated shared-screen action: %j",
+    async ({ expected, ...turn }) => {
+      const options = await runOptionsFor({ turn });
+      expect(options.skipMemoryRetrieval).toBe(expected);
+    },
+  );
   beforeEach(() => {
     unresolvableProviderNames.clear();
   });

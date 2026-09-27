@@ -35,3 +35,18 @@ test("an external document update does not trigger an editor autosave", async ()
   await waitFor(() => expect(container.textContent).toContain("Assistant edit"));
   expect(onContentChange).not.toHaveBeenCalled();
 });
+
+test("an empty document shows the placeholder without writing it", async () => {
+  const onContentChange = mock((_markdown: string) => {});
+  const { container } = render(
+    <TiptapDocumentEditor content="" onContentChange={onContentChange} />,
+  );
+  const paragraph = await waitFor(() => {
+    const element = container.querySelector(".tiptap p.is-editor-empty");
+    expect(element).not.toBeNull();
+    return element!;
+  });
+  expect(paragraph.getAttribute("data-placeholder")).toBe("Start writing…");
+  expect(paragraph.textContent).toBe("");
+  expect(onContentChange).not.toHaveBeenCalled();
+});

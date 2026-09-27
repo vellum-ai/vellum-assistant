@@ -15,6 +15,7 @@
  */
 
 import type { KnownBlock } from "@slack/types";
+import { GuardianActionEmphasisSchema } from "@vellumai/service-contracts/guardian-requests";
 import { z } from "zod";
 
 // ---------------------------------------------------------------------------
@@ -41,10 +42,7 @@ export type AttachmentMetadata = z.infer<typeof AttachmentMetadataSchema>;
 export const ApprovalActionOptionSchema = z.object({
   id: z.string(),
   label: z.string(),
-  // Surface-agnostic button weight. Renderers translate it to their platform
-  // token (Slack primary/danger, Surface primary/destructive); absent means
-  // the renderer applies its own default styling.
-  emphasis: z.enum(["primary", "secondary", "destructive"]).optional(),
+  emphasis: GuardianActionEmphasisSchema.optional(),
 });
 
 export type ApprovalActionOption = z.infer<typeof ApprovalActionOptionSchema>;

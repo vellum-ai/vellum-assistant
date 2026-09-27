@@ -10,12 +10,16 @@ import {
   beforeEach,
   describe,
   expect,
+  jest,
   mock,
   spyOn,
   test,
 } from "bun:test";
 
-import type { CompanionSurfaceState } from "@vellumai/ipc-contract";
+import {
+  COMPANION_INTRO_BEATS,
+  type CompanionSurfaceState,
+} from "@vellumai/ipc-contract";
 
 const moveByMock = mock((_dx: number, _dy: number) => undefined);
 const releaseMock = mock(() => undefined);
@@ -186,6 +190,7 @@ const { CompanionSurfacePage } = await import("./companion-surface-page");
 
 afterEach(() => {
   cleanup();
+  jest.useRealTimers();
   resetState();
   moveByMock.mockClear();
   releaseMock.mockClear();
@@ -1377,6 +1382,20 @@ describe("the offer of a dictation's words", () => {
  * the beat; these are about what the page does with the one it is handed.
  */
 describe("the companion's introduction", () => {
+  test.each(COMPANION_INTRO_BEATS.filter((beat) => beat !== "try"))(
+    "clicking the avatar on %s cannot start a call",
+    async (beat) => {
+      STATE.intro = beat;
+      const { container } = render(<CompanionSurfacePage />);
+      const { avatar } = await pinSurface(container);
+
+      fireEvent.click(avatar);
+
+      expect(startVoiceMock).not.toHaveBeenCalled();
+      expect(advanceIntroMock).not.toHaveBeenCalledWith("try");
+    },
+  );
+
   /** The introduction's card, pinned somewhere the hit-test can find it. */
   const pinCard = async (container: HTMLElement): Promise<HTMLElement> => {
     const card = await waitFor(() => {
@@ -1427,6 +1446,27 @@ describe("the companion's introduction", () => {
     STATE.intro = "meet";
     const { container } = render(<CompanionSurfacePage />);
     const card = await pinCard(container);
+    const next = Array.from(card.querySelectorAll("button")).find(
+      (button) => button.textContent === "Next",
+    );
+    fireEvent.click(next as HTMLElement);
+    expect(advanceIntroMock.mock.calls).toEqual([["next"]]);
+  });
+
+  test("keeps the avatar's success message until Next is pressed", async () => {
+    STATE.intro = "talk";
+    const { container } = render(<CompanionSurfacePage />);
+    const { avatar } = await pinSurface(container);
+    const card = await pinCard(container);
+    jest.useFakeTimers();
+
+    fireEvent.click(avatar);
+    expect(card.textContent).toContain("You did it!");
+    await act(async () => jest.advanceTimersByTime(60_000));
+    expect(card.textContent).toContain("You did it!");
+    expect(startVoiceMock).not.toHaveBeenCalled();
+    expect(advanceIntroMock).not.toHaveBeenCalled();
+
     const next = Array.from(card.querySelectorAll("button")).find(
       (button) => button.textContent === "Next",
     );

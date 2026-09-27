@@ -11,20 +11,21 @@ import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
  * hosts (see `@/runtime/identity`), so this hook is safe to mount
  * unconditionally.
  *
- * The renderer's `useAssistantIdentityStore` is the source of truth — hydrated
+ * The renderer's `useAssistantIdentityStore` is the source of truth, hydrated
  * by `useAssistantIdentityInit` from the daemon `/identity` endpoint, SSE
  * `identity_changed`, and the optimistic onboarding seed; main owns only the
  * presentation and de-dupes republished values. Publishing `""` when the name
- * clears lets main fall back to its defaults.
+ * clears or the assistant is not ready keeps native companion UI out of sign-in
+ * and assistant selection.
  *
  * Mounted in `RootLayout` (alongside the favicon / icon / status sync) rather
  * than the chat layout so the name tracks every authenticated route, not only
  * while chat is on screen.
  */
-export function useElectronIdentitySync(): void {
+export function useElectronIdentitySync(ready: boolean): void {
   const name = useAssistantIdentityStore.use.name();
 
   useEffect(() => {
-    setAssistantName(name ?? "");
-  }, [name]);
+    setAssistantName(ready ? (name ?? "") : "");
+  }, [name, ready]);
 }

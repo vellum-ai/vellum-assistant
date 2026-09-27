@@ -4,6 +4,7 @@ import {
   MAX_CSV_COLUMNS,
   MAX_CSV_ROWS,
   parseCsv,
+  shapeRecords,
 } from "@/domains/chat/components/local-file/preview/csv";
 
 describe("parseCsv", () => {
@@ -179,5 +180,30 @@ describe("parseCsv", () => {
 
     expect(parsed.truncated).toBe(true);
     expect(parsed.rows[0]!.length).toBe(MAX_CSV_COLUMNS);
+  });
+});
+
+describe("shapeRecords", () => {
+  test("pads ragged records to the width and splits off a header", () => {
+    const shaped = shapeRecords(
+      [["name", "count"], ["alpha", "1"], ["beta"]],
+      2,
+      false,
+    );
+
+    expect(shaped.headers).toEqual(["name", "count"]);
+    expect(shaped.rows).toEqual([
+      ["alpha", "1"],
+      ["beta", ""],
+    ]);
+    expect(shaped.truncated).toBe(false);
+  });
+
+  test("clamps records that run past the width and carries the flag", () => {
+    const shaped = shapeRecords([["a", "b", "c"]], 2, true);
+
+    expect(shaped.headers).toBeNull();
+    expect(shaped.rows).toEqual([["a", "b"]]);
+    expect(shaped.truncated).toBe(true);
   });
 });

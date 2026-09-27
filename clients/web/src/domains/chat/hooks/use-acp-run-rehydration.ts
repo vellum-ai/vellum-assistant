@@ -421,6 +421,7 @@ function applyAcpSnapshot(
   revisionAtFetch: number = useInteractionStore.getState().acpConnectRevision,
   generation?: number,
   modelRevisionsAtFetch?: ReadonlyMap<string, AcpModelRevision>,
+  restorePrompt = true,
 ): void {
   if (entries === null) {
     return;
@@ -450,7 +451,7 @@ function applyAcpSnapshot(
   // Outside the length check: a conversation whose only marked run was cleared
   // can come back empty, and that emptiness is exactly the signal that the
   // prompt is stale.
-  if (newest) {
+  if (newest && restorePrompt) {
     raiseAcpConnectFromSnapshot(
       entries,
       snapshotConversationId,
@@ -470,6 +471,31 @@ function applyAcpSnapshot(
   }
 }
 
+/** Reconcile one conversation, optionally without restoring its inline auth prompt. */
+export async function reconcileAcpSessions(
+  assistantId: string,
+  conversationId: string,
+  isCurrent: () => boolean = () => true,
+  restorePrompt = true,
+): Promise<void> {
+  const priorActiveIds = activeRunIdsFor(conversationId);
+  const revisionAtFetch = useInteractionStore.getState().acpConnectRevision;
+  const generation = beginAcpSnapshot(conversationId);
+  const modelRevisionsAtFetch = captureModelRevisions();
+  const entries = await fetchAcpSessions(assistantId, conversationId);
+  if (isCurrent()) {
+    applyAcpSnapshot(
+      entries,
+      priorActiveIds,
+      conversationId,
+      revisionAtFetch,
+      generation,
+      modelRevisionsAtFetch,
+      restorePrompt,
+    );
+  }
+}
+
 export function useAcpRunRehydration(
   assistantId: string | null,
   conversationId: string | null,
@@ -479,27 +505,7 @@ export function useAcpRunRehydration(
       return;
     }
     let cancelled = false;
-    const priorActiveIds = activeRunIdsFor(conversationId);
-    // Captured before the request, like the reconnect paths. A default
-    // evaluated at apply time samples the prompt a live `acp_auth_required`
-    // raised while this was in flight, which is exactly the prompt the stale
-    // response must not speak for.
-    const revisionAtFetch = useInteractionStore.getState().acpConnectRevision;
-    const generation = beginAcpSnapshot(conversationId);
-    const modelRevisionsAtFetch = captureModelRevisions();
-    void fetchAcpSessions(assistantId, conversationId).then((entries) => {
-      if (cancelled) {
-        return;
-      }
-      applyAcpSnapshot(
-        entries,
-        priorActiveIds,
-        conversationId ?? null,
-        revisionAtFetch,
-        generation,
-        modelRevisionsAtFetch,
-      );
-    });
+    void reconcileAcpSessions(assistantId, conversationId, () => !cancelled);
     return () => {
       cancelled = true;
     };
@@ -545,20 +551,7 @@ export function useAcpRunRehydration(
     if (!assistantId || !conversationId) {
       return;
     }
-    const priorActiveIds = activeRunIdsFor(conversationId);
-    const revisionAtFetch = useInteractionStore.getState().acpConnectRevision;
-    const generation = beginAcpSnapshot(conversationId);
-    const modelRevisionsAtFetch = captureModelRevisions();
-    void fetchAcpSessions(assistantId, conversationId).then((entries) => {
-      applyAcpSnapshot(
-        entries,
-        priorActiveIds,
-        conversationId ?? null,
-        revisionAtFetch,
-        generation,
-        modelRevisionsAtFetch,
-      );
-    });
+    void reconcileAcpSessions(assistantId, conversationId);
   });
 
   // A Connect flow holds the prompt on its own anchor, so any auth failure
@@ -581,20 +574,7 @@ export function useAcpRunRehydration(
     if (!settled || !assistantId || !conversationId) {
       return;
     }
-    const priorActiveIds = activeRunIdsFor(conversationId);
-    const revisionAtFetch = useInteractionStore.getState().acpConnectRevision;
-    const generation = beginAcpSnapshot(conversationId);
-    const modelRevisionsAtFetch = captureModelRevisions();
-    void fetchAcpSessions(assistantId, conversationId).then((entries) => {
-      applyAcpSnapshot(
-        entries,
-        priorActiveIds,
-        conversationId,
-        revisionAtFetch,
-        generation,
-        modelRevisionsAtFetch,
-      );
-    });
+    void reconcileAcpSessions(assistantId, conversationId);
   }, [flowActive, assistantId, conversationId]);
 
   useBusSubscription(
@@ -610,20 +590,7 @@ export function useAcpRunRehydration(
       ) {
         return;
       }
-      const priorActiveIds = activeRunIdsFor(conversationId);
-      const revisionAtFetch = useInteractionStore.getState().acpConnectRevision;
-      const generation = beginAcpSnapshot(conversationId);
-      const modelRevisionsAtFetch = captureModelRevisions();
-      void fetchAcpSessions(assistantId, conversationId).then((entries) => {
-        applyAcpSnapshot(
-          entries,
-          priorActiveIds,
-          conversationId ?? null,
-          revisionAtFetch,
-          generation,
-          modelRevisionsAtFetch,
-        );
-      });
+      void reconcileAcpSessions(assistantId, conversationId);
     },
   );
 }

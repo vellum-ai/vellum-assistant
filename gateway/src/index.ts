@@ -78,6 +78,7 @@ import { createMailgunWebhookHandler } from "./http/routes/mailgun-webhook.js";
 import { createResendWebhookHandler } from "./http/routes/resend-webhook.js";
 
 import { createOAuthCallbackHandler } from "./http/routes/oauth-callback.js";
+import { createMcpOAuthClientMetadataHandler } from "./http/routes/mcp-oauth-client-metadata.js";
 import {
   createFeatureFlagsGetHandler,
   createFeatureFlagsPatchHandler,
@@ -652,6 +653,8 @@ async function main() {
   );
   const handleGuardianChannelCreate = createGuardianChannelHandler();
   const handleOAuthCallback = createOAuthCallbackHandler(config);
+  const handleMcpOAuthClientMetadata =
+    createMcpOAuthClientMetadataHandler(configFileCache);
   const channelVerificationSessionProxy =
     createChannelVerificationSessionProxyHandler(config);
   const telegramControlPlaneProxy =
@@ -855,6 +858,11 @@ async function main() {
       auth: "track-failures",
       trackFailureStatuses: [400],
       handler: (req) => handleOAuthCallback(req),
+    },
+    {
+      path: "/oauth/client-metadata.json",
+      method: "GET",
+      handler: () => handleMcpOAuthClientMetadata(),
     },
 
     // ── Runtime health ──

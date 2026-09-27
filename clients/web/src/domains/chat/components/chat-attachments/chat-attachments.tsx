@@ -8,6 +8,7 @@ import { Button, cn } from "@vellumai/design-library";
 import { AttachmentChip } from "@/domains/chat/components/chat-attachments/attachment-chip";
 import { AttachmentLoadingChip } from "@/domains/chat/components/chat-attachments/attachment-loading-chip";
 import { AttachmentTile } from "@/domains/chat/components/chat-attachments/attachment-tile";
+import { EmailReferenceChip } from "@/domains/chat/components/chat-attachments/email-reference-chip";
 import { useAttachmentFilePicker } from "@/domains/chat/components/chat-attachments/use-attachment-file-picker";
 import { useAttachmentPreview } from "@/domains/chat/components/chat-attachments/use-attachment-preview";
 import { useFailedPreviewIds } from "@/domains/chat/components/chat-attachments/use-failed-preview-ids";
@@ -35,7 +36,9 @@ interface ChatAttachmentsStripProps {
  * still uploading or already carries a decodable preview. Anything else keeps
  * the chip, which is the only place its filename or its error shows.
  */
-function isTiledImage(att: ChatAttachment): boolean {
+function isTiledImage(
+  att: ChatAttachment,
+): att is Extract<ChatAttachment, { kind: "uploading" | "uploaded" }> {
   if (att.kind !== "uploading" && att.kind !== "uploaded") {
     return false;
   }
@@ -168,6 +171,16 @@ export const ChatAttachmentsStrip: FC<ChatAttachmentsStripProps> = ({
                   })}
                 />
               </div>
+            );
+          }
+          if (att.kind === "email-reference") {
+            return (
+              <EmailReferenceChip
+                key={att.localId}
+                attachment={att}
+                onRemove={onRemove}
+                pressGuard={pressGuard}
+              />
             );
           }
           if (att.kind === "failed") {

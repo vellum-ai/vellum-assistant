@@ -83,7 +83,7 @@ export const onPermissionPresentation = (
   };
 };
 
-const preparePermissionPresentation = (): void => {
+export const preparePermissionPresentation = (): void => {
   for (const listener of presentationListeners) {
     listener();
   }
@@ -189,6 +189,13 @@ const settingsPaneUrl = (kind: PermissionKind): string => {
   )}`;
 };
 
+export async function openPermissionSettingsPane(
+  kind: PermissionKind,
+): Promise<void> {
+  preparePermissionPresentation();
+  await shell.openExternal(settingsPaneUrl(kind));
+}
+
 // A permission prompt waits on the user, so give them time to answer before
 // the outcome is called unknown.
 const NOTIFICATION_PROMPT_TIMEOUT_MS = 30_000;
@@ -291,6 +298,7 @@ const initialNotificationStatus = (): PermissionStatus =>
 
 export class PermissionsService {
   private lastStateJson: string | null = null;
+
   private helperRequests = new Set<PermissionKind>();
   private pollTimers = new Map<PermissionKind, ReturnType<typeof setInterval>>();
   private automationStatus: PermissionStatus = "unknown";
@@ -374,8 +382,7 @@ export class PermissionsService {
         return this.request(kind, sender);
       }
     }
-    preparePermissionPresentation();
-    await shell.openExternal(settingsPaneUrl(kind));
+    await openPermissionSettingsPane(kind);
     this.startPolling(kind, sender);
     return this.item(kind, sender);
   }

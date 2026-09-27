@@ -512,7 +512,22 @@ export async function emitNotificationSignal<TEventName extends string>(
     }
 
     // Step 2.5b: Enforce routing intent policy (fire-time guard).
-    // An exclusive allowlist already closed the channel set.
+    // An exclusive allowlist already closed the channel set. An access request
+    // routed to every channel is delivered even when the decision engine
+    // suppressed it (step 2.5c never lets one go undelivered), so it is made
+    // deliverable first: routing enforcement leaves a suppressed decision
+    // alone, which would leave the request on the in-app card alone.
+    if (
+      signal.sourceEventName === "ingress.access_request" &&
+      signal.routingIntent === "all_channels" &&
+      !decision.shouldNotify
+    ) {
+      decision = {
+        ...decision,
+        shouldNotify: true,
+        reasoningSummary: `${decision.reasoningSummary} (notify forced: access request routed to all channels)`,
+      };
+    }
     if (!exclusiveAllowlist) {
       decision = enforceRoutingIntent(
         decision,
