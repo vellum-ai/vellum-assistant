@@ -60,9 +60,14 @@ export function computeWorkerForceRamSizeBytes(
 
 /**
  * Environment for spawning a background worker `bun` process: the parent
- * environment plus `BUN_JSC_forceRAMSize`. An operator-provided
- * `BUN_JSC_forceRAMSize` in the parent environment wins over the computed
- * value.
+ * environment plus `BUN_JSC_forceRAMSize` and `BUN_GC_TIMER_DISABLE`. An
+ * operator-provided value for either in the parent environment wins.
+ *
+ * `BUN_GC_TIMER_DISABLE=1` turns off Bun's repeating GC timer in the worker.
+ * Under a `forceRAMSize` heap that timer, together with the per-tick
+ * collection request, keeps a long-lived worker collecting continuously at
+ * roughly one full core; the workers' own allocation still triggers
+ * collection normally.
  *
  * Bun.spawn replaces (rather than merges) the child environment when `env` is
  * passed, so this spreads the full parent environment.
@@ -73,5 +78,6 @@ export function workerMemoryEnv(): Record<string, string | undefined> {
     BUN_JSC_forceRAMSize:
       process.env.BUN_JSC_forceRAMSize ??
       String(computeWorkerForceRamSizeBytes(getContainerMemoryLimitBytes())),
+    BUN_GC_TIMER_DISABLE: process.env.BUN_GC_TIMER_DISABLE ?? "1",
   };
 }
