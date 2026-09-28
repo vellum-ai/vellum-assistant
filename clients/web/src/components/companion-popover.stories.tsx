@@ -10,7 +10,7 @@ import { COMPANION_POPOVER_INSET } from "@vellumai/ipc-contract";
 const meta: Meta<typeof CompanionPopover> = {
   title: "Companion/Popover",
   component: CompanionPopover,
-  args: { view: "row", accentHex: "#5eead4" },
+  args: { view: "row" },
   decorators: [
     (Story) => (
       <div

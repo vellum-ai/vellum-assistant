@@ -75,11 +75,6 @@ export interface CompanionPopoverProps {
   onView?: (view: CompanionPopoverView) => void;
   onOpenLink?: (url: string) => void;
   /**
-   * The assistant's colour, which faintly tints the ground of a popover drawn
-   * whole. Absent draws it neutral.
-   */
-  accentHex?: string;
-  /**
    * Drawn on a call's bar, which supplies the ground, the edge and the
    * light: the popover draws its content and nothing around it.
    */
@@ -96,24 +91,6 @@ export const drawsImageSource = (src: string): boolean =>
 export const COMPANION_POPOVER_SURFACE_CLASS =
   "border border-white/5 bg-[var(--surface-base)] text-[var(--content-default)] shadow-lg shadow-black/40";
 
-/**
- * The ground of a popover drawn whole: the call bar's own dark, so the panel
- * and the bar beneath it read as one material, with a faint wash of the
- * assistant's colour from the top corner.
- *
- * A wash rather than a blur of what is behind it. The popover is a window of
- * its own over another application, and a page cannot see what another
- * window draws. Kept faint: a stronger tint turns a warm accent muddy against
- * the neutral bar.
- */
-const panelBackground = (accentHex: string | undefined): string => {
-  const wash =
-    accentHex === undefined
-      ? "transparent"
-      : `color-mix(in srgb, ${accentHex} 7%, transparent)`;
-  return `radial-gradient(120% 80% at 0% 0%, ${wash} 0%, transparent 70%), #17181b`;
-};
-
 export function CompanionPopover({
   popover,
   view,
@@ -121,7 +98,6 @@ export function CompanionPopover({
   onAnswer,
   onView,
   onOpenLink,
-  accentHex,
   attached = false,
   className,
   style,
@@ -167,17 +143,17 @@ export function CompanionPopover({
         // that stay put, and the content between them scrolling, so the
         // answers are always within reach however long the content runs.
         "flex min-h-0 flex-col gap-3 p-4 text-[var(--content-default)]",
+        // Drawn whole, on the call bar's own dark, so the panel and the bar
+        // beneath it read as one material.
         !attached &&
-          "rounded-[20px] border border-white/10 shadow-2xl shadow-black/50",
+          "rounded-[20px] border border-white/10 bg-[#17181b] shadow-2xl shadow-black/50",
         popover.kind === "approvals" ? "w-max max-w-[640px]" : "w-[360px]",
         // A picker's rows run to the panel's edges rather than its padding.
         (popover.kind === "microphones" || popover.kind === "voices") &&
           "gap-2 px-4 pb-3",
         className,
       )}
-      style={
-        attached ? style : { background: panelBackground(accentHex), ...style }
-      }
+      style={style}
     >
       {popover.kind === "approvals" ? (
         <>

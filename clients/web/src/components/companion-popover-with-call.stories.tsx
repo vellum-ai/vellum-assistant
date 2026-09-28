@@ -183,7 +183,7 @@ export const CredentialFormOnTheBar: Story = {
 
 /**
  * A text card with a list, in a warm accent, over a bar lit in the same
- * colour: the panel's spacing and wash against the bar's own material.
+ * colour: the panel's spacing against the bar's own material.
  */
 export const ResearchCardOnTheBar: Story = {
   render: () => (

@@ -16,7 +16,6 @@ import {
   type CompanionSurfaceState,
 } from "@vellumai/ipc-contract";
 
-import { companionAccentHexFor } from "@/components/companion-accent";
 import { CompanionPopover } from "@/components/companion-popover";
 import {
   answerCompanionPopover,
@@ -90,15 +89,6 @@ export function CompanionPopoverPage() {
         key={popover.id}
         popover={popover}
         view={view}
-        // The colour the call's ring and the creature burn, so the panel reads
-        // as the same assistant's.
-        accentHex={
-          companionAccentHexFor(
-            state?.call ?? null,
-            state?.accentHex,
-            state?.character,
-          ) ?? undefined
-        }
         cardRef={cardRef}
         style={{
           maxHeight: COMPANION_POPOVER_MAX_HEIGHT - COMPANION_POPOVER_INSET * 2,
