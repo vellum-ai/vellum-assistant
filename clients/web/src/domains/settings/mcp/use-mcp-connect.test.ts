@@ -414,27 +414,6 @@ describe("useMcpConnect", () => {
     await waitFor(() => expect(result.current.attempt).toBeNull());
   });
 
-  test("times out an authorization attempt without a real polling wait", async () => {
-    jest.useFakeTimers();
-    const { result } = mountConnect();
-
-    await act(async () => {
-      result.current.connect(SERVER_ID, undefined, DISPLAY_NAME);
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    expect(result.current.attempt?.phase).toBe("authorizing");
-
-    act(() => {
-      jest.advanceTimersByTime(CONNECTION_POLL_WINDOW_MS);
-    });
-
-    expect(result.current.attempt?.phase).toBe("error");
-    expect(result.current.attempt?.error).toBe(
-      "The connection is taking too long. You can retry or stop waiting.",
-    );
-  });
-
   test("stopWaiting ignores a late start result and removes the native listener", async () => {
     const startGate = deferred<AuthStartResult>();
     startImplementation = () => startGate.promise;
@@ -550,5 +529,28 @@ describe("useMcpConnect", () => {
       mcpQueryKeys.auth(ASSISTANT_ID, operationId),
     );
     expect(invalidatedKeys).toContainEqual(mcpQueryKeys.list(ASSISTANT_ID));
+  });
+
+  // Keep this test last. On CI runners, every test that ran after the fake
+  // timers here timed out at 5 s. The cause is not yet known.
+  test("times out an authorization attempt without a real polling wait", async () => {
+    jest.useFakeTimers();
+    const { result } = mountConnect();
+
+    await act(async () => {
+      result.current.connect(SERVER_ID, undefined, DISPLAY_NAME);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(result.current.attempt?.phase).toBe("authorizing");
+
+    act(() => {
+      jest.advanceTimersByTime(CONNECTION_POLL_WINDOW_MS);
+    });
+
+    expect(result.current.attempt?.phase).toBe("error");
+    expect(result.current.attempt?.error).toBe(
+      "The connection is taking too long. You can retry or stop waiting.",
+    );
   });
 });
