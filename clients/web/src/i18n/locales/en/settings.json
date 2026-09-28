@@ -1994,6 +1994,7 @@
     "confirmAndSwitch": "Confirm & Switch",
     "confirmLabel": "Teleport",
     "confirmMessage": "Your data will be copied to the new environment. The current assistant will remain available until you confirm the new one works.",
+    "confirmWarning": "Chatting won't be available until the teleport finishes.",
     "dockerDescriptionLinux": "Run your assistant in a Docker container on this computer.",
     "dockerDescriptionMacos": "Run your assistant in a Docker container on this Mac.",
     "dockerDescriptionWindows": "Run your assistant in a Docker container on this PC.",
@@ -2039,9 +2040,12 @@
     "teleportFailed": "Teleport failed: {message}",
     "teleportFailedUnknown": "Teleport failed.",
     "title": "Teleport",
+    "transferringNote": "This may take a while. Keep the app open until it finishes.",
+    "transferringTitle": "Teleporting Assistant...",
     "tryAgain": "Try Again",
     "unsupportedDestination": "Unsupported teleport destination.",
-    "verifyTitle": "Transfer complete - verify your new assistant is working."
+    "verifyMessage": "Verify your new assistant is working, then confirm to switch to it.",
+    "verifyTitle": "Transfer complete"
   },
   "textToSpeechCard": {
     "subtitle": "Configure how your assistant speaks",

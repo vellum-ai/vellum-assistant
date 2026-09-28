@@ -35,6 +35,11 @@ export const Full: Story = {
   args: { value: 1, "aria-label": "Complete" },
 };
 
+/** `value: null` sweeps a band across the track while the extent is unknown. */
+export const Indeterminate: Story = {
+  args: { value: null, "aria-label": "Working" },
+};
+
 export const CustomHeight: Story = {
   args: { value: 0.45, height: 12, "aria-label": "Thick progress bar" },
 };

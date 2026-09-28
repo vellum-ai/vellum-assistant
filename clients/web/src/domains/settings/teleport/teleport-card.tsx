@@ -1,14 +1,25 @@
 /**
- * Teleport settings card — the web/Electron port of the macOS
- * `TeleportSection.swift` UI. Lets the user move the active assistant between
+ * Teleport settings card. Lets the user move the active assistant between
  * hosting environments (local / Docker / cloud), preserving the source until
  * the new one is confirmed working.
+ *
+ * The card itself carries the destination description and the launch button.
+ * Confirmation, transfer progress, and the final Confirm & Switch step run in
+ * modals over the page (`ConfirmDialog`, then `TeleportProgressModal`); a
+ * failure lands back on the card as an inline notice so its message stays
+ * readable next to the retry.
  *
  * Only the Electron host renders it (gated by the caller in `general-page.tsx`).
  * Both teleport directions are GA.
  */
 
-import { CheckCircle2, Loader2 } from "lucide-react";
+import {
+  Cloud,
+  Container,
+  Info,
+  MonitorSmartphone,
+  type LucideIcon,
+} from "lucide-react";
 
 import { DetailCard } from "@/components/detail-card";
 import { PlatformLoginNotice } from "@/components/platform-login-notice";
@@ -18,13 +29,21 @@ import { resolveDesktopHostOS } from "@/runtime/platform-detection";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { Notice } from "@vellumai/design-library/components/notice";
-import { ProgressBar } from "@vellumai/design-library/components/progress-bar";
 
+import { TeleportProgressModal } from "./teleport-progress-modal";
 import {
   destinationDescriptionKey,
   destinationLabelKey,
+  type TeleportDestination,
 } from "./teleport-types";
 import { useTeleport } from "./use-teleport";
+
+/** Header glyph of the confirm dialog, one per destination. */
+const DESTINATION_ICONS: Record<TeleportDestination, LucideIcon> = {
+  local: MonitorSmartphone,
+  docker: Container,
+  platform: Cloud,
+};
 
 export function TeleportCard() {
   const { t } = useTranslation("settings");
@@ -45,13 +64,13 @@ export function TeleportCard() {
       title={t("teleportCard.title")}
       subtitle={t("teleportCard.subtitle")}
     >
-      {phase.kind === "idle" && platformGate === "disabled" && (
+      {platformGate === "disabled" && (
         <PlatformLoginNotice>
           {t("teleportCard.loginNotice")}
         </PlatformLoginNotice>
       )}
 
-      {phase.kind === "idle" && platformGate === "full" && (
+      {platformGate === "full" && phase.kind !== "failed" && (
         <div className="flex flex-col gap-2">
           <p className="text-body-medium-default text-[var(--content-tertiary)]">
             {t(destinationDescriptionKey(destination, resolveDesktopHostOS()))}
@@ -59,49 +78,12 @@ export function TeleportCard() {
           <Button
             variant="outlined"
             className="self-start"
+            disabled={phase.kind !== "idle"}
             onClick={teleport.requestTeleport}
           >
             {t(destinationLabelKey(destination))}
           </Button>
         </div>
-      )}
-
-      {phase.kind === "transferring" && (
-        <div className="flex flex-col gap-2">
-          <div className="flex items-center gap-2">
-            {phase.progress == null && (
-              <Loader2 className="h-4 w-4 animate-spin text-[var(--content-tertiary)]" />
-            )}
-            <span className="text-body-medium-default text-[var(--content-tertiary)]">
-              {phase.step}
-            </span>
-          </div>
-          {phase.progress != null && (
-            <ProgressBar
-              value={phase.progress}
-              aria-label={t("teleportCard.progressAriaLabel")}
-              className="max-w-[240px]"
-            />
-          )}
-        </div>
-      )}
-
-      {phase.kind === "verifying" && (
-        <Notice
-          tone="success"
-          icon={<CheckCircle2 className="h-4 w-4" />}
-          title={t("teleportCard.verifyTitle")}
-          actions={
-            <div className="flex gap-2">
-              <Button variant="primary" onClick={teleport.confirmAndSwitch}>
-                {t("teleportCard.confirmAndSwitch")}
-              </Button>
-              <Button variant="outlined" onClick={teleport.cancelTeleport}>
-                {t("teleportCard.cancel")}
-              </Button>
-            </div>
-          }
-        />
       )}
 
       {phase.kind === "failed" && (
@@ -118,11 +100,27 @@ export function TeleportCard() {
 
       <ConfirmDialog
         open={teleport.confirmOpen}
+        icon={DESTINATION_ICONS[destination]}
         title={t(destinationLabelKey(destination))}
         message={t("teleportCard.confirmMessage")}
         confirmLabel={t("teleportCard.confirmLabel")}
+        cancelLabel={t("teleportCard.cancel")}
         onConfirm={teleport.confirm}
         onCancel={teleport.cancelConfirm}
+      >
+        <Notice
+          tone="warning"
+          icon={<Info className="h-4 w-4" aria-hidden="true" />}
+          className="mt-3"
+        >
+          {t("teleportCard.confirmWarning")}
+        </Notice>
+      </ConfirmDialog>
+
+      <TeleportProgressModal
+        phase={phase}
+        onConfirmAndSwitch={teleport.confirmAndSwitch}
+        onCancel={teleport.cancelTeleport}
       />
     </DetailCard>
   );

@@ -3,7 +3,12 @@ import { type Ref } from "react";
 import { cn } from "../utils/cn";
 
 export interface ProgressBarProps {
-  value: number;
+  /**
+   * Completion fraction in `[0, 1]`. `null` renders the bar indeterminate: a
+   * band sweeps the track and no `aria-valuenow` is exposed, which is how
+   * assistive tech reads "busy, extent unknown".
+   */
+  value: number | null;
   "aria-label"?: string;
   className?: string;
   /**
@@ -32,16 +37,14 @@ export function ProgressBar({
   height = 6,
   ref,
 }: ProgressBarProps) {
-  const clamped = clamp01(value);
-  const percent = clamped * 100;
-  const valueNow = Math.round(percent);
+  const percent = value == null ? null : clamp01(value) * 100;
 
   return (
     <div
       ref={ref}
       role="progressbar"
       aria-label={ariaLabel}
-      aria-valuenow={valueNow}
+      aria-valuenow={percent == null ? undefined : Math.round(percent)}
       aria-valuemin={0}
       aria-valuemax={100}
       data-slot="progress-bar"
@@ -51,15 +54,23 @@ export function ProgressBar({
       )}
       style={{ height }}
     >
-      <div
-        data-slot="progress-bar-fill"
-        className="h-full bg-[var(--content-default)] rounded-full"
-        style={{
-          width: `${percent}%`,
-          backgroundColor: fillColor,
-          transition: "width 400ms cubic-bezier(0.22, 1, 0.36, 1)",
-        }}
-      />
+      {percent == null ? (
+        <div
+          data-slot="progress-bar-fill"
+          className="h-full w-2/5 bg-[var(--content-default)] rounded-full motion-safe:animate-progress-indeterminate motion-reduce:w-full motion-reduce:animate-pulse"
+          style={{ backgroundColor: fillColor }}
+        />
+      ) : (
+        <div
+          data-slot="progress-bar-fill"
+          className="h-full bg-[var(--content-default)] rounded-full"
+          style={{
+            width: `${percent}%`,
+            backgroundColor: fillColor,
+            transition: "width 400ms cubic-bezier(0.22, 1, 0.36, 1)",
+          }}
+        />
+      )}
     </div>
   );
 }

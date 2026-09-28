@@ -597,3 +597,22 @@ export function useAssistantAvatar(
     invalidate,
   };
 }
+
+/**
+ * The active assistant's avatar for a surface that draws the character only
+ * once the query has settled. `useAssistantAvatar(null)` is a disabled query,
+ * which reports `isLoading: false` with no data, so the id gates `ready` too.
+ * Drawing early would flash `ChatAvatar`'s synthesized fallback traits (the
+ * bundled green) and then jump to the real colour.
+ */
+export function useActiveAssistantAvatar() {
+  const activeId = useResolvedAssistantsStore.use.activeAssistantId();
+  const { components, traits, customImageUrl, isLoading } =
+    useAssistantAvatar(activeId);
+  return {
+    ready: activeId != null && !isLoading,
+    components,
+    traits,
+    customImageUrl,
+  };
+}

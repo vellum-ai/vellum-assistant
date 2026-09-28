@@ -1902,6 +1902,7 @@
     "confirmAndSwitch": "Confirmar y cambiar",
     "confirmLabel": "Teleportar",
     "confirmMessage": "Tus datos se copiarán al nuevo entorno. El asistente actual seguirá disponible hasta que confirmes que el nuevo funciona.",
+    "confirmWarning": "El chat no estará disponible hasta que termine la teleportación.",
     "dockerDescriptionLinux": "Ejecuta tu asistente en un contenedor Docker en este equipo.",
     "dockerDescriptionMacos": "Ejecuta tu asistente en un contenedor Docker en este Mac.",
     "dockerDescriptionWindows": "Ejecuta tu asistente en un contenedor Docker en este PC.",
@@ -1947,9 +1948,12 @@
     "teleportFailed": "La teleportación falló: {message}",
     "teleportFailedUnknown": "La teleportación falló.",
     "title": "Teleport",
+    "transferringNote": "Esto puede tardar un poco. Mantén la app abierta hasta que termine.",
+    "transferringTitle": "Teleportando asistente...",
     "tryAgain": "Intentar de nuevo",
     "unsupportedDestination": "Destino de teleportación no compatible.",
-    "verifyTitle": "Transferencia completa: verifica que tu nuevo asistente funciona."
+    "verifyMessage": "Verifica que tu nuevo asistente funciona y luego confirma para cambiar a él.",
+    "verifyTitle": "Transferencia completa"
   },
   "textToSpeechCard": {
     "subtitle": "Configura cómo habla tu asistente",

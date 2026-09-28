@@ -1,4 +1,4 @@
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { Button } from "./button";
@@ -10,7 +10,8 @@ import { Notice } from "./notice";
  *
  * Renders a small modal with a title, message, and Cancel / Confirm
  * buttons. Supports a `destructive` variant that styles the confirm
- * button as danger and shows a warning icon.
+ * button as danger and shows a warning icon. `icon` puts a caller-chosen
+ * glyph in the header instead.
  *
  * The `error` slot lets a caller keep the dialog open after a failed
  * confirm, so the user reads why it failed next to the button they can
@@ -30,6 +31,8 @@ interface ConfirmDialogProps {
   children?: ReactNode;
   /** Inline failure message shown under the message while the dialog stays open. */
   error?: ReactNode;
+  /** Header glyph. Takes precedence over the `destructive` warning icon. */
+  icon?: LucideIcon;
   confirmLabel?: string;
   cancelLabel?: string;
   destructive?: boolean;
@@ -48,6 +51,7 @@ function ConfirmDialog({
   message,
   children,
   error,
+  icon,
   confirmLabel = "Confirm",
   cancelLabel = "Cancel",
   destructive = false,
@@ -90,7 +94,7 @@ function ConfirmDialog({
           }
         }}
       >
-        <Modal.Header icon={destructive ? AlertTriangle : undefined}>
+        <Modal.Header icon={icon ?? (destructive ? AlertTriangle : undefined)}>
           <Modal.Title>{title}</Modal.Title>
         </Modal.Header>
         <Modal.Body>

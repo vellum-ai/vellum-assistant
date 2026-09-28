@@ -1927,7 +1927,7 @@
     "title": "傳送",
     "tryAgain": "重試",
     "unsupportedDestination": "不支援的傳送目標。",
-    "verifyTitle": "傳輸完成 - 請驗證您的新助理是否正常運作。",
+    "verifyTitle": "傳輸完成",
     "backupCreateFailed": "雲端備份失敗（HTTP {status}）。",
     "backupListFailed": "無法取得雲端備份清單（HTTP {status}）。",
     "backupLocalFailed": "備份失敗（HTTP {status}）。",
@@ -1935,7 +1935,11 @@
     "backupNoSnapshotName": "雲端備份未回傳快照名稱。",
     "backupNotReady": "雲端備份 {snapshot} 在 {seconds} 秒後仍未就緒。",
     "backupStep": "正在備份助手...",
-    "backupUnsupported": "此助手在遷移前不支援備份。"
+    "backupUnsupported": "此助手在遷移前不支援備份。",
+    "confirmWarning": "傳送完成前將無法聊天。",
+    "transferringNote": "這可能需要一些時間。請保持應用程式開啟，直到傳送完成。",
+    "transferringTitle": "正在傳送助理...",
+    "verifyMessage": "請驗證您的新助理是否正常運作，然後確認切換。"
   },
   "textToSpeechCard": {
     "subtitle": "設定您的助理如何說話",

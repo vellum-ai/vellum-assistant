@@ -929,6 +929,21 @@
 }
 
 /* ---------------------------------------------------------------------------
+ * Indeterminate progress: the `ProgressBar` fill band (40% of the track)
+ * sweeping left→right while the extent of the work is unknown. Applied
+ * behind a `motion-safe` variant; reduced motion gets a pulsing full-width
+ * fill instead.
+ * --------------------------------------------------------------------------- */
+@keyframes progress-indeterminate {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(250%); }
+}
+
+@utility animate-progress-indeterminate {
+  animation: progress-indeterminate 1.4s ease-in-out infinite;
+}
+
+/* ---------------------------------------------------------------------------
  * Skeleton shimmer: a soft gradient band sweeping left→right over a
  * placeholder block while content loads. Consumed by the `Skeleton`
  * component. The highlight mixes the surface toward `--foreground` so it

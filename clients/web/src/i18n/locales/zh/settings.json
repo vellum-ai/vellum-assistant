@@ -1927,7 +1927,7 @@
     "title": "传送",
     "tryAgain": "重试",
     "unsupportedDestination": "不支持的传送目标。",
-    "verifyTitle": "传输完成 - 请验证您的新助手是否正常工作。",
+    "verifyTitle": "传输完成",
     "backupCreateFailed": "云端备份失败（HTTP {status}）。",
     "backupListFailed": "无法获取云端备份列表（HTTP {status}）。",
     "backupLocalFailed": "备份失败（HTTP {status}）。",
@@ -1935,7 +1935,11 @@
     "backupNoSnapshotName": "云端备份未返回快照名称。",
     "backupNotReady": "云端备份 {snapshot} 在 {seconds} 秒后仍未就绪。",
     "backupStep": "正在备份助手...",
-    "backupUnsupported": "此助手在迁移前不支持备份。"
+    "backupUnsupported": "此助手在迁移前不支持备份。",
+    "confirmWarning": "传送完成前将无法聊天。",
+    "transferringNote": "这可能需要一些时间。请保持应用打开，直到传送完成。",
+    "transferringTitle": "正在传送助手...",
+    "verifyMessage": "请验证您的新助手是否正常工作，然后确认切换。"
   },
   "textToSpeechCard": {
     "subtitle": "配置您的助手如何说话",

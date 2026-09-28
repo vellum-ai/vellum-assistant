@@ -1885,6 +1885,7 @@
     "confirmAndSwitch": "Подтвердить и переключиться",
     "confirmLabel": "Teleport",
     "confirmMessage": "Данные скопируются в новую среду. Текущий ассистент останется доступен до подтверждения, что новый работает.",
+    "confirmWarning": "Чат будет недоступен, пока перенос не завершится.",
     "dockerDescriptionLinux": "Запустить ассистента в контейнере Docker на этом компьютере.",
     "dockerDescriptionMacos": "Запустить ассистента в контейнере Docker на этом Mac.",
     "dockerDescriptionWindows": "Запустить ассистента в контейнере Docker на этом ПК.",
@@ -1930,9 +1931,12 @@
     "teleportFailed": "Teleport не удался: {message}",
     "teleportFailedUnknown": "Teleport не удался.",
     "title": "Teleport",
+    "transferringNote": "Это может занять некоторое время. Не закрывай приложение, пока перенос не завершится.",
+    "transferringTitle": "Перенос ассистента...",
     "tryAgain": "Попробовать снова",
     "unsupportedDestination": "Неподдерживаемое назначение Teleport.",
-    "verifyTitle": "Перенос завершён: проверь, что новый ассистент работает."
+    "verifyMessage": "Проверь, что новый ассистент работает, затем подтверди переключение.",
+    "verifyTitle": "Перенос завершён"
   },
   "textToSpeechCard": {
     "subtitle": "Настройка того, как ассистент произносит слова",
