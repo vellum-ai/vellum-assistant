@@ -162,6 +162,41 @@ describe("MultiActivityGroup — non-web tool group", () => {
     });
   });
 
+  test("the settled duration is formatted in the active locale", async () => {
+    const toolCalls = [
+      makeToolCall({
+        id: "tc-1",
+        name: "bash",
+        status: "completed",
+        startedAt: 0,
+        completedAt: 180_000,
+      }),
+    ];
+    const { getByText } = renderCard(toolCalls);
+    expect(getByText("Worked for 3m")).toBeTruthy();
+
+    await act(async () => {
+      await changeLocale("es");
+    });
+    await waitFor(() => {
+      expect(getByText("Trabajó durante 3 min")).toBeTruthy();
+    });
+  });
+
+  test("a settled sub-second run has its own summary", () => {
+    const toolCalls = [
+      makeToolCall({
+        id: "tc-1",
+        name: "bash",
+        status: "completed",
+        startedAt: 0,
+        completedAt: 400,
+      }),
+    ];
+    const { getByText } = renderCard(toolCalls);
+    expect(getByText("Worked for <1s")).toBeTruthy();
+  });
+
   test("renders no status indicator while running — the shimmering title is the signal", () => {
     const toolCalls = [
       makeToolCall({ id: "tc-1", name: "bash", status: "running" }),

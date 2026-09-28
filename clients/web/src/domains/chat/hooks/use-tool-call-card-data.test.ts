@@ -19,8 +19,10 @@ import { describe, expect, test } from "bun:test";
 
 import {
   buildWebSearchErrorStep,
+  coarseDuration,
   computeToolCallCardData,
   computeToolCallCardDataFromItems,
+  formatMs,
   type ToolCallCardItem,
   WEB_SEARCH_BACKEND_FAILURE_MESSAGE,
 } from "@/domains/chat/utils/tool-call-card-utils";
@@ -533,7 +535,7 @@ describe("computeToolCallCardDataFromItems - explicit activity", () => {
   });
 });
 
-describe("computeToolCallCardDataFromItems — totalDurationLabel", () => {
+describe("computeToolCallCardDataFromItems: totalDurationMs", () => {
   test("sums BOTH thinking and tool time, not just tool calls", () => {
     // GIVEN a run with 2s of thinking and 3s of tool work
     const items: ToolCallCardItem[] = [
@@ -558,10 +560,10 @@ describe("computeToolCallCardDataFromItems — totalDurationLabel", () => {
     // WHEN the card data is computed at rest (no `nowMs`)
     const data = computeToolCallCardDataFromItems(items, {});
     // THEN the header total is 2s + 3s = 5s — thinking is no longer excluded
-    expect(data.totalDurationLabel).toBe("5s");
+    expect(data.totalDurationMs).toBe(5_000);
   });
 
-  test("excludes subagent_spawn time and returns '' when nothing is timed", () => {
+  test("excludes subagent_spawn time and is absent when nothing is timed", () => {
     const items: ToolCallCardItem[] = [
       { kind: "thinking", text: "untimed reasoning" },
       {
@@ -577,7 +579,7 @@ describe("computeToolCallCardDataFromItems — totalDurationLabel", () => {
       },
     ];
     const data = computeToolCallCardDataFromItems(items, {});
-    expect(data.totalDurationLabel).toBe("");
+    expect(data.totalDurationMs).toBeUndefined();
   });
 
   test("ticks the running step's elapsed against nowMs during streaming", () => {
@@ -608,27 +610,8 @@ describe("computeToolCallCardDataFromItems — totalDurationLabel", () => {
     // WHEN the clock reads t=13s — the running tool has been live for 3s
     const data = computeToolCallCardDataFromItems(items, {}, 13_000);
     // THEN the header total ticks: 4s (done) + 3s (in flight) = 7s
-    expect(data.totalDurationLabel).toBe("7s");
+    expect(data.totalDurationMs).toBe(7_000);
     expect(data.state).toBe("loading");
-  });
-
-  test("renders a long run in human-readable minutes, not raw seconds", () => {
-    // A 3-minute tool call should read "3m", not "180s".
-    const items: ToolCallCardItem[] = [
-      {
-        kind: "toolCall",
-        toolCall: makeToolCall({
-          id: "tc-long",
-          name: "bash",
-          status: "completed",
-          startedAt: 0,
-          completedAt: 180_000,
-          input: { command: "long-build" },
-        }),
-      },
-    ];
-    const data = computeToolCallCardDataFromItems(items, {});
-    expect(data.totalDurationLabel).toBe("3m");
   });
 
   test("a running step contributes nothing without a clock (at rest)", () => {
@@ -657,7 +640,20 @@ describe("computeToolCallCardDataFromItems — totalDurationLabel", () => {
     ];
     // No `nowMs` → only the completed 4s counts.
     const data = computeToolCallCardDataFromItems(items, {});
-    expect(data.totalDurationLabel).toBe("4s");
+    expect(data.totalDurationMs).toBe(4_000);
+  });
+});
+
+describe("coarseDuration", () => {
+  test("renders a long run in human-readable minutes, not raw seconds", () => {
+    // A 3-minute run should read "3m", not "180s".
+    expect(coarseDuration(180_000)).toEqual({ value: 3, unit: "minute" });
+    expect(formatMs(180_000)).toBe("3m");
+  });
+
+  test("is null under a second, which formatMs renders as <1s", () => {
+    expect(coarseDuration(400)).toBeNull();
+    expect(formatMs(400)).toBe("<1s");
   });
 });
 

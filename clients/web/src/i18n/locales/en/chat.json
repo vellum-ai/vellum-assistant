@@ -1417,6 +1417,7 @@
       "failed": "Failed",
       "toolsFailed": "{count, plural, one {# tool failed} other {# tools failed}}",
       "workedFor": "Worked for {duration}",
+      "workedUnderSecond": "Worked for <1s",
       "working": "Working",
       "workingFor": "Working for {duration}"
     },

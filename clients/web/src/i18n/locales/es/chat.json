@@ -1362,6 +1362,7 @@
       "failed": "Falló",
       "toolsFailed": "{count, plural, one {# herramienta falló} other {# herramientas fallaron}}",
       "workedFor": "Trabajó durante {duration}",
+      "workedUnderSecond": "Trabajó menos de 1 s",
       "working": "Trabajando",
       "workingFor": "Trabajando durante {duration}"
     },

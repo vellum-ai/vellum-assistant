@@ -17,7 +17,9 @@ import {
   type ActivityStepsPayload,
 } from "@/stores/viewer-store";
 import {
+  coarseDuration,
   isRenderableRunningCall,
+  type CoarseDuration,
   type ToolCallCardData,
   type ToolCallCardItem,
   type ToolCallCardStep,
@@ -31,7 +33,7 @@ import type {
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import { truncate } from "@/domains/chat/utils/truncate";
 import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
-import { Trans, useTranslation, type TFunction } from "@/i18n";
+import { formatLocale, Trans, useTranslation, type TFunction } from "@/i18n";
 import { useActionDisplayLabel } from "@/domains/chat/components/tool-progress-card/action-display-label";
 import { openDetailSheetFromTrigger } from "@/domains/chat/utils/open-detail-sheet-from-trigger";
 
@@ -162,6 +164,15 @@ export function deriveSummaryState(
   return "error";
 }
 
+/** A run's duration in the active locale's narrow units (`16s`, `3 min`). */
+function formatRunDuration(duration: CoarseDuration): string {
+  return new Intl.NumberFormat(formatLocale(), {
+    style: "unit",
+    unit: duration.unit,
+    unitDisplay: "narrow",
+  }).format(duration.value);
+}
+
 /**
  * Summary label for a whole activity run: the activity-steps panel's header
  * title, and the inline header's title once the run settles.
@@ -175,19 +186,26 @@ export function deriveSummaryState(
 export function activityRunSummaryLabel(
   t: TFunction<"chat">,
   state: ToolProgressCardState,
-  cardData: Pick<ToolCallCardData, "steps" | "totalDurationLabel">,
+  cardData: Pick<ToolCallCardData, "steps" | "totalDurationMs">,
 ): string {
-  const duration = cardData.totalDurationLabel ?? "";
+  const totalMs = cardData.totalDurationMs;
+  const duration = totalMs == null ? null : coarseDuration(totalMs);
   // While running, surface the live, ticking total ("Working for 12s") once we
-  // have at least a full second of work — below that the `<1s` label reads
-  // awkwardly, so we keep the bare "Working".
+  // have at least a full second of work; below that we keep the bare "Working".
   if (state === "loading") {
-    return duration && duration !== "<1s"
-      ? t("multiActivityGroup.runSummary.workingFor", { duration })
+    return duration
+      ? t("multiActivityGroup.runSummary.workingFor", {
+          duration: formatRunDuration(duration),
+        })
       : t("multiActivityGroup.runSummary.working");
   }
   if (duration) {
-    return t("multiActivityGroup.runSummary.workedFor", { duration });
+    return t("multiActivityGroup.runSummary.workedFor", {
+      duration: formatRunDuration(duration),
+    });
+  }
+  if (totalMs != null) {
+    return t("multiActivityGroup.runSummary.workedUnderSecond");
   }
   switch (state) {
     case "warning":

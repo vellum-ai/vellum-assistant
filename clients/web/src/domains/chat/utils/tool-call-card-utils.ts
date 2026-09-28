@@ -185,13 +185,12 @@ export interface ToolCallCardData {
   /** Pre-formatted step count, e.g. `"2 steps"`. */
   stepCount: string;
   /**
-   * Total active work time across the group's tool calls (sum of per-call
-   * durations), formatted like `"16s"`. Empty when no call carries timing data
-   * or the total is sub-second. Drives the expanded card's "Worked for Xs"
-   * header summary. Optional so other `ToolCallCardData` constructors (e.g. the
-   * subagent card) are unaffected.
+   * Total active work time across the group's thinking and tool steps, in ms.
+   * Absent when no step carries timing data. Drives the "Worked for Xs" run
+   * summary, which formats it in the active locale. Optional so other
+   * `ToolCallCardData` constructors (e.g. the subagent card) are unaffected.
    */
-  totalDurationLabel?: string;
+  totalDurationMs?: number;
   /** Ordered sub-steps to render when expanded. */
   steps: ToolCallCardStep[];
   /**
@@ -211,26 +210,43 @@ export interface ToolCallCardData {
 // Small pure helpers used by the unified card hook and its consumers.
 // ---------------------------------------------------------------------------
 
+export interface CoarseDuration {
+  value: number;
+  unit: "second" | "minute" | "hour";
+}
+
 /**
- * Format a duration in ms for the row-meta cluster as a single, human-readable
- * unit with low precision — seconds for short work, then minutes, then hours
- * as the run gets longer (`<1s`, `2s`, `45s`, `3m`, `2h`). We round to the
+ * Round a duration in ms to a single unit with low precision: seconds for
+ * short work, then minutes, then hours as the run gets longer. We round to the
  * coarsest unit and drop the smaller one (a "long enough task" reads as `3m`,
- * not `3m 12s`) so the label stays glanceable in the card header and chips.
+ * not `3m 12s`) so the label stays glanceable. `null` under a second.
  */
-export function formatMs(ms: number): string {
+export function coarseDuration(ms: number): CoarseDuration | null {
   if (!Number.isFinite(ms) || ms < 1000) {
-    return "<1s";
+    return null;
   }
   const seconds = Math.round(ms / 1000);
   if (seconds < 60) {
-    return `${seconds}s`;
+    return { value: seconds, unit: "second" };
   }
   const minutes = Math.round(seconds / 60);
   if (minutes < 60) {
-    return `${minutes}m`;
+    return { value: minutes, unit: "minute" };
   }
-  return `${Math.round(minutes / 60)}h`;
+  return { value: Math.round(minutes / 60), unit: "hour" };
+}
+
+const COARSE_UNIT_SUFFIX = { second: "s", minute: "m", hour: "h" } as const;
+
+/**
+ * Format a duration in ms for the row-meta cluster via {@link coarseDuration}
+ * (`<1s`, `2s`, `45s`, `3m`, `2h`).
+ */
+export function formatMs(ms: number): string {
+  const duration = coarseDuration(ms);
+  return duration
+    ? `${duration.value}${COARSE_UNIT_SUFFIX[duration.unit]}`
+    : "<1s";
 }
 
 /** True when `tc.name` is a web tool (`web_search` / `web_fetch`). */
@@ -508,18 +524,17 @@ export function hasRunningItem(items: ToolCallCardItem[]): boolean {
 }
 
 /**
- * Total active work time across a group's steps — the sum of each thinking and
- * tool step's raw duration — formatted via `formatMs` (so a sub-second total
- * reads `<1s`, matching the per-phase duration chips). Powers the expanded
- * card's "Worked for Xs" / "Working for Xs" summary; when `nowMs` is supplied
- * the still-running step's elapsed is included so the total ticks during
- * streaming. Returns an empty string only when NO step carries timing data, in
- * which case the header falls back to its outcome label.
+ * Total active work time across a group's steps, in ms: the sum of each
+ * thinking and tool step's raw duration. Powers the "Worked for Xs" /
+ * "Working for Xs" summary; when `nowMs` is supplied the still-running step's
+ * elapsed is included so the total ticks during streaming. Returns `undefined`
+ * only when NO step carries timing data, in which case the header falls back
+ * to its outcome label.
  */
-function computeTotalDurationLabel(
+function computeTotalDurationMs(
   items: ToolCallCardItem[],
   nowMs: number | undefined,
-): string {
+): number | undefined {
   let total = 0;
   let anyTimed = false;
   for (const item of items) {
@@ -530,10 +545,7 @@ function computeTotalDurationLabel(
     anyTimed = true;
     total += ms;
   }
-  if (!anyTimed) {
-    return "";
-  }
-  return formatMs(total);
+  return anyTimed ? total : undefined;
 }
 
 /**
@@ -980,7 +992,7 @@ export function computeToolCallCardDataFromItems(
     liveWebActivity,
   );
   const stepCount = `${steps.length} step${steps.length === 1 ? "" : "s"}`;
-  const totalDurationLabel = computeTotalDurationLabel(items, nowMs);
+  const totalDurationMs = computeTotalDurationMs(items, nowMs);
 
   return {
     currentStepTitle,
@@ -988,7 +1000,7 @@ export function computeToolCallCardDataFromItems(
     currentStepActionDisplayKey,
     currentStepKind,
     stepCount,
-    totalDurationLabel,
+    totalDurationMs,
     steps,
     state,
     carouselItems,
