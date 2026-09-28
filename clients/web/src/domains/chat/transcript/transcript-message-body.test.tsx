@@ -1242,7 +1242,7 @@ describe("TranscriptMessageBody", () => {
     expect(queryByRole("button", { name: "Earlier activity" })).toBeNull();
   });
 
-  test("animates earlier activity closed when streaming completes", async () => {
+  describe("a response the reader watched stream in", () => {
     const message: DisplayMessage = {
       id: "settling-response",
       role: "assistant",
@@ -1257,26 +1257,71 @@ describe("TranscriptMessageBody", () => {
         textBlock("Here is the final answer."),
       ],
     };
-    const { getByRole, getByTestId, rerender } = render(
-      <TranscriptMessageBody
-        message={message}
-        onSurfaceAction={noop}
-        isStreaming
-      />,
-    );
 
-    rerender(
-      <TranscriptMessageBody message={message} onSurfaceAction={noop} />,
-    );
+    test("stays unfolded once it settles", () => {
+      const { queryByRole, queryByText, rerender } = render(
+        <TranscriptMessageBody
+          message={message}
+          onSurfaceAction={noop}
+          isStreaming
+        />,
+      );
 
-    const trigger = getByRole("button", { name: "Earlier activity" });
-    expect(trigger.getAttribute("aria-expanded")).toBe("true");
-    expect(
-      getByTestId("assistant-earlier-activity").style.animationDuration,
-    ).toBe("var(--anim-standard)");
+      rerender(
+        <TranscriptMessageBody message={message} onSurfaceAction={noop} />,
+      );
 
-    await waitFor(() => {
+      expect(queryByRole("button", { name: "Earlier activity" })).toBeNull();
+      expect(queryByText("I am checking that.")).not.toBeNull();
+      expect(queryByText("Here is the final answer.")).not.toBeNull();
+    });
+
+    test("stays unfolded through a pause mid-turn", () => {
+      const { queryByRole, queryByText, rerender } = render(
+        <TranscriptMessageBody
+          message={message}
+          onSurfaceAction={noop}
+          isStreaming
+        />,
+      );
+
+      // Awaiting the user's input reads as not streaming until the turn resumes.
+      rerender(
+        <TranscriptMessageBody message={message} onSurfaceAction={noop} />,
+      );
+      rerender(
+        <TranscriptMessageBody
+          message={message}
+          onSurfaceAction={noop}
+          isStreaming
+        />,
+      );
+      rerender(
+        <TranscriptMessageBody message={message} onSurfaceAction={noop} />,
+      );
+
+      expect(queryByRole("button", { name: "Earlier activity" })).toBeNull();
+      expect(queryByText("I am checking that.")).not.toBeNull();
+    });
+
+    test("folds its earlier prose when it next mounts as history", () => {
+      const { unmount } = render(
+        <TranscriptMessageBody
+          message={message}
+          onSurfaceAction={noop}
+          isStreaming
+        />,
+      );
+      unmount();
+
+      const { getByRole, queryByText } = render(
+        <TranscriptMessageBody message={message} onSurfaceAction={noop} />,
+      );
+
+      const trigger = getByRole("button", { name: "Earlier activity" });
       expect(trigger.getAttribute("aria-expanded")).toBe("false");
+      expect(queryByText("I am checking that.")).toBeNull();
+      expect(queryByText("Here is the final answer.")).not.toBeNull();
     });
   });
 

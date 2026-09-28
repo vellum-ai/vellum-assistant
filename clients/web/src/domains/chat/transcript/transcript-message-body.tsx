@@ -8,6 +8,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
   useCallback,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -227,6 +228,17 @@ export function TranscriptMessageBody({
       ? trailingGroup.text
       : null,
   );
+
+  // Whether this row has streamed while mounted. A response the reader watched
+  // arrive keeps the layout it streamed in for as long as it stays mounted, so
+  // nothing folds away while they read it; it collapses when it next mounts as
+  // history.
+  const [watchedLive, setWatchedLive] = useState(isStreaming);
+  useEffect(() => {
+    if (isStreaming) {
+      setWatchedLive(true);
+    }
+  }, [isStreaming]);
 
   // Visuals announced by a still-streaming `ui_show` (`ui_surface_pending`).
   // Each holds a shimmer at the end of the row's activity area until its
@@ -1323,19 +1335,21 @@ export function TranscriptMessageBody({
     groups,
     groupDrawsVisibleOutput,
   );
-  // Three reasons no group is collapsible, after which the whole response
+  // Four reasons no group is collapsible, after which the whole response
   // renders inline at full size and none of the collapsed styling applies: the
   // per-user opt-out; the `send-user-message` flag, under which every text
   // block is a message the assistant chose to send and none is "earlier"
-  // prose to fold away; and a row the daemon marks private, whose prose
-  // arrives projected into thinking blocks with the reply as its own text.
-  // The third reason is the row's own marker, so a row sent under the flag
-  // stays inline after the flag is turned off.
+  // prose to fold away; a row the daemon marks private, whose prose arrives
+  // projected into thinking blocks with the reply as its own text; and a row
+  // the reader watched stream in. The third reason is the row's own marker,
+  // so a row sent under the flag stays inline after the flag is turned off.
   const collapsibleGroupIndexes = groups.flatMap((group, groupIndex) => {
     if (
       inlineAssistantIntermediates ||
       hideThinkingUi ||
-      message.assistantTextVisibility === "private"
+      message.assistantTextVisibility === "private" ||
+      isStreaming ||
+      watchedLive
     ) {
       return [];
     }
@@ -1423,7 +1437,6 @@ export function TranscriptMessageBody({
       assistantContent.push(
         <AssistantContentDisclosure
           key={`earlier-activity-${groupIndex}`}
-          isStreaming={isStreaming}
           items={collapsibleRowIndexes.map((rowIndex) => ({
             key: `earlier-activity-item-${rowIndex}`,
             node: renderedGroups[rowIndex],

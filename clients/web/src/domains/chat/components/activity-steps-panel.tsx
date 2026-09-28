@@ -33,7 +33,6 @@ import { useTranslation } from "@/i18n";
 import { StreamingShimmerText } from "@/domains/chat/components/streaming-shimmer-text";
 import {
   activityRunSummaryLabel,
-  countStepOutcomes,
   deriveSummaryState,
 } from "@/domains/chat/components/multi-activity-group/multi-activity-group";
 import {
@@ -263,14 +262,9 @@ function ActivityStepsPanelTarget({
     },
   );
 
-  const outcomes = countStepOutcomes(cardData.steps);
   const summaryState = deriveSummaryState(cardData.state, cardData.steps);
   const isRunning = summaryState === "loading";
-  const summary = activityRunSummaryLabel(
-    summaryState,
-    cardData.totalDurationLabel ?? "",
-    outcomes.failed,
-  );
+  const summary = activityRunSummaryLabel(summaryState, cardData);
   // Matches Figma `6405-121431`: while the run streams, the header shows the
   // LIVE step title ("Thinking", "Searching the web", …) through the
   // avatar-tinted shimmer; once terminal it settles on the duration summary

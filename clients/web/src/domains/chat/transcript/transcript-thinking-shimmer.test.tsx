@@ -184,14 +184,15 @@ describe("streaming thinking shimmer wiring", () => {
     expect(getByTestId("streaming-shimmer")).toBeTruthy();
   });
 
-  test("the same merged header is static while awaiting user input", () => {
+  test("the same merged header settles on its summary while awaiting user input", () => {
     useTurnStore.setState({ phase: "awaiting_user_input" });
     const { getByTestId, queryByTestId } = renderTurn(
       assistantToolThenThinkingItem("a-tool-thinking-settled"),
     );
 
     const card = getByTestId("tool-progress-card-shell");
-    expect(card.textContent).toContain("Thinking");
+    expect(card.textContent).not.toContain("Thinking");
+    expect(card.textContent).toContain("Completed");
     expect(queryByTestId("streaming-shimmer")).toBeNull();
   });
 });

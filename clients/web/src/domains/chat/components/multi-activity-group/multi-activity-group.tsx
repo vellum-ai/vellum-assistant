@@ -108,9 +108,9 @@ function buildDefaultItems(
  * Tally of how many terminal, non-thinking steps a run produced and how many
  * of those failed. Thinking steps are excluded — they carry no success/failure
  * semantics — so a `thinking → failed-bash` run reads as "every tool failed",
- * not "half failed". Shared with the activity-steps panel's summary header.
+ * not "half failed".
  */
-export function countStepOutcomes(steps: ToolCallCardStep[]): {
+function countStepOutcomes(steps: ToolCallCardStep[]): {
   total: number;
   failed: number;
 } {
@@ -162,8 +162,8 @@ export function deriveSummaryState(
 }
 
 /**
- * Summary label for a whole activity run, used as the activity-steps panel's
- * header title.
+ * Summary label for a whole activity run: the activity-steps panel's header
+ * title, and the inline header's title once the run settles.
  *
  * Whenever we have timing data the summary reports how long the agent worked —
  * a live, ticking "Working for 16s" while running and a final "Worked for 16s"
@@ -173,9 +173,10 @@ export function deriveSummaryState(
  */
 export function activityRunSummaryLabel(
   state: ToolProgressCardState,
-  totalDurationLabel: string,
-  failedCount: number,
+  cardData: Pick<ToolCallCardData, "steps" | "totalDurationLabel">,
 ): string {
+  const totalDurationLabel = cardData.totalDurationLabel ?? "";
+  const failedCount = countStepOutcomes(cardData.steps).failed;
   // While running, surface the live, ticking total ("Working for 12s") once we
   // have at least a full second of work — below that the `<1s` label reads
   // awkwardly, so we keep the bare "Working".
@@ -364,6 +365,9 @@ function UnifiedMultiActivityGroup(
     cardData.state,
     cardData.steps,
   );
+  // A settled run is titled by its summary, not its last step, so a run that
+  // ended on a thought does not keep reading "Thinking" once it is done.
+  const settled = shellState !== "loading";
 
   const payload: ActivityStepsPayload = useMemo(
     () => ({
@@ -449,12 +453,18 @@ function UnifiedMultiActivityGroup(
         // the steps panel this header opens.
         hideStatusIndicator
         state={shellState}
-        currentStepTitle={cardData.currentStepTitle}
+        currentStepTitle={
+          settled
+            ? activityRunSummaryLabel(shellState, cardData)
+            : cardData.currentStepTitle
+        }
         currentStepInfo={headerInfo}
         stepCount={cardData.stepCount}
         // Clicking anywhere on the header toggles the steps side panel — the
         // timeline no longer expands in place beneath the header.
-        onHeaderClick={(event) => openDetailSheetFromTrigger(event, () => toggleActivitySteps(payload))}
+        onHeaderClick={(event) =>
+          openDetailSheetFromTrigger(event, () => toggleActivitySteps(payload))
+        }
         headerAriaLabel={t("multiActivityGroup.viewSteps")}
         headerActive={headerActive}
       />
