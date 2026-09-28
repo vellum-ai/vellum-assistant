@@ -20,7 +20,13 @@
 import { type ComponentProps } from "react";
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
-import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+} from "@testing-library/react";
 
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { ToolCallCardItem } from "@/domains/chat/utils/tool-call-card-utils";
@@ -49,9 +55,11 @@ const { useChatSessionStore } =
   await import("@/domains/chat/chat-session-store");
 const { useAssistantFeatureFlagStore } =
   await import("@/stores/assistant-feature-flag-store");
+const { changeLocale } = await import("@/i18n");
 
-afterEach(() => {
+afterEach(async () => {
   cleanup();
+  await changeLocale("en");
   // Reset drawer state and expansion state between tests so assertions
   // don't bleed across cases.
   useViewerStore.setState({
@@ -135,6 +143,23 @@ describe("MultiActivityGroup — non-web tool group", () => {
     expect(getByText("Running a command")).toBeTruthy();
     // The timeline lives in the side panel — no step rows inline.
     expect(queryByTestId("tool-step-pill")).toBeNull();
+  });
+
+  test("the settled summary follows the active locale", async () => {
+    const toolCalls = [
+      makeToolCall({ id: "tc-1", name: "bash", status: "error" }),
+      makeToolCall({ id: "tc-2", name: "bash", status: "error" }),
+      makeToolCall({ id: "tc-3", name: "bash", status: "completed" }),
+    ];
+    const { getByText } = renderCard(toolCalls);
+    expect(getByText("2 tools failed")).toBeTruthy();
+
+    await act(async () => {
+      await changeLocale("es");
+    });
+    await waitFor(() => {
+      expect(getByText("2 herramientas fallaron")).toBeTruthy();
+    });
   });
 
   test("renders no status indicator while running — the shimmering title is the signal", () => {
@@ -519,6 +544,26 @@ describe("MultiActivityGroup — subagent_spawn filtering", () => {
     expect(queryByText(/^\d+ steps?$/)).toBeNull();
     // No "Spawning subagent" content in the header.
     expect(queryByText(/Spawning subagent/i)).toBeNull();
+  });
+
+  test("a still-running subagent_spawn does not keep a finished header live", () => {
+    const toolCalls = [
+      makeToolCall({
+        id: "tc-1",
+        name: "subagent_spawn",
+        status: "running",
+        input: { label: "Investigate logs" },
+      }),
+      makeToolCall({
+        id: "tc-2",
+        name: "bash",
+        status: "completed",
+        input: { command: "ls" },
+      }),
+    ];
+    const { getByText, queryByText } = renderCard(toolCalls);
+    expect(getByText("Completed")).toBeTruthy();
+    expect(queryByText("Working")).toBeNull();
   });
 });
 

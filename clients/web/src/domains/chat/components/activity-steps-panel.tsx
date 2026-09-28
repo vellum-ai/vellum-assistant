@@ -264,7 +264,7 @@ function ActivityStepsPanelTarget({
 
   const summaryState = deriveSummaryState(cardData.state, cardData.steps);
   const isRunning = summaryState === "loading";
-  const summary = activityRunSummaryLabel(summaryState, cardData);
+  const summary = activityRunSummaryLabel(t, summaryState, cardData);
   // Matches Figma `6405-121431`: while the run streams, the header shows the
   // LIVE step title ("Thinking", "Searching the web", …) through the
   // avatar-tinted shimmer; once terminal it settles on the duration summary

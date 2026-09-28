@@ -17,6 +17,7 @@ import {
   type ActivityStepsPayload,
 } from "@/stores/viewer-store";
 import {
+  isRenderableRunningCall,
   type ToolCallCardData,
   type ToolCallCardItem,
   type ToolCallCardStep,
@@ -30,7 +31,7 @@ import type {
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import { truncate } from "@/domains/chat/utils/truncate";
 import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
-import { Trans, useTranslation } from "@/i18n";
+import { Trans, useTranslation, type TFunction } from "@/i18n";
 import { useActionDisplayLabel } from "@/domains/chat/components/tool-progress-card/action-display-label";
 import { openDetailSheetFromTrigger } from "@/domains/chat/utils/open-detail-sheet-from-trigger";
 
@@ -172,31 +173,33 @@ export function deriveSummaryState(
  * outcome label, and the `warning` fallback spells out how many tools failed.
  */
 export function activityRunSummaryLabel(
+  t: TFunction<"chat">,
   state: ToolProgressCardState,
   cardData: Pick<ToolCallCardData, "steps" | "totalDurationLabel">,
 ): string {
-  const totalDurationLabel = cardData.totalDurationLabel ?? "";
-  const failedCount = countStepOutcomes(cardData.steps).failed;
+  const duration = cardData.totalDurationLabel ?? "";
   // While running, surface the live, ticking total ("Working for 12s") once we
   // have at least a full second of work — below that the `<1s` label reads
   // awkwardly, so we keep the bare "Working".
   if (state === "loading") {
-    return totalDurationLabel && totalDurationLabel !== "<1s"
-      ? `Working for ${totalDurationLabel}`
-      : "Working";
+    return duration && duration !== "<1s"
+      ? t("multiActivityGroup.runSummary.workingFor", { duration })
+      : t("multiActivityGroup.runSummary.working");
   }
-  if (totalDurationLabel) {
-    return `Worked for ${totalDurationLabel}`;
+  if (duration) {
+    return t("multiActivityGroup.runSummary.workedFor", { duration });
   }
   switch (state) {
     case "warning":
-      return `${failedCount} ${failedCount === 1 ? "tool" : "tools"} failed`;
+      return t("multiActivityGroup.runSummary.toolsFailed", {
+        count: countStepOutcomes(cardData.steps).failed,
+      });
     case "error":
     case "denied":
-      return "Failed";
+      return t("multiActivityGroup.runSummary.failed");
     case "complete":
     default:
-      return "Completed";
+      return t("multiActivityGroup.runSummary.completed");
   }
 }
 
@@ -372,7 +375,7 @@ function UnifiedMultiActivityGroup(
   const settled =
     shellState !== "loading" &&
     !active &&
-    !toolCalls.some((toolCall) => isToolCallRunning(toolCall));
+    !toolCalls.some(isRenderableRunningCall);
 
   const payload: ActivityStepsPayload = useMemo(
     () => ({
@@ -460,7 +463,7 @@ function UnifiedMultiActivityGroup(
         state={shellState}
         currentStepTitle={
           settled
-            ? activityRunSummaryLabel(shellState, cardData)
+            ? activityRunSummaryLabel(t, shellState, cardData)
             : cardData.currentStepTitle
         }
         currentStepInfo={headerInfo}

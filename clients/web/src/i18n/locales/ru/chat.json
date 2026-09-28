@@ -861,6 +861,16 @@
     "selectCallAria": "Выбор вызова LLM для разбора",
     "sheetTitle": "Выбор вызова"
   },
+  "multiActivityGroup": {
+    "runSummary": {
+      "completed": "Завершено",
+      "failed": "Ошибка",
+      "toolsFailed": "{count, plural, one {# инструмент завершился с ошибкой} few {# инструмента завершились с ошибкой} many {# инструментов завершились с ошибкой} other {# инструмента завершились с ошибкой}}",
+      "workedFor": "Работа заняла {duration}",
+      "working": "Работаю",
+      "workingFor": "Работаю уже {duration}"
+    }
+  },
   "overviewTab": {
     "cacheTokensLabel": "Токены кэша",
     "conversationSubtitle": "Накопительные итоги по всем тарифицированным вызовам LLM на сейчас.",

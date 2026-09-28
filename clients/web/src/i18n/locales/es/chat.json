@@ -1357,6 +1357,14 @@
   },
   "multiActivityGroup": {
     "dismissAria": "Descartar",
+    "runSummary": {
+      "completed": "Completado",
+      "failed": "Falló",
+      "toolsFailed": "{count, plural, one {# herramienta falló} other {# herramientas fallaron}}",
+      "workedFor": "Trabajó durante {duration}",
+      "working": "Trabajando",
+      "workingFor": "Trabajando durante {duration}"
+    },
     "unknownCommandNudge": "Este comando no se reconoció. <ruleLink>Crea una regla</ruleLink> para clasificarlo la próxima vez.",
     "viewSteps": "Ver pasos"
   },

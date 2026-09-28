@@ -441,7 +441,7 @@ function computeToolDurationLabel(tc: ChatMessageToolCall): string {
 }
 
 /** True for a tool call that is rendered as a step AND still in flight. */
-function isRenderableRunningCall(tc: ChatMessageToolCall): boolean {
+export function isRenderableRunningCall(tc: ChatMessageToolCall): boolean {
   return !isSubagentSpawnCall(tc) && isToolCallRunning(tc);
 }
 

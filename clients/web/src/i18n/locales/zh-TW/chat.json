@@ -1395,6 +1395,14 @@
   },
   "multiActivityGroup": {
     "dismissAria": "關閉",
+    "runSummary": {
+      "completed": "已完成",
+      "failed": "失敗",
+      "toolsFailed": "{count, plural, other {# 個工具失敗}}",
+      "workedFor": "已執行 {duration}",
+      "working": "處理中",
+      "workingFor": "處理中，已用時 {duration}"
+    },
     "unknownCommandNudge": "此指令無法辨識。<ruleLink>建立規則</ruleLink>以便下次分類。",
     "viewSteps": "檢視步驟"
   },

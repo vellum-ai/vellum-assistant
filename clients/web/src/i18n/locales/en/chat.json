@@ -1412,6 +1412,14 @@
   },
   "multiActivityGroup": {
     "dismissAria": "Dismiss",
+    "runSummary": {
+      "completed": "Completed",
+      "failed": "Failed",
+      "toolsFailed": "{count, plural, one {# tool failed} other {# tools failed}}",
+      "workedFor": "Worked for {duration}",
+      "working": "Working",
+      "workingFor": "Working for {duration}"
+    },
     "unknownCommandNudge": "This command wasn't recognized. <ruleLink>Create a rule</ruleLink> to classify it for next time.",
     "viewSteps": "View steps"
   },
