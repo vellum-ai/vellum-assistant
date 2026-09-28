@@ -24,7 +24,7 @@ export function DeveloperGuideSecurityContent() {
     <>
       <DocsContent title="Security & Permissions" breadcrumb="Docs / Developer Guide / Security">
         <p className="mb-8 text-zinc-600">
-          Vellum uses OS-level sandboxing, a keychain-backed credential vault, and a scoped trust rule system to keep
+          Vellum uses workspace sandboxing, a keychain-backed credential vault, and a scoped trust rule system to keep
           your data safe while giving the assistant the access it needs.
         </p>
 
@@ -34,10 +34,15 @@ export function DeveloperGuideSecurityContent() {
             Sandbox
           </SectionHeading>
           <p className="mb-4 text-zinc-600">
-            The sandbox uses native OS-level sandboxing: <code className="rounded bg-zinc-100 px-1.5 py-0.5 text-sm dark:bg-zinc-800">sandbox-exec</code> with
-            SBPL profiles on macOS, <code className="rounded bg-zinc-100 px-1.5 py-0.5 text-sm dark:bg-zinc-800">bwrap</code> (bubblewrap) on Linux.
-            No extra dependencies on macOS. <strong>Fail-closed</strong> — if the backend is unavailable, commands fail immediately rather than
-            falling back to unsandboxed execution.
+            Workspace tools are scoped to the workspace directory in software:{" "}
+            <code className="rounded bg-zinc-100 px-1.5 py-0.5 text-sm dark:bg-zinc-800">file_read</code>,{" "}
+            <code className="rounded bg-zinc-100 px-1.5 py-0.5 text-sm dark:bg-zinc-800">file_write</code>, and{" "}
+            <code className="rounded bg-zinc-100 px-1.5 py-0.5 text-sm dark:bg-zinc-800">file_edit</code> validate every
+            resolved path (including symlinks) against the workspace root, and{" "}
+            <code className="rounded bg-zinc-100 px-1.5 py-0.5 text-sm dark:bg-zinc-800">bash</code> runs inside the
+            workspace with a sanitized environment. Shell commands are gated by risk
+            classification and your approval settings. OS-level isolation applies when the
+            assistant runs in a container (Docker or remote deployments).
           </p>
           <ul className="mb-4 list-disc space-y-2 pl-6 text-zinc-600">
             <li><strong>Workspace tools</strong> (<code className="text-sm">file_read</code>, <code className="text-sm">file_write</code>, <code className="text-sm">file_edit</code>, <code className="text-sm">bash</code>) operate within <code className="text-sm">~/.vellum/workspace</code>.</li>
@@ -72,11 +77,6 @@ export function DeveloperGuideSecurityContent() {
                     <td className="py-2 pr-4"><code className="text-xs">Cannot bind-mount the sandbox root</code></td>
                     <td className="py-2 pr-4">File sharing not configured</td>
                     <td className="py-2">Add <code className="text-xs">~/.vellum/workspace</code> to Docker file sharing</td>
-                  </tr>
-                  <tr>
-                    <td className="py-2 pr-4"><code className="text-xs">bwrap cannot create namespaces</code></td>
-                    <td className="py-2 pr-4">bubblewrap not installed (Linux)</td>
-                    <td className="py-2"><code className="text-xs">apt install bubblewrap</code></td>
                   </tr>
                 </tbody>
               </table>

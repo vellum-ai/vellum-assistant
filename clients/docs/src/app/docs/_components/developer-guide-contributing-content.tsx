@@ -44,9 +44,7 @@ export function DeveloperGuideContributingContent() {
               only hard requirement. The setup script handles everything else.
             </li>
             <li>
-              <strong>macOS or Linux for the shell-based setup below.</strong> macOS uses{" "}
-              <code className="rounded bg-zinc-100 px-1.5 py-0.5 text-sm dark:bg-zinc-800">sandbox-exec</code> for sandboxing,
-              Linux uses <code className="rounded bg-zinc-100 px-1.5 py-0.5 text-sm dark:bg-zinc-800">bwrap</code> (bubblewrap).
+              <strong>macOS or Linux for the shell-based setup below.</strong>
             </li>
             <li>
               <strong>Git</strong> — the setup script configures custom git hooks automatically.
@@ -61,8 +59,9 @@ export function DeveloperGuideContributingContent() {
             and does not require this contributor setup.
           </p>
           <p className="text-sm text-zinc-500">
-            Docker Desktop is optional but needed if you want full sandbox isolation on Linux. On macOS, the native{" "}
-            <code className="text-sm">sandbox-exec</code> is used and requires no extra setup.
+            Docker Desktop is optional. It is only needed if you want to run or
+            test the containerized deployment mode ({" "}
+            <code className="text-sm">vellum hatch --remote docker</code> ).
           </p>
         </section>
 

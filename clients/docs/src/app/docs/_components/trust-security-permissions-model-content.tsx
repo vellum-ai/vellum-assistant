@@ -252,15 +252,18 @@ export function TrustSecurityPermissionsModelContent() {
           </ul>
           <p className="mb-4 text-zinc-600">
             When the assistant needs to do something outside its workspace, it doesn&apos;t
-            reach out directly. Instead, it tells a separate process — one that lives
-            outside the sandbox — to perform the action and report back. That external
-            process is deterministic, traditional software with no AI involved. The AI
-            stays inside the cage at all times.
+            reach out directly. Instead, it uses a dedicated host tool, and the
+            separate process that carries it out is deterministic, traditional
+            software with no AI involved. Host access always goes through that
+            approved channel and is subject to your approval settings.
           </p>
           <p className="mb-0 text-zinc-600">
-            The sandbox is enforced at the OS level (sandbox-exec on macOS, bubblewrap on
-            Linux). Path traversal attacks (using <code>../</code> to escape the workspace)
-            and symlink escapes are blocked.
+            Workspace boundaries are enforced by the assistant itself: path
+            traversal attacks (using <code>../</code> to escape the workspace)
+            and symlink escapes are blocked. Shell commands are additionally
+            gated by risk classification and your approval settings. OS-level
+            isolation applies when the assistant runs in a container (Docker or
+            remote deployments).
           </p>
         </section>
 

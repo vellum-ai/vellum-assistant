@@ -91,25 +91,17 @@ bun run src/index.ts assistant start
 
 #### Sandbox Backend
 
-The sandbox uses native OS-level sandboxing: `sandbox-exec` with SBPL profiles on macOS, `bwrap` (bubblewrap) on Linux. No extra dependencies on macOS.
+Sandbox tools are workspace-scoped in software: `file_read`, `file_write`, and `file_edit` validate that every resolved path (including symlinks) stays inside `$VELLUM_WORKSPACE_DIR`, and `bash` runs in the workspace directory with a sanitized environment (env allowlist, secret values stripped).
 
-**Fail-closed behavior:**
+There is no OS-level sandbox for shell commands on a local install. OS-level isolation comes from containerized deployments (`vellum hatch --remote docker` or a remote host), where the whole assistant runs inside a container boundary.
 
-If the native sandbox backend is unavailable, commands fail immediately with actionable error messages rather than falling back to unsandboxed execution.
+**Approval policy:**
+
+Because local shell commands are not OS-confined, gating is done by the approval policy: commands are risk-classified by the gateway and auto-allowed only up to the conversation's auto-approve threshold, with workspace path checks applied to allowlisted commands on non-containerized installs.
 
 #### Host Tools
 
-Host tools (`host_bash`, `host_file_read`, `host_file_write`, `host_file_edit`) are unchanged regardless of which sandbox backend is active. They always execute directly on the host and are subject to trust rules and permission prompts.
-
-#### Troubleshooting (Sandbox)
-
-| Symptom                                                                      | Cause                                                                   | Fix                                                                                                                                |
-| ---------------------------------------------------------------------------- | ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `Docker CLI is not installed or not in PATH`                                 | Docker is not installed                                                 | Install Docker: https://docs.docker.com/get-docker/                                                                                |
-| `Docker daemon is not running`                                               | Docker Desktop is not started or systemd service is stopped             | Start Docker Desktop, or run `sudo systemctl start docker` on Linux                                                                |
-| `Docker image "..." is not available locally`                                | The configured image has not been pulled                                | Run `docker pull <image>` with the full image reference including the sha256 digest                                                |
-| `Cannot bind-mount the sandbox root into a Docker container`                 | Docker Desktop file sharing does not include the sandbox data directory | Open Docker Desktop > Settings > Resources > File Sharing and add the `$VELLUM_WORKSPACE_DIR` path (or your custom `dataDir` path) |
-| `bwrap is not available or cannot create namespaces` (native backend, Linux) | bubblewrap is not installed or user namespaces are disabled             | Install bubblewrap: `apt install bubblewrap` (Debian/Ubuntu) or `dnf install bubblewrap` (Fedora)                                  |
+Host tools (`host_bash`, `host_file_read`, `host_file_write`, `host_file_edit`) always execute directly on the host and are subject to trust rules and permission prompts.
 
 ### Credential Storage and Secret Security
 

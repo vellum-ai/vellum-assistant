@@ -1238,14 +1238,10 @@ graph TB
     EXEC -->|"file_read / file_write / file_edit"| SB_FILE_TOOLS["Sandbox file tools<br/>path-scoped to sandbox root"]
     SB_FILE_TOOLS --> SB_FS
 
-    EXEC -->|"bash"| WRAP["wrapCommand()<br/>sandbox.ts"]
-
-    WRAP --> NATIVE["NativeBackend"]
-
-    NATIVE -->|"macOS"| SBPL["sandbox-exec<br/>SBPL profile<br/>deny-default + allow workdir"]
-    NATIVE -->|"Linux"| BWRAP["bwrap<br/>bubblewrap<br/>ro-root + rw-workdir<br/>unshare-net + unshare-pid"]
-    SBPL --> SB_FS["Sandbox filesystem root<br/>$VELLUM_WORKSPACE_DIR"]
-    BWRAP --> SB_FS
+    EXEC -->|"bash"| WRAP["buildShellInvocation()<br/>(packages/environments/shell)"]
+    WRAP --> SHELL["bash -c in $VELLUM_WORKSPACE_DIR<br/>sanitized env (safe-env allowlist)"]
+    SHELL --> SB_FS["Workspace filesystem root<br/>$VELLUM_WORKSPACE_DIR"]
+    SHELL -.->|containerized deployments| CONTAINER["Container boundary<br/>(Docker / remote host) provides<br/>OS-level isolation"]
 
     EXEC -->|"host_file_* / host_bash"| HOST_TOOLS["Host-target tools<br/>(unchanged by backend choice)"]
     EXEC -->|"computer_use_* (skill-projected<br/>in CU sessions only)"| SKILL_CU_TOOLS["CU skill tools<br/>(bundled computer-use skill)"]
@@ -1259,9 +1255,8 @@ graph TB
     USER --> CHECK
 ```
 
-- **Native backend**: Uses OS-level sandboxing — `sandbox-exec` with SBPL profiles on macOS, `bwrap` (bubblewrap) on Linux. Denies network access and restricts filesystem writes to the sandbox root, `/tmp`, `/private/tmp`, and `/var/folders` (macOS) or the sandbox root and `/tmp` (Linux).
-- **Fail-closed**: The native backend refuses to execute unsandboxed if its prerequisites are unavailable, throwing `ToolError` with actionable messages on failure.
-- **Host tools unchanged**: `host_bash`, `host_file_read`, `host_file_write`, and `host_file_edit` always execute directly on the host regardless of which sandbox backend is active.
+- **Workspace scoping (software-enforced)**: `file_read`, `file_write`, and `file_edit` path-check every access against `$VELLUM_WORKSPACE_DIR`, including symlink resolution. `bash` spawns `bash -c` in the workspace directory with a sanitized environment and is not OS-confined on local installs; commands are gated by risk classification and the conversation's auto-approve threshold, with workspace path checks applied to allowlisted commands on non-containerized installs. Containerized deployments (`vellum hatch --remote docker`, remote hosts) get OS-level isolation from the container boundary. Workflow scripts run in a separate QuickJS-WASM sandbox with no ambient capabilities.
+- **Host tools unchanged**: `host_bash`, `host_file_read`, `host_file_write`, and `host_file_edit` always execute directly on the host regardless of deployment mode.
 - Sandbox defaults: `file_*` and `bash` execute within `$VELLUM_WORKSPACE_DIR`.
 - Host access is explicit: `host_file_read`, `host_file_write`, `host_file_edit`, and `host_bash` are separate tools.
 - Prompt defaults: host tools and `computer_use_*` skill-projected actions default to `ask` unless a trust rule allowlists/denylists them.

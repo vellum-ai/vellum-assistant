@@ -269,7 +269,7 @@ Scripts executed via the `bash` tool can optionally run through a per-session HT
 
 ### Proxied Bash Execution Path
 
-When a bash command requires network access with credential injection, the sandbox backend switches from `network=none` to `network=bridge` and injects proxy environment variables so all HTTP/HTTPS traffic routes through the session proxy.
+When a bash command requires network access with credential injection, the tool injects proxy environment variables into the spawned shell so all HTTP/HTTPS traffic routes through the session proxy.
 
 ```mermaid
 graph TB
@@ -283,8 +283,8 @@ graph TB
         PROMPT["Prompt user<br/>persistentDecisionsAllowed: false<br/>(no trust rule saving for proxied bash)"]
     end
 
-    subgraph "Sandbox"
-        SANDBOX["NativeBackend.wrap()<br/>networkMode: 'proxied'"]
+    subgraph "Shell Execution"
+        SHELL["bash -c spawn<br/>(buildShellInvocation)"]
         ENV_INJECT["Inject env vars:<br/>HTTP_PROXY, HTTPS_PROXY,<br/>NO_PROXY, NODE_EXTRA_CA_CERTS"]
     end
 
@@ -298,8 +298,8 @@ graph TB
     BASH_CALL --> EXECUTOR
     EXECUTOR --> PERM
     PERM --> PROMPT
-    PROMPT -->|"allowed"| SANDBOX
-    SANDBOX --> ENV_INJECT
+    PROMPT -->|"allowed"| SHELL
+    SHELL --> ENV_INJECT
     ENV_INJECT -->|"HTTP"| HTTP_FWD
     ENV_INJECT -->|"HTTPS CONNECT"| CONNECT
     CONNECT --> ROUTER

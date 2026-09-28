@@ -533,7 +533,7 @@ export function TheWorkspaceContent() {
                     Shell commands
                   </td>
                   <td className="px-4 py-3 text-zinc-600">
-                    bash runs sandboxed in the workspace; host_bash runs on
+                    bash runs in the workspace directory; host_bash runs on
                     your machine
                   </td>
                   <td className="px-4 py-3 text-zinc-600">
@@ -546,8 +546,11 @@ export function TheWorkspaceContent() {
           <p className="mb-0 text-zinc-600">
             Path traversal (using <code>../</code> to escape the workspace) is
             blocked. Symlinks that point outside the boundary are rejected.
-            On the desktop app, the sandbox is enforced at the OS level using{" "}
-            <code>sandbox-exec</code> on macOS.
+            Workspace file access is enforced by the assistant itself; shell
+            commands run in the workspace directory and are gated by risk
+            classification and your approval settings. OS-level isolation
+            applies when the assistant runs in a container (Docker or remote
+            deployments).
           </p>
         </section>
 
