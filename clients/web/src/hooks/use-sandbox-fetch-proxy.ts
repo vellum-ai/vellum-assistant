@@ -20,6 +20,7 @@ import { subscribe as busSubscribe } from "@/lib/event-bus";
 import {
   FETCH_PROXY_PATH_RE,
   getRelayableAppRoute,
+  isBlockedRelayPath,
 } from "@/utils/sandbox-bridge";
 import { forwardableSyncTags } from "@/utils/sandbox-sync-filter";
 
@@ -228,6 +229,15 @@ export function useSandboxFetchProxy(
         iframe?.contentWindow?.postMessage(response, "*");
       };
 
+      if (isBlockedRelayPath(path)) {
+        sendResponse({
+          type: "vellum_fetch_response",
+          callId,
+          error: "Request blocked: only /v1/x/ custom routes are allowed",
+        });
+        return;
+      }
+
       if (!FETCH_PROXY_PATH_RE.test(path)) {
         sendResponse({
           type: "vellum_fetch_response",
@@ -311,7 +321,8 @@ export function useSandboxFetchProxy(
     // event carrying a payload crosses into the sandbox.
     const busUnsubscribe = busSubscribe("sse.event", (envelope) => {
       const message = envelope.message as
-        { type?: string; tags?: unknown } | undefined;
+        | { type?: string; tags?: unknown }
+        | undefined;
       if (
         !message ||
         message.type !== "sync_changed" ||

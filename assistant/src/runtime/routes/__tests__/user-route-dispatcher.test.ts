@@ -106,6 +106,18 @@ describe("path traversal", () => {
     );
     expect(res.status).toBe(400);
   });
+
+  test("rejects backslashes in the route path", async () => {
+    // Some URL normalizers treat a backslash as a separator, so a
+    // backslash-carrying routePath is refused outright regardless of dots.
+    const dispatcher = makeDispatcher();
+    for (const routePath of ["..\\config", "foo\\bar", "x\\..\\config"]) {
+      const res = await dispatcher.dispatch(routePath, makeRequest("GET"));
+      expect(res.status).toBe(400);
+      const body = await readErrorBody(res);
+      expect(body.error.message).toContain("Path traversal");
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
