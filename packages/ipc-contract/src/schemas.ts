@@ -416,7 +416,7 @@ export const companionPopoverSchema = z.discriminatedUnion("kind", [
         z.object({
           id: z.string().max(128),
           label: z.string().max(80),
-          style: z.enum(["primary", "secondary", "destructive"]),
+          style: z.enum(["primary", "secondary", "tertiary", "destructive"]),
         }),
       )
       .max(COMPANION_POPOVER_ACTIONS_MAX),
@@ -593,12 +593,4 @@ export const titleBarOverlayThemeSchema = z.object({
   color: cssColorSchema,
   symbolColor: cssColorSchema,
   colorScheme: z.enum(["light", "dark"]),
-});
-
-export const voiceShortcutConfirmationCopySchema = z.object({
-  title: z.string().min(1).max(200),
-  detail: z.string().min(1).max(2000),
-  confirm: z.string().min(1).max(200),
-  cancel: z.string().min(1).max(200),
-  dontShowAgain: z.string().min(1).max(200),
 });

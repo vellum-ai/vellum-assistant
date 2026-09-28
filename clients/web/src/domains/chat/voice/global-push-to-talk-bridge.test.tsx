@@ -8,13 +8,19 @@ import type {
 } from "@vellumai/ipc-contract";
 import type { CommandHandlers } from "@/runtime/vellum-commands";
 
-import type * as VoiceShortcutConfirmation from "@/runtime/voice-shortcut-confirmation";
+import type * as VoiceShortcutConfirmation from "@/domains/chat/voice/voice-shortcut-confirmation";
 
 const confirmVoiceStartMock = mock(async () => true);
+let withdrawPending: (() => void) | null = null;
+const withdrawMock = mock(() => {
+  withdrawPending?.();
+  withdrawPending = null;
+});
 mock.module(
-  "@/runtime/voice-shortcut-confirmation",
+  "@/domains/chat/voice/voice-shortcut-confirmation",
   (): Partial<typeof VoiceShortcutConfirmation> => ({
     confirmVoiceShortcutStart: confirmVoiceStartMock,
+    withdrawVoiceShortcutConfirmation: withdrawMock,
   }),
 );
 
@@ -282,6 +288,8 @@ afterEach(() => {
   toggleVoiceMock.mockClear();
   confirmVoiceStartMock.mockReset();
   confirmVoiceStartMock.mockResolvedValue(true);
+  withdrawMock.mockClear();
+  withdrawPending = null;
   useLiveVoiceStore.getState().reset();
   mainIntro = null;
   readCompanionState.mockClear();
@@ -1222,31 +1230,70 @@ test("an active call ends without asking for confirmation", async () => {
   expect(toggleVoiceMock).toHaveBeenCalledTimes(1);
 });
 
-test("pending confirmation suppresses repeated taps and held-key recording", async () => {
+const holdConfirmationOpen = () => {
   let answer: (confirmed: boolean) => void = () => {};
   confirmVoiceStartMock.mockImplementation(
     () =>
       new Promise<boolean>((resolve) => {
         answer = resolve;
+        withdrawPending = () => resolve(false);
       }),
   );
+  return (confirmed: boolean) => answer(confirmed);
+};
+
+test("a second double tap takes a pending confirmation down", async () => {
+  holdConfirmationOpen();
   renderBridge();
   const pending = holdHandlers?.onDoubleTap();
   await act(async () => {
     await Promise.resolve();
   });
-  await holdHandlers?.onDoubleTap();
-  act(() => {
-    holdHandlers?.onHoldStart({ selection: null });
+  await act(async () => {
+    await holdHandlers?.onDoubleTap();
+    await pending;
   });
   expect(confirmVoiceStartMock).toHaveBeenCalledTimes(1);
   expect(toggleVoiceMock).not.toHaveBeenCalled();
   expect(voiceStartMock).not.toHaveBeenCalled();
+});
+
+test("a hold takes a pending confirmation down and dictates", async () => {
+  holdConfirmationOpen();
+  renderBridge();
+  const pending = holdHandlers?.onDoubleTap();
+  await act(async () => {
+    await Promise.resolve();
+  });
+  act(() => {
+    holdHandlers?.onHoldStart({ selection: null });
+  });
+  await act(async () => {
+    await pending;
+  });
+  expect(withdrawMock).toHaveBeenCalled();
+  expect(voiceStartMock).toHaveBeenCalledTimes(1);
+  expect(toggleVoiceMock).not.toHaveBeenCalled();
+});
+
+test("an answered confirmation stays up until the call is started", async () => {
+  const answer = holdConfirmationOpen();
+  renderBridge();
+  const pending = holdHandlers?.onDoubleTap();
+  await act(async () => {
+    await Promise.resolve();
+  });
+  let withdrawnBeforeStart = false;
+  toggleVoiceMock.mockImplementationOnce(() => {
+    withdrawnBeforeStart = withdrawMock.mock.calls.length > 0;
+  });
   await act(async () => {
     answer(true);
     await pending;
   });
   expect(toggleVoiceMock).toHaveBeenCalledTimes(1);
+  expect(withdrawnBeforeStart).toBe(false);
+  expect(withdrawMock).toHaveBeenCalled();
 });
 
 test.each(["unmount", "assistant-change", "disabled", "another-call"] as const)(

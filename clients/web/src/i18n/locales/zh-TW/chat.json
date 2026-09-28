@@ -2258,8 +2258,8 @@
   "voiceShortcutConfirmation": {
     "title": "開始語音聊天？",
     "detail": "你使用了語音快捷鍵。麥克風將保持開啟，讓你與助理交談，即使你正在使用其他應用程式。結束通話即可停止收音。",
-    "confirm": "開始語音聊天",
+    "confirm": "繼續",
     "cancel": "取消",
-    "dontShowAgain": "不再顯示"
+    "always": "一律開始"
   }
 }

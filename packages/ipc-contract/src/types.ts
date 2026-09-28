@@ -254,14 +254,6 @@ export type VellumCommand =
 /** Global (system-wide) vs menu (app-focused) shortcut scope. */
 export type HotkeyScope = "global" | "menu";
 
-export interface VoiceShortcutConfirmationCopy {
-  title: string;
-  detail: string;
-  confirm: string;
-  cancel: string;
-  dontShowAgain: string;
-}
-
 /**
  * A rebindable command resolved against the current settings: compiled
  * default, user override (if any), and effective accelerator.
@@ -1786,6 +1778,11 @@ export type CompanionPopover =
 /** The pickers the call bar opens in the popover. */
 export const COMPANION_PICKER_MICROPHONES = "microphones";
 export const COMPANION_PICKER_VOICES = "voices";
+/**
+ * The id of the card asking before the voice key starts a call. Main keeps the
+ * companion on screen while it is shown, as it does for a call.
+ */
+export const COMPANION_VOICE_START_CONFIRMATION = "voice-start-confirmation";
 export type CompanionPicker =
   | typeof COMPANION_PICKER_MICROPHONES
   | typeof COMPANION_PICKER_VOICES;
@@ -1854,7 +1851,7 @@ export type CompanionPopoverPermission =
 export interface CompanionPopoverAction {
   id: string;
   label: string;
-  style: "primary" | "secondary" | "destructive";
+  style: "primary" | "secondary" | "tertiary" | "destructive";
 }
 
 /** How wide a popover card is drawn, in points. A row is as wide as its words. */

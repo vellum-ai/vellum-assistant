@@ -21,6 +21,7 @@ import {
   companionPickerSchema,
   companionPopoverAnswerSchema,
   companionPopoverHasRow,
+  COMPANION_VOICE_START_CONFIRMATION,
   watchCaptureTargetSchema,
   voiceActivityContentSchema,
   voiceActivityControlSchema,
@@ -183,7 +184,7 @@ const isWatchEnabled = (): boolean =>
  * for the app's whole run or an active call. The tray's "Show Companion"
  * item controls the idle surface, a choice that persists across launches
  * (`readCompanionHidden` in `window-state.ts`), and it steps off the screen
- * while idle and Vellum itself is the frontmost app with its window showing
+ * for as long as Vellum itself is the frontmost app with its window showing
  * (see `syncFrontmost`).
  *
  * **It is also the desktop's live-voice session surface**, the counterpart to
@@ -1771,6 +1772,15 @@ export const shownPopover = (
 
 const currentPopover = (): CompanionPopover | undefined =>
   shownPopover(context.popover, (id) => answered.has(id));
+
+/**
+ * Whether the voice key's start confirmation is published. It holds the
+ * companion on screen as a call does, since it is the only place asking. Read
+ * from the context rather than {@link currentPopover}, so an answered card
+ * keeps the surface up until the app withdraws it after acting on the answer.
+ */
+const askingVoiceStart = (): boolean =>
+  context.popover?.id === COMPANION_VOICE_START_CONFIRMATION;
 
 let popoverViewFor: {
   id: string;
@@ -3372,8 +3382,9 @@ const setInteractive = (interactive: boolean): void => {
  * Whether Vellum is the active application.
  *
  * The surface stands in for the app while the user is working somewhere else,
- * and its idle surface steps off the screen while the app itself is in front.
- * Active calls keep their controls visible while the user moves around the app.
+ * and it steps off the screen while the app itself is in front: over the app's
+ * own window it is a second copy of the same controls, floating over the chat
+ * they belong to.
  *
  * Read from the application's activation rather than from window focus. The
  * panels this app floats (Quick Input, the dictation overlay, this surface)
@@ -3423,7 +3434,7 @@ const mainWindowShowing = (): boolean => {
  */
 /**
  * Whether the surface belongs off the screen: the app is in front with its own
- * window showing, with no active call or staged introduction.
+ * window showing, and no introduction is being staged on it.
  *
  * Exported for its tests, as {@link shouldShowCompanionSurface} is. The rule
  * has two inputs that pull opposite ways, and the one case worth pinning is
@@ -3434,8 +3445,7 @@ export const surfaceAwayFor = (
   appInFront: boolean,
   mainShowing: boolean,
   staged: boolean,
-  activeCall = false,
-): boolean => appInFront && mainShowing && !staged && !activeCall;
+): boolean => appInFront && mainShowing && !staged;
 
 const syncFrontmost = (): void => {
   const win = getFloatingWindow(COMPANION_KIND);
@@ -3445,8 +3455,7 @@ const syncFrontmost = (): void => {
   const away = surfaceAwayFor(
     appActive,
     mainWindowShowing(),
-    introStaged,
-    call !== null,
+    introStaged || askingVoiceStart(),
   );
   if (away === surfaceAway) {
     return;
@@ -4240,11 +4249,19 @@ export const installCompanionWindow = (): void => {
     "vellum:companion:setContext",
     z.tuple([companionContextSchema]),
     ([next]) => {
+      const wasAsking = askingVoiceStart();
       context = next;
       releaseAnswered(context.popover);
       // What the user last did with a popover goes with it.
       if (currentPopover() === undefined) {
         popoverViewFor = null;
+      }
+      if (askingVoiceStart() !== wasAsking) {
+        if (wasAsking) {
+          restoreIdleCompanionSurface();
+        } else {
+          syncCompanionSurface();
+        }
       }
       syncWatchFrame();
       pushState();
@@ -4656,7 +4673,9 @@ export const openCompanionWindow = (): void => {
   }
 
   const introDue =
-    call === null && readCompanionIntroSeenVersion() < COMPANION_INTRO_VERSION;
+    call === null &&
+    !askingVoiceStart() &&
+    readCompanionIntroSeenVersion() < COMPANION_INTRO_VERSION;
 
   const win = createFloatingWindow({
     kind: COMPANION_KIND,
@@ -4980,7 +4999,10 @@ export const resetCompanionSurfacePosition = (): void => {
  */
 const hasAssistant = (): boolean => getAssistantName() !== null;
 
-/** Active call controls stay visible regardless of the idle surface preference. */
+/**
+ * Active call controls, and the voice key's start confirmation, stay visible
+ * regardless of the idle surface preference.
+ */
 export const shouldShowCompanionSurface = (
   assistant: boolean,
   hidden: boolean,
@@ -4993,7 +5015,7 @@ export const syncCompanionSurface = (): void => {
     shouldShowCompanionSurface(
       hasAssistant(),
       readCompanionHidden(),
-      call !== null,
+      call !== null || askingVoiceStart(),
     )
   ) {
     openCompanionWindow();

@@ -6915,12 +6915,13 @@ describe("active calls keep visible controls", () => {
     expect(companionOpen).toBe(false);
   });
 
-  test("call controls stay visible when the main window comes forward", () => {
+  test("call controls step away while the main window is in front", () => {
+    setCompanionSurfaceVisible(false);
     send("vellum:voiceActivity:start", START);
     fireAppEvent("did-become-active");
-    expect(surface.visible).toBe(true);
-    send("vellum:voiceActivity:end");
     expect(surface.visible).toBe(false);
+    fireAppEvent("did-resign-active");
+    expect(surface.visible).toBe(true);
   });
 
   test("ending a crashed renderer's call restores the hidden preference", () => {
@@ -6933,12 +6934,66 @@ describe("active calls keep visible controls", () => {
 
   test("active controls do not depend on the assistant avatar being ready", () => {
     expect(shouldShowCompanionSurface(false, true, true)).toBe(true);
-    expect(surfaceAwayFor(true, true, false, true)).toBe(false);
   });
 
   test("call cleanup does not recreate a destroyed companion", () => {
     send("vellum:voiceActivity:start", START);
     companionOpen = false;
+    send("vellum:voiceActivity:end");
+    expect(companionOpen).toBe(false);
+  });
+});
+
+describe("the voice key's start confirmation", () => {
+  const ASK = context({
+    popover: {
+      kind: "card",
+      id: "voice-start-confirmation",
+      title: "Start a voice chat?",
+      subtitle: "",
+      body: "Your microphone stays on until you end the call.",
+      actions: [
+        { id: "cancel", label: "Cancel", style: "secondary" },
+        { id: "start", label: "Start voice chat", style: "primary" },
+      ],
+    },
+  });
+
+  afterEach(() => {
+    send("vellum:companion:setContext", context());
+    send("vellum:voiceActivity:end");
+  });
+
+  test("shows a hidden companion while asking and restores it after", () => {
+    setCompanionSurfaceVisible(false);
+    send("vellum:companion:setContext", ASK);
+    expect(companionOpen).toBe(true);
+    expect(companionHidden).toBe(true);
+    send("vellum:companion:setContext", context());
+    expect(companionOpen).toBe(false);
+  });
+
+  test("stays on screen over the app's own window while asking", () => {
+    fireAppEvent("did-become-active");
+    expect(surface.visible).toBe(false);
+    send("vellum:companion:setContext", ASK);
+    expect(surface.visible).toBe(true);
+    send("vellum:companion:setContext", context());
+    expect(surface.visible).toBe(false);
+  });
+
+  test("an answered start hands the surface to the call without closing", () => {
+    setCompanionSurfaceVisible(false);
+    send("vellum:companion:setContext", ASK);
+    send(
+      "vellum:companion:answerPopover",
+      { kind: "action", actionId: "start" },
+      "voice-start-confirmation",
+    );
+    expect(companionOpen).toBe(true);
+    send("vellum:voiceActivity:start", START);
+    send("vellum:companion:setContext", context());
+    expect(companionOpen).toBe(true);
     send("vellum:voiceActivity:end");
     expect(companionOpen).toBe(false);
   });

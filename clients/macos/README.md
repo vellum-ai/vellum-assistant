@@ -418,11 +418,6 @@ The preload script exposes a typed `window.vellum` API to the renderer:
   three-second wait budget without reactivating the tree or blocking the native event
   loop. Retries are bound to the original hold and foreground process. An
   unavailable capture preserves the transcript for copying and never pastes.
-- `hotkeys.confirmVoiceStart()` asks before a global voice shortcut opens the
-  microphone. Cancel is the default. "Don't show again" is saved only when the
-  user chooses "Start voice chat". Double-tapping during a call ends it without
-  asking. Active call controls stay visible even when the idle companion is
-  hidden; the idle preference applies again when the call ends.
 - `helper.ping()` — health-checks the native helper over JSON-RPC stdio.
 - `auth.*` — typed stubs that reject with "not implemented yet" until the
   corresponding feature tickets land.

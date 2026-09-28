@@ -2,11 +2,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 
 import { t } from "@/i18n";
-import { confirmVoiceShortcutStart } from "@/runtime/voice-shortcut-confirmation";
 import {
   isLiveVoiceSessionActive,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
+import {
+  confirmVoiceShortcutStart,
+  withdrawVoiceShortcutConfirmation,
+} from "@/domains/chat/voice/voice-shortcut-confirmation";
 
 import type { DictationContext } from "@vellumai/assistant-api";
 import type {
@@ -263,11 +266,13 @@ export function GlobalPushToTalkBridge({
   const voiceKeyStartPendingRef = useRef(false);
   useEffect(() => {
     assistantIdRef.current = assistantId;
+    return withdrawVoiceShortcutConfirmation;
   }, [assistantId]);
   useEffect(() => {
     enabledRef.current = enabled;
     return () => {
       enabledRef.current = false;
+      withdrawVoiceShortcutConfirmation();
     };
   }, [enabled]);
   useVellumCommands({
@@ -380,11 +385,11 @@ export function GlobalPushToTalkBridge({
     key: enabled ? voiceKey : { kind: "off" },
     onRegistered: setVoiceKeyRegistered,
     onHoldStart: ({ selection }) => {
-      if (
-        !enabled ||
-        voiceKeyStartPendingRef.current ||
-        companionIntroStaged()
-      ) {
+      // A hold answers a start confirmation still up: the user moved on.
+      if (voiceKeyStartPendingRef.current) {
+        withdrawVoiceShortcutConfirmation();
+      }
+      if (!enabled || companionIntroStaged()) {
         return;
       }
       if (useVoiceRecordingStore.getState().phase === "recording") {
@@ -427,7 +432,12 @@ export function GlobalPushToTalkBridge({
       }
     },
     onDoubleTap: async () => {
-      if (!enabled || voiceKeyStartPendingRef.current) {
+      if (!enabled) {
+        return;
+      }
+      // A second double tap while the confirmation is up takes it down.
+      if (voiceKeyStartPendingRef.current) {
+        withdrawVoiceShortcutConfirmation();
         return;
       }
       voiceKeyStartPendingRef.current = true;
@@ -446,7 +456,7 @@ export function GlobalPushToTalkBridge({
             detail: t("chat:voiceShortcutConfirmation.detail"),
             confirm: t("chat:voiceShortcutConfirmation.confirm"),
             cancel: t("chat:voiceShortcutConfirmation.cancel"),
-            dontShowAgain: t("chat:voiceShortcutConfirmation.dontShowAgain"),
+            always: t("chat:voiceShortcutConfirmation.always"),
           });
           if (
             !confirmed ||
@@ -468,6 +478,7 @@ export function GlobalPushToTalkBridge({
         );
       } finally {
         voiceKeyStartPendingRef.current = false;
+        withdrawVoiceShortcutConfirmation();
       }
     },
     // Counted and nothing else. A tap asks for nothing here; the count is what

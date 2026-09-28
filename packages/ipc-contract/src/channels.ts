@@ -44,7 +44,6 @@ export const AUTH_SIGN_OUT = "vellum:auth:signOut";
 export const HOTKEYS_GET = "vellum:hotkeys:get";
 export const HOTKEYS_SET = "vellum:hotkeys:set";
 export const HOTKEYS_CHANGED = "vellum:hotkeys:changed";
-export const HOTKEYS_CONFIRM_VOICE_START = "vellum:hotkeys:confirmVoiceStart";
 
 // Launch at login
 export const LAUNCH_AT_LOGIN_GET = "vellum:launchAtLogin:get";

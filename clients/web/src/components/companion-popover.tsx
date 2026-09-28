@@ -911,7 +911,7 @@ const actionsInOrder = (
 /** The design library's variant for a card action, as its footers use them. */
 const variantForAction = (
   action: CompanionPopoverAction,
-): "primary" | "danger" | "outlined" => {
+): "primary" | "danger" | "outlined" | "ghost" => {
   switch (action.style) {
     case "primary":
       return "primary";
@@ -919,6 +919,8 @@ const variantForAction = (
       return "danger";
     case "secondary":
       return "outlined";
+    case "tertiary":
+      return "ghost";
   }
 };
 

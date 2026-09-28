@@ -785,10 +785,11 @@ When selected text is supplied, the same call site distinguishes a requested edi
 
 On macOS, the global voice key distinguishes an empty selection from an unavailable capture. The native helper activates Chromium accessibility, and Electron retries warmup reads against the original key hold and foreground process. An unavailable capture stops insertion and preserves the spoken words for copying; it cannot fall through to raw-transcript dictation. See [the macOS bridge contract](clients/macos/README.md).
 
-On macOS, starting a call with the global voice key requires confirmation before
-microphone capture. An explicit opt-out is stored by the desktop shell. Active
-calls keep their companion controls visible regardless of the idle companion's
-hide preference; ending the call restores that preference.
+On macOS, starting a call with the global voice key asks first, on a card in the
+companion surface, before microphone capture. "Always start" is stored on the
+device. Active calls keep their companion controls visible over other
+apps regardless of the idle companion's hide preference; ending the call
+restores that preference.
 
 ## Live Voice Task Outcomes
 

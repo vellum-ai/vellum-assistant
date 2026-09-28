@@ -2192,8 +2192,8 @@
   "voiceShortcutConfirmation": {
     "title": "¿Iniciar un chat de voz?",
     "detail": "Has usado el atajo de voz. Tu micrófono permanecerá encendido para hablar con tu asistente, incluso mientras usas otra aplicación. Finaliza la llamada para dejar de escuchar.",
-    "confirm": "Iniciar chat de voz",
+    "confirm": "Continuar",
     "cancel": "Cancelar",
-    "dontShowAgain": "No volver a mostrar"
+    "always": "Iniciar siempre"
   }
 }

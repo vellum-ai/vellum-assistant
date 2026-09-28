@@ -59,6 +59,11 @@ const DEVICE_SETTINGS = {
   // stored as a query string. Describes the install, so it outlives any
   // account that signs in on this device.
   installReferrer: { key: "device:install_referrer" },
+  // "true" once the user chose "Always start" on the macOS voice key's start
+  // confirmation. Device-scoped: the voice key is this machine's.
+  voiceStartConfirmationSkipped: {
+    key: "device:voice_start_confirmation_skipped",
+  },
 } as const satisfies Record<string, DeviceSettingEntry>;
 
 export type DeviceSettingName = keyof typeof DEVICE_SETTINGS;

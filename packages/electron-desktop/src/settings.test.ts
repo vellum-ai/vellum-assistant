@@ -32,20 +32,3 @@ describe("settings persistence", () => {
     expect(store.get("featureFlags")).toEqual({});
   });
 });
-
-test("existing settings require voice confirmation until the user opts out", async () => {
-  temporaryDirectory = await fs.mkdtemp(
-    path.join(os.tmpdir(), "vellum-settings-test-"),
-  );
-  await fs.writeFile(
-    path.join(temporaryDirectory, "config.json"),
-    JSON.stringify({ theme: "dark" }),
-  );
-  const store = createAppSettingsStore({ cwd: temporaryDirectory });
-  expect(store.get("theme")).toBe("dark");
-  expect(store.get("skipVoiceShortcutConfirmation")).toBe(false);
-  store.set("skipVoiceShortcutConfirmation", true);
-  const reloaded = createAppSettingsStore({ cwd: temporaryDirectory });
-  expect(reloaded.get("skipVoiceShortcutConfirmation")).toBe(true);
-  expect(reloaded.get("theme")).toBe("dark");
-});

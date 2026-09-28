@@ -2258,8 +2258,8 @@
   "voiceShortcutConfirmation": {
     "title": "Start a voice chat?",
     "detail": "You used the voice shortcut. Your microphone will stay on so you can talk with your assistant, even while you use another app. End the call to stop listening.",
-    "confirm": "Start voice chat",
+    "confirm": "Continue",
     "cancel": "Cancel",
-    "dontShowAgain": "Don't show again"
+    "always": "Always start"
   }
 }

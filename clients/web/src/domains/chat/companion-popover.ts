@@ -19,6 +19,7 @@ import {
   COMPANION_POPOVER_ACTIONS_MAX,
   COMPANION_POPOVER_APPROVALS_MAX,
   COMPANION_POPOVER_BODY_MAX,
+  COMPANION_VOICE_START_CONFIRMATION,
   type CompanionApproval,
   type CompanionPicker,
   type CompanionPickerOption,
@@ -61,7 +62,25 @@ interface CompanionPopoverState {
   voices: CompanionVoices | null;
   /** Whether the call's assistant has voices to pick from. */
   voicesPickable: boolean;
+  /** The voice key's start confirmation, while it waits on an answer. */
+  voiceStartConfirmation: VoiceStartConfirmationCopy | null;
 }
+
+/** The words of the voice key's start confirmation. */
+export interface VoiceStartConfirmationCopy {
+  title: string;
+  detail: string;
+  cancel: string;
+  always: string;
+  confirm: string;
+}
+
+/** The actions the voice key's start confirmation offers. */
+export const VOICE_START_ACTIONS = {
+  cancel: "cancel",
+  always: "always",
+  start: "start",
+} as const;
 
 export interface CompanionMicrophones {
   /** Every microphone but System Default, with a saved one gone missing last. */
@@ -82,6 +101,7 @@ export const useCompanionPopoverStore = create<CompanionPopoverState>()(() => ({
   microphones: null,
   voices: null,
   voicesPickable: false,
+  voiceStartConfirmation: null,
 }));
 
 /** Open a picker, or close it when it is the one open. */
@@ -309,12 +329,41 @@ const providerKeyFor = (service: string): string =>
 /**
  * What the popover should show right now, or nothing.
  *
- * Approvals first: the turn is stopped until they are answered, and the rest
- * will still be there after. Then a credential, which stops the turn the same
+ * The voice key's start confirmation first: the user pressed the key just now
+ * and the call waits on the answer. Then approvals: the turn is stopped until
+ * they are answered, and the rest will still be there after. Then a
+ * credential, which stops the turn the same
  * way. Then a picker the user opened from the call bar, since they asked for
  * it just now. Then the offered surface.
  */
 export function currentCompanionPopover(): CompanionPopover | undefined {
+  const ask = useCompanionPopoverStore.getState().voiceStartConfirmation;
+  if (ask !== null) {
+    return {
+      kind: "card",
+      id: COMPANION_VOICE_START_CONFIRMATION,
+      title: ask.title,
+      subtitle: "",
+      body: ask.detail,
+      actions: [
+        {
+          id: VOICE_START_ACTIONS.cancel,
+          label: ask.cancel,
+          style: "tertiary",
+        },
+        {
+          id: VOICE_START_ACTIONS.start,
+          label: ask.confirm,
+          style: "secondary",
+        },
+        {
+          id: VOICE_START_ACTIONS.always,
+          label: ask.always,
+          style: "primary",
+        },
+      ],
+    };
+  }
   const approvals = pendingApprovals().slice(
     0,
     COMPANION_POPOVER_APPROVALS_MAX,

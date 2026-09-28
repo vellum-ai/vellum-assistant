@@ -53,7 +53,6 @@ import type {
   NotificationActionEvent,
   PowerEvent,
   ResolvedHotkey,
-  VoiceShortcutConfirmationCopy,
   ShowNotificationPayload,
   SystemPermissionKind,
   SystemPermissionStateItem,
@@ -68,7 +67,6 @@ import type {
 } from "@vellumai/ipc-contract";
 import {
   DIAGNOSTICS_SET_SHARE,
-  HOTKEYS_CONFIRM_VOICE_START,
   FEATURE_FLAGS_SET,
   FEEDBACK_DIAGNOSTICS,
   FEEDBACK_LOGS,
@@ -181,13 +179,7 @@ const bridge: VellumBridge = {
     signOut: (): Promise<void> =>
       ipcRenderer.invoke("vellum:auth:signOut") as Promise<void>,
   },
-  hotkeys: {
-    ...createHotkeysBridge(ipcRenderer),
-    confirmVoiceStart: (
-      copy: VoiceShortcutConfirmationCopy,
-    ): Promise<boolean> =>
-      ipcRenderer.invoke(HOTKEYS_CONFIRM_VOICE_START, copy) as Promise<boolean>,
-  },
+  hotkeys: createHotkeysBridge(ipcRenderer),
   launchAtLogin: createLaunchAtLoginBridge(ipcRenderer),
   featureFlags: {
     set: (flags: Record<string, boolean>): void => {

@@ -1,4 +1,7 @@
-import type { CompanionPopoverAnswer } from "@vellumai/ipc-contract";
+import {
+  COMPANION_VOICE_START_CONFIRMATION,
+  type CompanionPopoverAnswer,
+} from "@vellumai/ipc-contract";
 
 import {
   closeCompanionPicker,
@@ -11,6 +14,7 @@ import {
 import { handleConfirmationSubmit } from "@/domains/chat/confirmation-actions";
 import { handleSecretSubmit } from "@/domains/chat/secret-actions";
 import { handleSurfaceAction } from "@/domains/chat/surface-actions";
+import { answerVoiceShortcutConfirmation } from "@/domains/chat/voice/voice-shortcut-confirmation";
 import { captureError } from "@/lib/sentry/capture-error";
 import { openSystemPermissionSettings } from "@/runtime/system-permissions";
 import { setPreferredInputDeviceId } from "@/utils/voice-input-device";
@@ -68,6 +72,15 @@ export async function answerCompanionPopover(
 
   const popover = currentCompanionPopover();
   if (popover === undefined || popover.id !== popoverId) {
+    return;
+  }
+
+  if (popoverId === COMPANION_VOICE_START_CONFIRMATION) {
+    if (answer.kind === "action") {
+      answerVoiceShortcutConfirmation(answer.actionId);
+    } else if (answer.kind === "dismiss") {
+      answerVoiceShortcutConfirmation(null);
+    }
     return;
   }
 
