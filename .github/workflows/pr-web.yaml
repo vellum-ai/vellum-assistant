@@ -104,13 +104,13 @@ jobs:
         run: bun run typecheck
 
   test:
-    name: Test (${{ matrix.shard }}/4)
+    name: Test (${{ matrix.shard }}/6)
     runs-on: ubuntu-latest
     strategy:
       # Every shard reports, so one red run surfaces all failing files.
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6]
     defaults:
       run:
         working-directory: clients/web
@@ -131,7 +131,7 @@ jobs:
 
       - name: Test
         env:
-          TEST_SHARD: ${{ matrix.shard }}/4
+          TEST_SHARD: ${{ matrix.shard }}/6
         run: bun run test:ci
 
   gesture-browser:

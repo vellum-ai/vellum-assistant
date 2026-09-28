@@ -14,9 +14,12 @@ export async function runIsolatedTests({
   extraFiles = [],
 }: IsolatedTestOptions): Promise<void> {
   const args = process.argv.slice(2);
-  // Timing-sensitive suites time out when more test processes run than there
-  // are cores, so the default never exceeds the machine's parallelism.
-  const defaultConcurrency = Math.min(8, availableParallelism());
+  // Timing-sensitive suites (real timers, `waitFor` deadlines) fail once the
+  // cores are saturated, so the default leaves half of them free.
+  const defaultConcurrency = Math.min(
+    8,
+    Math.max(2, Math.floor(availableParallelism() / 2)),
+  );
   const concurrency = Math.max(
     1,
     Number.parseInt(process.env.TEST_CONCURRENCY ?? "", 10) ||
