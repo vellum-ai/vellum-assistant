@@ -116,6 +116,7 @@ mock.module("../config/assistant-initiated-threads-gate.js", () => ({
   isAssistantInitiatedThreadsEnabled: () => assistantInitiatedThreadsEnabled,
 }));
 
+import { resolveAssistantInitiatedThread } from "../notifications/assistant-initiated-thread.js";
 import { pairDeliveryWithConversation } from "../notifications/conversation-pairing.js";
 import type { NotificationSignal } from "../notifications/signal.js";
 import type {
@@ -1477,6 +1478,117 @@ describe("pairDeliveryWithConversation", () => {
         sourceContextId: "conv-heartbeat",
         ...overrides,
       });
+
+    test("a prepared resolution is reused even if the source changes before pairing", async () => {
+      assistantInitiatedThreadsEnabled = true;
+      const signal = share({
+        conversationMetadata: { groupId: "group-123" },
+      });
+      const original = structuredClone(signal);
+      const assistantInitiatedThread = resolveAssistantInitiatedThread(signal);
+      getConversationMock.mockClear();
+      mockExistingConversations[signal.sourceContextId] = {
+        id: signal.sourceContextId,
+        source: "user",
+        title: null,
+        conversationType: "standard",
+      };
+
+      const result = await pairDeliveryWithConversation(
+        signal,
+        "vellum",
+        makeCopy(),
+        { assistantInitiatedThread },
+      );
+
+      expect(result.createdNewConversation).toBe(true);
+      expect(result.messageId).toBe("msg-001");
+      expect(createConversationMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          source: "assistant_initiated",
+          groupId: "group-123",
+        }),
+      );
+      expect(getConversationMock).not.toHaveBeenCalled();
+      expect(signal).toEqual(original);
+    });
+
+    test("an ineligible prepared resolution retains passive pairing when the flag changes", async () => {
+      const signal = share();
+      const assistantInitiatedThread = resolveAssistantInitiatedThread(signal);
+      assistantInitiatedThreadsEnabled = true;
+      mockExistingConversations[signal.sourceContextId] = {
+        id: signal.sourceContextId,
+        source: "heartbeat",
+        title: null,
+        conversationType: "background",
+      };
+
+      const result = await pairDeliveryWithConversation(
+        signal,
+        "vellum",
+        makeCopy(),
+        { assistantInitiatedThread },
+      );
+
+      expect(result.createdNewConversation).toBe(false);
+      expect(result.conversationId).toBe(signal.sourceContextId);
+      expect(createConversationMock).not.toHaveBeenCalled();
+      expect(addMessageMock).toHaveBeenCalledTimes(1);
+    });
+
+    test.each(["slack", "telegram", "discord"] as const)(
+      "%s retains the producer metadata despite a prepared vellum resolution",
+      async (channel) => {
+        assistantInitiatedThreadsEnabled = true;
+        const signal = share({
+          conversationMetadata: { groupId: "group-123" },
+        });
+        const original = structuredClone(signal);
+        const assistantInitiatedThread =
+          resolveAssistantInitiatedThread(signal);
+        getConversationMock.mockClear();
+
+        const result = await pairDeliveryWithConversation(
+          signal,
+          channel,
+          makeCopy(),
+          { assistantInitiatedThread },
+        );
+
+        expect(result.createdNewConversation).toBe(true);
+        expect(result.strategy).toBe("continue_existing_conversation");
+        expect(createConversationMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            conversationType: "background",
+            source: "notification",
+            groupId: "group-123",
+          }),
+        );
+        expect(addMessageMock).not.toHaveBeenCalled();
+        expect(getConversationMock).not.toHaveBeenCalled();
+        expect(signal).toEqual(original);
+      },
+    );
+
+    test("platform delivery does not pair a prepared vellum resolution", async () => {
+      assistantInitiatedThreadsEnabled = true;
+      const signal = share();
+      const assistantInitiatedThread = resolveAssistantInitiatedThread(signal);
+
+      const result = await pairDeliveryWithConversation(
+        signal,
+        "platform",
+        makeCopy(),
+        { assistantInitiatedThread },
+      );
+
+      expect(result.strategy).toBe("push_only");
+      expect(result.createdNewConversation).toBe(false);
+      expect(result.conversationId).toBeNull();
+      expect(createConversationMock).not.toHaveBeenCalled();
+      expect(addMessageMock).not.toHaveBeenCalled();
+    });
 
     test("flag on: a share from a background run materializes a section thread", async () => {
       assistantInitiatedThreadsEnabled = true;
