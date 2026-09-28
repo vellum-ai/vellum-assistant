@@ -2371,6 +2371,10 @@
     "title": "Voice",
     "titleWithName": "{name}'s Voice"
   },
+  "voiceStartConfirmationToggle": {
+    "description": "Double-tapping the voice key shows a confirmation first.",
+    "label": "Ask before starting a voice chat"
+  },
   "webFetchCard": {
     "apiBaseHint": "Leave empty for the cloud default ({defaultBase}).",
     "apiBaseLabel": "API Base",

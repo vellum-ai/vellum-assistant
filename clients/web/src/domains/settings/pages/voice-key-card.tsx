@@ -2,9 +2,11 @@
  * Settings → Voice, input section: the key every voice gesture rides on.
  *
  * One key, held to dictate and double-tapped for a call. Fn out of the box, a
- * modifier set of the user's own, or nothing. The card is also where the
- * Input Monitoring grant is managed: choosing a key asks for an initial grant,
- * while the recovery action opens System Settings for a denied grant.
+ * modifier set of the user's own, or nothing. While a key is bound, the card
+ * also holds whether its double tap asks before starting the call. The card is
+ * where the Input Monitoring grant is managed too: choosing a key asks for an
+ * initial grant, while the recovery action opens System Settings for a denied
+ * grant.
  *
  * Absent on hosts with no helper to watch the raw keyboard, since there is
  * nothing there to choose.
@@ -28,6 +30,7 @@ import { Button } from "@vellumai/design-library/components/button";
 
 import { DetailCard } from "@/components/detail-card";
 import { ActivationKeyOption } from "@/domains/settings/pages/activation-key-option";
+import { VoiceStartConfirmationToggle } from "@/domains/settings/pages/voice-start-confirmation-toggle";
 import { useTranslation } from "@/i18n";
 import {
   getSystemPermissionsState,
@@ -284,6 +287,12 @@ export function VoiceKeyCard() {
           <div className={noteClasses}>
             <Info className="mt-0.5 h-3 w-3 shrink-0" />
             <span>{t("voiceKeyCard.voiceOverNote")}</span>
+          </div>
+        )}
+
+        {bound && (
+          <div className="pt-2">
+            <VoiceStartConfirmationToggle />
           </div>
         )}
       </div>

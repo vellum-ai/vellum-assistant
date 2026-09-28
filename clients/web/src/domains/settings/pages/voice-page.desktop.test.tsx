@@ -172,6 +172,16 @@ describe("VoiceSections voice key on the desktop host", () => {
     expect(storedKey()).toBe(null);
   });
 
+  test("offers the start confirmation switch while a key is bound", () => {
+    renderPage();
+    const name = "Ask before starting a voice chat";
+
+    expect(screen.getByRole("switch", { name })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Off" }));
+    expect(screen.queryByRole("switch", { name })).toBeNull();
+  });
+
   test("choosing a key asks for Input Monitoring", async () => {
     renderPage();
 

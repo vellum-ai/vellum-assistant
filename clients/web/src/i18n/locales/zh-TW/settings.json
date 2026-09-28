@@ -2265,6 +2265,10 @@
     "title": "語音",
     "titleWithName": "{name} 的語音"
   },
+  "voiceStartConfirmationToggle": {
+    "description": "連按兩次語音鍵時會先顯示確認。",
+    "label": "開始語音聊天前詢問"
+  },
   "webFetchCard": {
     "apiBaseHint": "留空以使用雲端預設值 ({defaultBase})。",
     "apiBaseLabel": "API 基礎網址",

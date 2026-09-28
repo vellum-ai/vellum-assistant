@@ -2278,6 +2278,10 @@
     "title": "Voz",
     "titleWithName": "Voz de {name}"
   },
+  "voiceStartConfirmationToggle": {
+    "description": "Al pulsar dos veces la tecla de voz, primero se pide confirmación.",
+    "label": "Preguntar antes de iniciar un chat de voz"
+  },
   "webFetchCard": {
     "apiBaseHint": "Déjalo vacío para el valor predeterminado en la nube ({defaultBase}).",
     "apiBaseLabel": "Base de la API",

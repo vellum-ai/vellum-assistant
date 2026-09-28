@@ -2265,6 +2265,10 @@
     "title": "语音",
     "titleWithName": "{name} 的语音"
   },
+  "voiceStartConfirmationToggle": {
+    "description": "连按两次语音键时会先显示确认。",
+    "label": "开始语音聊天前询问"
+  },
   "webFetchCard": {
     "apiBaseHint": "留空以使用云默认值 ({defaultBase})。",
     "apiBaseLabel": "API 基址",

@@ -2260,6 +2260,10 @@
     "title": "Голос",
     "titleWithName": "Голос {name}"
   },
+  "voiceStartConfirmationToggle": {
+    "description": "При двойном нажатии голосовой клавиши сначала появится подтверждение.",
+    "label": "Спрашивать перед началом голосового чата"
+  },
   "webFetchCard": {
     "apiBaseHint": "Пустое поле: облачное значение по умолчанию ({defaultBase}).",
     "apiBaseLabel": "Ссылка на API",

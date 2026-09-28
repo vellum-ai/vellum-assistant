@@ -403,6 +403,16 @@ describe("VoiceSections voice mode shortcut", () => {
     });
   });
 
+  test("has no start confirmation switch without a voice key", () => {
+    renderPage();
+
+    expect(
+      screen.queryByRole("switch", {
+        name: "Ask before starting a voice chat",
+      }),
+    ).toBeNull();
+  });
+
   test("turning the shortcut off stores an explicit off", () => {
     renderPage();
 
