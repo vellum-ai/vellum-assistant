@@ -10,6 +10,17 @@ import {
 } from "../util/pricing.js";
 
 describe("resolvePricing", () => {
+  test.each([
+    ["accounts/fireworks/models/glm-5p2", 1.4 + 4.4],
+    ["accounts/fireworks/models/kimi-k2p6", 0.95 + 4.0],
+    ["accounts/fireworks/models/deepseek-v4-pro-0813", 1.32 + 3.96],
+    ["accounts/fireworks/models/deepseek-v4-flash-0731", 0.14 + 0.28],
+  ])("prices stored usage for retired Fireworks model %s", (model, cost) => {
+    const result = resolvePricing("fireworks", model, 1_000_000, 1_000_000);
+    expect(result.pricingStatus).toBe("priced");
+    expect(result.estimatedCostUsd).toBeCloseTo(cost, 10);
+  });
+
   describe("Anthropic models", () => {
     test("returns priced for claude-opus-4-6", () => {
       const result = resolvePricing(

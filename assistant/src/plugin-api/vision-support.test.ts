@@ -91,7 +91,7 @@ describe("doesSupportVision", () => {
     setMockConfig({
       "text-profile": {
         provider: "fireworks",
-        model: "accounts/fireworks/models/glm-5p2",
+        model: "accounts/fireworks/models/glm-5p3",
       },
     });
     expect(doesSupportVision(profile("text-profile"))).toBe(false);
@@ -186,7 +186,7 @@ describe("doesSupportVision", () => {
       },
       "text-arm": {
         provider: "fireworks",
-        model: "accounts/fireworks/models/glm-5p2",
+        model: "accounts/fireworks/models/glm-5p3",
       },
       "vision-arm": { provider: "anthropic", model: "claude-opus-4-6" },
     });
@@ -203,7 +203,7 @@ describe("doesSupportVision", () => {
       },
       "text-arm": {
         provider: "fireworks",
-        model: "accounts/fireworks/models/glm-5p2",
+        model: "accounts/fireworks/models/glm-5p3",
       },
       "gateway-arm": {
         provider: "openai-compatible",
@@ -224,11 +224,11 @@ describe("doesSupportVision", () => {
       },
       "text-arm-1": {
         provider: "fireworks",
-        model: "accounts/fireworks/models/glm-5p2",
+        model: "accounts/fireworks/models/glm-5p3",
       },
       "text-arm-2": {
         provider: "fireworks",
-        model: "accounts/fireworks/models/glm-5p2",
+        model: "accounts/fireworks/models/glm-5p3",
       },
     });
     expect(doesSupportVision(profile("mix-profile"))).toBe(false);
@@ -263,7 +263,7 @@ describe("doesSupportVision with a BYO default provider", () => {
         },
         "text-arm": {
           provider: "fireworks",
-          model: "accounts/fireworks/models/glm-5p2",
+          model: "accounts/fireworks/models/glm-5p3",
         },
       },
       { provider: "openrouter" },
@@ -278,7 +278,7 @@ describe("doesSupportVision with a BYO default provider", () => {
       {
         "custom-text": {
           provider: "fireworks",
-          model: "accounts/fireworks/models/glm-5p2",
+          model: "accounts/fireworks/models/glm-5p3",
         },
       },
       { provider: "anthropic" },
@@ -369,7 +369,7 @@ describe("doesSupportVision with a bare string", () => {
   });
 
   test("returns false for a known text-only model id", () => {
-    expect(doesSupportVision("accounts/fireworks/models/glm-5p2")).toBe(false);
+    expect(doesSupportVision("accounts/fireworks/models/glm-5p3")).toBe(false);
   });
 
   test("falls back to resolving the string as a profile key", () => {
@@ -403,7 +403,7 @@ describe("doesSupportVision with a resolved target", () => {
     expect(
       doesSupportVision({
         provider: "fireworks",
-        model: "accounts/fireworks/models/glm-5p2",
+        model: "accounts/fireworks/models/glm-5p3",
         inputModalities: { image: { enabled: true, supported: true } },
       }),
     ).toBe(true);

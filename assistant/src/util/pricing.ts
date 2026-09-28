@@ -63,6 +63,31 @@ const LEGACY_PRICING_FALLBACK: Record<string, Record<string, ModelPricing>> = {
   gemini: {
     "gemini-2.0-flash": { inputPer1M: 0.1, outputPer1M: 0.4 },
   },
+  // Models Fireworks no longer serves serverless. The catalog does not list
+  // them, but stored usage keeps their IDs, so request-log cost estimates
+  // still need their rates.
+  fireworks: {
+    "accounts/fireworks/models/glm-5p2": {
+      inputPer1M: 1.4,
+      outputPer1M: 4.4,
+      cacheReadPer1M: 0.26,
+    },
+    "accounts/fireworks/models/kimi-k2p6": {
+      inputPer1M: 0.95,
+      outputPer1M: 4.0,
+      cacheReadPer1M: 0.16,
+    },
+    "accounts/fireworks/models/deepseek-v4-pro-0813": {
+      inputPer1M: 1.32,
+      outputPer1M: 3.96,
+      cacheReadPer1M: 0.044,
+    },
+    "accounts/fireworks/models/deepseek-v4-flash-0731": {
+      inputPer1M: 0.14,
+      outputPer1M: 0.28,
+      cacheReadPer1M: 0.028,
+    },
+  },
 };
 
 /** Convert a catalog pricing entry to the internal pricing shape. */
