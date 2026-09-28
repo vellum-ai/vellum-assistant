@@ -104,8 +104,13 @@ jobs:
         run: bun run typecheck
 
   test:
-    name: Test
+    name: Test (${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
+    strategy:
+      # Every shard reports, so one red run surfaces all failing files.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     defaults:
       run:
         working-directory: clients/web
@@ -125,6 +130,8 @@ jobs:
         run: bun run openapi-ts
 
       - name: Test
+        env:
+          TEST_SHARD: ${{ matrix.shard }}/4
         run: bun run test:ci
 
   gesture-browser:
