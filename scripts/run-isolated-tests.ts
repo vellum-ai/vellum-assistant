@@ -1,3 +1,5 @@
+import { availableParallelism } from "node:os";
+
 import { Glob } from "bun";
 
 export interface IsolatedTestOptions {
@@ -12,9 +14,13 @@ export async function runIsolatedTests({
   extraFiles = [],
 }: IsolatedTestOptions): Promise<void> {
   const args = process.argv.slice(2);
+  // Timing-sensitive suites time out when more test processes run than there
+  // are cores, so the default never exceeds the machine's parallelism.
+  const defaultConcurrency = Math.min(8, availableParallelism());
   const concurrency = Math.max(
     1,
-    Number.parseInt(process.env.TEST_CONCURRENCY ?? "8", 10) || 8,
+    Number.parseInt(process.env.TEST_CONCURRENCY ?? "", 10) ||
+      defaultConcurrency,
   );
   const shard = parseShard(process.env.TEST_SHARD);
   const allFiles =
