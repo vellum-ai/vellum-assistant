@@ -1034,7 +1034,7 @@ describe("BillingOnboardingModal", () => {
   }, 20_000);
 });
 
-describe("BillingOnboardingModal — email setup hands off to the inbox", () => {
+describe("BillingOnboardingModal, email setup hands off to the inbox", () => {
   /** Runs checkout to the landed resize, where routing decides the next step. */
   async function landCheckout(
     client: QueryClient,
@@ -1060,7 +1060,7 @@ describe("BillingOnboardingModal — email setup hands off to the inbox", () => 
     });
   }
 
-  test("checkout hands off to the inbox route where the domain step once was", async () => {
+  test("checkout hands off to the inbox route for email setup", async () => {
     saveCheckoutIntent({ kind: "package", packageKey: "super" });
     const { client, onClose, getByText, getByTestId, queryByText } =
       renderModal();

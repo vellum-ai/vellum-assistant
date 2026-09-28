@@ -191,7 +191,7 @@ export function BillingOnboardingModal({
   // is online: registering the email triggers a guardian-channel write to the
   // machine's gateway. The platform auto-resizes (and restarts) the machine
   // right after checkout, so the takeover's exits stay guarded while that
-  // resize is in flight — including a stall, where the machine may still be
+  // resize is in flight, including a stall, where the machine may still be
   // mid-restart.
   const machineBusy = isMachineBusy(provisioning.state);
 
@@ -224,10 +224,10 @@ export function BillingOnboardingModal({
   };
 
   // Resize-mode routing needs "is a domain already registered?", which
-  // checkout mode never consults — the inbox's setup card reads it there. The
+  // checkout mode never consults: the inbox's setup card reads it there. The
   // enabled gate keeps this query fully off in checkout mode and in resize
-  // flows with no email setup to offer — a fee-less Mighty-tier package, or no
-  // assistant to attach a domain to.
+  // flows with no email setup to offer (a fee-less Mighty-tier package, or no
+  // assistant to attach a domain to).
   const domainAnswerNeeded = isResize && domainStepAvailable === true;
   const {
     domains,
@@ -283,8 +283,8 @@ export function BillingOnboardingModal({
   // refetch is still in flight) must NOT read as answered — otherwise routing
   // latches on the stale list before the fresh response lands. A genuine
   // post-open error still counts as answered: routing then advances on whatever
-  // list React Query retained — email setup when none is known, complete when
-  // a retained list still shows a domain — degrading gracefully either way.
+  // list React Query retained: email setup when none is known, complete when
+  // a retained list still shows a domain. It degrades gracefully either way.
   const domainsFreshData =
     domainsOpenedAt != null && domainsUpdatedAt >= domainsOpenedAt;
   const domainsFreshError =
@@ -313,8 +313,8 @@ export function BillingOnboardingModal({
   }, [open, routingInputsSettled]);
 
   // The Assistant Inbox owns email setup: one card, in the app, that
-  // registers the address and opens the mailbox in the same place. So where
-  // the wizard once had a domain step, it leaves for the inbox.
+  // registers the address and opens the mailbox in the same place. So when
+  // routing lands on email setup, the wizard leaves for the inbox.
   const handOffToInbox = useCallback(() => {
     // The inbox opens for the assistant the user was using, not the one the
     // upgrade provisioned: the entitlement is the organisation's, and an
