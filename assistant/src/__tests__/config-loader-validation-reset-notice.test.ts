@@ -171,7 +171,7 @@ describe("config-validation-reset notice sentinel", () => {
             profiles: {
               "glm-default": {
                 provider: "vellum",
-                model: "accounts/fireworks/models/glm-5p2",
+                model: "accounts/fireworks/models/glm-5p3",
               },
             },
             activeProfile: "glm-default",
@@ -193,7 +193,7 @@ describe("config-validation-reset notice sentinel", () => {
     expect(config.llm.activeProfile).toBe("glm-default");
     expect(config.llm.callSites.mainAgent?.profile).toBe("glm-default");
     expect(config.llm.profiles["glm-default"]?.model).toBe(
-      "accounts/fireworks/models/glm-5p2",
+      "accounts/fireworks/models/glm-5p3",
     );
   });
 

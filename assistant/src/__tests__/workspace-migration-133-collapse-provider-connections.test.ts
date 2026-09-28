@@ -100,7 +100,7 @@ describe("133-collapse-provider-connections migration", () => {
             source: "user",
             provider: "fireworks",
             provider_connection: "vellum",
-            model: "accounts/fireworks/models/glm-5p2",
+            model: "accounts/fireworks/models/minimax-m3",
           },
         },
       },
@@ -257,7 +257,7 @@ describe("133-collapse-provider-connections migration", () => {
           encoded: {
             source: "user",
             provider: "vellum",
-            model: "fireworks/accounts/fireworks/models/glm-5p2",
+            model: "fireworks/accounts/fireworks/models/minimax-m3",
           },
         },
       },
@@ -272,7 +272,7 @@ describe("133-collapse-provider-connections migration", () => {
     expect(llm.profiles.encoded).toEqual({
       source: "user",
       provider: "vellum",
-      model: "accounts/fireworks/models/glm-5p2",
+      model: "accounts/fireworks/models/minimax-m3",
     });
   });
 

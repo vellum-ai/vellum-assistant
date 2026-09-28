@@ -656,7 +656,7 @@ describe("ProfileEditorModal create mode — provider-first", () => {
     renderCreate([makeConnection("vellum-managed", "vellum")], onSave);
 
     selectProvider("Vellum");
-    selectModel("GLM 5.2");
+    selectModel("GLM 5.3");
 
     await waitFor(() => {
       expect(getSaveBtn().disabled).toBe(false);

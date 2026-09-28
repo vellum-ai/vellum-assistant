@@ -1644,7 +1644,7 @@ describe("model names on the profile rows", () => {
           label: "Balanced",
           source: "managed",
           provider: "vellum",
-          model: "accounts/fireworks/models/glm-5p2",
+          model: "accounts/fireworks/models/glm-5p3",
         },
         "my-luna": {
           label: "GPT-5.6 Luna",
@@ -1672,7 +1672,7 @@ describe("model names on the profile rows", () => {
       .getAllByTestId("tooltip")
       .map((el) => el.getAttribute("data-tooltip-content"));
     // The quick-add "+" carries the only other tooltip on this surface.
-    expect(labels.filter((c) => c !== "New Model")).toEqual(["GLM 5.2"]);
+    expect(labels.filter((c) => c !== "New Model")).toEqual(["GLM 5.3"]);
   });
 
   test("the hovered row is still the row that selects the profile", async () => {
@@ -1683,7 +1683,7 @@ describe("model names on the profile rows", () => {
 
     const tooltip = screen
       .getAllByTestId("tooltip")
-      .find((el) => el.getAttribute("data-tooltip-content") === "GLM 5.2");
+      .find((el) => el.getAttribute("data-tooltip-content") === "GLM 5.3");
     const row = tooltip!.querySelector('[data-testid="menu-item"]');
     fireEvent.click(row!);
 
@@ -1699,17 +1699,17 @@ describe("model names on the profile rows", () => {
     hoverCapableRef.value = false;
     mountMixed();
     await waitFor(() => {
-      expect(screen.getByText("GLM 5.2")).toBeTruthy();
+      expect(screen.getByText("GLM 5.3")).toBeTruthy();
     });
 
     const rows = screen.getAllByTestId("menu-item");
     const managed = rows.find((r) => r.textContent?.includes("Balanced"));
-    expect(managed!.textContent).toContain("GLM 5.2");
+    expect(managed!.textContent).toContain("GLM 5.3");
     // Nothing is left behind a hover on a device that cannot hover.
     const labels = screen
       .queryAllByTestId("tooltip")
       .map((el) => el.getAttribute("data-tooltip-content"));
-    expect(labels).not.toContain("GLM 5.2");
+    expect(labels).not.toContain("GLM 5.3");
   });
 
   test("touch reads the model on the row itself, where a tooltip cannot go", async () => {
@@ -1722,7 +1722,7 @@ describe("model names on the profile rows", () => {
 
     const rows = screen.getAllByTestId("panel-item");
     const managed = rows.find((r) => r.textContent?.includes("Balanced"));
-    expect(managed!.textContent).toContain("GLM 5.2");
+    expect(managed!.textContent).toContain("GLM 5.3");
     const user = rows.find((r) => r.textContent?.includes("GPT-5.6 Luna"));
     expect(user!.textContent).toBe("GPT-5.6 Luna");
   });

@@ -374,7 +374,7 @@ describe("routing identities", () => {
       expectedProvider: "anthropic",
     });
     expect(
-      resolveRoutingIdentity("vellum", "accounts/fireworks/models/glm-5p2"),
+      resolveRoutingIdentity("vellum", "accounts/fireworks/models/glm-5p3"),
     ).toEqual({ connectionName: "vellum", expectedProvider: "fireworks" });
     expect(resolveRoutingIdentity("vellum", "qwen/qwen3-8b")).toEqual({
       connectionName: "vellum",

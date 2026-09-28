@@ -390,9 +390,9 @@ describe("LLM catalog parity: daemon vs client", () => {
     });
   });
 
-  test("Fireworks catalog includes GLM 5.2", () => {
+  test("Fireworks catalog includes GLM 5.3", () => {
     expect(
-      isModelInCatalog("fireworks", "accounts/fireworks/models/glm-5p2"),
+      isModelInCatalog("fireworks", "accounts/fireworks/models/glm-5p3"),
     ).toBe(true);
 
     const fireworks = PROVIDER_CATALOG.find(
@@ -400,10 +400,10 @@ describe("LLM catalog parity: daemon vs client", () => {
     );
     expect(
       fireworks?.models.find(
-        (model) => model.id === "accounts/fireworks/models/glm-5p2",
+        (model) => model.id === "accounts/fireworks/models/glm-5p3",
       ),
     ).toMatchObject({
-      displayName: "GLM 5.2",
+      displayName: "GLM 5.3",
       contextWindowTokens: 1040000,
       maxOutputTokens: 131072,
       supportsToolUse: true,

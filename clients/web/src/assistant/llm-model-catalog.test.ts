@@ -164,7 +164,7 @@ describe("parity with meta/llm-provider-catalog.json", () => {
   test("getManagedUpstreamForModel derives the serving provider", () => {
     expect(getManagedUpstreamForModel("claude-opus-4-8")).toBe("anthropic");
     expect(
-      getManagedUpstreamForModel("accounts/fireworks/models/glm-5p2"),
+      getManagedUpstreamForModel("accounts/fireworks/models/glm-5p3"),
     ).toBe("fireworks");
     expect(getManagedUpstreamForModel("qwen/qwen3-8b")).toBe("vellum");
     expect(getManagedUpstreamForModel("not-a-real-model")).toBeUndefined();

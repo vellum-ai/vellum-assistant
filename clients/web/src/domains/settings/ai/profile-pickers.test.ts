@@ -408,9 +408,9 @@ describe("managedProfileModelName", () => {
         label: "Balanced",
         source: "managed",
         provider: "vellum",
-        model: "accounts/fireworks/models/glm-5p2",
+        model: "accounts/fireworks/models/glm-5p3",
       }),
-    ).toBe("GLM 5.2");
+    ).toBe("GLM 5.3");
   });
 
   test("a user profile names nothing: its label is already the model", () => {

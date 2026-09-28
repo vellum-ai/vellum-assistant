@@ -1104,23 +1104,9 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
           cacheReadPer1mTokens: 0.029,
         },
       },
-      {
-        id: "accounts/fireworks/models/glm-5p2",
-        displayName: "GLM 5.2",
-        // Fireworks serves GLM 5.2 with a 1,040K input window.
-        contextWindowTokens: 1040000,
-        maxOutputTokens: 131072,
-        supportsThinking: true,
-        supportsCaching: true,
-        supportsVision: false,
-        supportsToolUse: true,
-        maxEffort: "max",
-        pricing: {
-          inputPer1mTokens: 1.4,
-          outputPer1mTokens: 4.4,
-          cacheReadPer1mTokens: 0.26,
-        },
-      },
+      // GLM 5.2 (accounts/fireworks/models/glm-5p2) is intentionally absent:
+      // it is on the Fireworks serverless decommission list. GLM 5.3 is its
+      // successor.
       // Kimi K2.5 (accounts/fireworks/models/kimi-k2p5) is intentionally
       // absent: Fireworks serves it on-demand/dedicated only, so serverless
       // chat/completions calls 404 ("not found, inaccessible, and/or not

@@ -198,7 +198,7 @@ describe("LLMSchema", () => {
       profiles: {
         "glm-default": {
           provider: "vellum",
-          model: "accounts/fireworks/models/glm-5p2",
+          model: "accounts/fireworks/models/glm-5p3",
         },
       },
       activeProfile: "glm-default",
