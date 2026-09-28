@@ -928,6 +928,36 @@ function normalizeSendMessageOptions(
     }
   }
 
+  // Adaptive-thinking-only Claude models (Fable, Opus 5.5, Sonnet 5.5) cannot
+  // turn reasoning off, so stripping `thinking` below does not clear the
+  // forced-tool conflict and Anthropic 400s the request. Downgrade the forced
+  // choice to `auto` so the call goes out. The tool is no longer guaranteed:
+  // forced-tool call sites already treat a missing tool call as a failed
+  // result, which is what the 400 gave them on every request.
+  const forcedToolModel =
+    typeof nextConfig.model === "string" ? nextConfig.model : "";
+  const forcedToolChoice = nextConfig.tool_choice as
+    | Record<string, unknown>
+    | undefined;
+  if (
+    forcedToolChoice != null &&
+    (forcedToolChoice.type === "tool" || forcedToolChoice.type === "any") &&
+    isAdaptiveThinkingOnlyModel(forcedToolModel) &&
+    targetsAnthropicWire(providerName, forcedToolModel)
+  ) {
+    log.warn(
+      {
+        providerName,
+        callSite: config.callSite,
+        model: forcedToolModel,
+        droppedToolChoice: forcedToolChoice,
+      },
+      "Downgrading forced `tool_choice` to `auto` because this model always " +
+        "reasons and rejects forced tool use.",
+    );
+    nextConfig.tool_choice = { type: "auto" };
+  }
+
   // Anthropic (and the gateways fronting Anthropic) rejects requests that
   // combine extended thinking with forced tool use (`tool_choice.type` of
   // `"tool"` or `"any"`).  Strip thinking when both are present so the

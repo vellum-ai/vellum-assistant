@@ -144,6 +144,53 @@ describe("retry normalization: thinking + forced tool_choice", () => {
     expect(lastConfig()?.thinking).toEqual({ type: "adaptive" });
   });
 
+  for (const [providerName, model] of [
+    ["anthropic", "claude-sonnet-5-5"],
+    ["anthropic", "claude-opus-5-5"],
+    ["openrouter", "anthropic/claude-sonnet-5.5"],
+    ["vercel-ai-gateway", "anthropic/claude-sonnet-5.5"],
+  ] as const) {
+    test(`downgrades forced tool_choice to auto for ${providerName} ${model}`, async () => {
+      // These models always reason and reject forced tool use, so stripping
+      // `thinking` is not enough: the forced choice itself has to go.
+      setLlmConfig({
+        callSites: {
+          memoryExtraction: { provider: providerName, model },
+        },
+      });
+      const { provider, lastConfig } = makePipeline(providerName);
+      await provider.sendMessage([userMessage], {
+        config: {
+          callSite: "memoryExtraction",
+          tool_choice: { type: "tool", name: "extract_graph_diff" },
+        },
+      });
+      expect(lastConfig()?.tool_choice).toEqual({ type: "auto" });
+    });
+  }
+
+  test("keeps forced tool_choice for an adaptive-only model off the Anthropic wire", async () => {
+    setLlmConfig({
+      callSites: {
+        memoryExtraction: {
+          provider: "fireworks",
+          model: "accounts/fireworks/models/glm-5p3",
+        },
+      },
+    });
+    const { provider, lastConfig } = makePipeline("fireworks");
+    await provider.sendMessage([userMessage], {
+      config: {
+        callSite: "memoryExtraction",
+        tool_choice: { type: "tool", name: "extract_graph_diff" },
+      },
+    });
+    expect(lastConfig()?.tool_choice).toEqual({
+      type: "tool",
+      name: "extract_graph_diff",
+    });
+  });
+
   test("preserves explicit thinking: disabled with forced tool_choice", async () => {
     // Callers like the retriever explicitly set thinking: { type: "disabled" }
     // alongside forced tool_choice. This should pass through unchanged since
