@@ -21,6 +21,7 @@ const meta: Meta<ConfirmDialogProps> = {
     destructive: { control: "boolean" },
     confirmDisabled: { control: "boolean" },
     open: { control: false },
+    icon: { control: false },
     onConfirm: { control: false },
     onCancel: { control: false },
     children: { control: false },

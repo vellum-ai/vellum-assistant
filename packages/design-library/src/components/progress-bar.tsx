@@ -57,7 +57,7 @@ export function ProgressBar({
       {percent == null ? (
         <div
           data-slot="progress-bar-fill"
-          className="h-full w-2/5 bg-[var(--content-default)] rounded-full motion-safe:animate-progress-indeterminate motion-reduce:w-full motion-reduce:animate-pulse"
+          className="h-full w-2/5 bg-[var(--content-default)] rounded-full motion-safe:animate-progress-indeterminate motion-reduce:w-full motion-reduce:opacity-40"
           style={{ backgroundColor: fillColor }}
         />
       ) : (

@@ -931,8 +931,8 @@
 /* ---------------------------------------------------------------------------
  * Indeterminate progress: the `ProgressBar` fill band (40% of the track)
  * sweeping left→right while the extent of the work is unknown. Applied
- * behind a `motion-safe` variant; reduced motion gets a pulsing full-width
- * fill instead.
+ * behind a `motion-safe` variant; reduced motion gets a static, dimmed
+ * full-width fill instead.
  * --------------------------------------------------------------------------- */
 @keyframes progress-indeterminate {
   from { transform: translateX(-100%); }
