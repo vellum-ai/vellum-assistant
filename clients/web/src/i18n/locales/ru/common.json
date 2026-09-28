@@ -9,6 +9,9 @@
     "copied": "Скопировано",
     "copyFailed": "Не удалось скопировать в буфер обмена."
   },
+  "featureIntroModal": {
+    "close": "Закрыть"
+  },
   "fileViewMode": {
     "formatted": "Форматированный",
     "modeAria": "Как показывать этот файл",
@@ -22,6 +25,9 @@
   },
   "assistantConnect": {
     "failed": "Не удалось подключиться к ассистенту."
+  },
+  "assistantEmailIntroModal": {
+    "setUp": "Настроить почту"
   },
   "assistantFeatureFlagStore": {
     "updateFailed": "Не удалось обновить «{label}». Изменение отменено."

@@ -67,6 +67,9 @@
   "assistantConnect": {
     "failed": "连接助手失败。"
   },
+  "assistantEmailIntroModal": {
+    "setUp": "设置邮箱"
+  },
   "assistantFeatureFlagStore": {
     "updateFailed": "无法更新“{label}”。您的更改已恢复。"
   },
@@ -440,6 +443,9 @@
     "discard": "放弃",
     "save": "保存",
     "saving": "正在保存…"
+  },
+  "featureIntroModal": {
+    "close": "关闭"
   },
   "fileViewMode": {
     "formatted": "格式化",

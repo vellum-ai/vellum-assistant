@@ -94,6 +94,7 @@ import { PreferencesMenu } from "@/domains/chat/components/preferences-menu";
 import { useCommandPaletteOrchestrator } from "@/domains/chat/hooks/use-command-palette-orchestrator";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { ResearchResultsOverlay } from "@/domains/chat/onboarding-research/research-results-overlay";
+import { AssistantEmailIntro } from "@/components/feature-intro/assistant-email-intro";
 import { OnboardingCheckinOverlay } from "@/components/onboarding-checkin-overlay";
 import { OnboardingAvatarApplier } from "@/components/onboarding-avatar-applier";
 import { VoiceSessionPillHost } from "@/domains/chat/components/voice-session-pill-host";
@@ -1248,6 +1249,10 @@ export function ChatLayout({
           shown over the streaming research output until connect/skip. Self-gates
           on `checkinPending`; top-level so it can compose the onboarding screen. */}
       <OnboardingCheckinOverlay />
+      {/* The one-time intro to Assistant Email, over the chat on the first
+          open after the feature lands; gates itself on the device's memory,
+          the flag, the inbox's state and the onboarding takeover. */}
+      <AssistantEmailIntro />
       {/* Applies the research-onboarding picker's avatar once the assistant is
           hatched (avatar isn't part of the pre-chat handoff context). */}
       <OnboardingAvatarApplier />

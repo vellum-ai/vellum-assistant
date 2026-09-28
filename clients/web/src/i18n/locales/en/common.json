@@ -67,6 +67,9 @@
   "assistantConnect": {
     "failed": "Failed to connect to the assistant."
   },
+  "assistantEmailIntroModal": {
+    "setUp": "Set up email"
+  },
   "assistantFeatureFlagStore": {
     "updateFailed": "Couldn't update \"{label}\". Your change was reverted."
   },
@@ -440,6 +443,9 @@
     "discard": "Discard",
     "save": "Save",
     "saving": "Saving…"
+  },
+  "featureIntroModal": {
+    "close": "Close"
   },
   "fileViewMode": {
     "formatted": "Formatted",

@@ -67,6 +67,9 @@
   "assistantConnect": {
     "failed": "No se pudo conectar con el asistente."
   },
+  "assistantEmailIntroModal": {
+    "setUp": "Configurar el correo"
+  },
   "assistantFeatureFlagStore": {
     "updateFailed": "No se pudo actualizar \"{label}\". Se revirtió el cambio."
   },
@@ -438,6 +441,9 @@
     "discard": "Descartar",
     "save": "Guardar",
     "saving": "Guardando…"
+  },
+  "featureIntroModal": {
+    "close": "Cerrar"
   },
   "fileViewMode": {
     "formatted": "Con formato",

@@ -802,6 +802,32 @@ return useMemo(
 
 ---
 
+### One-time feature intros
+
+A feature that lands announces itself once: a modal over the chat on the
+first open of the app after it, dismissed by any route out and never shown
+again on that device. Three pieces, in `src/components/feature-intro/`:
+
+- **`FeatureIntroModal`** is the frame every intro shares (hero, serif
+  title, one line, the feature's own pitch as children). It knows nothing
+  about when it shows.
+- **`useFeatureIntroSeen(id)`** is the memory: a per-device flag keyed by a
+  `FeatureIntroId`. Add the new feature's id to that union; the id is the
+  storage key's tail, so it is never renamed once shipped.
+- **A gate per feature** (`assistant-email-intro.tsx` is the worked
+  example) reads the seen flag first and returns `null` on a device that
+  has seen it, so the intro costs no request after its one showing. Only
+  then does it read the feature's own state through a pure resolver
+  (`resolve-assistant-email-intro.ts`) that says which variant, if any, to
+  draw: nothing while the reads that decide are pending, nothing to a user
+  who already has the feature, nothing over the onboarding takeover.
+
+Mount the gate once, in `ChatLayout` beside the other app-level overlays.
+Mark seen on every way out, the close glyph and the backdrop as well as the
+calls to action, so a user who left through the CTA is not shown it again
+on return. Copy comes from the feature's own catalog and components where
+it has them, so the intro and the feature's own surfaces never disagree.
+
 ## Framework strategy
 
 ### Keep domain logic framework-agnostic

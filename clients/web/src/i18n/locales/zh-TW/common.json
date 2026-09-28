@@ -67,6 +67,9 @@
   "assistantConnect": {
     "failed": "連線至助理失敗。"
   },
+  "assistantEmailIntroModal": {
+    "setUp": "設定電子郵件"
+  },
   "assistantFeatureFlagStore": {
     "updateFailed": "無法更新「{label}」。您的變更已還原。"
   },
@@ -440,6 +443,9 @@
     "discard": "捨棄",
     "save": "儲存",
     "saving": "正在儲存…"
+  },
+  "featureIntroModal": {
+    "close": "關閉"
   },
   "fileViewMode": {
     "formatted": "格式化",
