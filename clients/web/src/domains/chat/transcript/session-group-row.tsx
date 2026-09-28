@@ -342,7 +342,11 @@ export function SessionGroupRow({
             : {})}
           data-testid="session-group-content"
           style={{ animationDuration: "var(--anim-standard)" }}
-          className="origin-top transition-[opacity,transform] ease-[var(--anim-spring)] data-[state=closed]:-translate-y-1 data-[state=closed]:opacity-0 data-[state=open]:translate-y-0 data-[state=open]:opacity-100 motion-reduce:translate-y-0 motion-reduce:animate-none motion-reduce:transition-none"
+          className={cn(
+            "origin-top transition-[opacity,transform] ease-[var(--anim-spring)] data-[state=closed]:-translate-y-1 data-[state=closed]:opacity-0 data-[state=open]:translate-y-0 data-[state=open]:opacity-100 motion-reduce:translate-y-0 motion-reduce:animate-none motion-reduce:transition-none",
+            // Ungrouped replies keep the inline activity buttons' hover gutters.
+            !headerVisible && "overflow-visible",
+          )}
         >
           <div
             className={cn(
