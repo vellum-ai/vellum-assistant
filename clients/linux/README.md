@@ -50,3 +50,9 @@ generation. The AppImage lands in `dist/`.
 bun run typecheck
 bun run test:ci
 ```
+
+## macOS bridge differences
+
+The native `hotkeys.confirmVoiceStart` dialog belongs to the macOS Fn double-tap
+path. Linux uses its voice-mode shortcut chord and omits this optional capability.
+The preload parity test records this platform difference.

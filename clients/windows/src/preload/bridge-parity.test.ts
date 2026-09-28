@@ -98,6 +98,8 @@ const MACOS_ONLY_SURFACE = [
   "helper.hotkey.setModifierHold",
   "helper.input.onActivity",
   "helper.input.setActivityWatch",
+  // Native confirmation for the macOS Fn double-tap path.
+  "hotkeys.confirmVoiceStart",
   // macOS System Settings accepts native application-bundle drops.
   "permissions.setup.begin",
   "permissions.setup.cancel",

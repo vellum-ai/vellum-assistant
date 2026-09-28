@@ -73,6 +73,7 @@ status are recorded in the canonical
 | ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | `companion`, `voiceActivity` (companion surface)        | None. The shell opens no floating companion window; the renderer feature-detects both keys.                                        |
 | `helper.hotkey.setModifierHold` (the voice key: Fn held to dictate, double-tapped for a call) | `helper.hotkey.setVoiceModeChord`: the voice mode shortcut's bare-modifier chord, registered with the helper's keyboard hook (`main/features/voice-mode-chord.ts`). |
+| `hotkeys.confirmVoiceStart` | Native confirmation for the macOS Fn double-tap path. Windows uses its configurable voice-mode chord. |
 | Dock badge and bounce                                   | Taskbar overlay icon and attention flash (`main/taskbar.ts`).                                                                      |
 | Share sheet                                             | Native Save As dialog (`main/features/share.ts`).                                                                                  |
 | Quick Look extension                                    | Explorer preview and thumbnail handler.                                                                                            |
