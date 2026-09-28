@@ -31,6 +31,7 @@ This file is the cross-system architecture index. Detailed designs live in domai
 | Watch sessions                              | [Watch Sessions](#watch-sessions) (this file)                                                      |
 | Screen annotation                           | [Screen Annotation](#screen-annotation) (this file)                                                |
 | Completion notifications                    | [Completion Notifications](#completion-notifications) (this file)                                 |
+| From me chat notifications                  | [From Me Chat Notifications](#from-me-chat-notifications) (this file)                              |
 | Notification sender avatars                 | [Notification Sender Avatars](#notification-sender-avatars) (this file)                            |
 | Workflow authoring guide                    | [`assistant/docs/workflows.md`](assistant/docs/workflows.md)                                       |
 | Workflow manual testing runbook             | [`assistant/docs/workflows-testing.md`](assistant/docs/workflows-testing.md)                       |
@@ -1037,6 +1038,25 @@ flowchart LR
 ```
 
 See [notification delivery](assistant/src/notifications/README.md) and [web lifecycle events](clients/web/docs/EVENT_BUS.md).
+
+## From Me Chat Notifications
+
+Assistant-authored shares from background or scheduled work can create a chat in From me under `assistant-initiated-threads`. `assistant-initiated-thread.ts` resolves promotion for vellum pairing, then verifies the new conversation's source, visibility, placement, and persisted seed before enabling an alert. Successful creation can produce a local banner at the share's original urgency and add the existing mobile push route when configured. Quiet intent, notification suppression, exclusive channel selection, and single-channel routing retain precedence.
+
+The broadcaster pairs vellum first so local and remote taps address the new conversation and message. Reuse and failed persistence do not enable this additional alert; duplicate delivery rows preserve the destination for a missing platform dispatch. The existing bounded wait and accepted-platform metadata coordinate remote and local mobile delivery. macOS uses the live native bridge while running, including hidden and minimized windows. iOS uses the existing APNs route. Android, other Electron clients, and open browser tabs share these transport policies. No historical scan, additional client subscription, or macOS push after Quit is involved.
+
+```mermaid
+flowchart LR
+    Share[Assistant-authored share] --> Routing[Existing notification routing]
+    Routing --> Pair[Vellum conversation pairing]
+    Pair --> Verify[New From me chat and seed persisted]
+    Verify --> Local[Non-silent local intent]
+    Verify --> Platform[Permitted mobile push]
+    Local --> Native[Running native client or open browser]
+    Platform --> Mobile[Existing APNs and Android delivery]
+```
+
+See [From me chat alerts](assistant/src/notifications/README.md#from-me-chat-alerts) for routing, replay, and delivery limits.
 
 ## Notification Sender Avatars
 

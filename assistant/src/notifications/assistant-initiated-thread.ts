@@ -1,7 +1,17 @@
 import { isAssistantInitiatedThreadsEnabled } from "../config/assistant-initiated-threads-gate.js";
-import { getConversation } from "../persistence/conversation-crud.js";
-import { ASSISTANT_INITIATED_SOURCE } from "../persistence/conversation-types.js";
+import {
+  getConversation,
+  getDisplayMetaForConversations,
+  getMessageById,
+} from "../persistence/conversation-crud.js";
+import {
+  ASSISTANT_INITIATED_SOURCE,
+  UNGROUPED_GROUP_ID,
+} from "../persistence/conversation-types.js";
+import { getLogger } from "../util/logger.js";
 import type { NotificationSignal } from "./signal.js";
+
+const log = getLogger("assistant-initiated-thread");
 
 export interface AssistantInitiatedThreadResolution {
   /** Eligible for automatic promotion; creation and sidebar membership are not guaranteed. */
@@ -23,12 +33,20 @@ export function resolveAssistantInitiatedThread(
     return { isCandidate: false, vellumSignal: signal };
   }
 
-  const producing = getConversation(signal.sourceContextId);
-  if (
-    producing &&
-    producing.conversationType !== "background" &&
-    producing.conversationType !== "scheduled"
-  ) {
+  try {
+    const producing = getConversation(signal.sourceContextId);
+    if (
+      producing &&
+      producing.conversationType !== "background" &&
+      producing.conversationType !== "scheduled"
+    ) {
+      return { isCandidate: false, vellumSignal: signal };
+    }
+  } catch (err) {
+    log.warn(
+      { err, sourceContextId: signal.sourceContextId },
+      "Unable to resolve the assistant-initiated thread candidate",
+    );
     return { isCandidate: false, vellumSignal: signal };
   }
 
@@ -43,4 +61,41 @@ export function resolveAssistantInitiatedThread(
       },
     },
   };
+}
+
+/** A new thread can alert only after its visible destination and seed are durable. */
+export function isPersistedAssistantInitiatedThread(
+  conversationId: string | null,
+  messageId: string | null,
+): boolean {
+  if (!conversationId || !messageId) {
+    return false;
+  }
+  try {
+    const conversation = getConversation(conversationId);
+    if (
+      !conversation ||
+      conversation.source !== ASSISTANT_INITIATED_SOURCE ||
+      conversation.conversationType !== "standard" ||
+      conversation.archivedAt !== null
+    ) {
+      return false;
+    }
+    const placement = getDisplayMetaForConversations([conversationId]).get(
+      conversationId,
+    );
+    return (
+      placement !== undefined &&
+      !placement.isPinned &&
+      (placement.groupId === null ||
+        placement.groupId === UNGROUPED_GROUP_ID) &&
+      getMessageById(messageId, conversationId) !== null
+    );
+  } catch (err) {
+    log.warn(
+      { err, conversationId },
+      "Unable to verify the notification thread and seed",
+    );
+    return false;
+  }
 }

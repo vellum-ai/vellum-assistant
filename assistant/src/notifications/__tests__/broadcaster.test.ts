@@ -8,7 +8,8 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { saveRawConfig } from "../../config/loader.js";
-import type { PairingResult } from "../conversation-pairing.js";
+import type { PairingOptions, PairingResult } from "../conversation-pairing.js";
+import type { NotificationDeliveryRow } from "../deliveries-store.js";
 import type { NotificationSignal } from "../signal.js";
 import type {
   ChannelAdapter,
@@ -58,10 +59,20 @@ function defaultPairing(): PairingResult {
 let pairingByChannel: Record<string, PairingResult> = {};
 let pairingErrorByChannel: Record<string, Error> = {};
 let pairedChannels: string[] = [];
+let pairingInputs: Array<{
+  signal: NotificationSignal;
+  options?: PairingOptions;
+}> = [];
 let onPairing: (channel: string) => Promise<void> = async () => {};
 
 mock.module("../conversation-pairing.js", () => ({
-  pairDeliveryWithConversation: async (_signal: unknown, channel: string) => {
+  pairDeliveryWithConversation: async (
+    signal: NotificationSignal,
+    channel: string,
+    _copy: unknown,
+    options?: PairingOptions,
+  ) => {
+    pairingInputs.push({ signal, options });
     pairedChannels.push(channel);
     await onPairing(channel);
     const error = pairingErrorByChannel[channel];
@@ -79,6 +90,9 @@ let updateDeliveryStatusImpl: (
   patch?: { messageId?: string; canonicalMessageId?: string },
 ) => void = () => {};
 let deliveryStatuses: string[] = [];
+let existingDeliveries: Partial<
+  Record<NotificationChannel, Partial<NotificationDeliveryRow>>
+> = {};
 
 mock.module("../deliveries-store.js", () => ({
   createDelivery: () => {},
@@ -91,7 +105,10 @@ mock.module("../deliveries-store.js", () => ({
     deliveryStatuses.push(status);
     updateDeliveryStatusImpl(status, patch);
   },
-  findDeliveryByDecisionAndChannel: () => undefined,
+  findDeliveryByDecisionAndChannel: (
+    _id: string,
+    channel: NotificationChannel,
+  ) => existingDeliveries[channel],
 }));
 
 // The post-acknowledgement row write is observed, never performed: the
@@ -115,9 +132,23 @@ mock.module("../adapters/macos.js", () => ({
 // Mock conversation-crud so deep-link fallback tests can control which
 // conversation ids resolve to real rows.
 let knownConversations: Set<string> = new Set();
+let persistedThreads = new Map<
+  string,
+  {
+    source: string;
+    conversationType: string;
+    archivedAt: number | null;
+  }
+>();
+let threadPlacement = { isPinned: false, groupId: null as string | null };
+let persistedSeed = true;
 mock.module("../../persistence/conversation-crud.js", () => ({
   getConversation: (id: string) =>
-    knownConversations.has(id) ? { id } : undefined,
+    persistedThreads.get(id) ??
+    (knownConversations.has(id) ? { id } : undefined),
+  getDisplayMetaForConversations: (ids: string[]) =>
+    new Map(ids.map((id) => [id, threadPlacement])),
+  getMessageById: () => (persistedSeed ? { id: "msg-new" } : null),
 }));
 
 // Mock destination-resolver so platform channel tests get a destination
@@ -215,6 +246,11 @@ beforeEach(() => {
   pairingByChannel = {};
   pairingErrorByChannel = {};
   pairedChannels = [];
+  pairingInputs = [];
+  persistedThreads = new Map();
+  threadPlacement = { isPinned: false, groupId: null };
+  persistedSeed = true;
+  existingDeliveries = {};
   onPairing = async () => {};
   onGuardianRead = async () => {};
   deliveryStatuses = [];
@@ -1504,5 +1540,264 @@ describe("NotificationBroadcaster question option actions", () => {
       "approve_once",
       "reject",
     ]);
+  });
+});
+
+describe("NotificationBroadcaster new From me threads", () => {
+  const copy = { title: "A useful update", body: "Here is the result." };
+  const share = () =>
+    makeSignal({
+      sourceChannel: "assistant_tool",
+      sourceContextId: "conv-background",
+      attentionHints: {
+        urgency: "low",
+        requiresAction: false,
+        isAsyncBackground: true,
+        visibleInSourceNow: false,
+      },
+    });
+  const decision = () =>
+    makeDecision({
+      selectedChannels: ["vellum", "platform"],
+      renderedCopy: { vellum: copy },
+    });
+  const options = (signal: NotificationSignal, platformAdded = true) => ({
+    assistantInitiatedThread: {
+      resolution: {
+        isCandidate: true,
+        vellumSignal: {
+          ...signal,
+          requiresConversation: true,
+          conversationMetadata: { source: "assistant_initiated" },
+        },
+      },
+      platformAdded,
+    },
+  });
+
+  beforeEach(() => {
+    pairingByChannel.vellum = {
+      ...defaultPairing(),
+      conversationId: "conv-new",
+      messageId: "msg-new",
+      createdNewConversation: true,
+    };
+    persistedThreads.set("conv-new", {
+      source: "assistant_initiated",
+      conversationType: "standard",
+      archivedAt: null,
+    });
+    knownConversations.add("conv-background");
+  });
+
+  test("alerts only after creation and shares canonical IDs, copy, urgency, and source metadata", async () => {
+    const vellum = makeCapturingAdapter("vellum");
+    const platform = makeCapturingAdapter("platform", {
+      success: true,
+      remotePushAccepted: true,
+      remotePushPlatforms: ["ios"],
+    });
+    const broadcaster = new NotificationBroadcaster([
+      platform.adapter,
+      vellum.adapter,
+    ]);
+    const events: Array<{ silent: boolean; source?: string }> = [];
+    broadcaster.setOnConversationCreated((info) => {
+      events.push(info);
+    });
+    const signal = share();
+    const dispatchOptions = options(signal);
+    await broadcaster.broadcastDecision(signal, decision(), dispatchOptions);
+
+    expect(events).toEqual([
+      expect.objectContaining({ source: "assistant_initiated", silent: false }),
+    ]);
+    expect(vellum.sends[0]?.payload).toMatchObject({
+      silent: false,
+      urgency: "low",
+      remotePushDispatched: true,
+      remotePushPlatforms: ["ios"],
+      correlationId: signal.signalId,
+      deepLinkTarget: { conversationId: "conv-new", messageId: "msg-new" },
+    });
+    expect(platform.sends[0]?.payload).toMatchObject({
+      urgency: "low",
+      copy,
+      correlationId: signal.signalId,
+      deepLinkTarget: { conversationId: "conv-new", messageId: "msg-new" },
+    });
+    expect(pairingInputs[0]?.options?.assistantInitiatedThread).toBe(
+      dispatchOptions.assistantInitiatedThread.resolution,
+    );
+    expect(pairingInputs[1]?.options?.assistantInitiatedThread).toBeUndefined();
+    expect(pairingInputs.every((input) => input.signal === signal)).toBe(true);
+    expect(signal.conversationMetadata).toBeUndefined();
+  });
+
+  test.each([
+    "reuse",
+    "missing_conversation",
+    "missing_seed",
+    "unpersisted_seed",
+    "grouped",
+    "pinned",
+    "archived",
+    "flag_off",
+    "quiet",
+  ])(
+    "%s retains baseline silence and skips only feature-added push",
+    async (scenario) => {
+      if (scenario === "reuse") {
+        pairingByChannel.vellum!.createdNewConversation = false;
+      }
+      if (scenario === "missing_conversation") {
+        persistedThreads.clear();
+      }
+      if (scenario === "missing_seed") {
+        pairingByChannel.vellum!.messageId = null;
+      }
+      if (scenario === "unpersisted_seed") {
+        persistedSeed = false;
+      }
+      if (scenario === "grouped") {
+        threadPlacement.groupId = "group-123";
+      }
+      if (scenario === "pinned") {
+        threadPlacement.isPinned = true;
+      }
+      if (scenario === "archived") {
+        persistedThreads.get("conv-new")!.archivedAt = 1;
+      }
+      const signal = share();
+      if (scenario === "quiet") {
+        signal.contextPayload.quiet = true;
+      }
+      const dispatchOptions = options(signal);
+      if (scenario === "flag_off") {
+        dispatchOptions.assistantInitiatedThread.resolution.isCandidate = false;
+      }
+      const vellum = makeCapturingAdapter("vellum");
+      const platform = makeCapturingAdapter("platform");
+      const results = await new NotificationBroadcaster([
+        vellum.adapter,
+        platform.adapter,
+      ]).broadcastDecision(signal, decision(), dispatchOptions);
+      expect(vellum.sends[0]?.payload.silent).toBe(true);
+      expect(platform.sends).toHaveLength(0);
+      expect(results).toContainEqual(
+        expect.objectContaining({
+          channel: "platform",
+          status: "skipped",
+          errorMessage: "No newly persisted From me conversation for push",
+        }),
+      );
+    },
+  );
+
+  test("failed pairing never sends feature push to the hidden producer", async () => {
+    pairingByChannel.vellum = defaultPairing();
+    const vellum = makeCapturingAdapter("vellum");
+    const platform = makeCapturingAdapter("platform");
+    const signal = share();
+    await new NotificationBroadcaster([
+      vellum.adapter,
+      platform.adapter,
+    ]).broadcastDecision(signal, decision(), options(signal));
+    expect(platform.sends).toHaveLength(0);
+    expect(vellum.sends[0]?.payload.silent).toBe(true);
+  });
+
+  test("independently selected urgent push survives failed creation and quiet intent", async () => {
+    pairingByChannel.vellum = defaultPairing();
+    const vellum = makeCapturingAdapter("vellum");
+    const platform = makeCapturingAdapter("platform");
+    const signal = share();
+    signal.attentionHints.urgency = "high";
+    signal.contextPayload.quiet = true;
+    await new NotificationBroadcaster([
+      vellum.adapter,
+      platform.adapter,
+    ]).broadcastDecision(signal, decision(), options(signal, false));
+    expect(platform.sends).toHaveLength(1);
+    expect(platform.sends[0]?.payload.deepLinkTarget?.conversationId).toBe(
+      "conv-background",
+    );
+    expect(vellum.sends[0]?.payload.silent).toBe(true);
+  });
+
+  test("invalid reuse that creates a new thread qualifies", async () => {
+    pairingByChannel.vellum!.conversationFallbackUsed = true;
+    const signal = share();
+    const vellum = makeCapturingAdapter("vellum");
+    const platform = makeCapturingAdapter("platform");
+    await new NotificationBroadcaster([
+      vellum.adapter,
+      platform.adapter,
+    ]).broadcastDecision(
+      signal,
+      {
+        ...decision(),
+        conversationActions: {
+          vellum: { action: "reuse_existing", conversationId: "conv-stale" },
+        },
+      },
+      options(signal),
+    );
+    expect(vellum.sends[0]?.payload.silent).toBe(false);
+    expect(platform.sends).toHaveLength(1);
+  });
+
+  test.each([
+    ["start_new", false, true],
+    ["reuse_existing", true, true],
+    ["reuse_existing", false, false],
+    [null, false, false],
+  ] as const)(
+    "replay proof action=%s fallback=%s permits push=%s",
+    async (action, fallback, permitted) => {
+      existingDeliveries.vellum = {
+        id: "delivery-original",
+        conversationId: "conv-new",
+        messageId: "msg-original",
+        conversationStrategy: "start_new_conversation",
+        conversationAction: action,
+        conversationFallbackUsed: fallback ? 1 : 0,
+      };
+      const signal = share();
+      const vellum = makeCapturingAdapter("vellum");
+      const platform = makeCapturingAdapter("platform");
+      await new NotificationBroadcaster([
+        vellum.adapter,
+        platform.adapter,
+      ]).broadcastDecision(signal, decision(), options(signal));
+      expect(pairedChannels).not.toContain("vellum");
+      expect(vellum.sends).toHaveLength(0);
+      expect(platform.sends).toHaveLength(permitted ? 1 : 0);
+      if (permitted) {
+        expect(platform.sends[0]?.payload.deepLinkTarget).toMatchObject({
+          conversationId: "conv-new",
+          messageId: "msg-original",
+        });
+      }
+    },
+  );
+
+  test("platform rejection preserves the local alert through the deferred send", async () => {
+    const signal = share();
+    const vellum = makeCapturingAdapter("vellum");
+    const platform = makeCapturingAdapter("platform", {
+      success: false,
+      skipped: true,
+      remotePushAccepted: false,
+      error: "no_tokens",
+    });
+    await new NotificationBroadcaster([
+      vellum.adapter,
+      platform.adapter,
+    ]).broadcastDecision(signal, decision(), options(signal));
+    expect(vellum.sends[0]?.payload).toMatchObject({
+      silent: false,
+      remotePushDispatched: false,
+    });
   });
 });

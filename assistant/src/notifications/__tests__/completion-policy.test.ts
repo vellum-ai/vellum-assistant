@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { saveRawConfig } from "../../config/loader.js";
 import {
   hasCompletionOwnership,
   isCompletionNotification,
@@ -240,4 +241,40 @@ describe("completion local delivery policy", () => {
       ).toBe(true);
     },
   );
+});
+
+describe("new From me thread presentation", () => {
+  const presentation = { assistantInitiatedThreadCreated: true };
+  const share = { sourceEventName: "assistant.share", urgency: "low" as const };
+
+  test("can alert without completion ownership or urgency escalation", () => {
+    expect(isLocalNotificationSilent(share)).toBe(true);
+    expect(isLocalNotificationSilent(share, presentation)).toBe(false);
+    expect(isCompletionNotification(share)).toBe(false);
+    expect(hasCompletionOwnership(share)).toBe(false);
+  });
+
+  test("quiet retains priority over new thread presentation", () => {
+    expect(
+      isLocalNotificationSilent(
+        { ...share, contextPayload: { quiet: true } },
+        presentation,
+      ),
+    ).toBe(true);
+  });
+
+  test("chat reply preference retains priority over presentation overrides", () => {
+    saveRawConfig({ notifications: { newMessageEnabled: false } });
+    try {
+      expect(
+        isLocalNotificationSilent(
+          { sourceEventName: "chat.assistant_reply", urgency: "high" },
+          presentation,
+        ),
+      ).toBe(true);
+      expect(isLocalNotificationSilent(share, presentation)).toBe(false);
+    } finally {
+      saveRawConfig({});
+    }
+  });
 });
