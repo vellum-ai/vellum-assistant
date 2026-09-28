@@ -1960,10 +1960,10 @@ describe("FireworksProvider reasoning_effort ceiling", () => {
     lastCreateParams = null;
   });
 
-  test('DeepSeek V4 Pro accepts "max" unclamped', async () => {
+  test('DeepSeek V4.1 Flash accepts "max" unclamped', async () => {
     const fw = new FireworksProvider(
       "fw-key",
-      "accounts/fireworks/models/deepseek-v4-pro-0813",
+      "accounts/fireworks/models/deepseek-v4p1-flash",
     );
     await fw.sendMessage([userMsg("hi")], {
       systemPrompt: "system",
@@ -1972,10 +1972,10 @@ describe("FireworksProvider reasoning_effort ceiling", () => {
     expect(lastCreateParams!.reasoning_effort).toBe("max");
   });
 
-  test('DeepSeek V4 Pro accepts "xhigh" unclamped', async () => {
+  test('DeepSeek V4.1 Flash accepts "xhigh" unclamped', async () => {
     const fw = new FireworksProvider(
       "fw-key",
-      "accounts/fireworks/models/deepseek-v4-pro-0813",
+      "accounts/fireworks/models/deepseek-v4p1-flash",
     );
     await fw.sendMessage([userMsg("hi")], {
       systemPrompt: "system",
@@ -1984,10 +1984,10 @@ describe("FireworksProvider reasoning_effort ceiling", () => {
     expect(lastCreateParams!.reasoning_effort).toBe("xhigh");
   });
 
-  test('Kimi K2.6 clamps "xhigh"/"max" down to "high"', async () => {
+  test('MiniMax M3 clamps "xhigh"/"max" down to "high"', async () => {
     const fw = new FireworksProvider(
       "fw-key",
-      "accounts/fireworks/models/kimi-k2p6",
+      "accounts/fireworks/models/minimax-m3",
     );
     await fw.sendMessage([userMsg("hi")], {
       systemPrompt: "system",
@@ -2016,7 +2016,7 @@ describe("FireworksProvider reasoning_effort ceiling", () => {
   test("effort below ceiling is forwarded verbatim", async () => {
     const fw = new FireworksProvider(
       "fw-key",
-      "accounts/fireworks/models/deepseek-v4-pro-0813",
+      "accounts/fireworks/models/deepseek-v4p1-flash",
     );
     await fw.sendMessage([userMsg("hi")], {
       systemPrompt: "system",
@@ -2028,7 +2028,7 @@ describe("FireworksProvider reasoning_effort ceiling", () => {
   test('effort: "none" passes through regardless of ceiling', async () => {
     const fw = new FireworksProvider(
       "fw-key",
-      "accounts/fireworks/models/kimi-k2p6",
+      "accounts/fireworks/models/minimax-m3",
     );
     await fw.sendMessage([userMsg("hi")], {
       systemPrompt: "system",
@@ -2040,13 +2040,13 @@ describe("FireworksProvider reasoning_effort ceiling", () => {
   test("model override picks ceiling from runtime model, not constructor model", async () => {
     const fw = new FireworksProvider(
       "fw-key",
-      "accounts/fireworks/models/kimi-k2p6",
+      "accounts/fireworks/models/minimax-m3",
     );
     await fw.sendMessage([userMsg("hi")], {
       systemPrompt: "system",
       config: {
         effort: "max",
-        model: "accounts/fireworks/models/deepseek-v4-pro-0813",
+        model: "accounts/fireworks/models/deepseek-v4p1-flash",
       },
     });
     expect(lastCreateParams!.reasoning_effort).toBe("max");
@@ -2111,7 +2111,7 @@ describe("FireworksProvider sparse reasoning_effort support (GLM 5.3)", () => {
 
   test("models without supportedEfforts are unaffected", async () => {
     expect(
-      await send("accounts/fireworks/models/deepseek-v4-pro-0813", "medium"),
+      await send("accounts/fireworks/models/deepseek-v4p1-flash", "medium"),
     ).toBe("medium");
   });
 });

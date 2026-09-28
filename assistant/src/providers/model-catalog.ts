@@ -1062,22 +1062,9 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
           cacheReadPer1mTokens: 0.3,
         },
       },
-      {
-        id: "accounts/fireworks/models/kimi-k2p6",
-        displayName: "Kimi K2.6",
-        contextWindowTokens: 262144,
-        maxOutputTokens: 32768,
-        supportsThinking: true,
-        supportsCaching: true,
-        supportsVision: true,
-        supportsToolUse: true,
-        maxEffort: "high",
-        pricing: {
-          inputPer1mTokens: 0.95,
-          outputPer1mTokens: 4.0,
-          cacheReadPer1mTokens: 0.16,
-        },
-      },
+      // Kimi K2.6 (accounts/fireworks/models/kimi-k2p6) is intentionally
+      // absent: Fireworks has no serverless deployment for it (the serving
+      // API returns 404).
       {
         id: "accounts/fireworks/models/glm-5p3",
         displayName: "GLM 5.3",
@@ -1160,40 +1147,29 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       // intentionally absent: Fireworks has no serverless deployment for
       // it (the model page claims serverless support, but the serving API
       // returns 404).
+      // DeepSeek V4 Pro (accounts/fireworks/models/deepseek-v4-pro-0813)
+      // and DeepSeek V4 Flash
+      // (accounts/fireworks/models/deepseek-v4-flash-0731) are intentionally
+      // absent: Fireworks has no serverless deployment for them (the
+      // serving API returns 404).
       {
-        id: "accounts/fireworks/models/deepseek-v4-pro-0813",
-        displayName: "DeepSeek V4 Pro",
-        contextWindowTokens: 1040000,
+        id: "accounts/fireworks/models/deepseek-v4p1-flash",
+        displayName: "DeepSeek V4.1 Flash",
+        contextWindowTokens: 1048576,
         maxOutputTokens: 131072,
         supportsThinking: true,
         supportsCaching: true,
-        supportsVision: false,
+        supportsVision: true,
         supportsToolUse: true,
         maxEffort: "max",
         pricing: {
-          inputPer1mTokens: 1.32,
-          outputPer1mTokens: 3.96,
-          cacheReadPer1mTokens: 0.044,
-        },
-      },
-      {
-        id: "accounts/fireworks/models/deepseek-v4-flash-0731",
-        displayName: "DeepSeek V4 Flash",
-        contextWindowTokens: 1040000,
-        maxOutputTokens: 131072,
-        supportsThinking: true,
-        supportsCaching: true,
-        supportsVision: false,
-        supportsToolUse: true,
-        maxEffort: "max",
-        pricing: {
-          inputPer1mTokens: 0.14,
-          outputPer1mTokens: 0.28,
-          cacheReadPer1mTokens: 0.028,
+          inputPer1mTokens: 0.3,
+          outputPer1mTokens: 1.2,
+          cacheReadPer1mTokens: 0.006,
         },
       },
     ],
-    defaultModel: "accounts/fireworks/models/deepseek-v4-flash-0731",
+    defaultModel: "accounts/fireworks/models/deepseek-v4p1-flash",
     apiKeyUrl: "https://fireworks.ai/account/api-keys",
     apiKeyPlaceholder: "fw_...",
   },
@@ -1912,32 +1888,6 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       },
       // DeepSeek
       {
-        id: "deepseek/deepseek-r1-0528",
-        displayName: "DeepSeek R1",
-        contextWindowTokens: 163840,
-        maxOutputTokens: 32000,
-        supportsThinking: true,
-        supportsCaching: true,
-        supportsVision: false,
-        supportsToolUse: true,
-        pricing: {
-          inputPer1mTokens: 0.5,
-          outputPer1mTokens: 2.15,
-          cacheReadPer1mTokens: 0.35,
-        },
-      },
-      {
-        id: "deepseek/deepseek-chat-v3-0324",
-        displayName: "DeepSeek V3",
-        contextWindowTokens: 163840,
-        maxOutputTokens: 32000,
-        supportsThinking: false,
-        supportsCaching: false,
-        supportsVision: false,
-        supportsToolUse: true,
-        pricing: { inputPer1mTokens: 0.25, outputPer1mTokens: 1.0 },
-      },
-      {
         id: "deepseek/deepseek-v4-pro",
         displayName: "DeepSeek V4 Pro",
         contextWindowTokens: 1048576,
@@ -1970,6 +1920,32 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
           outputPer1mTokens: 0.28,
           cacheReadPer1mTokens: 0.028,
         },
+      },
+      {
+        id: "deepseek/deepseek-r1-0528",
+        displayName: "DeepSeek R1",
+        contextWindowTokens: 163840,
+        maxOutputTokens: 32000,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: false,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 0.5,
+          outputPer1mTokens: 2.15,
+          cacheReadPer1mTokens: 0.35,
+        },
+      },
+      {
+        id: "deepseek/deepseek-chat-v3-0324",
+        displayName: "DeepSeek V3",
+        contextWindowTokens: 163840,
+        maxOutputTokens: 32000,
+        supportsThinking: false,
+        supportsCaching: false,
+        supportsVision: false,
+        supportsToolUse: true,
+        pricing: { inputPer1mTokens: 0.25, outputPer1mTokens: 1.0 },
       },
       // Qwen
       {

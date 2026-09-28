@@ -172,16 +172,17 @@ describe("resolveModelFirstGroups", () => {
       "GLM 5.3 Flash",
       "GLM 5.2",
     ]);
-    // Moonshot's are split: Fireworks lists the newest two and OpenRouter the
-    // one it does not, which lands under them rather than among them.
+    // Moonshot's are split: Fireworks lists the newest and OpenRouter the
+    // ones it does not, which land under it rather than among them.
     expect(namesOf([], "moonshot")).toEqual([
       "Kimi K3",
       "Kimi K2.6",
       "Kimi K2.5",
     ]);
-    // The same split under DeepSeek, where the two Fireworks serves are the
-    // newest and the two only OpenRouter lists are older.
+    // The same split under DeepSeek, where the one Fireworks serves is the
+    // newest and the ones only OpenRouter lists are older.
     expect(namesOf([], "deepseek")).toEqual([
+      "DeepSeek V4.1 Flash",
       "DeepSeek V4 Pro",
       "DeepSeek V4 Flash",
       "DeepSeek R1",

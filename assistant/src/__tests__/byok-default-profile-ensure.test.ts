@@ -302,6 +302,13 @@ describe("ensureByokDefaultProfiles", () => {
       "cost-optimized",
       "accounts/fireworks/models/deepseek-v4-flash",
     ],
+    [
+      "fireworks",
+      "cost-optimized",
+      "accounts/fireworks/models/deepseek-v4-flash-0731",
+    ],
+    ["fireworks", "balanced", "accounts/fireworks/models/deepseek-v4p1-flash"],
+    ["fireworks", "quality-optimized", "accounts/fireworks/models/kimi-k2p6"],
   ] as const)(
     "a historical intent-era copy converts (%s %s pinned to %s)",
     (provider, key, model) => {

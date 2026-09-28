@@ -187,6 +187,8 @@ const HISTORICAL_INTENT_MODELS: Record<
       "accounts/fireworks/models/deepseek-v4-flash",
       // the ID migration 146 writes over stale deepseek-v4-flash pins.
       "accounts/fireworks/models/deepseek-v4-flash-0731",
+      // the ID migration 160 writes over stale deepseek-v4-flash-0731 pins.
+      "accounts/fireworks/models/deepseek-v4p1-flash",
     ],
   },
   "quality-optimized": {
@@ -209,10 +211,15 @@ const HISTORICAL_INTENT_MODELS: Record<
     fireworks: [
       // quality intent 2026-05-05 (#29755) to 2026-05-19 (#31068).
       "accounts/fireworks/models/kimi-k2p5",
+      // quality intent 2026-05-19 (#31068) to the 2026-09-28 kimi-k3
+      // repoint.
+      "accounts/fireworks/models/kimi-k2p6",
       // migration 136's in-place rewrite of a kimi-k2p5 pin.
       "accounts/fireworks/models/deepseek-v4-flash",
       // the ID migration 146 writes over stale deepseek-v4-flash pins.
       "accounts/fireworks/models/deepseek-v4-flash-0731",
+      // the ID migration 160 writes over stale deepseek-v4-flash-0731 pins.
+      "accounts/fireworks/models/deepseek-v4p1-flash",
     ],
   },
   "cost-optimized": {
@@ -234,6 +241,10 @@ const HISTORICAL_INTENT_MODELS: Record<
       // 146 rewrites it to the dated ID, so this survives only in pre-146
       // backups.
       "accounts/fireworks/models/deepseek-v4-flash",
+      // latency intent 2026-08-17 to the 2026-09-28 deepseek-v4p1-flash
+      // repoint. On live configs migration 160 rewrites it, so this
+      // survives only in pre-160 backups.
+      "accounts/fireworks/models/deepseek-v4-flash-0731",
     ],
   },
 };

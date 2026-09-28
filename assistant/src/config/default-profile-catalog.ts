@@ -117,7 +117,7 @@ const VELLUM_PROFILE_IMPLS: ProfileImpls = {
     },
   },
   "cost-optimized": {
-    model: "accounts/fireworks/models/deepseek-v4-flash-0731",
+    model: "accounts/fireworks/models/deepseek-v4p1-flash",
     provider: "vellum",
     source: "managed",
     label: "Budget",

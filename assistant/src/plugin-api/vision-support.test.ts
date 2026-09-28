@@ -162,7 +162,7 @@ describe("doesSupportVision", () => {
       managed: { provider: "vellum", model: "claude-fable-5" },
       "managed-text": {
         provider: "vellum",
-        model: "accounts/fireworks/models/deepseek-v4-flash-0731",
+        model: "accounts/fireworks/models/glm-5p3",
       },
     });
     expect(doesSupportVision(profile("managed"))).toBe(true);
@@ -237,19 +237,19 @@ describe("doesSupportVision", () => {
 
 describe("doesSupportVision with a BYO default provider", () => {
   test("judges a default profile against the default provider's column model", () => {
-    // Managed/vellum column: cost-optimized → deepseek-v4-flash (text-only,
-    // supportsVision: false). Anthropic column: cost-optimized carries
-    // intent "latency-optimized" → claude-haiku-4-5 (supportsVision: true).
+    // Managed/vellum column: cost-optimized → deepseek-v4p1-flash
+    // (supportsVision: true). OpenRouter column: cost-optimized →
+    // deepseek/deepseek-v4-flash (text-only, supportsVision: false).
     // The judged model must be the one the BYO install actually runs.
-    setMockConfig({}, { provider: "anthropic" });
-    expect(doesSupportVision(profile("cost-optimized"))).toBe(true);
+    setMockConfig({}, { provider: "openrouter" });
+    expect(doesSupportVision(profile("cost-optimized"))).toBe(false);
   });
 
   test("without a default provider, a default profile judges the managed column", () => {
     // Null-reduction: no defaultProvider resolves cost-optimized through the
-    // vellum column (deepseek-v4-flash, text-only).
+    // vellum column (deepseek-v4p1-flash, vision-capable).
     setMockConfig({});
-    expect(doesSupportVision(profile("cost-optimized"))).toBe(false);
+    expect(doesSupportVision(profile("cost-optimized"))).toBe(true);
   });
 
   test("mix arms naming a default profile resolve through the same column", () => {
@@ -266,11 +266,11 @@ describe("doesSupportVision with a BYO default provider", () => {
           model: "accounts/fireworks/models/glm-5p2",
         },
       },
-      { provider: "anthropic" },
+      { provider: "openrouter" },
     );
-    // The "cost-optimized" arm resolves to the anthropic column's
-    // vision-capable model, so the mix can route to vision.
-    expect(doesSupportVision(profile("mix-profile"))).toBe(true);
+    // The "cost-optimized" arm resolves to the openrouter column's
+    // text-only model, so no arm of the mix can route to vision.
+    expect(doesSupportVision(profile("mix-profile"))).toBe(false);
   });
 
   test("a user-owned profile is unaffected by the default provider", () => {

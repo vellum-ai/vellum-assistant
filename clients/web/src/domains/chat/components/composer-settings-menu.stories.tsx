@@ -58,7 +58,7 @@ const MANAGED_PROFILES: ProfileSeed[] = [
     label: "Cost",
     source: "managed",
     provider: "vellum",
-    model: "accounts/fireworks/models/deepseek-v4-flash-0731",
+    model: "accounts/fireworks/models/deepseek-v4p1-flash",
   },
   {
     label: "Speed",
