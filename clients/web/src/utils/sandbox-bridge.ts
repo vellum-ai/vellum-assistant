@@ -61,6 +61,12 @@ export const FETCH_PROXY_PATH_RE = /^\/v1\/x\//;
  * encoded forms are rejected before the allowlist runs.
  */
 export function isBlockedRelayPath(path: string): boolean {
+  if (typeof path !== "string") {
+    // Message payloads come from the frame untyped; anything that is not a
+    // string is refused rather than crashed on, so the frame still gets a
+    // blocked response instead of a hanging request.
+    return true;
+  }
   return path.replace(/%5c/gi, "\\").includes("\\");
 }
 
@@ -536,7 +542,7 @@ export function injectWidgetBridge(
 ): string {
   return prependScript(
     injectScript(
-      html,
+      prependDocumentStart(html, WIDGET_CSP_META),
       buildWidgetWidthFitScript() +
         buildWidgetHeightReporterScript(frameId) +
         buildWidgetPromptScript(frameId) +
@@ -546,7 +552,7 @@ export function injectWidgetBridge(
       // first measurement runs.
       { fallback: "append" },
     ),
-    WIDGET_CSP_META + buildStoragePolyfill() + head,
+    buildStoragePolyfill() + head,
   );
 }
 
@@ -800,6 +806,28 @@ export function prependScript(html: string, script: string): string {
   return script + html;
 }
 
+const DOCTYPE_RE = /<!doctype\s+[^>]*>/i;
+
+/**
+ * Prepend markup at the very start of the document, after any doctype.
+ *
+ * A `<meta>` CSP only governs tokens that follow it in the document, so it
+ * must precede every app-controlled token. Inserting after `<head>` is not
+ * enough: in a malformed document a `<script>` serialized before the
+ * `<head>` tag is relocated into the implicit head in source order and
+ * executes before a policy placed after the head open tag exists. Placing
+ * the markup after the doctype (or at index zero) puts it before
+ * everything; the parser still routes the meta into the implicit head.
+ */
+export function prependDocumentStart(html: string, markup: string): string {
+  const doctypeMatch = DOCTYPE_RE.exec(html);
+  if (doctypeMatch) {
+    const after = doctypeMatch.index + doctypeMatch[0].length;
+    return html.slice(0, after) + markup + html.slice(after);
+  }
+  return markup + html;
+}
+
 /**
  * Inject the full bridge into app HTML.
  *
@@ -814,13 +842,13 @@ export function injectBridge(
 ): string {
   return prependScript(
     injectScript(
-      html,
+      prependDocumentStart(html, APP_FRAME_CSP_META),
       buildBridgeLogicScript(frameId, options) +
         buildLinkInterceptorScript(frameId, {
           relayAppRoutes: options?.relayAppRoutes,
         }),
     ),
-    APP_FRAME_CSP_META + buildStoragePolyfill(),
+    buildStoragePolyfill(),
   );
 }
 
