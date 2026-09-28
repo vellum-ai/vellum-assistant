@@ -366,8 +366,13 @@ function UnifiedMultiActivityGroup(
     cardData.steps,
   );
   // A settled run is titled by its summary, not its last step, so a run that
-  // ended on a thought does not keep reading "Thinking" once it is done.
-  const settled = shellState !== "loading";
+  // ended on a thought does not keep reading "Thinking" once it is done. A
+  // denied call outranks `loading` in the shell state, so the run's own
+  // activity also has to be over.
+  const settled =
+    shellState !== "loading" &&
+    !active &&
+    !toolCalls.some((toolCall) => isToolCallRunning(toolCall));
 
   const payload: ActivityStepsPayload = useMemo(
     () => ({

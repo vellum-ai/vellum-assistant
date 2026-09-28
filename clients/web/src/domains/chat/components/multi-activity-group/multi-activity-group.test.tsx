@@ -763,6 +763,30 @@ describe("MultiActivityGroup — header reflects the latest step", () => {
     expect(getByText("Now I understand the current state.")).toBeTruthy();
   });
 
+  test("a run still in flight after a denied call keeps its live title", () => {
+    const toolCalls = [
+      makeToolCall({
+        id: "tc-denied",
+        name: "bash",
+        status: "completed",
+        input: { command: "npm publish" },
+        confirmationDecision: "denied",
+        startedAt: 0,
+        completedAt: 2_000,
+      }),
+    ];
+    const items: ToolCallCardItem[] = [
+      { kind: "toolCall", toolCall: toolCalls[0]! },
+      { kind: "thinking", text: "I will try another way." },
+    ];
+    const { getByText, queryByText } = renderCard(toolCalls, {
+      items,
+      active: true,
+    });
+    expect(getByText("Thinking")).toBeTruthy();
+    expect(queryByText(/^Worked for |tool failed|^Failed$/)).toBeNull();
+  });
+
   test("a live run ending in a tool step keeps the tool title/info in the header", () => {
     const toolCalls = [
       makeToolCall({

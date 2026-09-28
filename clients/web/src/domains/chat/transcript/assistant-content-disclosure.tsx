@@ -81,7 +81,7 @@ export function AssistantContentDisclosure({
           {/* 2px of daylight between the trigger's text and the glyph column
               below it, so the timeline reads as nested under the trigger
               rather than hanging off the same edge. `pt-1.5` sets the run off
-              from the trigger — the first row's own glyph slot is centered, so
+              from the trigger: the first row's own glyph slot is centered, so
               without it the two rows crowd each other. */}
           <div className="flex flex-col pl-[2px] pt-1.5">
             {items.map((item, index) => {
@@ -91,7 +91,7 @@ export function AssistantContentDisclosure({
               const isLast = index === items.length - 1;
               // A row with no glyph (prose) takes the gutter's width too, so
               // it starts at the same x as the glyphs rather than at the
-              // labels beside them — its own left edge is the alignment cue.
+              // labels beside them; its own left edge is the alignment cue.
               if (!Glyph) {
                 return (
                   <div
@@ -101,9 +101,9 @@ export function AssistantContentDisclosure({
                   >
                     {item.node}
                     {/* The row owns the gutter, so its connector cannot run
-                          beside it — it runs under it instead, in the same
-                          centered column the glyph rows use, keeping the
-                          timeline unbroken across prose. */}
+                        beside it. It runs under it instead, in the same
+                        centered column the glyph rows use, keeping the
+                        timeline unbroken across prose. */}
                     {isLast ? null : (
                       <div
                         aria-hidden
@@ -123,7 +123,7 @@ export function AssistantContentDisclosure({
                 >
                   <div className="flex w-3.5 shrink-0 flex-col items-center">
                     {/* Fixed-height slot centers the glyph on the row's first
-                          line — a `SingleActivity` link is 28px tall. */}
+                        line: a `SingleActivity` link is 28px tall. */}
                     <span className="flex h-7 shrink-0 items-center justify-center">
                       <Glyph
                         aria-hidden
