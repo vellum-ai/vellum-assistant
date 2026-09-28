@@ -9,21 +9,41 @@ import {
   oomKillsFromEntries,
   parseDmesgJson,
   parseDmesgText,
+  parseOwnContainerIds,
 } from "../oom-kill-reporter.js";
 import type { ResourceSample } from "../resource-sample-types.js";
 
-const TOOL_KILL =
-  "Memory cgroup out of memory: Killed process 4242 (python3) total-vm:1263184kB, anon-rss:409600kB, file-rss:1024kB, shmem-rss:0kB, UID:0 pgtables:900kB oom_score_adj:1000";
-const DAEMON_KILL =
-  "Memory cgroup out of memory: Killed process 1 (bun) total-vm:3000000kB, anon-rss:2000000kB, file-rss:0kB, shmem-rss:0kB, UID:0 pgtables:5000kB oom_score_adj:-700";
-const LEGACY_KILL =
-  "Out of memory: Killed process 77 (node) total-vm:500000kB, anon-rss:300000kB, file-rss:0kB, shmem-rss:0kB";
-const NOISE = [
-  "bun invoked oom-killer: gfp_mask=0xcc0(GFP_KERNEL), order=0, oom_score_adj=-700",
-  "oom_reaper: reaped process 4242 (python3), now anon-rss:0kB, file-rss:0kB, shmem-rss:0kB",
-];
+const OUR_ID =
+  "de939a251b36f11a400aab40a43b756ca376056239227aec2795953ca219e7d5";
+const OTHER_ID =
+  "0f4c3b2a1908f7e6d5c4b3a29180f7e6d5c4b3a29180f7e6d5c4b3a29180f7e6";
+const memcg = (id: string) =>
+  `/kubepods.slice/kubepods-burstable.slice/kubepods-burstable-poda5d2033b.slice/cri-containerd-${id}.scope`;
+
+const header = (pid: number, comm: string, id: string) =>
+  `oom-kill:constraint=CONSTRAINT_MEMCG,nodemask=(null),cpuset=cri-containerd-${id}.scope,mems_allowed=0,oom_memcg=${memcg(id)},task_memcg=${memcg(id)},task=${comm},pid=${pid},uid=0`;
+const killed = (
+  pid: number,
+  comm: string,
+  adj: number | null,
+  anonKb = 409600,
+) =>
+  `Memory cgroup out of memory: Killed process ${pid} (${comm}) total-vm:1263184kB, anon-rss:${anonKb}kB, file-rss:1024kB, shmem-rss:0kB, UID:0 pgtables:900kB${adj == null ? "" : ` oom_score_adj:${adj}`}`;
 
 const entry = (time: number, msg: string): KernelLogEntry => ({ time, msg });
+/** A kill with its header, as the kernel logs it when not rate-limited. */
+const ourKill = (time: number, pid: number, adj = 1000): KernelLogEntry[] => [
+  entry(time - 0.00001, header(pid, "python3", OUR_ID)),
+  entry(time, killed(pid, "python3", adj)),
+];
+const theirKill = (time: number, pid: number): KernelLogEntry[] => [
+  entry(time - 0.00001, header(pid, "node", OTHER_ID)),
+  entry(time, killed(pid, "node", 0)),
+];
+/** A kill whose header the kernel rate-limited away. */
+const bareKill = (time: number, pid: number): KernelLogEntry[] => [
+  entry(time, killed(pid, "python3", 1000)),
+];
 
 function sample(
   oomKillDelta: number | null,
@@ -57,18 +77,22 @@ function sample(
 
 describe("kernel log parsing", () => {
   test("parses dmesg --json and plain dmesg into the same entries", () => {
-    const json = `{"dmesg":[{"pri":3,"time":  44170.542000,"msg":${JSON.stringify(TOOL_KILL)}},{"pri":6,"time":44171.0,"msg":"x"}]}`;
-    const text = `[44170.542000] ${TOOL_KILL}\n[   44171.000000] x\n`;
+    const msg = killed(4242, "python3", 1000);
+    const json = `{"dmesg":[{"pri":3,"time":  44170.542000,"msg":${JSON.stringify(msg)}},{"pri":6,"time":44171.0,"msg":"x"}]}`;
+    const text = `[44170.542000] ${msg}\n[   44171.000000] x\n`;
     expect(parseDmesgJson(json)).toEqual(parseDmesgText(text));
     expect(parseDmesgJson("not json")).toBeNull();
   });
 
-  test("extracts victims, sizes and oom_score_adj, oldest first, ignoring noise", () => {
+  test("pairs each kill with its header and tolerates missing headers and noise", () => {
     const kills = oomKillsFromEntries([
-      entry(30, NOISE[0]),
-      entry(50, LEGACY_KILL),
-      entry(31, TOOL_KILL),
-      entry(32, NOISE[1]),
+      entry(
+        30,
+        "bun invoked oom-killer: gfp_mask=0xcc0(GFP_KERNEL), order=0, oom_score_adj=-700",
+      ),
+      ...ourKill(31, 4242),
+      entry(32, "oom_reaper: reaped process 4242 (python3), now anon-rss:0kB"),
+      entry(50, killed(77, "node", null, 300000)),
     ]);
     expect(kills).toEqual([
       {
@@ -78,6 +102,7 @@ describe("kernel log parsing", () => {
         oomScoreAdj: 1000,
         anonRssKb: 409600,
         totalVmKb: 1263184,
+        memcg: memcg(OUR_ID),
       },
       {
         time: 50,
@@ -85,9 +110,21 @@ describe("kernel log parsing", () => {
         comm: "node",
         oomScoreAdj: null,
         anonRssKb: 300000,
-        totalVmKb: 500000,
+        totalVmKb: 1263184,
+        memcg: null,
       },
     ]);
+  });
+
+  test("finds the container id in the runtime-named mounts only", () => {
+    const layer =
+      "aaaa000000000000000000000000000000000000000000000000000000000000";
+    const mountinfo = [
+      `151 137 0:34 /${OUR_ID}-1f3ead8083566ffb-hosts /etc/hosts rw,relatime - virtiofs kataShared rw`,
+      `152 139 0:34 /${OUR_ID}-175b29da4eda0e77-termination-log /dev/termination-log rw,relatime - virtiofs kataShared rw`,
+      `140 120 0:30 / / rw,relatime - overlay overlay rw,lowerdir=/var/lib/x/${layer}/fs`,
+    ].join("\n");
+    expect(parseOwnContainerIds(mountinfo)).toEqual(new Set([OUR_ID]));
   });
 });
 
@@ -98,6 +135,7 @@ describe("createOomKillReporter", () => {
   let recordOk: boolean;
   let consent: boolean | null;
   let killCounter: number | null;
+  let entries: KernelLogEntry[] | null;
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "oom-kill-reporter-"));
@@ -106,23 +144,22 @@ describe("createOomKillReporter", () => {
     recordOk = true;
     consent = true;
     killCounter = 0;
+    entries = [];
   });
 
   afterEach(() => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  function reporter(
-    log: () => KernelLogEntry[] | null,
-    bootId: string | null = "boot-a",
-  ) {
+  function reporter(bootId: string | null = "boot-a") {
     return createOomKillReporter({
       readKernelLog: async () => {
         reads++;
-        return log();
+        return entries;
       },
-      readBootId: () => bootId,
       readKillCounter: () => killCounter,
+      readOwnContainerIds: () => new Set([OUR_ID]),
+      readBootId: () => bootId,
       shareAnalytics: () => consent,
       cursorPath: join(dir, "cursor.json"),
       record: (record) => {
@@ -135,67 +172,93 @@ describe("createOomKillReporter", () => {
     });
   }
 
-  test("attributes the oldest N new kills to a counter move of N", async () => {
-    let entries: KernelLogEntry[] = [];
-    const r = reporter(() => entries);
+  const pids = (report: { victims: { pid: number }[] } | null) =>
+    report?.victims.map((v) => v.pid) ?? [];
+
+  test("attributes by the header's cgroup regardless of order or count", async () => {
+    const r = reporter();
     await r.check(sample(0), 0, 1);
 
-    // Two of ours land, then a third is logged after the counter read.
-    entries = [
-      entry(20, TOOL_KILL),
-      entry(21, TOOL_KILL),
-      entry(22, TOOL_KILL),
-    ];
+    entries = [...theirKill(70, 900), ...ourKill(80, 4242)];
+    killCounter = 1;
+    const report = await r.check(sample(1), 1_000, 1);
+    expect(report?.attribution).toBe("cgroup");
+    expect(pids(report)).toEqual([4242]);
+    expect(recorded[0].detail).toMatchObject({ killed_daemon: false });
+  });
+
+  test("uses the counter for header-less kills, oldest first; the rest are neighbours'", async () => {
+    const r = reporter();
+    await r.check(sample(0), 0, 1);
+
+    entries = [...bareKill(20, 1), ...bareKill(21, 2), ...bareKill(22, 3)];
     killCounter = 2;
     const first = await r.check(sample(2), 1_000, 1);
     expect(first).toMatchObject({ attribution: "cgroup_counter", unnamed: 0 });
-    expect(first?.victims.map((v) => v.time)).toEqual([20, 21]);
+    expect(pids(first)).toEqual([1, 2]);
 
-    // The next tick's counter covers the straggler.
-    killCounter = 3;
-    const second = await r.check(sample(1), 1_250, 1);
-    expect(second?.victims.map((v) => v.time)).toEqual([22]);
-    expect(recorded.map((e) => e.value)).toEqual([2, 1]);
+    // The third was logged but not counted, so it was another container's.
+    expect(await r.check(sample(0), 61_000, 1)).toBeNull();
+    expect(recorded).toHaveLength(1);
   });
-
-  test("names every victim of a burst that straddles ticks", async () => {
-    // Replay of a real 3 GiB run: the log ran ahead of the sampler's counter
-    // on every tick, and the old newest-N rule dropped two victims.
-    let entries: KernelLogEntry[] = [];
-    const r = reporter(() => entries);
+  test("spends counter credit on the next scan and reports it unnamed only if unspent", async () => {
+    const r = reporter();
     await r.check(sample(0), 0, 1);
 
-    const kills = [468, 472, 474, 477, 476, 467, 480, 471, 478, 473, 481].map(
-      (pid, i) =>
-        entry(
-          216386 + i * 0.15,
-          TOOL_KILL.replace("Killed process 4242", `Killed process ${pid}`),
-        ),
+    // The kill is counted but its line is not yet visible: nothing to say yet.
+    killCounter = 1;
+    expect(await r.check(sample(1), 1_000, 1)).toBeNull();
+
+    entries = [...bareKill(5, 1)];
+    const spent = await r.check(sample(0), 61_000, 1);
+    expect(spent).toMatchObject({ attribution: "cgroup_counter", unnamed: 0 });
+    expect(pids(spent)).toEqual([1]);
+
+    // Credit that never finds a line is reported unnamed after one scan.
+    killCounter = 2;
+    expect(await r.check(sample(1), 62_000, 1)).toBeNull();
+    const expired = await r.check(sample(0), 123_000, 1);
+    expect(expired).toEqual({
+      attribution: "cgroup_counter",
+      victims: [],
+      unnamed: 1,
+    });
+  });
+  test("names every victim of a burst where the kernel rate-limits headers", async () => {
+    const r = reporter();
+    await r.check(sample(0), 0, 1);
+
+    const victims = [468, 472, 474, 477, 476, 467, 480, 471, 478, 473, 481];
+    const headerless = new Set([474, 468]);
+    const perKill = victims.map((pid, i) =>
+      headerless.has(pid)
+        ? bareKill(216386 + i * 0.15, pid)
+        : ourKill(216386 + i * 0.15, pid),
     );
-    // (visible log lines, counter after the log read) per tick
+    // Kills visible in the log, then the counter read after them, per tick.
     const ticks: Array<[number, number]> = [
-      [2, 1],
-      [5, 4],
-      [8, 7],
-      [11, 10],
+      [2, 2],
+      [5, 6],
+      [8, 8],
       [11, 11],
     ];
     const named: number[] = [];
     let t = 1_000;
     for (const [visible, counter] of ticks) {
-      entries = kills.slice(0, visible);
+      entries = perKill.slice(0, visible).flat();
       killCounter = counter;
       const report = await r.check(sample(1), (t += 250), 1);
-      named.push(...(report?.victims.map((v) => v.pid) ?? []));
+      named.push(...pids(report));
     }
-    expect(named).toEqual([
-      468, 472, 474, 477, 476, 467, 480, 471, 478, 473, 481,
-    ]);
+    expect([...named].sort((a, b) => a - b)).toEqual(
+      [...victims].sort((a, b) => a - b),
+    );
     expect(recorded.reduce((n, e) => n + (e.value ?? 0), 0)).toBe(11);
   });
+
   test("first scan reports the kill that preceded the monitor and flags the daemon by score", async () => {
-    const r = reporter(() => [entry(5, DAEMON_KILL)]);
-    const report = await r.check(sample(0), 0, 999);
+    entries = [...ourKill(5, 1, -700)];
+    const report = await reporter().check(sample(0), 0, 999);
     expect(report?.attribution).toBe("kernel_log");
     expect(recorded[0].detail).toMatchObject({
       killed_daemon: true,
@@ -203,92 +266,101 @@ describe("createOomKillReporter", () => {
       memory_limit_bytes: 3_221_225_472,
     });
 
-    // A second monitor incarnation on the same kernel sees the same log: nothing new.
-    expect(
-      await reporter(() => [entry(5, DAEMON_KILL)]).check(sample(0), 0, 999),
-    ).toBeNull();
+    // A second incarnation on the same kernel sees the same log: nothing new.
+    expect(await reporter().check(sample(0), 0, 999)).toBeNull();
     expect(recorded).toHaveLength(1);
   });
 
-  test("ignores neighbours' kills when the local counter did not move", async () => {
-    let entries: KernelLogEntry[] = [];
-    const r = reporter(() => entries);
-    await r.check(sample(0), 0, 1);
+  test("first scan still excludes kills the header assigns elsewhere", async () => {
+    entries = [...theirKill(4, 900), ...ourKill(5, 1)];
+    expect(pids(await reporter().check(sample(0), 0, 1))).toEqual([1]);
+  });
 
-    entries = [entry(70, LEGACY_KILL)];
+  test("ignores header-less neighbours' kills when the local counter did not move", async () => {
+    const r = reporter();
+    await r.check(sample(0), 0, 1);
+    entries = [...bareKill(70, 900)];
     expect(await r.check(sample(0), 61_000, 1)).toBeNull();
     expect(recorded).toHaveLength(0);
-
-    // A later local kill is still found, and the neighbour's is not swept in.
-    entries = [entry(70, LEGACY_KILL), entry(80, TOOL_KILL)];
-    killCounter = 1;
-    const report = await r.check(sample(1), 122_000, 1);
-    expect(report?.victims.map((v) => v.pid)).toEqual([4242]);
   });
+
   test("reports every new kill when there is no counter at all", async () => {
     killCounter = null;
-    const r = reporter(() => [entry(5, TOOL_KILL)]);
-    await r.check(sample(null, false), 0, 1);
-    const r2 = reporter(() => [entry(5, TOOL_KILL), entry(9, LEGACY_KILL)]);
-    const report = await r2.check(sample(null, false), 61_000, 1);
+    entries = [...bareKill(5, 1)];
+    await reporter().check(sample(null, false), 0, 1);
+    entries = [...bareKill(5, 1), ...bareKill(9, 2)];
+    const report = await reporter().check(sample(null, false), 61_000, 1);
     expect(report?.attribution).toBe("kernel_log");
-    expect(report?.victims.map((v) => v.pid)).toEqual([77]);
+    expect(pids(report)).toEqual([2]);
   });
 
-  test("a counter move with no readable log still produces an event", async () => {
-    const report = await reporter(() => null).check(sample(3), 0, 1);
+  test("skips a scan when a counter that exists fails to read", async () => {
+    const r = reporter();
+    await r.check(sample(0), 0, 1);
+    entries = [...bareKill(70, 900)];
+    killCounter = null;
+    expect(await r.check(sample(1), 1_000, 1)).toBeNull();
+    expect(recorded).toHaveLength(0);
+    // The scan was not consumed: the kill is still claimable once the counter reads.
+    killCounter = 1;
+    expect(pids(await r.check(sample(0), 1_250, 1))).toEqual([900]);
+  });
+
+  test("a counter move with no readable log still produces an event, and does not double-count later", async () => {
+    entries = null;
+    killCounter = 3;
+    const r = reporter();
+    const report = await r.check(sample(3), 0, 1);
     expect(report).toEqual({
       attribution: "cgroup_counter",
       victims: [],
       unnamed: 3,
     });
     expect(recorded[0]).toMatchObject({ value: 3 });
-    expect(recorded[0].detail).toMatchObject({
-      unnamed_victims: 3,
-      killed_daemon: false,
-    });
+
+    entries = [...bareKill(1, 1), ...bareKill(2, 2), ...bareKill(3, 3)];
+    expect(await r.check(sample(0), 61_000, 1)).toBeNull();
+    expect(recorded).toHaveLength(1);
   });
 
   test("a rebooted kernel resets the cursor even when the boot id is unreadable", async () => {
-    await reporter(() => [entry(500, TOOL_KILL)], null).check(sample(0), 0, 1);
-    const report = await reporter(() => [entry(5, TOOL_KILL)], null).check(
-      sample(0),
-      0,
-      1,
-    );
+    entries = [...bareKill(500, 1)];
+    await reporter(null).check(sample(0), 0, 1);
+    entries = [...bareKill(5, 1)];
+    const report = await reporter(null).check(sample(0), 0, 1);
     expect(report?.victims).toHaveLength(1);
     expect(recorded).toHaveLength(2);
   });
 
   test("keeps the cursor and retries when the telemetry store refuses the event", async () => {
+    const r = reporter();
+    await r.check(sample(0), 0, 1);
     recordOk = false;
-    const r = reporter(() => [entry(5, TOOL_KILL)]);
-    expect(await r.check(sample(1), 0, 1)).not.toBeNull();
+    entries = [...ourKill(5, 1)];
+    killCounter = 1;
+    expect(await r.check(sample(1), 1_000, 1)).not.toBeNull();
     expect(recorded).toHaveLength(0);
 
     recordOk = true;
-    await r.check(sample(0), 1_000, 1);
+    await r.check(sample(0), 2_000, 1);
     expect(recorded).toHaveLength(1);
 
-    // Now durably acknowledged: a new incarnation does not repeat it.
-    expect(
-      await reporter(() => [entry(5, TOOL_KILL)]).check(sample(0), 0, 1),
-    ).toBeNull();
+    // Durably acknowledged: a new incarnation does not repeat it.
+    expect(await reporter().check(sample(0), 0, 1)).toBeNull();
     expect(recorded).toHaveLength(1);
   });
 
   test("an analytics opt-out advances the cursor without recording", async () => {
     consent = false;
-    await reporter(() => [entry(5, TOOL_KILL)]).check(sample(1), 0, 1);
+    entries = [...ourKill(5, 1)];
+    await reporter().check(sample(0), 0, 1);
     consent = true;
-    expect(
-      await reporter(() => [entry(5, TOOL_KILL)]).check(sample(0), 0, 1),
-    ).toBeNull();
+    expect(await reporter().check(sample(0), 0, 1)).toBeNull();
     expect(recorded).toHaveLength(0);
   });
 
   test("scans on the first tick, on a counter move, and on the fallback cadence", async () => {
-    const r = reporter(() => []);
+    const r = reporter();
     await r.check(sample(0), 0, 1);
     await r.check(sample(0), 1_000, 1);
     expect(reads).toBe(1);
