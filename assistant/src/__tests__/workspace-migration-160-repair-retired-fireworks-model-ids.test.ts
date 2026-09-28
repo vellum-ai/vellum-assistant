@@ -10,12 +10,11 @@ import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { repairRetiredFireworksDeepseekV4ModelIdsMigration } from "../workspace/migrations/160-repair-retired-fireworks-deepseek-v4-model-ids.js";
+import { repairRetiredFireworksModelIdsMigration } from "../workspace/migrations/160-repair-retired-fireworks-model-ids.js";
 import { WORKSPACE_MIGRATIONS } from "../workspace/migrations/registry.js";
 import { assertNotLiveDb } from "./assert-not-live-db.js";
 
 const STALE = "accounts/fireworks/models/deepseek-v4-flash-0731";
-const STALE_PRO = "accounts/fireworks/models/deepseek-v4-pro-0813";
 const REPLACEMENT = "accounts/fireworks/models/deepseek-v4p1-flash";
 
 let workspaceDir: string;
@@ -68,13 +67,13 @@ afterEach(() => {
   }
 });
 
-describe("160-repair-retired-fireworks-deepseek-v4-model-ids migration", () => {
+describe("160-repair-retired-fireworks-model-ids migration", () => {
   test("has correct migration id and is registered", () => {
-    expect(repairRetiredFireworksDeepseekV4ModelIdsMigration.id).toBe(
-      "160-repair-retired-fireworks-deepseek-v4-model-ids",
+    expect(repairRetiredFireworksModelIdsMigration.id).toBe(
+      "160-repair-retired-fireworks-model-ids",
     );
     expect(WORKSPACE_MIGRATIONS.map((m) => m.id)).toContain(
-      "160-repair-retired-fireworks-deepseek-v4-model-ids",
+      "160-repair-retired-fireworks-model-ids",
     );
   });
 
@@ -94,7 +93,7 @@ describe("160-repair-retired-fireworks-deepseek-v4-model-ids migration", () => {
       },
     });
 
-    repairRetiredFireworksDeepseekV4ModelIdsMigration.run(workspaceDir);
+    repairRetiredFireworksModelIdsMigration.run(workspaceDir);
 
     const llm = readConfig().llm as Record<string, any>;
     expect(llm.default.model).toBe(REPLACEMENT);
@@ -108,24 +107,33 @@ describe("160-repair-retired-fireworks-deepseek-v4-model-ids migration", () => {
     expect(llm.profiles.legacy.model).toBe(REPLACEMENT);
   });
 
-  test("repairs the retired DeepSeek V4 Pro ID to the same successor", () => {
+  test.each([
+    [
+      "accounts/fireworks/models/deepseek-v4-pro-0813",
+      "accounts/fireworks/models/deepseek-v4p1-flash",
+    ],
+    [
+      "accounts/fireworks/models/kimi-k2p6",
+      "accounts/fireworks/models/kimi-k3",
+    ],
+  ])("repairs %s to %s", (stale, replacement) => {
     writeConfig({
       llm: {
-        default: { provider: "fireworks", model: STALE_PRO },
+        default: { provider: "fireworks", model: stale },
         profiles: {
-          managed: { provider: "vellum", model: STALE_PRO },
-          other: { provider: "openai-compatible", model: STALE_PRO },
+          managed: { provider: "vellum", model: stale },
+          other: { provider: "openai-compatible", model: stale },
         },
       },
     });
 
-    repairRetiredFireworksDeepseekV4ModelIdsMigration.run(workspaceDir);
+    repairRetiredFireworksModelIdsMigration.run(workspaceDir);
 
     const llm = readConfig().llm as Record<string, unknown>;
     const profiles = llm.profiles as Record<string, Record<string, unknown>>;
-    expect((llm.default as Record<string, unknown>).model).toBe(REPLACEMENT);
-    expect(profiles.managed.model).toBe(REPLACEMENT);
-    expect(profiles.other.model).toBe(STALE_PRO);
+    expect((llm.default as Record<string, unknown>).model).toBe(replacement);
+    expect(profiles.managed.model).toBe(replacement);
+    expect(profiles.other.model).toBe(stale);
   });
 
   test("repairs entry-bound fragments whose row kind is fireworks or vellum", () => {
@@ -142,7 +150,7 @@ describe("160-repair-retired-fireworks-deepseek-v4-model-ids migration", () => {
       },
     });
 
-    repairRetiredFireworksDeepseekV4ModelIdsMigration.run(workspaceDir);
+    repairRetiredFireworksModelIdsMigration.run(workspaceDir);
 
     const llm = readConfig().llm as Record<string, any>;
     expect(llm.profiles.bound.model).toBe(REPLACEMENT);
@@ -165,7 +173,7 @@ describe("160-repair-retired-fireworks-deepseek-v4-model-ids migration", () => {
       },
     });
 
-    repairRetiredFireworksDeepseekV4ModelIdsMigration.run(workspaceDir);
+    repairRetiredFireworksModelIdsMigration.run(workspaceDir);
 
     const llm = readConfig().llm as Record<string, any>;
     expect(llm.default.model).toBe(STALE);
@@ -181,7 +189,7 @@ describe("160-repair-retired-fireworks-deepseek-v4-model-ids migration", () => {
       },
     });
 
-    repairRetiredFireworksDeepseekV4ModelIdsMigration.run(workspaceDir);
+    repairRetiredFireworksModelIdsMigration.run(workspaceDir);
 
     const llm = readConfig().llm as Record<string, any>;
     expect(llm.profiles.bound.model).toBe(STALE);
@@ -199,7 +207,7 @@ describe("160-repair-retired-fireworks-deepseek-v4-model-ids migration", () => {
     });
 
     expect(() =>
-      repairRetiredFireworksDeepseekV4ModelIdsMigration.run(workspaceDir),
+      repairRetiredFireworksModelIdsMigration.run(workspaceDir),
     ).toThrow();
     const llm = readConfig().llm as Record<string, any>;
     expect(llm.profiles.bound.model).toBe(STALE);
@@ -212,7 +220,7 @@ describe("160-repair-retired-fireworks-deepseek-v4-model-ids migration", () => {
         profiles: { legacy: { model: STALE } },
       },
     });
-    repairRetiredFireworksDeepseekV4ModelIdsMigration.run(workspaceDir);
+    repairRetiredFireworksModelIdsMigration.run(workspaceDir);
     const repaired = readConfig().llm as Record<string, any>;
     expect(repaired.default.model).toBe(REPLACEMENT);
     expect(repaired.profiles.legacy.model).toBe(REPLACEMENT);
@@ -226,9 +234,9 @@ describe("160-repair-retired-fireworks-deepseek-v4-model-ids migration", () => {
       },
     });
 
-    repairRetiredFireworksDeepseekV4ModelIdsMigration.run(workspaceDir);
+    repairRetiredFireworksModelIdsMigration.run(workspaceDir);
     const first = readConfig();
-    repairRetiredFireworksDeepseekV4ModelIdsMigration.run(workspaceDir);
+    repairRetiredFireworksModelIdsMigration.run(workspaceDir);
     expect(readConfig()).toEqual(first);
 
     const llm = first.llm as Record<string, any>;
@@ -239,16 +247,16 @@ describe("160-repair-retired-fireworks-deepseek-v4-model-ids migration", () => {
   test("handles missing config, missing llm block, and invalid JSON", () => {
     // No config.json at all.
     expect(() =>
-      repairRetiredFireworksDeepseekV4ModelIdsMigration.run(workspaceDir),
+      repairRetiredFireworksModelIdsMigration.run(workspaceDir),
     ).not.toThrow();
 
     writeConfig({ theme: "dark" });
-    repairRetiredFireworksDeepseekV4ModelIdsMigration.run(workspaceDir);
+    repairRetiredFireworksModelIdsMigration.run(workspaceDir);
     expect(readConfig()).toEqual({ theme: "dark" });
 
     writeFileSync(join(workspaceDir, "config.json"), "{not json");
     expect(() =>
-      repairRetiredFireworksDeepseekV4ModelIdsMigration.run(workspaceDir),
+      repairRetiredFireworksModelIdsMigration.run(workspaceDir),
     ).not.toThrow();
   });
 });

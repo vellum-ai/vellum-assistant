@@ -1064,7 +1064,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       },
       // Kimi K2.6 (accounts/fireworks/models/kimi-k2p6) is intentionally
       // absent: Fireworks has no serverless deployment for it (the serving
-      // API returns 404).
+      // API returns 404). Kimi K3 is its successor.
       {
         id: "accounts/fireworks/models/glm-5p3",
         displayName: "GLM 5.3",

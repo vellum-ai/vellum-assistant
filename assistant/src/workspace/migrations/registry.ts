@@ -157,7 +157,7 @@ import { extractWorkspaceMcpJsonMigration } from "./156-extract-workspace-mcp-js
 import { addDesktopFilesLauncherMigration } from "./157-add-desktop-files-launcher.js";
 import { repointOpencodeHostProviderFragmentsMigration } from "./158-repoint-opencode-host-provider-fragments.js";
 import { renameCollidingJevProfileNameMigration } from "./159-rename-colliding-jev-profile-name.js";
-import { repairRetiredFireworksDeepseekV4ModelIdsMigration } from "./160-repair-retired-fireworks-deepseek-v4-model-ids.js";
+import { repairRetiredFireworksModelIdsMigration } from "./160-repair-retired-fireworks-model-ids.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -330,5 +330,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   addDesktopFilesLauncherMigration,
   repointOpencodeHostProviderFragmentsMigration,
   renameCollidingJevProfileNameMigration,
-  repairRetiredFireworksDeepseekV4ModelIdsMigration,
+  repairRetiredFireworksModelIdsMigration,
 ];
