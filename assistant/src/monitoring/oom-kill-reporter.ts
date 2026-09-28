@@ -13,6 +13,7 @@ import { dirname, join } from "node:path";
 
 import { getRawShareAnalytics } from "../platform/consent-cache.js";
 import { recordWatchdogEvent } from "../telemetry/watchdog-events-store.js";
+import { getContainerMemoryEvents } from "../util/cgroup-memory.js";
 import { getLogger } from "../util/logger.js";
 import { DAEMON_OOM_SCORE_ADJ } from "../util/oom-priority.js";
 import { getMonitoringDataDir } from "../util/platform.js";
@@ -166,6 +167,8 @@ function writeCursor(path: string, cursor: Cursor): void {
 
 export interface OomKillReporterOptions {
   readKernelLog?: () => Promise<KernelLogEntry[] | null>;
+  /** Cumulative cgroup oom_kill count, read after the log so it covers every logged kill. */
+  readKillCounter?: () => number | null;
   readBootId?: () => string | null;
   shareAnalytics?: () => boolean | null;
   cursorPath?: string;
@@ -193,6 +196,9 @@ export function createOomKillReporter(
 ): OomKillReporter {
   const read = options.readKernelLog ?? readKernelLog;
   const bootId = options.readBootId ?? readBootId;
+  const readKillCounter =
+    options.readKillCounter ??
+    (() => getContainerMemoryEvents()?.oomKill ?? null);
   const shareAnalytics = options.shareAnalytics ?? getRawShareAnalytics;
   const cursorPath =
     options.cursorPath ?? join(getMonitoringDataDir(), CURSOR_FILENAME);
@@ -200,6 +206,7 @@ export function createOomKillReporter(
 
   let firstScan = true;
   let lastScanAt = 0;
+  let lastKillCounter: number | null = null;
   /** A report the telemetry store refused; retried before the next scan. */
   let pending: {
     report: OomKillReport;
@@ -269,11 +276,10 @@ export function createOomKillReporter(
         pending = null;
       }
 
-      const counterDelta = sample.deltas?.events?.oomKill ?? 0;
-      const countersAvailable = sample.events != null;
+      const sampleDelta = sample.deltas?.events?.oomKill ?? 0;
       if (
         !firstScan &&
-        counterDelta === 0 &&
+        sampleDelta === 0 &&
         now - lastScanAt < FALLBACK_SCAN_INTERVAL_MS
       ) {
         return null;
@@ -285,13 +291,13 @@ export function createOomKillReporter(
       const entries = await read();
       const currentBootId = bootId();
       if (entries == null) {
-        if (counterDelta === 0) {
+        if (sampleDelta === 0) {
           return null;
         }
         const report: OomKillReport = {
           attribution: "cgroup_counter",
           victims: [],
-          unnamed: counterDelta,
+          unnamed: sampleDelta,
         };
         const cursor = { bootId: currentBootId, lastTime: 0 };
         if (!queue(report, sample, daemonPid, cursor)) {
@@ -316,15 +322,29 @@ export function createOomKillReporter(
         lastTime: Math.max(sinceTime, maxTime),
       };
 
+      // Read after the log so the count covers every line the log holds; the
+      // sampler's own read came before the log and can trail a burst.
+      const killCounter = readKillCounter();
+      const counterDelta =
+        killCounter != null && lastKillCounter != null
+          ? Math.max(0, killCounter - lastKillCounter)
+          : null;
+      lastKillCounter = killCounter ?? lastKillCounter;
+
       let report: OomKillReport | null = null;
-      // The counter says how many were ours; older new kills are neighbours'.
-      if (counterDelta > 0) {
+      if (counterDelta != null && counterDelta > 0) {
+        // The oldest N new kills are ours; anything newer was logged after
+        // the counter read and waits for the next tick.
+        const ours = fresh.slice(0, counterDelta);
+        if (ours.length > 0 && ours.length < fresh.length) {
+          cursor.lastTime = ours[ours.length - 1].time;
+        }
         report = {
           attribution: "cgroup_counter",
-          victims: fresh.slice(-counterDelta),
+          victims: ours,
           unnamed: Math.max(0, counterDelta - fresh.length),
         };
-      } else if ((isFirstScan || !countersAvailable) && fresh.length > 0) {
+      } else if ((isFirstScan || counterDelta == null) && fresh.length > 0) {
         // No counter to lean on: a kill that took the daemon down restarted
         // this monitor with it, and the new container's counter starts at 0.
         report = { attribution: "kernel_log", victims: fresh, unnamed: 0 };

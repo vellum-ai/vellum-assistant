@@ -97,6 +97,7 @@ describe("createOomKillReporter", () => {
   let reads: number;
   let recordOk: boolean;
   let consent: boolean | null;
+  let killCounter: number | null;
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "oom-kill-reporter-"));
@@ -104,6 +105,7 @@ describe("createOomKillReporter", () => {
     reads = 0;
     recordOk = true;
     consent = true;
+    killCounter = 0;
   });
 
   afterEach(() => {
@@ -120,6 +122,7 @@ describe("createOomKillReporter", () => {
         return log();
       },
       readBootId: () => bootId,
+      readKillCounter: () => killCounter,
       shareAnalytics: () => consent,
       cursorPath: join(dir, "cursor.json"),
       record: (record) => {
@@ -132,29 +135,64 @@ describe("createOomKillReporter", () => {
     });
   }
 
-  test("attributes the last N new kills to a counter move of N", async () => {
-    const log = () => [
-      entry(10, LEGACY_KILL), // a neighbour container's, before ours
+  test("attributes the oldest N new kills to a counter move of N", async () => {
+    let entries: KernelLogEntry[] = [];
+    const r = reporter(() => entries);
+    await r.check(sample(0), 0, 1);
+
+    // Two of ours land, then a third is logged after the counter read.
+    entries = [
       entry(20, TOOL_KILL),
       entry(21, TOOL_KILL),
+      entry(22, TOOL_KILL),
     ];
-    const r = reporter(log);
-    await r.check(sample(0), 0, 1); // first scan on an empty-counter container reports what it finds
-    recorded.length = 0;
+    killCounter = 2;
+    const first = await r.check(sample(2), 1_000, 1);
+    expect(first).toMatchObject({ attribution: "cgroup_counter", unnamed: 0 });
+    expect(first?.victims.map((v) => v.time)).toEqual([20, 21]);
 
-    const r2 = reporter(() => [
-      ...log(),
-      entry(30, TOOL_KILL),
-      entry(31, TOOL_KILL),
-    ]);
-    // Fresh reporter, same cursor: only the two new kills are fresh, counter says 2.
-    const report = await r2.check(sample(2), 1_000, 1);
-    expect(report).toMatchObject({ attribution: "cgroup_counter", unnamed: 0 });
-    expect(report?.victims.map((v) => v.time)).toEqual([30, 31]);
-    expect(recorded).toHaveLength(1);
-    expect(recorded[0].value).toBe(2);
+    // The next tick's counter covers the straggler.
+    killCounter = 3;
+    const second = await r.check(sample(1), 1_250, 1);
+    expect(second?.victims.map((v) => v.time)).toEqual([22]);
+    expect(recorded.map((e) => e.value)).toEqual([2, 1]);
   });
 
+  test("names every victim of a burst that straddles ticks", async () => {
+    // Replay of a real 3 GiB run: the log ran ahead of the sampler's counter
+    // on every tick, and the old newest-N rule dropped two victims.
+    let entries: KernelLogEntry[] = [];
+    const r = reporter(() => entries);
+    await r.check(sample(0), 0, 1);
+
+    const kills = [468, 472, 474, 477, 476, 467, 480, 471, 478, 473, 481].map(
+      (pid, i) =>
+        entry(
+          216386 + i * 0.15,
+          TOOL_KILL.replace("Killed process 4242", `Killed process ${pid}`),
+        ),
+    );
+    // (visible log lines, counter after the log read) per tick
+    const ticks: Array<[number, number]> = [
+      [2, 1],
+      [5, 4],
+      [8, 7],
+      [11, 10],
+      [11, 11],
+    ];
+    const named: number[] = [];
+    let t = 1_000;
+    for (const [visible, counter] of ticks) {
+      entries = kills.slice(0, visible);
+      killCounter = counter;
+      const report = await r.check(sample(1), (t += 250), 1);
+      named.push(...(report?.victims.map((v) => v.pid) ?? []));
+    }
+    expect(named).toEqual([
+      468, 472, 474, 477, 476, 467, 480, 471, 478, 473, 481,
+    ]);
+    expect(recorded.reduce((n, e) => n + (e.value ?? 0), 0)).toBe(11);
+  });
   test("first scan reports the kill that preceded the monitor and flags the daemon by score", async () => {
     const r = reporter(() => [entry(5, DAEMON_KILL)]);
     const report = await r.check(sample(0), 0, 999);
@@ -183,10 +221,12 @@ describe("createOomKillReporter", () => {
 
     // A later local kill is still found, and the neighbour's is not swept in.
     entries = [entry(70, LEGACY_KILL), entry(80, TOOL_KILL)];
+    killCounter = 1;
     const report = await r.check(sample(1), 122_000, 1);
     expect(report?.victims.map((v) => v.pid)).toEqual([4242]);
   });
   test("reports every new kill when there is no counter at all", async () => {
+    killCounter = null;
     const r = reporter(() => [entry(5, TOOL_KILL)]);
     await r.check(sample(null, false), 0, 1);
     const r2 = reporter(() => [entry(5, TOOL_KILL), entry(9, LEGACY_KILL)]);
