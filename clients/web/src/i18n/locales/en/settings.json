@@ -328,9 +328,6 @@
   "billingPage": {
     "billingTab": "Billing",
     "billingUnavailable": "Billing isn't available for the current assistant state.",
-    "finishSetupBody": "Your assistant's email address hasn't been set up yet.",
-    "finishSetupButton": "Finish setup",
-    "finishSetupTitle": "Finish setting up your {plan} plan",
     "loadingBilling": "Loading billing…",
     "platformLoginNotice": "Log in to the Vellum platform to manage billing and usage.",
     "usageTab": "Usage"
@@ -773,25 +770,6 @@
     "startSession": "Start Doctor Session",
     "thinking": "Thinking…",
     "title": "Doctor"
-  },
-  "domainField": {
-    "subdomainAriaLabel": "Subdomain"
-  },
-  "domainStep": {
-    "continue": "Continue",
-    "domainLockedMessage": "This domain has been set and cannot be changed.",
-    "domainSetRedirecting": "Domain set - redirecting…",
-    "handleImmutableNotice": "You won't be able to change the handle once set.",
-    "handleLabel": "Handle (public)",
-    "machineBusyNotice": "Your assistant is restarting - you can set the domain in a moment.",
-    "next": "Next",
-    "prefixLabel": "Prefix",
-    "registerSubdomainFailed": "Couldn't register that subdomain. Try a different one.",
-    "skip": "Skip",
-    "subtitle": "Set up an email for your assistant.",
-    "title": "Assistant Email",
-    "emailUsernamePlaceholder": "hi",
-    "subdomainExamplePlaceholder": "my-assistant"
   },
   "downgradeReconfirmModal": {
     "body": "Downgrading removes the following Pro features:",

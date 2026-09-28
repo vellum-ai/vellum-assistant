@@ -7,7 +7,7 @@
  * rather than the plan id (`email-managed-content.tsx:86-91`), because an admin
  * override can grant a Base org the entitlement. It is deliberately tri-state:
  * entitled / explicitly-not-entitled / unknown, and only the middle one shows
- * the wall. An unknown subscription fails open to the form.
+ * the wall. An unknown subscription fails open to the setup notice.
  */
 import { QueryClientProvider } from "@tanstack/react-query";
 import type { Meta, StoryObj } from "@storybook/react-vite";
@@ -18,7 +18,6 @@ import { organizationsBillingSubscriptionRetrieveOptions } from "@/generated/api
 import type { SubscriptionResponse } from "@/generated/api/types.gen";
 import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
 import { createStoryQueryClient } from "@/lib/story-query-cache";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 
@@ -72,30 +71,20 @@ const meta: Meta<typeof EmailManagedContent> = {
 export default meta;
 type Story = StoryObj<typeof EmailManagedContent>;
 
-/**
- * The wall: an info-tone notice with a single **Upgrade** CTA into the plans
- * takeover. The form behind it is never rendered, because the downstream domain
- * queries are gated off the same entitlement, so a non-entitled org never
- * fires a request that would 403.
- */
-export const NotEntitled: Story = {
-  name: "Not entitled · Upgrade",
-};
-
 const STORY_ASSISTANT_ID = "story-assistant";
 
 /**
- * The same wall with the `assistant-inbox` flag on: the body of the Assistant
- * Inbox's pitch, set at the start with a plain perk list and no card of its
- * own, since the Email section around it is the card and its header carries
- * the pitch's title (that swap lives in `EmailChannelSection`, so it is not
- * drawn here). The rail entry is seeded as dismissed, which is what brings up
- * the "Add it back" line under the actions; press it and the line goes.
+ * The wall: the body of the Assistant Inbox's pitch, set at the start with a
+ * plain perk list and no card of its own, since the Email section around it
+ * is the card and its header carries the pitch's title (that swap lives in
+ * `EmailChannelSection`, so it is not drawn here). The form behind it is
+ * never rendered, because the downstream domain queries are gated off the
+ * same entitlement, so a non-entitled org never fires a request that would
+ * 403.
  */
-export const NotEntitledInboxFlagOn: Story = {
-  name: "Not entitled · Assistant Inbox flag on",
+export const NotEntitled: Story = {
+  name: "Not entitled · Upgrade",
   beforeEach: () => {
-    useClientFeatureFlagStore.setState({ assistantInbox: true });
     useResolvedAssistantsStore.setState({
       activeAssistantId: STORY_ASSISTANT_ID,
     });
@@ -111,8 +100,5 @@ export const NotEntitledInboxFlagOn: Story = {
         },
       );
     }
-    return () => {
-      useClientFeatureFlagStore.setState({ assistantInbox: false });
-    };
   },
 };

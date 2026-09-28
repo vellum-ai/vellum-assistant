@@ -16,8 +16,6 @@ const NEW = new Date(LAUNCH + DAY_MS).toISOString();
 
 const READY: AssistantEmailIntroInputs = {
   seen: false,
-  flagsHydrated: true,
-  inboxEnabled: true,
   onboardingBusy: false,
   assistantCreatedAt: EXISTING,
   status: "upgrade",
@@ -44,17 +42,11 @@ describe("resolveAssistantEmailIntro", () => {
     expect(
       resolveAssistantEmailIntro({ ...READY, status: "loading" }),
     ).toBeNull();
-    expect(
-      resolveAssistantEmailIntro({ ...READY, flagsHydrated: false }),
-    ).toBeNull();
   });
 
-  test("off the platform, behind the flag, or once seen, nothing shows", () => {
+  test("off the platform, or once seen, nothing shows", () => {
     expect(
       resolveAssistantEmailIntro({ ...READY, status: "unavailable" }),
-    ).toBeNull();
-    expect(
-      resolveAssistantEmailIntro({ ...READY, inboxEnabled: false }),
     ).toBeNull();
     expect(resolveAssistantEmailIntro({ ...READY, seen: true })).toBeNull();
   });

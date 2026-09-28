@@ -4,10 +4,6 @@ import { predatesFeatureIntro } from "@/hooks/use-feature-intro-seen";
 export interface AssistantEmailIntroInputs {
   /** The intro was dismissed on this device. */
   seen: boolean;
-  /** The flag store has answered once; before that every flag reads off. */
-  flagsHydrated: boolean;
-  /** The `assistant-inbox` flag. */
-  inboxEnabled: boolean;
   /**
    * Onboarding still has the screen: the research takeover, its check-in,
    * or the in-chat tour with its capture layers and focus trap.
@@ -37,7 +33,7 @@ export interface AssistantEmailIntroInputs {
 export function resolveAssistantEmailIntro(
   inputs: AssistantEmailIntroInputs,
 ): "locked" | "open" | null {
-  if (inputs.seen || !inputs.flagsHydrated || !inputs.inboxEnabled) {
+  if (inputs.seen) {
     return null;
   }
   if (inputs.onboardingBusy) {

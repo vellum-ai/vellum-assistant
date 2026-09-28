@@ -10,7 +10,6 @@ import { useEmailPinned } from "@/hooks/use-email-pinned";
 import { usePinnedApps } from "@/hooks/use-pinned-apps";
 import { cn } from "@vellumai/design-library";
 import { useTranslation } from "@/i18n";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { routes } from "@/utils/routes";
 
 export interface SideMenuBuiltInNavProps {
@@ -59,11 +58,9 @@ export function SideMenuBuiltInNav({
   const { t } = useTranslation("chat");
   const navigate = useNavigate();
   const { pinnedApps, unpin, setColor } = usePinnedApps(assistantId);
-  /* The Email pin, set from the profile's Email card. Behind the inbox's
-     flag, since it opens the inbox. */
-  const inboxEnabled = useClientFeatureFlagStore.use.assistantInbox();
+  /* The Email pin, set from the profile's Email card. */
   const emailPin = useEmailPinned(assistantId);
-  const showsEmailPin = inboxEnabled && emailPin.pinned;
+  const showsEmailPin = emailPin.pinned;
 
   /* One column at a single gap, rather than each cluster spacing itself.
      `SideMenu.Header` puts its own gap between its children, so a margin

@@ -328,9 +328,6 @@
   "billingPage": {
     "billingTab": "帳單",
     "billingUnavailable": "目前助理狀態下無法使用帳單功能。",
-    "finishSetupBody": "您的助理電子郵件地址尚未設定。",
-    "finishSetupButton": "完成設定",
-    "finishSetupTitle": "完成 {plan} 方案的設定",
     "loadingBilling": "載入帳單中…",
     "platformLoginNotice": "登入 Vellum 平台以管理帳單和用量。",
     "usageTab": "用量"
@@ -766,25 +763,6 @@
     "startSession": "啟動助理醫生工作階段",
     "thinking": "正在思考…",
     "title": "助理醫生"
-  },
-  "domainField": {
-    "subdomainAriaLabel": "子網域"
-  },
-  "domainStep": {
-    "continue": "繼續",
-    "domainLockedMessage": "此網域已設定，無法變更。",
-    "domainSetRedirecting": "網域已設定 - 正在重新導向…",
-    "handleImmutableNotice": "設定後，您將無法變更處理名稱。",
-    "handleLabel": "處理名稱 (公開)",
-    "machineBusyNotice": "您的助理正在重新啟動 - 您稍後即可設定網域。",
-    "next": "下一步",
-    "prefixLabel": "前綴",
-    "registerSubdomainFailed": "無法註冊該子網域。請嘗試其他子網域。",
-    "skip": "跳過",
-    "subtitle": "為您的助理設定電子郵件。",
-    "title": "助理電子郵件",
-    "emailUsernamePlaceholder": "hi",
-    "subdomainExamplePlaceholder": "my-assistant"
   },
   "downgradeReconfirmModal": {
     "body": "降級將移除以下專業版功能：",

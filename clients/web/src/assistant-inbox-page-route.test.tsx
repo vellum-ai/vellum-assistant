@@ -26,7 +26,6 @@ import * as daemonSdk from "@/generated/daemon/sdk.gen";
 import * as assistantAvatarMod from "@/hooks/use-assistant-avatar";
 import * as platformGate from "@/hooks/use-platform-gate";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 
 const ASSISTANT_ID = "assistant-1";
 const PLATFORM_ASSISTANT_ID = "platform-1";
@@ -196,16 +195,11 @@ beforeEach(() => {
   domainCreateBodies.length = 0;
   domainEmailError = null;
   toastSuccessCalls.length = 0;
-  useClientFeatureFlagStore.setState({ assistantInbox: true, hydrated: true });
   useAssistantIdentityStore.setState({ name: "Ziggy" });
 });
 
 afterEach(() => {
   cleanup();
-  useClientFeatureFlagStore.setState({
-    assistantInbox: false,
-    hydrated: false,
-  });
 });
 
 describe("AssistantInboxPageRoute after an upgrade", () => {

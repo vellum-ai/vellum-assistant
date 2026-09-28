@@ -53,7 +53,6 @@ import { useEmailPinned } from "@/hooks/use-email-pinned";
 import { usePlatformGateWithPending } from "@/hooks/use-platform-gate";
 import { organizationsBillingSubscriptionRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
 import { useSupportsPluginsSurface } from "@/lib/backwards-compat/plugins-surface";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 import { contrastForeground } from "@/utils/avatar-tone";
@@ -287,13 +286,12 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
   }, [invalidateAvatar]);
 
   /* The Email card is the way into the Assistant Inbox, which exists only
-     behind its flag and on the platform. Its lock reads the same entitlement
-     the inbox gates on, and only an explicit denial locks it: a subscription
-     that has not loaded, or failed to, leaves the card open, since the inbox
-     itself decides what to show. */
-  const inboxEnabled = useClientFeatureFlagStore.use.assistantInbox();
+     on the platform. Its lock reads the same entitlement the inbox gates
+     on, and only an explicit denial locks it: a subscription that has not
+     loaded, or failed to, leaves the card open, since the inbox itself
+     decides what to show. */
   const platformGate = usePlatformGateWithPending({ platformHostedOnly: true });
-  const showsEmail = inboxEnabled && platformGate === "full";
+  const showsEmail = platformGate === "full";
   const subscriptionQuery = useQuery({
     ...organizationsBillingSubscriptionRetrieveOptions(),
     enabled: showsEmail,

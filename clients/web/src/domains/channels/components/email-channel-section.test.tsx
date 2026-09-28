@@ -5,9 +5,9 @@
  * admin `EntitlementOverride` that grants managed email to a Base org is
  * honored in-product. We verify both directions:
  *
- *  - Base org WITHOUT the entitlement → "Upgrade" notice, form gated.
- *  - Base org WITH the entitlement (override) → domain/address form renders,
- *    proving the gate reads the entitlement and not the plan.
+ *  - Base org WITHOUT the entitlement → the inbox's upgrade pitch, setup gated.
+ *  - Base org WITH the entitlement (override) → the way into the inbox's
+ *    setup renders, proving the gate reads the entitlement and not the plan.
  *
  * Strategy mirrors `plugins-tab.test.tsx`: pre-populate the React Query cache
  * via the generated query-key helper so `renderToStaticMarkup` (single-pass,
@@ -26,7 +26,6 @@ import {
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { SubscriptionResponse } from "@/generated/api/types.gen";
 import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 
 // The settings-card barrel re-exports toast surfaces; stub them so barrel
 // resolution doesn't pull the real toast module during the static render.
@@ -117,24 +116,20 @@ function renderCard(subscription: SubscriptionResponse): string {
 }
 
 describe("EmailChannelSection managed-email gate", () => {
-  test("Base org without the managed_email entitlement sees the upgrade notice", () => {
+  test("Base org without the managed_email entitlement sees the upgrade pitch", () => {
     const html = renderCard(makeSubscription(false, "base"));
-    expect(html).toContain("Upgrade");
-    expect(html).toContain("Give your assistant its own email address");
-    expect(html).toContain(
-      "Upgrade to a plan that includes an email address for your assistant. No provider setup required.",
-    );
-    // The domain registration form must NOT render when gated.
-    expect(html).not.toContain("Register");
+    expect(html).toContain("Upgrade to Super");
+    expect(html).toContain("A real address on");
+    // The way into setup must NOT render when gated.
+    expect(html).not.toContain("Set up email in the Assistant Inbox");
   });
 
-  test("Base org WITH the managed_email entitlement sees the form, not the notice", () => {
+  test("Base org WITH the managed_email entitlement sees the way into setup, not the pitch", () => {
     // plan_id stays "base" — only the entitlement (admin override) is true.
     const html = renderCard(makeSubscription(true, "base"));
-    expect(html).not.toContain("Give your assistant its own email address");
-    // The domain registration form renders for entitled orgs.
-    expect(html).toContain("Subdomain");
-    expect(html).toContain("Register");
+    expect(html).not.toContain("Upgrade to Super");
+    // Setup is offered for entitled orgs, from the inbox.
+    expect(html).toContain("Set up email in the Assistant Inbox");
   });
 
   test("native Android keeps the upgrade action, same as iOS", () => {
@@ -142,7 +137,7 @@ describe("EmailChannelSection managed-email gate", () => {
     const html = renderCard(makeSubscription(false, "base"));
 
     expect(html).not.toContain("Manage your subscription on our website.");
-    expect(html).toContain(">Upgrade<");
+    expect(html).toContain("Upgrade to Super");
   });
 
   test("Successful payload WITHOUT entitlements is treated as unknown and fails open", () => {
@@ -159,22 +154,19 @@ describe("EmailChannelSection managed-email gate", () => {
       cancel_at: null,
     } as unknown as SubscriptionResponse;
     const html = renderCard(subscriptionWithoutEntitlements);
-    expect(html).not.toContain("Give your assistant its own email address");
-    // The domain registration form renders (fail-open).
-    expect(html).toContain("Subdomain");
-    expect(html).toContain("Register");
+    expect(html).not.toContain("Upgrade to Super");
+    // The way into setup renders (fail-open).
+    expect(html).toContain("Set up email in the Assistant Inbox");
   });
 });
 
-describe("EmailChannelSection header with the Assistant Inbox flag", () => {
+describe("EmailChannelSection header", () => {
   afterEach(() => {
     cleanup();
-    useClientFeatureFlagStore.setState({ assistantInbox: false });
   });
 
-  // Client-rendered, unlike the gate tests above: under
-  // `renderToStaticMarkup` a Zustand store serves its initial state, so a
-  // flag set for the test would never be seen.
+  // Client-rendered, unlike the gate tests above, so the query cache and
+  // the stores the header reads are live.
   function renderSection(subscription: SubscriptionResponse): void {
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false, staleTime: Infinity } },
@@ -202,16 +194,7 @@ describe("EmailChannelSection header with the Assistant Inbox flag", () => {
     );
   }
 
-  test("keeps the section's own title while the flag is off", () => {
-    useClientFeatureFlagStore.setState({ assistantInbox: false });
-    renderSection(makeSubscription(false));
-
-    expect(screen.getByRole("heading", { name: "Email" })).toBeTruthy();
-    expect(screen.queryByText("Give your assistant an inbox")).toBeNull();
-  });
-
   test("an org without managed email gets the inbox pitch as the header", () => {
-    useClientFeatureFlagStore.setState({ assistantInbox: true });
     renderSection(makeSubscription(false));
 
     expect(

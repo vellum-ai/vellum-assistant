@@ -328,9 +328,6 @@
   "billingPage": {
     "billingTab": "Facturación",
     "billingUnavailable": "La facturación no está disponible para el estado actual del asistente.",
-    "finishSetupBody": "La dirección de correo de tu asistente aún no se ha configurado.",
-    "finishSetupButton": "Finalizar configuración",
-    "finishSetupTitle": "Termina de configurar tu plan {plan}",
     "loadingBilling": "Cargando facturación…",
     "platformLoginNotice": "Inicia sesión en la plataforma Vellum para administrar la facturación y el uso.",
     "usageTab": "Uso"
@@ -766,25 +763,6 @@
     "startSession": "Iniciar sesión del Doctor",
     "thinking": "Pensando…",
     "title": "Doctor"
-  },
-  "domainField": {
-    "subdomainAriaLabel": "Subdominio"
-  },
-  "domainStep": {
-    "continue": "Continuar",
-    "domainLockedMessage": "Este dominio ya está establecido y no se puede cambiar.",
-    "domainSetRedirecting": "Dominio establecido. Redirigiendo…",
-    "handleImmutableNotice": "No podrás cambiar el identificador una vez establecido.",
-    "handleLabel": "Identificador (público)",
-    "machineBusyNotice": "Tu asistente se está reiniciando; podrás establecer el dominio en un momento.",
-    "next": "Siguiente",
-    "prefixLabel": "Prefijo",
-    "registerSubdomainFailed": "No se pudo registrar ese subdominio. Prueba con otro.",
-    "skip": "Omitir",
-    "subtitle": "Configura un correo para tu asistente.",
-    "title": "Correo del asistente",
-    "emailUsernamePlaceholder": "hola",
-    "subdomainExamplePlaceholder": "mi-asistente"
   },
   "downgradeReconfirmModal": {
     "body": "Al bajar de plan se eliminan las siguientes funciones Pro:",

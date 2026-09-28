@@ -3,7 +3,7 @@ import { Suspense, useCallback, useEffect, useState } from "react";
 
 import { useLocation, useNavigate, useSearchParams } from "react-router";
 
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { PlatformLoginNotice } from "@/components/platform-login-notice";
@@ -11,7 +11,6 @@ import { BillingOnboardingModal } from "@/domains/settings/billing/pro-onboardin
 import { shouldShowBillingTab } from "@/domains/settings/billing/billing-tab-visibility";
 import { CheckoutBonusModal } from "@/domains/settings/billing/checkout-bonus-modal";
 import { useCheckoutBonusOffer } from "@/domains/settings/billing/use-checkout-bonus-offer";
-import { proPackageDisplayName } from "@/domains/settings/billing/package-types";
 import { UsageTab } from "@/domains/settings/billing/usage/usage-tab";
 import { AdjustPlanModal } from "@/domains/settings/components/adjust-plan-modal";
 import { BillingPanel } from "@/domains/settings/components/billing-panel";
@@ -23,13 +22,7 @@ import { PaymentMethodsCard } from "@/domains/settings/components/payment-method
 import { PlanCard } from "@/domains/settings/components/plan-card";
 import { useSetupIntentReturn } from "@/domains/settings/hooks/use-setup-intent-return";
 import { replaceSearchParams } from "@/domains/settings/utils/replace-search-params";
-import { useAssistantDomains } from "@/domains/settings/billing/pro-onboarding/use-assistant-domains";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
-import {
-  organizationsBillingSubscriptionOnboardingRetrieveOptions,
-  organizationsBillingSubscriptionRetrieveOptions,
-} from "@/generated/api/@tanstack/react-query.gen";
-import { useIsOrgReady } from "@/hooks/use-is-org-ready";
+import {} from "@/generated/api/@tanstack/react-query.gen";
 import { notifyCheckoutSuccess } from "@/lib/billing/checkout-success";
 import { useTranslation } from "@/i18n";
 import {
@@ -39,7 +32,6 @@ import {
 } from "@/hooks/use-platform-gate";
 import { useIsPlatformSessionSettled } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
-import { Button } from "@vellumai/design-library/components/button";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { Tabs } from "@vellumai/design-library/components/tabs";
 import { toast } from "@vellumai/design-library/components/toast";
@@ -85,67 +77,6 @@ function BillingStatusHandler({
   }, [searchParams, navigate, queryClient, onCheckoutCancelled, t]);
 
   return null;
-}
-
-/**
- * Re-entry nudge into the pro onboarding wizard: shown while the org is on Pro
- * with domain setup offered but no assistant email domain registered yet.
- */
-function FinishProSetupNotice({
-  onFinishSetup,
-}: {
-  onFinishSetup: () => void;
-}) {
-  const { t } = useTranslation("settings");
-  // Gate the query chain on org readiness (and subscribe to it, so the notice
-  // re-evaluates when the org hydrates): a request fired before the org store
-  // settles omits `Vellum-Organization-Id` and the platform rejects it.
-  const orgReady = useIsOrgReady();
-  const { data: subscription } = useQuery({
-    ...organizationsBillingSubscriptionRetrieveOptions(),
-    enabled: orgReady,
-  });
-  const isPro = subscription?.plan_id === "pro";
-  const { data: onboarding } = useQuery({
-    ...organizationsBillingSubscriptionOnboardingRetrieveOptions(),
-    enabled: isPro && orgReady,
-  });
-  // `domain_setup_available` only says the platform offers domain setup — it
-  // stays true after a domain is registered, so the real "still unconfigured"
-  // signal is the assistant's domains list being loaded and empty.
-  const domainSetupOffered =
-    isPro && onboarding?.domain_setup_available === true;
-  const { domains } = useAssistantDomains(
-    domainSetupOffered,
-    onboarding?.primary_assistant_id,
-  );
-  const domainMissing = domains !== undefined && domains.results.length === 0;
-
-  if (!domainSetupOffered || !domainMissing) {
-    return null;
-  }
-
-  return (
-    <Notice
-      tone="info"
-      title={t("billingPage.finishSetupTitle", {
-        plan: proPackageDisplayName(subscription?.package),
-      })}
-      actions={
-        <Button
-          variant="outlined"
-          size="compact"
-          onClick={onFinishSetup}
-          data-testid="finish-pro-setup-button"
-        >
-          {t("billingPage.finishSetupButton")}
-        </Button>
-      }
-      data-testid="finish-pro-setup-notice"
-    >
-      {t("billingPage.finishSetupBody")}
-    </Notice>
-  );
 }
 
 function BillingTabContent() {
@@ -227,26 +158,6 @@ function BillingTabContent() {
       { replace: true },
     );
   }, [setSearchParams]);
-  // Routed through `?pro_onboarding` (rather than opening state directly) so
-  // the nudge exercises the same path as a deeplink.
-  const openProOnboarding = useCallback(() => {
-    setSearchParams(
-      (prev) => {
-        const next = new URLSearchParams(prev);
-        next.set("pro_onboarding", "");
-        return next;
-      },
-      { replace: true },
-    );
-  }, [setSearchParams]);
-  // With the Assistant Inbox on, email setup lives in the inbox's own card,
-  // and the wizard no longer carries a domain step to reopen on. The nudge
-  // is retired there rather than redirected: it reports the organisation's
-  // primary assistant, while the inbox belongs to the active one, and in a
-  // multi-assistant organisation the two can differ. The inbox's own rail
-  // entry is the nudge for whichever assistant is active.
-  const inboxEnabled = useClientFeatureFlagStore.use.assistantInbox();
-
   if (billingGate === "disabled") {
     return (
       <div className="space-y-4">
@@ -295,9 +206,6 @@ function BillingTabContent() {
         <BillingPortalReturnHandler />
       </Suspense>
       {showPlanManagement && <GracePeriodBanner />}
-      {showPlanManagement && !inboxEnabled && (
-        <FinishProSetupNotice onFinishSetup={openProOnboarding} />
-      )}
       {showPlanManagement && (
         <PlanCard onManage={openPlanModal} onTierUpgraded={onTierUpgraded} />
       )}

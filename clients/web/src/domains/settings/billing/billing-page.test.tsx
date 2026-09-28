@@ -16,15 +16,9 @@
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
-import { useEffect } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, useLocation } from "react-router";
 
-import {
-  assistantsDomainsListQueryKey,
-  organizationsBillingSubscriptionOnboardingRetrieveQueryKey,
-  organizationsBillingSubscriptionRetrieveQueryKey,
-} from "@/generated/api/@tanstack/react-query.gen";
 import * as sdkGen from "@/generated/api/sdk.gen";
 import type {
   Assistant,
@@ -33,7 +27,6 @@ import type {
   SubscriptionPackage,
   SubscriptionResponse,
 } from "@/generated/api/types.gen";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import * as activeAssistantIdModule from "@/assistant/use-active-assistant-id";
 import * as platformGate from "@/hooks/use-platform-gate";
 import * as platformDetection from "@/runtime/platform-detection";
@@ -42,9 +35,6 @@ import * as authStore from "@/stores/auth-store";
 let subscriptionResponse: SubscriptionResponse;
 let onboardingResponse: OnboardingStateResponse;
 let domainsResponse: PaginatedAssistantDomainList;
-let onboardingCalls = 0;
-let domainsCalls = 0;
-let domainsListPaths: string[] = [];
 // Drives the org-readiness gate on the finish-setup query chain. Defaults ready
 // so the existing cases behave as before; one case flips it to model a fresh
 // login where the org store hasn't hydrated yet.
@@ -58,7 +48,6 @@ mock.module("@/generated/api/sdk.gen", () => ({
   organizationsBillingSubscriptionRetrieve: () =>
     Promise.resolve({ data: subscriptionResponse, response: { ok: true } }),
   organizationsBillingSubscriptionOnboardingRetrieve: () => {
-    onboardingCalls += 1;
     return Promise.resolve({
       data: onboardingResponse,
       response: { ok: true },
@@ -71,13 +60,8 @@ mock.module("@/generated/api/sdk.gen", () => ({
       data: { id: opts.path.id } as unknown as Assistant,
       response: { ok: true },
     }),
-  assistantsDomainsList: (opts: { path?: { assistant_id?: string } }) => {
-    domainsCalls += 1;
-    if (opts?.path?.assistant_id) {
-      domainsListPaths.push(opts.path.assistant_id);
-    }
-    return Promise.resolve({ data: domainsResponse, response: { ok: true } });
-  },
+  assistantsDomainsList: () =>
+    Promise.resolve({ data: domainsResponse, response: { ok: true } }),
 }));
 
 // Drives the active assistant's hosting. Platform-hosted by default so
@@ -162,18 +146,8 @@ mock.module("@/domains/settings/components/invoices-table", () => ({
 mock.module("@/domains/settings/components/payment-methods-card", () => ({
   PaymentMethodsCard: () => null,
 }));
-// Reports where `useSetupIntentReturn` is mounted. The real hook drops its
-// params from the URL up front, so a resolution mounted inside the billing tab
-// panel would be lost the moment the user looks at the Usage tab.
-let setupIntentReturnUnmounts = 0;
 mock.module("@/domains/settings/hooks/use-setup-intent-return", () => ({
-  useSetupIntentReturn: () => {
-    useEffect(() => {
-      return () => {
-        setupIntentReturnUnmounts += 1;
-      };
-    }, []);
-  },
+  useSetupIntentReturn: () => {},
 }));
 mock.module("@/domains/settings/components/plan-card", () => ({
   PlanCard: ({ onTierUpgraded }: { onTierUpgraded?: () => void }) => (
@@ -231,9 +205,6 @@ function makeDomains(hasDomain: boolean): PaginatedAssistantDomainList {
   };
 }
 
-const domainsQueryKey = () =>
-  assistantsDomainsListQueryKey({ path: { assistant_id: "assistant-1" } });
-
 function LocationProbe() {
   const location = useLocation();
   return <div data-testid="loc">{location.pathname + location.search}</div>;
@@ -258,18 +229,13 @@ beforeEach(() => {
   subscriptionResponse = makeSubscription("pro");
   onboardingResponse = makeOnboarding(true);
   domainsResponse = makeDomains(false);
-  onboardingCalls = 0;
-  domainsCalls = 0;
-  domainsListPaths = [];
   orgReady = true;
   nativeAndroid = false;
   activeAssistantIsPlatformHosted = true;
-  setupIntentReturnUnmounts = 0;
 });
 
 afterEach(() => {
   cleanup();
-  useClientFeatureFlagStore.setState({ assistantInbox: false });
 });
 
 describe("BillingTab on native Android", () => {
@@ -385,157 +351,5 @@ describe("BillingTab tier-upgrade resize takeover", () => {
     expect(getByTestId("loc").textContent).toBe(
       "/assistant/settings/usage?tab=billing",
     );
-  });
-});
-
-describe("Finish Pro setup nudge", () => {
-  test("with the Assistant Inbox on, the nudge is retired in favour of the inbox's rail entry", async () => {
-    // The nudge reports the primary assistant's missing domain, while the
-    // inbox is the active assistant's; sending one to the other could bind a
-    // handle to the wrong assistant in a multi-assistant organisation.
-    useClientFeatureFlagStore.setState({ assistantInbox: true });
-    const { getByTestId, queryByTestId } = renderPage();
-
-    await waitFor(() => expect(getByTestId("onboarding-modal")).toBeTruthy());
-    expect(queryByTestId("finish-pro-setup-notice")).toBeNull();
-  });
-
-  test("stays hidden and skips the query chain until the org is ready", async () => {
-    // Fresh login: the org store hasn't hydrated, so the header source has
-    // no id yet. The nudge must not fire its subscription/onboarding chain
-    // (which would 4xx without `Vellum-Organization-Id`) or flash in.
-    orgReady = false;
-    const { queryByTestId } = renderPage();
-
-    await waitFor(() => expect(queryByTestId("onboarding-modal")).toBeTruthy());
-    expect(queryByTestId("finish-pro-setup-notice")).toBeNull();
-    expect(onboardingCalls).toBe(0);
-  });
-
-  test("renders for Pro with no domain registered and reopens the wizard", async () => {
-    const { getByTestId } = renderPage();
-
-    await waitFor(() =>
-      expect(getByTestId("finish-pro-setup-notice")).toBeTruthy(),
-    );
-    expect(getByTestId("onboarding-modal").getAttribute("data-open")).toBe(
-      "false",
-    );
-
-    fireEvent.click(getByTestId("finish-pro-setup-button"));
-
-    await waitFor(() =>
-      expect(getByTestId("onboarding-modal").getAttribute("data-open")).toBe(
-        "true",
-      ),
-    );
-    // The transient param is consumed straight back out of the URL.
-    expect(getByTestId("loc").textContent).toBe(
-      "/assistant/settings/usage?tab=billing",
-    );
-  });
-
-  test("names the pinned package in the title", async () => {
-    subscriptionResponse = makeSubscription("pro", {
-      key: "super",
-      name: "Super",
-      version: 1,
-      customized: false,
-    });
-    const { getByTestId } = renderPage();
-
-    await waitFor(() =>
-      expect(getByTestId("finish-pro-setup-notice").textContent).toContain(
-        "Finish setting up your Super plan",
-      ),
-    );
-  });
-
-  test("falls back to Custom for an unpinned Pro sub", async () => {
-    const { getByTestId } = renderPage();
-
-    await waitFor(() =>
-      expect(getByTestId("finish-pro-setup-notice").textContent).toContain(
-        "Finish setting up your Custom plan",
-      ),
-    );
-  });
-
-  test("hidden for Pro when a domain is already registered", async () => {
-    // `domain_setup_available` is still true (the platform hard-codes it
-    // for every active-Pro org) — the registered domain alone must hide
-    // the nudge.
-    domainsResponse = makeDomains(true);
-    const { client, queryByTestId } = renderPage();
-
-    await waitFor(() =>
-      expect(client.getQueryData(domainsQueryKey())).toBeTruthy(),
-    );
-    expect(queryByTestId("finish-pro-setup-notice")).toBeNull();
-  });
-
-  test("hidden on the base plan; onboarding and domains endpoints are never queried", async () => {
-    subscriptionResponse = makeSubscription("base");
-    const { client, queryByTestId } = renderPage();
-
-    await waitFor(() =>
-      expect(
-        client.getQueryData(organizationsBillingSubscriptionRetrieveQueryKey()),
-      ).toBeTruthy(),
-    );
-    expect(queryByTestId("finish-pro-setup-notice")).toBeNull();
-    expect(onboardingCalls).toBe(0);
-    expect(domainsCalls).toBe(0);
-  });
-
-  test("checks domains on the onboarding payload's primary assistant", async () => {
-    onboardingResponse = {
-      ...makeOnboarding(true),
-      primary_assistant_id: "assistant-2",
-    };
-    const { getByTestId } = renderPage();
-
-    // The onboarding payload names the wizard's server-side target; the
-    // nudge must check that assistant's domains, not the active one's.
-    await waitFor(() => expect(domainsListPaths).toContain("assistant-2"));
-    await waitFor(() =>
-      expect(getByTestId("finish-pro-setup-notice")).toBeTruthy(),
-    );
-  });
-
-  test("hidden for Pro when domain setup is unavailable, without querying domains", async () => {
-    onboardingResponse = makeOnboarding(false);
-    const { client, queryByTestId } = renderPage();
-
-    await waitFor(() =>
-      expect(
-        client.getQueryData(
-          organizationsBillingSubscriptionOnboardingRetrieveQueryKey(),
-        ),
-      ).toBeTruthy(),
-    );
-    expect(queryByTestId("finish-pro-setup-notice")).toBeNull();
-    expect(domainsCalls).toBe(0);
-  });
-});
-
-describe("BillingPage Stripe redirect return", () => {
-  test("keeps the return mounted when the user switches to the Usage tab", async () => {
-    const { getByText, queryByTestId } = renderPage();
-
-    expect(queryByTestId("plan-card-tier-upgraded")).not.toBeNull();
-
-    // Radix tab triggers select on mousedown, not on a synthesized click.
-    fireEvent.mouseDown(getByText("Usage"));
-
-    // The billing panel is gone, but the return that outlives it is not: a
-    // resolution can run for up to 20 seconds, and the params are already off
-    // the URL.
-    await waitFor(() => {
-      if (queryByTestId("plan-card-tier-upgraded") != null) {
-        throw new Error("billing panel still mounted");
-      }
-    });
-    expect(setupIntentReturnUnmounts).toBe(0);
   });
 });

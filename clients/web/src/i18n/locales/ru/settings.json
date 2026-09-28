@@ -314,9 +314,6 @@
   "billingPage": {
     "billingTab": "Оплата",
     "billingUnavailable": "Оплата недоступна при текущем состоянии ассистента.",
-    "finishSetupBody": "Почта ассистента ещё не настроена.",
-    "finishSetupButton": "Завершить настройку",
-    "finishSetupTitle": "Завершение настройки плана {plan}",
     "loadingBilling": "Загрузка оплаты…",
     "platformLoginNotice": "Вход на платформу Vellum для управления оплатой и использованием.",
     "usageTab": "Использование"
@@ -752,25 +749,6 @@
     "startSession": "Начать сессию Doctor",
     "thinking": "Думает…",
     "title": "Doctor"
-  },
-  "domainField": {
-    "subdomainAriaLabel": "Поддомен"
-  },
-  "domainStep": {
-    "continue": "Продолжить",
-    "domainLockedMessage": "Этот домен уже задан и его нельзя сменить.",
-    "domainSetRedirecting": "Домен задан, перенаправляем…",
-    "handleImmutableNotice": "После установки идентификатор сменить нельзя.",
-    "handleLabel": "Идентификатор (публичный)",
-    "machineBusyNotice": "Ассистент перезапускается: домен можно будет задать чуть позже.",
-    "next": "Далее",
-    "prefixLabel": "Префикс",
-    "registerSubdomainFailed": "Не удалось зарегистрировать этот поддомен. Выбор другого.",
-    "skip": "Пропустить",
-    "subtitle": "Настройка почты для ассистента.",
-    "title": "Почта ассистента",
-    "emailUsernamePlaceholder": "hi",
-    "subdomainExamplePlaceholder": "my-assistant"
   },
   "downgradeReconfirmModal": {
     "body": "При понижении пропадут эти функции Pro:",

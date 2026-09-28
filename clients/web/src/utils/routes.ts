@@ -253,8 +253,7 @@ export const routes = {
   /**
    * The Assistant Inbox: the mail the assistant has received and sent at
    * its managed address, or the setup and upgrade cards that stand in for
-   * it. Behind the `assistant-inbox` flag; the route redirects to chat when
-   * the flag is off.
+   * it. Off the platform the route redirects to chat.
    */
   assistantInbox: r("/assistant/inbox"),
   /** The inbox open on one message: the folder it is in, and its id. */
