@@ -178,8 +178,9 @@ describe("MultiActivityGroup — non-web tool group", () => {
     await act(async () => {
       await changeLocale("es");
     });
+    // ICU versions differ on the space before a narrow unit ("3 min" / "3min").
     await waitFor(() => {
-      expect(getByText("Trabajó durante 3 min")).toBeTruthy();
+      expect(getByText(/^Trabajó durante 3\s?min$/)).toBeTruthy();
     });
   });
 
