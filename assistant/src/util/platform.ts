@@ -297,7 +297,6 @@ export function getSignalsDir(): string {
   return join(getWorkspaceDir(), "signals");
 }
 
-// --- Root-level runtime path helpers ---
 // These expose specific root-level file paths so callers don't need to
 // import getRootDir() directly. getRootDir() is intentionally unexported.
 
@@ -567,7 +566,6 @@ export function getWorkspaceSystemPromptDir(): string {
   return join(getWorkspaceDir(), "prompts", "system");
 }
 
-// ── Profiler filesystem layout ──────────────────────────────────────────
 // Managed profiler runs live under <workspace>/data/profiler/. These
 // helpers enforce a single canonical layout so every runtime caller
 // resolves the same paths.

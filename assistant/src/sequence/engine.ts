@@ -105,8 +105,7 @@ async function processEnrollment(
       },
       "Sequence not active, skipping",
     );
-    // Re-set nextStepAt so it can be picked up when the sequence resumes
-    advanceEnrollmentToCurrentStep(enrollment, sequence);
+    rescheduleEnrollment(enrollment.id, Date.now() + 60_000);
     return;
   }
 
@@ -300,15 +299,6 @@ function buildStepPrompt(
   parts.push(step.bodyPrompt);
 
   return parts.join("\n");
-}
-
-/** Re-schedule the enrollment for the current step (used when sequence is paused). */
-function advanceEnrollmentToCurrentStep(
-  enrollment: SequenceEnrollment,
-  _sequence: Sequence,
-): void {
-  // Re-schedule 60 seconds from now so it gets picked up after the sequence resumes
-  rescheduleEnrollment(enrollment.id, Date.now() + 60_000);
 }
 
 /**

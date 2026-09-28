@@ -43,8 +43,6 @@ import { getSignalsDir } from "../util/platform.js";
 
 const log = getLogger("signal:user-message");
 
-// ── Attachment descriptor ───────────────────────────────────────────
-
 /** A file-backed attachment included in a signal payload. */
 export interface SignalAttachment {
   /** Absolute path to the file on disk. */
@@ -54,8 +52,6 @@ export interface SignalAttachment {
   /** MIME type (e.g. "image/jpeg"). */
   mimeType: string;
 }
-
-// ── Dispatch helper ──────────────────────────────────────────────────
 
 async function dispatchUserMessage(params: {
   conversationKey: string;
@@ -278,8 +274,6 @@ async function dispatchUserMessage(params: {
   await dispatchSignalMessage();
   return { accepted: true };
 }
-
-// ── Signal handler ───────────────────────────────────────────────────
 
 /**
  * Read a `signals/user-message.<requestId>` file and dispatch the message

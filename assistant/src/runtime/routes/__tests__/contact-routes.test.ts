@@ -275,7 +275,7 @@ describe("contacts read API relays from the gateway", () => {
   });
 
   test("get surfaces a clean gateway not-found as a 404", async () => {
-    ipcResult = { ok: true };
+    ipcResult = null;
 
     await expect(handleGetContact("missing")).rejects.toMatchObject({
       statusCode: 404,
@@ -391,7 +391,8 @@ describe("filtered/native contact reads: daemon filters, gateway hydrates teleme
     expect(contact.interactionCount).toBe(11);
     expect(contact.lastInteraction).toBe(9200);
     expect(
-      (contact as { autoApproveThreshold?: string | null }).autoApproveThreshold,
+      (contact as { autoApproveThreshold?: string | null })
+        .autoApproveThreshold,
     ).toBe("high");
     const channel = contact.channels[0] as Record<string, unknown>;
     expect(channel.interactionCount).toBe(11);
@@ -422,7 +423,8 @@ describe("filtered/native contact reads: daemon filters, gateway hydrates teleme
     expect(contact.interactionCount).toBe(0);
     expect(contact.lastInteraction).toBeNull();
     expect(
-      (contact as { autoApproveThreshold?: string | null }).autoApproveThreshold,
+      (contact as { autoApproveThreshold?: string | null })
+        .autoApproveThreshold,
     ).toBeNull();
     const channel = contact.channels[0] as Record<string, unknown>;
     expect(channel.interactionCount).toBe(0);

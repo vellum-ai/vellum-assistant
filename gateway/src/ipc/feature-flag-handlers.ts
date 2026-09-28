@@ -6,6 +6,7 @@
  * the HTTP GET /v1/feature-flags endpoint returns.
  */
 
+import type { FeatureFlagsIpcResponse } from "@vellumai/gateway-client/gateway-ipc-contracts";
 import { z } from "zod";
 
 import { loadFeatureFlagDefaults } from "../feature-flag-defaults.js";
@@ -22,7 +23,7 @@ const GetFeatureFlagParamsSchema = z.object({
  * Compute the merged feature flag state: defaults < remote < persisted.
  * Returns a `Record<string, boolean | string>` keyed by flag name.
  */
-export function getMergedFeatureFlags(): Record<string, boolean | string> {
+export function getMergedFeatureFlags(): FeatureFlagsIpcResponse {
   const defaults = loadFeatureFlagDefaults();
   const persisted = readPersistedFeatureFlags();
   const remote = readRemoteFeatureFlags();

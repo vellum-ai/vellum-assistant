@@ -17,6 +17,31 @@ export const GATEWAY_LOG_LEVEL_NAMES = [
 ] as const;
 export type GatewayLogLevelName = (typeof GATEWAY_LOG_LEVEL_NAMES)[number];
 
+export const FeatureFlagsIpcResponseSchema = z
+  .record(z.string(), z.unknown())
+  .transform((flags): Record<string, boolean | string> => {
+    const parsed: Record<string, boolean | string> = {};
+    for (const [key, value] of Object.entries(flags)) {
+      if (typeof value === "boolean" || typeof value === "string") {
+        parsed[key] = value;
+      }
+    }
+    return parsed;
+  });
+
+export type FeatureFlagsIpcResponse = z.infer<
+  typeof FeatureFlagsIpcResponseSchema
+>;
+
+export const VelayStatusIpcResponseSchema = z.object({
+  connected: z.boolean(),
+  publicUrl: z.string().nullable().catch(null),
+});
+
+export type VelayStatusIpcResponse = z.infer<
+  typeof VelayStatusIpcResponseSchema
+>;
+
 const GatewayLogsTailIpcParamsShape = {
   n: z.number().int().min(1).max(1000).optional(),
   level: z.enum(GATEWAY_LOG_LEVEL_NAMES).optional(),

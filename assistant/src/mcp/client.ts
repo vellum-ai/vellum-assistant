@@ -22,24 +22,6 @@ const log = getLogger("mcp-client");
 
 const CONNECT_TIMEOUT_MS = 30_000;
 
-// MCP servers occasionally return tools with a missing or non-object
-// `inputSchema` (spec violation, but seen in the wild). Coerce to a valid
-// empty object schema so downstream code that assumes `input_schema: object`
-// (e.g. `injectActivityField`) doesn't crash.
-function normalizeInputSchema(
-  raw: unknown,
-  toolName: string,
-): Record<string, unknown> {
-  if (raw != null && typeof raw === "object" && !Array.isArray(raw)) {
-    return raw as Record<string, unknown>;
-  }
-  log.warn(
-    { toolName, received: typeof raw },
-    "MCP tool returned non-object inputSchema; defaulting to empty object schema",
-  );
-  return { type: "object", properties: {} };
-}
-
 /**
  * Behavioral hints a server may attach to a tool (MCP `ToolAnnotations`).
  * Self-reported by the server, so consumers treat them as hints rather than
@@ -258,7 +240,7 @@ export class McpClient {
     return result.tools.map((tool) => ({
       name: tool.name,
       description: tool.description ?? "",
-      inputSchema: normalizeInputSchema(tool.inputSchema, tool.name),
+      inputSchema: tool.inputSchema,
       annotations: tool.annotations,
     }));
   }

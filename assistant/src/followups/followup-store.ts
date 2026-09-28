@@ -5,8 +5,6 @@ import { getDb } from "../persistence/db-connection.js";
 import { followups } from "../persistence/schema/index.js";
 import type { FollowUp, FollowUpCreateInput, FollowUpStatus } from "./types.js";
 
-// ── Helpers ──────────────────────────────────────────────────────────
-
 function parseFollowUp(row: typeof followups.$inferSelect): FollowUp {
   const scheduleId = row.reminderCronId;
   return {
@@ -22,8 +20,6 @@ function parseFollowUp(row: typeof followups.$inferSelect): FollowUp {
     updatedAt: row.updatedAt,
   };
 }
-
-// ── CRUD ─────────────────────────────────────────────────────────────
 
 export function createFollowUp(input: FollowUpCreateInput): FollowUp {
   const db = getDb();

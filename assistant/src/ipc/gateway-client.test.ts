@@ -19,6 +19,7 @@ import {
   ipcCallPersistent,
   ipcClassifyRisk,
   ipcGetFeatureFlags,
+  ipcGetVelayStatus,
   resetPersistentClient,
 } from "./gateway-client.js";
 
@@ -136,6 +137,45 @@ describe("ipcGetFeatureFlags", () => {
 
     const flags = await ipcGetFeatureFlags();
     expect(flags).toEqual({});
+  });
+});
+
+describe("ipcGetVelayStatus", () => {
+  test("parses the shared Velay status response", async () => {
+    mockGatewayIpc(null, {
+      results: {
+        get_velay_status: {
+          connected: true,
+          publicUrl: "https://example.test",
+        },
+      },
+    });
+
+    expect(await ipcGetVelayStatus()).toEqual({
+      connected: true,
+      publicUrl: "https://example.test",
+    });
+  });
+
+  test("keeps connected status when publicUrl is malformed", async () => {
+    mockGatewayIpc(null, {
+      results: {
+        get_velay_status: { connected: false, publicUrl: 42 },
+      },
+    });
+
+    expect(await ipcGetVelayStatus()).toEqual({
+      connected: false,
+      publicUrl: null,
+    });
+  });
+
+  test("returns null when connected is missing or malformed", async () => {
+    mockGatewayIpc(null, {
+      results: { get_velay_status: { connected: "yes" } },
+    });
+
+    expect(await ipcGetVelayStatus()).toBeNull();
   });
 });
 

@@ -1,31 +1,13 @@
 /**
- * Module-level cache for resolved feature flag override values.
+ * Cache for resolved feature-flag overrides.
  *
- * Lives in its own module (rather than alongside the resolver in
- * `assistant-feature-flags.ts`) so test code can read/write the cache
- * without going through `assistant-feature-flags.ts` — which transitively
- * pulls `util/logger.js` (pino) and the gateway IPC client. Stdlib-only
- * by design: this file must remain safe to import from the test
- * preload's load-time chain, where a broken `node_modules` symlink has
- * historically tripped the env override (see DB ghost #3,
- * /workspace/journal/2026-05-25-db-ghost-3-recovery.md).
+ * State lives on `globalThis.vellumAssistant.featureFlagCache` so test
+ * infrastructure can seed it through the ambient namespace without importing
+ * production modules into the preload-time graph.
  *
- * State is held on `globalThis.vellumAssistant.featureFlagCache` so test
- * helpers in `__tests__/` can read/write it WITHOUT importing this
- * module. Both sides reference the shared ambient `VellumFeatureFlagCache`
- * type (declared in `src/vellum-assistant-namespace.d.ts`), which types the
- * slot without adding a runtime import between them. See
- * `__tests__/feature-flag-test-helpers.ts` for the test-side writer.
- *
- * Both `overrides` and `fromGateway` were previously module-level `let`
- * bindings inside `assistant-feature-flags.ts`. The semantics are
- * preserved exactly: `overrides === null` means "no fetch has populated
- * the cache yet"; `fromGateway === true` means "the cache is
- * authoritative — `initFeatureFlagOverrides()` should not clobber it".
- *
- * Consumers:
- *   - `assistant-feature-flags.ts` (resolver — reads/writes via gateway fetch)
- *   - `__tests__/feature-flag-test-helpers.ts` (seeds for tests, via globalThis)
+ * `overrides === null` means no fetch has populated the cache.
+ * `fromGateway === true` prevents initialization from replacing an
+ * authoritative fetched or test-seeded value.
  */
 
 function slot(): VellumFeatureFlagCache {

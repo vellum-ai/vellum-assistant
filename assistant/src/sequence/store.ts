@@ -33,8 +33,6 @@ import type {
   UpdateSequenceInput,
 } from "./types.js";
 
-// ── Row Mappers ─────────────────────────────────────────────────────
-
 const parseSequenceRow = createRowMapper<
   typeof sequences.$inferSelect,
   Sequence
@@ -69,8 +67,6 @@ const parseEnrollmentRow = createRowMapper<
   createdAt: "createdAt",
   updatedAt: "updatedAt",
 });
-
-// ── Sequence CRUD ───────────────────────────────────────────────────
 
 export function createSequence(input: CreateSequenceInput): Sequence {
   const db = getDb();
@@ -155,8 +151,6 @@ export function deleteSequence(id: string): void {
     .run();
   db.delete(sequences).where(eq(sequences.id, id)).run();
 }
-
-// ── Enrollment CRUD ─────────────────────────────────────────────────
 
 export function enrollContact(input: EnrollContactInput): SequenceEnrollment {
   const db = getDb();
@@ -265,8 +259,6 @@ export function claimDueEnrollments(
 
   const claimed: SequenceEnrollment[] = [];
   for (const row of candidates) {
-    // Optimistic lock: set status to 'active' (no-op value-wise) but bump updatedAt
-    // The WHERE ensures only one claimer succeeds
     // Optimistic lock: null out nextStepAt to prevent the row from being
     // picked up by a concurrent claim. The WHERE on the old nextStepAt value
     // ensures only one claimer wins (same pattern as reminders changing
@@ -357,8 +349,6 @@ export function resumeEnrollment(id: string): void {
     .where(eq(sequenceEnrollments.id, id))
     .run();
 }
-
-// ── Query Helpers ───────────────────────────────────────────────────
 
 export function findActiveEnrollmentsByEmail(
   email: string,

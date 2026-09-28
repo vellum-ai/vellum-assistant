@@ -6,13 +6,10 @@
  * client is configured (e.g. VELAY_BASE_URL not set).
  */
 
+import type { VelayStatusIpcResponse } from "@vellumai/gateway-client/gateway-ipc-contracts";
+
 import type { VelayTunnelClient } from "../velay/client.js";
 import type { IpcRoute } from "./server.js";
-
-export interface VelayStatus {
-  connected: boolean;
-  publicUrl: string | null;
-}
 
 export function createVelayRoutes(
   velayTunnelClient: VelayTunnelClient | undefined,
@@ -20,7 +17,7 @@ export function createVelayRoutes(
   return [
     {
       method: "get_velay_status",
-      handler: (): VelayStatus => {
+      handler: (): VelayStatusIpcResponse => {
         if (!velayTunnelClient) {
           return { connected: false, publicUrl: null };
         }

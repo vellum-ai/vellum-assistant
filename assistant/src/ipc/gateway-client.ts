@@ -14,10 +14,13 @@ import {
   type ClassifyRiskIpcParams,
   type ClassifyRiskIpcResponse,
   ClassifyRiskIpcResponseSchema,
+  FeatureFlagsIpcResponseSchema,
   ListWebhookRoutesIpcResponseSchema,
   type RegisterWebhookRouteIpcParams,
   RegisterWebhookRouteIpcResponseSchema,
   UnregisterWebhookRouteIpcResponseSchema,
+  type VelayStatusIpcResponse,
+  VelayStatusIpcResponseSchema,
   type WebhookIngressRoute,
 } from "@vellumai/gateway-client";
 import {
@@ -148,46 +151,26 @@ export function resetPersistentClient(): void {
 export async function ipcGetFeatureFlags(
   timeoutMs?: number,
 ): Promise<Record<string, boolean | string>> {
-  const result = await ipcCall("get_feature_flags", undefined, timeoutMs);
-  if (result && typeof result === "object" && !Array.isArray(result)) {
-    const filtered: Record<string, boolean | string> = {};
-    for (const [k, v] of Object.entries(result as Record<string, unknown>)) {
-      if (typeof v === "boolean" || typeof v === "string") {
-        filtered[k] = v;
-      }
-    }
-    return filtered;
-  }
-  return {};
+  const parsed = FeatureFlagsIpcResponseSchema.safeParse(
+    await ipcCall("get_feature_flags", undefined, timeoutMs),
+  );
+  return parsed.success ? parsed.data : {};
 }
 
 // ---------------------------------------------------------------------------
 // Velay tunnel status
 // ---------------------------------------------------------------------------
 
-export interface VelayTunnelStatus {
-  connected: boolean;
-  publicUrl: string | null;
-}
-
 /**
  * Fetch the current Velay tunnel status from the gateway via IPC.
  * Returns `null` when the gateway is unreachable or returns an unexpected
  * response — callers should treat `null` as "gateway not running".
  */
-export async function ipcGetVelayStatus(): Promise<VelayTunnelStatus | null> {
-  const result = await ipcCall("get_velay_status");
-  if (!result || typeof result !== "object" || Array.isArray(result)) {
-    return null;
-  }
-  const obj = result as Record<string, unknown>;
-  if (typeof obj.connected !== "boolean") {
-    return null;
-  }
-  return {
-    connected: obj.connected,
-    publicUrl: typeof obj.publicUrl === "string" ? obj.publicUrl : null,
-  };
+export async function ipcGetVelayStatus(): Promise<VelayStatusIpcResponse | null> {
+  const parsed = VelayStatusIpcResponseSchema.safeParse(
+    await ipcCall("get_velay_status"),
+  );
+  return parsed.success ? parsed.data : null;
 }
 
 // ---------------------------------------------------------------------------

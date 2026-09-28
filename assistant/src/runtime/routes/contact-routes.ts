@@ -393,8 +393,8 @@ export async function handleListContacts(queryParams: Record<string, string>) {
 export async function handleGetContact(contactId: string) {
   try {
     const result = await ipcCallPersistent("contacts_get_rich", { contactId });
-    // The gateway returns null (no `contact`) on a clean not-found.
-    if (!result || (result as { contact?: unknown }).contact === undefined) {
+    // The gateway returns null on a clean not-found.
+    if (result == null) {
       throw new NotFoundError(`Contact "${contactId}" not found`);
     }
     const { contact, assistantMetadata } =

@@ -13,8 +13,6 @@ import {
 } from "./store.js";
 import type { Sequence } from "./types.js";
 
-// ── Event tracking ──────────────────────────────────────────────────
-
 type SequenceEventType =
   | "send"
   | "reply"
@@ -71,8 +69,6 @@ export function recordEvent(
 function getRecentEvents(limit = 20): SequenceEvent[] {
   return eventLog.slice(-limit).reverse();
 }
-
-// ── Metrics ─────────────────────────────────────────────────────────
 
 interface SequenceMetrics {
   sequenceId: string;

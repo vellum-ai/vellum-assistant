@@ -17,8 +17,6 @@ import { enrollContact, getSequence } from "./store.js";
 
 const log = getLogger("sequence:importer");
 
-// ── Types ───────────────────────────────────────────────────────────
-
 export interface ParsedContact {
   email: string;
   name?: string;
@@ -37,15 +35,11 @@ export interface EnrollResult {
   failed: Array<{ email: string; reason: string }>;
 }
 
-// ── Email validation ────────────────────────────────────────────────
-
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function isValidEmail(email: string): boolean {
   return EMAIL_RE.test(email);
 }
-
-// ── Column detection ────────────────────────────────────────────────
 
 // Alias lists are pre-normalized (same transform as normalizeHeader) so lookups
 // match regardless of the original casing, spacing, or punctuation in the file.
@@ -100,8 +94,6 @@ function detectColumns(headers: string[]): {
 
   return { emailIdx, nameIdx, firstNameIdx, lastNameIdx, contextIdxs };
 }
-
-// ── CSV parsing ─────────────────────────────────────────────────────
 
 function detectDelimiter(firstLine: string): string {
   if (firstLine.includes("\t")) {

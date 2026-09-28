@@ -1,8 +1,4 @@
 /**
- * Single-key debouncer. Delays execution until no new calls arrive
- * within the specified delay period.
- */
-/**
  * Multi-key debouncer. Each key gets its own independent timer.
  * Includes an optional entry limit with eviction of oldest non-protected entries.
  */

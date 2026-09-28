@@ -12,8 +12,6 @@ import type { SequenceEnrollment } from "./types.js";
 
 const log = getLogger("sequence:guardrails");
 
-// ── Defaults ────────────────────────────────────────────────────────
-
 export interface GuardrailConfig {
   dailySendCap: number;
   perSequenceHourlyRate: number;
@@ -45,13 +43,12 @@ export function setGuardrailConfig(
   return { ...config };
 }
 
-// ── Send tracking (in-memory, resets on daemon restart) ─────────────
-
 interface SendRecord {
   sequenceId: string;
   timestamp: number;
 }
 
+// In-memory; resets on assistant restart.
 const sendLog: SendRecord[] = [];
 
 export function recordSend(sequenceId: string): void {
@@ -71,8 +68,6 @@ function getSendsThisHour(sequenceId: string): number {
     (r) => r.sequenceId === sequenceId && r.timestamp >= cutoff,
   ).length;
 }
-
-// ── Guardrail checks ────────────────────────────────────────────────
 
 export type GuardrailResult =
   | { ok: true }
