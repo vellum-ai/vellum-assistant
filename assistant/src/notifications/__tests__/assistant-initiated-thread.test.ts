@@ -4,7 +4,17 @@ import type { ConversationCreateType } from "../../persistence/conversation-type
 import type { NotificationSignal } from "../signal.js";
 
 let enabled = true;
-let producing: { conversationType?: ConversationCreateType } | null = null;
+let producing: {
+  conversationType?: ConversationCreateType | "private";
+  source?: string;
+  archivedAt?: number | null;
+} | null = null;
+let placement: { isPinned: boolean; groupId: string | null } | undefined;
+let seedPersisted = true;
+const getMessageByIdMock = mock(
+  (_messageId: string, _conversationId: string) =>
+    seedPersisted ? { id: "msg-seed" } : null,
+);
 const getConversationMock = mock((_id: string) => producing);
 
 mock.module("../../config/assistant-initiated-threads-gate.js", () => ({
@@ -12,9 +22,11 @@ mock.module("../../config/assistant-initiated-threads-gate.js", () => ({
 }));
 mock.module("../../persistence/conversation-crud.js", () => ({
   getConversation: getConversationMock,
+  getDisplayMetaForConversations: () => new Map([["conv-created", placement]]),
+  getMessageById: getMessageByIdMock,
 }));
 
-const { resolveAssistantInitiatedThread } =
+const { resolveAssistantInitiatedThread, isPersistedAssistantInitiatedThread } =
   await import("../assistant-initiated-thread.js");
 
 function share(overrides?: Partial<NotificationSignal>): NotificationSignal {
@@ -39,6 +51,9 @@ beforeEach(() => {
   enabled = true;
   producing = null;
   getConversationMock.mockClear();
+  getMessageByIdMock.mockClear();
+  placement = { isPinned: false, groupId: null };
+  seedPersisted = true;
 });
 
 describe("resolveAssistantInitiatedThread", () => {
@@ -61,6 +76,17 @@ describe("resolveAssistantInitiatedThread", () => {
       expect(getConversationMock).toHaveBeenCalledWith("conv-producer");
     },
   );
+
+  test("a source read failure preserves unrelated delivery eligibility", () => {
+    const signal = share();
+    getConversationMock.mockImplementationOnce(() => {
+      throw new Error("read unavailable");
+    });
+    expect(resolveAssistantInitiatedThread(signal)).toEqual({
+      isCandidate: false,
+      vellumSignal: signal,
+    });
+  });
 
   test("promotes an unresolved source context", () => {
     const resolution = resolveAssistantInitiatedThread(share());
@@ -135,5 +161,94 @@ describe("resolveAssistantInitiatedThread", () => {
       source: "assistant_initiated",
     });
     expect(signal).toEqual(original);
+  });
+});
+
+describe("isPersistedAssistantInitiatedThread", () => {
+  beforeEach(() => {
+    producing = {
+      conversationType: "standard",
+      source: "assistant_initiated",
+      archivedAt: null,
+    };
+  });
+
+  test.each([null, "system:all"])(
+    "accepts persisted ungrouped placement %s",
+    (groupId) => {
+      placement = { isPinned: false, groupId };
+      expect(
+        isPersistedAssistantInitiatedThread("conv-created", "msg-seed"),
+      ).toBe(true);
+      expect(getMessageByIdMock).toHaveBeenCalledWith(
+        "msg-seed",
+        "conv-created",
+      );
+    },
+  );
+
+  test.each([
+    { isPinned: true, groupId: null },
+    { isPinned: false, groupId: "system:pinned" },
+    { isPinned: false, groupId: "group-123" },
+    { isPinned: false, groupId: "system:background" },
+    { isPinned: false, groupId: "system:scheduled" },
+    undefined,
+  ])("rejects placement outside From me: %j", (value) => {
+    placement = value;
+    expect(
+      isPersistedAssistantInitiatedThread("conv-created", "msg-seed"),
+    ).toBe(false);
+    expect(getMessageByIdMock).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    null,
+    { source: "user", conversationType: "standard", archivedAt: null },
+    {
+      source: "assistant_initiated",
+      conversationType: "private",
+      archivedAt: null,
+    },
+    {
+      source: "assistant_initiated",
+      conversationType: "background",
+      archivedAt: null,
+    },
+    {
+      source: "assistant_initiated",
+      conversationType: "scheduled",
+      archivedAt: null,
+    },
+    {
+      source: "assistant_initiated",
+      conversationType: "standard",
+      archivedAt: 1,
+    },
+  ] as const)("rejects missing or hidden conversations: %j", (conversation) => {
+    producing = conversation;
+    expect(
+      isPersistedAssistantInitiatedThread("conv-created", "msg-seed"),
+    ).toBe(false);
+  });
+
+  test("requires both IDs and a seed in the paired conversation", () => {
+    expect(isPersistedAssistantInitiatedThread(null, "msg-seed")).toBe(false);
+    expect(isPersistedAssistantInitiatedThread("conv-created", null)).toBe(
+      false,
+    );
+    seedPersisted = false;
+    expect(
+      isPersistedAssistantInitiatedThread("conv-created", "msg-seed"),
+    ).toBe(false);
+  });
+
+  test("a lookup failure conservatively disables the extra alert", () => {
+    getConversationMock.mockImplementationOnce(() => {
+      throw new Error("read unavailable");
+    });
+    expect(
+      isPersistedAssistantInitiatedThread("conv-created", "msg-seed"),
+    ).toBe(false);
   });
 });

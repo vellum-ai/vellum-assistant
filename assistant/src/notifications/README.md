@@ -2,14 +2,52 @@
 
 Signal-driven notification architecture where producers emit free-form events and an LLM-backed decision engine determines whether, where, and how to notify the user.
 
+## From me chat alerts
+
+With `assistant-initiated-threads` enabled, an `assistant.share` from a background,
+scheduled, or unresolved source can create a new chat in From me. The pipeline
+resolves that promotion once and applies it only to vellum conversation pairing.
+Ordinary shares retain their authored content and original urgency.
+
+A new chat qualifies for an alert only after its conversation and seed message
+are persisted and it belongs in From me: an assistant-initiated, visible,
+ungrouped chat. Reusing an existing chat, filing it elsewhere, pinning it, or
+failing to persist the seed does not enable this additional alert. An invalid
+reuse target that falls back to a newly created eligible chat does qualify.
+
+The successful creation makes the local intent non-silent. When vellum is
+selected and platform credentials are configured, routing can also add the
+existing mobile push channel. Explicit quiet intent, suppression, exclusive
+channel allowlists, and single-channel routing retain precedence. A platform
+route added solely for this feature is skipped if creation does not qualify;
+independently selected urgent or explicit delivery retains its existing policy.
+
+Both paths target the persisted new conversation and seed message. Replayed
+decisions reuse the original delivery audit and destination without creating
+another chat or seed. Shares retain their existing transcript, Home feed, and
+notification bell behavior; they are not classified as completion signals.
+
+Local delivery waits for the existing bounded platform outcome and preserves
+per-platform remote/local duplicate suppression. Missing tokens, disabled remote
+push, or failed platform delivery leave the local fallback available. Provider
+acceptance does not prove that the OS displayed a banner.
+
+iOS uses the existing APNs route and device registration. macOS uses the live
+native notification bridge while the application is running, including hidden
+or minimized windows; quitting the application ends that live-delivery path.
+Android, other Electron clients, and permitted open browser tabs share these
+channels and receive the same eligible events. Existing notification permission,
+active-conversation suppression, tap navigation, and logout behavior apply.
+Opening From me or reconnecting does not replay historical chats as alerts.
+
 ## Completion alerts
 
 `chat.assistant_reply`, `schedule.result`, and explicitly user-facing
 `activity.complete` signals use the available subset of `vellum` and
 `platform`. A self-hosted assistant can deliver through `vellum` without
 mobile push. `completion-policy.ts` owns local presentation: selected
-completions can banner at medium urgency, unrelated low/medium notifications
-remain silent, and explicitly quiet work stays silent. The broadcaster resolves
+completions can banner at medium urgency, and low/medium notifications without
+a completion or new From me chat remain silent, and explicitly quiet work stays silent. The broadcaster resolves
 the existing `silent` contract for the local intent and paired-conversation
 event; clients continue honoring it.
 

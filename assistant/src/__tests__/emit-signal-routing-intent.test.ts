@@ -1,7 +1,25 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { saveRawConfig } from "../config/loader.js";
+import type { NotificationSignal } from "../notifications/signal.js";
 import type { NotificationChannel } from "../notifications/types.js";
+
+let assistantInitiatedCandidate = false;
+const resolveAssistantInitiatedThreadMock = mock(
+  (signal: NotificationSignal) => ({
+    isCandidate: assistantInitiatedCandidate,
+    vellumSignal: assistantInitiatedCandidate
+      ? {
+          ...signal,
+          requiresConversation: true,
+          conversationMetadata: { source: "assistant_initiated" },
+        }
+      : signal,
+  }),
+);
+mock.module("../notifications/assistant-initiated-thread.js", () => ({
+  resolveAssistantInitiatedThread: resolveAssistantInitiatedThreadMock,
+}));
 
 const evaluateSignalMock = mock();
 const enforceRoutingIntentMock = mock();
@@ -113,6 +131,8 @@ import {
 
 beforeEach(() => {
   saveRawConfig({});
+  assistantInitiatedCandidate = false;
+  resolveAssistantInitiatedThreadMock.mockClear();
   writeHomeFeedItemForSignalMock.mockClear();
   evaluateSignalMock.mockReset();
   enforceRoutingIntentMock.mockReset();
@@ -1019,4 +1039,143 @@ describe("classifyNotificationReceipt", () => {
       ]),
     ).toBe("unknown");
   });
+});
+
+describe("emitNotificationSignal From me push defaults", () => {
+  const params = {
+    sourceEventName: "assistant.share",
+    sourceChannel: "assistant_tool" as const,
+    sourceContextId: "conv-background",
+    attentionHints: {
+      urgency: "low" as const,
+      requiresAction: false,
+      isAsyncBackground: true,
+      visibleInSourceNow: false,
+    },
+  };
+  const decision = (selectedChannels: NotificationChannel[] = ["vellum"]) => ({
+    shouldNotify: true,
+    selectedChannels,
+    reasoningSummary: "Assistant-authored share",
+    renderedCopy: { vellum: { title: "An update", body: "A useful result." } },
+    dedupeKey: "share-1",
+    confidence: 1,
+    fallbackUsed: false,
+    persistedDecisionId: "decision-share",
+  });
+
+  beforeEach(() => {
+    assistantInitiatedCandidate = true;
+    evaluateSignalMock.mockResolvedValue(decision());
+  });
+
+  test("adds configured platform after routing and persists the final decision", async () => {
+    const result = await emitNotificationSignal(params);
+    expect(result.selectedChannels).toEqual(["vellum", "platform"]);
+    expect(resolveAssistantInitiatedThreadMock).toHaveBeenCalledTimes(1);
+    expect(updateDecisionMock).toHaveBeenCalledWith(
+      "decision-share",
+      expect.objectContaining({
+        selectedChannels: ["vellum", "platform"],
+      }),
+    );
+    expect(dispatchDecisionMock.mock.calls[0]?.[0]).toMatchObject({
+      attentionHints: { urgency: "low" },
+    });
+    expect(dispatchDecisionMock.mock.calls[0]?.[3]).toMatchObject({
+      assistantInitiatedThread: {
+        platformAdded: true,
+        resolution: {
+          isCandidate: true,
+          vellumSignal: {
+            requiresConversation: true,
+            conversationMetadata: { source: "assistant_initiated" },
+          },
+        },
+      },
+    });
+  });
+
+  test.each([
+    "quiet",
+    "unconfigured",
+    "noncandidate",
+    "suppressed",
+    "single_channel",
+    "external_only",
+    "vellum_allowlist",
+  ])("respects %s policy without adding platform", async (scenario) => {
+    assistantInitiatedCandidate = scenario !== "noncandidate";
+    isPlatformClientConfiguredMock.mockResolvedValue(
+      scenario !== "unconfigured",
+    );
+    evaluateSignalMock.mockResolvedValue({
+      ...decision(scenario === "external_only" ? ["telegram"] : ["vellum"]),
+      shouldNotify: scenario !== "suppressed",
+    });
+    const result = await emitNotificationSignal({
+      ...params,
+      routingIntent:
+        scenario === "single_channel" ? "single_channel" : undefined,
+      contextPayload: {
+        quiet: scenario === "quiet",
+        ...(scenario === "vellum_allowlist"
+          ? { channelAllowlist: ["vellum"] }
+          : {}),
+      },
+    });
+    expect(result.selectedChannels).not.toContain("platform");
+    expect(dispatchDecisionMock.mock.calls[0]?.[3]).toMatchObject({
+      assistantInitiatedThread: { platformAdded: false },
+    });
+  });
+
+  test("keeps existing platform and external selections independent of this feature", async () => {
+    evaluateSignalMock.mockResolvedValue(
+      decision(["vellum", "platform", "telegram"]),
+    );
+    const result = await emitNotificationSignal({
+      ...params,
+      contextPayload: { quiet: true },
+    });
+    expect(result.selectedChannels).toEqual(["vellum", "platform", "telegram"]);
+    expect(isPlatformClientConfiguredMock).not.toHaveBeenCalled();
+    expect(dispatchDecisionMock.mock.calls[0]?.[3]).toMatchObject({
+      assistantInitiatedThread: { platformAdded: false },
+    });
+  });
+
+  test("probes an unbound platform once across urgency and From me policy", async () => {
+    isPlatformClientConfiguredMock.mockResolvedValue(false);
+    const result = await emitNotificationSignal({
+      ...params,
+      attentionHints: { ...params.attentionHints, urgency: "high" },
+    });
+    expect(result.selectedChannels).toEqual(["vellum"]);
+    expect(isPlatformClientConfiguredMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("preserves preferred external selections while adding the platform default", async () => {
+    evaluateSignalMock.mockResolvedValue(decision(["vellum", "telegram"]));
+    const result = await emitNotificationSignal(params);
+    expect(result.selectedChannels).toEqual(["vellum", "telegram", "platform"]);
+  });
+
+  test.each(["deduplicated", "source_active"])(
+    "does not resolve candidates for %s signals",
+    async (scenario) => {
+      if (scenario === "deduplicated") {
+        createEventMock.mockReturnValue(null);
+      }
+      await emitNotificationSignal({
+        ...params,
+        attentionHints: {
+          ...params.attentionHints,
+          visibleInSourceNow: scenario === "source_active",
+        },
+      });
+      expect(resolveAssistantInitiatedThreadMock).not.toHaveBeenCalled();
+      expect(dispatchDecisionMock).not.toHaveBeenCalled();
+    },
+  );
 });
