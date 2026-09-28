@@ -1151,7 +1151,8 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       // and DeepSeek V4 Flash
       // (accounts/fireworks/models/deepseek-v4-flash-0731) are intentionally
       // absent: Fireworks has no serverless deployment for them (the
-      // serving API returns 404).
+      // serving API returns 404). DeepSeek V4.1 Flash is the serverless
+      // successor Fireworks names for both.
       {
         id: "accounts/fireworks/models/deepseek-v4p1-flash",
         displayName: "DeepSeek V4.1 Flash",

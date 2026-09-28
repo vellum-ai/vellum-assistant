@@ -5,25 +5,26 @@ import { Database } from "bun:sqlite";
 import type { WorkspaceMigration } from "./types.js";
 
 /**
- * Repair the retired Fireworks DeepSeek V4 Flash model ID in workspace LLM
+ * Repair the retired Fireworks DeepSeek V4 model IDs in workspace LLM
  * config.
  *
  * Fireworks has no serverless deployment of
- * `accounts/fireworks/models/deepseek-v4-flash-0731`: chat/completions
- * calls fail with a 404 "Model not found, inaccessible, and/or not
- * deployed". Existing configs can pin the ID in `llm.default`,
- * `llm.callSites.*`, and `llm.profiles.*`.
+ * `accounts/fireworks/models/deepseek-v4-flash-0731` or
+ * `accounts/fireworks/models/deepseek-v4-pro-0813`: chat/completions calls
+ * fail with a 404 "Model not found, inaccessible, and/or not deployed".
+ * Existing configs can pin either ID in `llm.default`, `llm.callSites.*`,
+ * and `llm.profiles.*`.
  *
  * Repair those leaves only on an exact stale match, replacing with
- * `accounts/fireworks/models/deepseek-v4p1-flash`: the only DeepSeek Flash
- * model Fireworks serves serverless. Because that is also the
- * cost-optimized intent template's model, a repaired hand-edited `custom-*`
- * profile can read as unedited to `ensureByokDefaultProfiles` and collapse
- * into the cost-optimized default. That is acceptable: the collapsed copy
- * routes to the same model this migration writes.
+ * `accounts/fireworks/models/deepseek-v4p1-flash`: the serverless successor
+ * Fireworks names for both. Because that is also the cost-optimized intent
+ * template's model, a repaired hand-edited `custom-*` profile can read as
+ * unedited to `ensureByokDefaultProfiles` and collapse into the
+ * cost-optimized default. That is acceptable: the collapsed copy routes to
+ * the same model this migration writes.
  *
- * Provider guard: the stale ID belongs to the `fireworks` provider and also
- * appears in managed profiles stamped `provider: "vellum"` (which route
+ * Provider guard: the stale IDs belong to the `fireworks` provider and also
+ * appear in managed profiles stamped `provider: "vellum"` (which route
  * Fireworks-account model IDs through the managed proxy). Under the entries
  * model (migration 145) `provider` can also hold a `provider_connections`
  * entry name whose row kind drives dispatch. A fragment is repaired when
@@ -32,11 +33,11 @@ import type { WorkspaceMigration } from "./types.js";
  * `openai-compatible` endpoint may legitimately serve a model by the stale
  * name.
  */
-export const repairRetiredFireworksDeepseekFlash0731ModelIdMigration: WorkspaceMigration =
+export const repairRetiredFireworksDeepseekV4ModelIdsMigration: WorkspaceMigration =
   {
-    id: "160-repair-retired-fireworks-deepseek-flash-0731-model-id",
+    id: "160-repair-retired-fireworks-deepseek-v4-model-ids",
     description:
-      "Repair retired Fireworks accounts/fireworks/models/deepseek-v4-flash-0731 model ID in workspace LLM config",
+      "Repair retired Fireworks DeepSeek V4 Flash and Pro model IDs in workspace LLM config",
     run(workspaceDir: string): void {
       const configPath = join(workspaceDir, "config.json");
       if (!existsSync(configPath)) {
@@ -131,7 +132,7 @@ export const repairRetiredFireworksDeepseekFlash0731ModelIdMigration: WorkspaceM
     // disk, I/O error) is safe to retry on later startups.
     retryFailedCheckpoint: true,
     down(_workspaceDir: string): void {
-      // Forward-only: reintroducing the retired model ID would break
+      // Forward-only: reintroducing a retired model ID would break
       // Fireworks calls.
     },
   };
@@ -140,7 +141,10 @@ export const repairRetiredFireworksDeepseekFlash0731ModelIdMigration: WorkspaceM
 // Helpers: self-contained per workspace migrations AGENTS.md
 // ---------------------------------------------------------------------------
 
-const STALE_MODEL_ID = "accounts/fireworks/models/deepseek-v4-flash-0731";
+const STALE_MODEL_IDS = new Set([
+  "accounts/fireworks/models/deepseek-v4-flash-0731",
+  "accounts/fireworks/models/deepseek-v4-pro-0813",
+]);
 const REPLACEMENT_MODEL_ID = "accounts/fireworks/models/deepseek-v4p1-flash";
 const REPAIRABLE_PROVIDERS = new Set(["fireworks", "vellum"]);
 
@@ -151,7 +155,10 @@ function repairFragment(
   if (fragment === null) {
     return false;
   }
-  if (fragment.model !== STALE_MODEL_ID) {
+  if (
+    typeof fragment.model !== "string" ||
+    !STALE_MODEL_IDS.has(fragment.model)
+  ) {
     return false;
   }
   if (!isRepairableProvider(fragment.provider)) {
