@@ -88,6 +88,7 @@ let mainWindowVisible = true;
  * app that is already in front. Reset before each case.
  */
 let companionOpen = true;
+let companionHidden = false;
 
 /** Every channel main has sent the app's window, most recent last. */
 const mainSends: { channel: string; payload: unknown }[] = [];
@@ -736,7 +737,7 @@ let introSeen = Number.MAX_SAFE_INTEGER;
 
 mock.module("@vellumai/electron-desktop/window-state", () => ({
   readCompanionSize: (axis: CompanionSizeAxis) => sizes[axis],
-  readCompanionHidden: () => false,
+  readCompanionHidden: () => companionHidden,
   writeCompanionSize: (axis: CompanionSizeAxis, size: CompanionSize) => {
     sizes[axis] = size;
   },
@@ -744,7 +745,9 @@ mock.module("@vellumai/electron-desktop/window-state", () => ({
   writeCompanionCallDock: (dock: CompanionDock) => {
     storedDock = dock;
   },
-  writeCompanionHidden: () => {},
+  writeCompanionHidden: (hidden: boolean) => {
+    companionHidden = hidden;
+  },
   // Stubbed rather than omitted, like every other export here: the module
   // under test imports these, and one missing from a whole-module mock is a
   // load-time failure for the file rather than a failing case.
@@ -847,6 +850,7 @@ beforeEach(() => {
   mainWindowVisible = true;
   mainSends.length = 0;
   companionOpen = true;
+  companionHidden = false;
   // Introduced already, which is what every case that is not about the run
   // needs: a run due would stage the surface over the app's window and move
   // every placement case's answer.
@@ -856,6 +860,7 @@ beforeEach(() => {
   mainTimeline.length = 0;
   fireAppEvent("did-resign-active");
   surface.visible = true;
+  setName("Example Assistant");
 });
 
 /** Put a set of evaluated flags in settings and tell main they changed. */
@@ -6879,5 +6884,62 @@ describe("the introduction's reports", () => {
 
     expect(reports().map((report) => report.event)).toEqual(["advanced"]);
     expect(takeReports()).toEqual([]);
+  });
+});
+
+describe("active calls keep visible controls", () => {
+  afterEach(() => {
+    send("vellum:voiceActivity:end");
+  });
+
+  test("a call temporarily opens a hidden companion and restores its preference", () => {
+    setCompanionSurfaceVisible(false);
+    expect(companionOpen).toBe(false);
+    expect(companionHidden).toBe(true);
+    send("vellum:voiceActivity:start", START);
+    expect(companionOpen).toBe(true);
+    expect(surface.visible).toBe(true);
+    expect(companionHidden).toBe(true);
+    send("vellum:voiceActivity:end");
+    expect(companionOpen).toBe(false);
+    expect(companionHidden).toBe(true);
+  });
+
+  test("hiding during a call takes effect only after it ends", () => {
+    send("vellum:voiceActivity:start", START);
+    setCompanionSurfaceVisible(false);
+    expect(companionOpen).toBe(true);
+    expect(surface.visible).toBe(true);
+    expect(companionHidden).toBe(true);
+    send("vellum:voiceActivity:end");
+    expect(companionOpen).toBe(false);
+  });
+
+  test("call controls stay visible when the main window comes forward", () => {
+    send("vellum:voiceActivity:start", START);
+    fireAppEvent("did-become-active");
+    expect(surface.visible).toBe(true);
+    send("vellum:voiceActivity:end");
+    expect(surface.visible).toBe(false);
+  });
+
+  test("ending a crashed renderer's call restores the hidden preference", () => {
+    setCompanionSurfaceVisible(false);
+    send("vellum:voiceActivity:start", START);
+    expect(companionOpen).toBe(true);
+    mainRenderer.emit("render-process-gone");
+    expect(companionOpen).toBe(false);
+  });
+
+  test("active controls do not depend on the assistant avatar being ready", () => {
+    expect(shouldShowCompanionSurface(false, true, true)).toBe(true);
+    expect(surfaceAwayFor(true, true, false, true)).toBe(false);
+  });
+
+  test("call cleanup does not recreate a destroyed companion", () => {
+    send("vellum:voiceActivity:start", START);
+    companionOpen = false;
+    send("vellum:voiceActivity:end");
+    expect(companionOpen).toBe(false);
   });
 });

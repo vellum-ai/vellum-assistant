@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 
+import { t } from "@/i18n";
+import { confirmVoiceShortcutStart } from "@/runtime/voice-shortcut-confirmation";
+import {
+  isLiveVoiceSessionActive,
+  useLiveVoiceStore,
+} from "@/domains/chat/voice/live-voice/live-voice-store";
+
 import type { DictationContext } from "@vellumai/assistant-api";
 import type {
   HotkeySelection,
@@ -252,6 +259,11 @@ export function GlobalPushToTalkBridge({
   enabled,
 }: GlobalPushToTalkBridgeProps) {
   const enabledRef = useRef(enabled);
+  const assistantIdRef = useRef(assistantId);
+  const voiceKeyStartPendingRef = useRef(false);
+  useEffect(() => {
+    assistantIdRef.current = assistantId;
+  }, [assistantId]);
   useEffect(() => {
     enabledRef.current = enabled;
     return () => {
@@ -368,7 +380,11 @@ export function GlobalPushToTalkBridge({
     key: enabled ? voiceKey : { kind: "off" },
     onRegistered: setVoiceKeyRegistered,
     onHoldStart: ({ selection }) => {
-      if (!enabled || companionIntroStaged()) {
+      if (
+        !enabled ||
+        voiceKeyStartPendingRef.current ||
+        companionIntroStaged()
+      ) {
         return;
       }
       if (useVoiceRecordingStore.getState().phase === "recording") {
@@ -411,24 +427,48 @@ export function GlobalPushToTalkBridge({
       }
     },
     onDoubleTap: async () => {
-      if (!enabled) {
+      if (!enabled || voiceKeyStartPendingRef.current) {
         return;
       }
-      const state = await getCompanionState();
-      if (!enabledRef.current) {
-        return;
+      voiceKeyStartPendingRef.current = true;
+      try {
+        const state = await getCompanionState();
+        if (!enabledRef.current || assistantIdRef.current !== assistantId) {
+          return;
+        }
+        const introOffer = state?.intro === "try";
+        if (!introOffer && (state?.intro != null || companionIntroStaged())) {
+          return;
+        }
+        if (!isLiveVoiceSessionActive(useLiveVoiceStore.getState().state)) {
+          const confirmed = await confirmVoiceShortcutStart({
+            title: t("chat:voiceShortcutConfirmation.title"),
+            detail: t("chat:voiceShortcutConfirmation.detail"),
+            confirm: t("chat:voiceShortcutConfirmation.confirm"),
+            cancel: t("chat:voiceShortcutConfirmation.cancel"),
+            dontShowAgain: t("chat:voiceShortcutConfirmation.dontShowAgain"),
+          });
+          if (
+            !confirmed ||
+            !enabledRef.current ||
+            assistantIdRef.current !== assistantId ||
+            (!introOffer && companionIntroStaged()) ||
+            isLiveVoiceSessionActive(useLiveVoiceStore.getState().state)
+          ) {
+            return;
+          }
+        }
+        if (introOffer) {
+          advanceCompanionIntro("try");
+          return;
+        }
+        toggleVoiceFromSurface(
+          (to, options) => navigateRef.current(to, options),
+          "voice_key",
+        );
+      } finally {
+        voiceKeyStartPendingRef.current = false;
       }
-      if (state?.intro === "try") {
-        advanceCompanionIntro("try");
-        return;
-      }
-      if (state?.intro != null || companionIntroStaged()) {
-        return;
-      }
-      toggleVoiceFromSurface(
-        (to, options) => navigateRef.current(to, options),
-        "voice_key",
-      );
     },
     // Counted and nothing else. A tap asks for nothing here; the count is what
     // lets the companion's introduction show the key answering while it is

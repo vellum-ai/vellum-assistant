@@ -2254,5 +2254,12 @@
   "emailNavItem": {
     "label": "邮件",
     "unpin": "取消固定邮件"
+  },
+  "voiceShortcutConfirmation": {
+    "title": "开始语音聊天？",
+    "detail": "你使用了语音快捷键。麦克风将保持开启，让你与助手交谈，即使你正在使用其他应用。结束通话即可停止收音。",
+    "confirm": "开始语音聊天",
+    "cancel": "取消",
+    "dontShowAgain": "不再显示"
   }
 }

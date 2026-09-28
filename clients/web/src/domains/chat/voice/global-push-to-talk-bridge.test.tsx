@@ -8,6 +8,16 @@ import type {
 } from "@vellumai/ipc-contract";
 import type { CommandHandlers } from "@/runtime/vellum-commands";
 
+import type * as VoiceShortcutConfirmation from "@/runtime/voice-shortcut-confirmation";
+
+const confirmVoiceStartMock = mock(async () => true);
+mock.module(
+  "@/runtime/voice-shortcut-confirmation",
+  (): Partial<typeof VoiceShortcutConfirmation> => ({
+    confirmVoiceShortcutStart: confirmVoiceStartMock,
+  }),
+);
+
 let popout = false;
 let commandHandlers: CommandHandlers = {};
 mock.module("@/runtime/popout-window", () => ({
@@ -231,6 +241,9 @@ const { useAssistantIdentityStore } =
 const { useVoiceKeyTapStore } =
   await import("@/domains/chat/voice/voice-key-tap-store");
 
+const { useLiveVoiceStore } =
+  await import("@/domains/chat/voice/live-voice/live-voice-store");
+
 const renderBridge = (
   assistantId: string | null = "assistant-1",
   enabled = true,
@@ -267,6 +280,9 @@ afterEach(() => {
   nextAskTaken = true;
   announceAskRefusedMock.mockClear();
   toggleVoiceMock.mockClear();
+  confirmVoiceStartMock.mockReset();
+  confirmVoiceStartMock.mockResolvedValue(true);
+  useLiveVoiceStore.getState().reset();
   mainIntro = null;
   readCompanionState.mockClear();
   toastErrorMock.mockClear();
@@ -531,13 +547,14 @@ test("drives its own recorder, not whatever claimed dictation last", async () =>
  * assistant with the selection quoted ahead of them, and nothing is pasted or
  * cleaned up: the cleanup pass rewrites words meant for a document.
  */
-test("a double tap of the voice key is Talk", async () => {
+test("a confirmed double tap of the voice key is Talk", async () => {
   renderBridge("a1");
 
   await act(async () => {
     await holdHandlers?.onDoubleTap();
   });
 
+  expect(confirmVoiceStartMock).toHaveBeenCalledTimes(1);
   expect(toggleVoiceMock).toHaveBeenCalledTimes(1);
   // Named for the daemon's telemetry: the same macOS client also starts calls
   // from the composer and the companion, and only the entry tells them apart.
@@ -1101,11 +1118,26 @@ test.each([true, false])(
     await act(async () => {
       await holdHandlers?.onDoubleTap();
     });
+    expect(confirmVoiceStartMock).toHaveBeenCalledTimes(1);
     expect(advanceIntro).toHaveBeenCalledWith("try");
     expect(advanceIntro).toHaveBeenCalledTimes(1);
     expect(toggleVoiceMock).not.toHaveBeenCalled();
   },
 );
+
+test("canceling the tour's final double tap does not accept its call offer", async () => {
+  introStaged = true;
+  mainIntro = "try";
+  confirmVoiceStartMock.mockResolvedValue(false);
+  renderBridge("a1");
+  await act(async () => {
+    await holdHandlers?.onDoubleTap();
+  });
+  expect(confirmVoiceStartMock).toHaveBeenCalledTimes(1);
+  expect(advanceIntro).not.toHaveBeenCalled();
+  expect(toggleVoiceMock).not.toHaveBeenCalled();
+  expect(voiceStartMock).not.toHaveBeenCalled();
+});
 
 test.each(["idle", "meet", "talk", "key", "share", "draw", "mute"] as const)(
   "a double tap stays a rehearsal on %s",
@@ -1169,3 +1201,94 @@ test("voice gestures stay inactive before assistant selection is ready", async (
   expect(voiceStartMock).not.toHaveBeenCalled();
   expect(advanceIntro).not.toHaveBeenCalled();
 });
+
+test("canceling a double tap never opens a microphone or starts a call", async () => {
+  confirmVoiceStartMock.mockResolvedValue(false);
+  renderBridge();
+  await act(async () => {
+    await holdHandlers?.onDoubleTap();
+  });
+  expect(toggleVoiceMock).not.toHaveBeenCalled();
+  expect(voiceStartMock).not.toHaveBeenCalled();
+});
+
+test("an active call ends without asking for confirmation", async () => {
+  renderBridge();
+  useLiveVoiceStore.getState().setState("listening");
+  await act(async () => {
+    await holdHandlers?.onDoubleTap();
+  });
+  expect(confirmVoiceStartMock).not.toHaveBeenCalled();
+  expect(toggleVoiceMock).toHaveBeenCalledTimes(1);
+});
+
+test("pending confirmation suppresses repeated taps and held-key recording", async () => {
+  let answer: (confirmed: boolean) => void = () => {};
+  confirmVoiceStartMock.mockImplementation(
+    () =>
+      new Promise<boolean>((resolve) => {
+        answer = resolve;
+      }),
+  );
+  renderBridge();
+  const pending = holdHandlers?.onDoubleTap();
+  await act(async () => {
+    await Promise.resolve();
+  });
+  await holdHandlers?.onDoubleTap();
+  act(() => {
+    holdHandlers?.onHoldStart({ selection: null });
+  });
+  expect(confirmVoiceStartMock).toHaveBeenCalledTimes(1);
+  expect(toggleVoiceMock).not.toHaveBeenCalled();
+  expect(voiceStartMock).not.toHaveBeenCalled();
+  await act(async () => {
+    answer(true);
+    await pending;
+  });
+  expect(toggleVoiceMock).toHaveBeenCalledTimes(1);
+});
+
+test.each(["unmount", "assistant-change", "disabled", "another-call"] as const)(
+  "a confirmation cannot start after %s",
+  async (change) => {
+    let answer: (confirmed: boolean) => void = () => {};
+    confirmVoiceStartMock.mockImplementation(
+      () =>
+        new Promise<boolean>((resolve) => {
+          answer = resolve;
+        }),
+    );
+    const view = render(
+      <MemoryRouter>
+        <GlobalPushToTalkBridge assistantId="assistant-1" enabled />
+      </MemoryRouter>,
+    );
+    const pending = holdHandlers?.onDoubleTap();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    if (change === "unmount") {
+      view.unmount();
+    } else if (change === "another-call") {
+      useLiveVoiceStore.getState().setState("listening");
+    } else {
+      view.rerender(
+        <MemoryRouter>
+          <GlobalPushToTalkBridge
+            assistantId={
+              change === "assistant-change" ? "assistant-2" : "assistant-1"
+            }
+            enabled={change !== "disabled"}
+          />
+        </MemoryRouter>,
+      );
+    }
+    await act(async () => {
+      answer(true);
+      await pending;
+    });
+    expect(toggleVoiceMock).not.toHaveBeenCalled();
+    expect(voiceStartMock).not.toHaveBeenCalled();
+  },
+);

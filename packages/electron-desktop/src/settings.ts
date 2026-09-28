@@ -20,6 +20,7 @@ export interface AppSettings {
   launchAtLogin: boolean;
   shareDiagnostics: boolean;
   suppressRelocationPrompt: boolean;
+  skipVoiceShortcutConfirmation: boolean;
 }
 
 const schema: Schema<AppSettings> = {
@@ -43,6 +44,10 @@ const schema: Schema<AppSettings> = {
   },
   shareDiagnostics: {
     type: "boolean",
+  },
+  skipVoiceShortcutConfirmation: {
+    type: "boolean",
+    default: false,
   },
   suppressRelocationPrompt: {
     type: "boolean",

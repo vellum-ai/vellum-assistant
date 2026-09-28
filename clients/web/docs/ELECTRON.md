@@ -107,6 +107,23 @@ A subset of push signals — inbound deep links being the canonical case — can
 
 ---
 
+## Voice shortcut confirmation
+
+The macOS voice key asks for confirmation before starting a call. The renderer
+passes localized copy through `runtime/voice-shortcut-confirmation.ts` to the
+native `hotkeys.confirmVoiceStart` capability. The shell raises Vellum and shows
+a system dialog with Cancel selected by default. Only a confirmed start with
+"Don't show again" persists the opt-out. Older shells use a browser confirmation.
+Repeated gestures, unmount, assistant changes, and calls started while the prompt
+is open cannot turn a stale confirmation into a new microphone capture. A
+double-tap during an active call ends it without confirmation.
+
+The macOS companion's hide preference controls its idle state. An active call
+keeps its controls on screen, including while Vellum is in front. Ending the
+session or losing its renderer restores the saved idle preference.
+The desktop receives the connecting state before the iOS avatar is encoded, so
+an image load cannot delay its microphone controls.
+
 ## Companion dictation recovery
 
 The main renderer exclusively publishes companion context. When a voice-key

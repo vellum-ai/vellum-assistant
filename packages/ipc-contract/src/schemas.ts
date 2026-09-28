@@ -594,3 +594,11 @@ export const titleBarOverlayThemeSchema = z.object({
   symbolColor: cssColorSchema,
   colorScheme: z.enum(["light", "dark"]),
 });
+
+export const voiceShortcutConfirmationCopySchema = z.object({
+  title: z.string().min(1).max(200),
+  detail: z.string().min(1).max(2000),
+  confirm: z.string().min(1).max(200),
+  cancel: z.string().min(1).max(200),
+  dontShowAgain: z.string().min(1).max(200),
+});

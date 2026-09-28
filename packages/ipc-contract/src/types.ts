@@ -254,6 +254,14 @@ export type VellumCommand =
 /** Global (system-wide) vs menu (app-focused) shortcut scope. */
 export type HotkeyScope = "global" | "menu";
 
+export interface VoiceShortcutConfirmationCopy {
+  title: string;
+  detail: string;
+  confirm: string;
+  cancel: string;
+  dontShowAgain: string;
+}
+
 /**
  * A rebindable command resolved against the current settings: compiled
  * default, user override (if any), and effective accelerator.

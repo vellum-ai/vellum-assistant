@@ -197,7 +197,6 @@ async function islandAvatarBase64(): Promise<string | undefined> {
  */
 async function startWithAvatar(
   currentStart: () => VoiceLiveActivityStart | null,
-  currentWork: () => VoiceActivityWork[],
 ): Promise<void> {
   const avatarBase64 = await islandAvatarBase64();
   const start = currentStart();
@@ -208,13 +207,6 @@ async function startWithAvatar(
     ...start,
     ...(avatarBase64 ? { avatarBase64 } : {}),
   };
-  // Handed to both sinks, the desktop's with the call's work added (the island
-  // has no room for it). `VoiceActivityStart`'s `phase` is the same
-  // vocabulary as `ActiveLiveVoiceSessionState`, restated in the IPC contract
-  // rather than imported across the package boundary. This assignment is what
-  // holds the two in step, so a phase added to the store without a matching
-  // case in `@vellumai/ipc-contract` fails to compile here.
-  startVoiceActivity({ ...payload, work: currentWork() });
   await startVoiceLiveActivity(payload);
 }
 
@@ -411,6 +403,11 @@ export function useLiveActivityMirror(): void {
         pushedWork = work;
         generation += 1;
         const started = generation;
+        const assistantName = assistantDisplayName(
+          useAssistantIdentityStore.getState().name,
+        );
+        // Microphone controls must not wait for the island's avatar encode.
+        startVoiceActivity({ ...content, assistantName, work });
         void startWithAvatar(
           () =>
             // Read at start time, not capture time. `pushed` tracks the newest
@@ -424,12 +421,9 @@ export function useLiveActivityMirror(): void {
                   // the activity's lifetime, so it is read once here and never
                   // pushed again. The avatar is added by `startWithAvatar` for
                   // the same reason.
-                  assistantName: assistantDisplayName(
-                    useAssistantIdentityStore.getState().name,
-                  ),
+                  assistantName,
                 }
               : null,
-          () => pushedWork,
         );
         return;
       }

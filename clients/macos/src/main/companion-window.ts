@@ -180,10 +180,10 @@ const isWatchEnabled = (): boolean =>
  * The companion surface (LUM-3086): the assistant's avatar floating from app
  * launch, expanding on hover into a pill carrying the ways to reach it, and
  * holding that expansion for as long as a call runs. It stays on screen
- * for the app's whole run unless the user hides it via the tray's "Show
- * Companion" item, a choice that persists across launches
+ * for the app's whole run or an active call. The tray's "Show Companion"
+ * item controls the idle surface, a choice that persists across launches
  * (`readCompanionHidden` in `window-state.ts`), and it steps off the screen
- * for as long as Vellum itself is the frontmost app with its window showing
+ * while idle and Vellum itself is the frontmost app with its window showing
  * (see `syncFrontmost`).
  *
  * **It is also the desktop's live-voice session surface**, the counterpart to
@@ -3205,6 +3205,7 @@ const ownCall = (owner: WebContents): void => {
       return;
     }
     syncCallSurface();
+    restoreIdleCompanionSurface();
     pushState();
   };
   const endOnNavigation = (
@@ -3371,9 +3372,8 @@ const setInteractive = (interactive: boolean): void => {
  * Whether Vellum is the active application.
  *
  * The surface stands in for the app while the user is working somewhere else,
- * and it steps off the screen while the app itself is in front: over the app's
- * own window it is a second copy of the same controls, floating over the chat
- * they belong to.
+ * and its idle surface steps off the screen while the app itself is in front.
+ * Active calls keep their controls visible while the user moves around the app.
  *
  * Read from the application's activation rather than from window focus. The
  * panels this app floats (Quick Input, the dictation overlay, this surface)
@@ -3423,7 +3423,7 @@ const mainWindowShowing = (): boolean => {
  */
 /**
  * Whether the surface belongs off the screen: the app is in front with its own
- * window showing, and no introduction is being staged on it.
+ * window showing, with no active call or staged introduction.
  *
  * Exported for its tests, as {@link shouldShowCompanionSurface} is. The rule
  * has two inputs that pull opposite ways, and the one case worth pinning is
@@ -3434,14 +3434,20 @@ export const surfaceAwayFor = (
   appInFront: boolean,
   mainShowing: boolean,
   staged: boolean,
-): boolean => appInFront && mainShowing && !staged;
+  activeCall = false,
+): boolean => appInFront && mainShowing && !staged && !activeCall;
 
 const syncFrontmost = (): void => {
   const win = getFloatingWindow(COMPANION_KIND);
   if (!win || win.isDestroyed()) {
     return;
   }
-  const away = surfaceAwayFor(appActive, mainWindowShowing(), introStaged);
+  const away = surfaceAwayFor(
+    appActive,
+    mainWindowShowing(),
+    introStaged,
+    call !== null,
+  );
   if (away === surfaceAway) {
     return;
   }
@@ -4405,6 +4411,7 @@ export const installCompanionWindow = (): void => {
       // However this session was started, it is the thing the introduction's
       // last beat asks for. See {@link finishIntroOnSession}.
       finishIntroOnSession();
+      syncCompanionSurface();
       syncCallSurface();
       pushState();
     },
@@ -4433,6 +4440,7 @@ export const installCompanionWindow = (): void => {
       return;
     }
     syncCallSurface();
+    restoreIdleCompanionSurface();
     pushState();
   });
 
@@ -4518,6 +4526,7 @@ export const installCompanionWindow = (): void => {
     dialing = false;
     clearCall();
     syncCallSurface();
+    restoreIdleCompanionSurface();
     context = {
       ...context,
       watching: false,
@@ -4646,7 +4655,8 @@ export const openCompanionWindow = (): void => {
     return;
   }
 
-  const introDue = readCompanionIntroSeenVersion() < COMPANION_INTRO_VERSION;
+  const introDue =
+    call === null && readCompanionIntroSeenVersion() < COMPANION_INTRO_VERSION;
 
   const win = createFloatingWindow({
     kind: COMPANION_KIND,
@@ -4751,15 +4761,8 @@ const closeCompanionWindow = (): void => {
 };
 
 /**
- * Show or hide the surface, persisting the choice so a hidden surface stays
- * hidden on the next launch.
- *
- * Hiding closes the window outright rather than making it invisible: the
- * canvas is a click-through mouse-event forwarder, and a hidden-but-alive
- * window would keep that machinery running for nothing. The live-voice
- * session state is unaffected either way, since main holds it (see `call`),
- * so a call running while the surface is hidden appears mid-call, clock
- * intact, when the surface is shown again.
+ * Persist the idle surface preference. Active calls keep their controls on
+ * screen until the session ends, then the idle preference applies again.
  */
 export const setCompanionSurfaceVisible = (visible: boolean): void => {
   writeCompanionHidden(!visible);
@@ -4777,7 +4780,7 @@ export const setCompanionSurfaceVisible = (visible: boolean): void => {
   // bringing it back later does not start explaining it again to someone who
   // has already decided what they think.
   finishIntro("hidden");
-  closeCompanionWindow();
+  syncCompanionSurface();
 };
 
 /**
@@ -4977,38 +4980,32 @@ export const resetCompanionSurfacePosition = (): void => {
  */
 const hasAssistant = (): boolean => getAssistantName() !== null;
 
-/**
- * Whether the surface belongs on screen, given an assistant to draw and the
- * user's own choice from the tray.
- *
- * The assistant is a floor and the tray preference is a veto, so both have to
- * say yes. Exported for its tests, as `callOnUpdate` is: it is the rule that
- * decides whether the most conspicuous window this app has appears at all.
- */
+/** Active call controls stay visible regardless of the idle surface preference. */
 export const shouldShowCompanionSurface = (
   assistant: boolean,
   hidden: boolean,
-): boolean => assistant && !hidden;
+  activeCall = false,
+): boolean => activeCall || (assistant && !hidden);
 
-/**
- * Open or close the surface to match the two things that decide whether it
- * belongs on screen: whether there is an assistant to draw, and the user's own
- * choice from the tray.
- *
- * The single place that decision is made, called at launch and again whenever
- * either input changes. Two call sites reading the same pair of conditions is
- * how they come to disagree, and disagreeing here means either a floating
- * avatar nobody asked for or a missing one the user turned on.
- *
- * **Neither input ever writes the other.** Signing out has to leave the tray
- * preference exactly as the user left it, so that signing back in restores the
- * surface for someone who wanted it and leaves it hidden for someone who did
- * not.
- */
+/** Apply call visibility without changing the user's idle surface preference. */
 export const syncCompanionSurface = (): void => {
-  if (shouldShowCompanionSurface(hasAssistant(), readCompanionHidden())) {
+  if (
+    shouldShowCompanionSurface(
+      hasAssistant(),
+      readCompanionHidden(),
+      call !== null,
+    )
+  ) {
     openCompanionWindow();
+    syncFrontmost();
     return;
   }
   closeCompanionWindow();
+};
+
+const restoreIdleCompanionSurface = (): void => {
+  // Cleanup must not recreate windows being destroyed during app shutdown.
+  if (getFloatingWindow(COMPANION_KIND) !== null) {
+    syncCompanionSurface();
+  }
 };

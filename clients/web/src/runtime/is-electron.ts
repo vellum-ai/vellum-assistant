@@ -75,6 +75,7 @@ import type {
   VoiceModeChord,
   VoiceModeChordRegistrationResult,
   ResolvedHotkey,
+  VoiceShortcutConfirmationCopy,
   ShowNotificationPayload,
   SystemPermissionKind,
   SystemPermissionStateItem,
@@ -162,6 +163,10 @@ declare global {
         openAutomationSettings(): Promise<void>;
       };
       hotkeys?: {
+        /** Native confirmation on macOS; older shells use a renderer confirmation. */
+        confirmVoiceStart?(
+          copy: VoiceShortcutConfirmationCopy,
+        ): Promise<boolean>;
         get(): Promise<ResolvedHotkey[]>;
         set(key: string, accelerator: string | null): Promise<void>;
         onChange(callback: (catalog: ResolvedHotkey[]) => void): () => void;

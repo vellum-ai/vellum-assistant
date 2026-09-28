@@ -297,9 +297,12 @@ describe("starting the activity", () => {
     renderMirror();
     await setPhase("connecting");
     expect(startVoiceLiveActivity).not.toHaveBeenCalled();
+    expect(startVoiceActivity).toHaveBeenCalledTimes(1);
+    expect(startVoiceActivity.mock.calls.at(-1)?.[0].phase).toBe("connecting");
 
     // Moves on while the encode is still pending.
     await setPhase("listening");
+    expect(updateVoiceActivity.mock.calls.at(-1)?.[0].phase).toBe("listening");
 
     await act(async () => {
       openGate();
@@ -308,6 +311,7 @@ describe("starting the activity", () => {
 
     expect(startVoiceLiveActivity).toHaveBeenCalledTimes(1);
     expect(lastStartPayload()).toMatchObject({ phase: "listening" });
+    expect(startVoiceActivity).toHaveBeenCalledTimes(1);
     encodeGate = null;
   });
 
@@ -324,6 +328,8 @@ describe("starting the activity", () => {
     renderMirror();
     await setPhase("connecting");
     await setPhase("idle");
+    expect(startVoiceActivity).toHaveBeenCalledTimes(1);
+    expect(endVoiceActivity).toHaveBeenCalledTimes(1);
 
     await act(async () => {
       openGate();
@@ -331,6 +337,7 @@ describe("starting the activity", () => {
     });
 
     expect(startVoiceLiveActivity).not.toHaveBeenCalled();
+    expect(startVoiceActivity).toHaveBeenCalledTimes(1);
     encodeGate = null;
   });
 
@@ -1075,9 +1082,8 @@ describe("registering the activity for server-driven updates", () => {
 
 /**
  * The floating panel is fed by the same mirror as the island, from the same
- * computed snapshot. These pin the fan-out itself (that both sinks see one
- * payload, on one schedule) rather than re-testing the content rules above,
- * which are sink-agnostic by construction.
+ * computed snapshot. Desktop controls start before avatar encoding; these
+ * tests pin delivery to both sinks.
  */
 describe("the desktop panel sink", () => {
   test("start reaches both sinks with one payload, the panel's with the work added", async () => {
