@@ -1,7 +1,8 @@
 {
   "assistantInboxHeader": {
     "title": "Почта",
-    "settingsAria": "Настройки почты"
+    "settingsAria": "Настройки почты",
+    "back": "Назад"
   },
   "addressPill": {
     "copyAddress": "Скопировать адрес",

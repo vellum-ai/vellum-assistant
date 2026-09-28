@@ -812,15 +812,20 @@ again on that device. Three pieces, in `src/components/feature-intro/`:
   title, one line, the feature's own pitch as children). It knows nothing
   about when it shows.
 - **`useFeatureIntroSeen(id)`** is the memory: a per-device flag keyed by a
-  `FeatureIntroId`. Add the new feature's id to that union; the id is the
-  storage key's tail, so it is never renamed once shipped.
+  `FeatureIntroId`. Add the new feature's id to that union and its ship
+  date to `FEATURE_INTRO_LAUNCHED_AT`; the id is the storage key's tail, so
+  it is never renamed once shipped. An intro is for existing users only:
+  `predatesFeatureIntro` withholds it from an assistant made on or after
+  the launch, who meets the feature as part of the app, and from one whose
+  age is not known yet.
 - **A gate per feature** (`assistant-email-intro.tsx` is the worked
   example) reads the seen flag first and returns `null` on a device that
   has seen it, so the intro costs no request after its one showing. Only
   then does it read the feature's own state through a pure resolver
   (`resolve-assistant-email-intro.ts`) that says which variant, if any, to
   draw: nothing while the reads that decide are pending, nothing to a user
-  who already has the feature, nothing over the onboarding takeover.
+  who already has the feature, nothing over the onboarding takeover or the
+  in-chat tour.
 
 Mount the gate once, in `ChatLayout` beside the other app-level overlays.
 Mark seen on every way out, the close glyph and the backdrop as well as the

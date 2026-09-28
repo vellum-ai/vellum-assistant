@@ -1,7 +1,8 @@
 {
   "assistantInboxHeader": {
     "title": "邮件",
-    "settingsAria": "邮件设置"
+    "settingsAria": "邮件设置",
+    "back": "返回"
   },
   "addressPill": {
     "copyAddress": "复制邮箱地址",

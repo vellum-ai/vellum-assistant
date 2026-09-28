@@ -76,6 +76,8 @@ interface MailboxProps {
   addressId: string;
   handle: string;
   rootDomain: string;
+  /** Leaves the page. */
+  onBack: () => void;
 }
 
 /** The mailbox with its reads attached; split out so its hooks run only in the ready state. */
@@ -87,6 +89,7 @@ function Mailbox({
   addressId,
   handle,
   rootDomain,
+  onBack,
 }: MailboxProps) {
   const { t } = useTranslation("assistant-inbox");
   const navigate = useNavigate();
@@ -191,6 +194,7 @@ function Mailbox({
         onStartChat={startChatWithEmails}
         onDeleteEmails={removeEmails}
         onOpenSettings={() => setSettingsOpen(true)}
+        onBack={onBack}
         readIds={readIds}
         onRead={markRead}
       />
@@ -446,6 +450,7 @@ export function AssistantInboxPageRoute() {
           addressId={state.addressId ?? ""}
           handle={state.handle}
           rootDomain={state.rootDomain}
+          onBack={leave}
         />
       );
   }

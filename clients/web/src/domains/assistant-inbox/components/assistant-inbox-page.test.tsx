@@ -58,6 +58,7 @@ function renderPage(props: {
   onDeleteEmails?: (emails: InboxEmail[]) => void;
   readIds?: ReadonlySet<string>;
   onRead?: (id: string) => void;
+  onBack?: () => void;
 }) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -84,6 +85,7 @@ function renderPage(props: {
           onDeleteEmails={props.onDeleteEmails}
           readIds={props.readIds}
           onRead={props.onRead}
+          onBack={props.onBack}
         />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -95,6 +97,17 @@ afterEach(() => {
 });
 
 describe("AssistantInboxPage", () => {
+  test("the masthead's back control leaves the page, and is absent without a way out", () => {
+    let left = 0;
+    const { unmount } = renderPage({ inbox: [], onBack: () => left++ });
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    expect(left).toBe(1);
+    unmount();
+
+    renderPage({ inbox: [] });
+    expect(screen.queryByRole("button", { name: "Back" })).toBeNull();
+  });
+
   test("a listed row draws two lines and fetches its body when opened", async () => {
     const calls: string[] = [];
     renderPage({

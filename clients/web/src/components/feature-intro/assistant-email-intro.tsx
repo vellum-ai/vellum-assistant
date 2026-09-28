@@ -5,6 +5,7 @@ import { useAssistantInboxState } from "@/domains/assistant-inbox/hooks/use-assi
 import { useFeatureIntroSeen } from "@/hooks/use-feature-intro-seen";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
+import { useInChatOnboardingStore } from "@/stores/in-chat-onboarding-store";
 import { useOnboardingFocusStore } from "@/stores/onboarding-focus-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { routes } from "@/utils/routes";
@@ -28,6 +29,7 @@ function AssistantEmailIntroGate({ assistantId, markSeen }: GateProps) {
   const inboxEnabled = useClientFeatureFlagStore.use.assistantInbox();
   const focused = useOnboardingFocusStore.use.focused();
   const checkinPending = useOnboardingFocusStore.use.checkinPending();
+  const tourActive = useInChatOnboardingStore.use.prototypeActive();
   const identityName = useAssistantIdentityStore.use.name();
   const state = useAssistantInboxState(assistantId, identityName ?? "");
 
@@ -35,7 +37,8 @@ function AssistantEmailIntroGate({ assistantId, markSeen }: GateProps) {
     seen: false,
     flagsHydrated,
     inboxEnabled,
-    onboardingBusy: focused || checkinPending,
+    onboardingBusy: focused || checkinPending || tourActive,
+    assistantCreatedAt: state.createdAt,
     status: state.status,
   });
 
@@ -74,8 +77,10 @@ function AssistantEmailIntroGate({ assistantId, markSeen }: GateProps) {
  * it meets the user on opening the app. Reads nothing but the device's
  * memory until it knows the intro is still owed, so a device that has seen
  * it pays no query for it; the flag and the inbox's own state then decide
- * whether there is anything to announce (see `resolveAssistantEmailIntro`).
- * Dismissing it by any route marks it seen, and it never returns.
+ * whether there is anything to announce (see `resolveAssistantEmailIntro`),
+ * and only to an assistant from before the intro shipped: a newer user
+ * meets email as part of the app. Dismissing it by any route marks it
+ * seen, and it never returns.
  */
 export function AssistantEmailIntro() {
   const { seen, markSeen } = useFeatureIntroSeen("assistant-email");

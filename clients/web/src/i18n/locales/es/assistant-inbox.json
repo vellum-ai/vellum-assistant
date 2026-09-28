@@ -1,7 +1,8 @@
 {
   "assistantInboxHeader": {
     "title": "Correo",
-    "settingsAria": "Ajustes del correo"
+    "settingsAria": "Ajustes del correo",
+    "back": "Atrás"
   },
   "addressPill": {
     "copyAddress": "Copiar dirección de correo",

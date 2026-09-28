@@ -24,6 +24,12 @@ export interface AssistantInboxState {
   assistantName: string;
   /** The public handle, which is the subdomain of the address. */
   handle: string;
+  /**
+   * When the platform made the assistant, as an ISO instant; `null` until
+   * the listing has answered. What says whether a user was here before a
+   * feature landed.
+   */
+  createdAt: string | null;
   /** Whether a domain row exists already, so setup knows what to create. */
   hasDomain: boolean;
   /** The registered address, once there is one. */
@@ -123,6 +129,7 @@ export function useAssistantInboxState(
     platformAssistantId,
     assistantName: listed?.name || fallbackName,
     handle: domain?.subdomain ?? listed?.handle ?? "",
+    createdAt: listed?.created ?? null,
     hasDomain: !!domain,
     address: addresses?.[0]?.address ?? null,
     addressId: addresses?.[0]?.id ?? null,
