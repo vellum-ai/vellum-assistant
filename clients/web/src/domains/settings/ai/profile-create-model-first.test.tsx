@@ -503,7 +503,7 @@ describe("the model list", () => {
       "See more",
       "Claude Fable 5.1",
       "Claude Opus 5.5",
-      "Claude Sonnet 5",
+      "Claude Sonnet 5.5",
     ]);
     expect(sectionAction("Anthropic").getAttribute("aria-expanded")).toBe(
       "false",
@@ -527,7 +527,7 @@ describe("the model list", () => {
       "See more",
       "Claude Fable 5.1",
       "Claude Opus 5.5",
-      "Claude Sonnet 5",
+      "Claude Sonnet 5.5",
     ]);
   });
 

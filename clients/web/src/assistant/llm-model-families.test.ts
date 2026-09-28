@@ -25,7 +25,7 @@ const entries = Object.entries(MODELS_BY_PROVIDER) as [
 const NEWEST_IN_FAMILY: Record<string, string> = {
   "claude-fable": "Claude Fable 5.1",
   "claude-opus": "Claude Opus 5.5",
-  "claude-sonnet": "Claude Sonnet 5",
+  "claude-sonnet": "Claude Sonnet 5.5",
   "gpt-5": "GPT-5.5",
   "gemini-flash": "Gemini 3.7 Flash",
   "gemini-flash-lite": "Gemini 3.5 Flash-Lite",

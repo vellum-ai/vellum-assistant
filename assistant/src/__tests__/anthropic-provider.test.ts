@@ -3653,6 +3653,8 @@ describe("AnthropicProvider — deprecated sampling params (temperature / top_p 
     "claude-opus-4-7",
     "claude-sonnet-5",
     "anthropic/claude-sonnet-5",
+    "claude-sonnet-5-5",
+    "anthropic/claude-sonnet-5.5",
     "claude-fable-5",
     "claude-fable-5-1",
     "anthropic/claude-fable-5.1",
