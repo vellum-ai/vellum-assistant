@@ -30,6 +30,7 @@ import {
 import {
   computeLegacyManifestSha256,
   computeManifestChecksum,
+  MANIFEST_MAX_BYTES,
 } from "../vbundle-validator.js";
 import { defaultV1Options } from "./v1-test-helpers.js";
 
@@ -202,15 +203,16 @@ describe("readAndValidateManifest — negative paths", () => {
   });
 
   test("throws manifest_too_large and fails fast before draining the whole body", async () => {
-    // Fake a tar entry whose body would emit 5 MiB if fully drained. The
-    // validator must destroy() the stream and throw the moment the running
-    // byte count crosses the 1 MiB cap — it must NOT keep pulling chunks.
+    // Fake a tar entry whose body would emit 10x the cap if fully drained.
+    // The validator must destroy() the stream and throw the moment the
+    // running byte count crosses MANIFEST_MAX_BYTES; it must NOT keep
+    // pulling chunks.
     //
     // We count bytes emitted via a _read implementation, and after the
-    // throw assert both that destroy() fired and that far fewer than 5 MiB
-    // were ever pulled out of the stream.
-    const CHUNK = 512 * 1024; // 512 KiB
-    const TOTAL_CHUNKS = 10; // 5 MiB worth — way past the 1 MiB cap
+    // throw assert both that destroy() fired and that far less than the
+    // full body was ever pulled out of the stream.
+    const CHUNK = MANIFEST_MAX_BYTES / 2;
+    const TOTAL_CHUNKS = 20;
     let chunksEmitted = 0;
     let bytesEmitted = 0;
     const body = new Readable({
@@ -245,11 +247,11 @@ describe("readAndValidateManifest — negative paths", () => {
     expect(err).toBeInstanceOf(StreamingValidationError);
     expect(err?.code).toBe("manifest_too_large");
     // Fail-fast assertions: destroy() was called, and we didn't drain past
-    // ~1 MiB + one chunk. If the validator had drained to EOF we'd see the
-    // full 5 MiB / 10 chunks here.
+    // the cap + one chunk. If the validator had drained to EOF we'd see all
+    // 20 chunks here.
     expect(body.destroyed).toBe(true);
     expect(chunksEmitted).toBeLessThanOrEqual(3);
-    expect(bytesEmitted).toBeLessThan(2 * 1024 * 1024);
+    expect(bytesEmitted).toBeLessThan(2 * MANIFEST_MAX_BYTES);
   });
 
   test("throws manifest_malformed when manifest body is not valid JSON", async () => {

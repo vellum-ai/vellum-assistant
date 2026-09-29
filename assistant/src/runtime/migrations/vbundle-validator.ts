@@ -381,6 +381,20 @@ export function computeManifestChecksum(manifest: unknown): string {
 // Core validation
 // ---------------------------------------------------------------------------
 
+/**
+ * Hard cap on the serialized size of `manifest.json`, shared by the buffered
+ * and streaming validators so preflight and import agree on what is
+ * acceptable.
+ *
+ * The manifest carries one `contents` entry (path, sha256, size) per bundled
+ * file, roughly 150 bytes each, so 32 MiB covers around 200,000 files. That
+ * absorbs a workspace with a stray dependency install or checked-out repo
+ * while still bounding the transient memory a hostile "manifest" can force
+ * the importer to hold (buffer, decoded string, parsed object, canonical
+ * re-serialization for the self-checksum) on a memory-constrained pod.
+ */
+export const MANIFEST_MAX_BYTES = 32 * 1024 * 1024;
+
 // Only manifest.json is structurally required. The DB and config live under
 // workspace/ (new format) or data/db/ + config/ (old format) — both are valid.
 const REQUIRED_ENTRIES = ["manifest.json"];
@@ -455,6 +469,14 @@ export function validateVBundle(data: Uint8Array): VBundleValidationResult {
   }
 
   // Step 4: Parse and validate manifest schema
+  if (manifestEntry.data.length > MANIFEST_MAX_BYTES) {
+    errors.push({
+      code: "MANIFEST_TOO_LARGE",
+      message: `manifest.json exceeds ${MANIFEST_MAX_BYTES} byte limit (${manifestEntry.data.length} bytes)`,
+      path: "manifest.json",
+    });
+    return { is_valid: false, errors };
+  }
   let manifestRaw: unknown;
   try {
     manifestRaw = JSON.parse(new TextDecoder().decode(manifestEntry.data));

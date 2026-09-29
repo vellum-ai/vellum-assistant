@@ -19,6 +19,7 @@ import {
   canonicalizeJson,
   computeLegacyManifestSha256,
   computeManifestChecksum,
+  MANIFEST_MAX_BYTES,
   ManifestSchema,
   validateVBundle,
 } from "../vbundle-validator.js";
@@ -171,6 +172,18 @@ describe("ManifestSchema — v1 acceptance", () => {
     ]);
     const result = validateVBundle(archive);
     expect(result.is_valid).toBe(true);
+  });
+});
+
+describe("validateVBundle — manifest size cap", () => {
+  test("rejects a manifest over MANIFEST_MAX_BYTES with MANIFEST_TOO_LARGE", () => {
+    const oversized = new Uint8Array(MANIFEST_MAX_BYTES + 1).fill(0x20);
+    const archive = gzipSync(
+      tarArchive([{ name: "manifest.json", data: oversized }]),
+    );
+    const result = validateVBundle(archive);
+    expect(result.is_valid).toBe(false);
+    expect(result.errors.map((e) => e.code)).toEqual(["MANIFEST_TOO_LARGE"]);
   });
 });
 
