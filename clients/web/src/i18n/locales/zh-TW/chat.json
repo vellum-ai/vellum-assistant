@@ -1410,6 +1410,7 @@
   "quietTurnProgress": {
     "checking": "正在查看{place}",
     "updating": "正在更新{place}",
+    "using": "正在使用{place}",
     "working": "處理中",
     "showWorkAria": "查看目前的進度：{label}",
     "showStepsAria": "查看這則回覆的步驟：{summary}",

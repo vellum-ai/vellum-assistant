@@ -920,9 +920,44 @@ describe("TranscriptMessageBody", () => {
         queryByText("Found the likely culprit, recovering entries now."),
       ).toBeNull();
       expect(getByTestId("quiet-turn-progress").textContent).toContain(
-        "Checking Slack",
+        "Using Slack",
       );
       expect(queryByTestId("quiet-turn-work-summary")).toBeNull();
+    });
+
+    test("a settled turn keeps a tool-result image the reply does not show", () => {
+      // GIVEN a quiet turn whose tool produced an image
+      const imageCall: ChatMessageToolCall = {
+        id: "tc-image",
+        name: "media_generate_image",
+        input: { prompt: "diagram" },
+        result: "Generated an image",
+        imageDataList: ["img-a"],
+        completedAt: 1,
+      };
+
+      // WHEN it renders settled
+      const { container, queryByText } = render(
+        <TranscriptMessageBody
+          message={{
+            id: "quiet-image",
+            role: "assistant",
+            contentBlocks: [
+              textBlock("I will create that."),
+              toolUseBlock(imageCall),
+              textBlock("Here it is."),
+            ],
+            toolCalls: [imageCall],
+          }}
+          onSurfaceAction={noop}
+        />,
+      );
+
+      // THEN the image still renders beside the answer
+      expect(
+        container.querySelector("[data-testid='tool-result-image']"),
+      ).not.toBeNull();
+      expect(queryByText("Here it is.")).not.toBeNull();
     });
 
     test("a turn that used no tools renders unchanged", () => {

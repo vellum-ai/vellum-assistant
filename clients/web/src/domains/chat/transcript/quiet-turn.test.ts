@@ -33,24 +33,25 @@ describe("describeQuietStep", () => {
     });
 
     // WHEN the step is described
-    // THEN it names Slack rather than the terminal
+    // THEN it names Slack rather than the terminal, using it since a shell
+    // can read or write
     expect(describeQuietStep(toolCall)).toEqual({
-      verb: "checking",
+      verb: "using",
       place: { kind: "named", name: "Slack" },
     });
   });
 
-  test("treats plain shell work as the terminal and reads the verb from the activity", () => {
-    // GIVEN a bash call whose activity sentence says it writes something
+  test("treats plain shell work as using the terminal, whatever its activity says", () => {
+    // GIVEN a bash call whose model-written activity sentence says it writes
     const toolCall = call("bash", {
       command: "python3 recover.py",
       activity: "writing recovered entry files",
     });
 
     // WHEN the step is described
-    // THEN it is terminal work that updates
+    // THEN the verb comes from the tool, not from the sentence
     expect(describeQuietStep(toolCall)).toEqual({
-      verb: "updating",
+      verb: "using",
       place: { kind: "terminal" },
     });
   });

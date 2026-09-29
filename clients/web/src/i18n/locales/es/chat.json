@@ -1372,6 +1372,7 @@
   "quietTurnProgress": {
     "checking": "Revisando {place}",
     "updating": "Actualizando {place}",
+    "using": "Usando {place}",
     "working": "Trabajando",
     "showWorkAria": "Ver el trabajo hasta ahora: {label}",
     "showStepsAria": "Ver los pasos de esta respuesta: {summary}",

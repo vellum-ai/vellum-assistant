@@ -875,6 +875,7 @@
   "quietTurnProgress": {
     "checking": "Проверяю: {place}",
     "updating": "Обновляю: {place}",
+    "using": "Использую: {place}",
     "working": "Работаю",
     "showWorkAria": "Показать ход работы: {label}",
     "showStepsAria": "Показать шаги этого ответа: {summary}",

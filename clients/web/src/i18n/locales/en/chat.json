@@ -1427,6 +1427,7 @@
   "quietTurnProgress": {
     "checking": "Checking {place}",
     "updating": "Updating {place}",
+    "using": "Using {place}",
     "working": "Working",
     "showWorkAria": "Show the work so far: {label}",
     "showStepsAria": "Show the steps behind this reply: {summary}",

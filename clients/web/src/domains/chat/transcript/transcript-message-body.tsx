@@ -1467,7 +1467,11 @@ export function TranscriptMessageBody({
       groups,
       finalResponseIndex: finalResponseGroupIndex,
       live: quietTurnLive,
-      isPinned: activityNeedsItsOwnRow,
+      // A tool-result image the reply does not present itself renders only
+      // in its group's strip, so that group stays.
+      isPinned: (group, gi) =>
+        activityNeedsItsOwnRow(group) ||
+        selectedImagesByGroupIndex[gi]!.length > 0,
     });
     groups.forEach((group, gi) => {
       if (!hiddenGroupIndexes.has(gi)) {

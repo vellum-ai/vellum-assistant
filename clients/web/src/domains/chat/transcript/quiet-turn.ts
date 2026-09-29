@@ -12,7 +12,6 @@ import {
 import { isSendUserMessageCall } from "@/domains/chat/utils/assistant-text-visibility";
 import { isUiSurfaceToolCall } from "@/domains/chat/utils/silent-tool-calls";
 import {
-  ACTIVITY_KEY,
   COMMAND_KEYS,
   FILE_PATH_KEYS,
   readToolInputString,
@@ -31,7 +30,12 @@ export interface CatalogQuietPlace {
 
 export type QuietPlace = NamedQuietPlace | CatalogQuietPlace;
 
-export type QuietVerb = "checking" | "updating";
+/**
+ * What a tool call does where it works, read from the tool itself: a tool
+ * that only reads is `checking`, one that only writes is `updating`, and one
+ * that can do either (a shell, an MCP method, computer use) is `using`.
+ */
+export type QuietVerb = "checking" | "updating" | "using";
 
 /** What the progress line says about one tool call. */
 export interface QuietStep {
@@ -49,41 +53,22 @@ const UNNAMED_TOOL_NAMES = new Set([
 ]);
 
 const MEMORY_TOOL_NAMES = new Set(["remember", "recall", "delete_memory_page"]);
-const MEMORY_WRITE_TOOL_NAMES = new Set(["remember", "delete_memory_page"]);
 const WEB_TOOL_NAMES = new Set(["web_search", "web_fetch"]);
-const FILE_WRITE_TOOL_NAMES = new Set([
+const READ_ONLY_TOOL_NAMES = new Set([
+  "recall",
+  "web_search",
+  "web_fetch",
+  "file_read",
+  "file_list",
+  "host_file_read",
+]);
+const WRITE_TOOL_NAMES = new Set([
+  "remember",
+  "delete_memory_page",
   "file_write",
   "file_edit",
   "host_file_write",
   "host_file_edit",
-]);
-
-/**
- * First words of a tool call's `activity` sentence that mean the call changes
- * something. The sentence is model-written, so it only ever decides the verb,
- * where a wrong guess costs "Checking" versus "Updating".
- */
-const WRITE_ACTIVITY_VERBS = new Set([
-  "adding",
-  "appending",
-  "creating",
-  "deleting",
-  "editing",
-  "fixing",
-  "moving",
-  "posting",
-  "recording",
-  "removing",
-  "renaming",
-  "replying",
-  "retrying",
-  "saving",
-  "scheduling",
-  "sending",
-  "setting",
-  "updating",
-  "uploading",
-  "writing",
 ]);
 
 /** Service ids whose display name is not simply the capitalized first word. */
@@ -131,14 +116,6 @@ export function credentialServiceOf(command: string): string | null {
 
 function isMemoryPath(path: string): boolean {
   return /(^|\/)memory\//.test(path);
-}
-
-function activityVerb(toolCall: ChatMessageToolCall): QuietVerb {
-  const input = toolCall.input ?? {};
-  const first = readToolInputString(input, ACTIVITY_KEY)
-    .split(/\s+/)[0]
-    ?.toLowerCase();
-  return first && WRITE_ACTIVITY_VERBS.has(first) ? "updating" : "checking";
 }
 
 function placeOf(toolCall: ChatMessageToolCall): QuietPlace | null {
@@ -195,10 +172,12 @@ export function describeQuietStep(
   if (!place) {
     return null;
   }
-  const writes =
-    FILE_WRITE_TOOL_NAMES.has(toolCall.name) ||
-    MEMORY_WRITE_TOOL_NAMES.has(toolCall.name);
-  return { verb: writes ? "updating" : activityVerb(toolCall), place };
+  const verb: QuietVerb = READ_ONLY_TOOL_NAMES.has(toolCall.name)
+    ? "checking"
+    : WRITE_TOOL_NAMES.has(toolCall.name)
+      ? "updating"
+      : "using";
+  return { verb, place };
 }
 
 /**

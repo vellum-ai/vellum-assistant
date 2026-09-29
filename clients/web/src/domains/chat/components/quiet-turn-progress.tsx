@@ -41,9 +41,14 @@ export function quietStepLabel(
       place = t("quietTurnProgress.place.mac");
       break;
   }
-  return step.verb === "updating"
-    ? t("quietTurnProgress.updating", { place })
-    : t("quietTurnProgress.checking", { place });
+  switch (step.verb) {
+    case "checking":
+      return t("quietTurnProgress.checking", { place });
+    case "updating":
+      return t("quietTurnProgress.updating", { place });
+    case "using":
+      return t("quietTurnProgress.using", { place });
+  }
 }
 
 /**
