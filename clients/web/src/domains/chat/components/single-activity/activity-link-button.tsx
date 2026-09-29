@@ -51,7 +51,7 @@ export function ActivityLinkButton({
       className={cn(
         "group inline-flex items-center text-left transition-colors cursor-pointer",
         appearance === "compact" &&
-          "mx-1 gap-0.5 rounded-md px-1.5 py-0.5 text-body-small-default",
+          "mx-1 h-6 gap-0.5 rounded-[6px] px-1.5 text-body-small-default",
         appearance === "inline" &&
           "-mx-1.5 gap-2 rounded-md px-1.5 py-1 text-[13px] font-medium",
         appearance === "pill" &&
