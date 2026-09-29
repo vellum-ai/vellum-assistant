@@ -1,5 +1,8 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
+import { estimateToolDefinitionTokens } from "../context/token-estimator.js";
 import type { ToolContext, ToolExecutionResult } from "../tools/types.js";
 import { uiShowTool } from "../tools/ui-surface/definitions.js";
 import {
@@ -355,7 +358,34 @@ describe("uiShowTeachingError", () => {
     }
   });
 
-  test("voice_picker is a cold type that accepts an empty payload", () => {
+  test("the description teaches fetching a nested shape via a teaching error", () => {
+    expect(uiShowTool.description).toContain(
+      "To fetch a type's nested data shape",
+    );
+    expect(uiShowTool.description).toContain("incomplete data");
+    expect(uiShowTool.description).not.toContain(
+      SURFACE_SHAPE_DOCS.work_result!.shape,
+    );
+    expect(uiShowTool.description).not.toContain(
+      SURFACE_SHAPE_DOCS.oauth_connect!.shape,
+    );
+  });
+
+  test("ui_show stays under the static definition token budget", () => {
+    expect(estimateToolDefinitionTokens(uiShowTool)).toBeLessThan(800);
+  });
+
+  test("colocated shape files match SURFACE_SHAPE_DOCS", () => {
+    const shapesDir = join(import.meta.dir, "../tools/ui-surface/shapes");
+    for (const name of SURFACE_TYPE_NAMES) {
+      const text = readFileSync(join(shapesDir, `${name}.md`), "utf8");
+      expect(text).toContain(`# ${name}`);
+      expect(text).toContain(SURFACE_SHAPE_DOCS[name]!.purpose);
+      expect(text).toContain(SURFACE_SHAPE_DOCS[name]!.shape);
+    }
+  });
+
+  test("voice_picker accepts an empty payload and stays in the type index", () => {
     expect(
       uiShowTeachingError({ surface_type: "voice_picker", data: {} }),
     ).toBeNull();
@@ -365,11 +395,9 @@ describe("uiShowTeachingError", () => {
     expect(UI_SHOW_TYPE_DOCS).not.toContain("- voice_picker:");
   });
 
-  test("voice_picker steering reaches the model through the cold index", () => {
-    // Asserted on the built description rather than the doc entry: a cold
-    // type's `shape` reaches the model only through a teaching error, and an
-    // empty payload has no missing-content state to raise one, so steering
-    // parked there would be dead.
+  test("voice_picker steering reaches the model through the type index", () => {
+    // The picker accepts an empty payload, so there is no missing-content
+    // teaching error. Steering has to live in the always-on purpose line.
     for (const directive of [
       "change, hear, or pick a voice",
       "rather than describing voices in prose",

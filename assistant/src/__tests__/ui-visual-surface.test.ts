@@ -94,7 +94,7 @@ describe("ui_show advertises visual", () => {
 
   test("the description points at the visualize skill in one index line", () => {
     expect(uiShowTool.description).toContain(
-      "visual (polished inline diagram/chart/explainer — PREFER this when explaining how something works or compares; load the `visualize` skill first)",
+      "visual (polished inline diagram/chart/explainer. Prefer this when explaining how something works or compares. Load the `visualize` skill first)",
     );
   });
 
