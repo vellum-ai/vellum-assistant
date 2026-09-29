@@ -97,6 +97,9 @@ export function EmailDetail({
             <Button
               variant="outlined"
               iconOnly={<ChevronLeft />}
+              /* The touch-size circle an icon button grows into is too
+                 much chrome for a way back; the desktop box is plenty. */
+              expandOnMobile={false}
               onClick={onBack}
               aria-label={t("assistantInboxPage.backToList")}
               title={t("assistantInboxPage.backToList")}
