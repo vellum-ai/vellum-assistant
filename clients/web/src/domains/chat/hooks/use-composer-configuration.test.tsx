@@ -37,6 +37,7 @@ mock.module("@/lib/threshold-api", () => ({
 }));
 const fixture = composerConfigurationFixture();
 let prefs = { ...fixture.preferences };
+const getSettings = mock(async () => ({ data: { preferences: prefs } }));
 const modes = new Map<string, string>();
 const put = mock(
   async ({
@@ -69,9 +70,7 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   conversationsByIdGet: async ({ path }: { path: { id: string } }) => ({
     data: { conversation: { inferenceProfile: modes.get(path.id) ?? null } },
   }),
-  composerSettingsGet: async () => ({
-    data: { preferences: prefs },
-  }),
+  composerSettingsGet: getSettings,
   composerSettingsPatch: patch,
   conversationsByIdInferenceprofilePut: put,
 }));
@@ -100,6 +99,10 @@ beforeEach(() => {
   supported = true;
   capabilityError = false;
   prefs = { ...fixture.preferences };
+  getSettings.mockReset();
+  getSettings.mockImplementation(async () => ({
+    data: { preferences: prefs },
+  }));
   modes.clear();
   overrides.clear();
   useConversationStore.getState().reset();
@@ -109,7 +112,10 @@ beforeEach(() => {
     modes.set(path.id, body.profile);
     return { data: {} };
   });
-  setOverride.mockClear();
+  setOverride.mockReset();
+  setOverride.mockImplementation(async (_assistant, id, threshold) => {
+    overrides.set(id, threshold);
+  });
   setGlobal.mockClear();
   patch.mockClear();
 });
@@ -263,6 +269,110 @@ test("failed saves restore the confirmed value and preserve preferences", async 
   expect(hook.result.current.mode).toBe("balanced");
   expect(prefs.lastModeId).toBeNull();
 });
+test("model changes wait for saved favorites before updating preferences", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  prefs = { ...prefs, favoriteModeIds: ["os-beta", "balanced"] };
+  getSettings.mockImplementation(async () => {
+    await gate;
+    return { data: { preferences: prefs } };
+  });
+  const hook = setup();
+  await waitFor(() => expect(hook.result.current.modeReady).toBe(true));
+  let pending!: Promise<boolean>;
+  act(() => {
+    pending = hook.result.current.selectMode("quality-optimized");
+  });
+  await waitFor(() => expect(modes.get("conv-1")).toBe("quality-optimized"));
+  expect(patch).not.toHaveBeenCalled();
+  await act(async () => {
+    release();
+    expect(await pending).toBe(true);
+  });
+  expect(prefs.favoriteModeIds).toContain("os-beta");
+  expect(prefs.lastModeId).toBe("quality-optimized");
+});
+test("failed preference reads cannot replace saved favorites with defaults", async () => {
+  prefs = { ...prefs, favoriteModeIds: ["os-beta", "balanced"] };
+  getSettings.mockRejectedValue(new Error("offline"));
+  const hook = setup();
+  await waitFor(() => expect(hook.result.current.modeReady).toBe(true));
+  await act(async () => {
+    expect(await hook.result.current.selectMode("quality-optimized")).toBe(
+      true,
+    );
+  });
+  expect(patch).not.toHaveBeenCalled();
+  expect(prefs.favoriteModeIds).toEqual(["os-beta", "balanced"]);
+  expect(modes.get("conv-1")).toBe("quality-optimized");
+});
+test.each(["mode", "autonomy"] as const)(
+  "a failed pending %s promotion restores the confirmed choice",
+  async (kind) => {
+    if (kind === "mode") {
+      useConversationStore
+        .getState()
+        .setPendingDraftProfile("conv-1", "quality-optimized");
+      put.mockRejectedValueOnce(new Error("offline"));
+    } else {
+      useConversationStore.getState().setPendingDraftAutonomy("conv-1", "none");
+      setOverride.mockRejectedValueOnce(new Error("offline"));
+    }
+    const hook = setup();
+    await waitFor(() => {
+      expect(hook.result.current[kind]).toBe(
+        kind === "mode" ? "balanced" : "medium",
+      );
+    });
+    expect(
+      useConversationStore.getState().pendingDraftProfiles.has("conv-1"),
+    ).toBe(false);
+    expect(
+      useConversationStore.getState().pendingDraftAutonomy.has("conv-1"),
+    ).toBe(false);
+    expect(kind === "mode" ? put : setOverride).toHaveBeenCalledTimes(1);
+  },
+);
+test.each([false, true])(
+  "a newer pending choice is promoted after an in-flight save settles (failed: %s)",
+  async (failed) => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    put.mockImplementationOnce(async ({ path, body }) => {
+      await gate;
+      if (failed) {
+        throw new Error("offline");
+      }
+      modes.set(path.id, body.profile);
+      return { data: {} };
+    });
+    useConversationStore
+      .getState()
+      .setPendingDraftProfile("conv-1", "quality-optimized");
+    const hook = setup();
+    await waitFor(() => expect(put).toHaveBeenCalledTimes(1));
+    act(() => {
+      useConversationStore
+        .getState()
+        .setPendingDraftProfile("conv-1", "latency-optimized");
+    });
+    await act(async () => {
+      release();
+    });
+    await waitFor(() => {
+      expect(modes.get("conv-1")).toBe("latency-optimized");
+      expect(
+        useConversationStore.getState().pendingDraftProfiles.has("conv-1"),
+      ).toBe(false);
+    });
+    expect(hook.result.current.mode).toBe("latency-optimized");
+    expect(put).toHaveBeenCalledTimes(2);
+  },
+);
 test("a save finishing in another chat cannot replace its selection", async () => {
   let release!: () => void;
   const gate = new Promise<void>((resolve) => {

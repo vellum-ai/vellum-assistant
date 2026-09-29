@@ -182,6 +182,9 @@ export function useComposerConfiguration(
         const key = composerSettingsGetQueryKey({
           path: { assistant_id: assistantId },
         });
+        const settings = await queryClient.ensureQueryData(
+          composerSettingsGetOptions({ path: { assistant_id: assistantId } }),
+        );
         await queryClient.cancelQueries({ queryKey: key });
         if (
           useComposerStore.getState().sessionGeneration !== sessionGeneration
@@ -190,7 +193,7 @@ export function useComposerConfiguration(
         }
         const current =
           queryClient.getQueryData<ComposerSettingsGetResponse>(key)
-            ?.preferences ?? DEFAULT_PREFERENCES;
+            ?.preferences ?? settings.preferences;
         const result = await composerSettingsPatch({
           path: { assistant_id: assistantId },
           body: typeof patch === "function" ? patch(current) : patch,
@@ -423,23 +426,12 @@ export function useComposerConfiguration(
     }
     const promote = (kind: "mode" | "autonomy", value: string | undefined) => {
       const key = `${assistantId}:${id}:${kind}`;
-      if (value === undefined || promoting.current.has(key)) {
+      const promotionKey = `${sessionGeneration}:${key}`;
+      if (value === undefined || promoting.current.has(promotionKey)) {
         return;
       }
-      promoting.current.add(key);
-      void serializeComposerWrite(key, async () => {
-        await persistSelection(kind, value, id);
-        const store = useConversationStore.getState();
-        if (kind === "mode" && store.pendingDraftProfiles.get(id) === value) {
-          store.clearPendingDraftProfile(id);
-        }
-        if (
-          kind === "autonomy" &&
-          store.pendingDraftAutonomy.get(id) === value
-        ) {
-          store.clearPendingDraftAutonomy(id);
-        }
-      })
+      promoting.current.add(promotionKey);
+      void serializeComposerWrite(key, () => persistSelection(kind, value, id))
         .catch(() => {
           if (
             useComposerStore.getState().sessionGeneration === sessionGeneration
@@ -448,7 +440,26 @@ export function useComposerConfiguration(
           }
         })
         .finally(() => {
-          promoting.current.delete(key);
+          promoting.current.delete(promotionKey);
+          if (
+            useComposerStore.getState().sessionGeneration !== sessionGeneration
+          ) {
+            return;
+          }
+          const store = useConversationStore.getState();
+          const pendingValue =
+            kind === "mode"
+              ? store.pendingDraftProfiles.get(id)
+              : store.pendingDraftAutonomy.get(id);
+          if (pendingValue === value) {
+            if (kind === "mode") {
+              store.clearPendingDraftProfile(id);
+            } else {
+              store.clearPendingDraftAutonomy(id);
+            }
+          } else {
+            promote(kind, pendingValue);
+          }
         });
     };
     promote("mode", pendingProfiles.get(id));
