@@ -42,7 +42,10 @@ import type {
   ComposerSettingsPatchData,
   ConfigGetResponse,
 } from "@/generated/daemon/types.gen";
-import { useAssistantCapabilityQuery } from "@/hooks/use-assistant-capability";
+import {
+  assistantCapabilityOptions,
+  useAssistantCapabilityQuery,
+} from "@/hooks/use-assistant-capability";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { useTranslation } from "@/i18n";
 import { useSupportsCompleteProfileSnapshots } from "@/lib/backwards-compat/complete-profile-snapshots";
@@ -172,9 +175,6 @@ export function useComposerConfiguration(
         | PreferencePatch
         | ((current: ComposerPreferences) => PreferencePatch),
     ) => {
-      if (!supportsPreferences) {
-        return;
-      }
       await serializeComposerWrite(`preferences:${assistantId}`, async () => {
         try {
           await selection;
@@ -182,6 +182,15 @@ export function useComposerConfiguration(
           return;
         }
         if (
+          useComposerStore.getState().sessionGeneration !== sessionGeneration
+        ) {
+          return;
+        }
+        const supported = await queryClient.fetchQuery(
+          assistantCapabilityOptions("composerSettings", assistantId),
+        );
+        if (
+          !supported ||
           useComposerStore.getState().sessionGeneration !== sessionGeneration
         ) {
           return;
@@ -213,7 +222,7 @@ export function useComposerConfiguration(
         }
       });
     },
-    [assistantId, queryClient, supportsPreferences, sessionGeneration],
+    [assistantId, queryClient, sessionGeneration],
   );
 
   // Capture defaults once per real draft. Existing unloaded conversations never inherit them.

@@ -8,10 +8,12 @@ import { configGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen"
 
 let supported: boolean | undefined = true;
 let capabilityError = false;
+const probeCapability = mock(async () => supported === true);
 mock.module("@/hooks/use-assistant-capability", () => ({
   assistantCapabilityOptions: () => ({
     queryKey: ["test-capability"],
-    queryFn: async () => supported,
+    queryFn: probeCapability,
+    staleTime: 60_000,
   }),
   useAssistantCapabilityQuery: () => ({
     data: supported,
@@ -116,6 +118,8 @@ function setup(id: string | null = "conv-1", existingClient?: QueryClient) {
 beforeEach(() => {
   supported = true;
   capabilityError = false;
+  probeCapability.mockReset();
+  probeCapability.mockImplementation(async () => supported === true);
   prefs = { ...fixture.preferences };
   getSettings.mockReset();
   getSettings.mockImplementation(async () => ({
@@ -221,6 +225,79 @@ test.each([false, true])(
     ).toBe(knownSupport ? "low" : undefined);
   },
 );
+test.each(["draft model", "conversation model", "conversation autonomy"])(
+  "a %s selection waits for unknown capability support before saving preferences",
+  async (scenario) => {
+    supported = undefined;
+    let resolveSupport!: (value: boolean) => void;
+    probeCapability.mockImplementation(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolveSupport = resolve;
+        }),
+    );
+    if (scenario === "draft model") {
+      useConversationStore.getState().registerDraftConversationId("conv-1");
+    }
+    const hook = setup();
+    await waitFor(() => expect(hook.result.current.modeReady).toBe(true));
+    await waitFor(() => expect(hook.result.current.autonomy).toBe("medium"));
+    let selection!: Promise<boolean>;
+    act(() => {
+      selection =
+        scenario === "conversation autonomy"
+          ? hook.result.current.selectAutonomy("none")
+          : hook.result.current.selectMode("quality-optimized");
+    });
+    await waitFor(() => expect(probeCapability).toHaveBeenCalledTimes(1));
+    expect(patch).not.toHaveBeenCalled();
+    expect(getSettings).not.toHaveBeenCalled();
+    await act(async () => {
+      resolveSupport(true);
+      expect(await selection).toBe(true);
+    });
+    if (scenario === "conversation autonomy") {
+      expect(overrides.get("conv-1")).toBe("none");
+      expect(prefs.lastAutonomy).toBe("none");
+    } else {
+      expect(prefs.lastModeId).toBe("quality-optimized");
+      expect(prefs.favoriteModeIds).toContain("quality-optimized");
+    }
+    expect(patch).toHaveBeenCalledTimes(1);
+  },
+);
+
+test.each(["unsupported", "logout"])(
+  "a pending preference intent is discarded after %s",
+  async (outcome) => {
+    supported = undefined;
+    let resolveSupport!: (value: boolean) => void;
+    probeCapability.mockImplementation(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolveSupport = resolve;
+        }),
+    );
+    const hook = setup();
+    await waitFor(() => expect(hook.result.current.modeReady).toBe(true));
+    let selection!: Promise<boolean>;
+    act(() => {
+      selection = hook.result.current.selectMode("quality-optimized");
+    });
+    await waitFor(() => expect(probeCapability).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      if (outcome === "logout") {
+        useComposerStore.getState().resetForLogout();
+      }
+      resolveSupport(outcome !== "unsupported");
+      expect(await selection).toBe(true);
+    });
+    expect(modes.get("conv-1")).toBe("quality-optimized");
+    expect(patch).not.toHaveBeenCalled();
+    expect(getSettings).not.toHaveBeenCalled();
+  },
+);
+
 test("existing conversations never inherit last-used settings on open", async () => {
   prefs = { ...prefs, lastModeId: "quality-optimized", lastAutonomy: "high" };
   const hook = setup();
