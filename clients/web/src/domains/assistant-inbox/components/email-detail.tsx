@@ -85,17 +85,20 @@ export function EmailDetail({
 
   // The reply action is drawn in one of two places by the same `md`
   // signal: in the phone's top row beside the way back, or in the header's
-  // action group beside the subject. One element, so the two never differ.
-  const replyButton =
+  // action group beside the subject. One definition, so the two never
+  // differ in anything but size.
+  const replyButton = (size: "regular" | "large") =>
     inbound && onAskToReply ? (
       <Button
         variant="outlined"
+        size={size}
         leftIcon={<MessageSquareText />}
         onClick={() => onAskToReply(email)}
       >
         {t("emailDetail.askToReply", { name: assistantName })}
       </Button>
     ) : null;
+  const hasReply = inbound && !!onAskToReply;
 
   return (
     <article
@@ -103,25 +106,28 @@ export function EmailDetail({
       aria-labelledby={`email-subject-${email.id}`}
     >
       <div className="flex flex-col gap-4 px-5 py-5">
-        {onBack || replyButton ? (
-          /* The phone's top row: the list is beside the pane from `md` up,
-             so the way back is only drawn where the pane has covered it, a
-             chevron alone at a size a thumb can find, with the reply
-             action on the trailing edge. */
+        {onBack || hasReply ? (
+          /* The phone's top row, where the masthead has gone with the list
+             the pane covers: the one way back, a chevron to the list, and
+             the reply action on the trailing edge, both at the large size
+             a thumb finds first. */
           <div className="flex items-center gap-2 md:hidden">
             {onBack ? (
               <Button
                 variant="outlined"
+                size="large"
                 iconOnly={<ChevronLeft />}
-                /* The touch-size circle an icon button grows into is too
-                   much chrome for a way back; the desktop box is plenty. */
+                /* Already the touch size; the circle an icon button would
+                   grow into is more chrome than a way back needs. */
                 expandOnMobile={false}
                 onClick={onBack}
                 aria-label={t("assistantInboxPage.backToList")}
                 title={t("assistantInboxPage.backToList")}
               />
             ) : null}
-            {replyButton ? <div className="ml-auto">{replyButton}</div> : null}
+            {hasReply ? (
+              <div className="ml-auto">{replyButton("large")}</div>
+            ) : null}
           </div>
         ) : null}
 
@@ -152,7 +158,7 @@ export function EmailDetail({
               copying a whole message is a desktop habit, so below `md` the
               header is the disc and the subject alone. */}
           <div className="flex shrink-0 flex-wrap items-center gap-2 max-md:hidden">
-            {replyButton}
+            {replyButton("regular")}
             <Button
               variant="outlined"
               iconOnly={copied ? <Check /> : <Copy />}

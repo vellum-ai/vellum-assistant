@@ -266,11 +266,15 @@ export function AssistantInboxPage({
 
   return (
     <AssistantInboxShell>
+      {/* On a phone an open message covers the list, and the masthead goes
+          with it: the pane's own way back is then the one way back, to the
+          list, where the masthead and its way out of the page return. */}
       <AssistantInboxHeader
         assistantId={assistantId}
         address={address}
         onOpenSettings={onOpenSettings}
         onBack={onBack}
+        className={cn(selected && "max-md:hidden")}
       />
 
       <div className="relative grid min-h-0 flex-1 grid-cols-1 gap-4 px-2 pb-2 pt-1 md:grid-cols-[minmax(280px,360px)_1fr]">

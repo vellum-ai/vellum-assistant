@@ -1,6 +1,6 @@
 import { ArrowLeft, Settings } from "lucide-react";
 
-import { Button } from "@vellumai/design-library";
+import { Button, cn } from "@vellumai/design-library";
 
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { useTranslation } from "@/i18n";
@@ -14,6 +14,7 @@ export interface AssistantInboxHeaderProps {
   onOpenSettings?: () => void;
   /** Leaves the page. Without it no back control is drawn. */
   onBack?: () => void;
+  className?: string;
 }
 
 /**
@@ -30,6 +31,7 @@ export function AssistantInboxHeader({
   address,
   onOpenSettings,
   onBack,
+  className,
 }: AssistantInboxHeaderProps) {
   const { t } = useTranslation("assistant-inbox");
   const { copied, copy } = useCopyToClipboard({
@@ -39,7 +41,10 @@ export function AssistantInboxHeader({
   return (
     <header
       data-testid="assistant-inbox-header"
-      className="flex flex-wrap items-center gap-x-4 gap-y-3 px-2 pb-4 pt-2"
+      className={cn(
+        "flex flex-wrap items-center gap-x-4 gap-y-3 px-2 pb-4 pt-2",
+        className,
+      )}
     >
       <div className="flex min-w-0 flex-1 items-center gap-3">
         {onBack ? (
