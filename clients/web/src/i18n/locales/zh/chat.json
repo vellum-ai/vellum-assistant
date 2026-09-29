@@ -1407,6 +1407,20 @@
     "unknownCommandNudge": "此命令无法识别。<ruleLink>创建规则</ruleLink>以便下次分类。",
     "viewSteps": "查看步骤"
   },
+  "quietTurnProgress": {
+    "checking": "正在查看{place}",
+    "updating": "正在更新{place}",
+    "working": "处理中",
+    "showWorkAria": "查看目前的进展：{label}",
+    "showStepsAria": "查看这条回复的步骤：{summary}",
+    "place": {
+      "files": "文件",
+      "terminal": "终端",
+      "memory": "记忆",
+      "web": "网页",
+      "mac": "你的 Mac"
+    }
+  },
   "nameInputDialog": {
     "cancel": "取消",
     "icon": "图标",

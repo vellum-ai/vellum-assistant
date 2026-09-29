@@ -147,6 +147,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "quiet-turn-activity",
+      "scope": "client",
+      "key": "quiet-turn-activity",
+      "label": "Quiet Turn Activity",
+      "description": "While the assistant works, show a reply skeleton with one line naming where it is working instead of its intermediate text and steps; a settled turn shows only its opening line and its answer, with the steps behind a Worked summary in the message footer",
+      "defaultEnabled": false
+    },
+    {
       "id": "inline-assistant-intermediates",
       "scope": "client",
       "key": "inline-assistant-intermediates",

@@ -11,7 +11,7 @@ import {
   Square,
   Volume2,
 } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useMemo, useState } from "react";
 
 import { Button } from "@vellumai/design-library/components/button";
 
@@ -49,6 +49,11 @@ export type MessageHoverActionsProps = {
    *  message while no turn is in flight — retry discards that response and
    *  regenerates it. */
   onRetry?: () => void;
+  /**
+   * Always-visible control after the timestamp: the quiet-turn "Worked for"
+   * summary that opens the turn's steps.
+   */
+  workSummary?: ReactNode;
 };
 
 /**
@@ -152,6 +157,7 @@ export function MessageHoverActions({
   onSummarizeUpToHere,
   onInspect,
   onRetry,
+  workSummary,
 }: MessageHoverActionsProps) {
   const { t } = useTranslation("chat");
   const { role } = message;
@@ -197,6 +203,7 @@ export function MessageHoverActions({
       >
         {formatTimestamp(displayTimestamp)}
       </span>
+      {workSummary}
       {message.autoRoutedProfile && (
         <AutoRoutedProfileBadge profileKey={message.autoRoutedProfile} />
       )}

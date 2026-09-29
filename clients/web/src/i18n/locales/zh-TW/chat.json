@@ -1407,6 +1407,20 @@
     "unknownCommandNudge": "此指令無法辨識。<ruleLink>建立規則</ruleLink>以便下次分類。",
     "viewSteps": "檢視步驟"
   },
+  "quietTurnProgress": {
+    "checking": "正在查看{place}",
+    "updating": "正在更新{place}",
+    "working": "處理中",
+    "showWorkAria": "查看目前的進度：{label}",
+    "showStepsAria": "查看這則回覆的步驟：{summary}",
+    "place": {
+      "files": "檔案",
+      "terminal": "終端機",
+      "memory": "記憶",
+      "web": "網路",
+      "mac": "你的 Mac"
+    }
+  },
   "nameInputDialog": {
     "cancel": "取消",
     "icon": "圖示",

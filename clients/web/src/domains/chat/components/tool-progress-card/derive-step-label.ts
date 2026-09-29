@@ -164,7 +164,7 @@ function basename(path: string): string {
  * `assistant/src/tools/mcp/mcp-tool-factory.ts`. Returns `null` when the
  * pattern doesn't match.
  */
-function parseMcpToolName(
+export function parseMcpToolName(
   toolName: string,
 ): { serverName: string; toolMethod: string } | null {
   if (!toolName.startsWith("mcp__")) {

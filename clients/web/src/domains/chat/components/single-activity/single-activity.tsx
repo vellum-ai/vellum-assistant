@@ -1,5 +1,4 @@
 import { useTranslation } from "@/i18n";
-import { openDetailSheetFromTrigger } from "@/domains/chat/utils/open-detail-sheet-from-trigger";
 /**
  * Inline single-activity link — the lone affordance for ONE step of agent work,
  * in one of three variants:
@@ -39,11 +38,15 @@ import { openDetailSheetFromTrigger } from "@/domains/chat/utils/open-detail-she
  * contiguous run of interleaved thinking + tool steps as one combined card.
  */
 
-import { ChevronDown, ChevronRight, ChevronUp, Globe } from "lucide-react";
+import { ChevronDown, ChevronUp, Globe } from "lucide-react";
 import { useMemo } from "react";
 
 import { cn } from "@/utils/misc";
 import { StreamingShimmerText } from "@/domains/chat/components/streaming-shimmer-text";
+import {
+  ActivityLinkButton,
+  type ActivityLinkButtonProps,
+} from "@/domains/chat/components/single-activity/activity-link-button";
 import { deriveStepLabel } from "@/domains/chat/components/tool-progress-card/derive-step-label";
 import { useActionDisplayLabel } from "@/domains/chat/components/tool-progress-card/action-display-label";
 import {
@@ -96,22 +99,6 @@ export type SingleActivityProps =
       expanded: boolean;
       onExpandChange: (next: boolean) => void;
     };
-
-/** The shared presentational shape both variants resolve into. */
-interface ResolvedView {
-  dataTestId: string;
-  ariaLabel: string;
-  label: string;
-  /**
-   * When `true`, the label renders through {@link StreamingShimmerText} — the
-   * avatar-tinted gradient glint that marks in-flight work (streaming
-   * reasoning). The three-dot pulse is retired in its favor.
-   */
-  shimmerLabel?: boolean;
-  tone: "default" | "error";
-  active: boolean;
-  onClick: () => void;
-}
 
 export function SingleActivity(props: SingleActivityProps) {
   const { t } = useTranslation("chat");
@@ -227,7 +214,7 @@ export function SingleActivity(props: SingleActivityProps) {
     );
   }
 
-  let view: ResolvedView;
+  let view: ActivityLinkButtonProps;
 
   if (props.variant === "thinking") {
     const { content, isStreaming = false, messageId, groupIndex } = props;
@@ -296,40 +283,5 @@ export function SingleActivity(props: SingleActivityProps) {
     };
   }
 
-  const isError = view.tone === "error";
-  return (
-    <button
-      type="button"
-      data-testid={view.dataTestId}
-      data-active={view.active ? "true" : "false"}
-      aria-label={view.ariaLabel}
-      onClick={(event) => openDetailSheetFromTrigger(event, view.onClick)}
-      className={cn(
-        "group inline-flex items-center gap-2 -mx-1.5 px-1.5 py-1 rounded-md text-left text-[13px] font-medium transition-colors cursor-pointer",
-        "focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]",
-        view.active
-          ? "bg-[var(--surface-active)] text-[var(--content-default)]"
-          : "text-[var(--content-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--content-default)]",
-        isError && "text-[var(--system-negative-strong)]",
-      )}
-    >
-      <span className="min-w-0 max-w-[min(520px,calc(100vw-8rem))] truncate">
-        {view.shimmerLabel ? (
-          <StreamingShimmerText data-testid="thought-process-loading">
-            {view.label}
-          </StreamingShimmerText>
-        ) : (
-          view.label
-        )}
-      </span>
-      {/* The chevron is an affordance, not a status: it appears when the row is
-          reachable (hover / keyboard focus) or already showing its drawer, so a
-          settled run of rows reads as labels instead of a column of glyphs.
-          Faded rather than unmounted so the label never shifts. */}
-      <ChevronRight
-        className="size-3.5 shrink-0 text-[var(--content-tertiary)] opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100 group-data-[active=true]:opacity-100 motion-reduce:transition-none"
-        aria-hidden
-      />
-    </button>
-  );
+  return <ActivityLinkButton {...view} />;
 }

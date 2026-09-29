@@ -872,6 +872,20 @@
       "workingFor": "Работаю уже {duration}"
     }
   },
+  "quietTurnProgress": {
+    "checking": "Проверяю: {place}",
+    "updating": "Обновляю: {place}",
+    "working": "Работаю",
+    "showWorkAria": "Показать ход работы: {label}",
+    "showStepsAria": "Показать шаги этого ответа: {summary}",
+    "place": {
+      "files": "Файлы",
+      "terminal": "Терминал",
+      "memory": "Память",
+      "web": "интернет",
+      "mac": "ваш Mac"
+    }
+  },
   "overviewTab": {
     "cacheTokensLabel": "Токены кэша",
     "conversationSubtitle": "Накопительные итоги по всем тарифицированным вызовам LLM на сейчас.",

@@ -31,6 +31,8 @@ import {
   hasRenderedThinking,
 } from "@/domains/chat/transcript/message-content";
 import { liveAssistantRowId } from "@/domains/chat/utils/stream-updaters/shared";
+import { hasQuietTurnProgress } from "@/domains/chat/transcript/quiet-turn";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useActiveConversationIsProcessing } from "@/lib/backwards-compat/conversation-processing-state";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useActiveConversation } from "@/domains/chat/hooks/use-active-conversation";
@@ -137,15 +139,25 @@ export function useChatUIState(): ChatUIState {
   }, [transcript, liveAssistantMessageId, hideThinkingUi]);
 
   // Under `send-user-message` the step stack is the turn's one progress
-  // label, so the standalone row stands down once the live message renders a
-  // step. Flag off, the row keeps its own between-tools label.
+  // label, and under `quiet-turn-activity` the progress line is, so the
+  // standalone row stands down once the live message renders either. Both
+  // flags off, the row keeps its own between-tools label.
+  const quietTurnActivity = useClientFeatureFlagStore.use.quietTurnActivity();
   const hasLiveStepStack = useMemo(() => {
-    if (!hideThinkingUi || liveAssistantMessageId == null) {
+    if (
+      (!hideThinkingUi && !quietTurnActivity) ||
+      liveAssistantMessageId == null
+    ) {
       return false;
     }
     const live = transcript.find((m) => m.id === liveAssistantMessageId);
-    return live != null && hasRenderedStepStack(live);
-  }, [transcript, liveAssistantMessageId, hideThinkingUi]);
+    if (live == null) {
+      return false;
+    }
+    return hideThinkingUi
+      ? hasRenderedStepStack(live)
+      : hasQuietTurnProgress(live);
+  }, [transcript, liveAssistantMessageId, hideThinkingUi, quietTurnActivity]);
 
   const hasUncompletedVisibleSurface = useMemo(
     () => hasAnyInteractiveSurface(transcript),

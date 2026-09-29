@@ -484,6 +484,12 @@ export interface ActivityStepsPayload {
   toolCalls: ChatMessageToolCall[];
   /** Open-time evidence that this was the active trailing transcript group. */
   active?: boolean;
+  /**
+   * Show every activity group of `messageId` as one run instead of the group
+   * at `groupIndex`: the quiet-turn steps panel, opened from a turn's progress
+   * line or its "Worked for" summary.
+   */
+  wholeTurn?: boolean;
 }
 
 /**
@@ -499,6 +505,9 @@ export function sameActivityStepsTarget(
   if (a.messageId != null || b.messageId != null) {
     if (a.messageId !== b.messageId) {
       return false;
+    }
+    if (a.wholeTurn || b.wholeTurn) {
+      return a.wholeTurn === b.wholeTurn;
     }
     if (a.groupToolCallIds?.length && b.groupToolCallIds?.length) {
       const bIds = new Set(b.groupToolCallIds);

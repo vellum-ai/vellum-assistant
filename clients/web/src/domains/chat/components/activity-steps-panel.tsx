@@ -169,6 +169,9 @@ export function ActivityStepsPanel({
 
 function activityStepsTargetKey(payload: ActivityStepsPayload): string {
   if (payload.messageId != null) {
+    if (payload.wholeTurn) {
+      return JSON.stringify(["message", payload.messageId, "turn"]);
+    }
     const rawToolCallId = payload.groupToolCallIds?.[0];
     return rawToolCallId != null
       ? JSON.stringify(["message", payload.messageId, "tool", rawToolCallId])
@@ -205,6 +208,7 @@ function ActivityStepsPanelTarget({
     payload.messageId,
     payload.groupIndex,
     anchorToolCallId,
+    payload.wholeTurn,
   );
   const items = live?.items ?? payload.items;
   const toolCalls = live?.toolCalls ?? payload.toolCalls;
@@ -343,7 +347,10 @@ function ActivityStepsPanelTarget({
                 activeDetail={stepDetail}
                 onOpenDetail={setStepDetail}
                 lookupToolCall={(id) => toolCallById.get(id)}
-                messageId={payload.messageId}
+                // A whole-turn run merges groups, so a thinking step's item
+                // index addresses no single group; its detail shows the text
+                // captured with the step instead of re-reading it live.
+                messageId={payload.wholeTurn ? undefined : payload.messageId}
                 groupIndex={live?.groupIndex ?? payload.groupIndex}
               />
             )}

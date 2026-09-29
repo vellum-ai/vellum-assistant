@@ -343,6 +343,7 @@ import { MIN_VERSION as REDACTED_CHIPS_MIN_VERSION } from "@/lib/backwards-compa
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
+import { useViewerStore } from "@/stores/viewer-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
 
 import {
@@ -830,6 +831,119 @@ describe("TranscriptMessageBody", () => {
         inlineAssistantIntermediates: false,
       });
     }
+  });
+
+  describe("under quiet-turn-activity", () => {
+    const slackCommand =
+      "TOKEN=$(assistant credentials reveal --service slack_channel --field bot_token)";
+    const turn: DisplayMessage = {
+      id: "quiet-turn",
+      role: "assistant",
+      contentBlocks: [
+        textBlock("Let me check what happened."),
+        toolUseBlock({
+          id: "tc-slack",
+          name: "bash",
+          input: { command: slackCommand, activity: "reading your replies" },
+          startedAt: 1_000,
+          completedAt: 4_000,
+        }),
+        textBlock("Found the likely culprit, recovering entries now."),
+        toolUseBlock({
+          id: "tc-edit",
+          name: "file_edit",
+          input: { path: "procs/work-journal.md" },
+          startedAt: 4_000,
+          completedAt: 64_000,
+        }),
+        textBlock("Recovered all 33 missing entries."),
+      ],
+    };
+
+    beforeEach(() => {
+      useClientFeatureFlagStore.setState({ quietTurnActivity: true });
+    });
+    afterEach(() => {
+      useClientFeatureFlagStore.setState({ quietTurnActivity: false });
+      useViewerStore.getState().closeActivitySteps();
+    });
+
+    test("a settled turn shows its opening and answer, with its steps behind the footer summary", () => {
+      // GIVEN a settled turn that narrated between tool calls
+      // WHEN it renders
+      const { queryByRole, queryByText, getByTestId } = render(
+        <TranscriptMessageBody message={turn} onSurfaceAction={noop} />,
+      );
+
+      // THEN the opening and the answer show, the narration and the steps do
+      // not, and there is no Earlier activity disclosure
+      expect(queryByText("Let me check what happened.")).not.toBeNull();
+      expect(queryByText("Recovered all 33 missing entries.")).not.toBeNull();
+      expect(
+        queryByText("Found the likely culprit, recovering entries now."),
+      ).toBeNull();
+      expect(queryByRole("button", { name: "Earlier activity" })).toBeNull();
+
+      // AND the footer summary opens the whole turn's steps
+      const summary = getByTestId("quiet-turn-work-summary");
+      expect(summary.textContent).toContain("Worked for");
+      fireEvent.click(summary);
+      const opened = useViewerStore.getState().activeActivitySteps;
+      expect(opened?.wholeTurn).toBe(true);
+      expect(opened?.messageId).toBe("quiet-turn");
+      expect(opened?.toolCalls.map((toolCall) => toolCall.id)).toEqual([
+        "tc-slack",
+        "tc-edit",
+      ]);
+    });
+
+    test("a live turn holds back text after its first tool call behind one progress line", () => {
+      // GIVEN the same turn still streaming, working in Slack
+      const live: DisplayMessage = {
+        ...turn,
+        contentBlocks: turn.contentBlocks!.slice(0, 3),
+      };
+
+      // WHEN it renders as the live row
+      const { queryByText, getByTestId, queryByTestId } = render(
+        <TranscriptMessageBody
+          message={live}
+          onSurfaceAction={noop}
+          isStreaming
+          isLatestMessage
+        />,
+      );
+
+      // THEN the opening streams, the narration waits, and the line names Slack
+      expect(queryByText("Let me check what happened.")).not.toBeNull();
+      expect(
+        queryByText("Found the likely culprit, recovering entries now."),
+      ).toBeNull();
+      expect(getByTestId("quiet-turn-progress").textContent).toContain(
+        "Checking Slack",
+      );
+      expect(queryByTestId("quiet-turn-work-summary")).toBeNull();
+    });
+
+    test("a turn that used no tools renders unchanged", () => {
+      // GIVEN a plain reply
+      // WHEN it renders
+      const { queryByText, queryByTestId } = render(
+        <TranscriptMessageBody
+          message={{
+            id: "plain",
+            role: "assistant",
+            contentBlocks: [textBlock("It was a Sunday.")],
+          }}
+          onSurfaceAction={noop}
+        />,
+      );
+
+      // THEN the reply shows with no progress line or summary
+      expect(queryByText("It was a Sunday.")).not.toBeNull();
+      expect(queryByTestId("quiet-turn-progress")).toBeNull();
+      expect(queryByTestId("quiet-turn-work-summary")).toBeNull();
+    });
   });
 
   test("renders all activity inline for a row marked private", () => {

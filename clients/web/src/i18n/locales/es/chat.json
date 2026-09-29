@@ -1369,6 +1369,20 @@
     "unknownCommandNudge": "Este comando no se reconoció. <ruleLink>Crea una regla</ruleLink> para clasificarlo la próxima vez.",
     "viewSteps": "Ver pasos"
   },
+  "quietTurnProgress": {
+    "checking": "Revisando {place}",
+    "updating": "Actualizando {place}",
+    "working": "Trabajando",
+    "showWorkAria": "Ver el trabajo hasta ahora: {label}",
+    "showStepsAria": "Ver los pasos de esta respuesta: {summary}",
+    "place": {
+      "files": "Archivos",
+      "terminal": "Terminal",
+      "memory": "Memoria",
+      "web": "la web",
+      "mac": "tu Mac"
+    }
+  },
   "nameInputDialog": {
     "cancel": "Cancelar",
     "icon": "Icono",

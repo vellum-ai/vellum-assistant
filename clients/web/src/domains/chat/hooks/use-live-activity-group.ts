@@ -130,6 +130,27 @@ export function filterCardBackedProcessCalls(
 }
 
 /**
+ * Every activity group of a row concatenated into one run of card items and
+ * tool calls, in transcript order: the whole-turn steps panel's source.
+ */
+export function mergeTurnActivity(groups: readonly ContentBlockGroup[]): {
+  cardItems: ToolCallCardItem[];
+  toolCalls: ChatMessageToolCall[];
+} {
+  const cardItems: ToolCallCardItem[] = [];
+  const toolCalls: ChatMessageToolCall[] = [];
+  for (const group of groups) {
+    if (group.type !== "activity") {
+      continue;
+    }
+    const data = activityItemsToCardData(group.items);
+    cardItems.push(...data.cardItems);
+    toolCalls.push(...data.toolCalls);
+  }
+  return { cardItems, toolCalls };
+}
+
+/**
  * The ordered card items + tool calls of one activity group, re-derived from
  * the rendered transcript (server history ⊕ the in-flight turn) on every
  * render so an OPEN activity-steps panel streams — new steps append, running
@@ -146,12 +167,14 @@ export function useLiveActivityGroup(
   messageId: string | undefined,
   groupIndex: number | undefined,
   anchorToolCallId?: string,
+  wholeTurn = false,
 ): {
   items: ToolCallCardItem[];
   toolCalls: ChatMessageToolCall[];
   isLastGroup: boolean;
   isLatestMessage: boolean;
-  groupIndex: number;
+  /** The resolved group; absent for a whole-turn run. */
+  groupIndex?: number;
 } | null {
   const message = useTranscriptMessageById(messageId);
   const transcriptMessages = useTranscriptMessages();
@@ -169,13 +192,40 @@ export function useLiveActivityGroup(
   const backgroundTaskById = useBackgroundTaskStore.use.byId();
 
   return useMemo(() => {
-    if (!message || groupIndex == null) {
+    if (!message || (groupIndex == null && !wholeTurn)) {
       return null;
     }
     const groups = groupContentBlocks(
       message.contentBlocks ?? [],
       groupOptionsForMessage(message, hideThinkingUi),
     );
+    const backing = {
+      workflow: {
+        byId: workflowById,
+        byToolUseId: workflowByToolUseId,
+        notFoundRunIds: workflowNotFoundRunIds,
+        hydrationFailedRunIds: workflowHydrationFailedRunIds,
+      },
+      acpById,
+      acpByToolUseId,
+      backgroundTaskById,
+    };
+    if (wholeTurn) {
+      const merged = mergeTurnActivity(groups);
+      return {
+        ...filterCardBackedProcessCalls(
+          merged.cardItems,
+          merged.toolCalls,
+          backing,
+        ),
+        isLastGroup: true,
+        isLatestMessage: isLatestTranscriptMessage(message, transcriptMessages),
+        groupIndex: undefined,
+      };
+    }
+    if (groupIndex == null) {
+      return null;
+    }
     const resolvedGroupIndex = resolveActivityGroupIndex(
       groups,
       groupIndex,
@@ -190,17 +240,7 @@ export function useLiveActivityGroup(
     }
     const { cardItems, toolCalls } = activityItemsToCardData(group.items);
     return {
-      ...filterCardBackedProcessCalls(cardItems, toolCalls, {
-        workflow: {
-          byId: workflowById,
-          byToolUseId: workflowByToolUseId,
-          notFoundRunIds: workflowNotFoundRunIds,
-          hydrationFailedRunIds: workflowHydrationFailedRunIds,
-        },
-        acpById,
-        acpByToolUseId,
-        backgroundTaskById,
-      }),
+      ...filterCardBackedProcessCalls(cardItems, toolCalls, backing),
       isLastGroup: isLastActivityGroup(groups, resolvedGroupIndex),
       isLatestMessage: isLatestTranscriptMessage(message, transcriptMessages),
       groupIndex: resolvedGroupIndex,
@@ -210,6 +250,7 @@ export function useLiveActivityGroup(
     transcriptMessages,
     groupIndex,
     anchorToolCallId,
+    wholeTurn,
     hideThinkingUi,
     workflowById,
     workflowByToolUseId,

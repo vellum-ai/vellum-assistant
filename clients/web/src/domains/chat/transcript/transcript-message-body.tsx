@@ -56,6 +56,7 @@ import {
   activityHasDedicatedCard,
   activityItemsToCardData,
   type ContentBlockActivityItem,
+  type ContentBlockGroup,
   finalResponseStartIndex,
   groupContentBlocks,
   groupOptionsForMessage,
@@ -68,6 +69,16 @@ import { hasRenderableAnswer } from "@/domains/chat/answered-question";
 import { AnsweredQuestionCard } from "@/domains/chat/components/answered-question-card";
 import { useCoarsePointerReveal } from "@/domains/chat/transcript/use-coarse-pointer-reveal";
 import { AssistantContentDisclosure } from "@/domains/chat/transcript/assistant-content-disclosure";
+import {
+  QuietTurnProgress,
+  QuietTurnWorkSummary,
+} from "@/domains/chat/components/quiet-turn-progress";
+import {
+  currentQuietStep,
+  firstToolGroupIndex,
+  quietTurnHiddenGroups,
+  turnToolCalls,
+} from "@/domains/chat/transcript/quiet-turn";
 import { parseInlineSurfaces } from "@/domains/chat/utils/parse-inline-surfaces";
 import { useHideThinkingUi } from "@/domains/chat/hooks/use-hide-thinking-ui";
 import { useSmoothStreamText } from "@/domains/chat/hooks/use-smooth-stream-text";
@@ -182,6 +193,7 @@ export function TranscriptMessageBody({
   const { t } = useTranslation("chat");
   const inlineAssistantIntermediates =
     useClientFeatureFlagStore.use.inlineAssistantIntermediates();
+  const quietTurnActivity = useClientFeatureFlagStore.use.quietTurnActivity();
   const isSlackMessage = Boolean(message.slackMessage);
   const isSlackReaction = getMessageRenderKind(message) === "slackReaction";
   const isUser = message.role === "user";
@@ -1251,6 +1263,16 @@ export function TranscriptMessageBody({
   // truncates inside the card instead of overflowing the message column.
   const columnClass = `flex w-full min-w-0 flex-col gap-2 ${isUser ? "items-end" : "items-start"}`;
 
+  // Under `quiet-turn-activity` an assistant turn that used tools shows its
+  // opening and its answer, with its steps behind one progress line while it
+  // runs and a "Worked for" summary in the footer once it settles.
+  const quietTurn =
+    quietTurnActivity &&
+    isAssistant &&
+    !isSlackReaction &&
+    firstToolGroupIndex(groups) !== -1;
+  const quietTurnLive = quietTurn && isStreaming && isLatestMessage;
+
   // Copy and Read aloud stay visible on every copyable row, including the
   // latest turn sitting above the parked avatar. Secondary actions (retry,
   // bookmark, Slack, fork, summarize, inspect) stay hover/tap-revealed inside
@@ -1271,6 +1293,11 @@ export function TranscriptMessageBody({
           onSummarizeUpToHere={summarizeHandler}
           onInspect={inspectHandler}
           onRetry={retryHandler}
+          workSummary={
+            quietTurn && !quietTurnLive ? (
+              <QuietTurnWorkSummary messageId={message.id} groups={groups} />
+            ) : undefined
+          }
         />
       </div>
     </>
@@ -1335,6 +1362,22 @@ export function TranscriptMessageBody({
     groups,
     groupDrawsVisibleOutput,
   );
+  // An activity group that must keep its own row whatever collapses around
+  // it: an inline process card, or a control waiting on the user.
+  const activityNeedsItsOwnRow = (group: ContentBlockGroup): boolean => {
+    if (group.type !== "activity") {
+      return false;
+    }
+    return (
+      activityHasDedicatedCard(group.items, isCardBacked) ||
+      activityItemsToCardData(group.items).toolCalls.some(
+        (toolCall) =>
+          toolCall.pendingConfirmation !== undefined ||
+          acpConnectToolUseId === toolCall.id ||
+          unknownNudgeToolCallIds?.has(toolCall.id) === true,
+      )
+    );
+  };
   // Four reasons no group is collapsible, after which the whole response
   // renders inline at full size and none of the collapsed styling applies: the
   // per-user opt-out; the `send-user-message` flag, under which every text
@@ -1374,14 +1417,8 @@ export function TranscriptMessageBody({
       // images the end-of-turn attachments already show draws nothing, so it
       // has no reason to sit outside "Earlier activity".
       selectedImagesByGroupIndex[groupIndex]!.length > 0 ||
-      activityHasDedicatedCard(group.items, isCardBacked) ||
-      toolCalls.some(
-        (toolCall) =>
-          isToolCallRunning(toolCall) ||
-          toolCall.pendingConfirmation !== undefined ||
-          acpConnectToolUseId === toolCall.id ||
-          unknownNudgeToolCallIds?.has(toolCall.id) === true,
-      );
+      activityNeedsItsOwnRow(group) ||
+      toolCalls.some(isToolCallRunning);
     return hasVisibleOutputOrControl ? [] : [groupIndex];
   });
   // Which collapsible groups actually render a row. A group that renders
@@ -1424,10 +1461,35 @@ export function TranscriptMessageBody({
     ? collapsibleGroupIndexes[0]
     : undefined;
 
-  const renderedGroups = groups.map((group, gi) =>
-    renderGroupNode(group, gi, disclosedGroupIndexes.has(gi)),
-  );
   const assistantContent: ReactNode[] = [];
+  if (quietTurn) {
+    const hiddenGroupIndexes = quietTurnHiddenGroups({
+      groups,
+      finalResponseIndex: finalResponseGroupIndex,
+      live: quietTurnLive,
+      isPinned: activityNeedsItsOwnRow,
+    });
+    groups.forEach((group, gi) => {
+      if (!hiddenGroupIndexes.has(gi)) {
+        assistantContent.push(renderGroupNode(group, gi));
+      }
+    });
+    if (quietTurnLive) {
+      assistantContent.push(
+        <QuietTurnProgress
+          key="quiet-turn-progress"
+          messageId={message.id}
+          groups={groups}
+          step={currentQuietStep(turnToolCalls(groups))}
+        />,
+      );
+    }
+  }
+  const renderedGroups = quietTurn
+    ? []
+    : groups.map((group, gi) =>
+        renderGroupNode(group, gi, disclosedGroupIndexes.has(gi)),
+      );
   for (
     let groupIndex = 0;
     groupIndex < renderedGroups.length;

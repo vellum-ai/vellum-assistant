@@ -1424,6 +1424,20 @@
     "unknownCommandNudge": "This command wasn't recognized. <ruleLink>Create a rule</ruleLink> to classify it for next time.",
     "viewSteps": "View steps"
   },
+  "quietTurnProgress": {
+    "checking": "Checking {place}",
+    "updating": "Updating {place}",
+    "working": "Working",
+    "showWorkAria": "Show the work so far: {label}",
+    "showStepsAria": "Show the steps behind this reply: {summary}",
+    "place": {
+      "files": "Files",
+      "terminal": "Terminal",
+      "memory": "Memory",
+      "web": "the web",
+      "mac": "your Mac"
+    }
+  },
   "nameInputDialog": {
     "cancel": "Cancel",
     "icon": "Icon",
