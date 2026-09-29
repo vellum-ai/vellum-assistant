@@ -1,6 +1,6 @@
 import {
-  ArrowLeft,
   Check,
+  ChevronLeft,
   Copy,
   Loader2,
   MessageSquareText,
@@ -91,16 +91,16 @@ export function EmailDetail({
       <div className="flex flex-col gap-4 px-5 py-5">
         {onBack ? (
           /* The list is beside the pane from `md` up, so the way back is
-             only drawn where the pane has covered it. */
+             only drawn where the pane has covered it: a chevron alone, at
+             a size a thumb can find. */
           <div className="md:hidden">
             <Button
-              variant="ghost"
-              size="compact"
-              leftIcon={<ArrowLeft />}
+              variant="outlined"
+              iconOnly={<ChevronLeft />}
               onClick={onBack}
-            >
-              {t("assistantInboxPage.backToList")}
-            </Button>
+              aria-label={t("assistantInboxPage.backToList")}
+              title={t("assistantInboxPage.backToList")}
+            />
           </div>
         ) : null}
 
@@ -137,6 +137,8 @@ export function EmailDetail({
                 {t("emailDetail.askToReply", { name: assistantName })}
               </Button>
             ) : null}
+            {/* Copying a whole message is a desktop habit; on a phone the
+                row holds the one action that matters there. */}
             <Button
               variant="outlined"
               iconOnly={copied ? <Check /> : <Copy />}
@@ -146,6 +148,7 @@ export function EmailDetail({
               title={
                 copied ? t("emailDetail.copied") : t("emailDetail.copyEmail")
               }
+              className="max-md:hidden"
             />
           </div>
         </header>
