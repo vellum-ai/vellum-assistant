@@ -373,11 +373,11 @@ export class PermissionsService {
         return item;
       }
       // Native alerts own their Settings button and can outlive the helper.
-      // Only a separate user action opens Settings directly.
+      // Only a separate user action opens Settings directly. Screen
+      // Recording's alert can land on another pane, so it always opens its own.
       const canShowNativeAlert =
-        kind === "screen" ||
-        item.status === "unknown" ||
-        item.status === "not-determined";
+        kind !== "screen" &&
+        (item.status === "unknown" || item.status === "not-determined");
       if (canShowNativeAlert && !this.helperRequests.has(kind)) {
         return this.request(kind, sender);
       }

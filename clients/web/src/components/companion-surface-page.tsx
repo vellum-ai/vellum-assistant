@@ -63,6 +63,10 @@ import {
 } from "@/runtime/companion-surface";
 import { sendVoiceActivityControl } from "@/runtime/desktop-voice-activity";
 import {
+  beginPermissionGuide,
+  supportsPermissionSetup,
+} from "@/runtime/permission-setup";
+import {
   openSystemPermissionSettings,
   subscribeToSystemPermissions,
 } from "@/runtime/system-permissions";
@@ -1286,9 +1290,11 @@ export function CompanionSurfacePage() {
               }
               onPick={onPick}
               onAllowScreenRecording={() => {
-                void openSystemPermissionSettings("screen").catch(
-                  () => undefined,
-                );
+                void (
+                  supportsPermissionSetup()
+                    ? beginPermissionGuide("screen")
+                    : openSystemPermissionSettings("screen")
+                ).catch(() => undefined);
               }}
             />
           ) : null

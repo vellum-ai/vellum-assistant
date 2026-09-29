@@ -477,11 +477,21 @@ mock.module("./permissions-service", () => ({
     permissionPresentationListeners.push(listener);
     return () => {};
   },
-  getPermissionsService: () => ({
-    openSettings: async (kind: string) => {
-      settingsOpened.push(kind);
-    },
-  }),
+  getPermissionsService: () => ({}),
+  openPermissionSettingsPane: async (kind: string) => {
+    settingsOpened.push(`pane:${kind}`);
+  },
+}));
+
+let guideError: Error | null = null;
+
+mock.module("./companion-permission-guide", () => ({
+  beginPermissionGuide: async (_service: unknown, kind: string) => {
+    if (guideError) {
+      throw guideError;
+    }
+    settingsOpened.push(`guide:${kind}`);
+  },
 }));
 
 mock.module("./ipc", () => ({
@@ -4785,7 +4795,7 @@ describe("Share on the companion surface", () => {
         displayId: 2,
       });
       await Bun.sleep(0);
-      expect(settingsOpened).toEqual(["screen"]);
+      expect(settingsOpened).toEqual(["guide:screen"]);
       expect(picksResolved).toHaveLength(resolvedBefore);
       expect(dispatched).toEqual([]);
     } finally {
@@ -4801,9 +4811,27 @@ describe("Share on the companion surface", () => {
       const capture = invocable.get("vellum:companion:captureScreen");
       expect(await capture?.([{ kind: "display", displayId: 2 }])).toBeNull();
       await Bun.sleep(0);
-      expect(settingsOpened).toEqual(["screen"]);
+      expect(settingsOpened).toEqual(["guide:screen"]);
     } finally {
       frameError = null;
+    }
+  });
+
+  test("opens the Screen Recording pane when the guide cannot show", async () => {
+    screenGranted = false;
+    settingsOpened.length = 0;
+    guideError = new Error("The permission app is unavailable.");
+    try {
+      send("vellum:companion:setScreenShare", {
+        kind: "display",
+        displayId: 2,
+      });
+      await Bun.sleep(0);
+      expect(settingsOpened).toEqual(["pane:screen"]);
+      expect(dispatched).toEqual([]);
+    } finally {
+      screenGranted = true;
+      guideError = null;
     }
   });
 

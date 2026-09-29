@@ -120,6 +120,7 @@ import {
   watchCoachmarkPress,
   type CoachmarkPressRect,
 } from "./coachmark-press-watch";
+import { beginPermissionGuide } from "./companion-permission-guide";
 import { setPointerOnCompanion } from "./companion-pointer";
 import {
   closeCompanionPopover,
@@ -136,6 +137,7 @@ import { buildShareTargetSnapshot } from "./share-targets";
 import {
   getPermissionsService,
   onPermissionPresentation,
+  openPermissionSettingsPane,
 } from "./permissions-service";
 import {
   answerScreenRecordingRefusal,
@@ -3601,15 +3603,28 @@ const screenRecordingAllowed = (): Promise<boolean> =>
   });
 
 /**
- * Send the user to Screen Recording in System Settings, with the helper
- * listed there to turn on. Settings opening is itself the message: the share
- * cannot happen until that row is on.
+ * Send the user to Screen Recording in System Settings with the same guide
+ * the first-run tour shows, the helper ready to drag into the list. Settings
+ * opening is itself the message: the share cannot happen until that row is
+ * on. Without the guide, the pane still opens on its own.
  */
 const askForScreenRecording = async (): Promise<void> => {
+  const service = getPermissionsService();
+  if (!service) {
+    return;
+  }
   try {
-    await getPermissionsService()?.openSettings("screen");
+    await beginPermissionGuide(service, "screen");
   } catch (err) {
-    log.warn("[companion] could not open Screen Recording settings:", err);
+    log.warn("[companion] could not show the Screen Recording guide:", err);
+    try {
+      await openPermissionSettingsPane("screen");
+    } catch (paneErr) {
+      log.warn(
+        "[companion] could not open Screen Recording settings:",
+        paneErr,
+      );
+    }
   }
 };
 

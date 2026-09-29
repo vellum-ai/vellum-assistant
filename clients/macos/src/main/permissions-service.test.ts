@@ -457,22 +457,13 @@ describe("permission setup", () => {
     expect(state.screen.requiresRestart).toBe(false);
   });
 
-  test("yields for Screen Recording's native alert and a separate Settings visit", async () => {
+  test("opens Screen Recording Settings without the native alert", async () => {
     const stop = onPermissionPresentation(() => {
       helperCalls.push("yield tour");
     });
     try {
-      const service = new PermissionsService();
-      const initial = await service.state();
-      expect(helperCalls).toEqual([]);
-      expect(initial.screen.canRequest).toBe(true);
-      const requested = await service.openSettings("screen");
-      expect(helperCalls).toEqual(["yield tour", "request screen"]);
-      expect(requested.canRequest).toBe(false);
-      await service.openSettings("screen");
+      await new PermissionsService().openSettings("screen");
       expect(helperCalls).toEqual([
-        "yield tour",
-        "request screen",
         "yield tour",
         "open x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
       ]);

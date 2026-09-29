@@ -172,7 +172,12 @@ function yieldToSettings(session: GuideSession): void {
   session.window.setAlwaysOnTop(false);
 }
 
-async function beginGuide(
+/**
+ * Open the kind's Settings pane with the floating guide beside it, the guide
+ * holding the helper app to drag into the list. Settles once the guide is up;
+ * the guide closes itself when the grant lands.
+ */
+export async function beginPermissionGuide(
   service: PermissionsService,
   kind: DraggablePermissionKind,
   sender?: WebContents,
@@ -330,7 +335,7 @@ export function installCompanionPermissionGuide(
     PERMISSION_SETUP_BEGIN,
     z.tuple([kindSchema, sourceSchema.optional()]),
     async ([kind, source], event) => {
-      await beginGuide(service, kind, event.sender, source);
+      await beginPermissionGuide(service, kind, event.sender, source);
       return (await service.refresh(event.sender))[kind];
     },
   );
