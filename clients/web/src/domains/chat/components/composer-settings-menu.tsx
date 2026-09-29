@@ -505,6 +505,20 @@ export function ComposerSettingsSurface({
       ) : (
         <Popover.Content
           onEscapeKeyDown={(event) => event.preventDefault()}
+          onKeyDown={(event) => {
+            if (
+              !disabled &&
+              !event.defaultPrevented &&
+              !event.repeat &&
+              !event.altKey &&
+              !event.shiftKey &&
+              (event.metaKey || event.ctrlKey) &&
+              event.key.toLowerCase() === "u"
+            ) {
+              event.preventDefault();
+              pickers.files();
+            }
+          }}
           aria-label={t("composerConfiguration.title")}
           side="top"
           align="start"

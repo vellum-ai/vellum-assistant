@@ -166,6 +166,7 @@ export function useComposerConfiguration(
 
   const savePreferences = useCallback(
     async (
+      selection: Promise<void>,
       patch:
         | PreferencePatch
         | ((current: ComposerPreferences) => PreferencePatch),
@@ -174,6 +175,11 @@ export function useComposerConfiguration(
         return;
       }
       await serializeComposerWrite(`preferences:${assistantId}`, async () => {
+        try {
+          await selection;
+        } catch {
+          return;
+        }
         if (
           useComposerStore.getState().sessionGeneration !== sessionGeneration
         ) {
@@ -337,32 +343,61 @@ export function useComposerConfiguration(
       }));
     }
     try {
-      if (!hasRow) {
-        const store = useConversationStore.getState();
-        if (kind === "mode") {
-          store.setPendingDraftProfile(target, value);
-        } else if (
-          value === "none" ||
-          value === "low" ||
-          value === "medium" ||
-          value === "high"
-        ) {
-          store.setPendingDraftAutonomy(target, value);
+      const selection = (async () => {
+        if (!hasRow) {
+          const store = useConversationStore.getState();
+          if (kind === "mode") {
+            store.setPendingDraftProfile(target, value);
+          } else if (
+            value === "none" ||
+            value === "low" ||
+            value === "medium" ||
+            value === "high"
+          ) {
+            store.setPendingDraftAutonomy(target, value);
+          }
+        } else {
+          await serializeComposerWrite(
+            `${assistantId}:${target}:${kind}`,
+            async () => {
+              await persistSelection(kind, value, target);
+              const store = useConversationStore.getState();
+              if (kind === "mode") {
+                store.clearPendingDraftProfile(target);
+              } else {
+                store.clearPendingDraftAutonomy(target);
+              }
+            },
+          );
         }
-      } else {
-        await serializeComposerWrite(
-          `${assistantId}:${target}:${kind}`,
-          async () => {
-            await persistSelection(kind, value, target);
-            const store = useConversationStore.getState();
-            if (kind === "mode") {
-              store.clearPendingDraftProfile(target);
-            } else {
-              store.clearPendingDraftAutonomy(target);
+      })();
+      const preferencesSaved = savePreferences(selection, (current) =>
+        kind === "mode"
+          ? {
+              lastModeId: value,
+              favoriteModeIds: favoriteModes(
+                current.favoriteModeIds,
+                allProfiles,
+                value,
+              ).map((entry) => entry.name),
             }
-          },
-        );
-      }
+          : {
+              lastAutonomy:
+                value === "none" ||
+                value === "low" ||
+                value === "medium" ||
+                value === "high"
+                  ? value
+                  : null,
+            },
+      ).catch(() => {
+        if (
+          useComposerStore.getState().sessionGeneration === sessionGeneration
+        ) {
+          toast.error(t("composerConfiguration.preferencesFailed"));
+        }
+      });
+      await selection;
       if (
         currentScope.current === scope &&
         useComposerStore.getState().sessionGeneration === sessionGeneration &&
@@ -370,34 +405,7 @@ export function useComposerConfiguration(
       ) {
         setOptimistic((prev) => ({ ...prev, [kind]: undefined }));
       }
-      try {
-        await savePreferences((current) =>
-          kind === "mode"
-            ? {
-                lastModeId: value,
-                favoriteModeIds: favoriteModes(
-                  current.favoriteModeIds,
-                  allProfiles,
-                  value,
-                ).map((entry) => entry.name),
-              }
-            : {
-                lastAutonomy:
-                  value === "none" ||
-                  value === "low" ||
-                  value === "medium" ||
-                  value === "high"
-                    ? value
-                    : null,
-              },
-        );
-      } catch {
-        if (
-          useComposerStore.getState().sessionGeneration === sessionGeneration
-        ) {
-          toast.error(t("composerConfiguration.preferencesFailed"));
-        }
-      }
+      await preferencesSaved;
       return true;
     } catch (error) {
       if (

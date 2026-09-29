@@ -6,11 +6,37 @@ import {
   screen,
   within,
 } from "@testing-library/react";
-import { ComposerConfigurationContent } from "@/domains/chat/components/composer-settings-menu";
+import {
+  ComposerConfigurationContent,
+  ComposerSettingsSurface,
+} from "@/domains/chat/components/composer-settings-menu";
 import { composerConfigurationFixture } from "@/domains/chat/components/composer-configuration.test-utils";
 
 afterEach(cleanup);
 describe("composer configuration menu", () => {
+  test.each(["ctrlKey", "metaKey"])(
+    "the advertised attachment shortcut opens the picker (%s)",
+    (modifier) => {
+      const files = mock(() => {});
+      render(
+        <ComposerSettingsSurface
+          configuration={composerConfigurationFixture()}
+          mobile={false}
+          disabled={false}
+          pickers={{ files, camera: () => {}, photos: () => {} }}
+        />,
+      );
+      const attach = screen.getByRole("button", { name: "Attach files" });
+      expect(fireEvent.keyDown(attach, { key: "u", [modifier]: true })).toBe(
+        false,
+      );
+      expect(files).toHaveBeenCalledTimes(1);
+      fireEvent.keyDown(attach, { key: "u", [modifier]: true, shiftKey: true });
+      fireEvent.keyDown(attach, { key: "u", [modifier]: true, repeat: true });
+      fireEvent.keyDown(window, { key: "u", [modifier]: true });
+      expect(files).toHaveBeenCalledTimes(1);
+    },
+  );
   test.each([false, true])(
     "groups start collapsed and expand one at a time (mobile: %s)",
     (mobile) => {

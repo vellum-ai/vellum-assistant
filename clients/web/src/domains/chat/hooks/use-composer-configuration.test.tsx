@@ -79,12 +79,17 @@ import { useConversationStore } from "@/stores/conversation-store";
 import { useComposerStore } from "@/domains/chat/composer-store";
 
 const clients: QueryClient[] = [];
-function setup(id: string | null = "conv-1") {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-  });
+function setup(id: string | null = "conv-1", existingClient?: QueryClient) {
+  const client =
+    existingClient ??
+    new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
   clients.push(client);
-  return renderHook(
+  const hook = renderHook(
     ({ conversationId }: { conversationId: string | undefined }) =>
       useComposerConfiguration("assistant-1", conversationId),
     {
@@ -94,6 +99,7 @@ function setup(id: string | null = "conv-1") {
       ),
     },
   );
+  return { ...hook, client };
 }
 beforeEach(() => {
   supported = true;
@@ -400,6 +406,64 @@ test("a save finishing in another chat cannot replace its selection", async () =
   expect(hook.result.current.mode).toBe("balanced");
   expect(modes.get("conv-2")).toBeUndefined();
 });
+test.each(["mode", "autonomy"] as const)(
+  "last-used %s follows selection order across composer remounts",
+  async (kind) => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    if (kind === "mode") {
+      put.mockImplementationOnce(async ({ path, body }) => {
+        await gate;
+        modes.set(path.id, body.profile);
+        return { data: {} };
+      });
+    } else {
+      setOverride.mockImplementationOnce(async (_assistant, id, threshold) => {
+        await gate;
+        overrides.set(id, threshold);
+      });
+    }
+    const first = setup();
+    await waitFor(() => expect(first.result.current.autonomyReady).toBe(true));
+    let earlier!: Promise<boolean>;
+    act(() => {
+      earlier =
+        kind === "mode"
+          ? first.result.current.selectMode("os-beta")
+          : first.result.current.selectAutonomy("none");
+    });
+    await waitFor(() =>
+      expect(kind === "mode" ? put : setOverride).toHaveBeenCalledTimes(1),
+    );
+    first.unmount();
+    const second = setup("conv-2", first.client);
+    await waitFor(() => expect(second.result.current.autonomyReady).toBe(true));
+    let later!: Promise<boolean>;
+    act(() => {
+      later =
+        kind === "mode"
+          ? second.result.current.selectMode("latency-optimized")
+          : second.result.current.selectAutonomy("high");
+    });
+    await waitFor(() => {
+      expect(
+        kind === "mode" ? modes.get("conv-2") : overrides.get("conv-2"),
+      ).toBe(kind === "mode" ? "latency-optimized" : "high");
+    });
+    await act(async () => {
+      release();
+      expect(await Promise.all([earlier, later])).toEqual([true, true]);
+    });
+    if (kind === "mode") {
+      expect(prefs.lastModeId).toBe("latency-optimized");
+      expect(prefs.favoriteModeIds).toContain("os-beta");
+    } else {
+      expect(prefs.lastAutonomy).toBe("high");
+    }
+  },
+);
 test("legacy assistants retain existing-chat controls without calling the preferences endpoint", async () => {
   supported = false;
   const hook = setup();

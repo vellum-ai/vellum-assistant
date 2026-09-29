@@ -269,6 +269,15 @@ export const ClosedComposer: Story = {
     ).toBeVisible();
   },
 };
+export const AttachmentShortcut: Story = {
+  play: async ({ canvasElement }) => {
+    await openMenu(canvasElement);
+    await userEvent.keyboard("{Control>}u{/Control}");
+    await expect(
+      page(canvasElement).queryByRole("button", { name: "Attach files" }),
+    ).not.toBeInTheDocument();
+  },
+};
 export const MobileClosedComposer: Story = {
   ...Mobile,
   play: async ({ canvasElement }) => {
