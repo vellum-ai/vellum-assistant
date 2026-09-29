@@ -101,6 +101,7 @@ import {
   writeOnboardingSidecar,
   writeRelationshipState,
 } from "../../home/relationship-state-writer.js";
+import { localeFromAcceptLanguage } from "../../i18n/index.js";
 import { ipcCall } from "../../ipc/gateway-client.js";
 import { buildSlackMessageDeepLinks } from "../../messaging/providers/slack/deep-link.js";
 import {
@@ -915,7 +916,9 @@ function parseRequestedModeSessionIds(raw: unknown): string[] {
 
 export async function handleListMessages({
   queryParams,
+  headers,
 }: RouteHandlerArgs): Promise<Record<string, unknown>> {
+  const locale = localeFromAcceptLanguage(headers?.["accept-language"]);
   const conversationId = queryParams?.conversationId;
   const conversationKey = queryParams?.conversationKey;
 
@@ -1338,6 +1341,7 @@ export async function handleListMessages({
         attachmentBlocks,
         m.id ?? undefined,
         m.rowMetadata,
+        m.role === "assistant" ? locale : undefined,
       );
 
       const toolCalls = enrichToolCallsWithQuestion(
@@ -1735,6 +1739,7 @@ export async function handleSendMessage(
   const principalType = headers?.["x-vellum-principal-type"];
   const originClientId = headers?.["x-vellum-client-id"]?.trim() || undefined;
   const clientMetadata = readClientMetadataHeaders(headers);
+  const locale = localeFromAcceptLanguage(headers?.["accept-language"]);
 
   const { conversationKey, content, attachmentIds } = body;
   const inboundConversationId =
@@ -2475,6 +2480,7 @@ export async function handleSendMessage(
         clientMetadata,
       ),
       isInteractive,
+      locale,
       sourceActorPrincipalId,
       transport,
       clientMessageId,
@@ -3159,6 +3165,7 @@ export async function handleSendMessage(
           onEvent: broadcastMessage,
           isInteractive,
           isUserMessage: true,
+          locale,
           turnTrustContext,
           ...(body.hidden === true ? { isHiddenPrompt: true } : {}),
         })

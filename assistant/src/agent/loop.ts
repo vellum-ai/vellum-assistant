@@ -29,6 +29,12 @@ import type {
   StopInputContext,
 } from "../hooks/types.js";
 import {
+  MESSAGE_KEYS,
+  resolveStoredMessageText,
+  type SupportedLocale,
+  t,
+} from "../i18n/index.js";
+import {
   timeSyncSection,
   traceAsyncSection,
 } from "../persistence/slow-sync-log.js";
@@ -89,8 +95,6 @@ const log = getLogger("agent-loop");
 /** Watchdog check name for both tool-gated reply outcomes. */
 const SEND_USER_MESSAGE_CHECK = "send_user_message_delivery";
 const MAX_CONSECUTIVE_UNPARSEABLE_TOOL_TURNS = 3;
-const UNPARSEABLE_TOOL_RETRY_STOP_MESSAGE =
-  "I stopped after repeated malformed tool calls to keep this conversation from growing indefinitely. Please try again, or switch models if the problem continues.";
 const SKILL_EXECUTE_TOOL_NAME = "skill_execute";
 
 /**
@@ -705,6 +709,8 @@ interface AgentLoopRunOptionsBase {
   injectionLedgerResets?: Set<string>;
   signal?: AbortSignal;
   requestId: string;
+  /** Locale for daemon-authored text emitted during this run. */
+  locale?: SupportedLocale;
   /**
    * Explicit model override (provider/model string) for every LLM call in
    * this run. When omitted, the model is resolved through the normal
@@ -2805,7 +2811,7 @@ export class AgentLoop {
                 type: "text",
                 text: `${
                   hasVisibleText(visiblePrefix) ? "\n\n" : ""
-                }${UNPARSEABLE_TOOL_RETRY_STOP_MESSAGE}`,
+                }${MESSAGE_KEYS.AGENT_LOOP_UNPARSEABLE_TOOL_RETRY_STOP}`,
               },
             ],
           };
@@ -2886,11 +2892,32 @@ export class AgentLoop {
         if (unparseableToolRetryLimitReached && streamedVisibleText) {
           onEvent({
             type: "text_delta",
-            text: assistantTextOf(assistantMessage.content.slice(-1)),
+            text: resolveStoredMessageText(
+              assistantTextOf(assistantMessage.content.slice(-1)),
+              options.locale,
+            ),
           });
           fallbackSurfaced = suppressAssistantText;
         } else {
-          fallbackSurfaced = emitFinalAssistantText(assistantMessage.content, {
+          const displayContent = unparseableToolRetryLimitReached
+            ? assistantMessage.content.map((block) =>
+                block.type === "text" &&
+                block.text.trim() ===
+                  MESSAGE_KEYS.AGENT_LOOP_UNPARSEABLE_TOOL_RETRY_STOP
+                  ? {
+                      ...block,
+                      text: block.text.replace(
+                        MESSAGE_KEYS.AGENT_LOOP_UNPARSEABLE_TOOL_RETRY_STOP,
+                        t(
+                          MESSAGE_KEYS.AGENT_LOOP_UNPARSEABLE_TOOL_RETRY_STOP,
+                          options.locale,
+                        ),
+                      ),
+                    }
+                  : block,
+              )
+            : assistantMessage.content;
+          fallbackSurfaced = emitFinalAssistantText(displayContent, {
             turnEnding: toolUseBlocks.length === 0,
           });
         }

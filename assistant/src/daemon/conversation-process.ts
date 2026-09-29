@@ -20,6 +20,7 @@ import {
   type TurnInterfaceContext,
 } from "../channels/types.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
+import type { SupportedLocale } from "../i18n/index.js";
 import { extractPreferences } from "../notifications/preference-extractor.js";
 import { createPreference } from "../notifications/preferences-store.js";
 import {
@@ -1278,6 +1279,7 @@ async function drainSingleMessage(
     titleText?: string;
     isHiddenPrompt?: boolean;
     turnTrustContext?: TrustContext;
+    locale?: SupportedLocale;
     cronRunId?: string | null;
   } = {
     isUserMessage: true,
@@ -1288,6 +1290,9 @@ async function drainSingleMessage(
   };
   if (next.isInteractive !== undefined) {
     drainLoopOptions.isInteractive = next.isInteractive;
+  }
+  if (next.locale !== undefined) {
+    drainLoopOptions.locale = next.locale;
   }
   if (agentLoopContent !== resolvedContent) {
     drainLoopOptions.titleText = resolvedContent;
@@ -1797,6 +1802,7 @@ async function drainBatch(
     isHiddenPrompt?: boolean;
     notifyUserMessageId?: string;
     turnTrustContext?: TrustContext;
+    locale?: SupportedLocale;
     cronRunId?: string | null;
   } = {
     isUserMessage: true,
@@ -1815,6 +1821,9 @@ async function drainBatch(
       : undefined;
   if (lastSuccessfulBatchEntry?.isInteractive !== undefined) {
     drainLoopOptions.isInteractive = lastSuccessfulBatchEntry.isInteractive;
+  }
+  if (lastSuccessfulBatchEntry?.locale !== undefined) {
+    drainLoopOptions.locale = lastSuccessfulBatchEntry.locale;
   }
   // A batch counts as a hidden turn only when every message in it is a
   // hidden machine signal — one genuine user prompt justifies the
@@ -1871,6 +1880,7 @@ export interface ProcessMessageOptions {
   currentPage?: string;
   isInteractive?: boolean;
   callSite?: LLMCallSite;
+  locale?: SupportedLocale;
   /**
    * Optional ad-hoc inference-profile override applied to every LLM call
    * this turn issues (e.g. a schedule's pinned profile). Forwarded to
@@ -1928,6 +1938,7 @@ export async function processMessage(
     currentPage,
     isInteractive,
     callSite,
+    locale,
     overrideProfile,
     displayContent,
     sourceActorPrincipalId,
@@ -2451,6 +2462,7 @@ export async function processMessage(
     isUserMessage?: boolean;
     titleText?: string;
     callSite?: LLMCallSite;
+    locale?: SupportedLocale;
     overrideProfile?: string;
     turnTrustContext?: TrustContext;
   } = {
@@ -2470,6 +2482,9 @@ export async function processMessage(
   }
   if (callSite !== undefined) {
     loopOptions.callSite = callSite;
+  }
+  if (locale !== undefined) {
+    loopOptions.locale = locale;
   }
   if (overrideProfile !== undefined) {
     loopOptions.overrideProfile = overrideProfile;

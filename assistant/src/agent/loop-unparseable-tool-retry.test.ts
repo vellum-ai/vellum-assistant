@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import { createMockProvider } from "../__tests__/helpers/mock-provider.js";
+import { MESSAGE_CATALOGS, MESSAGE_KEYS } from "../i18n/index.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
 import type {
   ContentBlock,
@@ -102,7 +103,7 @@ describe("AgentLoop: unparseable tool retries", () => {
       { type: "text", text: "Still trying." },
       {
         type: "text",
-        text: "\n\nI stopped after repeated malformed tool calls to keep this conversation from growing indefinitely. Please try again, or switch models if the problem continues.",
+        text: `\n\n${MESSAGE_KEYS.AGENT_LOOP_UNPARSEABLE_TOOL_RETRY_STOP}`,
       },
     ]);
     expect(events.filter((event) => event.type === "tool_use")).toHaveLength(2);
@@ -112,7 +113,9 @@ describe("AgentLoop: unparseable tool retries", () => {
         .map((event) => event.text)
         .join(""),
     ).toEndWith(
-      "Still trying.\n\nI stopped after repeated malformed tool calls to keep this conversation from growing indefinitely. Please try again, or switch models if the problem continues.",
+      `Still trying.\n\n${
+        MESSAGE_CATALOGS.en[MESSAGE_KEYS.AGENT_LOOP_UNPARSEABLE_TOOL_RETRY_STOP]
+      }`,
     );
   });
 
@@ -151,7 +154,7 @@ describe("AgentLoop: unparseable tool retries", () => {
     expect(result.history.at(-1)?.content).toEqual([
       {
         type: "text",
-        text: "I stopped after repeated malformed tool calls to keep this conversation from growing indefinitely. Please try again, or switch models if the problem continues.",
+        text: MESSAGE_KEYS.AGENT_LOOP_UNPARSEABLE_TOOL_RETRY_STOP,
       },
     ]);
     expect(
@@ -160,12 +163,60 @@ describe("AgentLoop: unparseable tool retries", () => {
         .map((event) => event.text)
         .join(""),
     ).toBe(
-      "I stopped after repeated malformed tool calls to keep this conversation from growing indefinitely. Please try again, or switch models if the problem continues.",
+      MESSAGE_CATALOGS.en[MESSAGE_KEYS.AGENT_LOOP_UNPARSEABLE_TOOL_RETRY_STOP],
     );
     const finalMessage = events
       .filter((event) => event.type === "message_complete")
       .at(-1);
     expect(finalMessage?.assistantTextVisibility).toBe("visible");
+  });
+
+  test("streams the localized stop notice while persisting its key", async () => {
+    const raw = "{" + "x".repeat(1_000);
+    const { provider } = createMockProvider([
+      malformedToolResponse("bad-1", raw),
+      malformedToolResponse("bad-2", raw),
+      malformedToolResponse("bad-3", raw),
+    ]);
+    const events: AgentEvent[] = [];
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "system",
+      conversationId: "conversation-spanish",
+      tools: [
+        {
+          name: "file_write",
+          description: "",
+          input_schema: { type: "object" },
+        },
+      ],
+      toolExecutor: async () => ({ content: "invalid JSON", isError: true }),
+    });
+
+    const result = await loop.run({
+      requestId: "request-spanish",
+      messages: [userMessage],
+      onEvent: (event) => {
+        events.push(event);
+      },
+      locale: "es",
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    expect(result.history.at(-1)?.content).toEqual([
+      {
+        type: "text",
+        text: MESSAGE_KEYS.AGENT_LOOP_UNPARSEABLE_TOOL_RETRY_STOP,
+      },
+    ]);
+    expect(
+      events
+        .filter((event) => event.type === "text_delta")
+        .map((event) => event.text)
+        .join(""),
+    ).toBe(
+      MESSAGE_CATALOGS.es[MESSAGE_KEYS.AGENT_LOOP_UNPARSEABLE_TOOL_RETRY_STOP],
+    );
   });
 
   test("does not count skill_execute envelopes recovered from valid outer JSON", async () => {

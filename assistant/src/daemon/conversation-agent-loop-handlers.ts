@@ -107,6 +107,7 @@ import { faviconUrlForDomain } from "../util/favicon.js";
 import { redactLogString } from "../util/log-redact.js";
 import { getLogger } from "../util/logger.js";
 import { withSqliteRetry } from "../util/sqlite-retry.js";
+import { safeStringSlice } from "../util/unicode.js";
 import type { DirectiveRequest } from "./assistant-attachments.js";
 import {
   cleanAssistantContent,
@@ -640,6 +641,8 @@ export interface EventHandlerState {
    * rather than on every delta.
    */
   readonly surfacePendingScannedToolUseIds: Set<string>;
+  /** App previews whose cumulative JSON reached the client payload cap. */
+  readonly cappedAppPreviewToolUseIds: Set<string>;
   /**
    * In-flight priming of {@link liveRevealGuardEntries}. The dispatcher
    * awaits this before processing a `text_delta` (and before the
@@ -777,6 +780,7 @@ export function createEventHandlerState(): EventHandlerState {
     forChatMintWatermark: currentForChatMintWatermark(),
     stagedRevealIdentities: new Set(),
     surfacePendingScannedToolUseIds: new Set(),
+    cappedAppPreviewToolUseIds: new Set(),
     liveRevealGuardPriming: undefined,
   };
 }
@@ -1411,6 +1415,7 @@ function schedulePartialFlush(
 // tools the client discards it (extractCodePreview only handles app tools),
 // so we skip forwarding entirely to avoid transport/decode overhead.
 const APP_TOOL_NAMES = new Set(["app_create"]);
+const APP_INPUT_PREVIEW_CHAR_LIMIT = 256_000;
 
 // ── Surface Placeholder Detection ────────────────────────────────────
 // A `visual` ui_show streams the longest tool input the model produces, and
@@ -2111,13 +2116,24 @@ export function handleInputJsonDelta(
   // Only forward input deltas for app tools — the client only uses this
   // stream for app_create code previews. Non-app tools would send large
   // cumulative JSON on every delta with no benefit.
-  if (!APP_TOOL_NAMES.has(event.toolName)) {
+  if (
+    !APP_TOOL_NAMES.has(event.toolName) ||
+    state.cappedAppPreviewToolUseIds.has(event.toolUseId)
+  ) {
     return;
+  }
+  const content = safeStringSlice(
+    event.accumulatedJson,
+    0,
+    APP_INPUT_PREVIEW_CHAR_LIMIT,
+  );
+  if (content.length < event.accumulatedJson.length) {
+    state.cappedAppPreviewToolUseIds.add(event.toolUseId);
   }
   deps.onEvent({
     type: "tool_input_delta",
     toolName: event.toolName,
-    content: event.accumulatedJson,
+    content,
     conversationId: deps.ctx.conversationId,
     toolUseId: event.toolUseId,
     messageId: state.lastAssistantMessageId,

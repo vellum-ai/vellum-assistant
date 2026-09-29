@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 import { RiskLevel } from "../../permissions/types.js";
 import { isUnparseableToolArgs } from "../../providers/unparseable-tool-args.js";
 import { declareDaemonActivityField } from "../schema-transforms.js";
@@ -9,6 +11,9 @@ import type {
 
 /** Envelope keys consumed by `skill_execute` itself, never inner-tool params. */
 const SKILL_EXECUTE_ENVELOPE_KEYS = new Set(["tool", "input", "activity"]);
+const recoveredSkillExecuteEnvelopeSchema = z
+  .object({ tool: z.string() })
+  .passthrough();
 
 /**
  * Recover a `skill_execute` envelope that the provider layer wrapped under the
@@ -30,13 +35,11 @@ export function recoverSkillExecuteEnvelope(
     return envelope;
   }
   try {
-    const parsed: unknown = JSON.parse(envelope._raw);
-    if (
-      parsed != null &&
-      typeof parsed === "object" &&
-      !Array.isArray(parsed)
-    ) {
-      return parsed as Record<string, unknown>;
+    const recovered = recoveredSkillExecuteEnvelopeSchema.safeParse(
+      JSON.parse(envelope._raw),
+    );
+    if (recovered.success) {
+      return recovered.data;
     }
   } catch {
     // Genuinely malformed/truncated — leave wrapped for the retryable error.

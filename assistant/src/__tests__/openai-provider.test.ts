@@ -1178,6 +1178,33 @@ describe("OpenAIProvider", () => {
     });
   });
 
+  test("bounds malformed arguments in the diagnostic raw response only", async () => {
+    const raw = '{"content":"' + "x".repeat(1_000);
+    fakeChunks = [
+      ...toolCallChunks([{ id: "call_large_bad", name: "test", args: raw }]),
+      usageChunk(10, 5),
+    ];
+
+    const result = await provider.sendMessage([userMsg("test")]);
+
+    expect(result.content[0]).toEqual({
+      type: "tool_use",
+      id: "call_large_bad",
+      name: "test",
+      input: { _raw: raw },
+    });
+    const rawResponse = result.rawResponse as {
+      choices: Array<{
+        message: {
+          tool_calls: Array<{ function: { arguments: string } }>;
+        };
+      }>;
+    };
+    expect(
+      rawResponse.choices[0]!.message.tool_calls[0]!.function.arguments,
+    ).toBe(raw.slice(0, 200) + "…");
+  });
+
   // -----------------------------------------------------------------------
   // stream_options and model
   // -----------------------------------------------------------------------

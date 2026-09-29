@@ -26,6 +26,7 @@ import {
   parseInterfaceId,
 } from "../channels/types.js";
 import { parseImageDimensions } from "../context/image-dimensions.js";
+import type { SupportedLocale } from "../i18n/index.js";
 import {
   type ProviderMessageMetadata,
   providerMessageMetadataSchema,
@@ -824,6 +825,7 @@ export interface EnqueueMessageOptions {
   currentPage?: string;
   metadata?: Record<string, unknown>;
   isInteractive?: boolean;
+  locale?: SupportedLocale;
   displayContent?: string;
   transport?: ConversationTransportMetadata;
   clientMessageId?: string;
@@ -873,6 +875,7 @@ export function enqueueMessage(
     currentPage,
     metadata,
     isInteractive,
+    locale,
     displayContent,
     transport,
     clientMessageId,
@@ -912,6 +915,7 @@ export function enqueueMessage(
     turnChannelContext,
     turnInterfaceContext,
     isInteractive,
+    locale,
     sourceActorPrincipalId,
     authContext: queuedAuthContext,
     trustContext: queuedTrustContext,

@@ -19,6 +19,10 @@ import type {
 import { ConfirmationDecisionSchema } from "../../api/responses/conversation-message.js";
 import { getConfig } from "../../config/loader.js";
 import type { LLMCallSite, Speed } from "../../config/schemas/llm.js";
+import {
+  resolveStoredMessageText,
+  type SupportedLocale,
+} from "../../i18n/index.js";
 import { ipcCall as gatewayIpcCall } from "../../ipc/gateway-client.js";
 import type { ProviderMessageMetadata } from "../../messaging/provider-message-metadata.js";
 import type { SecretPromptResult } from "../../permissions/secret-prompt-types.js";
@@ -409,6 +413,7 @@ export function renderHistoryContent(
   >,
   messageId?: string,
   metadata?: unknown,
+  locale?: SupportedLocale,
 ): RenderedHistoryContent {
   // A row whose turn routed its reply through `send_user_message` carries
   // private working notes, so every consumer of this render (web history,
@@ -575,8 +580,14 @@ export function renderHistoryContent(
       const rawText =
         typeof block._redactionVersion === "number" &&
         block._redactionVersion >= SENTINEL_REDACTION_VERSION
-          ? block.text
-          : neutralizeRedactedSentinels(block.text);
+          ? locale
+            ? resolveStoredMessageText(block.text, locale)
+            : block.text
+          : neutralizeRedactedSentinels(
+              locale
+                ? resolveStoredMessageText(block.text, locale)
+                : block.text,
+            );
       const displayText = unwrapExternalContentForDisplay(rawText);
       // Skip empty/whitespace-only text blocks. During streaming the client
       // discards empty text deltas (guard !text.isEmpty), so including them

@@ -44,6 +44,7 @@ import {
   derefToolResultReReads,
   postTurnTruncateToolResults,
 } from "../context/post-turn-tool-result-truncation.js";
+import type { SupportedLocale } from "../i18n/index.js";
 import { readProviderMetadata } from "../messaging/read-provider-metadata.js";
 import { isGuardianCardRow } from "../notifications/approval-card-data.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
@@ -3528,6 +3529,7 @@ export class Conversation {
        */
       replyDeliveredInAppOnly?: boolean;
       callSite?: LLMCallSite;
+      locale?: SupportedLocale;
       /** Skip fresh retrieval while keeping resident memory and static context. */
       skipMemoryRetrieval?: boolean;
       /** Provider configuration source when distinct from turn semantics. */

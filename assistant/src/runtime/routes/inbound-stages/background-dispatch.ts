@@ -19,6 +19,7 @@ import {
 } from "../../../contacts/guardian-delivery-reader.js";
 import { isConversationBusyError } from "../../../daemon/conversation-messaging.js";
 import type { TrustContext } from "../../../daemon/trust-context-types.js";
+import { negotiateLocale } from "../../../i18n/index.js";
 import type { ProviderMessageMetadata } from "../../../messaging/provider-message-metadata.js";
 import {
   channelActivityRefreshMs,
@@ -288,6 +289,9 @@ export function processChannelMessageInBackground(
           trustContext: trustCtx,
           author: trustCtx,
           isInteractive: resolveRoutingState(trustCtx).promptWaitingAllowed,
+          ...(sourceLanguageCode
+            ? { locale: negotiateLocale([sourceLanguageCode]) }
+            : {}),
           ...(displayContent !== undefined ? { displayContent } : {}),
           ...(cmdIntent ? { commandIntent: cmdIntent } : {}),
           ...(slackInbound ? { slackInbound } : {}),

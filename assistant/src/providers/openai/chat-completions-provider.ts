@@ -39,6 +39,7 @@ import {
   extractOverflowTokensFromMessage,
 } from "../types.js";
 import {
+  boundUnparseableToolArgsRaw,
   isUnparseableToolArgs,
   wrapUnparseableToolArgs,
 } from "../unparseable-tool-args.js";
@@ -1171,6 +1172,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
           id: string;
           name: string;
           args: string;
+          inspectableArgs?: string;
           providerMetadata?: ToolUseContent["providerMetadata"];
         }
       >();
@@ -1472,6 +1474,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
           input = JSON.parse(tc.args);
         } catch {
           input = wrapUnparseableToolArgs(tc.args);
+          tc.inspectableArgs = boundUnparseableToolArgsRaw(tc.args);
         }
         const objectKeys = coercedObjectKeys.get(tc.name);
         if (objectKeys && !isUnparseableToolArgs(input)) {
@@ -1479,6 +1482,9 @@ export class OpenAIChatCompletionsProvider implements Provider {
           input = decoded.failedKey
             ? wrapUnparseableToolArgs(tc.args)
             : decoded.input;
+          if (decoded.failedKey) {
+            tc.inspectableArgs = boundUnparseableToolArgsRaw(tc.args);
+          }
         }
         content.push({
           type: "tool_use",
@@ -1506,7 +1512,10 @@ export class OpenAIChatCompletionsProvider implements Provider {
                         {
                           id: tc.id,
                           type: "function",
-                          function: { name: tc.name, arguments: tc.args },
+                          function: {
+                            name: tc.name,
+                            arguments: tc.inspectableArgs ?? tc.args,
+                          },
                         },
                         thoughtSignatureFromToolUseMetadata(
                           tc.providerMetadata,

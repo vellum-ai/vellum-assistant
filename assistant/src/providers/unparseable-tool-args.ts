@@ -44,12 +44,18 @@ export function boundUnparseableToolArgs(
     return input;
   }
   const raw = input[UNPARSEABLE_TOOL_ARGS_KEY];
-  if (raw.length <= UNPARSEABLE_TOOL_ARGS_PREVIEW_LIMIT) {
-    return input;
-  }
-  return wrapUnparseableToolArgs(
-    `${safeStringSlice(raw, 0, UNPARSEABLE_TOOL_ARGS_PREVIEW_LIMIT)}…`,
-  );
+  const bounded = boundUnparseableToolArgsRaw(raw);
+  return bounded === raw ? input : wrapUnparseableToolArgs(bounded);
+}
+
+/**
+ * Bound raw malformed arguments for diagnostic copies that retain the provider
+ * response shape rather than the internal `_raw` marker shape.
+ */
+export function boundUnparseableToolArgsRaw(raw: string): string {
+  return raw.length > UNPARSEABLE_TOOL_ARGS_PREVIEW_LIMIT
+    ? `${safeStringSlice(raw, 0, UNPARSEABLE_TOOL_ARGS_PREVIEW_LIMIT)}…`
+    : raw;
 }
 
 /**
@@ -78,10 +84,7 @@ export function unparseableToolArgsMessage(
   toolName: string,
   raw: string,
 ): string {
-  const preview =
-    raw.length > UNPARSEABLE_TOOL_ARGS_PREVIEW_LIMIT
-      ? `${safeStringSlice(raw, 0, UNPARSEABLE_TOOL_ARGS_PREVIEW_LIMIT)}…`
-      : raw;
+  const preview = boundUnparseableToolArgsRaw(raw);
   return (
     `Error: the arguments for "${toolName}" were not valid JSON — the argument stream was malformed or truncated, so the tool was NOT executed. ` +
     `Received: ${preview || "(empty)"}\n` +

@@ -12,6 +12,7 @@ import type {
   ConversationCreateOptions,
   SlackInboundMessageMetadata,
 } from "../daemon/handlers/shared.js";
+import type { SupportedLocale } from "../i18n/index.js";
 
 // Re-export so route modules (background-dispatch, etc.) can pull the type
 // from the runtime barrel without reaching into daemon internals.
@@ -110,6 +111,8 @@ export interface RuntimeMessageConversationOptions {
   sourceChannel?: ChannelId;
   /** Originating interface (e.g. "cli", "web"). Defaults to "web". */
   sourceInterface?: InterfaceId;
+  /** Locale for daemon-authored text emitted during this turn. */
+  locale?: SupportedLocale;
 }
 
 export type MessageProcessor = (

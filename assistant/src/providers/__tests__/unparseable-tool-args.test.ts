@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   boundUnparseableToolArgs,
+  boundUnparseableToolArgsRaw,
   isUnparseableToolArgs,
   unparseableToolArgsMessage,
   wrapUnparseableToolArgs,
@@ -38,6 +39,13 @@ describe("unparseable tool args marker", () => {
 
     expect(isUnparseableToolArgs(bounded)).toBe(true);
     expect(bounded).toEqual({ _raw: "a".repeat(200) + "…" });
+  });
+
+  test("bounds raw diagnostic copies with the same preview contract", () => {
+    expect(boundUnparseableToolArgsRaw("a".repeat(1_000))).toBe(
+      "a".repeat(200) + "…",
+    );
+    expect(boundUnparseableToolArgsRaw("short")).toBe("short");
   });
 
   test("leaves short markers and ordinary input unchanged", () => {

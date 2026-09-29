@@ -341,6 +341,32 @@ describe("tool preview lifecycle", () => {
       expect((emitted as any).conversationId).toBe("test-session-id");
     });
 
+    test("caps cumulative app preview payloads and stops forwarding growth", () => {
+      const collector = createEventCollector();
+      const deps = createMockDeps({ onEvent: collector.onEvent });
+      const accumulatedJson = '{"code":"' + "x".repeat(300_000);
+
+      handleInputJsonDelta(state, deps, {
+        type: "input_json_delta",
+        toolName: "app_create",
+        toolUseId: "toolu_large_app",
+        accumulatedJson,
+      });
+      handleInputJsonDelta(state, deps, {
+        type: "input_json_delta",
+        toolName: "app_create",
+        toolUseId: "toolu_large_app",
+        accumulatedJson: accumulatedJson + "more",
+      });
+
+      expect(collector.events).toHaveLength(1);
+      const emitted = collector.events[0] as Extract<
+        AssistantEvent,
+        { type: "tool_input_delta" }
+      >;
+      expect(emitted.content).toBe(accumulatedJson.slice(0, 256_000));
+    });
+
     test("a streaming ui_show visual announces its surface exactly once", () => {
       const collector = createEventCollector();
       const deps = createMockDeps({ onEvent: collector.onEvent });

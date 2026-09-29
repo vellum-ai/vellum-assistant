@@ -188,6 +188,17 @@ describe("recoverSkillExecuteEnvelope", () => {
     expect(recoverSkillExecuteEnvelope(wrapped)).toBe(wrapped);
   });
 
+  test("keeps recovered JSON wrapped when it lacks a string tool name", () => {
+    for (const raw of [
+      JSON.stringify({ input: { content: "hi" }, activity: "x" }),
+      JSON.stringify({ tool: 42, input: {}, activity: "x" }),
+      JSON.stringify(["document_update"]),
+    ]) {
+      const wrapped = { _raw: raw };
+      expect(recoverSkillExecuteEnvelope(wrapped)).toBe(wrapped);
+    }
+  });
+
   test("passes a normal envelope through untouched", () => {
     const envelope = {
       tool: "document_update",

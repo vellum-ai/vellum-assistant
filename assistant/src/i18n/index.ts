@@ -1,3 +1,4 @@
+export { resolveStoredMessageText } from "./assistant-text.js";
 export {
   DEFAULT_LOCALE,
   isSupportedLocale,

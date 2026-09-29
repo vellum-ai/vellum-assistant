@@ -8,6 +8,7 @@ import {
   MESSAGE_KEYS,
   negotiateLocale,
   resolveConversationTitle,
+  resolveStoredMessageText,
   SUPPORTED_LOCALES,
   t,
 } from "../index.js";
@@ -100,6 +101,30 @@ describe("resolveConversationTitle", () => {
     expect(
       resolveConversationTitle(MESSAGE_KEYS.CONVERSATION_TITLE_GENERATING),
     ).toBe("Generating title...");
+  });
+});
+
+describe("resolveStoredMessageText", () => {
+  test("resolves exact stored keys while preserving surrounding whitespace", () => {
+    expect(
+      resolveStoredMessageText(
+        `\n\n${MESSAGE_KEYS.AGENT_LOOP_UNPARSEABLE_TOOL_RETRY_STOP}`,
+        "es",
+      ),
+    ).toBe(
+      `\n\n${
+        MESSAGE_CATALOGS.es[MESSAGE_KEYS.AGENT_LOOP_UNPARSEABLE_TOOL_RETRY_STOP]
+      }`,
+    );
+  });
+
+  test("passes legacy and ordinary display text through", () => {
+    const legacy =
+      "I stopped after repeated malformed tool calls to keep this conversation from growing indefinitely. Please try again, or switch models if the problem continues.";
+    expect(resolveStoredMessageText(legacy, "es")).toBe(legacy);
+    expect(resolveStoredMessageText("ordinary assistant text", "zh")).toBe(
+      "ordinary assistant text",
+    );
   });
 });
 

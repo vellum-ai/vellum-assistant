@@ -10,6 +10,7 @@ import type {
   TurnChannelContext,
   TurnInterfaceContext,
 } from "../channels/types.js";
+import type { SupportedLocale } from "../i18n/index.js";
 import type { AuthContext } from "../runtime/auth/types.js";
 import { getLogger } from "../util/logger.js";
 import type { UserMessageAttachment } from "./message-protocol.js";
@@ -30,6 +31,7 @@ export interface QueuedMessage {
   turnInterfaceContext?: TurnInterfaceContext;
   /** When false, the turn has no interactive user and should skip clarification prompts. */
   isInteractive?: boolean;
+  locale?: SupportedLocale;
   /** Requester identity captured from the verified auth context at enqueue time. */
   sourceActorPrincipalId?: string;
   /** Full auth snapshot captured at enqueue time for turn-scoped authorization decisions. */

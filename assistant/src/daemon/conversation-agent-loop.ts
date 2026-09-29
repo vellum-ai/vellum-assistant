@@ -44,6 +44,7 @@ import { isSendUserMessageActiveForTurn } from "../config/send-user-message-gate
 import { desktopAutomationLease } from "../desktop/desktop-automation-lease.js";
 import { writeRelationshipState } from "../home/relationship-state-writer.js";
 import type { UserPromptSubmitInputContext } from "../hooks/types.js";
+import type { SupportedLocale } from "../i18n/index.js";
 import {
   addMessage,
   deleteMessageById,
@@ -500,6 +501,7 @@ export async function runAgentLoopImpl(
      * loop defaults to `'mainAgent'` for user-initiated turns.
      */
     callSite?: LLMCallSite;
+    locale?: SupportedLocale;
     /** Skip fresh retrieval while keeping resident memory and static context. */
     skipMemoryRetrieval?: boolean;
     /**
@@ -1719,6 +1721,7 @@ export async function runAgentLoopImpl(
           onCheckpoint,
           callSite: turnCallSite,
           inferenceCallSite,
+          locale: options?.locale,
           suppressAssistantText: sendUserMessageActive,
           supportsDynamicUi: conversationSupportsDynamicUi(ctx),
           trust: loopTrust,

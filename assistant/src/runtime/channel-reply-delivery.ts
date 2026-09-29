@@ -3,6 +3,7 @@ import type { MessageAudience } from "@vellumai/gateway-client";
 import { stripVellumLinks } from "../daemon/assistant-attachments.js";
 import type { RenderedHistoryContent } from "../daemon/handlers/shared.js";
 import { renderHistoryContent } from "../daemon/handlers/shared.js";
+import { DEFAULT_LOCALE } from "../i18n/index.js";
 import { editChannelMessage } from "../messaging/providers/index.js";
 import { getAttachmentMetadataForMessage } from "../persistence/attachments-store.js";
 import {
@@ -344,6 +345,7 @@ function readPersistedAssistantReply(msg: PersistedMessage): {
     undefined,
     undefined,
     msg.metadata,
+    DEFAULT_LOCALE,
   );
 
   const linked = getAttachmentMetadataForMessage(msg.id);

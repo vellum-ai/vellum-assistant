@@ -19,6 +19,7 @@ import {
   parseChannelId,
   parseInterfaceId,
 } from "../channels/types.js";
+import type { SupportedLocale } from "../i18n/index.js";
 import { resolveAttachmentsForPersist } from "../persistence/attachments-store.js";
 import {
   addMessage,
@@ -88,6 +89,8 @@ type ProcessMessageOptions = ConversationCreateOptions & {
   sourceChannel?: string;
   /** Originating interface (e.g. "cli", "web"). Defaults to "web". */
   sourceInterface?: string;
+  /** Locale for daemon-authored text emitted during this turn. */
+  locale?: SupportedLocale;
   /**
    * Origin tag of the turn (the conversation's `TitleOrigin`, e.g.
    * "memory_consolidation"), threaded from `runBackgroundJob`. Propagated
@@ -780,6 +783,7 @@ export async function processMessage(
       onEvent: emitEvent,
       isInteractive: options?.isInteractive ?? false,
       isUserMessage: true,
+      locale: options?.locale,
       ...(options?.callSite ? { callSite: options.callSite } : {}),
       ...(options?.overrideProfile
         ? { overrideProfile: options.overrideProfile }
@@ -854,6 +858,7 @@ export async function processMessageInBackground(
       onEvent: emitEvent,
       isInteractive: options?.isInteractive ?? false,
       isUserMessage: true,
+      locale: options?.locale,
       ...(options?.callSite ? { callSite: options.callSite } : {}),
       ...(options?.overrideProfile
         ? { overrideProfile: options.overrideProfile }
