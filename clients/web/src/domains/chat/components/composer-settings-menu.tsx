@@ -80,20 +80,6 @@ function modelHintTone(entry: ProfilePickerEntry | undefined) {
     : undefined;
 }
 
-function favoriteLabel(
-  entry: ProfilePickerEntry,
-  configuration: ComposerConfiguration,
-) {
-  const cost = configuration.modeCosts?.[entry.name];
-  return !isBuiltinMode(entry) &&
-    !configuration.costLoading &&
-    cost?.kind === "tier" &&
-    cost.tier !== undefined &&
-    cost.tier >= 3
-    ? `${modeLabel(entry)} ${"$".repeat(cost.tier)}`
-    : modeLabel(entry);
-}
-
 export function ComposerConfigurationContent({
   configuration,
   attachments,
@@ -375,15 +361,13 @@ export function ComposerConfigurationContent({
                   <span className="composer-config-summary-text">
                     <span className="composer-config-summary-title">
                       {t("composerConfiguration.modeTitle")}
-                      {(view !== "model" || !mobile) && (
+                      {view !== "model" && (
                         <span className="composer-config-summary-suffix">
                           {" "}
                           ·{" "}
-                          {view === "model"
-                            ? t("composerConfiguration.modelSubtitle")
-                            : active
-                              ? modeLabel(active)
-                              : t("composerConfiguration.loading")}
+                          {active
+                            ? modeLabel(active)
+                            : t("composerConfiguration.loading")}
                         </span>
                       )}
                     </span>
@@ -421,7 +405,7 @@ export function ComposerConfigurationContent({
                       }
                       items={favorites.map((entry) => ({
                         value: entry.name,
-                        label: favoriteLabel(entry, configuration),
+                        label: modeLabel(entry),
                         disabled: !available(entry),
                       }))}
                       value={configuration.mode}

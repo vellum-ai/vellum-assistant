@@ -487,8 +487,6 @@ export function useComposerConfiguration(
     allProfiles,
     favorites,
     preferences,
-    modeCosts: settings.data?.modeCosts,
-    costLoading: supportsPreferences && settings.isPending,
     preferencesAvailable: settings.isSuccess,
     supportsPreferences,
     modeReady: config.isSuccess && !!id,

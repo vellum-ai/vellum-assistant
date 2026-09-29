@@ -1353,7 +1353,6 @@
     "allModelsLink": "Все модели ({count})",
     "allModelsList": "Все модели",
     "autonomySubtitle": "что можно делать самостоятельно",
-    "modelSubtitle": "цена зависит от модели",
     "balancedSummary": "Подходит для большинства задач."
   }
 }

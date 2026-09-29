@@ -11,12 +11,11 @@ function useDemoConfiguration({
 }: {
   mobile?: boolean;
   manyModes?: boolean;
-  state?: "ready" | "loading" | "legacy" | "unknown";
+  state?: "ready" | "loading" | "legacy";
 }) {
   const [state, setState] = useState(() => {
     const base = composerConfigurationFixture();
     if (initialState === "loading") {
-      base.costLoading = true;
       base.modeReady = false;
       base.autonomyReady = false;
       base.autonomy = null;
@@ -25,10 +24,6 @@ function useDemoConfiguration({
     if (initialState === "legacy") {
       base.supportsPreferences = false;
       base.preferencesAvailable = false;
-      base.modeCosts = undefined;
-    }
-    if (initialState === "unknown") {
-      base.modeCosts = undefined;
     }
     if (manyModes) {
       base.profiles = [
@@ -47,10 +42,6 @@ function useDemoConfiguration({
         })),
       ];
       base.allProfiles = base.profiles;
-      base.modeCosts = {
-        ...base.modeCosts,
-        "custom-0": { kind: "tier", tier: 3 },
-      };
     }
     return base;
   });
@@ -206,13 +197,12 @@ export const CustomFavorite: Story = {
       page(canvasElement).getByRole("button", { name: /Research/ }),
     );
     await expect(
-      page(canvasElement).getByRole("radio", { name: "Research $$$" }),
+      page(canvasElement).getByRole("radio", { name: "Research" }),
     ).toHaveAttribute("aria-checked", "true");
   },
 };
 export const Loading: Story = { args: { state: "loading" } };
 export const OlderAssistant: Story = { args: { state: "legacy" } };
-export const WithoutCost: Story = { args: { state: "unknown" } };
 export const DarkDesktop: Story = {};
 export const LightDesktop: Story = {
   globals: { theme: "light" },

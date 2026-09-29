@@ -2318,7 +2318,6 @@
     "allModelsLink": "所有模型（{count}）",
     "allModelsList": "所有模型",
     "autonomySubtitle": "可独立执行的操作",
-    "modelSubtitle": "费用取决于模型档位",
     "balancedSummary": "适合大多数任务。"
   }
 }

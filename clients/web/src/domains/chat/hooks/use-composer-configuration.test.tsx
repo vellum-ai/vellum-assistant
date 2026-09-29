@@ -51,7 +51,7 @@ const put = mock(
 );
 const patch = mock(async ({ body }: { body: Partial<typeof prefs> }) => {
   prefs = { ...prefs, ...body };
-  return { data: { preferences: prefs, modeCosts: {} } };
+  return { data: { preferences: prefs } };
 });
 mock.module("@/generated/daemon/sdk.gen", () => ({
   configGet: async () => ({
@@ -69,7 +69,7 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
     data: { conversation: { inferenceProfile: modes.get(path.id) ?? null } },
   }),
   composerSettingsGet: async () => ({
-    data: { preferences: prefs, modeCosts: {} },
+    data: { preferences: prefs },
   }),
   composerSettingsPatch: patch,
   conversationsByIdInferenceprofilePut: put,

@@ -81,7 +81,7 @@ describe("composer configuration menu", () => {
     ).toBe("false");
     expect(configuration.setOpen).not.toHaveBeenCalled();
   });
-  test("All models has no search or costs and reuses the creation action", () => {
+  test("All models groups custom profiles and reuses the creation action", () => {
     const configuration = composerConfigurationFixture();
     configuration.profiles.push(
       ...[1, 2, 3].map((i) => ({
@@ -103,45 +103,8 @@ describe("composer configuration menu", () => {
     fireEvent.click(screen.getByRole("button", { name: "More (4)" }));
     expect(screen.queryByRole("textbox")).toBeNull();
     expect(screen.getByRole("region", { name: "Custom" })).toBeTruthy();
-    expect(screen.queryByText(/\$/)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "New" }));
     expect(configuration.newMode).toHaveBeenCalledTimes(1);
-  });
-  test("only a custom favorite with a known expensive tier shows cost", () => {
-    const configuration = composerConfigurationFixture();
-    const custom = {
-      name: "research",
-      label: "Research",
-      source: "user" as const,
-      provider: "anthropic" as const,
-      model: "claude-fable-5",
-    };
-    configuration.profiles.push(custom);
-    configuration.favorites[4] = custom;
-    configuration.modeCosts = {
-      ...configuration.modeCosts,
-      research: { kind: "tier", tier: 3 },
-    };
-    const { rerender } = render(
-      <ComposerConfigurationContent
-        configuration={configuration}
-        mobile={false}
-        attachments={null}
-      />,
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Model" }));
-    expect(screen.getByRole("radio", { name: "Research $$$" })).toBeTruthy();
-    expect(screen.getByRole("radio", { name: "Quality" })).toBeTruthy();
-    configuration.modeCosts.research = { kind: "unknown" };
-    rerender(
-      <ComposerConfigurationContent
-        configuration={configuration}
-        mobile={false}
-        attachments={null}
-      />,
-    );
-    expect(screen.getByRole("radio", { name: "Research" })).toBeTruthy();
-    expect(screen.queryByText(/\$/)).toBeNull();
   });
   test("Escape from All models returns to the group before closing the menu", () => {
     const configuration = composerConfigurationFixture();
@@ -167,7 +130,6 @@ describe("composer configuration menu", () => {
   });
   test("legacy preferences explain the update without a visibility toggle", () => {
     const configuration = composerConfigurationFixture();
-    configuration.modeCosts = undefined;
     configuration.preferencesAvailable = false;
     configuration.supportsPreferences = false;
     render(
@@ -177,7 +139,6 @@ describe("composer configuration menu", () => {
         attachments={null}
       />,
     );
-    expect(screen.queryByText("Unknown")).toBeNull();
     expect(screen.queryByRole("switch")).toBeNull();
     expect(screen.getByText(/Update your assistant/)).toBeTruthy();
   });

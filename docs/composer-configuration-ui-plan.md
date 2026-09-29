@@ -10,7 +10,7 @@ The UI follows the supplied Composer Config Final handoff, with concise copy tha
 - Both settings start as collapsed summary rows with the category first, such as Model · Balanced and Autonomy · Trusted. Expanding either closes the other.
 - The desktop popover is 400px wide while collapsed and 480px while expanded, constrained by the viewport. Attachment access stays above the settings.
 - The mobile bottom sheet has Camera, Photos, and Files tiles. Autonomy uses four icon segments; Model uses five outlined favorite cards and More in a three-column grid.
-- All models replaces the settings content with Built-in and Custom sections, Back, and New. There is no search or cost column. The list scrolls and fades at the bottom. On mobile, this transition preserves the sheet's height.
+- All models replaces the settings content with Built-in and Custom sections, Back, and New. There is no search field. The list scrolls and fades at the bottom. On mobile, this transition preserves the sheet's height.
 - Selecting a model from the full list returns to the expanded Model section and includes it in the five favorites. Existing visible choices keep their order.
 - The selected autonomy and model appear in the menu summary rows, with no duplicate controls in the composer or visibility toggle.
 - Autonomy choices, including Hands-off, apply directly without an extra confirmation.
@@ -46,7 +46,6 @@ Balanced's collapsed summary is “Good for most work.” Open Beta is a built-i
 | Model choice | Existing inference profiles, availability checks, Auto routing, and creation flow           | Built-in/custom grouping, five stable favorites, short hints, and the Open Beta display name                     |
 | Autonomy     | Existing threshold configuration and conversation overrides                                 | Matching labels and icons, and explicit draft autonomy                                                           |
 | Preferences  | Existing user identity and resource invalidation                                            | User-scoped favorites and last-used model/autonomy choices                                                       |
-| Costs        | Canonical backend model catalog pricing                                                     | Authoritative relative tiers exposed to the client                                                               |
 
 The controls call the existing configuration controller. Native picker inputs stay mounted while the operating system owns selection. Attachment changes preserve cancellation, focus return, and camera/photo handling.
 
@@ -58,12 +57,10 @@ A real draft snapshots last-used choices once, with assistant defaults as fallba
 
 Preference writes publish the generic `sync_changed` invalidation tag `assistant:self:composerPreferences`. Clients refetch canonical data, including on reconnect. `healthz.capabilities.composerSettings` gates the additive endpoint and draft-autonomy behavior. Older assistants keep existing-conversation controls and show an update explanation.
 
-Cost metadata is based on the model catalog, not a model profile's name. The UI only shows dollar signs for a custom favorite with a known expensive tier. Built-in favorites, the full list, and unknown/loading/variable costs have no cost glyphs. These tiers are relative model prices, not estimates of task totals.
-
 ## Verification and remaining rollout work
 
 Storybook renders the real shared surfaces for all seven handoff states: desktop collapsed, desktop expanded, desktop All models, mobile collapsed, mobile Autonomy, mobile Model, and mobile All models. Additional examples cover narrow phones, both themes, loading, older assistants, custom favorites, stable selection order, direct Hands-off selection, and closed desktop/mobile composers. The mobile list interaction checks that the sheet height stays constant.
 
-Focused tests cover section expansion, selection, model grouping, creation, cost visibility, Back/Escape behavior, preference identity isolation, favorites, draft promotion, selection races, session changes, first-message wiring, native picker lifetime, and resource invalidation. Run frontend/backend type checks and the production Storybook build when the relevant code changes.
+Focused tests cover section expansion, selection, model grouping, creation, Back/Escape behavior, preference identity isolation, favorites, draft promotion, selection races, session changes, first-message wiring, native picker lifetime, and resource invalidation. Run frontend/backend type checks and the production Storybook build when the relevant code changes.
 
 Physical iOS/Android camera and file dialogs, the software keyboard, and safe-area behavior still need a device pass. No deployment or release is part of this implementation.

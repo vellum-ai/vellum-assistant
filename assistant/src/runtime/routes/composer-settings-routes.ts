@@ -6,13 +6,7 @@ import {
   readComposerPreferences,
   updateComposerPreferences,
 } from "../../config/composer-preferences.js";
-import {
-  getEffectiveProfilesForProvider,
-  getUserSelectableProfilesForProvider,
-} from "../../config/default-profile-catalog.js";
-import { getConfig } from "../../config/loader.js";
 import { SYNC_TAGS } from "../../daemon/message-types/sync.js";
-import { profileCostWithFallback } from "../../providers/model-cost-tier.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { resolveActorPrincipalIdForLocalGuardian } from "../local-actor-identity.js";
 import { publishSyncInvalidation } from "../sync/sync-publisher.js";
@@ -21,13 +15,6 @@ import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const ResponseSchema = z.object({
   preferences: ComposerPreferencesSchema,
-  modeCosts: z.record(
-    z.string(),
-    z.object({
-      kind: z.enum(["tier", "varies", "unknown"]),
-      tier: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(),
-    }),
-  ),
 });
 
 async function principalFor(args: RouteHandlerArgs): Promise<string> {
@@ -43,29 +30,7 @@ async function principalFor(args: RouteHandlerArgs): Promise<string> {
 }
 
 function responseFor(principalId: string) {
-  const { llm } = getConfig();
-  const profiles = getUserSelectableProfilesForProvider(
-    llm.profiles,
-    llm.defaultProvider ?? null,
-  );
-  const effectiveProfiles = getEffectiveProfilesForProvider(
-    llm.profiles,
-    llm.defaultProvider ?? null,
-  );
-  return {
-    preferences: readComposerPreferences(principalId),
-    modeCosts: Object.fromEntries(
-      Object.entries(profiles).map(([name, profile]) => [
-        name,
-        profileCostWithFallback(
-          name,
-          profile,
-          effectiveProfiles,
-          llm.pricingOverrides.length > 0,
-        ),
-      ]),
-    ),
-  };
+  return { preferences: readComposerPreferences(principalId) };
 }
 
 export const ROUTES: RouteDefinition[] = [
@@ -77,8 +42,7 @@ export const ROUTES: RouteDefinition[] = [
       requiredScopes: ["settings.read"],
       allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
-    summary:
-      "Get the current user's composer preferences and relative model costs",
+    summary: "Get the current user's composer preferences",
     tags: ["settings"],
     responseBody: ResponseSchema,
     handler: async (args) => responseFor(await principalFor(args)),

@@ -167,6 +167,7 @@ describe("identity routes — health endpoint", () => {
         retryLastTurn: true,
         appPins: true,
         chatsSettings: true,
+        composerSettings: true,
       });
 
       // Profiler should either be absent or show enabled: false

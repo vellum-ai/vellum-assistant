@@ -14,11 +14,6 @@ mock.module("../local-actor-identity.js", () => ({
 mock.module("../sync/sync-publisher.js", () => ({
   publishSyncInvalidation: publish,
 }));
-mock.module("../../config/loader.js", () => ({
-  getConfig: () => ({
-    llm: { profiles: {}, defaultProvider: "anthropic", pricingOverrides: [] },
-  }),
-}));
 mock.module("../../config/composer-preferences.js", () => ({
   readComposerPreferences: (id: string) =>
     preferences.get(id) ?? ComposerPreferencesSchema.parse({}),
