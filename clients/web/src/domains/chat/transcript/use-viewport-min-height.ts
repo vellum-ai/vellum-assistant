@@ -19,8 +19,9 @@ import { recordUpdate } from "@/lib/commit-pressure";
  *
  * `containerKey` re-binds the observer when the caller replaces the container
  * element itself rather than resizing it: the transcript keys its scroll
- * container on the conversation, so a draft that resolves to its server id
- * hands back a new node while the transcript stays mounted.
+ * container on the conversation and can stay mounted through a conversation
+ * change (a draft resolving to its server id, or a switch into history that is
+ * already cached), which hands back a new node.
  */
 export function useViewportMinHeight(
   scrollContainerRef: RefObject<HTMLElement | null>,
