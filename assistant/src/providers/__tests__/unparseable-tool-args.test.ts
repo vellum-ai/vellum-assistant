@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  boundUnparseableToolArgs,
   isUnparseableToolArgs,
   unparseableToolArgsMessage,
   wrapUnparseableToolArgs,
@@ -29,6 +30,22 @@ describe("unparseable tool args marker", () => {
   test("does not match ordinary tool input", () => {
     expect(isUnparseableToolArgs({ command: "ls" })).toBe(false);
     expect(isUnparseableToolArgs({})).toBe(false);
+  });
+
+  test("bounds long raw args while preserving the marker shape", () => {
+    const raw = "a".repeat(1_000);
+    const bounded = boundUnparseableToolArgs(wrapUnparseableToolArgs(raw));
+
+    expect(isUnparseableToolArgs(bounded)).toBe(true);
+    expect(bounded).toEqual({ _raw: "a".repeat(200) + "…" });
+  });
+
+  test("leaves short markers and ordinary input unchanged", () => {
+    const marker = wrapUnparseableToolArgs("short");
+    const ordinary = { command: "ls" };
+
+    expect(boundUnparseableToolArgs(marker)).toBe(marker);
+    expect(boundUnparseableToolArgs(ordinary)).toBe(ordinary);
   });
 
   test("message includes tool name, raw preview, and retry instruction", () => {

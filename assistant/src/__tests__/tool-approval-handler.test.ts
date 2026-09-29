@@ -1357,6 +1357,10 @@ describe("ToolApprovalHandler / unparseable tool args gate", () => {
     }
     expect(result.result.content).not.toContain(raw);
     expect(result.result.content).toContain("…");
+    expect(auditCalls.error).toHaveLength(1);
+    expect(auditCalls.error[0].input).toEqual({
+      _raw: raw.slice(0, 200) + "…",
+    });
   });
 
   test("legitimate input containing a _raw field among others is not rejected", async () => {

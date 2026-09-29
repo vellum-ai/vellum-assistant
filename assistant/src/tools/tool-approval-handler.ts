@@ -27,6 +27,7 @@ import {
   isWorkspaceWriteTool,
 } from "../permissions/workspace-policy.js";
 import {
+  boundUnparseableToolArgs,
   isUnparseableToolArgs,
   unparseableToolArgsMessage,
 } from "../providers/unparseable-tool-args.js";
@@ -797,7 +798,14 @@ export class ToolApprovalHandler {
     // mangled. Fail loudly instead so the model retries.
     if (isUnparseableToolArgs(input)) {
       const msg = unparseableToolArgsMessage(name, input._raw);
-      this.auditGateError(context, name, input, riskLevel, startTime, msg);
+      this.auditGateError(
+        context,
+        name,
+        boundUnparseableToolArgs(input),
+        riskLevel,
+        startTime,
+        msg,
+      );
       return { allowed: false, result: { content: msg, isError: true } };
     }
 

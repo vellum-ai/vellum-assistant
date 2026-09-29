@@ -52,6 +52,10 @@ import type {
   ToolResultContent,
 } from "../providers/types.js";
 import { NATIVE_WEB_SEARCH_TOOL_NAME } from "../providers/types.js";
+import {
+  boundUnparseableToolArgs,
+  isUnparseableToolArgs,
+} from "../providers/unparseable-tool-args.js";
 import { recordWatchdogEvent } from "../telemetry/watchdog-events-store.js";
 import {
   ABORT_SETTLE_GRACE_MS,
@@ -64,6 +68,7 @@ import {
   applyStreamingSubstitution,
   applySubstitutions,
 } from "../tools/sensitive-output-placeholders.js";
+import { recoverSkillExecuteEnvelope } from "../tools/skills/execute.js";
 import {
   abortedToolResultText,
   isPreemptedByNewMessage,
@@ -83,6 +88,10 @@ const log = getLogger("agent-loop");
 
 /** Watchdog check name for both tool-gated reply outcomes. */
 const SEND_USER_MESSAGE_CHECK = "send_user_message_delivery";
+const MAX_CONSECUTIVE_UNPARSEABLE_TOOL_TURNS = 3;
+const UNPARSEABLE_TOOL_RETRY_STOP_MESSAGE =
+  "I stopped after repeated malformed tool calls to keep this conversation from growing indefinitely. Please try again, or switch models if the problem continues.";
+const SKILL_EXECUTE_TOOL_NAME = "skill_execute";
 
 /**
  * The user-facing message a `send_user_message` block carries, or null when
@@ -1011,10 +1020,29 @@ function toolResultEventFields(
 interface NormalizedToolUse {
   /** Assistant content with at most one `tool_use` block per call id. */
   content: ContentBlock[];
-  /** The `tool_use` blocks in `content`, in order. */
+  /** The bounded `tool_use` blocks in `content`, in order. */
   toolUseBlocks: ToolUseBlock[];
+  /** Original inputs retained only until this iteration's execution attempt. */
+  executionInputsById: Map<string, Record<string, unknown>>;
+  /** Number of executable calls whose provider arguments did not parse. */
+  unparseableCount: number;
   /** Coalesced copies: a call id and name for each block dropped. */
   duplicates: Array<{ id: string; name: string }>;
+}
+
+function isRetryableUnparseableToolCall(block: ToolUseBlock): boolean {
+  if (!isUnparseableToolArgs(block.input)) {
+    return false;
+  }
+  if (block.name !== SKILL_EXECUTE_TOOL_NAME) {
+    return true;
+  }
+  const recovered = recoverSkillExecuteEnvelope(block.input);
+  return (
+    recovered === block.input ||
+    typeof recovered.tool !== "string" ||
+    recovered.tool.length === 0
+  );
 }
 
 /**
@@ -1030,8 +1058,10 @@ function normalizeToolUseBlocks(
 ): NormalizedToolUse {
   const nextContent: ContentBlock[] = [];
   const toolUseBlocks: ToolUseBlock[] = [];
+  const executionInputsById = new Map<string, Record<string, unknown>>();
   const duplicates: Array<{ id: string; name: string }> = [];
   const seenIds = new Set<string>();
+  let unparseableCount = 0;
 
   for (const block of content) {
     if (block.type !== "tool_use") {
@@ -1042,14 +1072,28 @@ function normalizeToolUseBlocks(
       duplicates.push({ id: block.id, name: block.name });
       continue;
     }
-    const normalized: ToolUseBlock =
-      block.id.length === 0 ? { ...block, id: crypto.randomUUID() } : block;
-    seenIds.add(normalized.id);
-    nextContent.push(normalized);
-    toolUseBlocks.push(normalized);
+    const normalizedId = block.id.length === 0 ? crypto.randomUUID() : block.id;
+    const bounded: ToolUseBlock = {
+      ...block,
+      id: normalizedId,
+      input: boundUnparseableToolArgs(block.input),
+    };
+    seenIds.add(normalizedId);
+    executionInputsById.set(normalizedId, block.input);
+    if (isRetryableUnparseableToolCall(block)) {
+      unparseableCount++;
+    }
+    nextContent.push(bounded);
+    toolUseBlocks.push(bounded);
   }
 
-  return { content: nextContent, toolUseBlocks, duplicates };
+  return {
+    content: nextContent,
+    toolUseBlocks,
+    executionInputsById,
+    unparseableCount,
+    duplicates,
+  };
 }
 
 /**
@@ -1486,6 +1530,7 @@ export class AgentLoop {
     let newMessagesStart = history.length;
     let toolUseTurns = 0;
     let postModelCallContinues = 0;
+    let consecutiveUnparseableToolTurns = 0;
     // Whether the user has been told the OUTCOME of the work so far, not
     // merely that work started. True only while the most recent tool-bearing
     // response was `send_user_message` and nothing else: a response that sends
@@ -1741,6 +1786,7 @@ export class AgentLoop {
       // request from a generation that died mid-flight. Declared here so that
       // catch can reach it.
       let streamedTokens = false;
+      let unparseableToolRetryLimitReached = false;
 
       try {
         // ── Pre-call budget gate ─────────────────────────────────────
@@ -2728,6 +2774,44 @@ export class AgentLoop {
           content: normalizedToolUse.content,
         };
         toolUseBlocks = normalizedToolUse.toolUseBlocks;
+        if (normalizedToolUse.unparseableCount > 0) {
+          consecutiveUnparseableToolTurns++;
+        } else {
+          consecutiveUnparseableToolTurns = 0;
+        }
+        if (
+          consecutiveUnparseableToolTurns >=
+          MAX_CONSECUTIVE_UNPARSEABLE_TOOL_TURNS
+        ) {
+          rlog.warn(
+            {
+              turn: toolUseTurns,
+              consecutiveUnparseableToolTurns,
+              unparseableToolCount: normalizedToolUse.unparseableCount,
+            },
+            "Repeated unparseable tool calls reached the per-run limit",
+          );
+          unparseableToolRetryLimitReached = true;
+          const visiblePrefix = suppressAssistantText
+            ? []
+            : assistantMessage.content.filter(
+                (block) => block.type !== "tool_use",
+              );
+          assistantMessage = {
+            role: "assistant",
+            content: [
+              ...visiblePrefix,
+              {
+                type: "text",
+                text: `${
+                  hasVisibleText(visiblePrefix) ? "\n\n" : ""
+                }${UNPARSEABLE_TOOL_RETRY_STOP_MESSAGE}`,
+              },
+            ],
+          };
+          toolUseBlocks = [];
+          userToldOutcome = false;
+        }
 
         // At the no-tool stop boundary the retry decision is actionable: a
         // recovery hook may repair history and ask to re-query (a tool-bearing
@@ -2736,6 +2820,7 @@ export class AgentLoop {
         // persisting it; the per-run backstop keeps a misbehaving hook from
         // spinning forever.
         if (
+          !unparseableToolRetryLimitReached &&
           toolUseBlocks.length === 0 &&
           postModelCallDecision === "continue"
         ) {
@@ -2797,11 +2882,19 @@ export class AgentLoop {
         // Surface the finalized text if the client saw nothing live (a
         // deferred stream, a hook-rewritten empty turn, or the tool-gated
         // fallback where no `send_user_message` call ever reached the user).
-        const textVisibility = textVisibilityOf(
-          emitFinalAssistantText(assistantMessage.content, {
+        let fallbackSurfaced = false;
+        if (unparseableToolRetryLimitReached && streamedVisibleText) {
+          onEvent({
+            type: "text_delta",
+            text: assistantTextOf(assistantMessage.content.slice(-1)),
+          });
+          fallbackSurfaced = suppressAssistantText;
+        } else {
+          fallbackSurfaced = emitFinalAssistantText(assistantMessage.content, {
             turnEnding: toolUseBlocks.length === 0,
-          }),
-        );
+          });
+        }
+        const textVisibility = textVisibilityOf(fallbackSurfaced);
 
         history.push(assistantMessage);
 
@@ -2914,7 +3007,8 @@ export class AgentLoop {
               }
               const result = await this.toolExecutor!(
                 toolUse.name,
-                toolUse.input,
+                normalizedToolUse.executionInputsById.get(toolUse.id) ??
+                  toolUse.input,
                 (chunk) => {
                   onEvent({
                     type: "tool_output_chunk",
