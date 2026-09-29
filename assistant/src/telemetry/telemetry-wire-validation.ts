@@ -2,16 +2,16 @@
  * Pre-flush validation of outgoing telemetry events against the
  * platform-generated wire schemas (`telemetry-wire.generated.ts`).
  *
- * The platform ingest endpoint rejects individual events that violate its
- * serializer bounds and skips event types it has no serializer for — both
- * silently from the daemon's point of view (the batch still 2xxes). This
- * module surfaces those would-be-silent drops as structured warnings at the
- * source, right before each POST.
+ * These events are public analytics produced on the client, which is the
+ * source of truth for what happened. A local schema check cannot prove a
+ * payload is authentic, so validation does not filter the batch. The platform
+ * ingest endpoint still skips events that violate its serializers or that
+ * name an unknown type. Both are silent from the daemon's point of view (the
+ * batch still 2xxes). This module logs those skips before each POST.
  *
  * Observability only: validation never mutates, filters, or blocks a batch.
- * The server remains the authority on what it accepts; in particular the
- * `.trim()`-transformed parse output is never substituted for the original
- * events.
+ * The `.trim()`-transformed parse output is never substituted for the
+ * original events.
  */
 
 import { z } from "zod";
@@ -108,7 +108,7 @@ interface WireValidationResult {
   checked: number;
   /** Checked events that failed their wire schema. */
   invalid: number;
-  /** Distinct event types with no wire schema — the server drops these. */
+  /** Distinct event types with no wire schema. The server drops these. */
   unknownTypes: string[];
 }
 
@@ -122,7 +122,8 @@ interface WireValidationResult {
  * embed the onboarding session id.
  *
  * Never mutates, filters, or blocks: callers send the batch unchanged
- * regardless of the result.
+ * regardless of the result. Public analytics events originate on the client,
+ * so this check is not an authenticity control.
  */
 export function validateWireEvents(
   events: readonly { type: string }[],
@@ -139,7 +140,7 @@ export function validateWireEvents(
         warnedUnknownTypes.add(event.type);
         log.warn(
           { eventType: event.type },
-          "telemetry event type not in platform wire contract — server drops these; see telemetry-wire.generated.ts",
+          "telemetry event type not in platform wire contract; server drops these; see telemetry-wire.generated.ts",
         );
       }
       continue;
@@ -154,7 +155,7 @@ export function validateWireEvents(
       }));
       log.warn(
         { eventType: event.type, issues },
-        "telemetry event fails platform wire contract — server will silently drop it",
+        "telemetry event fails platform wire contract; server will silently drop it",
       );
     }
   }

@@ -73,8 +73,8 @@ export async function emitWatchdogEventDirect(
       assistant_version: APP_VERSION,
     };
 
-    // Pre-flush wire validation — observability only: warns when the server
-    // would silently drop the event; the POST proceeds unchanged.
+    // Observational only. The event is still POSTed. A local schema check
+    // does not establish that a client-originated analytics payload is authentic.
     validateWireEvents([event], log);
 
     const organizationId = getPlatformOrganizationId() || undefined;

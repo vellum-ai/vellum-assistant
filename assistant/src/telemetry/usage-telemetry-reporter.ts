@@ -497,8 +497,9 @@ export class UsageTelemetryReporter {
       // in cursor order.
       const typedEvents = batches.flatMap(({ batch }) => batch.events);
 
-      // Pre-flush wire validation — observability only: warns about events
-      // the server would silently drop; the batch is POSTed unchanged.
+      // Pre-flush wire validation is observational. Public analytics events
+      // originate on the client, so a schema miss is logged and the batch is
+      // POSTed unchanged.
       validateWireEvents(typedEvents, log);
 
       const organizationId = getPlatformOrganizationId() || undefined;
