@@ -13,15 +13,13 @@
  * sync tag.
  *
  * MIN_VERSION invariant: a dev floor rather than a release number, per
- * `docs/BACKWARDS_COMPAT.md`. The routes and the agent-loop hooks that mark a
- * task done landed on top of 0.11.8, so every build that carries them is
- * stamped `0.11.8-dev.*` or `0.11.8-local.*` until the next cut. The floor
- * names the minute the route commit merged (`d5d996d`), which is the earliest
- * a build can carry it: dev and local pre-releases compare AHEAD of the stable
- * release with the same base and order by their stamp, so a same-source local
- * build and every dev build cut after that minute pass, released 0.11.8 and
- * dev builds from before it do not, and later releases pass on the base
- * comparison alone with nothing predicted.
+ * `docs/BACKWARDS_COMPAT.md`. Released 0.12.0 and 0.12.1 do not carry the
+ * routes; 0.12.2 is the first release that does, and so does every `main`
+ * build on the 0.12.1 base. The floor names the first minute of that base
+ * (`5e16607`): dev and local pre-releases compare AHEAD of the stable release
+ * with the same base and order by their stamp, so `main` builds from that
+ * minute on pass, both route-less releases do not, and 0.12.2 and later pass
+ * on the base comparison alone.
  *
  * Scoped to the active assistant via `useAssistantScopedSupports` (see its
  * JSDoc in `./utils.ts`). Switching from a new assistant to an older one
@@ -35,7 +33,7 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 import { useAssistantScopedSupports } from "./utils";
 
-export const MIN_VERSION = "0.11.8-dev.202609030107.d5d996d";
+export const MIN_VERSION = "0.12.1-dev.202609141911.5e16607";
 
 /**
  * Render-path gate for every activation surface. `false` while the version is
