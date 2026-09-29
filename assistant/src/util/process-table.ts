@@ -11,13 +11,36 @@ const PS_PROCESS_TABLE_COMMAND = [
   "-o",
   "pid=,ppid=,command=",
 ];
-const WINDOWS_PROCESS_TABLE_COMMAND = [
+const WINDOWS_CIM_SELECT =
+  "Select-Object ProcessId,ParentProcessId,CommandLine,Name,WorkingSetSize,HandleCount | ConvertTo-Json -Compress";
+const WINDOWS_POWERSHELL_PREFIX = [
   "powershell.exe",
   "-NoProfile",
   "-NonInteractive",
   "-Command",
-  "$OutputEncoding = [Console]::OutputEncoding = [Text.UTF8Encoding]::new(); Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,CommandLine,Name,WorkingSetSize,HandleCount | ConvertTo-Json -Compress",
-];
+] as const;
+
+function windowsCimProcessCommand(filter: string): string[] {
+  const query = filter
+    ? `Get-CimInstance Win32_Process -Filter "${filter}"`
+    : "Get-CimInstance Win32_Process";
+  return [
+    ...WINDOWS_POWERSHELL_PREFIX,
+    `$OutputEncoding = [Console]::OutputEncoding = [Text.UTF8Encoding]::new(); ${query} | ${WINDOWS_CIM_SELECT}`,
+  ];
+}
+
+const WINDOWS_PROCESS_TABLE_COMMAND = windowsCimProcessCommand("");
+
+/** `ps` lookup for one PID. Used by watchdog identity probes. */
+export function psCommandForPid(pid: number): string[] {
+  return ["ps", "-p", String(pid), "-ww", "-o", "pid=,ppid=,command="];
+}
+
+/** PowerShell lookup for one PID. Used by watchdog identity probes. */
+export function windowsCommandForPid(pid: number): string[] {
+  return windowsCimProcessCommand(`ProcessId = ${pid}`);
+}
 
 export interface ProcessTableRow {
   pid: number;
@@ -120,7 +143,11 @@ export function parsePsProcessTable(output: string): ProcessTableRow[] {
 }
 
 export function parseWindowsProcessTable(output: string): ProcessTableRow[] {
-  const decoded: unknown = JSON.parse(output.trim().replace(/^\uFEFF/, ""));
+  const trimmed = output.trim().replace(/^\uFEFF/, "");
+  if (trimmed === "" || trimmed === "null") {
+    return [];
+  }
+  const decoded: unknown = JSON.parse(trimmed);
   const values = Array.isArray(decoded) ? decoded : [decoded];
   const rows: ProcessTableRow[] = [];
   for (const value of values) {
@@ -232,19 +259,15 @@ export async function listProcessTableAsync(
 }
 
 /**
- * The process-table row for `pid`, or null when the process is gone or the
- * table cannot be read. Callers get `ppid` alongside the command line, so
- * ownership and identity can be decided from a single snapshot.
+ * The command line of one live PID, or null when the process is gone or the
+ * command cannot be read. Watchdog probes call this on a timer, so the lookup
+ * is a single PID (Linux `/proc/<pid>/cmdline`, `ps -p`, or a filtered
+ * Win32_Process query), never a full process-table scan.
  */
-function findProcessRow(pid: number): ProcessTableRow | null {
-  try {
-    return listProcessTable().find((row) => row.pid === pid) ?? null;
-  } catch {
+export function readRawProcessCommand(pid: number): string | null {
+  if (!Number.isInteger(pid) || pid <= 0) {
     return null;
   }
-}
-
-export function readRawProcessCommand(pid: number): string | null {
   if (process.platform === "linux") {
     try {
       return readFileSync(`/proc/${pid}/cmdline`, "utf8")
@@ -255,6 +278,31 @@ export function readRawProcessCommand(pid: number): string | null {
       return null;
     }
   }
+  if (process.platform === "win32") {
+    return commandFromProcessQuery(
+      windowsCommandForPid(pid),
+      parseWindowsProcessTable,
+      pid,
+    );
+  }
+  return commandFromProcessQuery(
+    psCommandForPid(pid),
+    parsePsProcessTable,
+    pid,
+  );
+}
 
-  return findProcessRow(pid)?.command ?? null;
+function commandFromProcessQuery(
+  command: string[],
+  parser: (output: string) => ProcessTableRow[],
+  pid: number,
+): string | null {
+  try {
+    return (
+      runProcessTableCommand(command, parser).find((row) => row.pid === pid)
+        ?.command ?? null
+    );
+  } catch {
+    return null;
+  }
 }

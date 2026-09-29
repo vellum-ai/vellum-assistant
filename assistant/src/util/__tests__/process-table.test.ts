@@ -3,6 +3,9 @@ import { describe, expect, test } from "bun:test";
 import {
   parsePsProcessTable,
   parseWindowsProcessTable,
+  psCommandForPid,
+  readRawProcessCommand,
+  windowsCommandForPid,
 } from "../process-table.js";
 
 describe("parsePsProcessTable", () => {
@@ -62,5 +65,38 @@ describe("parseWindowsProcessTable", () => {
         }),
       ),
     ).toEqual([{ pid: 100, ppid: 4, command: "worker.exe" }]);
+  });
+
+  test("treats an empty CIM result as no processes", () => {
+    expect(parseWindowsProcessTable("")).toEqual([]);
+    expect(parseWindowsProcessTable("null")).toEqual([]);
+  });
+});
+
+describe("single-PID command lookup", () => {
+  test("Windows query filters to one ProcessId instead of enumerating all processes", () => {
+    const cmd = windowsCommandForPid(4242);
+    const script = cmd.at(-1) ?? "";
+    expect(script).toContain('-Filter "ProcessId = 4242"');
+    expect(script).not.toContain("Get-CimInstance Win32_Process |");
+  });
+
+  test("ps query names one PID", () => {
+    expect(psCommandForPid(4242)).toEqual([
+      "ps",
+      "-p",
+      "4242",
+      "-ww",
+      "-o",
+      "pid=,ppid=,command=",
+    ]);
+  });
+
+  test("reads this process command line and rejects a missing PID", () => {
+    const command = readRawProcessCommand(process.pid);
+    expect(command).toEqual(expect.any(String));
+    expect(command?.length).toBeGreaterThan(0);
+    expect(readRawProcessCommand(999_999_999)).toBeNull();
+    expect(readRawProcessCommand(-1)).toBeNull();
   });
 });
