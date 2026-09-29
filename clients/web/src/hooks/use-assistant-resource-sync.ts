@@ -63,12 +63,16 @@ const RECONNECT_SWEEP_DEBOUNCE_MS = 500;
 /**
  * Subscribes to assistant-resource sync events via the event bus.
  *
- * Two bus channels:
+ * Connection transitions also reset cached capabilities immediately so
+ * consumers wait for the current process to confirm endpoint support.
+ *
+ * Bus channels:
  * - `sse.event` — routes `sync_changed` tags (with self-echo
  *   suppression) and discrete event types into TQ cache invalidations
  * - `sse.opened` — on reconnect (non-fresh), invalidates all cached
  *   assistant resources to catch events missed during the transport gap,
  *   as one debounced `refreshAssistantResources` sweep
+ * - `sse.closed`: clears capabilities before another draft can initialize
  */
 export function useAssistantResourceSync(
   assistantId: string | null,
@@ -252,11 +256,20 @@ export function useAssistantResourceSync(
     }
   });
 
-  useBusSubscription("sse.opened", ({ cause }) => {
-    if (!assistantId || !isAssistantActive) {
+  useBusSubscription("sse.closed", () => {
+    if (assistantId) {
+      resetAssistantCapabilities(queryClient, assistantId);
+    }
+  });
+
+  useBusSubscription("sse.opened", ({ cause, assistantId: connectedId }) => {
+    if (!assistantId || connectedId !== assistantId) {
       return;
     }
-    if (cause === "fresh") {
+    // A replacement process can advertise different endpoints. Clear the
+    // previous answers immediately, before drafts can capture their defaults.
+    resetAssistantCapabilities(queryClient, assistantId);
+    if (!isAssistantActive || cause === "fresh") {
       return;
     }
     if (reconnectSweepTimerRef.current) {
@@ -266,6 +279,16 @@ export function useAssistantResourceSync(
       reconnectSweepTimerRef.current = null;
       refreshAssistantResources(queryClient, assistantId);
     }, RECONNECT_SWEEP_DEBOUNCE_MS);
+  });
+}
+
+function resetAssistantCapabilities(
+  queryClient: QueryClient,
+  assistantId: string,
+): void {
+  void queryClient.resetQueries({
+    queryKey: ["assistant-capability"],
+    predicate: (query) => query.queryKey[2] === assistantId,
   });
 }
 

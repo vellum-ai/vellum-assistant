@@ -77,7 +77,7 @@ export async function resolveDraftComposerConfiguration(
     return;
   }
   const sessionGeneration = useComposerStore.getState().sessionGeneration;
-  const supportsPreferences = await queryClient.ensureQueryData(
+  const supportsPreferences = await queryClient.fetchQuery(
     assistantCapabilityOptions("composerSettings", assistantId),
   );
   if (useComposerStore.getState().sessionGeneration !== sessionGeneration) {

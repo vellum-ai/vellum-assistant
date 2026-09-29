@@ -505,6 +505,96 @@ describe("useAssistantResourceSync", () => {
     });
   });
 
+  test.each([false, true])(
+    "rechecks capabilities immediately after process replacement (previous support: %s)",
+    async (previousSupport) => {
+      const queryClient = freshQueryClient();
+      const queryKey = ["assistant-capability", "composerSettings", "asst-1"];
+      const otherKey = ["assistant-capability", "composerSettings", "asst-2"];
+      queryClient.setQueryData(queryKey, previousSupport);
+      queryClient.setQueryData(otherKey, previousSupport);
+      let finishHealth: (value: boolean) => void = () => {};
+      const queryFn = mock(
+        () =>
+          new Promise<boolean>((resolve) => {
+            finishHealth = resolve;
+          }),
+      );
+      const options = { queryKey, queryFn, staleTime: 60_000 };
+      const observer = new QueryObserver(queryClient, options);
+      const unsubscribe = observer.subscribe(() => {});
+      renderHook(() => useAssistantResourceSync("asst-1", true), {
+        wrapper: createWrapper(queryClient),
+      });
+      expect(queryFn).not.toHaveBeenCalled();
+      publish("sse.opened", {
+        assistantId: "asst-1",
+        cause: previousSupport ? "error" : "fresh",
+      });
+      expect(queryClient.getQueryData<boolean>(queryKey)).toBeUndefined();
+      expect(observer.getCurrentResult().isPending).toBe(true);
+      expect(queryClient.getQueryData<boolean>(otherKey)).toBe(previousSupport);
+      const firstSend = queryClient.fetchQuery(options);
+      finishHealth(!previousSupport);
+      expect(await firstSend).toBe(!previousSupport);
+      expect(observer.getCurrentResult().data).toBe(!previousSupport);
+      expect(queryFn).toHaveBeenCalledTimes(1);
+      unsubscribe();
+      queryClient.clear();
+    },
+  );
+
+  test("a disconnect clears unobserved capabilities before another draft opens", async () => {
+    const queryClient = freshQueryClient();
+    const queryKey = ["assistant-capability", "composerSettings", "asst-1"];
+    queryClient.setQueryData(queryKey, false);
+    renderHook(() => useAssistantResourceSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+    publish("sse.closed", { reason: "connection lost" });
+    expect(queryClient.getQueryData<boolean>(queryKey)).toBeUndefined();
+    const queryFn = mock(async () => true);
+    expect(
+      await queryClient.fetchQuery({ queryKey, queryFn, staleTime: 60_000 }),
+    ).toBe(true);
+    expect(queryFn).toHaveBeenCalledTimes(1);
+    queryClient.clear();
+  });
+
+  test("a failed reconnect probe does not restore the previous process capability", async () => {
+    const queryClient = freshQueryClient();
+    const queryKey = ["assistant-capability", "composerSettings", "asst-1"];
+    queryClient.setQueryData(queryKey, true);
+    const observer = new QueryObserver(queryClient, {
+      queryKey,
+      queryFn: async () => {
+        throw new Error("Unavailable");
+      },
+      staleTime: 60_000,
+    });
+    const unsubscribe = observer.subscribe(() => {});
+    renderHook(() => useAssistantResourceSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+    publish("sse.opened", { assistantId: "asst-1", cause: "error" });
+    await waitFor(() => expect(observer.getCurrentResult().isError).toBe(true));
+    expect(queryClient.getQueryData<boolean>(queryKey)).toBeUndefined();
+    unsubscribe();
+    queryClient.clear();
+  });
+
+  test("an event from another assistant leaves capabilities intact", () => {
+    const queryClient = freshQueryClient();
+    const queryKey = ["assistant-capability", "composerSettings", "asst-1"];
+    queryClient.setQueryData(queryKey, true);
+    renderHook(() => useAssistantResourceSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+    publish("sse.opened", { assistantId: "asst-2", cause: "error" });
+    expect(queryClient.getQueryData<boolean>(queryKey)).toBe(true);
+    queryClient.clear();
+  });
+
   test("does not reconcile on fresh sse.opened", async () => {
     const queryClient = freshQueryClient();
     const spy = mock(() => Promise.resolve());
