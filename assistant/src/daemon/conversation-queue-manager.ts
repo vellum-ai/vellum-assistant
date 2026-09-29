@@ -86,19 +86,9 @@ export const DEFAULT_MAX_QUEUE_BYTES = 50 * 1024 * 1024; // 50 MB
 
 /**
  * Describes why a queued message was promoted from the queue.
- * - `loop_complete`: the agent loop finished normally and the next message was drained.
- * - `checkpoint_handoff`: a turn-boundary checkpoint decided to yield to the queued message.
+ * - `loop_complete`: the running turn ended and the next message was drained.
  */
-export type QueueDrainReason = "loop_complete" | "checkpoint_handoff";
-
-/**
- * Configuration for how/when checkpoint handoff is allowed.
- * When `checkpointHandoffEnabled` is true, the agent loop may yield at
- * a turn boundary if there are queued messages waiting.
- */
-export interface QueuePolicy {
-  checkpointHandoffEnabled: boolean;
-}
+export type QueueDrainReason = "loop_complete";
 
 /**
  * Typed wrapper around the queued-message array.

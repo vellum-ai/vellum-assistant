@@ -435,10 +435,8 @@ knowing nothing will re-enter the loop this run.
 
 It fires on **every terminal exit** — a no-tool reply, a max-tokens stop, a
 yield-to-user, an exhausted context-overflow recovery, a user abort, or an
-unhandled error — and on a `checkpoint_handoff` (which ends the run for teardown
-purposes even though the orchestrator resumes the conversation in a fresh run).
-`ctx.exitReason` reports which one, so a hook that should act only on a
-particular ending guards on it.
+unhandled error. `ctx.exitReason` reports which one, so a hook that should act
+only on a particular ending guards on it.
 
 ```ts
 // hooks/stop.ts
@@ -449,8 +447,7 @@ export default async function stop(ctx: StopContext): Promise<void> {
   // ctx.messages       — full conversation history at the terminal stop
   //                      (read-only; mutating it has no effect)
   // ctx.exitReason     — which terminal state the turn reached (e.g.
-  //                      "no_tool_calls", "max_tokens_reached", "error",
-  //                      "checkpoint_handoff")
+  //                      "no_tool_calls", "max_tokens_reached", "error")
   // ctx.error          — the rejection that ended the turn, when it ended on
   //                      one; absent on a clean stop
   // ctx.logger         — turn-scoped; tag log fields with { plugin: <name> }

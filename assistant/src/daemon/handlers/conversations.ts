@@ -7,7 +7,6 @@ import {
   isSuppressedQueuedMessage,
 } from "../../persistence/conversation-crud.js";
 import { resolveConversationId } from "../../persistence/conversation-key-store.js";
-import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import { resolveCapabilities } from "../../runtime/capabilities.js";
 import * as pendingInteractions from "../../runtime/pending-interactions.js";
 import { resolvePendingQuestion } from "../../runtime/question-resolution.js";
@@ -246,95 +245,6 @@ export async function resolveMetaSlashCommand(
 // ---------------------------------------------------------------------------
 
 /**
- * Whether the caller may cancel or steer to this queued message.
- *
- * A queued message records the verified requester that enqueued it
- * (`sourceActorPrincipalId`); the delete and steer routes receive the caller's
- * verified identity in the `x-vellum-actor-principal-id` header, which both
- * adapters derive from the auth context rather than from anything the caller
- * sent. When both are present they must match: `message_queued` is broadcast
- * to every subscriber of the assistant, so every requestId in a conversation
- * is visible to every connected client, and without this check one actor
- * principal could cancel another's pending message, or abort the live
- * generation and jump another's message to the head of the queue, just by
- * echoing the id back.
- *
- * Two cases stay open, both deliberately:
- *
- * - **The caller has no actor principal.** Local/IPC and service principals
- *   carry no `actorPrincipalId`; by the convention this routes layer already
- *   follows (see `vellum-actor-trust.ts`) a caller with no principal is the
- *   guardian by construction, so the CLI keeps working.
- * - **The message has no recorded requester.** Daemon-internal enqueues (agent
- *   wake, subagent notifications, surface actions) have no enqueuing actor to
- *   compare against, and cancelling one from the queue UI is intended.
- */
-function mayActOnQueuedMessage(
-  queued: QueuedMessage,
-  callerActorPrincipalId: string | undefined,
-): boolean {
-  if (!queued.sourceActorPrincipalId || !callerActorPrincipalId) {
-    return true;
-  }
-  return queued.sourceActorPrincipalId === callerActorPrincipalId;
-}
-
-/**
- * Delete a queued message from a conversation.
- * Returns `{ removed: true }` on success, `{ removed: false, reason }` on failure.
- *
- * On success the sender's event sink receives the terminal
- * `message_queued_deleted`. It is the counterpart to the `message_queued` ack
- * and the only signal that closes out a queued row that never runs: without it
- * a client that didn't originate the delete leaves the pending indicator up
- * forever, since no `message_dequeued` is ever coming. Rows with no
- * client-visible queued counterpart ({@link isSuppressedQueuedMessage} —
- * hidden sends and daemon-injected subagent/ACP/wake notifications) are
- * suppressed for the same reason they get no ack: they have no client row to
- * close.
- */
-export function deleteQueuedMessage(
-  conversationId: string,
-  requestId: string,
-  options: { actorPrincipalId?: string } = {},
-):
-  | { removed: true }
-  | {
-      removed: false;
-      reason: "conversation_not_found" | "message_not_found" | "forbidden";
-    } {
-  const conversation = findConversation(conversationId);
-  if (!conversation) {
-    log.warn(
-      { conversationId, requestId },
-      "No conversation found for delete_queued_message",
-    );
-    return { removed: false, reason: "conversation_not_found" };
-  }
-  const queued = conversation.queue.findByRequestId(requestId);
-  if (!queued) {
-    log.warn(
-      { conversationId, requestId },
-      "Queued message not found for deletion",
-    );
-    return { removed: false, reason: "message_not_found" };
-  }
-  if (!mayActOnQueuedMessage(queued, options.actorPrincipalId)) {
-    log.warn(
-      {
-        conversationId,
-        requestId,
-        callerActorPrincipalId: options.actorPrincipalId,
-      },
-      "Refusing to delete a queued message enqueued by a different actor principal",
-    );
-    return { removed: false, reason: "forbidden" };
-  }
-  consumeQueuedMessage(conversation, conversationId, queued);
-  return { removed: true };
-}
-
-/**
  * Drop a queued message from the queue and close out the client row it
  * created, so a message that will never run leaves no pending indicator
  * behind.
@@ -363,117 +273,6 @@ function consumeQueuedMessage(
 }
 
 /**
- * Steer a conversation to a specific queued message.
- * Promotes the message to the head of the queue, marks the conversation
- * as needing tool-result repair, and aborts the current generation so the
- * drain path picks up the promoted message.
- *
- * Returns `{ steered: true }` on success, or `{ steered: false, reason }` on failure.
- */
-export function steerToMessage(
-  conversationId: string,
-  requestId: string,
-  options: { actorPrincipalId?: string } = {},
-):
-  | { steered: true }
-  | {
-      steered: false;
-      reason:
-        | "conversation_not_found"
-        | "message_not_found"
-        | "not_processing"
-        | "forbidden";
-    } {
-  const conversation = findConversation(conversationId);
-  if (!conversation) {
-    log.warn(
-      { conversationId, requestId },
-      "No conversation found for steer_to_message",
-    );
-    return { steered: false, reason: "conversation_not_found" };
-  }
-
-  if (!conversation.isProcessing()) {
-    log.warn(
-      { conversationId, requestId },
-      "Cannot steer: conversation is not processing",
-    );
-    return { steered: false, reason: "not_processing" };
-  }
-
-  const queued = conversation.queue.findByRequestId(requestId);
-  if (!queued) {
-    log.warn(
-      { conversationId, requestId },
-      "Queued message not found for steering",
-    );
-    return { steered: false, reason: "message_not_found" };
-  }
-  if (!mayActOnQueuedMessage(queued, options.actorPrincipalId)) {
-    log.warn(
-      {
-        conversationId,
-        requestId,
-        callerActorPrincipalId: options.actorPrincipalId,
-      },
-      "Refusing to steer to a queued message enqueued by a different actor principal",
-    );
-    return { steered: false, reason: "forbidden" };
-  }
-
-  const promoted = conversation.queue.promoteToHead(requestId);
-  if (!promoted) {
-    log.warn(
-      { conversationId, requestId },
-      "Queued message not found for steering",
-    );
-    return { steered: false, reason: "message_not_found" };
-  }
-
-  // Mark the conversation for tool-result repair so the drain path can
-  // inject synthetic tool results for any pending tool_use blocks that
-  // were abandoned by the aborted generation.
-  conversation.pendingSteerRepair = true;
-
-  // Broadcast the steer event so clients can update their UI.
-  broadcastMessage({
-    type: "message_steered",
-    conversationId,
-    requestId,
-  });
-
-  log.info(
-    { conversationId, requestId },
-    "Steering to queued message — aborting current generation",
-  );
-
-  // Abort the in-flight generation. The agent loop's release calls
-  // drainQueue, which will pick up the promoted message at the head.
-  // Unlike abortConversation, we do NOT clear the queue or dispose
-  // prompters: we want the queue to drain with the promoted message first.
-  const reason = createAbortReason(
-    "preempted_by_new_message",
-    "steerToMessage",
-    conversationId,
-  );
-  if (conversation.abortController) {
-    conversation.abortController.abort(reason);
-  } else {
-    // Processing is latched with no live turn to abort, so nothing is going to
-    // reach a drain on its own and the message promoted above would sit at the
-    // head of a queue that never runs. Release the flag and drain here instead.
-    // `pendingSteerRepair` stays set: the drain consumes it, repairing any
-    // tool_use blocks the dead turn stranded before the promoted head runs.
-    forceClearStaleProcessing(conversation, "steerToMessage");
-    void conversation.kickDrainQueue("loop_complete", "steer_force_clear");
-  }
-  // Deny pending confirmations so the abort unblocks immediately.
-  conversation.denyAllPendingConfirmations();
-
-  return { steered: true };
-}
-
-/**
  * Answer an open `ask_question` prompt with a message the user typed into the
  * chat while the card was up.
  *
@@ -486,8 +285,8 @@ export function steerToMessage(
  *
  * The message is consumed, not run as a turn of its own: it reaches the model
  * once, through the tool result, and the answered card carries the user's own
- * words in the transcript. Consuming it retires the client's queued row the
- * same way a queue delete does.
+ * words in the transcript. Consuming it retires the client's queued row with
+ * `message_queued_deleted`.
  *
  * Deliberately narrow. Anything the free-text field of a card could not have
  * carried, or that a single answer cannot honestly stand in for, falls through
@@ -564,12 +363,13 @@ export function answerParkedQuestionWithEnqueuedMessage(
  * for the same conversation.
  *
  * A queued message while a clarification question is open means the user chose
- * to move on rather than answer it. Steering to that message aborts the parked
- * turn — which settles the open question via its turn-abort signal — repairs
- * the dangling `tool_use`, and drains the message, instead of stranding it
- * behind a prompt no one is going to answer. Only `ask_question` prompts
- * (`kind: "question"`) trigger this; pending confirmations are handled
- * separately by the enqueue path's auto-deny.
+ * to move on rather than answer it. Steering to that message promotes it to the
+ * head of the queue and aborts the parked turn, which settles the open question
+ * via its turn-abort signal; the drain then repairs the dangling `tool_use` and
+ * runs the message on its own, instead of stranding it behind a prompt no one
+ * is going to answer. Only `ask_question` prompts (`kind: "question"`) trigger
+ * this; pending confirmations are handled separately by the enqueue path's
+ * auto-deny.
  *
  * Returns `true` when a parked question was found and a steer was issued.
  */
@@ -583,8 +383,64 @@ export function steerOnEnqueuedMessageIfQuestionParked(
   if (!hasParkedQuestion) {
     return false;
   }
-  steerToMessage(conversationId, enqueuedRequestId);
+  steerToQueuedMessage(conversationId, enqueuedRequestId);
   return true;
+}
+
+/**
+ * Promote a queued message to the head of the queue and abort the running
+ * turn, so the drain that turn's release triggers runs the promoted message
+ * next. Marks the conversation for tool-result repair so the drain injects
+ * synthetic results for any `tool_use` blocks the aborted turn abandoned.
+ */
+function steerToQueuedMessage(conversationId: string, requestId: string): void {
+  const conversation = findConversation(conversationId);
+  if (!conversation) {
+    log.warn({ conversationId, requestId }, "No conversation found for steer");
+    return;
+  }
+  if (!conversation.isProcessing()) {
+    log.warn(
+      { conversationId, requestId },
+      "Cannot steer: conversation is not processing",
+    );
+    return;
+  }
+  if (!conversation.queue.promoteToHead(requestId)) {
+    log.warn(
+      { conversationId, requestId },
+      "Queued message not found for steering",
+    );
+    return;
+  }
+
+  conversation.pendingSteerRepair = true;
+
+  log.info(
+    { conversationId, requestId },
+    "Steering to queued message, aborting current generation",
+  );
+
+  // Unlike abortConversation, this keeps the queue and the prompters: the
+  // drain picks up the promoted message at the head.
+  const reason = createAbortReason(
+    "preempted_by_new_message",
+    "steerToQueuedMessage",
+    conversationId,
+  );
+  if (conversation.abortController) {
+    conversation.abortController.abort(reason);
+  } else {
+    // Processing is latched with no live turn to abort, so nothing is going to
+    // reach a drain on its own and the promoted message would sit at the head
+    // of a queue that never runs. Release the flag and drain here instead.
+    // `pendingSteerRepair` stays set: the drain consumes it, repairing any
+    // tool_use blocks the dead turn stranded before the promoted head runs.
+    forceClearStaleProcessing(conversation, "steerToQueuedMessage");
+    void conversation.kickDrainQueue("loop_complete", "steer_force_clear");
+  }
+  // Deny pending confirmations so the abort unblocks immediately.
+  conversation.denyAllPendingConfirmations();
 }
 
 /**

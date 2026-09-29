@@ -149,7 +149,6 @@ mock.module("../agent/loop.js", () => ({
         // Return unchanged — no progress
         return {
           history: [...messages],
-          exitReason: null,
           newMessages: [],
         };
       }
@@ -171,7 +170,6 @@ mock.module("../agent/loop.js", () => ({
       onEvent({ type: "message_complete", message: assistantMsg });
       return {
         history,
-        exitReason: null,
         newMessages: history.slice(messages.length),
       };
     }

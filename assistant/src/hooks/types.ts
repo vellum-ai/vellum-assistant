@@ -381,8 +381,6 @@ export type AgentLoopExitReason =
   | "aborted_during_tools"
   /** A tool result requested handing back to the user. */
   | "yield_to_user"
-  /** The orchestrator yielded at a checkpoint to process a queued message. */
-  | "checkpoint_handoff"
   /** Context-window recovery exhausted and the turn ended with an error. */
   | "context_too_large"
   /**
@@ -413,9 +411,7 @@ export type AgentLoopExitReason =
  *
  * It fires on every terminal exit: a no-tool reply, a max-tokens stop, a
  * yield-to-user, an exhausted context-overflow recovery, a user abort, or an
- * unhandled error. It also fires on a `checkpoint_handoff`, which ends the run
- * for teardown purposes even though the orchestrator resumes the conversation
- * in a fresh run. {@link exitReason} reports which one and {@link error}
+ * unhandled error. {@link exitReason} reports which one and {@link error}
  * carries the rejection when the turn ended on one, so a hook that should act
  * only on a particular ending guards on {@link exitReason}.
  *
@@ -437,10 +433,7 @@ export interface StopInputContext {
    */
   readonly error?: Error;
   /**
-   * Which terminal state the turn reached. A `checkpoint_handoff` fires this
-   * hook for teardown — the run pauses so the orchestrator can drain a queued
-   * message — but is not emitted as an `agent_loop_exit`, since the
-   * conversation resumes in a fresh run. `aborted_after_checkpoint` is a
+   * Which terminal state the turn reached. `aborted_after_checkpoint` is a
    * control transfer that re-enters the loop and so never reaches this hook.
    */
   readonly exitReason: AgentLoopExitReason;

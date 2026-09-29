@@ -164,7 +164,7 @@ describe("surface action delivery to assistant", () => {
   );
 
   test.each([false, true])(
-    "queued surface answers retain handoff ownership without pinning the old turn (wait=%s)",
+    "queued surface answers take ownership only from a recorded wait (wait=%s)",
     async (hasRecordedWait) => {
       const { initializeDb } = await import("../persistence/db-init.js");
       const { createConversation } =
@@ -211,14 +211,6 @@ describe("surface action delivery to assistant", () => {
       expect(coordinator.getTurnOwner(queuedRequestId!)?.id).toBe(
         hasRecordedWait ? handle.id : undefined,
       );
-      coordinator.transferTurn("turn-origin", queuedRequestId!);
-      expect(coordinator.getTurnOwner("turn-origin")).toBeUndefined();
-      expect(coordinator.getTurnOwner(queuedRequestId!)?.id).toBe(handle.id);
-      coordinator.releaseTurn(queuedRequestId!, {
-        status: "completed",
-        endReason: "turn_settled",
-      });
-      expect(coordinator.hasResidentWork()).toBe(false);
     },
   );
 

@@ -80,10 +80,6 @@ export function DeveloperGuideApiContent() {
                     <td className="py-2 pr-4"><code className="text-xs">confirmation_request</code></td>
                     <td className="py-2">User approval needed before action executes</td>
                   </tr>
-                  <tr className="border-b border-zinc-100 dark:border-zinc-800">
-                    <td className="py-2 pr-4"><code className="text-xs">generation_handoff</code></td>
-                    <td className="py-2">Sub-agent handoff</td>
-                  </tr>
                   <tr>
                     <td className="py-2 pr-4"><code className="text-xs">generation_cancelled</code></td>
                     <td className="py-2">Run cancelled</td>

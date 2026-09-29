@@ -356,6 +356,41 @@ describe("steerOnEnqueuedMessageIfQuestionParked", () => {
     expect(conv.abortCount()).toBe(1);
   });
 
+  test("force-clears and drains when no live controller can be aborted", () => {
+    // A processing flag latched with no controller: nothing is going to reach
+    // a drain on its own, so the steer releases the flag and drains itself.
+    let processing = true;
+    const drainReasons: string[] = [];
+    const fake = {
+      conversationId: QUESTION_CONV,
+      isProcessing: () => processing,
+      setProcessing: (value: boolean) => {
+        processing = value;
+      },
+      abortController: null,
+      queue: { promoteToHead: (requestId: string) => ({ requestId }) },
+      pendingSteerRepair: false,
+      kickDrainQueue: (reason: string) => {
+        drainReasons.push(reason);
+        return Promise.resolve();
+      },
+      denyAllPendingConfirmations: () => {},
+    };
+    setConversation(QUESTION_CONV, fake as unknown as Conversation);
+    registerInteraction(QUESTION_CONV, "question");
+
+    const steered = steerOnEnqueuedMessageIfQuestionParked(
+      QUESTION_CONV,
+      "msg-1",
+    );
+
+    expect(steered).toBe(true);
+    expect(processing).toBe(false);
+    expect(drainReasons).toEqual(["loop_complete"]);
+    // The drain consumes the repair flag, so it must survive the force-clear.
+    expect(fake.pendingSteerRepair).toBe(true);
+  });
+
   test("does not steer for a pending confirmation (not a question)", () => {
     const conv = registerParkedTurn(CONFIRMATION_CONV);
     registerInteraction(CONFIRMATION_CONV, "confirmation");

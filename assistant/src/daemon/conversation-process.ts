@@ -1764,8 +1764,8 @@ async function drainBatch(
   }
 
   // Tag turn-completion state with the last SUCCESSFUL persist so client-
-  // side correlation (message_complete / generation_cancelled /
-  // generation_handoff) surfaces a requestId that actually has a DB row.
+  // side correlation (message_complete / generation_cancelled) surfaces a
+  // requestId that actually has a DB row.
   conversation.currentRequestId = lastSuccessfulRequestId;
   conversation.currentTurnWorkOrigins = successfulBatch.map(
     ({ sentAt, metadata }) => ({ sentAt, metadata }),

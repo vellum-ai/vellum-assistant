@@ -1,7 +1,6 @@
 /**
  * Route definitions for model configuration, embedding configuration,
- * conversation search, message content, LLM
- * context inspection, and queued message deletion.
+ * conversation search, message content, and LLM context inspection.
  *
  * GET    /v1/model                      — current model info
  * PUT    /v1/model/image-gen            — set image-gen model
@@ -15,8 +14,6 @@
  * GET    /v1/messages/:id/llm-context   — LLM request logs for a message
  * GET    /v1/llm-request-logs/:id/payload — raw payload for a single log
  * GET    /v1/llm-request-logs/:id/context — normalized context for a single log
- * DELETE /v1/messages/queued/:id        — delete queued message
- * POST   /v1/messages/queued/:id/steer — steer to a queued message
  */
 
 import { isDeepStrictEqual } from "node:util";
@@ -93,10 +90,6 @@ import {
   performConversationSearch,
 } from "../../daemon/handlers/conversation-history.js";
 import {
-  deleteQueuedMessage,
-  steerToMessage,
-} from "../../daemon/handlers/conversations.js";
-import {
   CONFIG_RELOAD_DEBOUNCE_MS,
   log,
 } from "../../daemon/handlers/shared.js";
@@ -138,14 +131,8 @@ import {
   resolvePricingForUsage,
   usesAnthropicPricingRules,
 } from "../../util/pricing.js";
-import { resolveActorPrincipalIdForLocalGuardian } from "../local-actor-identity.js";
 import { publishConfigChanged } from "../sync/resource-sync-events.js";
-import {
-  BadRequestError,
-  ForbiddenError,
-  InternalError,
-  NotFoundError,
-} from "./errors.js";
+import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import {
   type LlmContextSummary,
   normalizeLlmContextPayloads,
@@ -2328,87 +2315,6 @@ async function handleGetLlmRequestLogContext({
   return normalizeLlmContextLog(log);
 }
 
-function resolveQueuedMessageConversationId({
-  queryParams = {},
-  body,
-  headers = {},
-}: RouteHandlerArgs): string | undefined {
-  const bodyConversationId = body?.conversationId;
-  const conversationId =
-    queryParams.conversationId ??
-    (typeof bodyConversationId === "string" ? bodyConversationId : undefined) ??
-    headers["x-vellum-conversation-id"];
-  return typeof conversationId === "string" && conversationId.length > 0
-    ? conversationId
-    : undefined;
-}
-
-async function handleDeleteQueuedMessage(args: RouteHandlerArgs) {
-  const { pathParams = {}, headers = {} } = args;
-  const conversationId = resolveQueuedMessageConversationId(args);
-  if (!conversationId) {
-    throw new BadRequestError("Missing required parameter: conversationId");
-  }
-  // Verified caller identity. Both adapters derive this header from the auth
-  // context, never from a caller-supplied one. Normalize it exactly as the
-  // send path does before comparing against the principal recorded at
-  // enqueue, or the two disagree: `resolveActorPrincipalIdForLocalGuardian`
-  // translates the synthetic `dev-bypass` principal to the real local
-  // guardian under `DISABLE_HTTP_AUTH=true` (a no-op for real JWT
-  // principals), and every sibling handler in this layer trims first.
-  const actorPrincipalId = await resolveActorPrincipalIdForLocalGuardian(
-    headers["x-vellum-actor-principal-id"]?.trim() || undefined,
-  );
-  const result = deleteQueuedMessage(conversationId, pathParams.id ?? "", {
-    actorPrincipalId,
-  });
-  if (result.removed) {
-    return { ok: true, conversationId, requestId: pathParams.id };
-  }
-  if (result.reason === "conversation_not_found") {
-    throw new NotFoundError("Conversation not found");
-  }
-  if (result.reason === "forbidden") {
-    throw new ForbiddenError(
-      "Queued message was sent by a different user and cannot be cancelled here",
-    );
-  }
-  throw new NotFoundError("Queued message not found");
-}
-
-async function handleSteerToMessage(args: RouteHandlerArgs) {
-  const { pathParams = {}, headers = {} } = args;
-  const conversationId = resolveQueuedMessageConversationId(args);
-  if (!conversationId) {
-    throw new BadRequestError("Missing required parameter: conversationId");
-  }
-  // Verified caller identity, normalized exactly as the delete path above
-  // (see the comment in `handleDeleteQueuedMessage`).
-  const actorPrincipalId = await resolveActorPrincipalIdForLocalGuardian(
-    headers["x-vellum-actor-principal-id"]?.trim() || undefined,
-  );
-  const result = steerToMessage(conversationId, pathParams.id ?? "", {
-    actorPrincipalId,
-  });
-  if (result.steered) {
-    return { ok: true, conversationId, requestId: pathParams.id };
-  }
-  if (result.reason === "conversation_not_found") {
-    throw new NotFoundError("Conversation not found");
-  }
-  if (result.reason === "not_processing") {
-    throw new BadRequestError(
-      "Cannot steer: conversation is not currently processing",
-    );
-  }
-  if (result.reason === "forbidden") {
-    throw new ForbiddenError(
-      "Queued message was sent by a different user and cannot be steered to here",
-    );
-  }
-  throw new NotFoundError("Queued message not found");
-}
-
 // ---------------------------------------------------------------------------
 // Route definitions (shared HTTP + IPC)
 // ---------------------------------------------------------------------------
@@ -2722,68 +2628,5 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["messages"],
     responseBody: LLMRequestLogEntrySchema,
     handler: handleGetLlmRequestLogContext,
-  },
-  {
-    operationId: "messages_queued_delete",
-    endpoint: "messages/queued/:id",
-    method: "DELETE",
-    policy: {
-      requiredScopes: ["chat.write"],
-      allowedPrincipalTypes: ACTOR_PRINCIPALS,
-    },
-    summary: "Delete a queued message",
-    description:
-      "Remove a pending message from the conversation queue before it is processed. " +
-      "Broadcasts `message_queued_deleted` so every client can close out the pending row.",
-    tags: ["messages"],
-    queryParams: [
-      {
-        name: "conversationId",
-        schema: { type: "string" },
-        required: true,
-        description: "Conversation ID (required)",
-      },
-    ],
-    additionalResponses: {
-      "403": {
-        description:
-          "The queued message was enqueued by a different actor principal.",
-      },
-      "404": {
-        description: "Conversation or queued message not found.",
-      },
-    },
-    handler: handleDeleteQueuedMessage,
-  },
-  {
-    operationId: "messages_queued_steer",
-    endpoint: "messages/queued/:id/steer",
-    method: "POST",
-    policy: {
-      requiredScopes: ["chat.write"],
-      allowedPrincipalTypes: ACTOR_PRINCIPALS,
-    },
-    summary: "Steer to a queued message",
-    description:
-      "Promote a queued message to the head of the queue and abort the current generation so it is processed next.",
-    tags: ["messages"],
-    queryParams: [
-      {
-        name: "conversationId",
-        schema: { type: "string" },
-        required: true,
-        description: "Conversation ID (required)",
-      },
-    ],
-    additionalResponses: {
-      "403": {
-        description:
-          "The queued message was enqueued by a different actor principal.",
-      },
-      "404": {
-        description: "Conversation or queued message not found.",
-      },
-    },
-    handler: handleSteerToMessage,
   },
 ];

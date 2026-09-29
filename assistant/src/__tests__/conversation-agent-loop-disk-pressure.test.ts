@@ -134,7 +134,6 @@ function makeCtx(overrides: Partial<Context> = {}): Conversation {
     emitActivityState: () => {},
     getQueueDepth: () => 0,
     hasQueuedMessages: () => false,
-    canHandoffAtCheckpoint: () => false,
     drainQueue: async (_reason?: string) => {},
     // Forwards to drainQueue so tests that spy the drain observe the agent
     // loop's post-turn kick through the guarded entry point.

@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import { createAssistantMessage } from "../agent/message-types.js";
 import type { Conversation } from "../daemon/conversation.js";
@@ -30,7 +30,6 @@ import {
 import type { AuthContext } from "../runtime/auth/types.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { handleSendMessage } from "../runtime/routes/conversation-routes.js";
-import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 import { callHandler } from "./helpers/call-route-handler.js";
 import { mockUnownedModeSessions } from "./helpers/mock-conversation.js";
 import { setConfig } from "./helpers/set-config.js";
@@ -694,16 +693,12 @@ describe("conversationKey send path disk-view regression", () => {
 });
 
 // A turn clears `preactivatedSkillIds` when it ends, so the per-turn host-proxy
-// setup has to run for whichever turn this send actually drives. Under
-// `interrupt-on-send` that is a replacement turn on a conversation that was busy
-// when the request arrived, and a setup keyed on "was idle on arrival" would
+// setup has to run for whichever turn this send actually drives. When the send
+// interrupts, that is a replacement turn on a conversation that was busy when
+// the request arrived, and a setup keyed on "was idle on arrival" would
 // hand a host-capable macOS client a turn with no `computer-use` or
 // `app-control` tools.
 describe("host-proxy preactivation across an interrupt", () => {
-  afterEach(() => {
-    setOverridesForTesting({});
-  });
-
   /** A conversation mid-turn whose abort releases the lock, as a loop does. */
   function busyConversation(conversationId: string): Conversation {
     const conv = getOrCreateFakeConversation(conversationId) as Conversation & {
@@ -760,7 +755,6 @@ describe("host-proxy preactivation across an interrupt", () => {
     // `macos` natively supports `host_cu` and `host_app_control`, so the real
     // attachment gate says yes to those two without a connected client to
     // stand in for.
-    setOverridesForTesting({ "interrupt-on-send": true });
     const conversationKey = `macos-interrupt-${crypto.randomUUID()}`;
     const { conversationId } = getOrCreateConversationMapping(conversationKey);
     const conv = busyConversation(conversationId) as Conversation & {
@@ -803,7 +797,6 @@ describe("host-proxy preactivation across an interrupt", () => {
     // a send may hold a request open, and a client that timed out would retry a
     // message the daemon is still placing. So the abort, the wait, the repair,
     // the persist and the dispatch all run off the response.
-    setOverridesForTesting({ "interrupt-on-send": true });
     const conversationKey = `macos-async-${crypto.randomUUID()}`;
     const { conversationId } = getOrCreateConversationMapping(conversationKey);
     const conv = getOrCreateFakeConversation(conversationId) as Conversation & {
@@ -861,7 +854,6 @@ describe("host-proxy preactivation across an interrupt", () => {
   test("tells the sender when the queue fallback is rejected after acceptance", async () => {
     // The 202 has already gone out, so `queueSend`'s own 429 answers nobody.
     // Without an event the message is accepted and then silently gone.
-    setOverridesForTesting({ "interrupt-on-send": true });
     const conversationKey = `macos-qfull-${crypto.randomUUID()}`;
     const { conversationId } = getOrCreateConversationMapping(conversationKey);
     const conv = getOrCreateFakeConversation(conversationId) as Conversation & {
@@ -949,7 +941,6 @@ describe("host-proxy preactivation across an interrupt", () => {
     // commands do the same. Nothing would consume the armed
     // `message_interrupted` transition on those, so the next ordinary turn on
     // this conversation would emit one belonging to an interrupt long over.
-    setOverridesForTesting({ "interrupt-on-send": true });
     const conversationKey = `macos-nobridge-${crypto.randomUUID()}`;
     const { conversationId } = getOrCreateConversationMapping(conversationKey);
     const clientMessageId = `cmid-${crypto.randomUUID()}`;
@@ -974,7 +965,6 @@ describe("host-proxy preactivation across an interrupt", () => {
     // must not abort there: it would kill the turn its own original request
     // started, then dedup against the row landing a moment later and start
     // nothing, leaving the send answered by neither.
-    setOverridesForTesting({ "interrupt-on-send": true });
     const conversationKey = `macos-prepersist-${crypto.randomUUID()}`;
     const { conversationId } = getOrCreateConversationMapping(conversationKey);
     const clientMessageId = `cmid-${crypto.randomUUID()}`;
@@ -1015,7 +1005,6 @@ describe("host-proxy preactivation across an interrupt", () => {
     // `completeSend` has its own queue fallbacks, for losing the lock race
     // after the handover. Running detached, their return value reaches nobody
     // either, so a refused enqueue there has to be reported the same way.
-    setOverridesForTesting({ "interrupt-on-send": true });
     const conversationKey = `macos-lockrace-${crypto.randomUUID()}`;
     const { conversationId } = getOrCreateConversationMapping(conversationKey);
     const conv = busyConversation(conversationId) as Conversation & {
@@ -1076,7 +1065,6 @@ describe("host-proxy preactivation across an interrupt", () => {
     // slash branches run, and those branches persist the user row themselves.
     // Minting an id there would advertise a row that never exists, so the
     // client's optimistic row could never be reconciled against it.
-    setOverridesForTesting({ "interrupt-on-send": true });
     const conversationKey = `macos-slash-${crypto.randomUUID()}`;
     const { conversationId } = getOrCreateConversationMapping(conversationKey);
     busyConversation(conversationId);
@@ -1108,7 +1096,6 @@ describe("host-proxy preactivation across an interrupt", () => {
     // copy of the same send finds no running turn of its own and no row yet, so
     // without a reservation both would race the unique `clientMessageId` insert
     // and one would lose.
-    setOverridesForTesting({ "interrupt-on-send": true });
     const conversationKey = `macos-inflight-${crypto.randomUUID()}`;
     const { conversationId } = getOrCreateConversationMapping(conversationKey);
     const clientMessageId = `cmid-${crypto.randomUUID()}`;
@@ -1161,7 +1148,6 @@ describe("host-proxy preactivation across an interrupt", () => {
     // retry skipped every duplicate check, started a second `completeSend`, and
     // could win persistence under its own id, leaving the id the first 202
     // advertised naming no row at all.
-    setOverridesForTesting({ "interrupt-on-send": true });
     const conversationKey = `macos-released-inflight-${crypto.randomUUID()}`;
     const { conversationId } = getOrCreateConversationMapping(conversationKey);
     const clientMessageId = `cmid-${crypto.randomUUID()}`;
@@ -1196,7 +1182,6 @@ describe("host-proxy preactivation across an interrupt", () => {
     // but it settles them by returning the existing row and exiting without
     // starting a turn, which is too late once the abort has fired: the user's
     // answer would be cancelled for good.
-    setOverridesForTesting({ "interrupt-on-send": true });
     const conversationKey = `macos-dup-${crypto.randomUUID()}`;
     const { conversationId } = getOrCreateConversationMapping(conversationKey);
     const clientMessageId = `cmid-${crypto.randomUUID()}`;
@@ -1229,14 +1214,16 @@ describe("host-proxy preactivation across an interrupt", () => {
   });
 
   test("a send that queues instead leaves the running turn's preactivation alone", async () => {
-    // Flag off, so the busy conversation queues. Preactivation belongs to the
-    // drain at dequeue time, not to this request.
-    setOverridesForTesting({ "interrupt-on-send": false });
+    // The lock is held with no abortable turn behind it, so the busy
+    // conversation queues. Preactivation belongs to the drain at dequeue time,
+    // not to this request.
     const conversationKey = `macos-queued-${crypto.randomUUID()}`;
     const { conversationId } = getOrCreateConversationMapping(conversationKey);
     const conv = busyConversation(conversationId) as Conversation & {
       preactivatedSkillIds?: string[];
+      abortController: AbortController | null;
     };
+    conv.abortController = null;
 
     const response = await sendMacosMessage(conversationKey, "queued instead");
 

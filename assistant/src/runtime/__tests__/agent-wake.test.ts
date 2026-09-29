@@ -398,7 +398,6 @@ import {
 // "continue" — so the loop result always carries a null pause-reason.
 const runResult = (history: Message[]): AgentLoopRunResult => ({
   history,
-  exitReason: null,
   // The wake path slices its own new-message boundary off the returned
   // history (it never destructures `newMessages`), so this is type-only.
   newMessages: [],
@@ -2947,13 +2946,12 @@ describe("wakeAgentForOpportunity", () => {
             message: turn1Assistant,
           });
           runHistory.push(turn1ToolResult);
-          const dec1 = await runOptions!.onCheckpoint!({
+          await runOptions!.onCheckpoint!({
             turnIndex: 0,
             toolCount: 1,
             hasToolUse: true,
             history: runHistory,
           });
-          expect(dec1).toBe("continue");
 
           // Turn 2: another tool turn — must already see the live
           // streaming because mode flipped after turn 1.
@@ -2964,13 +2962,12 @@ describe("wakeAgentForOpportunity", () => {
             message: turn2Assistant,
           });
           runHistory.push(turn2ToolResult);
-          const dec2 = await runOptions!.onCheckpoint!({
+          await runOptions!.onCheckpoint!({
             turnIndex: 1,
             toolCount: 1,
             hasToolUse: true,
             history: runHistory,
           });
-          expect(dec2).toBe("continue");
 
           // Final assistant message with no tool calls — loop would
           // exit. onCheckpoint does NOT fire for the terminal turn,
@@ -3941,12 +3938,7 @@ describe("wakeAgentForOpportunity", () => {
 
 describe("background command completion notification wiring", () => {
   for (const status of ["completed", "failed", "cancelled"] as const) {
-    test.each([
-      "no_tool_calls",
-      "error",
-      "aborted_pre_call",
-      "checkpoint_handoff",
-    ] as const)(
+    test.each(["no_tool_calls", "error", "aborted_pre_call"] as const)(
       `%s wake settles a ${status} command after releasing the wake queue`,
       async (reason) => {
         const conversation = makeWakeConversation({

@@ -437,39 +437,6 @@ export class ConversationModeSessionCoordinator {
     return false;
   }
 
-  transferTurn(fromTurnId: string, toTurnId: string): ModeSession | undefined {
-    if (fromTurnId === toTurnId) {
-      return this.#turns.get(toTurnId)?.owner;
-    }
-    const turn = this.#turns.get(fromTurnId);
-    const destination = this.#turns.get(toTurnId);
-    if (!turn?.owner) {
-      return destination?.owner;
-    }
-    if (destination?.owner && destination.owner.id !== turn.owner.id) {
-      bestEffortModeSessionTracking("handoff origin settlement", () =>
-        this.releaseTurn(fromTurnId, {
-          status: "completed",
-          endReason: "handoff_settled",
-        }),
-      );
-      return destination.owner;
-    }
-    bestEffortModeSessionTracking("handoff origin rows", () =>
-      this.#repairTrackedRows(turn),
-    );
-    const transferred: TurnState = destination ?? { rows: [] };
-    transferred.owner ??= turn.owner;
-    transferred.runtimeState ??= turn.runtimeState;
-    transferred.terminalDisposition ??= turn.terminalDisposition;
-    this.#turns.set(toTurnId, transferred);
-    this.#turns.delete(fromTurnId);
-    bestEffortModeSessionTracking("handoff destination rows", () =>
-      this.#repairTrackedRows(transferred),
-    );
-    return transferred.owner;
-  }
-
   getTerminalDisposition(
     turnId: string,
   ): ModeSessionTerminalDisposition | undefined {

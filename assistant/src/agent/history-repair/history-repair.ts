@@ -274,8 +274,8 @@ export function repairHistory(messages: Message[]): RepairResult {
     resultSourceIndex.push(-1);
   }
 
-  // Merge consecutive same-role messages. This can occur after a checkpoint
-  // handoff where a user(tool_result) message is followed by a user(new_message),
+  // Merge consecutive same-role messages. This can occur after an interrupted
+  // turn where a user(tool_result) message is followed by a user(new_message),
   // or from other history reconstruction artifacts. The Anthropic API requires
   // strict user/assistant alternation, so consecutive same-role messages must
   // always be merged. Undo semantics for mixed tool_result+text messages are

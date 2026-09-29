@@ -220,12 +220,11 @@ export function forceClearStaleProcessing(
  *
  * A user interrupt ends the turn in flight and nothing else: the aborted turn
  * unwinds to the agent loop's `finally`, which calls `kickDrainQueue`, so the
- * queued messages become the next turn. This is the same drain-after-abort
- * sequence `steerToMessage` relies on.
+ * queued messages become the next turn.
  *
  * An interrupt can land mid-tool, leaving `tool_use` blocks with no results, so
- * arm the same repair a steer arms: the drained turn then opens with synthetic
- * results instead of a dangling call.
+ * arm the tool-use repair: the drained turn then opens with synthetic results
+ * instead of a dangling call.
  *
  * `hasLiveTurn` is false when the processing flag was force-cleared because no
  * controller was left to signal. No agent-loop `finally` runs in that case, so
@@ -266,9 +265,8 @@ function preserveQueueAcrossInterrupt(
  *
  * Each sender gets two events, both load-bearing. `generation_cancelled`
  * closes out the turn the message was waiting on; `message_queued_deleted` is
- * the terminal event for the queued row itself, the same one a user-issued
- * DELETE emits (`deleteQueuedMessage`). Without the second, a client holds the
- * pending indicator forever, since no `message_dequeued` is coming. Rows with
+ * the terminal event for the queued row itself. Without the second, a client
+ * holds the pending indicator forever, since no `message_dequeued` is coming. Rows with
  * no client-visible queued counterpart ({@link isSuppressedQueuedMessage} —
  * hidden sends and daemon-injected subagent/ACP/wake notifications) are
  * suppressed for the same reason they get no queued ack: they have no client
