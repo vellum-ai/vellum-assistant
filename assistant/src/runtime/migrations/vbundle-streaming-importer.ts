@@ -345,8 +345,8 @@ export async function streamCommitImport(
           );
         }
 
-        // Only NOW — after the manifest is parsed (including its entry-count
-        // ceiling) and the version gate passes — do we materialize the
+        // Only NOW, after the manifest is parsed (including its entry-count
+        // ceiling) and the version gate passes, do we materialize the
         // temp staging dir on disk. Doing this lazily preserves the plan
         // invariant that importers gate on runtime-version compat BEFORE
         // any state mutation. If this throws, the outer catch runs

@@ -176,7 +176,7 @@ describe("ManifestSchema — v1 acceptance", () => {
   });
 });
 
-describe("validateVBundle — manifest size cap", () => {
+describe("validateVBundle: manifest size caps", () => {
   test("rejects a manifest over MANIFEST_MAX_BYTES with MANIFEST_TOO_LARGE", () => {
     const oversized = new Uint8Array(MANIFEST_MAX_BYTES + 1).fill(0x20);
     const archive = gzipSync(
