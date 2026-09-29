@@ -8,16 +8,13 @@ import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { useAssistantHandleModal } from "@/components/assistant-handle-modal";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { AssistantInboxUpgradeBody } from "@/domains/assistant-inbox/components/assistant-inbox-upgrade-body";
-import { DomainField } from "@/domains/channels/components/domain-field";
 import {
-  assistantsDomainsCreateMutation,
   assistantsDomainsDestroyMutation,
   assistantsDomainsListOptions,
   assistantsDomainsListQueryKey,
   assistantsDomainsVerificationStatusRetrieveOptions,
   assistantsDomainsVerificationStatusRetrieveQueryKey,
   assistantsDomainsVerificationStatusRetrieveSetQueryData,
-  assistantsEmailAddressesCreateMutation,
   assistantsEmailAddressesDestroyMutation,
   assistantsEmailAddressesListOptions,
   assistantsEmailAddressesListQueryKey,
@@ -34,7 +31,6 @@ import {
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { extractErrorMessage } from "@/utils/api-errors";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
@@ -86,12 +82,6 @@ export function EmailManagedContent({
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const [subdomainDraft, setSubdomainDraft] = useState("");
-  const [subdomainPrefilled, setSubdomainPrefilled] = useState(false);
-  const [subdomainError, setSubdomainError] = useState<string | null>(null);
-  const [usernameDraft, setUsernameDraft] = useState("");
-  const [usernameError, setUsernameError] = useState<string | null>(null);
-  const [registerConfirmOpen, setRegisterConfirmOpen] = useState(false);
   const [releaseConfirmOpen, setReleaseConfirmOpen] = useState(false);
   const [removeAddressConfirmOpen, setRemoveAddressConfirmOpen] =
     useState(false);
@@ -101,14 +91,6 @@ export function EmailManagedContent({
   const { copied: copiedAddress, copy: copyAddress } = useCopyToClipboard({
     errorMessage: t("emailManagedContent.copyAddressFailed"),
   });
-
-  useEffect(() => {
-    if (subdomainPrefilled || !assistantHandle || subdomainDraft) {
-      return;
-    }
-    setSubdomainDraft(assistantHandle);
-    setSubdomainPrefilled(true);
-  }, [assistantHandle, subdomainPrefilled, subdomainDraft]);
 
   // -- Subscription gate (managed mode requires the managed_email entitlement)
   // We read the `managed_email` entitlement directly rather than inferring it
@@ -190,10 +172,8 @@ export function EmailManagedContent({
   }, [address, domain, searchParams, setSearchParams]);
 
   // -- Mutations -------------------------------------------------------------
-  const registerDomain = useMutation(assistantsDomainsCreateMutation());
   const deleteDomain = useMutation(assistantsDomainsDestroyMutation());
   const provisionDomain = useAssistantsDomainsProvisionCreateMutation();
-  const registerAddress = useMutation(assistantsEmailAddressesCreateMutation());
   const deleteAddress = useMutation(assistantsEmailAddressesDestroyMutation());
   const refreshReadiness = useMutation(channelsReadinessRefreshPostMutation());
 
@@ -229,7 +209,6 @@ export function EmailManagedContent({
   // active id (a local slug on self-hosted assistants).
   const activeAssistantId = useActiveAssistantId();
   const assistantName = useAssistantIdentityStore.use.name();
-  const inboxEnabled = useClientFeatureFlagStore.use.assistantInbox();
   const handleModal = useAssistantHandleModal(activeAssistantId);
   const refreshReadinessMutateAsync = refreshReadiness.mutateAsync;
   const refreshChannelReadiness = useCallback(() => {
@@ -250,78 +229,6 @@ export function EmailManagedContent({
   }, [activeAssistantId, queryClient, refreshReadinessMutateAsync]);
 
   // -- Handlers --------------------------------------------------------------
-  const handleRegisterDomain = useCallback(async () => {
-    const trimmed = subdomainDraft.trim().toLowerCase();
-    if (!trimmed) {
-      setSubdomainError(t("emailManagedContent.enterSubdomainError"));
-      return;
-    }
-    setRegisterConfirmOpen(false);
-    try {
-      await registerDomain.mutateAsync({
-        path: { assistant_id: assistantId },
-        body: { subdomain: trimmed },
-      });
-      setSubdomainDraft("");
-      setSubdomainError(null);
-      invalidateEmailQueries();
-      toast.success(
-        t("emailManagedContent.domainRegisteredToast", {
-          domain: `${trimmed}.${emailRootDomain}`,
-        }),
-      );
-    } catch (err) {
-      setSubdomainError(
-        extractErrorMessage(
-          err,
-          undefined,
-          t("emailManagedContent.registerDomainFailedFallback"),
-        ),
-      );
-    }
-  }, [
-    assistantId,
-    emailRootDomain,
-    invalidateEmailQueries,
-    registerDomain,
-    subdomainDraft,
-    t,
-  ]);
-
-  const handleRegisterAddress = useCallback(async () => {
-    const trimmed = usernameDraft.trim().toLowerCase();
-    if (!trimmed) {
-      setUsernameError(t("emailManagedContent.enterUsernameError"));
-      return;
-    }
-    try {
-      await registerAddress.mutateAsync({
-        path: { assistant_id: assistantId },
-        body: { username: trimmed },
-      });
-      setUsernameDraft("");
-      setUsernameError(null);
-      invalidateEmailQueries();
-      refreshChannelReadiness();
-      toast.success(t("emailManagedContent.emailCreatedToast"));
-    } catch (err) {
-      setUsernameError(
-        extractErrorMessage(
-          err,
-          undefined,
-          t("emailManagedContent.createEmailFailedFallback"),
-        ),
-      );
-    }
-  }, [
-    assistantId,
-    invalidateEmailQueries,
-    refreshChannelReadiness,
-    registerAddress,
-    usernameDraft,
-    t,
-  ]);
-
   const handleDeleteAddress = useCallback(async () => {
     if (!address?.id) {
       return;
@@ -389,12 +296,10 @@ export function EmailManagedContent({
       return;
     }
     setReleaseConfirmOpen(false);
-    const releasedSubdomain = domain.subdomain;
     try {
       await deleteDomain.mutateAsync({
         path: { assistant_id: assistantId, id: domain.id },
       });
-      setSubdomainDraft(releasedSubdomain);
       invalidateEmailQueries();
       toast.success(t("emailManagedContent.domainReleasedToast"));
     } catch (err) {
@@ -406,7 +311,6 @@ export function EmailManagedContent({
     assistantId,
     deleteDomain,
     domain?.id,
-    domain?.subdomain,
     invalidateEmailQueries,
     t,
   ]);
@@ -421,13 +325,11 @@ export function EmailManagedContent({
     );
   }
 
-  if (isExplicitlyNotEntitled && inboxEnabled) {
+  if (isExplicitlyNotEntitled) {
     /* The Assistant Inbox's own pitch, so it reads the same from either
        door. No title here: the Email section's header carries the
        pitch's title and line in this state (see `EmailChannelSection`), and
-       the body sits at the start under it rather than in a card of its own.
-       Behind the inbox's flag: the pitch promises an inbox, which only
-       exists for people who have the flag. */
+       the body sits at the start under it rather than in a card of its own. */
     return (
       <>
         <AssistantInboxUpgradeBody
@@ -442,23 +344,6 @@ export function EmailManagedContent({
         />
         {handleModal.modal}
       </>
-    );
-  }
-
-  if (isExplicitlyNotEntitled) {
-    return (
-      <Notice
-        tone="info"
-        icon={<Mail className="h-4 w-4" aria-hidden />}
-        title={t("emailManagedContent.upgradeNoticeTitle")}
-        actions={
-          <Button size="compact" onClick={() => navigate(routes.plans)}>
-            {t("emailManagedContent.upgradeButton")}
-          </Button>
-        }
-      >
-        {t("emailManagedContent.upgradeNoticeBody")}
-      </Notice>
     );
   }
 
@@ -484,12 +369,11 @@ export function EmailManagedContent({
     </Notice>
   ) : null;
 
-  /* With the Assistant Inbox on, the address is created from the inbox's own
-     setup card, the one place that also opens the mailbox once it exists.
-     This section then points there instead of carrying a second way to
-     register: an address made here would leave the inbox with nothing to
-     show for it. Behind the inbox's flag, like the pitch above. */
-  const inboxSetupNotice = inboxEnabled ? (
+  /* The address is created from the Assistant Inbox's own setup card, the
+     one place that also opens the mailbox once it exists. This section
+     points there instead of carrying a second way to register: an address
+     made here would leave the inbox with nothing to show for it. */
+  const inboxSetupNotice = (
     <Notice
       tone="info"
       icon={<Mail className="h-4 w-4" aria-hidden />}
@@ -506,69 +390,13 @@ export function EmailManagedContent({
     >
       {t("emailManagedContent.inboxSetupBody")}
     </Notice>
-  ) : null;
+  );
 
   if (!domain) {
-    if (inboxSetupNotice) {
-      return (
-        <div className="space-y-3">
-          {subscriptionWarning}
-          {inboxSetupNotice}
-        </div>
-      );
-    }
     return (
       <div className="space-y-3">
         {subscriptionWarning}
-        <label className="block text-body-small-default text-[var(--content-tertiary)]">
-          {t("emailManagedContent.subdomainLabel")}
-        </label>
-        <DomainField
-          subdomain={subdomainDraft}
-          onSubdomainChange={(v) => {
-            setSubdomainDraft(v);
-            if (subdomainError) {
-              setSubdomainError(null);
-            }
-          }}
-          domainSuffix={emailRootDomain}
-          subdomainPlaceholder={t(
-            "emailManagedContent.subdomainExamplePlaceholder",
-          )}
-          error={subdomainError}
-        />
-        <p className="text-body-small-lighter text-[var(--content-tertiary)]">
-          {t("emailManagedContent.subdomainHint")}
-        </p>
-        <Button
-          onClick={() => setRegisterConfirmOpen(true)}
-          disabled={registerDomain.isPending || !subdomainDraft.trim()}
-        >
-          {registerDomain.isPending
-            ? t("emailManagedContent.registering")
-            : t("emailManagedContent.register")}
-        </Button>
-        <ConfirmDialog
-          open={registerConfirmOpen}
-          title={t("emailManagedContent.setSubdomainTitle")}
-          message={
-            <Trans
-              i18nKey="emailManagedContent.setSubdomainConfirmMessage"
-              ns="channels"
-              values={{
-                subdomain:
-                  subdomainDraft.trim().toLowerCase() ||
-                  t("emailManagedContent.subdomainFallback"),
-              }}
-              components={{
-                code: <code className={CONFIRM_CODE_CLASS} />,
-              }}
-            />
-          }
-          confirmLabel={t("emailManagedContent.confirm")}
-          onConfirm={handleRegisterDomain}
-          onCancel={() => setRegisterConfirmOpen(false)}
-        />
+        {inboxSetupNotice}
       </div>
     );
   }
@@ -621,50 +449,7 @@ export function EmailManagedContent({
         </div>
 
         {/* The domain row stays: releasing a domain is offered only here. */}
-        {inboxSetupNotice ?? (
-          <div className="space-y-1.5">
-            <label className="block text-body-small-default text-[var(--content-tertiary)]">
-              {t("emailManagedContent.emailAddressLabel")}
-            </label>
-            <div className="flex items-center gap-2">
-              <div
-                className={`flex h-9 min-w-0 flex-1 items-center rounded-md border bg-[var(--field-bg)] text-body-medium-lighter transition-[border-color] duration-150 ${usernameError ? "border-[var(--system-negative-strong)]" : "border-[var(--field-border)] focus-within:border-[var(--border-active)]"}`}
-              >
-                <input
-                  value={usernameDraft}
-                  onChange={(e) => {
-                    setUsernameDraft(e.target.value.toLowerCase());
-                    if (usernameError) {
-                      setUsernameError(null);
-                    }
-                  }}
-                  placeholder={t(
-                    "emailManagedContent.emailUsernamePlaceholder",
-                  )}
-                  aria-label={t("emailManagedContent.emailUsernameAriaLabel")}
-                  aria-invalid={!!usernameError}
-                  className="h-full min-w-0 flex-1 bg-transparent pl-3 pr-1 text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] outline-none"
-                />
-                <span className="shrink-0 pr-3 font-mono text-[var(--content-secondary)]">
-                  @{fullDomain}
-                </span>
-              </div>
-              <Button
-                onClick={handleRegisterAddress}
-                disabled={registerAddress.isPending || !usernameDraft.trim()}
-              >
-                {registerAddress.isPending
-                  ? t("emailManagedContent.creating")
-                  : t("emailManagedContent.create")}
-              </Button>
-            </div>
-            {usernameError && (
-              <p className="text-body-small-default text-[var(--system-negative-strong)]">
-                {usernameError}
-              </p>
-            )}
-          </div>
-        )}
+        {inboxSetupNotice}
       </div>
     );
   }

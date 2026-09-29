@@ -48,7 +48,6 @@ import {
 import { useTranslation } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { usePendingDeepLinkStore } from "@/stores/pending-deep-link-store";
 import { extractErrorMessage } from "@/utils/api-errors";
 import { navigateToNewConversation } from "@/utils/conversation-navigation";
@@ -213,17 +212,14 @@ function Mailbox({
 
 /**
  * `/assistant/inbox`. Picks the inbox's state for the active assistant and
- * draws it: the upgrade card, the setup card, or the mailbox. Behind the
- * `assistant-inbox` flag; with it off the route sends the user to chat, so
- * a stale link never opens a surface the rail does not offer. The redirect
- * waits for the flag store to hydrate and the platform session to settle:
- * on a cold load both start out answering "no", and bouncing on those
- * defaults would send a remotely enabled user away from their own inbox.
+ * draws it: the upgrade card, the setup card, or the mailbox. Off the
+ * platform the route sends the user to chat; that redirect waits for the
+ * platform session to settle, since on a cold load it starts out answering
+ * "no", and bouncing on that default would send a signed-in user away from
+ * their own inbox.
  */
 export function AssistantInboxPageRoute() {
   const { t } = useTranslation("assistant-inbox");
-  const flagsHydrated = useClientFeatureFlagStore.use.hydrated();
-  const enabled = useClientFeatureFlagStore.use.assistantInbox();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const assistantId = useActiveAssistantId();
@@ -385,13 +381,6 @@ export function AssistantInboxPageRoute() {
       t,
     ],
   );
-
-  if (!flagsHydrated) {
-    return <InboxLoading label={t("assistantInboxRoute.loading")} />;
-  }
-  if (!enabled) {
-    return <Navigate to="/" replace />;
-  }
 
   switch (state.status) {
     case "unavailable":

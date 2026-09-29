@@ -28,6 +28,7 @@ import type { DiskPressureStatus } from "@vellumai/assistant-api";
 import { Button } from "@vellumai/design-library/components/button";
 import { Tag } from "@vellumai/design-library/components/tag";
 import { withQueryCache } from "@/lib/story-query-cache";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 import { DiskPressureBanner } from "@/components/disk-pressure-banner";
 import { BillingErrorBanner } from "@/domains/chat/components/billing-error-banner";
@@ -271,6 +272,13 @@ export const ResourceAndEntitlementWalls: Story = {
   // The seeded cache is only for the entitlement wall's subscription read;
   // every other case on this page is pure props.
   decorators: [withNotEntitledSubscription],
+  // The wall is the inbox's pitch, drawn for the active assistant; outside
+  // the app's route gate that id has to be seeded.
+  beforeEach: () => {
+    useResolvedAssistantsStore.setState({
+      activeAssistantId: "story-assistant",
+    });
+  },
   render: () => (
     <div className="mx-auto flex w-full max-w-[760px] flex-col gap-10 py-4">
       <Group heading="Storage wall">

@@ -45,7 +45,6 @@ import type {
   SubscriptionResponse,
 } from "@/generated/api/types.gen";
 import { pressBackdrop } from "@/lib/overlay-test-helpers";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import {
   readCheckoutIntent,
   saveCheckoutIntent,
@@ -384,7 +383,6 @@ beforeEach(() => {
   dateNowOffsetMs = 0;
   toastInfoCalls.length = 0;
   selectedAssistantIds.length = 0;
-  useClientFeatureFlagStore.setState({ assistantInbox: false });
   sessionStorage.clear();
 });
 
@@ -397,9 +395,9 @@ afterAll(() => {
 });
 
 describe("BillingOnboardingModal", () => {
-  test("happy path: confirm → resize observed → done → auto-advance to domain", async () => {
+  test("happy path: confirm → resize observed → done → hands off to the inbox", async () => {
     saveCheckoutIntent({ kind: "package", packageKey: "super" });
-    const { client, getByText } = renderModal();
+    const { client, getByText, getByTestId, onClose } = renderModal();
 
     await waitFor(() =>
       expect(getByText("Confirming your upgrade…")).toBeTruthy(),
@@ -426,11 +424,14 @@ describe("BillingOnboardingModal", () => {
     await waitFor(() => expect(getByText("All done!")).toBeTruthy(), {
       timeout: 5000,
     });
-    // The celebration dwell elapses and the wizard advances to the domain step.
-    await waitFor(() => expect(getByText("Assistant Email")).toBeTruthy(), {
-      timeout: 5000,
-    });
-  });
+    // The celebration dwell elapses and the wizard leaves for the inbox's
+    // setup card, where the address is made.
+    await waitFor(
+      () => expect(getByTestId("loc").textContent).toBe("/assistant/inbox"),
+      { timeout: 10_000 },
+    );
+    expect(onClose).toHaveBeenCalled();
+  }, 20_000);
 
   test("a stash still carrying the signup marker is not named as purchased", async () => {
     // Keep the plan at base so CONFIRMING persists and the chip row is
@@ -533,7 +534,8 @@ describe("BillingOnboardingModal", () => {
   test("storage-only package provisions without a machine card", async () => {
     subscriptionPlanId = "pro";
     onboardingResponse = makeOnboarding({ max_machine_tier: null });
-    const { client, getByText, queryByText } = renderModal();
+    const { client, getByText, getByTestId, queryByText, onClose } =
+      renderModal();
 
     await waitFor(
       () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
@@ -553,10 +555,12 @@ describe("BillingOnboardingModal", () => {
 
     assistantResponse = makeAssistant("small", 50);
     await client.invalidateQueries();
-    await waitFor(() => expect(getByText("Assistant Email")).toBeTruthy(), {
-      timeout: 5000,
-    });
-  });
+    await waitFor(
+      () => expect(getByTestId("loc").textContent).toBe("/assistant/inbox"),
+      { timeout: 10_000 },
+    );
+    expect(onClose).toHaveBeenCalled();
+  }, 20_000);
 
   test("a machine-less package renders the floor its pod is capped down to", async () => {
     subscriptionPlanId = "pro";
@@ -608,16 +612,18 @@ describe("BillingOnboardingModal", () => {
     assistantResponse = makeAssistant("large", 50);
     // Nothing to do: the reconcile confirms it rather than queueing a resize.
     ensureResponse = makeEnsureResponse("already_done");
-    const { getByText } = renderModal();
+    const { getByText, getByTestId, onClose } = renderModal();
 
     await waitFor(() => expect(getByText("All done!")).toBeTruthy(), {
       timeout: 5000,
     });
-    await waitFor(() => expect(getByText("Assistant Email")).toBeTruthy(), {
-      timeout: 5000,
-    });
+    await waitFor(
+      () => expect(getByTestId("loc").textContent).toBe("/assistant/inbox"),
+      { timeout: 10_000 },
+    );
+    expect(onClose).toHaveBeenCalled();
     expect(ensureCalls).toBe(1);
-  });
+  }, 20_000);
 
   test("ensure-provisioned being unavailable still lets the fast path resolve by inference", async () => {
     subscriptionPlanId = "pro";
@@ -625,20 +631,25 @@ describe("BillingOnboardingModal", () => {
     // The reconcile 503s: no verdict, no error surface — the actuals the
     // wizard polls already meet the targets, so it reads NOT_APPLICABLE.
     ensureError = { error: "provisioning_submission_failed" };
-    const { getByText, queryByText } = renderModal();
+    const { getByText, getByTestId, queryByText, onClose } = renderModal();
 
     await waitFor(() => expect(getByText("Your plan is ready")).toBeTruthy(), {
       timeout: 5000,
     });
     expect(queryByText("Couldn't reach billing")).toBeNull();
-    await waitFor(() => expect(getByText("Assistant Email")).toBeTruthy(), {
-      timeout: 5000,
-    });
-  });
+    await waitFor(
+      () => expect(getByTestId("loc").textContent).toBe("/assistant/inbox"),
+      { timeout: 10_000 },
+    );
+    expect(onClose).toHaveBeenCalled();
+  }, 20_000);
 
-  test("provisioning renders a full-bleed white takeover; the domain step reverts to a standard card", async () => {
+  test("provisioning renders a full-bleed white takeover", async () => {
     subscriptionPlanId = "pro";
     assistantResponse = makeAssistant("large", 50);
+    // Route to the complete card, so the takeover leaves through its exit
+    // sheet rather than for the inbox.
+    onboardingResponse = makeOnboarding({ domain_setup_available: false });
     const { getByText, getByTestId, findByTestId } = renderModal();
 
     // Provisioning phase: full-bleed Modal.Content on the takeover's ground,
@@ -659,13 +670,6 @@ describe("BillingOnboardingModal", () => {
     // ground, so leaving never cross-fades a second colour.
     const sheet = await findByTestId("takeover-exit-sheet");
     expect(sheet.style.backgroundColor).toBe(PROVISIONING_SURFACE);
-
-    // Domain step: standard card, no full-bleed sizing.
-    await waitFor(() => expect(getByText("Assistant Email")).toBeTruthy(), {
-      timeout: 5000,
-    });
-    const card = document.body.querySelector('[data-slot="modal-content"]');
-    expect(card?.className).not.toContain("w-screen");
   });
 
   test("a terminal takeover stays dismissable via the backdrop when routing is still resolving", async () => {
@@ -779,7 +783,8 @@ describe("BillingOnboardingModal", () => {
   test("a resize settling while the background confirm is open dismisses it without force-closing the advanced step", async () => {
     subscriptionPlanId = "pro";
     // Route to complete so the dialog's own "Continue"/"Keep waiting" are the
-    // only ones on screen — the domain step renders its own "Continue" button.
+    // only ones on screen, and the wizard stays mounted instead of leaving
+    // for the inbox.
     onboardingResponse = makeOnboarding({ domain_setup_available: false });
     const { client, getByText, getByTestId, queryByText, onClose } =
       renderModal();
@@ -1009,24 +1014,27 @@ describe("BillingOnboardingModal", () => {
     );
   }, 20_000);
 
-  test("an already-registered domain does not skip the domain step in checkout mode", async () => {
+  test("an already-registered domain still hands off to the inbox in checkout mode", async () => {
     subscriptionPlanId = "pro";
     assistantResponse = makeAssistant("large", 50);
     // A domain already exists, but checkout mode never consults it — the
-    // modal-level query stays off and DomainStep renders its locked variant.
+    // modal-level query stays off and the inbox decides what to show.
     domainsResponse = makeDomains(true);
-    const { getByText } = renderModal();
+    const { getByText, getByTestId, onClose } = renderModal();
 
     await waitFor(() => expect(getByText("All done!")).toBeTruthy(), {
       timeout: 5000,
     });
-    await waitFor(() => expect(getByText("Assistant Email")).toBeTruthy(), {
-      timeout: 5000,
-    });
-  });
+    await waitFor(
+      () => expect(getByTestId("loc").textContent).toBe("/assistant/inbox"),
+      { timeout: 10_000 },
+    );
+    expect(onClose).toHaveBeenCalled();
+    expect(domainsCalls).toBe(0);
+  }, 20_000);
 });
 
-describe("BillingOnboardingModal — Assistant Inbox on", () => {
+describe("BillingOnboardingModal, email setup hands off to the inbox", () => {
   /** Runs checkout to the landed resize, where routing decides the next step. */
   async function landCheckout(
     client: QueryClient,
@@ -1052,8 +1060,7 @@ describe("BillingOnboardingModal — Assistant Inbox on", () => {
     });
   }
 
-  test("checkout hands off to the inbox route in place of the domain step", async () => {
-    useClientFeatureFlagStore.setState({ assistantInbox: true });
+  test("checkout hands off to the inbox route for email setup", async () => {
     saveCheckoutIntent({ kind: "package", packageKey: "super" });
     const { client, onClose, getByText, getByTestId, queryByText } =
       renderModal();
@@ -1082,7 +1089,6 @@ describe("BillingOnboardingModal — Assistant Inbox on", () => {
   }, 20_000);
 
   test("checkout with domain setup unavailable still completes in place", async () => {
-    useClientFeatureFlagStore.setState({ assistantInbox: true });
     onboardingResponse = makeOnboarding({ domain_setup_available: false });
     saveCheckoutIntent({ kind: "package", packageKey: "super" });
     const { client, onClose, getByText, getByTestId } = renderModal();
@@ -1100,7 +1106,6 @@ describe("BillingOnboardingModal — Assistant Inbox on", () => {
   }, 20_000);
 
   test("a resize whose domain step is newly usable hands off to the inbox too", async () => {
-    useClientFeatureFlagStore.setState({ assistantInbox: true });
     subscriptionPlanId = "pro";
     const { client, onClose, getByText, getByTestId, queryByText } =
       renderModal({ mode: "resize" });
@@ -1126,7 +1131,6 @@ describe("BillingOnboardingModal — Assistant Inbox on", () => {
   }, 20_000);
 
   test("a resize with a domain already registered completes in place", async () => {
-    useClientFeatureFlagStore.setState({ assistantInbox: true });
     subscriptionPlanId = "pro";
     domainsResponse = makeDomains(true);
     const { client, getByText, getByTestId } = renderModal({ mode: "resize" });
@@ -1145,25 +1149,6 @@ describe("BillingOnboardingModal — Assistant Inbox on", () => {
 });
 
 describe("BillingOnboardingModal — resize mode", () => {
-  test("entitled with no domain routes through the domain step", async () => {
-    subscriptionPlanId = "pro";
-    const { client, getByText } = renderModal({ mode: "resize" });
-
-    await waitFor(
-      () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
-      { timeout: 5000 },
-    );
-
-    assistantResponse = makeAssistant("large", 50);
-    await client.invalidateQueries();
-    await waitFor(() => expect(getByText("All done!")).toBeTruthy(), {
-      timeout: 5000,
-    });
-    await waitFor(() => expect(getByText("Assistant Email")).toBeTruthy(), {
-      timeout: 5000,
-    });
-  });
-
   test("entitled with an existing domain skips straight to complete", async () => {
     subscriptionPlanId = "pro";
     domainsResponse = makeDomains(true);
@@ -1225,10 +1210,12 @@ describe("BillingOnboardingModal — resize mode", () => {
     expect(domainCreateCalls).toBe(0);
   }, 20_000);
 
-  test("a failing domains endpoint still advances to the domain step", async () => {
+  test("a failing domains endpoint still hands off to the inbox", async () => {
     subscriptionPlanId = "pro";
     domainsFails = true;
-    const { client, getByText } = renderModal({ mode: "resize" });
+    const { client, getByText, getByTestId, onClose } = renderModal({
+      mode: "resize",
+    });
 
     await waitFor(
       () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
@@ -1237,12 +1224,14 @@ describe("BillingOnboardingModal — resize mode", () => {
 
     assistantResponse = makeAssistant("large", 50);
     await client.invalidateQueries();
-    // An errored fetch counts as answered: routing falls back to the domain
-    // step rather than hanging on the celebration.
-    await waitFor(() => expect(getByText("Assistant Email")).toBeTruthy(), {
-      timeout: 5000,
-    });
-  });
+    // An errored fetch counts as answered: routing falls back to email setup
+    // rather than hanging on the celebration.
+    await waitFor(
+      () => expect(getByTestId("loc").textContent).toBe("/assistant/inbox"),
+      { timeout: 10_000 },
+    );
+    expect(onClose).toHaveBeenCalled();
+  }, 20_000);
 
   test("a stale checkout intent is ignored in resize mode", async () => {
     // Keep the plan at base so CONFIRMING persists and the copy is observable.
@@ -1602,9 +1591,9 @@ describe("BillingOnboardingModal — resize mode", () => {
 
     // The per-id guard re-invalidates for B, so its cached list is refetched
     // and crosses the fence; domainsKnown flips true, routing settles, and the
-    // takeover auto-advances to the domain step (B has no domain) instead of
-    // stranding on "All done!".
-    await waitFor(() => expect(getByText("Assistant Email")).toBeTruthy(), {
+    // takeover hands off to the inbox's email setup (B has no domain) instead
+    // of stranding on "All done!".
+    await waitFor(() => expect(onClose).toHaveBeenCalled(), {
       timeout: 5000,
     });
     // The re-fire for B is what unblocks routing — a boolean latch would have

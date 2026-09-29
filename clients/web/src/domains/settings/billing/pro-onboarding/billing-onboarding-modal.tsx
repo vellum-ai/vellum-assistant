@@ -11,14 +11,12 @@ import {
   type CheckoutIntent,
 } from "@/lib/billing/checkout-intent";
 import { useTranslation } from "@/i18n";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { routes } from "@/utils/routes";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { toast } from "@vellumai/design-library/components/toast";
 
 import { CompleteState } from "./complete-state";
-import { DomainStep } from "./domain-step";
 import { FetchErrorState } from "./error-states";
 import type {
   ProvisioningDimensions,
@@ -31,11 +29,11 @@ import { useProProvisioning } from "./use-pro-provisioning";
 import type { CreditTierChange } from "./use-provisioning-credits";
 
 /**
- * The wizard's steps. With the Assistant Inbox on, "domain" is never shown:
- * the moment the wizard would advance into it, it hands the user to the
- * inbox's own setup card instead (see `handOffToInbox`).
+ * The wizard's steps. Email setup is not one of them: the moment the wizard
+ * would have offered it, it hands the user to the Assistant Inbox's own
+ * setup card instead (see `handOffToInbox`).
  */
-type WizardStep = "provisioning" | "domain" | "complete";
+type WizardStep = "provisioning" | "complete";
 
 /**
  * Leaving the takeover changes the modal's shape in one frame, which does
@@ -123,7 +121,6 @@ export function BillingOnboardingModal({
   const isResize = mode === "resize";
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const inboxEnabled = useClientFeatureFlagStore.use.assistantInbox();
   const [step, setStep] = useState<WizardStep>("provisioning");
   const [takeoverExit, setTakeoverExit] = useState<TakeoverExit>("idle");
   const exitTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -193,15 +190,13 @@ export function BillingOnboardingModal({
   // Domain/email/guardian registration must run while the assistant's machine
   // is online: registering the email triggers a guardian-channel write to the
   // machine's gateway. The platform auto-resizes (and restarts) the machine
-  // right after checkout, so the domain step stays guarded (submit disabled)
-  // while that resize is in flight — including a stall, where the machine may
-  // still be mid-restart.
+  // right after checkout, so the takeover's exits stay guarded while that
+  // resize is in flight, including a stall, where the machine may still be
+  // mid-restart.
   const machineBusy = isMachineBusy(provisioning.state);
 
   // The lock describes the screen the user is looking at, so it reads the
-  // takeover's held phase rather than the live one. The domain step still keys
-  // its submit guard off live provisioning, so a resize that finishes after a
-  // genuine advance into that step unblocks it the moment it settles.
+  // takeover's held phase rather than the live one.
   const onScreenPhase = displayedPhase ?? provisioning.state;
   const onScreenSettled = isSettled(onScreenPhase);
 
@@ -229,10 +224,10 @@ export function BillingOnboardingModal({
   };
 
   // Resize-mode routing needs "is a domain already registered?", which
-  // checkout mode never consults — DomainStep owns its own fetch there. The
+  // checkout mode never consults: the inbox's setup card reads it there. The
   // enabled gate keeps this query fully off in checkout mode and in resize
-  // flows with no domain step to offer — a fee-less Mighty-tier package, or no
-  // assistant to attach a domain to.
+  // flows with no email setup to offer (a fee-less Mighty-tier package, or no
+  // assistant to attach a domain to).
   const domainAnswerNeeded = isResize && domainStepAvailable === true;
   const {
     domains,
@@ -281,15 +276,15 @@ export function BillingOnboardingModal({
   // one already sitting in the shared cache. Mirror the onboarding freshness
   // guard: require the answer to cross the open fence (and not be mid-refetch)
   // before trusting it, so a stale empty cache can't latch routing with
-  // hasExistingDomain=false and route to the domain step when a domain exists.
+  // hasExistingDomain=false and hand off to email setup when a domain exists.
   // Both outcomes are fenced by their own timestamp: success by `dataUpdatedAt`,
   // error by `errorUpdatedAt`. A cached error left by a pre-open failed refetch
   // (React Query keeps `isError` set with the OLD list while the forced on-open
   // refetch is still in flight) must NOT read as answered — otherwise routing
   // latches on the stale list before the fresh response lands. A genuine
   // post-open error still counts as answered: routing then advances on whatever
-  // list React Query retained — the domain step when none is known, complete
-  // when a retained list still shows a domain — degrading gracefully either way.
+  // list React Query retained: email setup when none is known, complete when
+  // a retained list still shows a domain. It degrades gracefully either way.
   const domainsFreshData =
     domainsOpenedAt != null && domainsUpdatedAt >= domainsOpenedAt;
   const domainsFreshError =
@@ -317,11 +312,9 @@ export function BillingOnboardingModal({
     }
   }, [open, routingInputsSettled]);
 
-  // The Assistant Inbox owns email setup once its flag is on: one card, in
-  // the app, that registers the address and opens the mailbox in the same
-  // place. So instead of the domain step, the wizard leaves for the inbox.
-  // An address set up through the old step could never reach that mailbox,
-  // so the old step is not offered beside the new one.
+  // The Assistant Inbox owns email setup: one card, in the app, that
+  // registers the address and opens the mailbox in the same place. So when
+  // routing lands on email setup, the wizard leaves for the inbox.
   const handOffToInbox = useCallback(() => {
     // The inbox opens for the assistant the user was using, not the one the
     // upgrade provisioned: the entitlement is the organisation's, and an
@@ -337,42 +330,32 @@ export function BillingOnboardingModal({
   }, [navigate, onClose]);
 
   const advanceFromProvisioning = useCallback(() => {
-    // Checkout treats unknown availability optimistically (`undefined` → domain
-    // step); resize requires affirmative `domainStepAvailable === true` AND no
-    // existing domain before it surfaces the newly-usable domain step.
-    const next = isResize
+    // Checkout treats unknown availability optimistically (`undefined` →
+    // email setup); resize requires affirmative `domainStepAvailable === true`
+    // AND no existing domain before it offers the newly-usable email setup.
+    const emailSetupNext = isResize
       ? domainStepAvailable === true && !hasExistingDomain
-        ? "domain"
-        : "complete"
-      : domainStepAvailable === false
-        ? "complete"
-        : "domain";
-    if (next === "domain" && inboxEnabled) {
+      : domainStepAvailable !== false;
+    if (emailSetupNext) {
       handOffToInbox();
       return;
     }
     if (prefersReducedMotion()) {
-      setStep(next);
+      setStep("complete");
       return;
     }
     setTakeoverExit("covering");
     exitTimers.current.push(
       setTimeout(() => {
         // Both the geometry and the theme change here, under the sheet.
-        setStep(next);
+        setStep("complete");
         setTakeoverExit("revealing");
         exitTimers.current.push(
           setTimeout(() => setTakeoverExit("idle"), TAKEOVER_REVEAL_MS),
         );
       }, TAKEOVER_COVER_MS),
     );
-  }, [
-    domainStepAvailable,
-    isResize,
-    hasExistingDomain,
-    inboxEnabled,
-    handOffToInbox,
-  ]);
+  }, [domainStepAvailable, isResize, hasExistingDomain, handOffToInbox]);
 
   // "Continue in the background" opens a confirm that warns chatting stays
   // unavailable until the upgrade finishes, so the user chooses to keep waiting
@@ -537,16 +520,6 @@ export function BillingOnboardingModal({
           }}
           dwellMs={dwellMs}
           phaseMinMs={phaseMinMs}
-        />
-      );
-    }
-
-    if (step === "domain") {
-      return (
-        <DomainStep
-          machineBusy={machineBusy}
-          assistantId={assistantId}
-          onExit={() => setStep("complete")}
         />
       );
     }

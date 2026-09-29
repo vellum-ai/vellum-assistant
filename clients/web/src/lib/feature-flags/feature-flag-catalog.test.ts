@@ -63,10 +63,18 @@ describe("feature flag catalog", () => {
   });
 
   test("exposes the activation checklist as a client string flag defaulted off", () => {
-    expect(CLIENT_STRING_FLAG_DEFAULTS.experimentActivationChecklist20260910).toBe("off");
-    expect("experimentActivationChecklist20260910" in CLIENT_FLAG_DEFAULTS).toBe(false);
-    expect("experimentActivationChecklist20260910" in ASSISTANT_FLAG_DEFAULTS).toBe(false);
-    expect("experimentActivationChecklist20260910" in ASSISTANT_STRING_FLAG_DEFAULTS).toBe(false);
+    expect(
+      CLIENT_STRING_FLAG_DEFAULTS.experimentActivationChecklist20260910,
+    ).toBe("off");
+    expect(
+      "experimentActivationChecklist20260910" in CLIENT_FLAG_DEFAULTS,
+    ).toBe(false);
+    expect(
+      "experimentActivationChecklist20260910" in ASSISTANT_FLAG_DEFAULTS,
+    ).toBe(false);
+    expect(
+      "experimentActivationChecklist20260910" in ASSISTANT_STRING_FLAG_DEFAULTS,
+    ).toBe(false);
   });
 
   test("does not expose the GA billing CTA experiment as a feature flag", () => {
@@ -154,6 +162,13 @@ describe("feature flag catalog", () => {
     expect("stripeLinkOauth" in ASSISTANT_FLAG_DEFAULTS).toBe(false);
     expect("stripeLinkOauth" in CLIENT_STRING_FLAG_DEFAULTS).toBe(false);
     expect("stripeLinkOauth" in ASSISTANT_STRING_FLAG_DEFAULTS).toBe(false);
+  });
+
+  test("does not expose the GA Assistant Inbox as a feature flag", () => {
+    expect("assistantInbox" in CLIENT_FLAG_DEFAULTS).toBe(false);
+    expect("assistantInbox" in ASSISTANT_FLAG_DEFAULTS).toBe(false);
+    expect("assistantInbox" in CLIENT_STRING_FLAG_DEFAULTS).toBe(false);
+    expect("assistantInbox" in ASSISTANT_STRING_FLAG_DEFAULTS).toBe(false);
   });
 
   test("does not expose GA teleport as a feature flag", () => {

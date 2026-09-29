@@ -328,9 +328,6 @@
   "billingPage": {
     "billingTab": "账单",
     "billingUnavailable": "当前助手状态下无法使用账单功能。",
-    "finishSetupBody": "您的助手电子邮件地址尚未设置。",
-    "finishSetupButton": "完成设置",
-    "finishSetupTitle": "完成 {plan} 套餐的设置",
     "loadingBilling": "加载账单中…",
     "platformLoginNotice": "登录 Vellum 平台以管理账单和用量。",
     "usageTab": "用量"
@@ -766,25 +763,6 @@
     "startSession": "开始诊断会话",
     "thinking": "正在思考…",
     "title": "诊断助手"
-  },
-  "domainField": {
-    "subdomainAriaLabel": "子域名"
-  },
-  "domainStep": {
-    "continue": "继续",
-    "domainLockedMessage": "此域名已设置，无法更改。",
-    "domainSetRedirecting": "域名已设置 - 正在重定向…",
-    "handleImmutableNotice": "设置后，您将无法更改句柄。",
-    "handleLabel": "句柄（公开）",
-    "machineBusyNotice": "您的助手正在重启 - 您稍后即可设置域名。",
-    "next": "下一步",
-    "prefixLabel": "前缀",
-    "registerSubdomainFailed": "无法注册该子域名。请尝试其他子域名。",
-    "skip": "跳过",
-    "subtitle": "为您的助手设置电子邮件。",
-    "title": "助手电子邮件",
-    "emailUsernamePlaceholder": "hi",
-    "subdomainExamplePlaceholder": "my-assistant"
   },
   "downgradeReconfirmModal": {
     "body": "降级将移除以下专业版功能：",

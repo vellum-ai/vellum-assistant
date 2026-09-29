@@ -17,7 +17,6 @@ import { usePlatformAssistantId } from "@/hooks/use-platform-assistant-id";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useEnvironmentStore } from "@/stores/environment-store";
 import { shouldRetryDaemonError } from "@/utils/daemon-errors";
 import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
@@ -112,21 +111,19 @@ export function EmailChannelSection() {
   const byoConfigured = byoCredentialQuery.data?.hasSecret === true;
 
   // -- Inbox pitch header ----------------------------------------------------
-  /* With the Assistant Inbox flag on, an org without managed email sees the
-     inbox's pitch in the managed body, and this header carries the pitch's
+  /* An org without managed email sees the inbox's pitch in the managed
+     body, and this header carries the pitch's
      title and line in place of the section's own, so the pitch is introduced
      once rather than by a settings heading and then a card heading. The
      subscription is the same cached query `EmailManagedContent` reads, and
      only an explicit denial counts, as it does there. */
-  const inboxEnabled = useClientFeatureFlagStore.use.assistantInbox();
   const assistantName = useAssistantIdentityStore.use.name();
   const pitchCopy = useInboxPitchCopy(assistantName ?? "");
   const { data: subscription } = useQuery({
     ...organizationsBillingSubscriptionRetrieveOptions(),
-    enabled: inboxEnabled && isOrgReady && platformGate === "full",
+    enabled: isOrgReady && platformGate === "full",
   });
   const showInboxPitch =
-    inboxEnabled &&
     platformGate === "full" &&
     mode === "managed" &&
     managedAssistantId !== null &&

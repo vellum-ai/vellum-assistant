@@ -13,7 +13,6 @@ import type {
   SubscriptionResponse,
 } from "@/generated/api/types.gen";
 import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 
 const ASSISTANT_ID = "assistant-123";
 
@@ -123,22 +122,10 @@ function renderEntitled({ domain }: { domain: AssistantDomain | null }) {
 
 afterEach(() => {
   cleanup();
-  useClientFeatureFlagStore.setState({ assistantInbox: false });
 });
 
 describe("EmailManagedContent · not entitled", () => {
-  test("keeps the upgrade notice while the inbox flag is off", () => {
-    useClientFeatureFlagStore.setState({ assistantInbox: false });
-    renderNotEntitled();
-
-    expect(
-      screen.getByText("Give your assistant its own email address"),
-    ).toBeTruthy();
-    expect(screen.queryByText("hi@ada.example.com")).toBeNull();
-  });
-
-  test("draws the inbox's pitch once the flag is on, without a title of its own", () => {
-    useClientFeatureFlagStore.setState({ assistantInbox: true });
+  test("draws the inbox's pitch, without a title of its own", () => {
     renderNotEntitled();
 
     // The pitch is the perks and the plan notice; the address itself is
@@ -153,9 +140,6 @@ describe("EmailManagedContent · not entitled", () => {
     ).toBeTruthy();
     // The Email section's header introduces the pitch; the body repeats none of it.
     expect(screen.queryByRole("heading")).toBeNull();
-    expect(
-      screen.queryByText("Give your assistant its own email address"),
-    ).toBeNull();
     // Handles live on the platform; with no platform session there is no
     // handle modal to open, so the pitch offers none.
     expect(screen.queryByRole("button", { name: /Change handle/ })).toBeNull();
@@ -163,16 +147,7 @@ describe("EmailManagedContent · not entitled", () => {
 });
 
 describe("EmailManagedContent · entitled, no address", () => {
-  test("keeps the subdomain form while the inbox flag is off", () => {
-    useClientFeatureFlagStore.setState({ assistantInbox: false });
-    renderEntitled({ domain: null });
-
-    expect(screen.getByRole("button", { name: "Register" })).toBeTruthy();
-    expect(screen.queryByTestId("email-inbox-setup-button")).toBeNull();
-  });
-
-  test("points to the inbox instead of registering a domain once the flag is on", () => {
-    useClientFeatureFlagStore.setState({ assistantInbox: true });
+  test("points to the inbox instead of registering a domain", () => {
     renderEntitled({ domain: null });
 
     expect(
@@ -186,7 +161,6 @@ describe("EmailManagedContent · entitled, no address", () => {
   });
 
   test("with a domain but no address, keeps the domain row and points to the inbox for the address", () => {
-    useClientFeatureFlagStore.setState({ assistantInbox: true });
     renderEntitled({ domain: DOMAIN });
 
     // The domain row, with its release action, is still this page's.
