@@ -25,6 +25,7 @@ import { getConversation } from "../../../../persistence/conversation-crud.js";
 import {
   AUTO_TITLE_DETERMINISTIC,
   isReplaceableTitle,
+  isUserSetTitle,
   queueRegenerateConversationTitle,
 } from "../../../../persistence/conversation-title-service.js";
 
@@ -59,7 +60,7 @@ function shouldRetryFallbackTitle(conversation: {
   title: string | null;
   isAutoTitle: number;
 }): boolean {
-  if (!conversation.isAutoTitle) {
+  if (isUserSetTitle(conversation)) {
     return false;
   }
   return (

@@ -11,6 +11,7 @@ import { randomUUID } from "node:crypto";
 
 import { updateConversationTitle } from "../persistence/conversation-crud.js";
 import { getOrCreateConversation as getOrCreateConversationKey } from "../persistence/conversation-key-store.js";
+import { TITLE_USER_SET } from "../persistence/conversation-title-service.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { getLogger } from "../util/logger.js";
 import { getOrCreateConversation } from "./conversation-store.js";
@@ -68,7 +69,7 @@ export async function launchConversation(
   }
 
   if (params.title) {
-    updateConversationTitle(conversationId, params.title, 0);
+    updateConversationTitle(conversationId, params.title, TITLE_USER_SET);
   }
 
   broadcastMessage(
