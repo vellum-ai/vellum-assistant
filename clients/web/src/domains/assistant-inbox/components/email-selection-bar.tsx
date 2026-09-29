@@ -48,7 +48,10 @@ export function EmailSelectionBar({
           animate={{ opacity: 1, y: 0 }}
           exit={reducedMotion ? { opacity: 0 } : { opacity: 0, y: 16 }}
           transition={{ duration: 0.18, ease: "easeOut" }}
-          className="pointer-events-auto flex max-w-[calc(100%-1rem)] flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-lift)] py-2 pl-4 pr-2 shadow-[0_8px_32px_rgba(0,0,0,0.14)]"
+          /* Below `md` the bar wraps to two lines, and the clear control
+             pins to the top corner rather than trailing the actions on the
+             second line; the padding keeps the count clear of it. */
+          className="pointer-events-auto relative flex max-w-[calc(100%-1rem)] flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-lift)] py-2 pl-4 pr-2 shadow-[0_8px_32px_rgba(0,0,0,0.14)] max-md:pr-12"
         >
           <div className="flex min-w-0 flex-col">
             <span className="whitespace-nowrap text-body-medium-default text-[var(--content-emphasised)]">
@@ -88,6 +91,7 @@ export function EmailSelectionBar({
               iconOnly={<X />}
               onClick={onClear}
               aria-label={t("emailSelectionBar.clear")}
+              className="max-md:absolute max-md:right-2 max-md:top-2"
             />
           </div>
         </motion.div>

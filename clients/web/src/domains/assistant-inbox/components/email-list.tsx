@@ -37,11 +37,13 @@ interface EmailListRowProps {
  *
  * The disc shares its cell with the row's checkbox. Under a mouse the box
  * takes the disc's place on hover and holds it once this row or any row is
- * checked, so a selection in progress reads as one; where nothing hovers the
- * two sit side by side, since a control only hover reveals is unreachable
- * there. The checkbox is a button of its own and cannot nest in the row's,
- * so the row is a list item with the disc cell beside the button that opens
- * the message.
+ * checked, so a selection in progress reads as one. Where nothing hovers a
+ * control only hover reveals is unreachable, so there the cell dissolves
+ * and the box sorts to the row's trailing edge, where a thumb expects it,
+ * leaving the disc on its own at the lead. One checkbox, moved by the same
+ * `hover` signal the reveal keys off. The checkbox is a button of its own
+ * and cannot nest in the row's, so the row is a list item with the disc
+ * cell beside the button that opens the message.
  */
 function EmailListRow({
   email,
@@ -78,11 +80,14 @@ function EmailListRow({
       )}
     >
       {selectable ? (
-        <CrossfadeStack className="min-w-9 self-stretch">
+        <CrossfadeStack className="min-w-9 self-stretch [@media(hover:none)]:contents">
           <span data-reveal-yield="">
             <SenderDisc participant={counterpart} />
           </span>
-          <span data-reveal="" className="flex items-center justify-center">
+          <span
+            data-reveal=""
+            className="flex items-center justify-center [@media(hover:none)]:order-last"
+          >
             <Checkbox
               checked={checked}
               onCheckedChange={() => onToggleChecked(email.id)}
