@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { DetailDrawer, MobileDetailOverlay } from "@/components/detail-drawer";
+import { NativeAppReminderNudge } from "@/components/nudges/native-app-reminder-nudge";
 import { CreateScheduleModal } from "@/domains/settings/components/create-schedule-modal";
 import {
   ScheduleProfileRebaseDialog,
@@ -54,6 +55,7 @@ export function SchedulesPage() {
     hasMemoryOptOutCapability && settingsDeveloperNav === true;
 
   const [createScheduleOpen, setCreateScheduleOpen] = useState(false);
+  const [scheduleCreated, setScheduleCreated] = useState(false);
   const selectedScheduleId = scheduleId ?? null;
   const [selectedSystemTaskKind, setSelectedSystemTaskKind] =
     useState<SystemTaskKind | null>(null);
@@ -190,6 +192,11 @@ export function SchedulesPage() {
 
   const section = (
     <SchedulesPanel
+      nudgeSlot={
+        scheduleCreated ? (
+          <NativeAppReminderNudge surface="schedule-created" />
+        ) : undefined
+      }
       recurring={schedules.recurring}
       oneTime={schedules.oneTime}
       pastOneTime={schedules.pastOneTime}
@@ -260,6 +267,7 @@ export function SchedulesPage() {
         onClose={() => setCreateScheduleOpen(false)}
         onCreated={() => {
           setCreateScheduleOpen(false);
+          setScheduleCreated(true);
           schedules.refetch();
         }}
       />

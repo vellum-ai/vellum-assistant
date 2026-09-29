@@ -16,7 +16,11 @@ import { readAnalyticsConsent } from "@/lib/telemetry/consent";
 export const NATIVE_APP_NUDGE_FUNNEL_VERSION = "native_app_nudge_v1_2026_08";
 
 /** Where the nudge rendered. */
-export type NudgeSurface = "banner" | "settings";
+export type NudgeSurface =
+  | "banner"
+  | "settings"
+  | "schedule-created"
+  | "notifications-empty";
 
 /** Which app the nudge promoted. */
 export type NudgeTelemetryTarget =

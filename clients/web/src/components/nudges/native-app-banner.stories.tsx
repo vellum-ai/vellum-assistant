@@ -85,3 +85,24 @@ export const Mobile: Story = {
   name: "Mobile treatment",
   globals: { viewport: { value: "sbMobile", isRotated: false } },
 };
+
+export const ScheduleCreated: Story = {
+  args: {
+    surface: "schedule-created",
+    alternative: { promotion: ANDROID_PROMOTION, onDownload: () => {} },
+  },
+};
+
+export const NotificationsEmpty: Story = {
+  args: {
+    surface: "notifications-empty",
+    alternative: { promotion: ANDROID_PROMOTION, onDownload: () => {} },
+  },
+  decorators: [
+    (Story) => (
+      <div className="w-[340px]">
+        <Story />
+      </div>
+    ),
+  ],
+};
