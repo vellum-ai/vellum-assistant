@@ -83,27 +83,45 @@ export function EmailDetail({
     copy(`${subject}\n\n${detail.body}`);
   };
 
+  // The reply action is drawn in one of two places by the same `md`
+  // signal: in the phone's top row beside the way back, or in the header's
+  // action group beside the subject. One element, so the two never differ.
+  const replyButton =
+    inbound && onAskToReply ? (
+      <Button
+        variant="outlined"
+        leftIcon={<MessageSquareText />}
+        onClick={() => onAskToReply(email)}
+      >
+        {t("emailDetail.askToReply", { name: assistantName })}
+      </Button>
+    ) : null;
+
   return (
     <article
       className={cn("flex min-h-0 flex-col overflow-y-auto", className)}
       aria-labelledby={`email-subject-${email.id}`}
     >
       <div className="flex flex-col gap-4 px-5 py-5">
-        {onBack ? (
-          /* The list is beside the pane from `md` up, so the way back is
-             only drawn where the pane has covered it: a chevron alone, at
-             a size a thumb can find. */
-          <div className="md:hidden">
-            <Button
-              variant="outlined"
-              iconOnly={<ChevronLeft />}
-              /* The touch-size circle an icon button grows into is too
-                 much chrome for a way back; the desktop box is plenty. */
-              expandOnMobile={false}
-              onClick={onBack}
-              aria-label={t("assistantInboxPage.backToList")}
-              title={t("assistantInboxPage.backToList")}
-            />
+        {onBack || replyButton ? (
+          /* The phone's top row: the list is beside the pane from `md` up,
+             so the way back is only drawn where the pane has covered it, a
+             chevron alone at a size a thumb can find, with the reply
+             action on the trailing edge. */
+          <div className="flex items-center gap-2 md:hidden">
+            {onBack ? (
+              <Button
+                variant="outlined"
+                iconOnly={<ChevronLeft />}
+                /* The touch-size circle an icon button grows into is too
+                   much chrome for a way back; the desktop box is plenty. */
+                expandOnMobile={false}
+                onClick={onBack}
+                aria-label={t("assistantInboxPage.backToList")}
+                title={t("assistantInboxPage.backToList")}
+              />
+            ) : null}
+            {replyButton ? <div className="ml-auto">{replyButton}</div> : null}
           </div>
         ) : null}
 
@@ -130,18 +148,11 @@ export function EmailDetail({
               </time>
             </div>
           </div>
-          <div className="flex shrink-0 flex-wrap items-center gap-2">
-            {inbound && onAskToReply ? (
-              <Button
-                variant="outlined"
-                leftIcon={<MessageSquareText />}
-                onClick={() => onAskToReply(email)}
-              >
-                {t("emailDetail.askToReply", { name: assistantName })}
-              </Button>
-            ) : null}
-            {/* Copying a whole message is a desktop habit; on a phone the
-                row holds the one action that matters there. */}
+          {/* The phone's top row carries the reply action instead, and
+              copying a whole message is a desktop habit, so below `md` the
+              header is the disc and the subject alone. */}
+          <div className="flex shrink-0 flex-wrap items-center gap-2 max-md:hidden">
+            {replyButton}
             <Button
               variant="outlined"
               iconOnly={copied ? <Check /> : <Copy />}
@@ -151,7 +162,6 @@ export function EmailDetail({
               title={
                 copied ? t("emailDetail.copied") : t("emailDetail.copyEmail")
               }
-              className="max-md:hidden"
             />
           </div>
         </header>
