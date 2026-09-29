@@ -3,9 +3,19 @@ import {
   type ProfilePickerEntry,
 } from "@/assistant/profile-pickers";
 import { t } from "@/i18n";
+import type { ProfileMap } from "@/assistant/use-sticky-profiles";
 
 export const AUTONOMY_LEVELS = ["none", "low", "medium", "high"] as const;
 export type Autonomy = (typeof AUTONOMY_LEVELS)[number];
+
+export function composerProfiles(
+  profiles: ProfileMap,
+  profileOrder: readonly string[],
+): ProfilePickerEntry[] {
+  return [...new Set([...profileOrder, ...Object.keys(profiles)])].flatMap(
+    (name) => (profiles[name] ? [{ name, ...profiles[name] }] : []),
+  );
+}
 export const AUTONOMY_COPY = {
   none: {
     label: "composerConfiguration.autonomy.none.label",

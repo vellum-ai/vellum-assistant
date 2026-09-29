@@ -15,7 +15,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { act, cleanup, renderHook } from "@testing-library/react";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
 import type { ReactNode } from "react";
@@ -28,6 +28,13 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useTurnStore, INITIAL_TURN_STATE } from "@/domains/chat/turn-store";
 import { MIN_VERSION } from "@/lib/backwards-compat/use-supports-new-chat-plugins";
+import { assistantCapabilityOptions } from "@/hooks/use-assistant-capability";
+import {
+  composerSettingsGetQueryKey,
+  configGetQueryKey,
+} from "@/generated/daemon/@tanstack/react-query.gen";
+import { composerGlobalThresholdOptions } from "@/domains/chat/utils/draft-composer-configuration";
+import { useComposerStore } from "@/domains/chat/composer-store";
 
 const DRAFT_ID = "draft-1";
 
@@ -183,6 +190,89 @@ describe("useSendMessage — bypassSecretCheck send wiring", () => {
 });
 
 describe("useSendMessage autonomy send wiring", () => {
+  test.each(["ready", "failed", "logout"] as const)(
+    "a first auto-send waits for canonical draft settings (%s)",
+    async (outcome) => {
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      useConversationStore.getState().registerDraftConversationId(DRAFT_ID);
+      queryClient.setQueryData(
+        assistantCapabilityOptions("composerSettings", "assistant-1").queryKey,
+        true,
+      );
+      queryClient.setQueryData(
+        configGetQueryKey({ path: { assistant_id: "assistant-1" } }),
+        {
+          llm: {
+            activeProfile: "balanced",
+            profiles: {
+              "quality-optimized": {
+                provider: "anthropic",
+                model: "claude-fable-5",
+              },
+            },
+            profileOrder: ["quality-optimized"],
+          },
+        },
+      );
+      queryClient.setQueryData(
+        composerGlobalThresholdOptions("assistant-1").queryKey,
+        { interactive: "high" },
+      );
+      let started = false;
+      const settings = queryClient
+        .fetchQuery({
+          queryKey: composerSettingsGetQueryKey({
+            path: { assistant_id: "assistant-1" },
+          }),
+          retry: false,
+          queryFn: async () => {
+            started = true;
+            await gate;
+            if (outcome === "failed") {
+              throw new Error("offline");
+            }
+            return {
+              preferences: {
+                favoriteModeIds: [],
+                lastModeId: "quality-optimized",
+                lastAutonomy: "none",
+              },
+            };
+          },
+        })
+        .catch(() => undefined);
+      let sending!: Promise<void>;
+      useAssistantIdentityStore
+        .getState()
+        .setIdentity("Assistant", MIN_VERSION);
+      const { result } = renderHook(() => useSendMessage(baseProps()), {
+        wrapper: Wrapper,
+      });
+      await act(async () => {
+        sending = result.current.sendMessage("hi");
+      });
+      await waitFor(() => expect(started).toBe(true));
+      expect(capturedBody).toBeNull();
+      await act(async () => {
+        if (outcome === "logout") {
+          useComposerStore.getState().resetForLogout();
+        }
+        release();
+        await Promise.all([settings, sending]);
+      });
+      if (outcome === "ready") {
+        expect(capturedBody).toMatchObject({
+          inferenceProfile: "quality-optimized",
+          riskThreshold: "none",
+        });
+      } else {
+        expect(capturedBody).toBeNull();
+      }
+    },
+  );
   test("the first message carries its draft threshold and clears only that draft", async () => {
     useConversationStore.getState().setPendingDraftAutonomy(DRAFT_ID, "none");
     useConversationStore

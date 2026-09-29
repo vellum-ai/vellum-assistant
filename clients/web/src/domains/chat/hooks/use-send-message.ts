@@ -84,6 +84,8 @@ import {
 } from "@/domains/chat/utils/send-message-utils";
 import type { UIContext } from "@/domains/chat/turn-selectors";
 import { useComposerStore } from "@/domains/chat/composer-store";
+import { resolveDraftComposerConfiguration } from "@/domains/chat/utils/draft-composer-configuration";
+import type { Autonomy } from "@/domains/chat/utils/composer-configuration";
 import { getSoundManager } from "@/lib/sounds/sound-manager";
 import { getInterruptOnSend } from "@/domains/chat/hooks/use-interrupt-on-send";
 import { useMessageQueue } from "@/domains/chat/hooks/use-message-queue";
@@ -381,28 +383,48 @@ export function useSendMessage({
       // per-conversation override, use the chosen profile instead of the global
       // default — covering the window before the menu's load-time promotion PUT
       // lands. Keyed by id, so only this conversation's own stash is read.
-      const autonomyForSend = useConversationStore
-        .getState()
-        .pendingDraftAutonomy.get(requestConversationId);
-      const inferenceProfileForSend = useConversationStore
-        .getState()
-        .pendingDraftProfiles.get(requestConversationId);
-      // A per-chat plugin set the user picked in the composer before this
-      // conversation's row existed — mirrors `inferenceProfileForSend`. Only an
-      // EXPLICIT selection (an entry in the map, including an empty set) is
-      // forwarded; an untouched default has no entry and sends `undefined`.
-      // Gated on resolved daemon support — older daemons silently drop the
-      // field, so the version must hydrate before deciding (see
-      // `use-supports-new-chat-plugins`).
-      const draftPlugins = useConversationStore
-        .getState()
-        .pendingDraftPlugins.get(requestConversationId);
-      const enabledPluginsForSend =
-        draftPlugins && (await resolveSupportsNewChatPlugins())
-          ? [...draftPlugins].sort()
-          : undefined;
+      let autonomyForSend: Autonomy | undefined;
+      let inferenceProfileForSend: string | undefined;
+      let draftPlugins: Set<string> | undefined;
       let postResult: Awaited<ReturnType<typeof postChatMessage>>;
       try {
+        await resolveDraftComposerConfiguration(
+          queryClient,
+          requestAssistantId,
+          requestConversationId,
+        );
+        if (
+          composerSessionGeneration !==
+          useComposerStore.getState().sessionGeneration
+        ) {
+          return { status: "ignored" };
+        }
+        autonomyForSend = useConversationStore
+          .getState()
+          .pendingDraftAutonomy.get(requestConversationId);
+        inferenceProfileForSend = useConversationStore
+          .getState()
+          .pendingDraftProfiles.get(requestConversationId);
+        // A per-chat plugin set the user picked in the composer before this
+        // conversation's row existed, mirroring `inferenceProfileForSend`. Only an
+        // EXPLICIT selection (an entry in the map, including an empty set) is
+        // forwarded; an untouched default has no entry and sends `undefined`.
+        // Gated on resolved daemon support. Older daemons silently drop the
+        // field, so the version must hydrate before deciding (see
+        // `use-supports-new-chat-plugins`).
+        draftPlugins = useConversationStore
+          .getState()
+          .pendingDraftPlugins.get(requestConversationId);
+        const enabledPluginsForSend =
+          draftPlugins && (await resolveSupportsNewChatPlugins())
+            ? [...draftPlugins].sort()
+            : undefined;
+        if (
+          composerSessionGeneration !==
+          useComposerStore.getState().sessionGeneration
+        ) {
+          return { status: "ignored" };
+        }
         postResult = await postChatMessage(
           requestAssistantId,
           useServerMint ? null : requestConversationId,
@@ -635,6 +657,7 @@ export function useSendMessage({
     [
       activeConversationId,
       assistantId,
+      queryClient,
       startReconciliationLoop,
       surfaceConversationAfterUserSend,
     ],

@@ -3,10 +3,16 @@ import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { composerConfigurationFixture } from "@/domains/chat/components/composer-configuration.test-utils";
+import type { useProfileQuickAdd } from "@/components/profile-quick-add-provider";
+import { configGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 
 let supported: boolean | undefined = true;
 let capabilityError = false;
 mock.module("@/hooks/use-assistant-capability", () => ({
+  assistantCapabilityOptions: () => ({
+    queryKey: ["test-capability"],
+    queryFn: async () => supported,
+  }),
   useAssistantCapabilityQuery: () => ({
     data: supported,
     isPending: supported === undefined && !capabilityError,
@@ -17,7 +23,13 @@ mock.module("@/hooks/use-is-org-ready", () => ({ useIsOrgReady: () => true }));
 mock.module("@/lib/backwards-compat/complete-profile-snapshots", () => ({
   useSupportsCompleteProfileSnapshots: () => true,
 }));
-const quickAdd = mock(() => {});
+const quickAdd = mock(
+  (
+    ..._args: Parameters<
+      ReturnType<typeof useProfileQuickAdd>["openProfileQuickAdd"]
+    >
+  ) => {},
+);
 mock.module("@/components/profile-quick-add-provider", () => ({
   useProfileQuickAdd: () => ({ openProfileQuickAdd: quickAdd }),
 }));
@@ -124,6 +136,7 @@ beforeEach(() => {
   });
   setGlobal.mockClear();
   patch.mockClear();
+  quickAdd.mockClear();
 });
 afterEach(() => {
   cleanup();
@@ -473,6 +486,44 @@ test("legacy assistants retain existing-chat controls without calling the prefer
   });
   expect(setOverride).toHaveBeenCalled();
   expect(patch).not.toHaveBeenCalled();
+});
+test("a newly created model is saved as a favorite from the current config cache", async () => {
+  const hook = setup();
+  await waitFor(() => expect(hook.result.current.modeReady).toBe(true));
+  act(() => hook.result.current.newMode());
+  const onCreated = quickAdd.mock.calls[0][0]?.onCreated;
+  expect(onCreated).toBeDefined();
+  act(() => {
+    hook.client.setQueryData(
+      configGetQueryKey({ path: { assistant_id: "assistant-1" } }),
+      {
+        llm: {
+          activeProfile: "balanced",
+          profiles: {
+            ...Object.fromEntries(
+              fixture.profiles.map(({ name, ...profile }) => [name, profile]),
+            ),
+            "custom-new": {
+              label: "Custom",
+              provider: "anthropic",
+              model: "claude-fable-5",
+            },
+          },
+          profileOrder: [
+            ...fixture.profiles.map((entry) => entry.name),
+            "custom-new",
+          ],
+        },
+      },
+    );
+    onCreated?.("custom-new", "Custom");
+  });
+  await waitFor(() => expect(prefs.lastModeId).toBe("custom-new"));
+  expect(prefs.favoriteModeIds).toContain("custom-new");
+  await act(async () => {
+    await hook.result.current.selectMode("balanced");
+  });
+  expect(prefs.favoriteModeIds).toContain("custom-new");
 });
 
 test("queued selections cannot write using a later login session", async () => {

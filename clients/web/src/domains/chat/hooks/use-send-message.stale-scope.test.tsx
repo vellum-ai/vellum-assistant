@@ -670,6 +670,7 @@ describe("useSendMessage: a switch during the POST", () => {
     useConversationStore
       .getState()
       .setPendingDraftProfile(SEND_CONVERSATION, "shared-profile");
+    useConversationStore.getState().initializeDraftComposer(SEND_CONVERSATION);
     const { result } = renderSendFor(SEND_CONVERSATION);
 
     let pendingSend!: Promise<void>;

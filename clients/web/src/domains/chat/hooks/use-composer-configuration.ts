@@ -10,21 +10,26 @@ import {
 import { toast } from "@vellumai/design-library";
 
 import {
-  isDispatchableProfile,
   visibleProfilesForPicker,
   type ProfilePickerEntry,
 } from "@/assistant/profile-pickers";
 import { useStickyProfiles } from "@/assistant/use-sticky-profiles";
 import { useProfileQuickAdd } from "@/components/profile-quick-add-provider";
 import {
+  composerProfiles,
   favoriteModes,
   serializeComposerWrite,
   type Autonomy,
 } from "@/domains/chat/utils/composer-configuration";
 import {
+  composerGlobalThresholdOptions,
+  initializeDraftComposerConfiguration,
+} from "@/domains/chat/utils/draft-composer-configuration";
+import {
   composerSettingsGetOptions,
   composerSettingsGetQueryKey,
   configGetOptions,
+  configGetQueryKey,
   conversationsByIdGetOptions,
   conversationsByIdGetQueryKey,
 } from "@/generated/daemon/@tanstack/react-query.gen";
@@ -35,6 +40,7 @@ import {
 import type {
   ComposerSettingsGetResponse,
   ComposerSettingsPatchData,
+  ConfigGetResponse,
 } from "@/generated/daemon/types.gen";
 import { useAssistantCapabilityQuery } from "@/hooks/use-assistant-capability";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
@@ -42,7 +48,6 @@ import { useTranslation } from "@/i18n";
 import { useSupportsCompleteProfileSnapshots } from "@/lib/backwards-compat/complete-profile-snapshots";
 import {
   getConversationOverride,
-  getGlobalThresholds,
   setConversationOverride,
 } from "@/lib/threshold-api";
 import { useComposerStore } from "@/domains/chat/composer-store";
@@ -95,8 +100,7 @@ export function useComposerConfiguration(
     enabled: orgReady && hasRow,
   });
   const globalThreshold = useQuery({
-    queryKey: ["globalThresholds", assistantId],
-    queryFn: () => getGlobalThresholds(assistantId),
+    ...composerGlobalThresholdOptions(assistantId),
     enabled: orgReady,
   });
   const threshold = useQuery({
@@ -114,10 +118,7 @@ export function useComposerConfiguration(
     assistantId,
   );
   const allProfiles = useMemo<ProfilePickerEntry[]>(
-    () =>
-      [...new Set([...profileOrder, ...Object.keys(profiles)])].flatMap(
-        (name) => (profiles[name] ? [{ name, ...profiles[name] }] : []),
-      ),
+    () => composerProfiles(profiles, profileOrder),
     [profiles, profileOrder],
   );
   const [optimistic, setOptimistic] = useState<{
@@ -228,27 +229,12 @@ export function useComposerConfiguration(
     ) {
       return;
     }
-    const store = useConversationStore.getState();
-    const preferred = allProfiles.find(
-      (entry) => entry.name === preferences.lastModeId,
+    initializeDraftComposerConfiguration(
+      id,
+      config.data.llm,
+      globalThreshold.data.interactive,
+      supportsPreferences ? preferences : undefined,
     );
-    const seedMode =
-      preferred &&
-      isDispatchableProfile(preferred, allProfiles, {
-        requireOwnProviderAndModel,
-      })
-        ? preferred.name
-        : config.data.llm?.activeProfile;
-    if (!store.pendingDraftProfiles.has(id) && seedMode) {
-      store.setPendingDraftProfile(id, seedMode);
-    }
-    if (supportsPreferences && !store.pendingDraftAutonomy.has(id)) {
-      store.setPendingDraftAutonomy(
-        id,
-        preferences.lastAutonomy ?? globalThreshold.data.interactive,
-      );
-    }
-    store.initializeDraftComposer(id);
   }, [
     id,
     isDraft,
@@ -260,10 +246,7 @@ export function useComposerConfiguration(
     capabilityKnown,
     supportsPreferences,
     settings.isSuccess,
-    preferences.lastModeId,
-    preferences.lastAutonomy,
-    allProfiles,
-    requireOwnProviderAndModel,
+    preferences,
   ]);
 
   const persistSelection = useCallback(
@@ -371,26 +354,33 @@ export function useComposerConfiguration(
           );
         }
       })();
-      const preferencesSaved = savePreferences(selection, (current) =>
-        kind === "mode"
-          ? {
-              lastModeId: value,
-              favoriteModeIds: favoriteModes(
-                current.favoriteModeIds,
-                allProfiles,
-                value,
-              ).map((entry) => entry.name),
-            }
-          : {
-              lastAutonomy:
-                value === "none" ||
-                value === "low" ||
-                value === "medium" ||
-                value === "high"
-                  ? value
-                  : null,
-            },
-      ).catch(() => {
+      const preferencesSaved = savePreferences(selection, (current) => {
+        if (kind === "mode") {
+          const llm = queryClient.getQueryData<ConfigGetResponse>(
+            configGetQueryKey({ path: { assistant_id: assistantId } }),
+          )?.llm;
+          const catalog = llm?.profiles
+            ? composerProfiles(llm.profiles, llm.profileOrder ?? [])
+            : allProfiles;
+          return {
+            lastModeId: value,
+            favoriteModeIds: favoriteModes(
+              current.favoriteModeIds,
+              catalog,
+              value,
+            ).map((entry) => entry.name),
+          };
+        }
+        return {
+          lastAutonomy:
+            value === "none" ||
+            value === "low" ||
+            value === "medium" ||
+            value === "high"
+              ? value
+              : null,
+        };
+      }).catch(() => {
         if (
           useComposerStore.getState().sessionGeneration === sessionGeneration
         ) {
