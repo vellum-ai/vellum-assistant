@@ -1,11 +1,12 @@
-import { Loader2, Mail, Trash2 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { Check, Copy, Loader2, Mail, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useId, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { useAssistantHandleModal } from "@/components/assistant-handle-modal";
+import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { AssistantInboxUpgradeBody } from "@/domains/assistant-inbox/components/assistant-inbox-upgrade-body";
 import { DomainField } from "@/domains/channels/components/domain-field";
 import {
@@ -38,6 +39,7 @@ import { extractErrorMessage } from "@/utils/api-errors";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
+import { Input } from "@vellumai/design-library/components/input";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { toast } from "@vellumai/design-library/components/toast";
 
@@ -95,6 +97,10 @@ export function EmailManagedContent({
     useState(false);
   const [repairConfirmOpen, setRepairConfirmOpen] = useState(false);
   const [repairError, setRepairError] = useState<string | null>(null);
+  const addressInputId = useId();
+  const { copied: copiedAddress, copy: copyAddress } = useCopyToClipboard({
+    errorMessage: t("emailManagedContent.copyAddressFailed"),
+  });
 
   useEffect(() => {
     if (subdomainPrefilled || !assistantHandle || subdomainDraft) {
@@ -667,20 +673,43 @@ export function EmailManagedContent({
     <div className="space-y-4">
       {subscriptionWarning}
       <div className="space-y-1.5">
-        <label className="block text-body-small-default text-[var(--content-tertiary)]">
-          {t("emailManagedContent.addressLabel")}
-        </label>
-        <div className="flex items-center gap-2">
-          <span className="font-mono text-body-small-default text-[var(--content-default)]">
-            {address.address}
-          </span>
+        {/* The domain's verification sits on the label's line, so the field
+            under it holds the address alone and the trailing controls are
+            the two things to do with it: copy it, or remove it. */}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <label
+            htmlFor={addressInputId}
+            className="block text-body-small-default text-[var(--content-tertiary)]"
+          >
+            {t("emailManagedContent.addressLabel")}
+          </label>
           <DomainVerificationChip
             status={verificationQuery.data?.status}
             isLoading={verificationQuery.isLoading}
           />
+        </div>
+        <div className="flex items-center gap-2">
+          <Input
+            id={addressInputId}
+            value={address.address}
+            readOnly
+            fullWidth
+            wrapperClassName="min-w-0 flex-1"
+            className="font-mono"
+          />
+          <Button
+            variant="outlined"
+            iconOnly={copiedAddress ? <Check /> : <Copy />}
+            onClick={() => copyAddress(address.address)}
+            aria-label={t("emailManagedContent.copyAddressAriaLabel")}
+            title={
+              copiedAddress
+                ? t("emailManagedContent.copiedAddress")
+                : t("emailManagedContent.copyAddressAriaLabel")
+            }
+          />
           <Button
             variant="dangerGhost"
-            size="compact"
             iconOnly={<Trash2 />}
             onClick={() => setRemoveAddressConfirmOpen(true)}
             disabled={deleteAddress.isPending}

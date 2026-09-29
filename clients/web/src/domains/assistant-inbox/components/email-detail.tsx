@@ -52,6 +52,15 @@ export interface EmailDetailProps {
  * body as the plain text the platform stores, and the attachments. The
  * reply action exists only on an inbound message with something to act on
  * it, because the composer lives in chat rather than here.
+ *
+ * Where the pane is too narrow for the subject and the actions to share a
+ * row (a phone, or the pane beside the list at `md`), the actions drop to
+ * a row of their own under the subject rather than squeezing it to a
+ * column of single characters. The header measures that from its own
+ * contents rather than a breakpoint: the subject column asks for a
+ * readable width, and the flex row wraps the actions the moment that plus
+ * the disc and the buttons would overflow, whatever the assistant's name
+ * happens to measure.
  */
 export function EmailDetail({
   email,
@@ -95,23 +104,30 @@ export function EmailDetail({
           </div>
         ) : null}
 
-        <header className="flex flex-wrap items-center gap-2">
-          <SenderDisc participant={email.from} size={44} />
-          <div className="flex min-w-0 flex-1 flex-col gap-1">
-            <h2
-              id={`email-subject-${email.id}`}
-              className="min-w-0 break-words text-title-medium text-[var(--content-emphasised)]"
-            >
-              {subject}
-            </h2>
-            <time
-              dateTime={email.createdAt}
-              className="text-body-medium-lighter text-[var(--content-tertiary)]"
-            >
-              {formatEmailDetailTime(email.createdAt, i18n.language)}
-            </time>
+        <header className="flex flex-wrap items-center gap-x-2 gap-y-3">
+          {/* The disc and the subject wrap as one: `basis-64` is the
+              subject's readable minimum while the actions share its row,
+              and once they wrap, the pair grows to the full width (a lone
+              item on a flex line always shrinks to fit, so the disc never
+              strands the subject under it on a narrow pane). */}
+          <div className="flex min-w-0 flex-1 basis-64 items-center gap-2">
+            <SenderDisc participant={email.from} size={44} />
+            <div className="flex min-w-0 flex-1 flex-col gap-1">
+              <h2
+                id={`email-subject-${email.id}`}
+                className="min-w-0 break-words text-title-medium text-[var(--content-emphasised)]"
+              >
+                {subject}
+              </h2>
+              <time
+                dateTime={email.createdAt}
+                className="text-body-medium-lighter text-[var(--content-tertiary)]"
+              >
+                {formatEmailDetailTime(email.createdAt, i18n.language)}
+              </time>
+            </div>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
             {inbound && onAskToReply ? (
               <Button
                 variant="outlined"

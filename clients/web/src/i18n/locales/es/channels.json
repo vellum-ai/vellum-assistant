@@ -44,7 +44,7 @@
     "loading": "Cargando…",
     "loadFailed": "No se pudo cargar este ajuste. Prueba a volver a abrir esta página.",
     "selectAria": "Quién puede escribir a {assistant}",
-    "trustedContactsNotice": "Las personas que aún no has verificado (incluso compañeros del mismo canal) no pueden pasar: {assistant} les avisa de que necesitan verificarse y te lo notifica. Puedes verificar personas por adelantado en Contactos.",
+    "trustedContactsNotice": "A cualquier otra persona, incluso un compañero de un canal compartido, se le pide verificarse primero, y se te notifica. Puedes verificar personas por adelantado en Contactos.",
     "confirmFallback": "Confirmar",
     "noOne": {
       "label": "Nadie",
@@ -59,7 +59,7 @@
     },
     "trustedContacts": {
       "label": "Contactos verificados",
-      "description": "Tú y las personas que has verificado pueden escribir a {assistant}. A cualquier otra persona se le pide verificarse primero, y se te notifica."
+      "description": "Tú y tus contactos verificados pueden escribir a {assistant}."
     },
     "anyContact": {
       "label": "Cualquier contacto",
@@ -162,6 +162,9 @@
     "completeSetup": "Completar configuración del dominio",
     "completingSetup": "Completando configuración…",
     "confirm": "Confirmar",
+    "copiedAddress": "Copiado",
+    "copyAddressAriaLabel": "Copiar dirección",
+    "copyAddressFailed": "No se pudo copiar la dirección.",
     "create": "Crear",
     "createEmailFailedFallback": "No se pudo crear la dirección de correo.",
     "creating": "Creando…",
@@ -214,6 +217,6 @@
   },
   "emailSettingsModal": {
     "title": "Ajustes del correo",
-    "description": "La dirección de tu asistente, su dominio y el uso de hoy."
+    "description": "La dirección de tu asistente y quién puede escribirle."
   }
 }
