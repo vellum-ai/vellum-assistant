@@ -18,7 +18,10 @@ import {
   listGuardianRequestDeliveriesOrEmpty,
 } from "../channels/gateway-guardian-requests.js";
 import { loadConfig } from "../config/loader.js";
-import type { VoiceProgressConfig } from "../config/schemas/voice.js";
+import type {
+  VoiceFrontModelConfig,
+  VoiceProgressConfig,
+} from "../config/schemas/voice.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
@@ -162,6 +165,31 @@ interface PhoneVoiceLeg {
   content: string;
   routingLeg: VoiceRoutingLeg;
   spokenEscalationBridge?: string;
+  /**
+   * Teach the front-door leg the hold token, so it may answer the caller's
+   * words, hand off, or judge them unfinished. Front-door legs only.
+   */
+  holdEnabled?: boolean;
+}
+
+/**
+ * A front-door leg dispatched under the hold verdict, awaiting its decision.
+ * Nothing it produced has reached the caller yet, so its words can still be
+ * reclaimed into the utterance that eventually answers them.
+ */
+interface SpeculativePhoneTurn {
+  /** The caller's words this leg is judging, held transcript included. */
+  content: string;
+  /** `Date.now()` at dispatch, for the endpoint-decision latency mark. */
+  dispatchedAtMs: number;
+  /**
+   * The transcript anchor this leg consumed, restored on a hold so the turn
+   * that finally answers is still measured from the moment the caller
+   * stopped talking rather than from the replay.
+   */
+  callerStoppedAtMs: number | null;
+  /** The first-partial anchor this leg consumed, restored alongside it. */
+  firstPartialAtMs: number | null;
 }
 
 export class CallController {
@@ -270,6 +298,45 @@ export class CallController {
    * talking rather than the moment the controller got around to dispatching.
    */
   private pendingFinalTranscriptAtMs: number | null = null;
+  /**
+   * When the provider first had words for the utterance being accumulated,
+   * held until the turn it dispatches opens. Against that turn's transcript
+   * anchor it measures how long the provider sat on speech it had already
+   * heard, which is the cost the endpointing work is trading against.
+   */
+  private pendingFirstPartialAtMs: number | null = null;
+  /** Front-door endpointing tuning (voice.frontModel), shared with live voice. */
+  private readonly frontModelConfig: VoiceFrontModelConfig;
+  /**
+   * The caller's words the front door judged unfinished, carried into their
+   * next words so a sentence split across provider finals is answered whole.
+   * Empty when no hold is outstanding.
+   */
+  private heldTranscript = "";
+  /**
+   * The newest interim transcript since the last final: what the caller has
+   * said that the provider has not committed yet. A held boundary replays on
+   * held transcript plus this, so the question the model answers is the whole
+   * one. Cleared by every final, which supersedes it.
+   */
+  private latestPartialTranscript = "";
+  /**
+   * Replays a held boundary once the caller stays quiet: the pause the front
+   * door read as mid-thought was the end of the thought after all.
+   */
+  private endpointExtensionTimer: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * Consecutive hold verdicts on the utterance being accumulated, capped by
+   * `endpointMaxExtensions`. Reset when a turn commits.
+   */
+  private endpointHoldCount = 0;
+  /** The front-door leg awaiting its hold verdict, or null. */
+  private speculativeTurn: SpeculativePhoneTurn | null = null;
+  /**
+   * Set when a speculative leg had to be rolled back before the bridge
+   * returned its handle. The handle's arrival runs the rollback instead.
+   */
+  private speculativeDiscardPending = false;
 
   constructor(
     callSessionId: string,
@@ -283,6 +350,7 @@ export class CallController {
       /** Test seam: an explicit null disables narration for the call. */
       progressNarrator?: VoiceProgressNarrator | null;
       progressConfig?: VoiceProgressConfig;
+      frontModelConfig?: VoiceFrontModelConfig;
     },
   ) {
     this.callSessionId = callSessionId;
@@ -295,8 +363,10 @@ export class CallController {
     this.resolveSynthesisLanguage =
       opts?.resolveSynthesisLanguage ??
       (() => resolveTelephonySynthesisLanguage());
+    this.frontModelConfig =
+      opts?.frontModelConfig ?? loadConfig().voice.frontModel;
     this.progressConfig =
-      opts?.progressConfig ?? loadConfig().voice.frontModel.progress;
+      opts?.progressConfig ?? this.frontModelConfig.progress;
     this.progressNarrator =
       opts?.progressNarrator !== undefined
         ? opts.progressNarrator
@@ -400,15 +470,44 @@ export class CallController {
   }
 
   /**
+   * Handle an interim transcript from the call transport: the caller's words
+   * since the last final, as the provider currently hears them.
+   *
+   * Partials commit nothing. They keep the newest words to hand for a
+   * boundary the front door held mid-thought, so a replay of that boundary
+   * answers everything the caller has said rather than only what the
+   * provider has finalized. Each partial supersedes the last, and any
+   * partial re-arms the replay: words are still arriving, so the caller's
+   * pause has not started yet.
+   */
+  handleCallerPartial(text: string): void {
+    if (this.destroyed) {
+      return;
+    }
+    // The mark belongs to the turn this utterance will dispatch, not to the
+    // turn still open behind it, so it is held for that turn's seed.
+    this.pendingFirstPartialAtMs ??= Date.now();
+    this.latestPartialTranscript = text;
+    if (this.endpointExtensionTimer !== null) {
+      this.armEndpointExtensionTimer();
+    }
+  }
+
+  /**
    * Handle a final caller utterance from the call transport.
    * Caller utterances always trigger normal turns, even when a guardian
-   * consultation is pending — the consultation is tracked separately.
+   * consultation is pending: the consultation is tracked separately.
    */
   async handleCallerUtterance(transcript: string): Promise<void> {
     // Stamped before the teardown waits below, which can run for hundreds of
     // milliseconds: the caller stopped talking now, not once the prior turn
     // finished dying.
     this.pendingFinalTranscriptAtMs = Date.now();
+    // This final supersedes the interim text and owns the boundary, so the
+    // replay timer for any outstanding hold stands down: the words it would
+    // have replayed are in this dispatch.
+    this.clearEndpointExtensionTimer();
+    this.latestPartialTranscript = "";
     // If the caller speaks while an END_CALL teardown is pending (during the
     // drain wait or the listen window), this is a deferral — the caller is
     // re-engaging after we tried to hang up. Track it so we can cap repeats.
@@ -443,7 +542,10 @@ export class CallController {
 
     this.state = "processing";
     this.resetSilenceTimer();
-    const callerContent = transcript;
+    // Words a hold verdict judged unfinished, and words a leg the caller
+    // talked over was still judging, lead the sentence this final completes.
+    // Read after the abort above, which is what returns the latter.
+    const callerContent = this.withHeldTranscript(transcript);
     const shouldMarkOpeningAck = this.awaitingOpeningAck;
     if (shouldMarkOpeningAck) {
       this.awaitingOpeningAck = false;
@@ -455,7 +557,31 @@ export class CallController {
       : callerContent;
 
     this.lastSentWasOpener = false;
-    await this.runTurn(callerTurnContent);
+    await this.runTurn(callerTurnContent, this.holdAllowed());
+  }
+
+  /**
+   * The caller's full sentence so far: anything a hold left outstanding,
+   * followed by the words that just arrived. Consumes the held text, which
+   * belongs to the dispatch that carries it.
+   */
+  private withHeldTranscript(transcript: string): string {
+    const held = this.heldTranscript;
+    this.heldTranscript = "";
+    if (held.length === 0) {
+      return transcript;
+    }
+    return transcript.length === 0 ? held : `${held} ${transcript}`;
+  }
+
+  /**
+   * Whether the next front-door leg may judge the caller mid-thought. A
+   * sentence that has already been held `endpointMaxExtensions` times is
+   * answered as it stands: one more hold would read as the assistant
+   * refusing to speak.
+   */
+  private holdAllowed(): boolean {
+    return this.endpointHoldCount < this.frontModelConfig.endpointMaxExtensions;
   }
 
   /**
@@ -587,6 +713,13 @@ export class CallController {
     // Restart silence detection so a barge-in that never yields a
     // follow-up utterance doesn't leave the call without a watchdog.
     this.resetSilenceTimer();
+    // The abort may have reclaimed the words of a leg still awaiting its
+    // verdict. Arm the replay so they are answered even if the caller stops
+    // there; their next final cancels it, and an interim transcript re-arms
+    // it for as long as they keep talking.
+    if (this.heldTranscript.length > 0) {
+      this.armEndpointExtensionTimer();
+    }
   }
 
   /**
@@ -613,6 +746,7 @@ export class CallController {
       clearTimeout(this.durationEndTimer);
       this.durationEndTimer = null;
     }
+    this.clearEndpointExtensionTimer();
     this.pendingInstructions = [];
     this.llmRunVersion++;
     this.abortCurrentTurn();
@@ -658,9 +792,25 @@ export class CallController {
    * plus the local AbortController for signal propagation.
    */
   private abortCurrentTurn(): void {
-    if (this.currentTurnHandle) {
-      this.currentTurnHandle.abort();
-      this.currentTurnHandle = null;
+    // A leg still awaiting its hold verdict said nothing to the caller, and
+    // its persisted user row holds half a sentence. Roll the row back and
+    // keep the words, so they are persisted once, on the turn that answers
+    // them. Without a discard the row survives and the sentence is stored
+    // twice, so the words are not reclaimed either.
+    const speculative = this.speculativeTurn;
+    this.speculativeTurn = null;
+    const handle = this.currentTurnHandle;
+    this.currentTurnHandle = null;
+    if (speculative !== null) {
+      this.heldTranscript = speculative.content;
+      if (handle === null) {
+        // The verdict beat the bridge's handle: the leg is still persisting
+        // its user row. Latch the rollback so the handle's arrival runs it.
+        this.speculativeDiscardPending = true;
+      }
+    }
+    if (handle) {
+      this.discardOrAbortLeg(handle, speculative !== null);
     }
     this.abortController.abort();
     this.abortController = new AbortController();
@@ -684,16 +834,143 @@ export class CallController {
   }
 
   /**
+   * End a leg: roll its persisted user row back when it was speculative and
+   * the bridge offers a discard, else abort it. A bridge without discard
+   * degrades to abort, exactly as the handle documents.
+   */
+  private discardOrAbortLeg(
+    handle: VoiceTurnHandle,
+    speculative: boolean,
+  ): void {
+    if (speculative && handle.discard) {
+      void handle.discard().catch((err: unknown) => {
+        log.warn(
+          { err, callSessionId: this.callSessionId },
+          "Speculative phone turn discard failed",
+        );
+      });
+      return;
+    }
+    handle.abort();
+  }
+
+  /**
+   * Front-door hold verdict: the caller's words are visibly unfinished, so
+   * the leg is thrown away and the call goes back to listening. Nothing was
+   * spoken and nothing persists, so the caller hears only the pause they
+   * were already in, and their next words are judged together with these.
+   *
+   * The replay timer covers the case where there are no next words: the
+   * caller really did stop, and the sentence is answered as it stands.
+   */
+  private holdCallerTurn(runVersion: number): void {
+    const speculative = this.speculativeTurn;
+    if (!this.isCurrentRun(runVersion) || speculative === null) {
+      return;
+    }
+    const latencyMs = Date.now() - speculative.dispatchedAtMs;
+    this.markTurnMetric((turnId) =>
+      this.metrics.markEndpointDecision(turnId, {
+        action: "hold",
+        latencyMs,
+        source: "front-door",
+      }),
+    );
+    this.cancelMetricsTurn("endpoint_hold");
+    this.endpointHoldCount += 1;
+    this.pendingFinalTranscriptAtMs = speculative.callerStoppedAtMs;
+    this.pendingFirstPartialAtMs = speculative.firstPartialAtMs;
+    // Supersede the leg before tearing it down, so its own completion and
+    // delta callbacks are inert by the time the abort unwinds them.
+    this.llmRunVersion++;
+    // Parks the leg's words in heldTranscript and rolls back its user row.
+    this.abortCurrentTurn();
+    this.state = "idle";
+    this.resetSilenceTimer();
+    this.armEndpointExtensionTimer();
+    log.info(
+      {
+        callSessionId: this.callSessionId,
+        latencyMs,
+        holdCount: this.endpointHoldCount,
+      },
+      "Front door held a phone turn: the caller is mid-thought",
+    );
+  }
+
+  /**
+   * Arm the replay of a held boundary. Any interim transcript re-arms it
+   * (see {@link handleCallerPartial}) and the next final cancels it, so it
+   * fires only once the caller has genuinely stopped.
+   */
+  private armEndpointExtensionTimer(): void {
+    this.clearEndpointExtensionTimer();
+    this.endpointExtensionTimer = setTimeout(() => {
+      this.endpointExtensionTimer = null;
+      void this.replayHeldBoundary().catch((err: unknown) => {
+        log.error(
+          { err, callSessionId: this.callSessionId },
+          "Held phone turn replay failed",
+        );
+      });
+    }, this.frontModelConfig.endpointExtensionMs);
+  }
+
+  private clearEndpointExtensionTimer(): void {
+    if (this.endpointExtensionTimer !== null) {
+      clearTimeout(this.endpointExtensionTimer);
+      this.endpointExtensionTimer = null;
+    }
+  }
+
+  /**
+   * The caller stayed quiet after a hold, so answer what they said. The
+   * newest interim transcript rides along: words the provider has heard but
+   * not committed are still part of the question, and waiting for it to
+   * commit them would add another silence window to the caller's wait.
+   */
+  private async replayHeldBoundary(): Promise<void> {
+    if (this.destroyed) {
+      return;
+    }
+    if (this.state !== "idle") {
+      // Something else took the floor (an instruction turn, a nudge). Wait
+      // it out rather than dropping the sentence the caller is owed.
+      this.armEndpointExtensionTimer();
+      return;
+    }
+    const partial = this.latestPartialTranscript;
+    this.latestPartialTranscript = "";
+    const content = this.withHeldTranscript(partial);
+    if (content.length === 0) {
+      return;
+    }
+    this.state = "processing";
+    this.resetSilenceTimer();
+    this.lastSentWasOpener = false;
+    await this.runTurn(content, this.holdAllowed());
+  }
+
+  /**
    * Execute a single voice turn through the conversation pipeline and stream
    * the response back through the relay.
+   *
+   * `holdEnabled` marks the turn as the endpoint decision for the caller's
+   * words: the front-door leg may judge them unfinished and hand the floor
+   * back instead of answering. Only caller speech is dispatched that way;
+   * openers, instructions, and nudges are the assistant's own turns and
+   * always speak.
    */
-  private runTurn(content: string): Promise<void> {
-    const promise = this.runTurnInner(content);
+  private runTurn(content: string, holdEnabled = false): Promise<void> {
+    const promise = this.runTurnInner(content, holdEnabled);
     this.currentTurnPromise = promise;
     return promise;
   }
 
-  private async runTurnInner(content: string): Promise<void> {
+  private async runTurnInner(
+    content: string,
+    holdEnabled: boolean,
+  ): Promise<void> {
     if (this.destroyed) {
       return;
     }
@@ -702,6 +979,15 @@ export class CallController {
     // Stamped before any pre-bridge work so the bridge's dispatch-timing log
     // attributes the whole turn, TTS provider resolution included.
     const launchedAtMs = Date.now();
+    this.speculativeDiscardPending = false;
+    this.speculativeTurn = holdEnabled
+      ? {
+          content,
+          dispatchedAtMs: launchedAtMs,
+          callerStoppedAtMs: this.pendingFinalTranscriptAtMs,
+          firstPartialAtMs: this.pendingFirstPartialAtMs,
+        }
+      : null;
     this.openMetricsTurn(runVersion);
 
     // Clear silence timer while actively processing. The caller said
@@ -724,6 +1010,7 @@ export class CallController {
         runVersion,
         runSignal,
         launchedAtMs,
+        holdEnabled,
       );
       if (!this.isCurrentRun(runVersion)) {
         return;
@@ -801,15 +1088,16 @@ export class CallController {
    * escalated leg on the conversation's own model. Both legs stream through
    * the same TTS machinery and share this turn's single end-of-turn signal,
    * so the caller never gets a listening window between the bridge and the
-   * answer. Phone turns commit on the STT provider's utterance-boundary
-   * final and carry no partial transcript, so the front-door leg never
-   * holds: routing is escalate-only.
+   * answer. A turn dispatched with `holdEnabled` adds the third verdict: the
+   * caller's words are unfinished, so the leg is discarded and the floor
+   * goes back to them (see {@link holdCallerTurn}).
    */
   private async streamTtsTokens(
     content: string,
     runVersion: number,
     runSignal: AbortSignal,
     launchedAtMs: number,
+    holdEnabled: boolean,
   ): Promise<VoiceTurnOutcome> {
     // Resolve the active TTS provider through the global abstraction.
     // The catalog's callMode determines the call path: synthesized-play
@@ -1194,17 +1482,29 @@ export class CallController {
       // Verdict-first: a front-door leg's leading tokens decide the turn's
       // fate, so its raw stream is a control plane until they classify. The
       // shared coordinator reads it and sequences the hand-off; only text it
-      // releases is spoken or recorded. Phone has no partial transcripts,
-      // so the hold verdict is never taught.
+      // releases is spoken or recorded. A leg carrying the caller's words is
+      // also the endpoint decision, so it is taught the hold verdict.
       const coordinator: FrontDoorLegCoordinator | null =
         leg.routingLeg === "front-door"
           ? createFrontDoorLegCoordinator({
-              holdEnabled: false,
+              holdEnabled: leg.holdEnabled === true,
               host: {
                 isLive: () =>
                   this.isCurrentRun(runVersion) && !runSignal.aborted,
                 language: () => this.resolveSynthesisLanguage(),
                 progress: cadence,
+                onHold: () => this.holdCallerTurn(runVersion),
+                commit: () => {
+                  if (!this.isCurrentRun(runVersion)) {
+                    return false;
+                  }
+                  // The leg is answering or handing off: the sentence is
+                  // settled, so it stops being reclaimable and the hold cap
+                  // resets for the caller's next one.
+                  this.speculativeTurn = null;
+                  this.endpointHoldCount = 0;
+                  return true;
+                },
                 onAnswerText: (text) => {
                   fullResponseText += text;
                   flushSafeText(fullResponseText);
@@ -1308,6 +1608,7 @@ export class CallController {
           skipDisclosure: this.skipDisclosure,
           launchedAtMs,
           routingLeg: leg.routingLeg,
+          ...(leg.holdEnabled === true ? { unifiedVerdict: true } : {}),
           ...(leg.spokenEscalationBridge !== undefined
             ? { spokenEscalationBridge: leg.spokenEscalationBridge }
             : {}),
@@ -1329,8 +1630,11 @@ export class CallController {
               }
             } else {
               // Superseded, or the front-door leg handed off before its
-              // handle arrived: abort immediately.
-              handle.abort();
+              // handle arrived: end it immediately. A leg whose hold verdict
+              // beat this resolution still owes its user row a rollback.
+              const rollback = this.speculativeDiscardPending;
+              this.speculativeDiscardPending = false;
+              this.discardOrAbortLeg(handle, rollback);
             }
           })
           .catch((err) => {
@@ -1385,7 +1689,7 @@ export class CallController {
     // in the turn it occurs; the front-door leg is toolless and quick, so in
     // practice the escalated leg's tool loops are what it covers.
     cadence.arm();
-    await runVoiceLeg({ content, routingLeg: "front-door" });
+    await runVoiceLeg({ content, routingLeg: "front-door", holdEnabled });
     if (!this.isCurrentRun(runVersion)) {
       return settleSuperseded();
     }
@@ -2054,16 +2358,20 @@ export class CallController {
     const turnId = this.metricsTurnIdForRun(runVersion);
     const finalTranscriptAtMs = this.pendingFinalTranscriptAtMs;
     this.pendingFinalTranscriptAtMs = null;
+    const firstPartialAtMs = this.pendingFirstPartialAtMs;
+    this.pendingFirstPartialAtMs = null;
     this.metricsTurnId = turnId;
     // The provider's utterance-boundary final is both the transcript and the
     // moment the caller stopped speaking, so it anchors the round trip too;
     // a phone turn has no separate VAD end or push-to-talk release to use.
-    this.metrics.startTurn(
-      turnId,
-      finalTranscriptAtMs !== null
+    // Against it, the first interim transcript of the same utterance is how
+    // long the provider sat on words it had already heard.
+    this.metrics.startTurn(turnId, {
+      ...(finalTranscriptAtMs !== null
         ? { finalTranscriptAtMs, utteranceEndAtMs: finalTranscriptAtMs }
-        : {},
-    );
+        : {}),
+      ...(firstPartialAtMs !== null ? { firstPartialAtMs } : {}),
+    });
   }
 
   /**

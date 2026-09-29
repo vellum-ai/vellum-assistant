@@ -9,8 +9,10 @@
  *   inbound mu-law audio is decoded to 16 kHz PCM16 and fed to a
  *   {@link StreamingTranscriber} resolved for the configured
  *   `services.stt` provider. Replies trigger on the provider's
- *   utterance-boundary `final` events; barge-in (`onSpeechStart`) always
- *   fires from the local energy VAD, never from transcriber partials.
+ *   utterance-boundary `final` events; interim `partial` events are
+ *   forwarded as the freshest words spoken since that final but start no
+ *   turn of their own, and barge-in (`onSpeechStart`) always fires from
+ *   the local energy VAD, never from transcriber partials.
  *   Frames arriving while the provider session is still starting are
  *   held in a bounded buffer and flushed on start (overflow drops the
  *   oldest frames and is counted + logged at teardown).
@@ -20,10 +22,11 @@
  *   transcriber is available for the configured provider, or the
  *   provider closed the streaming session unexpectedly mid-call.
  *
- * This module is **transport-neutral** — it exposes callback hooks
- * (`onSpeechStart`, `onTranscriptFinal`, `onDtmf`, `onStop`) rather than
- * driving any call flow itself; `media-stream-server.ts` instantiates and
- * connects it to the media-stream WebSocket ingress.
+ * This module is **transport-neutral**: it exposes callback hooks
+ * (`onSpeechStart`, `onTranscriptFinal`, `onTranscriptPartial`, `onDtmf`,
+ * `onStop`) rather than driving any call flow itself;
+ * `media-stream-server.ts` instantiates and connects it to the
+ * media-stream WebSocket ingress.
  *
  * Error handling:
  * - When the telephony resolver returns a non-supported status, the
@@ -141,6 +144,19 @@ export interface MediaStreamSttSessionCallbacks {
    * @param durationMs - Approximate duration of the audio turn.
    */
   onTranscriptFinal?: (text: string, durationMs: number) => void;
+
+  /**
+   * Called for each interim transcript the streaming provider revises on
+   * its way to the next final. The text is the provider's running guess at
+   * the words spoken since that final, so each call supersedes the last and
+   * the run resets when {@link onTranscriptFinal} commits it. Empty
+   * partials are suppressed, and batch mode never emits one.
+   *
+   * Turn taking still runs off the finals: this is the freshest text a
+   * boundary the front door held mid-thought can be re-judged on, not a
+   * boundary of its own.
+   */
+  onTranscriptPartial?: (text: string) => void;
 
   /**
    * Called when a DTMF digit is received from Twilio.
@@ -542,8 +558,8 @@ export class MediaStreamSttSession {
   /**
    * Map streaming transcriber events onto the session callbacks.
    *
-   * Partials are ignored for turn-taking: replies trigger only on the
-   * provider's utterance-boundary finals, and barge-in comes from the
+   * Partials are forwarded but own no turn taking: replies trigger only on
+   * the provider's utterance-boundary finals, and barge-in comes from the
    * local VAD.
    */
   private handleStreamingEvent(event: SttStreamServerEvent): void {
@@ -552,8 +568,13 @@ export class MediaStreamSttSession {
     }
 
     switch (event.type) {
-      case "partial":
+      case "partial": {
+        const text = event.text.trim();
+        if (text.length > 0) {
+          this.callbacks.onTranscriptPartial?.(text);
+        }
         return;
+      }
       case "finalized":
         return;
       case "turn-start":

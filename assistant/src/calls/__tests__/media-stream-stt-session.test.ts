@@ -878,6 +878,39 @@ describe("MediaStreamSttSession", () => {
       session.dispose();
     });
 
+    test("partial events map to onTranscriptPartial; empty partials are suppressed", async () => {
+      const onTranscriptPartial = jest.fn();
+      const onTranscriptFinal = jest.fn();
+      const { session, fake } = await startStreamingSession({
+        onTranscriptPartial,
+        onTranscriptFinal,
+      });
+
+      fake.emit({ type: "partial", text: "  can you check  " });
+
+      expect(onTranscriptPartial).toHaveBeenCalledTimes(1);
+      expect(onTranscriptPartial).toHaveBeenCalledWith("can you check");
+      // A partial is not a boundary: no reply is triggered.
+      expect(onTranscriptFinal).not.toHaveBeenCalled();
+
+      fake.emit({ type: "partial", text: "   " });
+      expect(onTranscriptPartial).toHaveBeenCalledTimes(1);
+
+      session.dispose();
+    });
+
+    test("partials are not forwarded after dispose", async () => {
+      const onTranscriptPartial = jest.fn();
+      const { session, fake } = await startStreamingSession({
+        onTranscriptPartial,
+      });
+
+      session.dispose();
+      fake.emit({ type: "partial", text: "too late" });
+
+      expect(onTranscriptPartial).not.toHaveBeenCalled();
+    });
+
     test("final events map to onTranscriptFinal; empty finals are suppressed", async () => {
       const onTranscriptFinal = jest.fn();
       const { session, fake } = await startStreamingSession({

@@ -100,6 +100,7 @@ const mockStartInitialGreeting = jest.fn(async () => {});
 const mockStartPostVerificationGreeting = jest.fn(async () => {});
 const mockMarkNextCallerTurnAsOpeningAck = jest.fn();
 const mockHandleCallerUtterance = jest.fn(async () => {});
+const mockHandleCallerPartial = jest.fn();
 const mockHandleInterrupt = jest.fn();
 const mockDestroy = jest.fn();
 
@@ -116,6 +117,7 @@ mock.module("../call-controller.js", () => ({
     startPostVerificationGreeting: mockStartPostVerificationGreeting,
     markNextCallerTurnAsOpeningAck: mockMarkNextCallerTurnAsOpeningAck,
     handleCallerUtterance: mockHandleCallerUtterance,
+    handleCallerPartial: mockHandleCallerPartial,
     handleInterrupt: mockHandleInterrupt,
     handleBargeIn: mockHandleBargeIn,
     destroy: mockDestroy,
@@ -560,6 +562,7 @@ beforeEach(() => {
   mockStartPostVerificationGreeting.mockClear();
   mockMarkNextCallerTurnAsOpeningAck.mockClear();
   mockHandleCallerUtterance.mockClear();
+  mockHandleCallerPartial.mockClear();
   mockHandleInterrupt.mockClear();
   mockHandleBargeIn.mockClear();
   mockHandleBargeIn.mockReturnValue(false);
@@ -2182,6 +2185,16 @@ describe("setup flows over the media-stream transport", () => {
     ).handleTranscriptFinal(text, 500);
   }
 
+  /**
+   * Deliver an interim caller transcript, mirroring the STT session's
+   * onTranscriptPartial callback wiring.
+   */
+  function deliverPartial(session: MediaStreamCallSession, text: string): void {
+    (
+      session as unknown as { handleTranscriptPartial(text: string): void }
+    ).handleTranscriptPartial(text);
+  }
+
   function enterDigits(session: MediaStreamCallSession, digits: string): void {
     for (const digit of digits) {
       session.handleMessage(makeDtmfMessage(digit));
@@ -2241,6 +2254,33 @@ describe("setup flows over the media-stream transport", () => {
       deliverTranscript(session, "hello there");
       await sleep(5);
       expect(mockHandleCallerUtterance).toHaveBeenCalledWith("hello there");
+
+      // Interim transcripts reach the controller too, without recording a
+      // caller_spoke event: they are not the caller's committed words.
+      const spokenBefore = callerSpokeEvents("call-verif-ok").length;
+      deliverPartial(session, "and one more");
+      expect(mockHandleCallerPartial).toHaveBeenCalledWith("and one more");
+      expect(callerSpokeEvents("call-verif-ok")).toHaveLength(spokenBefore);
+
+      session.destroy();
+    });
+
+    test("interim transcripts during a setup flow are dropped", async () => {
+      const { session } = setupCall({
+        callId: "call-verif-partial",
+        outcome: {
+          action: "verification",
+          assistantId: "self",
+          fromNumber: FROM,
+        },
+      });
+      await session.whenSetupSettled();
+
+      // The flow owns caller speech and commits on finals only.
+      expect(session.getSetupFlow()?.getState()).toBe("collecting_code");
+      deliverPartial(session, "one two three");
+
+      expect(mockHandleCallerPartial).not.toHaveBeenCalled();
 
       session.destroy();
     });

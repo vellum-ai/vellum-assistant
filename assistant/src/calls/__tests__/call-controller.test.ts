@@ -225,7 +225,10 @@ import { resetDbForTesting } from "../../__tests__/db-test-helpers.js";
 import { createGuardianBinding } from "../../__tests__/helpers/create-guardian-binding.js";
 import { setConfig } from "../../__tests__/helpers/set-config.js";
 import { loadConfig } from "../../config/loader.js";
-import type { VoiceProgressConfig } from "../../config/schemas/voice.js";
+import type {
+  VoiceFrontModelConfig,
+  VoiceProgressConfig,
+} from "../../config/schemas/voice.js";
 import { getMessages } from "../../persistence/conversation-crud.js";
 import { getDb } from "../../persistence/db-connection.js";
 import { initializeDb } from "../../persistence/db-init.js";
@@ -417,6 +420,8 @@ function setupController(
     /** Progress narration seam; an explicit null keeps the call silent. */
     progressNarrator?: VoiceProgressNarrator | null;
     progressConfig?: VoiceProgressConfig;
+    /** Endpointing seam: hold-replay delay and the hold cap. */
+    frontModelConfig?: VoiceFrontModelConfig;
   },
 ) {
   ensureConversation("conv-ctrl-test");
@@ -447,6 +452,7 @@ function setupController(
     progressNarrator:
       opts?.progressNarrator === undefined ? null : opts.progressNarrator,
     progressConfig: opts?.progressConfig,
+    frontModelConfig: opts?.frontModelConfig,
   });
   return { session, relay: transport, controller };
 }
@@ -5136,6 +5142,224 @@ describe("call-controller", () => {
       const snapshot = controller.getMetricsSnapshot();
       expect(snapshot.recentTurns.length).toBe(0);
       expect(snapshot.activeTurn).toBeNull();
+
+      controller.destroy();
+    });
+  });
+
+  // ── Semantic endpointing (front-door hold verdict) ─────────────────
+
+  describe("semantic endpointing", () => {
+    /** Front-model tuning with a replay short enough for a real timer. */
+    function endpointingConfig(
+      overrides: Partial<VoiceFrontModelConfig> = {},
+    ): VoiceFrontModelConfig {
+      return { ...loadConfig().voice.frontModel, ...overrides };
+    }
+
+    /**
+     * A bridge that holds on every leg whose prompt taught the hold token,
+     * and answers otherwise. Records what each leg was asked and whether it
+     * was rolled back.
+     */
+    function mockHoldingBridge(answer = "Sure, checking Cleveland now.") {
+      const legs: { content: string; unifiedVerdict: boolean }[] = [];
+      const discarded: string[] = [];
+      mockStartVoiceTurn.mockImplementation(
+        async (opts: {
+          content: string;
+          unifiedVerdict?: boolean;
+          onTextDelta: (t: string) => void;
+          onComplete: () => void;
+        }) => {
+          const turnId = `run-${legs.length}`;
+          legs.push({
+            content: opts.content,
+            unifiedVerdict: opts.unifiedVerdict === true,
+          });
+          opts.onTextDelta(opts.unifiedVerdict === true ? "[0]" : answer);
+          opts.onComplete();
+          return {
+            turnId,
+            abort: () => {},
+            discard: async () => {
+              discarded.push(turnId);
+            },
+          };
+        },
+      );
+      return { legs, discarded };
+    }
+
+    test("a hold speaks nothing and carries the words into the next final", async () => {
+      const { legs } = mockHoldingBridge();
+      const { relay, controller } = setupController(undefined, {
+        frontModelConfig: endpointingConfig({ endpointExtensionMs: 10_000 }),
+      });
+
+      // The caller's sentence arrives split across two provider finals.
+      await controller.handleCallerUtterance("Nice. Actually,");
+
+      expect(legs).toHaveLength(1);
+      expect(legs[0].unifiedVerdict).toBe(true);
+      // The hold token is never spoken, and the turn does not end the floor.
+      expect(relay.sentTokens.filter((t) => t.token.length > 0)).toHaveLength(
+        0,
+      );
+      expect(controller.getState()).toBe("idle");
+
+      await controller.handleCallerUtterance("can you check out Cleveland?");
+
+      expect(legs).toHaveLength(2);
+      expect(legs[1].content).toBe(
+        "Nice. Actually, can you check out Cleveland?",
+      );
+
+      controller.destroy();
+    });
+
+    test("a held leg rolls its persisted user row back", async () => {
+      const { discarded } = mockHoldingBridge();
+      const { controller } = setupController(undefined, {
+        frontModelConfig: endpointingConfig({ endpointExtensionMs: 10_000 }),
+      });
+
+      await controller.handleCallerUtterance("Nice. Actually,");
+
+      expect(discarded).toEqual(["run-0"]);
+
+      controller.destroy();
+    });
+
+    test("only caller speech is dispatched as an endpoint decision", async () => {
+      const { legs } = mockHoldingBridge();
+      const { controller } = setupController(undefined, {
+        frontModelConfig: endpointingConfig({ endpointExtensionMs: 10_000 }),
+      });
+
+      // The opener is the assistant's own turn: it must always speak.
+      await controller.startInitialGreeting();
+
+      expect(legs).toHaveLength(1);
+      expect(legs[0].unifiedVerdict).toBe(false);
+
+      controller.destroy();
+    });
+
+    test("the replay answers a held sentence when the caller stops, carrying the newest interim words", async () => {
+      const { legs } = mockHoldingBridge();
+      const { controller } = setupController(undefined, {
+        frontModelConfig: endpointingConfig({ endpointExtensionMs: 20 }),
+      });
+
+      await controller.handleCallerUtterance("Nice. Actually,");
+      expect(legs).toHaveLength(1);
+
+      // Words the provider heard but has not committed still belong to the
+      // question the replay asks.
+      controller.handleCallerPartial("can you check Cleveland");
+
+      await pollUntil(() => legs.length === 2, 2_000);
+
+      expect(legs[1].content).toBe("Nice. Actually, can you check Cleveland");
+      // The cap is not yet reached, so the replay may still hold.
+      expect(legs[1].unifiedVerdict).toBe(true);
+
+      controller.destroy();
+    });
+
+    test("interim words re-arm the replay so it fires only once the caller stops", async () => {
+      const { legs } = mockHoldingBridge();
+      const { controller } = setupController(undefined, {
+        frontModelConfig: endpointingConfig({ endpointExtensionMs: 60 }),
+      });
+
+      await controller.handleCallerUtterance("Nice. Actually,");
+
+      // Keep talking across what would otherwise be two replay windows.
+      for (let i = 0; i < 4; i++) {
+        await new Promise((r) => setTimeout(r, 30));
+        controller.handleCallerPartial(`still going ${i}`);
+      }
+      expect(legs).toHaveLength(1);
+
+      await pollUntil(() => legs.length === 2, 2_000);
+      expect(legs[1].content).toBe("Nice. Actually, still going 3");
+
+      controller.destroy();
+    });
+
+    test("the hold cap makes the front door answer the sentence as it stands", async () => {
+      const { legs } = mockHoldingBridge();
+      const { controller } = setupController(undefined, {
+        frontModelConfig: endpointingConfig({
+          endpointExtensionMs: 10_000,
+          endpointMaxExtensions: 2,
+        }),
+      });
+
+      await controller.handleCallerUtterance("So,");
+      await controller.handleCallerUtterance("um,");
+      await controller.handleCallerUtterance("what is the weather?");
+
+      expect(legs.map((leg) => leg.unifiedVerdict)).toEqual([
+        true,
+        true,
+        false,
+      ]);
+      expect(legs[2].content).toBe("So, um, what is the weather?");
+
+      controller.destroy();
+    });
+
+    test("a committed turn resets the hold cap for the caller's next sentence", async () => {
+      const { legs } = mockHoldingBridge();
+      const { controller } = setupController(undefined, {
+        frontModelConfig: endpointingConfig({
+          endpointExtensionMs: 10_000,
+          endpointMaxExtensions: 1,
+        }),
+      });
+
+      await controller.handleCallerUtterance("So,");
+      await controller.handleCallerUtterance("what is the weather?");
+      expect(legs.map((leg) => leg.unifiedVerdict)).toEqual([true, false]);
+
+      await controller.handleCallerUtterance("And,");
+
+      expect(legs[2].unifiedVerdict).toBe(true);
+      expect(legs[2].content).toBe("And,");
+
+      controller.destroy();
+    });
+
+    test("a hold records an endpoint decision and leaves no completed turn", async () => {
+      mockHoldingBridge();
+      const { controller } = setupController(undefined, {
+        frontModelConfig: endpointingConfig({ endpointExtensionMs: 10_000 }),
+      });
+
+      await controller.handleCallerUtterance("Nice. Actually,");
+
+      const turns = controller.getMetricsSnapshot().recentTurns;
+      expect(turns).toHaveLength(1);
+      expect(turns[0].status).toBe("cancelled");
+      expect(turns[0].cancellationReason).toBe("endpoint_hold");
+      expect(turns[0].endpointHoldCount).toBe(1);
+
+      controller.destroy();
+    });
+
+    test("an interim transcript seeds the turn its own utterance dispatches", async () => {
+      mockStartVoiceTurn.mockImplementation(createMockVoiceTurn(["On it."]));
+      const { controller } = setupController();
+
+      controller.handleCallerPartial("what is the");
+      await controller.handleCallerUtterance("what is the weather?");
+
+      const turns = controller.getMetricsSnapshot().recentTurns;
+      expect(turns).toHaveLength(1);
+      expect(turns[0].timestamps.firstPartialAtMs).not.toBeNull();
 
       controller.destroy();
     });

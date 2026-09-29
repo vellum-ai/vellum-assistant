@@ -31,6 +31,9 @@
  * - STT `onTranscriptFinal` -> routed to the active setup flow's
  *   `pushTranscriptFinal()`, else the controller's
  *   `handleCallerUtterance()`.
+ * - STT `onTranscriptPartial` -> the controller's
+ *   `handleCallerPartial()`, which keeps the newest interim words for a
+ *   boundary the front door held mid-thought. Never persisted.
  * - STT `onDtmf` -> routed to the active setup flow's
  *   `pushDtmfDigit()` for code-collection sub-flows.
  * - STT `onSpeechStart` -> barge-in: clears outbound audio queue
@@ -227,6 +230,7 @@ export class MediaStreamCallSession {
       onSpeechEnd: () => this.handleSpeechEnd(),
       onTranscriptFinal: (text, durationMs) =>
         this.handleTranscriptFinal(text, durationMs),
+      onTranscriptPartial: (text) => this.handleTranscriptPartial(text),
       onDtmf: (digit) => this.handleDtmf(digit),
       onMark: (name) => this.handleMarkEcho(name),
       onStop: () => this.handleStreamStop(),
@@ -920,6 +924,20 @@ export class MediaStreamCallSession {
         "Controller failed to handle caller utterance",
       );
     });
+  }
+
+  /**
+   * Interim transcript from the streaming provider. It is not the caller's
+   * committed words, so it is never persisted, never fires the transcript
+   * notifier, and never reaches a setup flow: it only tells the controller
+   * what has been said since the last final, so a boundary the front door
+   * held mid-thought is re-judged on the caller's newest words.
+   */
+  private handleTranscriptPartial(text: string): void {
+    if (this.setupRouting || this.setupFlow || !this.controller) {
+      return;
+    }
+    this.controller.handleCallerPartial(text);
   }
 
   private handleDtmf(digit: string): void {
