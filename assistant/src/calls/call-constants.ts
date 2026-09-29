@@ -90,6 +90,16 @@ export const POST_GOODBYE_HANGUP_DELAY_MS = 3_000;
 /** Cap on waiting for a superseded turn's teardown before the next caller turn starts. */
 export const BARGE_IN_TEARDOWN_WAIT_MS = 2_000;
 
+/**
+ * Slack added to the provider's own `calls.voice.utteranceEndMs` window
+ * before a held boundary stops waiting for a final that is not coming. The
+ * provider commits an utterance that long after the caller stops speaking,
+ * so anything past it plus a frame's network and parse hop means the stream
+ * is gone, not slow. Mirrors live voice's provider end-of-turn fallback
+ * margin, which bounds the same wait on the other driver.
+ */
+export const PROVIDER_FINAL_FALLBACK_MARGIN_MS = 1_000;
+
 export function getSilenceTimeoutMs(): number {
   return CALLER_SILENCE_NUDGE_MS;
 }

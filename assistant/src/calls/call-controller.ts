@@ -45,6 +45,7 @@ import {
   getSilenceTimeoutMs,
   getUserConsultationTimeoutMs,
   POST_GOODBYE_HANGUP_DELAY_MS,
+  PROVIDER_FINAL_FALLBACK_MARGIN_MS,
 } from "./call-constants.js";
 import {
   formatDuration,
@@ -478,7 +479,8 @@ export class CallController {
    * answers everything the caller has said rather than only what the
    * provider has finalized. Each partial supersedes the last, and any
    * partial re-arms the replay: words are still arriving, so the caller's
-   * pause has not started yet.
+   * pause has not started yet, and the re-armed wait now has to clear the
+   * provider's own commit window for those words too.
    */
   handleCallerPartial(text: string): void {
     if (this.destroyed) {
@@ -913,7 +915,30 @@ export class CallController {
           "Held phone turn replay failed",
         );
       });
-    }, this.frontModelConfig.endpointExtensionMs);
+    }, this.endpointReplayDelayMs());
+  }
+
+  /**
+   * How long the replay waits before answering a held sentence.
+   *
+   * With no interim transcript outstanding the caller has said nothing the
+   * provider still owes a final for, so the hold extension is the whole
+   * wait. With one outstanding the provider does owe a final, and that
+   * final is the better boundary: it is the committed, corrected text, and
+   * it cancels this timer. Racing it would ask the same words twice, so the
+   * wait stretches past the provider's own utterance-end window, and firing
+   * at all then means no final is coming.
+   */
+  private endpointReplayDelayMs(): number {
+    const extensionMs = this.frontModelConfig.endpointExtensionMs;
+    if (this.latestPartialTranscript.length === 0) {
+      return extensionMs;
+    }
+    return Math.max(
+      extensionMs,
+      loadConfig().calls.voice.utteranceEndMs +
+        PROVIDER_FINAL_FALLBACK_MARGIN_MS,
+    );
   }
 
   private clearEndpointExtensionTimer(): void {
@@ -924,10 +949,11 @@ export class CallController {
   }
 
   /**
-   * The caller stayed quiet after a hold, so answer what they said. The
-   * newest interim transcript rides along: words the provider has heard but
-   * not committed are still part of the question, and waiting for it to
-   * commit them would add another silence window to the caller's wait.
+   * The caller stayed quiet after a hold, so answer what they said. Any
+   * interim transcript rides along: reaching here with one outstanding
+   * means the provider is past its own commit window (see
+   * {@link endpointReplayDelayMs}), so those words are the only record of
+   * what the caller said and dropping them would lose the question.
    */
   private async replayHeldBoundary(): Promise<void> {
     if (this.destroyed) {

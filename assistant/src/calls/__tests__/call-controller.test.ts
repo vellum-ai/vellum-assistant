@@ -517,6 +517,9 @@ describe("call-controller", () => {
     cfg.services.tts.provider = "elevenlabs";
     cfg.services.tts.providers["fish-audio"].referenceId = "";
     cfg.ingress.publicBaseUrl = "https://generic.example.com";
+    // Schema default. The hold-replay wait is measured against it, so tests
+    // that shrink it must not leak the change into the next one.
+    cfg.calls.voice.utteranceEndMs = 1000;
     mockResolvableProviderKeys = null;
     // Reset TTS provider registry to ensure clean state
     registerTestTtsProviders();
@@ -5246,7 +5249,7 @@ describe("call-controller", () => {
       controller.destroy();
     });
 
-    test("the replay answers a held sentence when the caller stops, carrying the newest interim words", async () => {
+    test("the replay answers a held sentence when the caller says nothing more", async () => {
       const { legs } = mockHoldingBridge();
       const { controller } = setupController(undefined, {
         frontModelConfig: endpointingConfig({ endpointExtensionMs: 20 }),
@@ -5255,21 +5258,66 @@ describe("call-controller", () => {
       await controller.handleCallerUtterance("Nice. Actually,");
       expect(legs).toHaveLength(1);
 
-      // Words the provider heard but has not committed still belong to the
-      // question the replay asks.
-      controller.handleCallerPartial("can you check Cleveland");
-
+      // No interim words: the provider owes nothing, so the hold extension
+      // is the whole wait.
       await pollUntil(() => legs.length === 2, 2_000);
 
-      expect(legs[1].content).toBe("Nice. Actually, can you check Cleveland");
+      expect(legs[1].content).toBe("Nice. Actually,");
       // The cap is not yet reached, so the replay may still hold.
       expect(legs[1].unifiedVerdict).toBe(true);
 
       controller.destroy();
     });
 
+    test("the replay waits out the provider's commit window rather than racing the final for the same words", async () => {
+      const { legs } = mockHoldingBridge();
+      // The hold extension elapses long before the provider commits.
+      const { controller } = setupController(undefined, {
+        frontModelConfig: endpointingConfig({ endpointExtensionMs: 20 }),
+      });
+
+      await controller.handleCallerUtterance("Nice. Actually,");
+      controller.handleCallerPartial("can you check Cleveland");
+
+      // Well past the hold extension, still inside the provider's window.
+      await new Promise((r) => setTimeout(r, 200));
+      expect(legs).toHaveLength(1);
+
+      // The provider's final owns the boundary, and it asks once, on the
+      // committed text rather than the interim guess.
+      await controller.handleCallerUtterance("can you check out Cleveland?");
+
+      expect(legs).toHaveLength(2);
+      expect(legs[1].content).toBe(
+        "Nice. Actually, can you check out Cleveland?",
+      );
+
+      controller.destroy();
+    });
+
+    test("the replay carries the interim words when the provider misses its own window", async () => {
+      const { legs } = mockHoldingBridge();
+      // A provider that has gone quiet past its commit window plus the
+      // margin is gone, not slow, so the interim text is the only record of
+      // what the caller said.
+      loadConfig().calls.voice.utteranceEndMs = 5;
+      const { controller } = setupController(undefined, {
+        frontModelConfig: endpointingConfig({ endpointExtensionMs: 20 }),
+      });
+
+      await controller.handleCallerUtterance("Nice. Actually,");
+      controller.handleCallerPartial("can you check Cleveland");
+
+      await pollUntil(() => legs.length === 2, 5_000);
+
+      expect(legs[1].content).toBe("Nice. Actually, can you check Cleveland");
+
+      controller.destroy();
+    });
+
     test("interim words re-arm the replay so it fires only once the caller stops", async () => {
       const { legs } = mockHoldingBridge();
+      loadConfig().calls.voice.utteranceEndMs = 5;
       const { controller } = setupController(undefined, {
         frontModelConfig: endpointingConfig({ endpointExtensionMs: 60 }),
       });
@@ -5283,7 +5331,7 @@ describe("call-controller", () => {
       }
       expect(legs).toHaveLength(1);
 
-      await pollUntil(() => legs.length === 2, 2_000);
+      await pollUntil(() => legs.length === 2, 5_000);
       expect(legs[1].content).toBe("Nice. Actually, still going 3");
 
       controller.destroy();
