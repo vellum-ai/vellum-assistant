@@ -107,6 +107,7 @@ export function QuietTurnProgress({
       tone="default"
       active={isOpen}
       onClick={open}
+      appearance="pill"
     />
   );
 }
@@ -140,7 +141,7 @@ export function QuietTurnWorkSummary({
       tone="default"
       active={isOpen}
       onClick={open}
-      density="compact"
+      appearance="compact"
     />
   );
 }

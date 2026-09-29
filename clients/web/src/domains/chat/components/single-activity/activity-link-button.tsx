@@ -19,9 +19,10 @@ export interface ActivityLinkButtonProps {
   /**
    * `inline` sits in the message column, its label flush with the prose
    * around it. `compact` sits among the footer's timestamp and actions, so it
-   * keeps clear of its neighbors and matches their size.
+   * keeps clear of its neighbors and matches their size. `pill` is a filled
+   * chip for a control that must be noticed, like a turn's live progress.
    */
-  density?: "inline" | "compact";
+  appearance?: "inline" | "compact" | "pill";
 }
 
 /**
@@ -37,7 +38,7 @@ export function ActivityLinkButton({
   tone,
   active,
   onClick,
-  density = "inline",
+  appearance = "inline",
 }: ActivityLinkButtonProps) {
   const isError = tone === "error";
   return (
@@ -48,14 +49,20 @@ export function ActivityLinkButton({
       aria-label={ariaLabel}
       onClick={(event) => openDetailSheetFromTrigger(event, onClick)}
       className={cn(
-        "group inline-flex items-center rounded-md text-left transition-colors cursor-pointer",
-        density === "compact"
-          ? "mx-1 gap-0.5 px-1.5 py-0.5 text-body-small-default"
-          : "-mx-1.5 gap-2 px-1.5 py-1 text-[13px] font-medium",
+        "group inline-flex items-center text-left transition-colors cursor-pointer",
+        appearance === "compact" &&
+          "mx-1 gap-0.5 rounded-md px-1.5 py-0.5 text-body-small-default",
+        appearance === "inline" &&
+          "-mx-1.5 gap-2 rounded-md px-1.5 py-1 text-[13px] font-medium",
+        appearance === "pill" &&
+          "gap-1.5 rounded-full border border-[var(--border-base)] py-1 pl-3 pr-2 text-[13px] font-medium hover:border-[var(--border-hover)]",
         "focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]",
         active
           ? "bg-[var(--surface-active)] text-[var(--content-default)]"
-          : "text-[var(--content-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--content-default)]",
+          : cn(
+              "text-[var(--content-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--content-default)]",
+              appearance === "pill" && "bg-[var(--surface-lift)]",
+            ),
         isError && "text-[var(--system-negative-strong)]",
       )}
     >
@@ -74,8 +81,12 @@ export function ActivityLinkButton({
           Faded rather than unmounted so the label never shifts. */}
       <ChevronRight
         className={cn(
-          density === "compact" ? "size-3" : "size-3.5",
-          "shrink-0 text-[var(--content-tertiary)] opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100 group-data-[active=true]:opacity-100 motion-reduce:transition-none",
+          appearance === "compact" ? "size-3" : "size-3.5",
+          "shrink-0 text-[var(--content-tertiary)] transition-opacity motion-reduce:transition-none",
+          // A pill is always a button; the chevron says so from the start.
+          appearance === "pill"
+            ? "opacity-100"
+            : "opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 group-data-[active=true]:opacity-100",
         )}
         aria-hidden
       />
