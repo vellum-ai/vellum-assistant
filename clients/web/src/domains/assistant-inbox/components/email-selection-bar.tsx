@@ -48,23 +48,34 @@ export function EmailSelectionBar({
           animate={{ opacity: 1, y: 0 }}
           exit={reducedMotion ? { opacity: 0 } : { opacity: 0, y: 16 }}
           transition={{ duration: 0.18, ease: "easeOut" }}
-          /* Below `md` the bar wraps to two lines, and the clear control
-             pins to the top corner rather than trailing the actions on the
-             second line; the padding keeps the count clear of it. */
-          className="pointer-events-auto relative flex max-w-[calc(100%-1rem)] flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-lift)] py-2 pl-4 pr-2 shadow-[0_8px_32px_rgba(0,0,0,0.14)] max-md:pr-12"
+          /* Below `md` the bar is two lines: the count with the clear
+             control centred against it, then both actions side by side.
+             From `md` up the first line dissolves into the row, so the
+             count leads, the actions follow, and the clear control sorts
+             to the trailing edge. */
+          className="pointer-events-auto flex max-w-[calc(100%-1rem)] flex-col gap-2 rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-lift)] py-2 pl-4 pr-2 shadow-[0_8px_32px_rgba(0,0,0,0.14)] max-md:w-full md:flex-row md:flex-wrap md:items-center md:gap-x-3"
         >
-          <div className="flex min-w-0 flex-col">
-            <span className="whitespace-nowrap text-body-medium-default text-[var(--content-emphasised)]">
-              {t("emailSelectionBar.count", { count: emails.length })}
-            </span>
-            {mixed ? (
-              <span className="whitespace-nowrap text-label-small-default text-[var(--content-tertiary)]">
-                {t("emailSelectionBar.mixed", {
-                  received: received.length,
-                  sent,
-                })}
+          <div className="flex items-center justify-between gap-3 md:contents">
+            <div className="flex min-w-0 flex-col">
+              <span className="whitespace-nowrap text-body-medium-default text-[var(--content-emphasised)]">
+                {t("emailSelectionBar.count", { count: emails.length })}
               </span>
-            ) : null}
+              {mixed ? (
+                <span className="whitespace-nowrap text-label-small-default text-[var(--content-tertiary)]">
+                  {t("emailSelectionBar.mixed", {
+                    received: received.length,
+                    sent,
+                  })}
+                </span>
+              ) : null}
+            </div>
+            <Button
+              variant="ghost"
+              iconOnly={<X />}
+              onClick={onClear}
+              aria-label={t("emailSelectionBar.clear")}
+              className="shrink-0 md:order-last"
+            />
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -86,13 +97,6 @@ export function EmailSelectionBar({
                 {t("emailSelectionBar.delete")}
               </Button>
             ) : null}
-            <Button
-              variant="ghost"
-              iconOnly={<X />}
-              onClick={onClear}
-              aria-label={t("emailSelectionBar.clear")}
-              className="max-md:absolute max-md:right-2 max-md:top-2"
-            />
           </div>
         </motion.div>
       ) : null}
