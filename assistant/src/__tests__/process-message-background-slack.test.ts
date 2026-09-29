@@ -94,6 +94,9 @@ interface TestConversation {
   setTrustContext: (ctx: unknown) => void;
   setAuthContext: (ctx: unknown) => void;
   ensureActorScopedHistory: () => Promise<void>;
+  acquireProcessingForActor: typeof acquireProcessingForActorDouble;
+  releaseProcessing: (claim: number) => boolean;
+  holdsProcessingClaim: (claim: number) => boolean;
   setChannelCapabilities: () => void;
   setHostCuProxy: () => void;
   setHostAppControlProxy: () => void;
@@ -134,6 +137,7 @@ import {
   processMessage,
   processMessageInBackground,
 } from "../daemon/process-message.js";
+import { acquireProcessingForActorDouble } from "./helpers/mock-conversation.js";
 import { setConfig } from "./helpers/set-config.js";
 
 function createDeferred<T = void>(): Deferred<T> {
@@ -180,6 +184,9 @@ function makeConversation(): TestConversation {
       conversation.authContext = ctx;
     },
     ensureActorScopedHistory: async () => {},
+    acquireProcessingForActor: acquireProcessingForActorDouble,
+    releaseProcessing: () => false,
+    holdsProcessingClaim: () => true,
     setChannelCapabilities: () => {},
     setHostCuProxy: () => {},
     setHostAppControlProxy: () => {},

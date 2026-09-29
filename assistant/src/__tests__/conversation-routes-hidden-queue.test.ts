@@ -126,7 +126,10 @@ import {
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { handleSendMessage } from "../runtime/routes/conversation-routes.js";
 import { callHandler } from "./helpers/call-route-handler.js";
-import { mockUnownedModeSessions } from "./helpers/mock-conversation.js";
+import {
+  acquireProcessingForActorDouble,
+  mockUnownedModeSessions,
+} from "./helpers/mock-conversation.js";
 
 const CONV_ID = "conv-hidden-queue";
 
@@ -179,6 +182,8 @@ function makeConversationWithPendingConfirmation(
     getTurnChannelContext: () => null,
     getTurnInterfaceContext: () => null,
     ensureActorScopedHistory: async () => {},
+    acquireProcessingForActor: acquireProcessingForActorDouble,
+    releaseProcessing: () => false,
     isProcessing: () => processing,
     setProcessing: () => {},
     hasAnyPendingConfirmation: () => true,

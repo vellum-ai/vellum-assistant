@@ -166,7 +166,10 @@ import { CONVERSATION_BUSY_MESSAGE } from "../daemon/conversation-messaging.js";
 import type { AuthContext } from "../runtime/auth/types.js";
 import { handleSendMessage } from "../runtime/routes/conversation-routes.js";
 import { callHandler } from "./helpers/call-route-handler.js";
-import { mockUnownedModeSessions } from "./helpers/mock-conversation.js";
+import {
+  acquireProcessingForActorDouble,
+  mockUnownedModeSessions,
+} from "./helpers/mock-conversation.js";
 
 const _testAuthContext: AuthContext = {
   subject: "actor:self:test-guardian",
@@ -245,6 +248,7 @@ function makeConversation() {
     getTurnChannelContext: () => null,
     getTurnInterfaceContext: () => null,
     ensureActorScopedHistory: async () => {},
+    acquireProcessingForActor: acquireProcessingForActorDouble,
     isProcessing: () => processing,
     setProcessing: (value: boolean) => {
       processing = value;
@@ -258,6 +262,7 @@ function makeConversation() {
       owner += 1;
       return owner;
     },
+    holdsProcessingClaim: (claim: number) => processing && claim === owner,
     releaseProcessing: (claim: number) => {
       if (claim !== owner) {
         return false;
@@ -656,9 +661,9 @@ describe("handleSendMessage flag taken after its queue decision", () => {
   });
 
   test("queues a slash command whose flag went away during the awaits", async () => {
-    // Same window, the branch that hand-rolls its own claim. It takes the flag
-    // rather than setting it, so a hold taken since is answered by the queue
-    // instead of being claimed away from the turn that owns it.
+    // Same window, for a slash command. Its claim is taken rather than set,
+    // so a hold taken since is answered by the queue instead of being claimed
+    // away from the turn that owns it.
     const { conversation, runAgentLoop } = makeConversation();
     conversation.setProcessing(true);
     // The early gate reads idle, the claim below does not.

@@ -51,6 +51,10 @@ import { resolveTurnCommitWaitMs } from "../../daemon/abort-watchdog.js";
 import { createApprovalConversationGenerator } from "../../daemon/approval-generators.js";
 import type { Conversation } from "../../daemon/conversation.js";
 import {
+  commitPreparingClaim,
+  isClaimLive,
+} from "../../daemon/conversation-actor-claim.js";
+import {
   classifyInterruptEligibility,
   interruptRunningTurn,
 } from "../../daemon/conversation-interrupt.js";
@@ -2399,9 +2403,9 @@ export async function handleSendMessage(
    *
    * Reached from the check just below, and again from every point past it that
    * finds the conversation busy after all. That check and the acquire which
-   * actually starts a turn are separated by guardian cleanup, history scoping
-   * and slash resolution, so anything taking the flag inside those awaits
-   * leaves a send that has to queue rather than fail. Answering the same way
+   * actually starts a turn are separated by the interaction sweep and guardian
+   * cleanup, so anything taking the flag inside those awaits leaves a send
+   * that has to queue rather than fail. Answering the same way
    * from both means a client cannot tell which side of the awaits the
    * conversation went busy on.
    */
@@ -2632,6 +2636,10 @@ export async function handleSendMessage(
     // a transition belonging to an interrupt that is long over. Disarmed in the
     // `finally` unless the loop this call started is there to consume it.
     let startedAgentLoop = false;
+    // The processing claim this send took for its turn while nothing else has
+    // taken it over. The `finally` gives it back; the slash branches and the
+    // agent loop release it themselves.
+    let unstartedClaim: number | null = null;
     try {
       // Per-turn host-proxy setup, after the interrupt decision so the replacement
       // turn an interrupt starts gets what an idle send gets. A send that queues
@@ -2736,13 +2744,19 @@ export async function handleSendMessage(
 
       // Conversation is idle — persist and fire agent loop immediately.
       //
-      // Stamping the sender here rather than at resolution is what keeps the two
-      // in step: the slot hydrates and scopes the turn started just below
-      // (`ensureActorScopedHistory`, persisted provenance, the loop's own trust),
-      // so it must name whoever this request is about to run as. A request that
-      // queues instead returns above without stamping — it is not starting a run,
-      // and its actor rides the queue item to the drain.
-      conversation.setTrustContext(resolvedTrustCtx);
+      // The claim comes first, and the sender is stamped and the history scoped
+      // under it, so a second sender reaching this idle conversation at the same
+      // time finds it busy and queues without touching either. Stamping here
+      // rather than at resolution keeps the slot naming whoever this request is
+      // about to run as. A request that queues instead returns without stamping:
+      // it is not starting a run, and its actor rides the queue item to the
+      // drain.
+      const turnClaim =
+        await conversation.acquireProcessingForActor(resolvedTrustCtx);
+      if (turnClaim === null) {
+        return queueFallback(contentAfterScan, "lock_race");
+      }
+      unstartedClaim = turnClaim;
       conversation.setTurnChannelContext({
         userMessageChannel: sourceChannel,
         assistantMessageChannel: sourceChannel,
@@ -2752,8 +2766,6 @@ export async function handleSendMessage(
         assistantMessageInterface: sourceInterface,
       });
       conversation.currentTurnSourceActorPrincipalId = sourceActorPrincipalId;
-
-      await conversation.ensureActorScopedHistory();
 
       // Resolve slash commands before persisting or running the agent loop.
       // `contentAfterScan` already carries the scan-rewritten content when
@@ -2769,11 +2781,95 @@ export async function handleSendMessage(
       });
       const slashResult = await resolveSlash(rawContent, slashContext);
 
-      if (slashResult.kind === "unknown") {
-        const slashOwner = await conversation.acquireProcessingFenced();
-        if (slashOwner === null) {
-          return queueFallback(rawContent, "lock_race");
+      // Asked before each write ahead of the turn: a Stop cancels the claim
+      // while it is still preparing, and nothing is written for this send
+      // after. The canned branches below write under the claim without a
+      // persist to check it for them, so they queue here the way a send that
+      // finds the conversation taken does.
+      const claimLive = () => isClaimLive(conversation, turnClaim);
+      if (slashResult.kind !== "passthrough" && !claimLive()) {
+        return queueFallback(rawContent, "lock_race");
+      }
+      /**
+       * A row of a slash command answered without a turn, written only while
+       * the claim is live: every insert attempt, retries included, asks first.
+       * Null is a claim cancelled before the row landed, and nothing more is
+       * written.
+       */
+      const writeWhileClaimLive = async <T>(
+        write: (insertPrecondition: () => boolean) => Promise<T>,
+      ): Promise<T | null> => {
+        try {
+          return await write(claimLive);
+        } catch (err) {
+          if (!claimLive()) {
+            return null;
+          }
+          throw err;
         }
+      };
+      /**
+       * End a slash command whose user row landed but whose reply will not be
+       * written because its claim was cancelled. The persist already seated
+       * the row in the resident history; it is announced like any landed row,
+       * with the echo the sender reconciles on and the invalidation other
+       * clients refetch on.
+       */
+      const finishCannedWithoutReply = (messageId: string) => {
+        broadcastMessage({
+          type: "user_message_echo",
+          text: rawContent,
+          conversationId: mapping.conversationId,
+          messageId,
+          clientMessageId,
+        });
+        // The echoed row is durable, so the snapshot anchor advances to the
+        // echo's seq, as it does on the ordinary send path.
+        recordConversationPersistedSeq(mapping.conversationId, getCurrentSeq());
+        publishConversationMessagesChanged(
+          mapping.conversationId,
+          originClientId,
+        );
+        return {
+          accepted: true,
+          messageId,
+          conversationId: mapping.conversationId,
+        };
+      };
+      /**
+       * The user row of a slash command. Null is a claim cancelled before it
+       * landed, which the branch answers by queueing, since nothing was
+       * written.
+       */
+      const persistCannedUserRow = async (
+        metadata: Record<string, unknown>,
+      ) => {
+        const row = await writeWhileClaimLive((insertPrecondition) =>
+          persistQueuedMessageBody(conversation, {
+            content: rawContent,
+            attachments,
+            // The send's own id, not a fresh one: an interrupting send is
+            // answered `202` advertising this id as its `messageId` before
+            // these branches run, and a user row is persisted under its
+            // request id, so minting here would advertise a row that never
+            // exists.
+            requestId: sendRequestId,
+            metadata: withClientMetadata(metadata, clientMetadata),
+            clientMessageId,
+            insertPrecondition,
+            ...(clientOs ? { requestClientOs: clientOs } : {}),
+          }),
+        );
+        if (row && !row.deduplicated) {
+          commitPreparingClaim(conversation, turnClaim);
+        }
+        return row;
+      };
+
+      if (slashResult.kind === "unknown") {
+        // Released by this branch on every path.
+        const slashOwner = turnClaim;
+        unstartedClaim = null;
         let cleanupDeferred = false;
         try {
           const slashMeta = {
@@ -2786,25 +2882,19 @@ export async function handleSendMessage(
               ? { scripted: body.scripted }
               : {}),
           };
-          const persisted = await persistQueuedMessageBody(conversation, {
-            content: rawContent,
-            attachments,
-            // The send's own id, not a fresh one: an interrupting send is
-            // answered `202` advertising this id as its `messageId` before
-            // these branches run, and a user row is persisted under its
-            // request id, so minting here would advertise a row that never
-            // exists.
-            requestId: sendRequestId,
-            metadata: withClientMetadata(slashMeta, clientMetadata),
-            clientMessageId,
-            ...(clientOs ? { requestClientOs: clientOs } : {}),
-          });
+          const persisted = await persistCannedUserRow(slashMeta);
+          if (!persisted) {
+            return queueFallback(rawContent, "lock_race");
+          }
           if (persisted.deduplicated) {
             return {
               accepted: true,
               messageId: persisted.id,
               conversationId: mapping.conversationId,
             };
+          }
+          if (!claimLive()) {
+            return finishCannedWithoutReply(persisted.id);
           }
 
           const channelMeta = buildChannelMetadata(
@@ -2815,12 +2905,18 @@ export async function handleSendMessage(
             },
           );
           const assistantMsg = createAssistantMessage(slashResult.message);
-          const persistedAssistant = await addMessage(
-            mapping.conversationId,
-            "assistant",
-            JSON.stringify(assistantMsg.content),
-            { metadata: channelMeta },
+          const persistedAssistant = await writeWhileClaimLive(
+            (insertPrecondition) =>
+              addMessage(
+                mapping.conversationId,
+                "assistant",
+                JSON.stringify(assistantMsg.content),
+                { metadata: channelMeta, insertPrecondition },
+              ),
           );
+          if (!persistedAssistant) {
+            return finishCannedWithoutReply(persisted.id);
+          }
           conversation.getMessages().push(assistantMsg);
 
           // Snapshot model info now so the deferred callback cannot observe
@@ -2894,28 +2990,18 @@ export async function handleSendMessage(
       }
 
       if (slashResult.kind === "compact") {
-        const compactOwner = await conversation.acquireProcessingFenced();
-        if (compactOwner === null) {
-          return queueFallback(rawContent, "lock_race");
-        }
+        // Released by this branch on every path.
+        const compactOwner = turnClaim;
+        unstartedClaim = null;
         const slashMeta = {
           userMessageChannel: sourceChannel,
           assistantMessageChannel: sourceChannel,
           userMessageInterface: sourceInterface,
           assistantMessageInterface: sourceInterface,
         };
-        let persisted: Awaited<ReturnType<typeof persistQueuedMessageBody>>;
+        let persisted: Awaited<ReturnType<typeof persistCannedUserRow>>;
         try {
-          persisted = await persistQueuedMessageBody(conversation, {
-            content: rawContent,
-            attachments,
-            // See the note on the other canned branches: the id was already
-            // advertised on the acceptance, so it has to be the one used here.
-            requestId: sendRequestId,
-            metadata: withClientMetadata(slashMeta, clientMetadata),
-            clientMessageId,
-            ...(clientOs ? { requestClientOs: clientOs } : {}),
-          });
+          persisted = await persistCannedUserRow(slashMeta);
         } catch (err) {
           // The fire-and-forget compaction below owns clearing `processing`, but a
           // throw from this initial persist never reaches it — reset here so the
@@ -2923,6 +3009,12 @@ export async function handleSendMessage(
           conversation.releaseProcessing(compactOwner);
           void conversation.kickDrainQueue("loop_complete", "compact_command");
           throw err;
+        }
+        if (!persisted) {
+          const queued = queueFallback(rawContent, "lock_race");
+          conversation.releaseProcessing(compactOwner);
+          void conversation.kickDrainQueue("loop_complete", "compact_command");
+          return queued;
         }
         if (persisted.deduplicated) {
           conversation.releaseProcessing(compactOwner);
@@ -2932,6 +3024,12 @@ export async function handleSendMessage(
             messageId: persisted.id,
             conversationId: mapping.conversationId,
           };
+        }
+        if (!claimLive()) {
+          const finished = finishCannedWithoutReply(persisted.id);
+          conversation.releaseProcessing(compactOwner);
+          void conversation.kickDrainQueue("loop_complete", "compact_command");
+          return finished;
         }
 
         const conversationId = mapping.conversationId;
@@ -2960,12 +3058,18 @@ export async function handleSendMessage(
             // Same sink the result card below goes out on, so the indicator and
             // the card can never be delivered to different places.
             const result = await conversation.forceCompact(broadcastMessage);
-            const cardId = await persistCannedAssistantCard({
-              conversation,
-              conversationId,
-              text: formatCompactResult(result),
-              metadata: channelMeta,
-            });
+            const cardId = await writeWhileClaimLive((insertPrecondition) =>
+              persistCannedAssistantCard({
+                conversation,
+                conversationId,
+                text: formatCompactResult(result),
+                metadata: channelMeta,
+                insertPrecondition,
+              }),
+            );
+            if (cardId === null) {
+              return;
+            }
             // Attribute the compaction LLM call to the card it produced — same
             // linkage as the summarize-up-to route.
             if (result.summaryRequestLogId) {
@@ -2997,10 +3101,9 @@ export async function handleSendMessage(
       }
 
       if (slashResult.kind === "clean") {
-        const cleanOwner = await conversation.acquireProcessingFenced();
-        if (cleanOwner === null) {
-          return queueFallback(rawContent, "lock_race");
-        }
+        // Released by this branch on every path.
+        const cleanOwner = turnClaim;
+        unstartedClaim = null;
         const conversationId = mapping.conversationId;
         // Outer try/finally guarantees the processing flag is cleared (and the
         // queue drained) on every failure path — including a throw from the
@@ -3013,25 +3116,19 @@ export async function handleSendMessage(
             userMessageInterface: sourceInterface,
             assistantMessageInterface: sourceInterface,
           };
-          const persisted = await persistQueuedMessageBody(conversation, {
-            content: rawContent,
-            attachments,
-            // The send's own id, not a fresh one: an interrupting send is
-            // answered `202` advertising this id as its `messageId` before
-            // these branches run, and a user row is persisted under its
-            // request id, so minting here would advertise a row that never
-            // exists.
-            requestId: sendRequestId,
-            metadata: withClientMetadata(slashMeta, clientMetadata),
-            clientMessageId,
-            ...(clientOs ? { requestClientOs: clientOs } : {}),
-          });
+          const persisted = await persistCannedUserRow(slashMeta);
+          if (!persisted) {
+            return queueFallback(rawContent, "lock_race");
+          }
           if (persisted.deduplicated) {
             return {
               accepted: true,
               messageId: persisted.id,
               conversationId,
             };
+          }
+          if (!claimLive()) {
+            return finishCannedWithoutReply(persisted.id);
           }
 
           const channelMeta = buildChannelMetadata(
@@ -3052,12 +3149,15 @@ export async function handleSendMessage(
             publishConversationMessagesChanged(conversationId, originClientId);
 
             const result = await conversation.forceClean();
-            await persistCannedAssistantCard({
-              conversation,
-              conversationId,
-              text: formatCleanResult(result),
-              metadata: channelMeta,
-            });
+            await writeWhileClaimLive((insertPrecondition) =>
+              persistCannedAssistantCard({
+                conversation,
+                conversationId,
+                text: formatCleanResult(result),
+                metadata: channelMeta,
+                insertPrecondition,
+              }),
+            );
           } catch (err) {
             log.error({ err, conversationId }, "Clean command failed");
             broadcastMessage({
@@ -3102,11 +3202,13 @@ export async function handleSendMessage(
           ),
           scripted: body.scripted,
           clientMessageId,
+          trustContext: turnTrustContext,
+          processingClaim: turnClaim,
           ...(clientOs ? { requestClientOs: clientOs } : {}),
         });
       } catch (err) {
         if (isConversationBusyError(err)) {
-          // The flag went to someone else inside the awaits above. This is the
+          // The claim went to someone else inside the awaits above. This is the
           // same message the check at the top would have queued, so queue it.
           return queueFallback(resolvedContent, "lock_race");
         }
@@ -3177,6 +3279,12 @@ export async function handleSendMessage(
     } finally {
       if (!startedAgentLoop) {
         conversation.pendingInterruptActivityBridge = false;
+        if (
+          unstartedClaim !== null &&
+          conversation.releaseProcessing(unstartedClaim)
+        ) {
+          void conversation.kickDrainQueue("loop_complete", "send_error_path");
+        }
       }
     }
   };

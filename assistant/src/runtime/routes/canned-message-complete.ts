@@ -74,14 +74,19 @@ export async function persistSystemCard(opts: {
   text: string;
   metadata: Record<string, unknown>;
   endsTurn: boolean;
+  /** Asked before each insert attempt; see `addMessage`. */
+  insertPrecondition?: () => boolean;
 }): Promise<{ id: string; message: Message }> {
-  const { conversationId, text, metadata, endsTurn } = opts;
+  const { conversationId, text, metadata, endsTurn, insertPrecondition } = opts;
   const assistantMsg = createAssistantMessage(text);
   const persistedAssistant = await addMessage(
     conversationId,
     "assistant",
     JSON.stringify(assistantMsg.content),
-    { metadata: { ...metadata, messageKind: SYSTEM_CARD_MESSAGE_KIND } },
+    {
+      metadata: { ...metadata, messageKind: SYSTEM_CARD_MESSAGE_KIND },
+      ...(insertPrecondition ? { insertPrecondition } : {}),
+    },
   );
   if (endsTurn) {
     emitCannedMessageComplete(
@@ -112,13 +117,17 @@ export async function persistCannedAssistantCard(opts: {
   conversationId: string;
   text: string;
   metadata: Record<string, unknown>;
+  /** Asked before each insert attempt; see `addMessage`. */
+  insertPrecondition?: () => boolean;
 }): Promise<string> {
-  const { conversation, conversationId, text, metadata } = opts;
+  const { conversation, conversationId, text, metadata, insertPrecondition } =
+    opts;
   const card = await persistSystemCard({
     conversationId,
     text,
     metadata,
     endsTurn: true,
+    ...(insertPrecondition ? { insertPrecondition } : {}),
   });
   conversation.getMessages().push(card.message);
   return card.id;

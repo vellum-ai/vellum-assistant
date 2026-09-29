@@ -28,6 +28,7 @@ import {
   setConversationOriginInterfaceIfUnset,
 } from "../persistence/conversation-crud.js";
 import { updateMetaFile } from "../persistence/conversation-disk-view.js";
+import type { Message } from "../providers/types.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
@@ -37,6 +38,10 @@ import {
 } from "../telemetry/turn-outcome.js";
 import { getLogger } from "../util/logger.js";
 import type { Conversation } from "./conversation.js";
+import {
+  commitPreparingClaim,
+  isClaimLive,
+} from "./conversation-actor-claim.js";
 import {
   buildProviderMetaForPersistence,
   buildSlackMetaForPersistence,
@@ -306,11 +311,7 @@ export function resolveTurnInterface(sourceInterface?: string): InterfaceId {
 // prepareConversationForMessage
 // ---------------------------------------------------------------------------
 
-async function prepareConversationForMessage(
-  conversationId: string,
-  content: string,
-  options?: ProcessMessageOptions,
-): Promise<{
+interface PreparedConversation {
   conversation: Conversation;
   attachments: {
     id: string;
@@ -319,9 +320,33 @@ async function prepareConversationForMessage(
     data: string;
     filePath?: string;
   }[];
-}> {
+  /**
+   * The processing claim this message holds. The persist runs under it and
+   * the agent loop releases it; a path that starts no turn gives it back
+   * through {@link releaseUnstartedTurnClaim}.
+   */
+  processingClaim: number;
+  /** The sender's trust, read under the claim. */
+  turnTrustContext: TrustContext | undefined;
+}
+
+/** Give back a claim no turn took over, and run whatever queued behind it. */
+function releaseUnstartedTurnClaim(
+  conversation: Conversation,
+  processingClaim: number,
+): void {
+  if (conversation.releaseProcessing(processingClaim)) {
+    void conversation.kickDrainQueue("loop_complete", "ingress_no_turn");
+  }
+}
+
+async function prepareConversationForMessage(
+  conversationId: string,
+  content: string,
+  options?: ProcessMessageOptions,
+): Promise<PreparedConversation> {
   const {
-    attachmentIds,
+    attachmentIds: _attachmentIds,
     sourceChannel,
     sourceInterface,
     onEvent: _onEvent,
@@ -347,17 +372,50 @@ async function prepareConversationForMessage(
     conversationOptions.transport?.channelId,
   );
   const resolvedInterface = resolveTurnInterface(sourceInterface);
+  const processingClaim = await conversation.acquireProcessingForActor(
+    options?.trustContext,
+  );
+  if (processingClaim === null) {
+    throw new Error(CONVERSATION_BUSY_MESSAGE);
+  }
+  try {
+    return {
+      conversation,
+      ...configureClaimedConversation(
+        conversation,
+        conversationId,
+        resolvedChannel,
+        resolvedInterface,
+        options,
+      ),
+      processingClaim,
+      turnTrustContext: restingTrust(conversation),
+    };
+  } catch (err) {
+    releaseUnstartedTurnClaim(conversation, processingClaim);
+    throw err;
+  }
+}
+
+/**
+ * The per-turn setup a message runs once it holds the processing claim, so
+ * nothing here is written by a sender that lost the conversation to another.
+ */
+function configureClaimedConversation(
+  conversation: Conversation,
+  conversationId: string,
+  resolvedChannel: ChannelId,
+  resolvedInterface: InterfaceId,
+  options: ProcessMessageOptions | undefined,
+): Pick<PreparedConversation, "attachments"> {
+  const { attachmentIds, sourceChannel, sourceInterface } = options ?? {};
   conversation.setAssistantId(
     options?.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
   );
   conversation.taskRunId = options?.taskRunId;
-  if (options?.trustContext !== undefined) {
-    conversation.setTrustContext(options.trustContext);
-  }
   if (options?.authContext !== undefined) {
     conversation.setAuthContext(options.authContext);
   }
-  await conversation.ensureActorScopedHistory();
 
   mergeConversationOptions(conversationId, {
     trustContext: conversation.trustContext,
@@ -387,10 +445,8 @@ async function prepareConversationForMessage(
       sourceActorPrincipalId,
     )
   ) {
-    if (!conversation.isProcessing() || !conversation.hostCuProxy) {
-      conversation.setHostCuProxy(new HostCuProxy());
-    }
-  } else if (!conversation.isProcessing()) {
+    conversation.setHostCuProxy(new HostCuProxy());
+  } else {
     conversation.setHostCuProxy(undefined);
   }
   // App-control mirrors CU's per-conversation lifecycle. The proxy attaches
@@ -404,16 +460,14 @@ async function prepareConversationForMessage(
       sourceActorPrincipalId,
     )
   ) {
-    if (!conversation.isProcessing() || !conversation.hostAppControlProxy) {
-      conversation.setHostAppControlProxy(
-        new HostAppControlProxy(conversationId),
-      );
-    }
-  } else if (!conversation.isProcessing()) {
+    conversation.setHostAppControlProxy(
+      new HostAppControlProxy(conversationId),
+    );
+  } else {
     conversation.setHostAppControlProxy(undefined);
   }
-  // The early `isProcessing()` throw above guarantees the conversation is
-  // idle here, so preactivation is unconditional once the proxies are wired.
+  // The claim makes this turn the conversation's own, so the proxies above
+  // and the preactivation below are set for it outright.
   preactivateHostProxySkills(
     conversation,
     resolvedInterface,
@@ -433,7 +487,7 @@ async function prepareConversationForMessage(
     ? resolveAttachmentsForPersist(attachmentIds)
     : [];
 
-  return { conversation, attachments };
+  return { attachments };
 }
 
 // ---------------------------------------------------------------------------
@@ -460,11 +514,7 @@ function assertDbMigrationsReadyForTurn(): void {
   }
 }
 
-export async function processMessage(
-  conversationId: string,
-  content: string,
-  options?: ProcessMessageOptions,
-): Promise<{
+type ProcessMessageResult = {
   messageId: string;
   assistantMessageId?: string;
   /**
@@ -482,14 +532,41 @@ export async function processMessage(
    * by the slash-command branches, which never run the agent loop.
    */
   turnFailure?: TurnFailure | null;
-}> {
+};
+
+export async function processMessage(
+  conversationId: string,
+  content: string,
+  options?: ProcessMessageOptions,
+): Promise<ProcessMessageResult> {
   assertDbMigrationsReadyForTurn();
 
-  const { conversation, attachments } = await prepareConversationForMessage(
+  const prepared = await prepareConversationForMessage(
     conversationId,
     content,
     options,
   );
+  try {
+    return await runClaimedMessage(conversationId, content, options, prepared);
+  } finally {
+    // The agent loop releases the claim before it returns, so this releases
+    // only when no turn took it over: a slash command, a persist that failed
+    // or deduplicated, or a throw before the persist.
+    releaseUnstartedTurnClaim(prepared.conversation, prepared.processingClaim);
+  }
+}
+
+async function runClaimedMessage(
+  conversationId: string,
+  content: string,
+  options: ProcessMessageOptions | undefined,
+  {
+    conversation,
+    attachments,
+    processingClaim,
+    turnTrustContext,
+  }: PreparedConversation,
+): Promise<ProcessMessageResult> {
   const emitEvent = buildEventEmitter(options?.onEvent);
 
   const serverInterfaceCtx = conversation.getTurnInterfaceContext();
@@ -502,6 +579,74 @@ export async function processMessage(
     userMessageInterface: serverInterfaceCtx?.userMessageInterface,
   });
   const slashResult = await resolveSlash(content, slashContext);
+  // Asked before each write ahead of the turn: a Stop cancels the claim while
+  // it is still preparing, and nothing is written for this message after.
+  const claimLive = () => isClaimLive(conversation, processingClaim);
+  if (!claimLive()) {
+    throw new Error(CONVERSATION_BUSY_MESSAGE);
+  }
+  /**
+   * A row of a slash command answered without a turn, inserted only while the
+   * claim is live: every insert attempt, retries included, asks first. Null is
+   * a claim cancelled before the row landed, and nothing more is written.
+   */
+  const insertWhileClaimLive = async (
+    role: "user" | "assistant",
+    body: string,
+    metadata: Record<string, unknown>,
+  ): Promise<{ id: string; deduplicated?: boolean } | null> => {
+    try {
+      return await addMessage(conversationId, role, body, {
+        metadata,
+        insertPrecondition: claimLive,
+      });
+    } catch (err) {
+      if (!claimLive()) {
+        return null;
+      }
+      throw err;
+    }
+  };
+  /**
+   * End a slash command whose user row landed but whose reply will not be
+   * written because its claim was cancelled. A landed row is finalized like
+   * any other: seated in the resident history (when the branch has not seated
+   * it yet) and announced to other clients.
+   */
+  const finishSlashWithoutReply = (
+    messageId: string,
+    unseatedUserMessage?: Message,
+  ): { messageId: string } => {
+    if (unseatedUserMessage) {
+      conversation.getMessages().push(unseatedUserMessage);
+    }
+    publishConversationMessagesChanged(conversationId);
+    return { messageId };
+  };
+  /**
+   * The user row of a slash command. A claim cancelled before it lands answers
+   * busy, as a busy acquire does, since nothing has been written for it.
+   */
+  const persistSlashUserRow = async (
+    metadata: Record<string, unknown>,
+  ): Promise<{ id: string }> => {
+    const persisted = await insertWhileClaimLive(
+      "user",
+      await serializePersistedUserMessageContent(
+        content,
+        options?.displayContent,
+        attachments,
+      ),
+      metadata,
+    );
+    if (!persisted) {
+      throw new Error(CONVERSATION_BUSY_MESSAGE);
+    }
+    if (!persisted.deduplicated) {
+      commitPreparingClaim(conversation, processingClaim);
+    }
+    return persisted;
+  };
 
   const turnChannel = conversation.getTurnChannelContext()?.userMessageChannel;
   const slackMeta = buildSlackMetaForPersistence({
@@ -552,16 +697,9 @@ export async function processMessage(
     );
     const cleanMsg = await createUserMessage(content, attachments);
     const llmMsg = enrichMessageWithSourcePaths(cleanMsg, attachments);
-    const persisted = await addMessage(
-      conversationId,
-      "user",
-      await serializePersistedUserMessageContent(
-        content,
-        options?.displayContent,
-        attachments,
-      ),
-      { metadata: userMetaWithSlack },
-    );
+    // The row has landed, so it is seated and its conversation-level origin
+    // recorded whether or not a Stop then skips the reply below.
+    const persisted = await persistSlashUserRow(userMetaWithSlack);
     conversation.getMessages().push(llmMsg);
 
     if (serverTurnCtx) {
@@ -606,12 +744,14 @@ export async function processMessage(
     }
 
     const assistantMsg = createAssistantMessage(slashResult.message);
-    const persistedAssistant = await addMessage(
-      conversationId,
+    const persistedAssistant = await insertWhileClaimLive(
       "assistant",
       JSON.stringify(assistantMsg.content),
-      { metadata: serverChannelMeta },
+      serverChannelMeta,
     );
+    if (!persistedAssistant) {
+      return finishSlashWithoutReply(persisted.id);
+    }
     conversation.getMessages().push(assistantMsg);
     publishConversationMessagesChanged(conversationId);
     return {
@@ -650,28 +790,24 @@ export async function processMessage(
       providerMeta,
     );
     const cleanMsg = await createUserMessage(content, attachments);
-    const persisted = await addMessage(
-      conversationId,
-      "user",
-      await serializePersistedUserMessageContent(
-        content,
-        options?.displayContent,
-        attachments,
-      ),
-      { metadata: compactUserMeta },
-    );
+    const persisted = await persistSlashUserRow(compactUserMeta);
+    if (!claimLive()) {
+      return finishSlashWithoutReply(persisted.id, cleanMsg);
+    }
     conversation.getMessages().push(cleanMsg);
 
     conversation.emitActivityState("thinking", "context_compacting");
     const result = await conversation.forceCompact();
     const responseText = formatCompactResult(result);
     const assistantMsg = createAssistantMessage(responseText);
-    const persistedAssistant = await addMessage(
-      conversationId,
+    const persistedAssistant = await insertWhileClaimLive(
       "assistant",
       JSON.stringify(assistantMsg.content),
-      { metadata: compactChannelMeta },
+      compactChannelMeta,
     );
+    if (!persistedAssistant) {
+      return finishSlashWithoutReply(persisted.id);
+    }
     conversation.getMessages().push(assistantMsg);
     publishConversationMessagesChanged(conversationId);
     return {
@@ -710,27 +846,23 @@ export async function processMessage(
       providerMeta,
     );
     const cleanMsg = await createUserMessage(content, attachments);
-    const persisted = await addMessage(
-      conversationId,
-      "user",
-      await serializePersistedUserMessageContent(
-        content,
-        options?.displayContent,
-        attachments,
-      ),
-      { metadata: cleanUserMeta },
-    );
+    const persisted = await persistSlashUserRow(cleanUserMeta);
+    if (!claimLive()) {
+      return finishSlashWithoutReply(persisted.id, cleanMsg);
+    }
     conversation.getMessages().push(cleanMsg);
 
     const result = await conversation.forceClean();
     const responseText = formatCleanResult(result);
     const assistantMsg = createAssistantMessage(responseText);
-    const persistedAssistant = await addMessage(
-      conversationId,
+    const persistedAssistant = await insertWhileClaimLive(
       "assistant",
       JSON.stringify(assistantMsg.content),
-      { metadata: cleanChannelMeta },
+      cleanChannelMeta,
     );
+    if (!persistedAssistant) {
+      return finishSlashWithoutReply(persisted.id);
+    }
     conversation.getMessages().push(assistantMsg);
     publishConversationMessagesChanged(conversationId);
     return {
@@ -751,6 +883,8 @@ export async function processMessage(
       requestId,
       metadata: persistMetadata,
       displayContent: options?.displayContent,
+      trustContext: turnTrustContext,
+      processingClaim,
       ...(options?.author ? { author: options.author } : {}),
       ...(options?.skipUserMessageIndexing ? { skipIndexing: true } : {}),
       ...(ingressKey ? { clientMessageId: ingressKey } : {}),
@@ -780,6 +914,7 @@ export async function processMessage(
       onEvent: emitEvent,
       isInteractive: options?.isInteractive ?? false,
       isUserMessage: true,
+      turnTrustContext,
       ...(options?.callSite ? { callSite: options.callSite } : {}),
       ...(options?.overrideProfile
         ? { overrideProfile: options.overrideProfile }
@@ -816,30 +951,33 @@ export async function processMessageInBackground(
 ): Promise<{ messageId: string }> {
   assertDbMigrationsReadyForTurn();
 
-  const { conversation, attachments } = await prepareConversationForMessage(
-    conversationId,
-    content,
-    options,
-  );
+  const { conversation, attachments, processingClaim, turnTrustContext } =
+    await prepareConversationForMessage(conversationId, content, options);
   const emitEvent = buildEventEmitter(options?.onEvent);
 
-  const requestId = uuidv7();
-  const persistMetadata = buildPersistMetadata(options);
-  const ingressKey = deriveIngressIdempotencyKey(options);
-  const { id: messageId, deduplicated } = await conversation.persistUserMessage(
-    {
+  let persisted: { id: string; deduplicated: boolean };
+  try {
+    const ingressKey = deriveIngressIdempotencyKey(options);
+    persisted = await conversation.persistUserMessage({
       content,
       attachments,
-      requestId,
-      metadata: persistMetadata,
+      requestId: uuidv7(),
+      metadata: buildPersistMetadata(options),
       displayContent: options?.displayContent,
+      trustContext: turnTrustContext,
+      processingClaim,
       ...(options?.author ? { author: options.author } : {}),
       ...(ingressKey ? { clientMessageId: ingressKey } : {}),
-    },
-  );
+    });
+  } catch (err) {
+    releaseUnstartedTurnClaim(conversation, processingClaim);
+    throw err;
+  }
+  const { id: messageId, deduplicated } = persisted;
   publishConversationMessagesChanged(conversationId);
 
   if (deduplicated) {
+    releaseUnstartedTurnClaim(conversation, processingClaim);
     // At-least-once redelivery of a turn that already ran — skip the loop.
     log.info(
       { conversationId, messageId },
@@ -854,6 +992,7 @@ export async function processMessageInBackground(
       onEvent: emitEvent,
       isInteractive: options?.isInteractive ?? false,
       isUserMessage: true,
+      turnTrustContext,
       ...(options?.callSite ? { callSite: options.callSite } : {}),
       ...(options?.overrideProfile
         ? { overrideProfile: options.overrideProfile }

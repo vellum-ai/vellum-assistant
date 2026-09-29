@@ -96,7 +96,10 @@ import {
   bridgeState,
   gatewayGuardianRequestsStoreBridge,
 } from "./helpers/gateway-guardian-requests-store-bridge.js";
-import { mockUnownedModeSessions } from "./helpers/mock-conversation.js";
+import {
+  acquireProcessingForActorDouble,
+  mockUnownedModeSessions,
+} from "./helpers/mock-conversation.js";
 
 mock.module(
   "../channels/gateway-guardian-requests.js",
@@ -136,6 +139,8 @@ function makeCompletingConversation(): Conversation {
     setTurnChannelContext: () => {},
     setTurnInterfaceContext: () => {},
     ensureActorScopedHistory: async () => {},
+    acquireProcessingForActor: acquireProcessingForActorDouble,
+    releaseProcessing: () => false,
     usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
     replayActivityState: () => {},
     setHostBrowserProxy: () => {},
@@ -187,6 +192,8 @@ function makeHangingConversation(): Conversation {
     setTurnChannelContext: () => {},
     setTurnInterfaceContext: () => {},
     ensureActorScopedHistory: async () => {},
+    acquireProcessingForActor: acquireProcessingForActorDouble,
+    releaseProcessing: () => false,
     usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
     replayActivityState: () => {},
     setHostBrowserProxy: () => {},
@@ -269,6 +276,8 @@ function makePendingApprovalConversation(
     setTurnChannelContext: () => {},
     setTurnInterfaceContext: () => {},
     ensureActorScopedHistory: async () => {},
+    acquireProcessingForActor: acquireProcessingForActorDouble,
+    releaseProcessing: () => false,
     usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
     replayActivityState: () => {},
     setHostBrowserProxy: () => {},
@@ -433,7 +442,13 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
           processing = true;
           return ++processingOwner;
         },
+        holdsProcessingClaim: (owner: number) =>
+          processing && owner === processingOwner,
+        kickDrainQueue: async () => {},
         releaseProcessing: (owner: number) => {
+          if (!processing || owner !== processingOwner) {
+            return false;
+          }
           releases.push(owner);
           processing = false;
           return true;

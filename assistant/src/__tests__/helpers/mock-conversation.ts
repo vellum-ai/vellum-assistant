@@ -79,3 +79,32 @@ export function mockChannelCapabilities(
 ): ChannelCapabilities {
   return { dashboardCapable: false, supportsVoiceInput: false, ...caps };
 }
+
+/**
+ * `Conversation.acquireProcessingForActor` for a double, built from the
+ * double's own claim, trust and history methods the way the real one is, so a
+ * test sees the calls the real claim makes. A double without
+ * `acquireProcessingFenced` stands for an idle conversation and always gets
+ * the claim.
+ */
+export async function acquireProcessingForActorDouble(
+  this: Partial<
+    Pick<
+      Conversation,
+      "acquireProcessingFenced" | "setTrustContext" | "ensureActorScopedHistory"
+    >
+  >,
+  trustContext: Parameters<Conversation["acquireProcessingForActor"]>[0],
+): Promise<number | null> {
+  const owner = this.acquireProcessingFenced
+    ? await this.acquireProcessingFenced()
+    : 1;
+  if (owner === null) {
+    return null;
+  }
+  if (trustContext !== undefined) {
+    this.setTrustContext?.(trustContext);
+  }
+  await this.ensureActorScopedHistory?.();
+  return owner;
+}

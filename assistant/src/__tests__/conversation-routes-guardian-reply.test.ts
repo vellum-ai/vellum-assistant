@@ -113,7 +113,10 @@ mock.module("../contacts/guardian-delivery-reader.js", () => ({
 import type { AuthContext } from "../runtime/auth/types.js";
 import { handleSendMessage } from "../runtime/routes/conversation-routes.js";
 import { callHandler } from "./helpers/call-route-handler.js";
-import { mockUnownedModeSessions } from "./helpers/mock-conversation.js";
+import {
+  acquireProcessingForActorDouble,
+  mockUnownedModeSessions,
+} from "./helpers/mock-conversation.js";
 
 const _testAuthContext: AuthContext = {
   subject: "actor:self:test-guardian",
@@ -170,6 +173,8 @@ describe("handleSendMessage guardian reply interception", () => {
       setTurnChannelContext: () => {},
       setTurnInterfaceContext: () => {},
       ensureActorScopedHistory: async () => {},
+      acquireProcessingForActor: acquireProcessingForActorDouble,
+      releaseProcessing: () => false,
       usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
       isProcessing: () => false,
       hasAnyPendingConfirmation: () => false,
@@ -261,6 +266,8 @@ describe("handleSendMessage guardian reply interception", () => {
       setTurnChannelContext: () => {},
       setTurnInterfaceContext: () => {},
       ensureActorScopedHistory: async () => {},
+      acquireProcessingForActor: acquireProcessingForActorDouble,
+      releaseProcessing: () => false,
       usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
       isProcessing: () => false,
       hasAnyPendingConfirmation: () => false,
@@ -340,6 +347,8 @@ describe("handleSendMessage guardian reply interception", () => {
       setTurnChannelContext: () => {},
       setTurnInterfaceContext: () => {},
       ensureActorScopedHistory: async () => {},
+      acquireProcessingForActor: acquireProcessingForActorDouble,
+      releaseProcessing: () => false,
       usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
       isProcessing: () => false,
       hasAnyPendingConfirmation: () => false,
@@ -429,6 +438,8 @@ describe("handleSendMessage guardian reply interception", () => {
       setTurnChannelContext: () => {},
       setTurnInterfaceContext: () => {},
       ensureActorScopedHistory: async () => {},
+      acquireProcessingForActor: acquireProcessingForActorDouble,
+      releaseProcessing: () => false,
       usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
       isProcessing: () => false,
       hasAnyPendingConfirmation: () => true,
@@ -518,6 +529,8 @@ describe("handleSendMessage guardian reply interception", () => {
       setTurnChannelContext: () => {},
       setTurnInterfaceContext: () => {},
       ensureActorScopedHistory: async () => {},
+      acquireProcessingForActor: acquireProcessingForActorDouble,
+      releaseProcessing: () => false,
       usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
       isProcessing: () => false,
       hasAnyPendingConfirmation: () => true,
@@ -602,6 +615,8 @@ describe("handleSendMessage guardian reply interception", () => {
       setTurnChannelContext: () => {},
       setTurnInterfaceContext: () => {},
       ensureActorScopedHistory: async () => {},
+      acquireProcessingForActor: acquireProcessingForActorDouble,
+      releaseProcessing: () => false,
       usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
       isProcessing: () => false,
       hasAnyPendingConfirmation: () => true,
@@ -680,6 +695,8 @@ describe("handleSendMessage guardian reply interception", () => {
       setTurnChannelContext: () => {},
       setTurnInterfaceContext: () => {},
       ensureActorScopedHistory: async () => {},
+      acquireProcessingForActor: acquireProcessingForActorDouble,
+      releaseProcessing: () => false,
       usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
       isProcessing: () => false,
       hasAnyPendingConfirmation: () => true,
@@ -760,6 +777,8 @@ describe("handleSendMessage guardian reply interception", () => {
       setTurnChannelContext: () => {},
       setTurnInterfaceContext: () => {},
       ensureActorScopedHistory: async () => {},
+      acquireProcessingForActor: acquireProcessingForActorDouble,
+      releaseProcessing: () => false,
       usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
       isProcessing: () => false,
       hasAnyPendingConfirmation: () => false,
@@ -841,6 +860,8 @@ describe("handleSendMessage guardian reply interception", () => {
       setTurnChannelContext: () => {},
       setTurnInterfaceContext: () => {},
       ensureActorScopedHistory: async () => {},
+      acquireProcessingForActor: acquireProcessingForActorDouble,
+      releaseProcessing: () => false,
       usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
       isProcessing: () => false,
       hasAnyPendingConfirmation: () => false,
