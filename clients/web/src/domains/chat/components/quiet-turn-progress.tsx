@@ -140,6 +140,7 @@ export function QuietTurnWorkSummary({
       tone="default"
       active={isOpen}
       onClick={open}
+      density="compact"
     />
   );
 }

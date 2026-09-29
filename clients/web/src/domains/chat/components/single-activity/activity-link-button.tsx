@@ -16,6 +16,12 @@ export interface ActivityLinkButtonProps {
   tone: "default" | "error";
   active: boolean;
   onClick: () => void;
+  /**
+   * `inline` sits in the message column, its label flush with the prose
+   * around it. `compact` sits among the footer's timestamp and actions, so it
+   * keeps clear of its neighbors and matches their size.
+   */
+  density?: "inline" | "compact";
 }
 
 /**
@@ -31,6 +37,7 @@ export function ActivityLinkButton({
   tone,
   active,
   onClick,
+  density = "inline",
 }: ActivityLinkButtonProps) {
   const isError = tone === "error";
   return (
@@ -41,7 +48,10 @@ export function ActivityLinkButton({
       aria-label={ariaLabel}
       onClick={(event) => openDetailSheetFromTrigger(event, onClick)}
       className={cn(
-        "group inline-flex items-center gap-2 -mx-1.5 px-1.5 py-1 rounded-md text-left text-[13px] font-medium transition-colors cursor-pointer",
+        "group inline-flex items-center rounded-md text-left transition-colors cursor-pointer",
+        density === "compact"
+          ? "mx-1 gap-0.5 px-1.5 py-0.5 text-body-small-default"
+          : "-mx-1.5 gap-2 px-1.5 py-1 text-[13px] font-medium",
         "focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]",
         active
           ? "bg-[var(--surface-active)] text-[var(--content-default)]"
@@ -63,7 +73,10 @@ export function ActivityLinkButton({
           settled run of rows reads as labels instead of a column of glyphs.
           Faded rather than unmounted so the label never shifts. */}
       <ChevronRight
-        className="size-3.5 shrink-0 text-[var(--content-tertiary)] opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100 group-data-[active=true]:opacity-100 motion-reduce:transition-none"
+        className={cn(
+          density === "compact" ? "size-3" : "size-3.5",
+          "shrink-0 text-[var(--content-tertiary)] opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100 group-data-[active=true]:opacity-100 motion-reduce:transition-none",
+        )}
         aria-hidden
       />
     </button>
