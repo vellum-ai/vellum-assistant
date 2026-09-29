@@ -249,7 +249,7 @@
       "name": "schedule_delete",
       "description": "Delete a scheduled automation and all its run history",
       "category": "schedule",
-      "risk": "high",
+      "risk": "medium",
       "input_schema": {
         "type": "object",
         "properties": {

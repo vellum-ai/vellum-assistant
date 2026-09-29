@@ -44,7 +44,7 @@ const SCRIPT_MODE_REASON =
  *
  * Only `schedule_create` and `schedule_update` route through here. Other
  * schedule tools (`schedule_list`, `schedule_delete`) keep their static
- * registry risk (low / high respectively).
+ * registry risk (low / medium respectively).
  */
 export class ScheduleRiskClassifier implements RiskClassifier<ScheduleClassifierInput> {
   async classify(input: ScheduleClassifierInput): Promise<RiskAssessment> {
