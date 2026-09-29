@@ -66,11 +66,8 @@ function removeInvalidMessages(messages: DisplayMessage[]): DisplayMessage[] {
 }
 
 function isInvalidMessage(message: DisplayMessage): boolean {
-  // Assistant rows always render; queued user rows render in the queue drawer.
+  // Assistant rows always render.
   if (message.role !== "user") {
-    return false;
-  }
-  if (message.queueStatus === "queued") {
     return false;
   }
   // A row deleted on its channel renders as a tombstone whatever its content

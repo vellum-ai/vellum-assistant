@@ -3,7 +3,6 @@ import { ERROR_MESSAGES } from "@/domains/chat/utils/chat";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
 import { patchConversation } from "@/utils/conversation-cache";
 import { messageMatchesKey } from "@/domains/chat/utils/message-identity";
-import { removeQueuedMessage } from "@/domains/chat/utils/stream-updaters/shared";
 import { useComposerStore } from "@/domains/chat/composer-store";
 import type {
   ConversationErrorEvent,
@@ -17,10 +16,11 @@ export function handleStreamError(
 ): void {
   const convId = ctx.streamContext?.conversationId;
 
-  // A full queue refusing a send the daemon had already accepted. It is a
-  // delivery failure for one message, not a turn ending: the conversation may
-  // still be running the turn this send tried to interrupt, so this must not
-  // clear `isProcessing` or end the turn the way a generation error does.
+  // An assistant's full message queue refusing a send it had already
+  // accepted. It is a delivery failure for one message, not a turn ending: the
+  // conversation may still be running the turn this send tried to interrupt,
+  // so this must not clear `isProcessing` or end the turn the way a
+  // generation error does.
   // Recovery matches the request-path failure in `use-send-message`: drop the
   // optimistic row and put its text back in the composer, so the user has what
   // they typed and can send it again.
@@ -42,7 +42,7 @@ export function handleStreamError(
               ctx.composerSessionGeneration,
             );
         }
-        return removeQueuedMessage(prev, messageId);
+        return prev.filter((message) => !messageMatchesKey(message, messageId));
       });
     }
     ctx.setError({

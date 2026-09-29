@@ -8,9 +8,7 @@ import { INITIAL_TURN_STATE } from "@/domains/chat/turn-store";
 import { useComposerStore } from "@/domains/chat/composer-store";
 
 interface MakeCtxOptions {
-  pendingQueuedMessageIds?: string[];
   requestIdToMessageId?: Map<string, string>;
-  pendingLocalDeletions?: Set<string>;
   dismissedSurfaceIds?: Set<string>;
 }
 
@@ -18,20 +16,16 @@ interface MakeCtxOptions {
 export function makeCtx(
   overrides: Partial<StreamHandlerContext> & MakeCtxOptions = {},
 ): StreamHandlerContext {
-  // Backing state for queue management actions — allows tests to seed
-  // initial state and verify outcomes without direct mutation.
-  const queueState = {
-    pendingQueuedMessageIds: overrides.pendingQueuedMessageIds ?? [],
+  // Backing state for the map/set actions — allows tests to seed initial
+  // state and verify outcomes without direct mutation.
+  const backingState = {
     requestIdToMessageId:
       overrides.requestIdToMessageId ?? new Map<string, string>(),
-    pendingLocalDeletions: overrides.pendingLocalDeletions ?? new Set<string>(),
     dismissedSurfaceIds: overrides.dismissedSurfaceIds ?? new Set<string>(),
   };
 
   const {
-    pendingQueuedMessageIds: _pq,
     requestIdToMessageId: _rm,
-    pendingLocalDeletions: _pd,
     dismissedSurfaceIds: _ds,
     ...restOverrides
   } = overrides;
@@ -47,6 +41,7 @@ export function makeCtx(
     turnActions: {
       requestSend: mock(() => {}),
       acceptSend: mock(() => {}),
+      clearInterruptHandoff: mock(() => {}),
       onTextDelta: mock(() => {}),
       onToolUseStart: mock(() => {}),
       onToolResult: mock(() => {}),
@@ -62,7 +57,6 @@ export function makeCtx(
       onQuestionRequest: mock(() => {}),
       onContactRequest: mock(() => {}),
       completeTurn: mock(() => {}),
-      handoffGeneration: mock(() => {}),
       cancelGeneration: mock(() => {}),
       onStreamError: mock(() => {}),
       onSessionError: mock(() => {}),
@@ -70,9 +64,6 @@ export function makeCtx(
       onTurnTimeout: mock(() => {}),
       resetTurn: mock(() => {}),
       clearStaleTurn: mock(() => {}),
-      enqueueMessage: mock(() => {}),
-      dequeueMessage: mock(() => {}),
-      deleteQueuedMessage: mock(() => {}),
     } satisfies TurnActions,
     getTurnState: () => ({ ...INITIAL_TURN_STATE }) as TurnState,
     endTurn: mock(() => {}),
@@ -84,39 +75,18 @@ export function makeCtx(
     setConfirmationToolCall: mock(() => {}),
     setAssetsRefreshKey: mock(() => {}),
     addDismissedSurfaceId: mock((surfaceId: string) => {
-      queueState.dismissedSurfaceIds.add(surfaceId);
+      backingState.dismissedSurfaceIds.add(surfaceId);
     }),
     setContextWindowUsageForConversation: mock(() => {}),
     setContextWindowUsage: mock(() => {}),
     queryClient: new QueryClient(),
     setCompactionCircuitOpenUntil: mock(() => {}),
-    shiftPendingQueuedMessageId: mock(() => {
-      return queueState.pendingQueuedMessageIds.shift();
-    }),
-    takePendingQueuedMessageId: mock((messageId: string) => {
-      const idx = queueState.pendingQueuedMessageIds.indexOf(messageId);
-      if (idx === -1) {
-        return undefined;
-      }
-      queueState.pendingQueuedMessageIds.splice(idx, 1);
-      return messageId;
-    }),
-    setRequestIdMapping: mock((requestId: string, messageId: string) => {
-      queueState.requestIdToMessageId.set(requestId, messageId);
-    }),
     popRequestIdMapping: mock((requestId: string) => {
-      const value = queueState.requestIdToMessageId.get(requestId);
+      const value = backingState.requestIdToMessageId.get(requestId);
       if (value !== undefined) {
-        queueState.requestIdToMessageId.delete(requestId);
+        backingState.requestIdToMessageId.delete(requestId);
       }
       return value;
-    }),
-    consumePendingLocalDeletion: mock((messageId: string) => {
-      if (!queueState.pendingLocalDeletions.has(messageId)) {
-        return false;
-      }
-      queueState.pendingLocalDeletions.delete(messageId);
-      return true;
     }),
     lastActivityVersionRef: { current: new Map() },
     lastCompletedToolNameRef: { current: undefined },

@@ -3,8 +3,8 @@
  *
  * The daemon's history-row wire contract is the canonical `ConversationMessage`
  * schema from `@vellumai/assistant-api`, consumed here alongside content
- * normalization helpers and the `postChatMessage` / `uploadChatAttachment` /
- * `deleteQueuedMessage` writes.
+ * normalization helpers and the `postChatMessage` / `uploadChatAttachment`
+ * writes.
  */
 
 import { captureError } from "@/lib/sentry/capture-error";
@@ -24,8 +24,6 @@ import {
   attachmentsPost,
   messagesGet,
   messagesPost,
-  messagesQueuedByIdSteerPost,
-  messagesQueuedByIdDelete,
 } from "@/generated/daemon/sdk.gen";
 import type {
   MessagesGetData,
@@ -361,6 +359,9 @@ export type PostMessageResult =
       requestId?: string;
     }
   | {
+      /** An older assistant accepted the send into its message queue and
+       *  answered without a message id. The optimistic row stays and
+       *  reconciles on the `user_message_echo`. */
       ok: true;
       queued: true;
       assistantId: string;
@@ -803,68 +804,10 @@ export async function postChatMessage(
     assistantId,
     conversationId: resolvedConversationId,
     messageId: sendData.messageId,
-    // Carried on the non-queued path too: a send the daemon accepted can still
-    // fail afterwards (an `interrupt-on-send` handover whose queue fallback is
-    // refused), and the request id is the only handle that failure event has.
+    // A send the daemon accepted can still fail afterwards (an interrupting
+    // send whose handover is refused), and the request id is the only handle
+    // that failure event has.
     requestId:
       typeof sendData.requestId === "string" ? sendData.requestId : undefined,
   };
-}
-
-function queuedMessageHeaders(conversationId: string) {
-  return { "X-Vellum-Conversation-Id": conversationId };
-}
-
-/**
- * Steer the assistant to a queued message by aborting the current
- * generation and promoting the message to the head of the queue.
- */
-export type SteerQueuedMessageResult =
-  "steered" | "not_steerable" | "request_failed";
-
-export async function steerToMessage(
-  assistantId: string,
-  conversationId: string,
-  requestId: string,
-): Promise<SteerQueuedMessageResult> {
-  try {
-    const { response } = await messagesQueuedByIdSteerPost({
-      path: { assistant_id: assistantId, id: requestId },
-      query: { conversationId },
-      headers: queuedMessageHeaders(conversationId),
-      throwOnError: false,
-    });
-    if (response?.ok) {
-      return "steered";
-    }
-    if (response?.status === 404) {
-      return "not_steerable";
-    }
-    return "request_failed";
-  } catch {
-    return "request_failed";
-  }
-}
-
-/**
- * Delete a queued message before it is processed by the daemon.
- * Routes through the assistant runtime proxy to the daemon's
- * DELETE /messages/queued/:requestId endpoint.
- */
-export async function deleteQueuedMessage(
-  assistantId: string,
-  conversationId: string,
-  requestId: string,
-): Promise<boolean> {
-  try {
-    const { response } = await messagesQueuedByIdDelete({
-      path: { assistant_id: assistantId, id: requestId },
-      query: { conversationId },
-      headers: queuedMessageHeaders(conversationId),
-      throwOnError: false,
-    });
-    return response?.ok ?? false;
-  } catch {
-    return false;
-  }
 }

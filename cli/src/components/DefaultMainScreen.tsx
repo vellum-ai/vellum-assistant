@@ -2033,16 +2033,13 @@ function ChatApp({
           );
           clearTimeout(timeoutId);
           if (sendResult.accepted) {
-            h.addStatus(
-              "Message queued — will be processed after current response",
-              "gray",
-            );
+            h.addStatus("Message sent", "gray");
           } else {
             h.showError("Message was not accepted by the assistant");
           }
         } catch (err) {
           h.showError(
-            `Failed to queue message: ${err instanceof Error ? err.message : String(err)}`,
+            `Failed to send message: ${err instanceof Error ? err.message : String(err)}`,
           );
         }
         setInputFocused(true);

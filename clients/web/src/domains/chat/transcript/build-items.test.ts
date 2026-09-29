@@ -174,7 +174,6 @@ describe("camera frame grouping", () => {
     { isSubagentNotification: true },
     { isAcpNotification: true },
     { isBackgroundEventNotification: true },
-    { queueStatus: "queued" },
   ] satisfies Partial<DisplayMessage>[])(
     "skipped rows neither join nor split runs: %j",
     (props) => {
@@ -880,27 +879,6 @@ describe("buildTranscriptItems", () => {
 
     expect(items).toHaveLength(1);
     expect((items[0] as MessageItem).message).toBe(slack);
-  });
-
-  test("queued user rows are omitted from the transcript", () => {
-    // The queue drawer is the only visible queue surface. Optimistic queued
-    // user rows remain in state so the drawer can render and manage them, but
-    // the transcript itself should not add a duplicate queued marker row.
-    const queued = makeMessage({
-      role: "user",
-      ...textBody("Send when ready"),
-      id: "s-queued",
-      isOptimistic: true,
-      queueStatus: "queued",
-      queuePosition: 1,
-    });
-
-    const items = buildTranscriptItems({
-      ...emptyInput(),
-      messages: [queued],
-    });
-
-    expect(items).toEqual([]);
   });
 
   test("assistant blank rows are NOT dropped (filter is user-only)", () => {

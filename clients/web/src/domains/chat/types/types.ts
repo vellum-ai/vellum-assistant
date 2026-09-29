@@ -74,9 +74,8 @@ export interface DisplayMessage {
   id: string;
   /**
    * True when `id` is a transient placeholder rather than a persisted message
-   * id. Set on optimistic user sends, dequeued request-id rows awaiting their
-   * persisted echo, and assistant rows born from SSE events that didn't carry
-   * `messageId`. Reconcile uses this as the signal that the row's id can't be
+   * id. Set on optimistic user sends and assistant rows born from SSE events
+   * that didn't carry `messageId`. Reconcile uses this as the signal that the row's id can't be
    * matched against the server snapshot directly; optimistic user rows get a
    * derived-text match + id swap, optimistic assistant rows are preserved
    * as-is until a subsequent SSE event or history fetch resolves them.
@@ -145,10 +144,6 @@ export interface DisplayMessage {
   /** Timestamp in milliseconds since epoch. Sourced from the server when
    *  available, otherwise set client-side when the message is first created. */
   timestamp?: number;
-  /** Set on user messages that are waiting in the server queue. */
-  queueStatus?: "queued" | "processing";
-  /** 1-based position in the queue, updated by `message_queued` SSE events. */
-  queuePosition?: number;
   /** Reasoning content produced by thinking-capable models. Each entry
    *  corresponds to a `thinking:N` entry in `contentOrder`. Populated from
    *  the server's `thinkingSegments` field on history loads, and

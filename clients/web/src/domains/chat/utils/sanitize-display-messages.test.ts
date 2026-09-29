@@ -158,17 +158,6 @@ describe("sanitizeDisplayMessages · invalid row filter", () => {
     const result = sanitizeDisplayMessages([deleted]);
     expect(result.map((m) => m.id)).toEqual(["deleted"]);
   });
-
-  test("never drops queued user rows", () => {
-    const queued = makeMessage({
-      id: "queued",
-      role: "user",
-      ...textBody(""),
-      queueStatus: "queued",
-    });
-    const result = sanitizeDisplayMessages([queued]);
-    expect(result.map((m) => m.id)).toEqual(["queued"]);
-  });
 });
 
 // ---------------------------------------------------------------------------

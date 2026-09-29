@@ -36,7 +36,7 @@ export interface UIContext {
   /** True when the active conversation is known to be processing even though
    * the local turn reducer was reset by a conversation switch. */
   activeConversationIsProcessing?: boolean;
-  /** True when the latest non-queued user message has no following assistant
+  /** True when the latest user message has no following assistant
    * message yet. Used with `activeConversationIsProcessing` to restore the
    * thinking indicator after switching back to an in-flight conversation. */
   hasPendingAssistantResponse?: boolean;
@@ -147,8 +147,8 @@ export function shouldShowThinkingIndicator(
  * (before the first token) covered.
  *
  * Authoritative open-gate: `snapshotProcessing === true` means the daemon still
- * holds this conversation's processing lock, so further sends are queued rather
- * than started. That has to read as busy even when no local signal agrees (a
+ * holds this conversation's processing lock, so a further send interrupts a
+ * running turn rather than starting on an idle one. That has to read as busy even when no local signal agrees (a
  * reloaded tab, or a lock the daemon holds past its last SSE event), because
  * the Stop button is the only escape from a busy daemon and it is gated on this
  * selector. The state cannot strand: the same flag is revalidated on a timer by

@@ -508,7 +508,7 @@ describe("chat-session-store: conversation identity", () => {
     store().addOptimisticSend(optimistic);
     store().setError({ message: "Temporary failure" });
     store().setIsLoadingHistory(false);
-    store().pushPendingQueuedMessageId("queued-message-1");
+    store().setRequestIdMapping("request-1", "client-message-1");
     store().setConfirmationToolCall("request-1", "tool-call-1");
     store().setExpandedToolCallId("tool-call-1", true);
     useComposerStore.setState({
@@ -530,7 +530,9 @@ describe("chat-session-store: conversation identity", () => {
     expect(store().optimisticSends).toEqual([optimistic]);
     expect(store().error).toEqual({ message: "Temporary failure" });
     expect(store().isLoadingHistory).toBe(false);
-    expect(store().pendingQueuedMessageIds).toEqual(["queued-message-1"]);
+    expect(store().requestIdToMessageId.get("request-1")).toBe(
+      "client-message-1",
+    );
     expect(store().confirmationToolCallMap.get("request-1")).toBe(
       "tool-call-1",
     );

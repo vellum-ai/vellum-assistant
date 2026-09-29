@@ -8,7 +8,7 @@ export function useEditMessage(messages: DisplayMessage[]) {
   const startEditing = useCallback((): string | null => {
     for (let i = messages.length - 1; i >= 0; i--) {
       const m = messages[i];
-      if (m.role === "user" && !m.queueStatus && !m.isOptimistic) {
+      if (m.role === "user" && !m.isOptimistic) {
         setEditingMessageId(m.id);
         return messagePlainText(m);
       }

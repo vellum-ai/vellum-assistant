@@ -3,12 +3,9 @@
  *
  * Helpers here are used across multiple updater modules (message, surface,
  * tool-call) and by external consumers (reconcile, ui-state hooks).
- * Queue updaters are generic message-array transforms with no SSE-event
- * coupling.
  */
 
 import type { DisplayMessage } from "@/domains/chat/types/types";
-import { messageMatchesKey } from "@/domains/chat/utils/message-identity";
 import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 
 // ---------------------------------------------------------------------------
@@ -28,10 +25,7 @@ export function tailIsAssistant(prev: DisplayMessage[]): boolean {
  * The live row is the last assistant message when the conversation is
  * processing and that row trails the most recent user message. A brand-new
  * turn always begins with a user row; a turn with no user row (external
- * channels) has the assistant run as the tail. Trailing user rows still
- * waiting in the queue (`queueStatus: "queued"`) are skipped so a message
- * queued mid-turn doesn't sever the in-flight assistant from its live
- * status.
+ * channels) has the assistant run as the tail.
  *
  * Pure and position-based: this is the single source of truth for row
  * liveness, derived from message position and the conversation's
@@ -45,16 +39,7 @@ export function liveAssistantRowId(
     return null;
   }
 
-  let tailIdx = messages.length - 1;
-  while (
-    tailIdx >= 0 &&
-    messages[tailIdx]!.role === "user" &&
-    messages[tailIdx]!.queueStatus === "queued"
-  ) {
-    tailIdx--;
-  }
-
-  const tail = messages[tailIdx];
+  const tail = messages[messages.length - 1];
   if (!tail || tail.role !== "assistant") {
     return null;
   }
@@ -89,8 +74,7 @@ export function findAssistantRowIndexByMessageId(
  * assistant row of the current turn. Returns `-1` when the turn has not opened
  * an assistant row yet.
  *
- * The positional fallback scans back only as far as the newest non-queued user
- * row: an event belongs to the turn that emitted it, and a turn with no
+ * The positional fallback scans back only as far as the newest user row: an event belongs to the turn that emitted it, and a turn with no
  * assistant row of its own (a wake, a background dispatch) must not fold into
  * the PREVIOUS turn's bubble, which sits above the user's newest message and
  * is never where the server places the content on replay.
@@ -105,9 +89,7 @@ export function findTurnAssistantRowIndex(
       return byId;
     }
   }
-  const turnStartIdx =
-    prev.findLastIndex((m) => m.role === "user" && m.queueStatus !== "queued") +
-    1;
+  const turnStartIdx = prev.findLastIndex((m) => m.role === "user") + 1;
   for (let i = prev.length - 1; i >= turnStartIdx; i--) {
     if (prev[i]?.role === "assistant") {
       return i;
@@ -165,67 +147,4 @@ export function finalizeRunningToolCalls(
       : block,
   );
   return { toolCalls, contentBlocks };
-}
-
-// ---------------------------------------------------------------------------
-// Queue updaters
-// ---------------------------------------------------------------------------
-
-/** Set queue position on a message by id. */
-export function setQueuePosition(
-  prev: DisplayMessage[],
-  id: string,
-  position: number,
-): DisplayMessage[] {
-  return prev.map((m) => (m.id === id ? { ...m, queuePosition: position } : m));
-}
-
-/** Clear queue status by server id or client correlation id. */
-export function clearQueueStatus(
-  prev: DisplayMessage[],
-  id: string,
-): DisplayMessage[] {
-  return prev.map((m) =>
-    messageMatchesKey(m, id)
-      ? { ...m, queueStatus: undefined, queuePosition: undefined }
-      : m,
-  );
-}
-
-export function applyQueuedMessageDequeue(
-  prev: DisplayMessage[],
-  id: string,
-): DisplayMessage[] {
-  return prev.map((message) => {
-    if (!messageMatchesKey(message, id)) {
-      return message;
-    }
-    return {
-      ...message,
-      ...(!message.clientMessageId ? { isOptimistic: true } : {}),
-      queueStatus: undefined,
-      queuePosition: undefined,
-    };
-  });
-}
-
-/** Mark a message as queued by server id or client correlation id. */
-export function markMessageQueued(
-  prev: DisplayMessage[],
-  id: string,
-  position: number | undefined,
-): DisplayMessage[] {
-  return prev.map((m) =>
-    messageMatchesKey(m, id)
-      ? { ...m, queueStatus: "queued" as const, queuePosition: position }
-      : m,
-  );
-}
-
-/** Remove a queued message by server id or client correlation id. */
-export function removeQueuedMessage(
-  prev: DisplayMessage[],
-  id: string,
-): DisplayMessage[] {
-  return prev.filter((m) => !messageMatchesKey(m, id));
 }

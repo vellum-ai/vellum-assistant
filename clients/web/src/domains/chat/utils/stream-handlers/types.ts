@@ -104,19 +104,8 @@ export interface StreamHandlerContext {
   // --- Compaction ---
   setCompactionCircuitOpenUntil: Dispatch<SetStateAction<Date | null>>;
 
-  // --- Queue management ---
-  shiftPendingQueuedMessageId: () => string | undefined;
-  takePendingQueuedMessageId: (messageId: string) => string | undefined;
-  /**
-   * Read the unconfirmed optimistic sends, so a queue ack can still be bound to
-   * the row it belongs to when no pending queued id was registered for it.
-   * Under `interrupt-on-send` a send never expects to queue, so it registers
-   * none, yet the daemon can still fall back to the queue and ack it.
-   */
-  getOptimisticSends?: () => DisplayMessage[];
-  setRequestIdMapping: (requestId: string, messageId: string) => void;
+  // --- Request id mapping ---
   popRequestIdMapping: (requestId: string) => string | undefined;
-  consumePendingLocalDeletion: (messageId: string) => boolean;
 
   // --- Hook-owned refs ---
   lastActivityVersionRef: MutableRefObject<Map<string, number>>;

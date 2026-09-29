@@ -1,14 +1,13 @@
 /**
  * Handles sending user messages, managing the stream lifecycle, and
- * queue operations (cancel, delete, edit).
+ * stopping the active generation.
  *
  * Orchestrates: optimistic message insertion, draft key resolution,
  * stream creation via `postChatMessage`, and processing-key tracking.
  * Reply delivery and turn settlement are owned by the SSE stream plus the
  * reconciliation loop — there is no client-side polling fallback.
  *
- * Composes `useMessageQueue` for queue management and imports pure
- * transforms from `send-message-utils`.
+ * Imports pure transforms from `send-message-utils`.
  */
 
 import { t } from "@/i18n";
@@ -71,7 +70,6 @@ import {
   type PreChatOnboardingContext,
 } from "@/domains/onboarding/prechat";
 
-import { clearQueueStatus } from "@/domains/chat/utils/stream-updaters/shared";
 import type { ChatError } from "@/domains/chat/types";
 
 import {
@@ -80,14 +78,10 @@ import {
   newTurnId,
   resolvePostError,
   shouldCleanupSupersededInteractions,
-  shouldQueueSend,
 } from "@/domains/chat/utils/send-message-utils";
 import type { UIContext } from "@/domains/chat/turn-selectors";
 import { useComposerStore } from "@/domains/chat/composer-store";
 import { getSoundManager } from "@/lib/sounds/sound-manager";
-import { getInterruptOnSend } from "@/domains/chat/hooks/use-interrupt-on-send";
-import { useMessageQueue } from "@/domains/chat/hooks/use-message-queue";
-import { confirmQueuedMessageDeletion } from "@/domains/chat/queue-cancellation";
 import { conversationsByIdCancelPost } from "@/generated/daemon/sdk.gen";
 import type { Conversation } from "@/types/conversation-types";
 import { postChatMessage } from "@/domains/chat/api/messages";
@@ -118,8 +112,8 @@ type SendStreamResult =
       status: "ok";
       resolvedConversationId?: string;
       /** Server-assigned user message id from the active POST resolve.
-       *  Absent for the queued path (POST returns only `requestId`) and
-       *  for scope-changed-mid-flight results. The optimistic send is no
+       *  Absent for an older assistant's queued acceptance (POST returns only
+       *  `requestId`) and for scope-changed-mid-flight results. The optimistic send is no
        *  longer id-swapped against this — the snapshot's echoed row and the
        *  overlay's `clientMessageId` dedup own that — so this is retained only
        *  for diagnostics / callers that want the persisted id. */
@@ -214,7 +208,7 @@ export function useSendMessage({
   // `supportsServerMintedConversation()`). While set, `sendMessage`
   // refuses to start a new send — the POST 200s quickly so the window
   // is brief, and blocking is simpler than threading a deferred
-  // through the queue path.
+  // send through it.
   //
   // Without this gate, a follow-up send during the window would post
   // the local draft key to a 0.8.6+ assistant's strict-lookup endpoint
@@ -224,21 +218,6 @@ export function useSendMessage({
   // clear guards against re-mounts overwriting a newer mint.
   const pendingDraftMintRef = useRef<string | null>(null);
   const surfacingConversationIdsRef = useRef<Set<string>>(new Set());
-
-  // -------------------------------------------------------------------------
-  // Queue management (delegated to useMessageQueue)
-  // -------------------------------------------------------------------------
-  const {
-    revertQueuedMessage,
-    queuedMessages,
-    handleCancelQueuedMessage,
-    handleCancelAllQueued,
-    handleSteerMessage,
-    handleEditQueueTail,
-  } = useMessageQueue({
-    assistantId,
-    activeConversationId,
-  });
 
   // -------------------------------------------------------------------------
   // Shared helpers
@@ -556,50 +535,24 @@ export function useSendMessage({
         conversationId: effectiveConversationId,
       });
 
-      if (postResult.queued) {
-        // The client believed the conversation was idle (so it took the
-        // active-send path), but the assistant was still processing and
-        // queued this message instead. Reflect the queued state on the
-        // optimistic row so it renders with queued affordances rather than
-        // as a normal in-flight send: tag it `queueStatus: "queued"`, track
-        // it in the pending-queue FIFO so the `message_queued` SSE event can
-        // assign its real position, and register the request id eagerly so
-        // steer/cancel work before the event arrives. Mirrors the
-        // willQueue path in `sendMessage`.
-        if (clientMessageId) {
-          useChatSessionStore
-            .getState()
-            .pushPendingQueuedMessageId(clientMessageId);
-          setOptimisticSends((prev) =>
-            prev.map((m) =>
-              m.id === clientMessageId
-                ? {
-                    ...m,
-                    queueStatus: "queued" as const,
-                    queuePosition: m.queuePosition ?? 0,
-                  }
-                : m,
-            ),
-          );
-          if (postResult.requestId) {
-            useChatSessionStore
-              .getState()
-              .setRequestIdMapping(postResult.requestId, clientMessageId);
-          }
-        }
-        return {
-          status: "ok",
-          resolvedConversationId: postResult.conversationId,
-        };
-      }
-      // Not queued, so no `message_queued` will register this. Recorded anyway
-      // because a send the daemon accepted can still fail afterwards (an
-      // `interrupt-on-send` handover whose queue fallback is refused), and the
-      // only handle that failure event carries is the request id.
+      // A send the daemon accepted can still fail afterwards (an interrupting
+      // send whose handover is refused), and the only handle that failure
+      // event carries is the request id.
       if (clientMessageId && postResult.requestId) {
         useChatSessionStore
           .getState()
           .setRequestIdMapping(postResult.requestId, clientMessageId);
+      }
+      if (postResult.queued) {
+        // An assistant that queues the send aborts nothing, so the cancel this
+        // turn's handoff marker is waiting for never comes. Left armed, the
+        // next Stop on this conversation would read as that handoff and leave
+        // the composer busy with no turn behind it.
+        useTurnStore.getState().clearInterruptHandoff();
+        return {
+          status: "ok",
+          resolvedConversationId: postResult.conversationId,
+        };
       }
       if (hasMatchingActiveStream) {
         return {
@@ -707,8 +660,8 @@ export function useSendMessage({
       // A hidden send (e.g. the onboarding "Let's chat" kickoff) drives a turn
       // and the assistant's reply, but renders NO user bubble: skip the
       // optimistic row here and the daemon suppresses the echo. Hidden sends are
-      // always a fresh first message (conversation idle), so they never take the
-      // queue path below.
+      // always a fresh first message (conversation idle), so they never
+      // interrupt a running turn.
       const isHidden = opts.hidden === true;
       // Whether the transcript on screen is still the one this send belongs to.
       //
@@ -802,7 +755,7 @@ export function useSendMessage({
       // Block any send while a server-mint POST is in flight for the
       // active draft. The POST 200s quickly so this window is brief;
       // rejecting is simpler than threading the unresolved id through
-      // the queue path. See `pendingDraftMintRef` declaration.
+      // a deferred send. See `pendingDraftMintRef` declaration.
       if (pendingDraftMintRef.current === activeConversationId) {
         setError({
           message:
@@ -882,13 +835,10 @@ export function useSendMessage({
         }
       }
 
-      const phaseAtSend = useTurnStore.getState().phase;
-      const willQueue = shouldQueueSend(phaseAtSend, getInterruptOnSend());
-      // The same read decides the other half: a send that does not queue into
-      // a busy turn is replacing it, so the `generation_cancelled` that lands
-      // behind this send's 202 is that turn's handoff and must not idle the
-      // turn this one is starting.
-      const interruptsRunningTurn = isSending(phaseAtSend) && !willQueue;
+      // A send into a busy turn replaces it, so the `generation_cancelled`
+      // that lands behind this send's 202 is that turn's handoff and must not
+      // idle the turn this one is starting.
+      const interruptsRunningTurn = isSending(useTurnStore.getState().phase);
       const clientMessageId = crypto.randomUUID();
       const userMessage: DisplayMessage = {
         id: clientMessageId,
@@ -901,195 +851,16 @@ export function useSendMessage({
           content.trim().length > 0 ? [{ type: "text", text: content }] : [],
         timestamp: Date.now(),
         ...(attachments.length > 0 ? { attachments } : {}),
-        ...(willQueue
-          ? { queueStatus: "queued" as const, queuePosition: 0 }
-          : {}),
       };
       // The row is skipped rather than added and removed: nothing would take it
       // back out, since a switch clears the list and this one arrives after
       // that. The server echo puts the message where it belongs when its thread
-      // is next opened. The pending queue FIFO below follows the same rule.
+      // is next opened.
       const rendersOptimisticRow = !isHidden && sendScopeIsCurrent();
       if (rendersOptimisticRow) {
         addOptimisticSend(userMessage);
       }
       void getSoundManager().play("message_sent");
-
-      // Queue path: POST to assistant (it queues internally) but don't
-      // disrupt the active turn.
-      if (willQueue) {
-        // A hidden send renders no optimistic row and the daemon suppresses
-        // its queued ack, so there is nothing for the pending FIFO to bind.
-        // Tracking it would park a dead entry at the head that the next
-        // visible send's ack would bind to instead of its own row. A send
-        // whose conversation is no longer on screen has no row here either,
-        // and its ack belongs to a thread this FIFO does not describe.
-        if (rendersOptimisticRow) {
-          useChatSessionStore
-            .getState()
-            .pushPendingQueuedMessageId(userMessage.id);
-        }
-        const attachmentIds = attachments.map((att) => att.id);
-        try {
-          const postResult = await postChatMessage(
-            assistantId,
-            activeConversationId,
-            content,
-            {
-              attachmentIds,
-              clientMessageId,
-              hidden: isHidden,
-              bypassSecretCheck,
-              scripted: opts.scripted,
-            },
-          );
-          if (!postResult.ok) {
-            // Reported only to the thread it happened in. The streaming path
-            // answers a scope mismatch the same way, returning `ignored`
-            // without surfacing anything, because an error banner raised over
-            // a conversation the user is now reading describes a send they
-            // cannot see and cannot retry from there.
-            //
-            // Asked here rather than remembered from before the POST: the
-            // switch that moves this send off screen is at its most likely
-            // during that round trip.
-            const onScreenAtFailure = sendScopeIsCurrent();
-            if (onScreenAtFailure) {
-              revertQueuedMessage(userMessage.id);
-              const detail = resolvePostError(
-                postResult.error.code,
-                postResult.error.detail,
-                "Failed to queue message. Please try again.",
-              );
-              setError({
-                message: detail,
-                code: postResult.error.code ?? undefined,
-              });
-            }
-            // Off screen there is no banner to carry the failure and no
-            // composer of this thread's to put the text back into, so it goes
-            // to that thread's draft instead of being lost. Its own condition
-            // rather than the banner's `else`, because what matters is where
-            // the send stands NOW: one that was on screen when it started and
-            // is not by the time it fails belongs here.
-            if (!onScreenAtFailure && !isHidden) {
-              useComposerStore
-                .getState()
-                .restoreFailedDraft(
-                  assistantId,
-                  activeConversationId,
-                  content,
-                  composerSessionGeneration,
-                );
-            }
-            return;
-          }
-          if (
-            composerSessionGeneration !==
-            useComposerStore.getState().sessionGeneration
-          ) {
-            return;
-          }
-          void surfaceConversationAfterUserSend(
-            postResult.conversationId,
-          ).catch((err) => {
-            captureError(err, {
-              context: "surface_queued_conversation_after_send",
-            });
-          });
-          if (!postResult.queued) {
-            // The daemon processed the message directly (turn finished
-            // between the client-side isSending check and the POST
-            // arriving). Clear the optimistic queue status and let the
-            // existing SSE stream deliver the response.
-            //
-            // All of that describes the thread on screen: the queue FIFO, the
-            // row's queue badge, and the turn this send is now driving. A send
-            // whose thread the user has left owns none of them, and claiming
-            // the turn store here would replace the open conversation's phase
-            // and active turn id, mid-answer if that thread is streaming. The
-            // branch is reachable for such a send because `willQueue` reads
-            // the open thread's phase, so it can queue a message for a
-            // conversation that was idle all along. See `sendScopeIsCurrent`,
-            // asked again here because the POST is a window the user can
-            // switch threads inside.
-            if (sendScopeIsCurrent()) {
-              const queueIds =
-                useChatSessionStore.getState().pendingQueuedMessageIds;
-              const idx = queueIds.indexOf(userMessage.id);
-              if (idx !== -1) {
-                queueIds.splice(idx, 1);
-              }
-              setOptimisticSends((prev) =>
-                clearQueueStatus(prev, userMessage.id),
-              );
-              const fallbackTurnId = newTurnId();
-              useTurnStore.getState().requestSend(fallbackTurnId);
-              useTurnStore.getState().acceptSend(fallbackTurnId);
-            }
-            // Keyed by conversation rather than by what is on screen, so it
-            // stays correct for the thread this send belongs to either way.
-            {
-              const currentConv = findConversation(
-                queryClient,
-                assistantId,
-                activeConversationId,
-              );
-              useConversationStore
-                .getState()
-                .addProcessingConversationId(
-                  activeConversationId,
-                  currentConv?.latestAssistantMessageAt,
-                );
-            }
-            return;
-          }
-          const requestId = postResult.requestId;
-          // The mapping exists to bind the daemon's `message_queued_deleted`
-          // broadcast to a rendered row, and the deletion it would confirm can
-          // only have been asked for from one. A send with no row on screen has
-          // neither, so the whole block belongs to the thread on screen.
-          if (requestId && sendScopeIsCurrent()) {
-            const sessionStore = useChatSessionStore.getState();
-            sessionStore.setRequestIdMapping(requestId, userMessage.id);
-            if (sessionStore.consumePendingLocalDeletion(userMessage.id)) {
-              await confirmQueuedMessageDeletion({
-                assistantId,
-                conversationId: activeConversationId,
-                requestId,
-                messageId: userMessage.id,
-                setOptimisticSends,
-                // Mapping cleanup only. `pendingQueuedCount` moves on the
-                // daemon's `message_queued_deleted` broadcast, which lands on
-                // this tab too, so decrementing here would double-count.
-                onDeleted: () => {
-                  useChatSessionStore.getState().popRequestIdMapping(requestId);
-                },
-              });
-            }
-          }
-        } catch (err) {
-          // Captured whatever the scope, since a thrown send is a real fault;
-          // only its report to the user is scoped, as above.
-          captureError(err, { context: "send_message_queue" });
-          const onScreenAtThrow = sendScopeIsCurrent();
-          if (onScreenAtThrow) {
-            revertQueuedMessage(userMessage.id);
-            setError({ message: "Failed to queue message. Please try again." });
-          }
-          if (!onScreenAtThrow && !isHidden) {
-            useComposerStore
-              .getState()
-              .restoreFailedDraft(
-                assistantId,
-                activeConversationId,
-                content,
-                composerSessionGeneration,
-              );
-          }
-        }
-        return;
-      }
 
       const turnId = newTurnId();
       // The turn store describes the conversation on screen and nothing else,
@@ -1302,8 +1073,7 @@ export function useSendMessage({
         void refreshConversations();
       } catch (err) {
         captureError(err, { context: "send_chat_message" });
-        // The same split the queue branch's catch makes: the fault is recorded
-        // whatever the scope, its report is not. `onStreamError` idles the turn
+        // The fault is recorded whatever the scope, its report is not. `onStreamError` idles the turn
         // store and drops its active turn, which belongs to whichever thread is
         // on screen, so a stale send reaching it would end the answer the user
         // is actually watching.
@@ -1355,7 +1125,6 @@ export function useSendMessage({
       runLocalMetaCommand,
       sendMessageViaStream,
       refreshConversations,
-      revertQueuedMessage,
       persistDismissedSurfaces,
       queryClient,
       surfaceConversationAfterUserSend,
@@ -1393,10 +1162,5 @@ export function useSendMessage({
   return {
     sendMessage,
     handleStopGenerating,
-    queuedMessages,
-    handleCancelQueuedMessage,
-    handleCancelAllQueued,
-    handleSteerMessage,
-    handleEditQueueTail,
   };
 }

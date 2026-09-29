@@ -22,7 +22,6 @@ import { ChatBody } from "./chat-body";
 import { ChatComposer } from "./chat-composer/chat-composer";
 import { DocumentChatNavigation } from "./document-chat-navigation";
 import { DocumentViewerContainer } from "./document-viewer-container";
-import { QueuedMessagesDrawer } from "./queued-messages-drawer";
 import type { VoiceInputButtonHandle } from "./voice-input-button";
 
 const ASSISTANT_ID = "story-document-assistant";
@@ -71,12 +70,6 @@ const TRANSCRIPT = [
   ),
 ];
 
-const QUEUED_MESSAGE = message(
-  "queued-message-1",
-  "user",
-  "Also add a short packing checklist.",
-).message;
-
 const WORKING_TRANSCRIPT = [
   ...TRANSCRIPT,
   message("message-3", "user", DRAFT),
@@ -88,14 +81,7 @@ const WORKING_TRANSCRIPT = [
 ];
 
 interface DocumentChatStoryProps {
-  state:
-    | "editing"
-    | "idle"
-    | "uploading"
-    | "working"
-    | "queued"
-    | "error"
-    | "needs-input";
+  state: "editing" | "idle" | "uploading" | "working" | "error" | "needs-input";
   layout: "mobile" | "desktop";
 }
 
@@ -103,17 +89,11 @@ function DocumentChatStory({ state, layout }: DocumentChatStoryProps) {
   const [presentation, setPresentation] = useState<"document" | "conversation">(
     "document",
   );
-  const [queuedMessages, setQueuedMessages] = useState(
-    state === "queued" ? [QUEUED_MESSAGE] : [],
-  );
-  const [isBusy, setIsBusy] = useState(
-    state === "working" || state === "queued",
-  );
+  const [isBusy, setIsBusy] = useState(state === "working");
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const voiceInputRef = useRef<VoiceInputButtonHandle | null>(null);
   const showingDocument = presentation === "document";
-  const transcript =
-    state === "working" || state === "queued" ? WORKING_TRANSCRIPT : TRANSCRIPT;
+  const transcript = state === "working" ? WORKING_TRANSCRIPT : TRANSCRIPT;
   const viewConversation = () => setPresentation("conversation");
   const documentViewer = (
     <DocumentViewerContainer
@@ -177,17 +157,6 @@ function DocumentChatStory({ state, layout }: DocumentChatStoryProps) {
           onVoiceBeforeStart={() => false}
         />
       }
-      queuedDrawerSlot={
-        <QueuedMessagesDrawer
-          queuedMessages={queuedMessages}
-          onCancelMessage={(id) =>
-            setQueuedMessages((items) => items.filter((item) => item.id !== id))
-          }
-          onCancelAll={() => setQueuedMessages([])}
-          onSteer={() => {}}
-          onEditTail={() => {}}
-        />
-      }
       genericChatError={
         state === "error"
           ? { message: "Your message could not be sent. Please try again." }
@@ -233,7 +202,7 @@ const meta: Meta<typeof DocumentChatStory> = {
           "Production ChatBody, ChatComposer and DocumentViewerContainer with presentation fixtures. " +
           "The document header's chat icon and Reopen document keep one composer mounted, without a navigation strip below the editor. " +
           "Document saves and file uploads use an isolated SDK transport. " +
-          "Sending, queue processing and microphone recording are not simulated; these stories do not verify delivery or route orchestration.",
+          "Sending and microphone recording are not simulated; these stories do not verify delivery or route orchestration.",
       },
     },
   },
@@ -291,12 +260,11 @@ const meta: Meta<typeof DocumentChatStory> = {
     useTurnStore.setState({
       ...INITIAL_TURN_STATE,
       phase:
-        args.state === "working" || args.state === "queued"
+        args.state === "working"
           ? "thinking"
           : args.state === "needs-input"
             ? "awaiting_user_input"
             : "idle",
-      pendingQueuedCount: args.state === "queued" ? 1 : 0,
     });
     const restoreClient = stubClientFetch(client, async (request) => {
       const path = new URL(request.url).pathname;
@@ -343,7 +311,6 @@ export const MobileDirectEditing: Story = { args: { state: "editing" } };
 export const MobileDark: Story = { globals: { theme: "dark" } };
 export const MobileUploading: Story = { args: { state: "uploading" } };
 export const MobileWorking: Story = { args: { state: "working" } };
-export const MobileQueued: Story = { args: { state: "queued" } };
 export const MobileError: Story = { args: { state: "error" } };
 export const MobileNeedsInput: Story = { args: { state: "needs-input" } };
 export const Desktop: Story = {

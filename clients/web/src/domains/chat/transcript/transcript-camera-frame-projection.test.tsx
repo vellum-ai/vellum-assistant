@@ -125,7 +125,7 @@ describe("camera frame projection through TranscriptRow", () => {
     },
   );
 
-  test("hidden notifications and queued rows leave one visible utterance group", () => {
+  test("hidden notifications leave one visible utterance group", () => {
     const hidden: DisplayMessage[] = [
       { id: "hidden-subagent", role: "user", isSubagentNotification: true },
       { id: "hidden-acp", role: "user", isAcpNotification: true },
@@ -134,7 +134,6 @@ describe("camera frame projection through TranscriptRow", () => {
         role: "user",
         isBackgroundEventNotification: true,
       },
-      { id: "hidden-queued", role: "user", queueStatus: "queued" },
     ];
     const { container, getByText } = renderProjection([
       frames[0]!,

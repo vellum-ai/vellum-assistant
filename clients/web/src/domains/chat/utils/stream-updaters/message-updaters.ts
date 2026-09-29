@@ -497,12 +497,9 @@ function findOptimisticUserEchoIdx(
  *  2. An optimistic user row is correlated by `clientMessageId` (or, absent
  *     the nonce, the most recent optimistic row) — the originating client
  *     whose POST hasn't resolved yet (the echo beat the 202). Swap its id to
- *     the server `messageId`, clear `isOptimistic`, and clear any
- *     `queueStatus`/`queuePosition`: the echo is emitted only once the daemon
- *     is processing the message (a direct send, or a queued send right after
- *     it is dequeued), so a persisted echo means the row is no longer waiting
- *     in the queue. With no `messageId` (synthetic echo) there is nothing to
- *     upgrade to, so the optimistic row is left as-is.
+ *     the server `messageId` and clear `isOptimistic`. With no `messageId`
+ *     (synthetic echo) there is nothing to upgrade to, so the optimistic row
+ *     is left as-is.
  *  3. Otherwise append a new user row — passive client or synthetic
  *     prompt. Keyed by `messageId` when present so reconcile/refetch merges
  *     by id; otherwise optimistic.
@@ -552,8 +549,6 @@ export function applyUserMessageEcho(
       ...next[optimisticIdx]!,
       id: serverId,
       isOptimistic: false,
-      queueStatus: undefined,
-      queuePosition: undefined,
       ...(event.modeSession ? { modeSession: event.modeSession } : {}),
     };
     return next;

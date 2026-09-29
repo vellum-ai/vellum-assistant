@@ -1,6 +1,6 @@
 /**
- * Assembles the nudge and queued-message ReactNode slots that
- * {@link ChatBody} renders in the main chat panel.
+ * Assembles the nudge banner ReactNode slot that {@link ChatBody} renders
+ * in the main chat panel.
  *
  * Factored out of the orchestrator so the slot construction logic is
  * testable independently and the orchestrator stays focused on wiring.
@@ -12,8 +12,6 @@ import { DiscordNudgeBanner } from "@/components/nudges/discord-nudge-banner";
 import { GitHubNudgeBanner } from "@/components/nudges/github-nudge-banner";
 import { DesktopAppBanner } from "@/components/nudges/desktop-app-banner";
 import { NativeAppBanner } from "@/components/nudges/native-app-banner";
-import { QueuedMessagesDrawer } from "@/domains/chat/components/queued-messages-drawer";
-import type { DisplayMessage } from "@/domains/chat/types/types";
 import type { useAppNudges } from "@/domains/chat/hooks/use-app-nudges";
 
 // ---------------------------------------------------------------------------
@@ -22,16 +20,10 @@ import type { useAppNudges } from "@/domains/chat/hooks/use-app-nudges";
 
 export interface UseChatBannerSlotsParams {
   nudges: ReturnType<typeof useAppNudges>;
-  queuedMessages: DisplayMessage[];
-  onCancelQueuedMessage: (messageId: string) => void;
-  onCancelAllQueued: () => void;
-  onSteerMessage: (messageId: string) => void;
-  onEditQueueTail: () => void;
 }
 
 export interface ChatBannerSlots {
   mainBannerSlot: ReactNode;
-  mainQueuedDrawerSlot: ReactNode;
 }
 
 // ---------------------------------------------------------------------------
@@ -40,11 +32,6 @@ export interface ChatBannerSlots {
 
 export function useChatBannerSlots({
   nudges,
-  queuedMessages,
-  onCancelQueuedMessage,
-  onCancelAllQueued,
-  onSteerMessage,
-  onEditQueueTail,
 }: UseChatBannerSlotsParams): ChatBannerSlots {
   const {
     showBanner,
@@ -109,24 +96,5 @@ export function useChatBannerSlots({
     discordNudge,
   ]);
 
-  const mainQueuedDrawerSlot = useMemo(
-    (): ReactNode => (
-      <QueuedMessagesDrawer
-        queuedMessages={queuedMessages}
-        onCancelMessage={onCancelQueuedMessage}
-        onCancelAll={onCancelAllQueued}
-        onSteer={onSteerMessage}
-        onEditTail={onEditQueueTail}
-      />
-    ),
-    [
-      queuedMessages,
-      onCancelQueuedMessage,
-      onCancelAllQueued,
-      onSteerMessage,
-      onEditQueueTail,
-    ],
-  );
-
-  return { mainBannerSlot, mainQueuedDrawerSlot };
+  return { mainBannerSlot };
 }

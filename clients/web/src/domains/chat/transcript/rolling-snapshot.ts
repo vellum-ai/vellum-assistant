@@ -39,11 +39,6 @@ import {
 } from "@/domains/chat/utils/stream-updaters/surface-updaters";
 import { attachConfirmationToToolCall } from "@/domains/chat/utils/chat";
 import { clearConfirmationByRequestId } from "@/domains/chat/utils/send-message-utils";
-import {
-  applyQueuedMessageDequeue,
-  markMessageQueued,
-  removeQueuedMessage,
-} from "@/domains/chat/utils/stream-updaters/shared";
 
 /** Parse the envelope's ISO `emittedAt` to epoch ms, the deterministic stamp
  *  for any row an event opens. Falls back to `seq` so a malformed/absent time
@@ -110,14 +105,6 @@ export function appendEventToMessages(
         },
         at,
       );
-    case "message_dequeued":
-      return applyQueuedMessageDequeue(messages, event.requestId);
-    case "message_requeued":
-      // The dequeue this corrects cleared the row's queue status; put it back
-      // so the transcript keeps showing the message as pending.
-      return markMessageQueued(messages, event.requestId, event.position);
-    case "message_queued_deleted":
-      return removeQueuedMessage(messages, event.requestId);
     case "assistant_activity_state":
       // Only the terminal `idle` phase changes message content (it finalizes
       // running tool calls); other phases drive turn state, not history.

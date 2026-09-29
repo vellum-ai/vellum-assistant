@@ -44,8 +44,6 @@ export function messagesEqual(
       "toolCalls",
       "attachments",
       "timestamp",
-      "queueStatus",
-      "queuePosition",
     ]);
     const amKeys = Object.keys(am).filter((k) => !knownKeys.has(k));
     const bmKeys = Object.keys(bm).filter((k) => !knownKeys.has(k));
