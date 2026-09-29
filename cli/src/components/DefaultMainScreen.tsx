@@ -21,6 +21,35 @@ import { trustedRefreshUrl } from "../lib/runtime-url";
 import { appendHistory, loadHistory } from "../lib/input-history";
 import { tuiLog } from "../lib/tui-log";
 import { segmentsToPlainText } from "../lib/segments-to-plain-text";
+import {
+  calculateHeaderHeight,
+  COMPACT_THRESHOLD,
+  DEFAULT_TERMINAL_COLUMNS,
+  estimateItemHeight,
+  formatConfirmationPreview,
+  formatHeaderEyebrow,
+  formatHeaderTitle,
+  formatTimestamp,
+  isRuntimeMessage,
+  formatToolCallPreview,
+  stripAnsi,
+  truncateValue,
+  HELP_COMMANDS,
+  LEFT_PANEL_WIDTH,
+  RIGHT_PANEL_LINE_COUNT,
+  TIPS,
+  type ErrorLine,
+  type FeedItem,
+  type HelpLine,
+  type RuntimeMessage,
+  type StatusLine,
+  type ToolCallInfo,
+} from "../lib/default-main-screen-formatting.js";
+export {
+  formatTimestamp,
+  type RuntimeMessage,
+  type ToolCallInfo,
+} from "../lib/default-main-screen-formatting.js";
 import { statusEmoji, withStatusEmoji } from "../lib/status-emoji";
 import {
   getTerminalCapabilities,
@@ -50,25 +79,6 @@ export const SLASH_COMMANDS = [
   "/quit",
 ];
 
-const HELP_COMMANDS = [
-  {
-    command: "/btw <question>",
-    description: "Ask a side question while the assistant is working",
-  },
-  {
-    command: "/quit, /exit, /q",
-    description: "Disconnect and exit",
-  },
-  {
-    command: "/clear",
-    description: "Clear the screen",
-  },
-  {
-    command: "/help, ?",
-    description: "Show this help",
-  },
-] as const;
-
 const SEND_TIMEOUT_MS = 5000;
 /** Fresh deadline for a request retried after a mid-session token refresh —
  *  the original caller signal may have already timed out during the refresh. */
@@ -76,37 +86,13 @@ const RETRY_TIMEOUT_MS = 30_000;
 
 // ── Layout constants ──────────────────────────────────────
 const MAX_TOTAL_WIDTH = 72;
-const DEFAULT_TERMINAL_COLUMNS = 80;
 const DEFAULT_TERMINAL_ROWS = 24;
-const LEFT_PANEL_WIDTH = 36;
-
-const COMPACT_THRESHOLD = 60;
 const HEADER_PREFIX_UNICODE = "── Vellum ";
 const HEADER_PREFIX_ASCII = "-- Vellum ";
 
 // Left panel structure: HEADER lines + art + FOOTER lines
-const LEFT_HEADER_LINES = 4; // spacer + eyebrow + title + spacer
-const LEFT_FOOTER_LINES = 3; // spacer + runtimeUrl + dirName
-
-// Right panel structure
-const TIPS = [
-  "Send a message to start chatting",
-  "Use /help to see available commands",
-];
-const RIGHT_PANEL_INFO_SECTIONS = 3; // Assistant ID, Species, Status — each with heading + value
-const RIGHT_PANEL_SPACERS = 2; // top spacer + spacer between tips and info
-const RIGHT_PANEL_TIPS_HEADING = 1;
-const RIGHT_PANEL_LINE_COUNT =
-  RIGHT_PANEL_SPACERS +
-  RIGHT_PANEL_TIPS_HEADING +
-  TIPS.length +
-  RIGHT_PANEL_INFO_SECTIONS * 2;
-
 // Header chrome (borders around panel content)
 const HEADER_TOP_BORDER_LINES = 1; // "── Vellum ───..." line
-const HEADER_BOTTOM_BORDER_LINES = 2; // bottom rule + blank line
-const HEADER_CHROME_LINES =
-  HEADER_TOP_BORDER_LINES + HEADER_BOTTOM_BORDER_LINES;
 
 // Selection / Secret windows
 const DIALOG_WINDOW_WIDTH = 60;
@@ -122,11 +108,6 @@ const SELECTION_CHROME_LINES = 3; // title bar + bottom border + spacing
 const SECRET_INPUT_HEIGHT = 5; // title bar + content row + bottom border + tooltip chrome
 const SPINNER_HEIGHT = 1;
 const MIN_FEED_ROWS = 3;
-
-// Feed item height estimation
-const TOOL_CALL_CHROME_LINES = 2; // header (┌) + footer (└)
-const MESSAGE_SPACING = 1;
-const HELP_DISPLAY_HEIGHT = HELP_COMMANDS.length + 1;
 
 interface ListMessagesResponse {
   messages: RuntimeMessage[];
@@ -497,38 +478,6 @@ async function* streamEvents(
   }
 }
 
-function formatConfirmationPreview(
-  toolName: string,
-  input: Record<string, unknown>,
-): string {
-  switch (toolName) {
-    case "bash":
-      return String(input.command ?? "");
-    case "file_read":
-      return `read ${input.path ?? ""}`;
-    case "file_write":
-      return `write ${input.path ?? ""}`;
-    case "file_edit":
-      return `edit ${input.path ?? ""}`;
-    case "web_fetch":
-      return String(input.url ?? "").slice(0, 80);
-    case "browser_navigate":
-      return `navigate ${String(input.url ?? "").slice(0, 80)}`;
-    case "browser_close":
-      return input.close_all_pages
-        ? "close all browser pages"
-        : "close browser page";
-    case "browser_click":
-      return `click ${input.element_id ?? input.selector ?? ""}`;
-    case "browser_type":
-      return `type into ${input.element_id ?? input.selector ?? ""}`;
-    case "browser_press_key":
-      return `press "${input.key ?? ""}"`;
-    default:
-      return `${toolName}: ${JSON.stringify(input).slice(0, 80)}`;
-  }
-}
-
 async function handleConfirmationPrompt(
   baseUrl: string,
   assistantId: string,
@@ -566,93 +515,6 @@ export const TYPING_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "
 
 /** ASCII-safe spinner frames for the connection screen. */
 const CONNECTION_SPINNER_FRAMES = ["|", "/", "-", "\\"];
-
-export interface ToolCallInfo {
-  name: string;
-  input: Record<string, unknown>;
-  result?: string;
-  isError?: boolean;
-  toolUseId?: string;
-}
-
-export interface RuntimeMessage {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  /**
-   * Ordered text segments from the daemon's history payload, split at
-   * tool_use/surface boundaries. The flat `content` body is derived from
-   * these (see `segmentsToPlainText`); the daemon no longer sends a
-   * redundant flattened `content` field on the wire.
-   */
-  textSegments?: string[];
-  timestamp: string;
-  toolCalls?: ToolCallInfo[];
-  label?: string;
-}
-
-export function formatTimestamp(ts: string): string {
-  try {
-    const date = new Date(ts);
-    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  } catch {
-    return "";
-  }
-}
-
-function formatToolCallPreview(tc: ToolCallInfo): string {
-  switch (tc.name) {
-    case "bash":
-      return String(tc.input.command ?? "").slice(0, 80);
-    case "file_read":
-      return `read ${tc.input.path ?? ""}`;
-    case "file_write":
-      return `write ${tc.input.path ?? ""}`;
-    case "file_edit":
-      return `edit ${tc.input.path ?? ""}`;
-    case "web_search":
-      return String(tc.input.query ?? "").slice(0, 80);
-    case "web_fetch":
-      return String(tc.input.url ?? "").slice(0, 80);
-    case "browser_navigate":
-      return `navigate ${String(tc.input.url ?? "").slice(0, 80)}`;
-    case "browser_click":
-      return `click ${String(tc.input.element_id ?? tc.input.selector ?? "").slice(0, 60)}`;
-    case "browser_type":
-      return `type into ${String(tc.input.element_id ?? tc.input.selector ?? "").slice(0, 60)}`;
-    default:
-      return JSON.stringify(tc.input).slice(0, 80);
-  }
-}
-
-function truncateValue(value: unknown, maxLen: number): string {
-  if (typeof value === "string") {
-    if (value.length > maxLen) {
-      return value.slice(0, maxLen - 3) + "...";
-    }
-    return value;
-  }
-  const serialized = JSON.stringify(value);
-  if (serialized.length > maxLen) {
-    return serialized.slice(0, maxLen - 3) + "...";
-  }
-  return serialized;
-}
-
-function formatHeaderTitle(assistantName?: string): string {
-  const rawTitle = assistantName?.trim() || "Meet your Assistant!";
-  const title = rawTitle.replace(/\s+/g, " ");
-  const maxTitleLength = LEFT_PANEL_WIDTH - 2;
-  const displayTitle =
-    title.length > maxTitleLength
-      ? title.slice(0, maxTitleLength - 3) + "..."
-      : title;
-  return `  ${displayTitle}`;
-}
-
-function formatHeaderEyebrow(): string {
-  return "  Assistant";
-}
 
 interface ToolCallDisplayProps {
   tc: ToolCallInfo;
@@ -820,10 +682,6 @@ export function renderErrorMainScreen(error: unknown): number {
   console.log(`${ANSI.dim}${msg}${ANSI.reset}`);
   console.log(`${ANSI.dim}Run /clear to retry${ANSI.reset}`);
   return 3;
-}
-
-function stripAnsi(str: string): string {
-  return str.replace(/\x1b\[[0-9;]*m/g, "");
 }
 
 interface DefaultMainScreenProps {
@@ -1018,96 +876,6 @@ export interface SelectionRequest {
   resolve: (index: number) => void;
 }
 
-interface StatusLine {
-  type: "status";
-  text: string;
-  color?: string;
-}
-
-interface SpinnerLine {
-  type: "spinner";
-  text: string;
-}
-
-interface HelpLine {
-  type: "help";
-}
-
-interface ErrorLine {
-  type: "error";
-  text: string;
-}
-
-type FeedItem =
-  | RuntimeMessage
-  | StatusLine
-  | SpinnerLine
-  | HelpLine
-  | ErrorLine;
-
-function isRuntimeMessage(item: FeedItem): item is RuntimeMessage {
-  return "role" in item;
-}
-
-function estimateItemHeight(item: FeedItem, terminalColumns: number): number {
-  if (isRuntimeMessage(item)) {
-    const cols = Math.max(1, terminalColumns);
-    // Account for "HH:MM AM Label: " prefix on the first line
-    const defaultLabel = item.role === "user" ? "You:" : "Assistant:";
-    const label = item.label ?? defaultLabel;
-    const prefixLen = 10 + label.length + 1; // timestamp + space + label + space
-    let lines = 0;
-    const contentLines = item.content.split("\n");
-    for (let idx = 0; idx < contentLines.length; idx++) {
-      const lineLen =
-        idx === 0
-          ? contentLines[idx].length + prefixLen
-          : contentLines[idx].length;
-      lines += Math.max(1, Math.ceil(lineLen / cols));
-    }
-    if (item.role === "assistant" && item.toolCalls) {
-      for (const tc of item.toolCalls) {
-        const paramCount =
-          typeof tc.input === "object" && tc.input
-            ? Object.keys(tc.input).length
-            : 0;
-        lines +=
-          TOOL_CALL_CHROME_LINES +
-          paramCount +
-          (tc.result !== undefined ? 1 : 0);
-      }
-    }
-    return lines + MESSAGE_SPACING;
-  }
-  if (item.type === "help") {
-    return HELP_DISPLAY_HEIGHT;
-  }
-  if (item.type === "status" || item.type === "error") {
-    const cols = Math.max(1, terminalColumns);
-    let lines = 0;
-    for (const line of item.text.split("\n")) {
-      lines += Math.max(1, Math.ceil(line.length / cols));
-    }
-    return lines;
-  }
-  return 1;
-}
-
-const COMPACT_HEADER_HEIGHT = 1;
-
-function calculateHeaderHeight(
-  species: Species,
-  terminalColumns?: number,
-): number {
-  if ((terminalColumns ?? DEFAULT_TERMINAL_COLUMNS) < COMPACT_THRESHOLD) {
-    return COMPACT_HEADER_HEIGHT;
-  }
-  const artLength = SPECIES_CONFIG[species].art.length;
-  const leftLineCount = LEFT_HEADER_LINES + artLength + LEFT_FOOTER_LINES;
-  const maxLines = Math.max(leftLineCount, RIGHT_PANEL_LINE_COUNT);
-  return maxLines + HEADER_CHROME_LINES;
-}
-
 const SCROLL_STEP = 5;
 
 export function render(
@@ -1118,10 +886,7 @@ export function render(
 ): number {
   const terminalColumns = process.stdout.columns || DEFAULT_TERMINAL_COLUMNS;
   const isCompact = terminalColumns < COMPACT_THRESHOLD;
-  const art = SPECIES_CONFIG[species].art;
-
-  const leftLineCount = LEFT_HEADER_LINES + art.length + LEFT_FOOTER_LINES;
-  const maxLines = Math.max(leftLineCount, RIGHT_PANEL_LINE_COUNT);
+  const headerHeight = calculateHeaderHeight(species, terminalColumns);
 
   const { unmount } = inkRender(
     <DefaultMainScreen
@@ -1135,7 +900,7 @@ export function render(
   unmount();
 
   if (isCompact) {
-    return COMPACT_HEADER_HEIGHT;
+    return headerHeight;
   }
 
   const statusCanvasLine = RIGHT_PANEL_LINE_COUNT + HEADER_TOP_BORDER_LINES;
@@ -1151,7 +916,7 @@ export function render(
     })
     .catch(() => {});
 
-  return maxLines + HEADER_CHROME_LINES;
+  return headerHeight;
 }
 
 interface SelectionWindowProps {
