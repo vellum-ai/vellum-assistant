@@ -67,6 +67,7 @@ export function useComposerConfiguration(
   const sessionGeneration = useComposerStore.use.sessionGeneration();
   const orgReady = useIsOrgReady();
   const capability = useAssistantCapabilityQuery("composerSettings");
+  const capabilityKnown = capability.data !== undefined;
   const supportsPreferences = capability.data === true;
   const requireOwnProviderAndModel = useSupportsCompleteProfileSnapshots();
   const activeId = useConversationStore.use.activeConversationId();
@@ -213,7 +214,7 @@ export function useComposerConfiguration(
       initializedDrafts.has(id) ||
       !config.isSuccess ||
       !globalThreshold.isSuccess ||
-      capability.isPending ||
+      !capabilityKnown ||
       (supportsPreferences && !settings.isSuccess)
     ) {
       return;
@@ -247,7 +248,7 @@ export function useComposerConfiguration(
     config.data,
     globalThreshold.isSuccess,
     globalThreshold.data,
-    capability.isPending,
+    capabilityKnown,
     supportsPreferences,
     settings.isSuccess,
     preferences.lastModeId,
@@ -495,10 +496,8 @@ export function useComposerConfiguration(
       !(saving[scope] ?? 0) &&
       (!isDraft ||
         initializedDrafts.has(id!) ||
-        config.isError ||
-        globalThreshold.isError ||
-        capability.isError ||
-        settings.isError),
+        (capabilityKnown &&
+          (config.isError || globalThreshold.isError || settings.isError))),
     selectMode: (name: string) => select("mode", name),
     selectAutonomy: (value: Autonomy) => select("autonomy", value),
     newMode,

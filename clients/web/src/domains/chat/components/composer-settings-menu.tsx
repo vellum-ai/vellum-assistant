@@ -302,10 +302,7 @@ export function ComposerConfigurationContent({
                     {t("composerConfiguration.autonomyTitle")}
                     <span className="composer-config-summary-suffix">
                       {" "}
-                      ·{" "}
-                      {view === "autonomy"
-                        ? t("composerConfiguration.autonomySubtitle")
-                        : autonomyLabel}
+                      · {autonomyLabel}
                     </span>
                   </span>
                   {view !== "autonomy" && (
@@ -361,15 +358,13 @@ export function ComposerConfigurationContent({
                   <span className="composer-config-summary-text">
                     <span className="composer-config-summary-title">
                       {t("composerConfiguration.modeTitle")}
-                      {view !== "model" && (
-                        <span className="composer-config-summary-suffix">
-                          {" "}
-                          ·{" "}
-                          {active
-                            ? modeLabel(active)
-                            : t("composerConfiguration.loading")}
-                        </span>
-                      )}
+                      <span className="composer-config-summary-suffix">
+                        {" "}
+                        ·{" "}
+                        {active
+                          ? modeLabel(active)
+                          : t("composerConfiguration.loading")}
+                      </span>
                     </span>
                     {view !== "model" && (
                       <span
@@ -377,7 +372,7 @@ export function ComposerConfigurationContent({
                         data-tone={modelHintTone(active)}
                       >
                         {active
-                          ? modeHint(active, "summary")
+                          ? modeHint(active)
                           : t("composerConfiguration.loading")}
                       </span>
                     )}

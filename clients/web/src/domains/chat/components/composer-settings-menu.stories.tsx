@@ -15,6 +15,7 @@ function useDemoConfiguration({
 }) {
   const [state, setState] = useState(() => {
     const base = composerConfigurationFixture();
+    base.open = false;
     if (initialState === "loading") {
       base.modeReady = false;
       base.autonomyReady = false;
@@ -112,13 +113,22 @@ const meta = {
   args: { manyModes: true },
   globals: { theme: "dark" },
   parameters: { layout: "fullscreen" },
+  play: async ({ canvasElement }) => openMenu(canvasElement),
 } satisfies Meta<typeof SurfaceDemo>;
 export default meta;
 type Story = StoryObj<typeof meta>;
 
 const page = (canvasElement: HTMLElement) =>
   within(canvasElement.ownerDocument.body);
+async function openMenu(canvasElement: HTMLElement) {
+  await userEvent.click(
+    within(canvasElement).getByRole("button", {
+      name: "Attachments and settings",
+    }),
+  );
+}
 async function expand(canvasElement: HTMLElement, name: "Autonomy" | "Model") {
+  await openMenu(canvasElement);
   await userEvent.click(page(canvasElement).getByRole("button", { name }));
 }
 async function allModels(canvasElement: HTMLElement, mobile = false) {
@@ -159,6 +169,11 @@ export const MobileAllModels: Story = {
     await expand(canvasElement, "Model");
     const body = page(canvasElement);
     const sheet = body.getByRole("dialog");
+    await Promise.all(
+      sheet
+        .getAnimations({ subtree: true })
+        .map((animation) => animation.finished),
+    );
     const before = sheet.getBoundingClientRect().height;
     await userEvent.click(body.getByRole("button", { name: /More/ }));
     await expect(
@@ -208,9 +223,44 @@ export const LightDesktop: Story = {
   globals: { theme: "light" },
   ...DesktopModelExpanded,
 };
-export const PopoverInteraction: Story = {};
+export const PopoverInteraction: Story = {
+  play: async ({ canvasElement }) => {
+    await openMenu(canvasElement);
+    const document = canvasElement.ownerDocument;
+    const attach = page(canvasElement).getByRole("button", {
+      name: "Attach files",
+    });
+    await expect(attach).toHaveFocus();
+    await expect(document.documentElement).toHaveAttribute(
+      "data-modality",
+      "pointer",
+    );
+    const pointerShadow = getComputedStyle(attach).boxShadow;
+    await userEvent.tab();
+    await expect(
+      page(canvasElement).getByRole("button", { name: "Autonomy" }),
+    ).toHaveFocus();
+    await userEvent.tab({ shift: true });
+    await expect(attach).toHaveFocus();
+    await expect(document.documentElement).toHaveAttribute(
+      "data-modality",
+      "keyboard",
+    );
+    await expect(getComputedStyle(attach).boxShadow).not.toBe(pointerShadow);
+    await userEvent.keyboard("{Escape}");
+    await openMenu(canvasElement);
+    const reopenedAttach = page(canvasElement).getByRole("button", {
+      name: "Attach files",
+    });
+    await expect(reopenedAttach).toHaveFocus();
+    await expect(getComputedStyle(reopenedAttach).boxShadow).toBe(
+      pointerShadow,
+    );
+  },
+};
 export const ClosedComposer: Story = {
   play: async ({ canvasElement }) => {
+    await openMenu(canvasElement);
     await userEvent.keyboard("{Escape}");
     const composer = within(canvasElement);
     await expect(composer.getAllByRole("button")).toHaveLength(1);
@@ -222,6 +272,7 @@ export const ClosedComposer: Story = {
 export const MobileClosedComposer: Story = {
   ...Mobile,
   play: async ({ canvasElement }) => {
+    await openMenu(canvasElement);
     await userEvent.click(
       page(canvasElement).getByRole("button", { name: "Close settings" }),
     );

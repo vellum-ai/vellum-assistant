@@ -4,12 +4,13 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { composerConfigurationFixture } from "@/domains/chat/components/composer-configuration.test-utils";
 
-let supported = true;
+let supported: boolean | undefined = true;
+let capabilityError = false;
 mock.module("@/hooks/use-assistant-capability", () => ({
   useAssistantCapabilityQuery: () => ({
     data: supported,
-    isPending: false,
-    isError: false,
+    isPending: supported === undefined && !capabilityError,
+    isError: capabilityError,
   }),
 }));
 mock.module("@/hooks/use-is-org-ready", () => ({ useIsOrgReady: () => true }));
@@ -97,6 +98,7 @@ function setup(id: string | null = "conv-1") {
 }
 beforeEach(() => {
   supported = true;
+  capabilityError = false;
   prefs = { ...fixture.preferences };
   modes.clear();
   overrides.clear();
@@ -139,6 +141,61 @@ test("draft autonomy remains scoped and defaults snapshot only once", async () =
   expect(setOverride).not.toHaveBeenCalled();
   expect(prefs.lastAutonomy).toBe("none");
 });
+test("a failed capability probe keeps a draft pending until saved choices can load", async () => {
+  supported = undefined;
+  capabilityError = true;
+  useConversationStore.setState({
+    activeConversationId: "draft-1",
+    draftConversationIds: new Set(["draft-1"]),
+  });
+  prefs = { ...prefs, lastModeId: "quality-optimized", lastAutonomy: "none" };
+  const hook = setup(null);
+  await waitFor(() => {
+    expect(hook.result.current.modeReady).toBe(true);
+    expect(hook.result.current.autonomy).toBe("medium");
+  });
+  expect(hook.result.current.readyForDraft).toBe(false);
+  expect(
+    useConversationStore.getState().initializedDraftComposerIds.has("draft-1"),
+  ).toBe(false);
+  expect(
+    useConversationStore.getState().pendingDraftProfiles.has("draft-1"),
+  ).toBe(false);
+
+  capabilityError = false;
+  hook.rerender({ conversationId: undefined });
+  expect(hook.result.current.readyForDraft).toBe(false);
+
+  supported = true;
+  hook.rerender({ conversationId: undefined });
+  await waitFor(() => expect(hook.result.current.readyForDraft).toBe(true));
+  expect(
+    useConversationStore.getState().pendingDraftProfiles.get("draft-1"),
+  ).toBe("quality-optimized");
+  expect(
+    useConversationStore.getState().pendingDraftAutonomy.get("draft-1"),
+  ).toBe("none");
+});
+test.each([false, true])(
+  "a failed refresh preserves a confirmed capability for new drafts (supported: %s)",
+  async (knownSupport) => {
+    supported = knownSupport;
+    capabilityError = true;
+    useConversationStore.setState({
+      activeConversationId: "draft-1",
+      draftConversationIds: new Set(["draft-1"]),
+    });
+    prefs = { ...prefs, lastModeId: "quality-optimized", lastAutonomy: "low" };
+    const hook = setup(null);
+    await waitFor(() => expect(hook.result.current.readyForDraft).toBe(true));
+    expect(
+      useConversationStore.getState().pendingDraftProfiles.get("draft-1"),
+    ).toBe(knownSupport ? "quality-optimized" : "balanced");
+    expect(
+      useConversationStore.getState().pendingDraftAutonomy.get("draft-1"),
+    ).toBe(knownSupport ? "low" : undefined);
+  },
+);
 test("existing conversations never inherit last-used settings on open", async () => {
   prefs = { ...prefs, lastModeId: "quality-optimized", lastAutonomy: "high" };
   const hook = setup();

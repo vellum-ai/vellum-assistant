@@ -1351,8 +1351,6 @@
       }
     },
     "allModelsLink": "Все модели ({count})",
-    "allModelsList": "Все модели",
-    "autonomySubtitle": "что можно делать самостоятельно",
-    "balancedSummary": "Подходит для большинства задач."
+    "allModelsList": "Все модели"
   }
 }

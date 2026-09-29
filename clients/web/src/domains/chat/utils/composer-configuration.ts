@@ -58,17 +58,7 @@ export function modeLabel(entry: ProfilePickerEntry): string {
   return profilePickerLabel(entry);
 }
 
-export function modeHint(
-  entry: ProfilePickerEntry,
-  variant: "full" | "summary" = "full",
-): string {
-  if (
-    variant === "summary" &&
-    isBuiltinMode(entry) &&
-    entry.name === "balanced"
-  ) {
-    return t("chat:composerConfiguration.balancedSummary");
-  }
+export function modeHint(entry: ProfilePickerEntry): string {
   if (isBuiltinMode(entry)) {
     return t(BUILTIN_KEYS[entry.name]);
   }

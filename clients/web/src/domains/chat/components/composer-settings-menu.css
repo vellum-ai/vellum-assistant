@@ -268,15 +268,6 @@
   right: 30px;
   top: 8px;
 }
-.composer-config-model-header .composer-config-summary-suffix {
-  font-size: 13px;
-}
-.composer-config-model-header
-  .composer-config-summary:not([data-state="open"])
-  .composer-config-summary-suffix {
-  font-size: inherit;
-}
-
 .composer-config-link {
   height: 32px;
   min-height: 32px;

@@ -2316,8 +2316,6 @@
       }
     },
     "allModelsLink": "所有模型（{count}）",
-    "allModelsList": "所有模型",
-    "autonomySubtitle": "可独立执行的操作",
-    "balancedSummary": "适合大多数任务。"
+    "allModelsList": "所有模型"
   }
 }

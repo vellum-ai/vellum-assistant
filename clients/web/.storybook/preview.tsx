@@ -17,6 +17,7 @@ import { initReactI18next } from "react-i18next";
 import { useEffect, useState } from "react";
 import type { PropsWithChildren } from "react";
 import type { ReactRenderer } from "@storybook/react-vite";
+import { initInputModality } from "@vellumai/design-library";
 
 import { i18nextInitOptions } from "../src/i18n/config";
 import { FALLBACK_CATALOGS } from "../src/i18n/catalogs";
@@ -27,6 +28,8 @@ import {
   themeFromLastGlobalsEvent,
 } from "./theme-globals";
 import { SB_DESKTOP_VIEWPORT, SB_VIEWPORTS } from "./viewports";
+
+initInputModality();
 
 // Some surfaces (e.g. OAuthConnectSurface) call `useQueryClient()`, which throws
 // without a provider. Give every story a shared client so Storybook/Chromatic
