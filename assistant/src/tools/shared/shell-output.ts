@@ -1,3 +1,5 @@
+import { constants } from "node:os";
+
 import { safeStringSlice } from "../../util/unicode.js";
 
 export const MAX_OUTPUT_LENGTH = 20_000;
@@ -11,6 +13,26 @@ export interface ShellOutputResult {
   content: string;
   status: string | undefined;
   isError: boolean;
+}
+
+/** The signal a shell reports as exit code 128 + n when its command was killed. */
+function signalFromExitCode(code: number | null): string | null {
+  if (code == null || code <= 128) {
+    return null;
+  }
+  const match = Object.entries(constants.signals).find(
+    ([, value]) => value === code - 128,
+  );
+  return match ? match[0] : null;
+}
+
+function describeKill(signal: string): string {
+  const tag = `<command_killed signal="${signal}" />`;
+  const hint =
+    signal === "SIGKILL"
+      ? " A SIGKILL the command did not send itself usually means the system ran out of memory."
+      : "";
+  return `${tag}\nCommand was killed by ${signal} before it finished.${hint}`;
 }
 
 type StdioStream = "stdout" | "stderr";
@@ -34,7 +56,11 @@ export function formatShellOutput(
   code: number | null,
   timedOut: boolean,
   timeoutSec: number,
-  options?: { truncated?: boolean; started?: boolean },
+  options?: {
+    truncated?: boolean;
+    started?: boolean;
+    signal?: NodeJS.Signals | null;
+  },
 ): ShellOutputResult {
   if (options?.started === false) {
     return {
@@ -66,6 +92,14 @@ export function formatShellOutput(
     statusParts.push(OUTPUT_TRUNCATED_TAG);
   }
 
+  const killSignal = timedOut
+    ? null
+    : (options?.signal ?? signalFromExitCode(code));
+  if (killSignal) {
+    output += (output ? "\n" : "") + describeKill(killSignal);
+    statusParts.push(`<command_killed signal="${killSignal}" />`);
+  }
+
   if (!output.trim()) {
     if (code === 0) {
       output = "<command_completed />";
@@ -74,7 +108,7 @@ export function formatShellOutput(
       output = `${exitTag}\nCommand failed with exit code ${code}. No stdout or stderr output was produced.`;
       statusParts.push(exitTag);
     }
-  } else if (code !== 0 && !timedOut) {
+  } else if (code !== 0 && !timedOut && !(killSignal && code == null)) {
     statusParts.push(`<command_exit code="${code}" />`);
   }
 
@@ -148,7 +182,7 @@ export class BoundedStdioCollector {
     code: number | null,
     timedOut: boolean,
     timeoutSec: number,
-    options?: { started?: boolean },
+    options?: { started?: boolean; signal?: NodeJS.Signals | null },
   ): ShellOutputResult {
     return formatShellOutput(
       Buffer.concat(this.stdoutParts).toString(),
@@ -156,7 +190,11 @@ export class BoundedStdioCollector {
       code,
       timedOut,
       timeoutSec,
-      { truncated: this.truncated, started: options?.started },
+      {
+        truncated: this.truncated,
+        started: options?.started,
+        signal: options?.signal,
+      },
     );
   }
 }

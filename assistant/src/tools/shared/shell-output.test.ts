@@ -112,3 +112,45 @@ describe("formatShellOutput truncation", () => {
     expect(result.content).toContain(OUTPUT_TRUNCATED_TAG);
   });
 });
+
+describe("formatShellOutput kill reporting", () => {
+  test("names the signal and hints at memory for a SIGKILL", () => {
+    const result = formatShellOutput("", "", null, false, 120, {
+      signal: "SIGKILL",
+    });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('<command_killed signal="SIGKILL" />');
+    expect(result.content).toContain("out of memory");
+    expect(result.content).not.toContain('code="null"');
+    expect(result.status).toBe('<command_killed signal="SIGKILL" />');
+  });
+
+  test("keeps the output produced before the kill", () => {
+    const result = formatShellOutput("partial", "", null, false, 120, {
+      signal: "SIGTERM",
+    });
+    expect(result.content.startsWith("partial\n")).toBe(true);
+    expect(result.content).toContain("killed by SIGTERM");
+    expect(result.content).not.toContain("out of memory");
+  });
+
+  test("reads the signal from a shell's 128 + n exit code", () => {
+    const result = formatShellOutput("", "", 137, false, 120);
+    expect(result.content).toContain("killed by SIGKILL");
+    expect(result.status).toContain('<command_exit code="137" />');
+  });
+
+  test("leaves a timeout framed as a timeout", () => {
+    const result = formatShellOutput("", "", null, true, 120, {
+      signal: "SIGKILL",
+    });
+    expect(result.content).toContain("<command_timeout");
+    expect(result.content).not.toContain("command_killed");
+  });
+
+  test("leaves an ordinary failure unchanged", () => {
+    const result = formatShellOutput("", "boom", 1, false, 120);
+    expect(result.content).toBe("boom");
+    expect(result.status).toBe('<command_exit code="1" />');
+  });
+});

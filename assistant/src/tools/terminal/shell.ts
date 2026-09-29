@@ -374,6 +374,7 @@ export const shellTool = {
 
         const fmtResult = collector.format(code, timedOut, timeoutSec, {
           started: launch.didStart(),
+          signal: aborted ? null : signal,
         });
 
         const status: BackgroundToolCompletedEvent["status"] = aborted
@@ -585,6 +586,7 @@ export const shellTool = {
 
         const fmtResult = collector.format(code, timedOut, timeoutSec, {
           started: launch.didStart(),
+          signal: context.signal?.aborted ? null : signal,
         });
 
         resolve({

@@ -486,7 +486,7 @@ export const hostShellTool = {
       // Only the first handler to fire should wake the agent.
       let completed = false;
 
-      child.on("close", (code) => {
+      child.on("close", (code, signal) => {
         if (completed) {
           return;
         }
@@ -494,6 +494,7 @@ export const hostShellTool = {
         clearTimeout(timer);
         const result = collector.format(code, timedOut, timeoutSec, {
           started: launch.didStart(),
+          signal: aborted ? null : signal,
         });
         // Cancel takes precedence over the SIGKILL-induced error result.
         const status = aborted
@@ -667,12 +668,13 @@ export const hostShellTool = {
         }
       }
 
-      child.on("close", (code) => {
+      child.on("close", (code, signal) => {
         clearTimeout(timer);
         context.signal?.removeEventListener("abort", onAbort);
 
         const result = collector.format(code, timedOut, timeoutSec, {
           started: launch.didStart(),
+          signal: context.signal?.aborted ? null : signal,
         });
 
         resolve({
