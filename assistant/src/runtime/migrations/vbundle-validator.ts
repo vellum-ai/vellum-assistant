@@ -382,18 +382,20 @@ export function computeManifestChecksum(manifest: unknown): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Hard cap on the serialized size of `manifest.json`, shared by the buffered
- * and streaming validators so preflight and import agree on what is
- * acceptable.
+ * Hard caps on `manifest.json`, shared by the buffered and streaming
+ * validators so preflight and import agree on what is acceptable. The two
+ * are sized together: the manifest carries one `contents` entry (path,
+ * sha256, size) per bundled file at roughly 150 bytes each, so 200,000
+ * entries serialize to about 32 MiB.
  *
- * The manifest carries one `contents` entry (path, sha256, size) per bundled
- * file, roughly 150 bytes each, so 32 MiB covers around 200,000 files. That
- * absorbs a workspace with a stray dependency install or checked-out repo
- * while still bounding the transient memory a hostile "manifest" can force
- * the importer to hold (buffer, decoded string, parsed object, canonical
- * re-serialization for the self-checksum) on a memory-constrained pod.
+ * That absorbs a workspace with a stray dependency install or checked-out
+ * repo while still bounding the transient memory a hostile "manifest" can
+ * force the importer to hold (buffer, decoded string, parsed object,
+ * canonical re-serialization for the self-checksum) and the per-entry work
+ * it commits to, on a memory-constrained pod.
  */
 export const MANIFEST_MAX_BYTES = 32 * 1024 * 1024;
+export const MANIFEST_MAX_ENTRIES = 200_000;
 
 // Only manifest.json is structurally required. The DB and config live under
 // workspace/ (new format) or data/db/ + config/ (old format) — both are valid.
@@ -543,6 +545,15 @@ export function validateVBundle(data: Uint8Array): VBundleValidationResult {
     // Translate to v1 so the rest of the pipeline (per-file hash + size
     // verification, refine rules) sees a uniform shape.
     manifest = translateLegacyManifest(legacy);
+  }
+
+  if (manifest.contents.length > MANIFEST_MAX_ENTRIES) {
+    errors.push({
+      code: "MANIFEST_TOO_MANY_ENTRIES",
+      message: `manifest.json declares more than ${MANIFEST_MAX_ENTRIES} entries (${manifest.contents.length})`,
+      path: "manifest.json",
+    });
+    return { is_valid: false, errors };
   }
 
   // Step 6: Verify per-file content integrity

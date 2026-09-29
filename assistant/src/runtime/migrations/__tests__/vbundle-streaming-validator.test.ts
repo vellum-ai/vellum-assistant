@@ -254,6 +254,29 @@ describe("readAndValidateManifest — negative paths", () => {
     expect(bytesEmitted).toBeLessThan(2 * MANIFEST_MAX_BYTES);
   });
 
+  test("throws bundle_too_many_entries when manifest.contents exceeds maxEntries", async () => {
+    const { archive } = buildVBundle({
+      files: [
+        { path: "data/db/assistant.db", data: new Uint8Array() },
+        { path: "workspace/a.txt", data: new TextEncoder().encode("a") },
+        { path: "workspace/b.txt", data: new TextEncoder().encode("b") },
+      ],
+      ...defaultV1Options(),
+    });
+    const { entry, drainRest } = await firstEntryOf(archive);
+
+    let err: StreamingValidationError | null = null;
+    try {
+      await readAndValidateManifest(entry, { maxEntries: 2 });
+    } catch (e) {
+      err = e as StreamingValidationError;
+    }
+    await drainRest();
+
+    expect(err).toBeInstanceOf(StreamingValidationError);
+    expect(err?.code).toBe("bundle_too_many_entries");
+  });
+
   test("throws manifest_malformed when manifest body is not valid JSON", async () => {
     const archive = buildRawVBundle([
       { name: "manifest.json", data: new TextEncoder().encode("{not-json") },

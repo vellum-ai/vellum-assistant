@@ -29,6 +29,7 @@ import {
   computeManifestChecksum,
   LegacyManifestSchema,
   MANIFEST_MAX_BYTES,
+  MANIFEST_MAX_ENTRIES,
   ManifestSchema,
   type ManifestType,
   translateLegacyManifest,
@@ -84,6 +85,8 @@ export class StreamingValidationError extends Error {
  *   4. Zod schema validation.
  *   5. Self-referencing `checksum` verification against the
  *      canonicalized JSON (minus that field).
+ *   6. Entry-count ceiling on `contents` (`maxEntries`, default
+ *      `MANIFEST_MAX_ENTRIES`).
  *
  * On success, returns the parsed manifest plus a `Map` keyed by archive
  * path that callers consult as each subsequent entry streams past.
@@ -93,7 +96,9 @@ export class StreamingValidationError extends Error {
  */
 export async function readAndValidateManifest(
   first: StreamedTarEntry,
+  options: { maxEntries?: number } = {},
 ): Promise<ManifestReadResult> {
+  const maxEntries = options.maxEntries ?? MANIFEST_MAX_ENTRIES;
   if (first.header.name !== "manifest.json") {
     // Drain the body so the underlying tar extractor isn't left dangling
     // on backpressure before the caller reports the error.
@@ -179,6 +184,13 @@ export async function readAndValidateManifest(
       );
     }
     manifest = translateLegacyManifest(legacy);
+  }
+
+  if (manifest.contents.length > maxEntries) {
+    throw new StreamingValidationError(
+      "bundle_too_many_entries",
+      `bundle contains more than ${maxEntries} entries (declared: ${manifest.contents.length})`,
+    );
   }
 
   const expected = new Map<

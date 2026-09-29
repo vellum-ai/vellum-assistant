@@ -20,6 +20,7 @@ import {
   computeLegacyManifestSha256,
   computeManifestChecksum,
   MANIFEST_MAX_BYTES,
+  MANIFEST_MAX_ENTRIES,
   ManifestSchema,
   validateVBundle,
 } from "../vbundle-validator.js";
@@ -184,6 +185,23 @@ describe("validateVBundle — manifest size cap", () => {
     const result = validateVBundle(archive);
     expect(result.is_valid).toBe(false);
     expect(result.errors.map((e) => e.code)).toEqual(["MANIFEST_TOO_LARGE"]);
+  });
+
+  test("rejects a manifest declaring more than MANIFEST_MAX_ENTRIES with MANIFEST_TOO_MANY_ENTRIES", () => {
+    const skeleton = v1Skeleton();
+    const dbEntry = (skeleton.contents as Array<Record<string, unknown>>)[0]!;
+    const extra = Array.from({ length: MANIFEST_MAX_ENTRIES }, (_, i) => ({
+      ...dbEntry,
+      path: `workspace/${i}`,
+    }));
+    const archive = gzipTarOf(
+      withChecksum({ ...skeleton, contents: [dbEntry, ...extra] }),
+    );
+    const result = validateVBundle(archive);
+    expect(result.is_valid).toBe(false);
+    expect(result.errors.map((e) => e.code)).toEqual([
+      "MANIFEST_TOO_MANY_ENTRIES",
+    ]);
   });
 });
 

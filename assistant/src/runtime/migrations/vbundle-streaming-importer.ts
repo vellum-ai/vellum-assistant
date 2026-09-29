@@ -69,7 +69,10 @@ import {
   verifySymlinkEntry,
 } from "./vbundle-streaming-validator.js";
 import { parseVBundleStream } from "./vbundle-tar-stream.js";
-import type { ManifestType } from "./vbundle-validator.js";
+import {
+  MANIFEST_MAX_ENTRIES,
+  type ManifestType,
+} from "./vbundle-validator.js";
 
 const log = getLogger("vbundle-streaming-importer");
 
@@ -91,11 +94,11 @@ const log = getLogger("vbundle-streaming-importer");
 const DEFAULT_MAX_BUNDLE_BYTES = 16 * 1024 * 1024 * 1024;
 
 /**
- * Entry-count ceiling for the bundle. 100k is well above the largest
- * workspace we ship; anything past that is almost certainly an attack or
- * a corrupted archive.
+ * Entry-count ceiling for the bundle, shared with manifest validation so
+ * preflight and import agree. Also applied to tar-level entries so padding
+ * extras cannot exceed what the manifest declared.
  */
-const DEFAULT_MAX_BUNDLE_ENTRIES = 100_000;
+const DEFAULT_MAX_BUNDLE_ENTRIES = MANIFEST_MAX_ENTRIES;
 
 /**
  * Prefixes used for scratch dirs the streaming importer creates INSIDE the
@@ -153,7 +156,7 @@ export interface StreamCommitArgs {
   maxBundleBytes?: number;
   /**
    * Test-only override for the entry-count ceiling. Production callers
-   * should omit this and rely on the 100_000 default.
+   * should omit this and rely on the `MANIFEST_MAX_ENTRIES` default.
    */
   maxBundleEntries?: number;
 }
@@ -313,7 +316,9 @@ export async function streamCommitImport(
       if (entryIndex === 0) {
         // First entry MUST be manifest.json — readAndValidateManifest
         // enforces that and throws StreamingValidationError otherwise.
-        const manifestResult = await readAndValidateManifest(entry);
+        const manifestResult = await readAndValidateManifest(entry, {
+          maxEntries: bundleEntryCap,
+        });
         manifest = manifestResult.manifest;
         expected = manifestResult.expected;
 
@@ -340,18 +345,8 @@ export async function streamCommitImport(
           );
         }
 
-        // Entry-count ceiling check. The manifest declares every file the
-        // bundle claims to contain, so one check here bounds the work the
-        // importer is willing to do for this bundle.
-        if (manifest.contents.length > bundleEntryCap) {
-          throw new StreamingValidationError(
-            "bundle_too_many_entries",
-            `bundle contains more than ${bundleEntryCap} entries (declared: ${manifest.contents.length})`,
-          );
-        }
-
-        // Only NOW — after the manifest is parsed, the version gate passes,
-        // and the entry-count ceiling is enforced — do we materialize the
+        // Only NOW — after the manifest is parsed (including its entry-count
+        // ceiling) and the version gate passes — do we materialize the
         // temp staging dir on disk. Doing this lazily preserves the plan
         // invariant that importers gate on runtime-version compat BEFORE
         // any state mutation. If this throws, the outer catch runs
