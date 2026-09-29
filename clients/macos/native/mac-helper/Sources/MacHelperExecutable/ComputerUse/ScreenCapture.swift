@@ -2,6 +2,7 @@ import ScreenCaptureKit
 import AppKit
 import CoreGraphics
 import ImageIO
+import MacHelperCore
 import UniformTypeIdentifiers
 
 enum CaptureError: LocalizedError {
@@ -123,7 +124,7 @@ final class ScreenCapture: ScreenCaptureProviding, @unchecked Sendable {
             guard let display = content.displays.first(where: { $0.displayID == displayID }) else {
                 throw CaptureError.displayNotFound
             }
-            filter = SCContentFilter(display: display, excludingWindows: Self.ownWindows(in: content))
+            filter = SCContentFilter(display: display, excludingWindows: Self.displayExclusions(in: content))
             sourceSize = CGSize(width: display.width, height: display.height)
             captureDisplayId = display.displayID
 
@@ -185,6 +186,19 @@ final class ScreenCapture: ScreenCaptureProviding, @unchecked Sendable {
         return content.windows.filter {
             guard let pid = $0.owningApplication?.processID else { return false }
             return pid == myPID || pid == hostPID
+        }
+    }
+
+    /// What a display the user picked leaves out: the helper's windows and the
+    /// app's floating ones (see `DisplayCaptureExclusion`). The app's own
+    /// window stays, since it is part of the screen the user shared, and the
+    /// tree for that display reads it too (`CaptureSources.topmostWindowId`).
+    private static func displayExclusions(in content: SCShareableContent) -> [SCWindow] {
+        let myPID = ProcessInfo.processInfo.processIdentifier
+        let hostPID = getppid()
+        return content.windows.filter {
+            guard let pid = $0.owningApplication?.processID else { return false }
+            return DisplayCaptureExclusion.excludes(ownerPID: pid, layer: $0.windowLayer, helperPID: myPID, hostPID: hostPID)
         }
     }
 

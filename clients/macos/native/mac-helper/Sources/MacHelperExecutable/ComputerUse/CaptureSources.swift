@@ -1,6 +1,7 @@
 import AppKit
 import CoreGraphics
 import Foundation
+import MacHelperCore
 import os
 
 private let log = Logger(subsystem: "ai.vellum.mac-helper", category: "CaptureSources")
@@ -173,8 +174,9 @@ enum CaptureSources {
     }
 
     /// The frontmost ordinary window lying wholly on `displayId`, by the
-    /// window server's front-to-back order, or nil when no window of another
-    /// app does.
+    /// window server's front-to-back order, or nil when none does. The Vellum
+    /// app's own window counts, because the display's screenshot shows it
+    /// (`DisplayCaptureExclusion`); the helper's windows never do.
     ///
     /// What a watch session scoped to a display reads its accessibility tree
     /// from: the focused window may be on another display entirely, and a
@@ -196,8 +198,7 @@ enum CaptureSources {
                   let ownerPID = entry[kCGWindowOwnerPID as String] as? Int,
                   let windowNumber = entry[kCGWindowNumber as String] as? Int
             else { continue }
-            let pid = pid_t(ownerPID)
-            if pid == myPID || pid == hostPID { continue }
+            if DisplayCaptureExclusion.excludes(ownerPID: pid_t(ownerPID), layer: layer, helperPID: myPID, hostPID: hostPID) { continue }
             if let alpha = entry[kCGWindowAlpha as String] as? Double, alpha <= 0 { continue }
             guard let boundsDict = entry[kCGWindowBounds as String] as? NSDictionary,
                   let bounds = CGRect(dictionaryRepresentation: boundsDict),
