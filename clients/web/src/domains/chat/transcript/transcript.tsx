@@ -391,7 +391,7 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
       sessionId: string;
       onRevealed: () => void;
     } | null>(null);
-    const viewportMinHeight = useViewportMinHeight(scrollRef);
+    const viewportMinHeight = useViewportMinHeight(scrollRef, conversationId);
     const hideIdleScrollbar = useHideIdleScrollbar(
       scrollRef,
       contentRef,

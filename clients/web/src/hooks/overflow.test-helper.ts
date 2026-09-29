@@ -78,23 +78,27 @@ function stubHeights(
 /**
  * happy-dom's `ResizeObserver` never reports, so content replaced under an
  * observed element is never re-measured. Installs one that tracks every
- * observer until it disconnects, for `resize` to report to at once, standing
- * in for the browser noticing that the content changed size. `restore` puts
- * the real one back.
+ * observer and the elements it watches until it disconnects, standing in for
+ * the browser noticing that the content changed size. `resize()` reports to
+ * every observer at once; `resize(target)` only to those watching `target`, for
+ * a test where it matters which element an observer is bound to. `restore`
+ * puts the real one back.
  */
 export function stubResizeObserver(): {
-  resize: () => void;
+  resize: (target?: Element) => void;
   restore: () => void;
 } {
   const original = globalThis.ResizeObserver;
-  const observing = new Set<ResizeObserver>();
+  const observing = new Map<ResizeObserver, Set<Element>>();
   const callbacks = new Map<ResizeObserver, ResizeObserverCallback>();
   globalThis.ResizeObserver = class implements ResizeObserver {
     constructor(callback: ResizeObserverCallback) {
       callbacks.set(this, callback);
     }
-    observe() {
-      observing.add(this);
+    observe(target: Element) {
+      const targets = observing.get(this) ?? new Set<Element>();
+      targets.add(target);
+      observing.set(this, targets);
     }
     unobserve() {}
     disconnect() {
@@ -102,9 +106,11 @@ export function stubResizeObserver(): {
     }
   };
   return {
-    resize: () => {
-      for (const observer of [...observing]) {
-        callbacks.get(observer)?.([], observer);
+    resize: (target) => {
+      for (const [observer, targets] of [...observing]) {
+        if (target === undefined || targets.has(target)) {
+          callbacks.get(observer)?.([], observer);
+        }
       }
     },
     restore: () => {
