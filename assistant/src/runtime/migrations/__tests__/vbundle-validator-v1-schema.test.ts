@@ -176,13 +176,13 @@ describe("ManifestSchema — v1 acceptance", () => {
   });
 });
 
-describe("validateVBundle: manifest size caps", () => {
+describe("validateVBundle: streaming manifest limits", () => {
   test("rejects a manifest over MANIFEST_MAX_BYTES with MANIFEST_TOO_LARGE", () => {
     const oversized = new Uint8Array(MANIFEST_MAX_BYTES + 1).fill(0x20);
     const archive = gzipSync(
       tarArchive([{ name: "manifest.json", data: oversized }]),
     );
-    const result = validateVBundle(archive);
+    const result = validateVBundle(archive, { enforceStreamingLimits: true });
     expect(result.is_valid).toBe(false);
     expect(result.errors.map((e) => e.code)).toEqual(["MANIFEST_TOO_LARGE"]);
   });
@@ -197,11 +197,28 @@ describe("validateVBundle: manifest size caps", () => {
     const archive = gzipTarOf(
       withChecksum({ ...skeleton, contents: [dbEntry, ...extra] }),
     );
-    const result = validateVBundle(archive);
+    const result = validateVBundle(archive, { enforceStreamingLimits: true });
     expect(result.is_valid).toBe(false);
     expect(result.errors.map((e) => e.code)).toEqual([
       "MANIFEST_TOO_MANY_ENTRIES",
     ]);
+  });
+
+  test("does not apply the limits unless enforceStreamingLimits is set", () => {
+    const skeleton = v1Skeleton();
+    const dbEntry = (skeleton.contents as Array<Record<string, unknown>>)[0]!;
+    const extra = Array.from({ length: MANIFEST_MAX_ENTRIES }, (_, i) => ({
+      ...dbEntry,
+      path: `workspace/${i}`,
+    }));
+    const archive = gzipTarOf(
+      withChecksum({ ...skeleton, contents: [dbEntry, ...extra] }),
+      [{ name: "data/db/assistant.db", data: DB_BYTES }],
+    );
+    const result = validateVBundle(archive);
+    expect(result.errors.map((e) => e.code)).not.toContain(
+      "MANIFEST_TOO_MANY_ENTRIES",
+    );
   });
 });
 

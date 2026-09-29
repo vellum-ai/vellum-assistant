@@ -397,6 +397,17 @@ export function computeManifestChecksum(manifest: unknown): string {
 export const MANIFEST_MAX_BYTES = 32 * 1024 * 1024;
 export const MANIFEST_MAX_ENTRIES = 200_000;
 
+export interface ValidateVBundleOptions {
+  /**
+   * Reject manifests over `MANIFEST_MAX_BYTES` or `MANIFEST_MAX_ENTRIES`.
+   * Preflights that precede a streaming import set this so they never
+   * approve a bundle the import will refuse. The buffered import path
+   * (`commitImport`) has no such ceilings, so it stays off there to keep
+   * existing large backups restorable.
+   */
+  enforceStreamingLimits?: boolean;
+}
+
 // Only manifest.json is structurally required. The DB and config live under
 // workspace/ (new format) or data/db/ + config/ (old format) — both are valid.
 const REQUIRED_ENTRIES = ["manifest.json"];
@@ -413,7 +424,10 @@ const MAX_DECOMPRESSED_SIZE = 2 * 1024 * 1024 * 1024;
  * 3. Manifest checksum (SHA-256 of canonicalized JSON with the `checksum` field set to empty string)
  * 4. Per-file content integrity (SHA-256 of each file vs manifest declaration)
  */
-export function validateVBundle(data: Uint8Array): VBundleValidationResult {
+export function validateVBundle(
+  data: Uint8Array,
+  { enforceStreamingLimits = false }: ValidateVBundleOptions = {},
+): VBundleValidationResult {
   const errors: ValidationError[] = [];
 
   // Step 1: Decompress gzip with size cap to prevent zip-bomb DoS
@@ -471,7 +485,10 @@ export function validateVBundle(data: Uint8Array): VBundleValidationResult {
   }
 
   // Step 4: Parse and validate manifest schema
-  if (manifestEntry.data.length > MANIFEST_MAX_BYTES) {
+  if (
+    enforceStreamingLimits &&
+    manifestEntry.data.length > MANIFEST_MAX_BYTES
+  ) {
     errors.push({
       code: "MANIFEST_TOO_LARGE",
       message: `manifest.json exceeds ${MANIFEST_MAX_BYTES} byte limit (${manifestEntry.data.length} bytes)`,
@@ -547,7 +564,10 @@ export function validateVBundle(data: Uint8Array): VBundleValidationResult {
     manifest = translateLegacyManifest(legacy);
   }
 
-  if (manifest.contents.length > MANIFEST_MAX_ENTRIES) {
+  if (
+    enforceStreamingLimits &&
+    manifest.contents.length > MANIFEST_MAX_ENTRIES
+  ) {
     errors.push({
       code: "MANIFEST_TOO_MANY_ENTRIES",
       message: `manifest.json declares more than ${MANIFEST_MAX_ENTRIES} entries (${manifest.contents.length})`,

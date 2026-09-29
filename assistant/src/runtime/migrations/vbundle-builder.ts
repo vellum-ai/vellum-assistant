@@ -31,9 +31,11 @@ import { sanitizeConfigForTransfer } from "../../config/sanitize-for-transfer.js
 import { trackDaemonActivity } from "../../daemon/activity-trail.js";
 import { getLogger } from "../../util/logger.js";
 import type { VBundleOriginMode } from "./origin-mode.js";
-import type {
-  ManifestFileEntryType,
-  ManifestType,
+import {
+  MANIFEST_MAX_BYTES,
+  MANIFEST_MAX_ENTRIES,
+  type ManifestFileEntryType,
+  type ManifestType,
 } from "./vbundle-validator.js";
 
 // ---------------------------------------------------------------------------
@@ -400,6 +402,20 @@ function buildManifestObject(input: {
   const checksum = sha256Hex(canonicalizeJson(manifestWithEmptyChecksum));
   const manifest: ManifestType = { ...manifestWithEmptyChecksum, checksum };
   const manifestData = new TextEncoder().encode(JSON.stringify(manifest));
+  if (
+    manifest.contents.length > MANIFEST_MAX_ENTRIES ||
+    manifestData.length > MANIFEST_MAX_BYTES
+  ) {
+    getLogger("vbundle-builder").warn(
+      {
+        entries: manifest.contents.length,
+        manifestBytes: manifestData.length,
+        maxEntries: MANIFEST_MAX_ENTRIES,
+        maxBytes: MANIFEST_MAX_BYTES,
+      },
+      "Bundle manifest exceeds the streaming import limits; teleport and staged-path imports will reject this bundle",
+    );
+  }
   return { manifest, manifestData };
 }
 

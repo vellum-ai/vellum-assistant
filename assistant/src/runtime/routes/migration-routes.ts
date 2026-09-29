@@ -2056,7 +2056,9 @@ export async function handleMigrationPreflightFromGcs({
   }
 
   const bytes = new Uint8Array(await upstream.arrayBuffer());
-  const validationResult = validateVBundle(bytes);
+  const validationResult = validateVBundle(bytes, {
+    enforceStreamingLimits: true,
+  });
 
   if (!validationResult.is_valid || !validationResult.manifest) {
     return {
