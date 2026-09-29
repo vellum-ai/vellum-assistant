@@ -2,8 +2,8 @@
  * Tests for `AssistantSectionToggle`: the round control beside the assistant
  * pill that opens her section beneath it, and its rail form. What it says
  * (name, expanded state), what it is (the accent `Button` with the chat
- * glyph, whose colour the app maps from the avatar), and when it carries the
- * section's activity dot.
+ * glyph, in the pill's wash of the colour the app maps from the avatar), and
+ * when it carries the section's activity dot.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -41,9 +41,8 @@ mock.module("@/domains/chat/components/conversation-rail-flyout", () => ({
   }) => <div data-testid="rail-flyout">{rows.length} rows</div>,
 }));
 
-const { AssistantSectionRailToggle, AssistantSectionToggle } = await import(
-  "@/domains/chat/components/assistant-section-toggle"
-);
+const { AssistantSectionRailToggle, AssistantSectionToggle } =
+  await import("@/domains/chat/components/assistant-section-toggle");
 
 const SECTION: SidebarSection = {
   type: "assistant",
@@ -100,13 +99,20 @@ describe("AssistantSectionToggle", () => {
     expect(container.querySelector(".lucide-chevron-up")).toBeNull();
   });
 
-  test("is the design library's accent Button at the assistant row's disc size", () => {
+  test("is the design library's accent Button, in the pill's wash, at the assistant row's disc size", () => {
     renderToggle(false);
     const button = screen.getByRole("button", {
       name: "Show threads from Haze II",
     });
     expect(button.getAttribute("data-slot")).toBe("button");
     expect(button.getAttribute("data-variant")).toBe("accent");
+    // The wash: the variant's fill restated at the pill's strength, from the
+    // accent the app publishes, with the glyph in the accent itself.
+    expect(button.getAttribute("data-tone")).toBe("wash");
+    expect(button.style.getPropertyValue("--vbtn-accent")).toContain("15%");
+    expect(button.style.getPropertyValue("--vbtn-accent-glyph")).toContain(
+      "--avatar-accent",
+    );
     expect(button.style.width).toBe(`${SIDEBAR_ASSISTANT_DISC_SIZE}px`);
   });
 
@@ -151,6 +157,7 @@ describe("AssistantSectionRailToggle", () => {
     renderRail();
     const button = screen.getByRole("button", { name: "From me" });
     expect(button.getAttribute("data-variant")).toBe("accent");
+    expect(button.getAttribute("data-tone")).toBe("wash");
     expect(button.getAttribute("aria-haspopup")).toBe("dialog");
     expect(button.style.width).toBe(`${SIDE_MENU_TILE_SIZE}px`);
   });

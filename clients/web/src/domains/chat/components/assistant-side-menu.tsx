@@ -503,8 +503,9 @@ export function AssistantSideMenu({
   const listSections = sidebar.sections.filter((s) => s.type !== "assistant");
 
   /* The section's open state is the same persisted bucket every other
-     section's is, so it survives a reload and the card's own header chevron
-     and the toggle beside the pill agree without a second source. */
+     section's is, so it survives a reload. The toggle beside the pill is
+     its one control: the card draws no chevron, and a second press on the
+     toggle is what closes it. */
   const assistantSectionOpen =
     assistantSection !== undefined &&
     sidebar.effectiveOpenSections.includes(ASSISTANT_SECTION_KEY);
@@ -562,17 +563,14 @@ export function AssistantSideMenu({
   /* Mounted only while open: closed, the toggle is the section's whole
      presence, so nothing of the card (not even a collapsed header) is drawn
      beneath the pill. Its own accordion root, because the card is not in the
-     list's; the header chevron still closes it through the same state. Not
-     draggable and never the fill section: it hangs off the pill, not the
-     list. */
+     list's, held open; the card is not collapsible from its header, since
+     the toggle that opened it is what closes it. Not draggable and never
+     the fill section: it hangs off the pill, not the list. */
   const assistantSectionCard =
     assistantSection && !isCollapsedRail && assistantSectionOpen ? (
       <CollapsibleNavSection.Root
         type="multiple"
         value={[ASSISTANT_SECTION_KEY]}
-        onValueChange={(next) =>
-          setAssistantSectionOpen(next.includes(ASSISTANT_SECTION_KEY))
-        }
       >
         <SidebarSectionItem
           section={assistantSection}
@@ -580,6 +578,7 @@ export function AssistantSideMenu({
           groupMenu={(conversations, getAllRows) =>
             sectionMenu(assistantSection, conversations, getAllRows)
           }
+          collapsible={false}
           collapsedIndicator={collapsedActivityDot}
         />
       </CollapsibleNavSection.Root>

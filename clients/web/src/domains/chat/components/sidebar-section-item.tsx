@@ -104,6 +104,13 @@ export interface SidebarSectionItemProps {
   ) => GroupMenuItemsProps;
   /** Section drag-reorder wiring; omit to pin the section in place. */
   drag?: CollapsibleNavSectionDrag;
+  /**
+   * Whether the header collapses the section. Defaults to `true`; `false`
+   * drops the chevron and the header's toggle, for a section something
+   * outside it opens and closes (the assistant's, from the toggle beside
+   * her pill).
+   */
+  collapsible?: boolean;
   /** Activity dot shown in the header only while the section is collapsed. */
   collapsedIndicator?: (
     conversations: Conversation[],
@@ -125,6 +132,7 @@ export function SidebarSectionItem({
   assistantId,
   groupMenu: buildGroupMenu,
   drag,
+  collapsible,
   collapsedIndicator,
   isLast,
 }: SidebarSectionItemProps) {
@@ -283,6 +291,7 @@ export function SidebarSectionItem({
       groupMenu={groupMenu}
       collapsedIndicator={collapsedIndicator?.(conversations, section)}
       drag={drag}
+      collapsible={collapsible}
       // Pinned collapses like every other section (one component, one
       // behavior; its open state defaults open and persists like the
       // rest). It is the one section that never caps/scrolls internally:

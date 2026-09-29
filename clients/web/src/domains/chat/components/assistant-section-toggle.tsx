@@ -64,10 +64,13 @@ export interface AssistantSectionToggleProps {
 
 /**
  * The round button beside the assistant pill that opens the assistant's own
- * section beneath it, drawn the size of the disc the eyes sit on. Its chat
- * glyph names what it reaches (her threads) and is the same in both states;
- * `aria-expanded` with the accessible name say which way the next press
- * goes.
+ * section beneath it, drawn the size of the disc the eyes sit on and in the
+ * pill's wash rather than the solid accent New Chat wears: it is the way to
+ * her threads, part of her, where New Chat is an action. Its chat glyph
+ * names what it reaches and is the same in both states; `aria-expanded`
+ * with the accessible name say which way the next press goes, and a second
+ * press is the only way to close the section, which draws no control of its
+ * own for it.
  */
 export function AssistantSectionToggle({
   assistantId,
@@ -86,6 +89,7 @@ export function AssistantSectionToggle({
     <SidebarDiscButton
       icon={MessageSquare}
       size={SIDEBAR_ASSISTANT_DISC_SIZE}
+      tone="wash"
       badge={<IndicatorBadge state={open ? null : indicator} />}
       onClick={onToggle}
       aria-expanded={open}
@@ -128,6 +132,7 @@ export function AssistantSectionRailToggle({
           <SidebarDiscButton
             icon={MessageSquare}
             size={SIDE_MENU_TILE_SIZE}
+            tone="wash"
             badge={<IndicatorBadge state={open ? null : indicator} />}
             aria-label={section.label}
             aria-haspopup="dialog"
