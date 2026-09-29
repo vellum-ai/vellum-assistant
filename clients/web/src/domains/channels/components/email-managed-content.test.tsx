@@ -300,7 +300,7 @@ describe("EmailManagedContent domain setup repair", () => {
   test("existing address plus not_started renders the repair explanation and action", () => {
     renderManaged("not_started");
 
-    expect(screen.getByText(ADDRESS)).toBeTruthy();
+    expect(screen.getByDisplayValue(ADDRESS)).toBeTruthy();
     expect(screen.getAllByText("Domain setup required").length).toBeGreaterThan(
       1,
     );
@@ -322,7 +322,7 @@ describe("EmailManagedContent domain setup repair", () => {
   ] as const)("%s does not render the repair action", (status) => {
     renderManaged(status);
 
-    expect(screen.getByText(ADDRESS)).toBeTruthy();
+    expect(screen.getByDisplayValue(ADDRESS)).toBeTruthy();
     expect(
       screen.queryByRole("button", { name: "Complete domain setup" }),
     ).toBeNull();
@@ -442,7 +442,7 @@ describe("EmailManagedContent domain setup repair", () => {
     });
 
     expect(captureErrorCalls[0]?.context).toBe("email_domain_provision");
-    expect(screen.getByText(ADDRESS)).toBeTruthy();
+    expect(screen.getByDisplayValue(ADDRESS)).toBeTruthy();
     expect(
       screen.getByRole("button", { name: "Complete domain setup" }),
     ).toBeTruthy();

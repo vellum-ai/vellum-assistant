@@ -1,4 +1,4 @@
-import { Mail } from "lucide-react";
+import { Settings } from "lucide-react";
 
 import { Modal } from "@vellumai/design-library";
 
@@ -21,11 +21,12 @@ export interface EmailSettingsModalProps {
 
 /**
  * The managed email settings from the Channels page, in a modal the inbox
- * opens from its masthead: the address with its domain's verification, the
- * way to remove it, the repair notice when the domain is not yet set up
- * with the provider, and the day's usage; then who can message the
- * assistant over email, the trust floor the Channels page draws under the
- * same section. One body serves both doors so the two never disagree.
+ * opens from its masthead's gear (so the header wears the same gear): the
+ * address with its domain's verification, the way to copy or remove it,
+ * the repair notice when the domain is not yet set up with the provider,
+ * and the day's usage; then who can message the assistant over email, the
+ * trust floor the Channels page draws under the same section. One body
+ * serves both doors so the two never disagree.
  */
 export function EmailSettingsModal({
   open,
@@ -41,7 +42,7 @@ export function EmailSettingsModal({
   return (
     <Modal.Root open={open} onOpenChange={onOpenChange}>
       <Modal.Content size="md">
-        <Modal.Header icon={Mail}>
+        <Modal.Header icon={Settings}>
           <Modal.Title>{t("emailSettingsModal.title")}</Modal.Title>
           <Modal.Description>
             {t("emailSettingsModal.description")}

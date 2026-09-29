@@ -44,7 +44,7 @@
     "loading": "Loading…",
     "loadFailed": "Couldn’t load this setting. Try reopening this page.",
     "selectAria": "Who can message {assistant}",
-    "trustedContactsNotice": "People you haven’t verified yet (even teammates in the same channel) can’t get through: {assistant} lets them know they need to be verified and notifies you. You can verify people ahead of time in Contacts.",
+    "trustedContactsNotice": "Anyone else, even a teammate in a shared channel, is asked to verify first, and you’re notified. Verify people ahead of time in Contacts.",
     "confirmFallback": "Confirm",
     "noOne": {
       "label": "No one",
@@ -59,7 +59,7 @@
     },
     "trustedContacts": {
       "label": "Verified contacts",
-      "description": "You and the people you’ve verified can message {assistant}. Anyone else is asked to verify first, and you’re notified."
+      "description": "You and your verified contacts can message {assistant}."
     },
     "anyContact": {
       "label": "Any contact",
@@ -162,6 +162,9 @@
     "completeSetup": "Complete domain setup",
     "completingSetup": "Completing setup…",
     "confirm": "Confirm",
+    "copiedAddress": "Copied",
+    "copyAddressAriaLabel": "Copy address",
+    "copyAddressFailed": "Couldn't copy the address.",
     "create": "Create",
     "createEmailFailedFallback": "Failed to create email address.",
     "creating": "Creating…",
@@ -214,6 +217,6 @@
   },
   "emailSettingsModal": {
     "title": "Email settings",
-    "description": "Your assistant's address, its domain, and today's usage."
+    "description": "Your assistant's address and who can message it."
   }
 }

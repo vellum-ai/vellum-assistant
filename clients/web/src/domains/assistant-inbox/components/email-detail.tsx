@@ -1,6 +1,6 @@
 import {
-  ArrowLeft,
   Check,
+  ChevronLeft,
   Copy,
   Loader2,
   MessageSquareText,
@@ -52,6 +52,15 @@ export interface EmailDetailProps {
  * body as the plain text the platform stores, and the attachments. The
  * reply action exists only on an inbound message with something to act on
  * it, because the composer lives in chat rather than here.
+ *
+ * Where the pane is too narrow for the subject and the actions to share a
+ * row (a phone, or the pane beside the list at `md`), the actions drop to
+ * a row of their own under the subject rather than squeezing it to a
+ * column of single characters. The header measures that from its own
+ * contents rather than a breakpoint: the subject column asks for a
+ * readable width, and the flex row wraps the actions the moment that plus
+ * the disc and the buttons would overflow, whatever the assistant's name
+ * happens to measure.
  */
 export function EmailDetail({
   email,
@@ -74,53 +83,82 @@ export function EmailDetail({
     copy(`${subject}\n\n${detail.body}`);
   };
 
+  // The reply action is drawn in one of two places by the same `md`
+  // signal: in the phone's top row beside the way back, or in the header's
+  // action group beside the subject. One definition, so the two never
+  // differ in anything but size.
+  const replyButton = (size: "regular" | "large") =>
+    inbound && onAskToReply ? (
+      <Button
+        variant="outlined"
+        size={size}
+        leftIcon={<MessageSquareText />}
+        onClick={() => onAskToReply(email)}
+      >
+        {t("emailDetail.askToReply", { name: assistantName })}
+      </Button>
+    ) : null;
+  const hasReply = inbound && !!onAskToReply;
+
   return (
     <article
       className={cn("flex min-h-0 flex-col overflow-y-auto", className)}
       aria-labelledby={`email-subject-${email.id}`}
     >
       <div className="flex flex-col gap-4 px-5 py-5">
-        {onBack ? (
-          /* The list is beside the pane from `md` up, so the way back is
-             only drawn where the pane has covered it. */
-          <div className="md:hidden">
-            <Button
-              variant="ghost"
-              size="compact"
-              leftIcon={<ArrowLeft />}
-              onClick={onBack}
-            >
-              {t("assistantInboxPage.backToList")}
-            </Button>
+        {onBack || hasReply ? (
+          /* The phone's top row, where the masthead has gone with the list
+             the pane covers: the one way back, a chevron to the list, and
+             the reply action on the trailing edge, both at the large size
+             a thumb finds first. */
+          <div className="flex items-center gap-2 md:hidden">
+            {onBack ? (
+              <Button
+                variant="outlined"
+                size="large"
+                iconOnly={<ChevronLeft />}
+                /* Already the touch size; the circle an icon button would
+                   grow into is more chrome than a way back needs. */
+                expandOnMobile={false}
+                onClick={onBack}
+                aria-label={t("assistantInboxPage.backToList")}
+                title={t("assistantInboxPage.backToList")}
+              />
+            ) : null}
+            {hasReply ? (
+              <div className="ml-auto">{replyButton("large")}</div>
+            ) : null}
           </div>
         ) : null}
 
-        <header className="flex flex-wrap items-center gap-2">
-          <SenderDisc participant={email.from} size={44} />
-          <div className="flex min-w-0 flex-1 flex-col gap-1">
-            <h2
-              id={`email-subject-${email.id}`}
-              className="min-w-0 break-words text-title-medium text-[var(--content-emphasised)]"
-            >
-              {subject}
-            </h2>
-            <time
-              dateTime={email.createdAt}
-              className="text-body-medium-lighter text-[var(--content-tertiary)]"
-            >
-              {formatEmailDetailTime(email.createdAt, i18n.language)}
-            </time>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            {inbound && onAskToReply ? (
-              <Button
-                variant="outlined"
-                leftIcon={<MessageSquareText />}
-                onClick={() => onAskToReply(email)}
+        <header className="flex flex-wrap items-center gap-x-2 gap-y-3">
+          {/* The disc and the subject wrap as one: `basis-64` is the
+              subject's readable minimum while the actions share its row,
+              and once they wrap, the pair grows to the full width (a lone
+              item on a flex line always shrinks to fit, so the disc never
+              strands the subject under it on a narrow pane). */}
+          <div className="flex min-w-0 flex-1 basis-64 items-center gap-2">
+            <SenderDisc participant={email.from} size={44} />
+            <div className="flex min-w-0 flex-1 flex-col gap-1">
+              <h2
+                id={`email-subject-${email.id}`}
+                className="min-w-0 break-words text-title-medium text-[var(--content-emphasised)]"
               >
-                {t("emailDetail.askToReply", { name: assistantName })}
-              </Button>
-            ) : null}
+                {subject}
+              </h2>
+              <time
+                dateTime={email.createdAt}
+                className="text-body-medium-lighter text-[var(--content-tertiary)]"
+              >
+                {formatEmailDetailTime(email.createdAt, i18n.language)}
+              </time>
+            </div>
+          </div>
+          {/* The phone's top row carries the reply action instead, and
+              copying a whole message is a desktop habit, so below `md` the
+              header is the disc and the subject alone. */}
+          <div className="flex shrink-0 flex-wrap items-center gap-2 max-md:hidden">
+            {replyButton("regular")}
             <Button
               variant="outlined"
               iconOnly={copied ? <Check /> : <Copy />}

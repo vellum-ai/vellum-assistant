@@ -44,7 +44,7 @@
     "loading": "正在加载…",
     "loadFailed": "无法加载此设置。请尝试重新打开此页面。",
     "selectAria": "谁可以向{assistant}发送消息",
-    "trustedContactsNotice": "您尚未验证的人（即使是同一频道中的队友）也无法通过：{assistant}会告知他们需要验证，并通知您。您可以在“联系人”中提前验证人员。",
+    "trustedContactsNotice": "其他任何人（即使是共享频道中的队友）都会被要求先验证，并且您会收到通知。您可以在“联系人”中提前验证人员。",
     "confirmFallback": "确认",
     "noOne": {
       "label": "无人",
@@ -59,7 +59,7 @@
     },
     "trustedContacts": {
       "label": "已验证联系人",
-      "description": "您和您已验证的人员可以向{assistant}发送消息。其他任何人都会被要求先验证，并且您会收到通知。"
+      "description": "您和您已验证的联系人可以向{assistant}发送消息。"
     },
     "anyContact": {
       "label": "任何联系人",
@@ -162,6 +162,9 @@
     "completeSetup": "完成域名设置",
     "completingSetup": "正在完成设置…",
     "confirm": "确认",
+    "copiedAddress": "已复制",
+    "copyAddressAriaLabel": "复制地址",
+    "copyAddressFailed": "无法复制地址。",
     "create": "创建",
     "createEmailFailedFallback": "创建电子邮件地址失败。",
     "creating": "正在创建…",
@@ -214,6 +217,6 @@
   },
   "emailSettingsModal": {
     "title": "邮件设置",
-    "description": "助手的地址、域名和今天的使用情况。"
+    "description": "助手的地址以及谁可以给它发消息。"
   }
 }

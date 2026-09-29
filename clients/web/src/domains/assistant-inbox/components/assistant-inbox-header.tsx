@@ -1,6 +1,6 @@
 import { ArrowLeft, Settings } from "lucide-react";
 
-import { Button } from "@vellumai/design-library";
+import { Button, cn } from "@vellumai/design-library";
 
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { useTranslation } from "@/i18n";
@@ -14,6 +14,7 @@ export interface AssistantInboxHeaderProps {
   onOpenSettings?: () => void;
   /** Leaves the page. Without it no back control is drawn. */
   onBack?: () => void;
+  className?: string;
 }
 
 /**
@@ -21,13 +22,16 @@ export interface AssistantInboxHeaderProps {
  * edge, as the other inbox pages' frame draws them, and on the trailing
  * edge the address as the identity pill with the settings control beside
  * it. The pill is the copy control, so the address is one click to
- * take anywhere.
+ * take anywhere. Below `md` the pill takes a line of its own under the
+ * title, so the name is never squeezed to an ellipsis to make room for
+ * it, while the settings control keeps the title row's trailing corner.
  */
 export function AssistantInboxHeader({
   assistantId,
   address,
   onOpenSettings,
   onBack,
+  className,
 }: AssistantInboxHeaderProps) {
   const { t } = useTranslation("assistant-inbox");
   const { copied, copy } = useCopyToClipboard({
@@ -37,7 +41,10 @@ export function AssistantInboxHeader({
   return (
     <header
       data-testid="assistant-inbox-header"
-      className="flex flex-wrap items-start gap-4 px-2 pb-4 pt-2"
+      className={cn(
+        "flex flex-wrap items-center gap-x-4 gap-y-3 px-2 pb-4 pt-2",
+        className,
+      )}
     >
       <div className="flex min-w-0 flex-1 items-center gap-3">
         {onBack ? (
@@ -54,25 +61,26 @@ export function AssistantInboxHeader({
         </h1>
       </div>
 
-      {/* The address and the day's counts stack on the trailing edge, so the
-          title keeps the leading edge to itself and the masthead stays two
-          lines tall. */}
-      <div className="flex shrink-0 items-center gap-2">
+      {/* Below `md` the pill's wrapper spans the row and sorts last, which
+          drops the pill under the title at its natural width; from `md` up
+          it sits on the trailing edge beside the settings control. */}
+      <div className="flex min-w-0 max-md:order-last max-md:basis-full">
         <AddressPill
           assistantId={assistantId}
           address={address}
           copy={{ copied, onCopy: () => copy(address) }}
         />
-        {onOpenSettings ? (
-          <Button
-            variant="outlined"
-            iconOnly={<Settings />}
-            onClick={onOpenSettings}
-            aria-label={t("assistantInboxHeader.settingsAria")}
-            title={t("assistantInboxHeader.settingsAria")}
-          />
-        ) : null}
       </div>
+      {onOpenSettings ? (
+        <Button
+          variant="outlined"
+          iconOnly={<Settings />}
+          onClick={onOpenSettings}
+          aria-label={t("assistantInboxHeader.settingsAria")}
+          title={t("assistantInboxHeader.settingsAria")}
+          className="shrink-0"
+        />
+      ) : null}
     </header>
   );
 }

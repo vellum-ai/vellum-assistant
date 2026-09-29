@@ -44,7 +44,7 @@
     "loading": "正在載入…",
     "loadFailed": "無法載入此設定。請嘗試重新開啟此頁面。",
     "selectAria": "誰可以傳送訊息給 {assistant}",
-    "trustedContactsNotice": "您尚未驗證的人員（即使是同一個頻道中的隊友）也無法通過：{assistant} 會告知他們需要驗證，並通知您。您可以在「聯絡人」中提前驗證人員。",
+    "trustedContactsNotice": "其他任何人（即使是共享頻道中的隊友）都會被要求先驗證，並且您會收到通知。您可以在「聯絡人」中提前驗證人員。",
     "confirmFallback": "確認",
     "noOne": {
       "label": "無人",
@@ -59,7 +59,7 @@
     },
     "trustedContacts": {
       "label": "已驗證聯絡人",
-      "description": "您和您已驗證的人員可以傳送訊息給 {assistant}。其他任何人將被要求先驗證，並且您會收到通知。"
+      "description": "您和您已驗證的聯絡人可以傳送訊息給 {assistant}。"
     },
     "anyContact": {
       "label": "任何聯絡人",
@@ -162,6 +162,9 @@
     "completeSetup": "完成網域設定",
     "completingSetup": "正在完成設定…",
     "confirm": "確認",
+    "copiedAddress": "已複製",
+    "copyAddressAriaLabel": "複製地址",
+    "copyAddressFailed": "無法複製地址。",
     "create": "建立",
     "createEmailFailedFallback": "建立電子郵件地址失敗。",
     "creating": "正在建立…",
@@ -214,6 +217,6 @@
   },
   "emailSettingsModal": {
     "title": "郵件設定",
-    "description": "助理的地址、網域與今天的使用情況。"
+    "description": "助理的地址以及誰可以傳訊息給它。"
   }
 }
