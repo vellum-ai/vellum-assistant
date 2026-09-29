@@ -555,7 +555,11 @@ describe("useAssistantResourceSync", () => {
     expect(queryClient.getQueryData<boolean>(queryKey)).toBeUndefined();
     const queryFn = mock(async () => true);
     expect(
-      await queryClient.fetchQuery({ queryKey, queryFn, staleTime: 60_000 }),
+      await queryClient.fetchQuery<boolean>({
+        queryKey,
+        queryFn,
+        staleTime: 60_000,
+      }),
     ).toBe(true);
     expect(queryFn).toHaveBeenCalledTimes(1);
     queryClient.clear();
