@@ -11,6 +11,7 @@ export const SYNC_TAGS = {
   assistantAvatar: "assistant:self:avatar",
   assistantIdentity: "assistant:self:identity",
   assistantConfig: "assistant:self:config",
+  assistantComposerPreferences: "assistant:self:composerPreferences",
   assistantSounds: "assistant:self:sounds",
   assistantSchedules: "assistant:self:schedules",
   assistantDesktop: "assistant:self:desktop",

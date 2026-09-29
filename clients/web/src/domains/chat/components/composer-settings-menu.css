@@ -1,0 +1,464 @@
+.composer-config-theme {
+  --cc-panel: var(--surface-overlay);
+  --cc-sheet: var(--surface-lift);
+  --cc-well: var(--surface-sunken);
+  --cc-track: var(--segment-track);
+  --cc-tile: var(--surface-active);
+  --cc-trigger: var(--surface-active);
+  --cc-grabber: var(--border-element);
+  --cc-selected: var(--surface-lift);
+  --cc-selected-row: var(--surface-active);
+  --cc-text: var(--content-default);
+  --cc-strong: var(--content-emphasised);
+  --cc-hint: var(--content-secondary);
+  --cc-muted: var(--content-secondary);
+  --cc-idle: var(--content-secondary);
+  --cc-border: var(--border-subtle);
+  --cc-accent: #8542b8;
+  --cc-warning: #946000;
+  --cc-danger: var(--system-negative-strong);
+  --cc-success: var(--system-positive-strong);
+  color: var(--cc-text);
+}
+
+[data-theme="dark"] .composer-config-theme {
+  --cc-panel: #262930;
+  --cc-sheet: #23262b;
+  --cc-well: #1f2126;
+  --cc-track: #161719;
+  --cc-tile: #2c3037;
+  --cc-trigger: #30343b;
+  --cc-grabber: #4a4f58;
+  --cc-selected: #3a3e46;
+  --cc-selected-row: #31353c;
+  --cc-text: #e6e8ec;
+  --cc-strong: #fff;
+  --cc-hint: #a6abb3;
+  --cc-muted: #8f949c;
+  --cc-idle: #9aa0a8;
+  --cc-border: rgb(255 255 255 / 8%);
+  --cc-accent: #b878f0;
+  --cc-warning: #e0a84a;
+  --cc-danger: #e5645a;
+  --cc-success: #47d17a;
+}
+
+[data-theme="velvet"] .composer-config-theme {
+  --cc-accent: var(--primary-base);
+  --cc-warning: var(--system-mid-strong);
+}
+
+.composer-config-popover {
+  width: 400px;
+  max-width: calc(100vw - 24px);
+  padding: 8px;
+  border: 1px solid var(--cc-border);
+  border-radius: 18px;
+  background: var(--cc-panel);
+  box-shadow: 0 18px 50px rgb(0 0 0 / 25%);
+}
+
+.composer-config-popover:has(.composer-config:not([data-view="collapsed"])) {
+  width: 480px;
+}
+
+[data-theme="dark"] .composer-config-popover {
+  box-shadow: 0 18px 50px rgb(0 0 0 / 55%);
+}
+
+.composer-config-sheet {
+  min-height: 0;
+  max-height: 85dvh;
+  overflow-y: auto;
+  border: 0;
+  border-radius: 28px 28px 0 0;
+  background: var(--cc-sheet);
+  padding: 10px 16px
+    calc(34px + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)));
+}
+
+.composer-config-sheet [data-slot="bottom-sheet-content-inner"] {
+  flex-shrink: 0;
+}
+
+.composer-config-grabber {
+  display: block;
+  width: 38px;
+  height: 4px;
+  margin: 0 auto 12px;
+  border-radius: 2px;
+  background: var(--cc-grabber);
+}
+
+.composer-config-sheet-header {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  min-height: 32px;
+}
+
+.composer-config-sheet-title {
+  font-size: 17px;
+  font-weight: 500;
+  color: var(--cc-text);
+}
+
+.composer-config-trigger {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  padding: 0;
+  background: var(--cc-trigger);
+}
+
+.composer-config-trigger[aria-expanded="true"] {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--cc-accent) 50%, transparent);
+}
+
+.composer-config {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  gap: 2px;
+  color: var(--cc-text);
+  font-size: 15px;
+  line-height: 1.3;
+}
+
+.composer-config[data-mobile] {
+  gap: 12px;
+}
+.composer-config-groups {
+  gap: 2px;
+}
+.composer-config[data-mobile] .composer-config-groups {
+  gap: 12px;
+}
+.composer-config-group {
+  border-radius: 14px;
+}
+.composer-config-group[data-state="open"] {
+  background: var(--cc-well);
+}
+.composer-config[data-mobile] .composer-config-group {
+  border-radius: 16px;
+}
+
+.composer-config-divider {
+  height: 1px;
+  flex-shrink: 0;
+  margin: 4px 10px;
+  background: var(--cc-border);
+}
+
+.composer-config[data-mobile] .composer-config-divider {
+  margin: 2px 4px;
+}
+
+.composer-config-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 12px;
+  color: var(--cc-text);
+  text-align: left;
+}
+
+.composer-config-summary:hover {
+  background: color-mix(in srgb, var(--cc-selected) 30%, transparent);
+}
+.composer-config[data-mobile] .composer-config-summary {
+  padding: 10px;
+  gap: 14px;
+  border-radius: 14px;
+}
+.composer-config-summary-text {
+  min-width: 0;
+  flex: 1;
+}
+.composer-config-summary-title {
+  display: block;
+  font-weight: 500;
+}
+.composer-config[data-mobile] .composer-config-summary-title {
+  font-size: 16px;
+}
+.composer-config-summary-suffix {
+  font-weight: 400;
+  color: var(--cc-muted);
+}
+.composer-config-summary-hint {
+  display: block;
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--cc-muted);
+}
+.composer-config-chevron {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: var(--cc-idle);
+}
+.composer-config-summary[data-state="open"] .composer-config-chevron {
+  transform: rotate(180deg);
+}
+
+.composer-config-icon {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  background: var(--cc-selected);
+  color: var(--cc-text);
+}
+
+.composer-config[data-mobile] .composer-config-icon {
+  width: 20px;
+  height: 20px;
+  background: transparent;
+}
+.composer-config[data-mobile] .composer-config-icon svg {
+  width: 20px;
+  height: 20px;
+}
+.composer-config-expanded {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 2px 10px 12px;
+}
+.composer-config-hint {
+  margin: 0;
+  padding: 0 4px;
+  color: var(--cc-hint);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.composer-config-notice {
+  padding: 8px 10px;
+}
+.composer-config [data-tone="warning"] {
+  color: var(--cc-warning);
+}
+.composer-config [data-tone="danger"] {
+  color: var(--cc-danger);
+}
+
+.composer-config-model-header {
+  position: relative;
+}
+.composer-config-model-header:has(> .composer-config-more)
+  .composer-config-summary {
+  padding-right: 128px;
+}
+.composer-config-model-header:has(> .composer-config-more)
+  .composer-config-chevron {
+  position: absolute;
+  right: 10px;
+}
+.composer-config-model-header > .composer-config-more {
+  position: absolute;
+  right: 30px;
+  top: 8px;
+}
+.composer-config-model-header .composer-config-summary-suffix {
+  font-size: 13px;
+}
+.composer-config-model-header
+  .composer-config-summary:not([data-state="open"])
+  .composer-config-summary-suffix {
+  font-size: inherit;
+}
+
+.composer-config-link {
+  height: 32px;
+  min-height: 32px;
+  padding: 0 4px;
+  gap: 3px;
+  color: var(--cc-accent);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.composer-config-link:hover {
+  color: var(--cc-accent);
+}
+.composer-config-segments {
+  display: flex;
+  width: 100%;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 12px;
+  background: var(--cc-track);
+}
+.composer-config-segments > button {
+  flex: 1 1 0;
+  height: auto;
+  min-height: 36px;
+  min-width: 0;
+  padding: 4px 3px;
+  border-radius: 9px;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--cc-idle);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.composer-config-segments > button[aria-checked="true"] {
+  color: var(--cc-strong);
+  background: var(--cc-selected);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 20%);
+}
+
+.composer-config-autonomy-mobile {
+  border-radius: 14px;
+}
+.composer-config-autonomy-mobile > button {
+  min-height: 60px;
+  flex-direction: column;
+  gap: 5px;
+  border-radius: 11px;
+  padding-inline: 1px;
+  font-size: clamp(12px, 3.5vw, 13.5px);
+  overflow-wrap: normal;
+}
+.composer-config-autonomy-mobile svg {
+  width: 18px;
+  height: 18px;
+}
+.composer-config-model-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.composer-config-model-cards {
+  display: contents;
+}
+.composer-config-model-cards > button {
+  min-width: 0;
+  height: auto;
+  min-height: 48px;
+  padding: 4px;
+  border: 1px solid var(--cc-border);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--cc-text);
+  font-size: 14px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  box-shadow: none;
+}
+
+.composer-config-model-cards > button[aria-checked="true"] {
+  border-color: color-mix(in srgb, var(--cc-accent) 60%, transparent);
+  background: var(--cc-tile);
+  color: var(--cc-strong);
+}
+
+.composer-config-model-grid > .composer-config-more {
+  height: auto;
+  min-height: 48px;
+  white-space: normal;
+}
+.composer-config-list-header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 4px;
+}
+.composer-config-list-title {
+  text-align: center;
+  font-size: 15px;
+  font-weight: 600;
+}
+.composer-config-list {
+  height: 320px;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-bottom: 16px;
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 16px), transparent);
+}
+.composer-config[data-mobile] .composer-config-list {
+  height: auto;
+  flex: 1;
+}
+.composer-config-list-section {
+  padding: 10px 12px 5px;
+  font-size: 11.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--cc-muted);
+}
+.composer-config-model-row {
+  width: 100%;
+  height: auto;
+  min-height: 44px;
+  justify-content: flex-start;
+  gap: 12px;
+  padding: 7px 12px;
+  border-radius: 10px;
+  text-align: left;
+  white-space: normal;
+}
+.composer-config-model-row[data-selected] {
+  background: var(--cc-selected-row);
+}
+.composer-config-model-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--cc-text);
+  overflow-wrap: anywhere;
+}
+.composer-config-model-description {
+  display: block;
+  margin-top: 2px;
+  font-size: 12.5px;
+  font-weight: 400;
+  color: var(--cc-hint);
+}
+.composer-config-check {
+  color: var(--cc-success);
+}
+.composer-config-beta {
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  background: var(--cc-tile);
+  color: var(--cc-hint);
+}
+.composer-config-attach {
+  width: 100%;
+  height: 52px;
+  justify-content: flex-start;
+  gap: 12px;
+  padding: 0 10px;
+  border-radius: 12px;
+  color: var(--cc-strong);
+  font-size: 15px;
+}
+.composer-config-attachment-tile {
+  height: 72px;
+  flex-direction: column;
+  gap: 6px;
+  border-radius: 16px;
+  background: var(--cc-tile);
+  color: var(--cc-text);
+  font-size: 13px;
+}

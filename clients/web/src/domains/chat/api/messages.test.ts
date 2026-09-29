@@ -797,3 +797,16 @@ describe("mapRuntimeToolCalls — id", () => {
     expect(second!.id).toBe("tool-history-msg-1-1");
   });
 });
+
+describe("postChatMessage risk threshold wire format", () => {
+  test("preserves the strict none threshold on a new conversation", async () => {
+    await postChatMessage("assistant-1", null, "Hello", {
+      riskThreshold: "none",
+    });
+    expect(capturedBody).toMatchObject({ riskThreshold: "none" });
+  });
+  test("omits the threshold when no draft setting was chosen", async () => {
+    await postChatMessage("assistant-1", "conv-1", "Hello");
+    expect(capturedBody).not.toHaveProperty("riskThreshold");
+  });
+});

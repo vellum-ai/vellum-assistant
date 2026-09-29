@@ -38,6 +38,7 @@ import { mcpQueryKeys } from "@/domains/settings/mcp/mcp-query-keys";
 import {
   activationProgressGetQueryKey,
   configGetQueryKey,
+  composerSettingsGetQueryKey,
   configLlmCallsitesGetQueryKey,
   homeStateGetQueryKey,
   identityGetQueryKey,
@@ -122,7 +123,18 @@ export function useAssistantResourceSync(
                 queryKey: identityGetQueryKey(pathOpts),
               });
               break;
+            case SYNC_TAGS.assistantComposerPreferences:
+              void queryClient.invalidateQueries({
+                queryKey: composerSettingsGetQueryKey(pathOpts),
+              });
+              void queryClient.invalidateQueries({
+                queryKey: ["conversationThresholdOverride", assistantId],
+              });
+              break;
             case SYNC_TAGS.assistantConfig:
+              void queryClient.invalidateQueries({
+                queryKey: composerSettingsGetQueryKey(pathOpts),
+              });
               void queryClient.invalidateQueries({
                 queryKey: configGetQueryKey(pathOpts),
               });
@@ -317,6 +329,18 @@ function refreshAssistantResources(
   });
   void queryClient.invalidateQueries({
     queryKey: configGetQueryKey(pathOpts),
+    refetchType,
+  });
+  void queryClient.invalidateQueries({
+    queryKey: composerSettingsGetQueryKey(pathOpts),
+    refetchType,
+  });
+  void queryClient.invalidateQueries({
+    queryKey: ["globalThresholds", assistantId],
+    refetchType,
+  });
+  void queryClient.invalidateQueries({
+    queryKey: ["conversationThresholdOverride", assistantId],
     refetchType,
   });
   invalidateMcpQueries(queryClient, assistantId, refetchType);

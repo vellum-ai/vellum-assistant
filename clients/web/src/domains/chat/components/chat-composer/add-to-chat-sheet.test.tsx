@@ -108,13 +108,11 @@ function renderSheet(
 ) {
   const onOpenChange = mock((_open: boolean) => {});
   const onAttachFiles = mock((files: FileList | File[]) => Array.from(files));
-  const onPickerOpenChange = mock((_open: boolean) => {});
   const result = render(
     <AddToChatSheet
       open
       onOpenChange={onOpenChange}
       onAttachFiles={onAttachFiles}
-      onPickerOpenChange={onPickerOpenChange}
       {...props}
     />,
   );
@@ -126,7 +124,6 @@ function renderSheet(
     ...result,
     onOpenChange,
     onAttachFiles,
-    onPickerOpenChange,
     camera,
     gallery,
     files,
@@ -199,49 +196,6 @@ describe("AddToChatSheet", () => {
 // The Capacitor shells, where a file input cannot reach either surface
 // ---------------------------------------------------------------------------
 
-describe("AddToChatSheet: holding the composer up", () => {
-  test("reports the picker up for as long as a native pick lasts", async () => {
-    // The row closes the sheet before opening anything and the picker takes
-    // the web view's first responder, so both of the composer's own signals
-    // read idle for the whole pick. A native one lasts until every file has
-    // been read across the bridge, which is long enough to see.
-    mockNativePickersAvailable = true;
-    let finish: (() => void) | undefined;
-    mockPickMedia = async () => {
-      await new Promise<void>((resolve) => {
-        finish = resolve;
-      });
-      return EMPTY_PICK;
-    };
-    const { onPickerOpenChange } = renderSheet();
-
-    await act(async () => {
-      fireEvent.click(screen.getByText("Photo Library"));
-    });
-    expect(onPickerOpenChange).toHaveBeenLastCalledWith(true);
-
-    await act(async () => {
-      finish?.();
-    });
-    expect(onPickerOpenChange).toHaveBeenLastCalledWith(false);
-  });
-
-  test("reports it down when a native pick fails", async () => {
-    // A rejection leaves the picker just as gone as a selection does.
-    mockNativePickersAvailable = true;
-    mockPickMedia = async () => {
-      throw new Error("pickFiles cancelled.");
-    };
-    const { onPickerOpenChange } = renderSheet();
-
-    await act(async () => {
-      fireEvent.click(screen.getByText("Photo Library"));
-    });
-
-    expect(onPickerOpenChange).toHaveBeenLastCalledWith(false);
-  });
-});
-
 describe("AddToChatSheet: a pick that outlives its render", () => {
   test("delivers to the attach callback the composer holds now", async () => {
     // The callback carries the assistant the files are queued against and the
@@ -275,12 +229,7 @@ describe("AddToChatSheet: a pick that outlives its render", () => {
     // WHEN the composer swaps the callback mid-pick, as a model change does
     await act(async () => {
       rerender(
-        <AddToChatSheet
-          open
-          onOpenChange={() => {}}
-          onAttachFiles={live}
-          onPickerOpenChange={() => {}}
-        />,
+        <AddToChatSheet open onOpenChange={() => {}} onAttachFiles={live} />,
       );
     });
     await act(async () => {

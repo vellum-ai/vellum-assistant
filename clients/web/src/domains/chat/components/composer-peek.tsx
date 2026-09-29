@@ -16,16 +16,16 @@
  *   surfaces over the input's top edge, its lower half hidden behind
  *   the rim, while the input casts a soft unoffset shadow over it so
  *   the body reads as sitting behind the card. This peek is anchored
- *   toward the input's left side, and starts above the mobile settings
- *   pills whenever that row reaches far enough left to sit between it
+ *   toward the input's left side, and starts above the mobile status
+ *   controls whenever that row reaches far enough left to sit between it
  *   and the card. In the browser the top dude retreats up off screen as
  *   it rises.
  *
  * On phone-sized windows the focus peek gives way to any banner docked
  * over the input's top edge (billing, setup, a draft notice): the banner
  * owns that strip, and an avatar rising into it would surface behind the
- * banner with its eyes cut off. The composer's mobile settings row stands
- * down on the same signal, which it publishes on the shell.
+ * banner with its eyes cut off. The composer publishes that signal on
+ * its shell.
  *
  * The composer card is located by its `data-slot="chat-composer"` anchor
  * and its rect tracked per-frame, so the overlays stay glued through
@@ -59,9 +59,9 @@ interface TargetRect {
    *  can trace whatever corner the card is currently wearing. */
   radius: string;
   /** How far above the card's top edge the focus peek has to start, so it
-   *  clears the settings pills floating there. Zero whenever no row is up, or
+   *  clears the status controls floating there. Zero whenever no row is up, or
    *  whenever the row hangs clear of the avatar's own column. */
-  pillsClearance: number;
+  controlsClearance: number;
   /** True while a banner is docked over the card's top edge. */
   bannerAbove: boolean;
 }
@@ -69,21 +69,17 @@ interface TargetRect {
 /** The composer card itself, which the overlays are measured against. */
 const COMPOSER_SELECTOR = '[data-slot="chat-composer"]';
 /** The wrapper around the card, which also holds controls that float
- *  outside it (the mobile settings pills). */
+ *  outside it (the mobile status controls). */
 const COMPOSER_SHELL_SELECTOR = '[data-slot="chat-composer-shell"]';
-/** Those pills, while they are up. The row stays mounted when it is away, so
- *  the `hidden` attribute is what separates the two. */
-const COMPOSER_PILLS_SELECTOR =
-  '[data-slot="composer-settings-pills"]:not([hidden])';
+/** Status controls above the mobile composer. */
+const COMPOSER_CONTROLS_SELECTOR = '[data-slot="composer-status-controls"]';
 /** Marks a shell whose card currently has a banner standing over it.
- *  `ChatComposer` watches that stack for its own settings row and publishes
- *  the answer here, so this overlay reads one flag instead of keeping a
- *  second read of the same boxes on a different clock. */
+ *  `ChatComposer` publishes the stack's visibility for this overlay. */
 const BANNER_ABOVE_ATTRIBUTE = "data-banner-above";
 
 /**
  * Whether a focus target belongs to the composer. The shell is the
- * boundary, so tapping a pill floating above the card is not a leave.
+ * boundary, so tapping a status control above the card is not a leave.
  */
 function withinComposer(node: EventTarget | null): boolean {
   if (!(node instanceof Element)) {
@@ -92,16 +88,11 @@ function withinComposer(node: EventTarget | null): boolean {
   return Boolean(node.closest(COMPOSER_SHELL_SELECTOR));
 }
 
-/**
- * The left edge of the leftmost pill actually on screen, in viewport px, or
- * `null` for a row with nothing in it. The row itself spans the card's full
- * width and hangs its pills off the right end, so its own rect says nothing
- * about where the pills start.
- */
-function leftmostPillEdge(row: HTMLElement): number | null {
+/** The left edge of the leftmost visible control, or null for an empty row. */
+function leftmostControlEdge(row: HTMLElement): number | null {
   let leftmost: number | null = null;
-  for (const pill of Array.from(row.children)) {
-    const { left, width } = pill.getBoundingClientRect();
+  for (const control of Array.from(row.children)) {
+    const { left, width } = control.getBoundingClientRect();
     if (width === 0) {
       continue;
     }
@@ -220,7 +211,7 @@ export function ComposerPeek({
   // Input peek geometry: expose down to just below the eye ink, capped, so
   // low-faced bodies scale down rather than exposing a taller slab. Derived up
   // here because the tracking effect needs the square's size to tell whether
-  // the avatar's column runs into the pills row.
+  // the avatar's column runs into the status row.
   const peekExposedFrac = metrics
     ? Math.min(
         0.95,
@@ -240,13 +231,9 @@ export function ComposerPeek({
       return;
     }
     let exitTimer: ReturnType<typeof setTimeout> | undefined;
-    // The pills row hides itself the instant focus leaves (`hidden` is
-    // `display: none`), while this avatar is still playing its exit off the rim
-    // it rose from. These two carry the row's clearance through that exit, or
-    // the clip would lose the row's height in a single frame and drop the
-    // avatar mid-animation.
+    // Preserve clearance through the exit animation if status controls disappear.
     let exiting = false;
-    let heldPillsClearance = 0;
+    let heldControlsClearance = 0;
 
     // Re-queried on every measure, never captured: the composer form
     // remounts (e.g. as a draft conversation settles), and a held
@@ -263,42 +250,37 @@ export function ComposerPeek({
       // caster has to trace the card's real corner, and the card is a
       // 10px panel on desktop and a deep pill on mobile.
       const radius = window.getComputedStyle(element).borderRadius;
-      // The mobile settings pills float between the card and this avatar, so
-      // where they run into its column the peek starts above the row instead.
-      // The row hangs its pills off the card's right edge while this avatar
-      // rises on the left, so a short row leaves the rim clear and the peek
-      // stays on it, rather than floating a body height above nothing.
+      // Keep the focus peek clear of status controls above the card.
       const shell = element.closest<HTMLElement>(COMPOSER_SHELL_SELECTOR);
-      const pills = shell?.querySelector<HTMLElement>(COMPOSER_PILLS_SELECTOR);
-      // Height comes from layout, not from a rect: the row rises into place on
-      // a transform, and a rect's top would move with it and put a `setRect` in
-      // every frame of that animation. The same animation is translateY-only,
-      // which leaves horizontal edges steady enough to read from a rect.
-      const pillsLeft = pills ? leftmostPillEdge(pills) : null;
-      const overlapsPills =
-        pillsLeft !== null &&
-        r.left + peekAnchorX(r.width, peekSize) + peekSize / 2 > pillsLeft;
+      const controls = shell?.querySelector<HTMLElement>(
+        COMPOSER_CONTROLS_SELECTOR,
+      );
+      const controlsLeft = controls ? leftmostControlEdge(controls) : null;
+      const overlapsControls =
+        controlsLeft !== null &&
+        r.left + peekAnchorX(r.width, peekSize) + peekSize / 2 > controlsLeft;
       const measuredClearance =
-        pills && overlapsPills
-          ? pills.offsetHeight +
-            (Number.parseFloat(window.getComputedStyle(pills).marginBottom) ||
-              0)
+        controls && overlapsControls
+          ? controls.offsetHeight +
+            (Number.parseFloat(
+              window.getComputedStyle(controls).marginBottom,
+            ) || 0)
           : 0;
       // Tracks the last measured value, zero included: holding only non-zero
       // ones would let a blur taken after the row stopped overlapping (or
       // unmounted) apply a stale clearance and teleport the exiting avatar up.
       if (!exiting) {
-        heldPillsClearance = measuredClearance;
+        heldControlsClearance = measuredClearance;
       }
-      const pillsClearance =
-        measuredClearance || (exiting ? heldPillsClearance : 0);
+      const controlsClearance =
+        measuredClearance || (exiting ? heldControlsClearance : 0);
       return {
         left: r.left,
         top: r.top,
         width: r.width,
         height: r.height,
         radius,
-        pillsClearance,
+        controlsClearance,
         bannerAbove: shell?.hasAttribute(BANNER_ABOVE_ATTRIBUTE) ?? false,
       };
     };
@@ -355,7 +337,7 @@ export function ComposerPeek({
           next.width !== last.width ||
           next.height !== last.height ||
           next.radius !== last.radius ||
-          next.pillsClearance !== last.pillsClearance ||
+          next.controlsClearance !== last.controlsClearance ||
           next.bannerAbove !== last.bannerAbove)
       ) {
         last = next;
@@ -564,14 +546,14 @@ export function ComposerPeek({
       )}
       {mode !== "rest" && !introActive && (
         /* Input-peek avatar, clipped at the input's top edge, or at the
-           settings pills' where that row runs into its column, so the body
+           status controls' where that row runs into its column, so the body
            reads as peeking out from behind whichever rim is nearest. */
         <div
           key="focus-peek"
           className="absolute overflow-hidden"
           style={{
             left: rect.left,
-            top: rect.top - rect.pillsClearance - clipHeight,
+            top: rect.top - rect.controlsClearance - clipHeight,
             width: rect.width,
             height: clipHeight,
           }}

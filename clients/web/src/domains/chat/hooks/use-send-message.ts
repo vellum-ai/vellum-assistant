@@ -381,6 +381,9 @@ export function useSendMessage({
       // per-conversation override, use the chosen profile instead of the global
       // default — covering the window before the menu's load-time promotion PUT
       // lands. Keyed by id, so only this conversation's own stash is read.
+      const autonomyForSend = useConversationStore
+        .getState()
+        .pendingDraftAutonomy.get(requestConversationId);
       const inferenceProfileForSend = useConversationStore
         .getState()
         .pendingDraftProfiles.get(requestConversationId);
@@ -409,6 +412,7 @@ export function useSendMessage({
             onboarding: onboardingContext ?? undefined,
             clientMessageId,
             inferenceProfile: inferenceProfileForSend,
+            riskThreshold: autonomyForSend,
             enabledPlugins: enabledPluginsForSend,
             hidden: isHidden,
             bypassSecretCheck,
@@ -477,6 +481,16 @@ export function useSendMessage({
         return { status: "ignored" };
       }
       // Success — drain the ref so subsequent messages omit the field.
+      if (
+        autonomyForSend !== undefined &&
+        useConversationStore
+          .getState()
+          .pendingDraftAutonomy.get(requestConversationId) === autonomyForSend
+      ) {
+        useConversationStore
+          .getState()
+          .clearPendingDraftAutonomy(requestConversationId);
+      }
       pendingOnboardingContextRef.current = null;
       // The draft's stashed profile (if any) has now been persisted on the
       // minted conversation; drop this draft's entry so it can't re-apply to a
@@ -1226,6 +1240,17 @@ export function useSendMessage({
           // draft id after the POST already read the stash — re-key it to the
           // minted id so the composer's promotion effect persists it now that
           // the real row exists (ATL-1136).
+          const stashedAutonomy = useConversationStore
+            .getState()
+            .pendingDraftAutonomy.get(activeConversationId);
+          if (stashedAutonomy !== undefined) {
+            useConversationStore
+              .getState()
+              .setPendingDraftAutonomy(newConversationId, stashedAutonomy);
+            useConversationStore
+              .getState()
+              .clearPendingDraftAutonomy(activeConversationId);
+          }
           const stashedProfile = useConversationStore
             .getState()
             .pendingDraftProfiles.get(activeConversationId);

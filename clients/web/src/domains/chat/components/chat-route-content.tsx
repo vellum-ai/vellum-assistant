@@ -98,7 +98,7 @@ import { ChatRuleEditorModal } from "@/domains/chat/components/chat-rule-editor-
 import { ComposerNotices } from "@/domains/chat/components/composer-notices";
 import { OrphanedHistoryNotice } from "@/domains/chat/components/orphaned-history-notice";
 import { ComposerSecretNotice } from "@/domains/chat/components/composer-secret-notice";
-import { ComposerSettingsMenu } from "@/domains/chat/components/composer-settings-menu";
+import { ComposerConfigurationProvider } from "@/domains/chat/components/composer-configuration-provider";
 import { ContextWindowIndicator } from "@/domains/chat/components/context-window-indicator";
 import { DailyLimitBanner } from "@/domains/chat/components/daily-limit-banner";
 import { FreeTierDailyLimitBanner } from "@/domains/chat/components/free-tier-daily-limit-banner";
@@ -1381,16 +1381,6 @@ export function ChatMainPanel({
 
   const cmdEnterMode = cmdEnterToSend.useValue();
 
-  // Whether the surface each settings menu owns is open. The mobile composer
-  // floats those two triggers above its card and hides them when focus leaves,
-  // and opening one takes focus out of the composer, so it needs the open state
-  // to hold the row in place underneath the sheet. Each menu reports `false` on
-  // its way out, so a presentation swap that unmounts an open one clears the
-  // flag it set.
-  const [accessSheetOpen, setAccessSheetOpen] = useState(false);
-  const [profileSheetOpen, setProfileSheetOpen] = useState(false);
-  const settingsSheetOpen = accessSheetOpen || profileSheetOpen;
-
   const composerAssistantName = assistantName?.trim();
   const composerPlaceholder = resolveComposerPlaceholder({
     isEmptyConversation,
@@ -1408,144 +1398,130 @@ export function ChatMainPanel({
   // composer self-sources its own store state, so nothing high-frequency is
   // threaded through. `ChatBody` renders this node as-is.
   const composerNode = (
-    <ChatComposer
-      cmdEnterMode={cmdEnterMode}
-      placeholder={composerPlaceholder}
-      onSubmit={handleFormSubmit}
-      inputRef={inputRef}
-      typingDisabled={typingDisabled}
-      sendDisabled={
-        sendDisabled ||
-        !!documentPreparation?.preparing ||
-        (!!documentPreparation &&
-          (documentRoute.isLoading || !!documentRoute.error))
-      }
-      onAddAttachmentFiles={handleDroppedFiles}
-      voiceInputRef={voiceInputRef}
-      voiceInterim={voiceInterim ?? undefined}
-      onVoiceTranscript={handleVoiceTranscript}
-      onVoiceInterimTranscript={setVoiceInterim}
-      onVoiceError={setVoiceError}
-      onVoiceBeforeStart={handleVoiceBeforeStart}
-      onBeforeLiveVoiceStart={documentPreparation?.prepareVoice}
-      onStopGenerating={handleStopGenerating}
-      isAssistantBusy={isAssistantBusy}
+    <ComposerConfigurationProvider
       assistantId={assistantId}
-      // Routing-truth id (NOT `activeConversation?.conversationId`, which is
-      // transiently undefined until the row loads and always undefined for
-      // drafts): live-voice session ownership compares against this, and the
-      // session should attach to the thread the user is looking at — draft
-      // ids included (the runtime accepts client-generated conversation ids).
-      conversationId={activeConversationId}
-      // Same value the empty state renders from, so "speak first" and "show
-      // the blank-thread greeting" can never disagree about what empty means.
-      conversationIsEmpty={isEmptyConversation}
-      onRecallLastMessage={
-        isIdle && isNativeConversation ? handleRecallLastMessage : undefined
-      }
-      onCancelEdit={isEditing ? handleCancelEdit : undefined}
-      textareaMaxHeightPx={isEmptyConversation ? 320 : undefined}
-      suggestion={suggestion}
-      hasBillingBanner={composerBillingBanner !== null}
-      settingsSheetOpen={settingsSheetOpen}
-      statusControlsSlot={<ProgressStack placement="composer" />}
-      thresholdPickerSlot={
-        assistantId ? (
-          <ComposerSettingsMenu
-            assistantId={assistantId}
-            conversationId={activeConversation?.conversationId}
-            segments="access"
-            onOpenChange={setAccessSheetOpen}
+      conversationId={activeConversation?.conversationId}
+    >
+      <ChatComposer
+        cmdEnterMode={cmdEnterMode}
+        placeholder={composerPlaceholder}
+        onSubmit={handleFormSubmit}
+        inputRef={inputRef}
+        typingDisabled={typingDisabled}
+        sendDisabled={
+          sendDisabled ||
+          !!documentPreparation?.preparing ||
+          (!!documentPreparation &&
+            (documentRoute.isLoading || !!documentRoute.error))
+        }
+        onAddAttachmentFiles={handleDroppedFiles}
+        voiceInputRef={voiceInputRef}
+        voiceInterim={voiceInterim ?? undefined}
+        onVoiceTranscript={handleVoiceTranscript}
+        onVoiceInterimTranscript={setVoiceInterim}
+        onVoiceError={setVoiceError}
+        onVoiceBeforeStart={handleVoiceBeforeStart}
+        onBeforeLiveVoiceStart={documentPreparation?.prepareVoice}
+        onStopGenerating={handleStopGenerating}
+        isAssistantBusy={isAssistantBusy}
+        assistantId={assistantId}
+        // Routing-truth id (NOT `activeConversation?.conversationId`, which is
+        // transiently undefined until the row loads and always undefined for
+        // drafts): live-voice session ownership compares against this, and the
+        // session should attach to the thread the user is looking at, draft
+        // ids included (the runtime accepts client-generated conversation ids).
+        conversationId={activeConversationId}
+        // Same value the empty state renders from, so "speak first" and "show
+        // the blank-thread greeting" can never disagree about what empty means.
+        conversationIsEmpty={isEmptyConversation}
+        onRecallLastMessage={
+          isIdle && isNativeConversation ? handleRecallLastMessage : undefined
+        }
+        onCancelEdit={isEditing ? handleCancelEdit : undefined}
+        textareaMaxHeightPx={isEmptyConversation ? 320 : undefined}
+        suggestion={suggestion}
+        hasBillingBanner={composerBillingBanner !== null}
+        statusControlsSlot={<ProgressStack placement="composer" />}
+        contextWindowIndicatorSlot={
+          <ContextWindowIndicator
+            usage={contextWindowUsage}
+            assistantName={assistantName}
+            onClearContext={
+              activeConversation?.conversationId && !sendDisabled
+                ? handleClearContext
+                : undefined
+            }
           />
-        ) : undefined
-      }
-      modelPickerSlot={
-        assistantId ? (
-          <ComposerSettingsMenu
-            assistantId={assistantId}
-            conversationId={activeConversation?.conversationId}
-            segments="profile"
-            onOpenChange={setProfileSheetOpen}
-          />
-        ) : undefined
-      }
-      contextWindowIndicatorSlot={
-        <ContextWindowIndicator
-          usage={contextWindowUsage}
-          assistantName={assistantName}
-          onClearContext={
-            activeConversation?.conversationId && !sendDisabled
-              ? handleClearContext
-              : undefined
-          }
-        />
-      }
-      noticesAboveFormSlot={
-        <>
-          {documentPreparation?.error && (
-            <Notice tone="error">{documentPreparation.error}</Notice>
-          )}
-          {draftSecretDetection.matches.length > 0 &&
-            // A blocked send always surfaces the notice — even when the
-            // passive warning for these values was previously dismissed.
-            (!draftSecretDetection.dismissed ||
-              draftSecretDetection.sendBlocked) && (
-              <ComposerSecretNotice
-                matches={draftSecretDetection.matches}
-                // Non-reactive read — the mount point deliberately never
-                // subscribes to composer input (typing must not re-render it).
-                // This render is already driven by `matches` changing, and a
-                // secret only leaves `input` via an edit that re-scans and
-                // updates `matches`, so the value read here stays in step with
-                // what "Store securely" (input-origin gated) can remove.
-                composerInput={useComposerStore.getState().input}
-                sendBlocked={draftSecretDetection.sendBlocked}
-                onDismiss={draftSecretDetection.dismiss}
-                onSendAnyway={handleSecretSendAnyway}
-                onStoreSecurely={handleStoreSecretSecurely}
-              />
+        }
+        noticesAboveFormSlot={
+          <>
+            {documentPreparation?.error && (
+              <Notice tone="error">{documentPreparation.error}</Notice>
             )}
-          <ComposerNotices
-            voiceError={voiceError}
-            onClearVoiceError={clearVoiceError}
-            onRetryMicPermission={handleRetryMicPermission}
-            onOpenMicSettings={handleOpenMicSettings}
-            onOpenTextInsertionSettings={handleOpenTextInsertionSettings}
-            billingBannerSlot={
-              composerBillingBanner === "daily_limit" ? (
-                <DailyLimitBanner onAdjustLimit={pushToDailyLimitSettings} />
-              ) : composerBillingBanner === "free_tier_daily_limit" ? (
-                <FreeTierDailyLimitBanner />
-              ) : composerBillingBanner === "provider_billing" ? (
-                <ProviderBillingBanner onOpenSettings={pushToAiSettings} />
-              ) : composerBillingBanner === "low_balance" ? (
-                <LowBalanceBanner />
-              ) : null
-            }
-            diskPressureBanner={diskPressureBannerSlot}
-            // A storage warning is actionable-critical and must not stack
-            // with or compete against an upsell banner, so the resource
-            // slot yields whenever the disk-pressure banner is actually
-            // visible. Acknowledgement-required and cleanup modes are never
-            // dismissible, so disk always wins there; a dismissed or
-            // suppressed warning hands the space to the resource banner.
-            resourcePressureBanner={resourcePressureBannerSlot}
-            showMissingApiKeyBanner={error?.code === "PROVIDER_NOT_CONFIGURED"}
-            onOpenAiSettings={pushToAiSettings}
-            onDismissApiKeyError={handleDismissApiKeyError}
-            compactionCircuitOpenUntil={compactionCircuitOpenUntil}
-            onCompactionCircuitExpired={handleCompactionCircuitExpired}
-            showMaintenanceBanner={
-              assistantState.kind === "active" &&
-              assistantState.maintenanceMode?.enabled === true
-            }
-            showMaintenanceExitAction={!statusBannerVisible}
-            assistantId={assistantId}
-            onMaintenanceExited={handleMaintenanceExited}
-          />
-        </>
-      }
-    />
+            {draftSecretDetection.matches.length > 0 &&
+              // A blocked send always surfaces the notice, even when the
+              // passive warning for these values was previously dismissed.
+              (!draftSecretDetection.dismissed ||
+                draftSecretDetection.sendBlocked) && (
+                <ComposerSecretNotice
+                  matches={draftSecretDetection.matches}
+                  // Non-reactive read. The mount point deliberately never
+                  // subscribes to composer input (typing must not re-render it).
+                  // This render is already driven by `matches` changing, and a
+                  // secret only leaves `input` via an edit that re-scans and
+                  // updates `matches`, so the value read here stays in step with
+                  // what "Store securely" (input-origin gated) can remove.
+                  composerInput={useComposerStore.getState().input}
+                  sendBlocked={draftSecretDetection.sendBlocked}
+                  onDismiss={draftSecretDetection.dismiss}
+                  onSendAnyway={handleSecretSendAnyway}
+                  onStoreSecurely={handleStoreSecretSecurely}
+                />
+              )}
+            <ComposerNotices
+              voiceError={voiceError}
+              onClearVoiceError={clearVoiceError}
+              onRetryMicPermission={handleRetryMicPermission}
+              onOpenMicSettings={handleOpenMicSettings}
+              onOpenTextInsertionSettings={handleOpenTextInsertionSettings}
+              billingBannerSlot={
+                composerBillingBanner === "daily_limit" ? (
+                  <DailyLimitBanner onAdjustLimit={pushToDailyLimitSettings} />
+                ) : composerBillingBanner === "free_tier_daily_limit" ? (
+                  <FreeTierDailyLimitBanner />
+                ) : composerBillingBanner === "provider_billing" ? (
+                  <ProviderBillingBanner onOpenSettings={pushToAiSettings} />
+                ) : composerBillingBanner === "low_balance" ? (
+                  <LowBalanceBanner />
+                ) : null
+              }
+              diskPressureBanner={diskPressureBannerSlot}
+              // A storage warning is actionable-critical and must not stack
+              // with or compete against an upsell banner, so the resource
+              // slot yields whenever the disk-pressure banner is actually
+              // visible. Acknowledgement-required and cleanup modes are never
+              // dismissible, so disk always wins there; a dismissed or
+              // suppressed warning hands the space to the resource banner.
+              resourcePressureBanner={resourcePressureBannerSlot}
+              showMissingApiKeyBanner={
+                error?.code === "PROVIDER_NOT_CONFIGURED"
+              }
+              onOpenAiSettings={pushToAiSettings}
+              onDismissApiKeyError={handleDismissApiKeyError}
+              compactionCircuitOpenUntil={compactionCircuitOpenUntil}
+              onCompactionCircuitExpired={handleCompactionCircuitExpired}
+              showMaintenanceBanner={
+                assistantState.kind === "active" &&
+                assistantState.maintenanceMode?.enabled === true
+              }
+              showMaintenanceExitAction={!statusBannerVisible}
+              assistantId={assistantId}
+              onMaintenanceExited={handleMaintenanceExited}
+            />
+          </>
+        }
+      />
+    </ComposerConfigurationProvider>
   );
 
   const chatBodyScrollAreaPropsBase = {

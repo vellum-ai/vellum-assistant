@@ -675,24 +675,6 @@
     "storeSecurely": "安全地儲存",
     "warningTitle": "這看起來像一個 API 金鑰"
   },
-  "composerSettingsMenu": {
-    "autoPreview": "自動 · {profile}",
-    "accessAria": "助理存取權限：{label}",
-    "assistantAccess": "助理存取權限",
-    "assistantAccessTitle": "助理存取權限",
-    "compactAria": "助理存取權限與模型設定檔",
-    "compactAriaWithSummary": "助理存取權限與模型設定檔：{summary}",
-    "defaultLabel": "{label} (預設)",
-    "defaultSuffix": "(預設)",
-    "loadingProfiles": "正在載入設定檔…",
-    "modelProfile": "模型設定檔",
-    "modelProfileTitle": "模型設定檔",
-    "profileAria": "模型設定檔：{label}",
-    "profileAriaFallback": "模型設定檔",
-    "profileSwitchFailed": "已建立設定檔，但無法切換至該設定檔",
-    "profileSwitchFallback": "切換設定檔失敗。請再試一次。",
-    "quickAdd": "新增模型"
-  },
   "confirmationActions": {
     "submitFailed": "提交確認失敗。請再試一次。",
     "submitFailedRuleAvailable": "提交確認失敗，但您仍然可以建立規則。"
@@ -2270,5 +2252,73 @@
     "confirm": "繼續",
     "cancel": "取消",
     "always": "一律開始"
+  },
+  "composerConfiguration": {
+    "title": "附件與設定",
+    "close": "關閉設定",
+    "back": "返回",
+    "allModes": "所有模型 · {count}",
+    "newMode": "新增",
+    "builtIn": "內建",
+    "yours": "自訂",
+    "beta": "測試版",
+    "noModes": "沒有可用模型。",
+    "autonomyTitle": "自主程度",
+    "modeTitle": "模型",
+    "loading": "載入中",
+    "more": "更多（{count}）",
+    "customHint": "自訂 · {model}",
+    "preferencesFailed": "無法儲存偏好設定。請重試。",
+    "saveFailed": "無法儲存此設定。請重試。",
+    "preferencesUnavailable": "偏好設定暫時無法使用。連線恢復後請重試。",
+    "updateRequired": "更新助理以同步偏好設定，並在第一則訊息前選擇自主程度。",
+    "camera": "相機",
+    "photos": "照片",
+    "files": "檔案",
+    "attach": "新增附件",
+    "autonomy": {
+      "none": {
+        "label": "鎖定",
+        "hint": "操作前先詢問。"
+      },
+      "low": {
+        "label": "謹慎",
+        "hint": "處理低風險工作和編輯。"
+      },
+      "medium": {
+        "label": "信任",
+        "hint": "高風險操作前會詢問。"
+      },
+      "high": {
+        "label": "免確認",
+        "hint": "在存取權限範圍內自動核准。"
+      }
+    },
+    "modes": {
+      "auto": {
+        "hint": "為每項工作選擇模型。"
+      },
+      "balanced": {
+        "hint": "兼顧速度、深度和費用。"
+      },
+      "quality": {
+        "hint": "更深入，速度更慢、費用更高。"
+      },
+      "fast": {
+        "hint": "更快、更便宜，深度較低。"
+      },
+      "budget": {
+        "hint": "費用最低，可能遺漏細節。"
+      },
+      "experimental": {
+        "label": "開放測試",
+        "hint": "開源測試版，結果可能不穩定。"
+      }
+    },
+    "allModelsLink": "所有模型（{count}）",
+    "allModelsList": "所有模型",
+    "autonomySubtitle": "可獨立執行的操作",
+    "modelSubtitle": "費用取決於模型級別",
+    "balancedSummary": "適合大多數工作。"
   }
 }

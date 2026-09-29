@@ -77,11 +77,10 @@ function PickerProbe(props: {
   accept?: string;
   capture?: boolean | "user" | "environment";
 }) {
-  const { openPicker, inputNode, pickerOpen } = useAttachmentFilePicker(props);
+  const { openPicker, inputNode } = useAttachmentFilePicker(props);
   return (
     <>
       {inputNode}
-      <span data-testid="picker-open">{String(pickerOpen)}</span>
       <button type="button" onClick={openPicker}>
         open
       </button>
@@ -95,9 +94,7 @@ function renderPicker(props: Parameters<typeof PickerProbe>[0]) {
     'input[type="file"]',
   ) as HTMLInputElement;
   const open = () => fireEvent.click(result.getByText("open"));
-  const openState = () =>
-    result.container.querySelector('[data-testid="picker-open"]')?.textContent;
-  return { ...result, input, open, openState };
+  return { ...result, input, open };
 }
 
 function selectFile(input: HTMLInputElement, name = "note.txt"): FileList {
@@ -200,35 +197,6 @@ describe("useAttachmentFilePicker", () => {
     // THEN the hold goes with it, rather than stranding the shell at a size
     // the keyboard no longer explains
     expect(releaseViewportHoldMock).toHaveBeenCalledTimes(1);
-  });
-
-  test("reports the picker open from the click until it closes", () => {
-    // GIVEN a probe surfacing the flag the composer gates its layout on
-    const { input, open, openState } = renderPicker({ onFiles: () => {} });
-    expect(openState()).toBe("false");
-
-    // WHEN the picker is opened
-    open();
-
-    // THEN it reads open, so a caller whose own focus the picker just took can
-    // still tell the composer is in use
-    expect(openState()).toBe("true");
-
-    // AND it closes with the picker, alongside the refocus
-    fireEvent(input, new Event("cancel"));
-    expect(openState()).toBe("false");
-  });
-
-  test("a delivered selection closes it too", () => {
-    // GIVEN an open picker
-    const { input, open, openState } = renderPicker({ onFiles: () => {} });
-    open();
-
-    // WHEN it returns a file rather than being dismissed
-    selectFile(input);
-
-    // THEN the flag follows that path out as well
-    expect(openState()).toBe("false");
   });
 
   test("a phone picker opened from a resting composer restores nothing", () => {

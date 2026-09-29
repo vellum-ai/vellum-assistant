@@ -181,3 +181,58 @@ describe("useSendMessage — bypassSecretCheck send wiring", () => {
     ).toBeUndefined();
   });
 });
+
+describe("useSendMessage autonomy send wiring", () => {
+  test("the first message carries its draft threshold and clears only that draft", async () => {
+    useConversationStore.getState().setPendingDraftAutonomy(DRAFT_ID, "none");
+    useConversationStore
+      .getState()
+      .setPendingDraftAutonomy("another-draft", "low");
+    await send(MIN_VERSION);
+    expect(capturedBody).toMatchObject({ riskThreshold: "none" });
+    expect(
+      useConversationStore.getState().pendingDraftAutonomy.has(DRAFT_ID),
+    ).toBe(false);
+    expect(
+      useConversationStore.getState().pendingDraftAutonomy.get("another-draft"),
+    ).toBe("low");
+  });
+  test("a newer selection made during the send survives for promotion", async () => {
+    useConversationStore.getState().setPendingDraftAutonomy(DRAFT_ID, "low");
+    daemonClient.post = mock(
+      async (options: { body?: Record<string, unknown> }) => {
+        capturedBody = options.body ?? null;
+        useConversationStore
+          .getState()
+          .setPendingDraftAutonomy(DRAFT_ID, "none");
+        return {
+          data: {
+            accepted: true,
+            conversationId: "conv-real",
+            messageId: "m1",
+          },
+          error: null,
+          response: new Response(null, { status: 200 }),
+        };
+      },
+    ) as typeof daemonClient.post;
+    await send(MIN_VERSION);
+    expect(capturedBody).toMatchObject({ riskThreshold: "low" });
+    expect(
+      useConversationStore.getState().pendingDraftAutonomy.has(DRAFT_ID),
+    ).toBe(false);
+    expect(
+      useConversationStore.getState().pendingDraftAutonomy.get("conv-real"),
+    ).toBe("none");
+  });
+  test("a failed send retains autonomy for retry", async () => {
+    useConversationStore.getState().setPendingDraftAutonomy(DRAFT_ID, "none");
+    daemonClient.post = mock(async () => {
+      throw new Error("offline");
+    }) as typeof daemonClient.post;
+    await send(MIN_VERSION);
+    expect(
+      useConversationStore.getState().pendingDraftAutonomy.get(DRAFT_ID),
+    ).toBe("none");
+  });
+});

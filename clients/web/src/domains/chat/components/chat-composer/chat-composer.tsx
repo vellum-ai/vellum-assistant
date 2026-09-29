@@ -28,18 +28,15 @@ import {
   useComposerStore,
 } from "@/domains/chat/composer-store";
 import { useChannelReferenceStore } from "@/domains/chat/channel-sidecar/channel-reference-store";
-import { useHasPendingQuestion } from "@/domains/chat/interaction-store";
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
-import { useComposerFocusWithin } from "@/domains/chat/hooks/use-composer-focus-within";
 import { useInterruptOnSend } from "@/domains/chat/hooks/use-interrupt-on-send";
 import { ComposerDraftNotices } from "@/domains/chat/components/composer-draft-notices";
 import { nativeAttachmentPickersAvailable } from "@/domains/chat/components/chat-attachments/native-attachment-pickers";
 import { AddToChatSheet } from "@/domains/chat/components/chat-composer/add-to-chat-sheet";
+import { useComposerAttachmentPickers } from "@/domains/chat/components/chat-composer/use-composer-attachment-pickers";
 import { StreamingWaveform } from "@/domains/chat/components/chat-composer/streaming-waveform";
-import {
-  ComposerCompactProvider,
-  useIsCompactComposerWidth,
-} from "@/domains/chat/components/chat-composer/composer-compact";
+import { useComposerConfigurationContext } from "@/domains/chat/components/composer-configuration-provider";
+import { ComposerSettingsMenu } from "@/domains/chat/components/composer-settings-menu";
 import {
   COMPOSER_MOBILE_RADIUS_CLASS,
   COMPOSER_RADIUS_CLASS,
@@ -87,10 +84,7 @@ import { useIsMobile } from "@/hooks/use-is-mobile";
 import { isElectron } from "@/runtime/is-electron";
 import { isPopoutWindowLifetime } from "@/runtime/popout-window";
 import { useIsNativePlatform } from "@/runtime/native-auth";
-import {
-  useIsNativeAndroid,
-  useIsNativeMobile,
-} from "@/runtime/platform-detection";
+import { useIsNativeAndroid } from "@/runtime/platform-detection";
 import { isPointerCoarse, usePointerCoarse } from "@/utils/pointer";
 import { routes } from "@/utils/routes";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
@@ -196,28 +190,9 @@ export interface ChatComposerProps {
   // silent room.
   conversationIsEmpty?: boolean;
 
-  // chrome surfacing existing buttons (rendered in the form's bottom-left row
-  // on desktop; on mobile both settings slots move to the row above the card)
-  /**
-   * Controls seated at the LEADING edge of the mobile settings row, opposite
-   * the threshold and model pills. Carries the chat's status cluster (Progress,
-   * Agents) so the composer has one strip of controls above it rather than two.
-   */
+  /** Chat status controls (Progress, Agents) above the mobile composer. */
   statusControlsSlot?: ReactNode;
-  thresholdPickerSlot?: ReactNode;
   contextWindowIndicatorSlot?: ReactNode;
-  // Model-profile picker rendered on the row's right end, beside the mic
-  // (Figma: New-App 7471-25234). The orchestrator passes a second
-  // `ComposerSettingsMenu` instance scoped to the profile segment. Dropped
-  // below the compact card width, where `thresholdPickerSlot`'s menu absorbs
-  // the profile section rather than the two triggers colliding.
-  modelPickerSlot?: ReactNode;
-
-  // Whether a surface opened from one of the two settings slots is up. Opening
-  // one moves focus into a portal outside the composer, so the focus-gated
-  // mobile row needs it to stay put while the user is inside the sheet.
-  settingsSheetOpen?: boolean;
-
   // Slot rendered above the form (between the max-width wrapper and the form).
   // The main variant uses this for attachment-error / voice-error / disk-pressure
   // notices and the live voice-interim preview. The app-editing variant omits it.
@@ -333,7 +308,7 @@ export function ChatComposer({
   onSubmit,
   inputRef,
   typingDisabled,
-  sendDisabled,
+  sendDisabled: sendDisabledProp,
   onAddAttachmentFiles,
   voiceInputRef,
   onVoiceTranscript,
@@ -348,9 +323,6 @@ export function ChatComposer({
   conversationId,
   conversationIsEmpty = false,
   statusControlsSlot,
-  thresholdPickerSlot,
-  modelPickerSlot,
-  settingsSheetOpen = false,
   contextWindowIndicatorSlot,
   noticesAboveFormSlot,
   hasBillingBanner = false,
@@ -361,6 +333,10 @@ export function ChatComposer({
   onCancelEdit,
 }: ChatComposerProps) {
   const { t } = useTranslation("chat");
+  const configuration = useComposerConfigurationContext();
+  const sendDisabled =
+    sendDisabledProp || (configuration ? !configuration.readyForDraft : false);
+
   // Draft text is owned by the composer store; subscribing here (rather than
   // receiving it as a prop) means a keystroke re-renders only this component,
   // not the orchestrator or the transcript above it.
@@ -707,21 +683,7 @@ export function ChatComposer({
   const isNative = useIsNativePlatform();
   const isElectronHost = isElectron();
 
-  // Narrow-card collapse: below the compact width the labelled access and
-  // model-profile triggers collide, so the pair folds into one hamburger menu
-  // (mounted in the access slot, keeping the row's attach | settings | mic |
-  // voice order). Mobile is excluded: its settings triggers live in the pills
-  // row above the card, so they never compete for the action row's width.
   const composerCardRef = useRef<HTMLFormElement>(null);
-  const compactSettings =
-    useIsCompactComposerWidth(composerCardRef) && !isMobile;
-
-  // The shell wraps the pills row and the card together, so moving focus from
-  // the textarea to a pill is not a leave. `data-slot="chat-composer"` stays on
-  // the form: that is the box `composer-peek`, the onboarding tour, and the
-  // quote bubble measure.
-  const composerShellRef = useRef<HTMLDivElement>(null);
-  const composerFocusWithin = useComposerFocusWithin(composerShellRef);
 
   // Stable ref so handleSlashCommandSelect's autoSend path always calls the
   // latest onSubmit even after flushSync triggers a synchronous re-render.
@@ -901,12 +863,8 @@ export function ChatComposer({
     !canSendOrFinishDictation &&
     !isLiveVoiceActive;
 
-  // Mobile lifts the access and profile triggers out of the action row into a
-  // row that floats above the card while the composer is in use, and hangs a
-  // caption under the card while it rests. Only `ChatMainPanel` fills the
-  // settings slots, and only once it has an assistant to point them at, so a
-  // variant that passes neither (the onboarding tour's composer) gets neither.
-  const isMainComposer = Boolean(thresholdPickerSlot || modelPickerSlot);
+  // Only the main chat composer owns conversation configuration.
+  const isMainComposer = Boolean(configuration);
   const isMobileMainComposer = isMobile && isMainComposer;
 
   // No longer suppressed during a live-voice session: it was suppressed
@@ -925,9 +883,6 @@ export function ChatComposer({
   );
 
   const [addSheetOpen, setAddSheetOpen] = useState(false);
-  // Whether a picker the sheet launched is still up. The sheet closes itself
-  // before opening one, so its own flag above cannot answer for the pick.
-  const [addSheetPickerOpen, setAddSheetPickerOpen] = useState(false);
   // Latched on the first open and never reset. The sheet closes itself before
   // it hands off to the OS picker, so a shell that crossed the breakpoint while
   // that picker was up would take the sheet's hidden inputs with it.
@@ -963,14 +918,7 @@ export function ChatComposer({
   const usesAddSheet =
     isMobile && (isNativeAndroidShell || nativeAttachmentPickersAvailable());
 
-  // Whether a press on one of the row's controls has to hold the composer's
-  // focus for the click behind it. Both halves are load-bearing and neither one
-  // alone is the question: the row is what gates itself on that focus, and a
-  // press is what fails to carry it. A pointing device focuses the button it
-  // presses, and the button sits inside the shell `useComposerFocusWithin`
-  // watches, so the row never drops and the click never misses. Cancelling the
-  // press there would only take the focus the button is owed. Live rather than
-  // read once, since a convertible crosses this mid-session.
+  // Touch presses keep the textarea focused while activating a control.
   const holdsFocusOnPress = isMobile && pointerCoarseNow;
   // The handler form, for the controls this file renders itself. See
   // `preventPressFocusTransfer` for what the press would otherwise cost.
@@ -984,41 +932,22 @@ export function ChatComposer({
   // Owned by the composer rather than by the control that opens it, so a width
   // or pointer change while the OS picker is up cannot unmount the input under
   // it and drop the selection.
-  const {
-    openPicker: openAttachPicker,
-    inputNode: attachPickerInput,
-    pickerOpen: attachPickerOpen,
-  } = useAttachmentFilePicker({
-    onFiles: onAddAttachmentFiles,
-    multiple: true,
-  });
+  const { openPicker: openAttachPicker, inputNode: attachPickerInput } =
+    useAttachmentFilePicker({
+      onFiles: onAddAttachmentFiles,
+      multiple: true,
+    });
 
   // The camera a Home Screen widget's button asks for. Owned here for the same
   // reason as the picker above, and gated to the `ChatMainPanel` composer so a
   // one-shot park is never spent by the onboarding tour's. That gate leaves
   // exactly one taker: `ChatMainPanel` renders on either the app-editing
   // branch or the plain chat branch, never both.
-  const {
-    overlayNode: cameraDeepLinkOverlay,
-    captureOpen: cameraDeepLinkCaptureOpen,
-  } = useCameraDeepLink({
+  const { overlayNode: cameraDeepLinkOverlay } = useCameraDeepLink({
     onFiles: onAddAttachmentFiles,
     enabled: isMainComposer,
   });
 
-  // A surface opened from the composer takes the focus this would otherwise
-  // read, so each one has to hold the row up for as long as it is standing.
-  // A sheet moves focus into a portal; the native picker takes the web view's
-  // first responder, which arrives here as focus returning to the body. Either
-  // way the composer is in use, and rearranging it for an idle one would move
-  // it behind the surface the user is looking at.
-  const composerInUse =
-    composerFocusWithin ||
-    settingsSheetOpen ||
-    addSheetOpen ||
-    addSheetPickerOpen ||
-    attachPickerOpen ||
-    cameraDeepLinkCaptureOpen;
   // Whether a banner is standing over the card. Read off the box rather than
   // derived from props: most of that stack arrives through
   // `noticesAboveFormSlot`, an opaque node, and the composer-owned notices in
@@ -1051,44 +980,6 @@ export function ChatComposer({
       observer.disconnect();
     };
   }, [readBannerStack]);
-
-  // The app shells hold the row up for the whole session. On a phone these
-  // pills are the only place the access and profile pickers live, and a row
-  // that comes and goes with the keyboard puts both a tap out of reach for as
-  // long as the composer is at rest. A mobile browser keeps the focus-driven
-  // reveal, where the row is competing with the page's own chrome for the
-  // bottom of the screen.
-  const isNativeMobileShell = useIsNativeMobile();
-  // A banner docks to the card's top edge and takes the strip this row floats
-  // in, so the row stands down while one is up rather than crowding it. The
-  // avatar peeking over that same edge stands down with it (`ComposerPeek`).
-  //
-  // A pending question card lands in the same strip and stands the row down
-  // for the same reason, plus one of its own: the card is what the turn is
-  // waiting on, and the pills reach settings that are beside the point until
-  // it is answered.
-  const hasPendingQuestion = useHasPendingQuestion();
-  const settingsPillsVisible =
-    isMobileMainComposer &&
-    !hasBannerAboveCard &&
-    !hasPendingQuestion &&
-    (isNativeMobileShell || composerInUse);
-  // The entrance belongs to the pills, which arrive with the keyboard. A
-  // control that stands throughout has no arrival to animate, and the same
-  // animation there replays on every mount, settling the composer on each
-  // navigation. So this dresses the PILLS group, not the row around it: the
-  // status controls beside them are always up and must not inherit either the
-  // entrance or the hiding.
-  const settingsPillsClassName = settingsPillsVisible
-    ? `flex shrink-0 items-center gap-1.5${
-        isNativeMobileShell
-          ? ""
-          : " animate-[fadeInUp_var(--anim-fast)_var(--anim-ease-out)_backwards] motion-reduce:animate-none"
-      }`
-    : // Undefined rather than the layout classes while hidden: `hidden` already
-      // takes the group out of layout, and a class arriving with the reveal is
-      // what makes the entrance animation run on each one.
-      undefined;
 
   // A pill at mobile widths (half the card's 52px collapsed height), the 10px
   // panel elsewhere, both shared with the live-voice bar: it stacks on this
@@ -1170,10 +1061,20 @@ export function ChatComposer({
 
   // Mobile hands the attach flow to a plus, which opens the same native picker
   // the desktop paperclip does, or the sheet on the one shell whose own menu
-  // cannot offer a camera. Every attach control answers to the same gating, so
-  // a busy assistant hides whichever one is mounted.
+  // cannot offer a camera. Attachment controls share the same availability gate.
   const attachDisabled = typingDisabled || !assistantId;
-  const attachControl = !isMobile ? (
+  const configurationPickers = useComposerAttachmentPickers({
+    onOpenChange: configuration?.setOpen ?? handleAddSheetOpenChange,
+    onAttachFiles: onAddAttachmentFiles,
+  });
+  const attachControl = configuration ? (
+    <ComposerSettingsMenu
+      configuration={configuration}
+      disabled={attachDisabled}
+      pickers={configurationPickers}
+      onMouseDown={rowPressGuard}
+    />
+  ) : !isMobile ? (
     <AttachFileButton
       disabled={attachDisabled}
       onFilesSelected={onAddAttachmentFiles}
@@ -1689,56 +1590,30 @@ export function ChatComposer({
           flag off this shell rather than watching the same stack a second
           time on its own clock. */}
       <div
-        ref={composerShellRef}
         data-slot="chat-composer-shell"
         data-banner-above={hasBannerAboveCard ? "" : undefined}
+        onKeyDownCapture={(event) => {
+          if (
+            configuration &&
+            !attachDisabled &&
+            (event.metaKey || event.ctrlKey) &&
+            !event.altKey &&
+            !event.shiftKey &&
+            event.key.toLowerCase() === "u"
+          ) {
+            event.preventDefault();
+            event.stopPropagation();
+            configurationPickers.files();
+          }
+        }}
       >
-        {/* Above every slot placement, the pills row included: what a control
-            does when the card runs narrow is the control's own business, and
-            must not depend on which row it happens to be sitting in. */}
-        <ComposerCompactProvider compact={compactSettings}>
+        <>
           {isMobileMainComposer && (
-            // Mounted for as long as the composer is, because each pill gates
-            // itself on server state its own menu loads (access waits on the
-            // global-threshold fetch), and a row that mounted on first focus
-            // would rise with that pill still missing.
-            //
-            // In the app shells it then stays visible. In a mobile browser its
-            // visibility follows focus, and `hidden` is `display: none`, which
-            // keeps the resting row out of the layout, the tab order and the
-            // accessibility tree, and lets the entrance run again on every
-            // reveal. Reduced motion keeps the placement and drops the
-            // movement.
-            // The row itself is always up, because the status controls in it
-            // are: they report work the assistant is doing, which does not
-            // depend on whether the composer has focus. Only the pills come
-            // and go with the keyboard, so the `hidden` gate moved onto them.
-            //
-            // The inset lands the last pill's edge over the send circle's, so
-            // the row reads as hung off the card rather than floated past it.
-            //
-            // The margin is dropped when the row has nothing showing (no
-            // status controls, pills hidden), so an idle unfocused composer
-            // does not carry 12px of empty strip above it. The selector asks
-            // for a group that is not itself hidden AND has an element in it,
-            // which is exactly "something is on screen here".
             <div
-              data-slot="composer-settings-pills"
-              className="mb-3 flex items-center justify-between gap-1.5 px-1.5 [&:not(:has(>*:not([hidden])>*))]:mb-0"
+              data-slot="composer-status-controls"
+              className="mb-3 flex min-w-0 items-center gap-1.5 px-1.5 empty:mb-0"
             >
-              {/* Leading group, then the pills. `justify-between` parks the
-                  pills on the right whether or not this one has content. */}
-              <div className="flex min-w-0 items-center gap-1.5">
-                {statusControlsSlot}
-              </div>
-              <div
-                data-slot="composer-settings-pills-group"
-                hidden={!settingsPillsVisible}
-                className={settingsPillsClassName}
-              >
-                {thresholdPickerSlot}
-                {modelPickerSlot}
-              </div>
+              {statusControlsSlot}
             </div>
           )}
           <Popover.Root open={emoji.show || slash.show}>
@@ -1793,7 +1668,7 @@ export function ChatComposer({
                               {contextWindowIndicatorSlot}
                             </div>
                           ) : null}
-                          {!busyRowActive && attachControl}
+                          {(!busyRowActive || configuration) && attachControl}
                           {!busyRowActive && (
                             <div
                               aria-hidden="true"
@@ -1829,39 +1704,18 @@ export function ChatComposer({
                     <>
                       {textFieldBlock}
                       {inlineVoicePreview}
-                      {/* Action row: attach, divider, access on the left; model
-                        profile, divider, mic, send on the right. It stays
-                        mounted through a live-voice session, whose own
-                        controls live in the bar above the card. */}
+                      {/* Attachments and settings sit on the left; voice and
+                          send controls sit on the right. */}
                       <div className="flex items-center justify-between gap-1 px-2 pb-2">
                         <div className="flex min-w-0 items-center gap-2">
                           {contextWindowIndicatorSlot}
-                          {!busyRowActive && attachControl}
-                          {!busyRowActive && thresholdPickerSlot ? (
-                            <div
-                              aria-hidden="true"
-                              className="h-4 w-px shrink-0 bg-[var(--border-hover)] touch-mobile:-mx-1"
-                            />
-                          ) : null}
-                          {thresholdPickerSlot}
+                          {(!busyRowActive || configuration) && attachControl}
                         </div>
                         <div className="flex shrink-0 items-center gap-2">
                           {busyRowActive ? (
                             busyRowControl
                           ) : (
                             <>
-                              {/* Compact: the model profile moves into the
-                              left slot's hamburger alongside access, so
-                              nothing is mounted here. */}
-                              {!compactSettings && modelPickerSlot}
-                              {!compactSettings &&
-                              modelPickerSlot &&
-                              showDictationButton ? (
-                                <div
-                                  aria-hidden="true"
-                                  className="h-4 w-px shrink-0 bg-[var(--border-hover)] touch-mobile:-mx-1"
-                                />
-                              ) : null}
                               {dictationButton}
                               {sendSlot}
                             </>
@@ -1906,13 +1760,16 @@ export function ChatComposer({
               or pointer change cannot pull it out from under an open picker.
               The hook lays the input out as `absolute inset-0`, so it needs a
               positioned box of its own. */}
-          <div className="relative">{attachPickerInput}</div>
+          {!configuration && (
+            <div className="relative">{attachPickerInput}</div>
+          )}
           {/* The camera behind `deeplink.openCamera`. A `fixed inset-0`
               surface of its own rather than a hidden input, so it needs no box
               here, and rendered whether or not this composer offers a camera
               control: the command comes from outside the app. */}
           {cameraDeepLinkOverlay}
-          {(usesAddSheet || addSheetEverPresented) && (
+          {configuration && configurationPickers.inputs}
+          {!configuration && (usesAddSheet || addSheetEverPresented) && (
             // The sheet's own three inputs, beside the form for the same
             // reason. The latch keeps a sheet that has ever been presented
             // mounted for the rest of the session: its rows close it before
@@ -1922,10 +1779,9 @@ export function ChatComposer({
               open={addSheetOpen}
               onOpenChange={handleAddSheetOpenChange}
               onAttachFiles={onAddAttachmentFiles}
-              onPickerOpenChange={setAddSheetPickerOpen}
             />
           )}
-        </ComposerCompactProvider>
+        </>
       </div>
     </>
   );

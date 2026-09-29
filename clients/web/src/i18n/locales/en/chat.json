@@ -692,24 +692,6 @@
     "storeSecurely": "Store securely",
     "warningTitle": "This looks like an API key"
   },
-  "composerSettingsMenu": {
-    "accessAria": "Assistant access: {label}",
-    "assistantAccess": "Assistant Access",
-    "assistantAccessTitle": "Assistant access",
-    "compactAria": "Assistant access and model profile",
-    "compactAriaWithSummary": "Assistant access and model profile: {summary}",
-    "defaultLabel": "{label} (default)",
-    "defaultSuffix": "(default)",
-    "loadingProfiles": "Loading profiles…",
-    "modelProfile": "Model Profile",
-    "modelProfileTitle": "Model profile",
-    "autoPreview": "Auto · {profile}",
-    "profileAria": "Model profile: {label}",
-    "profileAriaFallback": "Model profile",
-    "profileSwitchFailed": "Profile created, but couldn't switch to it",
-    "profileSwitchFallback": "Failed to switch profile. Please try again.",
-    "quickAdd": "New Model"
-  },
   "confirmationActions": {
     "submitFailed": "Failed to submit confirmation. Please try again.",
     "submitFailedRuleAvailable": "Failed to submit confirmation, but you can still create a rule."
@@ -2270,5 +2252,73 @@
     "confirm": "Continue",
     "cancel": "Cancel",
     "always": "Always start"
+  },
+  "composerConfiguration": {
+    "title": "Attachments and settings",
+    "close": "Close settings",
+    "back": "Back",
+    "allModes": "All models · {count}",
+    "newMode": "New",
+    "builtIn": "Built-in",
+    "yours": "Custom",
+    "beta": "Beta",
+    "noModes": "No models available.",
+    "autonomyTitle": "Autonomy",
+    "modeTitle": "Model",
+    "loading": "Loading",
+    "more": "More ({count})",
+    "customHint": "Custom · {model}",
+    "preferencesFailed": "Could not save your preferences. Please try again.",
+    "saveFailed": "Could not save this setting. Please try again.",
+    "preferencesUnavailable": "Preferences are unavailable. Try again when the connection returns.",
+    "updateRequired": "Update your assistant to sync preferences and choose autonomy before the first message.",
+    "camera": "Camera",
+    "photos": "Photos",
+    "files": "Files",
+    "attach": "Attach files",
+    "autonomy": {
+      "none": {
+        "label": "Locked",
+        "hint": "Asks before taking action."
+      },
+      "low": {
+        "label": "Cautious",
+        "hint": "Handles low-risk work and edits."
+      },
+      "medium": {
+        "label": "Trusted",
+        "hint": "Asks before higher-risk actions."
+      },
+      "high": {
+        "label": "Hands-off",
+        "hint": "Auto-approves within access limits."
+      }
+    },
+    "modes": {
+      "auto": {
+        "hint": "Picks a model for each task."
+      },
+      "balanced": {
+        "hint": "Balances speed, depth and cost."
+      },
+      "quality": {
+        "hint": "More depth. Slower, higher cost."
+      },
+      "fast": {
+        "hint": "Faster, cheaper. Less depth."
+      },
+      "budget": {
+        "hint": "Lowest cost. May miss details."
+      },
+      "experimental": {
+        "label": "Open Beta",
+        "hint": "Open-source beta. Results vary."
+      }
+    },
+    "allModelsLink": "All models ({count})",
+    "allModelsList": "All models",
+    "autonomySubtitle": "what it may do alone",
+    "modelSubtitle": "cost from model tier",
+    "balancedSummary": "Good for most work."
   }
 }

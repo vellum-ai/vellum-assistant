@@ -675,24 +675,6 @@
     "storeSecurely": "安全存储",
     "warningTitle": "这看起来像一个 API 密钥"
   },
-  "composerSettingsMenu": {
-    "autoPreview": "自动 · {profile}",
-    "accessAria": "助手访问权限：{label}",
-    "assistantAccess": "助手访问权限",
-    "assistantAccessTitle": "助手访问权限",
-    "compactAria": "助手访问权限和模型配置文件",
-    "compactAriaWithSummary": "助手访问权限和模型配置文件：{summary}",
-    "defaultLabel": "{label} (默认)",
-    "defaultSuffix": "(默认)",
-    "loadingProfiles": "正在加载配置文件…",
-    "modelProfile": "模型配置文件",
-    "modelProfileTitle": "模型配置文件",
-    "profileAria": "模型配置文件：{label}",
-    "profileAriaFallback": "模型配置文件",
-    "profileSwitchFailed": "配置文件已创建，但无法切换到它",
-    "profileSwitchFallback": "切换配置文件失败。请重试。",
-    "quickAdd": "新建模型"
-  },
   "confirmationActions": {
     "submitFailed": "提交确认失败。请重试。",
     "submitFailedRuleAvailable": "提交确认失败，但您仍然可以创建规则。"
@@ -2270,5 +2252,73 @@
     "confirm": "继续",
     "cancel": "取消",
     "always": "始终开始"
+  },
+  "composerConfiguration": {
+    "title": "附件与设置",
+    "close": "关闭设置",
+    "back": "返回",
+    "allModes": "所有模型 · {count}",
+    "newMode": "新建",
+    "builtIn": "内置",
+    "yours": "自定义",
+    "beta": "测试版",
+    "noModes": "没有可用模型。",
+    "autonomyTitle": "自主程度",
+    "modeTitle": "模型",
+    "loading": "加载中",
+    "more": "更多（{count}）",
+    "customHint": "自定义 · {model}",
+    "preferencesFailed": "无法保存偏好设置。请重试。",
+    "saveFailed": "无法保存此设置。请重试。",
+    "preferencesUnavailable": "偏好设置暂不可用。连接恢复后请重试。",
+    "updateRequired": "更新助手以同步偏好设置，并在第一条消息前选择自主程度。",
+    "camera": "相机",
+    "photos": "照片",
+    "files": "文件",
+    "attach": "添加附件",
+    "autonomy": {
+      "none": {
+        "label": "锁定",
+        "hint": "操作前先询问。"
+      },
+      "low": {
+        "label": "谨慎",
+        "hint": "处理低风险任务和编辑。"
+      },
+      "medium": {
+        "label": "信任",
+        "hint": "高风险操作前会询问。"
+      },
+      "high": {
+        "label": "免确认",
+        "hint": "在访问权限范围内自动批准。"
+      }
+    },
+    "modes": {
+      "auto": {
+        "hint": "为每项任务选择模型。"
+      },
+      "balanced": {
+        "hint": "兼顾速度、深度和费用。"
+      },
+      "quality": {
+        "hint": "更深入，速度更慢、费用更高。"
+      },
+      "fast": {
+        "hint": "更快、更便宜，深度较低。"
+      },
+      "budget": {
+        "hint": "费用最低，可能遗漏细节。"
+      },
+      "experimental": {
+        "label": "开放测试",
+        "hint": "开源测试版，结果可能不稳定。"
+      }
+    },
+    "allModelsLink": "所有模型（{count}）",
+    "allModelsList": "所有模型",
+    "autonomySubtitle": "可独立执行的操作",
+    "modelSubtitle": "费用取决于模型档位",
+    "balancedSummary": "适合大多数任务。"
   }
 }

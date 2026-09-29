@@ -1,3 +1,4 @@
+import type { GlobalThresholds } from "@/lib/threshold-api";
 /**
  * App-level Zustand store for client-side conversation state.
  *
@@ -216,6 +217,8 @@ export interface ConversationListState {
    * each one's selection; entries are removed once applied and on reset.
    */
   pendingDraftProfiles: Map<string, string>;
+  pendingDraftAutonomy: Map<string, GlobalThresholds["interactive"]>;
+  initializedDraftComposerIds: Set<string>;
   /**
    * Plugins picked in the composer for conversations that have no server row
    * loaded yet, keyed by conversation id → the set of selected plugin ids.
@@ -299,6 +302,12 @@ export interface ConversationListActions {
   // --- Pending draft profiles ---
   setPendingDraftProfile: (conversationId: string, profile: string) => void;
   /** Remove the stash for a single conversation id (no-op when absent). */
+  initializeDraftComposer: (id: string) => void;
+  setPendingDraftAutonomy: (
+    id: string,
+    threshold: GlobalThresholds["interactive"],
+  ) => void;
+  clearPendingDraftAutonomy: (id: string) => void;
   clearPendingDraftProfile: (conversationId: string) => void;
 
   // --- Pending draft plugins ---
@@ -331,6 +340,8 @@ const INITIAL_STATE: ConversationListState = {
   attentionConversationIds: new Set(),
   draftConversationIds: new Set(),
   pendingDraftProfiles: new Map(),
+  pendingDraftAutonomy: new Map(),
+  initializedDraftComposerIds: new Set(),
   pendingDraftPlugins: new Map(),
   draftReplacements: readStoredDraftReplacements(),
 };
@@ -502,6 +513,30 @@ export const useConversationStore = createSelectors(
       });
     },
 
+    initializeDraftComposer: (id) => {
+      set({
+        initializedDraftComposerIds: new Set(
+          get().initializedDraftComposerIds,
+        ).add(id),
+      });
+    },
+    setPendingDraftAutonomy: (id, threshold) => {
+      if (get().pendingDraftAutonomy.get(id) === threshold) {
+        return;
+      }
+      set({
+        pendingDraftAutonomy: new Map(get().pendingDraftAutonomy).set(
+          id,
+          threshold,
+        ),
+      });
+    },
+    clearPendingDraftAutonomy: (id) => {
+      set({
+        pendingDraftAutonomy: deleteFromMap(get().pendingDraftAutonomy, id),
+      });
+    },
+
     clearPendingDraftProfile: (conversationId) => {
       const current = get().pendingDraftProfiles;
       // No-op when absent so subscribers don't re-render needlessly. Scoped to
@@ -581,6 +616,8 @@ export const useConversationStore = createSelectors(
         attentionConversationIds: new Set(),
         draftConversationIds: new Set(),
         pendingDraftProfiles: new Map(),
+        pendingDraftAutonomy: new Map(),
+        initializedDraftComposerIds: new Set(),
         pendingDraftPlugins: new Map(),
         draftReplacements: new Map(),
       });

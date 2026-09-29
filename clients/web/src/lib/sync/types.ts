@@ -2,6 +2,7 @@ export const SYNC_TAGS = {
   assistantAvatar: "assistant:self:avatar",
   assistantIdentity: "assistant:self:identity",
   assistantConfig: "assistant:self:config",
+  assistantComposerPreferences: "assistant:self:composerPreferences",
   assistantSounds: "assistant:self:sounds",
   assistantSchedules: "assistant:self:schedules",
   assistantDesktop: "assistant:self:desktop",
@@ -27,10 +28,13 @@ export type KnownSyncInvalidationTag =
   (typeof SYNC_TAGS)[keyof typeof SYNC_TAGS];
 
 export type ConversationSyncInvalidationTag =
-  `conversation:${string}:metadata` | `conversation:${string}:messages`;
+  | `conversation:${string}:metadata`
+  | `conversation:${string}:messages`;
 
 export type SyncInvalidationTag =
-  KnownSyncInvalidationTag | ConversationSyncInvalidationTag | (string & {});
+  | KnownSyncInvalidationTag
+  | ConversationSyncInvalidationTag
+  | (string & {});
 
 export interface SyncChangedEvent {
   type: "sync_changed";

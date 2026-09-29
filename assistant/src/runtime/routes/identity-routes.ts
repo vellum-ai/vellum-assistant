@@ -160,6 +160,7 @@ async function getDetailedHealth() {
       retryLastTurn: true,
       appPins: true,
       chatsSettings: true,
+      composerSettings: true,
     },
     ...(profiler ? { profiler } : {}),
     ...migrationHealthFields,
@@ -280,6 +281,7 @@ const healthCapabilitiesSchema = z.object({
   retryLastTurn: z.boolean(),
   appPins: z.boolean(),
   chatsSettings: z.boolean().optional(),
+  composerSettings: z.boolean().optional(),
 });
 
 const healthDiskSchema = z.object({

@@ -91,6 +91,8 @@ export interface CatalogModel {
    * client catalog (see scripts/sync-llm-catalog.ts).
    */
   supportsForcedToolChoiceWithThinking?: boolean;
+  /** Relative model price: 1 (lower), 2 (moderate), 3 (higher). */
+  costTier?: 1 | 2 | 3;
   pricing?: CatalogModelPricing;
   /**
    * Upper bound for `reasoning_effort` accepted by this model's upstream API.
@@ -220,6 +222,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 3,
         pricing: {
           inputPer1mTokens: 10,
           outputPer1mTokens: 50,
@@ -238,6 +241,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 3,
         pricing: {
           inputPer1mTokens: 10,
           outputPer1mTokens: 50,
@@ -256,6 +260,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 3,
         pricing: {
           inputPer1mTokens: 4,
           outputPer1mTokens: 20,
@@ -273,6 +278,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 3,
         pricing: {
           inputPer1mTokens: 5,
           outputPer1mTokens: 25,
@@ -290,6 +296,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 3,
         pricing: {
           inputPer1mTokens: 5,
           outputPer1mTokens: 25,
@@ -307,6 +314,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 3,
         pricing: {
           inputPer1mTokens: 5,
           outputPer1mTokens: 25,
@@ -324,6 +332,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 3,
         pricing: {
           inputPer1mTokens: 5,
           outputPer1mTokens: 25,
@@ -342,6 +351,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 2,
         pricing: {
           inputPer1mTokens: 2,
           outputPer1mTokens: 10,
@@ -361,6 +371,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsToolUse: true,
         // Introductory pricing in effect through 2026-08-31 ($2/$10 vs the
         // $3/$15 standard rate). Bump to standard once the intro window ends.
+        costTier: 2,
         pricing: {
           inputPer1mTokens: 2,
           outputPer1mTokens: 10,
@@ -378,6 +389,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 3,
         pricing: {
           inputPer1mTokens: 3,
           outputPer1mTokens: 15,
@@ -396,6 +408,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 3,
         pricing: {
           inputPer1mTokens: 3,
           outputPer1mTokens: 15,
@@ -413,6 +426,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 3,
         pricing: {
           inputPer1mTokens: 5,
           outputPer1mTokens: 25,
@@ -430,6 +444,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 2,
         pricing: {
           inputPer1mTokens: 1,
           outputPer1mTokens: 5,
@@ -476,6 +491,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsPromptCacheBreakpoints: true,
         maxEffort: "max",
         supportedEfforts: ["low", "medium", "high", "xhigh", "max"],
+        costTier: 3,
         pricing: {
           inputPer1mTokens: 10.0,
           outputPer1mTokens: 50.0,
@@ -506,6 +522,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsPromptCacheBreakpoints: true,
         maxEffort: "max",
         supportedEfforts: ["low", "medium", "high", "xhigh", "max"],
+        costTier: 2,
         pricing: {
           inputPer1mTokens: 2,
           outputPer1mTokens: 10,
@@ -536,6 +553,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsPromptCacheBreakpoints: true,
         maxEffort: "max",
         supportedEfforts: ["low", "medium", "high", "xhigh", "max"],
+        costTier: 1,
         pricing: {
           inputPer1mTokens: 0.1,
           outputPer1mTokens: 0.5,
@@ -570,6 +588,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsVision: true,
         supportsToolUse: true,
         supportsPromptCacheBreakpoints: true,
+        costTier: 3,
         pricing: {
           inputPer1mTokens: 5.0,
           outputPer1mTokens: 30.0,
@@ -598,6 +617,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsVision: true,
         supportsToolUse: true,
         supportsPromptCacheBreakpoints: true,
+        costTier: 2,
         pricing: {
           inputPer1mTokens: 2.0,
           outputPer1mTokens: 12.0,
@@ -626,6 +646,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsVision: true,
         supportsToolUse: true,
         supportsPromptCacheBreakpoints: true,
+        costTier: 1,
         pricing: {
           inputPer1mTokens: 0.2,
           outputPer1mTokens: 1.2,
@@ -653,6 +674,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 3,
         pricing: {
           inputPer1mTokens: 5.0,
           outputPer1mTokens: 30.0,
@@ -678,6 +700,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 3,
         pricing: {
           inputPer1mTokens: 30.0,
           outputPer1mTokens: 180.0,
@@ -701,6 +724,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 3,
         pricing: {
           inputPer1mTokens: 2.5,
           outputPer1mTokens: 15.0,
@@ -724,6 +748,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 3,
         pricing: {
           inputPer1mTokens: 1.75,
           outputPer1mTokens: 14.0,
@@ -739,6 +764,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 2,
         pricing: {
           inputPer1mTokens: 0.75,
           outputPer1mTokens: 4.5,
@@ -754,6 +780,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 1,
         pricing: {
           inputPer1mTokens: 0.2,
           outputPer1mTokens: 1.25,
@@ -790,6 +817,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 2,
         pricing: {
           inputPer1mTokens: 1.5,
           outputPer1mTokens: 7.5,
@@ -806,6 +834,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 2,
         pricing: {
           inputPer1mTokens: 1.5,
           outputPer1mTokens: 7.5,
@@ -821,6 +850,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 2,
         pricing: {
           inputPer1mTokens: 1.5,
           outputPer1mTokens: 7.5,
@@ -836,6 +866,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 2,
         pricing: {
           inputPer1mTokens: 1.5,
           outputPer1mTokens: 9.0,
@@ -851,6 +882,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 1,
         pricing: {
           inputPer1mTokens: 0.3,
           outputPer1mTokens: 2.5,
@@ -868,6 +900,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 2,
         pricing: {
           inputPer1mTokens: 2.0,
           outputPer1mTokens: 12.0,
@@ -893,6 +926,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 2,
         pricing: {
           inputPer1mTokens: 2.0,
           outputPer1mTokens: 12.0,
@@ -916,6 +950,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 1,
         pricing: {
           inputPer1mTokens: 0.5,
           outputPer1mTokens: 3.0,
@@ -931,6 +966,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 1,
         pricing: {
           inputPer1mTokens: 0.25,
           outputPer1mTokens: 1.5,
@@ -946,6 +982,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 1,
         pricing: {
           inputPer1mTokens: 0.25,
           outputPer1mTokens: 1.5,
@@ -961,6 +998,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 1,
         pricing: {
           inputPer1mTokens: 0.3,
           outputPer1mTokens: 2.5,
@@ -979,6 +1017,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 1,
         pricing: {
           inputPer1mTokens: 0.1,
           outputPer1mTokens: 0.4,
@@ -995,6 +1034,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 2,
         pricing: {
           inputPer1mTokens: 1.25,
           outputPer1mTokens: 10.0,
@@ -1074,6 +1114,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 3,
         pricing: {
           inputPer1mTokens: 3,
           outputPer1mTokens: 15,
@@ -1097,6 +1138,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsToolUse: true,
         maxEffort: "max",
         supportedEfforts: ["low", "high", "max"],
+        costTier: 2,
         pricing: {
           inputPer1mTokens: 1.4,
           outputPer1mTokens: 4.4,
@@ -1116,6 +1158,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsToolUse: true,
         maxEffort: "max",
         supportedEfforts: ["low", "high", "max"],
+        costTier: 1,
         pricing: {
           inputPer1mTokens: 0.15,
           outputPer1mTokens: 0.5,
@@ -1141,6 +1184,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsVision: true,
         supportsToolUse: true,
         maxEffort: "high",
+        costTier: 1,
         pricing: {
           inputPer1mTokens: 0.3,
           outputPer1mTokens: 1.2,
@@ -1167,6 +1211,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsVision: true,
         supportsToolUse: true,
         maxEffort: "max",
+        costTier: 1,
         pricing: {
           inputPer1mTokens: 0.3,
           outputPer1mTokens: 1.2,
@@ -1204,6 +1249,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsVision: true,
         supportsToolUse: true,
         maxEffort: "high",
+        costTier: 1,
         pricing: {
           inputPer1mTokens: 0.3,
           outputPer1mTokens: 1.2,
@@ -1243,6 +1289,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 3,
         pricing: {
           inputPer1mTokens: 10,
           outputPer1mTokens: 50,
@@ -1261,6 +1308,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 3,
         pricing: {
           inputPer1mTokens: 10,
           outputPer1mTokens: 50,
@@ -1279,6 +1327,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 3,
         pricing: {
           inputPer1mTokens: 4,
           outputPer1mTokens: 20,
@@ -1296,6 +1345,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 3,
         pricing: {
           inputPer1mTokens: 5,
           outputPer1mTokens: 25,
@@ -1313,6 +1363,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 3,
         pricing: {
           inputPer1mTokens: 5,
           outputPer1mTokens: 25,
@@ -1330,6 +1381,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 3,
         pricing: {
           inputPer1mTokens: 5,
           outputPer1mTokens: 25,
@@ -1347,6 +1399,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 3,
         pricing: {
           inputPer1mTokens: 5,
           outputPer1mTokens: 25,
@@ -1365,6 +1418,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 2,
         pricing: {
           inputPer1mTokens: 2,
           outputPer1mTokens: 10,
@@ -1384,6 +1438,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsToolUse: true,
         // Introductory pricing in effect through 2026-08-31 ($2/$10 vs the
         // $3/$15 standard rate). Bump to standard once the intro window ends.
+        costTier: 2,
         pricing: {
           inputPer1mTokens: 2,
           outputPer1mTokens: 10,
@@ -1401,6 +1456,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 3,
         pricing: {
           inputPer1mTokens: 3,
           outputPer1mTokens: 15,
@@ -1418,6 +1474,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 3,
         pricing: {
           inputPer1mTokens: 3,
           outputPer1mTokens: 15,
@@ -1435,6 +1492,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 3,
         pricing: {
           inputPer1mTokens: 5,
           outputPer1mTokens: 25,
@@ -1452,6 +1510,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 2,
         pricing: {
           inputPer1mTokens: 1,
           outputPer1mTokens: 5,
@@ -1480,6 +1539,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsPromptCacheBreakpoints: true,
         maxEffort: "max",
         supportedEfforts: ["low", "medium", "high", "xhigh", "max"],
+        costTier: 3,
         pricing: {
           inputPer1mTokens: 10.0,
           outputPer1mTokens: 50.0,
@@ -1510,6 +1570,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsPromptCacheBreakpoints: true,
         maxEffort: "max",
         supportedEfforts: ["low", "medium", "high", "xhigh", "max"],
+        costTier: 3,
         pricing: {
           inputPer1mTokens: 10.0,
           outputPer1mTokens: 50.0,
@@ -1540,6 +1601,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsPromptCacheBreakpoints: true,
         maxEffort: "max",
         supportedEfforts: ["low", "medium", "high", "xhigh", "max"],
+        costTier: 2,
         pricing: {
           inputPer1mTokens: 2,
           outputPer1mTokens: 10,
@@ -1570,6 +1632,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsPromptCacheBreakpoints: true,
         maxEffort: "max",
         supportedEfforts: ["low", "medium", "high", "xhigh", "max"],
+        costTier: 2,
         pricing: {
           inputPer1mTokens: 2,
           outputPer1mTokens: 10,
@@ -1600,6 +1663,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsPromptCacheBreakpoints: true,
         maxEffort: "max",
         supportedEfforts: ["low", "medium", "high", "xhigh", "max"],
+        costTier: 1,
         pricing: {
           inputPer1mTokens: 0.1,
           outputPer1mTokens: 0.5,
@@ -1630,6 +1694,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsPromptCacheBreakpoints: true,
         maxEffort: "max",
         supportedEfforts: ["low", "medium", "high", "xhigh", "max"],
+        costTier: 1,
         pricing: {
           inputPer1mTokens: 0.1,
           outputPer1mTokens: 0.5,
@@ -1671,6 +1736,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsVision: true,
         supportsToolUse: true,
         supportsPromptCacheBreakpoints: true,
+        costTier: 2,
         pricing: {
           inputPer1mTokens: 2.0,
           outputPer1mTokens: 10.0,
@@ -1699,6 +1765,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsVision: true,
         supportsToolUse: true,
         supportsPromptCacheBreakpoints: true,
+        costTier: 2,
         pricing: {
           inputPer1mTokens: 2.0,
           outputPer1mTokens: 10.0,
@@ -1727,6 +1794,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsVision: true,
         supportsToolUse: true,
         supportsPromptCacheBreakpoints: true,
+        costTier: 2,
         pricing: {
           inputPer1mTokens: 2.0,
           outputPer1mTokens: 12.0,
@@ -1755,6 +1823,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsVision: true,
         supportsToolUse: true,
         supportsPromptCacheBreakpoints: true,
+        costTier: 2,
         pricing: {
           inputPer1mTokens: 2.0,
           outputPer1mTokens: 12.0,
@@ -1783,6 +1852,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsVision: true,
         supportsToolUse: true,
         supportsPromptCacheBreakpoints: true,
+        costTier: 1,
         pricing: {
           inputPer1mTokens: 0.2,
           outputPer1mTokens: 1.2,
@@ -1811,6 +1881,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsVision: true,
         supportsToolUse: true,
         supportsPromptCacheBreakpoints: true,
+        costTier: 1,
         pricing: {
           inputPer1mTokens: 0.2,
           outputPer1mTokens: 1.2,
@@ -1845,6 +1916,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsVision: true,
         supportsToolUse: true,
         longContextPricingThresholdTokens: 200000,
+        costTier: 2,
         pricing: {
           inputPer1mTokens: 2,
           outputPer1mTokens: 6,
@@ -1873,6 +1945,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         // xAI's Grok 4.5 API accepts only low|medium|high reasoning effort;
         // clamp Vellum's xhigh/max tiers down so inherited efforts don't 4xx.
         maxEffort: "high",
+        costTier: 2,
         pricing: {
           inputPer1mTokens: 2,
           outputPer1mTokens: 6,
@@ -1888,6 +1961,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: false,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 1,
         pricing: {
           inputPer1mTokens: 1.25,
           outputPer1mTokens: 2.5,
@@ -1903,6 +1977,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: false,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 1,
         pricing: {
           inputPer1mTokens: 1.25,
           outputPer1mTokens: 2.5,
@@ -1919,6 +1994,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: false,
         supportsToolUse: true,
+        costTier: 1,
         pricing: {
           inputPer1mTokens: 0.579072,
           outputPer1mTokens: 1.158144,
@@ -1938,6 +2014,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         // model. DeepSeek serves no OpenRouter endpoint of its own, so the
         // card carries whichever reseller holds the default route rather than
         // a first-party rate. An estimate, not a quote.
+        costTier: 1,
         pricing: {
           inputPer1mTokens: 0.14,
           outputPer1mTokens: 0.28,
@@ -1953,6 +2030,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: false,
         supportsToolUse: true,
+        costTier: 1,
         pricing: {
           inputPer1mTokens: 0.5,
           outputPer1mTokens: 2.15,
@@ -1968,6 +2046,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: false,
         supportsVision: false,
         supportsToolUse: true,
+        costTier: 1,
         pricing: { inputPer1mTokens: 0.25, outputPer1mTokens: 1.0 },
       },
       // Qwen
@@ -1980,6 +2059,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: false,
         supportsVision: false,
         supportsToolUse: true,
+        costTier: 1,
         pricing: { inputPer1mTokens: 0.26, outputPer1mTokens: 1.56 },
       },
       {
@@ -1991,6 +2071,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: false,
         supportsToolUse: true,
+        costTier: 2,
         pricing: {
           inputPer1mTokens: 0.5,
           outputPer1mTokens: 3.6,
@@ -2006,6 +2087,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: false,
         supportsVision: false,
         supportsToolUse: true,
+        costTier: 1,
         pricing: { inputPer1mTokens: 0.065, outputPer1mTokens: 0.26 },
       },
       {
@@ -2017,6 +2099,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: false,
         supportsToolUse: true,
+        costTier: 1,
         pricing: {
           inputPer1mTokens: 0.12,
           outputPer1mTokens: 0.8,
@@ -2034,6 +2117,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 3,
         pricing: {
           inputPer1mTokens: 3,
           outputPer1mTokens: 15,
@@ -2050,6 +2134,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsVision: true,
         supportsToolUse: true,
         supportsForcedToolChoiceWithThinking: false,
+        costTier: 2,
         pricing: {
           inputPer1mTokens: 0.95,
           outputPer1mTokens: 4.0,
@@ -2065,6 +2150,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: false,
         supportsToolUse: true,
+        costTier: 1,
         pricing: {
           inputPer1mTokens: 0.6,
           outputPer1mTokens: 3.0,
@@ -2083,6 +2169,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 1,
         pricing: {
           inputPer1mTokens: 0.3,
           outputPer1mTokens: 1.2,
@@ -2098,6 +2185,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: false,
         supportsToolUse: true,
+        costTier: 1,
         pricing: {
           inputPer1mTokens: 0.3,
           outputPer1mTokens: 1.2,
@@ -2113,6 +2201,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: false,
         supportsToolUse: true,
+        costTier: 1,
         pricing: {
           inputPer1mTokens: 0.27,
           outputPer1mTokens: 1.08,
@@ -2128,6 +2217,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: false,
         supportsToolUse: true,
+        costTier: 1,
         pricing: {
           inputPer1mTokens: 0.3,
           outputPer1mTokens: 1.2,
@@ -2143,6 +2233,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: false,
         supportsVision: false,
         supportsToolUse: true,
+        costTier: 1,
         pricing: { inputPer1mTokens: 0.255, outputPer1mTokens: 1.02 },
       },
       {
@@ -2154,6 +2245,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: false,
         supportsToolUse: false,
+        costTier: 1,
         pricing: {
           inputPer1mTokens: 0.3,
           outputPer1mTokens: 1.2,
@@ -2169,6 +2261,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: false,
         supportsVision: false,
         supportsToolUse: true,
+        costTier: 1,
         pricing: { inputPer1mTokens: 0.55, outputPer1mTokens: 2.2 },
       },
       {
@@ -2180,6 +2273,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: false,
         supportsVision: true,
         supportsToolUse: false,
+        costTier: 1,
         pricing: { inputPer1mTokens: 0.2, outputPer1mTokens: 1.1 },
       },
       // Z.ai
@@ -2192,6 +2286,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: false,
         supportsToolUse: true,
+        costTier: 2,
         pricing: {
           inputPer1mTokens: 1.4,
           outputPer1mTokens: 4.4,
@@ -2207,6 +2302,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 1,
         pricing: {
           inputPer1mTokens: 0.075,
           outputPer1mTokens: 0.25,
@@ -2222,6 +2318,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: false,
         supportsToolUse: true,
+        costTier: 2,
         pricing: {
           inputPer1mTokens: 1.19,
           outputPer1mTokens: 3.74,
@@ -2238,6 +2335,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: false,
         supportsToolUse: true,
+        costTier: 1,
         pricing: {
           inputPer1mTokens: 0.4,
           outputPer1mTokens: 2.0,
@@ -2253,6 +2351,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: false,
         supportsToolUse: true,
+        costTier: 1,
         pricing: {
           inputPer1mTokens: 0.15,
           outputPer1mTokens: 0.6,
@@ -2269,6 +2368,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: false,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 1,
         pricing: { inputPer1mTokens: 0.2, outputPer1mTokens: 0.8 },
       },
       {
@@ -2280,6 +2380,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: false,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 1,
         pricing: { inputPer1mTokens: 0.1, outputPer1mTokens: 0.3 },
       },
       // Amazon
@@ -2292,6 +2393,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: false,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 2,
         pricing: { inputPer1mTokens: 0.8, outputPer1mTokens: 3.2 },
       },
     ],
@@ -2332,6 +2434,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 3,
         pricing: {
           inputPer1mTokens: 10,
           outputPer1mTokens: 50,
@@ -2350,6 +2453,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 3,
         pricing: {
           inputPer1mTokens: 10,
           outputPer1mTokens: 50,
@@ -2368,6 +2472,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 3,
         pricing: {
           inputPer1mTokens: 4,
           outputPer1mTokens: 20,
@@ -2385,6 +2490,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 3,
         pricing: {
           inputPer1mTokens: 5,
           outputPer1mTokens: 25,
@@ -2402,6 +2508,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 3,
         pricing: {
           inputPer1mTokens: 5,
           outputPer1mTokens: 25,
@@ -2419,6 +2526,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 3,
         pricing: {
           inputPer1mTokens: 5,
           outputPer1mTokens: 25,
@@ -2437,6 +2545,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 2,
         pricing: {
           inputPer1mTokens: 2,
           outputPer1mTokens: 10,
@@ -2456,6 +2565,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsToolUse: true,
         // Introductory pricing in effect through 2026-08-31 ($2/$10 vs the
         // $3/$15 standard rate). Bump to standard once the intro window ends.
+        costTier: 2,
         pricing: {
           inputPer1mTokens: 2,
           outputPer1mTokens: 10,
@@ -2473,6 +2583,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 3,
         pricing: {
           inputPer1mTokens: 3,
           outputPer1mTokens: 15,
@@ -2490,6 +2601,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 2,
         pricing: {
           inputPer1mTokens: 1,
           outputPer1mTokens: 5,
@@ -2509,6 +2621,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 3,
         pricing: {
           inputPer1mTokens: 5.0,
           outputPer1mTokens: 30.0,
@@ -2534,6 +2647,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 3,
         pricing: {
           inputPer1mTokens: 30.0,
           outputPer1mTokens: 180.0,
@@ -2556,6 +2670,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: false,
         supportsVision: true,
         supportsToolUse: true,
+        costTier: 1,
         pricing: { inputPer1mTokens: 1.25, outputPer1mTokens: 2.5 },
       },
       // Moonshot
@@ -2569,6 +2684,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsVision: true,
         supportsToolUse: true,
         // Gateway list rate (blended across routed upstreams).
+        costTier: 2,
         pricing: { inputPer1mTokens: 0.95, outputPer1mTokens: 4.0 },
       },
       // DeepSeek
@@ -2581,6 +2697,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: false,
         supportsVision: false,
         supportsToolUse: true,
+        costTier: 1,
         pricing: { inputPer1mTokens: 0.14, outputPer1mTokens: 0.28 },
       },
     ],
@@ -2735,6 +2852,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         // Baseten's reasoning_effort for Inkling tops out at "xhigh" (no
         // "max"), matching the chat-completions client's default ceiling.
         maxEffort: "xhigh",
+        costTier: 2,
         pricing: {
           inputPer1mTokens: 1.0,
           outputPer1mTokens: 4.05,
@@ -2850,6 +2968,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsVision: false,
         supportsToolUse: false,
         supportsText: false,
+        costTier: 1,
         pricing: { inputPer1mTokens: 0.042, outputPer1mTokens: 0 },
       },
     ],
@@ -2876,6 +2995,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: false,
         supportsVision: false,
         supportsToolUse: true,
+        costTier: 1,
         pricing: { inputPer1mTokens: 0.3, outputPer1mTokens: 0.3 },
         featureFlag: "vellum-hosted-inference",
       },

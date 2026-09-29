@@ -5835,6 +5835,185 @@ paths:
                 required:
                   - recorded
                 additionalProperties: false
+  /v1/composer/settings:
+    get:
+      operationId: composer_settings_get
+      summary: Get the current user's composer preferences and relative model costs
+      tags:
+        - settings
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  preferences:
+                    type: object
+                    properties:
+                      favoriteModeIds:
+                        default: []
+                        maxItems: 5
+                        type: array
+                        items:
+                          type: string
+                          minLength: 1
+                          maxLength: 200
+                      lastModeId:
+                        default: null
+                        anyOf:
+                          - type: string
+                            minLength: 1
+                            maxLength: 200
+                          - type: "null"
+                      lastAutonomy:
+                        default: null
+                        anyOf:
+                          - type: string
+                            enum:
+                              - none
+                              - low
+                              - medium
+                              - high
+                          - type: "null"
+                    required:
+                      - favoriteModeIds
+                      - lastModeId
+                      - lastAutonomy
+                    additionalProperties: false
+                  modeCosts:
+                    type: object
+                    propertyNames:
+                      type: string
+                    additionalProperties:
+                      type: object
+                      properties:
+                        kind:
+                          type: string
+                          enum:
+                            - tier
+                            - varies
+                            - unknown
+                        tier:
+                          anyOf:
+                            - type: number
+                              const: 1
+                            - type: number
+                              const: 2
+                            - type: number
+                              const: 3
+                      required:
+                        - kind
+                      additionalProperties: false
+                required:
+                  - preferences
+                  - modeCosts
+                additionalProperties: false
+    patch:
+      operationId: composer_settings_patch
+      summary: Update the current user's composer preferences
+      tags:
+        - settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                favoriteModeIds:
+                  maxItems: 5
+                  type: array
+                  items:
+                    type: string
+                    minLength: 1
+                    maxLength: 200
+                lastModeId:
+                  anyOf:
+                    - type: string
+                      minLength: 1
+                      maxLength: 200
+                    - type: "null"
+                lastAutonomy:
+                  anyOf:
+                    - type: string
+                      enum:
+                        - none
+                        - low
+                        - medium
+                        - high
+                    - type: "null"
+              additionalProperties: false
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  preferences:
+                    type: object
+                    properties:
+                      favoriteModeIds:
+                        default: []
+                        maxItems: 5
+                        type: array
+                        items:
+                          type: string
+                          minLength: 1
+                          maxLength: 200
+                      lastModeId:
+                        default: null
+                        anyOf:
+                          - type: string
+                            minLength: 1
+                            maxLength: 200
+                          - type: "null"
+                      lastAutonomy:
+                        default: null
+                        anyOf:
+                          - type: string
+                            enum:
+                              - none
+                              - low
+                              - medium
+                              - high
+                          - type: "null"
+                    required:
+                      - favoriteModeIds
+                      - lastModeId
+                      - lastAutonomy
+                    additionalProperties: false
+                  modeCosts:
+                    type: object
+                    propertyNames:
+                      type: string
+                    additionalProperties:
+                      type: object
+                      properties:
+                        kind:
+                          type: string
+                          enum:
+                            - tier
+                            - varies
+                            - unknown
+                        tier:
+                          anyOf:
+                            - type: number
+                              const: 1
+                            - type: number
+                              const: 2
+                            - type: number
+                              const: 3
+                      required:
+                        - kind
+                      additionalProperties: false
+                required:
+                  - preferences
+                  - modeCosts
+                additionalProperties: false
   /v1/config:
     get:
       operationId: config_get
@@ -14471,6 +14650,8 @@ paths:
                         type: boolean
                       chatsSettings:
                         type: boolean
+                      composerSettings:
+                        type: boolean
                     required:
                       - memoryOptOut
                       - retryLastTurn
@@ -14706,6 +14887,8 @@ paths:
                       appPins:
                         type: boolean
                       chatsSettings:
+                        type: boolean
+                      composerSettings:
                         type: boolean
                     required:
                       - memoryOptOut

@@ -678,24 +678,6 @@
     "storeSecurely": "Guardar de forma segura",
     "warningTitle": "Esto parece una clave de API"
   },
-  "composerSettingsMenu": {
-    "autoPreview": "Auto · {profile}",
-    "accessAria": "Acceso del asistente: {label}",
-    "assistantAccess": "Acceso del asistente",
-    "assistantAccessTitle": "Acceso del asistente",
-    "compactAria": "Acceso del asistente y perfil del modelo",
-    "compactAriaWithSummary": "Acceso del asistente y perfil del modelo: {summary}",
-    "defaultLabel": "{label} (predeterminado)",
-    "defaultSuffix": "(predeterminado)",
-    "loadingProfiles": "Cargando perfiles…",
-    "modelProfile": "Perfil del modelo",
-    "modelProfileTitle": "Perfil del modelo",
-    "profileAria": "Perfil del modelo: {label}",
-    "profileAriaFallback": "Perfil del modelo",
-    "profileSwitchFailed": "Perfil creado, pero no se pudo cambiar a él",
-    "profileSwitchFallback": "No se pudo cambiar de perfil. Inténtalo de nuevo.",
-    "quickAdd": "Nuevo modelo"
-  },
   "confirmationActions": {
     "submitFailed": "No se pudo enviar la confirmación. Inténtalo de nuevo.",
     "submitFailedRuleAvailable": "No se pudo enviar la confirmación, pero aún puedes crear una regla."
@@ -2204,5 +2186,73 @@
     "confirm": "Continuar",
     "cancel": "Cancelar",
     "always": "Iniciar siempre"
+  },
+  "composerConfiguration": {
+    "title": "Archivos y ajustes",
+    "close": "Cerrar ajustes",
+    "back": "Atrás",
+    "allModes": "Todos los modelos · {count}",
+    "newMode": "Nuevo",
+    "builtIn": "Integrados",
+    "yours": "Personalizados",
+    "beta": "Beta",
+    "noModes": "No hay modelos disponibles.",
+    "autonomyTitle": "Autonomía",
+    "modeTitle": "Modelo",
+    "loading": "Cargando",
+    "more": "Más ({count})",
+    "customHint": "Personalizado · {model}",
+    "preferencesFailed": "No se pudieron guardar tus preferencias. Inténtalo de nuevo.",
+    "saveFailed": "No se pudo guardar este ajuste. Inténtalo de nuevo.",
+    "preferencesUnavailable": "Preferencias no disponibles. Inténtalo cuando vuelva la conexión.",
+    "updateRequired": "Actualiza tu asistente para sincronizar preferencias y elegir autonomía antes del primer mensaje.",
+    "camera": "Cámara",
+    "photos": "Fotos",
+    "files": "Archivos",
+    "attach": "Adjuntar archivos",
+    "autonomy": {
+      "none": {
+        "label": "Bloqueado",
+        "hint": "Pregunta antes de actuar."
+      },
+      "low": {
+        "label": "Cauteloso",
+        "hint": "Realiza tareas y ediciones de bajo riesgo."
+      },
+      "medium": {
+        "label": "De confianza",
+        "hint": "Pregunta antes de acciones de mayor riesgo."
+      },
+      "high": {
+        "label": "Sin supervisión",
+        "hint": "Aprueba dentro de los límites de acceso."
+      }
+    },
+    "modes": {
+      "auto": {
+        "hint": "Elige un modelo para cada tarea."
+      },
+      "balanced": {
+        "hint": "Equilibra velocidad, profundidad y costo."
+      },
+      "quality": {
+        "hint": "Más profundidad. Más lento y costoso."
+      },
+      "fast": {
+        "hint": "Más rápido y barato. Menor profundidad."
+      },
+      "budget": {
+        "hint": "El menor costo. Puede pasar por alto detalles."
+      },
+      "experimental": {
+        "label": "Beta abierta",
+        "hint": "Beta de código abierto. Resultados variables."
+      }
+    },
+    "allModelsLink": "Todos los modelos ({count})",
+    "allModelsList": "Todos los modelos",
+    "autonomySubtitle": "qué puede hacer por su cuenta",
+    "modelSubtitle": "costo según el modelo",
+    "balancedSummary": "Ideal para la mayoría de las tareas."
   }
 }

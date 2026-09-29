@@ -31,6 +31,7 @@ export interface ProfilePickerEntry {
   readonly provider?: ProfileEntry["provider"] | null;
   readonly model?: ProfileEntry["model"] | null;
   readonly mix?: ProfileEntry["mix"];
+  readonly description?: ProfileEntry["description"];
   readonly source?: ProfileEntry["source"];
 }
 

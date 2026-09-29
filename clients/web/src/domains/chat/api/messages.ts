@@ -483,6 +483,7 @@ export type PostChatMessageOptions = Pick<
   | "attachmentIds"
   | "clientMessageId"
   | "inferenceProfile"
+  | "riskThreshold"
   | "enabledPlugins"
   | "hidden"
   | "bypassSecretCheck"
@@ -524,6 +525,7 @@ export async function postChatMessage(
     onboarding,
     clientMessageId,
     inferenceProfile,
+    riskThreshold,
     enabledPlugins,
     hidden,
     bypassSecretCheck,
@@ -592,6 +594,9 @@ export async function postChatMessage(
   // sending. The daemon persists it as the conversation's `inferenceProfile`
   // override (see `conversation-routes.ts` `requestedInferenceProfile`). Omitted
   // otherwise so the conversation inherits the global default profile.
+  if (riskThreshold !== undefined) {
+    body.riskThreshold = riskThreshold;
+  }
   if (inferenceProfile) {
     body.inferenceProfile = inferenceProfile;
   }
@@ -820,7 +825,9 @@ function queuedMessageHeaders(conversationId: string) {
  * generation and promoting the message to the head of the queue.
  */
 export type SteerQueuedMessageResult =
-  "steered" | "not_steerable" | "request_failed";
+  | "steered"
+  | "not_steerable"
+  | "request_failed";
 
 export async function steerToMessage(
   assistantId: string,

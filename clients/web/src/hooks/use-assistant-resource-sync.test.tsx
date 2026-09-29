@@ -16,6 +16,7 @@ import {
   activationProgressGetQueryKey,
   appsGetQueryKey,
   configGetQueryKey,
+  composerSettingsGetQueryKey,
   documentsGetQueryKey,
   homeFeedGetQueryKey,
   homeStateGetQueryKey,
@@ -141,6 +142,28 @@ afterEach(() => {
 });
 
 describe("useAssistantResourceSync", () => {
+  test("composer preferences refresh settings and conversation autonomy", async () => {
+    const queryClient = freshQueryClient();
+    const spy = mock(() => Promise.resolve());
+    queryClient.invalidateQueries = spy;
+    renderHook(() => useAssistantResourceSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+    emit({
+      type: "sync_changed",
+      tags: [SYNC_TAGS.assistantComposerPreferences],
+    });
+    await waitFor(() => {
+      expect(spy).toHaveBeenCalledWith({
+        queryKey: composerSettingsGetQueryKey({
+          path: { assistant_id: "asst-1" },
+        }),
+      });
+      expect(spy).toHaveBeenCalledWith({
+        queryKey: ["conversationThresholdOverride", "asst-1"],
+      });
+    });
+  });
   test("does not fire when assistant is not active", () => {
     const queryClient = freshQueryClient();
     const spy = mock(() => Promise.resolve());
@@ -316,7 +339,8 @@ describe("useAssistantResourceSync", () => {
   test("invalidates app list queries on apps:list sync tag", async () => {
     const queryClient = freshQueryClient();
     let predicate:
-      ((query: { queryKey: readonly unknown[] }) => boolean) | undefined;
+      | ((query: { queryKey: readonly unknown[] }) => boolean)
+      | undefined;
     queryClient.invalidateQueries = ((arg: unknown) => {
       predicate = (
         arg as {
@@ -779,7 +803,8 @@ describe("useAssistantResourceSync", () => {
   test("invalidates home-feed query on home_feed_updated", async () => {
     const queryClient = freshQueryClient();
     let predicate:
-      ((query: { queryKey: readonly unknown[] }) => boolean) | undefined;
+      | ((query: { queryKey: readonly unknown[] }) => boolean)
+      | undefined;
     queryClient.invalidateQueries = ((arg: unknown) => {
       predicate = (
         arg as {

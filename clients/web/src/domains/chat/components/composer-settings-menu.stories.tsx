@@ -1,226 +1,254 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState, type ReactNode } from "react";
-import { expect, screen, userEvent, waitFor } from "storybook/test";
+import { expect, userEvent, within } from "storybook/test";
+import { useState, type SetStateAction } from "react";
+import { ComposerSettingsSurface } from "@/domains/chat/components/composer-settings-menu";
+import { composerConfigurationFixture } from "@/domains/chat/components/composer-configuration.test-utils";
+import { favoriteModes } from "@/domains/chat/utils/composer-configuration";
 
-import { HoverCapabilityOverride } from "@vellumai/design-library/utils/hover-capability";
-
-import { ProfileQuickAddProvider } from "@/components/profile-quick-add-provider";
-import { ComposerSettingsMenu } from "@/domains/chat/components/composer-settings-menu";
-import { configGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
-import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
-
-const ASSISTANT_ID = "asst-story";
-
-/**
- * Enough profiles to overflow the popover, which is the point of the story:
- * the list is capped at about seven rows and scrolls, rather than running off
- * the top of the composer.
- */
-const MANY_PROFILE_LABELS = [
-  "Balanced",
-  "OS Beta",
-  "Quality",
-  "Budget",
-  "Fast",
-  "Quality 5.5",
-  "Quality-Claude",
-  "GLM-5.2",
-  "GPT-5.6 Sol-low-thinking",
-  "Quality-Fable",
-  "Notch Fast",
-  "Deep Research",
-];
-
-const MANY_PROFILES: ProfileSeed[] = MANY_PROFILE_LABELS.map((label) => ({
-  label,
-}));
-
-/**
- * The tier-named profiles Vellum seeds, paired with the model each one pins.
- * Only these carry their model beside the row, since a tier name says nothing
- * about what is about to run.
- */
-const MANAGED_PROFILES: ProfileSeed[] = [
-  {
-    label: "Balanced",
-    source: "managed",
-    provider: "vellum",
-    model: "accounts/fireworks/models/glm-5p2",
-  },
-  {
-    label: "Quality",
-    source: "managed",
-    provider: "vellum",
-    model: "gpt-5.6-sol",
-  },
-  {
-    label: "Cost",
-    source: "managed",
-    provider: "vellum",
-    model: "accounts/fireworks/models/deepseek-v4p1-flash",
-  },
-  {
-    label: "Speed",
-    source: "managed",
-    provider: "vellum",
-    model: "gpt-5.6-luna",
-  },
-  { label: "GPT-5.6 Luna", source: "user" },
-];
-
-interface ProfileSeed {
-  label: string;
-  source?: "managed" | "user";
-  provider?: string;
-  model?: string;
-}
-
-function profileKey(label: string): string {
-  return label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-}
-
-function buildConfig(seeds: ProfileSeed[]) {
-  const profiles = Object.fromEntries(
-    seeds.map((seed) => [
-      profileKey(seed.label),
-      {
-        label: seed.label,
-        provider: seed.provider ?? "anthropic",
-        model: seed.model ?? "claude-opus-4-8",
-        source: seed.source ?? "user",
-        status: "active",
-      },
-    ]),
-  );
-  return {
-    llm: {
-      activeProfile: profileKey(seeds[0]?.label ?? "balanced"),
-      profileOrder: seeds.map((seed) => profileKey(seed.label)),
-      profiles,
+function useDemoConfiguration({
+  manyModes = false,
+  state: initialState = "ready",
+}: {
+  mobile?: boolean;
+  manyModes?: boolean;
+  state?: "ready" | "loading" | "legacy" | "unknown";
+}) {
+  const [state, setState] = useState(() => {
+    const base = composerConfigurationFixture();
+    if (initialState === "loading") {
+      base.costLoading = true;
+      base.modeReady = false;
+      base.autonomyReady = false;
+      base.autonomy = null;
+      base.mode = null;
+    }
+    if (initialState === "legacy") {
+      base.supportsPreferences = false;
+      base.preferencesAvailable = false;
+      base.modeCosts = undefined;
+    }
+    if (initialState === "unknown") {
+      base.modeCosts = undefined;
+    }
+    if (manyModes) {
+      base.profiles = [
+        ...base.profiles,
+        ...Array.from({ length: 3 }, (_, i) => ({
+          name: `custom-${i}`,
+          label: ["Research", "Creative", "Code"][i],
+          description: [
+            "Strong at synthesis. Slower, higher cost.",
+            "Expressive writing.",
+            "Built for coding.",
+          ][i],
+          provider: "anthropic" as const,
+          model: "claude-fable-5",
+          source: "user" as const,
+        })),
+      ];
+      base.allProfiles = base.profiles;
+      base.modeCosts = {
+        ...base.modeCosts,
+        "custom-0": { kind: "tier", tier: 3 },
+      };
+    }
+    return base;
+  });
+  const configuration = {
+    ...state,
+    favorites: favoriteModes(
+      state.preferences.favoriteModeIds,
+      state.profiles,
+      state.mode,
+    ),
+    selectMode: async (mode: string) => {
+      setState((current) => ({
+        ...current,
+        mode,
+        preferences: {
+          ...current.preferences,
+          favoriteModeIds: favoriteModes(
+            current.preferences.favoriteModeIds,
+            current.profiles,
+            mode,
+          ).map((entry) => entry.name),
+        },
+      }));
+      return true;
     },
+    selectAutonomy: async (autonomy: NonNullable<typeof state.autonomy>) => {
+      setState((current) => ({ ...current, autonomy }));
+      return true;
+    },
+  };
+  return {
+    ...configuration,
+    setOpen: (next: SetStateAction<boolean>) =>
+      setState((current) => {
+        const open = typeof next === "function" ? next(current.open) : next;
+        return { ...current, open };
+      }),
   };
 }
 
-/**
- * Seeds the config query the menu reads its profiles from, so the story needs
- * no daemon. The threshold fetches are left to fail: with no access level the
- * menu renders the profile segment alone, which is what these stories are of.
- */
-function SeedConfig({
-  seeds,
-  children,
-}: {
-  seeds: ProfileSeed[];
-  children: ReactNode;
-}) {
-  const queryClient = useQueryClient();
-  const [seeded, setSeeded] = useState(false);
-  useEffect(() => {
-    useResolvedAssistantsStore.setState({ activeAssistantId: ASSISTANT_ID });
-    queryClient.setQueryData(
-      configGetQueryKey({ path: { assistant_id: ASSISTANT_ID } }),
-      buildConfig(seeds),
-    );
-    setSeeded(true);
-  }, [queryClient, seeds]);
-  return seeded ? children : null;
+function SurfaceDemo(props: Parameters<typeof useDemoConfiguration>[0]) {
+  const { mobile = false } = props;
+  const configuration = useDemoConfiguration(props);
+  return (
+    <div className="flex min-h-screen flex-col justify-end bg-[var(--surface-base)] p-6">
+      <div className="max-w-3xl rounded-[18px] border border-[var(--border-subtle)] bg-[var(--surface-lift)] p-4">
+        <div className="h-16" />
+        <div className="flex items-center gap-2">
+          <ComposerSettingsSurface
+            mobile={mobile}
+            configuration={configuration}
+            disabled={false}
+            pickers={{
+              camera: () => {},
+              photos: () => {},
+              files: () => configuration.setOpen(false),
+            }}
+          />
+        </div>
+      </div>
+    </div>
+  );
 }
 
-const meta: Meta<typeof ComposerSettingsMenu> = {
+const meta = {
   title: "Chat/ComposerSettingsMenu",
-  component: ComposerSettingsMenu,
-  args: {
-    assistantId: ASSISTANT_ID,
-    conversationId: undefined,
-    segments: "profile",
-  },
-  parameters: {
-    // The popover opens upward from the composer, so the story needs room
-    // below the trigger the way the real action row has it.
-    layout: "fullscreen",
-  },
-  decorators: [
-    (Story, context) => (
-      <ProfileQuickAddProvider>
-        <SeedConfig seeds={context.parameters.profileSeeds ?? MANY_PROFILES}>
-          <div className="flex h-[560px] items-end justify-center p-6">
-            <Story />
-          </div>
-        </SeedConfig>
-      </ProfileQuickAddProvider>
-    ),
-  ],
-};
-
+  component: SurfaceDemo,
+  args: { manyModes: true },
+  globals: { theme: "dark" },
+  parameters: { layout: "fullscreen" },
+} satisfies Meta<typeof SurfaceDemo>;
 export default meta;
-type Story = StoryObj<typeof ComposerSettingsMenu>;
+type Story = StoryObj<typeof meta>;
 
-async function openProfileMenu() {
-  const trigger = await screen.findByRole("button", {
-    name: /Model profile/,
-  });
-  await userEvent.click(trigger);
-  await waitFor(() => expect(screen.getByRole("menu")).toBeTruthy());
+const page = (canvasElement: HTMLElement) =>
+  within(canvasElement.ownerDocument.body);
+async function expand(canvasElement: HTMLElement, name: "Autonomy" | "Model") {
+  await userEvent.click(page(canvasElement).getByRole("button", { name }));
+}
+async function allModels(canvasElement: HTMLElement, mobile = false) {
+  await expand(canvasElement, "Model");
+  await userEvent.click(
+    page(canvasElement).getByRole("button", {
+      name: mobile ? /More/ : /All models \(/,
+    }),
+  );
 }
 
-/** The trigger at rest, showing the active profile. */
-export const Closed: Story = {};
-
-/**
- * A long profile list. The rows scroll inside the popover instead of growing
- * it past the top of the window, and a top fade appears once you scroll to
- * say there is more above.
- */
-export const OpenWithManyProfiles: Story = {
-  play: openProfileMenu,
+export const Desktop: Story = {};
+export const DesktopAutonomyExpanded: Story = {
+  play: async ({ canvasElement }) => expand(canvasElement, "Autonomy"),
 };
-
-/** A list short enough to fit needs no scrolling and shows no fade. */
-export const OpenWithFewProfiles: Story = {
-  parameters: { profileSeeds: MANY_PROFILES.slice(0, 3) },
-  play: openProfileMenu,
+export const DesktopModelExpanded: Story = {
+  play: async ({ canvasElement }) => expand(canvasElement, "Model"),
 };
-
-/**
- * The managed profiles alongside one the user made. Hovering a managed row
- * names the model it currently pins; the user's row is already named after
- * its own model, so it carries no label.
- */
-export const OpenWithManagedProfiles: Story = {
-  parameters: { profileSeeds: MANAGED_PROFILES },
-  play: async (context) => {
-    await openProfileMenu();
-    const balanced = await screen.findByRole("menuitem", { name: "Balanced" });
-    await userEvent.hover(balanced);
-    await waitFor(() =>
-      expect(context.canvasElement.ownerDocument.body.textContent).toContain(
-        "GLM 5.2",
-      ),
-    );
+export const AllModes: Story = {
+  name: "All Models",
+  play: async ({ canvasElement }) => allModels(canvasElement),
+};
+export const Mobile: Story = {
+  args: { mobile: true },
+  globals: { viewport: { value: "sbMobile", isRotated: false } },
+};
+export const MobileAutonomyExpanded: Story = {
+  ...Mobile,
+  play: async ({ canvasElement }) => expand(canvasElement, "Autonomy"),
+};
+export const MobileModelExpanded: Story = {
+  ...Mobile,
+  play: async ({ canvasElement }) => expand(canvasElement, "Model"),
+};
+export const MobileAllModels: Story = {
+  ...Mobile,
+  play: async ({ canvasElement }) => {
+    await expand(canvasElement, "Model");
+    const body = page(canvasElement);
+    const sheet = body.getByRole("dialog");
+    const before = sheet.getBoundingClientRect().height;
+    await userEvent.click(body.getByRole("button", { name: /More/ }));
+    await expect(
+      Math.abs(sheet.getBoundingClientRect().height - before),
+    ).toBeLessThanOrEqual(1);
+    await expect(
+      body.getByRole("region", { name: "All models" }),
+    ).toBeVisible();
   },
 };
-
-/**
- * The same menu on a device that cannot hover but is too wide for the bottom
- * sheet, an iPad in landscape being the case in hand. A tooltip mounts nothing
- * here, so each managed row carries its model inline instead.
- */
-export const OpenWithManagedProfilesNoHover: Story = {
-  parameters: { profileSeeds: MANAGED_PROFILES },
-  decorators: [
-    (Story) => (
-      <HoverCapabilityOverride hoverCapable={false}>
-        <Story />
-      </HoverCapabilityOverride>
-    ),
-  ],
-  play: async (context) => {
-    await openProfileMenu();
-    await waitFor(() =>
-      expect(context.canvasElement.ownerDocument.body.textContent).toContain(
-        "GLM 5.2",
-      ),
+export const NarrowMobile: Story = {
+  ...MobileModelExpanded,
+  globals: { viewport: { value: "sbNarrowPhone", isRotated: false } },
+};
+export const ModeSelection: Story = {
+  play: async ({ canvasElement }) => {
+    await expand(canvasElement, "Model");
+    const modes = within(
+      page(canvasElement).getByRole("radiogroup", { name: "Model" }),
     );
+    const order = modes
+      .getAllByRole("radio")
+      .map((button) => button.textContent);
+    for (const name of ["Fast", "Budget", "Quality"]) {
+      await userEvent.click(modes.getByRole("radio", { name }));
+      await expect(
+        modes.getAllByRole("radio").map((button) => button.textContent),
+      ).toEqual(order);
+    }
+  },
+};
+export const CustomFavorite: Story = {
+  play: async ({ canvasElement }) => {
+    await allModels(canvasElement);
+    await userEvent.click(
+      page(canvasElement).getByRole("button", { name: /Research/ }),
+    );
+    await expect(
+      page(canvasElement).getByRole("radio", { name: "Research $$$" }),
+    ).toHaveAttribute("aria-checked", "true");
+  },
+};
+export const Loading: Story = { args: { state: "loading" } };
+export const OlderAssistant: Story = { args: { state: "legacy" } };
+export const WithoutCost: Story = { args: { state: "unknown" } };
+export const DarkDesktop: Story = {};
+export const LightDesktop: Story = {
+  globals: { theme: "light" },
+  ...DesktopModelExpanded,
+};
+export const PopoverInteraction: Story = {};
+export const ClosedComposer: Story = {
+  play: async ({ canvasElement }) => {
+    await userEvent.keyboard("{Escape}");
+    const composer = within(canvasElement);
+    await expect(composer.getAllByRole("button")).toHaveLength(1);
+    await expect(
+      composer.getByRole("button", { name: "Attachments and settings" }),
+    ).toBeVisible();
+  },
+};
+export const MobileClosedComposer: Story = {
+  ...Mobile,
+  play: async ({ canvasElement }) => {
+    await userEvent.click(
+      page(canvasElement).getByRole("button", { name: "Close settings" }),
+    );
+    const composer = within(canvasElement);
+    await expect(composer.getAllByRole("button")).toHaveLength(1);
+    await expect(
+      composer.getByRole("button", { name: "Attachments and settings" }),
+    ).toBeVisible();
+  },
+};
+export const HandsOff: Story = {
+  play: async ({ canvasElement }) => {
+    await expand(canvasElement, "Autonomy");
+    const handsOff = page(canvasElement).getByRole("radio", {
+      name: "Hands-off",
+    });
+    await userEvent.click(handsOff);
+    await expect(handsOff).toHaveAttribute("aria-checked", "true");
   },
 };

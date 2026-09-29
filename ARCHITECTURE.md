@@ -1186,6 +1186,16 @@ graph LR
     GET --> STORE
 ```
 
+## Composer Configuration
+
+The shared web composer uses one configuration controller for its plus-menu popover and touch bottom sheet. Model refers to an existing inference profile. Settings open as collapsed summary rows, with one group expanded at a time. All models replaces the content with a grouped, scrolling list; mobile preserves the sheet height during this transition. Autonomy maps to the existing `none`, `low`, `medium`, and `high` risk thresholds; it introduces no new approval policy. Existing conversations retain their overrides. A real draft snapshots the user's last-used choices once, with assistant defaults as fallback, then passes its `inferenceProfile` and `riskThreshold` on the first message. Settings writes are serialized per conversation and field. The send control waits for pending writes. Visible modes retain catalog order when selected. Autonomy choices apply directly. The selected autonomy and model appear in the menu summary rows. The composer exposes them through its plus button, with no separate current-settings controls or display toggle.
+
+`GET/PATCH /v1/composer/settings` uses the authenticated actor principal forwarded by the gateway, with the existing local-guardian resolution for local sessions. The assistant stores favorites and last-used choices under `<workspace>/data/composer-preferences/<sha256-principal>.json`, using atomic replacement. Patches preserve omitted fields. These files are additive; existing configuration and conversation storage formats are unchanged. `healthz.capabilities.composerSettings` gates the new endpoint and draft-autonomy support. Older assistants retain existing-conversation controls.
+
+Preference writes publish `sync_changed` with `assistant:self:composerPreferences`. Web clients refetch preferences and conversation threshold overrides; reconnect also refreshes these resources. The response carries relative model-cost tiers from the canonical provider catalog. Tiers describe catalog output-token pricing: 1 through $3 per million, 2 above $3 through $12, and 3 above $12. Auto and mixed profiles vary. Fallback routes spanning tiers vary. Uncatalogued models, custom connections, subscriptions, and provider pricing overrides remain unknown. The UI shows cost glyphs only for custom favorites with a known expensive tier. Built-in favorites, the full model list, and unavailable or variable costs have no cost glyphs. These indicators are not task-price estimates.
+
+Native picker inputs stay mounted outside the form and overlay while the operating system owns file selection. Settings content and attachment actions have shared Storybook coverage for desktop, mobile, expanded mode lists, loading, and older assistants.
+
 ## Maintenance Rule
 
 When architecture changes, update the relevant domain architecture document(s) above and keep this index aligned.
