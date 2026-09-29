@@ -107,7 +107,6 @@ export function QuietTurnProgress({
       tone="default"
       active={isOpen}
       onClick={open}
-      appearance="pill"
     />
   );
 }

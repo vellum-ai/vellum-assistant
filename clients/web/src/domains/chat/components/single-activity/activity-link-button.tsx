@@ -19,10 +19,9 @@ export interface ActivityLinkButtonProps {
   /**
    * `inline` sits in the message column, its label flush with the prose
    * around it. `compact` sits among the footer's timestamp and actions, so it
-   * keeps clear of its neighbors and matches their size. `pill` is a filled
-   * chip for a control that must be noticed, like a turn's live progress.
+   * keeps clear of its neighbors and matches their size.
    */
-  appearance?: "inline" | "compact" | "pill";
+  appearance?: "inline" | "compact";
 }
 
 /**
@@ -54,15 +53,10 @@ export function ActivityLinkButton({
           "mx-1 h-6 gap-0.5 rounded-[6px] px-1.5 text-body-small-default",
         appearance === "inline" &&
           "-mx-1.5 gap-2 rounded-md px-1.5 py-1 text-[13px] font-medium",
-        appearance === "pill" &&
-          "gap-1.5 rounded-full border border-[var(--border-base)] py-1 pl-3 pr-2 text-[13px] font-medium hover:border-[var(--border-hover)]",
         "focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]",
         active
           ? "bg-[var(--surface-active)] text-[var(--content-default)]"
-          : cn(
-              "text-[var(--content-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--content-default)]",
-              appearance === "pill" && "bg-[var(--surface-lift)]",
-            ),
+          : "text-[var(--content-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--content-default)]",
         isError && "text-[var(--system-negative-strong)]",
       )}
     >
@@ -82,11 +76,7 @@ export function ActivityLinkButton({
       <ChevronRight
         className={cn(
           appearance === "compact" ? "size-3" : "size-3.5",
-          "shrink-0 text-[var(--content-tertiary)] transition-opacity motion-reduce:transition-none",
-          // A pill is always a button; the chevron says so from the start.
-          appearance === "pill"
-            ? "opacity-100"
-            : "opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 group-data-[active=true]:opacity-100",
+          "shrink-0 text-[var(--content-tertiary)] opacity-0 transition-opacity motion-reduce:transition-none group-hover:opacity-100 group-focus-visible:opacity-100 group-data-[active=true]:opacity-100",
         )}
         aria-hidden
       />
