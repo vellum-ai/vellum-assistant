@@ -1,5 +1,3 @@
-import { constants } from "node:os";
-
 import { safeStringSlice } from "../../util/unicode.js";
 
 export const MAX_OUTPUT_LENGTH = 20_000;
@@ -15,18 +13,7 @@ export interface ShellOutputResult {
   isError: boolean;
 }
 
-/** The signal a shell reports as exit code 128 + n when its command was killed. */
-function signalFromExitCode(code: number | null): string | null {
-  if (code == null || code <= 128) {
-    return null;
-  }
-  const match = Object.entries(constants.signals).find(
-    ([, value]) => value === code - 128,
-  );
-  return match ? match[0] : null;
-}
-
-function describeKill(signal: string): string {
+function describeKill(signal: NodeJS.Signals): string {
   const tag = `<command_killed signal="${signal}" />`;
   const hint =
     signal === "SIGKILL"
@@ -92,9 +79,7 @@ export function formatShellOutput(
     statusParts.push(OUTPUT_TRUNCATED_TAG);
   }
 
-  const killSignal = timedOut
-    ? null
-    : (options?.signal ?? signalFromExitCode(code));
+  const killSignal = timedOut ? null : (options?.signal ?? null);
   if (killSignal) {
     output += (output ? "\n" : "") + describeKill(killSignal);
     statusParts.push(`<command_killed signal="${killSignal}" />`);
@@ -108,7 +93,7 @@ export function formatShellOutput(
       output = `${exitTag}\nCommand failed with exit code ${code}. No stdout or stderr output was produced.`;
       statusParts.push(exitTag);
     }
-  } else if (code !== 0 && !timedOut && !(killSignal && code == null)) {
+  } else if (code !== 0 && !timedOut && !killSignal) {
     statusParts.push(`<command_exit code="${code}" />`);
   }
 

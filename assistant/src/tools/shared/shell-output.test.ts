@@ -134,10 +134,10 @@ describe("formatShellOutput kill reporting", () => {
     expect(result.content).not.toContain("out of memory");
   });
 
-  test("reads the signal from a shell's 128 + n exit code", () => {
-    const result = formatShellOutput("", "", 137, false, 120);
-    expect(result.content).toContain("killed by SIGKILL");
-    expect(result.status).toContain('<command_exit code="137" />');
+  test("does not infer a kill from a 128 + n exit code", () => {
+    const result = formatShellOutput("", "Killed", 137, false, 120);
+    expect(result.content).toBe("Killed");
+    expect(result.status).toBe('<command_exit code="137" />');
   });
 
   test("leaves a timeout framed as a timeout", () => {
