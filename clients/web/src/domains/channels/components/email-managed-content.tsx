@@ -697,9 +697,12 @@ export function EmailManagedContent({
             wrapperClassName="min-w-0 flex-1"
             className="font-mono"
           />
+          {/* Both controls hold the field's own height on touch too, so
+              the row reads as one line of the same size. */}
           <Button
             variant="outlined"
             iconOnly={copiedAddress ? <Check /> : <Copy />}
+            expandOnMobile={false}
             onClick={() => copyAddress(address.address)}
             aria-label={t("emailManagedContent.copyAddressAriaLabel")}
             title={
@@ -711,6 +714,7 @@ export function EmailManagedContent({
           <Button
             variant="dangerGhost"
             iconOnly={<Trash2 />}
+            expandOnMobile={false}
             onClick={() => setRemoveAddressConfirmOpen(true)}
             disabled={deleteAddress.isPending}
             aria-label={t("emailManagedContent.removeEmailAriaLabel")}
