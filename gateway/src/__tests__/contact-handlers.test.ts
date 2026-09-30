@@ -119,6 +119,7 @@ mock.module("../ipc/contacts-info-client.js", () => ({
         : null;
     },
   ),
+  fetchContactIdsByType: async () => [],
 }));
 
 import { eq } from "drizzle-orm";

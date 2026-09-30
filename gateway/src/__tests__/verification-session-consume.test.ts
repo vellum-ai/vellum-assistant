@@ -86,6 +86,7 @@ mock.module("../ipc/contacts-info-client.js", () => ({
   ...actualContactsInfoClient,
   lookupContactChannelIdentity: () => lookupContactChannelIdentityImpl(),
   probeContactMirror: async () => ({ exists: false, hasChannels: false }),
+  fetchContactIdsByType: async () => [],
 }));
 
 // The assistant socket is absent (orphan-GC probes and similar short-circuit).

@@ -25,6 +25,7 @@ import {
 } from "../contacts-mirror-op-reporter.js";
 import { ipcCallAssistant } from "../ipc/assistant-client.js";
 import {
+  fetchContactIdsByType,
   fetchContactsInfoBatch,
   lookupContactChannelIdentity,
   listContactUserFileSlugs,
@@ -208,11 +209,20 @@ export class ContactStore {
    * channelType) are NOT supported here — callers that need those should
    * fall back to the proxy path until a gateway-native search is built.
    *
+   * When `contactType` is provided the gateway first fetches the matching
+   * contact IDs from the assistant DB via IPC (`contacts_list_ids_by_type`),
+   * then uses those as a SQL `IN` condition so the filter and limit both apply
+   * at the query layer. An IPC failure with an active contactType filter
+   * propagates as an error (5xx to the client) rather than returning a silently
+   * empty list. Workspaces with no assistant-DB entries of the requested type
+   * return an empty list without issuing a gateway SQL query.
+   *
    * Ordering mirrors the daemon: guardian role first, then updatedAt desc.
    */
   async listContactsWithInfo(opts?: {
     limit?: number;
     role?: string;
+    contactType?: string;
     ids?: string[];
   }): Promise<ContactWithInfo[]> {
     // Explicit id set: the caller has already selected/filtered the contacts
@@ -227,6 +237,22 @@ export class ContactStore {
       const conditions = [];
       if (opts?.role) conditions.push(eq(contacts.role, opts.role));
 
+      if (opts?.contactType) {
+        // Pre-fetch the IDs matching this contactType from the assistant DB.
+        // Using the result as a SQL IN condition makes the type filter part of
+        // the gateway query, so the limit applies to the already-typed set and
+        // the 200-row cap workaround is no longer needed. Throws on IPC failure
+        // (an active contactType filter must not silently return empty).
+        const typeMatchIds = await fetchContactIdsByType(opts.contactType);
+        if (typeMatchIds.length === 0) return [];
+        conditions.push(
+          sql`${contacts.id} IN (${sql.join(
+            typeMatchIds.map((id) => sql`${id}`),
+            sql`, `,
+          )})`,
+        );
+      }
+
       // Step 1: Select contact IDs with the limit applied to CONTACTS (not
       // joined channel rows). The daemon path limits contact rows before
       // fetching channels — we match that to avoid returning fewer contacts
@@ -234,7 +260,7 @@ export class ContactStore {
       const contactRows = this.db
         .select({ id: contacts.id })
         .from(contacts)
-        .where(conditions.length === 1 ? conditions[0] : undefined)
+        .where(conditions.length > 0 ? and(...conditions) : undefined)
         .orderBy(
           sql`${contacts.role} = 'guardian' DESC`,
           desc(contacts.updatedAt),
@@ -371,13 +397,10 @@ export class ContactStore {
    * List contacts in the shared ContactRead shape: gateway-DB identity + ACL
    * channels joined to assistant-DB info fields.
    *
-   * Filters: `role` (gateway DB), `limit` (default 50, capped 200 to mirror
-   * the daemon's listContacts), or an explicit `ids` set (the daemon's telemetry
-   * hydration for its native search/contactType reads — bypasses role/limit).
-   * The daemon serves contactType-filtered list reads natively (filtering in SQL
-   * before the limit) so a tight limit doesn't under-return and an assistant-DB
-   * outage degrades rather than dropping every row — the relay never carries a
-   * contactType filter.
+   * Filters: `role` (gateway DB), `limit` (default 50, capped 200), or an
+   * explicit `ids` set (bypasses role/limit). Daemon relay callers use the
+   * `ids` path; they do not pass contactType because the gateway handles that
+   * filter natively in `listContactsWithInfo` before this adapter is reached.
    *
    * Thin adapter over `listContactsWithInfo` (shared assembly/soft-fail logic),
    * projected down to the ContactRead subset.
@@ -496,7 +519,7 @@ export class ContactStore {
     } catch (err) {
       log.warn(
         { err, count: orderedIds.length },
-        "listContactsWithInfo: assistant DB info read failed; returning ACL-only shape",
+        "joinInfoIntoContacts: assistant DB info read failed; returning ACL-only shape",
       );
       infoMap = new Map();
     }
