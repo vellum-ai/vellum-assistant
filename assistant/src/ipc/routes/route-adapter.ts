@@ -8,6 +8,7 @@
  * RouteDefinition; no lookup or derivation happens here.
  */
 
+import { GUARDIAN_ONLY } from "../../runtime/auth/route-policy.js";
 import type { RouteDefinition } from "../../runtime/routes/types.js";
 
 function isIpcEligible(r: RouteDefinition): boolean {
@@ -22,6 +23,10 @@ function isIpcEligible(r: RouteDefinition): boolean {
  * unprotected (e.g. health, debug). The gateway respects that and
  * skips enforcement. `policy: { ... }` carries the same scopes /
  * principal types the daemon's HTTP path enforces via `enforcePolicy()`.
+ *
+ * `allowedTrustClasses` is always present on a non-null policy, resolved
+ * to {@link GUARDIAN_ONLY} when the route declares none, so the wire
+ * carries the effective value and no default is duplicated gateway-side.
  */
 interface IpcRouteSchemaEntry {
   operationId: string;
@@ -30,6 +35,7 @@ interface IpcRouteSchemaEntry {
   policy: {
     requiredScopes: string[];
     allowedPrincipalTypes: string[];
+    allowedTrustClasses: string[];
   } | null;
 }
 
@@ -44,6 +50,9 @@ function toSchemaEntry(r: RouteDefinition): IpcRouteSchemaEntry {
           // shape doesn't carry the `Scope` / `PrincipalType` narrowing.
           requiredScopes: [...r.policy.requiredScopes],
           allowedPrincipalTypes: [...r.policy.allowedPrincipalTypes],
+          allowedTrustClasses: [
+            ...(r.policy.allowedTrustClasses ?? GUARDIAN_ONLY),
+          ],
         }
       : null,
   };

@@ -28,7 +28,16 @@ mock.module("../../../config/env.js", () => ({
   hasUngatedHttpAuthDisabled: () => false,
 }));
 
-import { enforcePolicy, type RoutePolicy } from "../route-policy.js";
+import { TRUST_CLASS_VALUES } from "@vellumai/gateway-client";
+
+import { isContactTrustClass } from "../../trust-class.js";
+import {
+  CONTACT_ALLOWED,
+  enforcePolicy,
+  GUARDIAN_ONLY,
+  type RoutePolicy,
+  trustClassAllowed,
+} from "../route-policy.js";
 import { resolveScopeProfile } from "../scopes.js";
 import type { AuthContext, Scope } from "../types.js";
 
@@ -570,5 +579,80 @@ describe("ROUTES policy declarations", () => {
     expect(
       enforcePolicy(postRoute!.endpoint, postRoute!.policy!, settingsActor),
     ).toBeNull();
+  });
+});
+
+describe("trustClassAllowed", () => {
+  const basePolicy: RoutePolicy = {
+    requiredScopes: ["chat.write"],
+    allowedPrincipalTypes: ["actor"],
+  };
+
+  test("a policy naming no trust classes admits only the guardian", () => {
+    expect(trustClassAllowed(basePolicy, "guardian")).toBe(true);
+    expect(trustClassAllowed(basePolicy, "trusted_contact")).toBe(false);
+    expect(trustClassAllowed(basePolicy, "unverified_contact")).toBe(false);
+    expect(trustClassAllowed(basePolicy, "unknown")).toBe(false);
+  });
+
+  test("a null policy admits only the guardian", () => {
+    expect(trustClassAllowed(null, "guardian")).toBe(true);
+    expect(trustClassAllowed(null, "trusted_contact")).toBe(false);
+  });
+
+  test("CONTACT_ALLOWED admits the guardian and both contact classes", () => {
+    const policy: RoutePolicy = {
+      ...basePolicy,
+      allowedTrustClasses: CONTACT_ALLOWED,
+    };
+    expect(trustClassAllowed(policy, "guardian")).toBe(true);
+    expect(trustClassAllowed(policy, "trusted_contact")).toBe(true);
+    expect(trustClassAllowed(policy, "unverified_contact")).toBe(true);
+    expect(trustClassAllowed(policy, "unknown")).toBe(false);
+  });
+
+  test("CONTACT_ALLOWED covers every class isContactTrustClass names", () => {
+    for (const trustClass of TRUST_CLASS_VALUES) {
+      if (isContactTrustClass(trustClass)) {
+        expect(CONTACT_ALLOWED).toContain(trustClass);
+      }
+    }
+  });
+
+  test("an explicit list admits exactly what it names", () => {
+    const policy: RoutePolicy = {
+      ...basePolicy,
+      allowedTrustClasses: ["trusted_contact"],
+    };
+    expect(trustClassAllowed(policy, "trusted_contact")).toBe(true);
+    expect(trustClassAllowed(policy, "guardian")).toBe(false);
+    expect(trustClassAllowed(policy, "unknown")).toBe(false);
+  });
+
+  test("an explicit GUARDIAN_ONLY list matches the absent-field default", () => {
+    const policy: RoutePolicy = {
+      ...basePolicy,
+      allowedTrustClasses: GUARDIAN_ONLY,
+    };
+    for (const trustClass of [
+      "guardian",
+      "trusted_contact",
+      "unverified_contact",
+      "unknown",
+    ] as const) {
+      expect(trustClassAllowed(policy, trustClass)).toBe(
+        trustClassAllowed(basePolicy, trustClass),
+      );
+    }
+  });
+
+  test("a value outside the vocabulary is refused", () => {
+    const policy: RoutePolicy = {
+      ...basePolicy,
+      allowedTrustClasses: CONTACT_ALLOWED,
+    };
+    expect(trustClassAllowed(policy, "non_guardian")).toBe(false);
+    expect(trustClassAllowed(policy, "")).toBe(false);
+    expect(trustClassAllowed(policy, undefined)).toBe(false);
   });
 });
