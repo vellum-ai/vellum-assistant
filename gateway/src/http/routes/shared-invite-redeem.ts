@@ -8,18 +8,31 @@
  * is off.
  */
 
+import { z } from "zod";
+
 import { AuthRateLimiter } from "../../auth-rate-limiter.js";
 import { isFeatureFlagEnabled } from "../../feature-flag-resolver.js";
 import { getLogger } from "../../logger.js";
 import { redeemSharedInvite } from "../../verification/shared-invite-redemption.js";
 import { errorResponse } from "../loopback-guard.js";
-import { jsonStringField, readJsonObjectBody } from "../route-helpers.js";
+import { readJsonObjectBody } from "../route-helpers.js";
 
 const log = getLogger("shared-invite-redeem");
 
 const TRUSTED_CONTACTS_FLAG = "vellum-trusted-contacts";
 const MAX_REDEEM_BODY_BYTES = 1024;
 const RETRY_AFTER_SECONDS = 60;
+
+const RedeemRequestSchema = z.object({
+  code: z
+    .string({ error: "code is required" })
+    .trim()
+    .min(1, "code is required"),
+  deviceId: z
+    .string({ error: "deviceId is required" })
+    .trim()
+    .min(1, "deviceId is required"),
+});
 
 let failureLimiter = new AuthRateLimiter();
 
@@ -71,24 +84,24 @@ export async function handleSharedInviteRedeem(
   if (body instanceof Response) {
     return failedAttempt(clientIp, body);
   }
-  const code = jsonStringField(body, "code");
-  if (!code) {
+  const parsed = RedeemRequestSchema.safeParse(body);
+  if (!parsed.success) {
     return failedAttempt(
       clientIp,
-      errorResponse("BAD_REQUEST", "code is required", 400),
-    );
-  }
-  const deviceId = jsonStringField(body, "deviceId");
-  if (!deviceId) {
-    return failedAttempt(
-      clientIp,
-      errorResponse("BAD_REQUEST", "deviceId is required", 400),
+      errorResponse(
+        "BAD_REQUEST",
+        parsed.error.issues[0]?.message ?? "invalid request body",
+        400,
+      ),
     );
   }
 
   let result: ReturnType<typeof redeemSharedInvite>;
   try {
-    result = redeemSharedInvite({ token: code, deviceId });
+    result = redeemSharedInvite({
+      token: parsed.data.code,
+      deviceId: parsed.data.deviceId,
+    });
   } catch (err) {
     log.error({ err }, "Shared invite redemption failed");
     return noStore(
