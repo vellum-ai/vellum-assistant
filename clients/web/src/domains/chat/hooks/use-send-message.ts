@@ -376,23 +376,53 @@ export function useSendMessage({
       if (useServerMint) {
         pendingDraftMintRef.current = requestConversationId;
       }
-      // A model profile the user picked in the composer before this
-      // conversation's row was available — a brand-new draft, or an existing
-      // conversation opened by URL while still loading (see
-      // `ComposerSettingsMenu`). Forward it so this turn, and the conversation's
-      // per-conversation override, use the chosen profile instead of the global
-      // default — covering the window before the menu's load-time promotion PUT
-      // lands. Keyed by id, so only this conversation's own stash is read.
+      const failedSend = (error: ChatError): SendStreamResult => {
+        if (!isCurrentSendScope()) {
+          recordDiagnostic("send_error_ignored_inactive_conversation", {
+            assistantId: requestAssistantId,
+            conversationId: requestConversationId,
+            activeAssistantId:
+              useResolvedAssistantsStore.getState().activeAssistantId,
+            activeConversationId:
+              useConversationStore.getState().activeConversationId,
+          });
+          // Ignored is about the UI, not about the message. Nothing on screen
+          // belongs to this send any more, but its text was cleared from the
+          // composer when it started and this failure is the end of the line
+          // for it, so it goes back to its own conversation's draft rather than
+          // nowhere. A hidden send has no user text to give back.
+          if (!isHidden) {
+            useComposerStore
+              .getState()
+              .restoreFailedDraft(
+                requestAssistantId,
+                requestConversationId,
+                content,
+                composerSessionGeneration,
+              );
+          }
+          return { status: "ignored" };
+        }
+        endTurn({ conversationId: requestConversationId, reason: "error" });
+        return { status: "failed", error };
+      };
       let autonomyForSend: Autonomy | undefined;
       let inferenceProfileForSend: string | undefined;
       let draftPlugins: Set<string> | undefined;
       let postResult: Awaited<ReturnType<typeof postChatMessage>>;
       try {
-        await resolveDraftComposerConfiguration(
-          queryClient,
-          requestAssistantId,
-          requestConversationId,
-        );
+        try {
+          await resolveDraftComposerConfiguration(
+            queryClient,
+            requestAssistantId,
+            requestConversationId,
+          );
+        } catch (error) {
+          captureError(error, { context: "load_draft_composer_configuration" });
+          return failedSend({
+            message: t("chat:composerConfiguration.preferencesUnavailable"),
+          });
+        }
         if (
           composerSessionGeneration !==
           useComposerStore.getState().sessionGeneration
@@ -456,45 +486,14 @@ export function useSendMessage({
         }
       }
       if (!postResult.ok) {
-        if (!isCurrentSendScope()) {
-          recordDiagnostic("send_error_ignored_inactive_conversation", {
-            assistantId: requestAssistantId,
-            conversationId: requestConversationId,
-            activeAssistantId:
-              useResolvedAssistantsStore.getState().activeAssistantId,
-            activeConversationId:
-              useConversationStore.getState().activeConversationId,
-          });
-          // Ignored is about the UI, not about the message. Nothing on screen
-          // belongs to this send any more, but its text was cleared from the
-          // composer when it started and this failure is the end of the line
-          // for it, so it goes back to its own conversation's draft rather than
-          // nowhere. A hidden send has no user text to give back.
-          if (!isHidden) {
-            useComposerStore
-              .getState()
-              .restoreFailedDraft(
-                requestAssistantId,
-                requestConversationId,
-                content,
-                composerSessionGeneration,
-              );
-          }
-          return { status: "ignored" };
-        }
-        const detail = resolvePostError(
-          postResult.error.code,
-          postResult.error.detail,
-          "Something went wrong. Please try again.",
-        );
-        endTurn({ conversationId: requestConversationId, reason: "error" });
-        return {
-          status: "failed",
-          error: {
-            message: detail,
-            ...(postResult.error.code ? { code: postResult.error.code } : {}),
-          },
-        };
+        return failedSend({
+          message: resolvePostError(
+            postResult.error.code,
+            postResult.error.detail,
+            "Something went wrong. Please try again.",
+          ),
+          ...(postResult.error.code ? { code: postResult.error.code } : {}),
+        });
       }
       if (
         composerSessionGeneration !==

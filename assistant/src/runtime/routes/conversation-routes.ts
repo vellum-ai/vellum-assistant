@@ -139,6 +139,7 @@ import {
 import {
   getConversationByKey,
   getOrCreateConversation,
+  recordStandardConversationCreated,
 } from "../../persistence/conversation-key-store.js";
 import { listConversationModeSessionsByIds } from "../../persistence/conversation-mode-sessions.js";
 import { searchConversations } from "../../persistence/conversation-queries.js";
@@ -1929,6 +1930,8 @@ export async function handleSendMessage(
     inboundConversationId === undefined &&
     !conversationKey &&
     sourceChannel === "vellum";
+  const deferBootstrapCleanup =
+    mintConversation && requestedRiskThreshold !== undefined;
   if (inboundConversationId !== undefined) {
     const existing = getConversation(inboundConversationId);
     if (!existing) {
@@ -1960,6 +1963,7 @@ export async function handleSendMessage(
       // attributed from the moment it exists rather than on its first
       // message.
       origin: sourceChannel,
+      ...(deferBootstrapCleanup ? { deferBootstrapCleanup: true } : {}),
     });
   }
 
@@ -1982,13 +1986,13 @@ export async function handleSendMessage(
     } catch (error) {
       // Keyed chats can have concurrent senders. Only this request owns an
       // unannounced, server-minted chat with no messages.
-      if (
-        mintConversation &&
-        mapping.created &&
-        !hasMessages(mapping.conversationId)
-      ) {
+      if (mintConversation && mapping.created) {
         try {
-          deleteConversation(mapping.conversationId);
+          if (hasMessages(mapping.conversationId)) {
+            recordStandardConversationCreated();
+          } else {
+            deleteConversation(mapping.conversationId);
+          }
         } catch (cleanupError) {
           log.error(
             { err: cleanupError, conversationId: mapping.conversationId },
@@ -1998,6 +2002,10 @@ export async function handleSendMessage(
       }
       throw error;
     }
+  }
+
+  if (deferBootstrapCleanup && mapping.created) {
+    recordStandardConversationCreated();
   }
 
   const smDeps = deps.sendMessageDeps;

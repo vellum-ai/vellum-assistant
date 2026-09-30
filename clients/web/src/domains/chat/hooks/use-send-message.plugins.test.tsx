@@ -190,7 +190,7 @@ describe("useSendMessage — bypassSecretCheck send wiring", () => {
 });
 
 describe("useSendMessage autonomy send wiring", () => {
-  test.each(["ready", "failed", "logout"] as const)(
+  test.each(["ready", "failed", "failed-current", "logout"] as const)(
     "a first auto-send waits for canonical draft settings (%s)",
     async (outcome) => {
       let release!: () => void;
@@ -231,7 +231,7 @@ describe("useSendMessage autonomy send wiring", () => {
           queryFn: async () => {
             started = true;
             await gate;
-            if (outcome === "failed") {
+            if (outcome === "failed" || outcome === "failed-current") {
               throw new Error("offline");
             }
             return {
@@ -244,6 +244,13 @@ describe("useSendMessage autonomy send wiring", () => {
           },
         })
         .catch(() => undefined);
+      if (outcome === "failed-current") {
+        useResolvedAssistantsStore
+          .getState()
+          .setActiveAssistantId("assistant-1");
+        useConversationStore.getState().setActiveConversationId(DRAFT_ID);
+        useComposerStore.getState().setInput("");
+      }
       let sending!: Promise<void>;
       useAssistantIdentityStore
         .getState()
@@ -256,6 +263,10 @@ describe("useSendMessage autonomy send wiring", () => {
       });
       await waitFor(() => expect(started).toBe(true));
       expect(capturedBody).toBeNull();
+      if (outcome === "failed-current") {
+        expect(useChatSessionStore.getState().optimisticSends).toHaveLength(1);
+        expect(useComposerStore.getState().input).toBe("");
+      }
       await act(async () => {
         if (outcome === "logout") {
           useComposerStore.getState().resetForLogout();
@@ -270,6 +281,19 @@ describe("useSendMessage autonomy send wiring", () => {
         });
       } else {
         expect(capturedBody).toBeNull();
+      }
+      if (outcome === "failed-current") {
+        expect(useChatSessionStore.getState().optimisticSends).toHaveLength(0);
+        expect(useChatSessionStore.getState().error).toMatchObject({
+          displayAs: "modal",
+          restoreContent: "hi",
+        });
+        expect(useTurnStore.getState().phase).toBe("idle");
+        expect(
+          useConversationStore
+            .getState()
+            .processingConversationIds.has(DRAFT_ID),
+        ).toBe(false);
       }
     },
   );

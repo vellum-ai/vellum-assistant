@@ -1,4 +1,10 @@
-import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 
@@ -19,6 +25,7 @@ import {
   syncMessageToDisk,
 } from "../persistence/conversation-disk-view.js";
 import {
+  _resetFirstConversationSeenForTesting,
   getConversationByKey,
   getOrCreateConversation as getOrCreateConversationMapping,
 } from "../persistence/conversation-key-store.js";
@@ -35,6 +42,7 @@ import {
 import type { AuthContext } from "../runtime/auth/types.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { handleSendMessage } from "../runtime/routes/conversation-routes.js";
+import { assertNotLiveDb } from "./assert-not-live-db.js";
 import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 import { callHandler } from "./helpers/call-route-handler.js";
 import { mockUnownedModeSessions } from "./helpers/mock-conversation.js";
@@ -549,6 +557,13 @@ describe("POST /v1/messages — body.conversationId direct id lookup", () => {
   test.each(["unavailable", "rejected"])(
     "an autonomy write that is %s rolls back a minted chat before retry",
     async (failure) => {
+      _resetFirstConversationSeenForTesting();
+      const bootstrapFiles = ["BOOTSTRAP.md", "BOOTSTRAP-REFERENCE.md"].map(
+        (name) => join(testDir, name),
+      );
+      for (const path of bootstrapFiles) {
+        writeFileSync(path, "Onboarding instructions");
+      }
       const ipc = spyOn(gatewayClient, "ipcCall");
       if (failure === "unavailable") {
         ipc.mockResolvedValueOnce(undefined);
@@ -573,6 +588,7 @@ describe("POST /v1/messages — body.conversationId direct id lookup", () => {
         expect(getDb().select().from(conversations).all()).toHaveLength(0);
         expect(getDb().select().from(conversationKeys).all()).toHaveLength(0);
         expect(conversationInstances.size).toBe(0);
+        expect(bootstrapFiles.every((path) => existsSync(path))).toBe(true);
 
         ipc.mockResolvedValueOnce({ ok: true });
         const retried = await sendMessage(body);
@@ -584,8 +600,15 @@ describe("POST /v1/messages — body.conversationId direct id lookup", () => {
           const messages = readPersistedMessages(rows[0]!.id);
           return messages.length === 2 ? messages : undefined;
         });
+        expect(bootstrapFiles.every((path) => existsSync(path))).toBe(true);
+        getOrCreateConversationMapping("second-successful-chat");
+        expect(bootstrapFiles.some((path) => existsSync(path))).toBe(false);
       } finally {
         ipc.mockRestore();
+        for (const path of bootstrapFiles) {
+          assertNotLiveDb(path);
+          rmSync(path, { force: true });
+        }
       }
     },
   );

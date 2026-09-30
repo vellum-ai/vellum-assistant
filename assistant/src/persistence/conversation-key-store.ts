@@ -36,6 +36,13 @@ export function _resetFirstConversationSeenForTesting(): void {
   firstConversationSeen = false;
 }
 
+export function recordStandardConversationCreated(): void {
+  if (firstConversationSeen) {
+    cleanupBootstrapFiles("new conversation created after onboarding");
+  }
+  firstConversationSeen = true;
+}
+
 export interface ConversationKeyMapping {
   id: string;
   conversationKey: string;
@@ -174,6 +181,8 @@ export function getOrCreateConversation(
      * what every caller did before this option existed.
      */
     origin?: ChannelId;
+    /** The caller records creation after required setup succeeds. */
+    deferBootstrapCleanup?: boolean;
   },
 ): {
   conversationId: string;
@@ -233,17 +242,6 @@ export function getOrCreateConversation(
       };
     }
 
-    // The first standard conversation is the onboarding one, so BOOTSTRAP.md
-    // survives its whole duration and any later standard create means
-    // onboarding is over. Background rows stay inert: a hidden side thread
-    // minted before the user's first visible chat must not consume that slot.
-    if (conversationType === "standard") {
-      if (firstConversationSeen) {
-        cleanupBootstrapFiles("new conversation created after onboarding");
-      }
-      firstConversationSeen = true;
-    }
-
     const now = Date.now();
     const conversationId = uuid();
     const customTitle = opts?.title?.trim();
@@ -300,6 +298,9 @@ export function getOrCreateConversation(
 
   if (result.created) {
     initConversationDir(result.conversation);
+    if (conversationType === "standard" && !opts?.deferBootstrapCleanup) {
+      recordStandardConversationCreated();
+    }
     // Attribution for every key-materialized conversation: this is the single
     // choke point through which all unseen-key creations flow, and the key
     // shape + caller frames identify the entry point from the log alone. The
