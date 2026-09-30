@@ -1468,6 +1468,20 @@ export function useLiveVoice(
           // The user asked out loud to end or mute. Same local drain as the
           // minimize above: the goodbye or the "muting you" is heard in full
           // before the call ends or the mic goes quiet.
+          //
+          // Except a look at a screen that is already shared: it only takes a
+          // fresh frame, which changes nothing the user sees or hears, so it
+          // goes now and the capture overlaps the acknowledgement. The
+          // assistant holds the reply that answers it until the
+          // acknowledgement has played, and drops it if the user talks over
+          // the acknowledgement.
+          if (
+            frame.action === "look_screen" &&
+            useLiveVoiceStore.getState().screenShareTarget !== null
+          ) {
+            applyLiveVoiceSessionControl(frame);
+            return;
+          }
           session.pendingSessionControl = frame;
           applySessionControlOnceHeard();
         }),

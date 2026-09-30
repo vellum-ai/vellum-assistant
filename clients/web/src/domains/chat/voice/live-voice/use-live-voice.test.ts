@@ -4231,6 +4231,54 @@ describe("reversible barge-in", () => {
     expect(h.client.ended).toBe(true);
   });
 
+  /** A look arriving mid-acknowledgement, from an assistant that takes frames. */
+  async function lookWhileSpeaking(options: { sharing: boolean }) {
+    const { useAssistantIdentityStore } =
+      await import("@/stores/assistant-identity-store");
+    const { MIN_VERSION } =
+      await import("@/lib/backwards-compat/use-supports-sight-stream");
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("Test", MIN_VERSION, "assistant-1");
+    const h = await speakingSession();
+    if (options.sharing) {
+      useLiveVoiceStore
+        .getState()
+        .setScreenShareTarget({ kind: "display", displayId: 1 } as never);
+    }
+    act(() => {
+      h.client.emit("sessionControl", {
+        type: "session_control",
+        seq: 7,
+        turnId: "t1",
+        action: "look_screen",
+      });
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    return h;
+  }
+
+  // Refreshing a running share changes nothing the user hears, so the fresh
+  // frame is asked for while the acknowledgement is still playing.
+  test("a look at a running share asks for its frame before playback drains", async () => {
+    await lookWhileSpeaking({ sharing: true });
+    expect(useLiveVoiceStore.getState().lookFrameRequested.screen).toBe(true);
+  });
+
+  test("a look with no share running waits for the acknowledgement to be heard", async () => {
+    const h = await lookWhileSpeaking({ sharing: false });
+    expect(useLiveVoiceStore.getState().lookFrameRequested.screen).toBe(false);
+
+    await act(async () => {
+      h.player.finishPlayback();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(useLiveVoiceStore.getState().lookFrameRequested.screen).toBe(true);
+  });
+
   // "Wait" over "okay, bye": the flush resolves the drain, and the call must
   // not end on that.
   test("talking over a spoken end keeps the call", async () => {
