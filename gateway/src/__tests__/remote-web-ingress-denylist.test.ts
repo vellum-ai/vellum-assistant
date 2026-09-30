@@ -82,6 +82,7 @@ describe("remote web ingress denylist", () => {
       "/v1/remote-web/pairing-requests/deny",
       "/v1/remote-web/pairing-token",
       "/v1/remote-web/pairing-verification",
+      "/v1/shared/invites/redeem",
     ]);
 
     const publicRemoteWebRoutes = new Set([

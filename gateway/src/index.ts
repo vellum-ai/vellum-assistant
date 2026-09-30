@@ -118,6 +118,7 @@ import {
 } from "./http/routes/remote-web-pairing-requests.js";
 import { handleRemoteWebPairingToken } from "./http/routes/remote-web-pairing-token.js";
 import { handleVerifyRemoteWebPairingChallenge } from "./http/routes/remote-web-pairing-verification.js";
+import { handleSharedInviteRedeem } from "./http/routes/shared-invite-redeem.js";
 import { createSlackControlPlaneProxyHandler } from "./http/routes/slack-control-plane-proxy.js";
 import { createOAuthAppsProxyHandler } from "./http/routes/oauth-apps-proxy.js";
 import { createOAuthProvidersProxyHandler } from "./http/routes/oauth-providers-proxy.js";
@@ -1036,6 +1037,15 @@ async function main() {
       auth: "none",
       handler: (req, _params, getClientIp) =>
         handleDenyRemoteWebPairingRequest(req, getClientIp()),
+    },
+    // ── Shared-invite redemption (auth: none) ──
+    // The invite link token in the request body is the credential.
+    {
+      path: "/v1/shared/invites/redeem",
+      method: "POST",
+      auth: "none",
+      handler: (req, _params, getClientIp) =>
+        handleSharedInviteRedeem(req, getClientIp()),
     },
     // ── Credential requests (one-time credential-collection links) ──
     // Unauthenticated by design: the single-use token in the request BODY is
