@@ -207,10 +207,11 @@ All contact paths are registered flat only (`/v1/contacts...`, `/v1/contact-chan
 | DELETE   | `/v1/contacts/invites/:inviteId`      |
 | POST     | `/v1/contacts/invites/:inviteId/call` |
 | POST     | `/v1/contacts/invites/redeem`         |
+| POST     | `/v1/shared/invites/redeem`           |
 
 **Authentication boundary:**
 
-- Gateway validates the caller's JWT bearer token.
+- Gateway validates the caller's JWT bearer token, except on `/v1/shared/invites/redeem`, where the `vellum-shared` invite link token in the body is the credential (see Invite-based onboarding).
 - Native contact/invite endpoints are served from the gateway DB after that bearer-auth check; runtime-relayed requests (Telegram control plane, contact search reads) reach the runtime with a minted JWT (`gateway_ingress_v1` or `gateway_service_v1` scope profile).
 - Upstream 4xx/5xx responses are passed through, while connection errors return `502` and timeouts return `504`.
 
@@ -609,6 +610,8 @@ The channel inbound handler (`inbound-message-handler.ts`) enforces an access co
 
 **Invite-based onboarding:** Invite tokens are minted by the gateway via the invite HTTP API and stored SHA-256 hashed on the gateway DB's `ingress_invites` row -- the raw token is returned exactly once at creation time. External users redeem invites by sending the token as a channel message, which atomically creates a member record with `active` status and `allow` policy.
 
+A `vellum-shared` invite is redeemed instead through `POST /v1/shared/invites/redeem`, which the platform calls on the invitee's behalf with the link token and a device id. In one gateway DB transaction it claims the invite's single use, mints a principal, binds it to the invite's contact-role contact, records it as that contact's active `vellum-shared` channel, and mints a device-bound `contact`-role token pair; a failure at any step rolls all of it back and leaves the invite redeemable. `writeSharedPrincipalChannel` is the only writer of `vellum-shared` rows. The route accepts only the link token, never the 6-digit code, answers 404 while `vellum-trusted-contacts` is off, limits failed attempts per client IP, and is denied at the remote web ingress. The principal then resolves as `trusted_contact` through its `vellum-shared` channel for as long as that channel stays active.
+
 **Relationship to guardian verification:** Guardian verification and ingress contact management are independent systems. Guardian verification establishes who controls the assistant on a channel (the trust anchor for approvals). Ingress contacts control who can interact with the assistant.
 
 #### SQLite Tables
@@ -639,6 +642,8 @@ The gateway declares `contacts` and `contact_channels` tables and exposes them v
 | `gateway/src/http/routes/contacts-control-plane-proxy.ts` | Gateway-native invite lifecycle (mint, list, revoke, redeem) shared by HTTP and IPC              |
 | `gateway/src/ipc/invite-handlers.ts`                      | IPC routes relaying the daemon's invite surfaces to the native functions                         |
 | `gateway/src/verification/invite-redemption.ts`           | Redemption engine — validation, atomic claim, ACL activation                                     |
+| `gateway/src/verification/shared-invite-redemption.ts`    | `vellum-shared` invite redemption: claim, principal, channel and token pair in one transaction   |
+| `gateway/src/http/routes/shared-invite-redeem.ts`         | `POST /v1/shared/invites/redeem`: flag gate, request schema, per-IP failure limit                |
 | `assistant/src/contacts/contact-store.ts`                 | Contact and channel lookups (findContactChannel, guardian bindings)                              |
 | `assistant/src/contacts/contacts-write.ts`                | Contact and channel identity/info writes (upsert, redemption info mirror — ACL is gateway-owned) |
 | `assistant/src/ipc/routes/invite-ipc-routes.ts`           | `invite_redeemed` info mirror — local contact/channel identity upsert                            |
