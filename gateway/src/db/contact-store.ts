@@ -42,16 +42,60 @@ const log = getLogger("contact-store");
 export const GUARDIAN_BINDING_REVOKE_REASON = "guardian_binding_revoked";
 
 /**
+ * The channel a shared-conversation principal is recorded on. Written only by
+ * {@link writeSharedPrincipalChannel}.
+ */
+export const SHARED_PRINCIPAL_CHANNEL_TYPE = "vellum-shared";
+
+/**
  * Channel types the generic contact writes refuse. Rows under one of these
  * types are written only by the dedicated path that owns the type.
  */
-const RESERVED_CHANNEL_TYPES: ReadonlySet<string> = new Set(["vellum-shared"]);
+const RESERVED_CHANNEL_TYPES: ReadonlySet<string> = new Set([
+  SHARED_PRINCIPAL_CHANNEL_TYPE,
+]);
 
 /** Throws when a generic write supplies a reserved channel type. */
 export function assertChannelTypeWritable(type: string): void {
   if (RESERVED_CHANNEL_TYPES.has(type.trim().toLowerCase())) {
     throw new ReservedChannelTypeError(type);
   }
+}
+
+/**
+ * The only writer of `vellum-shared` rows. Binds `principalId` to the
+ * contact-role contact `contactId` and records it as that contact's active
+ * `vellum-shared` channel, both or neither. Synchronous, so a caller can
+ * compose it with other gateway writes in one transaction.
+ *
+ * Throws {@link BindContactPrincipalError} when the contact is missing, is not
+ * a contact-role row, or already carries a different principal.
+ */
+export function writeSharedPrincipalChannel(
+  params: { contactId: string; principalId: string; inviteId: string },
+  db: GatewayDb = getGatewayDb(),
+): void {
+  db.transaction(() => {
+    new ContactStore(db).bindContactPrincipal(
+      params.contactId,
+      params.principalId,
+    );
+    const now = Date.now();
+    db.insert(contactChannels)
+      .values({
+        id: crypto.randomUUID(),
+        contactId: params.contactId,
+        type: SHARED_PRINCIPAL_CHANNEL_TYPE,
+        address: params.principalId,
+        status: "active",
+        verifiedAt: now,
+        verifiedVia: "invite",
+        inviteId: params.inviteId,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  });
 }
 
 export type Contact = typeof contacts.$inferSelect;

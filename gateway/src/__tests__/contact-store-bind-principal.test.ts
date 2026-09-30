@@ -1,6 +1,6 @@
 /**
- * Tests for ContactStore.bindContactPrincipal and the reserved-channel-type
- * guard on the generic contact writes.
+ * Tests for ContactStore.bindContactPrincipal, the reserved-channel-type
+ * guard on the generic contact writes, and the dedicated vellum-shared writer.
  *
  * `upsertContact` refuses `role` and `principalId` outright, so binding a
  * principal has its own narrow write. These pin that the write reaches only
@@ -47,6 +47,7 @@ import {
   BindContactPrincipalError,
   ContactStore,
   ReservedChannelTypeError,
+  writeSharedPrincipalChannel,
 } from "../db/contact-store.js";
 import {
   initGatewayDb,
@@ -197,5 +198,73 @@ describe("reserved channel types", () => {
 
     const channels = new ContactStore().getChannelsForContact(contact.id);
     expect(channels.map((ch) => ch.type)).toEqual(["vellum"]);
+  });
+});
+
+describe("writeSharedPrincipalChannel", () => {
+  function sharedChannels() {
+    return getGatewayDb()
+      .select()
+      .from(contactChannels)
+      .where(eq(contactChannels.type, "vellum-shared"))
+      .all();
+  }
+
+  test("binds the principal and records its active vellum-shared channel", () => {
+    seedContact({ id: "ct_1" });
+
+    writeSharedPrincipalChannel({
+      contactId: "ct_1",
+      principalId: "prin_1",
+      inviteId: "inv_1",
+    });
+
+    expect(readPrincipal("ct_1")).toBe("prin_1");
+    const channels = sharedChannels();
+    expect(channels).toHaveLength(1);
+    expect(channels[0]).toMatchObject({
+      contactId: "ct_1",
+      address: "prin_1",
+      status: "active",
+      verifiedVia: "invite",
+      inviteId: "inv_1",
+    });
+    expect(channels[0]!.verifiedAt).toBeNumber();
+  });
+
+  test("writes nothing for a contact that cannot take the principal", () => {
+    seedContact({ id: "ct_guardian", role: "guardian" });
+
+    expect(() =>
+      writeSharedPrincipalChannel({
+        contactId: "ct_guardian",
+        principalId: "prin_1",
+        inviteId: "inv_1",
+      }),
+    ).toThrow(BindContactPrincipalError);
+
+    expect(readPrincipal("ct_guardian")).toBeNull();
+    expect(sharedChannels()).toHaveLength(0);
+  });
+
+  test("leaves the contact unbound when the channel write fails", () => {
+    seedContact({ id: "ct_1" });
+    seedContact({ id: "ct_2" });
+    writeSharedPrincipalChannel({
+      contactId: "ct_1",
+      principalId: "prin_1",
+      inviteId: "inv_1",
+    });
+
+    expect(() =>
+      writeSharedPrincipalChannel({
+        contactId: "ct_2",
+        principalId: "prin_1",
+        inviteId: "inv_2",
+      }),
+    ).toThrow();
+
+    expect(readPrincipal("ct_2")).toBeNull();
+    expect(sharedChannels().map((ch) => ch.contactId)).toEqual(["ct_1"]);
   });
 });
