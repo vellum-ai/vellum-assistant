@@ -275,13 +275,32 @@ describe("managed live voice runs Flux", () => {
     expect(roleless).toBe("vellum");
   });
 
-  test("a family the user named wins", async () => {
-    // `services.stt.providers.vellum.model` accepts nova-3, so quietly
-    // overriding it would be the silent substitution roles exist to prevent.
+  test("the global family managed defaulting writes does not hold it back", async () => {
+    // Moving an install onto `vellum` writes the base family globally, for
+    // batch and telephony. That is not a choice about live voice.
     mockManagedSpeechAvailable = true;
     writeConfig({
       services: {
         stt: { provider: "vellum", providers: { vellum: { model: "nova-3" } } },
+      },
+    });
+
+    const { stt } = await resolveEffectiveSpeechProviders(undefined, {
+      role: "liveVoice",
+    });
+
+    expect(stt).toBe("vellum-flux");
+  });
+
+  test("a family named on the live-voice role wins", async () => {
+    // The Settings > Voice toggle writes this entry to opt out.
+    mockManagedSpeechAvailable = true;
+    writeConfig({
+      services: {
+        stt: {
+          provider: "vellum",
+          roles: { liveVoice: { provider: "vellum", model: "nova-3" } },
+        },
       },
     });
 

@@ -60,11 +60,40 @@ export function languageSupportsTurnDetection(
   return supported.includes(normalized.split("-")[0] ?? normalized);
 }
 
-interface SttShape {
+export interface SttShape {
   provider?: string;
   providers?: Record<string, { model?: string } | undefined>;
   roles?: Record<string, { provider?: string; model?: string } | undefined>;
   language?: string;
+}
+
+/**
+ * Whether live voice runs the turn-detecting family, as the daemon resolves it.
+ *
+ * Managed live voice resolves to that family unless its own role entry names
+ * another, so an unset selection reads as on rather than off. The global
+ * managed family is not consulted: managed defaulting writes the base family
+ * there for batch and telephony, and the daemon ignores it for live voice.
+ *
+ * A role entry is a complete selection to the daemon: it does not inherit
+ * `services.stt.providers.<id>.model`. Falling back to the global family when
+ * a role exists would report a family the session never runs.
+ */
+export function turnDetectionOn(
+  stt: SttShape | undefined,
+  provider: string,
+  languageOk: boolean,
+): boolean {
+  const role = stt?.roles?.liveVoice;
+  const managed = isManagedProvider(provider);
+  const named = role
+    ? role.model
+    : managed
+      ? undefined
+      : stt?.providers?.[provider]?.model;
+  return named === undefined
+    ? managed && languageOk
+    : named === TURN_DETECTING_FAMILY;
 }
 
 export function TurnDetectionRow() {
@@ -103,18 +132,7 @@ export function TurnDetectionRow() {
     stt?.language,
     catalogEntry?.turnDetectionLanguages,
   );
-  // Managed live voice resolves to the turn-detecting family when nothing is
-  // named, so an unset selection reads as on rather than off. Without that the
-  // row would report a state the session does not run.
-  // A role entry is a complete selection to the daemon: it does not inherit
-  // `services.stt.providers.<id>.model`. Falling back to the global family
-  // when a role exists would report a family the session never runs.
-  const role = stt?.roles?.liveVoice;
-  const named = role ? role.model : stt?.providers?.[provider]?.model;
-  const checked =
-    named === undefined
-      ? isManagedProvider(provider) && languageOk
-      : named === TURN_DETECTING_FAMILY;
+  const checked = turnDetectionOn(stt, provider, languageOk);
 
   const apply = async (next: boolean) => {
     setSaving(true);
