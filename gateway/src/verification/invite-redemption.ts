@@ -160,6 +160,57 @@ function reasonForStatus(status: string): InviteRedemptionFailureReason {
   return "invalid_token";
 }
 
+/**
+ * The status, expiry, use-count and channel checks every redemption runs
+ * before claiming a use. Returns why the invite cannot be redeemed on
+ * `sourceChannel`, or null when it can. An active invite past its expiry is
+ * marked expired as a side effect.
+ */
+export function checkInviteRedeemable(
+  store: ContactStore,
+  invite: IngressInviteRow,
+  sourceChannel: string,
+): InviteRedemptionFailureReason | null {
+  const liveness = ensureInviteLive(store, invite);
+  if (!liveness.live) {
+    return reasonForStatus(liveness.status);
+  }
+  if (invite.useCount >= invite.maxUses) {
+    return "max_uses_reached";
+  }
+  if (invite.sourceChannel !== sourceChannel) {
+    return "channel_mismatch";
+  }
+  return null;
+}
+
+/**
+ * {@link checkInviteRedeemable}, then claim one use. The claim is gated on
+ * status "active", so of two concurrent redeemers (or a redeemer racing a
+ * revoke) only the first consumes the use. Returns why the invite was not
+ * claimed, or null once it was.
+ */
+export function claimInvite(
+  store: ContactStore,
+  invite: IngressInviteRow,
+  params: {
+    sourceChannel: string;
+    redeemedByExternalUserId?: string | null;
+    redeemedByExternalChatId?: string | null;
+  },
+): InviteRedemptionFailureReason | null {
+  const failure = checkInviteRedeemable(store, invite, params.sourceChannel);
+  if (failure) {
+    return failure;
+  }
+  const claim = store.recordInviteRedemption({
+    inviteId: invite.id,
+    redeemedByExternalUserId: params.redeemedByExternalUserId ?? null,
+    redeemedByExternalChatId: params.redeemedByExternalChatId ?? null,
+  });
+  return claim.updated ? null : "invalid_token";
+}
+
 async function finishRedemption(
   store: ContactStore,
   invite: IngressInviteRow,
@@ -167,15 +218,9 @@ async function finishRedemption(
 ): Promise<InviteRedemptionEngineResult> {
   const { sourceChannel, externalUserId, externalChatId, username } = params;
 
-  const liveness = ensureInviteLive(store, invite);
-  if (!liveness.live) {
-    return failed(reasonForStatus(liveness.status));
-  }
-  if (invite.useCount >= invite.maxUses) {
-    return failed("max_uses_reached");
-  }
-  if (invite.sourceChannel !== sourceChannel) {
-    return failed("channel_mismatch");
+  const failure = checkInviteRedeemable(store, invite, sourceChannel);
+  if (failure) {
+    return failed(failure);
   }
 
   // ── Membership gate — gateway ACL rows only ──
