@@ -99,6 +99,14 @@ const CHANNEL_POLICIES = {
       conversationStrategy: "continue_existing_conversation",
     },
   },
+  "vellum-shared": {
+    notification: {
+      // A shared conversation has no transport: the contact's own client
+      // reads replies over its connection, so there is nowhere to push to.
+      deliveryEnabled: false,
+      conversationStrategy: "not_deliverable",
+    },
+  },
 } as const satisfies Record<ChannelId, ChannelNotificationPolicy>;
 
 export type ChannelPolicies = typeof CHANNEL_POLICIES;

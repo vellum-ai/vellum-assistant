@@ -2,6 +2,12 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { initGatewayDb, resetGatewayDb } from "../db/connection.js";
 import { AdmissionPolicyStore } from "../db/admission-policy-store.js";
 import { seedAdmissionPolicyDefaults } from "../db/seed-admission-policy.js";
+import { isChannelId } from "../channels/types.js";
+import {
+  getAdmissionPolicyCache,
+  initAdmissionPolicyCache,
+  resetAdmissionPolicyCache,
+} from "../risk/admission-policy-cache.js";
 import "./test-preload.js";
 
 let store: AdmissionPolicyStore;
@@ -16,6 +22,7 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  resetAdmissionPolicyCache();
   resetGatewayDb();
 });
 
@@ -72,15 +79,28 @@ describe("seedAdmissionPolicyDefaults", () => {
     expect(store.get("discord")).toBe("strangers");
   });
 
+  test("seeds vellum-shared as a known channel at a guardian_only floor", () => {
+    seedAdmissionPolicyDefaults(store);
+    initAdmissionPolicyCache(store);
+
+    expect(isChannelId("vellum-shared")).toBe(true);
+    expect(store.get("vellum-shared")).toBe("guardian_only");
+    expect(getAdmissionPolicyCache().get("vellum-shared")).toBe(
+      "guardian_only",
+    );
+  });
+
   test("resets a stranded hidden-channel row back to its default", () => {
     // A legacy/stale row on a now-hidden channel must not strand the channel
     // at a floor the user can no longer see or reset in the UI.
     store.set("whatsapp", "no_one", "legacy kill switch");
     store.set("vellum", "any_contact", "legacy widened vellum");
+    store.set("vellum-shared", "strangers", "legacy widened vellum-shared");
 
     seedAdmissionPolicyDefaults(store);
 
     expect(store.get("whatsapp")).toBe("trusted_contacts");
     expect(store.get("vellum")).toBe("guardian_only");
+    expect(store.get("vellum-shared")).toBe("guardian_only");
   });
 });
