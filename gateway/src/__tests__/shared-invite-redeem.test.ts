@@ -18,7 +18,10 @@ import {
   test,
 } from "bun:test";
 
-import { ResolveInboundTrustResponseSchema } from "@vellumai/gateway-client";
+import {
+  hashInviteToken,
+  ResolveInboundTrustResponseSchema,
+} from "@vellumai/gateway-client";
 import { and, eq } from "drizzle-orm";
 
 // The route schema the daemon serves: the guardian-only chat route as a
@@ -404,6 +407,26 @@ describe("creating a vellum-shared invite", () => {
     });
     expect(invite.maxUses).toBe(2);
   });
+
+  async function expectCreateConflict(contactId: string): Promise<void> {
+    let caught: unknown;
+    try {
+      await createInviteNative({ contactId, sourceChannel: "vellum-shared" });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toMatchObject({ statusCode: 409, code: "CONFLICT" });
+    expect(getGatewayDb().select().from(ingressInvites).all()).toHaveLength(0);
+  }
+
+  test("refuses a guardian contact", async () => {
+    await expectCreateConflict(GUARDIAN_ID);
+  });
+
+  test("refuses a contact that already has a principal", async () => {
+    new ContactStore().bindContactPrincipal(CONTACT_ID, "principal-earlier");
+    await expectCreateConflict(CONTACT_ID);
+  });
 });
 
 describe("request validation", () => {
@@ -516,7 +539,19 @@ describe("a failure after the claim leaves the invite redeemable", () => {
   });
 
   test("when the invite names the guardian", async () => {
-    const invite = await createInvite("vellum-shared", GUARDIAN_ID);
+    // Creation refuses this invite, so the row is written directly.
+    const invite = {
+      id: "invite-guardian",
+      token: "guardian-link-token",
+      inviteCode: "",
+    };
+    new ContactStore().createInvite({
+      id: invite.id,
+      sourceChannel: "vellum-shared",
+      tokenHash: hashInviteToken(invite.token),
+      contactId: GUARDIAN_ID,
+      expiresAt: Date.now() + 60_000,
+    });
 
     const res = await redeem({ code: invite.token, deviceId: DEVICE_ID });
 

@@ -331,6 +331,19 @@ export async function createInviteNative(
     );
   }
 
+  // Redemption binds the new principal only to a contact-role contact that
+  // carries none yet.
+  if (
+    input.sourceChannel === "vellum-shared" &&
+    (contact.role !== "contact" || contact.principalId)
+  ) {
+    throw new InviteNativeError(
+      `Contact "${input.contactId}" cannot take a vellum-shared invite`,
+      409,
+      "CONFLICT",
+    );
+  }
+
   const isVoice = input.sourceChannel === "phone";
 
   let rawToken: string | undefined;
