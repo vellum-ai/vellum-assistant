@@ -408,6 +408,24 @@ describe("resolve-or-mint (resolveOrCreateVellumGuardian)", () => {
     ]);
   });
 
+  test("startup backfill never recovers a contact principal as the guardian", async () => {
+    // A contact and its live token, with the guardian row lost. Recovering the
+    // contact's principal would hand that contact's credentials guardian
+    // authority, so the backfill refuses instead.
+    seedContact({ id: "contact-1", principalId: "contact-principal-1" });
+    seedActorToken({
+      id: "contact-token",
+      role: "contact",
+      principalId: "contact-principal-1",
+    });
+
+    await expect(
+      ensureVellumGuardianBinding({ recoverFromActorTokens: true }),
+    ).rejects.toBeInstanceOf(VellumGuardianMintRefusedError);
+
+    expect(gatewayVellumGuardians()).toHaveLength(0);
+  });
+
   test("startup backfill recovers the guardian from active actor-token evidence (LUM-2783)", async () => {
     // The gateway carries actor tokens migrated from the assistant DB (m0002)
     // but an empty contacts table — the contact reconcile could not run because

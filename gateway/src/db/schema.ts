@@ -275,7 +275,14 @@ export const actorTokenRecords = sqliteTable(
   {
     id: text("id").primaryKey(),
     tokenHash: text("token_hash").notNull(),
+    // The principal the token belongs to, whatever its role. The guardian's
+    // only when `role = 'guardian'`.
     guardianPrincipalId: text("guardian_principal_id").notNull(),
+    // A row with no explicit role is the guardian's.
+    role: text("role")
+      .$type<"guardian" | "contact">()
+      .notNull()
+      .default("guardian"),
     hashedDeviceId: text("hashed_device_id").notNull(),
     platform: text("platform").notNull(),
     // Siblings of platform so rotation carries them forward. Raw, never parsed here.
@@ -314,6 +321,11 @@ export const actorRefreshTokenRecords = sqliteTable(
     tokenHash: text("token_hash").notNull(),
     familyId: text("family_id").notNull(),
     guardianPrincipalId: text("guardian_principal_id").notNull(),
+    // A row with no explicit role is the guardian's.
+    role: text("role")
+      .$type<"guardian" | "contact">()
+      .notNull()
+      .default("guardian"),
     hashedDeviceId: text("hashed_device_id").notNull(),
     platform: text("platform").notNull(),
     pairingUserAgent: text("pairing_user_agent"),

@@ -11,6 +11,7 @@
 
 export type ScopeProfile =
   | "actor_client_v1"
+  | "contact_client_v1"
   | "gateway_ingress_v1"
   | "gateway_service_v1"
   | "local_v1"

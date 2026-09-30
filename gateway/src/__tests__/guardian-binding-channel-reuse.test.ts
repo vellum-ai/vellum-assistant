@@ -138,13 +138,21 @@ mock.module("../ipc/contacts-info-client.js", () => ({
 
 import { eq } from "drizzle-orm";
 
-import { createGuardianBinding } from "../auth/guardian-bootstrap.js";
+import {
+  createGuardianBinding,
+  GuardianAddressHeldByContactError,
+} from "../auth/guardian-bootstrap.js";
 import {
   initGatewayDb,
   getGatewayDb,
   resetGatewayDb,
 } from "../db/connection.js";
-import { contacts, contactChannels } from "../db/schema.js";
+import {
+  actorRefreshTokenRecords,
+  actorTokenRecords,
+  contacts,
+  contactChannels,
+} from "../db/schema.js";
 
 function seedGwGuardianContact(): void {
   getGatewayDb()
@@ -215,6 +223,8 @@ beforeAll(async () => {
 
 beforeEach(() => {
   const gw = getGatewayDb();
+  gw.delete(actorTokenRecords).run();
+  gw.delete(actorRefreshTokenRecords).run();
   gw.delete(contactChannels).run();
   gw.delete(contacts).run();
 
@@ -321,6 +331,129 @@ describe("createGuardianBinding id resolution", () => {
 
     expect(result.contactId).toBe("guardian-contact");
     expect(result.channelId).toBe("seed-channel");
+  });
+
+  // Adopting the row would rewrite the contact to role guardian, leaving a
+  // principal that still holds a credential resolving as the guardian.
+  function seedContactHoldingVellumAddress(): void {
+    seedGwGuardianContact();
+    getGatewayDb()
+      .insert(contacts)
+      .values({
+        id: "contact-with-principal",
+        displayName: "Contact",
+        role: "contact",
+        principalId: "contact-principal",
+        createdAt: 1,
+        updatedAt: 1,
+      })
+      .run();
+    getGatewayDb()
+      .insert(contactChannels)
+      .values({
+        id: "contact-channel",
+        contactId: "contact-with-principal",
+        type: "vellum",
+        address: "contact-principal",
+        isPrimary: true,
+        status: "active",
+        policy: "allow",
+        interactionCount: 0,
+        createdAt: 1,
+        updatedAt: 1,
+      })
+      .run();
+  }
+
+  function seedContactAccessToken(expiresAt: number | null): void {
+    getGatewayDb()
+      .insert(actorTokenRecords)
+      .values({
+        id: "contact-token",
+        tokenHash: "hash-contact-token",
+        guardianPrincipalId: "contact-principal",
+        role: "contact",
+        hashedDeviceId: "device-contact",
+        platform: "web",
+        status: "active",
+        issuedAt: 1,
+        expiresAt,
+        createdAt: 1,
+        updatedAt: 1,
+      })
+      .run();
+  }
+
+  function seedContactRefreshToken(): void {
+    const now = Date.now();
+    getGatewayDb()
+      .insert(actorRefreshTokenRecords)
+      .values({
+        id: "contact-refresh",
+        tokenHash: "hash-contact-refresh",
+        familyId: "family-contact",
+        guardianPrincipalId: "contact-principal",
+        role: "contact",
+        hashedDeviceId: "device-contact",
+        platform: "web",
+        status: "active",
+        issuedAt: 1,
+        absoluteExpiresAt: now + 86_400_000,
+        inactivityExpiresAt: now + 86_400_000,
+        createdAt: 1,
+        updatedAt: 1,
+      })
+      .run();
+  }
+
+  function bindGuardianToContactAddress() {
+    return createGuardianBinding({
+      channel: "vellum",
+      externalUserId: "contact-principal",
+      deliveryChatId: "local",
+      guardianPrincipalId: "guardian-principal",
+      verifiedVia: "bootstrap",
+    });
+  }
+
+  function contactRow() {
+    return getGatewayDb()
+      .select()
+      .from(contacts)
+      .where(eq(contacts.id, "contact-with-principal"))
+      .get();
+  }
+
+  test("refuses an address held by a contact with an unexpired access token", async () => {
+    seedContactHoldingVellumAddress();
+    seedContactAccessToken(Date.now() + 86_400_000);
+
+    await expect(bindGuardianToContactAddress()).rejects.toBeInstanceOf(
+      GuardianAddressHeldByContactError,
+    );
+
+    const row = contactRow();
+    expect(row?.role).toBe("contact");
+    expect(row?.principalId).toBe("contact-principal");
+  });
+
+  test("refuses an address held by a contact whose only credential is a refresh token", async () => {
+    seedContactHoldingVellumAddress();
+    seedContactRefreshToken();
+
+    await expect(bindGuardianToContactAddress()).rejects.toBeInstanceOf(
+      GuardianAddressHeldByContactError,
+    );
+    expect(contactRow()?.role).toBe("contact");
+  });
+
+  test("adopts an address whose contact holds only expired credentials", async () => {
+    // Expiry, not row status, decides: an expired access row keeps status
+    // 'active', so status alone would block adoption forever.
+    seedContactHoldingVellumAddress();
+    seedContactAccessToken(Date.now() - 1000);
+
+    await expect(bindGuardianToContactAddress()).resolves.toBeDefined();
   });
 
   test("reactivates a revoked guardian channel instead of minting a new one", async () => {

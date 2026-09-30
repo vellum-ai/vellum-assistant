@@ -44,15 +44,23 @@ export function seedContact(opts: {
     .run();
 }
 
-/** Insert an active actor-token row bound to a guardian principal. */
-export function seedActorToken(opts: { id?: string } = {}): void {
+/** Insert an active actor-token row; defaults to the guardian principal. */
+export function seedActorToken(
+  opts: {
+    id?: string;
+    role?: "guardian" | "contact";
+    principalId?: string;
+  } = {},
+): void {
   const now = Date.now();
+  const id = opts.id ?? crypto.randomUUID();
   getGatewayDb()
     .insert(actorTokenRecords)
     .values({
-      id: opts.id ?? crypto.randomUUID(),
-      tokenHash: "hash-1",
-      guardianPrincipalId: "principal-123",
+      id,
+      tokenHash: `hash-${id}`,
+      guardianPrincipalId: opts.principalId ?? "principal-123",
+      role: opts.role ?? "guardian",
       hashedDeviceId: "device-abc",
       platform: "macos",
       status: "active",
