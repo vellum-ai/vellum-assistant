@@ -370,6 +370,42 @@ describe("redeeming a vellum-shared invite", () => {
   });
 });
 
+describe("creating a vellum-shared invite", () => {
+  test("refuses more than one use", async () => {
+    let caught: unknown;
+    try {
+      await createInviteNative({
+        contactId: CONTACT_ID,
+        sourceChannel: "vellum-shared",
+        maxUses: 2,
+      });
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toMatchObject({ statusCode: 400, code: "BAD_REQUEST" });
+    expect(getGatewayDb().select().from(ingressInvites).all()).toHaveLength(0);
+  });
+
+  test("accepts a single use", async () => {
+    const { invite } = await createInviteNative({
+      contactId: CONTACT_ID,
+      sourceChannel: "vellum-shared",
+      maxUses: 1,
+    });
+    expect(invite.maxUses).toBe(1);
+  });
+
+  test("leaves other channels free to allow several uses", async () => {
+    const { invite } = await createInviteNative({
+      contactId: CONTACT_ID,
+      sourceChannel: "telegram",
+      maxUses: 2,
+    });
+    expect(invite.maxUses).toBe(2);
+  });
+});
+
 describe("request validation", () => {
   test("returns 404 while the trusted-contacts flag is off", async () => {
     const invite = await createInvite();
@@ -397,6 +433,18 @@ describe("request validation", () => {
     const invite = await createInvite();
     const res = await redeem({ code: invite.token });
     expect(res.status).toBe(400);
+    expectInviteUnconsumed(invite.id);
+  });
+
+  test("rejects a deviceId that is not a string", async () => {
+    const invite = await createInvite();
+
+    const res = await redeem({ code: invite.token, deviceId: 42 });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: { code: "BAD_REQUEST", message: "deviceId is required" },
+    });
     expectInviteUnconsumed(invite.id);
   });
 

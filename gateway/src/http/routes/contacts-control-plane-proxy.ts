@@ -308,6 +308,20 @@ export async function createInviteNative(
     );
   }
 
+  // A redemption binds a new principal to the contact, and a contact carries
+  // one principal, so a second use of the same invite could never succeed.
+  if (
+    input.sourceChannel === "vellum-shared" &&
+    input.maxUses !== undefined &&
+    input.maxUses !== 1
+  ) {
+    throw new InviteNativeError(
+      "maxUses must be 1 for vellum-shared invites",
+      400,
+      "BAD_REQUEST",
+    );
+  }
+
   const contact = store.getContact(input.contactId);
   if (!contact) {
     throw new InviteNativeError(
