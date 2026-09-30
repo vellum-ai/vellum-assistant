@@ -12,6 +12,11 @@
  * IPC, and converts the result back into an HTTP Response.
  */
 
+import {
+  routeAdmitsTrustClass,
+  tokenMayReachRoute,
+} from "@vellumai/gateway-client";
+
 import { admitActorToken } from "../../auth/actor-token-revocation.js";
 import {
   isNarrowScopeProfile,
@@ -32,11 +37,19 @@ import {
   type RouteSchemaPolicy,
 } from "../../ipc/route-schema-cache.js";
 import { getLogger } from "../../logger.js";
+import { resolveTrustVerdict } from "../../risk/trust-verdict-resolver.js";
 
 const log = getLogger("ipc-runtime-proxy");
 
 const V1_PREFIX = "/v1/";
 const VELLUM_HEADER_PREFIX = "x-vellum-";
+
+function notFound(): Response {
+  return Response.json(
+    { error: "Not found", source: "ipc-proxy" },
+    { status: 404 },
+  );
+}
 
 /**
  * Attempt to serve a request via IPC.
@@ -97,34 +110,14 @@ export async function tryIpcProxy(
   const pathname = url.pathname;
 
   if (!pathname.startsWith(V1_PREFIX)) {
-    return Response.json(
-      { error: "Not found", source: "ipc-proxy" },
-      { status: 404 },
-    );
+    return notFound();
   }
 
   const routePath = pathname.slice(V1_PREFIX.length);
   const match = matchRoute(req.method, routePath);
   if (!match) {
-    return Response.json(
-      { error: "Not found", source: "ipc-proxy" },
-      { status: 404 },
-    );
+    return notFound();
   }
-  // A passthrough forwards caller-authored paths, so undecodable ones arrive
-  // here routinely. Same answer the daemon's own router gives them.
-  if ("malformedPath" in match) {
-    return Response.json(
-      {
-        error: {
-          code: "BAD_REQUEST",
-          message: "Malformed percent-encoding in URL path parameter",
-        },
-      },
-      { status: 400 },
-    );
-  }
-
   // --- Policy enforcement --------------------------------------------------
   // The policy comes straight from the daemon's route schema (see
   // `assistant/src/ipc/routes/route-adapter.ts`). The daemon is the single
@@ -148,6 +141,24 @@ export async function tryIpcProxy(
       { status: 403 },
     );
   }
+  const trustDenied = await enforceRouteTrust(policy, claims, pathname);
+  if (trustDenied) return trustDenied;
+
+  // A passthrough forwards caller-authored paths, so undecodable ones arrive
+  // here routinely. Same answer the daemon's own router gives them, once the
+  // route has admitted the caller's trust class.
+  if ("malformedPath" in match) {
+    return Response.json(
+      {
+        error: {
+          code: "BAD_REQUEST",
+          message: "Malformed percent-encoding in URL path parameter",
+        },
+      },
+      { status: 400 },
+    );
+  }
+
   const policyDenied = enforceRoutePolicy(policy, claims, pathname);
   if (policyDenied) return policyDenied;
 
@@ -306,6 +317,57 @@ export async function tryIpcProxy(
 // ---------------------------------------------------------------------------
 // Policy enforcement
 // ---------------------------------------------------------------------------
+
+/**
+ * Trust class of the principal a trust-checked token names, read locally from
+ * its contact ACL on the `vellum-shared` channel. Undefined when the token
+ * names no actor principal or the resolver could not vouch.
+ */
+async function resolveContactTrustClass(
+  claims: TokenClaims,
+): Promise<string | undefined> {
+  const sub = parseSub(claims.sub);
+  if (!sub.ok || !sub.actorPrincipalId) {
+    return undefined;
+  }
+  const verdict = await resolveTrustVerdict({
+    channelType: "vellum-shared",
+    actorExternalId: sub.actorPrincipalId,
+  });
+  return verdict.resolutionFailed ? undefined : verdict.trustClass;
+}
+
+/**
+ * Refuse a caller whose trust class the route does not admit, with the same
+ * 404 an unmatched path gets so the caller learns nothing about which routes
+ * exist. Runs before path decoding and the scope checks for that reason.
+ *
+ * A trust-exempt profile (see `isTrustCheckedScopeProfile`) counts as the
+ * guardian with no lookup, and so does a request carrying no claims because
+ * client auth is off, matching the HTTP path's service token. Only a
+ * trust-checked token is resolved.
+ */
+async function enforceRouteTrust(
+  policy: RouteSchemaPolicy | null,
+  claims: TokenClaims | undefined,
+  path: string,
+): Promise<Response | null> {
+  const admitted = claims
+    ? await tokenMayReachRoute(
+        claims.scope_profile,
+        policy?.allowedTrustClasses,
+        () => resolveContactTrustClass(claims),
+      )
+    : routeAdmitsTrustClass(policy?.allowedTrustClasses, "guardian");
+  if (admitted) {
+    return null;
+  }
+  log.warn(
+    { path, sub: claims?.sub, scopeProfile: claims?.scope_profile },
+    "IPC proxy policy denied: trust class not admitted",
+  );
+  return notFound();
+}
 
 /**
  * Enforce the route's scope/principal policy against the caller's token.

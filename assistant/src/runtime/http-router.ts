@@ -10,7 +10,10 @@
  * `normalizeEndpointForPolicy`.
  */
 
-import { enforcePolicy } from "./auth/route-policy.js";
+import { tokenMayReachRoute } from "@vellumai/gateway-client";
+
+import { getLogger } from "../util/logger.js";
+import { enforcePolicy, type RoutePolicy } from "./auth/route-policy.js";
 import type { AuthContext } from "./auth/types.js";
 import { httpError } from "./http-errors.js";
 import type { HTTPRouteDefinition, RouteParams } from "./http-router-types.js";
@@ -18,6 +21,9 @@ import { withErrorHandling } from "./middleware/error-handler.js";
 import { routeDefinitionsToHTTPRoutes } from "./routes/http-adapter.js";
 import { ROUTES } from "./routes/index.js";
 import type { RouteLoggingConfig } from "./routes/types.js";
+import { resolveSharedPrincipalFresh } from "./shared-principal-lookup.js";
+
+const log = getLogger("http-router");
 
 // ---------------------------------------------------------------------------
 // Compiled route — internal representation with pre-built regex
@@ -106,6 +112,15 @@ export class HttpRouter {
         continue;
       }
 
+      const trustDenied = await enforceTrustClass(
+        compiled.def.endpoint,
+        compiled.def.policy,
+        authContext,
+      );
+      if (trustDenied) {
+        return trustDenied;
+      }
+
       // Extract named params
       const params: RouteParams = {};
       for (let i = 0; i < compiled.paramNames.length; i++) {
@@ -141,6 +156,51 @@ export class HttpRouter {
 
     return null;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Trust class
+// ---------------------------------------------------------------------------
+
+/**
+ * Refuses a caller on a route that does not admit its trust class, with the
+ * same 404 an unmatched path gets so it cannot probe which routes exist. It
+ * runs ahead of path decoding and the scope check so neither can answer 400 or
+ * 403 first, and under the dev auth bypass too, because a trust-checked
+ * context exists only when its bearer was verified.
+ *
+ * A trust-exempt profile (see {@link isTrustCheckedScopeProfile}) counts as
+ * the guardian with no lookup, so guardian, service and local callers never
+ * wait on the gateway here. A trust-checked one is read fresh, matching the
+ * gateway's per-request ACL read on the IPC path, so a revoked contact is
+ * refused on its next request.
+ */
+async function enforceTrustClass(
+  endpoint: string,
+  policy: RoutePolicy | null,
+  authContext: AuthContext,
+): Promise<Response | null> {
+  const principalId = authContext.actorPrincipalId;
+  const admitted = await tokenMayReachRoute(
+    authContext.scopeProfile,
+    policy?.allowedTrustClasses,
+    async () =>
+      principalId
+        ? (await resolveSharedPrincipalFresh(principalId)).trustClass
+        : undefined,
+  );
+  if (admitted) {
+    return null;
+  }
+  log.warn(
+    {
+      endpoint,
+      scopeProfile: authContext.scopeProfile,
+      actorPrincipalId: principalId,
+    },
+    "Route policy denied: trust class not admitted",
+  );
+  return httpError("NOT_FOUND", "Not found", 404);
 }
 
 // ---------------------------------------------------------------------------

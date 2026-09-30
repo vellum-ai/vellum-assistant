@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
+import { isTrustCheckedScopeProfile } from "@vellumai/gateway-client";
+
 import { isNarrowScopeProfile, resolveScopeProfile } from "../auth/scopes.js";
 import type { ScopeProfile } from "../auth/types.js";
 
@@ -80,6 +82,38 @@ describe("isNarrowScopeProfile", () => {
       "__proto__",
     ]) {
       expect(isNarrowScopeProfile(profile as never)).toBe(true);
+    }
+  });
+});
+
+describe("isTrustCheckedScopeProfile", () => {
+  test("exempts every profile but the contact's", () => {
+    // Keyed by this package's ScopeProfile, so a profile added to the union
+    // has to be listed here, and the assertion catches it being missing from
+    // the shared exempt list (or a contact profile landing on it).
+    const checked: Record<ScopeProfile, boolean> = {
+      actor_client_v1: false,
+      contact_client_v1: true,
+      gateway_ingress_v1: false,
+      gateway_service_v1: false,
+      local_v1: false,
+      oauth_proxy_v1: false,
+      speech_relay_v1: false,
+      ui_page_v1: false,
+    };
+    for (const [profile, expected] of Object.entries(checked)) {
+      expect(isTrustCheckedScopeProfile(profile)).toBe(expected);
+    }
+  });
+
+  test("unknown profiles and prototype keys are trust-checked", () => {
+    for (const profile of [
+      "bogus_v1",
+      "toString",
+      "constructor",
+      "__proto__",
+    ]) {
+      expect(isTrustCheckedScopeProfile(profile)).toBe(true);
     }
   });
 });
