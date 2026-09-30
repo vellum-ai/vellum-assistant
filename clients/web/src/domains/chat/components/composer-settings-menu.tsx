@@ -548,17 +548,13 @@ function ComposerSettingsTrigger({
   const trigger = (
     <Button
       variant="ghost"
-      size="large"
-      className={`composer-config-theme composer-config-trigger ${mobile ? "rounded-full" : "rounded-xl"}`}
+      className="shrink-0 touch-mobile:[--vbtn-fg:var(--content-tertiary)]"
       disabled={disabled}
       onMouseDown={onMouseDown}
-      iconOnly={<Plus className="size-5" />}
-      iconOnlyGlyphClassName="size-5 [&_svg]:size-5"
+      iconOnly={<Plus />}
       aria-label={t("composerConfiguration.title")}
       aria-expanded={configuration.open}
-    >
-      <span className="sr-only">{t("composerConfiguration.title")}</span>
-    </Button>
+    />
   );
   return mobile ? (
     <BottomSheet.Trigger asChild>{trigger}</BottomSheet.Trigger>

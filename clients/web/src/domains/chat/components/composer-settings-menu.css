@@ -4,7 +4,6 @@
   --cc-well: var(--surface-sunken);
   --cc-track: var(--segment-track);
   --cc-tile: var(--surface-active);
-  --cc-trigger: var(--surface-active);
   --cc-grabber: var(--border-element);
   --cc-selected: var(--surface-lift);
   --cc-selected-row: var(--surface-active);
@@ -27,7 +26,6 @@
   --cc-well: #1f2126;
   --cc-track: #161719;
   --cc-tile: #2c3037;
-  --cc-trigger: #30343b;
   --cc-grabber: #4a4f58;
   --cc-selected: #3a3e46;
   --cc-selected-row: #31353c;
@@ -102,18 +100,6 @@
   font-size: 17px;
   font-weight: 500;
   color: var(--cc-text);
-}
-
-.composer-config-trigger {
-  width: 44px;
-  height: 44px;
-  flex-shrink: 0;
-  padding: 0;
-  background: var(--cc-trigger);
-}
-
-.composer-config-trigger[aria-expanded="true"] {
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--cc-accent) 50%, transparent);
 }
 
 .composer-config {
