@@ -31,6 +31,7 @@ import {
   CannotRevokeBlockedError,
   MergeContactsError,
   NO_INVITE_CODE_HASH,
+  ReservedChannelTypeError,
   type ChannelAcl,
   type ContactAcl,
   type ContactWithInfo,
@@ -1784,38 +1785,50 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
       // their own principalId). Guardian role is set exclusively through
       // guardian-bootstrap, which uses raw SQL with its own privileged path.
       const store = new ContactStore();
-      const { contact, created } = await store.upsertContact({
-        id: body.id as string | undefined,
-        displayName,
-        notes: body.notes as string | null | undefined,
-        autoApproveThreshold,
-        contactType: body.contactType as string | undefined,
-        assistantMetadata:
-          body.contactType === "assistant" && assistantMeta
-            ? {
-                species: assistantMeta.species as string,
-                metadata:
-                  (assistantMeta.metadata as
-                    | Record<string, unknown>
-                    | null
-                    | undefined) ?? null,
-              }
-            : undefined,
-        channels: channelInputs?.map((ch) => ({
-          type: ch.type,
-          address: ch.address,
-          isPrimary: ch.isPrimary,
-          // Passed through verbatim: syncChannels preserves the stored
-          // delivery chat id when the field is undefined and writes when it
-          // is not, so an omitted field must stay omitted (a channel upsert
-          // that never mentions the chat id must not blank it). Legacy nulls
-          // were normalized to omitted and malformed values rejected above,
-          // so only strings can reach the store through this path.
-          externalChatId: ch.externalChatId,
-          status: ch.status,
-          policy: ch.policy,
-        })),
-      });
+      let contact: ContactWithInfo;
+      let created: boolean;
+      try {
+        ({ contact, created } = await store.upsertContact({
+          id: body.id as string | undefined,
+          displayName,
+          notes: body.notes as string | null | undefined,
+          autoApproveThreshold,
+          contactType: body.contactType as string | undefined,
+          assistantMetadata:
+            body.contactType === "assistant" && assistantMeta
+              ? {
+                  species: assistantMeta.species as string,
+                  metadata:
+                    (assistantMeta.metadata as
+                      | Record<string, unknown>
+                      | null
+                      | undefined) ?? null,
+                }
+              : undefined,
+          channels: channelInputs?.map((ch) => ({
+            type: ch.type,
+            address: ch.address,
+            isPrimary: ch.isPrimary,
+            // Passed through verbatim: syncChannels preserves the stored
+            // delivery chat id when the field is undefined and writes when it
+            // is not, so an omitted field must stay omitted (a channel upsert
+            // that never mentions the chat id must not blank it). Legacy nulls
+            // were normalized to omitted and malformed values rejected above,
+            // so only strings can reach the store through this path.
+            externalChatId: ch.externalChatId,
+            status: ch.status,
+            policy: ch.policy,
+          })),
+        }));
+      } catch (err) {
+        if (err instanceof ReservedChannelTypeError) {
+          return Response.json(
+            { error: { code: err.code, message: err.message } },
+            { status: err.statusCode },
+          );
+        }
+        throw err;
+      }
 
       // ── Emit contacts_changed ────────────────────────────────────────
       void ipcCallAssistant("emit_event", {

@@ -41,6 +41,19 @@ const log = getLogger("contact-store");
  */
 export const GUARDIAN_BINDING_REVOKE_REASON = "guardian_binding_revoked";
 
+/**
+ * Channel types the generic contact writes refuse. Rows under one of these
+ * types are written only by the dedicated path that owns the type.
+ */
+const RESERVED_CHANNEL_TYPES: ReadonlySet<string> = new Set(["vellum-shared"]);
+
+/** Throws when a generic write supplies a reserved channel type. */
+export function assertChannelTypeWritable(type: string): void {
+  if (RESERVED_CHANNEL_TYPES.has(type.trim().toLowerCase())) {
+    throw new ReservedChannelTypeError(type);
+  }
+}
+
 export type Contact = typeof contacts.$inferSelect;
 export type ContactChannel = typeof contactChannels.$inferSelect;
 export type IngressInviteRow = typeof ingressInvites.$inferSelect;
@@ -1338,6 +1351,10 @@ export class ContactStore {
     let contactId = params.id;
     let created = false;
 
+    for (const ch of params.channels ?? []) {
+      assertChannelTypeWritable(ch.type);
+    }
+
     // Canonicalize all channel addresses up front so every downstream path
     // (gateway DB, assistant mirror op, conflict checks) uses the canonical
     // form.
@@ -1622,6 +1639,46 @@ export class ContactStore {
         updatedAt: now,
       })
       .onConflictDoNothing()
+      .run();
+  }
+
+  /**
+   * Set `principalId` on a contact-role contact.
+   *
+   * Separate from {@link upsertContact}, which refuses `role` and
+   * `principalId` outright (see its SECURITY note). This write accepts a
+   * principal but only for a `role: "contact"` row, and only when the contact
+   * carries none or already carries the same one, so it can neither rebind
+   * the guardian nor retarget a contact another principal already speaks for.
+   */
+  bindContactPrincipal(contactId: string, principalId: string): void {
+    const contact = this.db
+      .select({ role: contacts.role, principalId: contacts.principalId })
+      .from(contacts)
+      .where(eq(contacts.id, contactId))
+      .get();
+
+    if (!contact) {
+      throw new BindContactPrincipalError(`Contact "${contactId}" not found`);
+    }
+    if (contact.role !== "contact") {
+      throw new BindContactPrincipalError(
+        `Cannot bind a principal to a "${contact.role}" contact`,
+      );
+    }
+    if (contact.principalId === principalId) {
+      return;
+    }
+    if (contact.principalId) {
+      throw new BindContactPrincipalError(
+        `Contact "${contactId}" is already bound to a different principal`,
+      );
+    }
+
+    this.db
+      .update(contacts)
+      .set({ principalId, updatedAt: Date.now() })
+      .where(eq(contacts.id, contactId))
       .run();
   }
 
@@ -2154,6 +2211,39 @@ export class CannotDowngradeGuardianError extends Error {
     );
     this.name = "CannotDowngradeGuardianError";
     this.channelId = channelId;
+  }
+}
+
+/**
+ * Thrown by the generic contact writes when a channel carries a reserved
+ * type. The HTTP handler maps this to a 400; the gateway IPC server mirrors
+ * `statusCode`/`code` into the wire envelope.
+ */
+export class ReservedChannelTypeError extends Error {
+  readonly statusCode = 400;
+  readonly code = "RESERVED_CHANNEL_TYPE";
+  readonly channelType: string;
+
+  constructor(channelType: string) {
+    super(
+      `Channel type "${channelType}" is reserved and cannot be written through this path.`,
+    );
+    this.name = "ReservedChannelTypeError";
+    this.channelType = channelType;
+  }
+}
+
+/**
+ * Thrown by `bindContactPrincipal` when the target is not a contact-role row,
+ * or already carries a different principal.
+ */
+export class BindContactPrincipalError extends Error {
+  readonly statusCode = 400;
+  readonly code = "BIND_CONTACT_PRINCIPAL_INVALID";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "BindContactPrincipalError";
   }
 }
 

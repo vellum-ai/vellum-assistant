@@ -338,6 +338,14 @@ mock.module("../db/contact-store.js", () => ({
       this.name = "MergeContactsError";
     }
   },
+  ReservedChannelTypeError: class ReservedChannelTypeError extends Error {
+    readonly statusCode = 400;
+    readonly code = "RESERVED_CHANNEL_TYPE";
+    constructor(channelType: string) {
+      super(`Channel type "${channelType}" is reserved.`);
+      this.name = "ReservedChannelTypeError";
+    }
+  },
 }));
 
 // ── Redemption engine mock ────────────────────────────────────────────────────
@@ -635,6 +643,30 @@ describe("handleUpsertContact (gateway-native)", () => {
     const body = await res.json();
     expect(body.error.code).toBe("BAD_REQUEST");
     expect(body.error.message).toMatch(/contactType/);
+  });
+
+  test("returns 400 when a channel carries a reserved type", async () => {
+    const { ReservedChannelTypeError } = await import("../db/contact-store.js");
+    contactStoreUpsertMock = mock(async () => {
+      throw new ReservedChannelTypeError("vellum-shared");
+    });
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleUpsertContact(
+      new Request("http://localhost:7830/v1/contacts", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          displayName: "Alice",
+          channels: [{ type: "vellum-shared", address: "user-123" }],
+        }),
+      }),
+    );
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.code).toBe("RESERVED_CHANNEL_TYPE");
+    expect(body.error.message).toMatch(/vellum-shared/);
   });
 
   test("creates contact natively and returns contact shape", async () => {

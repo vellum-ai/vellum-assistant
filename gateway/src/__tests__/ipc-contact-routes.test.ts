@@ -402,6 +402,58 @@ describe("IPC contact routes", () => {
     expect(result.channelId.length).toBeGreaterThan(0);
   });
 
+  test("create_contact refuses the reserved vellum-shared channel type", async () => {
+    await startServerAndConnect();
+    const res = await sendRequest(client, "create_contact", {
+      channelType: "vellum-shared",
+      address: "prin-fake-001",
+    });
+
+    expect(res.error).toBeDefined();
+    expect(res.error).toContain("reserved");
+
+    const store = new ContactStore(getGatewayDb());
+    expect(store.listContacts()).toHaveLength(0);
+  });
+
+  test("contacts_bind_principal binds a contact-role contact", async () => {
+    seedTestData();
+    await startServerAndConnect();
+
+    const res = await sendRequest(client, "contacts_bind_principal", {
+      contactId: "c2",
+      principalId: "prin-fake-002",
+    });
+
+    expect(res.error).toBeUndefined();
+    const store = new ContactStore(getGatewayDb());
+    expect(store.getContact("c2")!.principalId).toBe("prin-fake-002");
+    const emits = ipcCallAssistantMock.mock.calls.filter(
+      ([method]) => method === "emit_event",
+    );
+    expect(emits).toHaveLength(1);
+    expect(emits[0][1]?.body).toEqual({ kind: "contacts_changed" });
+  });
+
+  test("contacts_bind_principal refuses a guardian-role contact", async () => {
+    seedTestData();
+    await startServerAndConnect();
+
+    const res = await sendRequest(client, "contacts_bind_principal", {
+      contactId: "c1",
+      principalId: "prin-fake-003",
+    });
+
+    expect(res.error).toBeDefined();
+    const store = new ContactStore(getGatewayDb());
+    expect(store.getContact("c1")!.principalId).toBe("p1");
+    expect(
+      ipcCallAssistantMock.mock.calls.some(
+        ([method]) => method === "emit_event",
+      ),
+    ).toBe(false);
+  });
+
   test("create_contact ignores the role param (guardian binding not settable here)", async () => {
     await startServerAndConnect();
     const res = await sendRequest(client, "create_contact", {
