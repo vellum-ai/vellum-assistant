@@ -46,6 +46,10 @@ import { probeContactMirror } from "../../ipc/contacts-info-client.js";
 import { getLogger } from "../../logger.js";
 import { ensureInviteLive } from "../../verification/invite-liveness.js";
 import {
+  registerSharedInvite,
+  type SharedInviteRegistrationResult,
+} from "../../verification/shared-invite-registration.js";
+import {
   redeemInviteByToken,
   redeemVoiceInvite,
   resolveInviteeName,
@@ -234,6 +238,41 @@ export async function listInvitesNative(
 /** Default invite lifetime when the caller supplies no `expiresInMs`. */
 const DEFAULT_INVITE_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
+/** The create failure for a registration that did not succeed, or null. */
+function sharedInviteRegistrationError(
+  result: SharedInviteRegistrationResult,
+): InviteNativeError | null {
+  switch (result.status) {
+    case "registered":
+    case "skipped":
+      return null;
+    case "duplicate":
+      return new InviteNativeError(
+        "Invite code is already registered",
+        409,
+        "INVITE_ALREADY_REGISTERED",
+      );
+    case "limit_reached":
+      return new InviteNativeError(
+        "Too many outstanding invites",
+        429,
+        "TOO_MANY_OUTSTANDING_INVITES",
+      );
+    case "unavailable":
+      return new InviteNativeError(
+        "Invite registration is unavailable",
+        503,
+        "INVITE_REGISTRATION_UNAVAILABLE",
+      );
+    case "failed":
+      return new InviteNativeError(
+        "Failed to register invite",
+        502,
+        "INVITE_REGISTRATION_FAILED",
+      );
+  }
+}
+
 /**
  * Create an invite natively: verify the contact exists, mint the secrets via
  * the shared invite-contract helpers, and write the single canonical gateway
@@ -246,9 +285,12 @@ const DEFAULT_INVITE_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
  * daemon-owned and layered on by each create transport exactly once: the
  * daemon's create relay composes in-process; the gateway HTTP handler
  * composes via the `invites_compose_presentation` daemon IPC.
+ * A `vellum-shared` invite is registered with the platform before the row is
+ * written (see `registerSharedInvite`).
  *
  * Throws InviteNativeError(404) when the contact is unknown, (400) on invalid
- * voice parameters, and (500) when the gateway write fails.
+ * voice parameters, (409 / 429 / 502 / 503) when the platform registration
+ * does not succeed, and (500) when the gateway write fails.
  */
 export async function createInviteNative(
   input: CreateInviteInput,
@@ -311,6 +353,27 @@ export async function createInviteNative(
     inviteCodeHash = hashInviteCode(inviteCode);
   }
 
+  const expiresAt =
+    Date.now() + (input.expiresInMs ?? DEFAULT_INVITE_EXPIRY_MS);
+
+  // Registration precedes the row write, so a refused registration leaves no
+  // invite behind.
+  if (rawToken) {
+    const registration = await registerSharedInvite({
+      sourceChannel: input.sourceChannel,
+      rawToken,
+      expiresAt,
+    });
+    const failure = sharedInviteRegistrationError(registration);
+    if (failure) {
+      log.warn(
+        { contactId: input.contactId, status: registration.status },
+        "create_invite: shared invite registration failed",
+      );
+      throw failure;
+    }
+  }
+
   let row: IngressInviteRow;
   try {
     row = store.createInvite({
@@ -319,7 +382,7 @@ export async function createInviteNative(
       contactId: input.contactId,
       note: input.note ?? null,
       maxUses: input.maxUses,
-      expiresAt: Date.now() + (input.expiresInMs ?? DEFAULT_INVITE_EXPIRY_MS),
+      expiresAt,
       inviteCodeHash: inviteCodeHash ?? NO_INVITE_CODE_HASH,
       tokenHash: tokenHash ?? null,
       voiceCodeHash: voiceCodeHash ?? null,
