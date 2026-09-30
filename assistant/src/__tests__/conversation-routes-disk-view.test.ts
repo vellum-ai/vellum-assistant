@@ -1,11 +1,12 @@
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 
 import { createAssistantMessage } from "../agent/message-types.js";
 import type { Conversation } from "../daemon/conversation.js";
 import type { EnqueueMessageOptions } from "../daemon/conversation-messaging.js";
 import { persistUserMessage } from "../daemon/conversation-messaging.js";
+import * as gatewayClient from "../ipc/gateway-client.js";
 import {
   addMessage,
   findMessageIdByClientMessageId,
@@ -23,6 +24,10 @@ import {
 } from "../persistence/conversation-key-store.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
+import {
+  conversationKeys,
+  conversations,
+} from "../persistence/schema/index.js";
 import {
   AssistantEventHub,
   assistantEventHub,
@@ -540,6 +545,117 @@ describe("POST /v1/messages — body.conversationId direct id lookup", () => {
       successStatus,
     );
   }
+
+  test.each(["unavailable", "rejected"])(
+    "an autonomy write that is %s rolls back a minted chat before retry",
+    async (failure) => {
+      const ipc = spyOn(gatewayClient, "ipcCall");
+      if (failure === "unavailable") {
+        ipc.mockResolvedValueOnce(undefined);
+      } else {
+        ipc.mockRejectedValueOnce(new Error("Gateway unavailable"));
+      }
+      const body = {
+        content: "Start a new chat",
+        sourceChannel: "vellum",
+        interface: "macos",
+        riskThreshold: "none",
+      };
+      try {
+        if (failure === "rejected") {
+          await expect(sendMessage(body)).rejects.toThrow(
+            "Gateway unavailable",
+          );
+        } else {
+          const failed = await sendMessage(body);
+          expect(failed.status).toBe(500);
+        }
+        expect(getDb().select().from(conversations).all()).toHaveLength(0);
+        expect(getDb().select().from(conversationKeys).all()).toHaveLength(0);
+        expect(conversationInstances.size).toBe(0);
+
+        ipc.mockResolvedValueOnce({ ok: true });
+        const retried = await sendMessage(body);
+        expect(retried.status).toBe(202);
+        const rows = getDb().select().from(conversations).all();
+        expect(rows).toHaveLength(1);
+        expect(getDb().select().from(conversationKeys).all()).toHaveLength(1);
+        await waitFor(() => {
+          const messages = readPersistedMessages(rows[0]!.id);
+          return messages.length === 2 ? messages : undefined;
+        });
+      } finally {
+        ipc.mockRestore();
+      }
+    },
+  );
+
+  test("an autonomy write failure preserves an existing chat and its messages", async () => {
+    const seeded = getOrCreateConversationMapping("existing-chat");
+    await addMessage(seeded.conversationId, "user", "Existing message");
+    const ipc = spyOn(gatewayClient, "ipcCall").mockResolvedValueOnce(
+      undefined,
+    );
+    try {
+      const response = await sendMessage({
+        conversationId: seeded.conversationId,
+        content: "Continue this chat",
+        sourceChannel: "vellum",
+        interface: "macos",
+        riskThreshold: "none",
+      });
+      expect(response.status).toBe(500);
+      expect(getConversation(seeded.conversationId)).not.toBeNull();
+      expect(readPersistedMessages(seeded.conversationId)).toHaveLength(1);
+    } finally {
+      ipc.mockRestore();
+    }
+  });
+
+  test("a minted chat with a concurrent message survives an autonomy write failure", async () => {
+    const ipc = spyOn(gatewayClient, "ipcCall").mockImplementationOnce(
+      async () => {
+        const row = getDb().select().from(conversations).all()[0]!;
+        await addMessage(row.id, "user", "Concurrent message");
+        return undefined;
+      },
+    );
+    try {
+      const response = await sendMessage({
+        content: "Start a new chat",
+        sourceChannel: "vellum",
+        interface: "macos",
+        riskThreshold: "none",
+      });
+      expect(response.status).toBe(500);
+      const rows = getDb().select().from(conversations).all();
+      expect(rows).toHaveLength(1);
+      expect(readPersistedMessages(rows[0]!.id)).toHaveLength(1);
+    } finally {
+      ipc.mockRestore();
+    }
+  });
+
+  test("an autonomy write failure preserves a keyed chat for retry or concurrent senders", async () => {
+    const ipc = spyOn(gatewayClient, "ipcCall").mockResolvedValueOnce(
+      undefined,
+    );
+    try {
+      const response = await sendMessage({
+        conversationKey: "shared-chat-key",
+        content: "Send to a keyed chat",
+        sourceChannel: "vellum",
+        interface: "macos",
+        riskThreshold: "none",
+      });
+      expect(response.status).toBe(500);
+      const mapping = getConversationByKey("shared-chat-key");
+      expect(mapping).not.toBeNull();
+      expect(getConversation(mapping!.conversationId)).not.toBeNull();
+    } finally {
+      ipc.mockRestore();
+    }
+  });
 
   test("body.conversationId=<existing-id> scopes the send to that conversation", async () => {
     // Pre-materialise a conversation via the key path, then send a message

@@ -118,6 +118,7 @@ import {
 } from "../../persistence/attachments-store.js";
 import {
   addMessage,
+  deleteConversation,
   findMessageIdByClientMessageId,
   getConversation,
   getConversationPersistedSeq,
@@ -1924,6 +1925,10 @@ export async function handleSendMessage(
     conversationType: string;
     created: boolean;
   };
+  const mintConversation =
+    inboundConversationId === undefined &&
+    !conversationKey &&
+    sourceChannel === "vellum";
   if (inboundConversationId !== undefined) {
     const existing = getConversation(inboundConversationId);
     if (!existing) {
@@ -1940,7 +1945,7 @@ export async function handleSendMessage(
     const resolvedConversationKey =
       conversationKey && conversationKey.length > 0
         ? conversationKey
-        : sourceChannel === "vellum"
+        : mintConversation
           ? crypto.randomUUID()
           : `default:${sourceChannel}:${sourceInterface}`;
     // An onboarding flow may supply an explicit title for the conversation it
@@ -1959,19 +1964,39 @@ export async function handleSendMessage(
   }
 
   if (requestedRiskThreshold !== undefined) {
-    const result = await ipcCall("set_conversation_threshold", {
-      conversationId: mapping.conversationId,
-      threshold: requestedRiskThreshold,
-    });
-    if (result === undefined) {
-      log.error(
-        {
-          conversationId: mapping.conversationId,
-          threshold: requestedRiskThreshold,
-        },
-        "Failed to set conversation risk threshold override via gateway IPC",
-      );
-      throw new InternalError("Failed to persist risk threshold override");
+    try {
+      const result = await ipcCall("set_conversation_threshold", {
+        conversationId: mapping.conversationId,
+        threshold: requestedRiskThreshold,
+      });
+      if (result === undefined) {
+        log.error(
+          {
+            conversationId: mapping.conversationId,
+            threshold: requestedRiskThreshold,
+          },
+          "Failed to set conversation risk threshold override via gateway IPC",
+        );
+        throw new InternalError("Failed to persist risk threshold override");
+      }
+    } catch (error) {
+      // Keyed chats can have concurrent senders. Only this request owns an
+      // unannounced, server-minted chat with no messages.
+      if (
+        mintConversation &&
+        mapping.created &&
+        !hasMessages(mapping.conversationId)
+      ) {
+        try {
+          deleteConversation(mapping.conversationId);
+        } catch (cleanupError) {
+          log.error(
+            { err: cleanupError, conversationId: mapping.conversationId },
+            "Failed to roll back conversation after risk threshold failure",
+          );
+        }
+      }
+      throw error;
     }
   }
 
