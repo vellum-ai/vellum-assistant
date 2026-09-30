@@ -7,7 +7,7 @@ The UI follows the supplied Composer Config Final handoff, with concise copy tha
 ## User experience
 
 - A single plus button opens attachments, Autonomy, and Model.
-- Both settings start as collapsed summary rows with the category first, such as Model · Balanced and Autonomy · Trusted. Expanding either closes the other. The headings keep the selected profile, and each profile uses the same hint in both states.
+- Both settings start as collapsed summary rows with the category first, such as Model · Balanced and Autonomy · Relaxed. Expanding either closes the other. The headings keep the selected profile, and each profile uses the same hint in both states.
 - The desktop popover is 400px wide while collapsed and 480px while expanded, constrained by the viewport. Attachment access stays above the settings.
 - The mobile bottom sheet has Camera, Photos, and Files tiles. Autonomy uses four icon segments; Model uses five outlined favorite cards and More in a three-column grid.
 - All models replaces the settings content with Built-in and Custom sections, Back, and New. There is no search field. The list scrolls and fades at the bottom. On mobile, this transition preserves the sheet's height.
@@ -19,12 +19,12 @@ The UI follows the supplied Composer Config Final handoff, with concise copy tha
 
 | Autonomy  | Hint                                | Existing threshold |
 | --------- | ----------------------------------- | ------------------ |
-| Locked    | Asks before taking action.          | `none`             |
+| Strict    | Asks before taking action.          | `none`             |
 | Cautious  | Handles low-risk work and edits.    | `low`              |
-| Trusted   | Asks before higher-risk actions.    | `medium`           |
+| Relaxed   | Asks before higher-risk actions.    | `medium`           |
 | Hands-off | Auto-approves within access limits. | `high`             |
 
-These labels describe existing risk thresholds. Locked does not impose a hard read-only restriction; approved actions can still change things. Cautious can perform low-risk edits. Hands-off retains identity, host-access, operating-system, and capability boundaries. The UI introduces no new enforcement policy and does not reset existing users' thresholds. Permission-controls-v2 paths must not expose thresholds that they do not honor.
+These labels describe existing risk thresholds. Strict requires approval for actions; approved actions can still change things. Cautious can perform low-risk edits. Hands-off retains identity, host-access, operating-system, and capability boundaries. The UI introduces no new enforcement policy and does not reset existing users' thresholds. Permission-controls-v2 paths must not expose thresholds that they do not honor.
 
 | Model     | Hint                             |
 | --------- | -------------------------------- |

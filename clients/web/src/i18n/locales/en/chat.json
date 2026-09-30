@@ -2278,7 +2278,7 @@
     "attach": "Attach files",
     "autonomy": {
       "none": {
-        "label": "Locked",
+        "label": "Strict",
         "hint": "Asks before taking action."
       },
       "low": {
@@ -2286,7 +2286,7 @@
         "hint": "Handles low-risk work and edits."
       },
       "medium": {
-        "label": "Trusted",
+        "label": "Relaxed",
         "hint": "Asks before higher-risk actions."
       },
       "high": {

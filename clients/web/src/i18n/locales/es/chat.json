@@ -2212,7 +2212,7 @@
     "attach": "Adjuntar archivos",
     "autonomy": {
       "none": {
-        "label": "Bloqueado",
+        "label": "Estricto",
         "hint": "Pregunta antes de actuar."
       },
       "low": {
@@ -2220,7 +2220,7 @@
         "hint": "Realiza tareas y ediciones de bajo riesgo."
       },
       "medium": {
-        "label": "De confianza",
+        "label": "Relajado",
         "hint": "Pregunta antes de acciones de mayor riesgo."
       },
       "high": {
