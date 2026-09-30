@@ -142,7 +142,9 @@ export async function tryIpcProxy(
     );
   }
   const trustDenied = await enforceRouteTrust(policy, claims, pathname);
-  if (trustDenied) return trustDenied;
+  if (trustDenied) {
+    return trustDenied;
+  }
 
   // A passthrough forwards caller-authored paths, so undecodable ones arrive
   // here routinely. Same answer the daemon's own router gives them, once the
