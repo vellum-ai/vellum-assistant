@@ -85,6 +85,15 @@ describe("SignupPage availability", () => {
     );
   });
 
+  test("the closed screen's sign-in link carries returnTo", () => {
+    signupAvailability.value = "closed";
+    renderAuthEntry(SignupPage, ROUTE, entryUrl(ROUTE, CHECKOUT));
+
+    expect(screen.getByText("Sign in").getAttribute("href")).toBe(
+      `/account/login?returnTo=${encodeURIComponent(CHECKOUT)}`,
+    );
+  });
+
   test("a signed-in visitor with returnTo still lands there while signups are closed", () => {
     signupAvailability.value = "closed";
     authEntry.authenticated = true;

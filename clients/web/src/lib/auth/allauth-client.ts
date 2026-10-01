@@ -6,9 +6,10 @@
  *
  * Reference: https://docs.allauth.org/en/latest/headless/openapi-specification/
  */
+import { z } from "zod";
+
 import type {
   Authenticated,
-  ConfigurationResponse,
   EmailAddress,
   Flow,
   ProviderAccount,
@@ -80,11 +81,19 @@ export async function logout(): Promise<AllauthResult> {
   return errorResult(error, response?.status);
 }
 
-export type AuthConfiguration = ConfigurationResponse["data"];
+/** The slice of allauth's configuration the app consumes. */
+const AuthConfigurationSchema = z.object({
+  account: z.object({
+    is_open_for_signup: z.boolean(),
+  }),
+});
+
+export type AuthConfiguration = z.infer<typeof AuthConfigurationSchema>;
 
 /**
- * The allauth configuration the platform exposes to its frontends, including
- * `account.is_open_for_signup`. Public: no session needed.
+ * The allauth configuration the platform exposes to its frontends. Public: no
+ * session needed. A payload missing the consumed fields is an error result,
+ * never a partial success.
  */
 export async function getAuthConfig(): Promise<
   AllauthResult<AuthConfiguration>
@@ -93,8 +102,9 @@ export async function getAuthConfig(): Promise<
     path: { client: allauthClient() },
   });
 
-  if (data) {
-    return { ok: true, data: data.data };
+  const parsed = AuthConfigurationSchema.safeParse(data?.data);
+  if (parsed.success) {
+    return { ok: true, data: parsed.data };
   }
 
   return errorResult(error, response?.status);

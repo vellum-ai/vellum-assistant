@@ -32,7 +32,7 @@ export function SignupPage() {
     );
   }
   if (availability === "closed") {
-    return <SignupClosedScreen />;
+    return <SignupClosedScreen returnTo={shortCircuit.returnTo} />;
   }
 
   return <SignupScreen returnTo={shortCircuit.returnTo} />;

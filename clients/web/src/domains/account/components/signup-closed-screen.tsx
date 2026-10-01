@@ -4,12 +4,21 @@ import { Trans, useTranslation } from "@/i18n";
 import { SignupShell } from "@/domains/account/components/signup-shell";
 import { routes } from "@/utils/routes";
 
+interface SignupClosedScreenProps {
+  returnTo: string | null;
+}
+
 /**
  * Shown on `/account/signup` while the platform is not accepting new
- * accounts. Existing users keep their way in through the sign-in link.
+ * accounts. Existing users keep their way in through the sign-in link, which
+ * carries the sanitized `returnTo` so signing in still lands where the visit
+ * was headed.
  */
-export function SignupClosedScreen() {
+export function SignupClosedScreen({ returnTo }: SignupClosedScreenProps) {
   const { t } = useTranslation("account");
+  const loginUrl = returnTo
+    ? `${routes.account.login}?returnTo=${encodeURIComponent(returnTo)}`
+    : routes.account.login;
 
   return (
     <SignupShell>
@@ -21,7 +30,7 @@ export function SignupClosedScreen() {
           i18nKey="signupClosedScreen.haveAccountPrompt"
           ns="account"
           components={{
-            signIn: <Link className="signup__link" to={routes.account.login} />,
+            signIn: <Link className="signup__link" to={loginUrl} />,
           }}
         />
       </p>

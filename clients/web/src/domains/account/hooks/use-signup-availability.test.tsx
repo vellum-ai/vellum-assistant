@@ -32,13 +32,7 @@ const configReporting = (
   isOpenForSignup: boolean,
 ): AllauthResult<AuthConfiguration> => ({
   ok: true,
-  data: {
-    account: {
-      is_open_for_signup: isOpenForSignup,
-      email_verification_by_code_enabled: false,
-      login_by_code_enabled: false,
-    },
-  },
+  data: { account: { is_open_for_signup: isOpenForSignup } },
 });
 
 describe("useSignupAvailability", () => {
