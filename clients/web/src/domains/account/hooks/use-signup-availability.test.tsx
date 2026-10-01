@@ -15,14 +15,22 @@ import type {
 
 const authConfig = {
   result: null as AllauthResult<AuthConfiguration> | null,
+  /** When set, the probe never settles. */
+  stalled: false,
+  calls: 0,
 };
 
 mock.module("@/lib/auth/allauth-client", () => ({
   ...allauthClient,
-  getAuthConfig: () =>
-    authConfig.result
+  getAuthConfig: () => {
+    authConfig.calls += 1;
+    if (authConfig.stalled) {
+      return new Promise<never>(() => {});
+    }
+    return authConfig.result
       ? Promise.resolve(authConfig.result)
-      : Promise.reject(new Error("offline")),
+      : Promise.reject(new Error("offline"));
+  },
 }));
 
 const { useSignupAvailability } =
@@ -38,6 +46,8 @@ const configReporting = (
 describe("useSignupAvailability", () => {
   beforeEach(() => {
     authConfig.result = null;
+    authConfig.stalled = false;
+    authConfig.calls = 0;
   });
 
   afterEach(cleanup);
@@ -74,5 +84,24 @@ describe("useSignupAvailability", () => {
     const { result } = renderHook(() => useSignupAvailability());
 
     await waitFor(() => expect(result.current).toBe("open"));
+  });
+
+  test("fails open when the probe stalls past the deadline", async () => {
+    authConfig.stalled = true;
+    const { result } = renderHook(() =>
+      useSignupAvailability({ timeoutMs: 10 }),
+    );
+
+    await waitFor(() => expect(result.current).toBe("open"));
+  });
+
+  test("does not probe when disabled", () => {
+    authConfig.result = configReporting(false);
+    const { result } = renderHook(() =>
+      useSignupAvailability({ enabled: false }),
+    );
+
+    expect(result.current).toBe("pending");
+    expect(authConfig.calls).toBe(0);
   });
 });

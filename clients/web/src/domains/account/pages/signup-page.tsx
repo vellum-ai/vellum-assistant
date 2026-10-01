@@ -19,7 +19,9 @@ import { useSignupAvailability } from "@/domains/account/hooks/use-signup-availa
  */
 export function SignupPage() {
   const shortCircuit = useReturnToShortCircuit();
-  const availability = useSignupAvailability();
+  const availability = useSignupAvailability({
+    enabled: shortCircuit.kind !== "redirect",
+  });
 
   if (shortCircuit.kind === "redirect") {
     return shortCircuit.node;

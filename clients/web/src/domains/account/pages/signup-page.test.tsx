@@ -94,6 +94,19 @@ describe("SignupPage availability", () => {
     );
   });
 
+  test("the closed screen's sign-in link keeps URL attribution", () => {
+    signupAvailability.value = "closed";
+    renderAuthEntry(
+      SignupPage,
+      ROUTE,
+      `${entryUrl(ROUTE, CHECKOUT)}&utm_source=ig&fbclid=abc123`,
+    );
+
+    expect(screen.getByText("Sign in").getAttribute("href")).toBe(
+      `/account/login?returnTo=${encodeURIComponent(CHECKOUT)}&utm_source=ig&fbclid=abc123`,
+    );
+  });
+
   test("a signed-in visitor with returnTo still lands there while signups are closed", () => {
     signupAvailability.value = "closed";
     authEntry.authenticated = true;
