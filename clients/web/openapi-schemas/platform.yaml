@@ -5741,7 +5741,8 @@ paths:
       description: |-
         Return the user's referral code and stats.
 
-        Lazily creates a referral code if the user doesn't have one yet.
+        Generation of new user referral codes is disabled, so this only serves
+        codes that already exist.
       tags:
       - referral-codes
       security:
@@ -5754,6 +5755,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/MyReferralCodeResponse'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
           description: ''
       x-vellum-api-clients:
       - platform
