@@ -1,10 +1,9 @@
 /**
  * Shared header for the billing settings sections (Payment Methods, Credits,
  * Invoices). The stories mirror the three production call sites: title only,
- * title + subtitle, and the full form with an actions cluster.
+ * title + subtitle, and the full form with an action.
  */
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { Coins } from "lucide-react";
 
 import { Button } from "@vellumai/design-library/components/button";
 
@@ -35,16 +34,6 @@ export const WithActions: Story = {
   args: {
     title: "Extra Usage Credits",
     subtitle: "Credits used when usage limit is reached",
-    actions: (
-      <>
-        <Button
-          variant="outlined"
-          leftIcon={<Coins className="h-4 w-4" aria-hidden />}
-        >
-          Earn Free Credits
-        </Button>
-        <Button variant="primary">Add Credits</Button>
-      </>
-    ),
+    actions: <Button variant="primary">Add Credits</Button>,
   },
 };
