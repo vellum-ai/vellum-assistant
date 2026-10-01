@@ -1,5 +1,3 @@
-import { VELLUM_COMMUNITY_URL } from "@/utils/external-urls";
-
 /**
  * Turning a rejected auth flow into something a user can act on.
  *
@@ -26,15 +24,6 @@ export type AuthErrorKey =
   | "authErrors.providerSignup"
   | "authErrors.loginIncomplete"
   | "authErrors.desktopUpdateRequired";
-
-/**
- * The community link as prose, displayed bare without its scheme. Passed as
- * the `community` value of `authErrors.signupClosed`.
- */
-export const AUTH_ERROR_COMMUNITY_LINK = VELLUM_COMMUNITY_URL.replace(
-  /^https?:\/\//,
-  "",
-);
 
 /** Shown when nothing more specific is known: a transport failure, a bug. */
 export const GENERIC_AUTH_ERROR_KEY = "authErrors.genericFailure" as const;
@@ -98,8 +87,7 @@ export function nativeAuthErrorDetail(err: unknown): string | undefined {
  *
  * A plain module cannot call `useTranslation()`, so returning a key keeps the
  * mapping here and leaves the rendering to a component that knows the active
- * locale. `authErrors.signupClosed` interpolates `community`, which callers
- * supply from {@link AUTH_ERROR_COMMUNITY_LINK}.
+ * locale.
  */
 export function nativeAuthErrorKey(err: unknown): AuthErrorKey {
   const detail = nativeAuthErrorDetail(err);

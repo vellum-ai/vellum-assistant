@@ -17,6 +17,11 @@
     "downloadMac": "Download for macOS",
     "haveAccountPrompt": "Already have an account? <signIn>Sign in</signIn>"
   },
+  "signupClosedScreen": {
+    "title": "Signups are currently closed",
+    "message": "Sorry, Vellum is not accepting new signups at this time. Feel free to try again later.",
+    "haveAccountPrompt": "Already have an account? <signIn>Sign in</signIn>"
+  },
   "accountPage": {
     "loading": "Loading...",
     "welcomeTitle": "Welcome to Vellum",
@@ -44,8 +49,7 @@
   },
   "providerCallbackPage": {
     "signupClosedTitle": "Signups are currently closed",
-    "signupClosedSubtitle": "Join the community to request access or learn when signups reopen.",
-    "joinCommunity": "Join the community",
+    "signupClosedSubtitle": "Sorry, Vellum is not accepting new signups at this time. Feel free to try again later.",
     "backToSignIn": "Back to sign in",
     "failedTitle": "Authentication failed",
     "failedSubtitle": "Something went wrong during social sign-in. Please try again or use a different method.",
@@ -75,7 +79,7 @@
   },
   "authErrors": {
     "genericFailure": "Something went wrong. Please try again.",
-    "signupClosed": "Sign-ups are currently closed. Visit {community} to request access.",
+    "signupClosed": "Sorry, Vellum is not accepting new signups at this time. Feel free to try again later.",
     "providerSignup": "No Vellum account is linked to that login yet. Sign up first, then sign in.",
     "loginIncomplete": "Your account needs another step to finish signing in. Please sign in on the web, then try again.",
     "desktopUpdateRequired": "This version of the Vellum desktop app can't sign in. Update the app, then try again.",

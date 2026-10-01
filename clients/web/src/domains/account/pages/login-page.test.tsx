@@ -168,7 +168,7 @@ describe("LoginPage native sign-in failures", () => {
     signIn();
 
     await waitFor(() => {
-      expect(screen.getByText(/Sign-ups are currently closed/)).toBeTruthy();
+      expect(screen.getByText(/not accepting new signups/)).toBeTruthy();
     });
     expect(screen.queryByText(/Something went wrong/)).toBeNull();
   });

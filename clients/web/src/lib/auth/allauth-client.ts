@@ -8,6 +8,7 @@
  */
 import type {
   Authenticated,
+  ConfigurationResponse,
   EmailAddress,
   Flow,
   ProviderAccount,
@@ -15,6 +16,7 @@ import type {
 import {
   deleteAllauthByClientV1AuthSession,
   getAllauthByClientV1AuthSession,
+  getAllauthByClientV1Config,
   getAllauthByClientV1AuthProviderSignup,
   postAllauthByClientV1AuthProviderSignup,
 } from "@/generated/auth/sdk.gen";
@@ -73,6 +75,26 @@ export async function logout(): Promise<AllauthResult> {
 
   if (response?.status === 401) {
     return { ok: true, data: {} };
+  }
+
+  return errorResult(error, response?.status);
+}
+
+export type AuthConfiguration = ConfigurationResponse["data"];
+
+/**
+ * The allauth configuration the platform exposes to its frontends, including
+ * `account.is_open_for_signup`. Public: no session needed.
+ */
+export async function getAuthConfig(): Promise<
+  AllauthResult<AuthConfiguration>
+> {
+  const { data, error, response } = await getAllauthByClientV1Config({
+    path: { client: allauthClient() },
+  });
+
+  if (data) {
+    return { ok: true, data: data.data };
   }
 
   return errorResult(error, response?.status);

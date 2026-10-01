@@ -17,6 +17,11 @@
     "downloadMac": "下载 macOS 版",
     "haveAccountPrompt": "已有账户？<signIn>登录</signIn>"
   },
+  "signupClosedScreen": {
+    "title": "注册目前已关闭",
+    "message": "抱歉，Vellum 目前不接受新用户注册。欢迎稍后再试。",
+    "haveAccountPrompt": "已有账户？<signIn>登录</signIn>"
+  },
   "accountPage": {
     "loading": "加载中...",
     "welcomeTitle": "欢迎使用 Vellum",
@@ -44,8 +49,7 @@
   },
   "providerCallbackPage": {
     "signupClosedTitle": "注册目前已关闭",
-    "signupClosedSubtitle": "加入社区以请求访问权限或了解何时重新开放注册。",
-    "joinCommunity": "加入社区",
+    "signupClosedSubtitle": "抱歉，Vellum 目前不接受新用户注册。欢迎稍后再试。",
     "backToSignIn": "返回登录",
     "failedTitle": "身份验证失败",
     "failedSubtitle": "社交登录时出现问题。请重试或使用其他方式。",
@@ -75,7 +79,7 @@
   },
   "authErrors": {
     "genericFailure": "发生错误。请重试。",
-    "signupClosed": "注册目前已关闭。请访问 {community} 申请访问权限。",
+    "signupClosed": "抱歉，Vellum 目前不接受新用户注册。欢迎稍后再试。",
     "providerSignup": "该登录尚未关联 Vellum 账户。请先注册，然后登录。",
     "loginIncomplete": "您的账户需要额外步骤才能完成登录。请在网页上登录，然后重试。",
     "desktopUpdateRequired": "此版本的 Vellum 桌面应用无法登录。请更新应用，然后重试。",

@@ -17,6 +17,11 @@
     "downloadMac": "Descargar para macOS",
     "haveAccountPrompt": "¿Ya tienes una cuenta? <signIn>Inicia sesión</signIn>"
   },
+  "signupClosedScreen": {
+    "title": "Los registros están cerrados por ahora",
+    "message": "Lo sentimos, Vellum no acepta nuevos registros en este momento. Vuelve a intentarlo más tarde.",
+    "haveAccountPrompt": "¿Ya tienes una cuenta? <signIn>Inicia sesión</signIn>"
+  },
   "accountPage": {
     "loading": "Cargando...",
     "welcomeTitle": "Te damos la bienvenida a Vellum",
@@ -44,8 +49,7 @@
   },
   "providerCallbackPage": {
     "signupClosedTitle": "Los registros están cerrados por ahora",
-    "signupClosedSubtitle": "Únete a la comunidad para solicitar acceso o enterarte de cuándo se reabren los registros.",
-    "joinCommunity": "Unirse a la comunidad",
+    "signupClosedSubtitle": "Lo sentimos, Vellum no acepta nuevos registros en este momento. Vuelve a intentarlo más tarde.",
     "backToSignIn": "Volver al inicio de sesión",
     "failedTitle": "No se pudo autenticar",
     "failedSubtitle": "Algo ha ido mal durante el inicio de sesión con redes sociales. Inténtalo de nuevo o usa otro método.",
@@ -75,7 +79,7 @@
   },
   "authErrors": {
     "genericFailure": "Algo ha ido mal. Inténtalo de nuevo.",
-    "signupClosed": "Los registros están cerrados por ahora. Visita {community} para solicitar acceso.",
+    "signupClosed": "Lo sentimos, Vellum no acepta nuevos registros en este momento. Vuelve a intentarlo más tarde.",
     "providerSignup": "Todavía no hay ninguna cuenta de Vellum vinculada a ese inicio de sesión. Regístrate primero y luego inicia sesión.",
     "loginIncomplete": "Tu cuenta necesita un paso más para terminar de iniciar sesión. Inicia sesión en la web y vuelve a intentarlo.",
     "desktopUpdateRequired": "Esta versión de la aplicación de escritorio de Vellum no puede iniciar sesión. Actualiza la aplicación y vuelve a intentarlo.",

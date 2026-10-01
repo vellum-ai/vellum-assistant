@@ -8,7 +8,6 @@ import {
 } from "@/domains/account/login-flow";
 import {
   nativeAuthErrorDetail,
-  AUTH_ERROR_COMMUNITY_LINK,
   nativeAuthErrorKey,
 } from "@/domains/account/native-auth-error";
 import { buildNavigationState } from "@/lib/navigation/build-state";
@@ -63,11 +62,7 @@ export function useOnboardingLogin(
         context: options.errorContext ?? "onboarding_login",
         tags: { authError: nativeAuthErrorDetail(err) ?? "unclassified" },
       });
-      setError(
-        t(`account:${nativeAuthErrorKey(err)}`, {
-          community: AUTH_ERROR_COMMUNITY_LINK,
-        }),
-      );
+      setError(t(`account:${nativeAuthErrorKey(err)}`));
       setLoading(false);
     }
   };

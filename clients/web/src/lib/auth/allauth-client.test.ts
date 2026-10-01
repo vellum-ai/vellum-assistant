@@ -16,12 +16,14 @@ function sdkStub(fn: string) {
 
 mock.module("@/generated/auth/sdk.gen", () => ({
   getAllauthByClientV1AuthSession: sdkStub("getSession"),
+  getAllauthByClientV1Config: sdkStub("getAuthConfig"),
   deleteAllauthByClientV1AuthSession: sdkStub("logout"),
   getAllauthByClientV1AuthProviderSignup: sdkStub("getProviderSignup"),
   postAllauthByClientV1AuthProviderSignup: sdkStub("submitProviderSignup"),
 }));
 
-const { getSession, logout } = await import("@/lib/auth/allauth-client");
+const { getAuthConfig, getSession, logout } =
+  await import("@/lib/auth/allauth-client");
 
 function setElectron(): void {
   (window as unknown as { vellum?: unknown }).vellum = { platform: "electron" };
@@ -42,6 +44,7 @@ describe("allauth-client — client selection", () => {
     setElectron();
     await getSession();
     await logout();
-    expect(calls.map((c) => c.client)).toEqual(["app", "app"]);
+    await getAuthConfig();
+    expect(calls.map((c) => c.client)).toEqual(["app", "app", "app"]);
   });
 });

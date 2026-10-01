@@ -12,7 +12,6 @@ import { useReturnToShortCircuit } from "@/domains/account/hooks/use-return-to-s
 import {
   isUserCancelledAuthError,
   nativeAuthErrorDetail,
-  AUTH_ERROR_COMMUNITY_LINK,
   nativeAuthErrorKey,
 } from "@/domains/account/native-auth-error";
 import { withPreservedAttribution } from "@/domains/account/social-auth";
@@ -59,9 +58,7 @@ function NativeLoginForm({ returnTo }: { returnTo: string | null }) {
         context: "native_login",
         tags: { authError: nativeAuthErrorDetail(err) ?? "unclassified" },
       });
-      setErrorMessage(
-        t(nativeAuthErrorKey(err), { community: AUTH_ERROR_COMMUNITY_LINK }),
-      );
+      setErrorMessage(t(nativeAuthErrorKey(err)));
       setLoading(false);
     }
   };
