@@ -81,7 +81,7 @@ describe("SignupPage availability", () => {
     expect(screen.getByText(/not accepting new signups/)).toBeTruthy();
     expect(screen.queryByText("Continue")).toBeNull();
     expect(screen.getByText("here").getAttribute("href")).toBe(
-      "https://vellum.ai/docs/hosting-options/local-hosting",
+      "https://www.vellum.ai/docs/hosting-options/local-hosting",
     );
     expect(screen.getByText("Sign in").getAttribute("href")).toBe(
       "/account/login",

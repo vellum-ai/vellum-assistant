@@ -11,6 +11,7 @@
  */
 
 import { isElectron } from "@/runtime/is-electron";
+import { WWW_DOMAIN } from "@/utils/domains";
 
 const r = <const T extends string>(path: T): T => path;
 
@@ -583,8 +584,6 @@ export function isConversationChatPath(pathname: string): boolean {
     isAssistantIndexPath(pathname) || conversationIdForPath(pathname) !== null
   );
 }
-
-const WWW_DOMAIN = "vellum.ai";
 
 /** Full external URL for a legal/docs page hosted on the marketing site. */
 export function legalUrl(
