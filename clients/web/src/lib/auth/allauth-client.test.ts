@@ -53,7 +53,7 @@ describe("allauth-client — client selection", () => {
   });
 });
 
-describe("allauth-client — getAuthConfig", () => {
+describe("allauth-client getAuthConfig", () => {
   test("returns the consumed slice of a well-formed configuration", async () => {
     stubBody.value = {
       account: { is_open_for_signup: false, login_by_code_enabled: true },
