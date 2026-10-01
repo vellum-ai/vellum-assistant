@@ -1,9 +1,10 @@
 import { Link, useLocation } from "react-router";
 
+import { ExternalAnchor } from "@/components/external-anchor";
 import { Trans, useTranslation } from "@/i18n";
 import { SignupShell } from "@/domains/account/components/signup-shell";
 import { withPreservedAttribution } from "@/domains/account/social-auth";
-import { routes } from "@/utils/routes";
+import { docsUrl, routes } from "@/utils/routes";
 
 interface SignupClosedScreenProps {
   returnTo: string | null;
@@ -28,7 +29,21 @@ export function SignupClosedScreen({ returnTo }: SignupClosedScreenProps) {
   return (
     <SignupShell>
       <h1 className="signup__title">{t("signupClosedScreen.title")}</h1>
-      <p className="signup__subtitle">{t("signupClosedScreen.message")}</p>
+      <p className="signup__subtitle">
+        <Trans
+          i18nKey="signupClosedScreen.message"
+          ns="account"
+          components={{
+            selfHostingLink: (
+              <ExternalAnchor
+                href={docsUrl(routes.docs.localHosting)}
+                tone="default"
+                glyph={false}
+              />
+            ),
+          }}
+        />
+      </p>
 
       <p className="signup__footer">
         <Trans

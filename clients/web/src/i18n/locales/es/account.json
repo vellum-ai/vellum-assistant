@@ -19,7 +19,7 @@
   },
   "signupClosedScreen": {
     "title": "Los registros están cerrados por ahora",
-    "message": "Lo sentimos, Vellum no acepta nuevos registros en este momento. Vuelve a intentarlo más tarde.",
+    "message": "Lo sentimos, Vellum no acepta nuevos registros en este momento. Vuelve a intentarlo más tarde. Como alternativa, puedes alojar Vellum por tu cuenta. Más información sobre el autoalojamiento <selfHostingLink>aquí</selfHostingLink>.",
     "haveAccountPrompt": "¿Ya tienes una cuenta? <signIn>Inicia sesión</signIn>"
   },
   "accountPage": {

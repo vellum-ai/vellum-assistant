@@ -19,7 +19,7 @@
   },
   "signupClosedScreen": {
     "title": "目前已暫停註冊",
-    "message": "很抱歉，Vellum 目前不接受新用戶註冊。歡迎稍後再試。",
+    "message": "很抱歉，Vellum 目前不接受新用戶註冊。歡迎稍後再試。你也可以自行託管 Vellum。<selfHostingLink>點此</selfHostingLink>進一步了解自行託管。",
     "haveAccountPrompt": "已有帳號？<signIn>登入</signIn>"
   },
   "accountPage": {

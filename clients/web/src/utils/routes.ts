@@ -361,6 +361,7 @@ export const routes = {
   docs: {
     hostingOptions: r("/docs/hosting-options"),
     pairADevice: r("/docs/hosting-options/pair-a-device"),
+    localHosting: r("/docs/hosting-options/local-hosting"),
     legal: {
       privacyPolicy: r("/docs/privacy-policy"),
       termsOfUse: r("/docs/vellum-terms-of-use"),

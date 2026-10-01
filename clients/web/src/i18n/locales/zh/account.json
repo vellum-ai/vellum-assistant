@@ -19,7 +19,7 @@
   },
   "signupClosedScreen": {
     "title": "注册目前已关闭",
-    "message": "抱歉，Vellum 目前不接受新用户注册。欢迎稍后再试。",
+    "message": "抱歉，Vellum 目前不接受新用户注册。欢迎稍后再试。你也可以自行托管 Vellum。<selfHostingLink>点击此处</selfHostingLink>了解自托管的更多信息。",
     "haveAccountPrompt": "已有账户？<signIn>登录</signIn>"
   },
   "accountPage": {

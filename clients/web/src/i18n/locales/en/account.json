@@ -19,7 +19,7 @@
   },
   "signupClosedScreen": {
     "title": "Signups are currently closed",
-    "message": "Sorry, Vellum is not accepting new signups at this time. Feel free to try again later.",
+    "message": "Sorry, Vellum is not accepting new signups at this time. Feel free to try again later. Alternatively, you can self-host Vellum. Learn more about self-hosting <selfHostingLink>here</selfHostingLink>.",
     "haveAccountPrompt": "Already have an account? <signIn>Sign in</signIn>"
   },
   "accountPage": {
