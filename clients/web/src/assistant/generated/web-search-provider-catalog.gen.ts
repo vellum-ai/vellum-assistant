@@ -13,6 +13,7 @@ export const WEB_SEARCH_PROVIDER_IDS: readonly string[] = [
   "fastcrw",
   "searxng",
   "tinyfish",
+"youcom",
   "exa",
   "serply",
 ];
@@ -31,6 +32,7 @@ export const WEB_SEARCH_PROVIDER_DISPLAY_NAMES: Readonly<
   fastcrw: "fastCRW",
   searxng: "SearXNG",
   tinyfish: "TinyFish",
+youcom: "You.com",
   exa: "Exa",
   serply: "Serply",
 };
@@ -47,6 +49,7 @@ export const WEB_SEARCH_PROVIDER_KEY_PLACEHOLDERS: Readonly<
   fastcrw: "crw_live_...",
   searxng: "token (optional)",
   tinyfish: "TinyFish API key...",
+youcom: "ydc-...",
   exa: "Exa API key...",
   serply: "Serply API key...",
 };
@@ -62,6 +65,7 @@ export const WEB_SEARCH_PROVIDER_KEY_STORAGE: Readonly<Record<string, string>> =
     fastcrw: "vellum:ai:fastcrwKey",
     searxng: "vellum:ai:searxngKey",
     tinyfish: "vellum:ai:tinyfishKey",
+youcom: "vellum:ai:youcomKey",
     exa: "vellum:ai:exaKey",
     serply: "vellum:ai:serplyKey",
   };
@@ -76,6 +80,7 @@ export const WEB_SEARCH_BYOK_PROVIDER_IDS: ReadonlySet<string> = new Set([
   "fastcrw",
   "searxng",
   "tinyfish",
+"youcom",
   "exa",
   "serply",
 ]);

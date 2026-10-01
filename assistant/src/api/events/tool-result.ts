@@ -54,6 +54,7 @@ export const WebSearchProviderIdSchema = z.enum([
   "fastcrw",
   "searxng",
   "tinyfish",
+"youcom",
   "exa",
   "serply",
 ]);

@@ -21721,6 +21721,7 @@ paths:
                                           - fastcrw
                                           - searxng
                                           - tinyfish
+                                          - youcom
                                           - exa
                                           - serply
                                       resultCount:
@@ -22341,6 +22342,7 @@ paths:
                                                   - fastcrw
                                                   - searxng
                                                   - tinyfish
+                                                  - youcom
                                                   - exa
                                                   - serply
                                               resultCount:
