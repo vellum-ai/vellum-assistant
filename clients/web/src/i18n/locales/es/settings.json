@@ -336,7 +336,6 @@
     "addCreditsButton": "Añadir créditos",
     "balanceLabel": "Créditos",
     "degradedNotice": "No se pudieron calcular los cargos pendientes. El saldo mostrado puede estar incompleto.",
-    "earnCreditsButton": "Gana créditos gratis",
     "loadError": "No se pudo cargar el resumen de facturación. Inténtalo de nuevo más tarde.",
     "loading": "Cargando resumen de facturación...",
     "lowBalanceToggle": "Alerta personalizada de saldo bajo",

@@ -203,9 +203,6 @@ stubModule(
     organizationsBillingSummaryRetrieveOptions: (() => ({
       queryKey: [{ _id: "organizationsBillingSummaryRetrieve" }],
     })) as unknown as typeof generatedQueriesModule.organizationsBillingSummaryRetrieveOptions,
-    referralCodesMeRetrieveOptions: (() => ({
-      queryKey: [{ _id: "referralCodesMeRetrieve" }],
-    })) as unknown as typeof generatedQueriesModule.referralCodesMeRetrieveOptions,
   },
 );
 
@@ -288,20 +285,6 @@ stubModule(
     AddCreditsModal: ({ open }: { open: boolean }) =>
       open
         ? createElement("div", { "data-testid": "add-credits-modal" })
-        : createElement(Fragment),
-  },
-);
-
-// The modal owns its own referral read, which this suite's partial
-// `@tanstack/react-query` mock cannot host and which `referral-modal.test.tsx`
-// covers. What the menu owns is when the modal is mounted at all.
-stubModule(
-  "@/components/referral-modal",
-  await import("@/components/referral-modal"),
-  {
-    ReferralModal: ({ open }: { open: boolean }) =>
-      open
-        ? createElement("div", { "data-testid": "referral-modal" })
         : createElement(Fragment),
   },
 );
@@ -844,40 +827,6 @@ describe("PreferencesMenu credits row", () => {
     // The real panel renders nothing without a reading, so the row is the only
     // balance and the only way to buy more.
     expect(screen.getByTestId("credits-card")).toBeTruthy();
-  });
-});
-
-describe("PreferencesMenu earn credits row", () => {
-  test("the row shows whenever the billing rows do", async () => {
-    await openMenu();
-
-    // The modal says whether the account can earn, so the menu asks nothing
-    // ahead of time.
-    expect(screen.getByText("Earn Free Credits")).toBeTruthy();
-  });
-
-  test("the row goes down with the billing gate", async () => {
-    orgReadyRef.value = false;
-    await openMenu();
-
-    // Without the org header the billing summary never fires, and every row
-    // riding that gate goes down with it.
-    expect(screen.queryByText("Earn Free Credits")).toBeNull();
-  });
-
-  test("the row opens the referral modal and closes the menu", async () => {
-    await openMenu();
-    expect(screen.queryByTestId("referral-modal")).toBeNull();
-
-    await act(async () => {
-      fireEvent.click(screen.getByText("Earn Free Credits"));
-      await Promise.resolve();
-    });
-
-    // The menu closes as it goes, so the modal has to outlive the surface it
-    // was opened from.
-    expect(await screen.findByTestId("referral-modal")).toBeTruthy();
-    expect(screen.queryByTestId("preferences-usage")).toBeNull();
   });
 });
 

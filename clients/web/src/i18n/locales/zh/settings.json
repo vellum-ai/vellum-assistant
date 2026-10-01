@@ -336,7 +336,6 @@
     "addCreditsButton": "添加积分",
     "balanceLabel": "积分",
     "degradedNotice": "待处理费用无法计算。显示的余额可能不完整。",
-    "earnCreditsButton": "赚取免费积分",
     "loadError": "加载账单摘要失败。请稍后重试。",
     "loading": "正在加载账单摘要...",
     "lowBalanceToggle": "自定义低余额提醒",

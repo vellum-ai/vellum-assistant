@@ -4,7 +4,6 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { AddCreditsModal } from "@/components/add-credits-modal";
-import { ReferralModal } from "@/components/referral-modal";
 import { AutoTopUpCard } from "@/domains/settings/components/auto-top-up-card";
 import {
   organizationsBillingSummaryRetrieveOptions,
@@ -55,7 +54,6 @@ export function BillingPanel() {
   const summary = data ?? null;
 
   const [addCreditsOpen, setAddCreditsOpen] = useState(false);
-  const [referralOpen, setReferralOpen] = useState(false);
   const [lowBalanceExpanded, setLowBalanceExpanded] = useState(false);
 
   const bootstrapAttemptsRef = useRef(0);
@@ -112,24 +110,14 @@ export function BillingPanel() {
       title={t("billingPanel.title")}
       subtitle={t("billingPanel.subtitle")}
       actions={
-        <>
-          <Button
-            variant="outlined"
-            leftIcon={<Coins className="h-4 w-4" aria-hidden />}
-            onClick={() => setReferralOpen(true)}
-            data-testid="earn-credits-button"
-          >
-            {t("billingPanel.earnCreditsButton")}
-          </Button>
-          <Button
-            variant="primary"
-            onClick={() => setAddCreditsOpen(true)}
-            disabled={isLoading || !summary}
-            data-testid="add-credits-button"
-          >
-            {t("billingPanel.addCreditsButton")}
-          </Button>
-        </>
+        <Button
+          variant="primary"
+          onClick={() => setAddCreditsOpen(true)}
+          disabled={isLoading || !summary}
+          data-testid="add-credits-button"
+        >
+          {t("billingPanel.addCreditsButton")}
+        </Button>
       }
     />
   );
@@ -223,7 +211,6 @@ export function BillingPanel() {
       </Card>
 
       <AddCreditsModal open={addCreditsOpen} onOpenChange={setAddCreditsOpen} />
-      <ReferralModal open={referralOpen} onOpenChange={setReferralOpen} />
     </>
   );
 }

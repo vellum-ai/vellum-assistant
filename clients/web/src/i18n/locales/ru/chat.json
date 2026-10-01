@@ -931,9 +931,6 @@
     },
     "noColor": "Без цвета"
   },
-  "preferencesMenu": {
-    "earnCredits": "Заработать бесплатные кредиты"
-  },
   "preferencesUsagePanel": {
     "addCreditsAriaLabel": "Добавить кредиты",
     "dailyExhausted": "Дневной лимит исчерпан. Добавьте кредиты, чтобы продолжить.",

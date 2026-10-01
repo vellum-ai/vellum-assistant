@@ -336,7 +336,6 @@
     "addCreditsButton": "新增點數",
     "balanceLabel": "點數",
     "degradedNotice": "待處理費用無法計算。顯示的餘額可能不完整。",
-    "earnCreditsButton": "賺取免費點數",
     "loadError": "載入帳務摘要失敗。請稍後再試。",
     "loading": "正在載入帳務摘要...",
     "lowBalanceToggle": "自訂低餘額提醒",
