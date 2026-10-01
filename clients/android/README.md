@@ -680,8 +680,7 @@ Set only `ANDROID_DEV_RELEASE_ENABLED` to `true` to test the dev app on its Play
 internal track. Leave the staging and production variables unset or set to
 `false` until those apps are ready. A missing or non-`true` variable skips the
 matching Android distribution job. Manually dispatch the **Dev Release**
-workflow to run the dev release immediately instead of waiting for its hourly
-schedule.
+workflow to publish a dev release. The hourly cron is disabled.
 
 ### Manual Play Prerequisites
 

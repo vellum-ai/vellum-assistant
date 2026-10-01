@@ -1,12 +1,13 @@
 name: Create Release Branch
 
 on:
-  schedule:
-    # Release at 7:52am ET every Tuesday and Thursday. Two entries cover EDT
-    # (UTC-4) and EST (UTC-5); schedule-guard picks the one matching today's
-    # offset and drops the other.
-    - cron: "52 11 * * 2,4"  # EDT: 7:52am ET
-    - cron: "52 12 * * 2,4"  # EST: 7:52am ET
+  # Tue/Thu 7:52am ET cron is off. Cut a branch with workflow_dispatch.
+  # schedule:
+  #   # Release at 7:52am ET every Tuesday and Thursday. Two entries cover EDT
+  #   # (UTC-4) and EST (UTC-5); schedule-guard picks the one matching today's
+  #   # offset and drops the other.
+  #   - cron: "52 11 * * 2,4"  # EDT: 7:52am ET
+  #   - cron: "52 12 * * 2,4"  # EST: 7:52am ET
   workflow_dispatch:
     inputs:
       bump:

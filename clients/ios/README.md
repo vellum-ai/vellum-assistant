@@ -583,8 +583,8 @@ release pipeline without cross-repo dispatch complexity.
 
 There are three release tracks:
 
-**Dev release** — `dev-release.yaml` runs hourly (cron) or via manual
-`workflow_dispatch`. It builds from `main`, and the `release-ios` job
+**Dev release.** `dev-release.yaml` runs from a manual
+`workflow_dispatch`. The hourly cron is disabled. It builds from `main`, and the `release-ios` job
 calls `release-ios.yaml` with `environment=dev`.
 
 **Staging release** — `/release` (slash command) runs `create-release-branch.yml`,
@@ -598,7 +598,7 @@ the `release/v*` branch (not `main`) sets `is_staging=false`, and the
 `release-ios` job calls `release-ios.yaml` with `environment=production`.
 
 ```
-dev-release.yaml (hourly / manual)
+dev-release.yaml (manual workflow_dispatch)
   └─ release-ios (uses: release-ios.yaml)
      environment=dev → builds App Dev → TestFlight
 
@@ -864,8 +864,8 @@ the app entitlements file now declares
 `com.apple.developer.usernotifications.communication`, and a build
 declaring an entitlement its profile does not grant fails to sign.
 
-Repeat these steps once per row (start with **dev** — it is the only
-track that releases hourly, so it is the fastest way to prove the setup):
+Repeat these steps once per row (start with **dev**. Dispatch the Dev
+Release workflow to prove the setup on that track):
 
 1. **Register the extension App ID.** [Certificates, Identifiers &
    Profiles](https://developer.apple.com/account/resources/identifiers/list)

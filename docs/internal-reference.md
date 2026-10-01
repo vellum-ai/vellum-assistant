@@ -594,11 +594,11 @@ Releases are cut using the `/release` Claude Code command and follow a two-step 
 Run `/release [patch|minor|major|hotfix]` in Claude Code. The command:
 
 1. Pulls the latest `main` branch and shows the commits the release will carry
-2. Dispatches `create-release-branch.yml` with the bump type. The workflow computes the version from the latest tag, deletes any stale `release/vX.Y.Z` branch, cuts a fresh one from `main` HEAD with the version-bump commit ("Release vX.Y.Z"), and pushes it, which triggers a **staging** `Release` run on the branch (push-triggered and main-dispatched `Release` runs are always staging; the scheduled Tue/Thu 7:52am ET cut is this same step)
+2. Dispatches `create-release-branch.yml` with the bump type. The workflow computes the version from the latest tag, deletes any stale `release/vX.Y.Z` branch, cuts a fresh one from `main` HEAD with the version-bump commit ("Release vX.Y.Z"), and pushes it, which triggers a **staging** `Release` run on the branch (push-triggered and main-dispatched `Release` runs are always staging). The Tue/Thu 7:52am ET cron on `create-release-branch.yml` is disabled, so this step runs only from `/release` or a manual dispatch
 3. Waits for the staging bake to succeed — it is the CI bake for the exact release payload; a failure means fixing `main` and re-cutting
 4. Dispatches `release.yml` on `release/vX.Y.Z` — "manual dispatch on a release branch" is the **full production release**: tags `vX.Y.Z`, publishes npm packages, builds/signs/notarizes and publishes the macOS DMG, pushes Docker Hub images, uploads iOS to TestFlight, creates the GitHub Release, updates the `vellum-assistant-platform` dependency, and merges the release branch back to `main`
 
-A lingering `release/vX.Y.Z` branch with no matching GitHub Release means a scheduled cut was never promoted to production; re-running step 2 refreshes it from current `main`.
+A lingering `release/vX.Y.Z` branch with no matching GitHub Release means a branch cut was never promoted to production; re-running step 2 refreshes it from current `main`.
 
 #### What happens after a release is created
 

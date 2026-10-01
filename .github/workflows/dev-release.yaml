@@ -1,9 +1,10 @@
 name: Dev Release
 
 on:
-  schedule:
-    # Every hour on the hour
-    - cron: '0 * * * *'
+  # Hourly cron is off. Run this workflow with workflow_dispatch.
+  # schedule:
+  #   # Every hour on the hour
+  #   - cron: '0 * * * *'
   workflow_dispatch:
 
 concurrency:
@@ -17,7 +18,7 @@ env:
 
 jobs:
   # ── Skip-if-idle gate ───────────────────────────────────────────────────
-  # The schedule fires hourly regardless of repo activity. Rebuilding an
+  # A scheduled run fires whether or not the repo moved. Rebuilding an
   # unchanged HEAD wastes CI minutes and republishes byte-identical images, so
   # cancel the run when nothing has landed since the last *successful* dev
   # release. "Successful" is keyed off the register-release job conclusion —
