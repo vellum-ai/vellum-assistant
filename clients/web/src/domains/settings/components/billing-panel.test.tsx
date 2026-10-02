@@ -74,13 +74,25 @@ function summary(
   };
 }
 
-function renderPanel(seed: BillingSummaryResponse) {
+/**
+ * Renders the panel over `seed`, or, with no seed, over a summary request that
+ * never settles: the panel's own query joins that fetch rather than starting
+ * one, so it stays loading.
+ */
+function renderPanel(seed?: BillingSummaryResponse) {
   const client = new QueryClient({
     defaultOptions: {
       queries: { retry: false, staleTime: Infinity, gcTime: Infinity },
     },
   });
-  client.setQueryData(organizationsBillingSummaryRetrieveQueryKey(), seed);
+  if (seed) {
+    client.setQueryData(organizationsBillingSummaryRetrieveQueryKey(), seed);
+  } else {
+    void client.prefetchQuery({
+      queryKey: organizationsBillingSummaryRetrieveQueryKey(),
+      queryFn: () => new Promise<BillingSummaryResponse>(() => {}),
+    });
+  }
   return render(
     <QueryClientProvider client={client}>
       <BillingPanel />
@@ -140,5 +152,14 @@ describe("BillingPanel balance tile", () => {
     );
 
     expect(getByTestId("effective-balance").textContent).toBe("$0");
+  });
+
+  test("waits in the tile while the summary loads", () => {
+    const { container, queryByTestId } = renderPanel();
+
+    const tile = container.querySelector('[data-slot="stat-square"]');
+    expect(tile?.getAttribute("aria-busy")).toBe("true");
+    expect(tile?.textContent).toContain("Credits");
+    expect(queryByTestId("effective-balance")).toBeNull();
   });
 });

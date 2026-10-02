@@ -344,7 +344,6 @@
     "balanceLabel": "點數",
     "degradedNotice": "待處理費用無法計算。顯示的餘額可能不完整。",
     "loadError": "載入帳務摘要失敗。請稍後再試。",
-    "loading": "正在載入帳務摘要...",
     "lowBalanceToggle": "自訂低餘額提醒",
     "noInfo": "無可用的帳務資訊。",
     "subtitle": "達到使用上限時所使用的點數",
